@@ -476,6 +476,16 @@ facet. `attribution.ts` keeps its explicit media-type branch (`if (job.media.typ
 Facets get simpler too: `countJobsByType` is already a `GROUP BY jobs.type`, and
 `countJobsByRequester` a `GROUP BY jobs.requester_email` — both unchanged.
 
+> **Later addition:** "derived from the job log" originally meant *this app's*
+> job log only, so a title already sitting in Radarr/Sonarr before this app
+> ever requested it had no row and never appeared. `syncDownloadedLibrary()`
+> (`src/media/library-sync.ts`, called from `bootstrap.ts` at boot) closes that
+> gap by backfilling a `completed` job — `requesterEmail`/`requesterUserId`
+> both `null`, same as any other service-origin row — for every Radarr/Sonarr
+> title that already has a file but no `completed` job yet. The gallery itself
+> still reads only `jobs`; nothing here bypasses that model, it just keeps the
+> table honest with what Radarr/Sonarr actually hold.
+
 ### 3.3 Everything else
 
 | route | after |

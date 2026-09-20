@@ -75,10 +75,15 @@ gate. Loopback gives them one without giving it to the LAN — which matters,
 because anything arriving without an identity header takes the admin fallback.
 8090 rather than 8080 because `url-shortener-proxy-1` owns host 8080.
 
-**The database is ephemeral.** `/data` is a tmpfs, so it is built from scratch
-on every start and destroyed when the container stops. Nothing persists, nothing
-needs cleaning up, and there is no snapshot of real user history sitting on the
-host.
+**The database is ephemeral, but the gallery isn't empty for long.** `/data` is
+a tmpfs, so `jobs` is built from scratch on every start and destroyed when the
+container stops - nothing persists, and nothing needs cleaning up. But boot
+also runs `syncDownloadedLibrary()` (`src/media/library-sync.ts`, wired in
+`bootstrap.ts`), which backfills a `completed` job for every Radarr/Sonarr
+title that already has a file, before the app starts serving traffic. So a
+fresh container still shows this app's actual download *history* as empty
+(nobody has requested anything through it yet), but "Browse movies/shows"
+reflects Radarr's/Sonarr's real libraries from the first request onward.
 
 ---
 
@@ -161,8 +166,8 @@ Observed 2026-09-15 against a freshly started container:
 | Check                                   | Observed                                             |
 | --------------------------------------- | ---------------------------------------------------- |
 | `GET /api/auth/whoami`                  | `isAdmin: true`, `userId: "verify-user-1"`           |
-| `GET /api/download/gallery`             | `total: 0` — **expected, the database is ephemeral** |
-| `GET /api/download/history`             | `total: 0` — same                                    |
+| `GET /api/download/gallery`             | `total: 0` — pre-library-sync; see note below        |
+| `GET /api/download/history`             | `total: 0` — expected, the database is ephemeral     |
 | `GET /api/download/discover?query=star` | `total: 40`, `degradedSources: []`, 20 genre facets  |
 
 ```bash
@@ -177,10 +182,18 @@ curl -s 'localhost:8090/api/download/discover?query=star' |
 
 Reading the numbers:
 
-- **`gallery` and `history` being 0 is correct, not a failure.** The database is
-  rebuilt empty on every start. Discovery still returns real results because
-  `/discover` reads Radarr and Sonarr live rather than the database. To get rows,
-  paste a link into the nav-bar field and let a real yt-dlp job run.
+- **`history` being 0 is correct, not a failure.** The database is rebuilt
+  empty on every start, and history is this app's own request log - nobody
+  has requested anything through this instance yet. To get rows, paste a link
+  into the nav-bar field and let a real yt-dlp job run, or request a
+  movie/show.
+- **`gallery` being 0 in the table above predates `syncDownloadedLibrary()`**
+  (`src/media/library-sync.ts`). That boot step backfills a `completed` job
+  for every Radarr/Sonarr title that already has a file, so on a container
+  started after that landed, `gallery`'s `total` reflects Radarr's/Sonarr's
+  real libraries instead - zero only if those libraries genuinely have
+  nothing downloaded. Discovery was always live either way: `/discover` reads
+  Radarr and Sonarr directly, never the database.
 - `total` is the full result count; `items` is one page. Default page size is 24,
   so a first page of 24 with a non-null `nextCursor` is correct, not truncated.
 - `degradedSources: []` is the important one on `/discover` — a non-empty array
