@@ -41,11 +41,12 @@
   pins the two-column grid to a single column via a fixed 390px width rather
   than a real viewport resize. The mobile person-card list is shown
   unconditionally instead of behind the real max-width:768px query (kept
-  below for reference). The Edit Access modal's footer also drops the real
-  edit-access-modal.tsx's `btn-sm` on "Sign out everywhere" — the real
-  component sizes it smaller than Cancel/Save access, which reads as an
-  unintentional mismatch once the Discord row sits above it; flag it for a
-  matching fix in the real component when B3 lands.
+  below for reference). The Edit Access modal's footer puts `btn-sm` on
+  Cancel/Save access too, not just "Sign out everywhere" as the real
+  edit-access-modal.tsx does today — three same-height buttons at the
+  default 40px don't fit on one line inside the modal's 420px width without
+  wrapping, and `btn-sm` on all three was the fix that kept them aligned on
+  a single row. Worth carrying into the real component alongside B3.
 
   Don't edit the real design-tokens.css from here — this is a one-way copy
   for mockup purposes only.
@@ -1537,17 +1538,17 @@
                       panel, not here.</span
                     >
                   </div>
-                  <div class="row between" style="gap: 12px; flex-wrap: wrap">
+                  <div class="row between" style="gap: 12px">
                     <div class="row" style="gap: 8px">
-                      <button type="button" class="btn btn-outline">
+                      <button type="button" class="btn btn-outline btn-sm">
                         Sign out everywhere
                       </button>
                     </div>
                     <div class="row" style="gap: 10px">
-                      <button type="button" class="btn btn-outline">
+                      <button type="button" class="btn btn-outline btn-sm">
                         Cancel
                       </button>
-                      <button type="button" class="btn btn-primary">
+                      <button type="button" class="btn btn-primary btn-sm">
                         Save access
                       </button>
                     </div>
@@ -1602,17 +1603,17 @@
                       they've run <code>/download</code> at least once.</span
                     >
                   </div>
-                  <div class="row between" style="gap: 12px; flex-wrap: wrap">
+                  <div class="row between" style="gap: 12px">
                     <div class="row" style="gap: 8px">
-                      <button type="button" class="btn btn-outline">
+                      <button type="button" class="btn btn-outline btn-sm">
                         Sign out everywhere
                       </button>
                     </div>
                     <div class="row" style="gap: 10px">
-                      <button type="button" class="btn btn-outline">
+                      <button type="button" class="btn btn-outline btn-sm">
                         Cancel
                       </button>
-                      <button type="button" class="btn btn-primary">
+                      <button type="button" class="btn btn-primary btn-sm">
                         Save access
                       </button>
                     </div>
