@@ -14,34 +14,45 @@ block title
   (unchanged), `linked` (resolved, indistinguishable from `web`), `discord`
   (unlinked — raw username, "via Discord"), `hidden` (masked, unchanged).
 
-//- The identity cell every list/table row uses. `size` matches the call
-    site's avatar sizing (activity rows go smaller on mobile).
+//-
+  The "sent via Discord, never linked" mark — icon-only plus a `title`
+  tooltip, the same weight as admin-dashboard.pug's eye-slash mark for
+  "hidden from other users" rather than a labelled chip. A labelled chip
+  ("via Discord" in a pill) measures ~70px wide and does not fit next to a
+  username in a table cell, a 3-column audit grid, or a 158px gallery card
+  without colliding with whatever sits to its right — this is icon-only
+  everywhere for that reason, not as a downgrade from a fuller mark.
+mixin viaDiscordMark
+  +icon('discord')(class='h-3 w-3 shrink-0 text-ink-4' title='Sent via Discord — no lilnas account linked to this Discord user yet')
+
+//-
+  The identity cell every list/table row uses. `size` sizes the avatar only
+  (via `&attributes`, exactly like `requesterCell`'s own convention) — the
+  text stays a fixed `text-mono-sm` regardless of row density, so a call
+  site's sizing classes never leak onto layout it doesn't own (that leak is
+  what broke this page's first pass: sizing classes landed on the whole row
+  instead of the avatar, collapsing it into a fixed box and overflowing
+  into neighbouring cells).
 mixin discordIdentity(requester, opts)
   - opts = opts || {}
   case requester.kind
     when 'hidden'
-      span(class='flex items-center gap-1.5')&attributes(attributes)
-        +avatar('–', { hidden: true, size: opts.size })
+      span(class='flex min-w-0 items-center gap-1.5')
+        +avatar('–', { hidden: true, size: opts.size })&attributes(attributes)
         if !opts.nameless
           span(class='font-mono text-mono-sm text-ink-4') hidden
     when 'discord'
-      span(class='flex min-w-0 items-center gap-1.5')&attributes(attributes)
-        +avatar(requester.initials, { size: opts.size })
+      span(class='flex min-w-0 items-center gap-1.5')
+        +avatar(requester.initials, { size: opts.size })&attributes(attributes)
         if !opts.nameless
-          span(class='flex min-w-0 items-center gap-1.5')
-            span(class='truncate font-mono text-mono-sm text-ink-3')= requester.username
-            span(
-              class='inline-flex shrink-0 items-center gap-1 rounded-full border border-line bg-surface-2 px-1.5 py-px font-mono text-[10px] font-medium tracking-[0.01em] text-ink-3'
-              title='Sent by tdr-bot — no lilnas account linked to this Discord user yet'
-            )
-              +icon('discord')(class='h-2.5 w-2.5')
-              | via Discord
+          span(class='truncate font-mono text-mono-sm text-ink-3')= requester.username
+          +viaDiscordMark
     default
       //- 'web' and 'linked' share one branch on purpose — a linked Discord
       //- job is resolved to the same JobRequester shape a web job carries,
       //- and rendering them identically is the feature, not an oversight.
-      span(class='flex min-w-0 items-center gap-1.5')&attributes(attributes)
-        +avatar(requester.initials, { href: 'profile.html', size: opts.size })
+      span(class='flex min-w-0 items-center gap-1.5')
+        +avatar(requester.initials, { href: 'profile.html', size: opts.size })&attributes(attributes)
         if !opts.nameless
           a(class='truncate font-mono text-mono-sm text-ink-3 hover:text-ink hover:underline' href='profile.html')= requester.email
 
@@ -163,21 +174,19 @@ block content
     +card()(class='flex flex-col gap-4 px-5 py-4')
       each row in DETAIL_HEADERS
         div(class='flex items-center justify-between gap-4 py-2 [&+&]:border-t [&+&]:border-line-soft')
-          div(class='flex items-center gap-2')
+          div(class='flex min-w-0 items-center gap-2')
             case row.requester.kind
               when 'hidden'
-                +avatar('–', { hidden: true })(class='h-5 w-5 text-[9px]')
-                span(class='font-mono text-mono-sm text-ink-4')= `hidden · ${row.when}`
+                +avatar('–', { hidden: true })(class='h-5 w-5 shrink-0 text-[9px]')
+                span(class='truncate font-mono text-mono-sm text-ink-4')= `hidden · ${row.when}`
               when 'discord'
-                +avatar(row.requester.initials)(class='h-5 w-5 text-[9px]')
-                span(class='flex items-center gap-1.5 font-mono text-mono-sm text-ink-4')
-                  = `${row.requester.username} · ${row.when}`
-                  span(class='inline-flex items-center gap-1 rounded-full border border-line bg-surface-2 px-1.5 py-px text-[10px] font-medium text-ink-3')
-                    +icon('discord')(class='h-2.5 w-2.5')
-                    | via Discord
+                +avatar(row.requester.initials)(class='h-5 w-5 shrink-0 text-[9px]')
+                span(class='flex min-w-0 items-center gap-1.5')
+                  span(class='truncate font-mono text-mono-sm text-ink-4')= `${row.requester.username} · ${row.when}`
+                  +viaDiscordMark
               default
-                +avatar(row.requester.initials, { href: 'profile.html' })(class='h-5 w-5 text-[9px]')
-                span(class='font-mono text-mono-sm text-ink-4')= `downloaded by ${row.requester.email} · ${row.when}`
+                +avatar(row.requester.initials, { href: 'profile.html' })(class='h-5 w-5 shrink-0 text-[9px]')
+                span(class='truncate font-mono text-mono-sm text-ink-4')= `downloaded by ${row.requester.email} · ${row.when}`
           span(class='shrink-0 text-right text-[12px] text-ink-3')= row.label
 
   //- ── admin audit-log actor cell ──────────────────────────────────────
@@ -191,11 +200,18 @@ block content
       div(class='flex flex-col stagger')
         each line in AUDIT_ACTORS
           div(
-            class='grid grid-cols-[72px_88px_1fr] items-center gap-3 rounded-xs px-2.5 py-[9px] font-mono text-mono-sm transition-colors duration-[120ms] ease-uv hover:bg-surface-2'
+            class='flex items-center gap-3 rounded-xs px-2.5 py-[9px] font-mono text-mono-sm transition-colors duration-[120ms] ease-uv hover:bg-surface-2'
           )
-            span(class=['text-[10px] font-semibold tracking-[0.08em]', line.tone])= line.level
-            +auditActor(line.actor)
-            span(class='truncate text-ink-3')= line.what
+            span(class=['w-[72px] shrink-0 text-[10px] font-semibold tracking-[0.08em]', line.tone])= line.level
+            //-
+              The actor's own width varies by state (a bare `service` chip vs.
+              an avatar+email vs. an avatar+username+mark), so this is a flex
+              item sized to its content rather than a fixed grid column —
+              the fixed-width column this replaced is what clipped a longer
+              actor into the "what" text next to it.
+            span(class='shrink-0')
+              +auditActor(line.actor)
+            span(class='min-w-0 flex-1 truncate text-ink-3')= line.what
 
   //- ── gallery / recent card (optional, droppable per plan E4) ─────────
   +appendixRule('Gallery card — unlinked Discord last-requester (optional, E4)', 'gallery')
@@ -212,8 +228,4 @@ block content
         +gcardAttrib
           +discordIdentity(entry.requester, { nameless: true })
           span(class='font-mono text-mono-sm text-ink-4')= entry.when
-        span(
-          class='inline-flex shrink-0 items-center gap-1 rounded-full border border-line bg-surface-2 px-1.5 py-px font-mono text-[9.5px] font-medium text-ink-3'
-        )
-          +icon('discord')(class='h-2 w-2')
-          | Discord
+          +viaDiscordMark
