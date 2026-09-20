@@ -51,7 +51,7 @@ export function getForwardedUser(req: {
   return { email, userId }
 }
 
-// Dev-only fallback identity, gated by TWO independent conditions (defense
+// Dev-only fallback identity, gated by THREE independent conditions (defense
 // in depth, not redundancy):
 //   1. NODE_ENV !== 'production' — set to 'production' by
 //      lilnas-node-runtime.Dockerfile (inherited by lilnas-nextjs-runtime),
@@ -60,6 +60,12 @@ export function getForwardedUser(req: {
 //   2. DEV_USER_EMAIL/DEV_USER_ID are both actually set — .env.prod on the
 //      deploy host never defines these, so this independently stays inert
 //      even if NODE_ENV were ever wrong.
+//   3. The request carries no `x-discord-user-id` header. The fallback exists
+//      for *browser* traffic, which cannot set X-Forwarded-User itself; a
+//      request from apps/tdr-bot already has a real identity on the Discord
+//      headers (see ./discord-user.ts). Without this condition every tdr-bot
+//      job in dev would be mis-attributed to the dev web user, making the
+//      whole Discord attribution path untestable locally.
 // Without this, exercising attribution in dev (which has no lilnas-auth —
 // see infra/proxy.yml) requires setting the X-Forwarded-User headers by hand
 // on every request, per docs/features/download/backend.md's Verification
@@ -72,6 +78,10 @@ export function resolveForwardedUser(req: {
   if (real) return real
 
   if (env(EnvKeys.NODE_ENV, 'development') === 'production') {
+    return undefined
+  }
+
+  if (firstHeaderValue(req.headers['x-discord-user-id'])) {
     return undefined
   }
 

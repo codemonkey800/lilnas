@@ -136,6 +136,60 @@ describe('resolveForwardedUser', () => {
     expect(resolveForwardedUser(buildRequest({}))).toBeUndefined()
   })
 
+  it('stays inert when the request carries x-discord-user-id, even with the dev fallback fully configured', () => {
+    setEnv({
+      NODE_ENV: 'development',
+      DEV_USER_EMAIL: 'dev@example.com',
+      DEV_USER_ID: 'dev-1',
+    })
+
+    // Without this suppression every apps/tdr-bot job in dev would be
+    // mis-attributed to the dev web user.
+    expect(
+      resolveForwardedUser(
+        buildRequest({
+          'x-discord-user-id': '123456789012345678',
+          'x-discord-username': 'alice',
+        }),
+      ),
+    ).toBeUndefined()
+  })
+
+  it('suppresses the dev fallback on an x-discord-user-id header that arrives as an array', () => {
+    setEnv({
+      NODE_ENV: 'development',
+      DEV_USER_EMAIL: 'dev@example.com',
+      DEV_USER_ID: 'dev-1',
+    })
+
+    expect(
+      resolveForwardedUser(
+        buildRequest({
+          'x-discord-user-id': ['123456789012345678', '987654321098765432'],
+        }),
+      ),
+    ).toBeUndefined()
+  })
+
+  it('still prefers real forwarded-user headers when the Discord pair is also present', () => {
+    setEnv({
+      NODE_ENV: 'development',
+      DEV_USER_EMAIL: 'dev@example.com',
+      DEV_USER_ID: 'dev-1',
+    })
+
+    expect(
+      resolveForwardedUser(
+        buildRequest({
+          'x-discord-user-id': '123456789012345678',
+          'x-discord-username': 'alice',
+          'x-forwarded-user': 'alice@example.com',
+          'x-forwarded-user-id': 'user_1',
+        }),
+      ),
+    ).toEqual({ email: 'alice@example.com', userId: 'user_1' })
+  })
+
   it('stays inert when neither dev var nor NODE_ENV is configured at all', () => {
     setEnv({
       NODE_ENV: undefined,
