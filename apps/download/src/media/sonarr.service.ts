@@ -159,7 +159,9 @@ export function toRelease(resource: ReleaseResource): Release {
  * `mapCatalogueEntries()`.
  */
 export function toShow(series: SeriesResource): Show {
-  const posterUrl = series.images?.find(img => img.coverType === 'poster')?.url
+  const posterUrl = series.images?.find(
+    img => img.coverType === 'poster',
+  )?.remoteUrl
   const releaseDate = series.firstAired ?? undefined
   const tvdbId = series.tvdbId
 

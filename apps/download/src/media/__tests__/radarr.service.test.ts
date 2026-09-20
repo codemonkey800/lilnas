@@ -88,8 +88,8 @@ describe('RadarrService', () => {
             digitalRelease: '2020-02-01',
             genres: ['Action', 'Comedy'],
             images: [
-              { coverType: 'fanart', url: 'fanart.jpg' },
-              { coverType: 'poster', url: 'poster.jpg' },
+              { coverType: 'fanart', remoteUrl: 'fanart.jpg' },
+              { coverType: 'poster', remoteUrl: 'poster.jpg' },
             ],
             inCinemas: '2020-01-15',
             overview: 'A movie',
@@ -281,8 +281,8 @@ describe('RadarrService', () => {
         data: [
           {
             images: [
-              { coverType: 'fanart', url: 'fanart.jpg' },
-              { coverType: 'poster', url: 'poster.jpg' },
+              { coverType: 'fanart', remoteUrl: 'fanart.jpg' },
+              { coverType: 'poster', remoteUrl: 'poster.jpg' },
             ],
             tmdbId: 5,
           },

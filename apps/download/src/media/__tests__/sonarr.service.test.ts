@@ -97,8 +97,8 @@ describe('SonarrService', () => {
             firstAired: '2019-01-01',
             genres: ['Drama', 'Mystery'],
             images: [
-              { coverType: 'fanart', url: 'fanart.jpg' },
-              { coverType: 'poster', url: 'poster.jpg' },
+              { coverType: 'fanart', remoteUrl: 'fanart.jpg' },
+              { coverType: 'poster', remoteUrl: 'poster.jpg' },
             ],
             overview: 'A show',
             ratings: { value: 8.4, votes: 100 },
@@ -209,8 +209,8 @@ describe('SonarrService', () => {
         data: [
           {
             images: [
-              { coverType: 'fanart', url: 'fanart.jpg' },
-              { coverType: 'poster', url: 'poster.jpg' },
+              { coverType: 'fanart', remoteUrl: 'fanart.jpg' },
+              { coverType: 'poster', remoteUrl: 'poster.jpg' },
             ],
             tvdbId: 5,
           },

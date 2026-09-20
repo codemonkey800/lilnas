@@ -125,7 +125,9 @@ function pickMovieReleaseDate(movie: MovieResource): string | undefined {
  * and a warning instead of a failed listing.
  */
 export function toMovie(movie: MovieResource): Movie {
-  const posterUrl = movie.images?.find(img => img.coverType === 'poster')?.url
+  const posterUrl = movie.images?.find(
+    img => img.coverType === 'poster',
+  )?.remoteUrl
   const releaseDate = pickMovieReleaseDate(movie)
   const tmdbId = movie.tmdbId
 
