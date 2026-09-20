@@ -2,6 +2,12 @@
 
 *Formalized from voice notes, 2026-08-06.*
 
+*Frontend implemented — every page below shipped under
+`docs/features/download/plans/013-frontend-rewrite.md`. Video download progress
+(§2's pause/resume) is tracked separately in
+`docs/features/download/plans/016-poller-completion-detection.md` and a
+follow-on progress-reporting plan.*
+
 lilnas's download app is a single interface for acquiring and managing three kinds of media: **videos** (arbitrary URLs — YouTube, Instagram, TikTok, etc. — via yt-dlp), **movies** (via Radarr), and **shows** (via Sonarr). Downloads land on the lilnas server by default, not the requesting user's device — saving locally is a separate, explicit action (§9).
 
 ## Core Concepts

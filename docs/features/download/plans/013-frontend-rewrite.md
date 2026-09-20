@@ -6257,7 +6257,7 @@ are the two original copies and are still in the tree.
 
 ### Phase 6 — Integration and verification
 
-- [ ] **G1. Cross-page sweep.** The nine screens behave as one app.
+- [x] **G1. Cross-page sweep.** The nine screens behave as one app.
 
   **Files:** create `apps/download/src/app/not-found.tsx`; fix whatever this sweep
   finds, across any file this plan created.
@@ -6409,15 +6409,135 @@ are the two original copies and are still in the tree.
 500`** during an episode drawer interaction. Did not reproduce; **low confidence,
   possibly dev-only RSC/HMR noise.** Do not chase unless it recurs.
 
-- [ ] **G2. Full-repo verification.** From the repo root: `pnpm run build`,
+  ##### ✅ Findings: G1 audited, 2026-09-19 — almost everything was already closed
+
+  Nearly every item above turned out to already be fixed by commits that landed
+  between Wave 10 and this audit, none of which had updated this checklist. Verified
+  by reading the code, not by re-deriving from the commit messages:
+
+  - **Wave 10 item 1** (admin row: profile link vs. filter link) — **both**,
+    deliberately: `AdminActor`'s primary click is the call site's `href` (the
+    `?requester=` filter), the secondary small glyph is `requesterProfileHref` —
+    `6b2ee696`.
+  - **Wave 10 items 2–4** (unify `viewer`, collapse `PROFILE_HREF`/`ACCOUNT_HREF`,
+    delete the ghost-link duplicates) — `06219bf4`, `3fc63691`; `ghost-link.tsx` and
+    `WATCH_LINK` no longer exist anywhere in `src`.
+  - **Wave 10 item 5** (export traps) — audited directly: no `'use server'` module
+    exports a non-type, non-async value (the `*-filters.ts` lib modules that hold the
+    `const`/`type` declarations are deliberately **not** `'use server'`, per their own
+    doc comments). `videos/[videoId]/not-found.tsx` exports two `const` strings
+    alongside its default for a test to assert on — this does **not** break the Next
+    build (confirmed by a clean production `next build`), so the trap the checklist
+    warned about doesn't apply to `not-found.tsx`/`page.tsx` the way it does to
+    `'use server'` files.
+  - **Wave 9 items 1, 2, 4** (`JobLifecycleProps` collision, video Delete, the two
+    `not-found` items) — `9d88aff9`, `0f818042`, `85985dd0`.
+  - **6 of the 9 live-checkpoint defects** (broken `current` row, dead release list,
+    report-control coverage, missing release titles, raw rejection text, `not
+    downloaded` vs. a working Watch button, the `Season 24100%` label) — all fixed in
+    one pass, `e5b1fd64`.
+  - **Defect 1** (stuck-at-`searching`-forever) is correctly **not** G1's — it's
+    plan `016-poller-completion-detection.md`, in progress (`6f723ca9`, `6155473e`,
+    `30a8ea39` done; the poller call site itself still open).
+  - **Defect 9** — not chased, per the plan's own instruction.
+  - Dead-link / leftover-mockup-`.html` sweep — clean; the only `.html` strings left
+    in `src` are doc comments naming the mockup file, plus Emby's own real deep-link
+    URL scheme.
+  - `keyboard-traversal.spec.tsx` and `requester-access.spec.tsx` both exist and pass
+    (`acceedf6`, `4443d424`), covering the "whole app traversable" and "no link to
+    another user's identity" assertions this task called for.
+
+  ##### ⚠️ New finding, live checkpoint, 2026-09-19 — `notFound()` returns HTTP 200 in production
+
+  Confirmed against a genuine standalone production build (`next build` +
+  `node .next/standalone/apps/download/server.js`, not `next dev`), which is what
+  Wave 9 item 4 asked G1 to settle:
+
+  - `/movies/abc`, `/shows/abc`, `/videos/<unknown-id>` all render the correct
+    not-found body **but respond `200`**, not `404`. Only the truly-unmatched root
+    route (`/no-such-route`) returns a real `404`.
+  - **Root cause:** `movies/[tmdbId]`, `shows/[tvdbId]` and `videos/[videoId]` each
+    have a `loading.tsx` sibling, which wraps the page in a Suspense boundary. Next
+    streams the shell — and flushes a `200` — before the page component's async
+    `notFound()` call resolves, so the status can no longer change by the time
+    `notFound()` fires.
+  - **Partial fix available cheaply:** `movies/[tmdbId]/page.tsx`'s
+    `generateMetadata` already re-derives `mediaId` and independently checks
+    `mediaId === null` (returning a fallback title instead of calling `notFound()`).
+    `generateMetadata` fully resolves *before* streaming starts, so calling
+    `notFound()` there instead would produce a real `404` for the malformed-id case
+    — for movies and shows. It does **not** cover the "id is well-formed but nothing
+    exists at it" case (e.g. the video not-found), which only resolves after the
+    `Promise.all` inside the page body and would need a duplicated pre-check to fix
+    the same way.
+  - **Not fixed here** — this is a genuine UX/correctness trade-off (streaming
+    `loading.tsx` vs. correct status codes) across three routes, not a mechanical
+    sweep item, and wasn't previously tracked. Logged as
+    [H3](#h3-notfound-returns-http-200-in-production-not-404) below.
+
+  ##### ✅ Findings: live visual sweep, 2026-09-19
+
+  Driven via a browser against the dev container at both 1280×900 and 390×844: home,
+  gallery, search (live Radarr/Sonarr results), movie detail (empty + release picker,
+  both viewports), show detail, activity, profile, admin (confirms H2's `scope=all`
+  chip renders), video not-found, root not-found. ⚠️ **The dev DB was empty** (`0 in
+  the library`), so only empty/loading states and the release-picker flow (which hits
+  live indexers regardless of library state) could be checked — a populated gallery,
+  live job progress, and populated detail pages need the "live upstreams with a
+  copied database" setup this plan's Design decisions section calls for, which was
+  not set up for this pass. No new visual regressions found; the checkpoint-2 fixes
+  (`e5b1fd64`, `0bd87f8a`) hold up live, including the phone-width stacked
+  `Download this` / `Report a problem` controls on the release picker.
+
+- [x] **G2. Full-repo verification.** From the repo root: `pnpm run build`,
       `pnpm run lint`, `pnpm run type-check`, `pnpm test`. Confirms nothing outside
       `apps/download` broke. Must see every prior commit in this plan.
 
-- [ ] **G3. Docs and status.** Update this plan with what shipped, commit refs,
+  ##### ✅ Findings, 2026-09-19
+
+  `apps/download` alone: build, lint, type-check and all 3374 tests clean.
+  Repo-root `pnpm run build`: clean (13/13). Repo-root `pnpm run lint`: clean
+  (15/15) — fixed one unrelated pre-existing Prettier violation in
+  `docs/features/download/designs/src/data/show-detail.mjs` (formatting only, no
+  content change; predates this plan, from `3dd56560`).
+
+  Repo-root `pnpm run type-check` / `pnpm test` surfaced one real regression and
+  several pre-existing, unrelated failures:
+
+  - 🔴 **Fixed:** `apps/auth`'s `compose-mount-coverage` test failed because
+    `apps/dev-idle-reaper/deploy.yml`, `infra/rustdesk.yml` and `infra/valheim.yml`
+    were never added as bind mounts to `apps/auth/deploy.yml` /
+    `apps/auth/deploy.dev.yml`. Traces to `27bdf0a1` (the dev-idle-reaper container),
+    not to this plan. Added the three missing mount lines to both files; `auth`'s
+    full suite (394 tests) passes.
+  - **Not fixed, pre-existing, unrelated to this plan** — none of it touches
+    `apps/download` or anything this plan's 32 tasks changed:
+    - `apps/dashcam` and `apps/swole` both fail `type-check`/`test` on
+      `Cannot find module '@lilnas/utils/...'` — `dashcam`'s `tsconfig.json` has a
+      stale `paths` override pointing at `apps/utils/dist/*` (should be
+      `packages/utils`, doesn't exist), and `swole`'s `node_modules/@lilnas/utils`
+      symlink is dangling. Both trace to the old "restructure apps and packages"
+      commit (`7fee9bb9`).
+    - `apps/equations` has the same class of bug in its jest `moduleNameMapper`
+      (`apps/utils/src` instead of `packages/utils/src`), plus 2 failing assertions
+      in `equation-schema.test.ts` unrelated to module resolution.
+    - `apps/tdr-code` has 1 failing assertion in `use-live-stream.spec.tsx`
+      (`cancelRefetch: false` vs. `true`), unrelated to this plan.
+
+- [x] **G3. Docs and status.** Update this plan with what shipped, commit refs,
       deviations and deferred items; update `apps/download/README.md` with the route
       map and how to run the UI; note in `docs/features/download/spec.md` that the
       frontend is implemented. Record every mockup deviation the page tasks reported,
       in one place.
+
+  ##### ✅ Findings, 2026-09-19
+
+  `apps/download/README.md` rewritten with the route map and run/test commands.
+  `docs/features/download/spec.md` carries a note at the top that the frontend
+  shipped under this plan, and that video-download progress (§2) is tracked
+  separately (`016` and a follow-on progress plan). Every mockup deviation the page
+  tasks (D1–F2) reported in their own findings sections stays there — this plan is
+  already the one place; nothing was scattered across other docs to consolidate.
 
 ---
 
@@ -6427,9 +6547,13 @@ are the two original copies and are still in the tree.
 > Nothing here blocks G1–G3 or the deploy. They are recorded so the reasoning is not
 > lost, and each one names what it would actually take.
 
-- [ ] **H2. An admin "all requesters" history mode — a backend change, so a separate
-      plan.** Discovered by F2 on 2026-09-16; full detail
+- [x] **H2. An admin "all requesters" history mode.** — `260e78e3`, `1a017338` —
+      ✅ **DONE 2026-09-16, not deferred.** Discovered by F2 the same day; full detail
       [under F2](#-findings-get-downloadhistory-has-no-every-user-mode--f2s-headline).
+      ⚠️ **Done under explicit owner authorization, in parallel with Wave 11** — it is
+      a backend change, which every task in plan 013 is forbidden from making, so it
+      was run as its own task outside the plan's task list rather than folded into a
+      wave. **The text below is the pre-implementation analysis; the outcome follows.**
 
   **Why:** `/admin`'s whole subject is the complete record, and
   `GET /download/history` **cannot return it**. `DownloadController.getHistory` forces
@@ -6459,6 +6583,113 @@ are the two original copies and are still in the tree.
   That collapses the fan-out to one call, restores real cursor pagination, and closes
   both gaps. `loadAdminHistory`, `ADMIN_MERGED_SCAN_LIMIT` and `parseMergedOffset` are
   then deletable.
+
+  ##### ✅ Outcome — shipped 2026-09-16, net −26 production lines
+
+  **The analysis above held.** Nothing below the service changed. 8 production files
+  modified (+151 / −177), 3 test files (+351 / −133); no files created or deleted.
+
+  **The API shape — explicit opt-in, chosen so no existing request changes meaning:**
+
+  ```ts
+  export const HistoryQuerySchema = z
+    .object({
+      cursor: z.string().optional(),
+      limit: LimitSchema,
+      requester: z.string().min(1).optional(),
+      scope: z.literal('all').optional(),
+      status: csvEnum(DownloadJobStatus),
+      type: csvEnum(DownloadType),
+    })
+    .refine(query => query.scope !== 'all' || query.requester === undefined, {
+      message: '`scope=all` and `requester` are mutually exclusive',
+      path: ['scope'],
+    })
+  ```
+
+  - **A bare request still means "my history", for admins too.** `!query.requester`
+    still resolves to `user.email`; only `scope === 'all'` reaches the unfiltered
+    branch. ⚠️ **There is a test pinning the admin bare request specifically** — it is
+    the regression most likely to slip in, since the admin path is the one widened.
+  - **`scope=all` from a non-admin → 403 through the _same_ `if (!isSelfScope &&
+    !isAdmin)` gate** that already refuses another user's history, not a second check.
+    Naming somebody else and asking for everybody are the same privilege, and two
+    gates could drift. `isSelfScope` is false whenever `scope=all`, **including when
+    the caller also names their own email**, so "me plus everyone" is still everyone
+    and still 403.
+  - **`scope` + `requester` → 400 at the schema**, via `.refine()`, so it never reaches
+    the controller. They are genuinely contradictory, and "requester wins" would answer
+    a contradictory query with plausible-looking rows. This follows the precedent in
+    the same file: `isOrderedDateRange` 400s an inverted date range rather than
+    returning an empty page.
+  - **`z.literal('all')`, not an enum with a `'self'` member** — "self" is already
+    spelled by omitting the parameter, and two spellings would drift.
+  - `types.ts` needed **no** change: `HistoryQuery` is a `z.infer`, and `.refine()`
+    preserves the inferred type. `GalleryQuerySchema` set that precedent.
+
+  ##### ✅ Findings: the masking trace — `/history` never applied `excludeHiddenVideos`, and must not start
+
+  The pre-implementation note above worried whether the attribution-oracle guard
+  "stays correct" with no requester filter. **Traced, and the answer is that the guard
+  was never on this route and adding it would be an active regression:**
+
+  - `isAdmin` is passed into `listHistory` but **never reaches `JobListFilter`**. The
+    only masking on this route is `projectPage(page, isAdmin)`
+    (`download.controller.ts:366`), which nulls `requester` when
+    `showTrueAttribution(type, hiddenAttribution, isAdmin)` is false — i.e. video +
+    `hiddenAttribution` + non-admin.
+  - The guard's purpose (`job-query.service.ts:134`, `jobs.repo.ts:89-91`) is to stop a
+    **non-admin** using a requester-keyed lookup to confirm a hidden video exists for
+    **someone else** — the leak is via `total` and row presence, not the masked field.
+    On `/history` a non-admin can reach only their **own** email, or (now) nothing —
+    and the "nothing" branch 403s them before `listHistory` is called.
+  - ⚠️ **Adding `excludeHiddenVideos: !isAdmin` here would hide a user's own hidden
+    videos from their own history.** The absence is deliberate and is now documented on
+    `listHistory` itself, precisely so a future reader does not "fix" it.
+  - Confirmed by a DB-level invariant: **`jobs_origin_matches_requester` is a real
+    CHECK constraint** (`db/schema.ts:162-165`) — `origin='service'` *requires* both
+    requester columns NULL, `'web'` requires both set. A service job can never carry an
+    email a requester filter would catch.
+
+  ##### Findings: all three gaps closed, and how they were proven
+
+  ⚠️ **The null-requester test was written against a real migrated in-memory SQLite DB
+  with the real `JobQueryService` wired into the real controller, not a mock** — the
+  gap is a SQL one, and a mocked query service would only re-assert that the controller
+  passes `undefined`.
+
+  | Gap | Status |
+  | --- | ------ |
+  | `TOP_REQUESTERS_LIMIT = 20` blind spot | **Closed.** No requester vocabulary exists any more — the query has no requester predicate at all. Tested with 25 distinct requesters. |
+  | Null-requester service job missing from the table | **Closed**, proven against real SQL. The paired test asserts the same job is still **excluded** from every requester-keyed scope — which is what makes `scope=all` necessary rather than merely convenient. |
+  | `ADMIN_MERGED_SCAN_LIMIT = 100` depth ceiling | **Deleted outright, not raised.** Real `(createdAt, id)` cursor pages from `listJobsPage`, so no depth limit and no offset token. `parseMergedOffset` and `compareJobs` are gone. Tested by walking 120 rows to exhaustion for 120 unique ids. |
+
+  ##### ⚠️ Findings: a correction every later task on this branch needs
+
+  ⚠️ **`packages/utils` MUST be built before `apps/download` type-checks against a new
+  export.** Several task prompts on this branch carried the opposite claim (F2's report
+  said the jest `moduleNameMapper` makes the build unnecessary). **It is only half
+  true:** the mapper covers **runtime**, but ts-jest resolves **types** through
+  `packages/utils/package.json`'s `exports` → `dist/*.d.ts`. Every suite failed to
+  compile with `'scope' does not exist in type 'HistoryQueryDto'` until
+  `pnpm build` was run in `packages/utils`.
+
+  Two smaller notes:
+  - **One file was touched outside the assigned scope**, deliberately and reported:
+    `app/admin/__tests__/page.spec.tsx`'s `asks every known requester when the URL
+    names none` asserted the fan-out directly and was invalidated. One `it()` block
+    replaced; nothing else in the file.
+  - ✅ **Confirmed live, 2026-09-19 (G2).** Restarted `lilnas-download-dev` and hit
+    the running container directly (`/api/download/history` — the only path Next's
+    `rewrites()` exposes to the backend; the bare `/download/*` REST surface is
+    server-side-only, never reachable from outside):
+    `?scope=nope` → `400`, `?scope=all&requester=…` → `400`, `?scope=all` as the dev
+    fallback (admin) identity → `200`, `?scope=all` with a non-admin
+    `X-Forwarded-User`/`X-Forwarded-User-Id` → `403`. All four match the semantics
+    above exactly.
+
+  `packages/utils` lint / type-check / build / 311 tests clean; **`portal` and
+  `dashcam` type-check and build clean.**
 
 - [ ] **H1. Video download progress — a backend change, so a separate plan.**
 
@@ -6519,6 +6750,39 @@ are the two original copies and are still in the tree.
   | Ship as-is — videos show status, no bar                                                           | zero, already built          |
   | Full backend capture, as above                                                                    | a real feature, its own plan |
   | Frontend-only indeterminate indicator for videos — shows _activity_ without claiming a percentage | small, no backend change     |
+
+- [ ] **H3. `notFound()` returns HTTP 200 in production, not 404.**
+
+  **Why:** discovered and confirmed by G1 on 2026-09-19 (see
+  [the finding under G1](#-new-finding-live-checkpoint-2026-09-19-notfound-returns-http-200-in-production))
+  — a genuine standalone production build, not a dev-server artifact.
+
+  **What is true today:** `movies/[tmdbId]`, `shows/[tvdbId]` and `videos/[videoId]`
+  each ship a `loading.tsx`, which wraps the page in a Suspense boundary. Next
+  streams the shell — and flushes a `200` status — before the async page
+  component's `notFound()` call resolves, so a request for `/movies/abc`,
+  `/shows/abc` or an unknown video id renders the correct not-found body over a
+  `200`. Only the root catch-all (`/no-such-route`) returns a real `404`.
+
+  **Why it is deferred rather than fixed here:** it is a genuine trade-off between
+  the instant `loading.tsx` skeleton and a correct status code, across three
+  routes — not a mechanical sweep fix, and it affects SEO/uptime-monitoring
+  correctness rather than anything visible in the UI.
+
+  **What it would take:**
+  - **Movies and shows, the malformed-id case only:** cheap — both pages'
+    `generateMetadata` already re-derives the id and checks it independently
+    (currently falling back to a plain title instead of calling `notFound()`).
+    `generateMetadata` resolves before streaming starts, so calling `notFound()`
+    there instead would produce a real `404` for `/movies/abc` / `/shows/abc`.
+  - **The "id is well-formed but resolves to nothing" case** (the video
+    not-found, and the defensive `isMovie`/`isShow` checks) resolves only after
+    each page's own data fetch, inside the streamed body — fixing it the same
+    way needs a duplicated pre-check in `generateMetadata`, sharing the fetch via
+    the existing `cache()` wrapper the way `generateMetadata` and the page body
+    already do.
+  - Alternative: drop `loading.tsx` for these three routes, trading the instant
+    skeleton for a correct status code with no code restructuring.
 
 ---
 

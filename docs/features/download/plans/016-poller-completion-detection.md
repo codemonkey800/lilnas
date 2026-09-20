@@ -323,7 +323,7 @@ restart, stop or recreate any container. ❌ do not `git checkout`/`switch`/reba
 
 ### Group A — the completion signal
 
-- [ ] **A1. The pure decision helper.** Given a job and the files upstream reports, say
+- [x] **A1. The pure decision helper.** — `6f723ca9`, `6155473e` — Given a job and the files upstream reports, say
       whether it completed.
 
   **Files:** create `apps/download/src/media/job-completion.util.ts` and
@@ -368,7 +368,7 @@ restart, stop or recreate any container. ❌ do not `git checkout`/`switch`/reba
 
   **Tests:** every branch above, in the **node** project. Pure function, no mocks needed.
 
-- [ ] **A2. Fetch the files the check needs, deduped.**
+- [x] **A2. Fetch the files the check needs, deduped.** — `30a8ea39`
 
   **Files:** edit `apps/download/src/media/media-poller.service.ts` (a private helper
   only — ⚠️ **do not touch `applyUpdate` yet, that is B1**); edit
@@ -395,6 +395,83 @@ restart, stop or recreate any container. ❌ do not `git checkout`/`switch`/reba
 
   **Tests:** the dedupe (N jobs on one title → 1 call); zero jobs → zero calls; the
   movie and show shapes both produce what A1 expects.
+
+##### Findings (Wave 1, 2026-09-16) — paste these into B1's and C1's prompts
+
+**A1 — `6f723ca9` + `6155473e`, 32 tests.** **A2 — `30a8ea39`, +6 tests** (all 17
+pre-existing poller tests pass **unmodified**). Lint and type-check clean; `applyUpdate`
+and `deriveStatusFromQueueItem` verified **byte-identical to HEAD**.
+
+```ts
+// src/media/job-completion.util.ts — pure, node-tested
+export interface CompletionFile {
+  id?: number
+  dateAdded?: string
+  seasonNumber?: number
+}
+export interface CompletionEpisode {
+  id?: number // relaxed from required — an id-less episode is UNSATISFIABLE
+  seasonNumber?: number
+  episodeFileId?: number
+}
+export interface CompletionInput {
+  createdAt: Date
+  scope?: ShowScope
+  files: readonly CompletionFile[]
+  episodes?: readonly CompletionEpisode[]
+}
+export function didJobComplete(input: CompletionInput): boolean
+
+// src/media/media-poller.service.ts
+export interface TrackedJob {
+  record: DownloadJobRecord
+  upstreamId: number
+}
+export interface PollableCompletionData {
+  episodes?: EpisodeResource[] // ABSENT for movies, not empty
+  files: MovieFileResource[] | EpisodeFileResource[]
+}
+async completionInputs(                       // ⚠️ currently PUBLIC — see below
+  type: DownloadType,
+  jobs: readonly TrackedJob[],
+): Promise<Map<string /* job.record.id */, PollableCompletionData>>
+```
+
+- **`dateAdded === createdAt` counts as NOT newer** (strictly `>`): at millisecond
+  resolution an equal stamp means the file was already there when the job was created.
+- **`scope.seasonNumber != null`**, not truthy — so **season 0 (specials) is a real
+  scope** and does not fall through to series.
+- The map key is **`job.record.id`**, not `upstreamId`. All four jobs on one title share
+  the **same object** (asserted with `toBe`, not `toEqual`).
+- **Dedupe proven:** `fetches once per distinct upstreamId, not once per job` — 4 jobs,
+  `upstreamId: 9` → `getEpisodeFiles` and `getEpisodes` each
+  `toHaveBeenCalledTimes(1)`. A second test spans two series (9, 9, 11) and asserts
+  `2`, so the dedupe is **keyed, not merely collapsed to one**.
+- A1 ships a **compile-time guard test** — `accepts the generated Radarr/Sonarr
+  resources with no conversion` — pinning that `MovieFileResource[]`,
+  `EpisodeFileResource[]` and `EpisodeResource[]` satisfy the input types verbatim.
+  **If anyone re-tightens those types, A1's suite fails rather than a call site.**
+
+⚠️ **B1 MUST narrow `completionInputs` back to `private`.** It is public only because
+`noUnusedLocals: true` (`tsconfig.base.json`) raises `TS6133` on an uncalled `private`
+member, and A2's helper had to ship inert so it could not disturb plan 013's concurrent
+live verification. **The moment `pollMovies`/`pollShows` call it, `private` is available
+again** — and `export interface TrackedJob` can likely go back to unexported with it.
+The constraint was temporary; do not preserve it.
+
+##### ⚠️ Findings: A2 did NOT reuse `resolveEpisodeFileIds()` — the plan was wrong to ask
+
+This task's text said to reuse `resolveEpisodeFileIds()` from `episode-files.util.ts`.
+**A2 read it, declined, and was right to.** Two reasons, both fatal here:
+
+1. **It narrows per scope**, so two episode-scoped jobs on one series produce **two
+   `getEpisodes` calls** — precisely the fan-out this task exists to eliminate.
+2. **It reduces to `number[]` file ids, discarding `dateAdded`** — the single field the
+   whole "did a file appear since this job started?" question turns on.
+
+A2 reused its **insight** (the `Episode.episodeFileId → file.id` direction) rather than
+its code, and recorded why in a doc comment. **`episode-files.util.ts` was not
+modified.** Anyone tempted to "unify" these two later should read this first.
 
 ### Group B — the poller
 
