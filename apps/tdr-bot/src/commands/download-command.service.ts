@@ -69,7 +69,6 @@ class DownloadDto {
 export class DownloadCommandService {
   private readonly logger = new Logger(DownloadCommandService.name)
   private client = DownloadClient.dockerInstance
-  private checkJobIterationMap = new Map<string, number>()
 
   constructor(@Inject(MINIO_CONNECTION) private readonly minioClient: Client) {}
 
@@ -113,15 +112,17 @@ export class DownloadCommandService {
       `download @ <${DOWNLOAD_URL}/downloads/${job.id}>`,
     )
 
-    this.checkJobIterationMap.set(job.id, 0)
-    this.checkJob({
+    void this.awaitJob({
       id,
       interaction,
       author: author || author == null ? interaction.user.id : undefined,
       description:
         description && isVideo(job.media) ? job.media.overview : undefined,
       jobId: job.id,
-    })
+      url,
+    }).catch((error: unknown) =>
+      this.logger.error({ error, id, jobId: job.id }, 'awaitJob threw'),
+    )
   }
 
   private async hasInvalidInput({
@@ -201,114 +202,144 @@ export class DownloadCommandService {
     return false
   }
 
-  private async checkJob({
-    jobId,
+  private async awaitJob({
+    author,
+    description,
     id,
     interaction,
-    description,
-    author,
+    jobId,
+    url,
   }: {
-    id: string
-    jobId: string
-    interaction: SlashCommandContext[0]
-    description?: string
     author?: string
-  }) {
-    const job = await this.client.getJob(jobId)
-    const media = job.media
+    description?: string
+    id: string
+    interaction: SlashCommandContext[0]
+    jobId: string
+    url: string
+  }): Promise<void> {
+    const timeoutMs = Number(env(EnvKeys.DOWNLOAD_JOB_TIMEOUT_MS))
+    const signal = AbortSignal.timeout(timeoutMs)
 
-    if (!isVideo(media)) {
+    let job: DownloadJob
+    try {
+      job = await this.client.waitForJob(jobId, { signal })
+    } catch (error) {
+      if (signal.aborted) {
+        this.logger.log({ id, jobId, timeoutMs }, 'download job timed out')
+
+        await this.cancelQuietly({ id, jobId })
+
+        await this.sendEphemeralNotice({
+          content: `download timed out while waiting for <${url}> to finish`,
+          id,
+          interaction,
+          jobId,
+        })
+
+        return
+      }
+
+      this.logger.error({ error, id, jobId }, 'lost track of download job')
+
+      await this.sendEphemeralNotice({
+        content: `download failed for <${url}>: lost track of the job`,
+        id,
+        interaction,
+        jobId,
+      })
+
+      return
+    }
+
+    if (!isVideo(job.media)) {
       this.logger.error(
         { id, job },
-        `Expected a video job but got a '${media.type}' job`,
+        `Expected a video job but got a '${job.media.type}' job`,
       )
-      this.checkJobIterationMap.delete(jobId)
       return
     }
 
-    const urls = media.downloadUrls ?? []
-    const iteration = this.checkJobIterationMap.get(jobId) ?? 0
+    const media = job.media
 
-    if (job.status === DownloadJobStatus.Completed && urls.length > 0) {
-      this.logger.log({ id, job }, 'download job completed')
-      this.checkJobIterationMap.delete(jobId)
-      this.sendFiles({
-        author,
-        description,
-        id,
-        interaction,
-        job,
-      })
-      return
-    }
+    switch (job.status) {
+      case DownloadJobStatus.Completed: {
+        const urls = media.downloadUrls ?? []
 
-    if (iteration == +env(EnvKeys.DOWNLOAD_POLL_RETRIES)) {
-      this.logger.log(
-        { id, job, iteration },
-        'download job iteration maxed out',
-      )
+        if (urls.length === 0) {
+          await this.sendEphemeralNotice({
+            content: `download finished for <${media.sourceUrl}> but produced no files`,
+            id,
+            interaction,
+            jobId,
+          })
+          return
+        }
 
-      this.checkJobIterationMap.delete(jobId)
-      this.client.cancelJob(jobId)
-
-      await this.sendEphemeralNotice({
-        content: `download timed out while waiting for <${media.sourceUrl}> to finish`,
-        id,
-        interaction,
-        jobId,
-      })
-
-      return
-    }
-
-    if (job.status === DownloadJobStatus.Failed) {
-      this.logger.log({ id, job }, 'download job failed')
-
-      this.checkJobIterationMap.delete(jobId)
-
-      await this.sendEphemeralNotice({
-        content: `download failed for <${media.sourceUrl}>${this.formatJobError(job.error)}`,
-        id,
-        interaction,
-        jobId,
-      })
-
-      return
-    }
-
-    if (job.status === DownloadJobStatus.Cancelled) {
-      this.logger.log({ id, job }, 'job still pending, scheduling next check')
-
-      this.checkJobIterationMap.delete(jobId)
-
-      await this.sendEphemeralNotice({
-        content: `download cancelled for <${media.sourceUrl}>`,
-        id,
-        interaction,
-        jobId,
-      })
-
-      return
-    }
-
-    this.logger.log(
-      { id, job, iteration },
-      'job still pending, scheduling next check',
-    )
-
-    this.checkJobIterationMap.set(jobId, iteration + 1)
-
-    setTimeout(
-      () =>
-        this.checkJob({
+        this.logger.log({ id, job }, 'download job completed')
+        await this.sendFiles({
           author,
           description,
           id,
           interaction,
+          job,
+        })
+        return
+      }
+
+      case DownloadJobStatus.Failed: {
+        this.logger.log({ id, job }, 'download job failed')
+
+        await this.sendEphemeralNotice({
+          content: `download failed for <${media.sourceUrl}>${this.formatJobError(job.error)}`,
+          id,
+          interaction,
           jobId,
-        }),
-      +env(EnvKeys.DOWNLOAD_POLL_DURATION_MS),
-    )
+        })
+
+        return
+      }
+
+      case DownloadJobStatus.Cancelled: {
+        this.logger.log({ id, job }, 'download job cancelled')
+
+        await this.sendEphemeralNotice({
+          content: `download cancelled for <${media.sourceUrl}>`,
+          id,
+          interaction,
+          jobId,
+        })
+
+        return
+      }
+
+      default: {
+        // unreachable in practice: waitForJob only ever resolves with a
+        // terminal snapshot.
+        this.logger.error(
+          { id, job },
+          `waitForJob resolved with a non-terminal status '${job.status}'`,
+        )
+        return
+      }
+    }
+  }
+
+  /** Best-effort: a 404 here means the job finished on its own in the meantime. */
+  private async cancelQuietly({
+    id,
+    jobId,
+  }: {
+    id: string
+    jobId: string
+  }): Promise<void> {
+    try {
+      await this.client.cancelJob(jobId)
+    } catch (error) {
+      this.logger.warn(
+        { error, id, jobId },
+        'Failed to cancel timed-out download job',
+      )
+    }
   }
 
   private formatJobError(error?: string): string {
