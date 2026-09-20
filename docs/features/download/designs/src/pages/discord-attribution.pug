@@ -12,7 +12,8 @@ block title
   there is no separate "linked Discord" look, only "did resolution find a
   match." Four states recur everywhere a requester or actor is drawn: `web`
   (unchanged), `linked` (resolved, indistinguishable from `web`), `discord`
-  (unlinked — raw username, "via Discord"), `hidden` (masked, unchanged).
+  (unlinked — raw username plus a Discord mark), `hidden` (masked,
+  unchanged).
 
 //-
   The identity cell every list/table row uses. `size` sizes the avatar only
@@ -23,15 +24,15 @@ block title
   instead of the avatar, collapsing it into a fixed box and overflowing
   into neighbouring cells).
 
-  The "sent via Discord, never linked" mark is the real Discord glyph
-  (`i-discord`, sourced from react-icons' `SiDiscord` — see sprite.html)
-  plus the text `via Discord`, always both rendered — never an icon alone.
-  A first pass used a hand-drawn Discord-ish glyph with the text dropped and
-  the icon carrying the meaning through a `title` attribute alone: that read
-  as an unrecognisable blob at 12–16px, and even a legible icon-only mark
-  would have been a hover-only affordance — invisible at a glance, and
-  completely absent on a touch device. The icon here is decoration on top of
-  text that already stands on its own, not the only carrier of the fact.
+  The "sent via Discord, never linked" mark is the real Discord glyph alone
+  (`i-discord`, sourced from react-icons' `SiDiscord` — see sprite.html), no
+  "via Discord" text beside it. Two earlier passes: a hand-drawn stand-in
+  glyph carrying its meaning only through a `title` tooltip (unrecognisable
+  at 12–16px, and hover-only besides — invisible at a glance, absent on
+  touch), then the real icon plus a redundant text label once the icon
+  itself became legible. The icon is a real, recognisable logo now, so it
+  carries the fact on its own — the `title` below is a bonus for a mouse
+  user, not the primary way anyone reads it.
 mixin discordIdentity(requester, opts)
   - opts = opts || {}
   case requester.kind
@@ -46,10 +47,7 @@ mixin discordIdentity(requester, opts)
         if !opts.nameless
           span(class='flex min-w-0 items-center gap-1')
             span(class='truncate font-mono text-mono-sm text-ink-3')= requester.username
-            span(class='inline-flex shrink-0 items-center gap-1 font-mono text-mono-sm text-ink-4')
-              | ·
-              +icon('discord')(class='h-3 w-3 shrink-0')
-              | via Discord
+            +icon('discord')(class='h-3 w-3 shrink-0 text-ink-4' title='Sent via Discord — no lilnas account linked to this Discord user yet')
     default
       //- 'web' and 'linked' share one branch on purpose — a linked Discord
       //- job is resolved to the same JobRequester shape a web job carries,
@@ -94,8 +92,8 @@ block content
       | Every download job now carries a Discord identity when it came from tdr-bot's #[+code('/download')] command.
       | An admin-linked snowflake resolves to the same lilnas identity a web job carries — indistinguishable from
       | it, everywhere — so unification is invisible when it works. An unlinked one shows the raw Discord username
-      | with a small "via Discord" mark instead. Four states recur below: web, linked Discord, unlinked Discord,
-      | and masked.
+      | with a small Discord mark beside it instead. Four states recur below: web, linked Discord, unlinked
+      | Discord, and masked.
 
   //- ── activity table row set ──────────────────────────────────────────
   +appendixRule('Activity table — one row per state', 'activity')
@@ -185,9 +183,9 @@ block content
               when 'discord'
                 +avatar(row.requester.initials)(class='h-5 w-5 shrink-0 text-[9px]')
                 span(class='flex min-w-0 items-center gap-1 font-mono text-mono-sm text-ink-4')
-                  span(class='truncate')= `${row.requester.username} · `
-                  +icon('discord')(class='h-3 w-3 shrink-0')
-                  span(class='shrink-0')= `via Discord · ${row.when}`
+                  span(class='truncate')= row.requester.username
+                  +icon('discord')(class='h-3 w-3 shrink-0' title='Sent via Discord — no lilnas account linked to this Discord user yet')
+                  span(class='shrink-0')= ` · ${row.when}`
               default
                 +avatar(row.requester.initials, { href: 'profile.html' })(class='h-5 w-5 shrink-0 text-[9px]')
                 span(class='truncate font-mono text-mono-sm text-ink-4')= `downloaded by ${row.requester.email} · ${row.when}`
@@ -232,4 +230,4 @@ block content
         +gcardAttrib
           +discordIdentity(entry.requester, { nameless: true })
           span(class='font-mono text-mono-sm text-ink-4')= entry.when
-          +icon('discord')(class='h-3 w-3 shrink-0 text-ink-4')
+          +icon('discord')(class='h-3 w-3 shrink-0 text-ink-4' title='Sent via Discord — no lilnas account linked to this Discord user yet')
