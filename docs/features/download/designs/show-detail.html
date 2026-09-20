@@ -537,6 +537,15 @@
         .top-1\/2 {
           top: 50%;
         }
+        .top-5 {
+          top: calc(var(--spacing) * 5);
+        }
+        .top-14 {
+          top: calc(var(--spacing) * 14);
+        }
+        .top-16 {
+          top: calc(var(--spacing) * 16);
+        }
         .top-\[calc\(100\%\+10px\)\] {
           top: calc(100% + 10px);
         }
@@ -545,6 +554,9 @@
         }
         .bottom-0 {
           bottom: calc(var(--spacing) * 0);
+        }
+        .left-5 {
+          left: calc(var(--spacing) * 5);
         }
         .z-1 {
           z-index: 1;
@@ -1045,6 +1057,9 @@
         .w-\[200px\] {
           width: 200px;
         }
+        .w-\[220px\] {
+          width: 220px;
+        }
         .w-\[240px\] {
           width: 240px;
         }
@@ -1321,6 +1336,9 @@
         }
         .gap-8 {
           gap: calc(var(--spacing) * 8);
+        }
+        .gap-10 {
+          gap: calc(var(--spacing) * 10);
         }
         .gap-\[3px\] {
           gap: 3px;
@@ -2484,6 +2502,14 @@
         }
         .placeholder\:text-ink-4::placeholder {
           color: var(--color-ink-4);
+        }
+        .before\:absolute:before {
+          content: var(--tw-content);
+          position: absolute;
+        }
+        .before\:-inset-1\.5:before {
+          content: var(--tw-content);
+          inset: calc(var(--spacing) * -1.5);
         }
         .after\:absolute:after {
           content: var(--tw-content);
