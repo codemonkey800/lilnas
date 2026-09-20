@@ -752,7 +752,7 @@ reject(signal.reason)))`; asserts `cancelJob('job-1')` was awaited, one follow-u
   - `download()` passes `waitForJob` a signal and the created job's id — assert on
     `waitForJob.mock.calls[0]` (new; `createJob` mocked to return a video job)
 
-- [ ] **B2. Docs.** No code. Edit `docs/features/download/backend.md` next to its
+- [x] **B2. Docs.** `d034df9a` No code. Edit `docs/features/download/backend.md` next to its
       "Recovering the WebSocket hook" section (`:1794-1812`): a short paragraph that the
       gateway now has two subscribers — the browser store and
       `DownloadClient.waitForJob` in `@lilnas/utils` — that both parse frames through
