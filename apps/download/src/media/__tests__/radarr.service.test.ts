@@ -882,4 +882,71 @@ describe('RadarrService', () => {
       )
     })
   })
+
+  describe('getDownloadedMovies', () => {
+    it('keeps only movies with a file, pairing each with its added date', async () => {
+      mockGetApiV3Movie.mockResolvedValue({
+        data: [
+          {
+            added: '2024-01-15T00:00:00Z',
+            hasFile: true,
+            id: 1,
+            title: 'Downloaded Movie',
+            tmdbId: 111,
+          },
+          {
+            added: '2024-02-01T00:00:00Z',
+            hasFile: false,
+            id: 2,
+            title: 'Monitored, Not Downloaded',
+            tmdbId: 222,
+          },
+        ],
+      })
+
+      const result = await service.getDownloadedMovies()
+
+      expect(result).toHaveLength(1)
+      expect(result[0]).toEqual(
+        expect.objectContaining({
+          addedAt: new Date('2024-01-15T00:00:00Z'),
+          movie: expect.objectContaining({
+            title: 'Downloaded Movie',
+            tmdbId: 111,
+          }),
+        }),
+      )
+    })
+
+    it('falls back to now when a downloaded movie has no added date', async () => {
+      mockGetApiV3Movie.mockResolvedValue({
+        data: [{ hasFile: true, id: 1, title: 'No Added Date', tmdbId: 333 }],
+      })
+
+      const result = await service.getDownloadedMovies()
+
+      expect(result).toHaveLength(1)
+      expect(result[0]?.addedAt).toBeInstanceOf(Date)
+    })
+
+    it('drops a downloaded movie with no usable tmdbId, keeping the rest', async () => {
+      mockGetApiV3Movie.mockResolvedValue({
+        data: [
+          { hasFile: true, id: 1, title: 'No TMDB ID' },
+          {
+            added: '2024-01-15T00:00:00Z',
+            hasFile: true,
+            id: 2,
+            title: 'Good Movie',
+            tmdbId: 444,
+          },
+        ],
+      })
+
+      const result = await service.getDownloadedMovies()
+
+      expect(result).toHaveLength(1)
+      expect(result[0]?.movie.tmdbId).toBe(444)
+    })
+  })
 })
