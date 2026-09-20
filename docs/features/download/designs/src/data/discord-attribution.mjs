@@ -5,8 +5,12 @@
  * 017-discord-attribution-and-account-linking.md): `web` (unchanged),
  * `linked` (a Discord job whose snowflake is linked to a lilnas account —
  * resolved at read time, so it renders byte-identical to `web`), `discord`
- * (an unlinked Discord requester — username + a "via Discord" affordance),
- * and `hidden` (masked, exactly as today).
+ * (an unlinked Discord requester — username + a Discord mark), and `hidden`
+ * (masked, exactly as today).
+ *
+ * Every `discord`-kind identity carries `discordUserId` (the raw snowflake)
+ * alongside `username` — both are shown in the identity popover (see
+ * `discordPopover` in discord-attribution.pug).
  */
 
 export default {
@@ -49,7 +53,12 @@ export default {
       v: 1,
       // Never linked — the admin hasn't matched this snowflake to a lilnas
       // account, so it renders the raw Discord identity tdr-bot sent.
-      requester: { kind: 'discord', initials: 'SP', username: 'sam.pham' },
+      requester: {
+        kind: 'discord',
+        initials: 'SP',
+        username: 'sam.pham',
+        discordUserId: '583920174659201024',
+      },
       state: 'queued',
       tone: 'mute',
       started: '12s ago',
@@ -86,7 +95,12 @@ export default {
     },
     {
       label: 'Unlinked Discord — raw identity, no lilnas account matched',
-      requester: { kind: 'discord', initials: 'SP', username: 'sam.pham' },
+      requester: {
+        kind: 'discord',
+        initials: 'SP',
+        username: 'sam.pham',
+        discordUserId: '583920174659201024',
+      },
       when: '1d ago',
     },
     {
@@ -117,7 +131,12 @@ export default {
     {
       level: 'DOWNLOAD',
       tone: 'text-ok',
-      actor: { kind: 'discord', initials: 'SP', username: 'sam.pham' },
+      actor: {
+        kind: 'discord',
+        initials: 'SP',
+        username: 'sam.pham',
+        discordUserId: '583920174659201024',
+      },
       what: '→ "Salt & Ceremony" (movie)',
     },
     {
@@ -139,7 +158,12 @@ export default {
     art: 'assets/video/video-2.jpg',
     video: true,
     v: 5,
-    requester: { kind: 'discord', initials: 'SP', username: 'sam.pham' },
+    requester: {
+      kind: 'discord',
+      initials: 'SP',
+      username: 'sam.pham',
+      discordUserId: '583920174659201024',
+    },
     when: '20m ago',
   },
 }

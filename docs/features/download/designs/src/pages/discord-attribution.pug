@@ -24,15 +24,52 @@ block title
   instead of the avatar, collapsing it into a fixed box and overflowing
   into neighbouring cells).
 
-  The "sent via Discord, never linked" mark is the real Discord glyph alone
-  (`i-discord`, sourced from react-icons' `SiDiscord` — see sprite.html), no
-  "via Discord" text beside it. Two earlier passes: a hand-drawn stand-in
-  glyph carrying its meaning only through a `title` tooltip (unrecognisable
-  at 12–16px, and hover-only besides — invisible at a glance, absent on
-  touch), then the real icon plus a redundant text label once the icon
-  itself became legible. The icon is a real, recognisable logo now, so it
-  carries the fact on its own — the `title` below is a bonus for a mouse
-  user, not the primary way anyone reads it.
+  The Discord mark next to an unlinked username is a real `<button>`
+  (`discordMark`), not a decorative icon — clicking or tapping it opens
+  `discordPopover`, a small panel naming the account's Discord ID (the raw
+  snowflake) and current handle. Three passes got here: a hand-drawn
+  stand-in glyph carrying its meaning through a `title` tooltip alone
+  (unrecognisable at 12–16px, and hover-only besides — invisible at a
+  glance, unreachable on touch); the real icon plus a text label that
+  became redundant once the icon was legible; then this — once the mark
+  needed to disclose real data (ID + handle), a hover-only mechanism was a
+  dead end regardless of the icon, since most of this app's traffic is
+  touch. `discordMark` copies `admin-actor.tsx`'s `PROFILE_LINK` technique
+  verbatim: `relative` plus `before:-inset-1.5` grows the tap target to
+  ~24×24 (WCAG 2.5.8) without the visible 12px glyph changing size. The
+  open/close mechanism itself matches `apps/download/src/components/ui/
+  filters.tsx`'s `FilterPanel`/`FiltersButton` — click/tap-triggered,
+  `aria-haspopup`/`aria-expanded`, dismiss on outside click or Escape, no
+  focus trap — which already works identically on desktop and mobile for
+  exactly this reason: it was never hover-dependent to begin with. No new
+  mobile-specific behaviour is needed; the popover's content (two short
+  mono lines) is narrow enough to need no mobile-specific width either,
+  unlike the filter panel's 340px/480px split. `opts.open` renders the
+  demo section below with the popover already visible, since this mockup
+  runs no JS.
+mixin discordMark(discordUserId, opts)
+  - opts = opts || {}
+  button(
+    type='button'
+    class='relative inline-flex shrink-0 items-center text-ink-4 transition-colors duration-200 ease-uv before:absolute before:-inset-1.5 hover:text-ink-2'
+    aria-haspopup='dialog'
+    aria-expanded=opts.open ? 'true' : 'false'
+    aria-label='Discord account details'
+  )&attributes(attributes)
+    +icon('discord')(class='h-3 w-3 shrink-0')
+
+//- The popover `discordMark` opens. Two facts only: the handle (what a
+    person recognises) and the raw ID (what an admin would paste into the
+    Edit Access modal's Discord account field to link it).
+mixin discordPopover(discordUserId, discordUsername)
+  div(
+    class='flex w-fit flex-col gap-1 rounded-lg border border-line-loud bg-surface-3 px-3 py-2.5 shadow-lift'
+    role='dialog'
+    aria-label='Discord account details'
+  )&attributes(attributes)
+    p(class='font-mono text-mono-sm font-semibold text-ink-2')= `@${discordUsername}`
+    p(class='font-mono text-mono-sm text-ink-4')= `ID ${discordUserId}`
+
 mixin discordIdentity(requester, opts)
   - opts = opts || {}
   case requester.kind
@@ -47,7 +84,7 @@ mixin discordIdentity(requester, opts)
         if !opts.nameless
           span(class='flex min-w-0 items-center gap-1')
             span(class='truncate font-mono text-mono-sm text-ink-3')= requester.username
-            +icon('discord')(class='h-3 w-3 shrink-0 text-ink-4' title='Sent via Discord — no lilnas account linked to this Discord user yet')
+            +discordMark(requester.discordUserId)
     default
       //- 'web' and 'linked' share one branch on purpose — a linked Discord
       //- job is resolved to the same JobRequester shape a web job carries,
@@ -92,8 +129,9 @@ block content
       | Every download job now carries a Discord identity when it came from tdr-bot's #[+code('/download')] command.
       | An admin-linked snowflake resolves to the same lilnas identity a web job carries — indistinguishable from
       | it, everywhere — so unification is invisible when it works. An unlinked one shows the raw Discord username
-      | with a small Discord mark beside it instead. Four states recur below: web, linked Discord, unlinked
-      | Discord, and masked.
+      | with a small Discord mark beside it — click or tap it for the account's ID and handle (see
+      | #[+code('discordPopover')] below). Four states recur below: web, linked Discord, unlinked Discord, and
+      | masked.
 
   //- ── activity table row set ──────────────────────────────────────────
   +appendixRule('Activity table — one row per state', 'activity')
@@ -184,7 +222,7 @@ block content
                 +avatar(row.requester.initials)(class='h-5 w-5 shrink-0 text-[9px]')
                 span(class='flex min-w-0 items-center gap-1 font-mono text-mono-sm text-ink-4')
                   span(class='truncate')= row.requester.username
-                  +icon('discord')(class='h-3 w-3 shrink-0' title='Sent via Discord — no lilnas account linked to this Discord user yet')
+                  +discordMark(row.requester.discordUserId)
                   span(class='shrink-0')= ` · ${row.when}`
               default
                 +avatar(row.requester.initials, { href: 'profile.html' })(class='h-5 w-5 shrink-0 text-[9px]')
@@ -230,4 +268,36 @@ block content
         +gcardAttrib
           +discordIdentity(entry.requester, { nameless: true })
           span(class='font-mono text-mono-sm text-ink-4')= entry.when
-          +icon('discord')(class='h-3 w-3 shrink-0 text-ink-4' title='Sent via Discord — no lilnas account linked to this Discord user yet')
+          +discordMark(entry.requester.discordUserId)
+
+  //- ── discord identity popover — click/tap to reveal ───────────────────
+  +appendixRule('Discord identity popover — click or tap to reveal', 'popover')
+  p(class='mx-auto mb-6 max-w-[62ch] text-sm text-ink-3')
+    | The mark opens the same way on both breakpoints — click or tap, never hover — because most of this app's
+    | real traffic is touch, and a #[+code('title')] tooltip cannot reach a finger. Both frames below show the
+    | popover already open, since this mockup runs no JS; for real, the trigger is #[+code('discordMark')] and
+    | the open/close mechanism is
+    | #[+code('apps/download/src/components/ui/filters.tsx')]'s existing click/tap-driven, non-modal popover
+    | (#[+code('aria-haspopup')]/#[+code('aria-expanded')], dismiss on outside click or Escape, no focus trap) —
+    | the same one #[+code('FilterPanel')] already uses, not a new mechanism invented for this mark.
+
+  div(class='mx-auto flex max-w-[720px] flex-wrap items-start justify-center gap-10')
+    div
+      +frameLabel()(class='mb-3') Desktop
+      +demoFrame()(class='w-[280px]')
+        div(class='absolute top-5 left-5 flex items-center gap-2')
+          +avatar('SP')(class='h-6 w-6 text-[11px]')
+          span(class='font-mono text-mono-sm text-ink-3') sam.pham
+          +discordMark('583920174659201024', { open: true })
+        div(class='absolute top-16 left-5')
+          +discordPopover('583920174659201024', 'sam.pham')
+
+    div
+      +frameLabel()(class='mb-3') Mobile — same button, same popover
+      +demoFrame()(class='w-[220px]')
+        div(class='absolute top-5 left-5 flex items-center gap-1.5')
+          +avatar('SP')(class='h-5 w-5 text-[9px]')
+          span(class='font-mono text-mono-sm text-ink-3') sam.pham
+          +discordMark('583920174659201024', { open: true })
+        div(class='absolute top-14 left-5')
+          +discordPopover('583920174659201024', 'sam.pham')

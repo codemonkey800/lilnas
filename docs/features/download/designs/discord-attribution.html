@@ -537,6 +537,15 @@
         .top-1\/2 {
           top: 50%;
         }
+        .top-5 {
+          top: calc(var(--spacing) * 5);
+        }
+        .top-14 {
+          top: calc(var(--spacing) * 14);
+        }
+        .top-16 {
+          top: calc(var(--spacing) * 16);
+        }
         .top-\[calc\(100\%\+10px\)\] {
           top: calc(100% + 10px);
         }
@@ -545,6 +554,9 @@
         }
         .bottom-0 {
           bottom: calc(var(--spacing) * 0);
+        }
+        .left-5 {
+          left: calc(var(--spacing) * 5);
         }
         .z-1 {
           z-index: 1;
@@ -1045,6 +1057,9 @@
         .w-\[200px\] {
           width: 200px;
         }
+        .w-\[220px\] {
+          width: 220px;
+        }
         .w-\[240px\] {
           width: 240px;
         }
@@ -1321,6 +1336,9 @@
         }
         .gap-8 {
           gap: calc(var(--spacing) * 8);
+        }
+        .gap-10 {
+          gap: calc(var(--spacing) * 10);
         }
         .gap-\[3px\] {
           gap: 3px;
@@ -2484,6 +2502,14 @@
         }
         .placeholder\:text-ink-4::placeholder {
           color: var(--color-ink-4);
+        }
+        .before\:absolute:before {
+          content: var(--tw-content);
+          position: absolute;
+        }
+        .before\:-inset-1\.5:before {
+          content: var(--tw-content);
+          inset: calc(var(--spacing) * -1.5);
         }
         .after\:absolute:after {
           content: var(--tw-content);
@@ -3711,8 +3737,14 @@
           command. An admin-linked snowflake resolves to the same lilnas
           identity a web job carries — indistinguishable from it, everywhere —
           so unification is invisible when it works. An unlinked one shows the
-          raw Discord username with a small Discord mark beside it instead. Four
-          states recur below: web, linked Discord, unlinked Discord, and masked.
+          raw Discord username with a small Discord mark beside it — click or
+          tap it for the account's ID and handle (see
+          <code
+            class="rounded-sm bg-surface-2 px-[5px] py-px font-mono text-[0.92em]"
+            >discordPopover</code
+          >
+          below). Four states recur below: web, linked Discord, unlinked
+          Discord, and masked.
         </p>
       </header>
       <div
@@ -3998,11 +4030,16 @@
                               ><span
                                 class="truncate font-mono text-mono-sm text-ink-3"
                                 >sam.pham</span
-                              ><svg
-                                class="h-3 w-3 shrink-0 text-ink-4"
-                                title="Sent via Discord — no lilnas account linked to this Discord user yet"
+                              ><button
+                                class="relative inline-flex shrink-0 items-center text-ink-4 transition-colors duration-200 ease-uv before:absolute before:-inset-1.5 hover:text-ink-2"
+                                type="button"
+                                aria-haspopup="dialog"
+                                aria-expanded="false"
+                                aria-label="Discord account details"
                               >
-                                <use href="#i-discord"></use></svg></span
+                                <svg class="h-3 w-3 shrink-0">
+                                  <use href="#i-discord"></use>
+                                </svg></button></span
                           ></span>
                         </td>
                         <td>
@@ -4269,11 +4306,16 @@
                             ><span
                               class="truncate font-mono text-mono-sm text-ink-3"
                               >sam.pham</span
-                            ><svg
-                              class="h-3 w-3 shrink-0 text-ink-4"
-                              title="Sent via Discord — no lilnas account linked to this Discord user yet"
+                            ><button
+                              class="relative inline-flex shrink-0 items-center text-ink-4 transition-colors duration-200 ease-uv before:absolute before:-inset-1.5 hover:text-ink-2"
+                              type="button"
+                              aria-haspopup="dialog"
+                              aria-expanded="false"
+                              aria-label="Discord account details"
                             >
-                              <use href="#i-discord"></use></svg></span></span
+                              <svg class="h-3 w-3 shrink-0">
+                                <use href="#i-discord"></use>
+                              </svg></button></span></span
                         ><span
                           class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-surface-2 text-ink-3 border-line h-5 shrink-0"
                           >queued</span
@@ -4397,11 +4439,16 @@
               ><span
                 class="flex min-w-0 items-center gap-1 font-mono text-mono-sm text-ink-4"
                 ><span class="truncate">sam.pham</span
-                ><svg
-                  class="h-3 w-3 shrink-0"
-                  title="Sent via Discord — no lilnas account linked to this Discord user yet"
+                ><button
+                  class="relative inline-flex shrink-0 items-center text-ink-4 transition-colors duration-200 ease-uv before:absolute before:-inset-1.5 hover:text-ink-2"
+                  type="button"
+                  aria-haspopup="dialog"
+                  aria-expanded="false"
+                  aria-label="Discord account details"
                 >
-                  <use href="#i-discord"></use></svg
+                  <svg class="h-3 w-3 shrink-0">
+                    <use href="#i-discord"></use>
+                  </svg></button
                 ><span class="shrink-0"> · 1d ago</span></span
               >
             </div>
@@ -4513,11 +4560,16 @@
                   ><span class="flex min-w-0 items-center gap-1"
                     ><span class="truncate font-mono text-mono-sm text-ink-3"
                       >sam.pham</span
-                    ><svg
-                      class="h-3 w-3 shrink-0 text-ink-4"
-                      title="Sent via Discord — no lilnas account linked to this Discord user yet"
+                    ><button
+                      class="relative inline-flex shrink-0 items-center text-ink-4 transition-colors duration-200 ease-uv before:absolute before:-inset-1.5 hover:text-ink-2"
+                      type="button"
+                      aria-haspopup="dialog"
+                      aria-expanded="false"
+                      aria-label="Discord account details"
                     >
-                      <use href="#i-discord"></use></svg></span></span></span
+                      <svg class="h-3 w-3 shrink-0">
+                        <use href="#i-discord"></use>
+                      </svg></button></span></span></span
               ><span class="min-w-0 flex-1 truncate text-ink-3"
                 >→ &quot;Salt &amp; Ceremony&quot; (movie)</span
               >
@@ -4595,12 +4647,146 @@
                   >SP</span
                 ></span
               ><span class="font-mono text-mono-sm text-ink-4">20m ago</span
-              ><svg
-                class="h-3 w-3 shrink-0 text-ink-4"
-                title="Sent via Discord — no lilnas account linked to this Discord user yet"
+              ><button
+                class="relative inline-flex shrink-0 items-center text-ink-4 transition-colors duration-200 ease-uv before:absolute before:-inset-1.5 hover:text-ink-2"
+                type="button"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+                aria-label="Discord account details"
               >
-                <use href="#i-discord"></use></svg
+                <svg class="h-3 w-3 shrink-0">
+                  <use href="#i-discord"></use>
+                </svg></button
             ></span>
+          </div>
+        </div>
+      </div>
+      <div
+        class="my-11 mb-7 flex items-center gap-3"
+        id="popover"
+        aria-hidden="true"
+      >
+        <span class="h-px flex-1 bg-line"></span
+        ><span
+          class="font-mono text-label tracking-[0.11em] whitespace-nowrap uppercase text-ink-4"
+          >Discord identity popover — click or tap to reveal</span
+        ><span class="h-px flex-1 bg-line"></span>
+      </div>
+      <p class="mx-auto mb-6 max-w-[62ch] text-sm text-ink-3">
+        The mark opens the same way on both breakpoints — click or tap, never
+        hover — because most of this app's real traffic is touch, and a
+        <code
+          class="rounded-sm bg-surface-2 px-[5px] py-px font-mono text-[0.92em]"
+          >title</code
+        >
+        tooltip cannot reach a finger. Both frames below show the popover
+        already open, since this mockup runs no JS; for real, the trigger is
+        <code
+          class="rounded-sm bg-surface-2 px-[5px] py-px font-mono text-[0.92em]"
+          >discordMark</code
+        >
+        and the open/close mechanism is
+        <code
+          class="rounded-sm bg-surface-2 px-[5px] py-px font-mono text-[0.92em]"
+          >apps/download/src/components/ui/filters.tsx</code
+        >'s existing click/tap-driven, non-modal popover (<code
+          class="rounded-sm bg-surface-2 px-[5px] py-px font-mono text-[0.92em]"
+          >aria-haspopup</code
+        >/<code
+          class="rounded-sm bg-surface-2 px-[5px] py-px font-mono text-[0.92em]"
+          >aria-expanded</code
+        >, dismiss on outside click or Escape, no focus trap) — the same one
+        <code
+          class="rounded-sm bg-surface-2 px-[5px] py-px font-mono text-[0.92em]"
+          >FilterPanel</code
+        >
+        already uses, not a new mechanism invented for this mark.
+      </p>
+      <div
+        class="mx-auto flex max-w-[720px] flex-wrap items-start justify-center gap-10"
+      >
+        <div>
+          <p
+            class="block text-center font-mono text-label tracking-[0.11em] uppercase text-ink-4 mb-3"
+          >
+            Desktop
+          </p>
+          <div
+            class="relative h-[260px] overflow-hidden rounded-lg border border-line bg-bg-sunk w-[280px]"
+          >
+            <div class="absolute top-5 left-5 flex items-center gap-2">
+              <span
+                class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] h-6 w-6 text-[11px]"
+                >SP</span
+              ><span class="font-mono text-mono-sm text-ink-3">sam.pham</span
+              ><button
+                class="relative inline-flex shrink-0 items-center text-ink-4 transition-colors duration-200 ease-uv before:absolute before:-inset-1.5 hover:text-ink-2"
+                type="button"
+                aria-haspopup="dialog"
+                aria-expanded="true"
+                aria-label="Discord account details"
+              >
+                <svg class="h-3 w-3 shrink-0">
+                  <use href="#i-discord"></use>
+                </svg>
+              </button>
+            </div>
+            <div class="absolute top-16 left-5">
+              <div
+                class="flex w-fit flex-col gap-1 rounded-lg border border-line-loud bg-surface-3 px-3 py-2.5 shadow-lift"
+                role="dialog"
+                aria-label="Discord account details"
+              >
+                <p class="font-mono text-mono-sm font-semibold text-ink-2">
+                  @sam.pham
+                </p>
+                <p class="font-mono text-mono-sm text-ink-4">
+                  ID 583920174659201024
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <p
+            class="block text-center font-mono text-label tracking-[0.11em] uppercase text-ink-4 mb-3"
+          >
+            Mobile — same button, same popover
+          </p>
+          <div
+            class="relative h-[260px] overflow-hidden rounded-lg border border-line bg-bg-sunk w-[220px]"
+          >
+            <div class="absolute top-5 left-5 flex items-center gap-1.5">
+              <span
+                class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] h-5 w-5 text-[9px]"
+                >SP</span
+              ><span class="font-mono text-mono-sm text-ink-3">sam.pham</span
+              ><button
+                class="relative inline-flex shrink-0 items-center text-ink-4 transition-colors duration-200 ease-uv before:absolute before:-inset-1.5 hover:text-ink-2"
+                type="button"
+                aria-haspopup="dialog"
+                aria-expanded="true"
+                aria-label="Discord account details"
+              >
+                <svg class="h-3 w-3 shrink-0">
+                  <use href="#i-discord"></use>
+                </svg>
+              </button>
+            </div>
+            <div class="absolute top-14 left-5">
+              <div
+                class="flex w-fit flex-col gap-1 rounded-lg border border-line-loud bg-surface-3 px-3 py-2.5 shadow-lift"
+                role="dialog"
+                aria-label="Discord account details"
+              >
+                <p class="font-mono text-mono-sm font-semibold text-ink-2">
+                  @sam.pham
+                </p>
+                <p class="font-mono text-mono-sm text-ink-4">
+                  ID 583920174659201024
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
