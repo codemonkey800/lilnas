@@ -11,7 +11,7 @@ production Traefik.**
 | -------------------------------- | ----------------------------------------------- |
 | `https://download.dev.lilnas.io` | For a human. OAuth in front.                    |
 | `http://localhost:8090`          | For tooling on the NAS. Loopback only, no auth. |
-| Compose file                     | `apps/download/deploy.dev-remote.yml`           |
+| Compose file                     | `apps/download/deploy.dev.yml`                  |
 | Container                        | `lilnas-download-dev`                           |
 
 ---
@@ -40,9 +40,12 @@ production Traefik.**
 > in depth behind that rule, not a replacement for it. Video download / pause /
 > cancel _are_ fair game — a yt-dlp job is self-contained.
 
-One more standing rule: `deploy.dev-remote.yml` must **never** be added to the
-root `docker-compose.yml` `include:` list. It is a development tool, not a
-service.
+One more standing rule: `deploy.dev.yml` must **never** be added to the
+production `docker-compose.yml` `include:` list — only `docker-compose.dev.yml`'s.
+It already is, deliberately (see [Why this shape](#why-this-shape)) — running
+`docker-compose -f docker-compose.dev.yml up -d download` from the repo root
+brings this container up exposed at `download.dev.lilnas.io`, same as starting
+it directly with `-f apps/download/deploy.dev.yml`.
 
 ---
 
@@ -85,6 +88,16 @@ fresh container still shows this app's actual download *history* as empty
 (nobody has requested anything through it yet), but "Browse movies/shows"
 reflects Radarr's/Sonarr's real libraries from the first request onward.
 
+**This IS `apps/download/deploy.dev.yml`, and it IS in `docker-compose.dev.yml`'s
+`include:` list, on purpose.** Earlier this environment lived in a separate
+`deploy.dev-remote.yml`, kept deliberately out of both root compose files so a
+routine dev startup never auto-published a container to the internet. That
+tradeoff was revisited: `download.localhost` via the dev Traefik never worked on
+this host anyway (see the header comment in `deploy.dev.yml` for why), so there
+was no working "plain local" mode to protect by keeping this file separate. The
+standard `docker-compose -f docker-compose.dev.yml up -d download` now brings
+this shape up directly.
+
 ---
 
 ## Setup
@@ -126,22 +139,26 @@ docker inspect lilnas-auth-1 --format '{{range .Config.Env}}{{println .}}{{end}}
 
 > `.env.dev-remote` is covered by the root `.gitignore` rule `.env.*`, alongside
 > `.env.prod`. Never commit it and never paste its values anywhere. Note that
-> `docker compose -f deploy.dev-remote.yml config` **inlines the whole env file
+> `docker compose -f deploy.dev.yml config` **inlines the whole env file
 > into its output** — use `config --quiet` to validate without printing secrets.
 
 > [!IMPORTANT]
 > **A compose `environment:` entry cannot override these.** `pnpm dev` runs
 > `lilnas dev`, which calls Node's `loadEnvFile()` on `apps/download/.env`
 > (`packages/cli/src/commands/dev.ts:48`) and overwrites the container
-> environment with it. That is why `deploy.dev-remote.yml` mounts
+> environment with it. That is why `deploy.dev.yml` mounts
 > `.env.dev-remote` **over** `.env` inside the container instead. Symptom if you
 > get this wrong: the database silently lands wherever `.env` said.
 
 ### 3. Start it
 
 ```bash
-docker compose -f apps/download/deploy.dev-remote.yml up -d
-docker compose -f apps/download/deploy.dev-remote.yml logs -f
+docker compose -f apps/download/deploy.dev.yml up -d
+docker compose -f apps/download/deploy.dev.yml logs -f
+
+# equivalently, from the repo root:
+docker-compose -f docker-compose.dev.yml up -d download
+docker-compose -f docker-compose.dev.yml logs -f download
 ```
 
 First boot runs `pnpm install --frozen-lockfile` inside the container and takes
@@ -258,18 +275,16 @@ geometry. Measuring beats eyeballing — it is how the card-stretch bug in
 - **`tls=true`, not `tls.certresolver=le`.** All `*.dev.lilnas.io` routes share
   one wildcard cert; requesting a per-host cert wastes Let's Encrypt's ~50 new
   certs/week budget. See `docs/lilnas-expose.md`.
-- **Do not `docker compose up` the root file to "fix" anything here.** This
-  container is started only from `deploy.dev-remote.yml`.
 
 ---
 
 ## Teardown
 
 ```bash
-docker compose -f apps/download/deploy.dev-remote.yml down
+docker compose -f apps/download/deploy.dev.yml down
 
 # also drop the cached node_modules and pnpm store:
-docker compose -f apps/download/deploy.dev-remote.yml down -v
+docker compose -f apps/download/deploy.dev.yml down -v
 ```
 
 Nothing else to clean up — the database lived in RAM and is already gone.
@@ -285,11 +300,11 @@ curl -s -o /dev/null -w '%{http_code}\n' https://download.lilnas.io/   # 302 →
 
 ---
 
-## The retired shape
+## History
 
-Until 2026-09-15 this environment was **a containerised backend plus a native
-`next dev`**, documented here and defined by `apps/download/deploy.verify.yml`.
-It was replaced because it had three problems the current shape does not:
+**Until 2026-09-15** this environment was **a containerised backend plus a
+native `next dev`**, defined by `apps/download/deploy.verify.yml`. It was
+replaced because it had three problems the current shape does not:
 
 - **No auth.** The native server listened on `0.0.0.0:8090`, and anything
   reaching it without an `X-Forwarded-User` header took the `DEV_USER_EMAIL`
@@ -299,5 +314,10 @@ It was replaced because it had three problems the current shape does not:
   `/tmp/download-verify/`, created with `sqlite3 .backup` from production.
 - **Two processes to start and stop**, only one of which was under compose.
 
-`deploy.verify.yml` still exists but is **retired — do not start it.** It would
-bring up a second backend on `127.0.0.1:8081` and compete with this container.
+**Until 2026-09-19** this environment lived in a separate
+`apps/download/deploy.dev-remote.yml`, kept out of the root compose `include:`
+lists so a routine dev startup would never auto-expose it. That file's shape is
+now `apps/download/deploy.dev.yml` itself — see the note under
+[Why this shape](#why-this-shape).
+
+`deploy.verify.yml` is deleted, not merely retired — do not try to resurrect it.

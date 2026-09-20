@@ -1,7 +1,7 @@
 module.exports = {
   output: 'standalone',
 
-  // Required when `next dev` runs behind Traefik TLS (deploy.dev-remote.yml
+  // Required when `next dev` runs behind Traefik TLS (deploy.dev.yml
   // publishes this app at https://download.dev.lilnas.io). Without it Next
   // rejects the cross-origin dev requests and the HMR WebSocket never upgrades.
   // Introduced in Next 15.2; HMR coordinates are derived from the page origin,
