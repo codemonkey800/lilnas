@@ -3,11 +3,23 @@ import '@testing-library/jest-dom'
 import type { AuditLogEntry } from '@lilnas/utils/download/types'
 import { render, screen } from '@testing-library/react'
 
+import { LINKED_DISCORD_TITLE } from 'src/components/activity/activity-requester'
 import { AdminAuditLog } from 'src/components/admin/admin-audit-log'
 import { AUDIT_SERVICE_LABEL } from 'src/lib/admin-audit'
 import { EMPTY_ADMIN_FILTERS } from 'src/lib/admin-filters'
 
 const NOW = Date.parse('2026-09-16T16:00:00.000Z')
+
+// ⚠️ A string literal, always. Snowflakes exceed `Number.MAX_SAFE_INTEGER`, so
+// a numeric one would silently round to a different account.
+const SNOWFLAKE = '273145016936267776'
+
+const DISCORD_ACTOR = {
+  discordUserId: SNOWFLAKE,
+  discordUsername: 'sam.pham',
+}
+
+const MARK_LABEL = 'Discord account details for sam.pham'
 
 function entry(overrides: Partial<AuditLogEntry> = {}): AuditLogEntry {
   return {
@@ -44,6 +56,89 @@ describe('AdminAuditLog', () => {
     // Nothing to open a profile or a per-user filter for — a service is not a
     // person, so it gets no link.
     expect(screen.queryByRole('link')).not.toBeInTheDocument()
+  })
+
+  // The other half of the same rule: plan 017 gave `actor: null` a second
+  // reading, and a genuine service row must not have picked up any of it. Its
+  // word, its ink and its complete absence of affordances are unchanged.
+  it('leaves a true service row exactly as it was', () => {
+    renderLog([entry({ actor: null, discordActor: null, origin: 'service' })])
+
+    expect(
+      screen.getByText(AUDIT_SERVICE_LABEL).getAttribute('class'),
+    ).toContain('text-ink-2')
+    expect(screen.queryByText('@sam.pham')).not.toBeInTheDocument()
+    // The Discord mark is the only `<button>` this row could have grown.
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  // ⚠️ The bug this row existed with until plan 017 wave E: `discordActor` was
+  // carried end to end and rendered nowhere, so an action a person took over
+  // `/download` read as the service — or, worse, as `unattributed web request`,
+  // which is what `auditActorLabel` returns for a `'discord'` origin.
+  it('renders an unlinked Discord actor as the person, never as the service', () => {
+    renderLog([
+      entry({ actor: null, discordActor: DISCORD_ACTOR, origin: 'discord' }),
+    ])
+
+    expect(screen.getByText('sam.pham')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: MARK_LABEL })).toBeInTheDocument()
+    expect(screen.queryByText(AUDIT_SERVICE_LABEL)).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('unattributed web request'),
+    ).not.toBeInTheDocument()
+  })
+
+  // `resolveAuditEntries` fills `actor` from the link at read time and leaves
+  // `discordActor` populated beside it — a pairing the `audit_log_origin_
+  // matches_actor` CHECK forbids on a *stored* row, so it can only mean "these
+  // two are the same person". The handle is therefore inert text, not the
+  // unlinked account's disclosure mark.
+  it('renders a linked Discord actor as the person, with the handle beside them', () => {
+    renderLog([
+      entry({
+        actor: { email: 'sam@lilnas.io', userId: 'u_sam' },
+        discordActor: DISCORD_ACTOR,
+        origin: 'discord',
+      }),
+    ])
+
+    expect(screen.getByRole('link', { name: 'sam@lilnas.io' })).toHaveAttribute(
+      'href',
+      '/admin?requester=sam%40lilnas.io',
+    )
+    expect(screen.getByText('@sam.pham')).toHaveAttribute(
+      'title',
+      LINKED_DISCORD_TITLE,
+    )
+    expect(
+      screen.queryByRole('button', { name: MARK_LABEL }),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText(SNOWFLAKE)).not.toBeInTheDocument()
+  })
+
+  // ⚠️ The layout constraint the rebuild exists for. The actor's width now
+  // depends on which identity it holds, so it is a content-sized flex item
+  // (`shrink-0`) and the action text is the column that gives way — the fixed
+  // grid track it replaced is what clipped a handle plus its mark into the
+  // sentence beside it.
+  it('makes the action text absorb a narrow row rather than clipping the actor', () => {
+    renderLog([
+      entry({ actor: null, discordActor: DISCORD_ACTOR, origin: 'discord' }),
+    ])
+
+    const what = screen.getByText('started a video download')
+    const actor = what.previousElementSibling
+
+    expect(what.getAttribute('class')).toContain('min-w-0')
+    expect(what.getAttribute('class')).toContain('flex-auto')
+    expect(actor).toHaveTextContent('sam.pham')
+    expect(actor?.getAttribute('class')).toContain('shrink-0')
+    // The mark lives with the actor, outside the column that shrinks.
+    expect(
+      actor?.contains(screen.getByRole('button', { name: MARK_LABEL })),
+    ).toBe(true)
+    expect(what.closest('li')?.getAttribute('class')).not.toContain('grid')
   })
 
   it('says so out loud when a web request arrived with no identity', () => {
