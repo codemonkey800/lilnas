@@ -83,6 +83,8 @@ function buildUser(overrides: Partial<AdminUserEntry>): AdminUserEntry {
     blockedAt: null,
     services: [],
     isAdmin: false,
+    discordUserId: null,
+    discordUsername: null,
     ...overrides,
   }
 }

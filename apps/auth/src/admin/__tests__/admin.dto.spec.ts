@@ -1,7 +1,9 @@
 import {
   BulkRejectBodySchema,
+  LinkDiscordBodySchema,
   PreAuthorizeBodySchema,
   SetUserServicesBodySchema,
+  UnlinkDiscordBodySchema,
 } from 'src/admin/admin.dto'
 
 describe('BulkRejectBodySchema', () => {
@@ -191,5 +193,137 @@ describe('SetUserServicesBodySchema', () => {
         grant: true,
       }).success,
     ).toBe(false)
+  })
+})
+
+describe('LinkDiscordBodySchema', () => {
+  // String literals throughout: a Discord snowflake exceeds
+  // Number.MAX_SAFE_INTEGER, so a numeric literal here would be both a lint
+  // error and a silently different account.
+  it('accepts a userId and an 18-digit snowflake', () => {
+    expect(
+      LinkDiscordBodySchema.safeParse({
+        userId: 'user_1',
+        discordUserId: '111111111111111111',
+      }).success,
+    ).toBe(true)
+  })
+
+  it('accepts the 17- and 20-digit bounds of the snowflake range', () => {
+    expect(
+      LinkDiscordBodySchema.safeParse({
+        userId: 'user_1',
+        discordUserId: '11111111111111111',
+      }).success,
+    ).toBe(true)
+    expect(
+      LinkDiscordBodySchema.safeParse({
+        userId: 'user_1',
+        discordUserId: '11111111111111111111',
+      }).success,
+    ).toBe(true)
+  })
+
+  it('rejects a snowflake outside that digit range', () => {
+    expect(
+      LinkDiscordBodySchema.safeParse({
+        userId: 'user_1',
+        discordUserId: '1234567890123456',
+      }).success,
+    ).toBe(false)
+    expect(
+      LinkDiscordBodySchema.safeParse({
+        userId: 'user_1',
+        discordUserId: '111111111111111111111',
+      }).success,
+    ).toBe(false)
+  })
+
+  // What the pattern is really for: a hand-typed HANDLE is the mistake the
+  // two-table schema exists to prevent, and it never even reaches the
+  // service.
+  it('rejects a Discord handle in the snowflake slot', () => {
+    expect(
+      LinkDiscordBodySchema.safeParse({
+        userId: 'user_1',
+        discordUserId: 'ada',
+      }).success,
+    ).toBe(false)
+    expect(
+      LinkDiscordBodySchema.safeParse({
+        userId: 'user_1',
+        discordUserId: 'ada#1234',
+      }).success,
+    ).toBe(false)
+  })
+
+  // Built through Number() rather than written as a numeric literal: the
+  // literal form is itself an eslint error (no-loss-of-precision), which is
+  // precisely the hazard this assertion exists to keep out of the wire
+  // format — a snowflake that arrives as JSON number has ALREADY been
+  // rounded by JSON.parse before any schema sees it.
+  it('rejects a numeric snowflake — it must stay a string end to end', () => {
+    expect(
+      LinkDiscordBodySchema.safeParse({
+        userId: 'user_1',
+        discordUserId: Number('111111111111111111'),
+      }).success,
+    ).toBe(false)
+  })
+
+  it('rejects an empty userId, a missing userId, and a non-object body', () => {
+    expect(
+      LinkDiscordBodySchema.safeParse({
+        userId: '',
+        discordUserId: '111111111111111111',
+      }).success,
+    ).toBe(false)
+    expect(
+      LinkDiscordBodySchema.safeParse({ discordUserId: '111111111111111111' })
+        .success,
+    ).toBe(false)
+    expect(LinkDiscordBodySchema.safeParse(null).success).toBe(false)
+  })
+
+  // A handle is NEVER admin-entered — see the schema's own comment. An
+  // extra field is stripped by zod rather than carried through, so no call
+  // site can ever read one.
+  it('strips any username a caller tries to send', () => {
+    const parsed = LinkDiscordBodySchema.safeParse({
+      userId: 'user_1',
+      discordUserId: '111111111111111111',
+      username: 'typed-by-hand',
+    })
+    expect(parsed.success).toBe(true)
+    expect(parsed.data).toEqual({
+      userId: 'user_1',
+      discordUserId: '111111111111111111',
+    })
+  })
+
+  it("surfaces a human-readable message for a bad snowflake, not zod's raw regex text", () => {
+    const parsed = LinkDiscordBodySchema.safeParse({
+      userId: 'user_1',
+      discordUserId: 'ada',
+    })
+    expect(parsed.success).toBe(false)
+    expect(parsed.error?.issues[0]?.message).toBe(
+      'discordUserId must be a Discord snowflake (17-20 digits)',
+    )
+  })
+})
+
+describe('UnlinkDiscordBodySchema', () => {
+  it('accepts a bare userId', () => {
+    expect(
+      UnlinkDiscordBodySchema.safeParse({ userId: 'user_1' }).success,
+    ).toBe(true)
+  })
+
+  it('rejects an empty or missing userId', () => {
+    expect(UnlinkDiscordBodySchema.safeParse({ userId: '' }).success).toBe(
+      false,
+    )
+    expect(UnlinkDiscordBodySchema.safeParse({}).success).toBe(false)
   })
 })

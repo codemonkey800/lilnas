@@ -14,6 +14,11 @@ import { ThrottlerGuard } from '@nestjs/throttler'
 import type { z } from 'zod'
 
 import { DB, type Db } from 'src/db/database.module'
+import {
+  listLinks,
+  listUnlinkedIdentities,
+  listUnlinkedUsers,
+} from 'src/db/discord-link.repo'
 import { EnvKeys } from 'src/env'
 import {
   listGrantsForUser,
@@ -29,8 +34,10 @@ import { ServiceRegistryService } from 'src/services/service-registry.service'
 
 import {
   BulkRejectBodySchema,
+  LinkDiscordBodySchema,
   PreAuthorizeBodySchema,
   SetUserServicesBodySchema,
+  UnlinkDiscordBodySchema,
 } from './admin.dto'
 import { AdminGuard, isAdminEmail } from './admin.guard'
 import { UsersService } from './users.service'
@@ -67,6 +74,65 @@ export type AdminUserEntry = {
   // the admin dashboard's People table flag an admin row without a second
   // source of truth for "who is an admin."
   isAdmin: boolean
+  // The Discord account this person is linked to, or null for the common
+  // case of no link. Carried on the People row itself — rather than left
+  // to the dedicated /admin/discord/links route — purely so the People
+  // table can render a chip without a second fetch and a client-side join;
+  // the Discord management UI still reads the richer link list from that
+  // route.
+  discordUserId: string | null
+  // The CURRENT handle, joined out of discord_identity at read time — a
+  // display label with no identity meaning whatsoever (schema.ts is
+  // explicit that nothing keys off it, and upsertIdentity() overwrites it
+  // whenever Discord reports a rename). Null exactly when discordUserId is
+  // null; the two always move together.
+  discordUsername: string | null
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// The Discord link admin surface's three response shapes.
+//
+// All three are the repo layer's own row types with every Date serialized
+// through .toISOString() — the same boundary rule QueueEntry above follows,
+// for the same reason: a Date survives neither JSON.stringify's round trip
+// nor the Next.js server-component fetch these feed, so converting once here
+// beats every consumer guessing.
+// ──────────────────────────────────────────────────────────────────────────────
+
+// Left column of the link UI: lilnas people with no Discord link yet.
+// Blocked users are already excluded by listUnlinkedUsers() itself — see
+// that function's own comment for why offering one as a link target would be
+// wrong.
+export type DiscordUnlinkedPerson = {
+  userId: string
+  email: string
+  name: string
+}
+
+// Right column: Discord accounts this system has OBSERVED that aren't linked
+// to anyone. Ordered most-recently-seen first by the repo, and deliberately
+// not re-sorted here — an admin linking an account has almost always just
+// watched it run /download, so the row they want is the first one.
+export type DiscordUnlinkedAccount = {
+  discordUserId: string
+  username: string
+  displayName: string | null
+  firstSeenAt: string
+  lastSeenAt: string
+}
+
+// Every existing link, flattened for display and ordered by the person's
+// email. Both labels (`name`, `username`/`displayName`) are joined from
+// their own tables at read time, never stored on the link — so a Discord
+// rename shows up here the moment the roster records it.
+export type DiscordLinkEntry = {
+  userId: string
+  email: string
+  name: string
+  discordUserId: string
+  username: string
+  displayName: string | null
+  createdAt: string
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -154,15 +220,30 @@ export class AdminController {
   @Get('users')
   users(): AdminUserEntry[] {
     const adminEmails = env(EnvKeys.ADMIN_EMAILS)
-    return listUsersWithGrantHistory(this.db).map(row => ({
-      id: row.id,
-      email: row.email,
-      blockedAt: row.blockedAt?.toISOString() ?? null,
-      services: listGrantsForUser(this.db, row.id).map(
-        grant => grant.serviceHost,
-      ),
-      isAdmin: isAdminEmail(row.email, adminEmails),
-    }))
+    // ONE listLinks() call indexed by userId, rather than a
+    // findLinkByUserId() per row — at homelab scale either is fine, but the
+    // whole-table read is the cheaper shape and keeps this route's query
+    // count independent of how many people are listed. Deliberately reuses
+    // listLinks() rather than adding a links-by-user repo function: the
+    // extra columns it returns cost nothing here and the repo stays one
+    // function smaller.
+    const linksByUserId = new Map(
+      listLinks(this.db).map(link => [link.userId, link]),
+    )
+    return listUsersWithGrantHistory(this.db).map(row => {
+      const link = linksByUserId.get(row.id)
+      return {
+        id: row.id,
+        email: row.email,
+        blockedAt: row.blockedAt?.toISOString() ?? null,
+        services: listGrantsForUser(this.db, row.id).map(
+          grant => grant.serviceHost,
+        ),
+        isAdmin: isAdminEmail(row.email, adminEmails),
+        discordUserId: link?.discordUserId ?? null,
+        discordUsername: link?.username ?? null,
+      }
+    })
   }
 
   // "Add by email," M3's batched form — one call for every service the
@@ -242,6 +323,83 @@ export class AdminController {
   } {
     const sessionsRevoked = this.usersService.revokeSessions(userId)
     return { ok: true, sessionsRevoked }
+  }
+
+  // ── Discord links ──────────────────────────────────────────────────────
+
+  // Both halves of the link UI's picker in ONE response. Returned together
+  // rather than as two routes because they are never useful apart — the
+  // form needs both columns to render at all, and one round trip keeps the
+  // two sides consistent with each other (two calls could straddle another
+  // admin's link and show an account in the right column that the left
+  // column's person had just been linked to).
+  //
+  // Plain reads with no transaction or cache invalidation to orchestrate,
+  // so they call the repo inline here rather than through UsersService —
+  // queue()/users() above set that same precedent (see users()'s own
+  // comment); UsersService owns the mutations below.
+  @Get('discord/unlinked')
+  discordUnlinked(): {
+    people: DiscordUnlinkedPerson[]
+    accounts: DiscordUnlinkedAccount[]
+  } {
+    return {
+      people: listUnlinkedUsers(this.db).map(row => ({
+        userId: row.userId,
+        email: row.email,
+        name: row.name,
+      })),
+      accounts: listUnlinkedIdentities(this.db).map(row => ({
+        discordUserId: row.discordUserId,
+        username: row.username,
+        displayName: row.displayName,
+        firstSeenAt: row.firstSeenAt.toISOString(),
+        lastSeenAt: row.lastSeenAt.toISOString(),
+      })),
+    }
+  }
+
+  @Get('discord/links')
+  discordLinks(): DiscordLinkEntry[] {
+    return listLinks(this.db).map(row => ({
+      userId: row.userId,
+      email: row.email,
+      name: row.name,
+      discordUserId: row.discordUserId,
+      username: row.username,
+      displayName: row.displayName,
+      createdAt: row.createdAt.toISOString(),
+    }))
+  }
+
+  // POST with a body rather than POST /discord/:userId/link, unlike the
+  // user routes above: the identifying pair here is (person, account), and
+  // putting half of it in the path and half in a body would split one
+  // logical selection across two places. Still a POST, never a PUT/DELETE —
+  // every mutation in this controller is a POST (see /remove, /block).
+  //
+  // Both ids are validated by LinkDiscordBodySchema; everything ELSE — does
+  // this user exist, has this account ever been seen, is either side
+  // already linked — is UsersService.linkDiscord()'s own concern, because
+  // each of those questions has to be answered inside the same transaction
+  // as the write. Contrast the service-host validation above, which is
+  // genuinely a registry question this controller owns and no transaction
+  // can help with.
+  @Post('discord/link')
+  linkDiscord(@Body() body: unknown): { ok: true } {
+    const { userId, discordUserId } = this.parseBody(
+      LinkDiscordBodySchema,
+      body,
+    )
+    this.usersService.linkDiscord(userId, discordUserId)
+    return { ok: true }
+  }
+
+  @Post('discord/unlink')
+  unlinkDiscord(@Body() body: unknown): { ok: true } {
+    const { userId } = this.parseBody(UnlinkDiscordBodySchema, body)
+    this.usersService.unlinkDiscord(userId)
+    return { ok: true }
   }
 
   private async assertKnownServiceHost(serviceHost: string): Promise<void> {
