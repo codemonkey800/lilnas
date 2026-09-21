@@ -1839,7 +1839,7 @@ username: discordUser.discordUsername })` **unconditionally, including when a
   >
   > +50 tests; package green at **176 suites / 3587 tests**.
 
-- [ ] **E4. Gallery + recent-card attribution.** (Droppable — see
+- [x] **E4. Gallery + recent-card attribution.** `d6951e1` (Droppable — see
       [Scope cuts](#scope-cuts-in-v1).) Extend the gallery grouped query
       (`jobs.repo.ts`) to select the last requester's discord pair alongside the email
       pair so `GalleryItemSchema.lastDiscordRequester` is populated; run E1's resolution
@@ -1855,6 +1855,52 @@ username: discordUser.discordUsername })` **unconditionally, including when a
       not clipped by the card's own overflow, and report it instead of restyling the
       card if it is. Tests: repo spec for the grouped selection, component specs for
       the new states including the masked-renders-no-mark case.
+
+  > **Findings (E4, 2026-09-20 — shipped with one clause dropped, as the droppable
+  > framing intended):**
+  >
+  > 1. 🔴 **Fixed a real pre-existing bug this task exposed.** The gallery card printed
+  >    `hidden · 12m ago` for **any** null `lastRequester` — which mislabels an
+  >    **unlinked Discord upload as self-hidden**. `masked` is now
+  >    `lastRequester === null && lastDiscordRequester === null`, i.e. the pair the
+  >    service nulls together.
+  > 2. ⏭️ **Dropped: the `linkedDiscord` handle clause** — exactly as anticipated.
+  >    `GalleryItemSchema` (`packages/utils/src/download/schema.ts:294`) carries only
+  >    `lastRequester` and `lastDiscordRequester`; **there is no `linkedDiscord` on a
+  >    gallery item**, and adding one would cost the gallery
+  >    [its zero-link-lookup page](#e1-findings). Documented in the component docblock and
+  >    the commit body. The 158px width worry is moot as a result — and the unlinked row
+  >    fits comfortably anyway (18–24px avatar + 6px + 12px mark + 5px + `12m ago`, with
+  >    `Watch` still `shrink-0`). Nothing was restyled, shrunk or truncated.
+  > 3. **The repo half turned out to be already done, so E4's backend work became coverage,
+  >    not code.** `listLatestJobsForMediaIds` does a bare `select()` (whole row),
+  >    `hydrateJobRow` builds `discordRequester` from it, and `JobQueryService.listGallery`
+  >    already sets `lastDiscordRequester` under the same `showRequester` gate — E1/E2
+  >    landed it. **`jobs.repo.ts` was not touched**, so E2's `isRequesterScoped` guard is
+  >    intact. Added 6 repo specs instead: the pair survives grouping, a Discord grab is
+  >    counted into its title's card, the _last_ requester wins over an earlier one in
+  >    either direction, a filtered window reads the last requester inside it, and
+  >    `excludeHiddenVideos` + `requesterDiscordUserId` keeps a hidden Discord video out of
+  >    the groups, the `total` **and** the follow-up row.
+  > 4. **Both cards now render `<ActivityRequester nameless …>`** instead of a hand-rolled
+  >    `<Avatar>`, so [E3's rule](#e3-findings) and E5's mark are reused wholesale rather
+  >    than re-spelled. ✅ Confirmed `ActivityRequester` already renders the mark on a
+  >    `nameless` row (inside `NAME_RUN`, outside the `nameless ? null :` guard) — **no
+  >    second mark was added**, and a spec on each card asserts exactly one
+  >    `getAllByRole('button', {name: /Discord account details/})`. ✅ Confirmed no
+  >    `overflow: hidden` clipping inside `GalleryCard`; no `panelClassName` re-anchor
+  >    needed.
+  > 5. **Minor correction to E5's note:** `initials('sam.pham')` is **`SP`**, not `SA` —
+  >    `LOCAL_PART_SEPARATORS` splits on the dot and takes one letter per word. Relevant to
+  >    any surface asserting initials for a dotted handle.
+  > 6. `RecentCard` sized its avatar with `size="xs"`; `ActivityRequester` exposes only
+  >    `avatarClassName`, so it was passed `h-[18px] w-[18px] text-[8.5px]` — byte-identical
+  >    to `AVATAR_SIZES.xs` and asserted. (`activity-list.tsx` passes `text-[8px]` for the
+  >    same circle — a 0.5px drift predating this task.) The gallery card's masked avatar
+  >    also gained the `title="Attribution hidden"` it lacked and `RecentCard` already had.
+  >
+  > +23 tests; package green at **176 suites / 3620 tests**. No existing assertion needed
+  > changing.
 
 - [x] **E5. `DiscordIdentityMark` — the click-to-reveal disclosure.** `3b8fa32` Create
       `apps/download/src/components/activity/discord-identity-mark.tsx` and its spec. A
@@ -1949,7 +1995,7 @@ username: discordUser.discordUsername })` **unconditionally, including when a
   >    but parses identically everywhere and causes no hydration mismatch — worth
   >    knowing if a consumer ever puts the mark inside a `<p>`.
 
-- [ ] **E6. Audit-log actor display.** _(Added 2026-09-20, from
+- [x] **E6. Audit-log actor display.** `c8237b9` _(Added 2026-09-20, from
       [E3's finding 3](#e3-findings) — not in the original plan.)_ Edit
       `apps/download/src/components/admin/admin-audit-log.tsx` so an `origin: 'discord'`
       audit row renders its Discord actor instead of reading as the service.
@@ -1974,6 +2020,62 @@ username: discordUser.discordUsername })` **unconditionally, including when a
   row renders the handle **and** E5's mark and **not** the service chip; an
   `origin: 'service'` row is byte-identical to today; a linked actor renders as the
   person; the "what" column still truncates rather than the actor being clipped.
+
+  > **Findings (E6, 2026-09-20 — shipped; item 4 is worse than the bug this task was
+  > filed for):**
+  >
+  > 1. 🔴 **`auditActorLabel('discord')` returns `'unattributed web request'`** — so before
+  >    this change an unlinked Discord audit row did not merely read as the service, **it
+  >    read as a security finding**. `src/lib/admin-audit.ts` was left alone (outside the
+  >    fence, and the branch is now unreachable for `origin: 'discord'` because
+  >    `discordActor` is always set there).
+  > 2. **The row was rebuilt as flex, and the mark fits with nothing clipped.** `ROW` lost
+  >    `sm:grid sm:grid-cols-[70px_72px_1fr]` and gained `sm:flex-row`; time and level keep
+  >    their **exact** widths as `sm:w-[70px] sm:shrink-0` / `sm:w-[72px] sm:shrink-0`, so
+  >    rows still line up, and the `sm:contents` mobile-collapse trick is untouched. The
+  >    third column is a `BODY` holding a `SENTENCE` line
+  >    (`flex min-w-0 flex-wrap items-baseline gap-x-1.5`) of actor (`shrink-0`) + action
+  >    text (`min-w-0 flex-auto`), with the metadata `<details>` full-width beneath.
+  >    ⚠️ **`flex-auto`, not `flex-1`** — `flex-1`'s `flex-basis: 0` would suppress wrapping
+  >    entirely. An over-wide actor pushes the action to the next line rather than off the
+  >    card. No column widened, no type shrunk, no truncation added.
+  > 3. ⚠️ **The task's own test spec was self-contradictory and the "what" column never
+  >    truncated in the first place.** It is `min-w-0 text-ink-3` with no `truncate` and no
+  >    `flex-1` — it _wraps_, and it has to, because the metadata `<details>`/`<pre>` lives
+  >    inside it and `overflow: hidden; white-space: nowrap` would destroy that disclosure.
+  >    ("Still truncates" and "do not truncate the action text" cannot both hold; the
+  >    latter was honoured.) The equivalent invariant is asserted instead: the what column
+  >    carries `min-w-0 flex-auto` (it absorbs the shrink) and the actor carries `shrink-0`
+  >    (it cannot be clipped). **There was also no actor _column_ to widen** — the actor
+  >    was inline text inside the what cell, so the mockup's clipping warning was latent
+  >    rather than present; the rebuild is still right, because inline flow would let a
+  >    handle and its mark wrap apart onto different lines.
+  > 4. **A linked row arrives with `discordActor` STILL populated.** `resolveSlot` returns
+  >    `{ discord, requester }` and `resolveAuditEntries` assigns **both** — it does not
+  >    null the Discord half. Since `audit_log_origin_matches_actor` forbids that pairing on
+  >    a _stored_ row, `actor !== null && discordActor !== null` unambiguously means
+  >    "linked", and it renders as the inert `@handle`, matching what E3 did with
+  >    `linkedDiscord` elsewhere. **`AuditLogEntry` has no `linkedDiscord` field**, so this
+  >    is the audit log's only way to show that fact.
+  > 5. **Used the shared helpers, not `AdminActor`** (`admin-actor.tsx` untouched).
+  >    `AdminActor`'s service branch is an `MChip` with a `layers` icon, but this row must
+  >    keep the bare `auditActorLabel` word in `text-ink-2`; its person branch is an
+  >    `Avatar` + email + external-link glyph, but this row is deliberately avatar-free
+  >    mono text. A local non-exported `AuditActor` handles the three readings, importing
+  >    `LINKED_DISCORD_TITLE`, `linkedDiscordLabel` and `DiscordIdentityMark` so strings and
+  >    glyph stay single-sourced.
+  > 6. **Alignment subtlety worth keeping:** the actor run is `items-baseline`, not
+  >    `AdminActor`'s `items-center`. In a baseline row a flex item whose own `align-items`
+  >    is `center` has no participating baseline, so the browser synthesizes one from its
+  >    bottom border edge — floating the whole actor a few px above the mono text beside it.
+  > 7. No `overflow: hidden` ancestor (`Card` none, `admin/page.tsx` none;
+  >    `AdminPageShell` has `overflow-y-auto`, but `AdminHistory` already renders the mark
+  >    inside that same shell). The `sm:flex-1` column is ~440px with the mark ~150px in, so
+  >    the ≤240px centred panel stays well inside — **no `panelClassName` needed**.
+  > 8. `AUDIT_ACTION_PHRASES['video.create']` is `'started a video download'`, not
+  >    `'created a video'`.
+  >
+  > 4 new tests (13 in the spec); package green at **176 suites / 3620 tests**.
 
 ### Group F — tdr-bot, docs, integration
 
@@ -2038,7 +2140,7 @@ username: discordUser.discordUsername })` **unconditionally, including when a
   > - `interaction.user.globalName` types cleanly against discord.js's `User`
   >   (`string | null`) — no cast; `?? undefined` is load-bearing for the value only.
 
-- [ ] **F2. Docs.** Update `docs/features/download/spec.md`'s attribution sections
+- [x] **F2. Docs.** `4d5d3c8` Update `docs/features/download/spec.md`'s attribution sections
       (dual attribution model, origin `discord`, read-time link resolution, masking rule
       unchanged in shape), `apps/download/README.md` if it documents headers/identity,
       and `docs/features/download/local-verification.md` with a curl recipe for creating
@@ -2048,6 +2150,52 @@ username: discordUser.discordUsername })` **unconditionally, including when a
       it. Note in each doc that `apps/auth` owns the two tables and the admin UI, that
       **a handle is never typed by an admin**, and that a rename is picked up on the
       renamed user's next command. No code.
+
+  > **Findings (F2, 2026-09-20 — shipped; items 1 and 2 are operational hazards for
+  > [HC3](#human-checkpoints)):**
+  >
+  > 1. 🔴 **A dev container's roster writes land in PRODUCTION auth.**
+  >    `AuthClient.dockerInstance` hardcodes `http://auth:8081` with **no env override**,
+  >    and `apps/download/deploy.dev.yml` sits on `lilnas_default` — so a dev
+  >    Discord-attributed job registers its identity into prod auth's `discord_identity`,
+  >    **which has no delete path**. Documented as a CAUTION in
+  >    `local-verification.md`. ❓ Worth deciding whether `AuthClient` should take an env
+  >    override before anyone exercises the dev recipe much.
+  > 2. ⚠️ **Deployed `lilnas-auth-1` still 404s `/internal/discord-link`** (probed
+  >    read-only, 2026-09-20) — expected, since auth has not been redeployed from this
+  >    branch. The fail-open path handles it correctly, but **nothing Discord-related
+  >    resolves in prod until [HC3](#human-checkpoints) deploys auth.** Recorded in the
+  >    doc.
+  > 3. **The curl recipe targets `localhost:8090`, NOT 8081.** 8081 is the in-container
+  >    Nest port and publishes no host port; 8090 is the doc's only loopback way in
+  >    (`127.0.0.1:8090:8080` → Next's `/api` rewrite → 8081). The task text said 8081 and
+  >    was wrong.
+  > 4. **Four more corrections to the task brief, verified against the tree:**
+  >    (a) the decorators are in `optional-discord-user.decorator.ts`, not
+  >    `discord-user.ts` (which holds the plain extractors);
+  >    (b) **`origin` is not on the `DownloadJob` wire shape at all** — it is a `jobs`
+  >    column and an `AuditLogEntrySchema` field only, and a client reads provenance from
+  >    which of `requester`/`discordRequester` is populated;
+  >    (c) "a Discord job by a linked person gains `requester`" undersells it — `resolveSlot`
+  >    leaves **all three** fields populated (`requester` from the link, `linkedDiscord`,
+  >    **and** `discordRequester` retained with its handle refreshed), which is precisely
+  >    why masking all three matters;
+  >    (d) `PATCH /videos/:id/cancel` and delete **do** accept the Discord headers for the
+  >    audit row — tdr-bot just doesn't send them there.
+  > 5. **`forwarded-user.ts` has a third gate that is load-bearing for the dev recipe:**
+  >    `resolveForwardedUser()` suppresses the `DEV_USER_EMAIL` fallback whenever
+  >    `x-discord-user-id` is present. Without it every dev Discord job would lose to the
+  >    dev web user on precedence.
+  > 6. **`apps/download/README.md` was NOT changed** — it documents running, a route map
+  >    and tests, and says nothing about headers or identity, so the task's "if and only
+  >    if" condition was not met.
+  > 7. ❓ **Stale comment left in place** (code freeze): `discord-identity-mark.tsx` says
+  >    the snowflake is "the value an admin copies into `apps/auth`'s Edit Access modal" —
+  >    that predates B3's pick-from-a-list panel, where **nothing is ever pasted**. Needs a
+  >    one-line correction.
+  > 8. Prettier reformatted some pre-existing `spec.md` lines (`*em*` → `_em_`, blank line
+  >    before lists) — markdown in this repo is not otherwise prettier-clean
+  >    (`backend.md`, `lilnas-expose.md` both fail `--check`). Cosmetic only.
 
 - [ ] **F3. Integration checkpoint.** From the repo root: `pnpm run build`,
       `pnpm test`, `pnpm run lint`, `pnpm run type-check` — all green at the final
@@ -2107,7 +2255,7 @@ graph TD
 | 3 ✅ | A4 ∥ B1 ∥ D4           | In auth, A4 adds a new controller + one `app.module.ts` line while B1 edits the admin dto/service/controller — disjoint files. D4 is in download entirely                                                                                                             |
 | 4 ✅ | B2 ∥ E1                | B2 is auth's server-action/RSC layer; E1 owns download's read path alone this wave                                                                                                                                                                                    |
 | 5 ✅ | B3 ∥ E2 ∥ E3           | B3 is auth UI; E2 edits `jobs.repo`/profile/history, E3 edits only download frontend components — all disjoint                                                                                                                                                        |
-| 6    | E4 ∥ F2                | E4 re-enters `jobs.repo.ts` only after E2 has left it; F2 is docs only                                                                                                                                                                                                |
+| 6 ✅ | E4 ∥ E6 ∥ F2           | E4 re-enters `jobs.repo.ts` only after E2 has left it; F2 is docs only                                                                                                                                                                                                |
 | 7    | F3                     | Integration checkpoint — must see every prior commit                                                                                                                                                                                                                  |
 
 ### Dependency table
