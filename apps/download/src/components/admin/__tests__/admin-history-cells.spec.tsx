@@ -25,8 +25,10 @@ function job(overrides: Partial<DownloadJob> = {}): DownloadJob {
   return {
     completedAt: null,
     createdAt: '2026-09-15T11:40:00.000Z',
+    discordRequester: null,
     hiddenAttribution: false,
     id: 'job-1',
+    linkedDiscord: null,
     media: {
       id: 'tmdb:438631',
       title: 'Salt & Ceremony',

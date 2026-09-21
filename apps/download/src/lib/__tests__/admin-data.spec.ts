@@ -10,8 +10,10 @@ function job(id: string, email: string | null): DownloadJob {
   return {
     completedAt: null,
     createdAt: '2026-09-16T10:00:00.000Z',
+    discordRequester: null,
     hiddenAttribution: false,
     id,
+    linkedDiscord: null,
     media: {
       id: `tmdb:${id}`,
       title: id,

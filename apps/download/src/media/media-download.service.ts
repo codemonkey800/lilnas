@@ -321,10 +321,15 @@ export class MediaDownloadService {
     const record: DownloadJobRecord = {
       completedAt: null,
       createdAt: now,
+      // Both required-but-nullable on `DownloadJobSchema`; see
+      // `DownloadService.createVideoDownloadJob` for why each is null at mint
+      // time.
+      discordRequester: null,
       // Movies/shows are always attributed - there's no hiding toggle for
       // them by design (spec §Core Concepts).
       hiddenAttribution: false,
       id,
+      linkedDiscord: null,
       mediaId: jobMediaId,
       requester: requester ?? null,
       scope,

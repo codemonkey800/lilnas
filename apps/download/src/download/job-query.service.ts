@@ -1,4 +1,5 @@
 import {
+  DiscordRequester,
   DownloadGalleryFacets,
   DownloadJob,
   DownloadJobStatus,
@@ -72,6 +73,14 @@ export interface GalleryFacetsParams {
 }
 
 interface LastRequester {
+  /**
+   * The Discord identity that submitted the last download, when it came in
+   * over Discord. Mutually exclusive with `requester` at the DB layer
+   * (`jobs_origin_matches_requester`), so exactly one of the two is ever
+   * non-null - but both are carried rather than collapsed into a union, so
+   * the gallery mapping stays a straight field copy.
+   */
+  discordRequester: DiscordRequester | null
   hiddenAttribution: boolean
   requester: JobRequester | null
 }
@@ -184,6 +193,13 @@ export class JobQueryService {
 
       return {
         downloadCount: group.downloadCount,
+        // Masked by the same `showRequester` decision as `lastRequester`:
+        // the Discord handle identifies the uploader just as squarely as the
+        // email does, so hiding one while showing the other would make
+        // `hiddenAttribution` a no-op for every Discord-submitted video.
+        lastDiscordRequester: showRequester
+          ? (last?.discordRequester ?? null)
+          : null,
         lastDownloadedAt: new Date(group.lastJobAtMs).toISOString(),
         lastRequester: showRequester ? (last?.requester ?? null) : null,
         // `resolve()` answers for every key it's given (a miss degrades to a
@@ -264,6 +280,7 @@ export class JobQueryService {
 
       const record = hydrateJobRow(row)
       latest.set(row.mediaId, {
+        discordRequester: record.discordRequester,
         hiddenAttribution: record.hiddenAttribution,
         requester: record.requester,
       })

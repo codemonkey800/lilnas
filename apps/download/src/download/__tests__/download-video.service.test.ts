@@ -100,8 +100,10 @@ function buildJob(overrides: Partial<DownloadJobRecord> = {}) {
   return {
     completedAt: null,
     createdAt: NOW_ISO,
+    discordRequester: null,
     hiddenAttribution: false,
     id: JOB_ID,
+    linkedDiscord: null,
     mediaId: 'video:v1',
     requester: null,
     status: DownloadJobStatus.Pending,

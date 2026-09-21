@@ -1,4 +1,5 @@
 import {
+  DiscordRequester,
   DownloadJobRecord,
   DownloadJobStatus,
   DownloadType,
@@ -19,19 +20,32 @@ export function buildJobRow(
   return {
     completedAt: record.completedAt ? new Date(record.completedAt) : null,
     createdAt: new Date(record.createdAt),
+    // Phase 018. Null on every non-Discord job, and - per
+    // `jobs_origin_matches_requester` - never set alongside the requester
+    // pair below. `record.linkedDiscord` deliberately has no column: it is
+    // resolved at read time from `apps/auth`'s link table, so persisting it
+    // here would be a second cache with its own staleness.
+    discordUserId: record.discordRequester?.discordUserId ?? null,
+    discordUsername: record.discordRequester?.discordUsername ?? null,
     error: record.error ?? null,
     hiddenAttribution: record.hiddenAttribution,
     id: record.id,
     mediaId: record.mediaId,
     // A service caller (e.g. apps/tdr-bot) never carries a requester, and
     // this is the only place `origin` is derived - never set on the record
-    // type itself, since it's fully determined by `requester`'s presence on
-    // the source-of-truth job. Explicitly typed against JOB_ORIGINS's own
-    // element type (not left to infer as `string`) since the object literal
-    // has no annotation for it to be contextually typed against.
+    // type itself, since it's fully determined by which attribution the
+    // source-of-truth job carries. `requester` is checked first so that a
+    // hypothetical job carrying both still lands as `web`: the two are
+    // mutually exclusive at the DB layer, so a row carrying both would be
+    // rejected by the CHECK rather than silently stored either way.
+    // Explicitly typed against JOB_ORIGINS's own element type (not left to
+    // infer as `string`) since the object literal has no annotation for it to
+    // be contextually typed against.
     origin: (record.requester
       ? 'web'
-      : 'service') as (typeof JOB_ORIGINS)[number],
+      : record.discordRequester
+        ? 'discord'
+        : 'service') as (typeof JOB_ORIGINS)[number],
     requesterEmail: record.requester?.email ?? null,
     requesterUserId: record.requester?.userId ?? null,
     // `null`, not `undefined`, on the way *in* - a column is either set or
@@ -48,10 +62,15 @@ export function buildJobRow(
 /**
  * The inverse of `buildJobRow()` - reconstructs a `DownloadJobRecord` from a
  * persisted `jobs` row. `origin` still has no home on the record (it's a
- * write-only derived column, fully determined by `requester`'s presence), but
- * the two other round-trip caveats this function used to carry are gone:
- * `createdAt`/`updatedAt` are on the record now, and there is no longer a
- * `proc`/`file` field with no column behind it.
+ * write-only derived column, fully determined by which attribution the job
+ * carries), but the two other round-trip caveats this function used to carry
+ * are gone: `createdAt`/`updatedAt` are on the record now, and there is no
+ * longer a `proc`/`file` field with no column behind it.
+ *
+ * `linkedDiscord` is always `null` here and that is not a round-trip gap: it
+ * has no column to come back from, being resolved from `apps/auth`'s link
+ * table by a later read-path layer. A hydrated record is the *persisted*
+ * truth; enrichment happens on top of it.
  */
 export function hydrateJobRow(row: JobRow): DownloadJobRecord {
   const requester: JobRequester | null =
@@ -59,12 +78,26 @@ export function hydrateJobRow(row: JobRow): DownloadJobRecord {
       ? { email: row.requesterEmail, userId: row.requesterUserId }
       : null
 
+  // Both columns or neither - the half-populated case is unrepresentable at
+  // the DB layer (`jobs_origin_matches_requester`), so requiring both here
+  // costs nothing and keeps this function total for rows written before the
+  // columns existed.
+  const discordRequester: DiscordRequester | null =
+    row.discordUserId && row.discordUsername
+      ? {
+          discordUserId: row.discordUserId,
+          discordUsername: row.discordUsername,
+        }
+      : null
+
   return {
     completedAt: row.completedAt ? row.completedAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
+    discordRequester,
     error: row.error ?? undefined,
     hiddenAttribution: row.hiddenAttribution,
     id: row.id,
+    linkedDiscord: null,
     mediaId: row.mediaId,
     requester,
     scope: row.scope ?? undefined,

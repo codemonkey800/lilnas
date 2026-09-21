@@ -46,8 +46,10 @@ function buildRecord(
   return {
     completedAt: null,
     createdAt: NOW_ISO,
+    discordRequester: null,
     hiddenAttribution: false,
     id: 'job-1',
+    linkedDiscord: null,
     mediaId: 'video:v1',
     requester: null,
     status: DownloadJobStatus.Downloading,

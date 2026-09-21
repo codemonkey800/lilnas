@@ -34,8 +34,10 @@ const SHOW_ID = 'tvdb:121361'
 const JOB: DownloadJob = {
   completedAt: null,
   createdAt: '2026-09-15T12:00:00.000Z',
+  discordRequester: null,
   hiddenAttribution: false,
   id: 'job_1',
+  linkedDiscord: null,
   media: {
     id: MOVIE_ID,
     title: 'Dune',

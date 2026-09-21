@@ -22,6 +22,7 @@ const NOW = Date.parse('2026-09-15T12:00:00.000Z')
 function item(id: number): GalleryItem {
   return {
     downloadCount: 1,
+    lastDiscordRequester: null,
     lastDownloadedAt: '2026-09-15T11:48:00.000Z',
     lastRequester: { email: 'jeremy@lilnas.io', userId: 'u_1' },
     media: {

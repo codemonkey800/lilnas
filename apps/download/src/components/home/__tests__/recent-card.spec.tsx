@@ -51,6 +51,7 @@ const VIDEO: Video = {
 function item(overrides: Partial<GalleryItem> = {}): GalleryItem {
   return {
     downloadCount: 1,
+    lastDiscordRequester: null,
     lastDownloadedAt: '2026-09-15T19:48:00.000Z',
     lastRequester: { email: VIEWER_EMAIL, userId: 'u_1' },
     media: MOVIE,

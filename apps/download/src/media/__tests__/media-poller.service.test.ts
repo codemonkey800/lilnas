@@ -39,8 +39,10 @@ function buildRecord(
   return {
     completedAt: null,
     createdAt: NOW_ISO,
+    discordRequester: null,
     hiddenAttribution: false,
     id: type === DownloadType.Movie ? 'movie-1' : 'show-1',
+    linkedDiscord: null,
     mediaId,
     requester: null,
     status: DownloadJobStatus.Searching,

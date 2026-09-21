@@ -227,6 +227,50 @@ describe('JobQueryService', () => {
       })
     })
 
+    // Phase 018. `lastDiscordRequester` rides the same masking decision as
+    // `lastRequester`: a Discord handle identifies the uploader just as
+    // squarely as an email does, so revealing one while hiding the other
+    // would make `hiddenAttribution` a no-op for Discord-submitted videos.
+    it("carries the last uploader's Discord identity, and masks it alongside `lastRequester`", async () => {
+      seedJob({
+        discordUserId: '183948273649182736',
+        discordUsername: 'jeremy',
+        hiddenAttribution: true,
+        id: 'discord-video',
+        origin: 'discord',
+        status: 'completed',
+      })
+
+      const nonAdminPage = await service.listGallery({
+        isAdmin: false,
+        limit: 10,
+      })
+      const adminPage = await service.listGallery({ isAdmin: true, limit: 10 })
+
+      expect(nonAdminPage.items[0]?.lastDiscordRequester).toBeNull()
+      expect(adminPage.items[0]?.lastDiscordRequester).toEqual({
+        discordUserId: '183948273649182736',
+        discordUsername: 'jeremy',
+      })
+      // The other half of the pair stays null on a Discord row - the two are
+      // mutually exclusive at the DB layer.
+      expect(adminPage.items[0]?.lastRequester).toBeNull()
+    })
+
+    it('leaves `lastDiscordRequester` null (not undefined) on a web-origin item', async () => {
+      seedJob({
+        id: 'web-video',
+        origin: 'web',
+        requesterEmail: 'alice@example.com',
+        requesterUserId: 'u1',
+        status: 'completed',
+      })
+
+      const page = await service.listGallery({ isAdmin: true, limit: 10 })
+
+      expect(page.items[0]).toHaveProperty('lastDiscordRequester', null)
+    })
+
     it('never masks a movie title, even when the flag is somehow set', async () => {
       seedJob({
         hiddenAttribution: true,

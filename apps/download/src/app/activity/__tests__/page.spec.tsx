@@ -27,8 +27,10 @@ jest.mock('next/navigation', () => ({ useRouter: jest.fn() }))
 const JOB: DownloadJob = {
   completedAt: null,
   createdAt: '2026-09-15T11:48:00.000Z',
+  discordRequester: null,
   hiddenAttribution: false,
   id: 'job-1',
+  linkedDiscord: null,
   media: {
     id: 'tmdb:11660',
     title: 'Following',

@@ -85,6 +85,10 @@ describe('AuditLogService', () => {
         createdAt: expect.stringMatching(
           /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
         ),
+        // `record()` has no way to write a Discord actor yet - `AuditEvent`
+        // carries only `actor`, so every row it writes is `web` or `service`.
+        // Asserted explicitly rather than omitted, since this is a `toEqual`.
+        discordActor: null,
         id: expect.any(Number),
         metadata: { url: 'https://example.com/watch' },
         origin: 'web',
@@ -173,6 +177,46 @@ describe('AuditLogService', () => {
       expect(page.total).toBe(3)
       expect(page.nextCursor).toBeNull()
     })
+
+    // Phase 018: the second actor pair. The two collapse independently -
+    // `origin` is what says which one to expect - and both require *both*
+    // their columns, since the half-populated case is unrepresentable at the
+    // DB layer (`audit_log_origin_matches_actor`).
+    it('collapses the Discord actor columns into `discordActor`', async () => {
+      seedRow({
+        actorDiscordUserId: '183948273649182736',
+        actorDiscordUsername: 'jeremy',
+        origin: 'discord',
+      })
+
+      const [entry] = (await service.listAuditLog(listQuery())).items
+
+      expect(entry).toMatchObject({
+        actor: null,
+        discordActor: {
+          discordUserId: '183948273649182736',
+          discordUsername: 'jeremy',
+        },
+        origin: 'discord',
+      })
+    })
+
+    it.each([
+      [
+        'web',
+        { actorEmail: 'ada@lilnas.io', actorUserId: 'user-1', origin: 'web' },
+      ],
+      ['service', { origin: 'service' }],
+    ] as const)(
+      'leaves `discordActor` null (not undefined) on a `%s` row',
+      async (_origin, overrides) => {
+        seedRow(overrides)
+
+        const [entry] = (await service.listAuditLog(listQuery())).items
+
+        expect(entry).toHaveProperty('discordActor', null)
+      },
+    )
 
     it('narrows by action', async () => {
       seedRow({ action: 'video.create' })

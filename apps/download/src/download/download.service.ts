@@ -253,8 +253,16 @@ export class DownloadService {
     const record: DownloadJobRecord = {
       completedAt: null,
       createdAt: now,
+      // Required-but-nullable on `DownloadJobSchema`, so both are stated
+      // rather than omitted. `discordRequester` is threaded in from
+      // `getDiscordRequester(req)` by the controller layer, not here;
+      // `linkedDiscord` is never persisted at all (it is resolved at read
+      // time from `apps/auth`'s link table) and so is always null on a
+      // freshly minted record.
+      discordRequester: null,
       hiddenAttribution: hiddenAttribution ?? false,
       id: jobId,
+      linkedDiscord: null,
       mediaId: mediaId({ id: video.id, type: DownloadType.Video }),
       requester: requester ?? null,
       status: DownloadJobStatus.Pending,

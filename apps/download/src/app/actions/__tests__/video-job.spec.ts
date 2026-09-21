@@ -37,8 +37,10 @@ const VIDEO: Video = {
 const JOB: DownloadJob = {
   completedAt: null,
   createdAt: '2026-09-15T12:00:00.000Z',
+  discordRequester: null,
   hiddenAttribution: false,
   id: JOB_ID,
+  linkedDiscord: null,
   media: VIDEO,
   requester: { email: 'jeremy@lilnas.io', userId: 'u_1' },
   status: DownloadJobStatus.Downloading,

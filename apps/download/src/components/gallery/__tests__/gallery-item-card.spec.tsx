@@ -39,6 +39,7 @@ const ADMIN: Viewer = { email: 'ops@lilnas.io', isAdmin: true, userId: 'u_9' }
 function item(overrides: Partial<GalleryItem> = {}): GalleryItem {
   return {
     downloadCount: 1,
+    lastDiscordRequester: null,
     lastDownloadedAt: '2026-09-15T11:48:00.000Z',
     lastRequester: { email: 'jeremy.asuncion@lilnas.io', userId: 'u_1' },
     media: VIDEO,

@@ -59,11 +59,21 @@ export const DOWNLOAD_JOB_STATUSES = [
 ] as const
 
 // Not mirrored by any pre-existing shared TS enum (unlike the two tuples
-// above) — this distinction is new in Phase 1, so there's nothing external
-// to drift out of sync with. See `resolveForwardedUser`/`getForwardedUser`
-// (`src/auth/forwarded-user.ts`) for where a request lands in one bucket or
-// the other.
-export const JOB_ORIGINS = ['service', 'web'] as const
+// above) — this distinction was new in Phase 1, so there was nothing
+// external to drift out of sync with. See `resolveForwardedUser`/
+// `getForwardedUser` (`src/auth/forwarded-user.ts`) for where a request lands
+// in the first two buckets, and `getDiscordRequester`
+// (`src/auth/discord-user.ts`) for the third.
+//
+// ⚠️ No `AssertSameUnion` pin guards this tuple, unlike `DOWNLOAD_TYPES` /
+// `DOWNLOAD_JOB_STATUSES` / the audit tuples below: origins have no shared TS
+// enum to pin against. They do, however, have a *wire* counterpart -
+// `AuditLogEntrySchema.origin` in `@lilnas/utils/download/schema` is an
+// inline `z.enum(['service', 'web', 'discord'])`. That literal and this tuple
+// must stay identical, and nothing but this comment says so; a zod value
+// import here is not an option (drizzle-kit bundles this file - see the
+// `audit_log` banner comment below for the full reasoning).
+export const JOB_ORIGINS = ['service', 'web', 'discord'] as const
 
 // Compile-time-only guard that the SQL enum tuples in this file never
 // silently drift from the shared TS enums they mirror (`DownloadType`/
@@ -106,6 +116,28 @@ export const jobs = sqliteTable(
     // (src/download/attribution.ts), the truth stays here.
     requesterEmail: text('requester_email'),
     requesterUserId: text('requester_user_id'),
+
+    // Phase 018: who submitted this job over `apps/tdr-bot`'s `/download`
+    // command. Populated *instead of* the two requester columns above, never
+    // alongside them - a Discord submission reaches this service as a
+    // tdr-bot service call carrying `x-discord-user-id`/`x-discord-username`,
+    // with no `X-Forwarded-User` to resolve. `jobs_origin_matches_requester`
+    // below is what makes that mutual exclusion a DB-level invariant.
+    //
+    // TEXT, not INTEGER, for `discord_user_id`: a snowflake exceeds
+    // `Number.MAX_SAFE_INTEGER`, so an integer column would hand JS back a
+    // rounded id. `discord_username` is the post-2023 handle, never the
+    // display name - that rides the optional `x-discord-display-name` header
+    // and deliberately never reaches a row here (see
+    // `DiscordRequesterSchema`).
+    //
+    // The *linked* Discord account (`DownloadJob.linkedDiscord`) has no
+    // columns here on purpose: that link is owned by `apps/auth` and resolved
+    // at read time, so persisting a copy would just be a second cache with
+    // its own staleness.
+    discordUserId: text('discord_user_id'),
+    discordUsername: text('discord_username'),
+
     origin: text({ enum: JOB_ORIGINS }).notNull(),
     hiddenAttribution: integer('hidden_attribution', { mode: 'boolean' })
       .notNull()
@@ -144,6 +176,11 @@ export const jobs = sqliteTable(
   t => [
     index('jobs_status_idx').on(t.status),
     index('jobs_requester_email_idx').on(t.requesterEmail),
+    // The Discord-side counterpart of `jobs_requester_email_idx`: "everything
+    // this Discord account asked for" is the same lookup, keyed on the only
+    // stable handle a Discord submission carries (the username is renameable,
+    // the snowflake is not).
+    index('jobs_discord_user_id_idx').on(t.discordUserId),
     index('jobs_created_at_idx').on(t.createdAt),
     // Every Phase 2 list endpoint shares the identical
     // `ORDER BY created_at DESC, id DESC` (see jobs.repo.ts's cursor
@@ -154,15 +191,25 @@ export const jobs = sqliteTable(
     index('jobs_created_at_id_idx').on(t.createdAt, t.id),
     // The gallery's `GROUP BY (type, media_id)` (plan §3.2).
     index('jobs_type_media_id_idx').on(t.type, t.mediaId),
-    // Ties `origin` to the requester columns' nullability so the two can't
-    // drift apart at the DB layer - `origin` is otherwise a write-only
-    // derived column (see download-state.service.ts's buildJobRow()) with
-    // nothing else enforcing the pairing.
+    // Ties `origin` to the attribution columns' nullability so the three
+    // can't drift apart at the DB layer - `origin` is otherwise a write-only
+    // derived column (see `buildJobRow()` in job-row.ts, the only place it is
+    // derived) with nothing else enforcing the pairing.
+    //
+    // Each arm pins *both* halves: the columns that must be set and the ones
+    // that must not. Without the negative half a `web` row could also carry a
+    // Discord pair, which would make `origin` decorative rather than
+    // authoritative and leave every consumer guessing which attribution to
+    // render.
     check(
       'jobs_origin_matches_requester',
       sql`(
-        (${t.origin} = 'web'     AND ${t.requesterEmail} IS NOT NULL AND ${t.requesterUserId} IS NOT NULL) OR
-        (${t.origin} = 'service' AND ${t.requesterEmail} IS NULL     AND ${t.requesterUserId} IS NULL)
+        (${t.origin} = 'web'     AND ${t.requesterEmail} IS NOT NULL AND ${t.requesterUserId} IS NOT NULL
+                                 AND ${t.discordUserId} IS NULL      AND ${t.discordUsername} IS NULL) OR
+        (${t.origin} = 'discord' AND ${t.discordUserId} IS NOT NULL  AND ${t.discordUsername} IS NOT NULL
+                                 AND ${t.requesterEmail} IS NULL     AND ${t.requesterUserId} IS NULL) OR
+        (${t.origin} = 'service' AND ${t.requesterEmail} IS NULL     AND ${t.requesterUserId} IS NULL
+                                 AND ${t.discordUserId} IS NULL      AND ${t.discordUsername} IS NULL)
       )`,
     ),
     // Ties `media_id`'s prefix to `type`, the DB-level expression of the
@@ -341,10 +388,11 @@ export const auditLog = sqliteTable(
   'audit_log',
   {
     id: integer('id', { mode: 'number' }).primaryKey({ autoIncrement: true }),
-    // Same `service`/`web` split - and the same meaning - as `jobs.origin`,
-    // reusing that tuple rather than a parallel one: a null actor on a `web`
-    // row would mean a browser request arrived without `X-Forwarded-User`,
-    // which is a bug, not a shape the log should be able to record.
+    // Same `service`/`web`/`discord` split - and the same meaning - as
+    // `jobs.origin`, reusing that tuple rather than a parallel one: a null
+    // actor on a `web` row would mean a browser request arrived without
+    // `X-Forwarded-User`, which is a bug, not a shape the log should be able
+    // to record.
     origin: text({ enum: JOB_ORIGINS }).notNull(),
     // Nullable, unlike `bad_files`' NOT NULL flagger columns: a service
     // caller (tdr-bot, the yt-dlp update poller) has no forwarded identity,
@@ -352,6 +400,13 @@ export const auditLog = sqliteTable(
     // ties the nullability back to `origin`.
     actorEmail: text('actor_email'),
     actorUserId: text('actor_user_id'),
+    // Phase 018, the exact counterpart of `jobs.discord_user_id`/
+    // `jobs.discord_username` - same TEXT-for-a-snowflake reasoning, same
+    // handle-not-display-name rule, same mutual exclusion with the two
+    // columns above. Prefixed `actor_` to match this table's half of the
+    // naming rather than `jobs`': everything here is "who did it".
+    actorDiscordUserId: text('actor_discord_user_id'),
+    actorDiscordUsername: text('actor_discord_username'),
     action: text({ enum: AUDIT_ACTIONS_LOCAL }).notNull(),
     // Null together: `ytdlp.check_update` acts on nothing addressable.
     // `targetId` is a `jobs.id` when `targetType` is `'job'` and a
@@ -379,14 +434,24 @@ export const auditLog = sqliteTable(
     // The two filter facets the admin UI exposes.
     index('audit_log_actor_email_idx').on(t.actorEmail),
     index('audit_log_action_idx').on(t.action),
+    // The Discord-side counterpart of `audit_log_actor_email_idx`, mirroring
+    // `jobs_discord_user_id_idx` for the same "everything this account did"
+    // lookup.
+    index('audit_log_actor_discord_user_id_idx').on(t.actorDiscordUserId),
     // The exact shape of `jobs_origin_matches_requester`, for the exact same
     // reason: `origin` is a derived, write-only column, so without this the
-    // two halves of "who did it" could drift apart at the DB layer.
+    // three halves of "who did it" could drift apart at the DB layer. Each
+    // arm pins the columns that must be NULL as well as the ones that must
+    // not - see that CHECK's comment for why the negative half matters.
     check(
       'audit_log_origin_matches_actor',
       sql`(
-        (${t.origin} = 'web'     AND ${t.actorEmail} IS NOT NULL AND ${t.actorUserId} IS NOT NULL) OR
-        (${t.origin} = 'service' AND ${t.actorEmail} IS NULL     AND ${t.actorUserId} IS NULL)
+        (${t.origin} = 'web'     AND ${t.actorEmail} IS NOT NULL         AND ${t.actorUserId} IS NOT NULL
+                                 AND ${t.actorDiscordUserId} IS NULL     AND ${t.actorDiscordUsername} IS NULL) OR
+        (${t.origin} = 'discord' AND ${t.actorDiscordUserId} IS NOT NULL AND ${t.actorDiscordUsername} IS NOT NULL
+                                 AND ${t.actorEmail} IS NULL             AND ${t.actorUserId} IS NULL) OR
+        (${t.origin} = 'service' AND ${t.actorEmail} IS NULL             AND ${t.actorUserId} IS NULL
+                                 AND ${t.actorDiscordUserId} IS NULL     AND ${t.actorDiscordUsername} IS NULL)
       )`,
     ),
     // A target type with no id (or an id with no type) is a half-written row:

@@ -45,8 +45,10 @@ function buildRecord(
   return {
     completedAt: null,
     createdAt: NOW_ISO,
+    discordRequester: null,
     hiddenAttribution: false,
     id: `${type}-1`,
+    linkedDiscord: null,
     mediaId,
     requester: null,
     status: DownloadJobStatus.Requested,
@@ -165,8 +167,13 @@ describe('MediaDownloadService', () => {
       expect(record).toEqual({
         completedAt: null,
         createdAt: expect.any(String),
+        // Both null on a movie request: it arrives over the web or as a
+        // service call, never over Discord, and `linkedDiscord` is resolved
+        // at read time rather than minted here.
+        discordRequester: null,
         hiddenAttribution: false,
         id: job.id,
+        linkedDiscord: null,
         mediaId: 'tmdb:123',
         requester: null,
         status: DownloadJobStatus.Searching,

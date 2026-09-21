@@ -102,7 +102,9 @@ describe('DownloadController - detail-route restart fallback', () => {
     return {
       completedAt: null,
       createdAt: NOW_ISO,
+      discordRequester: null,
       hiddenAttribution: false,
+      linkedDiscord: null,
       requester: { email: 'alice@example.com', userId: 'u1' },
       status: DownloadJobStatus.Completed,
       updatedAt: NOW_ISO,

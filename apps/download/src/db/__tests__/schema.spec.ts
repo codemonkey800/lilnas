@@ -123,6 +123,12 @@ describe('schema + migrations', () => {
         'status',
         'requester_email',
         'requester_user_id',
+        // Phase 018: appended next to the requester pair they are mutually
+        // exclusive with, not at the end of the table - migration 0002
+        // recreates `jobs` wholesale (SQLite cannot ALTER a CHECK), so
+        // physical column order was ours to choose.
+        'discord_user_id',
+        'discord_username',
         'origin',
         'hidden_attribution',
         'error',
@@ -165,6 +171,142 @@ describe('schema + migrations', () => {
       close()
     }
   })
+
+  // ---- `jobs_origin_matches_requester`, Phase 018's three-way form ----
+
+  type JobInsert = typeof jobs.$inferInsert
+  type JobOrigin = NonNullable<JobInsert['origin']>
+  type JobAttribution = Pick<
+    JobInsert,
+    'discordUserId' | 'discordUsername' | 'requesterEmail' | 'requesterUserId'
+  >
+
+  // A real snowflake, written as a **string** - it exceeds
+  // `Number.MAX_SAFE_INTEGER`, so as a numeric literal it would both round and
+  // trip eslint's `no-loss-of-precision`. That is the whole reason
+  // `discord_user_id` is a TEXT column.
+  const DISCORD_ATTRIBUTION: JobAttribution = {
+    discordUserId: '183948273649182736',
+    discordUsername: 'jeremy',
+  }
+
+  const WEB_ATTRIBUTION: JobAttribution = {
+    requesterEmail: 'alice@example.com',
+    requesterUserId: 'user_1',
+  }
+
+  /**
+   * The assertion has to run *inside* the `try`, not be returned from it: the
+   * `finally` closes the database, and a closure handed back to the caller
+   * would execute against a closed handle and throw the wrong error.
+   */
+  function expectJobRejected(
+    origin: JobOrigin,
+    attribution: JobAttribution,
+  ): void {
+    const { db, close } = createTestDb()
+    try {
+      expect(() =>
+        db
+          .insert(jobs)
+          .values({
+            id: `job-${origin}`,
+            mediaId: 'video:v1',
+            origin,
+            status: 'pending',
+            type: 'video',
+            ...attribution,
+          })
+          .run(),
+      ).toThrow(/CHECK constraint failed/)
+    } finally {
+      close()
+    }
+  }
+
+  // Each arm of the CHECK pins *both* halves - which columns must be set and
+  // which must be NULL - so the accept matrix below (one row per origin,
+  // carrying exactly its own attribution and nothing else) and the reject
+  // matrix after it are testing two genuinely different things, not the same
+  // thing twice.
+  it.each<[JobOrigin, JobAttribution]>([
+    ['service', {}],
+    ['web', WEB_ATTRIBUTION],
+    ['discord', DISCORD_ATTRIBUTION],
+  ])(
+    '`jobs_origin_matches_requester` accepts a `%s` row carrying exactly its own attribution',
+    (origin, attribution) => {
+      const { db, close } = createTestDb()
+      try {
+        db.insert(jobs)
+          .values({
+            id: `job-${origin}`,
+            mediaId: 'video:v1',
+            origin,
+            status: 'pending',
+            type: 'video',
+            ...attribution,
+          })
+          .run()
+
+        expect(db.select().from(jobs).all()[0]).toMatchObject({
+          discordUserId: attribution.discordUserId ?? null,
+          discordUsername: attribution.discordUsername ?? null,
+          origin,
+          requesterEmail: attribution.requesterEmail ?? null,
+          requesterUserId: attribution.requesterUserId ?? null,
+        })
+      } finally {
+        close()
+      }
+    },
+  )
+
+  it.each<[string, JobOrigin, JobAttribution]>([
+    ['a `service` row carrying a web requester', 'service', WEB_ATTRIBUTION],
+    [
+      'a `service` row carrying a Discord requester',
+      'service',
+      DISCORD_ATTRIBUTION,
+    ],
+    ['a `web` row carrying no requester at all', 'web', {}],
+    [
+      'a `web` row carrying only half its requester',
+      'web',
+      { requesterEmail: WEB_ATTRIBUTION.requesterEmail },
+    ],
+    [
+      'a `web` row carrying a Discord requester as well',
+      'web',
+      { ...WEB_ATTRIBUTION, ...DISCORD_ATTRIBUTION },
+    ],
+    [
+      'a `web` row carrying a Discord requester instead',
+      'web',
+      DISCORD_ATTRIBUTION,
+    ],
+    ['a `discord` row carrying no identity at all', 'discord', {}],
+    [
+      'a `discord` row carrying only half its identity',
+      'discord',
+      { discordUserId: DISCORD_ATTRIBUTION.discordUserId },
+    ],
+    [
+      'a `discord` row carrying a web requester as well',
+      'discord',
+      { ...WEB_ATTRIBUTION, ...DISCORD_ATTRIBUTION },
+    ],
+    [
+      'a `discord` row carrying a web requester instead',
+      'discord',
+      WEB_ATTRIBUTION,
+    ],
+  ])(
+    '`jobs_origin_matches_requester` rejects %s',
+    (_label, origin, attribution) => {
+      expectJobRejected(origin, attribution)
+    },
+  )
 
   it('re-asserts foreign_keys = ON after migrate()', () => {
     const sqlite = new BetterSqlite3(':memory:')
@@ -219,6 +361,34 @@ describe('schema + migrations', () => {
         .map(row => (row as { name: string }).name)
 
       expect(indexNames).toContain('jobs_created_at_id_idx')
+    } finally {
+      close()
+    }
+  })
+
+  it('creates all six `jobs` indexes', () => {
+    const { sqlite, close } = createTestDb()
+    try {
+      const indexNames = (
+        sqlite
+          .prepare(
+            `SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'jobs' AND name NOT LIKE 'sqlite_%'`,
+          )
+          .all() as Array<{ name: string }>
+      )
+        .map(row => row.name)
+        .sort()
+
+      expect(indexNames).toEqual([
+        'jobs_created_at_id_idx',
+        'jobs_created_at_idx',
+        // Phase 018, the Discord-side counterpart of
+        // `jobs_requester_email_idx`.
+        'jobs_discord_user_id_idx',
+        'jobs_requester_email_idx',
+        'jobs_status_idx',
+        'jobs_type_media_id_idx',
+      ])
     } finally {
       close()
     }
@@ -830,6 +1000,9 @@ describe('schema + migrations', () => {
         'origin',
         'actor_email',
         'actor_user_id',
+        // Phase 018, same placement reasoning as `jobs.discord_user_id`.
+        'actor_discord_user_id',
+        'actor_discord_username',
         'action',
         'target_type',
         'target_id',
@@ -868,37 +1041,96 @@ describe('schema + migrations', () => {
     }
   })
 
-  it('`audit_log_origin_matches_actor` rejects a `web` row with no actor', () => {
-    const { db, close } = createTestDb()
-    try {
-      expect(() =>
-        db
-          .insert(auditLog)
-          .values({ action: 'video.create', origin: 'web' })
-          .run(),
-      ).toThrow(/CHECK constraint failed/)
-    } finally {
-      close()
-    }
-  })
+  // ---- `audit_log_origin_matches_actor`, the exact mirror of
+  // `jobs_origin_matches_requester` above (same three arms, same
+  // both-halves-pinned shape), so the matrix below is deliberately the same
+  // matrix with `actor_`-prefixed columns.
 
-  it('`audit_log_origin_matches_actor` rejects a `service` row that carries an actor', () => {
+  type AuditInsert = typeof auditLog.$inferInsert
+  type AuditActor = Pick<
+    AuditInsert,
+    'actorDiscordUserId' | 'actorDiscordUsername' | 'actorEmail' | 'actorUserId'
+  >
+
+  const DISCORD_ACTOR: AuditActor = {
+    actorDiscordUserId: '183948273649182736',
+    actorDiscordUsername: 'jeremy',
+  }
+
+  const WEB_ACTOR: AuditActor = {
+    actorEmail: 'alice@example.com',
+    actorUserId: 'user_1',
+  }
+
+  function expectAuditRejected(origin: JobOrigin, actor: AuditActor): void {
     const { db, close } = createTestDb()
     try {
       expect(() =>
         db
           .insert(auditLog)
-          .values({
-            action: 'video.create',
-            actorEmail: 'alice@example.com',
-            actorUserId: 'user_1',
-            origin: 'service',
-          })
+          .values({ action: 'video.create', origin, ...actor })
           .run(),
       ).toThrow(/CHECK constraint failed/)
     } finally {
       close()
     }
+  }
+
+  it.each<[JobOrigin, AuditActor]>([
+    ['service', {}],
+    ['web', WEB_ACTOR],
+    ['discord', DISCORD_ACTOR],
+  ])(
+    '`audit_log_origin_matches_actor` accepts a `%s` row carrying exactly its own actor',
+    (origin, actor) => {
+      const { db, close } = createTestDb()
+      try {
+        db.insert(auditLog)
+          .values({ action: 'video.create', origin, ...actor })
+          .run()
+
+        expect(db.select().from(auditLog).all()[0]).toMatchObject({
+          actorDiscordUserId: actor.actorDiscordUserId ?? null,
+          actorDiscordUsername: actor.actorDiscordUsername ?? null,
+          actorEmail: actor.actorEmail ?? null,
+          actorUserId: actor.actorUserId ?? null,
+          origin,
+        })
+      } finally {
+        close()
+      }
+    },
+  )
+
+  it.each<[string, JobOrigin, AuditActor]>([
+    ['a `service` row carrying a web actor', 'service', WEB_ACTOR],
+    ['a `service` row carrying a Discord actor', 'service', DISCORD_ACTOR],
+    ['a `web` row carrying no actor at all', 'web', {}],
+    [
+      'a `web` row carrying only half its actor',
+      'web',
+      { actorEmail: WEB_ACTOR.actorEmail },
+    ],
+    [
+      'a `web` row carrying a Discord actor as well',
+      'web',
+      { ...WEB_ACTOR, ...DISCORD_ACTOR },
+    ],
+    ['a `web` row carrying a Discord actor instead', 'web', DISCORD_ACTOR],
+    ['a `discord` row carrying no actor at all', 'discord', {}],
+    [
+      'a `discord` row carrying only half its actor',
+      'discord',
+      { actorDiscordUserId: DISCORD_ACTOR.actorDiscordUserId },
+    ],
+    [
+      'a `discord` row carrying a web actor as well',
+      'discord',
+      { ...WEB_ACTOR, ...DISCORD_ACTOR },
+    ],
+    ['a `discord` row carrying a web actor instead', 'discord', WEB_ACTOR],
+  ])('`audit_log_origin_matches_actor` rejects %s', (_label, origin, actor) => {
+    expectAuditRejected(origin, actor)
   })
 
   it.each([
@@ -926,7 +1158,7 @@ describe('schema + migrations', () => {
     },
   )
 
-  it('creates all three `audit_log` indexes', () => {
+  it('creates all four `audit_log` indexes', () => {
     const { sqlite, close } = createTestDb()
     try {
       const indexNames = sqlite
@@ -939,6 +1171,7 @@ describe('schema + migrations', () => {
 
       expect(indexNames).toEqual([
         'audit_log_action_idx',
+        'audit_log_actor_discord_user_id_idx',
         'audit_log_actor_email_idx',
         'audit_log_created_at_id_idx',
       ])

@@ -16,6 +16,7 @@ function entry(overrides: Partial<AuditLogEntry> = {}): AuditLogEntry {
     action: 'video.create',
     actor: { email: 'jeremy@lilnas.io', userId: 'u_jeremy' },
     createdAt: '2026-09-16T15:42:08.000Z',
+    discordActor: null,
     id: 1,
     metadata: null,
     origin: 'web',

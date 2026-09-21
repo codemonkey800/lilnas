@@ -146,6 +146,7 @@ describe('AdminController', () => {
             action: 'video.create' as const,
             actor: { email: 'ada@lilnas.io', userId: 'u-1' },
             createdAt: '2026-06-15T12:00:00.000Z',
+            discordActor: null,
             id: 7,
             metadata: { url: 'https://example.com/watch' },
             origin: 'web' as const,

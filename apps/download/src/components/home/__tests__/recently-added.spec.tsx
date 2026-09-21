@@ -15,6 +15,7 @@ const NOW = Date.parse('2026-09-15T20:00:00.000Z')
 function video(index: number): GalleryItem {
   return {
     downloadCount: 1,
+    lastDiscordRequester: null,
     lastDownloadedAt: '2026-09-15T19:48:00.000Z',
     lastRequester: null,
     media: {

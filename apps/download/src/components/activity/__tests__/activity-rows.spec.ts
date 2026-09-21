@@ -15,8 +15,10 @@ function video(overrides: Partial<DownloadJob> = {}): DownloadJob {
   return {
     completedAt: null,
     createdAt: '2026-09-15T11:58:00.000Z',
+    discordRequester: null,
     hiddenAttribution: false,
     id: 'job-video',
+    linkedDiscord: null,
     media: {
       id: 'video:v1',
       sourceUrl: 'https://example.com/v1',
@@ -34,8 +36,10 @@ function movie(overrides: Partial<DownloadJob> = {}): DownloadJob {
   return {
     completedAt: null,
     createdAt: '2026-09-15T11:50:00.000Z',
+    discordRequester: null,
     hiddenAttribution: false,
     id: 'job-movie',
+    linkedDiscord: null,
     media: {
       id: 'tmdb:438631',
       queueSnapshot: { progress: 63.7 },

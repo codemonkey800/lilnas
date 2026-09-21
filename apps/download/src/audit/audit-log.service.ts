@@ -75,12 +75,18 @@ export interface AuditEvent {
 }
 
 /**
- * `AuditLogRow` -> the wire shape. The two nullable actor columns collapse
- * back into the single nullable `actor` object `AuditLogEntrySchema`
- * describes; `origin` is carried across untouched, so a `web` row with a null
- * actor (a browser request that somehow arrived with no `X-Forwarded-User`)
- * stays visible as the anomaly it is rather than being laundered into
- * looking like a service call.
+ * `AuditLogRow` -> the wire shape. Each pair of nullable actor columns
+ * collapses back into one nullable object: `actor_email`/`actor_user_id` into
+ * `actor`, `actor_discord_user_id`/`actor_discord_username` into
+ * `discordActor` - exactly the collapse `hydrateJobRow()` (db/job-row.ts)
+ * performs for `jobs`, and both halves require *both* columns for the same
+ * reason: the half-populated case is unrepresentable at the DB layer
+ * (`audit_log_origin_matches_actor`).
+ *
+ * `origin` is carried across untouched, so a `web` row with a null actor (a
+ * browser request that somehow arrived with no `X-Forwarded-User`) stays
+ * visible as the anomaly it is rather than being laundered into looking like
+ * a service call.
  */
 function hydrateAuditLogRow(row: AuditLogRow): AuditLogEntry {
   return {
@@ -90,6 +96,13 @@ function hydrateAuditLogRow(row: AuditLogRow): AuditLogEntry {
         ? { email: row.actorEmail, userId: row.actorUserId }
         : null,
     createdAt: row.createdAt.toISOString(),
+    discordActor:
+      row.actorDiscordUserId && row.actorDiscordUsername
+        ? {
+            discordUserId: row.actorDiscordUserId,
+            discordUsername: row.actorDiscordUsername,
+          }
+        : null,
     id: row.id,
     metadata: row.metadata,
     origin: row.origin,

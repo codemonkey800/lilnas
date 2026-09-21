@@ -71,8 +71,10 @@ function job(overrides: Partial<DownloadJob> = {}): DownloadJob {
   return {
     completedAt: null,
     createdAt: '2026-09-11T11:58:00.000Z',
+    discordRequester: null,
     hiddenAttribution: false,
     id: 'job_1',
+    linkedDiscord: null,
     media: {
       id: 'video:abc',
       sourceUrl: 'https://youtube.com/watch?v=abc',

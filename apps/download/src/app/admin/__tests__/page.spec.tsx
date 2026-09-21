@@ -37,8 +37,10 @@ function job(id: string, email: string | null, title: string): DownloadJob {
   return {
     completedAt: null,
     createdAt: '2026-09-16T11:48:00.000Z',
+    discordRequester: null,
     hiddenAttribution: false,
     id,
+    linkedDiscord: null,
     media: { id: `tmdb:${id}`, title, tmdbId: 1, type: DownloadType.Movie },
     requester: email === null ? null : { email, userId: `u_${email}` },
     status: DownloadJobStatus.Completed,
@@ -50,6 +52,7 @@ const AUDIT_ENTRY: AuditLogEntry = {
   action: 'video.create',
   actor: null,
   createdAt: '2026-09-16T11:42:08.000Z',
+  discordActor: null,
   id: 1,
   metadata: null,
   origin: 'service',

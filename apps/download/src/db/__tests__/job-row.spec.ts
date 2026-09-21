@@ -21,12 +21,15 @@ function insertAndRead(
 }
 
 // The columns a `DownloadJobRecord` actually carries. `origin` is excluded
-// (write-only, re-derived from `requester`) and `updatedAt` is excluded
-// (stamped fresh on every buildJobRow call). Everything else here must
-// survive a row -> hydrateJobRow -> buildJobRow round trip unchanged.
+// (write-only, re-derived from which attribution the record carries) and
+// `updatedAt` is excluded (stamped fresh on every buildJobRow call).
+// Everything else here must survive a row -> hydrateJobRow -> buildJobRow
+// round trip unchanged.
 const ROUND_TRIP_COLUMNS = [
   'completedAt',
   'createdAt',
+  'discordUserId',
+  'discordUsername',
   'error',
   'hiddenAttribution',
   'id',
@@ -116,6 +119,40 @@ describe('job-row codec', () => {
       status: 'searching',
       type: 'show',
       updatedAt: new Date('2026-01-04T00:00:00.000Z'),
+    },
+    'video (discord origin)': {
+      completedAt: null,
+      createdAt: new Date('2026-01-06T00:00:00.000Z'),
+      // A real snowflake, as a string: it exceeds
+      // `Number.MAX_SAFE_INTEGER`, which is why the column is TEXT.
+      discordUserId: '183948273649182736',
+      discordUsername: 'jeremy',
+      error: null,
+      hiddenAttribution: false,
+      id: 'video-discord',
+      mediaId: 'video:v3',
+      origin: 'discord',
+      requesterEmail: null,
+      requesterUserId: null,
+      status: 'downloading',
+      type: 'video',
+      updatedAt: new Date('2026-01-06T00:00:00.000Z'),
+    },
+    'video (discord origin, hidden)': {
+      completedAt: new Date('2026-01-07T00:00:00.000Z'),
+      createdAt: new Date('2026-01-07T00:00:00.000Z'),
+      discordUserId: '298374651029384756',
+      discordUsername: 'sam.doe',
+      error: null,
+      hiddenAttribution: true,
+      id: 'video-discord-hidden',
+      mediaId: 'video:v4',
+      origin: 'discord',
+      requesterEmail: null,
+      requesterUserId: null,
+      status: 'completed',
+      type: 'video',
+      updatedAt: new Date('2026-01-07T00:00:00.000Z'),
     },
     'show (scoped to one season)': {
       completedAt: null,
@@ -249,4 +286,92 @@ describe('job-row codec', () => {
       close()
     }
   })
+
+  // ---- Phase 018: the Discord half of the codec ----
+
+  it('reconstructs discordRequester as an object when both Discord columns are set', () => {
+    const { db, close } = createTestDb()
+    try {
+      const row = insertAndRead(db, fixtures['video (discord origin)']!)
+
+      expect(hydrateJobRow(row).discordRequester).toEqual({
+        discordUserId: '183948273649182736',
+        discordUsername: 'jeremy',
+      })
+      expect(hydrateJobRow(row).requester).toBeNull()
+    } finally {
+      close()
+    }
+  })
+
+  it.each([
+    'video (web origin, hidden, completed)',
+    'video (service origin, minimal)',
+  ])(
+    'reconstructs discordRequester as null (not undefined) on a %s row',
+    name => {
+      const { db, close } = createTestDb()
+      try {
+        const row = insertAndRead(db, fixtures[name]!)
+        expect(hydrateJobRow(row).discordRequester).toBeNull()
+      } finally {
+        close()
+      }
+    },
+  )
+
+  // `linkedDiscord` has no column behind it - it is resolved from `apps/auth`
+  // at read time - so a hydrated record must state that as `null` rather than
+  // leave the (required-but-nullable) key off the object entirely.
+  it('always hydrates linkedDiscord as null - it has no column to come back from', () => {
+    const { db, close } = createTestDb()
+    try {
+      for (const fixture of Object.values(fixtures)) {
+        const row = insertAndRead(db, fixture)
+        expect(hydrateJobRow(row).linkedDiscord).toBeNull()
+      }
+    } finally {
+      close()
+    }
+  })
+
+  // The origin derivation is the whole reason `origin` can be dropped on the
+  // way out and rebuilt on the way in. Three arms now, not two.
+  it.each([
+    ['video (web origin, hidden, completed)', 'web'],
+    ['video (service origin, minimal)', 'service'],
+    ['video (discord origin)', 'discord'],
+  ] as const)('re-derives origin `%s` -> `%s`', (name, origin) => {
+    const { db, close } = createTestDb()
+    try {
+      const row = insertAndRead(db, fixtures[name]!)
+      expect(buildJobRow(hydrateJobRow(row)).origin).toBe(origin)
+    } finally {
+      close()
+    }
+  })
+
+  // The round trip is only trustworthy if what it produces is still storable:
+  // `jobs_origin_matches_requester` rejects a row whose derived `origin`
+  // disagrees with its columns, so re-inserting a rebuilt row is a direct
+  // test of the derivation against the DB's own opinion of it.
+  it.each(Object.keys(fixtures))(
+    're-inserts a rebuilt %s row without tripping the origin CHECK',
+    name => {
+      const { db, close } = createTestDb()
+      try {
+        const row = insertAndRead(db, fixtures[name]!)
+        const rebuilt = buildJobRow(hydrateJobRow(row))
+
+        expect(() =>
+          db
+            .insert(jobs)
+            .values({ ...rebuilt, id: `${rebuilt.id}-copy` })
+            .run(),
+        ).not.toThrow()
+      } finally {
+        close()
+      }
+    },
+  )
 })

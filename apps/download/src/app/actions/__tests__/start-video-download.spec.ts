@@ -33,8 +33,10 @@ const mockRedirect = jest.mocked(redirect)
 const JOB: DownloadJob = {
   completedAt: null,
   createdAt: '2026-09-15T12:00:00.000Z',
+  discordRequester: null,
   hiddenAttribution: false,
   id: 'job_1',
+  linkedDiscord: null,
   media: {
     id: 'video:V1StGXR8Z5',
     sourceUrl: 'https://youtube.com/watch?v=7f2k9dQ',

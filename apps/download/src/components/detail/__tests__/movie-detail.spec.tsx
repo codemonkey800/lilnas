@@ -98,8 +98,10 @@ const ON_DISK: Movie = { ...MOVIE, currentReleaseGuid: CURRENT_GUID }
 const JOB: DownloadJob = {
   completedAt: '2026-09-15T11:48:00.000Z',
   createdAt: '2026-09-15T11:20:00.000Z',
+  discordRequester: null,
   hiddenAttribution: false,
   id: 'job-1',
+  linkedDiscord: null,
   media: MOVIE,
   requester: { email: 'jeremy.asuncion@lilnas.io', userId: 'u_jeremy' },
   status: DownloadJobStatus.Completed,

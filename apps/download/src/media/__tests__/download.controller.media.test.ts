@@ -153,8 +153,10 @@ describe('DownloadController - media endpoints', () => {
     return {
       completedAt: null,
       createdAt: NOW_ISO,
+      discordRequester: null,
       hiddenAttribution: false,
       id,
+      linkedDiscord: null,
       media,
       requester: null,
       status,

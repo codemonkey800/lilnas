@@ -28,6 +28,7 @@ const FACETS: DownloadGalleryFacets = {
 
 const ITEM: GalleryItem = {
   downloadCount: 1,
+  lastDiscordRequester: null,
   lastDownloadedAt: '2026-09-01T00:00:00.000Z',
   lastRequester: { email: 'jeremy@lilnas.io', userId: 'u_1' },
   media: {

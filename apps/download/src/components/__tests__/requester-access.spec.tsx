@@ -64,8 +64,10 @@ function job(requester: JobRequester | null): DownloadJob {
   return {
     completedAt: null,
     createdAt: '2026-09-15T11:40:00.000Z',
+    discordRequester: null,
     hiddenAttribution: false,
     id: 'job-1',
+    linkedDiscord: null,
     media: {
       id: 'tmdb:438631',
       title: 'Salt & Ceremony',
@@ -81,6 +83,7 @@ function job(requester: JobRequester | null): DownloadJob {
 function item(requester: JobRequester | null): GalleryItem {
   return {
     downloadCount: 1,
+    lastDiscordRequester: null,
     lastDownloadedAt: '2026-09-15T11:48:00.000Z',
     lastRequester: requester,
     media: {
