@@ -580,9 +580,9 @@ SELECT`, drop, rename). Inspect the generated SQL: every existing column must be
   > - Exact index names for A2/B1 to use:
   >   `discord_link_user_id_unique_idx`, `discord_link_discord_user_id_unique_idx`.
   >   Row types: `DiscordIdentityRow = { discordUserId: string; username: string;
-  >   displayName: string | null; firstSeenAt: Date; lastSeenAt: Date }`;
+displayName: string | null; firstSeenAt: Date; lastSeenAt: Date }`;
   >   `DiscordLinkRow = { id: number; userId: string; discordUserId: string; createdAt:
-  >   Date }` (timestamps are `Date`, not epoch ms).
+Date }` (timestamps are `Date`, not epoch ms).
   > - Cascade semantics settled and tested in **both** directions: deleting a `user`
   >   drops the link but **leaves the `discord_identity` row** — the roster is an
   >   observation log, not a consequence of the link. Deleting an identity drops the
@@ -595,7 +595,7 @@ SELECT`, drop, rename). Inspect the generated SQL: every existing column must be
   >   comment block also gained a `discord_identity · discord_link` entry to match house
   >   style.
 
-- [ ] **A2. Repo functions.** Create `apps/auth/src/db/discord-link.repo.ts` — plain
+- [x] **A2. Repo functions.** `1041dd9` Create `apps/auth/src/db/discord-link.repo.ts` — plain
       exported functions taking `Executor`, in the style of `grants.repo.ts`:
 
   ```ts
@@ -619,6 +619,51 @@ SELECT`, drop, rename). Inspect the generated SQL: every existing column must be
   `apps/auth/src/db/__tests__/discord-link.repo.spec.ts` against `:memory:` + real
   migrations: all three upsert outcomes including the rename case, both unlinked lists
   shrinking when a link lands, cascade behavior, case-insensitive email lookup.
+
+  > **Findings (A2, 2026-09-20 — shipped as specced; item 1 binds A4 and B1):**
+  >
+  > 1. ⚠️ **`findLinkByEmail` lowers BOTH sides, not just the argument.** "normalizeEmail'd"
+  >    read literally means `eq(user.email, normalizeEmail(email))` — what
+  >    `grants.repo.ts:findUserByEmail` does — and that is unsafe here: `user.email` is
+  >    written by Better Auth straight from Google's userinfo and never passes through
+  >    `normalizeEmail()`, so a stored address containing uppercase would silently report
+  >    "not linked" for someone who is. Implemented as
+  >    ``where(sql`lower(${user.email}) = ${normalizeEmail(email)}`)``, with a test seeding
+  >    `Ada.Lovelace@Example.COM` that fails under the argument-only approach. Costs an
+  >    unindexed `lower()` scan — a non-issue at this scale. **Any other email-keyed
+  >    Discord lookup in A4/B1 must match this, not `findUserByEmail`.**
+  > 2. **`insertLink` deliberately has no `onConflictDoNothing()`.** A duplicate on either
+  >    unique index, or an unobserved snowflake (FK), throws. **A4/B1 must pre-check with
+  >    `findLinkByUserId` / `findLinkByDiscordUserId` inside the same transaction** and
+  >    turn a genuine conflict into a clear API error. `upsertIdentity` is likewise
+  >    read-then-write, so callers that care about atomicity pass a `tx` opened with
+  >    `{ behavior: 'immediate' }` (house convention).
+  > 3. **Extra exported types beyond the task text**, so downstream code can name these
+  >    shapes: `UpsertIdentityInput`, `UpsertIdentityOutcome`, `LinkedUser`
+  >    (`{ userId; email; name }`), `LinkByEmail` (`{ userId; discordUserId }`),
+  >    `InsertLinkInput`, `LinkListEntry`. `displayName` on `UpsertIdentityInput` is
+  >    `?: string | null` (optional **and** nullable) — an omitted field and an explicit
+  >    `null` are indistinguishable downstream, and an explicit `null` over an existing
+  >    `null` reports `'unchanged'`, not a phantom rename.
+  > 4. **`Executor` is defined locally in the file**, not imported from `grants.repo.ts` —
+  >    importing it would make a `src/db/` module depend on `src/grants/`, inverting the
+  >    app's layering. The two definitions are structurally identical, so a `tx` from
+  >    anywhere works with either.
+  > 5. **Ordering the UI will inherit:** `listUnlinkedUsers` and `listLinks` order by
+  >    `user.email`; `listUnlinkedIdentities` orders by `lastSeenAt DESC` — an admin
+  >    usually just watched the account run `/download`. B3's pickers get this for free.
+  >    `deleteLinkForUser` returns `result.changes`; `0` means "nothing to unlink", not an
+  >    error, and the `discord_identity` row survives an unlink.
+  > 6. ⚠️ **`git commit -- <paths>` fails outright for files git has never seen**
+  >    ("did not match any file(s) known to git"). Any task creating new files must
+  >    `git add <explicit paths>` first, then `git commit -- <same paths>`. Still surgical
+  >    — no `-A`, no reset. The protocol snippet in
+  >    [the orchestrator instructions](#instructions-for-the-orchestrator-agent) is
+  >    incomplete as written.
+  > 7. Minor: in `apps/auth`, `pnpm exec jest <path>` ignores the positional path and runs
+  >    the whole suite (two-project config). Scope with `--testPathPattern`.
+  > 8. No stale line pointers: `database.module.ts:49-55` and `grants.repo.ts:18` both
+  >    checked out. Package suite green at 27 suites / 383 tests.
 
 - [x] **A3. Shared contract: types + `AuthClient` methods.** `52dd685` Edit
       `packages/utils/src/auth/types.ts`:
@@ -864,7 +909,7 @@ discordUserId)` and `unlinkDiscordAccount(userId)` via `callBackend`. **Narrow e
   >      `linkedDiscord`. Relevant to E1's WS path and to F1's `waitForJob`.
   > 2. **One extra export beyond the task text:** `DiscordIdentity` in
   >    `packages/utils/src/download/types.ts` (`= { discordUserId: string;
-  >    discordUsername: string }`), so `linkedDiscord` has a nameable type instead of
+discordUsername: string }`), so `linkedDiscord` has a nameable type instead of
   >    forcing consumers to write `DownloadJob['linkedDiscord']`. ⚠️ **Name-collision
   >    hazard:** A3 exports a _different_ `DiscordIdentity` from
   >    `@lilnas/utils/auth/types` (`{ discordUserId, username, displayName }`). They are
@@ -893,7 +938,7 @@ discordUserId)` and `unlinkDiscordAccount(userId)` via `callBackend`. **Narrow e
 
 ### Group D — apps/download: storage + write path
 
-- [ ] **D1. Jobs/audit schema migration + row mapping.** Edit
+- [x] **D1. Jobs/audit schema migration + row mapping.** `4cdcb3c` Edit
       `apps/download/src/db/schema.ts`: `JOB_ORIGINS = ['service', 'web', 'discord']`
       (the wire pin: no `AssertSameUnion` exists for origins — the audit wire enum widened
       in C1 must match; note it in a comment). `jobs`: add nullable
@@ -932,6 +977,76 @@ text('discord_username')`; rewrite CHECK `jobs_origin_matches_requester`:
   > (utils had four). Also watch the `DiscordIdentity` name collision: C1 exports one
   > from `@lilnas/utils/download/types` and A3 a different one from
   > `@lilnas/utils/auth/types`.
+
+  > **Findings (D1, 2026-09-20 — shipped as specced; items 1, 6 and 7 bind later tasks):**
+  >
+  > 1. 🔴 **drizzle-kit generated BROKEN recreate SQL, and it was hand-edited.** When a
+  >    table recreate coincides with **added** columns, drizzle-kit emits the _new_
+  >    table's column list on **both** sides of `INSERT INTO __new_x(...) SELECT ...` —
+  >    i.e. it tries to read `discord_user_id` / `discord_username` / `actor_discord_*`
+  >    off the **old** tables, aborting the migration with `no such column`. Both SELECT
+  >    lists now use literal `NULL` in those positions, each marked `-- HAND-EDITED` with
+  >    the reason. ⚠️ **Anyone regenerating a migration in this package must re-apply this
+  >    check** — `pnpm db:generate` will silently reintroduce the bug.
+  > 2. **`0002_even_newton_destine.sql` recreates BOTH `audit_log` and `jobs`**:
+  >    `foreign_keys=OFF` → `CREATE TABLE __new_x` with the widened CHECK →
+  >    `INSERT…SELECT` → `DROP` → `RENAME` → `foreign_keys=ON` → re-`CREATE` every index
+  >    (4 on audit_log, 6 on jobs). `migrate.ts` already re-asserts
+  >    `pragma('foreign_keys = ON')` after `migrate()`, matching auth — confirmed, no
+  >    change needed. `selfHealMigrationBookkeeping()` behaved exactly as predicted.
+  > 3. ⚠️ **The context pack's "`pnpm type-check` does not type-check `__tests__`" gotcha
+  >    is WRONG for `apps/download`.** `tsconfig.json` includes `src/**/*.ts(x)` and the
+  >    specs live under `src/**/__tests__` — which is precisely why the pre-existing
+  >    failure count was 44 files, 39 of them specs/fixtures. (A3 observed the opposite in
+  >    `packages/utils`; the gotcha is package-specific, not universal.) Keep the
+  >    _spirit_ anyway: `pnpm test` still caught a `toEqual` literal asserting an exact
+  >    `DownloadJobRecord` shape in `media-download.service.test.ts` that `tsc` did not.
+  > 4. **New schema surface for D4/E1/E2.** `JobRow` gains
+  >    `discordUserId: string | null` / `discordUsername: string | null`; `AuditLogRow`
+  >    gains `actorDiscordUserId` / `actorDiscordUsername` (same type). New indexes:
+  >    `jobs_discord_user_id_idx`, `audit_log_actor_discord_user_id_idx`.
+  >    `buildJobRow` / `hydrateJobRow` keep their **signatures unchanged**; `buildJobRow`
+  >    lets `requester` win when both are present (the CHECK then rejects it), and
+  >    `hydrateJobRow` always returns `linkedDiscord: null` — there is no column behind
+  >    it, it is E1's read-time job. `hydrateAuditLogRow` and `LastRequester` stay
+  >    module-private.
+  > 5. **Producers the plan didn't list:** `job-query.service.ts`'s private
+  >    `LastRequester` interface needed `discordRequester` for the gallery mapping to have
+  >    anything to copy (`GalleryItem.lastDiscordRequester` is masked by the same
+  >    `showRequester` decision as `lastRequester`), and
+  >    `admin/__tests__/admin.controller.test.ts` holds an inline `AuditLogEntry`-shaped
+  >    literal inside a mock page. There was **no pre-existing
+  >    `jobs_origin_matches_requester` test at all**; `audit_log` had two one-off reject
+  >    tests, strictly subsumed by the new 3-accept/10-reject matrix and replaced.
+  > 6. ⚠️ **The audit WRITE path is untouched and still cannot produce an
+  >    `origin: 'discord'` row.** `AuditEvent` and `InsertAuditLogInput` still carry only
+  >    `actor`, and `insertAuditLog` still derives `origin: actor ? 'web' : 'service'`.
+  >    Deliberately left alone — adding `discordActor` to `AuditEvent` touches ~14 call
+  >    sites and would have collided with concurrent wave-2 work. **D4 owns closing
+  >    this** (its task text already calls for it). `AuditLogFilter` likewise has no
+  >    Discord facet yet. Similarly `DownloadService.createVideoDownloadJob` and
+  >    `MediaDownloadService`'s record minting hardcode `discordRequester: null` with a
+  >    comment pointing at `getDiscordRequester(req)` — threading the real value is D4's.
+  > 7. ⚠️ **Design tension, resolved in favour of this plan.** C1's doc comment on
+  >    `AuditLogEntrySchema` says a `discord` row's `actor` "may still be `null`",
+  >    implying it _could_ be non-null. The CHECK specced here **forbids** a non-null
+  >    `actor` on an `origin = 'discord'` row. The CHECK won. If a Discord action should
+  >    ever also carry a resolved lilnas identity, that arm needs relaxing **and a
+  >    follow-up migration** — it is not a code-only change.
+  > 8. **The migration test earns its keep:** `migrate-0002.spec.ts` migrates a real
+  >    on-disk file to **0001 only** (trimmed migrations folder via `MIGRATIONS_FOLDER`),
+  >    seeds `web` + `service` rows in both tables through raw SQL against the _old_
+  >    column list, then runs the production `runMigrations()`. Asserts rows return
+  >    byte-identical (including `hidden_attribution: 1` not re-defaulted, and
+  >    autoincrement ids), no `__new_*` scratch tables survive, every index is re-created,
+  >    the widened CHECK is in force on the migrated DB, `integrity_check` passes, and
+  >    `foreign_keys` is back ON.
+  > 9. All of the plan's line pointers for this task were **accurate, not stale**. The
+  >    `DiscordIdentity` collision never bit — only `DiscordRequester` from
+  >    `@lilnas/utils/download/types` was needed.
+  >
+  > **Package is green again:** 173 suites / 3481 tests pass, `pnpm lint` and
+  > `pnpm type-check` clean. C1's 44-file fallout is closed.
 
 - [x] **D2. Discord header extraction + decorator.** `014457e` Create
       `apps/download/src/auth/discord-user.ts`: `getDiscordRequester(req: { headers:
@@ -977,7 +1092,7 @@ IncomingHttpHeaders }): DiscordRequester | undefined` — reads `x-discord-user-
   >   consistently with the extractor.
   > - `x-discord-display-name` is read but not yet consumed — its consumer is D4.
 
-- [ ] **D3. `DiscordLinkService` (TTL cache).** Create
+- [x] **D3. `DiscordLinkService` (TTL cache).** `b18685c` Create
       `apps/download/src/auth/discord-link.service.ts` cloning `AdminCheckService`'s
       shape (`AuthClient.dockerInstance` field, 60s TTL, 10s failure TTL, 500-entry cap,
       oldest-first eviction, **fail-open to `null`** — an auth outage degrades to
@@ -1010,6 +1125,51 @@ IncomingHttpHeaders }): DiscordRequester | undefined` — reads `x-discord-user-
   TTL, failure caching, eviction), plus: a registration rejection is swallowed, a
   repeat identity inside the memo window sends nothing, a changed handle sends again.
 
+  > **Findings (D3, 2026-09-20 — shipped as specced; items 1 and 4 bind D4/E1/E2):**
+  >
+  > 1. ⚠️ **`registerObservedIdentity` takes a new exported `ObservedDiscordIdentity`**,
+  >    not the auth `DiscordIdentity`:
+  >    `{ discordUserId: string; username: string; displayName?: string | null }`. The
+  >    optional `displayName` lets both an auth `DiscordIdentity` and a header-derived
+  >    object with no display name fit. **D4 must import this from the service** and map
+  >    `discordUsername` → `username` when calling it with `getDiscordRequester` output,
+  >    passing `getDiscordDisplayName(req)` as `displayName` — the `download/types`
+  >    `DiscordRequester` shape is _not_ assignable.
+  > 2. **Exact public API** (non-`async` `resolveDiscordUser` returns the lookup promise
+  >    directly; `getLinkedDiscordUserId` is `async`; neither ever rejects):
+  >    `resolveDiscordUser(discordUserId: string): Promise<DiscordLinkLookupResponse>`,
+  >    `getLinkedDiscordUserId(lilnasUserId: string): Promise<string | null>`,
+  >    `registerObservedIdentity(identity: ObservedDiscordIdentity): void`. Inject as
+  >    `constructor(private readonly discordLink: DiscordLinkService)` in any module that
+  >    imports `AuthModule`.
+  > 3. **Constants / keys:** `TTL_MS = 60_000` (successful lookups **including
+  >    `{identity:null,user:null}`**, and the registration memo), `FAILURE_TTL_MS =
+10_000` (only a _thrown_ lookup, plus the memo downgrade in item 4),
+  >    `MAX_CACHE_ENTRIES = 500` in one shared map, oldest-first across all three
+  >    keyspaces. Keys: `d:<discordUserId>`, `u:<lilnasUserId>` (the reverse direction
+  >    reads `identity?.discordUserId ?? null` off the cached response — there is no
+  >    separate string-valued entry), `seen:<discordUserId>:<username>`. No key
+  >    normalization: snowflakes and user ids are opaque, unlike `AdminCheckService`'s
+  >    email keyspace.
+  > 4. **Two behaviours beyond the task text.** (a) A _failed_ registration downgrades its
+  >    memo to `FAILURE_TTL_MS`, so a roster write retries in ~10s rather than being
+  >    suppressed for a full minute. (b) Because the memo key is fixed at
+  >    `seen:<snowflake>:<handle>`, **`displayName` is not part of it** — a Discord
+  >    _global-name_ change with an unchanged username is not reported until the 60s memo
+  >    expires. Only a username change is instant. Both are documented in the service and
+  >    pinned by tests.
+  > 5. ⚠️ **`git commit -- <paths>` cannot commit untracked files** — `git add` the new
+  >    paths first, then commit with the same explicit pathspec. Same finding as A2.
+  > 6. **`auth.module.ts` pointers, again:** it was 13 lines (providers/exports `:9-11`),
+  >    now 21 (`providers :9-14`, `exports :15-20`). The old `:88-93` pointer in the
+  >    context pack is long dead.
+  > 7. ⚠️ **jest maps `@lilnas/utils/*` to `packages/utils/src/*`, so specs never depend on
+  >    `dist/` freshness — only `tsc` and runtime do.** A green `pnpm test` is therefore
+  >    **not** evidence that the utils build is current. (Independently confirmed by F1.)
+  > 8. Baseline at commit time: 22 new tests green; `tsc --noEmit` showed **102
+  >    pre-existing** package errors and **zero** in any file this task touched — the
+  >    C1 fallout D1 closes.
+
 - [ ] **D4. Thread Discord identity through the write path.** Edit
       `apps/download/src/download/download.controller.ts`: the three create routes
       (`POST /videos` `:995`, `POST /movies` `:1238`, `POST /shows` `:1331`) gain
@@ -1037,6 +1197,28 @@ displayName })` — the username from the Discord requester pair, the display na
   discord headers / both / neither), asserting persisted origin + identity columns and
   audit rows, that `registerObservedIdentity` is called with the right payload, and
   that a **throwing** registration still returns a successful job response.
+
+  > ⚠️ **Inherited from Wave 2 (2026-09-20) — read before starting:**
+  >
+  > - **The audit write path is still `origin: actor ? 'web' : 'service'`.** D1
+  >   deliberately stopped at the schema and the row↔wire collapse, so `AuditEvent`,
+  >   `InsertAuditLogInput` and `insertAuditLog` **still cannot produce an
+  >   `origin: 'discord'` row** — closing that is this task's job, and it touches ~14
+  >   `record()` call sites. `AuditLogFilter` has no Discord facet either (out of scope
+  >   unless trivially free). See [D1's findings](#d1-findings) item 6.
+  > - **`DownloadService.createVideoDownloadJob` and `MediaDownloadService`'s record
+  >   minting currently hardcode `discordRequester: null`**, each with a comment pointing
+  >   at `getDiscordRequester(req)`. Those comments mark exactly the lines to thread.
+  > - ⚠️ **The CHECK forbids a non-null `actor` on an `origin = 'discord'` row.** The
+  >   precedence rule (forwarded user wins, warn-log when both arrived) is therefore
+  >   enforced by the database, not merely by convention — get it wrong and the insert
+  >   throws rather than silently mis-attributing.
+  > - **`registerObservedIdentity` takes D3's `ObservedDiscordIdentity`**
+  >   (`{ discordUserId, username, displayName?: string | null }`) — import it from
+  >   `src/auth/discord-link.service.ts` and **map `discordUsername` → `username`** from
+  >   `getDiscordRequester` output, passing `getDiscordDisplayName(req)` as `displayName`.
+  >   The `download/types` `DiscordRequester` shape is not assignable. See
+  >   [D3's findings](#d3-findings) item 1.
 
 ### Group E — apps/download: read path + display
 
@@ -1262,7 +1444,7 @@ displayName })` — the username from the Discord requester pair, the display na
 
 ### Group F — tdr-bot, docs, integration
 
-- [ ] **F1. tdr-bot sends Discord identity.** Edit
+- [x] **F1. tdr-bot sends Discord identity.** `3f9dceb` Edit
       `apps/tdr-bot/src/commands/download-command.service.ts`: in `download()`, build a
       per-interaction client:
 
@@ -1296,6 +1478,32 @@ displayName })` — the username from the Discord requester pair, the display na
   > `createJob` goes through the derived client. `createMockInteraction()` currently
   > builds `user: { id, username }` only, so add `globalName` there and cover the null
   > case.
+
+  > **Findings (F1, 2026-09-20 — shipped as specced):**
+  >
+  > - **No C1 fallout in `apps/tdr-bot` at all.** Baseline before any edit was already
+  >   green (type-check clean, 54 suites / 1134 tests). Nothing in tdr-bot builds a full
+  >   `DownloadJob` literal against the schema type — the spec's job fixtures are
+  >   arguments to an untyped `jest.Mock.mockResolvedValue`, so the new
+  >   required-but-nullable keys are never enforced — and nothing `.parse()`s a
+  >   hand-built payload. C1's Finding 1 lands on `apps/download` only.
+  > - **The derived client is a local `const` scoped to the interaction**, never stored on
+  >   the instance, so the shared `private client = DownloadClient.dockerInstance` field
+  >   stays identity-free. `waitForJob` (in `awaitJob`) and `cancelJob` (in
+  >   `cancelQuietly`) still go through `this.client`.
+  > - ⚠️ **`mockReturnThis()` is the wrong mock shape here.** `apps/tdr-bot/jest.config.js`
+  >   sets `clearMocks`/`restoreMocks`, and more importantly `mockReturnThis()` on a
+  >   static object literal returns the _base_ mock, which makes "`createJob` went through
+  >   the derived client" unassertable. Used a distinct nested mock carrying **only**
+  >   `createJob`, armed in `beforeEach` — so the spec can assert both that the plain
+  >   client's `createJob` was _not_ called and that the derived client has no
+  >   `waitForJob`.
+  > - Test-file pointer drift: the `DownloadClient.dockerInstance` mock is at `:74-83`,
+  >   not `~:69-74` (`jest.mock('fs-extra')` sits at `:69-72`), and it already carried a
+  >   `getJob: jest.fn()` entry. `waitForJob` at `:225` and the client field at `:71` were
+  >   correct. 9 → 13 tests; package green at 1137.
+  > - `interaction.user.globalName` types cleanly against discord.js's `User`
+  >   (`string | null`) — no cast; `?? undefined` is load-bearing for the value only.
 
 - [ ] **F2. Docs.** Update `docs/features/download/spec.md`'s attribution sections
       (dual attribution model, origin `discord`, read-time link resolution, masking rule
@@ -1362,7 +1570,7 @@ graph TD
 | Wave | Run                    | Why it works                                                                                                                                                                                                                                                          |
 | ---- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1 ✅ | A1 ∥ A3 ∥ C1 ∥ D2 ∥ E5 | Five independent foundation tasks: auth schema, `packages/utils/src/auth`, `packages/utils/src/download`, download's `src/auth` extraction files, and E5's brand-new component file. No shared file. E5 needs nothing but two strings, so it costs no wall-clock here |
-| 2    | A2 ∥ D1 ∥ D3 ∥ F1      | A2 needs A1's tables; D1 needs C1's wire type for row mapping; D3 needs A3's client methods; F1 needs C1's `withDiscordIdentity`. Two apps plus utils, no overlap                                                                                                     |
+| 2 ✅ | A2 ∥ D1 ∥ D3 ∥ F1      | A2 needs A1's tables; D1 needs C1's wire type for row mapping; D3 needs A3's client methods; F1 needs C1's `withDiscordIdentity`. Two apps plus utils, no overlap                                                                                                     |
 | 3    | A4 ∥ B1 ∥ D4           | In auth, A4 adds a new controller + one `app.module.ts` line while B1 edits the admin dto/service/controller — disjoint files. D4 is in download entirely                                                                                                             |
 | 4    | B2 ∥ E1                | B2 is auth's server-action/RSC layer; E1 owns download's read path alone this wave                                                                                                                                                                                    |
 | 5    | B3 ∥ E2 ∥ E3           | B3 is auth UI; E2 edits `jobs.repo`/profile/history, E3 edits only download frontend components — all disjoint                                                                                                                                                        |
