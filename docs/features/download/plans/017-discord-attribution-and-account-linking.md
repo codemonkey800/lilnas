@@ -727,7 +727,7 @@ Date }` (timestamps are `Date`, not epoch ms).
   > partial identity the cast will lie; a zod parse would be strictly better if that
   > becomes a concern.
 
-- [ ] **A4. Internal endpoints.** Create
+- [x] **A4. Internal endpoints.** `17ea1e1` Create
       `apps/auth/src/internal/discord-internal.controller.ts`: `@Controller('internal')`,
       **no guards, no throttler** — clone `AdminCheckController`'s class comment
       explaining the topology trust boundary (8081 has no Traefik router and publishes
@@ -751,9 +751,41 @@ Date }` (timestamps are `Date`, not epoch ms).
   email, insert-then-rename through the POST, body validation rejecting a bad
   snowflake.
 
+  > **Findings (A4, 2026-09-20 — shipped as specced):**
+  >
+  > 1. **"Register both flat" was implemented as TWO controller classes** in one file —
+  >    `DiscordLinkLookupController` and `DiscordIdentityController`, both
+  >    `@Controller('internal')`, both registered flat in `app.module.ts`. That is the
+  >    only reading under which "both" is registrable, and it lets the write endpoint's
+  >    blast-radius comment be a class comment the way `AdminCheckController`'s is. A
+  >    one-line merge if a single class was meant.
+  > 2. **`identity` is projected field-by-field** (`discordUserId`, `username`,
+  >    `displayName`) so `firstSeenAt`/`lastSeenAt` never reach the wire — which matters
+  >    because [A3's client validates the envelope shallowly](#a3-findings) and would
+  >    happily pass a leaky object through. All three lookup directions funnel through
+  >    one private `byDiscordUserId()`: `userId` → `findLinkByUserId` → snowflake;
+  >    `email` → A2's lower-both-sides `findLinkByEmail` → snowflake.
+  > 3. **Empty/whitespace query values are treated as absent** — `?email=` alone is a 400,
+  >    not a lookup for `''`. Unspecified in the task; commented and tested.
+  > 4. A second new file beyond the task text: `apps/auth/src/internal/discord-internal.dto.ts`
+  >    exporting `RegisterDiscordIdentityBodySchema` / `RegisterDiscordIdentityBodyDto`
+  >    (`displayName` is `.nullish()`, max 32). `parseBody` had to be re-declared
+  >    module-scoped in the controller file — `AdminController.parseBody` is `private`, so
+  >    reuse would have meant touching a file B1 owned mid-flight.
+  > 5. The upsert runs in `db.transaction(…, { behavior: 'immediate' })`; the
+  >    `inserted|updated|unchanged` outcome is deliberately **not** returned, since the
+  >    client ignores the body.
+  > 6. ⚠️ **A numeric-snowflake rejection test must be built via `JSON.parse`**, not a
+  >    source literal — `no-loss-of-precision` rejects an 18-digit number in source. The
+  >    JSON form is also more honest: it is literally what Nest's body parser hands
+  >    `@Body()`.
+  > 7. At commit time `pnpm lint` failed in `apps/auth` on `src/admin/admin.controller.ts`
+  >    (prettier) — **B1's in-flight file, not this task's**; eslint over all of `src` was
+  >    clean and prettier clean on every file A4 touched. 444 tests / 31 suites green.
+
 ### Group B — apps/auth: admin linking surface
 
-- [ ] **B1. Admin API: unlinked lists + link/unlink.** Edit
+- [x] **B1. Admin API: unlinked lists + link/unlink.** `7969e69` Edit
       `apps/auth/src/admin/admin.dto.ts`: add
 
   ```ts
@@ -793,6 +825,86 @@ Date }` (timestamps are `Date`, not epoch ms).
 null`, populated by `GET /admin/users`, so the People table can render a chip. Tests
   (`:memory:` DB): both lists, link, unlink, each conflict branch, the no-op, and that
   a freshly linked pair disappears from both unlinked lists.
+
+  > **Findings (B1, 2026-09-20 — shipped as specced; B2/B3 must read items 1, 2 and 6):**
+  >
+  > 1. **Exact types B2 re-exports and B3 renders.** All dates are **ISO strings** at the
+  >    boundary (they are `Date` in the repo):
+  >
+  >    ```ts
+  >    type DiscordUnlinkedPerson = {
+  >      userId: string
+  >      email: string
+  >      name: string
+  >    }
+  >    type DiscordUnlinkedAccount = {
+  >      discordUserId: string
+  >      username: string
+  >      displayName: string | null
+  >      firstSeenAt: string
+  >      lastSeenAt: string
+  >    }
+  >    type DiscordLinkEntry = {
+  >      userId: string
+  >      email: string
+  >      name: string
+  >      discordUserId: string
+  >      username: string
+  >      displayName: string | null
+  >      createdAt: string
+  >    }
+  >    ```
+  >
+  >    `AdminUserEntry` gains `discordUserId: string | null` and
+  >    `discordUsername: string | null` — **required, not optional**, always null together
+  >    or non-null together. ⚠️ `discordUsername` is the **handle**
+  >    (`discord_identity.username`), **not** `displayName` — the People row does not carry
+  >    a display name; `GET /admin/discord/links` is where B3 gets one.
+  >    Responses: `/discord/unlinked` → one object, **both arrays always present** (`[]`
+  >    when empty); `/discord/links` → a **bare array**. Ordering is A2's, untouched.
+  >
+  > 2. ⚠️ **Unlinking something already gone is a `NotFoundException`, not an idempotent
+  >    success** — matching this file's existing rule (`blockUser`/`unblockUser` convert a
+  >    zero-row update the same way), and because there is no benign path: the Unlink
+  >    button only renders on a row of the _linked_ list, so reaching it with nothing to
+  >    delete means the admin's view is stale. **B3 must not treat a 404 from
+  >    `/discord/unlink` as success** — refetch and surface the message. Verbatim error
+  >    strings B3 should display:
+  >    `user <id> not found` · `Discord account <snowflake> has never been seen by this
+system — it can only be linked after it has actually used a Discord command` ·
+  >    `Discord account already linked to <their email>` · `That person is already linked
+to a different Discord account — unlink them first, then link the new one` ·
+  >    `discordUserId must be a Discord snowflake (17-20 digits)` ·
+  >    `user <id> has no Discord link`.
+  > 3. ⚠️ **The `AdminUserEntry` extension forced a 2-line change outside `src/admin/`.**
+  >    `src/app/admin/__tests__/admin-dashboard-client.spec.tsx:79`'s `buildUser()` fixture
+  >    builds a full `AdminUserEntry`, so two _required_ new fields broke the frontend
+  >    project's type-check. Added `discordUserId: null, discordUsername: null` to that
+  >    fixture's defaults, before the `...overrides` spread. **B3 should keep those
+  >    defaults and override them in a chip test.** No other construction site exists —
+  >    `edit-access-modal.tsx`, `admin-dashboard-client.tsx` and `require-admin.ts` only
+  >    consume the type.
+  > 4. **There is no cache to invalidate in `apps/auth`.** The house "invalidate after
+  >    commit" rule refers to `AccessCacheService`, which is purely about _access_ —
+  >    nothing in `VerifyService`'s decision path reads `discord_link`. Both methods
+  >    therefore call **no** cache method; the omission is commented in the service and
+  >    asserted by two tests rather than left looking like a miss. The only downstream
+  >    cache is `apps/download`'s 60s TTL, in another process, self-healing.
+  > 5. **Conflict precedence was left open by the task and is now settled:** when both
+  >    conflicts hold at once (person A already linked to X, snowflake Y already linked to
+  >    person B), the **account-side** message wins — it names the other human, which is
+  >    the actionable half. Commented and tested.
+  > 6. **`users()` now issues one extra whole-table `listLinks()` query** and indexes it
+  >    into a `Map` by `userId`, rather than a `findLinkByUserId` per row. No new repo
+  >    function; the extra columns cost nothing at this scale.
+  > 7. Spec mechanics worth inheriting: `env(EnvKeys.ADMIN_EMAILS)` **throws if unset**, so
+  >    any spec touching `controller.users()` must set `process.env.ADMIN_EMAILS` at module
+  >    scope (mirrors `user-management.spec.ts`). `noUncheckedIndexedAccess` is on, so
+  >    `rows[0]` is `T | undefined` even inside a spec — a small `first<T>()` helper beats
+  >    non-null assertions. `--selectProjects backend` usefully narrows this package's two
+  >    Jest projects.
+  >
+  > 42 new tests; package green at 486 tests / 32 suites, lint and type-check clean.
 
 - [ ] **B2. Server actions + RSC fetches.** Edit
       `apps/auth/src/app/admin/require-admin.ts`: add `fetchDiscordUnlinked()` and
@@ -1170,7 +1282,7 @@ IncomingHttpHeaders }): DiscordRequester | undefined` — reads `x-discord-user-
   >    pre-existing** package errors and **zero** in any file this task touched — the
   >    C1 fallout D1 closes.
 
-- [ ] **D4. Thread Discord identity through the write path.** Edit
+- [x] **D4. Thread Discord identity through the write path.** `af89f21` Edit
       `apps/download/src/download/download.controller.ts`: the three create routes
       (`POST /videos` `:995`, `POST /movies` `:1238`, `POST /shows` `:1331`) gain
       `@OptionalDiscordUser() discordUser`. Precedence: if a forwarded user is present,
@@ -1219,6 +1331,73 @@ displayName })` — the username from the Discord requester pair, the display na
   >   `getDiscordRequester` output, passing `getDiscordDisplayName(req)` as `displayName`.
   >   The `download/types` `DiscordRequester` shape is not assignable. See
   >   [D3's findings](#d3-findings) item 1.
+
+  > **Findings (D4, 2026-09-20 — shipped as specced, scope closed; E1/E2/E4 read items 1–3):**
+  >
+  > 1. **Exact signatures now in the tree:**
+  >
+  >    ```ts
+  >    createVideoDownloadJob(input, requester?: JobRequester | null,
+  >                          discordRequester?: DiscordRequester | null): Promise<DownloadJob>
+  >    requestMovie(tmdbId, requester?, discordRequester?): Promise<DownloadJob>
+  >    requestShow(tvdbId, requester?, scope?, discordRequester?): Promise<DownloadJob>  // 4th, AFTER scope
+  >    MediaDownloadService.request({ action, discordRequester, mediaId, requester,
+  >                                   scope, submit, type, upstreamId })  // the shared mint choke point
+  >    AuditEvent          { action, actor, discordActor?: DiscordRequester | null, metadata?, target? }
+  >    InsertAuditLogInput { action, actor, discordActor?: DiscordRequester | null, metadata?, target? }
+  >    ```
+  >
+  >    `discordActor` is `?: DiscordRequester | **null**` (not just optional) because the
+  >    controller helper returns `| null` and forcing `?? undefined` at five call sites
+  >    bought nothing. New controller params are **trailing and optional (`?`)**, not
+  >    `| undefined` — required-but-undefined-able broke ~26 existing call sites for zero
+  >    behavioural gain, and Nest resolves param decorators by index either way.
+  >
+  > 2. ⚠️ **`getDiscordDisplayName(req)` had no route into the controller** —
+  >    `@OptionalDiscordUser()` returns only `DiscordRequester`, and this controller never
+  >    injects `@Req()`. Added a sibling decorator in D2's file:
+  >    `@OptionalDiscordDisplayName()` + `extractOptionalDiscordDisplayName(ctx)`.
+  >    Deliberately kept separate from `@OptionalDiscordUser()` so a display name can
+  >    never be spread into a job record by accident.
+  > 3. **Registration placement:** one private helper
+  >    `resolveDiscordAttribution({ action, discordDisplayName, discordUser, user })`,
+  >    called **once per route before any `await`** — ahead of the
+  >    `Promise.all([service…, resolveIsAdmin])` and outside the `try` that owns the
+  >    create. It returns `null` when no pair arrived; fires
+  >    `registerObservedIdentity({ discordUserId, displayName: discordDisplayName ?? null,
+username: discordUser.discordUsername })` **unconditionally, including when a
+  >    forwarded user is about to win**; warn-logs and returns `null` when both arrived.
+  >    Its return value feeds both the service's `discordRequester` and `record()`'s
+  >    `discordActor`. ⚠️ It wraps the registration in its **own `try/catch`** — the real
+  >    service cannot throw, but without the catch the "a throwing registration still
+  >    returns a job" test is vacuous. The contract now holds defensively rather than by
+  >    remote trust.
+  > 4. **Audit write path closed** — `insertAuditLog` derives
+  >    `origin: actor ? 'web' : discordActor ? 'discord' : 'service'` and writes the
+  >    actor-discord columns unconditionally, byte-for-byte the shape `buildJobRow` uses,
+  >    so a both-present row **violates the CHECK and throws** rather than being laundered
+  >    into `'web'`. Only **5** `record()` call sites needed touching, not the ~14
+  >    predicted: `video.create`, `video.cancel`, `movie.request`, `show.request`, and the
+  >    shared `videoInterruptRoute` write (which serves `video.delete` +
+  >    `video.pause`/`video.resume`). The rest omit `discordActor` and behave exactly as
+  >    before. `AuditLogFilter` untouched as instructed.
+  > 5. **`ReleaseService`'s grab/replace path** shares `MediaDownloadService.request()` and
+  >    is left passing nothing (`null`) — those routes are web-only and out of scope.
+  > 6. **The new spec runs against a REAL migrated in-memory DB** with real
+  >    `AuditLogService`/`DownloadService`/`DownloadStateService`/`MediaDownloadService`
+  >    (only Radarr/Sonarr, the WS gateway, the media resolver, `AdminCheckService` and
+  >    `DiscordLinkService` are doubled). So assertions read actual `jobs`/`audit_log`
+  >    rows and **both CHECKs are genuinely exercised** — the "both headers" case is a
+  >    rejected INSERT if precedence ever regresses, which no `toHaveBeenCalledWith` could
+  >    catch. 26 tests via `describe.each` over 3 routes × {web, discord, both, neither},
+  >    plus 3 repo tests including `toThrow(/CHECK constraint failed/)`.
+  > 7. **9 existing controller specs needed a `DiscordLinkService` provider** added to
+  >    their testing modules or DI resolution fails — that is the bulk of the test diff.
+  >    Cancel/delete can't run their real service paths (live yt-dlp child process; MinIO
+  >    via `MediaFileService.deleteVideoObjects`), so both are `jest.spyOn`-stubbed in that
+  >    one nested describe.
+  >
+  > Package green at **174 suites / 3510 tests** (was 173/3481), lint and type-check clean.
 
 ### Group E — apps/download: read path + display
 
@@ -1571,7 +1750,7 @@ graph TD
 | ---- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1 ✅ | A1 ∥ A3 ∥ C1 ∥ D2 ∥ E5 | Five independent foundation tasks: auth schema, `packages/utils/src/auth`, `packages/utils/src/download`, download's `src/auth` extraction files, and E5's brand-new component file. No shared file. E5 needs nothing but two strings, so it costs no wall-clock here |
 | 2 ✅ | A2 ∥ D1 ∥ D3 ∥ F1      | A2 needs A1's tables; D1 needs C1's wire type for row mapping; D3 needs A3's client methods; F1 needs C1's `withDiscordIdentity`. Two apps plus utils, no overlap                                                                                                     |
-| 3    | A4 ∥ B1 ∥ D4           | In auth, A4 adds a new controller + one `app.module.ts` line while B1 edits the admin dto/service/controller — disjoint files. D4 is in download entirely                                                                                                             |
+| 3 ✅ | A4 ∥ B1 ∥ D4           | In auth, A4 adds a new controller + one `app.module.ts` line while B1 edits the admin dto/service/controller — disjoint files. D4 is in download entirely                                                                                                             |
 | 4    | B2 ∥ E1                | B2 is auth's server-action/RSC layer; E1 owns download's read path alone this wave                                                                                                                                                                                    |
 | 5    | B3 ∥ E2 ∥ E3           | B3 is auth UI; E2 edits `jobs.repo`/profile/history, E3 edits only download frontend components — all disjoint                                                                                                                                                        |
 | 6    | E4 ∥ F2                | E4 re-enters `jobs.repo.ts` only after E2 has left it; F2 is docs only                                                                                                                                                                                                |
