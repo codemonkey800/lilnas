@@ -976,7 +976,7 @@ someone@example.com`. Split on `returned <digits>: ` for the bare sentence, or
   > 6. Both new specs are `.ts` and land in the **backend** Jest project (node env), not the
   >    frontend one; they need only `process.env.BACKEND_PORT`, not `ADMIN_EMAILS`.
 
-- [ ] **B3. Admin UI: the Discord links panel.** Create
+- [x] **B3. Admin UI: the Discord links panel.** `d80273c` Create
       `apps/auth/src/app/admin/discord-links-panel.tsx` and mount it in
       `apps/auth/src/app/admin/admin-dashboard-client.tsx` as a new `card` panel with a
       `panel-head`, styled with the semantic classes already in
@@ -1010,6 +1010,61 @@ someone@example.com`. Split on `returned <digits>: ` for the bare sentence, or
   (`apps/auth/src/app/admin/__tests__/discord-links-panel.spec.tsx`): Link stays
   disabled until both sides are chosen, fires the action with the selected pair,
   renders both empty states, unlink confirms then calls, the filter narrows a list.
+
+  > **Findings (B3, 2026-09-20 — shipped as specced; item 7 is an open question):**
+  >
+  > 1. **Both props tightened to required** (`discordUnlinked: AdminDiscordUnlinked`,
+  >    `discordLinks: AdminDiscordLinkEntry[]`), closing [B2's stopgap](#b2-findings) —
+  >    exactly the **23 render sites** B2 predicted, each given a single documented
+  >    fixture constant `NO_DISCORD = { people: [], accounts: [] }`.
+  > 2. **"Long enough to warrant a filter" = `FILTER_MIN_ROWS = 8`**, one shared constant
+  >    for both lists, applied to the **unfiltered** length. Rationale recorded in-file:
+  >    below 8 the whole list is already on screen and the input is pure chrome between
+  >    the admin and the two rows they are pairing; one constant rather than two tuned
+  >    per list, because the lists sit side by side and a filter appearing over one but
+  >    not the other reads as a bug. Gating on the _unfiltered_ length also means typing
+  >    can never make the box that produced the text disappear.
+  > 3. **Errors render verbatim**, prefix included, in a panel-local
+  >    `<p role="alert" class="text-sm text-red-400">` via a `runPanelAction()` wrapper —
+  >    deliberately **not** split on `returned <digits>: `, because the prefix names the
+  >    route and status and every other client component here renders `err.message`
+  >    whole. Unlink's 404 flows through the same path and is **not** swallowed. A failed
+  >    link **keeps both selections** so the admin can act on the same pair; only success
+  >    clears them.
+  > 4. ⚠️ **`.checkbox-row` has no selected/highlight state in `design-tokens.css`**, and
+  >    that file was outside B3's fence. Selection highlight is therefore
+  >    Tailwind-via-`cns`: `cns('checkbox-row', isSelected && 'border-accent bg-white/5')`
+  >    — works because `@theme inline` maps `--accent` to `--color-accent` and the
+  >    utilities layer outranks the `@layer components` border rule. **If this should join
+  >    the design system it wants a `.checkbox-row.is-selected` rule.**
+  > 5. ⚠️ **`people-table-wrap` was deliberately NOT reused for the existing-links table.**
+  >    That class is `display: none` below 768px and depends on a hand-written
+  >    `.person-card` twin for the mobile rendering; the links table has no twin, so
+  >    reusing it would have made the table **vanish on mobile**. It is a plain
+  >    `card overflow-x-auto` with `table min-w-[560px]` and scrolls horizontally instead.
+  > 6. **The two pick-one lists are native radios** inside `.checkbox-row` labels
+  >    (`ServiceCheckGrid`'s markup with single-select semantics), grouped by `name`,
+  >    wrapped in `role="radiogroup"` + `aria-labelledby` — keyboard support and
+  >    `getByRole('radio')` for free, no custom listbox. **Selection resolves against the
+  >    full lists, not the filtered ones**: a pick hidden behind a filter is still a real
+  >    pick, and resolving against the filtered list would silently disarm the Link button
+  >    the instant the admin typed. If a row truly disappears after an SSE refresh, `find`
+  >    returns `null` and the button correctly disables.
+  > 7. ❓ **Open question for the human:** chips were added to the **People** panel only,
+  >    per the task's wording — **a blocked person with a link shows no chip in the Blocked
+  >    panel.** Trivial to extend if wanted. Panel placement is between People and Blocked
+  >    (it reads as a continuation of People; Blocked is a rarely-visited tail panel).
+  > 8. **The modal's Unlink delegates upward** — `onUnlinkDiscord: (user: AdminUserEntry)
+=> void`, taking the whole user so the parent's confirm can name both sides,
+  >    matching `onRemove`/`onSignOutEverywhere`. Its error lands in the dashboard's
+  >    page-level `notice role="alert"`; the panel's own unlink uses the panel-local
+  >    alert. Two confirm strings, each phrased for its context. The modal view is
+  >    read-only with **no textbox at all** — asserted.
+  > 9. **`--testPathPattern` alone is ambiguous across this package's two Jest projects** —
+  >    `--selectProjects frontend --testPathPattern 'admin/__tests__'` is the scoping that
+  >    works.
+  >
+  > 18 new tests; package green at **538 tests / 34 suites**, lint and type-check clean.
 
 ### Group C — shared download wire contract + client
 
@@ -1583,7 +1638,7 @@ username: discordUser.discordUsername })` **unconditionally, including when a
   >
   > Package green at **176 suites / 3537 tests** (was 174/3510), lint and type-check clean.
 
-- [ ] **E2. Unified history + profile.** Edit `apps/download/src/db/jobs.repo.ts`:
+- [x] **E2. Unified history + profile.** `7af491c` Edit `apps/download/src/db/jobs.repo.ts`:
       `JobListFilter` gains `requesterDiscordUserId?: string`; `buildJobWhere` combines it
       with `requesterEmail` as an OR-arm
       (`lower(requester_email) = X OR discord_user_id = Y`) when both are set — and plain
@@ -1601,7 +1656,67 @@ username: discordUser.discordUsername })` **unconditionally, including when a
       discord-only, both, hidden-attribution interaction), profile + history endpoint
       specs with a linked viewer seeing jobs from both surfaces as one list.
 
-- [ ] **E3. Frontend attribution display.** Edit
+  > **Findings (E2, 2026-09-20 — shipped; item 1 is a privacy fix the task text got
+  > wrong):**
+  >
+  > 1. 🔴 **The task said to resolve the viewer's link in `ProfileService` — that is
+  >    WRONG and would have leaked across accounts.** `getProfile({ email, days })` has no
+  >    viewer, and `/profile?requester=` lets an admin view **someone else**. Using
+  >    `getLinkedDiscordUserId(viewer.userId)` there would have folded **the admin's own
+  >    Discord jobs into another user's profile**. Resolution is keyed off the profile's
+  >    **subject** instead, via the new `getLinkedDiscordUserIdByEmail(email)` — correct
+  >    for both the self and the admin-viewing-other case. The `/history` **self** path
+  >    does use `getLinkedDiscordUserId(user.userId)` as specced, which also reuses the
+  >    `u:` cache entry `AttributionResolutionService` already warms.
+  > 2. **How the hidden-attribution guard survives the OR arm** — the threat is not the
+  >    column, it is _filtering by a person and reading the answer out of `total`_. A naive
+  >    OR breaks the guard two independent ways; both are closed:
+  >    - **Trigger widening (structural).** The flag was computed only in `listGallery` as
+  >      `params.requesterEmail ? !params.isAdmin : undefined` — a filter carrying _only_
+  >      the Discord arm sails past that with the guard left `undefined`. It is now
+  >      `isRequesterScoped(params)`, a predicate over the whole exported `RequesterScope`,
+  >      so **any** present identity arm trips it, and a third identity column added later
+  >      inherits the guard automatically.
+  >    - **Aiming (the actual security boundary).** There is **no `?discordUserId=` query
+  >      parameter anywhere.** The only producer of a Discord arm on the read path is the
+  >      controller's new private `resolveScopeDiscordUserId()`, which derives the
+  >      snowflake from _the same person `requesterEmail` names_ — the viewer's own link on
+  >      a self view, or `getLinkedDiscordUserIdByEmail(query.requester)` for a requester an
+  >      admin has already passed the 403 to name. Both arms sit behind the identical
+  >      self-or-admin gate, so a non-admin cannot steer the Discord arm at a third party to
+  >      probe for their hidden videos. Asserted by _"refuses a non-admin before resolving
+  >      anybody's link"_, and at the SQL level by a test showing `excludeHiddenVideos`
+  >      drops the hidden **Discord** row from both rows **and** `total`.
+  > 3. **New `DiscordLinkService` methods** (fourth keyspace `e:<email>`, same TTL rules,
+  >    same 500-entry budget, same fail-open):
+  >
+  >    ```ts
+  >    resolveEmail(email: string): Promise<DiscordLinkLookupResponse>
+  >    getLinkedDiscordUserIdByEmail(email: string): Promise<string | null>
+  >    ```
+  >
+  >    The key is `e:<email.trim().toLowerCase()>` — **normalized for the cache key only**;
+  >    the unnormalized value goes on the wire, leaving the matching rule auth's.
+  >
+  > 4. **`ProfileService.getProfile` had to become `async`** (it was synchronous; the link
+  >    fetch is not). Controller awaits; all profile specs converted.
+  > 5. **There is no `requesterDateRange`** — the nearest thing is
+  >    `getRequesterActivityBounds` (the profile's first/last timestamps). That is what was
+  >    widened, by changing its second parameter from `requesterEmail: string` to
+  >    `scope: RequesterScope`.
+  > 6. **`job-query.service.ts` was not in the stated footprint but had to change** —
+  >    `ListHistoryParams` is the only path from the controller to the filter. (E1's note
+  >    that it left the file untouched read as _expected_, not off-limits.)
+  > 7. **The `/history` log line gained a boolean `scopeUnifiedWithDiscord`, not the
+  >    snowflake** — a snowflake identifies a person and that line runs on every request.
+  > 8. DI fallout was small (one suite), not E1's 16. `computeFilterKey` drops `undefined`,
+  >    so existing cursors stay valid; a _linked_ user's cursors change key on deploy,
+  >    which is the already-documented behaviour for any filter change. A doc comment
+  >    referencing E1's deleted `projectPage()` was corrected to `serveJobPage()`.
+  >
+  > +~60 tests; package green at **176 suites / 3597 tests**.
+
+- [x] **E3. Frontend attribution display.** `20f2583` Edit
       `apps/download/src/components/activity/activity-requester.tsx` — the single display
       rule: accept the job's `discordRequester` alongside `requester`; rendering order:
       masked → `hidden` (unchanged); `requester` present → today's email rendering
@@ -1649,6 +1764,80 @@ username: discordUser.discordUsername })` **unconditionally, including when a
   without a popover trigger, and that `admin-actor`'s service chip is untouched.
   ⚠️ A masked job renders **neither** identity — assert `linkedDiscord` is suppressed
   by masking too, not just `discordRequester`.
+
+  > **Findings (E3, 2026-09-20 — shipped; item 3 opened a gap now tracked as
+  > [E6](#e6-audit-log-actor-display), item 5 binds E4):**
+  >
+  > 1. **Prop signature E4 renders against.** Both new props are **optional, defaulting to
+  >    `null`**, so a surface that forgets one degrades to the masked/`hidden` branch — the
+  >    safe direction, never a leak:
+  >
+  >    ```tsx
+  >    type ActivityRequesterProps = {
+  >      avatarClassName?: string
+  >      discordRequester?: DiscordRequester | null // submitted FROM this account
+  >      linkedDiscord?: DiscordIdentity | null // account linked TO `requester`
+  >      nameless?: boolean
+  >      requester: JobRequester | null
+  >      viewer: Viewer | null
+  >    }
+  >    ```
+  >
+  >    Three helpers are exported for surfaces that can't use the component wholesale:
+  >    `LINKED_DISCORD_TITLE`, `discordAvatarTitle(username)` → `` `${username} · Discord` ``,
+  >    `linkedDiscordLabel(username)` → `@username`. `linkedDiscord` renders **only** inside
+  >    the `requester`-present branch, so it is _structurally_ impossible to render behind
+  >    the mask. `AdminActorProps` gained the same two props.
+  >
+  > 2. 🔴 **`activity-requester.tsx` is NOT "the single spelling every surface imports."**
+  >    The detail pages render `DetailAttribution` in `detail-header.tsx`, which has its
+  >    **own independent masking branch** and never imported `ActivityRequester`.
+  >    Collapsing them was not possible here (it renders the email's _local part_ inside a
+  >    single text run, and existing `getByText('downloaded by sam · 12m ago')` assertions
+  >    depend on that node staying whole), so the same branch order was implemented there
+  >    and the three shared helpers imported to at least share the strings. **Two spellings
+  >    of the rule still exist** — worth a follow-up unification.
+  > 3. 🔴 **The audit log renders its actor inline and bypasses `AdminActor` entirely**, so
+  >    `AuditLogEntry.discordActor` is **still unrendered anywhere** — an `origin: 'discord'`
+  >    audit row reads as the **service** today, which is actively wrong rather than merely
+  >    incomplete. `admin-audit-log.tsx` writes `entry.actor.email` as an `<a>` inside a
+  >    `sm:grid-cols-[70px_72px_1fr]` row with a `truncate`d "what" column. This is exactly
+  >    the surface the mockup warns about clipping, and the mockup's own fix was to make the
+  >    actor a **content-sized flex item rather than a fixed grid column** — i.e. the row's
+  >    grid needs rebuilding, not the mark dropping in. E3 correctly left it alone rather
+  >    than widening the column. **Now tracked as [E6](#e6-audit-log-actor-display).**
+  > 4. **`AdminActor` has exactly one caller and it is not an audit row** —
+  >    `admin-history-cells.tsx` (`AdminHistoryRequester`) passes a `DownloadJob`, not an
+  >    `AuditLogEntry`. Wiring `AdminActor` without editing that file would have been dead
+  >    code, so it was wired there (`discordActor={job.discordRequester}`,
+  >    `linkedDiscord={job.linkedDiscord}`). That file was not on the task's caller list.
+  > 5. ⚠️ **Deliberate deviation from the mockup that E4 must follow.** The mockup's
+  >    `discordIdentity` mixin renders the mark _inside_ `if !opts.nameless`, so a nameless
+  >    row gets an avatar and nothing else, and the gallery card then re-adds a second
+  >    `discordMark` outside. E3 renders the mark **on the `nameless` row instead**, so the
+  >    390px activity list keeps its provenance and **E4's card needs no second trigger.
+  >    If E4 follows the mockup literally it will end up with two triggers for one
+  >    account.**
+  > 6. **The mockup has no `linkedDiscord` state at all** — it asserts linked is
+  >    indistinguishable from web. The reverse display is genuinely new visual territory,
+  >    not settled in `discord-attribution.html`. The treatment chosen keeps it quieter on
+  >    **four** axes so it can never read as the unlinked mark: plain text not a control
+  >    (nothing focusable, no `aria-haspopup`), `text-ink-4` against the name's `text-ink-3`,
+  >    **no Discord glyph at all** (the glyph is reserved for provenance), and it **never
+  >    carries the snowflake** — the raw id is not in the DOM for a linked account. Pinned
+  >    by `queryAllByRole('button')).toHaveLength(0)` and `not.toHaveTextContent(id)`.
+  > 7. **Scope addition:** `movie-detail.tsx` and `show-detail.tsx` also render
+  >    `DetailAttribution`. Leaving them unthreaded would have shown `hidden` for an
+  >    unlinked-Discord movie/show request — actively misleading, not merely incomplete —
+  >    so both were threaded.
+  > 8. **The mark fit all five surfaces wired, with no column widened**: activity table
+  >    (the name run got `min-w-0 truncate` so it shrinks instead of pushing the status
+  >    chip), the 390px `nameless` activity list, the detail attribution line, and the
+  >    admin history table/list. `initials()` splits on `@` first then `[._+-]`, so
+  >    `initials('sam.pham')` → `SP` unchanged; Discord handles cannot contain `@`, so the
+  >    email path never misfires on one.
+  >
+  > +50 tests; package green at **176 suites / 3587 tests**.
 
 - [ ] **E4. Gallery + recent-card attribution.** (Droppable — see
       [Scope cuts](#scope-cuts-in-v1).) Extend the gallery grouped query
@@ -1759,6 +1948,32 @@ username: discordUser.discordUsername })` **unconditionally, including when a
   >    stays phrasing-level beside a username. `<div>` in `<span>` is invalid per spec
   >    but parses identically everywhere and causes no hydration mismatch — worth
   >    knowing if a consumer ever puts the mark inside a `<p>`.
+
+- [ ] **E6. Audit-log actor display.** _(Added 2026-09-20, from
+      [E3's finding 3](#e3-findings) — not in the original plan.)_ Edit
+      `apps/download/src/components/admin/admin-audit-log.tsx` so an `origin: 'discord'`
+      audit row renders its Discord actor instead of reading as the service.
+
+  **Why this is a bug, not a polish item:** `discordActor` is already carried end-to-end
+  — C1 put it on `AuditLogEntrySchema`, D4 writes it and derives `origin: 'discord'`,
+  E1 resolves it at read time — but **nothing renders it**. So an admin looking at the
+  audit log today sees a Discord-triggered action attributed to the **service**, which
+  is wrong information rather than missing information.
+
+  The row is `sm:grid-cols-[70px_72px_1fr]` with a `truncate`d, `min-w-0 flex-1` "what"
+  column, and it writes `entry.actor.email` inline as an `<a>`, using
+  `auditActorLabel(entry.origin)` for the null case — it bypasses `AdminActor`
+  entirely. ⚠️ **Dropping the mark into the existing grid will clip it** — this is the
+  surface the mockup explicitly warns about. The mockup's own fix is to make the actor
+  a **content-sized flex item rather than a fixed grid column**; follow that rather
+  than widening a column or shrinking the type. Reuse `AdminActor` if the rebuilt row
+  makes that natural (it already takes `discordActor` / `linkedDiscord` after E3),
+  otherwise import E3's shared helpers so the strings stay in one place.
+
+  Masking rules are unchanged and still outrank display. Tests: an `origin: 'discord'`
+  row renders the handle **and** E5's mark and **not** the service chip; an
+  `origin: 'service'` row is byte-identical to today; a linked actor renders as the
+  person; the "what" column still truncates rather than the actor being clipped.
 
 ### Group F — tdr-bot, docs, integration
 
@@ -1891,7 +2106,7 @@ graph TD
 | 2 ✅ | A2 ∥ D1 ∥ D3 ∥ F1      | A2 needs A1's tables; D1 needs C1's wire type for row mapping; D3 needs A3's client methods; F1 needs C1's `withDiscordIdentity`. Two apps plus utils, no overlap                                                                                                     |
 | 3 ✅ | A4 ∥ B1 ∥ D4           | In auth, A4 adds a new controller + one `app.module.ts` line while B1 edits the admin dto/service/controller — disjoint files. D4 is in download entirely                                                                                                             |
 | 4 ✅ | B2 ∥ E1                | B2 is auth's server-action/RSC layer; E1 owns download's read path alone this wave                                                                                                                                                                                    |
-| 5    | B3 ∥ E2 ∥ E3           | B3 is auth UI; E2 edits `jobs.repo`/profile/history, E3 edits only download frontend components — all disjoint                                                                                                                                                        |
+| 5 ✅ | B3 ∥ E2 ∥ E3           | B3 is auth UI; E2 edits `jobs.repo`/profile/history, E3 edits only download frontend components — all disjoint                                                                                                                                                        |
 | 6    | E4 ∥ F2                | E4 re-enters `jobs.repo.ts` only after E2 has left it; F2 is docs only                                                                                                                                                                                                |
 | 7    | F3                     | Integration checkpoint — must see every prior commit                                                                                                                                                                                                                  |
 
