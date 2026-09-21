@@ -89,10 +89,25 @@ const FIELD_LABEL = 'font-mono text-label uppercase text-ink-4'
 const FIELD_VALUE = 'font-mono text-mono-sm text-ink-2'
 
 /**
- * `select-all` makes one click select the whole snowflake: this is the value an
- * admin copies into `apps/auth`'s Edit Access modal to link the account, and
- * it is 18–19 digits of nothing memorable. `break-all` lets it wrap rather than
- * widen the panel past the viewport cap on a phone.
+ * `select-all` makes one click select the whole snowflake, which is 18–19
+ * digits of nothing memorable and is not retyped correctly by anyone.
+ *
+ * ⚠️ It is **not** copied anywhere to link the account. Linking lives in
+ * `apps/auth`'s admin panel (`src/app/admin/discord-links-panel.tsx`) and is
+ * two pick-from-a-list columns of radio rows — a person on the left, an
+ * observed Discord account on the right, then Link. No snowflake and no handle
+ * is ever typed there; the only text inputs are optional client-side filters
+ * over the two lists, and they match on name/email and handle/display name,
+ * never on the id.
+ *
+ * The id is disclosed anyway because it is the *stable* identity: the handle
+ * beside it is a cache of a name its owner can change at will, so the
+ * snowflake is the only value here that still names this requester after a
+ * rename, and the only one that separates two similar-looking handles when an
+ * admin goes looking for the matching row in that picker.
+ *
+ * `break-all` lets it wrap rather than widen the panel past the viewport cap on
+ * a phone.
  */
 const FIELD_ID = cns(FIELD_VALUE, 'break-all select-all')
 
@@ -110,7 +125,7 @@ export type DiscordIdentityMarkProps = {
   /**
    * The raw Discord snowflake, **always a string**: snowflakes exceed
    * `Number.MAX_SAFE_INTEGER`, so a number would silently round. Rendered in
-   * full and never abbreviated — a truncated id cannot be pasted anywhere.
+   * full and never abbreviated — a truncated id identifies nobody.
    */
   discordUserId: string
   /** The requester's current Discord handle, without the leading `@`. */
