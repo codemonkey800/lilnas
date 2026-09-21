@@ -3,8 +3,7 @@ import type { GalleryItem, Media } from '@lilnas/utils/download/types'
 import { DownloadType, isManagedMedia } from '@lilnas/utils/download/types'
 import type { JSX } from 'react'
 
-import { requesterProfileHref } from 'src/components/activity/activity-requester'
-import { Avatar } from 'src/components/ui/avatar'
+import { ActivityRequester } from 'src/components/activity/activity-requester'
 import { ButtonLink } from 'src/components/ui/button-link'
 import { Chip } from 'src/components/ui/chip'
 import {
@@ -17,12 +16,7 @@ import {
 import type { IconName } from 'src/components/ui/icon'
 import { MChip } from 'src/components/ui/mchip'
 import { Poster } from 'src/components/ui/poster'
-import {
-  formatRelative,
-  formatRuntime,
-  initials,
-  UNKNOWN_VALUE,
-} from 'src/lib/format'
+import { formatRelative, formatRuntime, UNKNOWN_VALUE } from 'src/lib/format'
 import { mediaHref } from 'src/lib/media-route'
 import type { Viewer } from 'src/lib/viewer'
 
@@ -87,8 +81,8 @@ export type GalleryItemCardProps = {
   now: number
   /**
    * Who is looking. Decides whether the attribution avatar is a link, per
-   * {@link requesterProfileHref}'s access rule — own identity always, anyone
-   * else's only for an admin, a masked uploader never.
+   * `requesterProfileHref`'s access rule — own identity always, anyone else's
+   * only for an admin, a masked uploader never.
    */
   viewer: Viewer | null
 }
@@ -102,6 +96,14 @@ export type GalleryItemCardProps = {
  * reads `hidden · 3h ago` rather than just `3h ago`, which is `gallery.pug`'s
  * own data (`when: 'hidden · 3h ago'`) — the dashed avatar alone is easy to
  * miss at 24px.
+ *
+ * ⚠️ There is no `linkedDiscord` handle beside the email on this surface, and
+ * not because it would not fit: `GalleryItemSchema` carries `lastRequester`
+ * and `lastDiscordRequester` and no third field, so the reverse link lookup is
+ * never run for a gallery page (see `resolveGalleryItems`). A page of
+ * web-origin cards therefore costs zero link lookups, which is the property
+ * that keeps the grid cheap — adding the handle here would trade it away for a
+ * string this card has nowhere to put anyway.
  *
  * ⚠️ A video passes no poster `label`, exactly as the mixin does, and that is
  * load-bearing rather than cosmetic: the backend never populates `posterUrl`
@@ -120,9 +122,15 @@ export function GalleryItemCard({
   const watchUrl = managed?.embyStatus?.watchUrl
   const indexing = managed?.embyStatus?.state === 'indexing'
   const requester = item.lastRequester
+  const discordRequester = item.lastDiscordRequester
+  // Both identity slots null is the *masked* state, and only that. An
+  // unlinked Discord upload has no `lastRequester` either, but it is fully
+  // attributed — reading it as `hidden · …` would tell every viewer the
+  // uploader asked to be hidden when they did not. `JobQueryService.listGallery`
+  // nulls the two together, so this pair is the honest test.
+  const masked = requester === null && discordRequester === null
   const when = formatRelative(item.lastDownloadedAt, now)
   const video = media.type === DownloadType.Video
-  const profileHref = requesterProfileHref(requester, viewer)
 
   return (
     <GalleryCard className={GALLERY_CARD_WIDTH}>
@@ -149,17 +157,23 @@ export function GalleryItemCard({
       </GalleryCardLink>
       <GalleryCardRow className="mt-auto">
         <GalleryCardAttrib>
-          {requester ? (
-            <Avatar
-              href={profileHref}
-              initials={initials(requester.email)}
-              title={requester.email}
-            />
-          ) : (
-            <Avatar hidden />
-          )}
+          {/*
+            `nameless`, because a 158px card has no room for an email or a
+            handle beside a timestamp and a `Watch` button — the avatar and,
+            for an unlinked Discord upload, its mark are the whole of the
+            attribution here. The mark is `ActivityRequester`'s own (E5's
+            `DiscordIdentityMark`, rendered on its nameless row), so this card
+            adds none of its own: a second trigger for one account would open
+            two popovers saying the same thing.
+          */}
+          <ActivityRequester
+            discordRequester={discordRequester}
+            nameless
+            requester={requester}
+            viewer={viewer}
+          />
           <span className={cns(CARD_ANNOTATION, 'truncate text-ink-4')}>
-            {requester ? when : `hidden · ${when}`}
+            {masked ? `hidden · ${when}` : when}
           </span>
         </GalleryCardAttrib>
         {watchUrl ? (

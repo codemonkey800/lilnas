@@ -10,6 +10,8 @@ import {
   getRequesterActivityBounds,
   isRequesterScoped,
   listJobsPage,
+  listLatestJobsForMediaIds,
+  listMediaGroupsPage,
 } from 'src/db/jobs.repo'
 import type { ListCursor } from 'src/db/list-cursor'
 import { jobs } from 'src/db/schema'
@@ -1187,5 +1189,207 @@ describe('isRequesterScoped', () => {
     ],
   ])('reports %s as %p', (_label, scope: RequesterScope, expected) => {
     expect(isRequesterScoped(scope)).toBe(expected)
+  })
+})
+
+/**
+ * The gallery's two-query pair: `listMediaGroupsPage` groups the job log into
+ * one row per title, and `listLatestJobsForMediaIds` fetches the newest job
+ * behind each of those rows under the *same* filter. Together they are where
+ * `GalleryItem.lastRequester` and `GalleryItem.lastDiscordRequester` come
+ * from, so the Discord pair has to survive both of them.
+ */
+describe('the gallery grouped selection', () => {
+  const SAM_SNOWFLAKE = '273145016936267776'
+  const CLIP = 'video:clip'
+
+  it('groups a Discord submission into its title rather than dropping it', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedJob(db, {
+        createdAt: new Date(T0),
+        id: 'web-grab',
+        mediaId: CLIP,
+        origin: 'web',
+        requesterEmail: 'jeremy@lilnas.io',
+        requesterUserId: 'u-jeremy',
+      })
+      seedJob(db, {
+        createdAt: new Date(T0 + 1_000),
+        discordUserId: SAM_SNOWFLAKE,
+        discordUsername: 'sam.pham',
+        id: 'discord-grab',
+        mediaId: CLIP,
+        origin: 'discord',
+      })
+
+      const page = listMediaGroupsPage(db, { filter: {}, limit: 24 })
+
+      // One card for the title, counting both grabs. A Discord submission is
+      // a download like any other here - it is only the *facets* that stay
+      // email-keyed (plan 017 §E2's deliberate scope cut).
+      expect(page.groups).toEqual([
+        {
+          downloadCount: 2,
+          lastJobAtMs: T0 + 1_000,
+          mediaId: CLIP,
+          type: DownloadType.Video,
+        },
+      ])
+      expect(page.total).toBe(1)
+    } finally {
+      close()
+    }
+  })
+
+  it('carries the last requester’s Discord pair, not just the email pair', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedJob(db, {
+        createdAt: new Date(T0),
+        id: 'web-grab',
+        mediaId: CLIP,
+        origin: 'web',
+        requesterEmail: 'jeremy@lilnas.io',
+        requesterUserId: 'u-jeremy',
+      })
+      seedJob(db, {
+        createdAt: new Date(T0 + 1_000),
+        discordUserId: SAM_SNOWFLAKE,
+        discordUsername: 'sam.pham',
+        id: 'discord-grab',
+        mediaId: CLIP,
+        origin: 'discord',
+      })
+
+      const rows = listLatestJobsForMediaIds(db, {}, [CLIP])
+      const newest = rows[0]
+
+      // Newest-first, and the caller takes the first row per media id - so
+      // this row is the one the card's attribution is built from.
+      expect(rows.map(r => r.id)).toEqual(['discord-grab', 'web-grab'])
+      expect(newest?.discordUserId).toBe(SAM_SNOWFLAKE)
+      expect(newest?.discordUsername).toBe('sam.pham')
+      // The two identity pairs are mutually exclusive per row
+      // (`jobs_origin_matches_requester`), so a Discord grab carries no email
+      // and the card falls to its unlinked branch until a link resolves it.
+      expect(newest?.requesterEmail).toBeNull()
+    } finally {
+      close()
+    }
+  })
+
+  it('leaves the Discord pair null on a title last grabbed from the web', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedJob(db, {
+        createdAt: new Date(T0),
+        discordUserId: SAM_SNOWFLAKE,
+        discordUsername: 'sam.pham',
+        id: 'discord-grab',
+        mediaId: CLIP,
+        origin: 'discord',
+      })
+      seedJob(db, {
+        createdAt: new Date(T0 + 1_000),
+        id: 'web-grab',
+        mediaId: CLIP,
+        origin: 'web',
+        requesterEmail: 'jeremy@lilnas.io',
+        requesterUserId: 'u-jeremy',
+      })
+
+      const newest = listLatestJobsForMediaIds(db, {}, [CLIP])[0]
+
+      // A card shows the *last* requester, not every requester the title ever
+      // had - an earlier Discord grab must not leak a handle onto a title
+      // somebody else re-grabbed from the web.
+      expect(newest?.id).toBe('web-grab')
+      expect(newest?.discordUserId).toBeNull()
+      expect(newest?.discordUsername).toBeNull()
+    } finally {
+      close()
+    }
+  })
+
+  it('reads the last requester inside the filtered window, through either arm', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedJob(db, {
+        createdAt: new Date(T0),
+        discordUserId: SAM_SNOWFLAKE,
+        discordUsername: 'sam.pham',
+        id: 'discord-grab',
+        mediaId: CLIP,
+        origin: 'discord',
+      })
+      seedJob(db, {
+        createdAt: new Date(T0 + 1_000),
+        id: 'web-grab',
+        mediaId: CLIP,
+        origin: 'web',
+        requesterEmail: 'jeremy@lilnas.io',
+        requesterUserId: 'u-jeremy',
+      })
+
+      const filter = { requesterDiscordUserId: SAM_SNOWFLAKE }
+      const newest = listLatestJobsForMediaIds(db, filter, [CLIP])[0]
+
+      // Same filter as the grouping query ran under, so "sam's titles" shows
+      // sam as the last requester even though somebody else grabbed it later.
+      expect(listMediaGroupsPage(db, { filter, limit: 24 }).groups).toEqual([
+        {
+          downloadCount: 1,
+          lastJobAtMs: T0,
+          mediaId: CLIP,
+          type: DownloadType.Video,
+        },
+      ])
+      expect(newest?.id).toBe('discord-grab')
+    } finally {
+      close()
+    }
+  })
+
+  it('keeps a hidden Discord video out of a requester-scoped gallery, groups and rows alike', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedJob(db, {
+        createdAt: new Date(T0),
+        discordUserId: SAM_SNOWFLAKE,
+        discordUsername: 'sam.pham',
+        hiddenAttribution: true,
+        id: 'discord-hidden',
+        mediaId: CLIP,
+        origin: 'discord',
+      })
+
+      const filter = {
+        excludeHiddenVideos: true,
+        requesterDiscordUserId: SAM_SNOWFLAKE,
+      }
+
+      // The attribution oracle: a requester-keyed gallery run by a non-admin
+      // must not be able to confirm a hidden video exists for that requester -
+      // through the cards, through `total`, or through the follow-up row.
+      const page = listMediaGroupsPage(db, { filter, limit: 24 })
+
+      expect(page.groups).toEqual([])
+      expect(page.total).toBe(0)
+      expect(listLatestJobsForMediaIds(db, filter, [CLIP])).toEqual([])
+    } finally {
+      close()
+    }
+  })
+
+  it('asks nothing of the DB for an empty page of media ids', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedJob(db, { createdAt: new Date(T0), id: 'web-grab', mediaId: CLIP })
+
+      expect(listLatestJobsForMediaIds(db, {}, [])).toEqual([])
+    } finally {
+      close()
+    }
   })
 })

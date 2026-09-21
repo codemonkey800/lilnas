@@ -1,9 +1,15 @@
 import '@testing-library/jest-dom'
 
-import type { GalleryItem, Media } from '@lilnas/utils/download/types'
+import type {
+  DiscordRequester,
+  GalleryItem,
+  Media,
+} from '@lilnas/utils/download/types'
 import { DownloadType } from '@lilnas/utils/download/types'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
+import { DISCORD_UNLINKED_NOTE } from 'src/components/activity/discord-identity-mark'
 import { GalleryItemCard } from 'src/components/gallery/gallery-item-card'
 import { MASKED_INITIALS } from 'src/components/ui/avatar'
 import { PROFILE_HREF, profileHrefForEmail } from 'src/lib/profile-filters'
@@ -35,6 +41,23 @@ const VIEWER: Viewer = {
   userId: 'u_1',
 }
 const ADMIN: Viewer = { email: 'ops@lilnas.io', isAdmin: true, userId: 'u_9' }
+
+/**
+ * A real 18-digit snowflake, kept as a **string literal**: it is past
+ * `Number.MAX_SAFE_INTEGER`, so writing it as a number would silently round.
+ */
+const SNOWFLAKE = '273145016936267776'
+
+/** The Discord account that submitted the last download and has no link yet. */
+const DISCORD_SAM: DiscordRequester = {
+  discordUserId: SNOWFLAKE,
+  discordUsername: 'sam.pham',
+}
+
+/** E5's disclosure trigger, by the accessible name it announces. */
+function discordTrigger(): HTMLElement {
+  return screen.getByRole('button', { name: /Discord account details/ })
+}
 
 function item(overrides: Partial<GalleryItem> = {}): GalleryItem {
   return {
@@ -232,5 +255,143 @@ describe('GalleryItemCard', () => {
     expect(container.firstElementChild?.getAttribute('class')).toContain(
       'w-[calc(50%-8px)] sm:w-[158px]',
     )
+  })
+
+  /**
+   * The three states `lastRequester`/`lastDiscordRequester` can arrive in, as
+   * the ~158px card renders them. There is no `linkedDiscord` case here on
+   * purpose: `GalleryItemSchema` carries no such field, so a linked uploader's
+   * card shows the resolved email and nothing else — see the component's own
+   * note.
+   */
+  describe('Discord attribution', () => {
+    it('renders an unlinked Discord uploader as the handle’s initials plus the mark', () => {
+      render(
+        <GalleryItemCard
+          item={item({
+            lastDiscordRequester: DISCORD_SAM,
+            lastRequester: null,
+          })}
+          now={NOW}
+          viewer={null}
+        />,
+      )
+
+      expect(screen.getByText('SP')).toBeInTheDocument()
+      expect(screen.getByTitle('sam.pham · Discord')).toBeInTheDocument()
+      expect(discordTrigger()).toBeInTheDocument()
+    })
+
+    it('reads an unlinked Discord upload as attributed, not as hidden', () => {
+      render(
+        <GalleryItemCard
+          item={item({
+            lastDiscordRequester: DISCORD_SAM,
+            lastRequester: null,
+          })}
+          now={NOW}
+          viewer={null}
+        />,
+      )
+
+      // A null `lastRequester` alone is not the mask. Saying `hidden · 12m ago`
+      // here would claim an uploader asked to be hidden when they did not.
+      expect(screen.getByText('12m ago')).toBeInTheDocument()
+      expect(screen.queryByText('hidden · 12m ago')).not.toBeInTheDocument()
+    })
+
+    it('carries exactly one mark for one account, never the avatar’s and a card’s own', () => {
+      render(
+        <GalleryItemCard
+          item={item({
+            lastDiscordRequester: DISCORD_SAM,
+            lastRequester: null,
+          })}
+          now={NOW}
+          viewer={null}
+        />,
+      )
+
+      expect(
+        screen.getAllByRole('button', { name: /Discord account details/ }),
+      ).toHaveLength(1)
+    })
+
+    it('discloses the raw snowflake from the mark, which is what an admin pastes', async () => {
+      const user = userEvent.setup()
+      render(
+        <GalleryItemCard
+          item={item({
+            lastDiscordRequester: DISCORD_SAM,
+            lastRequester: null,
+          })}
+          now={NOW}
+          viewer={null}
+        />,
+      )
+
+      await user.click(discordTrigger())
+
+      expect(screen.getByText(SNOWFLAKE)).toBeInTheDocument()
+      expect(screen.getByText(DISCORD_UNLINKED_NOTE)).toBeInTheDocument()
+    })
+
+    it('never links an unlinked Discord uploader to a profile, admin or not', () => {
+      render(
+        <GalleryItemCard
+          item={item({
+            lastDiscordRequester: DISCORD_SAM,
+            lastRequester: null,
+          })}
+          now={NOW}
+          viewer={ADMIN}
+        />,
+      )
+
+      // No lilnas account claims this snowflake, so there is no profile to
+      // open — the only link on the card is the poster's.
+      expect(screen.getAllByRole('link')).toHaveLength(1)
+    })
+
+    it('renders a masked upload with no mark at all — not even the trigger', () => {
+      render(
+        <GalleryItemCard
+          item={item({ lastDiscordRequester: null, lastRequester: null })}
+          now={NOW}
+          viewer={null}
+        />,
+      )
+
+      // Masking outranks disclosure: no handle, no snowflake, and no button to
+      // reveal either of them anywhere in the DOM.
+      expect(screen.getByText('hidden · 12m ago')).toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: /Discord account details/ }),
+      ).not.toBeInTheDocument()
+      expect(screen.queryByText(SNOWFLAKE)).not.toBeInTheDocument()
+      expect(screen.queryByText('sam.pham')).not.toBeInTheDocument()
+    })
+
+    it('renders a linked Discord upload as the resolved email, with no mark', () => {
+      render(
+        <GalleryItemCard
+          item={item({ lastDiscordRequester: DISCORD_SAM })}
+          now={NOW}
+          viewer={VIEWER}
+        />,
+      )
+
+      // `AttributionResolutionService` fills `lastRequester` from the link
+      // before serialization, and both fields arrive set. The email wins, and
+      // the mark — a disclosure affordance for an identity nobody can resolve
+      // — has nothing left to disclose.
+      expect(screen.getByRole('link', { name: 'JA' })).toHaveAttribute(
+        'href',
+        PROFILE_HREF,
+      )
+      expect(
+        screen.queryByRole('button', { name: /Discord account details/ }),
+      ).not.toBeInTheDocument()
+    })
   })
 })

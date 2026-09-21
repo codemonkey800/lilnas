@@ -7,8 +7,7 @@ import type {
 import { DownloadType, isManagedMedia } from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX } from 'react'
 
-import { requesterProfileHref } from 'src/components/activity/activity-requester'
-import { Avatar } from 'src/components/ui/avatar'
+import { ActivityRequester } from 'src/components/activity/activity-requester'
 import { ButtonLink } from 'src/components/ui/button-link'
 import { Chip } from 'src/components/ui/chip'
 import {
@@ -21,12 +20,7 @@ import {
 import type { IconName } from 'src/components/ui/icon'
 import { MChip } from 'src/components/ui/mchip'
 import { Poster } from 'src/components/ui/poster'
-import {
-  formatRelative,
-  formatRuntime,
-  initials,
-  UNKNOWN_VALUE,
-} from 'src/lib/format'
+import { formatRelative, formatRuntime, UNKNOWN_VALUE } from 'src/lib/format'
 import { mediaHref } from 'src/lib/media-route'
 import type { Viewer } from 'src/lib/viewer'
 
@@ -86,8 +80,8 @@ export type RecentCardProps = Omit<
   now: number
   /**
    * Who is looking. Decides whether the attribution avatar is a link, per
-   * {@link requesterProfileHref}'s access rule — own identity always, anyone
-   * else's only for an admin, a masked uploader never.
+   * `requesterProfileHref`'s access rule — own identity always, anyone else's
+   * only for an admin, a masked uploader never.
    *
    * Required, and nullable: `null` is a real answer (nobody is signed in) and
    * the caller has to give it. Optional would let a page that renders a
@@ -116,14 +110,13 @@ export function RecentCard({
   viewer,
   ...props
 }: RecentCardProps): JSX.Element {
-  const { lastDownloadedAt, lastRequester, media } = item
+  const { lastDiscordRequester, lastDownloadedAt, lastRequester, media } = item
   const emby = embyStatusOf(media)
   const indexing = emby?.state === 'indexing'
   // `watchUrl` is populated only while the state is `indexed`; a title that is
   // still being indexed has nothing to point a player at yet, which is the
   // whole reason the chip stands in for the action.
   const watchUrl = emby?.state === 'indexed' ? emby.watchUrl : undefined
-  const profileHref = requesterProfileHref(lastRequester, viewer)
 
   return (
     <GalleryCard
@@ -161,19 +154,25 @@ export function RecentCard({
       </GalleryCardLink>
       <GalleryCardRow className="mt-auto">
         <GalleryCardAttrib>
-          {lastRequester === null ? (
-            // Masked server-side by the attribution oracle. No initials to
-            // show and no profile to point at — the dashed circle is the whole
-            // statement.
-            <Avatar hidden size="xs" title="Attribution hidden" />
-          ) : (
-            <Avatar
-              href={profileHref}
-              initials={initials(lastRequester.email)}
-              size="xs"
-              title={lastRequester.email}
-            />
-          )}
+          {/*
+            One spelling of the three-state rule, shared with the activity
+            feed: masked renders the dashed circle and nothing else (no
+            username, no snowflake, no `DiscordIdentityMark` in the DOM at
+            all), a resolved identity renders the email avatar and its profile
+            link, and an unlinked Discord upload renders the handle's initials
+            plus E5's mark — which `ActivityRequester` already puts on its
+            `nameless` row, so this card must not add a second one.
+
+            `avatarClassName` rather than `size="xs"`: the two spell the same
+            18px circle, and `ActivityRequester` sizes through the class.
+          */}
+          <ActivityRequester
+            avatarClassName="h-[18px] w-[18px] text-[8.5px]"
+            discordRequester={lastDiscordRequester}
+            nameless
+            requester={lastRequester}
+            viewer={viewer}
+          />
           <span className="font-mono text-mono-sm text-ink-4">
             {formatRelative(lastDownloadedAt, now)}
           </span>
