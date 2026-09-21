@@ -52,13 +52,19 @@ function unlinked(): DiscordLinkLookupResponse {
 // lands in the catch below, and degrades to "unlinked" - so this service can
 // be deployed first, in either order, with no coordination.
 //
-// Three keyspaces share one map (and therefore one MAX_CACHE_ENTRIES budget),
+// Four keyspaces share one map (and therefore one MAX_CACHE_ENTRIES budget),
 // disambiguated by key prefix:
 //   d:<snowflake>          -> the link lookup keyed by Discord user id
 //   u:<lilnasUserId>       -> the link lookup keyed by lilnas user id
+//   e:<lowercased email>   -> the link lookup keyed by lilnas account email
 //   seen:<snowflake>:<handle> -> "already reported this identity to auth"
-// The prefixes matter: a lilnas user id and a snowflake are both opaque
-// strings and must never collide into one entry.
+// The prefixes matter: a lilnas user id, an email and a snowflake are all
+// opaque strings and must never collide into one entry.
+//
+// `u:` and `e:` answer the same question about (usually) the same account and
+// are deliberately *not* unified: nothing here can turn an email into a user
+// id without asking auth, which is the very round trip the cache exists to
+// avoid. Two entries for one person is the cheaper mistake.
 //
 // The bound is the same defense-in-depth AdminCheckService documents: the
 // snowflake keyspace arrives in `X-Discord-User-Id`, a header this container
@@ -122,6 +128,48 @@ export class DiscordLinkService {
    */
   async getLinkedDiscordUserId(lilnasUserId: string): Promise<string | null> {
     const { identity } = await this.resolveLilnasUser(lilnasUserId)
+    return identity?.discordUserId ?? null
+  }
+
+  /**
+   * The same envelope as {@link resolveLilnasUser}, addressed by the lilnas
+   * account's **email** instead of its id.
+   *
+   * Exists because the surfaces that unify a person's history are keyed by
+   * email, not by user id: `?requester=<email>` on `GET /history` and
+   * `GET /profile` name their subject that way, and there is no `users` table
+   * in apps/download to turn one into the other. Auth's
+   * `/internal/discord-link` already accepts `{ email }` and matches it
+   * case-insensitively, so this is a third address for one route rather than
+   * a new capability.
+   *
+   * The email is trimmed and lowercased **for the cache key only** - the same
+   * normalization `AdminCheckService` applies, and for the same reason: auth
+   * answers `Alice@Example.com` and `alice@example.com` identically, so
+   * letting them occupy two entries would double the keyspace and halve the
+   * hit rate for no behavioural difference. The *unnormalized* value is what
+   * goes on the wire, leaving the matching rule auth's to own.
+   *
+   * Never rejects - see {@link resolveDiscordUser}.
+   */
+  resolveEmail(email: string): Promise<DiscordLinkLookupResponse> {
+    return this.lookup(`e:${email.trim().toLowerCase()}`, { email })
+  }
+
+  /**
+   * {@link getLinkedDiscordUserId}'s email-addressed twin: the Discord
+   * snowflake linked to the lilnas account with this email, or `null` when
+   * there is no such account, it has no linked Discord account, or auth
+   * could not be reached (failing open - see the class comment).
+   *
+   * ⚠️ All three of those collapse to `null` on purpose. The callers are
+   * building a *widening* OR-arm onto a filter that is already correct
+   * without it, so "I don't know" and "there is no link" have to behave the
+   * same: an unlinked person's history is their web history, which is exactly
+   * what the email arm alone returns.
+   */
+  async getLinkedDiscordUserIdByEmail(email: string): Promise<string | null> {
+    const { identity } = await this.resolveEmail(email)
     return identity?.discordUserId ?? null
   }
 

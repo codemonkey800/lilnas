@@ -508,6 +508,68 @@ describe('JobQueryService', () => {
       expect(page.items).toEqual([])
       expect(page.total).toBe(0)
     })
+
+    // Plan 017 §E2: the Discord arm rides through to the filter alongside the
+    // email, rather than replacing it or being dropped.
+    it("unions a linked requester's discord jobs with their web jobs", async () => {
+      const snowflake = '111111111111111111'
+      seedJob({
+        id: 'alice-web',
+        origin: 'web',
+        requesterEmail: 'alice@example.com',
+        requesterUserId: 'u1',
+      })
+      seedJob({
+        discordUserId: snowflake,
+        discordUsername: 'alice',
+        id: 'alice-discord',
+        origin: 'discord',
+      })
+      seedJob({
+        discordUserId: '222222222222222222',
+        discordUsername: 'bob',
+        id: 'bob-discord',
+        origin: 'discord',
+      })
+
+      const page = await service.listHistory({
+        isAdmin: false,
+        limit: 10,
+        requesterDiscordUserId: snowflake,
+        requesterEmail: 'alice@example.com',
+      })
+
+      expect(page.items.map(i => i.id).sort()).toEqual([
+        'alice-discord',
+        'alice-web',
+      ])
+      expect(page.total).toBe(2)
+    })
+
+    // ⚠️ listHistory deliberately never sets `excludeHiddenVideos` - the
+    // controller's self-or-admin 403 is the guard, and a non-admin may always
+    // see their *own* hidden videos. Widening to two identity columns must
+    // not quietly change that on the Discord side either.
+    it("keeps a linked requester's own hidden discord video visible to them", async () => {
+      const snowflake = '111111111111111111'
+      seedJob({
+        discordUserId: snowflake,
+        discordUsername: 'alice',
+        hiddenAttribution: true,
+        id: 'alice-discord-hidden',
+        origin: 'discord',
+        type: 'video',
+      })
+
+      const page = await service.listHistory({
+        isAdmin: false,
+        limit: 10,
+        requesterDiscordUserId: snowflake,
+        requesterEmail: 'alice@example.com',
+      })
+
+      expect(page.items.map(i => i.id)).toEqual(['alice-discord-hidden'])
+    })
   })
 
   describe('listJobsForMedia', () => {

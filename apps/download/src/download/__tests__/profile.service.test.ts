@@ -1,11 +1,16 @@
 import { Test, TestingModule } from '@nestjs/testing'
 
+import { DiscordLinkService } from 'src/auth/discord-link.service'
 import { createTestDbService } from 'src/db/__tests__/test-utils'
 import { DbService } from 'src/db/db.service'
 import { jobs } from 'src/db/schema'
 import { ProfileService } from 'src/download/profile.service'
 
 type RowInsert = typeof jobs.$inferInsert
+
+// A string literal, not a numeric one: a real snowflake exceeds
+// Number.MAX_SAFE_INTEGER (and eslint's no-loss-of-precision would reject it).
+const ALICE_SNOWFLAKE = '111111111111111111'
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000
 
@@ -22,6 +27,7 @@ function daysAgo(days: number): Date {
 describe('ProfileService', () => {
   let dbService: DbService
   let service: ProfileService
+  let getLinkedDiscordUserIdByEmail: jest.Mock
 
   // `createdAt` is always explicit: several of these tests hinge on where a
   // row falls relative to the window, which the column's
@@ -51,8 +57,20 @@ describe('ProfileService', () => {
     jest.spyOn(Date, 'now').mockReturnValue(NOW.getTime())
     dbService = createTestDbService()
 
+    // Defaults to "no linked Discord account", which is the pre-plan-017
+    // behaviour every existing test in this file was written against - the
+    // unified-history tests below opt in explicitly.
+    getLinkedDiscordUserIdByEmail = jest.fn().mockResolvedValue(null)
+
     const module: TestingModule = await Test.createTestingModule({
-      providers: [ProfileService, { provide: DbService, useValue: dbService }],
+      providers: [
+        ProfileService,
+        { provide: DbService, useValue: dbService },
+        {
+          provide: DiscordLinkService,
+          useValue: { getLinkedDiscordUserIdByEmail },
+        },
+      ],
     }).compile()
 
     service = module.get(ProfileService)
@@ -63,10 +81,10 @@ describe('ProfileService', () => {
   })
 
   describe('empty profile', () => {
-    it('answers with nulls and empty arrays rather than throwing', () => {
-      expect(
+    it('answers with nulls and empty arrays rather than throwing', async () => {
+      await expect(
         service.getProfile({ days: 30, email: 'nobody@example.com' }),
-      ).toEqual({
+      ).resolves.toEqual({
         user: { email: 'nobody@example.com' },
         firstDownloadAt: null,
         lastDownloadAt: null,
@@ -79,7 +97,7 @@ describe('ProfileService', () => {
   })
 
   describe('scoping', () => {
-    it("never counts another user's jobs", () => {
+    it("never counts another user's jobs", async () => {
       seedJob({ id: 'alice-1' })
       seedJob({
         id: 'bob-1',
@@ -87,7 +105,7 @@ describe('ProfileService', () => {
         requesterUserId: 'u-bob',
       })
 
-      const profile = service.getProfile({
+      const profile = await service.getProfile({
         days: 30,
         email: 'alice@example.com',
       })
@@ -98,10 +116,10 @@ describe('ProfileService', () => {
       ])
     })
 
-    it('echoes the target email verbatim, matching it case-insensitively', () => {
+    it('echoes the target email verbatim, matching it case-insensitively', async () => {
       seedJob({ id: 'alice-1' })
 
-      const profile = service.getProfile({
+      const profile = await service.getProfile({
         days: 30,
         email: 'ALICE@Example.COM',
       })
@@ -110,11 +128,11 @@ describe('ProfileService', () => {
       expect(profile.totalsByType).toEqual([{ count: 1, type: 'video' }])
     })
 
-    it("includes the caller's own hidden videos in the totals", () => {
+    it("includes the caller's own hidden videos in the totals", async () => {
       seedJob({ id: 'visible' })
       seedJob({ hiddenAttribution: true, id: 'hidden' })
 
-      const profile = service.getProfile({
+      const profile = await service.getProfile({
         days: 30,
         email: 'alice@example.com',
       })
@@ -124,11 +142,11 @@ describe('ProfileService', () => {
   })
 
   describe('window math', () => {
-    it('keeps a job older than the window out of jobsPerDay but inside the totals and bounds', () => {
+    it('keeps a job older than the window out of jobsPerDay but inside the totals and bounds', async () => {
       seedJob({ createdAt: daysAgo(2), id: 'recent' })
       seedJob({ createdAt: daysAgo(40), id: 'ancient' })
 
-      const profile = service.getProfile({
+      const profile = await service.getProfile({
         days: 7,
         email: 'alice@example.com',
       })
@@ -147,15 +165,18 @@ describe('ProfileService', () => {
       expect(profile.lastDownloadAt).toBe(daysAgo(2).toISOString())
     })
 
-    it('echoes the applied window as windowDays', () => {
-      expect(
-        service.getProfile({ days: 90, email: 'alice@example.com' }).windowDays,
-      ).toBe(90)
+    it('echoes the applied window as windowDays', async () => {
+      const profile = await service.getProfile({
+        days: 90,
+        email: 'alice@example.com',
+      })
+
+      expect(profile.windowDays).toBe(90)
     })
   })
 
   describe('aggregates', () => {
-    it('passes the sparse per-day and status breakdowns straight through', () => {
+    it('passes the sparse per-day and status breakdowns straight through', async () => {
       seedJob({ createdAt: daysAgo(2), id: 'v1' })
       seedJob({ createdAt: daysAgo(2), id: 'v2' })
       seedJob({
@@ -166,7 +187,7 @@ describe('ProfileService', () => {
         type: 'movie',
       })
 
-      const profile = service.getProfile({
+      const profile = await service.getProfile({
         days: 30,
         email: 'alice@example.com',
       })
@@ -189,6 +210,118 @@ describe('ProfileService', () => {
         ]),
       )
       expect(profile.totalsByType).toHaveLength(2)
+    })
+  })
+  // Plan 017 §E2: one person, two submission surfaces, one profile.
+  describe('unified history for a linked account', () => {
+    function seedDiscordJob(
+      overrides: Partial<RowInsert> & { id: string },
+    ): void {
+      seedJob({
+        discordUserId: ALICE_SNOWFLAKE,
+        discordUsername: 'alice',
+        origin: 'discord',
+        // The `jobs_origin_matches_requester` CHECK makes the two identity
+        // pairs mutually exclusive per row, so a discord-origin row must
+        // clear the web ones seedJob() defaults in.
+        requesterEmail: null,
+        requesterUserId: null,
+        ...overrides,
+      })
+    }
+
+    it("resolves the link from the profile's subject, not the caller", async () => {
+      await service.getProfile({ days: 30, email: 'alice@example.com' })
+
+      expect(getLinkedDiscordUserIdByEmail).toHaveBeenCalledWith(
+        'alice@example.com',
+      )
+    })
+
+    it('counts jobs from both surfaces as one list', async () => {
+      getLinkedDiscordUserIdByEmail.mockResolvedValue(ALICE_SNOWFLAKE)
+      seedJob({ createdAt: daysAgo(2), id: 'web-1' })
+      seedDiscordJob({ createdAt: daysAgo(1), id: 'discord-1' })
+
+      const profile = await service.getProfile({
+        days: 30,
+        email: 'alice@example.com',
+      })
+
+      expect(profile.totalsByType).toEqual([{ count: 2, type: 'video' }])
+      expect(profile.totalsByStatus).toEqual([
+        { count: 2, status: 'completed' },
+      ])
+      expect(profile.jobsPerDay).toEqual([
+        { count: 1, day: '2026-06-13', type: 'video' },
+        { count: 1, day: '2026-06-14', type: 'video' },
+      ])
+    })
+
+    // The bounds are an aggregate, not a list, so they have their own path
+    // through buildJobWhere - a profile saying "first download: 2 days ago"
+    // while counting a job from 40 days ago would be self-contradicting.
+    it('widens the first/last download bounds across both surfaces', async () => {
+      getLinkedDiscordUserIdByEmail.mockResolvedValue(ALICE_SNOWFLAKE)
+      seedDiscordJob({ createdAt: daysAgo(40), id: 'discord-oldest' })
+      seedJob({ createdAt: daysAgo(2), id: 'web-newest' })
+
+      const profile = await service.getProfile({
+        days: 30,
+        email: 'alice@example.com',
+      })
+
+      expect(profile.firstDownloadAt).toBe(daysAgo(40).toISOString())
+      expect(profile.lastDownloadAt).toBe(daysAgo(2).toISOString())
+    })
+
+    it("never folds in another Discord account's jobs", async () => {
+      getLinkedDiscordUserIdByEmail.mockResolvedValue(ALICE_SNOWFLAKE)
+      seedJob({ createdAt: daysAgo(2), id: 'web-1' })
+      seedDiscordJob({
+        createdAt: daysAgo(1),
+        discordUserId: '222222222222222222',
+        discordUsername: 'bob',
+        id: 'discord-bob',
+      })
+
+      const profile = await service.getProfile({
+        days: 30,
+        email: 'alice@example.com',
+      })
+
+      expect(profile.totalsByType).toEqual([{ count: 1, type: 'video' }])
+    })
+
+    // DiscordLinkService fails open, so an auth outage answers `null` - the
+    // profile must then read exactly as it did before this feature rather
+    // than erroring or, worse, dropping the email arm too.
+    it('degrades to the email-only profile when no link is resolved', async () => {
+      seedJob({ createdAt: daysAgo(2), id: 'web-1' })
+      seedDiscordJob({ createdAt: daysAgo(1), id: 'discord-1' })
+
+      const profile = await service.getProfile({
+        days: 30,
+        email: 'alice@example.com',
+      })
+
+      expect(profile.totalsByType).toEqual([{ count: 1, type: 'video' }])
+    })
+
+    it("still includes the subject's own hidden videos from Discord", async () => {
+      getLinkedDiscordUserIdByEmail.mockResolvedValue(ALICE_SNOWFLAKE)
+      seedDiscordJob({
+        createdAt: daysAgo(1),
+        hiddenAttribution: true,
+        id: 'discord-hidden',
+      })
+
+      const profile = await service.getProfile({
+        days: 30,
+        email: 'alice@example.com',
+      })
+
+      expect(profile.totalsByType).toEqual([{ count: 1, type: 'video' }])
     })
   })
 })

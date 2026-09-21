@@ -16,6 +16,7 @@ import { hydrateJobRow } from 'src/db/job-row'
 import {
   countJobsByRequester,
   countJobsByType,
+  isRequesterScoped,
   type JobListFilter,
   listJobsByMediaId,
   listJobsPage,
@@ -52,6 +53,19 @@ export interface ListGalleryParams extends PageParams {
 }
 
 export interface ListHistoryParams extends PageParams {
+  /**
+   * The Discord snowflake linked to whoever {@link requesterEmail} names,
+   * OR-ed onto the email so a linked person's Discord-submitted and
+   * web-submitted jobs come back as one history (plan 017 §E2).
+   *
+   * Omitted when that person has no linked account, when auth could not
+   * answer, or when there is no `requesterEmail` to link *from* (`?scope=all`)
+   * - all three degrade to the email-only filter this route had before.
+   *
+   * ⚠️ Resolved by the controller from `requesterEmail`'s owner, never read
+   * off the request. See `JobListFilter.requesterDiscordUserId`.
+   */
+  requesterDiscordUserId?: string
   /**
    * Omitted = every requester - `?scope=all`, which
    * `DownloadController.getHistory` gates to admins. Optional for the same
@@ -120,12 +134,19 @@ export class JobQueryService {
    * `undefined` here, is 403'd for them at the controller. Setting it would
    * instead hide a user's own hidden videos from their own history.
    *
+   * Plan 017 §E2's `requesterDiscordUserId` arm does not change that count of
+   * reachable scopes. It is not a scope of its own: it only ever carries the
+   * snowflake linked to the *same* person `requesterEmail` already names, so
+   * a non-admin still reaches precisely "me" or a 403. Their own hidden
+   * videos remain visible to them on both surfaces, which is the point.
+   *
    * Attribution on the returned rows is masked either way, by
-   * `projectPage(page, isAdmin)` at the controller.
+   * `serveJobPage(page, isAdmin)` at the controller.
    */
   listHistory(params: ListHistoryParams): Promise<DownloadPage<DownloadJob>> {
     return this.runJobPage(
       {
+        requesterDiscordUserId: params.requesterDiscordUserId,
         requesterEmail: params.requesterEmail,
         statuses: params.statuses,
         types: params.types,
@@ -151,6 +172,14 @@ export class JobQueryService {
    * `jobs` with no join and no EXISTS subquery, so
    * `?requester=alice&from=2026-03-01` groups only alice's March jobs -
    * i.e. "titles alice downloaded in March", the natural reading.
+   *
+   * ⚠️ **Still email-only, unlike `listHistory` above** - a deliberate plan
+   * 017 §E2 scope cut, not an oversight. `?requester=` here is driven by the
+   * uploader facet chips, and those come from `countJobsByRequester`, which
+   * groups by `requester_email`; a Discord-only job has no email and so never
+   * produces a chip to click. Widening the *filter* without widening the
+   * *facet* would only add an arm nothing in the UI can reach, and widening
+   * the facet means resolving links inside SQL aggregation. Deferred whole.
    */
   async listGallery(
     params: ListGalleryParams,
@@ -158,12 +187,19 @@ export class JobQueryService {
     const filter: JobListFilter = {
       createdFrom: params.createdFrom,
       createdTo: params.createdTo,
-      // The attribution-oracle guard: a `requesterEmail` filter run by a
+      // The attribution-oracle guard: a requester-keyed filter run by a
       // non-admin must not be able to confirm a hidden video exists for
       // that requester, via either the returned rows or `total`. The
       // *unfiltered* gallery still shows hidden videos (masked) - only
       // the requester-keyed lookup is suppressed.
-      excludeHiddenVideos: params.requesterEmail ? !params.isAdmin : undefined,
+      //
+      // Asked as `isRequesterScoped(params)` rather than
+      // `params.requesterEmail ? ...` so that the day the gallery grows a
+      // Discord arm of its own (plan 017 deferred it - see below), the guard
+      // already covers it instead of silently going `undefined`.
+      excludeHiddenVideos: isRequesterScoped(params)
+        ? !params.isAdmin
+        : undefined,
       requesterEmail: params.requesterEmail,
       statuses: [DownloadJobStatus.Completed],
       types: params.types,

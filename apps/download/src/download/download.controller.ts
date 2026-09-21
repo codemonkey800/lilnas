@@ -168,6 +168,51 @@ export class DownloadController {
   }
 
   /**
+   * The Discord snowflake to OR onto a requester-scoped list filter, so one
+   * person's Discord-submitted and web-submitted jobs read as one history
+   * (plan 017 §E2).
+   *
+   * ⚠️ **This is the only producer of a Discord filter arm in the read path,
+   * and it is what keeps that arm inside the existing authorization.** There
+   * is no `?discordUserId=` query parameter; the snowflake is always derived
+   * from `requesterEmail`'s owner, which the caller has already been 403'd
+   * for if they were not allowed to name them. So the OR-ed filter is aimed
+   * at exactly the one person the un-widened filter was, and the
+   * attribution-oracle guard that gates `requesterEmail` (see
+   * `JobListFilter.excludeHiddenVideos`) gates the Discord arm identically -
+   * it cannot be steered at a third party to probe for their hidden videos.
+   *
+   * Three `undefined` cases, all meaning "leave the filter as it was":
+   * - **No `requesterEmail`** (`?scope=all`): there is nobody to link *from*,
+   *   and an unscoped list already contains every Discord job anyway.
+   * - **Self view**: keyed by `user.userId` rather than the email. Same
+   *   answer, but it reuses the `u:` cache entry that
+   *   `AttributionResolutionService` warms while rendering the page's
+   *   `linkedDiscord`, instead of minting a parallel `e:` one.
+   * - **Someone else** (admin only, by the 403 above): keyed by their email,
+   *   the only identifier this app has for them - there is no `users` table.
+   *
+   * Fails open to `undefined` (DiscordLinkService never rejects), which
+   * degrades to the email-only history this route returned before.
+   */
+  private async resolveScopeDiscordUserId(params: {
+    isSelfScope: boolean
+    requesterEmail: string | undefined
+    user: ForwardedUser
+  }): Promise<string | undefined> {
+    const { isSelfScope, requesterEmail, user } = params
+    if (!requesterEmail) return undefined
+
+    const linked = isSelfScope
+      ? await this.discordLinkService.getLinkedDiscordUserId(user.userId)
+      : await this.discordLinkService.getLinkedDiscordUserIdByEmail(
+          requesterEmail,
+        )
+
+    return linked ?? undefined
+  }
+
+  /**
    * The read path's single exit, in three arities: **resolve, then mask**.
    *
    * Every job-returning route in this controller goes through one of these
@@ -518,10 +563,20 @@ export class DownloadController {
         ? user.email
         : (query.requester as string)
 
+    // The unified-history arm (plan 017 §E2): the Discord snowflake belonging
+    // to the *same person* `requesterEmail` names, so their Discord-submitted
+    // jobs list alongside their web-submitted ones.
+    const requesterDiscordUserId = await this.resolveScopeDiscordUserId({
+      isSelfScope,
+      requesterEmail,
+      user,
+    })
+
     const page = await this.jobQueryService.listHistory({
       cursor: query.cursor,
       isAdmin,
       limit: query.limit,
+      requesterDiscordUserId,
       requesterEmail,
       statuses: query.status,
       types: query.type,
@@ -534,6 +589,10 @@ export class DownloadController {
         duration,
         resultCount: page.items.length,
         scopedTo: requesterEmail ?? 'all requesters',
+        // Whether the two surfaces got unified, without logging the
+        // snowflake itself - it identifies a person, and this line is
+        // written on every history request.
+        scopeUnifiedWithDiscord: Boolean(requesterDiscordUserId),
         statusCode: HttpStatus.OK,
         total: page.total,
       },
@@ -580,8 +639,14 @@ export class DownloadController {
     const email = isSelfScope ? user.email : (query.requester as string)
 
     // No serveJobPage(): the response carries no job objects, only counts
-    // and timestamps, so there is nothing to resolve or mask.
-    const profile = this.profileService.getProfile({ days: query.days, email })
+    // and timestamps, so there is nothing to resolve or mask. Awaited since
+    // plan 017 §E2 - the counts themselves are still a synchronous DB read,
+    // but the subject's Discord link has to be fetched before they can be
+    // scoped (see ProfileService).
+    const profile = await this.profileService.getProfile({
+      days: query.days,
+      email,
+    })
 
     const duration = Date.now() - startTime
     this.logger.log(

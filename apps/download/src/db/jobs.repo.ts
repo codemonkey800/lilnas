@@ -12,6 +12,7 @@ import {
   inArray,
   isNotNull,
   lte,
+  or,
   type SQL,
   sql,
 } from 'drizzle-orm'
@@ -37,17 +38,64 @@ export interface JobListFilter {
   // still masked, but the fact that a hidden video *matched* the filter (and
   // is counted in `total`) leaks the hidden requester's identity just as
   // surely as showing it would.
+  //
+  // ⚠️ The oracle is about *filtering by a person*, not about which column
+  // names that person. `requesterDiscordUserId` below is a second way to
+  // spell the same thing, so the guard has to trip on either - which is why
+  // callers compute it from {@link isRequesterScoped} rather than from
+  // `requesterEmail` alone.
   excludeHiddenVideos?: boolean
   // The derived `(type, mediaId)` key (plan §"What 'derived' means") -
   // `/media/:id`'s job lookup (Phase 6) filters on this instead of a job id,
   // since a title's jobs span every request for it, not just one.
   mediaId?: string
+  // The *other* half of one person's identity (plan 017 §E2). Set alongside
+  // `requesterEmail` when the person being filtered for has a linked Discord
+  // account, at which point the two become a single OR-ed arm - see
+  // `buildJobWhere` - so a linked person's web-submitted and
+  // Discord-submitted jobs come back as one list.
+  //
+  // ⚠️ **Never caller-supplied.** There is no `?discordUserId=` query
+  // parameter anywhere in this app; every producer of this field derives it
+  // from the *same person* `requesterEmail` names (the viewer's own link on a
+  // self view, or `DiscordLinkService.getLinkedDiscordUserIdByEmail()` of the
+  // requester an admin named). That is what keeps the two arms
+  // indistinguishable to the authorization checks in front of them - see the
+  // note on `excludeHiddenVideos` below.
+  requesterDiscordUserId?: string
   requesterEmail?: string
   statuses?: readonly DownloadJobStatus[]
   // Plural/array, not a single value - the query schema accepts
   // comma-separated multi-select (`?type=movie,video`), matched here with
   // `inArray` the same way `statuses` above is.
   types?: readonly DownloadType[]
+}
+
+/**
+ * The two fields that aim a query at one *person*. Named as its own type so
+ * the hidden-attribution guard has something to key off that isn't "whichever
+ * requester field I happened to remember".
+ */
+export type RequesterScope = Pick<
+  JobListFilter,
+  'requesterDiscordUserId' | 'requesterEmail'
+>
+
+/**
+ * "Is this query aimed at one person?" - the single predicate the
+ * attribution-oracle guard (`excludeHiddenVideos`) is computed from.
+ *
+ * ⚠️ Exists so that widening the filter from one identity column to two could
+ * not silently widen the *oracle* too. Before plan 017, callers wrote
+ * `params.requesterEmail ? !params.isAdmin : undefined`; a filter carrying
+ * only the Discord arm would have sailed straight past that test with the
+ * guard left `undefined`, and a non-admin who could aim such a filter would
+ * learn "this person has a hidden video" from a non-zero `total`. Routing
+ * every such decision through here means a third identity column, whenever it
+ * arrives, is added in one place and the guard follows automatically.
+ */
+export function isRequesterScoped(scope: RequesterScope): boolean {
+  return Boolean(scope.requesterEmail ?? scope.requesterDiscordUserId)
 }
 
 export interface JobPageQuery {
@@ -78,12 +126,7 @@ function buildJobWhere(filter: JobListFilter): SQL | undefined {
       ? inArray(jobs.type, [...filter.types])
       : undefined,
     filter.mediaId ? eq(jobs.mediaId, filter.mediaId) : undefined,
-    // Case-insensitive: the stored value is whatever casing arrived on the
-    // `X-Forwarded-User` header verbatim (see forwarded-user.ts), which may
-    // not match the casing a caller passes on `?requester=`.
-    filter.requesterEmail
-      ? sql`lower(${jobs.requesterEmail}) = ${filter.requesterEmail.toLowerCase()}`
-      : undefined,
+    buildRequesterWhere(filter),
     filter.createdFrom ? gte(jobs.createdAt, filter.createdFrom) : undefined,
     filter.createdTo ? lte(jobs.createdAt, filter.createdTo) : undefined,
     filter.excludeHiddenVideos
@@ -92,6 +135,52 @@ function buildJobWhere(filter: JobListFilter): SQL | undefined {
   ]
 
   return and(...conditions)
+}
+
+/**
+ * The "which rows belong to this person" arm of {@link buildJobWhere},
+ * extracted so both it and {@link getRequesterActivityBounds} share one
+ * definition of that question.
+ *
+ * Zero arms -> `undefined`, i.e. no predicate at all. That absence is load
+ * bearing: it is the only way a service-created job (NULL `requester_email`
+ * *and* NULL `discord_user_id`) appears in a list, since neither comparison
+ * below can ever match NULL.
+ *
+ * One arm -> plain equality. Two arms -> `(email = ? OR discord_user_id = ?)`,
+ * parenthesized by drizzle's `or()` so it can never absorb the sibling
+ * conditions it is AND-ed with.
+ *
+ * The OR selects **disjoint** row sets by construction, not by luck: D1's
+ * `jobs_origin_matches_requester` CHECK makes `requester_*` and `discord_*`
+ * mutually exclusive per row, so no row can satisfy both arms and no
+ * `DISTINCT`/dedupe is needed anywhere downstream (`total`, the `MAX()`
+ * grouping, the bounds aggregate).
+ *
+ * Both arms are indexed - `jobs_discord_user_id_idx` (D1) for the second -
+ * though the `lower()` on the first has always been a scan-side expression
+ * rather than an index seek, which is unchanged here.
+ */
+function buildRequesterWhere(scope: RequesterScope): SQL | undefined {
+  const arms: SQL[] = []
+
+  // Case-insensitive: the stored value is whatever casing arrived on the
+  // `X-Forwarded-User` header verbatim (see forwarded-user.ts), which may
+  // not match the casing a caller passes on `?requester=`.
+  if (scope.requesterEmail) {
+    arms.push(
+      sql`lower(${jobs.requesterEmail}) = ${scope.requesterEmail.toLowerCase()}`,
+    )
+  }
+
+  // No normalization, unlike the email above: a snowflake is an opaque digit
+  // string with no case to fold, and it never arrives from a caller anyway
+  // (see `JobListFilter.requesterDiscordUserId`).
+  if (scope.requesterDiscordUserId) {
+    arms.push(eq(jobs.discordUserId, scope.requesterDiscordUserId))
+  }
+
+  return arms.length > 0 ? or(...arms) : undefined
 }
 
 /**
@@ -448,16 +537,21 @@ export interface RequesterActivityBounds {
  * yields one row of NULLs, which is mapped here rather than surfaced as a
  * zero-row result.
  *
- * The email match goes through the shared `buildJobWhere()`, so it stays
- * case-insensitive the same way every other requester filter is. Hidden
- * videos are deliberately included - see `ProfileService` for why the
+ * Takes the whole {@link RequesterScope} rather than a bare email so a linked
+ * person's first download is their first download on *either* surface - a
+ * profile that said "first download: March" while listing a Discord job from
+ * January would be self-contradicting. The match goes through the shared
+ * `buildJobWhere()`, so it stays case-insensitive (and OR-ed) exactly the way
+ * every other requester filter is.
+ *
+ * Hidden videos are deliberately included - see `ProfileService` for why the
  * profile route never applies `excludeHiddenVideos`.
  */
 export function getRequesterActivityBounds(
   db: Db,
-  requesterEmail: string,
+  scope: RequesterScope,
 ): RequesterActivityBounds {
-  const whereClause = buildJobWhere({ requesterEmail })
+  const whereClause = buildJobWhere(scope)
 
   const row = db
     .select({

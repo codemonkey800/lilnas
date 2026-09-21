@@ -41,8 +41,16 @@ describe('DownloadController - getHistory', () => {
   let controller: DownloadController
   let jobQueryService: jest.Mocked<JobQueryService>
   let adminCheckService: jest.Mocked<AdminCheckService>
+  // Plan 017 §E2's unified-history arm. Both default to "no linked Discord
+  // account" so every assertion below that predates it keeps describing the
+  // email-only filter it was written against.
+  let getLinkedDiscordUserId: jest.Mock
+  let getLinkedDiscordUserIdByEmail: jest.Mock
 
   const alice: ForwardedUser = { email: 'alice@example.com', userId: 'u1' }
+  // A string literal, not a numeric one - a real snowflake exceeds
+  // Number.MAX_SAFE_INTEGER.
+  const ALICE_SNOWFLAKE = '111111111111111111'
   const emptyPage = { items: [], nextCursor: null, total: 0 }
 
   beforeEach(async () => {
@@ -52,6 +60,8 @@ describe('DownloadController - getHistory', () => {
       listHistory: jest.fn().mockReturnValue(emptyPage),
     }
     const mockAdminCheckService = { checkIsAdmin: jest.fn() }
+    getLinkedDiscordUserId = jest.fn().mockResolvedValue(null)
+    getLinkedDiscordUserIdByEmail = jest.fn().mockResolvedValue(null)
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [DownloadController],
@@ -62,7 +72,11 @@ describe('DownloadController - getHistory', () => {
         { provide: CurrentReleaseService, useValue: {} },
         {
           provide: DiscordLinkService,
-          useValue: { registerObservedIdentity: jest.fn() },
+          useValue: {
+            getLinkedDiscordUserId: getLinkedDiscordUserId,
+            getLinkedDiscordUserIdByEmail: getLinkedDiscordUserIdByEmail,
+            registerObservedIdentity: jest.fn(),
+          },
         },
         { provide: DiscoveryService, useValue: {} },
         { provide: DownloadMetricsService, useValue: {} },
@@ -274,6 +288,116 @@ describe('DownloadController - getHistory', () => {
     expect(jobQueryService.listHistory).not.toHaveBeenCalled()
   })
 
+  // Plan 017 §E2: one person's Discord-submitted and web-submitted jobs come
+  // back as one list. The controller's job is choosing *whose* snowflake to
+  // OR in, which is what these assert; that the OR then unions the two
+  // surfaces is jobs.repo.spec.ts's, and end-to-end below.
+  describe('unified history', () => {
+    it("ORs in the viewer's own linked snowflake on a self view", async () => {
+      getLinkedDiscordUserId.mockResolvedValue(ALICE_SNOWFLAKE)
+
+      await controller.getHistory({ limit: 24 }, alice)
+
+      // Keyed by userId, not email - it reuses the `u:` cache entry
+      // AttributionResolutionService warms while rendering `linkedDiscord`.
+      expect(getLinkedDiscordUserId).toHaveBeenCalledWith('u1')
+      expect(getLinkedDiscordUserIdByEmail).not.toHaveBeenCalled()
+      expect(jobQueryService.listHistory).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requesterDiscordUserId: ALICE_SNOWFLAKE,
+          requesterEmail: 'alice@example.com',
+        }),
+      )
+    })
+
+    it('treats naming your own email as the same self view', async () => {
+      getLinkedDiscordUserId.mockResolvedValue(ALICE_SNOWFLAKE)
+
+      await controller.getHistory(
+        { limit: 24, requester: 'ALICE@EXAMPLE.COM' },
+        alice,
+      )
+
+      expect(getLinkedDiscordUserId).toHaveBeenCalledWith('u1')
+      expect(jobQueryService.listHistory).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requesterDiscordUserId: ALICE_SNOWFLAKE,
+          requesterEmail: 'alice@example.com',
+        }),
+      )
+    })
+
+    // ⚠️ The arm follows the *subject*, never the viewer. An admin looking at
+    // bob's history must see bob's Discord jobs, not their own.
+    it("resolves the named requester's snowflake, not the admin's, for another user", async () => {
+      adminCheckService.checkIsAdmin.mockResolvedValue(true)
+      getLinkedDiscordUserIdByEmail.mockResolvedValue('222222222222222222')
+
+      await controller.getHistory(
+        { limit: 24, requester: 'bob@example.com' },
+        alice,
+      )
+
+      expect(getLinkedDiscordUserIdByEmail).toHaveBeenCalledWith(
+        'bob@example.com',
+      )
+      expect(getLinkedDiscordUserId).not.toHaveBeenCalled()
+      expect(jobQueryService.listHistory).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requesterDiscordUserId: '222222222222222222',
+          requesterEmail: 'bob@example.com',
+        }),
+      )
+    })
+
+    it('resolves nothing at all for scope=all', async () => {
+      adminCheckService.checkIsAdmin.mockResolvedValue(true)
+
+      await controller.getHistory({ limit: 24, scope: 'all' }, alice)
+
+      // Nobody to link *from*, and an unscoped list already contains every
+      // Discord job - so the lookup is skipped rather than answered.
+      expect(getLinkedDiscordUserId).not.toHaveBeenCalled()
+      expect(getLinkedDiscordUserIdByEmail).not.toHaveBeenCalled()
+      expect(jobQueryService.listHistory).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requesterDiscordUserId: undefined,
+          requesterEmail: undefined,
+        }),
+      )
+    })
+
+    it('leaves the filter email-only when the viewer has no linked account', async () => {
+      await controller.getHistory({ limit: 24 }, alice)
+
+      expect(jobQueryService.listHistory).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requesterDiscordUserId: undefined,
+          requesterEmail: 'alice@example.com',
+        }),
+      )
+    })
+
+    // ⚠️ The security shape of the whole arm: it is derived, never asked for.
+    // A non-admin naming somebody else is still refused *before* any link is
+    // resolved, so there is no way to aim the Discord arm at a third party -
+    // which is what keeps the attribution-oracle guard on `requesterEmail`
+    // (jobs.repo.ts) just as tight over the new column.
+    it("refuses a non-admin before resolving anybody's link", async () => {
+      adminCheckService.checkIsAdmin.mockResolvedValue(false)
+
+      await expect(
+        controller.getHistory(
+          { limit: 24, requester: 'bob@example.com' },
+          alice,
+        ),
+      ).rejects.toThrow(ForbiddenException)
+
+      expect(getLinkedDiscordUserIdByEmail).not.toHaveBeenCalled()
+      expect(getLinkedDiscordUserId).not.toHaveBeenCalled()
+    })
+  })
+
   // Like activity, history is a per-job feed and the controller applies
   // the attribution mask over the page.
   it('returns the { items, nextCursor, total } envelope, with each item attribution-masked', async () => {
@@ -340,8 +464,15 @@ describe('DownloadController - getHistory against the database', () => {
   let controller: DownloadController
   let dbService: DbService
   let adminCheckService: jest.Mocked<AdminCheckService>
+  // One mock behind *both* DiscordLinkService lookups: this block cares that
+  // a linked person's two surfaces merge, not which key the controller
+  // happened to address the link by (the mocked block above asserts that).
+  // Unlinked by default, so the pre-plan-017 assertions here keep describing
+  // the email-only filter they were written against.
+  let linkedDiscordUserId: jest.Mock
 
   const admin: ForwardedUser = { email: 'admin@example.com', userId: 'u-admin' }
+  const SAM_SNOWFLAKE = '333333333333333333'
 
   // `jobs_origin_matches_requester` is a real CHECK constraint: origin
   // 'service' *requires* both requester columns to be NULL, and 'web'
@@ -375,8 +506,24 @@ describe('DownloadController - getHistory against the database', () => {
       .run()
   }
 
+  function seedDiscordJob(id: string, discordUserId: string): void {
+    dbService.db
+      .insert(jobs)
+      .values({
+        discordUserId,
+        discordUsername: 'sam',
+        id,
+        mediaId: `video:${id}`,
+        origin: 'discord',
+        status: 'completed',
+        type: 'video',
+      })
+      .run()
+  }
+
   beforeEach(async () => {
     dbService = createTestDbService()
+    linkedDiscordUserId = jest.fn().mockResolvedValue(null)
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [DownloadController],
@@ -389,7 +536,11 @@ describe('DownloadController - getHistory against the database', () => {
         { provide: CurrentReleaseService, useValue: {} },
         {
           provide: DiscordLinkService,
-          useValue: { registerObservedIdentity: jest.fn() },
+          useValue: {
+            getLinkedDiscordUserId: linkedDiscordUserId,
+            getLinkedDiscordUserIdByEmail: linkedDiscordUserId,
+            registerObservedIdentity: jest.fn(),
+          },
         },
         { provide: DbService, useValue: dbService },
         { provide: DiscoveryService, useValue: {} },
@@ -509,5 +660,83 @@ describe('DownloadController - getHistory against the database', () => {
     )
 
     expect(page.items.map(item => item.id)).toEqual(['failed-1'])
+  })
+  // ⚠️ Plan 017 §E2's headline, end-to-end through real SQL: one person, two
+  // submission surfaces, one list. A mocked JobQueryService cannot show this -
+  // the union happens in the `WHERE`, and the two arms read different columns.
+  describe('unified history for a linked requester', () => {
+    const sam: ForwardedUser = { email: 'sam@example.com', userId: 'u-sam' }
+
+    it("merges a linked viewer's web and discord jobs into one page", async () => {
+      linkedDiscordUserId.mockResolvedValue(SAM_SNOWFLAKE)
+      seedWebJob('web-1', 'sam@example.com')
+      seedDiscordJob('discord-1', SAM_SNOWFLAKE)
+      seedDiscordJob('discord-other', '444444444444444444')
+      seedWebJob('web-other', 'kim@example.com')
+
+      const page = await controller.getHistory({ limit: 24 }, sam)
+
+      expect(page.items.map(item => item.id).sort()).toEqual([
+        'discord-1',
+        'web-1',
+      ])
+      // `total` is computed from the same predicate, so it has to agree - a
+      // page of 2 alongside a total of 1 would break the pager.
+      expect(page.total).toBe(2)
+    })
+
+    it('leaves an unlinked viewer with their web jobs only', async () => {
+      seedWebJob('web-1', 'sam@example.com')
+      seedDiscordJob('discord-1', SAM_SNOWFLAKE)
+
+      const page = await controller.getHistory({ limit: 24 }, sam)
+
+      expect(page.items.map(item => item.id)).toEqual(['web-1'])
+      expect(page.total).toBe(1)
+    })
+
+    it("merges the named requester's two surfaces for an admin", async () => {
+      linkedDiscordUserId.mockResolvedValue(SAM_SNOWFLAKE)
+      seedWebJob('web-1', 'sam@example.com')
+      seedDiscordJob('discord-1', SAM_SNOWFLAKE)
+
+      const page = await controller.getHistory(
+        { limit: 24, requester: 'sam@example.com' },
+        admin,
+      )
+
+      expect(page.items.map(item => item.id).sort()).toEqual([
+        'discord-1',
+        'web-1',
+      ])
+    })
+
+    // The OR-ed arms must not escape the AND with the other dimensions - see
+    // the parenthesization note in jobs.repo.ts's buildRequesterWhere.
+    it('still narrows the merged list by type', async () => {
+      linkedDiscordUserId.mockResolvedValue(SAM_SNOWFLAKE)
+      seedWebJob('web-1', 'sam@example.com')
+      seedDiscordJob('discord-1', SAM_SNOWFLAKE)
+      dbService.db
+        .insert(jobs)
+        .values({
+          discordUserId: SAM_SNOWFLAKE,
+          discordUsername: 'sam',
+          id: 'discord-movie',
+          mediaId: 'tmdb:550',
+          origin: 'discord',
+          status: 'completed',
+          type: 'movie',
+        })
+        .run()
+
+      const page = await controller.getHistory(
+        { limit: 24, type: [DownloadType.Movie] },
+        sam,
+      )
+
+      expect(page.items.map(item => item.id)).toEqual(['discord-movie'])
+      expect(page.total).toBe(1)
+    })
   })
 })

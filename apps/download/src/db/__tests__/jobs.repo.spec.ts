@@ -1,13 +1,14 @@
 import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
 
 import type { Db } from 'src/db/db.service'
-import type { DailyJobCount } from 'src/db/jobs.repo'
+import type { DailyJobCount, RequesterScope } from 'src/db/jobs.repo'
 import {
   countJobsByDay,
   countJobsByRequester,
   countJobsByStatus,
   countJobsByType,
   getRequesterActivityBounds,
+  isRequesterScoped,
   listJobsPage,
 } from 'src/db/jobs.repo'
 import type { ListCursor } from 'src/db/list-cursor'
@@ -750,7 +751,9 @@ describe('getRequesterActivityBounds', () => {
   it('returns both bounds null for a requester with no jobs', () => {
     const { db, close } = createTestDb()
     try {
-      const result = getRequesterActivityBounds(db, 'nobody@example.com')
+      const result = getRequesterActivityBounds(db, {
+        requesterEmail: 'nobody@example.com',
+      })
 
       expect(result).toEqual({
         firstCreatedAtMs: null,
@@ -774,7 +777,9 @@ describe('getRequesterActivityBounds', () => {
         })
       }
 
-      const result = getRequesterActivityBounds(db, 'alice@example.com')
+      const result = getRequesterActivityBounds(db, {
+        requesterEmail: 'alice@example.com',
+      })
 
       expect(result).toEqual({
         firstCreatedAtMs: T0,
@@ -796,7 +801,9 @@ describe('getRequesterActivityBounds', () => {
         requesterUserId: 'u1',
       })
 
-      const result = getRequesterActivityBounds(db, 'ALICE@example.COM')
+      const result = getRequesterActivityBounds(db, {
+        requesterEmail: 'ALICE@example.COM',
+      })
 
       expect(result).toEqual({
         firstCreatedAtMs: T0,
@@ -825,7 +832,9 @@ describe('getRequesterActivityBounds', () => {
         requesterUserId: 'u2',
       })
 
-      const result = getRequesterActivityBounds(db, 'alice@example.com')
+      const result = getRequesterActivityBounds(db, {
+        requesterEmail: 'alice@example.com',
+      })
 
       expect(result).toEqual({
         firstCreatedAtMs: T0,
@@ -857,7 +866,9 @@ describe('getRequesterActivityBounds', () => {
         type: 'video',
       })
 
-      const result = getRequesterActivityBounds(db, 'alice@example.com')
+      const result = getRequesterActivityBounds(db, {
+        requesterEmail: 'alice@example.com',
+      })
 
       expect(result).toEqual({
         firstCreatedAtMs: T0,
@@ -866,5 +877,315 @@ describe('getRequesterActivityBounds', () => {
     } finally {
       close()
     }
+  })
+})
+
+// Plan 017 §E2: `requesterEmail` and `requesterDiscordUserId` are two spellings
+// of one person, so `buildJobWhere` OR-s them rather than AND-ing them. These
+// exercise `listJobsPage` because it is the only caller that surfaces both the
+// selected rows *and* the `total` computed from the same predicate - the two
+// places a filter mistake shows up.
+describe('buildJobWhere - requester arms', () => {
+  const ALICE_SNOWFLAKE = '111111111111111111'
+  const BOB_SNOWFLAKE = '222222222222222222'
+
+  function seedAll(db: Db): void {
+    seedJob(db, {
+      createdAt: new Date(T0),
+      id: 'alice-web',
+      origin: 'web',
+      requesterEmail: 'Alice@Example.com',
+      requesterUserId: 'u-alice',
+    })
+    seedJob(db, {
+      createdAt: new Date(T0 + 1_000),
+      discordUserId: ALICE_SNOWFLAKE,
+      discordUsername: 'alice',
+      id: 'alice-discord',
+      origin: 'discord',
+    })
+    seedJob(db, {
+      createdAt: new Date(T0 + 2_000),
+      id: 'bob-web',
+      origin: 'web',
+      requesterEmail: 'bob@example.com',
+      requesterUserId: 'u-bob',
+    })
+    seedJob(db, {
+      createdAt: new Date(T0 + 3_000),
+      discordUserId: BOB_SNOWFLAKE,
+      discordUsername: 'bob',
+      id: 'bob-discord',
+      origin: 'discord',
+    })
+    // NULL on both identity columns - neither arm can ever match it.
+    seedJob(db, { createdAt: new Date(T0 + 4_000), id: 'service-job' })
+  }
+
+  it('matches only the email arm when no snowflake is given', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedAll(db)
+
+      const page = listJobsPage(db, {
+        filter: { requesterEmail: 'alice@example.com' },
+        limit: 24,
+      })
+
+      expect(page.rows.map(r => r.id)).toEqual(['alice-web'])
+      expect(page.total).toBe(1)
+    } finally {
+      close()
+    }
+  })
+
+  it('matches only the discord arm when no email is given', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedAll(db)
+
+      const page = listJobsPage(db, {
+        filter: { requesterDiscordUserId: ALICE_SNOWFLAKE },
+        limit: 24,
+      })
+
+      expect(page.rows.map(r => r.id)).toEqual(['alice-discord'])
+      expect(page.total).toBe(1)
+    } finally {
+      close()
+    }
+  })
+
+  // The headline behaviour: one person, two surfaces, one list. Note this
+  // would return *nothing* if the two arms were AND-ed - the
+  // `jobs_origin_matches_requester` CHECK makes them mutually exclusive per
+  // row, so no row can satisfy both.
+  it('unions both surfaces when given both arms', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedAll(db)
+
+      const page = listJobsPage(db, {
+        filter: {
+          requesterDiscordUserId: ALICE_SNOWFLAKE,
+          requesterEmail: 'alice@example.com',
+        },
+        limit: 24,
+      })
+
+      expect(page.rows.map(r => r.id)).toEqual(['alice-discord', 'alice-web'])
+      expect(page.total).toBe(2)
+    } finally {
+      close()
+    }
+  })
+
+  it('keeps the email arm case-insensitive when OR-ed', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedAll(db)
+
+      const page = listJobsPage(db, {
+        filter: {
+          requesterDiscordUserId: ALICE_SNOWFLAKE,
+          requesterEmail: 'ALICE@EXAMPLE.COM',
+        },
+        limit: 24,
+      })
+
+      expect(page.rows.map(r => r.id)).toEqual(['alice-discord', 'alice-web'])
+    } finally {
+      close()
+    }
+  })
+
+  it('never leaks another identity through either arm', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedAll(db)
+
+      const page = listJobsPage(db, {
+        filter: {
+          requesterDiscordUserId: ALICE_SNOWFLAKE,
+          requesterEmail: 'alice@example.com',
+        },
+        limit: 24,
+      })
+
+      expect(page.rows.map(r => r.id)).not.toContain('bob-web')
+      expect(page.rows.map(r => r.id)).not.toContain('bob-discord')
+      // A service job has NULL in both columns, and no equality comparison
+      // matches NULL - so a requester-scoped query necessarily excludes it.
+      expect(page.rows.map(r => r.id)).not.toContain('service-job')
+    } finally {
+      close()
+    }
+  })
+
+  // ⚠️ The attribution-oracle guard. `excludeHiddenVideos` was written for the
+  // `requesterEmail` arm; it has to bite on the Discord arm just as hard, or a
+  // requester-keyed lookup could still confirm "this person hid a video" from
+  // a non-zero `total` even though every returned row is masked.
+  it('applies excludeHiddenVideos to the discord arm, not just the email one', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedJob(db, {
+        createdAt: new Date(T0),
+        hiddenAttribution: true,
+        id: 'alice-web-hidden',
+        origin: 'web',
+        requesterEmail: 'alice@example.com',
+        requesterUserId: 'u-alice',
+        type: 'video',
+      })
+      seedJob(db, {
+        createdAt: new Date(T0 + 1_000),
+        discordUserId: ALICE_SNOWFLAKE,
+        discordUsername: 'alice',
+        hiddenAttribution: true,
+        id: 'alice-discord-hidden',
+        origin: 'discord',
+        type: 'video',
+      })
+      seedJob(db, {
+        createdAt: new Date(T0 + 2_000),
+        discordUserId: ALICE_SNOWFLAKE,
+        discordUsername: 'alice',
+        id: 'alice-discord-visible',
+        origin: 'discord',
+        type: 'video',
+      })
+
+      const page = listJobsPage(db, {
+        filter: {
+          excludeHiddenVideos: true,
+          requesterDiscordUserId: ALICE_SNOWFLAKE,
+          requesterEmail: 'alice@example.com',
+        },
+        limit: 24,
+      })
+
+      expect(page.rows.map(r => r.id)).toEqual(['alice-discord-visible'])
+      // `total` is the oracle's other channel, and it has to agree.
+      expect(page.total).toBe(1)
+    } finally {
+      close()
+    }
+  })
+
+  // The guard is a type-only exclusion: movies/shows have no hiding toggle
+  // (see attribution.ts), so a Discord-submitted movie stays visible.
+  it('leaves a discord-submitted movie alone under excludeHiddenVideos', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedJob(db, {
+        createdAt: new Date(T0),
+        discordUserId: ALICE_SNOWFLAKE,
+        discordUsername: 'alice',
+        id: 'alice-discord-movie',
+        origin: 'discord',
+        type: 'movie',
+      })
+
+      const page = listJobsPage(db, {
+        filter: {
+          excludeHiddenVideos: true,
+          requesterDiscordUserId: ALICE_SNOWFLAKE,
+        },
+        limit: 24,
+      })
+
+      expect(page.rows.map(r => r.id)).toEqual(['alice-discord-movie'])
+    } finally {
+      close()
+    }
+  })
+
+  it('AND-s the OR-ed requester arms with the other filter dimensions', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedAll(db)
+      seedJob(db, {
+        createdAt: new Date(T0 + 5_000),
+        discordUserId: ALICE_SNOWFLAKE,
+        discordUsername: 'alice',
+        id: 'alice-discord-failed',
+        origin: 'discord',
+        status: 'failed',
+      })
+
+      // Without the parentheses drizzle's `or()` adds, `status = 'failed'`
+      // would bind to only the last OR arm and bob's rows would leak in.
+      const page = listJobsPage(db, {
+        filter: {
+          requesterDiscordUserId: ALICE_SNOWFLAKE,
+          requesterEmail: 'alice@example.com',
+          statuses: [DownloadJobStatus.Failed],
+        },
+        limit: 24,
+      })
+
+      expect(page.rows.map(r => r.id)).toEqual(['alice-discord-failed'])
+      expect(page.total).toBe(1)
+    } finally {
+      close()
+    }
+  })
+
+  it("widens getRequesterActivityBounds across both of one person's surfaces", () => {
+    const { db, close } = createTestDb()
+    try {
+      seedJob(db, {
+        createdAt: new Date(T0 + 60_000),
+        id: 'alice-web',
+        origin: 'web',
+        requesterEmail: 'alice@example.com',
+        requesterUserId: 'u-alice',
+      })
+      seedJob(db, {
+        createdAt: new Date(T0),
+        discordUserId: ALICE_SNOWFLAKE,
+        discordUsername: 'alice',
+        id: 'alice-discord',
+        origin: 'discord',
+      })
+      seedJob(db, {
+        createdAt: new Date(T0 + 120_000),
+        discordUserId: BOB_SNOWFLAKE,
+        discordUsername: 'bob',
+        id: 'bob-discord',
+        origin: 'discord',
+      })
+
+      const result = getRequesterActivityBounds(db, {
+        requesterDiscordUserId: ALICE_SNOWFLAKE,
+        requesterEmail: 'alice@example.com',
+      })
+
+      expect(result).toEqual({
+        firstCreatedAtMs: T0,
+        lastCreatedAtMs: T0 + 60_000,
+      })
+    } finally {
+      close()
+    }
+  })
+})
+
+describe('isRequesterScoped', () => {
+  it.each([
+    ['neither arm', {}, false],
+    ['the email arm', { requesterEmail: 'alice@example.com' }, true],
+    ['the discord arm', { requesterDiscordUserId: '111111111111111111' }, true],
+    [
+      'both arms',
+      {
+        requesterDiscordUserId: '111111111111111111',
+        requesterEmail: 'alice@example.com',
+      },
+      true,
+    ],
+  ])('reports %s as %p', (_label, scope: RequesterScope, expected) => {
+    expect(isRequesterScoped(scope)).toBe(expected)
   })
 })

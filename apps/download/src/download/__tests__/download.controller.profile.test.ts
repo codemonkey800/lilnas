@@ -18,6 +18,9 @@ import { AdminCheckService } from 'src/auth/admin-check.service'
 import { DiscordLinkService } from 'src/auth/discord-link.service'
 import type { ForwardedUser } from 'src/auth/forwarded-user'
 import { ForwardedUserGuard } from 'src/auth/forwarded-user.guard'
+import { createTestDbService } from 'src/db/__tests__/test-utils'
+import { DbService } from 'src/db/db.service'
+import { jobs } from 'src/db/schema'
 import { DownloadController } from 'src/download/download.controller'
 import { DownloadService } from 'src/download/download.service'
 import { DownloadMetricsService } from 'src/download/download-metrics.service'
@@ -168,5 +171,156 @@ describe('DownloadController - getProfile', () => {
     )
 
     expect(result).toEqual(emptyProfile('nobody@example.com'))
+  })
+})
+
+/**
+ * The same route against a real migrated sqlite database and the real
+ * `ProfileService`, because plan 017 §E2's promise is a *SQL* one: a linked
+ * person's Discord-submitted jobs live in different columns than their
+ * web-submitted ones, and only the OR-ed `WHERE` makes one profile out of
+ * both. A mocked ProfileService would only re-assert the scoping the block
+ * above already covers.
+ */
+describe('DownloadController - getProfile against the database', () => {
+  let controller: DownloadController
+  let dbService: DbService
+  let getLinkedDiscordUserIdByEmail: jest.Mock
+  let checkIsAdmin: jest.Mock
+
+  const sam: ForwardedUser = { email: 'sam@example.com', userId: 'u-sam' }
+  const admin: ForwardedUser = { email: 'admin@example.com', userId: 'u-admin' }
+  // String literals - a real snowflake exceeds Number.MAX_SAFE_INTEGER.
+  const SAM_SNOWFLAKE = '333333333333333333'
+  const KIM_SNOWFLAKE = '444444444444444444'
+
+  function seedWebJob(id: string, email: string, createdAt: Date): void {
+    dbService.db
+      .insert(jobs)
+      .values({
+        createdAt,
+        id,
+        mediaId: `video:${id}`,
+        origin: 'web',
+        requesterEmail: email,
+        requesterUserId: `u_${email}`,
+        status: 'completed',
+        type: 'video',
+      })
+      .run()
+  }
+
+  function seedDiscordJob(
+    id: string,
+    discordUserId: string,
+    createdAt: Date,
+  ): void {
+    dbService.db
+      .insert(jobs)
+      .values({
+        createdAt,
+        discordUserId,
+        discordUsername: 'sam',
+        id,
+        mediaId: `video:${id}`,
+        origin: 'discord',
+        status: 'completed',
+        type: 'video',
+      })
+      .run()
+  }
+
+  beforeEach(async () => {
+    dbService = createTestDbService()
+    getLinkedDiscordUserIdByEmail = jest.fn().mockResolvedValue(null)
+    checkIsAdmin = jest.fn().mockResolvedValue(true)
+
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [DownloadController],
+      providers: [
+        fakeAttributionResolutionProvider(),
+        ProfileService,
+        { provide: AdminCheckService, useValue: { checkIsAdmin } },
+        { provide: AuditLogService, useValue: { record: jest.fn() } },
+        { provide: CurrentReleaseService, useValue: {} },
+        { provide: DbService, useValue: dbService },
+        {
+          provide: DiscordLinkService,
+          useValue: {
+            getLinkedDiscordUserId: jest.fn().mockResolvedValue(null),
+            getLinkedDiscordUserIdByEmail,
+            registerObservedIdentity: jest.fn(),
+          },
+        },
+        { provide: DiscoveryService, useValue: {} },
+        { provide: DownloadMetricsService, useValue: {} },
+        { provide: DownloadService, useValue: {} },
+        { provide: DownloadStateService, useValue: { jobs: new Map() } },
+        { provide: JobQueryService, useValue: {} },
+        { provide: MediaDownloadService, useValue: {} },
+        { provide: MediaFileService, useValue: {} },
+        { provide: MediaResolverService, useValue: { resolve: jest.fn() } },
+        { provide: ReleaseService, useValue: {} },
+        { provide: ShowService, useValue: {} },
+      ],
+    }).compile()
+
+    controller = module.get(DownloadController)
+  })
+
+  afterEach(() => {
+    dbService.onModuleDestroy()
+  })
+
+  it("counts a linked viewer's jobs from both surfaces as one profile", async () => {
+    getLinkedDiscordUserIdByEmail.mockResolvedValue(SAM_SNOWFLAKE)
+    seedWebJob('web-1', 'sam@example.com', new Date('2026-06-14T00:00:00Z'))
+    seedDiscordJob('discord-1', SAM_SNOWFLAKE, new Date('2026-06-13T00:00:00Z'))
+    seedDiscordJob(
+      'discord-kim',
+      KIM_SNOWFLAKE,
+      new Date('2026-06-12T00:00:00Z'),
+    )
+    seedWebJob('web-kim', 'kim@example.com', new Date('2026-06-11T00:00:00Z'))
+
+    const profile = await controller.getProfile({ days: 3650 }, sam)
+
+    expect(profile.totalsByType).toEqual([{ count: 2, type: 'video' }])
+    expect(profile.totalsByStatus).toEqual([{ count: 2, status: 'completed' }])
+    // The bounds widen too, or the page would say "first download: the 14th"
+    // while listing a job from the 13th.
+    expect(profile.firstDownloadAt).toBe('2026-06-13T00:00:00.000Z')
+    expect(profile.lastDownloadAt).toBe('2026-06-14T00:00:00.000Z')
+  })
+
+  it('leaves an unlinked viewer with their web jobs only', async () => {
+    seedWebJob('web-1', 'sam@example.com', new Date('2026-06-14T00:00:00Z'))
+    seedDiscordJob('discord-1', SAM_SNOWFLAKE, new Date('2026-06-13T00:00:00Z'))
+
+    const profile = await controller.getProfile({ days: 3650 }, sam)
+
+    expect(profile.totalsByType).toEqual([{ count: 1, type: 'video' }])
+    expect(profile.firstDownloadAt).toBe('2026-06-14T00:00:00.000Z')
+  })
+
+  // ⚠️ The link follows the profile's *subject*. An admin looking at sam must
+  // get sam's Discord jobs folded in, never their own.
+  it("resolves the subject's link, not the admin's, for another user's profile", async () => {
+    getLinkedDiscordUserIdByEmail.mockResolvedValue(SAM_SNOWFLAKE)
+    seedWebJob('web-1', 'sam@example.com', new Date('2026-06-14T00:00:00Z'))
+    seedDiscordJob('discord-1', SAM_SNOWFLAKE, new Date('2026-06-13T00:00:00Z'))
+
+    const profile = await controller.getProfile(
+      { days: 3650, requester: 'sam@example.com' },
+      admin,
+    )
+
+    expect(getLinkedDiscordUserIdByEmail).toHaveBeenCalledWith(
+      'sam@example.com',
+    )
+    expect(getLinkedDiscordUserIdByEmail).not.toHaveBeenCalledWith(
+      'admin@example.com',
+    )
+    expect(profile.totalsByType).toEqual([{ count: 2, type: 'video' }])
   })
 })

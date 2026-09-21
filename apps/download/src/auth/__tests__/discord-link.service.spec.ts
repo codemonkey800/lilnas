@@ -136,6 +136,101 @@ describe('DiscordLinkService', () => {
     })
   })
 
+  describe('getLinkedDiscordUserIdByEmail', () => {
+    it('looks the link up by email and returns the snowflake', async () => {
+      mockAuthClient.getDiscordLink.mockResolvedValue(LINKED)
+
+      await expect(
+        service.getLinkedDiscordUserIdByEmail('alice@example.com'),
+      ).resolves.toBe(SNOWFLAKE)
+      expect(mockAuthClient.getDiscordLink).toHaveBeenCalledWith({
+        email: 'alice@example.com',
+      })
+    })
+
+    it('resolves to null when the email has no linked Discord account', async () => {
+      mockAuthClient.getDiscordLink.mockResolvedValue(UNLINKED)
+
+      await expect(
+        service.getLinkedDiscordUserIdByEmail('nobody@example.com'),
+      ).resolves.toBeNull()
+    })
+
+    // The cache key is normalized, the wire value is not: auth owns the
+    // matching rule (it is case-insensitive there), this only stops two
+    // casings of one address from occupying two entries.
+    it('shares one cache entry across casings and surrounding whitespace', async () => {
+      mockAuthClient.getDiscordLink.mockResolvedValue(LINKED)
+
+      await service.resolveEmail('Alice@Example.com')
+      await service.resolveEmail('  alice@example.com  ')
+
+      expect(mockAuthClient.getDiscordLink).toHaveBeenCalledTimes(1)
+    })
+
+    it('sends the email to auth unnormalized', async () => {
+      mockAuthClient.getDiscordLink.mockResolvedValue(LINKED)
+
+      await service.resolveEmail('Alice@Example.com')
+
+      expect(mockAuthClient.getDiscordLink).toHaveBeenCalledWith({
+        email: 'Alice@Example.com',
+      })
+    })
+
+    it('does not share a cache entry with the user-id or snowflake keyspaces', async () => {
+      // All three keyspaces are opaque strings; an unprefixed key would let
+      // one answer another's question.
+      mockAuthClient.getDiscordLink.mockResolvedValue(UNLINKED)
+
+      await service.resolveDiscordUser('shared-id')
+      await service.resolveLilnasUser('shared-id')
+      await service.resolveEmail('shared-id')
+
+      expect(mockAuthClient.getDiscordLink).toHaveBeenCalledTimes(3)
+      expect(mockAuthClient.getDiscordLink).toHaveBeenNthCalledWith(3, {
+        email: 'shared-id',
+      })
+    })
+
+    it('caches a null answer for the full TTL, like the other keyspaces', async () => {
+      mockAuthClient.getDiscordLink.mockResolvedValue(UNLINKED)
+
+      await service.getLinkedDiscordUserIdByEmail('alice@example.com')
+      jest.advanceTimersByTime(10_001)
+      await expect(
+        service.getLinkedDiscordUserIdByEmail('alice@example.com'),
+      ).resolves.toBeNull()
+
+      expect(mockAuthClient.getDiscordLink).toHaveBeenCalledTimes(1)
+    })
+
+    // ⚠️ Fails open, like every other lookup here: "I could not ask" and
+    // "there is no link" collapse to null on purpose, because the callers are
+    // building a widening OR-arm onto a filter that is already correct
+    // without it.
+    it('resolves to null rather than rejecting when auth is unreachable', async () => {
+      mockAuthClient.getDiscordLink.mockRejectedValue(new Error('ECONNREFUSED'))
+
+      await expect(
+        service.getLinkedDiscordUserIdByEmail('alice@example.com'),
+      ).resolves.toBeNull()
+      expect(Logger.prototype.warn).toHaveBeenCalled()
+    })
+
+    it('retries a thrown lookup after the short failure TTL', async () => {
+      mockAuthClient.getDiscordLink.mockRejectedValue(new Error('ECONNREFUSED'))
+
+      await service.getLinkedDiscordUserIdByEmail('alice@example.com')
+      jest.advanceTimersByTime(10_001)
+
+      mockAuthClient.getDiscordLink.mockResolvedValue(LINKED)
+      await expect(
+        service.getLinkedDiscordUserIdByEmail('alice@example.com'),
+      ).resolves.toBe(SNOWFLAKE)
+    })
+  })
+
   describe('negative caching', () => {
     it('caches a "not linked" answer for the FULL TTL, not the failure TTL', async () => {
       mockAuthClient.getDiscordLink.mockResolvedValue(UNLINKED)
