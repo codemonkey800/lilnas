@@ -11,6 +11,10 @@ import { AuthModule } from './auth/auth.module'
 import { DatabaseModule } from './db/database.module'
 import { EnvKeys } from './env'
 import { HealthController } from './health/health.controller'
+import {
+  DiscordIdentityController,
+  DiscordLinkLookupController,
+} from './internal/discord-internal.controller'
 import { MeController } from './me/me.controller'
 import { RequestsController } from './requests/requests.controller'
 import { RequestsService } from './requests/requests.service'
@@ -108,6 +112,8 @@ const isProduction = env(EnvKeys.NODE_ENV, 'development') === 'production'
     AdminController,
     AdminCheckController,
     MeController,
+    DiscordLinkLookupController,
+    DiscordIdentityController,
   ],
   providers: [
     VerifyService,
