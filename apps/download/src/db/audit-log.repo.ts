@@ -1,4 +1,8 @@
-import type { AuditAction, AuditTargetType } from '@lilnas/utils/download/types'
+import type {
+  AuditAction,
+  AuditTargetType,
+  DiscordRequester,
+} from '@lilnas/utils/download/types'
 import { and, count, desc, eq, gte, lte, type SQL, sql } from 'drizzle-orm'
 
 import type { Db } from './db.service'
@@ -6,12 +10,17 @@ import type { ListCursor } from './list-cursor'
 import { auditLog, type AuditLogRow } from './schema'
 
 /**
- * `actor` is the whole of the origin decision - callers never pass `origin`
- * themselves. A forwarded identity means `'web'`; its absence means
- * `'service'` (tdr-bot, the yt-dlp update poller). Deriving it here rather
- * than at each of the ~14 call sites is what makes
- * `audit_log_origin_matches_actor` (schema.ts) unfalsifiable in practice
- * instead of merely checked at the DB boundary.
+ * `actor` and `discordActor` are together the whole of the origin decision -
+ * callers never pass `origin` themselves. A forwarded identity means
+ * `'web'`, a Discord pair alone means `'discord'`, and neither means
+ * `'service'` (the yt-dlp update poller, or a tdr-bot call that carried no
+ * Discord headers). Deriving it here rather than at each of the ~14 call
+ * sites is what makes `audit_log_origin_matches_actor` (schema.ts)
+ * unfalsifiable in practice instead of merely checked at the DB boundary.
+ *
+ * The two actor kinds are mutually exclusive - `DownloadController` drops the
+ * Discord pair when a forwarded user is also present - and this is
+ * emphatically *not* re-enforced below: see `insertAuditLog`.
  *
  * `target` is a pair or nothing, mirroring `audit_log_target_pair`: an action
  * like `ytdlp.check_update` acts on nothing addressable, and a half-written
@@ -20,6 +29,13 @@ import { auditLog, type AuditLogRow } from './schema'
 export interface InsertAuditLogInput {
   action: AuditAction
   actor: { email: string; userId: string } | null
+  /**
+   * Optional rather than required-but-nullable, unlike `actor`: the ~14
+   * existing call sites are all web/service routes that have no Discord
+   * identity to state, and making every one of them write `discordActor:
+   * null` would be noise around the three that actually can carry one.
+   */
+  discordActor?: DiscordRequester | null
   metadata?: Record<string, unknown>
   target?: { id: string; type: AuditTargetType }
 }
@@ -44,11 +60,22 @@ export function insertAuditLog(
     .insert(auditLog)
     .values({
       action: input.action,
+      // Written unconditionally from `discordActor`, *not* suppressed when
+      // `actor` is also set - byte-for-byte the choice `buildJobRow()`
+      // (db/job-row.ts) makes for the `jobs` twins, and for the same reason.
+      // `origin` below resolves a both-present row to `'web'`, so leaving
+      // these populated makes the row violate
+      // `audit_log_origin_matches_actor` and the INSERT throws, rather than
+      // silently storing an attribution nobody decided on. The controller
+      // resolves precedence before it ever gets here; this is the check that
+      // keeps that true.
+      actorDiscordUserId: input.discordActor?.discordUserId,
+      actorDiscordUsername: input.discordActor?.discordUsername,
       actorEmail: input.actor?.email,
       actorUserId: input.actor?.userId,
       createdAt: new Date(),
       metadata: input.metadata,
-      origin: input.actor ? 'web' : 'service',
+      origin: input.actor ? 'web' : input.discordActor ? 'discord' : 'service',
       targetId: input.target?.id,
       targetType: input.target?.type,
     })

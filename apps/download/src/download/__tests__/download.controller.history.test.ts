@@ -13,6 +13,7 @@ import { Test, TestingModule } from '@nestjs/testing'
 
 import { AuditLogService } from 'src/audit/audit-log.service'
 import { AdminCheckService } from 'src/auth/admin-check.service'
+import { DiscordLinkService } from 'src/auth/discord-link.service'
 import type { ForwardedUser } from 'src/auth/forwarded-user'
 import { createTestDbService } from 'src/db/__tests__/test-utils'
 import { DbService } from 'src/db/db.service'
@@ -57,6 +58,10 @@ describe('DownloadController - getHistory', () => {
         { provide: AdminCheckService, useValue: mockAdminCheckService },
         { provide: AuditLogService, useValue: { record: jest.fn() } },
         { provide: CurrentReleaseService, useValue: {} },
+        {
+          provide: DiscordLinkService,
+          useValue: { registerObservedIdentity: jest.fn() },
+        },
         { provide: DiscoveryService, useValue: {} },
         { provide: DownloadMetricsService, useValue: {} },
         { provide: DownloadService, useValue: {} },
@@ -379,6 +384,10 @@ describe('DownloadController - getHistory against the database', () => {
         { provide: AdminCheckService, useValue: { checkIsAdmin: jest.fn() } },
         { provide: AuditLogService, useValue: { record: jest.fn() } },
         { provide: CurrentReleaseService, useValue: {} },
+        {
+          provide: DiscordLinkService,
+          useValue: { registerObservedIdentity: jest.fn() },
+        },
         { provide: DbService, useValue: dbService },
         { provide: DiscoveryService, useValue: {} },
         {

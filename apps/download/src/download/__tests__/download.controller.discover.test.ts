@@ -11,6 +11,7 @@ import { Test, TestingModule } from '@nestjs/testing'
 
 import { AuditLogService } from 'src/audit/audit-log.service'
 import { AdminCheckService } from 'src/auth/admin-check.service'
+import { DiscordLinkService } from 'src/auth/discord-link.service'
 import { DownloadController } from 'src/download/download.controller'
 import { DownloadService } from 'src/download/download.service'
 import { DownloadMetricsService } from 'src/download/download-metrics.service'
@@ -48,6 +49,10 @@ describe('DownloadController - discover', () => {
         { provide: AdminCheckService, useValue: {} },
         { provide: AuditLogService, useValue: { record: jest.fn() } },
         { provide: CurrentReleaseService, useValue: {} },
+        {
+          provide: DiscordLinkService,
+          useValue: { registerObservedIdentity: jest.fn() },
+        },
         { provide: DiscoveryService, useValue: mockDiscoveryService },
         { provide: DownloadMetricsService, useValue: {} },
         { provide: DownloadService, useValue: {} },

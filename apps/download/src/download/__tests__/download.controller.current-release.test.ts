@@ -11,6 +11,7 @@ import { Test, TestingModule } from '@nestjs/testing'
 
 import { AuditLogService } from 'src/audit/audit-log.service'
 import { AdminCheckService } from 'src/auth/admin-check.service'
+import { DiscordLinkService } from 'src/auth/discord-link.service'
 import type { MediaFileReleaseRow } from 'src/db/schema'
 import { DownloadController } from 'src/download/download.controller'
 import { DownloadService } from 'src/download/download.service'
@@ -83,6 +84,10 @@ describe('DownloadController - current release on the detail route', () => {
         },
         { provide: AuditLogService, useValue: { record: jest.fn() } },
         { provide: CurrentReleaseService, useValue: currentReleaseService },
+        {
+          provide: DiscordLinkService,
+          useValue: { registerObservedIdentity: jest.fn() },
+        },
         { provide: DiscoveryService, useValue: {} },
         { provide: DownloadMetricsService, useValue: {} },
         { provide: DownloadService, useValue: {} },

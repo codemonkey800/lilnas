@@ -27,6 +27,7 @@ import { Test, TestingModule } from '@nestjs/testing'
 
 import { AuditLogService } from 'src/audit/audit-log.service'
 import { AdminCheckService } from 'src/auth/admin-check.service'
+import { DiscordLinkService } from 'src/auth/discord-link.service'
 import type { ForwardedUser } from 'src/auth/forwarded-user'
 import { DownloadController } from 'src/download/download.controller'
 import { DownloadService } from 'src/download/download.service'
@@ -95,6 +96,10 @@ describe('DownloadController - media endpoints', () => {
         { provide: AdminCheckService, useValue: mockAdminCheckService },
         { provide: AuditLogService, useValue: auditLogService },
         { provide: CurrentReleaseService, useValue: {} },
+        {
+          provide: DiscordLinkService,
+          useValue: { registerObservedIdentity: jest.fn() },
+        },
         { provide: DiscoveryService, useValue: {} },
         { provide: DownloadMetricsService, useValue: {} },
         { provide: DownloadService, useValue: {} },
@@ -193,6 +198,9 @@ describe('DownloadController - media endpoints', () => {
       expect(mediaDownloadService.requestMovie).toHaveBeenCalledWith(
         123,
         undefined,
+        // Phase 018's third parameter: no Discord headers on this call, so
+        // the controller resolves the Discord attribution to null.
+        null,
       )
       expect(response).toEqual(movieJob)
       expect(response).not.toHaveProperty('url')
@@ -204,7 +212,11 @@ describe('DownloadController - media endpoints', () => {
 
       await controller.requestMovie({ tmdbId: 123 }, user)
 
-      expect(mediaDownloadService.requestMovie).toHaveBeenCalledWith(123, user)
+      expect(mediaDownloadService.requestMovie).toHaveBeenCalledWith(
+        123,
+        user,
+        null,
+      )
     })
   })
 
@@ -275,10 +287,12 @@ describe('DownloadController - media endpoints', () => {
       expect(requested).not.toHaveProperty('url')
       // Phase 4 added a third parameter; an unscoped body passes it as
       // `undefined`, which `requestShow` treats exactly as its absence.
+      // Phase 018 added a fourth - the Discord attribution, null here.
       expect(mediaDownloadService.requestShow).toHaveBeenCalledWith(
         456,
         undefined,
         undefined,
+        null,
       )
 
       mediaDownloadService.getShowJob.mockResolvedValue(showJob)
@@ -723,6 +737,7 @@ describe('DownloadController - media endpoints', () => {
         456,
         undefined,
         { episodeId: 4412, seasonNumber: 3 },
+        null,
       )
     })
 
@@ -733,6 +748,7 @@ describe('DownloadController - media endpoints', () => {
         456,
         undefined,
         { seasonNumber: 3 },
+        null,
       )
     })
 
@@ -745,10 +761,11 @@ describe('DownloadController - media endpoints', () => {
         456,
         undefined,
         { seasonNumber: 0 },
+        null,
       )
     })
 
-    // The no-regression case: a bare body still calls the two-argument form.
+    // The no-regression case: a bare body still passes no scope.
     it('passes no scope at all for an unscoped body', async () => {
       await controller.requestShow({ tvdbId: 456 }, undefined)
 
@@ -756,6 +773,7 @@ describe('DownloadController - media endpoints', () => {
         456,
         undefined,
         undefined,
+        null,
       )
     })
 
@@ -766,6 +784,7 @@ describe('DownloadController - media endpoints', () => {
         456,
         alice,
         { seasonNumber: 3 },
+        null,
       )
     })
   })
@@ -788,6 +807,7 @@ describe('DownloadController - media endpoints', () => {
         expect(auditLogService.record).toHaveBeenCalledWith({
           action: 'movie.request',
           actor: alice,
+          discordActor: null,
           metadata: { mediaId: 'tmdb:1' },
           target: { id: 'movie-1', type: 'job' },
         })
@@ -814,6 +834,7 @@ describe('DownloadController - media endpoints', () => {
         expect(auditLogService.record).toHaveBeenCalledWith({
           action: 'show.request',
           actor: alice,
+          discordActor: null,
           metadata: { mediaId: 'tvdb:1' },
           target: { id: 'show-1', type: 'job' },
         })

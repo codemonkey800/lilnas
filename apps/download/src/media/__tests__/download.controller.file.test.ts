@@ -24,6 +24,7 @@ import type { Readable } from 'stream'
 
 import { AuditLogService } from 'src/audit/audit-log.service'
 import { AdminCheckService } from 'src/auth/admin-check.service'
+import { DiscordLinkService } from 'src/auth/discord-link.service'
 import type { ForwardedUser } from 'src/auth/forwarded-user'
 import { DownloadController } from 'src/download/download.controller'
 import { DownloadService } from 'src/download/download.service'
@@ -159,6 +160,10 @@ describe('DownloadController - GET /media/:id/file', () => {
         { provide: AdminCheckService, useValue: { checkIsAdmin: jest.fn() } },
         { provide: AuditLogService, useValue: auditLogService },
         { provide: CurrentReleaseService, useValue: {} },
+        {
+          provide: DiscordLinkService,
+          useValue: { registerObservedIdentity: jest.fn() },
+        },
         { provide: DiscoveryService, useValue: {} },
         {
           provide: DownloadMetricsService,

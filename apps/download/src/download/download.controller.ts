@@ -19,6 +19,7 @@ import {
 import type {
   AuditAction,
   DeleteMediaFilesResponse,
+  DiscordRequester,
   DiscoveryPage,
   DownloadGalleryFacets,
   DownloadJob,
@@ -65,9 +66,14 @@ import { createZodDto, ZodValidationPipe } from 'nestjs-zod'
 import { AuditLogService } from 'src/audit/audit-log.service'
 import { AdminCheckService } from 'src/auth/admin-check.service'
 import { CurrentUser } from 'src/auth/current-user.decorator'
+import { DiscordLinkService } from 'src/auth/discord-link.service'
 import type { ForwardedUser } from 'src/auth/forwarded-user'
 import { ForwardedUserGuard } from 'src/auth/forwarded-user.guard'
 import { OptionalCurrentUser } from 'src/auth/optional-current-user.decorator'
+import {
+  OptionalDiscordDisplayName,
+  OptionalDiscordUser,
+} from 'src/auth/optional-discord-user.decorator'
 import { mediaTypeFromKey } from 'src/db/media-id'
 import { CurrentReleaseService } from 'src/media/current-release.service'
 import { DiscoveryService } from 'src/media/discovery.service'
@@ -137,6 +143,7 @@ export class DownloadController {
     private adminCheckService: AdminCheckService,
     private auditLogService: AuditLogService,
     private currentReleaseService: CurrentReleaseService,
+    private discordLinkService: DiscordLinkService,
     private discoveryService: DiscoveryService,
     private downloadMetricsService: DownloadMetricsService,
     private downloadService: DownloadService,
@@ -156,6 +163,86 @@ export class DownloadController {
   // email.
   private async resolveIsAdmin(user: ForwardedUser | undefined) {
     return user ? this.adminCheckService.checkIsAdmin(user.email) : false
+  }
+
+  /**
+   * Resolves the Discord half of a request's attribution - and, on the way
+   * past, tells apps/auth that this Discord account exists.
+   *
+   * Two things happen here, deliberately in this order:
+   *
+   * 1. **Roster registration, unconditionally.** Any request that carried a
+   *    Discord pair reports it to `DiscordLinkService`, *including* one that
+   *    also carried a forwarded user and will therefore be attributed to the
+   *    web identity below. An account worth seeing is worth listing in
+   *    auth's admin link picker regardless of which identity won the
+   *    attribution, and that list is the only way a Discord user who has
+   *    never signed in to lilnas can be linked at all. The username comes
+   *    from the requester pair; the display name is the separate optional
+   *    header, which never reaches a job row (see `getDiscordDisplayName`).
+   *
+   *    Fire-and-forget by construction: `registerObservedIdentity()` returns
+   *    synchronously, is never awaited, and cannot fail this request. The
+   *    try/catch is belt-and-braces on top of that promise - the roster is
+   *    bookkeeping for a screen nobody is looking at, and it must never be
+   *    the reason a download 500s.
+   *
+   * 2. **Precedence.** A forwarded user wins and the Discord pair is
+   *    dropped, with a warn: the two are mutually exclusive at the DB layer
+   *    (`jobs_origin_matches_requester`), so a record carrying both does not
+   *    mis-attribute, it throws. In practice this pair never arrives
+   *    together - browser traffic reaches Traefik, tdr-bot reaches port 8081
+   *    directly - so a hit here means something upstream changed and is
+   *    worth a log line rather than a silent drop.
+   */
+  private resolveDiscordAttribution({
+    action,
+    discordDisplayName,
+    discordUser,
+    user,
+  }: {
+    action: string
+    discordDisplayName: string | undefined
+    discordUser: DiscordRequester | undefined
+    user: ForwardedUser | undefined
+  }): DiscordRequester | null {
+    if (!discordUser) {
+      return null
+    }
+
+    try {
+      // `username`, not `discordUsername`: auth's roster contract spells the
+      // handle differently from the job row's wire contract, so this is a
+      // mapping and not a pass-through.
+      this.discordLinkService.registerObservedIdentity({
+        discordUserId: discordUser.discordUserId,
+        displayName: discordDisplayName ?? null,
+        username: discordUser.discordUsername,
+      })
+    } catch (err) {
+      this.logger.warn(
+        {
+          action,
+          discordUserId: discordUser.discordUserId,
+          error: err instanceof Error ? err.message : String(err),
+        },
+        'Failed to report a Discord identity to auth - continuing',
+      )
+    }
+
+    if (user) {
+      this.logger.warn(
+        {
+          action,
+          discordUserId: discordUser.discordUserId,
+          requesterEmail: user.email,
+        },
+        'Request carried both a forwarded user and a Discord identity - attributing to the forwarded user',
+      )
+      return null
+    }
+
+    return discordUser
   }
 
   // No guard: the container is reachable ungated on the shared Docker
@@ -996,10 +1083,26 @@ export class DownloadController {
   async createVideoJob(
     @Body(new ZodValidationPipe(CreateJobInputDto)) input: CreateJobInputDto,
     @OptionalCurrentUser() user: ForwardedUser | undefined,
+    // Trailing and optional (`?`) rather than `| undefined`: every existing
+    // caller - the web UI, and every test of these routes predating Phase
+    // 018 - passes neither, and a Discord-less call site should not have to
+    // write two `undefined`s to say so.
+    @OptionalDiscordUser() discordUser?: DiscordRequester,
+    @OptionalDiscordDisplayName() discordDisplayName?: string,
   ): Promise<DownloadJob> {
     const action = 'createVideoJob'
     const startTime = Date.now()
     const sanitizedUrl = input.url.split('?')[0]
+
+    // Before the work starts, and outside everything the response awaits:
+    // the roster report inside must not add latency to the create, and the
+    // account is worth recording whether or not the job goes on to succeed.
+    const discordRequester = this.resolveDiscordAttribution({
+      action,
+      discordDisplayName,
+      discordUser,
+      user,
+    })
 
     this.logger.log(
       {
@@ -1008,6 +1111,7 @@ export class DownloadController {
         hasTimeRange: !!input.timeRange,
         timeRange: input.timeRange,
         hasRequester: !!user,
+        hasDiscordRequester: !!discordRequester,
         currentJobs: this.downloadStateService.jobs.size,
         queueSize: this.downloadStateService.queue.size(),
       },
@@ -1016,7 +1120,11 @@ export class DownloadController {
 
     try {
       const [job, isAdmin] = await Promise.all([
-        this.downloadService.createVideoDownloadJob(input, user),
+        this.downloadService.createVideoDownloadJob(
+          input,
+          user,
+          discordRequester,
+        ),
         this.resolveIsAdmin(user),
       ])
 
@@ -1050,6 +1158,7 @@ export class DownloadController {
       this.auditLogService.record({
         action: 'video.create',
         actor: user,
+        discordActor: discordRequester,
         metadata: { url: input.url },
         target: { id: job.id, type: 'job' },
       })
@@ -1078,9 +1187,22 @@ export class DownloadController {
   async cancelVideoJob(
     @Param('id') id: string,
     @OptionalCurrentUser() user: ForwardedUser | undefined,
+    @OptionalDiscordUser() discordUser?: DiscordRequester,
+    @OptionalDiscordDisplayName() discordDisplayName?: string,
   ): Promise<DownloadJob> {
     const action = 'cancelVideoJob'
     const startTime = Date.now()
+
+    // Cancel and delete carry the Discord identity for the *audit row* only:
+    // there is no job record being minted here, so nothing about
+    // `jobs.origin` changes. Together with the three create routes these are
+    // the only routes apps/tdr-bot calls, which is exactly where this stops.
+    const discordActor = this.resolveDiscordAttribution({
+      action,
+      discordDisplayName,
+      discordUser,
+      user,
+    })
 
     this.logger.log(
       {
@@ -1115,6 +1237,7 @@ export class DownloadController {
       this.auditLogService.record({
         action: 'video.cancel',
         actor: user,
+        discordActor,
         target: { id, type: 'job' },
       })
 
@@ -1159,6 +1282,10 @@ export class DownloadController {
     return this.videoInterruptRoute({
       action: 'pauseVideoJob',
       audit: { action: 'video.pause' },
+      // Web-only route - apps/tdr-bot has no pause/resume command, so there
+      // is no Discord identity to attribute and the parameter is stated
+      // rather than left to a default.
+      discordActor: null,
       id,
       run: () => this.downloadService.pauseVideoDownloadJob(id),
       user,
@@ -1175,6 +1302,7 @@ export class DownloadController {
     return this.videoInterruptRoute({
       action: 'resumeVideoJob',
       audit: { action: 'video.resume' },
+      discordActor: null,
       id,
       run: () => this.downloadService.resumeVideoDownloadJob(id),
       user,
@@ -1202,10 +1330,21 @@ export class DownloadController {
   async deleteVideoJob(
     @Param('id') id: string,
     @OptionalCurrentUser() user: ForwardedUser | undefined,
+    @OptionalDiscordUser() discordUser?: DiscordRequester,
+    @OptionalDiscordDisplayName() discordDisplayName?: string,
   ): Promise<DownloadJob> {
+    const action = 'deleteVideoJob'
+
     return this.videoInterruptRoute({
-      action: 'deleteVideoJob',
+      action,
       audit: { action: 'video.delete' },
+      // Audit attribution only - see `cancelVideoJob`.
+      discordActor: this.resolveDiscordAttribution({
+        action,
+        discordDisplayName,
+        discordUser,
+        user,
+      }),
       id,
       run: () => this.downloadService.deleteVideoDownloadJob(id),
       user,
@@ -1240,16 +1379,34 @@ export class DownloadController {
     @Body(new ZodValidationPipe(RequestMovieInputDto))
     input: RequestMovieInputDto,
     @OptionalCurrentUser() user: ForwardedUser | undefined,
+    @OptionalDiscordUser() discordUser?: DiscordRequester,
+    @OptionalDiscordDisplayName() discordDisplayName?: string,
   ): Promise<DownloadJob> {
     const action = 'requestMovie'
 
+    const discordRequester = this.resolveDiscordAttribution({
+      action,
+      discordDisplayName,
+      discordUser,
+      user,
+    })
+
     this.logger.log(
-      { action, tmdbId: input.tmdbId, hasRequester: !!user },
+      {
+        action,
+        hasDiscordRequester: !!discordRequester,
+        hasRequester: !!user,
+        tmdbId: input.tmdbId,
+      },
       'POST /movies - Requesting movie download',
     )
 
     const [job, isAdmin] = await Promise.all([
-      this.mediaDownloadService.requestMovie(input.tmdbId, user),
+      this.mediaDownloadService.requestMovie(
+        input.tmdbId,
+        user,
+        discordRequester,
+      ),
       this.resolveIsAdmin(user),
     ])
 
@@ -1264,6 +1421,7 @@ export class DownloadController {
     this.auditLogService.record({
       action: 'movie.request',
       actor: user,
+      discordActor: discordRequester,
       metadata: { mediaId: job.media.id },
       target: { id: job.id, type: 'job' },
     })
@@ -1333,8 +1491,17 @@ export class DownloadController {
     @Body(new ZodValidationPipe(RequestShowInputDto))
     input: RequestShowInputDto,
     @OptionalCurrentUser() user: ForwardedUser | undefined,
+    @OptionalDiscordUser() discordUser?: DiscordRequester,
+    @OptionalDiscordDisplayName() discordDisplayName?: string,
   ): Promise<DownloadJob> {
     const action = 'requestShow'
+
+    const discordRequester = this.resolveDiscordAttribution({
+      action,
+      discordDisplayName,
+      discordUser,
+      user,
+    })
     // Keys omitted rather than set to `undefined`, so the scope persisted on
     // the job is `{"seasonNumber":3}` rather than carrying a null episodeId.
     const scope = narrowScope({
@@ -1346,6 +1513,7 @@ export class DownloadController {
       {
         action,
         episodeId: input.episodeId,
+        hasDiscordRequester: !!discordRequester,
         hasRequester: !!user,
         seasonNumber: input.seasonNumber,
         tvdbId: input.tvdbId,
@@ -1354,7 +1522,12 @@ export class DownloadController {
     )
 
     const [job, isAdmin] = await Promise.all([
-      this.mediaDownloadService.requestShow(input.tvdbId, user, scope),
+      this.mediaDownloadService.requestShow(
+        input.tvdbId,
+        user,
+        scope,
+        discordRequester,
+      ),
       this.resolveIsAdmin(user),
     ])
 
@@ -1375,6 +1548,7 @@ export class DownloadController {
     this.auditLogService.record({
       action: 'show.request',
       actor: user,
+      discordActor: discordRequester,
       metadata: { mediaId: job.media.id, ...(scope ? { scope } : {}) },
       target: { id: job.id, type: 'job' },
     })
@@ -1522,6 +1696,7 @@ export class DownloadController {
   private async videoInterruptRoute({
     action,
     audit,
+    discordActor,
     id,
     run,
     user,
@@ -1529,6 +1704,12 @@ export class DownloadController {
   }: {
     action: string
     audit: RouteAuditEvent
+    /**
+     * Required-but-nullable rather than optional: `delete` is reachable from
+     * Discord and `pause`/`resume` are not, and which of the three a call
+     * site is has to be stated rather than reached by omission.
+     */
+    discordActor: DiscordRequester | null
     id: string
     run: () => Promise<DownloadJob>
     user: ForwardedUser | undefined
@@ -1570,6 +1751,7 @@ export class DownloadController {
       this.auditLogService.record({
         action: audit.action,
         actor: user,
+        discordActor,
         metadata: audit.metadata?.(job),
         target: { id, type: 'job' },
       })

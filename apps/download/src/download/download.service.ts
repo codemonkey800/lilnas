@@ -1,6 +1,7 @@
 import { VideoInfoSchema } from '@lilnas/utils/download/schema'
 import {
   CreateDownloadJobInput,
+  DiscordRequester,
   DownloadJob,
   DownloadJobRecord,
   DownloadJobStatus,
@@ -219,9 +220,22 @@ export class DownloadService {
     })
   }
 
+  /**
+   * `requester` and `discordRequester` are the two mutually exclusive ways a
+   * job can be attributed, and the controller has already picked between
+   * them (a forwarded user wins; see `DownloadController.createVideoJob`).
+   * Both are accepted here rather than one resolved "attribution" object
+   * because they land in different columns and drive `jobs.origin` - see
+   * `buildJobRow()`, which is the single place that derivation happens.
+   *
+   * Handing in both is a caller bug, not something this method repairs: the
+   * row would violate `jobs_origin_matches_requester` and the persist would
+   * throw.
+   */
   async createVideoDownloadJob(
     { hiddenAttribution, timeRange, url }: CreateDownloadJobInput,
     requester?: JobRequester | null,
+    discordRequester?: DiscordRequester | null,
   ): Promise<DownloadJob> {
     const action = 'createVideoDownloadJob'
     const jobId = nanoid()
@@ -236,6 +250,7 @@ export class DownloadService {
         url: sanitizedUrl,
         hasTimeRange: !!timeRange,
         hasRequester: !!requester,
+        hasDiscordRequester: !!discordRequester,
       },
       'Creating video download job',
     )
@@ -255,11 +270,11 @@ export class DownloadService {
       createdAt: now,
       // Required-but-nullable on `DownloadJobSchema`, so both are stated
       // rather than omitted. `discordRequester` is threaded in from
-      // `getDiscordRequester(req)` by the controller layer, not here;
-      // `linkedDiscord` is never persisted at all (it is resolved at read
-      // time from `apps/auth`'s link table) and so is always null on a
+      // `getDiscordRequester(req)` by the controller layer, not derived
+      // here; `linkedDiscord` is never persisted at all (it is resolved at
+      // read time from `apps/auth`'s link table) and so is always null on a
       // freshly minted record.
-      discordRequester: null,
+      discordRequester: discordRequester ?? null,
       hiddenAttribution: hiddenAttribution ?? false,
       id: jobId,
       linkedDiscord: null,

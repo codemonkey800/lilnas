@@ -3,6 +3,7 @@ import type {
   AuditLogEntry,
   AuditLogQuery,
   AuditTargetType,
+  DiscordRequester,
   DownloadPage,
 } from '@lilnas/utils/download/types'
 import { BadRequestException, Injectable, Logger } from '@nestjs/common'
@@ -70,6 +71,19 @@ const INVALID_CURSOR_MESSAGE =
 export interface AuditEvent {
   action: AuditAction
   actor: ForwardedUser | undefined
+  /**
+   * The Discord account that did this, when the request arrived from
+   * apps/tdr-bot carrying `x-discord-user-id`/`x-discord-username` and *no*
+   * forwarded identity. Optional rather than required-but-nullable (the
+   * opposite of `actor` above) because only the handful of routes tdr-bot
+   * actually calls can ever produce one - every other call site would be
+   * writing `discordActor: null` to say something it has no way of knowing.
+   *
+   * Mutually exclusive with `actor`: `DownloadController` gives a forwarded
+   * user precedence and passes `null` here when both arrived, and a row
+   * carrying both is rejected outright by `audit_log_origin_matches_actor`.
+   */
+  discordActor?: DiscordRequester | null
   metadata?: Record<string, unknown>
   target?: { id: string; type: AuditTargetType }
 }
@@ -134,6 +148,7 @@ export class AuditLogService {
       insertAuditLog(this.dbService.db, {
         action: event.action,
         actor: event.actor ?? null,
+        discordActor: event.discordActor,
         metadata: event.metadata,
         target: event.target,
       })

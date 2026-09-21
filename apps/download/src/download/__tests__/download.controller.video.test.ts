@@ -18,6 +18,7 @@ import { Test, TestingModule } from '@nestjs/testing'
 
 import { AuditLogService } from 'src/audit/audit-log.service'
 import { AdminCheckService } from 'src/auth/admin-check.service'
+import { DiscordLinkService } from 'src/auth/discord-link.service'
 import type { ForwardedUser } from 'src/auth/forwarded-user'
 import { DownloadController } from 'src/download/download.controller'
 import { DownloadService } from 'src/download/download.service'
@@ -90,6 +91,10 @@ describe('DownloadController - video endpoints', () => {
           },
         },
         { provide: CurrentReleaseService, useValue: {} },
+        {
+          provide: DiscordLinkService,
+          useValue: { registerObservedIdentity: jest.fn() },
+        },
         { provide: DiscoveryService, useValue: {} },
         { provide: JobQueryService, useValue: {} },
         { provide: MediaDownloadService, useValue: {} },
@@ -189,6 +194,9 @@ describe('DownloadController - video endpoints', () => {
       expect(downloadService.createVideoDownloadJob).toHaveBeenCalledWith(
         { url: 'https://example.com/video' },
         nonAdmin,
+        // Phase 018's third parameter: no Discord headers on this call, so
+        // the controller resolves the Discord attribution to null.
+        null,
       )
       expect(res.requester).toBeNull()
     })
@@ -285,6 +293,7 @@ describe('DownloadController - video endpoints', () => {
       expect(auditLogService.record).toHaveBeenCalledWith({
         action: 'video.delete',
         actor: admin,
+        discordActor: null,
         metadata: undefined,
         target: { id: job.id, type: 'job' },
       })
@@ -459,6 +468,7 @@ describe('DownloadController - video endpoints', () => {
       expect(auditLogService.record).toHaveBeenCalledWith({
         action: 'video.create',
         actor: nonAdmin,
+        discordActor: null,
         // The raw url, query string and all - the log lines strip the query,
         // but for the URL shape this service mostly sees the video's identity
         // is *only* in the query string, so an audit entry without it can't
@@ -496,6 +506,7 @@ describe('DownloadController - video endpoints', () => {
       expect(auditLogService.record).toHaveBeenCalledWith({
         action: 'video.cancel',
         actor: admin,
+        discordActor: null,
         target: { id: 'video-1', type: 'job' },
       })
     })
@@ -513,6 +524,9 @@ describe('DownloadController - video endpoints', () => {
       expect(auditLogService.record).toHaveBeenCalledWith({
         action,
         actor: admin,
+        // pause/resume are web-only routes - `videoInterruptRoute` is
+        // handed a literal null rather than a resolved Discord identity.
+        discordActor: null,
         metadata: undefined,
         target: { id: 'video-1', type: 'job' },
       })

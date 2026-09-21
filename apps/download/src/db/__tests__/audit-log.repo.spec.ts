@@ -92,6 +92,74 @@ describe('insertAuditLog', () => {
     }
   })
 
+  it('records a discord-origin row from the Discord pair alone', () => {
+    const { db, close } = createTestDb()
+    try {
+      const row = insertAuditLog(db, {
+        action: 'video.create',
+        actor: null,
+        // A snowflake exceeds Number.MAX_SAFE_INTEGER - always a string.
+        discordActor: {
+          discordUserId: '106060871780851712',
+          discordUsername: 'jeremy',
+        },
+        target: { id: 'job-1', type: 'job' },
+      })
+
+      expect(row).toMatchObject({
+        actorDiscordUserId: '106060871780851712',
+        actorDiscordUsername: 'jeremy',
+        actorEmail: null,
+        actorUserId: null,
+        // Derived from `discordActor`, never passed by the caller.
+        origin: 'discord',
+      })
+    } finally {
+      close()
+    }
+  })
+
+  it('leaves the Discord columns null for a web-origin row', () => {
+    const { db, close } = createTestDb()
+    try {
+      const row = insertAuditLog(db, {
+        action: 'video.create',
+        actor: { email: 'alice@example.com', userId: 'user_1' },
+      })
+
+      expect(row).toMatchObject({
+        actorDiscordUserId: null,
+        actorDiscordUsername: null,
+        origin: 'web',
+      })
+    } finally {
+      close()
+    }
+  })
+
+  // Deliberately not repaired here: `origin` resolves both-present to 'web',
+  // which leaves the populated Discord columns violating
+  // `audit_log_origin_matches_actor`. Precedence is the controller's to
+  // decide, and a row nobody decided on must not be silently stored.
+  // `AuditLogService.record()` swallows this throw into a counter.
+  it('refuses a row carrying both an actor and a Discord actor', () => {
+    const { db, close } = createTestDb()
+    try {
+      expect(() =>
+        insertAuditLog(db, {
+          action: 'video.create',
+          actor: { email: 'alice@example.com', userId: 'user_1' },
+          discordActor: {
+            discordUserId: '106060871780851712',
+            discordUsername: 'jeremy',
+          },
+        }),
+      ).toThrow(/CHECK constraint failed/)
+    } finally {
+      close()
+    }
+  })
+
   it('leaves the target pair and metadata null when they are omitted', () => {
     const { db, close } = createTestDb()
     try {

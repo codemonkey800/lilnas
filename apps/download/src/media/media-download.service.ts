@@ -1,4 +1,5 @@
 import {
+  DiscordRequester,
   DownloadJob,
   DownloadJobRecord,
   DownloadJobStatus,
@@ -88,14 +89,23 @@ export class MediaDownloadService {
     return this.sonarrService.search(query)
   }
 
+  /**
+   * `requester` and `discordRequester` are the two mutually exclusive ways
+   * the resulting job can be attributed; the controller has already picked
+   * between them (a forwarded user wins). See
+   * `DownloadService.createVideoDownloadJob` for why both are carried
+   * separately rather than pre-collapsed.
+   */
   async requestMovie(
     tmdbId: number,
     requester?: JobRequester | null,
+    discordRequester?: DiscordRequester | null,
   ): Promise<DownloadJob> {
     const jobMediaId = mediaId({ tmdbId, type: DownloadType.Movie })
 
     return this.request({
       action: 'requestMovie',
+      discordRequester,
       mediaId: jobMediaId,
       requester,
       // Ensure first, *then* decide - the upstream id doesn't exist until
@@ -137,11 +147,13 @@ export class MediaDownloadService {
     tvdbId: number,
     requester?: JobRequester | null,
     scope?: ShowScope,
+    discordRequester?: DiscordRequester | null,
   ): Promise<DownloadJob> {
     const jobMediaId = mediaId({ tvdbId, type: DownloadType.Show })
 
     return this.request({
       action: 'requestShow',
+      discordRequester,
       mediaId: jobMediaId,
       requester,
       scope,
@@ -294,6 +306,7 @@ export class MediaDownloadService {
    */
   async request({
     action,
+    discordRequester,
     mediaId: jobMediaId,
     requester,
     scope,
@@ -302,6 +315,13 @@ export class MediaDownloadService {
     upstreamId,
   }: {
     action: string
+    /**
+     * The Discord account that asked for this, for a tdr-bot call that
+     * carried Discord headers and no forwarded identity. Mutually exclusive
+     * with `requester` - a record carrying both is rejected by
+     * `jobs_origin_matches_requester` on persist.
+     */
+    discordRequester?: DiscordRequester | null
     mediaId: string
     requester?: JobRequester | null
     /**
@@ -321,10 +341,12 @@ export class MediaDownloadService {
     const record: DownloadJobRecord = {
       completedAt: null,
       createdAt: now,
-      // Both required-but-nullable on `DownloadJobSchema`; see
-      // `DownloadService.createVideoDownloadJob` for why each is null at mint
-      // time.
-      discordRequester: null,
+      // Both required-but-nullable on `DownloadJobSchema`. `linkedDiscord`
+      // is never persisted (it is resolved at read time from `apps/auth`'s
+      // link table); `discordRequester` is threaded down from the controller
+      // when the request arrived from Discord - see
+      // `DownloadService.createVideoDownloadJob`.
+      discordRequester: discordRequester ?? null,
       // Movies/shows are always attributed - there's no hiding toggle for
       // them by design (spec §Core Concepts).
       hiddenAttribution: false,

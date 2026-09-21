@@ -12,6 +12,7 @@ import { Test, TestingModule } from '@nestjs/testing'
 
 import { AuditLogService } from 'src/audit/audit-log.service'
 import { AdminCheckService } from 'src/auth/admin-check.service'
+import { DiscordLinkService } from 'src/auth/discord-link.service'
 import type { ForwardedUser } from 'src/auth/forwarded-user'
 import { DownloadController } from 'src/download/download.controller'
 import { DownloadService } from 'src/download/download.service'
@@ -55,6 +56,10 @@ describe('DownloadController - activity/gallery list endpoints', () => {
         { provide: AdminCheckService, useValue: mockAdminCheckService },
         { provide: AuditLogService, useValue: { record: jest.fn() } },
         { provide: CurrentReleaseService, useValue: {} },
+        {
+          provide: DiscordLinkService,
+          useValue: { registerObservedIdentity: jest.fn() },
+        },
         { provide: DiscoveryService, useValue: {} },
         { provide: DownloadMetricsService, useValue: {} },
         { provide: DownloadService, useValue: {} },
