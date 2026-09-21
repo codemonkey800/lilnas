@@ -52,6 +52,40 @@ function requireUserId(value: unknown): string {
   return value
 }
 
+// D2 (plan 017). A Discord snowflake is ALWAYS a string on this side of the
+// wire — never a JS number — because the real values are 64-bit ids well
+// past Number.MAX_SAFE_INTEGER, so a payload that arrived as a number has
+// already lost digits before this function ever sees it. Rejecting the
+// number outright (rather than String()-ing it into something
+// plausible-looking) is the point: a silently-truncated snowflake would
+// reach the backend as a well-formed-but-wrong id.
+//
+// [0-9] rather than \d is deliberate — \d is ASCII-only in JS today, but
+// spelling the class out removes any dependence on that staying true under
+// a future `u`/`v` flag, and the anchors are safe as written (unlike
+// Python/Perl, JS's `$` without the `m` flag matches ONLY the end of input,
+// not before a trailing newline, so "…1234\n" is correctly rejected).
+//
+// The 17–20 bound mirrors the backend's own LinkDiscordBodySchema. This is
+// NOT a redundant second copy of that check for its own sake: it exists
+// because this Server Action interpolates nothing but still puts the value
+// in a request BODY, and the whole rationale above applies to bodies just
+// as much as to paths — the compiled endpoint is public and the
+// `discordUserId: string` signature is erased at runtime. When the two
+// bounds ever disagree, the backend's 400 ("discordUserId must be a Discord
+// snowflake (17-20 digits)") is the authoritative one and surfaces to the
+// UI unchanged.
+const DISCORD_SNOWFLAKE_PATTERN = /^[0-9]{17,20}$/
+
+function requireDiscordUserId(value: unknown): string {
+  if (typeof value !== 'string' || !DISCORD_SNOWFLAKE_PATTERN.test(value)) {
+    throw new Error(
+      'lilnas-auth: invalid discord user id (expected a 17-20 digit snowflake string)',
+    )
+  }
+  return value
+}
+
 // Returns the parsed JSON response body on success (every route this file
 // calls returns a plain JSON object — see admin.controller.ts) rather than
 // discarding it, which is what lets rejectRequest()/bulkRejectRequests()
@@ -171,4 +205,54 @@ export async function revokeSessions(
   return callBackend<{ ok: true; sessionsRevoked: number }>(
     `/admin/users/${requireUserId(userId)}/revoke-sessions`,
   )
+}
+
+// D2 (plan 017): link a lilnas person to an already-observed Discord
+// account. Both ids travel in the BODY rather than the path — see
+// AdminController.linkDiscord()'s own comment for why (the identifying
+// thing here is the PAIR, and splitting half of it into the URL would
+// scatter one logical selection across two places). They are narrowed all
+// the same: see requireDiscordUserId() above for why a body value gets the
+// same treatment a path-interpolated one does.
+//
+// Nothing beyond the two ids' SHAPE is checked here. "Does this user
+// exist", "has this Discord account ever been seen", and "is either side
+// already linked" are all answered inside the backend's own transaction —
+// they cannot be answered correctly from here, and every one of those
+// failures comes back as a 404/400 whose message is already written for a
+// human to read:
+//
+//   404  user <id> not found
+//   404  Discord account <snowflake> has never been seen by this system — …
+//   400  Discord account already linked to <their email>
+//   400  That person is already linked to a different Discord account — …
+//
+// callBackend() above pulls `message` off the JSON error body and appends
+// it to the thrown Error, so the calling client component's try/catch sees
+// the backend's sentence verbatim and can render it as-is.
+export async function linkDiscordAccount(
+  userId: string,
+  discordUserId: string,
+): Promise<void> {
+  await callBackend('/admin/discord/link', {
+    body: {
+      userId: requireUserId(userId),
+      discordUserId: requireDiscordUserId(discordUserId),
+    },
+  })
+}
+
+// D2 (plan 017). A 404 ("user <id> has no Discord link") from this route is
+// a GENUINE ERROR and is deliberately NOT swallowed into a success — the
+// tempting "unlink is idempotent, nothing to delete means we're already in
+// the desired state" reading is wrong here. The Unlink control only ever
+// renders on a row of the LINKED list, so reaching this call with nothing
+// to delete means the view the admin acted on is stale (someone else
+// unlinked them first). Surfacing that as an error is what prompts the
+// refresh that makes the screen honest again; silently reporting success
+// would leave a phantom row on screen.
+export async function unlinkDiscordAccount(userId: string): Promise<void> {
+  await callBackend('/admin/discord/unlink', {
+    body: { userId: requireUserId(userId) },
+  })
 }

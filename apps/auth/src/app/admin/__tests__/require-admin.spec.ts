@@ -3,6 +3,8 @@ import { redirect } from 'next/navigation'
 
 import {
   fetchAdminServices,
+  fetchDiscordLinks,
+  fetchDiscordUnlinked,
   requireAdminQueue,
 } from 'src/app/admin/require-admin'
 
@@ -177,6 +179,200 @@ describe('fetchAdminServices', () => {
       .mockResolvedValue(new Response(null, { status: 401 }))
 
     await expect(fetchAdminServices()).rejects.toThrow('NEXT_REDIRECT:/login')
+    expect(redirect).toHaveBeenCalledWith('/login')
+
+    fetchSpy.mockRestore()
+  })
+})
+
+// ──────────────────────────────────────────────────────────────────────────────
+// D2 (plan 017): the Discord link panel's two reads. Like fetchAdminServices
+// above, these share fetchFromAdminApi()'s already-exhaustively-covered
+// 401/403/error branches, so these tests cover what is specific to them:
+// the right path, the right SHAPE (an envelope for one route, a bare array
+// for the other), and that the backend's ordering survives untouched.
+// ──────────────────────────────────────────────────────────────────────────────
+describe('fetchDiscordUnlinked', () => {
+  beforeEach(() => {
+    ;(redirect as unknown as jest.Mock).mockClear()
+  })
+
+  it('calls GET /admin/discord/unlinked and returns both lists', async () => {
+    mockIncomingCookie('better-auth.session_token=abc123')
+    const payload = {
+      people: [
+        { userId: 'u1', email: 'aaron@example.com', name: 'Aaron' },
+        { userId: 'u2', email: 'zoe@example.com', name: 'Zoe' },
+      ],
+      accounts: [
+        {
+          discordUserId: '123456789012345678',
+          username: 'recent',
+          displayName: 'Recently Seen',
+          firstSeenAt: '2026-01-01T00:00:00.000Z',
+          lastSeenAt: '2026-03-01T00:00:00.000Z',
+        },
+        {
+          discordUserId: '223456789012345678',
+          username: 'stale',
+          displayName: null,
+          firstSeenAt: '2026-01-01T00:00:00.000Z',
+          lastSeenAt: '2026-02-01T00:00:00.000Z',
+        },
+      ],
+    }
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify(payload), { status: 200 }))
+
+    const result = await fetchDiscordUnlinked()
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'http://localhost:8081/admin/discord/unlinked',
+      expect.objectContaining({
+        method: 'GET',
+        headers: { cookie: 'better-auth.session_token=abc123' },
+      }),
+    )
+    expect(result).toEqual(payload)
+    expect(redirect).not.toHaveBeenCalled()
+
+    fetchSpy.mockRestore()
+  })
+
+  // The two lists are ordered by DIFFERENT keys in DIFFERENT directions
+  // (people by email ascending, accounts by lastSeenAt DESCENDING), which
+  // is precisely why neither is re-sorted client-side — a single display
+  // sort could not reproduce both.
+  it('preserves the backend ordering of both lists rather than re-sorting', async () => {
+    mockIncomingCookie('better-auth.session_token=abc123')
+    const payload = {
+      people: [
+        { userId: 'u1', email: 'aaron@example.com', name: 'Zzz Last' },
+        { userId: 'u2', email: 'zoe@example.com', name: 'Aaa First' },
+      ],
+      accounts: [
+        {
+          discordUserId: '999999999999999999',
+          username: 'zeta',
+          displayName: null,
+          firstSeenAt: '2026-01-01T00:00:00.000Z',
+          lastSeenAt: '2026-03-01T00:00:00.000Z',
+        },
+        {
+          discordUserId: '111111111111111111',
+          username: 'alpha',
+          displayName: null,
+          firstSeenAt: '2026-01-01T00:00:00.000Z',
+          lastSeenAt: '2026-02-01T00:00:00.000Z',
+        },
+      ],
+    }
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify(payload), { status: 200 }))
+
+    const result = await fetchDiscordUnlinked()
+
+    expect(result.people.map(person => person.email)).toEqual([
+      'aaron@example.com',
+      'zoe@example.com',
+    ])
+    expect(result.accounts.map(account => account.username)).toEqual([
+      'zeta',
+      'alpha',
+    ])
+
+    fetchSpy.mockRestore()
+  })
+
+  // Both keys are always present, `[]` when empty — never undefined — so
+  // the panel never has to guard for a missing array.
+  it('returns two empty arrays when nothing is unlinked', async () => {
+    mockIncomingCookie('better-auth.session_token=abc123')
+    const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ people: [], accounts: [] }), {
+        status: 200,
+      }),
+    )
+
+    const result = await fetchDiscordUnlinked()
+
+    expect(result).toEqual({ people: [], accounts: [] })
+
+    fetchSpy.mockRestore()
+  })
+
+  it('a 401 redirects to /login, same as requireAdminQueue', async () => {
+    mockIncomingCookie(undefined)
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 401 }))
+
+    await expect(fetchDiscordUnlinked()).rejects.toThrow('NEXT_REDIRECT:/login')
+    expect(redirect).toHaveBeenCalledWith('/login')
+
+    fetchSpy.mockRestore()
+  })
+})
+
+describe('fetchDiscordLinks', () => {
+  beforeEach(() => {
+    ;(redirect as unknown as jest.Mock).mockClear()
+  })
+
+  // Note the shape difference from fetchDiscordUnlinked above: this route
+  // returns a BARE ARRAY, not an envelope.
+  it('calls GET /admin/discord/links and returns the bare array in backend order', async () => {
+    mockIncomingCookie('better-auth.session_token=abc123')
+    const links = [
+      {
+        userId: 'u1',
+        email: 'aaron@example.com',
+        name: 'Aaron',
+        discordUserId: '123456789012345678',
+        username: 'aaron_d',
+        displayName: 'Aaron D',
+        createdAt: '2026-02-01T00:00:00.000Z',
+      },
+      {
+        userId: 'u2',
+        email: 'zoe@example.com',
+        name: 'Zoe',
+        discordUserId: '223456789012345678',
+        username: 'zoe_d',
+        displayName: null,
+        createdAt: '2026-01-01T00:00:00.000Z',
+      },
+    ]
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify(links), { status: 200 }))
+
+    const result = await fetchDiscordLinks()
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'http://localhost:8081/admin/discord/links',
+      expect.objectContaining({ method: 'GET' }),
+    )
+    expect(result).toEqual(links)
+    // Email-ascending, NOT createdAt order — the second row is the older
+    // link, so a re-sort by recency would have flipped these.
+    expect(result.map(link => link.email)).toEqual([
+      'aaron@example.com',
+      'zoe@example.com',
+    ])
+
+    fetchSpy.mockRestore()
+  })
+
+  it('a 401 redirects to /login, same as requireAdminQueue', async () => {
+    mockIncomingCookie(undefined)
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 401 }))
+
+    await expect(fetchDiscordLinks()).rejects.toThrow('NEXT_REDIRECT:/login')
     expect(redirect).toHaveBeenCalledWith('/login')
 
     fetchSpy.mockRestore()

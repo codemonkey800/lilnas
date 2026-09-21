@@ -16,6 +16,8 @@ import {
 import { AddPersonModal } from 'src/app/admin/add-person-modal'
 import { EditAccessModal } from 'src/app/admin/edit-access-modal'
 import type {
+  AdminDiscordLinkEntry,
+  AdminDiscordUnlinked,
   AdminQueueEntry,
   AdminServiceEntry,
   AdminUserEntry,
@@ -32,6 +34,18 @@ export type AdminDashboardClientProps = {
   initialQueue: AdminQueueEntry[]
   initialUsers: AdminUserEntry[]
   services: AdminServiceEntry[]
+  // D2 (plan 017): the Discord link panel's data, fetched alongside
+  // everything else by page.tsx. OPTIONAL only because the panel that
+  // consumes them (D3) doesn't exist yet and this file's own test suite
+  // renders this component 23 times to assert things about the queue and
+  // the People/Blocked split — none of which have anything to say about
+  // Discord. page.tsx always passes both; making them required today would
+  // buy a guarantee that page.tsx is the only caller who could break, at
+  // the cost of 23 empty `discordUnlinked={{ people: [], accounts: [] }}`
+  // props in a spec about something else entirely. D3 should tighten these
+  // to required once it has a panel whose fixtures make them meaningful.
+  discordUnlinked?: AdminDiscordUnlinked
+  discordLinks?: AdminDiscordLinkEntry[]
 }
 
 function ServiceChips({ hosts }: { hosts: string[] }) {
