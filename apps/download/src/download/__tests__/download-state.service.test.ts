@@ -22,6 +22,7 @@ import { Test, TestingModule } from '@nestjs/testing'
 import { ChildProcessWithoutNullStreams } from 'child_process'
 import { eq } from 'drizzle-orm'
 
+import { fakeAttributionResolutionProvider } from 'src/auth/__tests__/helpers/attribution-resolution'
 import { createTestDbService } from 'src/db/__tests__/test-utils'
 import { DbService } from 'src/db/db.service'
 import { jobs, videos } from 'src/db/schema'
@@ -121,6 +122,7 @@ describe('DownloadStateService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        fakeAttributionResolutionProvider(),
         DownloadStateService,
         { provide: DbService, useValue: dbService },
         { provide: DownloadGateway, useValue: mockDownloadGateway },

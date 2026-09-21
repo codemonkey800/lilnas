@@ -10,6 +10,7 @@ import { Logger } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 
 import { AuditLogService } from 'src/audit/audit-log.service'
+import { fakeAttributionResolutionProvider } from 'src/auth/__tests__/helpers/attribution-resolution'
 import { AdminCheckService } from 'src/auth/admin-check.service'
 import { DiscordLinkService } from 'src/auth/discord-link.service'
 import type { MediaFileReleaseRow } from 'src/db/schema'
@@ -78,6 +79,7 @@ describe('DownloadController - current release on the detail route', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [DownloadController],
       providers: [
+        fakeAttributionResolutionProvider(),
         {
           provide: AdminCheckService,
           useValue: { checkIsAdmin: jest.fn().mockResolvedValue(false) },

@@ -26,6 +26,7 @@ import {
 import { Test, TestingModule } from '@nestjs/testing'
 
 import { AuditLogService } from 'src/audit/audit-log.service'
+import { fakeAttributionResolutionProvider } from 'src/auth/__tests__/helpers/attribution-resolution'
 import { AdminCheckService } from 'src/auth/admin-check.service'
 import { DiscordLinkService } from 'src/auth/discord-link.service'
 import type { ForwardedUser } from 'src/auth/forwarded-user'
@@ -93,6 +94,7 @@ describe('DownloadController - media endpoints', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [DownloadController],
       providers: [
+        fakeAttributionResolutionProvider(),
         { provide: AdminCheckService, useValue: mockAdminCheckService },
         { provide: AuditLogService, useValue: auditLogService },
         { provide: CurrentReleaseService, useValue: {} },

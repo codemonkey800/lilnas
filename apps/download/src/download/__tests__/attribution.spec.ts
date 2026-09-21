@@ -19,6 +19,35 @@ const videoJob = (hiddenAttribution: boolean) =>
     status: DownloadJobStatus.Completed,
   })
 
+// Real snowflakes exceed Number.MAX_SAFE_INTEGER, so they are string literals
+// (a numeric literal would also trip eslint's no-loss-of-precision).
+const DISCORD_REQUESTER = {
+  discordUserId: '123456789012345678',
+  discordUsername: 'alice',
+}
+
+const LINKED_DISCORD = {
+  discordUserId: '223456789012345678',
+  discordUsername: 'bob',
+}
+
+/**
+ * A job carrying *all three* identity fields at once.
+ *
+ * Not a shape the DB can produce - `jobs_origin_matches_requester` makes
+ * `requester` and `discordRequester` mutually exclusive on a row, and
+ * `linkedDiscord` is filled at read time - but exactly the shape that proves
+ * the mask is a single gate over three fields rather than three rules. If it
+ * were three rules, a job like this would come back half-masked.
+ */
+const fullyAttributedVideoJob = (hiddenAttribution: boolean) =>
+  buildJob(buildVideo(), {
+    discordRequester: DISCORD_REQUESTER,
+    hiddenAttribution,
+    linkedDiscord: LINKED_DISCORD,
+    status: DownloadJobStatus.Completed,
+  })
+
 describe('showTrueRequester', () => {
   describe('video jobs', () => {
     it('is true when not hidden, regardless of admin status', () => {
@@ -99,5 +128,53 @@ describe('projectJobForViewer', () => {
     const job = buildJob(buildShow(), { hiddenAttribution: true })
 
     expect(projectJobForViewer(job, false).requester).toEqual(REQUESTER)
+  })
+
+  // All three identity fields go through the one `showTrueRequester` gate.
+  // Each of them names the uploader on its own, so leaving any one of them
+  // populated would make `hiddenAttribution` a no-op for anybody with a
+  // Discord account - `linkedDiscord` especially, since it is filled at read
+  // time by AttributionResolutionService and would otherwise sail straight
+  // past a mask written before that field existed.
+  describe('the three identity fields are masked together', () => {
+    it('nulls requester, discordRequester and linkedDiscord for a non-admin viewer of a hidden video job', () => {
+      const projected = projectJobForViewer(
+        fullyAttributedVideoJob(true),
+        false,
+      )
+
+      expect(projected.requester).toBeNull()
+      expect(projected.discordRequester).toBeNull()
+      expect(projected.linkedDiscord).toBeNull()
+      expect(projected.hiddenAttribution).toBe(true)
+    })
+
+    it('reveals all three to an admin viewer of a hidden video job', () => {
+      const projected = projectJobForViewer(fullyAttributedVideoJob(true), true)
+
+      expect(projected.requester).toEqual(REQUESTER)
+      expect(projected.discordRequester).toEqual(DISCORD_REQUESTER)
+      expect(projected.linkedDiscord).toEqual(LINKED_DISCORD)
+    })
+
+    it('leaves all three alone on a video job that is not hidden', () => {
+      const projected = projectJobForViewer(
+        fullyAttributedVideoJob(false),
+        false,
+      )
+
+      expect(projected.requester).toEqual(REQUESTER)
+      expect(projected.discordRequester).toEqual(DISCORD_REQUESTER)
+      expect(projected.linkedDiscord).toEqual(LINKED_DISCORD)
+    })
+
+    it('never mutates the original job when masking all three', () => {
+      const job = fullyAttributedVideoJob(true)
+      const original = structuredClone(job)
+
+      projectJobForViewer(job, false)
+
+      expect(job).toEqual(original)
+    })
   })
 })

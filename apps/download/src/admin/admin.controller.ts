@@ -19,6 +19,7 @@ import { createZodDto, ZodValidationPipe } from 'nestjs-zod'
 
 import { AuditLogService } from 'src/audit/audit-log.service'
 import { AdminGuard } from 'src/auth/admin.guard'
+import { AttributionResolutionService } from 'src/auth/attribution-resolution.service'
 
 import { AdminStatsService } from './admin-stats.service'
 
@@ -49,15 +50,24 @@ export class AdminController {
 
   constructor(
     private adminStatsService: AdminStatsService,
+    private attributionResolutionService: AttributionResolutionService,
     private auditLogService: AuditLogService,
   ) {}
 
   /**
-   * Returned verbatim from `AuditLogService`, which owns filtering, cursor
-   * decode and the `{ items, nextCursor, total }` envelope - including the
-   * 400 for a cursor minted under a different filter. Nothing is masked or
-   * reshaped on the way out; an audit row's value is that it says who
-   * actually did the thing.
+   * Paged by `AuditLogService`, which owns filtering, cursor decode and the
+   * `{ items, nextCursor, total }` envelope - including the 400 for a cursor
+   * minted under a different filter. Nothing is *masked* on the way out; an
+   * audit row's value is that it says who actually did the thing, and this
+   * whole controller is admin-only anyway.
+   *
+   * The one transform is link resolution, applied here rather than in
+   * `AuditLogService` so that `AuditModule` stays deliberately
+   * dependency-free (see its module comment) - this controller already
+   * imports `AuthModule` for its class-level `AdminGuard`. It fills `actor`
+   * on a Discord-origin row whose Discord account has since been linked, and
+   * refreshes the displayed handle; `origin` is untouched, and nothing is
+   * written back.
    */
   @Get('/audit-log')
   async getAuditLog(
@@ -67,6 +77,9 @@ export class AdminController {
     const startTime = Date.now()
 
     const page = await this.auditLogService.listAuditLog(query)
+    const items = await this.attributionResolutionService.resolveAuditEntries(
+      page.items,
+    )
 
     const duration = Date.now() - startTime
     this.logger.log(
@@ -80,7 +93,7 @@ export class AdminController {
       'GET /admin/audit-log - listed audit log entries',
     )
 
-    return page
+    return { ...page, items }
   }
 
   @Get('/stats')

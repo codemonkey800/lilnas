@@ -98,14 +98,30 @@ export class DiscordLinkService {
   }
 
   /**
+   * The reverse direction's *full* envelope: the Discord account linked to a
+   * lilnas user, as auth last observed it.
+   *
+   * Exists alongside {@link getLinkedDiscordUserId} because the two callers
+   * want different halves of the same answer. A filter only needs the
+   * snowflake to compare a column against; rendering `linkedDiscord` needs
+   * the current **handle** too, and re-deriving that from the snowflake
+   * would mean a second lookup for data the first one already returned.
+   * Same `u:` cache key as the convenience method, so the two share one
+   * entry rather than doubling the keyspace.
+   *
+   * Never rejects - see {@link resolveDiscordUser}.
+   */
+  resolveLilnasUser(lilnasUserId: string): Promise<DiscordLinkLookupResponse> {
+    return this.lookup(`u:${lilnasUserId}`, { userId: lilnasUserId })
+  }
+
+  /**
    * The reverse direction: the Discord snowflake linked to a lilnas user, or
    * `null` when that user has no linked Discord account (or when auth can't
    * be reached - see the class comment on failing open).
    */
   async getLinkedDiscordUserId(lilnasUserId: string): Promise<string | null> {
-    const { identity } = await this.lookup(`u:${lilnasUserId}`, {
-      userId: lilnasUserId,
-    })
+    const { identity } = await this.resolveLilnasUser(lilnasUserId)
     return identity?.discordUserId ?? null
   }
 

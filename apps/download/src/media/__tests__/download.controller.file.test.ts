@@ -23,6 +23,7 @@ import type { Response } from 'express'
 import type { Readable } from 'stream'
 
 import { AuditLogService } from 'src/audit/audit-log.service'
+import { fakeAttributionResolutionProvider } from 'src/auth/__tests__/helpers/attribution-resolution'
 import { AdminCheckService } from 'src/auth/admin-check.service'
 import { DiscordLinkService } from 'src/auth/discord-link.service'
 import type { ForwardedUser } from 'src/auth/forwarded-user'
@@ -157,6 +158,7 @@ describe('DownloadController - GET /media/:id/file', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [DownloadController],
       providers: [
+        fakeAttributionResolutionProvider(),
         { provide: AdminCheckService, useValue: { checkIsAdmin: jest.fn() } },
         { provide: AuditLogService, useValue: auditLogService },
         { provide: CurrentReleaseService, useValue: {} },

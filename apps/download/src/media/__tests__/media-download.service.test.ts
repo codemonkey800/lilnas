@@ -20,6 +20,7 @@ import {
 import { Logger } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 
+import { fakeAttributionResolutionProvider } from 'src/auth/__tests__/helpers/attribution-resolution'
 import { createTestDbService } from 'src/db/__tests__/test-utils'
 import { insertBadFile } from 'src/db/bad-files.repo'
 import { DbService } from 'src/db/db.service'
@@ -102,6 +103,7 @@ describe('MediaDownloadService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        fakeAttributionResolutionProvider(),
         MediaDownloadService,
         DownloadStateService,
         { provide: DbService, useValue: dbService },

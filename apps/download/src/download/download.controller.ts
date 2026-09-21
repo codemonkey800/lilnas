@@ -65,6 +65,7 @@ import { createZodDto, ZodValidationPipe } from 'nestjs-zod'
 
 import { AuditLogService } from 'src/audit/audit-log.service'
 import { AdminCheckService } from 'src/auth/admin-check.service'
+import { AttributionResolutionService } from 'src/auth/attribution-resolution.service'
 import { CurrentUser } from 'src/auth/current-user.decorator'
 import { DiscordLinkService } from 'src/auth/discord-link.service'
 import type { ForwardedUser } from 'src/auth/forwarded-user'
@@ -141,6 +142,7 @@ export class DownloadController {
 
   constructor(
     private adminCheckService: AdminCheckService,
+    private attributionResolutionService: AttributionResolutionService,
     private auditLogService: AuditLogService,
     private currentReleaseService: CurrentReleaseService,
     private discordLinkService: DiscordLinkService,
@@ -163,6 +165,73 @@ export class DownloadController {
   // email.
   private async resolveIsAdmin(user: ForwardedUser | undefined) {
     return user ? this.adminCheckService.checkIsAdmin(user.email) : false
+  }
+
+  /**
+   * The read path's single exit, in three arities: **resolve, then mask**.
+   *
+   * Every job-returning route in this controller goes through one of these
+   * rather than calling `projectJobForViewer` directly, so the ordering
+   * requirement — link resolution strictly *before* masking, since the mask
+   * nulls the very fields resolution fills — is satisfied once here instead
+   * of being re-remembered at ~20 call sites. A new route that forgets to
+   * use one of these degrades to "no linked handle shown", never to a leak,
+   * because masking is still what the raw `projectJobForViewer` does.
+   *
+   * Resolution is fail-open and batched (see `AttributionResolutionService`),
+   * so this adds at most one round of mostly-cached lookups per response and
+   * cannot fail the request.
+   */
+  private async serveJob(
+    job: DownloadJob,
+    isAdmin: boolean,
+  ): Promise<DownloadJob> {
+    const [resolved] = await this.attributionResolutionService.resolveJobs([
+      job,
+    ])
+
+    // `resolved` is only `undefined` to the type system (a one-element batch
+    // always answers with one element); falling back to the unresolved job
+    // keeps that impossible case a correct-but-unenriched response.
+    return projectJobForViewer(resolved ?? job, isAdmin)
+  }
+
+  /** {@link serveJob} over a list — one batch of lookups for the whole list. */
+  private async serveJobs(
+    jobs: readonly DownloadJob[],
+    isAdmin: boolean,
+  ): Promise<DownloadJob[]> {
+    const resolved = await this.attributionResolutionService.resolveJobs(jobs)
+
+    return resolved.map(job => projectJobForViewer(job, isAdmin))
+  }
+
+  /** {@link serveJobs} with the `{ items, nextCursor, total }` envelope kept. */
+  private async serveJobPage(
+    page: DownloadPage<DownloadJob>,
+    isAdmin: boolean,
+  ): Promise<DownloadPage<DownloadJob>> {
+    return { ...page, items: await this.serveJobs(page.items, isAdmin) }
+  }
+
+  /**
+   * The gallery's equivalent. Masking for these rows happens inside
+   * `JobQueryService.listGallery` (they are grouped rows, not jobs, so there
+   * is no `projectJobForViewer` to sit in front of), which means resolution
+   * necessarily runs *after* it here — and that is safe, because the mask
+   * nulls `lastRequester` and `lastDiscordRequester` together and a row with
+   * neither resolves to itself. See
+   * `AttributionResolutionService.resolveGalleryItems`.
+   */
+  private async serveGalleryPage(
+    page: DownloadPage<GalleryItem>,
+  ): Promise<DownloadPage<GalleryItem>> {
+    return {
+      ...page,
+      items: await this.attributionResolutionService.resolveGalleryItems(
+        page.items,
+      ),
+    }
   }
 
   /**
@@ -277,7 +346,7 @@ export class DownloadController {
       'GET /activity - listed in-progress jobs',
     )
 
-    return projectPage(page, isAdmin)
+    return this.serveJobPage(page, isAdmin)
   }
 
   @Get('/gallery')
@@ -315,7 +384,7 @@ export class DownloadController {
       'GET /gallery - listed downloaded titles',
     )
 
-    return page
+    return this.serveGalleryPage(page)
   }
 
   @Get('/gallery/facets')
@@ -471,7 +540,7 @@ export class DownloadController {
       'GET /history - listed download history',
     )
 
-    return projectPage(page, isAdmin)
+    return this.serveJobPage(page, isAdmin)
   }
 
   // ForwardedUserGuard for the same reason as /history above: a caller with
@@ -510,8 +579,8 @@ export class DownloadController {
 
     const email = isSelfScope ? user.email : (query.requester as string)
 
-    // No projectPage(): the response carries no job objects, only counts and
-    // timestamps, so there is no attribution to mask.
+    // No serveJobPage(): the response carries no job objects, only counts
+    // and timestamps, so there is nothing to resolve or mask.
     const profile = this.profileService.getProfile({ days: query.days, email })
 
     const duration = Date.now() - startTime
@@ -591,7 +660,7 @@ export class DownloadController {
     )
 
     return {
-      jobs: jobs.map(job => projectJobForViewer(job, isAdmin)),
+      jobs: await this.serveJobs(jobs, isAdmin),
       media: annotated,
     }
   }
@@ -1076,7 +1145,7 @@ export class DownloadController {
       'Video job retrieved successfully',
     )
 
-    return projectJobForViewer(job, isAdmin)
+    return this.serveJob(job, isAdmin)
   }
 
   @Post('/videos')
@@ -1163,7 +1232,7 @@ export class DownloadController {
         target: { id: job.id, type: 'job' },
       })
 
-      return projectJobForViewer(job, isAdmin)
+      return this.serveJob(job, isAdmin)
     } catch (err) {
       const duration = Date.now() - startTime
       const error = err instanceof Error ? err.message : String(err)
@@ -1241,7 +1310,7 @@ export class DownloadController {
         target: { id, type: 'job' },
       })
 
-      return projectJobForViewer(job, isAdmin)
+      return this.serveJob(job, isAdmin)
     } catch (err) {
       const duration = Date.now() - startTime
       const error = err instanceof Error ? err.message : String(err)
@@ -1426,7 +1495,7 @@ export class DownloadController {
       target: { id: job.id, type: 'job' },
     })
 
-    return projectJobForViewer(job, isAdmin)
+    return this.serveJob(job, isAdmin)
   }
 
   @Get('/movies/:id')
@@ -1553,7 +1622,7 @@ export class DownloadController {
       target: { id: job.id, type: 'job' },
     })
 
-    return projectJobForViewer(job, isAdmin)
+    return this.serveJob(job, isAdmin)
   }
 
   @Get('/shows/:id')
@@ -1756,7 +1825,7 @@ export class DownloadController {
         target: { id, type: 'job' },
       })
 
-      return projectJobForViewer(job, isAdmin)
+      return this.serveJob(job, isAdmin)
     } catch (err) {
       this.logger.warn(
         {
@@ -1831,7 +1900,7 @@ export class DownloadController {
       target: { id, type: 'media' },
     })
 
-    return projectJobForViewer(job, isAdmin)
+    return this.serveJob(job, isAdmin)
   }
 
   /**
@@ -1878,7 +1947,7 @@ export class DownloadController {
         })
       }
 
-      return projectJobForViewer(job, isAdmin)
+      return this.serveJob(job, isAdmin)
     } catch (err) {
       this.logger.warn(
         { action, jobId: id, error: err instanceof Error ? err.message : err },
@@ -1921,15 +1990,4 @@ function narrowScope<T extends Record<string, number | null | undefined>>(
   ) as Partial<T>
 
   return Object.keys(scope).length > 0 ? scope : undefined
-}
-
-/** Applies the attribution mask across a whole page of jobs. */
-function projectPage(
-  page: DownloadPage<DownloadJob>,
-  isAdmin: boolean,
-): DownloadPage<DownloadJob> {
-  return {
-    ...page,
-    items: page.items.map(job => projectJobForViewer(job, isAdmin)),
-  }
 }

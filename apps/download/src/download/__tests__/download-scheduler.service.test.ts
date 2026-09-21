@@ -17,6 +17,7 @@ import { Logger } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 import { ChildProcessWithoutNullStreams } from 'child_process'
 
+import { fakeAttributionResolutionProvider } from 'src/auth/__tests__/helpers/attribution-resolution'
 import { createTestDbService } from 'src/db/__tests__/test-utils'
 import { DbService } from 'src/db/db.service'
 import { DownloadMetricsService } from 'src/download/download-metrics.service'
@@ -123,6 +124,7 @@ describe('DownloadSchedulerService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        fakeAttributionResolutionProvider(),
         DownloadSchedulerService,
         DownloadStateService,
         { provide: DbService, useValue: dbService },

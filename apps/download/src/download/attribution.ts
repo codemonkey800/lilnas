@@ -35,8 +35,20 @@ export function showTrueRequester(job: DownloadJob, isAdmin: boolean): boolean {
  * Returns a copy of `job` safe to send to a viewer with the given admin
  * status. `hiddenAttribution` itself is preserved in both variants — regular
  * users need it to render the hidden-attribution UI treatment, and admins
- * need it to know a record *is* hidden from everyone else. Only `requester`
- * is masked.
+ * need it to know a record *is* hidden from everyone else.
+ *
+ * **All three identity fields are nulled together**, through this one gate —
+ * not three rules, one rule over three fields. `requester` is the email,
+ * `discordRequester` is the handle the job was submitted from, and
+ * `linkedDiscord` is the handle belonging to whoever `requester` is. Each of
+ * the three names the uploader just as squarely as the others, so hiding one
+ * while showing another would make `hiddenAttribution` a no-op for anyone
+ * with a Discord account.
+ *
+ * ⚠️ `linkedDiscord` in particular is populated at *read* time by
+ * `AttributionResolutionService`, which is why resolution must run **before**
+ * this function and never after: resolving afterwards would refill a field
+ * this just emptied.
  *
  * Now that the domain type *is* the wire type, this is the entire read-path
  * transform — there is no serializer layer left. Every production call site
@@ -47,5 +59,12 @@ export function projectJobForViewer(
   job: DownloadJob,
   isAdmin: boolean,
 ): DownloadJob {
-  return showTrueRequester(job, isAdmin) ? job : { ...job, requester: null }
+  return showTrueRequester(job, isAdmin)
+    ? job
+    : {
+        ...job,
+        discordRequester: null,
+        linkedDiscord: null,
+        requester: null,
+      }
 }

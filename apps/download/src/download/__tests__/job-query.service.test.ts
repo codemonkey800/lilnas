@@ -9,6 +9,7 @@ import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
 import { BadRequestException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 
+import { fakeAttributionResolutionProvider } from 'src/auth/__tests__/helpers/attribution-resolution'
 import { createTestDbService } from 'src/db/__tests__/test-utils'
 import { DbService } from 'src/db/db.service'
 import { jobs } from 'src/db/schema'
@@ -47,6 +48,7 @@ describe('JobQueryService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        fakeAttributionResolutionProvider(),
         JobQueryService,
         DownloadStateService,
         { provide: DbService, useValue: dbService },

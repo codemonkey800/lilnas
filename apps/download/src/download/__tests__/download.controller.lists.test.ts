@@ -11,6 +11,7 @@ import { BadRequestException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 
 import { AuditLogService } from 'src/audit/audit-log.service'
+import { fakeAttributionResolutionProvider } from 'src/auth/__tests__/helpers/attribution-resolution'
 import { AdminCheckService } from 'src/auth/admin-check.service'
 import { DiscordLinkService } from 'src/auth/discord-link.service'
 import type { ForwardedUser } from 'src/auth/forwarded-user'
@@ -53,6 +54,7 @@ describe('DownloadController - activity/gallery list endpoints', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [DownloadController],
       providers: [
+        fakeAttributionResolutionProvider(),
         { provide: AdminCheckService, useValue: mockAdminCheckService },
         { provide: AuditLogService, useValue: { record: jest.fn() } },
         { provide: CurrentReleaseService, useValue: {} },
@@ -182,13 +184,17 @@ describe('DownloadController - activity/gallery list endpoints', () => {
       expect(call).not.toHaveProperty('excludeHiddenVideos')
     })
 
-    it('returns the { items, nextCursor, total } shape verbatim', async () => {
+    // `toEqual`, not `toBe`: the gallery page now passes through
+    // AttributionResolutionService.resolveGalleryItems() on the way out, so
+    // the envelope is rebuilt around a resolved `items` array. The contract
+    // being asserted is that nothing *else* is reshaped.
+    it('returns the { items, nextCursor, total } shape unreshaped', async () => {
       const page = { items: [{ id: 'y' }], nextCursor: null, total: 1 }
       jobQueryService.listGallery.mockResolvedValue(page as never)
 
       const result = await controller.getGallery({ limit: 24 }, undefined)
 
-      expect(result).toBe(page)
+      expect(result).toEqual(page)
     })
 
     it('propagates a BadRequestException from a bad cursor as-is', async () => {

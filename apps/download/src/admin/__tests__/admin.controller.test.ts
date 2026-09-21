@@ -16,6 +16,7 @@ import { Test, TestingModule } from '@nestjs/testing'
 import { AdminController } from 'src/admin/admin.controller'
 import { AdminStatsService } from 'src/admin/admin-stats.service'
 import { AuditLogService } from 'src/audit/audit-log.service'
+import { fakeAttributionResolutionProvider } from 'src/auth/__tests__/helpers/attribution-resolution'
 import { AdminGuard } from 'src/auth/admin.guard'
 import { AdminCheckService } from 'src/auth/admin-check.service'
 
@@ -54,6 +55,7 @@ describe('AdminController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AdminController],
       providers: [
+        fakeAttributionResolutionProvider(),
         AdminGuard,
         { provide: AdminCheckService, useValue: { checkIsAdmin: jest.fn() } },
         { provide: AdminStatsService, useValue: { getStats: jest.fn() } },
@@ -139,7 +141,12 @@ describe('AdminController', () => {
       expect(auditLogService.listAuditLog).toHaveBeenCalledWith(query)
     })
 
-    it('returns the page verbatim - no masking or reshaping', async () => {
+    // `toEqual`, not `toBe`: the entries now pass through
+    // AttributionResolutionService.resolveAuditEntries() on the way out, so
+    // the envelope is rebuilt around a resolved `items` array. Still no
+    // *masking* - an admin-only surface has nothing to hide - and every
+    // other field, `origin` included, is carried across untouched.
+    it('returns the page unmasked and unreshaped', async () => {
       const page = {
         items: [
           {
@@ -159,7 +166,7 @@ describe('AdminController', () => {
       }
       auditLogService.listAuditLog.mockResolvedValue(page)
 
-      await expect(controller.getAuditLog({ limit: 25 })).resolves.toBe(page)
+      await expect(controller.getAuditLog({ limit: 25 })).resolves.toEqual(page)
     })
 
     it('lets the service own cursor validation', async () => {

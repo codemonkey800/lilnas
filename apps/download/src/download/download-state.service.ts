@@ -17,6 +17,7 @@ import { Injectable, Logger } from '@nestjs/common'
 import { ChildProcessWithoutNullStreams } from 'child_process'
 import { nanoid } from 'nanoid'
 
+import { AttributionResolutionService } from 'src/auth/attribution-resolution.service'
 import { DbService } from 'src/db/db.service'
 import { buildJobRow, hydrateJobRow } from 'src/db/job-row'
 import { getJobById } from 'src/db/jobs.repo'
@@ -73,6 +74,7 @@ export class DownloadStateService {
   queue = new Queue<string>()
 
   constructor(
+    private readonly attributionResolutionService: AttributionResolutionService,
     private readonly dbService: DbService,
     private readonly downloadGateway: DownloadGateway,
     private readonly mediaResolverService: MediaResolverService,
@@ -461,8 +463,17 @@ export class DownloadStateService {
     type: DownloadJobEventType,
   ): void {
     void this.hydrate([record])
-      .then(([job]) => {
+      .then(async ([job]) => {
         if (!job) return
+
+        // Link resolution runs **once**, here, outside broadcastPerViewer() -
+        // that callback fires once per distinct isAdmin value, and resolving
+        // inside it would double the lookups for an answer that does not
+        // depend on the viewer at all. It also has to come before the mask,
+        // which nulls the fields resolution fills.
+        const [resolved] = await this.attributionResolutionService.resolveJobs([
+          job,
+        ])
 
         // Two serializations at most (one per isAdmin value), not one per
         // client - see DownloadGateway.broadcastPerViewer(). This is the WS
@@ -470,7 +481,7 @@ export class DownloadStateService {
         // the same projectJobForViewer() on the REST read path.
         return this.downloadGateway.broadcastPerViewer(isAdmin => {
           const event: DownloadJobEvent = {
-            job: projectJobForViewer(job, isAdmin),
+            job: projectJobForViewer(resolved ?? job, isAdmin),
             type,
           }
 
