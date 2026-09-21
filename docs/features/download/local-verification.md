@@ -84,7 +84,7 @@ container stops - nothing persists, and nothing needs cleaning up. But boot
 also runs `syncDownloadedLibrary()` (`src/media/library-sync.ts`, wired in
 `bootstrap.ts`), which backfills a `completed` job for every Radarr/Sonarr
 title that already has a file, before the app starts serving traffic. So a
-fresh container still shows this app's actual download *history* as empty
+fresh container still shows this app's actual download _history_ as empty
 (nobody has requested anything through it yet), but "Browse movies/shows"
 reflects Radarr's/Sonarr's real libraries from the first request onward.
 
@@ -180,12 +180,12 @@ backend. All four are read-only `GET`s.
 
 Observed 2026-09-15 against a freshly started container:
 
-| Check                                   | Observed                                             |
-| --------------------------------------- | ---------------------------------------------------- |
-| `GET /api/auth/whoami`                  | `isAdmin: true`, `userId: "verify-user-1"`           |
-| `GET /api/download/gallery`             | `total: 0` — pre-library-sync; see note below        |
-| `GET /api/download/history`             | `total: 0` — expected, the database is ephemeral     |
-| `GET /api/download/discover?query=star` | `total: 40`, `degradedSources: []`, 20 genre facets  |
+| Check                                   | Observed                                            |
+| --------------------------------------- | --------------------------------------------------- |
+| `GET /api/auth/whoami`                  | `isAdmin: true`, `userId: "verify-user-1"`          |
+| `GET /api/download/gallery`             | `total: 0` — pre-library-sync; see note below       |
+| `GET /api/download/history`             | `total: 0` — expected, the database is ephemeral    |
+| `GET /api/download/discover?query=star` | `total: 40`, `degradedSources: []`, 20 genre facets |
 
 ```bash
 curl -s localhost:8090/api/auth/whoami
@@ -218,6 +218,136 @@ Reading the numbers:
 - **`/discover` takes `query`, not `q`, and it is required with a minimum of 2
   characters** (`DiscoverQuerySchema`, `packages/utils/src/download/schema.ts`).
   `?q=` returns `400 invalid_type`; a bare `?query=` returns `400 too_small`.
+
+### Discord-attributed jobs
+
+A job created by `apps/tdr-bot`'s `/download` command is attributed to a
+**Discord account** rather than to a lilnas email. That identity travels as
+plain request headers — `DownloadClient.withDiscordIdentity()` is the only thing
+the bot does differently — so `curl` stands in for the bot exactly:
+
+```bash
+curl -s -X POST localhost:8090/api/download/videos \
+  -H 'content-type: application/json' \
+  -H 'x-discord-user-id: 123456789012345678' \
+  -H 'x-discord-username: someuser' \
+  -H 'x-discord-display-name: Some User' \
+  -d '{"url":"https://www.youtube.com/watch?v=aqz-KE-bpKQ"}' |
+  jq '{id, discordRequester, linkedDiscord, requester}'
+# {
+#   "id": "…",
+#   "discordRequester": { "discordUserId": "123456789012345678",
+#                         "discordUsername": "someuser" },
+#   "linkedDiscord": null,
+#   "requester": null
+# }
+```
+
+`requester: null` with `discordRequester` populated is the pass — that row is
+`origin: 'discord'` in the database. (`origin` is a column and an audit-log
+field; it is deliberately **not** on the `DownloadJob` wire shape, so which of
+the two fields is populated is how you read it from a response.)
+
+Four things that will otherwise waste an afternoon:
+
+- **`x-discord-user-id` is what makes this reachable through loopback at all.**
+  `resolveForwardedUser()` (`src/auth/forwarded-user.ts`) suppresses the
+  `DEV_USER_EMAIL` fallback when that header is present — its third gate, added
+  for exactly this. Without it the dev admin identity would win on precedence,
+  the Discord pair would be dropped with a warn, and you would be looking at an
+  ordinary `origin: 'web'` job.
+- **Both headers or neither.** `getDiscordRequester()` returns nothing unless
+  `x-discord-user-id` _and_ `x-discord-username` are present. Send only the id
+  and you get the worst of both: the dev fallback is still suppressed, no
+  Discord pair is extracted, and the job lands as `origin: 'service'` with no
+  attribution at all.
+- **`x-discord-display-name` is optional and never reaches a job row.** It is
+  roster enrichment for `apps/auth` only (Discord's `globalName` is nullable on
+  Discord's own API, so nothing can depend on it), and it is the one header
+  value treated as untrusted free text.
+- **`apps/download` validates neither value** — it stores the headers raw.
+  `apps/auth`'s roster is what enforces `/^\d{17,20}$/` on the snowflake and
+  2–32 characters on the handle, and it does so on a fire-and-forget POST. So a
+  made-up 6-digit id produces a perfectly good job that never appears in the
+  admin picker, with nothing in the response to say so.
+
+#### Did the account land in auth's roster?
+
+Every request carrying a Discord pair reports the observation to `apps/auth`
+— fire-and-forget, and _including_ one where a forwarded user took precedence.
+That report is the only way an account gets into the admin link picker.
+
+Auth's internal surface has no Traefik router and publishes no host port, so
+ask from inside the Docker network:
+
+```bash
+docker exec lilnas-download-dev \
+  curl -s 'http://auth:8081/internal/discord-link?discordUserId=123456789012345678'
+# unseen snowflake      -> {"identity":null,"user":null}
+# observed but unlinked -> {"identity":{"discordUserId":"…","username":"someuser",
+#                                       "displayName":"Some User"},"user":null}
+# linked                -> both halves populated
+```
+
+The same route also answers `?userId=` and `?email=` — three addresses for one
+question, and `?email=` is matched case-insensitively. Supplying zero or more
+than one of the three is a `400`.
+
+> [!CAUTION]
+> **`auth` on `lilnas_default` is production `lilnas-auth-1`.**
+>
+> `AuthClient.dockerInstance` hardcodes `http://auth:8081` with no environment
+> override, and this container is on the shared network, so the roster write
+> lands in **production auth's `discord_identity` table**. Nothing about that is
+> dangerous — the roster confers no authorization and cannot create a link (see
+> `discord-internal.controller.ts`'s blast-radius comment) — but there is **no
+> delete path**, so a junk snowflake you invent here is a junk row an admin sees
+> in the picker forever. Use a real Discord account you own.
+>
+> Observed 2026-09-20: the deployed `lilnas-auth-1` **predates these routes and
+> 404s them**, so today the lookup fails open to "unlinked" and the roster write
+> is a silent no-op. That changes the moment auth is redeployed from this
+> branch — `docker-compose up -d --build auth` from the repo root.
+
+#### Does linking resolve it?
+
+Linking happens in **`apps/auth`'s admin dashboard** (`https://auth.lilnas.io/admin`,
+the Discord links panel) — `apps/auth` owns both tables and the whole UI;
+`apps/download` only reads across the wire. The panel is **two pick-from-a-list
+columns** (people without a link, observed accounts without a link), a Link
+button labelled with the pairing, and an existing-links table with Unlink.
+**A handle is never typed by an admin** — there is no text input for a snowflake
+or a username anywhere in it, which is also why an account that has never run
+`/download` cannot be pre-linked: there is nothing to pick.
+
+With the link made, re-read the same job:
+
+```bash
+curl -s localhost:8090/api/download/videos/<job-id> |
+  jq '{discordRequester, linkedDiscord, requester}'
+# requester      -> the linked lilnas email/userId   (forward direction)
+# linkedDiscord  -> the same handle, as a fact about that person
+# discordRequester -> still set, handle refreshed from the roster
+```
+
+And the person's history now spans both surfaces:
+
+```bash
+curl -s 'localhost:8090/api/download/history?requester=<email>' | jq '.total'
+```
+
+- **Nothing is written back.** Resolution happens at read time, so link and
+  unlink are symmetric and retroactive: the Discord job you just created shows
+  up under that email, and so does every job either identity made before the
+  link existed. Unlink and it is all back to where it was.
+- **Allow up to 60 seconds.** `DiscordLinkService` caches auth's answers for
+  60s — negatives included, deliberately — and a _thrown_ lookup for 10s.
+  Restarting the container clears it, since the cache is in-memory.
+- **A rename needs no action either.** The roster's `username` is a cache
+  refreshed on every observation, so a renamed user is picked up on their **next
+  `/download` command** (re-run the `curl` above with the new handle and watch
+  the roster row change). Until then the stored column holds the historical
+  name — and that stored name is also what renders whenever auth is unreachable.
 
 ### Screenshots
 
