@@ -78,13 +78,24 @@ jest.mock('@lilnas/utils/download/client', () => ({
       createJob: jest.fn(),
       getJob: jest.fn(),
       waitForJob: jest.fn(),
+      // Returns a *derived* client in production; the derived client is wired
+      // up in `beforeEach` so each test can assert which of the two a call
+      // went through.
+      withDiscordIdentity: jest.fn(),
     },
   },
 }))
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function createMockInteraction() {
+// Snowflakes exceed Number.MAX_SAFE_INTEGER, so they are always strings - both
+// on the Discord API and here (a numeric literal would trip
+// `no-loss-of-precision`).
+const USER_ID = '221093544588935169'
+
+function createMockInteraction({
+  globalName = 'Test Er',
+}: { globalName?: string | null } = {}) {
   return {
     channel: {
       isSendable: jest.fn().mockReturnValue(true),
@@ -94,7 +105,7 @@ function createMockInteraction() {
     editReply: jest.fn().mockResolvedValue(undefined),
     followUp: jest.fn().mockResolvedValue(undefined),
     reply: jest.fn().mockResolvedValue(undefined),
-    user: { id: 'user-1', username: 'tester' },
+    user: { id: USER_ID, username: 'tester', globalName },
   }
 }
 
@@ -115,12 +126,23 @@ describe('DownloadCommandService', () => {
     createJob: jest.Mock
     getJob: jest.Mock
     waitForJob: jest.Mock
+    withDiscordIdentity: jest.Mock
+  }
+
+  // Stands in for the per-interaction client `withDiscordIdentity` hands back.
+  // It deliberately only carries `createJob`: nothing else is supposed to be
+  // called on the identity-scoped client, so a stray call fails loudly.
+  const mockDiscordScopedClient = {
+    createJob: jest.fn(),
   }
 
   let service: DownloadCommandService
 
   beforeEach(() => {
     process.env.DOWNLOAD_JOB_TIMEOUT_MS = '100000'
+
+    // `clearMocks` wipes this before every test, so it has to be re-armed here.
+    mockClient.withDiscordIdentity.mockReturnValue(mockDiscordScopedClient)
 
     service = new DownloadCommandService({} as unknown as Client)
   })
@@ -379,9 +401,8 @@ describe('DownloadCommandService', () => {
       }
     }
 
-    it('passes waitForJob an AbortSignal and the created job id', async () => {
-      const interaction = createMockInteraction()
-      mockClient.createJob.mockResolvedValue({
+    function stubCreatedJob() {
+      mockDiscordScopedClient.createJob.mockResolvedValue({
         id: 'job-1',
         media: {
           type: DownloadType.Video,
@@ -390,6 +411,11 @@ describe('DownloadCommandService', () => {
       })
       // Never resolves - we only care about how it was called.
       mockClient.waitForJob.mockImplementation(() => new Promise(() => {}))
+    }
+
+    it('passes waitForJob an AbortSignal and the created job id', async () => {
+      const interaction = createMockInteraction()
+      stubCreatedJob()
 
       await service.download([interaction] as never, createValidDto() as never)
 
@@ -400,6 +426,53 @@ describe('DownloadCommandService', () => {
       ]
       expect(jobId).toBe('job-1')
       expect(options.signal).toBeInstanceOf(AbortSignal)
+    })
+
+    it('creates the job through a client carrying the discord identity', async () => {
+      const interaction = createMockInteraction({ globalName: 'Test Er' })
+      stubCreatedJob()
+
+      await service.download([interaction] as never, createValidDto() as never)
+
+      expect(mockClient.withDiscordIdentity).toHaveBeenCalledTimes(1)
+      expect(mockClient.withDiscordIdentity).toHaveBeenCalledWith({
+        discordUserId: USER_ID,
+        discordUsername: 'tester',
+        displayName: 'Test Er',
+      })
+
+      // The job is created on the derived client, never on the shared one.
+      expect(mockDiscordScopedClient.createJob).toHaveBeenCalledTimes(1)
+      expect(mockDiscordScopedClient.createJob).toHaveBeenCalledWith({
+        url: 'https://example.com/video',
+      })
+      expect(mockClient.createJob).not.toHaveBeenCalled()
+    })
+
+    it('waits on the plain client, not the identity-scoped one', async () => {
+      const interaction = createMockInteraction()
+      stubCreatedJob()
+
+      await service.download([interaction] as never, createValidDto() as never)
+
+      // A wait attributes nothing, so it stays off the identity-scoped client.
+      expect(mockClient.waitForJob).toHaveBeenCalledTimes(1)
+      expect(mockDiscordScopedClient).not.toHaveProperty('waitForJob')
+    })
+
+    it('sends no display name when the user has no globalName', async () => {
+      const interaction = createMockInteraction({ globalName: null })
+      stubCreatedJob()
+
+      await service.download([interaction] as never, createValidDto() as never)
+
+      expect(mockClient.withDiscordIdentity).toHaveBeenCalledWith({
+        discordUserId: USER_ID,
+        discordUsername: 'tester',
+        // `undefined`, not `null`: the client only adds the display-name header
+        // when one was actually supplied.
+        displayName: undefined,
+      })
     })
   })
 })

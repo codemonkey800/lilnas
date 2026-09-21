@@ -101,8 +101,28 @@ export class DownloadCommandService {
 
     await interaction.deferReply({ flags: [MessageFlags.Ephemeral] })
 
+    // The Discord identity is per-interaction, so it cannot live on the shared
+    // `this.client` field - `withDiscordIdentity` hands back a *new* client
+    // carrying this user's headers and leaves the shared one untouched.
+    //
+    // Only `createJob` needs it: attribution is recorded at the moment the job
+    // is created. `waitForJob`/`cancelJob` below stay on the plain client
+    // because waiting and cancelling don't attribute anything.
+    //
+    // `globalName` is the display name Discord shows in most surfaces; it is
+    // what makes an otherwise opaque handle recognisable to the admin doing the
+    // account linking later. It is nullable on the Discord API, hence the
+    // `?? undefined`. Note we send `username` (not the display name) as
+    // `discordUsername` - the display name rides its own header and is roster
+    // enrichment only.
+    const client = this.client.withDiscordIdentity({
+      discordUserId: interaction.user.id,
+      discordUsername: interaction.user.username,
+      displayName: interaction.user.globalName ?? undefined,
+    })
+
     this.logger.log({ id }, 'creating job')
-    const job = await this.client.createJob({
+    const job = await client.createJob({
       url,
       ...(start && end ? { timeRange: { start, end } } : {}),
     })
