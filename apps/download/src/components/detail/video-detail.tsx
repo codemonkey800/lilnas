@@ -413,6 +413,8 @@ export function VideoDetail({
         attribution={
           job ? (
             <DetailAttribution
+              discordRequester={job.discordRequester}
+              linkedDiscord={job.linkedDiscord}
               now={now}
               prefix="downloaded by "
               requester={job.requester}

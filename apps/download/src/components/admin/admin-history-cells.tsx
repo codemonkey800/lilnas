@@ -57,10 +57,19 @@ export function AdminHistoryRequester({
 
   return (
     <span className="flex min-w-0 items-center gap-1.5">
+      {/*
+        ⚠️ `discordRequester` is passed as `discordActor`, and the rename is the
+        whole point: on this page a null `requester` means the *service*, so
+        without it an unlinked Discord download would render as a machine
+        action. `/admin` never masks, so both Discord fields always arrive
+        populated when they exist.
+      */}
       <AdminActor
         actor={job.requester}
         avatarClassName={avatarClassName}
+        discordActor={job.discordRequester}
         href={href}
+        linkedDiscord={job.linkedDiscord}
         nameless={nameless}
         viewer={viewer}
       />

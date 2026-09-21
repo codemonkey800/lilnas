@@ -1,8 +1,18 @@
 import { cns } from '@lilnas/utils/cns'
-import type { JobRequester } from '@lilnas/utils/download/types'
+import type {
+  DiscordIdentity,
+  DiscordRequester,
+  JobRequester,
+} from '@lilnas/utils/download/types'
 import type { JSX } from 'react'
 
-import { requesterProfileHref } from 'src/components/activity/activity-requester'
+import {
+  discordAvatarTitle,
+  LINKED_DISCORD_TITLE,
+  linkedDiscordLabel,
+  requesterProfileHref,
+} from 'src/components/activity/activity-requester'
+import { DiscordIdentityMark } from 'src/components/activity/discord-identity-mark'
 import { Avatar } from 'src/components/ui/avatar'
 import { Icon } from 'src/components/ui/icon'
 import { MChip } from 'src/components/ui/mchip'
@@ -39,8 +49,20 @@ export type AdminActorProps = {
   actor: JobRequester | null
   /** Avatar size utilities — the two layouts size their mark differently. */
   avatarClassName?: string
+  /**
+   * The Discord identity behind an `origin: 'discord'` row whose snowflake no
+   * lilnas account claims yet.
+   *
+   * ⚠️ **It is what keeps a null `actor` from being read as the service.** An
+   * unlinked Discord action has a person behind it and no forwarded identity,
+   * so `actor` is `null` while this is not — rendering that as the service chip
+   * would attribute a person's action to a machine.
+   */
+  discordActor?: DiscordRequester | null
   /** Where the name points, or `undefined` for no link. */
   href?: string
+  /** The Discord account **linked to** `actor`, whoever performed the action. */
+  linkedDiscord?: DiscordIdentity | null
   /** Hide the name beside the avatar, as the stacked mobile row does. */
   nameless?: boolean
   /** Overrides what a `null` actor is called. Defaults to `service`. */
@@ -64,6 +86,13 @@ export type AdminActorProps = {
  * `AuditLogEntrySchema` documents and which `DownloadJob.requester` shares.
  * Reusing the masked branch here would put "hidden" next to an action no person
  * took.
+ *
+ * ⚠️ **Since plan 017 that `null` has two readings, and `discordActor` is what
+ * separates them.** An `origin: 'discord'` action by an account no lilnas user
+ * has claimed also arrives with `actor === null` — there is no forwarded
+ * identity to fill it — but a person performed it, and it renders as that
+ * person's Discord handle plus `DiscordIdentityMark`. The service chip is
+ * reserved for the null with genuinely nobody behind it.
  *
  * The person branch is deliberately the same shape as `ActivityRequester`'s —
  * avatar, email, `ring` for yourself — because it is the same fact rendered in
@@ -98,12 +127,50 @@ export type AdminActorProps = {
 export function AdminActor({
   actor,
   avatarClassName,
+  discordActor = null,
   href,
+  linkedDiscord = null,
   nameless = false,
   serviceLabel = AUDIT_SERVICE_LABEL,
   viewer,
 }: AdminActorProps): JSX.Element {
   if (actor === null) {
+    // ⚠️ The service chip is for a null actor with **nothing** behind it. An
+    // unlinked Discord submission also arrives with `actor === null`, because
+    // no lilnas account claims that snowflake yet — but a person did the thing,
+    // and the chip would say a machine did.
+    if (discordActor !== null) {
+      const { discordUserId, discordUsername } = discordActor
+
+      return (
+        <span className="flex min-w-0 items-center gap-1.5">
+          {/*
+            No `href` on either the avatar or the handle. Both of this page's
+            targets are email-keyed — `?requester=` filters on an email and
+            `requesterProfileHref` resolves one — and an unlinked snowflake has
+            neither. The mark is the only affordance it gets, and what it opens
+            is the id an admin pastes into `apps/auth` to link the account.
+          */}
+          <Avatar
+            className={avatarClassName}
+            initials={initials(discordUsername)}
+            title={discordAvatarTitle(discordUsername)}
+          />
+          <span className="flex min-w-0 items-center gap-1">
+            {nameless ? null : (
+              <span className={cns(NAME, 'truncate text-ink-3')}>
+                {discordUsername}
+              </span>
+            )}
+            <DiscordIdentityMark
+              discordUserId={discordUserId}
+              discordUsername={discordUsername}
+            />
+          </span>
+        </span>
+      )
+    }
+
     return (
       <MChip
         className={SERVICE}
@@ -128,19 +195,40 @@ export function AdminActor({
         ring={you}
         title={you ? `${actor.email} · you` : actor.email}
       />
-      {nameless ? null : href === undefined ? (
-        <span className={cns(NAME, 'truncate text-ink-3')}>{actor.email}</span>
-      ) : (
-        <a
-          className={cns(
-            NAME,
-            NAME_LINK,
-            'truncate hover:text-ink hover:underline',
+      {nameless ? null : (
+        <span className="flex min-w-0 items-center gap-1">
+          {href === undefined ? (
+            <span className={cns(NAME, 'truncate text-ink-3')}>
+              {actor.email}
+            </span>
+          ) : (
+            <a
+              className={cns(
+                NAME,
+                NAME_LINK,
+                'truncate hover:text-ink hover:underline',
+              )}
+              href={href}
+            >
+              {actor.email}
+            </a>
           )}
-          href={href}
-        >
-          {actor.email}
-        </a>
+          {/*
+            Inert text, never a `DiscordIdentityMark`: this says *who this
+            person also is*, not *where the action came from*. Giving it the
+            unlinked mark's popover would make a linked account and an unlinked
+            one read as the same state on a page whose entire job is telling
+            identities apart.
+          */}
+          {linkedDiscord === null ? null : (
+            <span
+              className={cns(NAME, 'truncate text-ink-4')}
+              title={LINKED_DISCORD_TITLE}
+            >
+              {linkedDiscordLabel(linkedDiscord.discordUsername)}
+            </span>
+          )}
+        </span>
       )}
       {/*
         Suppressed on the `nameless` (390px) row, where there is no name for it

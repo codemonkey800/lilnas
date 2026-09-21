@@ -1,8 +1,19 @@
 import { cns } from '@lilnas/utils/cns'
-import type { JobRequester, Media } from '@lilnas/utils/download/types'
+import type {
+  DiscordIdentity,
+  DiscordRequester,
+  JobRequester,
+  Media,
+} from '@lilnas/utils/download/types'
 import { DownloadType } from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX, ReactNode } from 'react'
 
+import {
+  discordAvatarTitle,
+  LINKED_DISCORD_TITLE,
+  linkedDiscordLabel,
+} from 'src/components/activity/activity-requester'
+import { DiscordIdentityMark } from 'src/components/activity/discord-identity-mark'
 import { Avatar } from 'src/components/ui/avatar'
 import type { PosterShape } from 'src/components/ui/poster'
 import { Poster } from 'src/components/ui/poster'
@@ -139,6 +150,14 @@ export type DetailAttributionProps = Omit<
   ComponentPropsWithoutRef<'div'>,
   'children'
 > & {
+  /**
+   * The Discord account the job was **submitted from**, when no lilnas account
+   * claims that snowflake yet. See `ActivityRequester` for why this and
+   * `linkedDiscord` are two fields and not one.
+   */
+  discordRequester?: DiscordRequester | null
+  /** The Discord account **linked to** `requester`, whoever submitted the job. */
+  linkedDiscord?: DiscordIdentity | null
   /** The instant `timestamp` is measured against, pinned once by the page. */
   now: number
   /**
@@ -175,9 +194,20 @@ export type DetailAttributionProps = Omit<
  * A masked requester reads `hidden · 12m ago` beside the dashed avatar, which
  * is `GalleryItemCard`'s own wording - the dashed circle alone is easy to miss
  * at 20px.
+ *
+ * ## The Discord identities, in `ActivityRequester`'s order
+ *
+ * Masked first (and it renders *only* `hidden`: no handle, no snowflake, no
+ * mark), then `requester`, then `discordRequester`. A job with an unlinked
+ * Discord requester reads `sam.pham <mark> · 12m ago`; one whose requester has
+ * a linked account reads `downloaded by jeremy @sam.pham · 12m ago`, with the
+ * handle inert. The line stays a single text node whenever neither Discord
+ * field is present, so the common case is byte-for-byte what it always was.
  */
 export function DetailAttribution({
   className,
+  discordRequester = null,
+  linkedDiscord = null,
   now,
   prefix = '',
   requester,
@@ -185,22 +215,59 @@ export function DetailAttribution({
   ...props
 }: DetailAttributionProps): JSX.Element {
   const when = formatRelative(timestamp, now)
-  const who = requester ? (requester.email.split('@')[0] ?? 'hidden') : 'hidden'
+  const discord = requester === null ? discordRequester : null
+  const who =
+    requester !== null
+      ? (requester.email.split('@')[0] ?? 'hidden')
+      : (discord?.discordUsername ?? 'hidden')
+
+  const avatar =
+    requester !== null ? (
+      <Avatar
+        className={cns('h-5 w-5 shrink-0 text-[9px]')}
+        initials={initials(requester.email)}
+        title={requester.email}
+      />
+    ) : discord !== null ? (
+      <Avatar
+        className={cns('h-5 w-5 shrink-0 text-[9px]')}
+        initials={initials(discord.discordUsername)}
+        title={discordAvatarTitle(discord.discordUsername)}
+      />
+    ) : (
+      <Avatar className={cns('h-5 w-5 shrink-0 text-[9px]')} hidden />
+    )
+
+  const linked = requester === null ? null : linkedDiscord
 
   return (
     <div {...props} className={cns('flex items-center gap-2', className)}>
-      {requester ? (
-        <Avatar
-          className={cns('h-5 w-5 text-[9px]')}
-          initials={initials(requester.email)}
-          title={requester.email}
-        />
+      {avatar}
+      {discord === null && linked === null ? (
+        <span className={cns('font-mono text-mono-sm text-ink-4')}>
+          {`${prefix}${who} · ${when}`}
+        </span>
       ) : (
-        <Avatar className={cns('h-5 w-5 text-[9px]')} hidden />
+        <span
+          className={cns(
+            'flex min-w-0 items-center gap-1 font-mono text-mono-sm text-ink-4',
+          )}
+        >
+          <span className={cns('truncate')}>{`${prefix}${who}`}</span>
+          {linked === null ? null : (
+            <span className={cns('truncate')} title={LINKED_DISCORD_TITLE}>
+              {linkedDiscordLabel(linked.discordUsername)}
+            </span>
+          )}
+          {discord === null ? null : (
+            <DiscordIdentityMark
+              discordUserId={discord.discordUserId}
+              discordUsername={discord.discordUsername}
+            />
+          )}
+          <span className={cns('shrink-0')}>{` · ${when}`}</span>
+        </span>
       )}
-      <span className={cns('font-mono text-mono-sm text-ink-4')}>
-        {`${prefix}${who} · ${when}`}
-      </span>
     </div>
   )
 }

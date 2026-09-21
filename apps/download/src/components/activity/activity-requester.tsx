@@ -1,7 +1,12 @@
 import { cns } from '@lilnas/utils/cns'
-import type { JobRequester } from '@lilnas/utils/download/types'
+import type {
+  DiscordIdentity,
+  DiscordRequester,
+  JobRequester,
+} from '@lilnas/utils/download/types'
 import type { JSX } from 'react'
 
+import { DiscordIdentityMark } from 'src/components/activity/discord-identity-mark'
 import { Avatar } from 'src/components/ui/avatar'
 import { initials } from 'src/lib/format'
 import { PROFILE_HREF, profileHrefForEmail } from 'src/lib/profile-filters'
@@ -75,9 +80,51 @@ export function requesterProfileHref(
 const NAME = 'font-mono text-mono-sm'
 const NAME_LINK = 'text-ink-3 transition-colors duration-200 ease-uv'
 
+/**
+ * The run that holds a name and whatever mark sits beside it.
+ *
+ * `min-w-0` so the `truncate` on the name inside it can actually engage in a
+ * table cell, and `gap-1` rather than the outer `gap-1.5` so the mark reads as
+ * belonging to the name rather than as a third item in the row.
+ */
+const NAME_RUN = 'flex min-w-0 items-center gap-1'
+
+/**
+ * The tooltip on a linked handle. It has to say *which* of the two Discord
+ * facts this is: "linked to this person" and "submitted this job" look alike on
+ * screen and mean completely different things.
+ */
+export const LINKED_DISCORD_TITLE = 'Linked Discord account'
+
+/** How an unlinked Discord requester's avatar names itself on hover. */
+export function discordAvatarTitle(discordUsername: string): string {
+  return `${discordUsername} · Discord`
+}
+
+/** The handle as it is written when it is a fact about a person, not a source. */
+export function linkedDiscordLabel(discordUsername: string): string {
+  return `@${discordUsername}`
+}
+
 export type ActivityRequesterProps = {
   /** Avatar size utilities — the two layouts size their mark differently. */
   avatarClassName?: string
+  /**
+   * The Discord account this job was **submitted from** — populated for
+   * `origin: 'discord'` jobs whose snowflake no lilnas account claims yet.
+   *
+   * ⚠️ Not the same fact as {@link ActivityRequesterProps.linkedDiscord}, and
+   * the two are never interchangeable: a linked Discord job arrives here with
+   * `requester` already filled by the server, so this field being set *is* the
+   * statement "nobody has claimed this account".
+   */
+  discordRequester?: DiscordRequester | null
+  /**
+   * The Discord account **linked to** `requester`, whoever submitted the job —
+   * a web job by a linked person carries it just as a resolved Discord job
+   * does. Rendered beside the email as identity, not as provenance.
+   */
+  linkedDiscord?: DiscordIdentity | null
   /** Hide the name beside the avatar, as the stacked mobile row does. */
   nameless?: boolean
   /** Already masked per viewer, server-side. `null` means "not yours to see". */
@@ -95,49 +142,142 @@ export type ActivityRequesterProps = {
  * different string on screen than the one the gallery's uploader facet, the
  * account tooltip and the admin dashboard all use for the same person. The
  * email is the identity this app speaks.
+ *
+ * ## The order the three identity fields are read in
+ *
+ * 1. **Masked** — every identity field `null` — renders `hidden`, and renders
+ *    nothing else. Masking outranks disclosure, so no username, no snowflake
+ *    and no {@link DiscordIdentityMark} exist in the DOM for such a job.
+ * 2. **`requester`** — the email. A *linked* Discord job lands here without
+ *    this component knowing it was one: `AttributionResolutionService` fills
+ *    `requester` from the link before the job is serialized, which is the whole
+ *    point of resolving at read time.
+ * 3. **`discordRequester`** — an unlinked Discord submission: the handle plus
+ *    the mark that discloses the raw snowflake. The handle is rendered exactly
+ *    as it arrives; the server has already refreshed it to the roster's current
+ *    value, so a rename is not a case this component has to know about.
+ *
+ * `linkedDiscord` is not a fourth branch — it is an extra beside the email on
+ * branch 2, because it describes the person rather than the job's origin.
  */
 export function ActivityRequester({
   avatarClassName,
+  discordRequester = null,
+  linkedDiscord = null,
   nameless = false,
   requester,
   viewer,
 }: ActivityRequesterProps): JSX.Element {
-  const href = requesterProfileHref(requester, viewer)
-
   if (requester === null) {
+    // ⚠️ Masking outranks everything below, and it is spelled as one branch
+    // rather than checked again further down. `projectJobForViewer` nulls all
+    // three identity fields together, so a masked job reaches this branch with
+    // nothing to render — no username, no snowflake, and therefore no
+    // `DiscordIdentityMark` anywhere in the DOM for it.
+    if (discordRequester === null) {
+      return (
+        <span className="flex items-center gap-1.5">
+          {/*
+            `hidden` excludes both `href` and `initials` at the type level, so a
+            masked identity cannot leak through this branch even by accident.
+          */}
+          <Avatar
+            className={avatarClassName}
+            hidden
+            title="Attribution hidden"
+          />
+          {nameless ? null : (
+            <span className={cns(NAME, 'text-ink-4')}>
+              {MASKED_REQUESTER_LABEL}
+            </span>
+          )}
+        </span>
+      )
+    }
+
+    const { discordUserId, discordUsername } = discordRequester
+
     return (
-      <span className="flex items-center gap-1.5">
+      <span className="flex min-w-0 items-center gap-1.5">
         {/*
-          `hidden` excludes both `href` and `initials` at the type level, so a
-          masked identity cannot leak through this branch even by accident.
+          No `href`: `requesterProfileHref` is email-based on purpose. There is
+          no lilnas account behind this snowflake yet, so there is no profile to
+          open — and once an admin links one, this branch is never reached again
+          because the server resolves it into `requester` instead.
         */}
-        <Avatar className={avatarClassName} hidden title="Attribution hidden" />
-        {nameless ? null : (
-          <span className={cns(NAME, 'text-ink-4')}>
-            {MASKED_REQUESTER_LABEL}
-          </span>
-        )}
+        <Avatar
+          className={avatarClassName}
+          initials={initials(discordUsername)}
+          title={discordAvatarTitle(discordUsername)}
+        />
+        <span className={NAME_RUN}>
+          {nameless ? null : (
+            <span className={cns(NAME, 'truncate text-ink-3')}>
+              {discordUsername}
+            </span>
+          )}
+          {/*
+            Rendered on the nameless row too. The mark is the only thing that
+            says "this came from Discord and nobody has claimed it", and a 12px
+            glyph fits beside an 18px avatar where a username does not — hiding
+            it there would leave the 390px layout with an avatar bearing
+            initials nothing on screen explains.
+          */}
+          <DiscordIdentityMark
+            discordUserId={discordUserId}
+            discordUsername={discordUsername}
+          />
+        </span>
       </span>
     )
   }
 
+  const href = requesterProfileHref(requester, viewer)
+
   return (
-    <span className="flex items-center gap-1.5">
+    <span className="flex min-w-0 items-center gap-1.5">
       <Avatar
         className={avatarClassName}
         href={href}
         initials={initials(requester.email)}
         title={requester.email}
       />
-      {nameless ? null : href === undefined ? (
-        <span className={cns(NAME, 'text-ink-3')}>{requester.email}</span>
-      ) : (
-        <a
-          className={cns(NAME, NAME_LINK, 'hover:text-ink hover:underline')}
-          href={href}
-        >
-          {requester.email}
-        </a>
+      {nameless ? null : (
+        <span className={NAME_RUN}>
+          {href === undefined ? (
+            <span className={cns(NAME, 'truncate text-ink-3')}>
+              {requester.email}
+            </span>
+          ) : (
+            <a
+              className={cns(
+                NAME,
+                NAME_LINK,
+                'truncate hover:text-ink hover:underline',
+              )}
+              href={href}
+            >
+              {requester.email}
+            </a>
+          )}
+          {/*
+            ⚠️ Deliberately **not** a `DiscordIdentityMark`. That mark is a
+            disclosure affordance for an identity the viewer cannot otherwise
+            resolve — here the viewer is already looking at the person, so the
+            snowflake behind the handle is not the actionable fact and a popover
+            on it would read as the same state as an unlinked account. Plain
+            `ink-4` text, one step below the name and with nothing to click, is
+            what keeps the two apart.
+          */}
+          {linkedDiscord === null ? null : (
+            <span
+              className={cns(NAME, 'truncate text-ink-4')}
+              title={LINKED_DISCORD_TITLE}
+            >
+              {linkedDiscordLabel(linkedDiscord.discordUsername)}
+            </span>
+          )}
+        </span>
       )}
     </span>
   )

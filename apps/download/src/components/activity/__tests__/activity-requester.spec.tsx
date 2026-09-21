@@ -1,6 +1,10 @@
 import '@testing-library/jest-dom'
 
-import type { JobRequester } from '@lilnas/utils/download/types'
+import type {
+  DiscordIdentity,
+  DiscordRequester,
+  JobRequester,
+} from '@lilnas/utils/download/types'
 import { render, screen } from '@testing-library/react'
 
 import {
@@ -14,6 +18,29 @@ import type { Viewer } from 'src/lib/viewer'
 
 const JEREMY: JobRequester = { email: 'jeremy@lilnas.io', userId: 'u_jeremy' }
 const SAM: JobRequester = { email: 'sam@lilnas.io', userId: 'u_sam' }
+
+/**
+ * A real 18-digit snowflake, kept as a **string literal**: it is past
+ * `Number.MAX_SAFE_INTEGER`, so writing it as a number would silently round.
+ */
+const SNOWFLAKE = '273145016936267776'
+
+/** The account that submitted a job over Discord and has no lilnas link yet. */
+const DISCORD_SAM: DiscordRequester = {
+  discordUserId: SNOWFLAKE,
+  discordUsername: 'sam.pham',
+}
+
+/** The account *linked to* `JEREMY` — a different fact, same shape. */
+const LINKED_JEREMY: DiscordIdentity = {
+  discordUserId: '583920174659201024',
+  discordUsername: 'jeremy.a',
+}
+
+/** E5's disclosure trigger, by the accessible name it announces. */
+function discordMark(): HTMLElement | null {
+  return screen.queryByRole('button', { name: /Discord account details/ })
+}
 
 const VIEWER: Viewer = {
   email: 'jeremy@lilnas.io',
@@ -108,5 +135,161 @@ describe('ActivityRequester', () => {
 
     expect(screen.queryByText(JEREMY.email)).not.toBeInTheDocument()
     expect(screen.getByTitle(JEREMY.email)).toBeInTheDocument()
+  })
+})
+
+/**
+ * The four states plan 017 makes this cell render, and the one rule that
+ * decides between them.
+ *
+ * ⚠️ The pairing that matters is **masked vs. unlinked Discord**. They are the
+ * two branches that both arrive with `requester === null`, they differ only by
+ * `discordRequester`, and getting the order wrong would put a person's handle
+ * and their raw snowflake into a cell whose whole contract is that the viewer
+ * is not entitled to the identity. Every assertion about the mark below is
+ * therefore made **directly** — "is there a trigger, is the snowflake anywhere
+ * in this DOM" — and never inferred from the `hidden` label being present.
+ */
+describe('ActivityRequester · Discord attribution', () => {
+  // A web job by somebody with no link: exactly what it rendered before 017.
+  it('renders a web requester with no Discord furniture at all', () => {
+    render(
+      <ActivityRequester
+        discordRequester={null}
+        linkedDiscord={null}
+        requester={SAM}
+        viewer={ADMIN}
+      />,
+    )
+
+    expect(screen.getByText(SAM.email)).toBeInTheDocument()
+    expect(discordMark()).not.toBeInTheDocument()
+  })
+
+  it('shows a linked handle beside the email, with nothing to click on it', () => {
+    render(
+      <ActivityRequester
+        linkedDiscord={LINKED_JEREMY}
+        requester={JEREMY}
+        viewer={VIEWER}
+      />,
+    )
+
+    expect(screen.getByText(JEREMY.email)).toBeInTheDocument()
+    expect(
+      screen.getByText(`@${LINKED_JEREMY.discordUsername}`),
+    ).toBeInTheDocument()
+    // The identity affordance is inert: no disclosure popover, and therefore
+    // no way for a linked account to read as an unlinked one.
+    expect(discordMark()).not.toBeInTheDocument()
+    expect(screen.queryAllByRole('button')).toHaveLength(0)
+    expect(document.body).not.toHaveTextContent(LINKED_JEREMY.discordUserId)
+  })
+
+  // The feature, stated as a test. A job submitted over Discord by somebody
+  // whose snowflake an admin has linked arrives here with `requester` already
+  // filled and `discordRequester` already `null` — `AttributionResolutionService`
+  // does that before serialization — so this cell cannot tell it from a web job
+  // and is not supposed to be able to.
+  it('draws a resolved Discord job as an identity, never as a Discord handle', () => {
+    render(
+      <ActivityRequester
+        discordRequester={null}
+        linkedDiscord={LINKED_JEREMY}
+        requester={JEREMY}
+        viewer={VIEWER}
+      />,
+    )
+
+    expect(screen.getByText(JEREMY.email)).toBeInTheDocument()
+    expect(discordMark()).not.toBeInTheDocument()
+    expect(document.body).not.toHaveTextContent(SNOWFLAKE)
+  })
+
+  it('renders an unlinked Discord requester as its handle plus the mark', () => {
+    render(
+      <ActivityRequester
+        discordRequester={DISCORD_SAM}
+        requester={null}
+        viewer={ADMIN}
+      />,
+    )
+
+    expect(screen.getByText(DISCORD_SAM.discordUsername)).toBeInTheDocument()
+    expect(discordMark()).toBeInTheDocument()
+    // Never the masked treatment: a person asked for this download.
+    expect(screen.queryByText(MASKED_REQUESTER_LABEL)).not.toBeInTheDocument()
+    expect(screen.queryByText(MASKED_INITIALS)).not.toBeInTheDocument()
+  })
+
+  // `canViewRequesterProfile`/`requesterProfileHref` stay email-keyed. There is
+  // no lilnas account behind this snowflake to open a profile for.
+  it('offers an unlinked Discord requester no profile link, even to an admin', () => {
+    render(
+      <ActivityRequester
+        discordRequester={DISCORD_SAM}
+        requester={null}
+        viewer={ADMIN}
+      />,
+    )
+
+    expect(links()).toHaveLength(0)
+  })
+
+  it('keeps the mark on the nameless mobile row, where the handle cannot fit', () => {
+    render(
+      <ActivityRequester
+        discordRequester={DISCORD_SAM}
+        nameless
+        requester={null}
+        viewer={ADMIN}
+      />,
+    )
+
+    expect(
+      screen.queryByText(DISCORD_SAM.discordUsername),
+    ).not.toBeInTheDocument()
+    // Without it the row is an avatar with initials and nothing on screen
+    // explaining whose they are.
+    expect(discordMark()).toBeInTheDocument()
+  })
+
+  // ⚠️ The gate, asserted at its own level. `projectJobForViewer` nulls all
+  // three identity fields together, but this component must not *depend* on
+  // that: a masked cell renders no trigger and no snowflake even if a future
+  // regression upstream let one through.
+  it('renders no mark and no snowflake for a masked requester', () => {
+    render(
+      <ActivityRequester
+        discordRequester={null}
+        linkedDiscord={null}
+        requester={null}
+        viewer={ADMIN}
+      />,
+    )
+
+    expect(screen.getByText(MASKED_REQUESTER_LABEL)).toBeInTheDocument()
+    expect(discordMark()).not.toBeInTheDocument()
+    expect(document.body).not.toHaveTextContent(SNOWFLAKE)
+  })
+
+  it('suppresses a linked handle behind the mask, not only a Discord requester', () => {
+    render(
+      <ActivityRequester
+        linkedDiscord={LINKED_JEREMY}
+        requester={null}
+        viewer={ADMIN}
+      />,
+    )
+
+    // A hidden-attribution download by a linked person must not leak the
+    // person through `linkedDiscord` while `requester` is masked — the cell
+    // renders `linkedDiscord` only beside an identity it was already shown.
+    expect(screen.getByText(MASKED_REQUESTER_LABEL)).toBeInTheDocument()
+    expect(
+      screen.queryByText(`@${LINKED_JEREMY.discordUsername}`),
+    ).not.toBeInTheDocument()
+    expect(document.body).not.toHaveTextContent(LINKED_JEREMY.discordUserId)
+    expect(document.body).not.toHaveTextContent(LINKED_JEREMY.discordUsername)
   })
 })

@@ -1,6 +1,10 @@
 import '@testing-library/jest-dom'
 
-import type { JobRequester } from '@lilnas/utils/download/types'
+import type {
+  DiscordIdentity,
+  DiscordRequester,
+  JobRequester,
+} from '@lilnas/utils/download/types'
 import { render, screen } from '@testing-library/react'
 
 import { AdminActor } from 'src/components/admin/admin-actor'
@@ -10,6 +14,24 @@ import type { Viewer } from 'src/lib/viewer'
 
 const JEREMY: JobRequester = { email: 'jeremy@lilnas.io', userId: 'u_jeremy' }
 const SAM: JobRequester = { email: 'sam@lilnas.io', userId: 'u_sam' }
+
+/** A real snowflake, as a **string literal** — 18 digits do not fit a number. */
+const SNOWFLAKE = '273145016936267776'
+
+const DISCORD_SAM: DiscordRequester = {
+  discordUserId: SNOWFLAKE,
+  discordUsername: 'sam.pham',
+}
+
+const LINKED_JEREMY: DiscordIdentity = {
+  discordUserId: '583920174659201024',
+  discordUsername: 'jeremy.a',
+}
+
+/** E5's disclosure trigger, by the accessible name it announces. */
+function discordMark(): HTMLElement | null {
+  return screen.queryByRole('button', { name: /Discord account details/ })
+}
 
 /** The only viewer `/admin` ever has — `AdminGuard` turns everyone else away. */
 const ADMIN: Viewer = {
@@ -111,6 +133,115 @@ describe('AdminActor', () => {
       const avatar = container.querySelector('.rounded-full')
 
       expect(avatar).toHaveAttribute('title', `${JEREMY.email} · you`)
+    })
+  })
+
+  /**
+   * ⚠️ The hazard this page owns: **a null actor now has two readings.** The
+   * service chip and an unlinked Discord person both arrive with
+   * `actor === null`, and only `discordActor` tells them apart. Getting it
+   * wrong attributes a person's download to a machine — the mirror image of
+   * `ActivityRequester`'s masked/unlinked pair, and wrong in the other
+   * direction.
+   */
+  describe('Discord attribution', () => {
+    it('leaves the service chip exactly as it was', () => {
+      render(<AdminActor actor={null} discordActor={null} viewer={ADMIN} />)
+
+      expect(screen.getByText(AUDIT_SERVICE_LABEL)).toBeInTheDocument()
+      expect(discordMark()).not.toBeInTheDocument()
+      expect(document.body).not.toHaveTextContent(SNOWFLAKE)
+    })
+
+    it('renders an unlinked Discord actor as a person, not as the service', () => {
+      render(
+        <AdminActor actor={null} discordActor={DISCORD_SAM} viewer={ADMIN} />,
+      )
+
+      expect(screen.getByText(DISCORD_SAM.discordUsername)).toBeInTheDocument()
+      expect(discordMark()).toBeInTheDocument()
+      // The whole point: a person did this, so the machine's chip is wrong.
+      expect(screen.queryByText(AUDIT_SERVICE_LABEL)).not.toBeInTheDocument()
+    })
+
+    // Both of this page's targets are email-keyed — `?requester=` filters on an
+    // email, `requesterProfileHref` resolves one — and a raw snowflake is
+    // neither, so it gets the mark and no doors.
+    it('gives an unlinked Discord actor no filter link and no profile link', () => {
+      render(
+        <AdminActor
+          actor={null}
+          discordActor={DISCORD_SAM}
+          href={FILTER_HREF}
+          viewer={ADMIN}
+        />,
+      )
+
+      expect(screen.queryByRole('link')).not.toBeInTheDocument()
+    })
+
+    it('keeps the mark on the nameless mobile row', () => {
+      render(
+        <AdminActor
+          actor={null}
+          discordActor={DISCORD_SAM}
+          nameless
+          viewer={ADMIN}
+        />,
+      )
+
+      expect(
+        screen.queryByText(DISCORD_SAM.discordUsername),
+      ).not.toBeInTheDocument()
+      expect(discordMark()).toBeInTheDocument()
+    })
+
+    it('shows a linked handle beside the email with no popover on it', () => {
+      render(
+        <AdminActor
+          actor={JEREMY}
+          linkedDiscord={LINKED_JEREMY}
+          viewer={ADMIN}
+        />,
+      )
+
+      expect(screen.getByText(JEREMY.email)).toBeInTheDocument()
+      expect(
+        screen.getByText(`@${LINKED_JEREMY.discordUsername}`),
+      ).toBeInTheDocument()
+      expect(discordMark()).not.toBeInTheDocument()
+      expect(screen.queryAllByRole('button')).toHaveLength(0)
+      expect(document.body).not.toHaveTextContent(LINKED_JEREMY.discordUserId)
+    })
+
+    it('drops the linked handle from the nameless mobile row', () => {
+      render(
+        <AdminActor
+          actor={JEREMY}
+          linkedDiscord={LINKED_JEREMY}
+          nameless
+          viewer={ADMIN}
+        />,
+      )
+
+      expect(
+        screen.queryByText(`@${LINKED_JEREMY.discordUsername}`),
+      ).not.toBeInTheDocument()
+    })
+
+    it('renders a plain web actor with no Discord furniture at all', () => {
+      render(
+        <AdminActor
+          actor={SAM}
+          discordActor={null}
+          href={FILTER_HREF}
+          linkedDiscord={null}
+          viewer={ADMIN}
+        />,
+      )
+
+      expect(screen.getByRole('link', { name: SAM.email })).toBeInTheDocument()
+      expect(discordMark()).not.toBeInTheDocument()
     })
   })
 })

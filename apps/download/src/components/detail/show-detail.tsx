@@ -239,6 +239,8 @@ export function ShowDetail({
         attribution={
           latest ? (
             <DetailAttribution
+              discordRequester={latest.discordRequester}
+              linkedDiscord={latest.linkedDiscord}
               now={now}
               prefix="requested by "
               requester={latest.requester}

@@ -430,6 +430,8 @@ export function MovieDetail({
         attribution={
           job ? (
             <DetailAttribution
+              discordRequester={job.discordRequester}
+              linkedDiscord={job.linkedDiscord}
               now={now}
               requester={job.requester}
               timestamp={job.completedAt ?? job.createdAt}

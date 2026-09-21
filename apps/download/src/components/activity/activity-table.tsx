@@ -106,6 +106,8 @@ export function ActivityTable({
               <td>
                 <ActivityRequester
                   avatarClassName="h-[22px] w-[22px] text-[9px]"
+                  discordRequester={job.discordRequester}
+                  linkedDiscord={job.linkedDiscord}
                   requester={job.requester}
                   viewer={viewer}
                 />

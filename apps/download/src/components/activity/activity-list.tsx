@@ -79,6 +79,8 @@ export function ActivityList({
               <span className="flex items-center justify-between gap-2">
                 <ActivityRequester
                   avatarClassName="h-[18px] w-[18px] text-[8px]"
+                  discordRequester={job.discordRequester}
+                  linkedDiscord={job.linkedDiscord}
                   nameless
                   requester={job.requester}
                   viewer={viewer}

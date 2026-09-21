@@ -1,6 +1,10 @@
 import '@testing-library/jest-dom'
 
-import type { Media } from '@lilnas/utils/download/types'
+import type {
+  DiscordIdentity,
+  DiscordRequester,
+  Media,
+} from '@lilnas/utils/download/types'
 import { DownloadType } from '@lilnas/utils/download/types'
 import { render, screen } from '@testing-library/react'
 
@@ -12,6 +16,24 @@ import { MASKED_INITIALS } from 'src/components/ui/avatar'
 
 /** The one instant every stamp on the page is measured against. */
 const NOW = Date.parse('2026-09-15T12:00:00.000Z')
+
+/** A real snowflake, as a **string literal** — 18 digits do not fit a number. */
+const SNOWFLAKE = '273145016936267776'
+
+const DISCORD_SAM: DiscordRequester = {
+  discordUserId: SNOWFLAKE,
+  discordUsername: 'sam.pham',
+}
+
+const LINKED_JEREMY: DiscordIdentity = {
+  discordUserId: '583920174659201024',
+  discordUsername: 'jeremy.a',
+}
+
+/** E5's disclosure trigger, by the accessible name it announces. */
+function discordMark(): HTMLElement | null {
+  return screen.queryByRole('button', { name: /Discord account details/ })
+}
 
 const MOVIE: Media = {
   id: 'tmdb:11660',
@@ -195,5 +217,68 @@ describe('DetailAttribution', () => {
     )
 
     expect(screen.getByText('hidden · 1d ago')).toBeInTheDocument()
+  })
+
+  /**
+   * The same four states the activity cell renders, on the one surface that
+   * writes them as a sentence rather than as a cell.
+   */
+  describe('Discord attribution', () => {
+    it('reads an unlinked Discord submission as its handle plus the mark', () => {
+      render(
+        <DetailAttribution
+          discordRequester={DISCORD_SAM}
+          now={NOW}
+          prefix="downloaded by "
+          requester={null}
+          timestamp="2026-09-15T11:48:00.000Z"
+        />,
+      )
+
+      expect(screen.getByText('downloaded by sam.pham')).toBeInTheDocument()
+      expect(discordMark()).toBeInTheDocument()
+      // Never the masked line: a person asked for this download.
+      expect(screen.queryByText(MASKED_INITIALS)).not.toBeInTheDocument()
+    })
+
+    it('writes a linked handle after the name, with nothing to click', () => {
+      render(
+        <DetailAttribution
+          linkedDiscord={LINKED_JEREMY}
+          now={NOW}
+          prefix="downloaded by "
+          requester={{ email: 'jeremy.asuncion@lilnas.io', userId: 'u_1' }}
+          timestamp="2026-09-15T11:48:00.000Z"
+        />,
+      )
+
+      expect(
+        screen.getByText('downloaded by jeremy.asuncion'),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText(`@${LINKED_JEREMY.discordUsername}`),
+      ).toBeInTheDocument()
+      expect(discordMark()).not.toBeInTheDocument()
+    })
+
+    // ⚠️ Asserted directly rather than inferred from the `hidden` wording: this
+    // is the one line where a disclosure control could hand a reader an
+    // identity the mask exists to withhold.
+    it('renders neither identity, and no snowflake, behind the mask', () => {
+      render(
+        <DetailAttribution
+          discordRequester={null}
+          linkedDiscord={LINKED_JEREMY}
+          now={NOW}
+          requester={null}
+          timestamp="2026-09-15T11:48:00.000Z"
+        />,
+      )
+
+      expect(screen.getByText('hidden · 12m ago')).toBeInTheDocument()
+      expect(discordMark()).not.toBeInTheDocument()
+      expect(document.body).not.toHaveTextContent(SNOWFLAKE)
+      expect(document.body).not.toHaveTextContent(LINKED_JEREMY.discordUsername)
+    })
   })
 })
