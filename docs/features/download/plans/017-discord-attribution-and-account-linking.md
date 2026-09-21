@@ -906,7 +906,7 @@ to a different Discord account — unlink them first, then link the new one` ·
   >
   > 42 new tests; package green at 486 tests / 32 suites, lint and type-check clean.
 
-- [ ] **B2. Server actions + RSC fetches.** Edit
+- [x] **B2. Server actions + RSC fetches.** `4cf7bb7` Edit
       `apps/auth/src/app/admin/require-admin.ts`: add `fetchDiscordUnlinked()` and
       `fetchDiscordLinks()` beside `fetchAdminUsers()`, re-exporting B1's entry types
       through the same `import type` aliasing the file already uses. Edit
@@ -918,6 +918,63 @@ discordUserId)` and `unlinkDiscordAccount(userId)` via `callBackend`. **Narrow e
       `apps/auth/src/app/admin/page.tsx` to fetch the two new payloads inside its
       existing `Promise.all` and pass them down. Tests: a spec for the new narrowing
       helper; extend `require-admin.spec.ts` for the new fetches.
+
+  > **Findings (B2, 2026-09-20 — shipped as specced; B3 must read items 1 and 2):**
+  >
+  > 1. **The surface B3 consumes.** Types are re-exported with the `Admin` prefix the file's
+  >    other three exports already use — **import them from
+  >    `src/app/admin/require-admin`, not from the Nest controller**, that is the
+  >    established client-side boundary:
+  >
+  >    ```ts
+  >    export type { AdminDiscordLinkEntry, AdminDiscordUnlinkedAccount,
+  >                  AdminDiscordUnlinkedPerson, … }
+  >    export type AdminDiscordUnlinked = { people: AdminDiscordUnlinkedPerson[]
+  >                                         accounts: AdminDiscordUnlinkedAccount[] }
+  >    export async function fetchDiscordUnlinked(): Promise<AdminDiscordUnlinked>
+  >    export async function fetchDiscordLinks(): Promise<AdminDiscordLinkEntry[]>
+  >    // actions.ts
+  >    export async function linkDiscordAccount(userId: string, discordUserId: string): Promise<void>
+  >    export async function unlinkDiscordAccount(userId: string): Promise<void>
+  >    ```
+  >
+  >    `page.tsx` passes `discordUnlinked={…}` and `discordLinks={…}` into
+  >    `AdminDashboardClient` from the existing `Promise.all`. Both actions return
+  >    `Promise<void>` (matching `removeUser`/`blockUser`); failure is signalled **only**
+  >    by a thrown `Error`. Both ids travel in the POST **body**, not the path.
+  >
+  > 2. ⚠️ **The two new props are OPTIONAL, and B3 should tighten them.**
+  >    `AdminDashboardClientProps` gained `discordUnlinked?: AdminDiscordUnlinked` and
+  >    `discordLinks?: AdminDiscordLinkEntry[]` — optional because
+  >    `admin-dashboard-client.spec.tsx` renders the component at **23 sites**, none of
+  >    which have anything to say about Discord, and making them required would have
+  >    injected ~46 lines of empty-fixture noise into a spec about the queue and the
+  >    People/Blocked split. `page.tsx` always passes both, and the component does not yet
+  >    destructure either. **B3: make them required once you have meaningful fixtures, and
+  >    update those 23 render sites in the same pass.**
+  > 3. **Error text B3 will actually see.** The existing `callBackend()` throws
+  >    ``new Error(`lilnas-auth: ${path} returned ${status}: ${message}`)``, e.g.
+  >    `lilnas-auth: /admin/discord/link returned 400: Discord account already linked to
+someone@example.com`. Split on `returned <digits>: ` for the bare sentence, or
+  >    render the whole string — the existing client components render `err.message`
+  >    verbatim. A 404 from `/discord/unlink` is **not** swallowed (asserted).
+  > 4. ⚠️ **`requireDiscordUserId` cannot be exported, so it cannot be unit-tested
+  >    directly.** `actions.ts` carries `'use server'`, and Next.js only permits **async**
+  >    function exports from such a module — exporting a synchronous validator is a build
+  >    error. The spec drives it through `linkDiscordAccount()` instead, which is the
+  >    better test anyway: it proves a rejection means **no request reaches the backend**,
+  >    which a direct call could not show. Pattern is `/^[0-9]{17,20}$/` (`[0-9]` rather
+  >    than `\d`, to not depend on `\d` staying ASCII-only); JS's `$` without the `m`
+  >    flag matches only end-of-input, so a trailing newline is correctly rejected — with
+  >    a regression test rather than silent trust.
+  > 5. 24 action cases (16/21-digit, empty, non-numeric, leading `+`, whitespace, trailing
+  >    newline, a full-width unicode digit, a number via `JSON.parse`, `null`, `undefined`,
+  >    an object with `toString`, an array — **each asserting fetch was never called**) and
+  >    +7 fetch cases whose fixtures deliberately disagree with backend ordering, to prove
+  >    the ordering is preserved rather than accidentally re-derived. Package green at
+  >    33 suites / 520 tests.
+  > 6. Both new specs are `.ts` and land in the **backend** Jest project (node env), not the
+  >    frontend one; they need only `process.env.BACKEND_PORT`, not `ADMIN_EMAILS`.
 
 - [ ] **B3. Admin UI: the Discord links panel.** Create
       `apps/auth/src/app/admin/discord-links-panel.tsx` and mount it in
@@ -1401,7 +1458,7 @@ username: discordUser.discordUsername })` **unconditionally, including when a
 
 ### Group E — apps/download: read path + display
 
-- [ ] **E1. Read-time link resolution + masking.** Edit
+- [x] **E1. Read-time link resolution + masking.** `ddfed8b` Edit
       `apps/download/src/download/attribution.ts`: `projectJobForViewer` masks
       `discordRequester` under the same `showTrueRequester` rule (both nulled together).
       Add resolution: give `DiscordLinkService` (or a thin
@@ -1443,6 +1500,88 @@ username: discordUser.discordUsername })` **unconditionally, including when a
   resolve in one pass, unlinked untouched, auth
   failure → untouched), one controller-level spec proving a linked historical
   `discord` job serializes with the resolved `requester`.
+
+  > **Findings (E1, 2026-09-20 — shipped, scope slightly widened; item 1 is a security
+  > fix and binds E3/E4):**
+  >
+  > 1. 🔴 **Masking `discordRequester` alone would have been a LEAK — all THREE identity
+  >    fields are nulled together.** The task text said "both nulled together", but
+  >    `linkedDiscord` is filled at read time for **web** jobs, so a hidden-attribution
+  >    video by a linked person would have returned `requester: null` alongside
+  >    `linkedDiscord: '@alice'` — precisely the attribution the flag exists to withhold.
+  >    This matches what [E3's task text](#e3) already demanded ("a masked job renders
+  >    **neither** identity"); only the delegation brief was short. **E3 and E4 must
+  >    expect three-field masking.**
+  > 2. **Placed on a new `AttributionResolutionService` in `src/auth/`** — neither option
+  >    the task offered. Not on `DiscordLinkService` (that class is the cached transport
+  >    over auth's internal endpoint and deliberately knows no wire shape; batching plus
+  >    the `username` → `discordUsername` mapping across three row shapes is a different
+  >    job). Not in `src/download/` (the third consumer is `AdminController`, and
+  >    `AdminModule` is a documented leaf — routing it through `DownloadModule` would drag
+  >    in the whole download feature and the `MediaModule` `forwardRef()` cycle just to
+  >    render an audit row). `src/auth/` adds **zero edges** to the module graph: all three
+  >    consumers already import `AuthModule`. Precedent: `src/auth/discord-user.ts`
+  >    already imports `@lilnas/utils/download/types`.
+  > 3. **Signatures** — generic, with `Object.assign({}, row, patch)` rather than
+  >    spread-plus-cast, so `T` survives with no `as T` anywhere:
+  >
+  >    ```ts
+  >    resolveJobs<T extends ResolvableJob>(jobs: readonly T[]): Promise<T[]>
+  >    resolveGalleryItems<T extends ResolvableGalleryItem>(items: readonly T[]): Promise<T[]>
+  >    resolveAuditEntries<T extends ResolvableAuditEntry>(entries: readonly T[]): Promise<T[]>
+  >    // new on DiscordLinkService, sharing the same `u:` cache entry:
+  >    resolveLilnasUser(lilnasUserId: string): Promise<DiscordLinkLookupResponse>
+  >    ```
+  >
+  >    `getLinkedDiscordUserId` was refactored to delegate to `resolveLilnasUser`.
+  >
+  > 4. ⚠️ **A page of N jobs costs ONE round of lookups, not two.** `D + U` concurrent
+  >    calls in a single `Promise.all` (`D` = distinct snowflakes on discord rows, `U` =
+  >    distinct requester userIds on web rows), deduped per batch. The two arms are
+  >    disjoint because the CHECKs make `requester`/`discordRequester` mutually exclusive
+  >    — and a forward-resolved row gets its **reverse** answer out of the _same_
+  >    `{identity, user}` envelope, so it never needs a `u:` key at all. Gallery and audit
+  >    pages skip the reverse direction entirely, so **a gallery page of web-origin cards
+  >    costs zero lookups**. A "deadlock-if-sequential" test pins the one-round property.
+  > 5. **Call sites — E2/E4 must not double-resolve these.** Three private controller
+  >    helpers now **resolve then mask**: `serveJob`, `serveJobs`, `serveJobPage`, plus
+  >    `serveGalleryPage`. The free function `projectPage()` was **deleted** (folded into
+  >    `serveJobPage`). Wired: `GET /activity`, `GET /history`, `GET /gallery`,
+  >    `GET /media/:id`, `GET /videos/:id`, `POST /videos`, `PATCH /videos/:id/cancel`,
+  >    `videoInterruptRoute` (pause/resume/delete), `POST /movies`, `POST /shows`,
+  >    `mediaJobRoute` (GET/DELETE movies+shows), `releaseActionRoute` (grab/replace),
+  >    `AdminController.getAuditLog`, and `DownloadStateService.broadcastJobEvent` (once,
+  >    **before** `broadcastPerViewer`). Deliberately NOT resolved (no job objects):
+  >    `/gallery/facets`, `/discover`, `/profile`, `/media/:id/releases`, `/seasons`,
+  >    `/file`, `DELETE /media/:id/files`, all `/bad-files`, `/movies/search`,
+  >    `/shows/search`, `AdminController.getStats`. The Next.js server actions in
+  >    `src/app/actions/` go over HTTP via `DownloadClient`, so they inherit resolution.
+  >    `resolveJobs` is **idempotent by construction**, so a double-resolve is harmless —
+  >    just wasteful.
+  > 6. **Gallery masking happens inside `JobQueryService.listGallery`, not via
+  >    `projectJobForViewer`**, so gallery resolution necessarily runs _after_ masking.
+  >    Safe: the mask nulls `lastRequester` and `lastDiscordRequester` together, and a slot
+  >    with neither resolves to itself. This kept `job-query.service.ts` untouched, which
+  >    also avoided colliding with E2.
+  > 7. **`resolveGalleryItems` sets `lastRequester` too**, not just `lastDiscordRequester`
+  >    — same forward rule; otherwise a linked Discord upload's gallery card would
+  >    contradict its own detail page. **E4 should expect this.**
+  > 8. **Audit resolution lives in `AdminController`, not `AuditLogService`**, preserving
+  >    `AuditModule`'s deliberate zero-imports invariant. `origin` stays `'discord'` on a
+  >    resolved row — nothing is written back, so `audit_log_origin_matches_actor` is never
+  >    in play.
+  > 9. **Two existing `toBe` identity assertions became `toEqual`**
+  >    (`admin.controller.test.ts` "returns the page verbatim",
+  >    `download.controller.lists.test.ts` "returns the shape verbatim") — both envelopes
+  >    are now rebuilt around a resolved `items` array. The "nothing else is reshaped /
+  >    nothing is masked" contract is preserved and the test names say so.
+  > 10. **The DI fallout was 16 suites, not the 9 D4 predicted** — `DownloadStateService`
+  >     gaining a constructor dep pulled in `job-query`, `download-scheduler`,
+  >     `download-state`, `media-download` and `media-poller` on top of 11 controller specs.
+  >     A shared `fakeAttributionResolutionProvider()` (identity pass-through) lives at
+  >     `src/auth/__tests__/helpers/attribution-resolution.ts` — **reuse it.**
+  >
+  > Package green at **176 suites / 3537 tests** (was 174/3510), lint and type-check clean.
 
 - [ ] **E2. Unified history + profile.** Edit `apps/download/src/db/jobs.repo.ts`:
       `JobListFilter` gains `requesterDiscordUserId?: string`; `buildJobWhere` combines it
@@ -1751,7 +1890,7 @@ graph TD
 | 1 ✅ | A1 ∥ A3 ∥ C1 ∥ D2 ∥ E5 | Five independent foundation tasks: auth schema, `packages/utils/src/auth`, `packages/utils/src/download`, download's `src/auth` extraction files, and E5's brand-new component file. No shared file. E5 needs nothing but two strings, so it costs no wall-clock here |
 | 2 ✅ | A2 ∥ D1 ∥ D3 ∥ F1      | A2 needs A1's tables; D1 needs C1's wire type for row mapping; D3 needs A3's client methods; F1 needs C1's `withDiscordIdentity`. Two apps plus utils, no overlap                                                                                                     |
 | 3 ✅ | A4 ∥ B1 ∥ D4           | In auth, A4 adds a new controller + one `app.module.ts` line while B1 edits the admin dto/service/controller — disjoint files. D4 is in download entirely                                                                                                             |
-| 4    | B2 ∥ E1                | B2 is auth's server-action/RSC layer; E1 owns download's read path alone this wave                                                                                                                                                                                    |
+| 4 ✅ | B2 ∥ E1                | B2 is auth's server-action/RSC layer; E1 owns download's read path alone this wave                                                                                                                                                                                    |
 | 5    | B3 ∥ E2 ∥ E3           | B3 is auth UI; E2 edits `jobs.repo`/profile/history, E3 edits only download frontend components — all disjoint                                                                                                                                                        |
 | 6    | E4 ∥ F2                | E4 re-enters `jobs.repo.ts` only after E2 has left it; F2 is docs only                                                                                                                                                                                                |
 | 7    | F3                     | Integration checkpoint — must see every prior commit                                                                                                                                                                                                                  |
