@@ -2197,7 +2197,7 @@ username: discordUser.discordUsername })` **unconditionally, including when a
   >    before lists) — markdown in this repo is not otherwise prettier-clean
   >    (`backend.md`, `lilnas-expose.md` both fail `--check`). Cosmetic only.
 
-- [ ] **F3. Integration checkpoint.** From the repo root: `pnpm run build`,
+- [x] **F3. Integration checkpoint.** `d5a3338` From the repo root: `pnpm run build`,
       `pnpm test`, `pnpm run lint`, `pnpm run type-check` — all green at the final
       commit, seeing every prior commit. Then a local end-to-end smoke via each app's
       test suite is not enough on its own: additionally run download's dev backend
@@ -2206,6 +2206,69 @@ username: discordUser.discordUsername })` **unconditionally, including when a
       DB, confirm the API serves it with `requester: null` before linking. (Live
       auth-linked verification is [HC4](#human-checkpoints) — do not attempt against
       prod.) Fix or re-delegate anything red; commit only if fixes were needed.
+
+  > **Findings (F3, 2026-09-20 — all green; item 1 is the top deploy risk):**
+  >
+  > 1. 🔴 **The `0002_even_newton_destine.sql` data backfill has never moved a real row.**
+  >    The smoke ran migrations against an empty file, so the **hand-edited**
+  >    `INSERT…SELECT` executed over **zero rows**. It is proven syntactically valid and
+  >    the resulting schema/CHECKs are proven correct, but the table-recreation path is
+  >    untested against actual data and production has real `jobs` and `audit_log`
+  >    history. **[HC2](#human-checkpoints)'s backup is load-bearing** — and a dry run
+  >    restoring that backup into a scratch container first is worth the time.
+  > 2. **Verification at `d5a3338`:** `build` 13/13 ✅, `lint` 15/15 ✅, `type-check` 12/12
+  >    ✅. Per-package tests — **every package this plan touched is green**:
+  >    `@lilnas/download` 176 suites / 3620 passed (1 suite, 9 tests skipped),
+  >    `@lilnas/utils` 8 / 392, `@lilnas/auth` 34 / 538, `@lilnas/tdr-bot` 54 / 1137.
+  >    ⚠️ **Root `pnpm test` is useless for counts** — turbo kills all siblings on the
+  >    first failure (`Tasks: 0 successful, 7 total`). Run per package.
+  > 3. **Three packages fail, all pre-existing and unrelated**, proven by diffing
+  >    `main..HEAD` (329 commits): `apps/equations` and `apps/tdr-code` have **zero**
+  >    commits on this branch; `apps/swole` has exactly one, the generated
+  >    `next-env.d.ts`. None of the failures mention `@lilnas/utils`. They are: swole — a
+  >    zod guard now fires ahead of the DB CHECK in `appendSetLog`; tdr-code — react-query
+  >    `cancelRefetch` default drift; equations — validator precedence, plus a stale
+  >    `moduleNameMapper` pointing at `apps/utils`, **a path that has never existed since
+  >    the apps/packages split**.
+  > 4. ⚠️ **A running `lilnas-download-dev` container breaks `pnpm run build`.** Its
+  >    `next dev` owns `apps/download/.next`, leaving an 18-byte
+  >    `app-path-routes-manifest.json`, and the build dies with
+  >    `Cannot find module for page: /search`. `local-verification.md` documents this
+  >    collision in the _other_ direction only (build clobbers the dev server). Fix: stop
+  >    the container, `rm -rf apps/download/.next`, build, restart it.
+  > 5. **The smoke took the NATIVE route** (`auth` does not resolve from the host, so
+  >    production's roster was never written). Native URL is `http://localhost:8081/download/videos`
+  >    — `BACKEND_PORT=8081`, no Nest global prefix; the doc's `localhost:8090/api/...` is
+  >    the containerised path. ⚠️ **One blocker the plan never anticipated: `VIDEO_DIR` is a
+  >    module-level `const = '/download/videos'` with no env override** (`download.service.ts:33`,
+  >    `download-video.service.ts:26`), and `ensureDir()` runs _before_ the row is
+  >    persisted — so natively the POST 500s with `EACCES … mkdir '/download'` and **no row
+  >    is written**. Worked around with `bwrap --bind /tmp/f3-download /download`, no source
+  >    touched.
+  > 6. **Observed end-to-end, exactly as designed:** the job persisted `origin=discord`
+  >    with `discord_user_id`/`discord_username` set and `requester_*` NULL; the audit row
+  >    matched with `actor_discord_*` set and `actor_*` NULL (the
+  >    `audit_log_origin_matches_actor` CHECK held); `GET` served `requester: null`,
+  >    `linkedDiscord: null`, `discordRequester` populated. Auth fail-open logged
+  >    `Failed to reach auth for a Discord link — treating as unlinked` ×3 **and still
+  >    created the job**. Two extra traps confirmed: id-only header → `origin=service`, no
+  >    attribution; forwarded user + Discord pair → `origin=web`, discord columns NULL.
+  > 7. **`local-verification.md` is correct as written** — every exercisable claim held,
+  >    including the exact JSON block. Two caveats filed, neither a factual error: it has
+  >    **no native-route section** (and native does not work as-is, per item 5), and its
+  >    `docker exec … curl http://auth:8081/...` roster check was deliberately **not run**,
+  >    because that is production auth and its own CAUTION says the roster has no delete
+  >    path. Also: the "Verification checks" table's `isAdmin: true` is a
+  >    `.env.dev-remote` fact — natively you get `isAdmin: false`.
+  > 8. **The §3 cleanup went further than asked, correctly.** The brief claimed the
+  >    snowflake is "the thing an admin can match against the picker's rows" — **it is
+  >    not**: `discord-links-panel.tsx` renders `@username`, `displayName` and `last seen`,
+  >    and `visibleAccounts` filters on `[username, displayName]` only. The snowflake is
+  >    neither displayed nor filterable there. The comment was rewritten to the accurate
+  >    justification — the handle is a rename-able cache, so the snowflake is the only
+  >    value that still names the requester after a rename and the only one that separates
+  >    two similar-looking handles — and the `discordUserId` prop doc, which rested on the
+  >    same stale premise, was corrected too.
 
 ---
 
@@ -2256,7 +2319,7 @@ graph TD
 | 4 ✅ | B2 ∥ E1                | B2 is auth's server-action/RSC layer; E1 owns download's read path alone this wave                                                                                                                                                                                    |
 | 5 ✅ | B3 ∥ E2 ∥ E3           | B3 is auth UI; E2 edits `jobs.repo`/profile/history, E3 edits only download frontend components — all disjoint                                                                                                                                                        |
 | 6 ✅ | E4 ∥ E6 ∥ F2           | E4 re-enters `jobs.repo.ts` only after E2 has left it; F2 is docs only                                                                                                                                                                                                |
-| 7    | F3                     | Integration checkpoint — must see every prior commit                                                                                                                                                                                                                  |
+| 7 ✅ | F3                     | Integration checkpoint — must see every prior commit                                                                                                                                                                                                                  |
 
 ### Dependency table
 
@@ -2316,6 +2379,96 @@ In order — the executor/orchestrator performs **none** of these:
    their Discord snowflake; run `/download` in Discord as that user; confirm the job
    shows attributed to the person in the web UI, that a **pre-link** tdr-bot job now
    displays the same identity (retroactivity), and that unlinking reverts both.
+
+---
+
+## Completion — 2026-09-20
+
+**All 19 tasks are done** (18 planned + [E6](#e6-audit-log-actor-display), added mid-flight
+from [E3's finding 3](#e3-findings)). Seven waves, executed in order, one commit per task.
+
+| Wave | Tasks              | Commits                                           |
+| ---- | ------------------ | ------------------------------------------------- |
+| 1    | A1, A3, C1, D2, E5 | `34b5766` `52dd685` `60af91a` `014457e` `3b8fa32` |
+| 2    | A2, D1, D3, F1     | `1041dd9` `4cdcb3c` `b18685c` `3f9dceb`           |
+| 3    | A4, B1, D4         | `17ea1e1` `7969e69` `af89f21`                     |
+| 4    | B2, E1             | `4cf7bb7` `ddfed8b`                               |
+| 5    | B3, E2, E3         | `d80273c` `7af491c` `20f2583`                     |
+| 6    | E4, E6, F2         | `d6951e1` `c8237b9` `4d5d3c8`                     |
+| 7    | F3                 | `d5a3338`                                         |
+
+**Green at `d5a3338`:** `build` 13/13, `lint` 15/15, `type-check` 12/12. Tests per package —
+`@lilnas/download` 176 suites / 3620, `@lilnas/auth` 34 / 538, `@lilnas/tdr-bot` 54 / 1137,
+`@lilnas/utils` 8 / 392. Three unrelated packages (`swole`, `tdr-code`, `equations`) fail
+pre-existing tests; see [F3's findings](#f3-findings) item 3 for the proof they are untouched
+by this branch.
+
+### Four real bugs this plan found in existing code
+
+Beyond the feature itself, execution surfaced defects that were already shipped:
+
+1. 🔴 **`auditActorLabel('discord')` returns `'unattributed web request'`** — an unlinked
+   Discord audit row did not read as "the service", it read as a **security finding**
+   ([E6](#e6-findings) item 1).
+2. 🔴 **The gallery card printed `hidden` for any null requester** — mislabelling an unlinked
+   Discord upload as deliberately self-hidden ([E4](#e4-findings) item 1).
+3. 🔴 **drizzle-kit generates broken table-recreate SQL** when a recreate coincides with added
+   columns — it reads the new columns off the old table. Hand-edited; **will silently return
+   on any regeneration** ([D1](#d1-findings) item 1).
+4. 🔴 **Masking `discordRequester` alone would have leaked `linkedDiscord`** on a
+   hidden-attribution job by a linked person ([E1](#e1-findings) item 1).
+
+### Two places the plan itself was wrong
+
+- **[E2](#e2-findings) item 1:** the plan said to resolve the viewer's link in
+  `ProfileService`. `getProfile` has no viewer and `/profile?requester=` lets an admin view
+  someone else — following it literally would have folded **the admin's own Discord jobs into
+  another person's profile**. Resolution is keyed off the profile's subject instead.
+- **[C1](#c1-findings) item 1:** "every added field is nullable, so existing producers keep
+  compiling" was backwards — zod's `.nullable()` makes a key **required**. This left
+  `apps/download` red on type-check for a full wave and widened D1's scope to every producer.
+
+### Open questions for the human
+
+1. ❓ **`AuthClient.dockerInstance` hardcodes `http://auth:8081` with no env override**, and
+   `deploy.dev.yml` sits on `lilnas_default` — so containerised dev work writes Discord
+   identities into **production auth's `discord_identity`, which has no delete path**
+   ([F2](#f2-findings) item 1). Worth an env override before anyone uses the dev recipe.
+2. ❓ **`VIDEO_DIR` is unconfigurable** (`const = '/download/videos'`), so the native dev
+   backend cannot create video jobs on a host without `/download`
+   ([F3](#f3-findings) item 5).
+3. ❓ **A blocked person with a link shows no chip** in the Blocked panel — chips went on the
+   People panel only ([B3](#b3-findings) item 7).
+4. ❓ **Two spellings of the attribution rule still exist** — `detail-header.tsx` has its own
+   masking branch that could not be collapsed into `activity-requester.tsx`
+   ([E3](#e3-findings) item 2).
+5. ❓ **`.checkbox-row` has no selected state in the design system** — B3's highlight is
+   Tailwind-via-`cns` and wants a `.checkbox-row.is-selected` rule if it should be canonical
+   ([B3](#b3-findings) item 4).
+
+### Deferred, exactly as planned
+
+The [v1 scope cuts](#scope-cuts-in-v1) stand: facets / leaderboard / `topRequesters` still
+group by email, so unlinked Discord jobs stay out of those aggregates; pre-linking an unseen
+account remains impossible by design. E4 additionally dropped its `linkedDiscord` clause —
+`GalleryItemSchema` carries no such field ([E4](#e4-findings) item 2).
+
+### ⚠️ Still outstanding — all three are human checkpoints
+
+**[HC2](#human-checkpoints), [HC3](#human-checkpoints) and [HC4](#human-checkpoints) have NOT
+been performed.** Nothing in this execution touched production.
+
+- **HC2 (backup) is load-bearing**, not a formality: migration `0002_even_newton_destine.sql`
+  **recreates both `jobs` and `audit_log`**, its `INSERT…SELECT` was **hand-edited**, and
+  [F3 proved it only against an empty database](#f3-findings). Back up
+  `/storage/app-data/download/download.db` and auth's DB file — copies, not moves, sizes
+  verified — and consider restoring that backup into a scratch container as a dry run first.
+- **HC3 (deploy): deploy `auth` before or with `download`.** The deployed `lilnas-auth-1`
+  currently 404s `/internal/discord-link`; the fail-open path handles it (verified), so
+  nothing breaks, but every link reads as unlinked until auth ships.
+- **HC4 (live verification):** link a real user, run `/download` as them, confirm a
+  **pre-link** job now displays the resolved identity (retroactivity is the whole point), and
+  confirm unlinking reverts both directions.
 
 ---
 
