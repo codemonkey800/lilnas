@@ -45,6 +45,26 @@ describe('AUDIT_ACTION_LEVELS / AUDIT_ACTION_PHRASES', () => {
       tone: 'mute',
     })
   })
+
+  // The manual importer's pair: committing the files is an admin acting on a
+  // download that stalled, while discarding one deletes them — so they read at
+  // opposite tones despite arriving together.
+  it('separates a manual import from the discard it is offered beside', () => {
+    expect(auditLevel('media.manual_import')).toEqual({
+      label: 'IMPORT',
+      tone: 'uv',
+    })
+    expect(auditLevel('media.discard_download')).toEqual({
+      label: 'DISCARD',
+      tone: 'bad',
+    })
+    expect(AUDIT_ACTION_PHRASES['media.manual_import']).toBe(
+      'manually imported files',
+    )
+    expect(AUDIT_ACTION_PHRASES['media.discard_download']).toBe(
+      'discarded a stuck download',
+    )
+  })
 })
 
 describe('auditActorLabel', () => {

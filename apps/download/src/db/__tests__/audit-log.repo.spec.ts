@@ -200,6 +200,55 @@ describe('insertAuditLog', () => {
     }
   })
 
+  // The two manual-importer actions, written and filtered by name rather than
+  // covered incidentally - they are the newest members of the closed
+  // vocabulary, and the column's enum is a *copy* of it (schema.ts's
+  // `AUDIT_ACTIONS_LOCAL`), so a copy that missed them would fail here.
+  it('stores and filters the manual-import and discard actions', () => {
+    const { db, close } = createTestDb()
+    try {
+      const imported = insertAuditLog(db, {
+        action: 'media.manual_import',
+        actor: { email: 'alice@example.com', userId: 'user_1' },
+        metadata: {
+          fileCount: 2,
+          paths: ['/downloads/Inception.mkv', '/downloads/Inception.srt'],
+        },
+        target: { id: 'tmdb:27205', type: 'media' },
+      })
+      const discarded = insertAuditLog(db, {
+        action: 'media.discard_download',
+        actor: { email: 'alice@example.com', userId: 'user_1' },
+        target: { id: 'tmdb:27205', type: 'media' },
+      })
+
+      expect(imported).toMatchObject({
+        action: 'media.manual_import',
+        metadata: {
+          fileCount: 2,
+          paths: ['/downloads/Inception.mkv', '/downloads/Inception.srt'],
+        },
+        targetId: 'tmdb:27205',
+        targetType: 'media',
+      })
+      expect(discarded).toMatchObject({
+        action: 'media.discard_download',
+        metadata: null,
+        targetId: 'tmdb:27205',
+      })
+
+      const page = listAuditLogPage(db, {
+        filter: { action: 'media.manual_import' },
+        limit: 10,
+      })
+
+      expect(page.rows.map(r => r.action)).toEqual(['media.manual_import'])
+      expect(page.total).toBe(1)
+    } finally {
+      close()
+    }
+  })
+
   it('reads inserted web and service rows back through the list query', () => {
     const { db, close } = createTestDb()
     try {

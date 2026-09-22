@@ -371,6 +371,8 @@ export const AUDIT_ACTIONS_LOCAL = [
   'file.flag_bad',
   'file.unflag_bad',
   'ytdlp.check_update',
+  'media.manual_import',
+  'media.discard_download',
 ] as const
 
 export const AUDIT_TARGET_TYPES_LOCAL = ['job', 'media'] as const

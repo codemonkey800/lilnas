@@ -45,6 +45,8 @@ export const AUDIT_ACTION_LEVELS: Record<AuditAction, AuditLevel> = {
   'file.flag_bad': { label: 'FLAG', tone: 'warn' },
   'file.unflag_bad': { label: 'UNFLAG', tone: 'uv' },
   'ytdlp.check_update': { label: 'UPDATE', tone: 'mute' },
+  'media.manual_import': { label: 'IMPORT', tone: 'uv' },
+  'media.discard_download': { label: 'DISCARD', tone: 'bad' },
 }
 
 /** The level an audit row renders at. See {@link AUDIT_ACTION_LEVELS}. */
@@ -73,6 +75,8 @@ export const AUDIT_ACTION_PHRASES: Record<AuditAction, string> = {
   'file.flag_bad': 'flagged a release bad',
   'file.unflag_bad': 'cleared a bad-release flag',
   'ytdlp.check_update': 'checked for a yt-dlp update',
+  'media.manual_import': 'manually imported files',
+  'media.discard_download': 'discarded a stuck download',
 }
 
 /**
