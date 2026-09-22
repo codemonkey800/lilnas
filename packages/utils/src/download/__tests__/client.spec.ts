@@ -621,6 +621,79 @@ describe('DownloadClient', () => {
       )
     })
 
+    it('listImportCandidates URL-encodes the key and appends the scope query', async () => {
+      const candidates = [
+        {
+          importable: true,
+          path: '/downloads/Some.Movie.2020.1080p/movie.mkv',
+          rejections: [],
+        },
+      ]
+      const fetchSpy = mockFetchJson({ candidates })
+
+      await expect(
+        client.listImportCandidates(MEDIA_ID, { seasonNumber: 2 }),
+      ).resolves.toEqual({ candidates })
+      expect(fetchSpy).toHaveBeenCalledWith(
+        `http://localhost:8081/download/media/${ENCODED}/imports?seasonNumber=2`,
+        { headers: JSON_HEADERS },
+      )
+    })
+
+    it('listImportCandidates omits the query string entirely when unscoped', async () => {
+      const fetchSpy = mockFetchJson({ candidates: [] })
+
+      await client.listImportCandidates(MEDIA_ID)
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        `http://localhost:8081/download/media/${ENCODED}/imports`,
+        { headers: JSON_HEADERS },
+      )
+    })
+
+    it('importFiles issues a POST to /imports with the chosen paths', async () => {
+      const input = {
+        episodeId: 4412,
+        paths: ['/downloads/a.mkv', '/downloads/b.mkv'],
+      }
+      const fetchSpy = mockFetchJson({ importedCount: 2 })
+
+      await expect(client.importFiles(MEDIA_ID, input)).resolves.toEqual({
+        importedCount: 2,
+      })
+      expect(fetchSpy).toHaveBeenCalledWith(
+        `http://localhost:8081/download/media/${ENCODED}/imports`,
+        {
+          body: JSON.stringify(input),
+          headers: JSON_HEADERS,
+          method: 'POST',
+        },
+      )
+    })
+
+    it('discardImport issues a DELETE to /imports with the scope query', async () => {
+      const fetchSpy = mockFetchJson({ discardedCount: 1 })
+
+      await expect(
+        client.discardImport(MEDIA_ID, { episodeId: 4412 }),
+      ).resolves.toEqual({ discardedCount: 1 })
+      expect(fetchSpy).toHaveBeenCalledWith(
+        `http://localhost:8081/download/media/${ENCODED}/imports?episodeId=4412`,
+        { headers: JSON_HEADERS, method: 'DELETE' },
+      )
+    })
+
+    it('discardImport omits the query string entirely when unscoped', async () => {
+      const fetchSpy = mockFetchJson({ discardedCount: 0 })
+
+      await client.discardImport(MEDIA_ID)
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        `http://localhost:8081/download/media/${ENCODED}/imports`,
+        { headers: JSON_HEADERS, method: 'DELETE' },
+      )
+    })
+
     it('flagBadFile issues a POST to /bad-files with the flag body', async () => {
       const input = { guid: 'release-guid', reason: 'wrong audio track' }
       const badFile = {

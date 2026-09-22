@@ -6,6 +6,7 @@ import {
   AuditLogQuerySchema,
   BadFileSchema,
   DeleteMediaFilesQuerySchema,
+  DiscardImportQuerySchema,
   DiscordIdentitySchema,
   DiscordRequesterSchema,
   DiscoverQuerySchema,
@@ -21,7 +22,10 @@ import {
   GetMediaFileQuerySchema,
   GrabReleaseInputSchema,
   HistoryQuerySchema,
+  ImportFilesInputSchema,
+  ListImportCandidatesQuerySchema,
   ListReleasesQuerySchema,
+  ManualImportCandidateSchema,
   MediaSchema,
   MovieSchema,
   ProfileQuerySchema,
@@ -33,7 +37,14 @@ import {
   ShowScopeSchema,
   VideoSchema,
 } from 'src/download/schema'
-import { Media, Movie, Release, Show, Video } from 'src/download/types'
+import {
+  ManualImportCandidate,
+  Media,
+  Movie,
+  Release,
+  Show,
+  Video,
+} from 'src/download/types'
 
 describe('ActivityQuerySchema', () => {
   it('defaults limit to 24 and leaves type undefined when omitted', () => {
@@ -1506,5 +1517,195 @@ describe('ProfileQuerySchema', () => {
 
   it('rejects an empty requester', () => {
     expect(ProfileQuerySchema.safeParse({ requester: '' }).success).toBe(false)
+  })
+})
+
+// ---- Plan 020: stuck imports and the in-app importer ----
+
+const minimalCandidate = {
+  importable: true,
+  path: '/downloads/Some.Movie.2020.1080p/movie.mkv',
+  rejections: [],
+}
+
+describe('ManualImportCandidateSchema', () => {
+  it('parses a candidate carrying only the required fields', () => {
+    expect(ManualImportCandidateSchema.parse(minimalCandidate)).toEqual(
+      minimalCandidate,
+    )
+  })
+
+  it.each(['importable', 'path', 'rejections'])(
+    'rejects a candidate missing %s',
+    field => {
+      expect(
+        ManualImportCandidateSchema.safeParse(without(minimalCandidate, field))
+          .success,
+      ).toBe(false)
+    },
+  )
+
+  it('round-trips an importable movie candidate with every field set', () => {
+    const candidate = {
+      ...minimalCandidate,
+      downloadId: 'sabnzbd-7f3',
+      languages: ['English'],
+      movieTitle: 'Some Movie',
+      name: 'movie.mkv',
+      quality: { name: 'WEBDL-1080p', resolution: 1080 },
+      rejections: ['Unknown movie'],
+      relativePath: 'movie.mkv',
+      releaseGroup: 'NTB',
+      size: 8_589_934_592,
+    }
+
+    expect(ManualImportCandidateSchema.parse(candidate)).toEqual(candidate)
+  })
+
+  it('round-trips a blocked show candidate with its episodes and reason', () => {
+    const candidate = {
+      blockedReason: 'No episode matched this file',
+      episodes: [
+        { episodeNumber: 5, id: 4412, seasonNumber: 3, title: 'Straight Time' },
+      ],
+      importable: false,
+      path: '/downloads/The.Wire.S03E05/episode.mkv',
+      rejections: ['Unknown series'],
+    }
+
+    expect(ManualImportCandidateSchema.parse(candidate)).toEqual(candidate)
+  })
+
+  // The rejections upstream raises are informational here, not blocking -
+  // manually importing is precisely how a human overrides them.
+  it('accepts rejections on a candidate that is still importable', () => {
+    const result = ManualImportCandidateSchema.parse({
+      ...minimalCandidate,
+      rejections: ['Not a preferred word upgrade'],
+    })
+
+    expect(result.importable).toBe(true)
+    expect(result.rejections).toEqual(['Not a preferred word upgrade'])
+  })
+
+  it('accepts a quality with no resolution, like a release', () => {
+    expect(
+      ManualImportCandidateSchema.safeParse({
+        ...minimalCandidate,
+        quality: { name: 'Unknown' },
+      }).success,
+    ).toBe(true)
+  })
+
+  it('a hand-built ManualImportCandidate satisfies both the TS type and the schema', () => {
+    const candidate: ManualImportCandidate = {
+      importable: false,
+      blockedReason: 'No quality could be resolved',
+      path: '/downloads/x.mkv',
+      rejections: [],
+    }
+
+    expect(ManualImportCandidateSchema.safeParse(candidate).success).toBe(true)
+  })
+})
+
+describe('ListImportCandidatesQuerySchema / DiscardImportQuerySchema', () => {
+  // Both are the release list's scope query, aliased rather than
+  // re-declared so the three can never drift.
+  it('are the same schema as ListReleasesQuerySchema', () => {
+    expect(ListImportCandidatesQuerySchema).toBe(ListReleasesQuerySchema)
+    expect(DiscardImportQuerySchema).toBe(ListReleasesQuerySchema)
+  })
+
+  it('coerces numeric-string query params', () => {
+    expect(
+      ListImportCandidatesQuerySchema.parse({
+        episodeId: '4412',
+        seasonNumber: '2',
+      }),
+    ).toEqual({ episodeId: 4412, seasonNumber: 2 })
+  })
+})
+
+describe('ImportFilesInputSchema', () => {
+  it('parses the minimal { paths } body', () => {
+    expect(
+      ImportFilesInputSchema.parse({ paths: ['/downloads/a.mkv'] }),
+    ).toEqual({ paths: ['/downloads/a.mkv'] })
+  })
+
+  it('carries the show-only scoping params through', () => {
+    expect(
+      ImportFilesInputSchema.parse({
+        episodeId: 4412,
+        paths: ['/downloads/a.mkv', '/downloads/b.mkv'],
+        seasonNumber: 3,
+      }),
+    ).toEqual({
+      episodeId: 4412,
+      paths: ['/downloads/a.mkv', '/downloads/b.mkv'],
+      seasonNumber: 3,
+    })
+  })
+
+  // An empty commit is a client bug worth a 400, not a silent no-op that
+  // reports "imported 0 files" as a success.
+  it('rejects an empty paths array', () => {
+    expect(ImportFilesInputSchema.safeParse({ paths: [] }).success).toBe(false)
+  })
+
+  it('rejects a missing paths array', () => {
+    expect(ImportFilesInputSchema.safeParse({}).success).toBe(false)
+  })
+
+  it('rejects an empty path string', () => {
+    expect(ImportFilesInputSchema.safeParse({ paths: [''] }).success).toBe(
+      false,
+    )
+  })
+
+  it('accepts season 0 (specials)', () => {
+    expect(
+      ImportFilesInputSchema.parse({ paths: ['/a.mkv'], seasonNumber: 0 })
+        .seasonNumber,
+    ).toBe(0)
+  })
+
+  it('does not coerce a string seasonNumber - this is a JSON body, not a query', () => {
+    expect(
+      ImportFilesInputSchema.safeParse({ paths: ['/a.mkv'], seasonNumber: '3' })
+        .success,
+    ).toBe(false)
+  })
+})
+
+describe('AUDIT_ACTIONS additions', () => {
+  it('carries the two manual-import actions', () => {
+    expect(AUDIT_ACTIONS).toEqual(
+      expect.arrayContaining(['media.manual_import', 'media.discard_download']),
+    )
+  })
+
+  // Append-only: rows already written keep whatever value they were written
+  // with, so the existing members must never be reordered or removed.
+  it('leaves the pre-existing actions in place, in order', () => {
+    expect(AUDIT_ACTIONS.slice(0, 16)).toEqual([
+      'video.create',
+      'video.cancel',
+      'video.pause',
+      'video.resume',
+      'video.delete',
+      'movie.request',
+      'movie.delete',
+      'show.request',
+      'show.delete',
+      'media.delete_files',
+      'media.save_file',
+      'release.grab',
+      'release.replace',
+      'file.flag_bad',
+      'file.unflag_bad',
+      'ytdlp.check_update',
+    ])
   })
 })

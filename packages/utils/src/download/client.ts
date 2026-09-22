@@ -21,6 +21,8 @@ import {
   CreateDownloadJobInput,
   DeleteMediaFilesQuery,
   DeleteMediaFilesResponse,
+  DiscardImportQuery,
+  DiscardImportResponse,
   DiscoverQuery,
   DiscoveryPage,
   DOWNLOAD_JOB_EVENT_TYPE,
@@ -35,8 +37,12 @@ import {
   GetMediaFileQuery,
   GrabReleaseInput,
   HistoryQuery,
+  ImportFilesInput,
+  ImportFilesResponse,
   isTerminalDownloadJobStatus,
   ListBadFilesResponse,
+  ListImportCandidatesQuery,
+  ListImportCandidatesResponse,
   ListReleasesQuery,
   ListReleasesResponse,
   ListSeasonsResponse,
@@ -522,6 +528,67 @@ export class DownloadClient {
     const response = await this.request(
       `/download/media/${encodeURIComponent(id)}/releases/replace`,
       { method: 'POST', body: JSON.stringify(input) },
+    )
+
+    return response.json()
+  }
+
+  /**
+   * The files Radarr/Sonarr is holding for manual import - the rows behind a
+   * `needs_attention` job, whose bytes are on disk but which upstream refused
+   * to import on its own.
+   *
+   * Not free: it asks upstream to inspect every queue item in scope, so
+   * expect it to take as long as opening their own manual-import dialog. The
+   * answer is a flat list across queue items, since the dialog picks files
+   * rather than queue rows.
+   */
+  async listImportCandidates(
+    id: string,
+    query: Partial<ListImportCandidatesQuery> = {},
+  ): Promise<ListImportCandidatesResponse> {
+    const response = await this.request(
+      `/download/media/${encodeURIComponent(id)}/imports${toQueryString(query)}`,
+    )
+
+    return response.json()
+  }
+
+  /**
+   * Commits the chosen candidates, identified by `paths` alone - everything
+   * else the `ManualImport` command needs is re-resolved server-side from a
+   * fresh candidate list, the same way `grabRelease` sends only `guid`.
+   *
+   * `importedCount` counts what was handed to upstream, not what landed: the
+   * command is asynchronous, so the files are still moving when this returns.
+   */
+  async importFiles(
+    id: string,
+    input: ImportFilesInput,
+  ): Promise<ImportFilesResponse> {
+    const response = await this.request(
+      `/download/media/${encodeURIComponent(id)}/imports`,
+      { method: 'POST', body: JSON.stringify(input) },
+    )
+
+    return response.json()
+  }
+
+  /**
+   * Gives up on a stuck download: discards every queue item in scope,
+   * client-side files included.
+   *
+   * The counterpart of `importFiles` - the other way out of
+   * `needs_attention`, and the destructive one. Discarding nothing is a
+   * success, not a 404.
+   */
+  async discardImport(
+    id: string,
+    query: Partial<DiscardImportQuery> = {},
+  ): Promise<DiscardImportResponse> {
+    const response = await this.request(
+      `/download/media/${encodeURIComponent(id)}/imports${toQueryString(query)}`,
+      { method: 'DELETE' },
     )
 
     return response.json()

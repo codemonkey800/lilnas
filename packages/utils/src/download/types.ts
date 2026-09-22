@@ -10,6 +10,7 @@ import {
   BadFileSchema,
   CreateDownloadJobInputSchema,
   DeleteMediaFilesQuerySchema,
+  DiscardImportQuerySchema,
   DiscordIdentitySchema,
   DiscordRequesterSchema,
   DiscoverQuerySchema,
@@ -26,9 +27,12 @@ import {
   GetMediaFileQuerySchema,
   GrabReleaseInputSchema,
   HistoryQuerySchema,
+  ImportFilesInputSchema,
   JobRequesterSchema,
+  ListImportCandidatesQuerySchema,
   ListReleasesQuerySchema,
   ManagedMediaBaseSchema,
+  ManualImportCandidateSchema,
   MediaBaseSchema,
   MediaSchema,
   MediaSearchQuerySchema,
@@ -511,4 +515,50 @@ export interface YtdlpUpdateStatusResponse {
   lastCheck: string | null
   lastAttempt: string | null
   retryCount: number
+}
+
+// ---- Plan 020: stuck imports and the in-app importer ----
+
+/**
+ * One file Radarr/Sonarr is offering for manual import. `path` is the
+ * identity of the row - the only field the commit sends back; see
+ * `ManualImportCandidateSchema` for why everything else is re-resolved
+ * server-side.
+ */
+export type ManualImportCandidate = z.infer<typeof ManualImportCandidateSchema>
+
+export type ListImportCandidatesQuery = z.infer<
+  typeof ListImportCandidatesQuerySchema
+>
+export type ImportFilesInput = z.infer<typeof ImportFilesInputSchema>
+export type DiscardImportQuery = z.infer<typeof DiscardImportQuerySchema>
+
+/**
+ * `GET /download/media/:id/imports`. The candidates of *every* queue item in
+ * scope, flattened into one list - a stuck download can span several queue
+ * items, and the dialog picks files, not queue rows.
+ */
+export interface ListImportCandidatesResponse {
+  candidates: ManualImportCandidate[]
+}
+
+/**
+ * `POST /download/media/:id/imports`. `importedCount` is how many of the
+ * requested paths were handed to upstream's `ManualImport` command, not how
+ * many files ended up on disk: the command is asynchronous, so the move
+ * itself is still in flight when this answers.
+ */
+export interface ImportFilesResponse {
+  importedCount: number
+}
+
+/**
+ * `DELETE /download/media/:id/imports`. Discards every queue item in scope,
+ * client files included - the give-up path for a download that will never
+ * import. Discarding zero items is a success, not a 404, for the reason
+ * `DeleteMediaFilesResponse` gives: the caller asked for a state, and that
+ * state already held.
+ */
+export interface DiscardImportResponse {
+  discardedCount: number
 }

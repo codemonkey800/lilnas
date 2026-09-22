@@ -733,6 +733,8 @@ export const AUDIT_ACTIONS = [
   'file.flag_bad',
   'file.unflag_bad',
   'ytdlp.check_update',
+  'media.manual_import',
+  'media.discard_download',
 ] as const
 
 /**
@@ -838,3 +840,98 @@ export const UpdateCheckResultSchema = z.object({
   reason: z.string().optional(),
   updateAvailable: z.boolean(),
 })
+
+// ---- Plan 020: stuck imports and the in-app importer ----
+
+/**
+ * One file Radarr/Sonarr is offering for manual import - a row in their
+ * manual-import dialog, as `GET /download/media/:id/imports` reports it.
+ *
+ * `path` is the identity of the row: it is what the client sends back to
+ * commit, and everything else the `ManualImport` command needs (quality,
+ * languages, release group, `downloadId`) is re-resolved server-side from a
+ * fresh candidate list. That is the same trust boundary
+ * {@link GrabReleaseInputSchema} draws with `guid` - the client names its
+ * pick, it never dictates the command.
+ *
+ * One wire type for both services, for the reason {@link ReleaseSchema}
+ * gives: the two generated `ManualImportResource` types differ only in which
+ * of `movie`/`episodes` they carry, so each service maps into this shape
+ * rather than leaking its own.
+ */
+export const ManualImportCandidateSchema = z.object({
+  /** Why not, when `importable` is false - rendered beside the row. */
+  blockedReason: z.string().optional(),
+  /** The download client's id for the queue item this file came from. */
+  downloadId: z.string().optional(),
+  /** Show: the episodes this file covers. Absent for a movie. */
+  episodes: z
+    .array(
+      z.object({
+        episodeNumber: z.number().int(),
+        id: z.number().int(),
+        seasonNumber: z.number().int(),
+        title: z.string().optional(),
+      }),
+    )
+    .optional(),
+  /**
+   * Server-decided: whether the `ManualImport` command can be built for this
+   * file at all. Distinct from `rejections`, which upstream raises for files
+   * it would merely prefer not to import.
+   */
+  importable: z.boolean(),
+  /** Flattened from the SDK's `Array<Language>` to just the names. */
+  languages: z.array(z.string()).optional(),
+  /** Movie: the resolved title. Absent for a show. */
+  movieTitle: z.string().optional(),
+  /** The file's own name, for a row that renders without the full path. */
+  name: z.string().optional(),
+  /** Absolute path in the download client's view - the commit key. */
+  path: z.string(),
+  quality: ReleaseQualitySchema.optional(),
+  /**
+   * Upstream's own words, `reason` only - informational for a manual import
+   * rather than blocking, since manually importing is precisely how a human
+   * overrides them. `importable`/`blockedReason` carry the blocking half.
+   */
+  rejections: z.array(z.string()),
+  /** Relative to the queue item's output directory. */
+  relativePath: z.string().optional(),
+  releaseGroup: z.string().optional(),
+  /** Bytes. */
+  size: z.number().optional(),
+})
+
+/**
+ * `GET /download/media/:id/imports` - the same show scoping, spelled the same
+ * way, as the release list it sits beside. Aliased rather than re-declared so
+ * the two can never drift.
+ */
+export const ListImportCandidatesQuerySchema = ListReleasesQuerySchema
+
+/**
+ * `POST /download/media/:id/imports`. `paths` names the candidate rows to
+ * commit, and nothing else: see {@link ManualImportCandidateSchema} for why
+ * the rest of each `ManualImport` file is re-resolved server-side.
+ *
+ * `.min(1)` because an empty commit is a client bug worth a 400, not a
+ * silent no-op that reports "imported 0 files" as a success.
+ *
+ * `episodeId`/`seasonNumber` are show-only and scope which queue items the
+ * candidates are drawn from. Plain `z.number()`, deliberately not the
+ * `z.coerce.number()` the query schemas use - this is a JSON body; see
+ * `DeleteMediaFilesQuerySchema` for why the two share no zod fragment.
+ */
+export const ImportFilesInputSchema = z.object({
+  episodeId: z.number().int().positive().optional(),
+  paths: z.array(z.string().min(1)).min(1),
+  seasonNumber: z.number().int().min(0).optional(),
+})
+
+/**
+ * `DELETE /download/media/:id/imports` - the give-up path, scoped exactly
+ * like the list it discards. Aliased to {@link ListReleasesQuerySchema} for
+ * the same reason {@link ListImportCandidatesQuerySchema} is.
+ */
+export const DiscardImportQuerySchema = ListReleasesQuerySchema
