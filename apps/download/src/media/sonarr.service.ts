@@ -4,8 +4,12 @@ import type {
   EpisodeResource,
   HistoryResource,
   IndexerResource,
+  Language,
+  ManualImportResource,
+  QualityModel,
   QueueResource,
   ReleaseResource,
+  ReleaseType,
   SeasonResource,
   SeriesResource,
   SeriesResourceWritable,
@@ -19,6 +23,7 @@ import {
   getApiV3Episodefile,
   getApiV3HistorySeries,
   getApiV3Indexer,
+  getApiV3Manualimport,
   getApiV3Qualityprofile,
   getApiV3Queue,
   getApiV3Release,
@@ -78,6 +83,46 @@ type EpisodeSearchCommand = CommandResourceWritable & { episodeIds?: number[] }
 type SeasonSearchCommand = CommandResourceWritable & {
   seasonNumber?: number
   seriesId?: number
+}
+
+/**
+ * One file in a ManualImport command body - what Sonarr's own manual-import
+ * dialog sends per row once the user has confirmed it.
+ *
+ * `path`, `seriesId` and `episodeIds` are the required trio: the path is the
+ * file on disk Sonarr refused to import automatically, and the two ids say
+ * which series and which episodes it belongs to. Everything else is carried
+ * over from the `ManualImportResource` candidate so Sonarr keeps the quality,
+ * languages and release group it already parsed instead of re-deriving them
+ * from the filename - `downloadId` in particular is what lets Sonarr tie the
+ * import back to the queue item that produced it.
+ *
+ * Built by the caller from `getManualImportCandidates()` output; exported
+ * because the mapping from candidate to file lives outside this service.
+ */
+export type SonarrManualImportFile = {
+  downloadId?: string | null
+  episodeFileId?: number | null
+  episodeIds: number[]
+  folderName?: string | null
+  indexerFlags?: number
+  languages?: Language[] | null
+  path: string
+  quality?: QualityModel
+  releaseGroup?: string | null
+  releaseType?: ReleaseType
+  seriesId: number
+}
+
+/**
+ * The ManualImport command body. Neither SDK types command-specific fields -
+ * `CommandResourceWritable` carries only `name` - so this is the same
+ * locally-typed intersection trick `SeriesSearchCommand` above uses, posted
+ * through `postApiV3Command`.
+ */
+type ManualImportCommand = CommandResourceWritable & {
+  files: SonarrManualImportFile[]
+  importMode: 'auto' | 'copy' | 'move'
 }
 
 export interface RequestShowResult {
@@ -1063,6 +1108,104 @@ export class SonarrService {
         query: { deleteFiles, addImportListExclusion: false },
       }),
       'deleteSeries',
+    )
+  }
+
+  /**
+   * The candidates Sonarr would offer in its own manual-import dialog for a
+   * finished download it refused to import: the files it found in the
+   * download folder, each with whatever series, episodes and quality it
+   * managed to parse, plus the rejections it recorded.
+   *
+   * Scoped by `downloadId` **and** `seriesId` so the answer covers only the
+   * job that asked. `seasonNumber` narrows it further and is forwarded only
+   * when the caller supplied one - season 0 is specials, a real season, so
+   * the test is `!= null` and never truthiness.
+   *
+   * `filterExistingFiles: true` is what Sonarr's own UI sends: files already
+   * in the library are dropped rather than offered for a second import.
+   *
+   * Resources come back raw and unmapped, and nothing here filters them: an
+   * empty `episodes` (a season pack Sonarr could not parse) is not an error
+   * at this layer, and a rejection is informational - manual import builds a
+   * fresh decision with no rejections per file, so even a `permanent` one
+   * does not block the import. The caller decides what an empty list, an
+   * empty `episodes` or a rejection means.
+   */
+  async getManualImportCandidates(
+    downloadId: string,
+    sonarrId: number,
+    seasonNumber?: number,
+  ): Promise<ManualImportResource[]> {
+    return unwrapSdkResult(
+      await getApiV3Manualimport({
+        client: this.client,
+        query: {
+          downloadId,
+          filterExistingFiles: true,
+          seriesId: sonarrId,
+          ...(seasonNumber != null ? { seasonNumber } : {}),
+        },
+      }),
+      'getManualImportCandidates',
+    )
+  }
+
+  /**
+   * Imports the chosen files - the button at the bottom of Sonarr's
+   * manual-import dialog.
+   *
+   * The import is a **command**, not a call to the manualimport endpoint:
+   * `postApiV3Manualimport` is the *reprocess* endpoint, which re-evaluates
+   * candidates after the user edits a field and imports nothing at all, so it
+   * is deliberately not used here.
+   *
+   * `importMode: 'auto'` lets Sonarr choose move-vs-copy from the download
+   * client's own settings, which is what its UI sends.
+   *
+   * An empty list throws before anything reaches Sonarr: a ManualImport
+   * command with no files would be accepted and quietly do nothing, so it is
+   * a caller bug worth failing loudly on.
+   */
+  async commitManualImport(files: SonarrManualImportFile[]): Promise<void> {
+    if (files.length === 0) {
+      throw new Error('commitManualImport requires at least one file')
+    }
+
+    const command: ManualImportCommand = {
+      files,
+      importMode: 'auto',
+      name: 'ManualImport',
+    }
+
+    checkSdkError(
+      await postApiV3Command({ client: this.client, body: command }),
+      'commitManualImport',
+    )
+  }
+
+  /**
+   * Drops a single queue row once its files have been imported by hand - the
+   * "Downloaded - Waiting to Import" row Sonarr would otherwise keep showing
+   * forever.
+   *
+   * `blocklist: false` because the release itself was fine - the folder name
+   * was the problem - and blocklisting it would stop Sonarr picking the same
+   * release next time. `skipRedownload: true` keeps Sonarr from immediately
+   * searching again on the user's behalf, since the file is already imported.
+   */
+  async removeQueueItem(queueId: number): Promise<void> {
+    checkSdkError(
+      await deleteApiV3QueueById({
+        client: this.client,
+        path: { id: queueId },
+        query: {
+          blocklist: false,
+          removeFromClient: true,
+          skipRedownload: true,
+        },
+      }),
+      'removeQueueItem',
     )
   }
 

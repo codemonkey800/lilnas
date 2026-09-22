@@ -11,6 +11,7 @@ jest.mock('@lilnas/media/sonarr', () => ({
   getApiV3Episodefile: jest.fn(),
   getApiV3HistorySeries: jest.fn(),
   getApiV3Indexer: jest.fn(),
+  getApiV3Manualimport: jest.fn(),
   getApiV3Qualityprofile: jest.fn(),
   getApiV3Queue: jest.fn(),
   getApiV3Release: jest.fn(),
@@ -34,6 +35,7 @@ import {
   getApiV3Episodefile,
   getApiV3HistorySeries,
   getApiV3Indexer,
+  getApiV3Manualimport,
   getApiV3Qualityprofile,
   getApiV3Queue,
   getApiV3Release,
@@ -49,7 +51,10 @@ import {
 } from '@lilnas/media/sonarr'
 
 import { SONARR_CLIENT } from 'src/media/clients'
-import { SonarrService } from 'src/media/sonarr.service'
+import {
+  type SonarrManualImportFile,
+  SonarrService,
+} from 'src/media/sonarr.service'
 
 const mockGetApiV3SeriesLookup = getApiV3SeriesLookup as jest.Mock
 const mockGetApiV3Qualityprofile = getApiV3Qualityprofile as jest.Mock
@@ -71,6 +76,7 @@ const mockGetApiV3HistorySeries = getApiV3HistorySeries as jest.Mock
 const mockGetApiV3Indexer = getApiV3Indexer as jest.Mock
 const mockPutApiV3SeriesById = putApiV3SeriesById as jest.Mock
 const mockPutApiV3EpisodeMonitor = putApiV3EpisodeMonitor as jest.Mock
+const mockGetApiV3Manualimport = getApiV3Manualimport as jest.Mock
 
 describe('SonarrService', () => {
   let service: SonarrService
@@ -1595,6 +1601,145 @@ describe('SonarrService', () => {
 
       expect(result).toHaveLength(1)
       expect(result[0]?.show.tvdbId).toBe(555)
+    })
+  })
+
+  describe('getManualImportCandidates', () => {
+    it('scopes the query to the download and series, filtering existing files', async () => {
+      mockGetApiV3Manualimport.mockResolvedValue({ data: [{ id: 1 }] })
+
+      const result = await service.getManualImportCandidates('abc123', 9)
+
+      expect(mockGetApiV3Manualimport.mock.calls[0][0].query).toEqual({
+        downloadId: 'abc123',
+        filterExistingFiles: true,
+        seriesId: 9,
+      })
+      expect(result).toEqual([{ id: 1 }])
+    })
+
+    // Season 0 is specials - a falsy season number that must still be sent.
+    it('forwards season 0 as a real season number', async () => {
+      mockGetApiV3Manualimport.mockResolvedValue({ data: [] })
+
+      await service.getManualImportCandidates('abc123', 9, 0)
+
+      expect(mockGetApiV3Manualimport.mock.calls[0][0].query).toEqual({
+        downloadId: 'abc123',
+        filterExistingFiles: true,
+        seasonNumber: 0,
+        seriesId: 9,
+      })
+    })
+
+    it('omits seasonNumber entirely when the caller passed none', async () => {
+      mockGetApiV3Manualimport.mockResolvedValue({ data: [] })
+
+      await service.getManualImportCandidates('abc123', 9, undefined)
+
+      expect(
+        mockGetApiV3Manualimport.mock.calls[0][0].query,
+      ).not.toHaveProperty('seasonNumber')
+    })
+
+    it('returns an empty array when Sonarr offers no candidates', async () => {
+      mockGetApiV3Manualimport.mockResolvedValue({ data: [] })
+
+      await expect(
+        service.getManualImportCandidates('abc123', 9),
+      ).resolves.toEqual([])
+    })
+
+    it('keeps a candidate with no parsed episodes untouched', async () => {
+      const candidate = { episodes: [], id: 1, path: '/downloads/pack' }
+      mockGetApiV3Manualimport.mockResolvedValue({ data: [candidate] })
+
+      const result = await service.getManualImportCandidates('abc123', 9)
+
+      expect(result).toEqual([candidate])
+    })
+
+    it('throws when Sonarr rejects the lookup', async () => {
+      mockGetApiV3Manualimport.mockResolvedValue({
+        error: { message: 'boom' },
+        response: { status: 500 },
+      })
+
+      await expect(
+        service.getManualImportCandidates('abc123', 9),
+      ).rejects.toThrow('getManualImportCandidates failed')
+    })
+  })
+
+  describe('commitManualImport', () => {
+    const file: SonarrManualImportFile = {
+      downloadId: 'abc123',
+      episodeIds: [4412],
+      folderName: 'Some.Show.S01E01',
+      path: '/downloads/Some.Show.S01E01/file.mkv',
+      quality: { quality: { id: 4, name: 'HDTV-720p' } },
+      seriesId: 9,
+    }
+
+    it('posts a ManualImport command with importMode auto and the files untouched', async () => {
+      mockPostApiV3Command.mockResolvedValue({ data: { id: 1 } })
+
+      await service.commitManualImport([file])
+
+      expect(mockPostApiV3Command.mock.calls[0][0].body).toEqual({
+        files: [file],
+        importMode: 'auto',
+        name: 'ManualImport',
+      })
+    })
+
+    it('throws before calling Sonarr when given no files', async () => {
+      await expect(service.commitManualImport([])).rejects.toThrow(
+        'commitManualImport requires at least one file',
+      )
+
+      expect(postApiV3Command).not.toHaveBeenCalled()
+    })
+
+    it('surfaces an upstream failure with its own context', async () => {
+      mockPostApiV3Command.mockResolvedValue({
+        error: { message: 'no such series' },
+        response: { status: 400 },
+      })
+
+      await expect(service.commitManualImport([file])).rejects.toThrow(
+        'commitManualImport failed: {"message":"no such series"}',
+      )
+    })
+  })
+
+  describe('removeQueueItem', () => {
+    it('deletes the queue row without blocklisting or redownloading', async () => {
+      mockDeleteApiV3QueueById.mockResolvedValue({ data: undefined })
+
+      await service.removeQueueItem(77)
+
+      expect(deleteApiV3QueueById).toHaveBeenCalledWith(
+        expect.objectContaining({
+          path: { id: 77 },
+          query: {
+            blocklist: false,
+            removeFromClient: true,
+            skipRedownload: true,
+          },
+        }),
+      )
+    })
+
+    it('throws when Sonarr refuses the delete', async () => {
+      mockDeleteApiV3QueueById.mockResolvedValue({
+        error: { message: 'not found' },
+        response: { status: 404 },
+      })
+
+      await expect(service.removeQueueItem(77)).rejects.toThrow(
+        'removeQueueItem failed',
+      )
     })
   })
 })
