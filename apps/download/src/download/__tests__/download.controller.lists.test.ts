@@ -23,6 +23,7 @@ import { JobQueryService } from 'src/download/job-query.service'
 import { ProfileService } from 'src/download/profile.service'
 import { CurrentReleaseService } from 'src/media/current-release.service'
 import { DiscoveryService } from 'src/media/discovery.service'
+import { ManualImportService } from 'src/media/manual-import.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import { MediaFileService } from 'src/media/media-file.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
@@ -67,6 +68,7 @@ describe('DownloadController - activity/gallery list endpoints', () => {
         { provide: DownloadService, useValue: {} },
         { provide: DownloadStateService, useValue: { jobs: new Map() } },
         { provide: JobQueryService, useValue: mockJobQueryService },
+        { provide: ManualImportService, useValue: {} },
         { provide: MediaDownloadService, useValue: {} },
         { provide: MediaFileService, useValue: {} },
         { provide: MediaResolverService, useValue: { resolve: jest.fn() } },

@@ -2,6 +2,7 @@ import {
   ActivityQuerySchema,
   CreateDownloadJobInputSchema,
   DeleteMediaFilesQuerySchema,
+  DiscardImportQuerySchema,
   DiscoverQuerySchema,
   FlagBadFileInputSchema,
   GalleryFacetsQuerySchema,
@@ -9,6 +10,8 @@ import {
   GetMediaFileQuerySchema,
   GrabReleaseInputSchema,
   HistoryQuerySchema,
+  ImportFilesInputSchema,
+  ListImportCandidatesQuerySchema,
   ListReleasesQuerySchema,
   MediaSearchQuerySchema,
   ProfileQuerySchema,
@@ -19,6 +22,7 @@ import {
 import type {
   AuditAction,
   DeleteMediaFilesResponse,
+  DiscardImportResponse,
   DiscordRequester,
   DiscoveryPage,
   DownloadGalleryFacets,
@@ -27,7 +31,9 @@ import type {
   DownloadType,
   FlagBadFileResponse,
   GalleryItem,
+  ImportFilesResponse,
   ListBadFilesResponse,
+  ListImportCandidatesResponse,
   ListReleasesResponse,
   ListSeasonsResponse,
   Media,
@@ -78,6 +84,7 @@ import {
 import { mediaTypeFromKey } from 'src/db/media-id'
 import { CurrentReleaseService } from 'src/media/current-release.service'
 import { DiscoveryService } from 'src/media/discovery.service'
+import { ManualImportService } from 'src/media/manual-import.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import {
   MediaFileService,
@@ -99,6 +106,7 @@ class CreateJobInputDto extends createZodDto(CreateDownloadJobInputSchema) {}
 class DeleteMediaFilesQueryDto extends createZodDto(
   DeleteMediaFilesQuerySchema,
 ) {}
+class DiscardImportQueryDto extends createZodDto(DiscardImportQuerySchema) {}
 class DiscoverQueryDto extends createZodDto(DiscoverQuerySchema) {}
 class FlagBadFileInputDto extends createZodDto(FlagBadFileInputSchema) {}
 class GalleryFacetsQueryDto extends createZodDto(GalleryFacetsQuerySchema) {}
@@ -106,6 +114,10 @@ class GalleryQueryDto extends createZodDto(GalleryQuerySchema) {}
 class GetMediaFileQueryDto extends createZodDto(GetMediaFileQuerySchema) {}
 class GrabReleaseInputDto extends createZodDto(GrabReleaseInputSchema) {}
 class HistoryQueryDto extends createZodDto(HistoryQuerySchema) {}
+class ImportFilesInputDto extends createZodDto(ImportFilesInputSchema) {}
+class ListImportCandidatesQueryDto extends createZodDto(
+  ListImportCandidatesQuerySchema,
+) {}
 class ListReleasesQueryDto extends createZodDto(ListReleasesQuerySchema) {}
 class MediaSearchQueryDto extends createZodDto(MediaSearchQuerySchema) {}
 class ProfileQueryDto extends createZodDto(ProfileQuerySchema) {}
@@ -151,6 +163,7 @@ export class DownloadController {
     private downloadService: DownloadService,
     private downloadStateService: DownloadStateService,
     private jobQueryService: JobQueryService,
+    private manualImportService: ManualImportService,
     private mediaDownloadService: MediaDownloadService,
     private mediaFileService: MediaFileService,
     private mediaResolverService: MediaResolverService,
@@ -1068,6 +1081,180 @@ export class DownloadController {
       run: () => this.releaseService.replaceRelease(id, input, user),
       user,
     })
+  }
+
+  /**
+   * Every file Radarr/Sonarr is still offering for a download that finished
+   * and then refused to import - the rows the manual-import dialog lists.
+   *
+   * Keyed on **media** with the show scope in the query, exactly like
+   * `GET /media/:id/releases` and for the same reason `releaseActionRoute()`
+   * records: the candidate list belongs to a title's download rather than to
+   * a job, and one queue item can have several jobs pointed at it (a series
+   * job and an episode job both waiting on the same release).
+   *
+   * No identity param and no audit row, like the release list - reading
+   * what upstream is offering is not an event. An empty `candidates` is a
+   * legitimate 200: the import may have gone through between the poller's
+   * last tick and this call.
+   *
+   * Deliberately **not** `mediaJobRoute()`: that helper turns every failure
+   * into a 404, which would report a season scope on a movie key as "not
+   * found". What `ManualImportService` throws is left to Nest's exception
+   * filter to map honestly.
+   */
+  @Get('/media/:id/imports')
+  async listImportCandidates(
+    @Param('id') id: string,
+    @Query(new ZodValidationPipe(ListImportCandidatesQueryDto))
+    query: ListImportCandidatesQueryDto,
+  ): Promise<ListImportCandidatesResponse> {
+    const action = 'listImportCandidates'
+    const startTime = Date.now()
+
+    const candidates = await this.manualImportService.listCandidates(
+      id,
+      narrowScope({
+        episodeId: query.episodeId,
+        seasonNumber: query.seasonNumber,
+      }),
+    )
+
+    this.logger.log(
+      {
+        action,
+        duration: Date.now() - startTime,
+        importableCount: candidates.filter(c => c.importable).length,
+        mediaId: id,
+        resultCount: candidates.length,
+        statusCode: HttpStatus.OK,
+      },
+      'GET /media/:id/imports - listed manual-import candidates',
+    )
+
+    return { candidates }
+  }
+
+  /**
+   * Commits the chosen files through upstream's `ManualImport` command - the
+   * "import these" half of the dialog.
+   *
+   * The scope rides in the **body** rather than the query here, so the paths
+   * and the season/episode they belong to arrive as one document;
+   * `ManualImportService.importFiles` reads it off the input itself.
+   *
+   * `importedCount` is how many files were *submitted*: the command queues
+   * at upstream's end, and the matching jobs move to `Importing` for the
+   * poller to finish a tick or two later.
+   *
+   * `@OptionalCurrentUser()` rather than the guard, matching `grabRelease`:
+   * a service caller with no forwarded identity can still import, the audit
+   * row just records it as service-origin.
+   */
+  @Post('/media/:id/imports')
+  async importFiles(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(ImportFilesInputDto))
+    input: ImportFilesInputDto,
+    @OptionalCurrentUser() user: ForwardedUser | undefined,
+  ): Promise<ImportFilesResponse> {
+    const action = 'importFiles'
+    const startTime = Date.now()
+
+    const { importedCount } = await this.manualImportService.importFiles(
+      id,
+      input,
+    )
+
+    this.logger.log(
+      {
+        action,
+        duration: Date.now() - startTime,
+        episodeId: input.episodeId,
+        importedCount,
+        mediaId: id,
+        pathCount: input.paths.length,
+        // Not masked and not used for authorization - an import is an action
+        // someone took, and the log is the only place it is recorded.
+        requestedBy: user?.email ?? null,
+        seasonNumber: input.seasonNumber,
+        statusCode: HttpStatus.CREATED,
+      },
+      'POST /media/:id/imports - committed a stuck download',
+    )
+
+    // The **media** key is the target, not the job: an import is a statement
+    // about a title's files, and it may well have moved more than one job.
+    // The paths are kept verbatim because "which files did someone force in"
+    // is the whole question a later reader brings to this row.
+    this.auditLogService.record({
+      action: 'media.manual_import',
+      actor: user,
+      metadata: {
+        importedCount,
+        paths: input.paths,
+        ...narrowScope({
+          episodeId: input.episodeId,
+          seasonNumber: input.seasonNumber,
+        }),
+      },
+      target: { id, type: 'media' },
+    })
+
+    return { importedCount }
+  }
+
+  /**
+   * Throws the stuck download away - the "give up" half of the dialog.
+   * Removes the queue rows in scope (with their files) and cancels whichever
+   * jobs the scope answers.
+   *
+   * A zero `discardedCount` is a 200, like `DELETE /media/:id/files`: the
+   * caller asked for a state and that state already held. Only a removal
+   * that was attempted and failed for every row is an error, and that
+   * surfaces as the service's own 503.
+   */
+  @Delete('/media/:id/imports')
+  async discardImport(
+    @Param('id') id: string,
+    @Query(new ZodValidationPipe(DiscardImportQueryDto))
+    query: DiscardImportQueryDto,
+    @OptionalCurrentUser() user: ForwardedUser | undefined,
+  ): Promise<DiscardImportResponse> {
+    const action = 'discardImport'
+    const startTime = Date.now()
+    const scope = narrowScope({
+      episodeId: query.episodeId,
+      seasonNumber: query.seasonNumber,
+    })
+
+    const { discardedCount } = await this.manualImportService.discard(id, scope)
+
+    this.logger.log(
+      {
+        action,
+        discardedCount,
+        duration: Date.now() - startTime,
+        episodeId: query.episodeId,
+        mediaId: id,
+        requestedBy: user?.email ?? null,
+        seasonNumber: query.seasonNumber,
+        statusCode: HttpStatus.OK,
+      },
+      'DELETE /media/:id/imports - discarded a stuck download',
+    )
+
+    // Recorded even at zero, for the reason the file delete is: the request
+    // succeeded, someone asked for that download to be gone, and "nothing
+    // was there" is a fact worth having in the log.
+    this.auditLogService.record({
+      action: 'media.discard_download',
+      actor: user,
+      metadata: { discardedCount, ...scope },
+      target: { id, type: 'media' },
+    })
+
+    return { discardedCount }
   }
 
   // ForwardedUserGuard (not @OptionalCurrentUser()) - a flag records a

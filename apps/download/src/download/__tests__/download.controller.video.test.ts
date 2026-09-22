@@ -29,6 +29,7 @@ import { JobQueryService } from 'src/download/job-query.service'
 import { ProfileService } from 'src/download/profile.service'
 import { CurrentReleaseService } from 'src/media/current-release.service'
 import { DiscoveryService } from 'src/media/discovery.service'
+import { ManualImportService } from 'src/media/manual-import.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import { MediaFileService } from 'src/media/media-file.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
@@ -99,6 +100,7 @@ describe('DownloadController - video endpoints', () => {
         },
         { provide: DiscoveryService, useValue: {} },
         { provide: JobQueryService, useValue: {} },
+        { provide: ManualImportService, useValue: {} },
         { provide: MediaDownloadService, useValue: {} },
         { provide: MediaFileService, useValue: {} },
         { provide: MediaResolverService, useValue: { resolve: jest.fn() } },

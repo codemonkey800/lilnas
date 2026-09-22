@@ -27,6 +27,7 @@ import { DownloadGateway } from 'src/download-gateway/download.gateway'
 import { createFakeMediaResolver } from 'src/media/__tests__/helpers/fake-media-resolver'
 import { CurrentReleaseService } from 'src/media/current-release.service'
 import { DiscoveryService } from 'src/media/discovery.service'
+import { ManualImportService } from 'src/media/manual-import.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import { MediaFileService } from 'src/media/media-file.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
@@ -113,6 +114,7 @@ describe('DownloadController - read-time link resolution', () => {
         { provide: DownloadMetricsService, useValue: {} },
         { provide: DownloadService, useValue: {} },
         { provide: JobQueryService, useValue: {} },
+        { provide: ManualImportService, useValue: {} },
         { provide: MediaDownloadService, useValue: {} },
         { provide: MediaFileService, useValue: {} },
         { provide: MediaResolverService, useValue: createFakeMediaResolver() },

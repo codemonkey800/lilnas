@@ -12,6 +12,7 @@ import {
   DownloadJob,
   DownloadJobStatus,
   DownloadType,
+  type ManualImportCandidate,
   Media,
   type Release,
   type Season,
@@ -22,6 +23,7 @@ import {
   HttpException,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 
@@ -38,6 +40,7 @@ import { JobQueryService } from 'src/download/job-query.service'
 import { ProfileService } from 'src/download/profile.service'
 import { CurrentReleaseService } from 'src/media/current-release.service'
 import { DiscoveryService } from 'src/media/discovery.service'
+import { ManualImportService } from 'src/media/manual-import.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import { MediaFileService } from 'src/media/media-file.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
@@ -58,6 +61,7 @@ describe('DownloadController - media endpoints', () => {
   let adminCheckService: jest.Mocked<AdminCheckService>
   let mediaResolver: ReturnType<typeof createFakeMediaResolver>
   let jobQueryService: { listJobsForMedia: jest.Mock }
+  let manualImportService: jest.Mocked<ManualImportService>
   let releaseService: jest.Mocked<ReleaseService>
   let showService: jest.Mocked<ShowService>
   let videosById: Map<string, unknown>
@@ -86,6 +90,11 @@ describe('DownloadController - media endpoints', () => {
       deleteFiles: jest.fn(),
       listSeasons: jest.fn(),
     }
+    const mockManualImportService = {
+      discard: jest.fn(),
+      importFiles: jest.fn(),
+      listCandidates: jest.fn(),
+    }
     mediaResolver = createFakeMediaResolver()
     jobQueryService = { listJobsForMedia: jest.fn().mockResolvedValue([]) }
     videosById = new Map()
@@ -113,6 +122,7 @@ describe('DownloadController - media endpoints', () => {
           },
         },
         { provide: JobQueryService, useValue: jobQueryService },
+        { provide: ManualImportService, useValue: mockManualImportService },
         { provide: MediaDownloadService, useValue: mockMediaDownloadService },
         { provide: MediaFileService, useValue: {} },
         { provide: MediaResolverService, useValue: mediaResolver },
@@ -124,6 +134,7 @@ describe('DownloadController - media endpoints', () => {
 
     controller = module.get(DownloadController)
     mediaDownloadService = module.get(MediaDownloadService)
+    manualImportService = module.get(ManualImportService)
     releaseService = module.get(ReleaseService)
     showService = module.get(ShowService)
     adminCheckService = module.get(AdminCheckService)
@@ -439,6 +450,13 @@ describe('DownloadController - media endpoints', () => {
     indexerId: 3,
     rejected: false,
     title: 'Some.Movie.2020.1080p',
+  }
+
+  const sampleCandidate: ManualImportCandidate = {
+    importable: true,
+    name: 'The.Wire.S03E05.mkv',
+    path: '/downloads/The.Wire.S03E05.mkv',
+    rejections: [],
   }
 
   const sampleBadFile: BadFile = {
@@ -768,6 +786,186 @@ describe('DownloadController - media endpoints', () => {
     })
   })
 
+  describe('listImportCandidates', () => {
+    it('wraps the service results in a candidates envelope', async () => {
+      manualImportService.listCandidates.mockResolvedValue([sampleCandidate])
+
+      const response = await controller.listImportCandidates('tmdb:1', {})
+
+      // `undefined`, not `{}` - an unscoped request is exactly what the
+      // service's `ShowScope | undefined` parameter means by absent.
+      expect(manualImportService.listCandidates).toHaveBeenCalledWith(
+        'tmdb:1',
+        undefined,
+      )
+      expect(response).toEqual({ candidates: [sampleCandidate] })
+    })
+
+    it.each([
+      ['one episode', { episodeId: 4412, seasonNumber: 3 }],
+      ['one season', { seasonNumber: 3 }],
+      ['season 0', { seasonNumber: 0 }],
+    ])('passes the %s scope through', async (_l, query) => {
+      manualImportService.listCandidates.mockResolvedValue([])
+
+      await controller.listImportCandidates('tvdb:1', query)
+
+      expect(manualImportService.listCandidates).toHaveBeenCalledWith(
+        'tvdb:1',
+        query,
+      )
+    })
+
+    // The import may have gone through between the poller's last tick and
+    // this call - that is a 200 with nothing in it, not a 404.
+    it('returns an empty envelope rather than 404ing when nothing is waiting', async () => {
+      manualImportService.listCandidates.mockResolvedValue([])
+
+      await expect(
+        controller.listImportCandidates('tmdb:1', {}),
+      ).resolves.toEqual({ candidates: [] })
+    })
+
+    // Neither `mediaJobRoute()` (which 404s everything) nor
+    // `releaseActionRoute()` (which returns a job) would do here: what
+    // ManualImportService raised has to reach the client with its own
+    // status.
+    it.each([
+      ['a NotFoundException as a 404', new NotFoundException('nope'), 404],
+      [
+        'a BadRequestException as a 400',
+        new BadRequestException('movies have no seasons'),
+        400,
+      ],
+    ])('passes %s through', async (_l, thrown, status) => {
+      manualImportService.listCandidates.mockRejectedValue(thrown)
+
+      const error = await controller
+        .listImportCandidates('tmdb:1', { seasonNumber: 3 })
+        .catch((err: unknown) => err)
+
+      expect(error).toBeInstanceOf(HttpException)
+      expect((error as HttpException).getStatus()).toBe(status)
+    })
+  })
+
+  describe('importFiles', () => {
+    const paths = ['/downloads/The.Wire.S03E05.mkv']
+
+    // The scope rides in the body for this one, so the whole input goes to
+    // the service verbatim rather than being split into a scope argument.
+    it.each([
+      ['an episode-scoped body', { episodeId: 4412, paths, seasonNumber: 3 }],
+      ['a season-scoped body', { paths, seasonNumber: 3 }],
+      ['a season 0 body', { paths, seasonNumber: 0 }],
+      ['an unscoped body', { paths }],
+    ])(
+      'delegates %s to the service and returns the count',
+      async (_l, body) => {
+        manualImportService.importFiles.mockResolvedValue({ importedCount: 1 })
+
+        await expect(
+          controller.importFiles('tvdb:1', body, alice),
+        ).resolves.toEqual({ importedCount: 1 })
+
+        expect(manualImportService.importFiles).toHaveBeenCalledWith(
+          'tvdb:1',
+          body,
+        )
+      },
+    )
+
+    // @OptionalCurrentUser(), like grabRelease: a service caller can import.
+    it('accepts an import with no forwarded identity', async () => {
+      manualImportService.importFiles.mockResolvedValue({ importedCount: 2 })
+
+      await expect(
+        controller.importFiles('tmdb:1', { paths }, undefined),
+      ).resolves.toEqual({ importedCount: 2 })
+    })
+
+    it.each([
+      [
+        'a NotFoundException as a 404',
+        new NotFoundException('nothing is waiting'),
+        404,
+      ],
+      [
+        'a BadRequestException as a 400',
+        new BadRequestException('these files are not waiting'),
+        400,
+      ],
+    ])('passes %s through', async (_l, thrown, status) => {
+      manualImportService.importFiles.mockRejectedValue(thrown)
+
+      const error = await controller
+        .importFiles('tmdb:1', { paths }, alice)
+        .catch((err: unknown) => err)
+
+      expect(error).toBeInstanceOf(HttpException)
+      expect((error as HttpException).getStatus()).toBe(status)
+    })
+  })
+
+  describe('discardImport', () => {
+    it.each([
+      ['one episode', { episodeId: 4412, seasonNumber: 3 }],
+      ['one season', { seasonNumber: 3 }],
+      ['season 0', { seasonNumber: 0 }],
+    ])('passes the %s scope through', async (_l, query) => {
+      manualImportService.discard.mockResolvedValue({ discardedCount: 1 })
+
+      await expect(
+        controller.discardImport('tvdb:1', query, alice),
+      ).resolves.toEqual({ discardedCount: 1 })
+
+      expect(manualImportService.discard).toHaveBeenCalledWith('tvdb:1', query)
+    })
+
+    it('passes no scope at all for an unscoped request', async () => {
+      manualImportService.discard.mockResolvedValue({ discardedCount: 1 })
+
+      await controller.discardImport('tmdb:1', {}, alice)
+
+      expect(manualImportService.discard).toHaveBeenCalledWith(
+        'tmdb:1',
+        undefined,
+      )
+    })
+
+    // Like DELETE /media/:id/files: the caller asked for a state and that
+    // state already held.
+    it('returns 200 with discardedCount 0 when there was nothing to discard', async () => {
+      manualImportService.discard.mockResolvedValue({ discardedCount: 0 })
+
+      await expect(
+        controller.discardImport('tvdb:1', {}, undefined),
+      ).resolves.toEqual({ discardedCount: 0 })
+    })
+
+    it.each([
+      [
+        'a NotFoundException as a 404',
+        new NotFoundException('not in the library'),
+        404,
+      ],
+      [
+        'a BadRequestException as a 400',
+        new BadRequestException('movies have no seasons'),
+        400,
+      ],
+    ])('passes %s through', async (_l, thrown, status) => {
+      manualImportService.discard.mockRejectedValue(thrown)
+
+      const error = await controller
+        .discardImport('tmdb:1', { seasonNumber: 3 }, alice)
+        .catch((err: unknown) => err)
+
+      expect(error).toBeInstanceOf(HttpException)
+      expect((error as HttpException).getStatus()).toBe(status)
+    })
+  })
+
   describe('requestShow with a scope', () => {
     beforeEach(() => {
       mediaDownloadService.requestShow.mockResolvedValue(showJob)
@@ -949,6 +1147,16 @@ describe('DownloadController - media endpoints', () => {
 
         expect(auditLogService.record).not.toHaveBeenCalled()
       })
+
+      // The import list is a read for the same reason: seeing what upstream
+      // is offering is not an event, only committing or discarding it is.
+      it('listImportCandidates writes no audit row', async () => {
+        manualImportService.listCandidates.mockResolvedValue([sampleCandidate])
+
+        await controller.listImportCandidates('tvdb:1', { seasonNumber: 3 })
+
+        expect(auditLogService.record).not.toHaveBeenCalled()
+      })
     })
 
     describe('a failed action records nothing', () => {
@@ -986,6 +1194,34 @@ describe('DownloadController - media endpoints', () => {
         await expect(
           controller.deleteMediaFiles('tvdb:2', {}, alice),
         ).rejects.toThrow(NotFoundException)
+
+        expect(auditLogService.record).not.toHaveBeenCalled()
+      })
+
+      it('writes no row when the import is rejected', async () => {
+        manualImportService.importFiles.mockRejectedValue(
+          new BadRequestException('these files are not waiting'),
+        )
+
+        await expect(
+          controller.importFiles(
+            'tvdb:2',
+            { paths: ['/downloads/x.mkv'] },
+            alice,
+          ),
+        ).rejects.toThrow(BadRequestException)
+
+        expect(auditLogService.record).not.toHaveBeenCalled()
+      })
+
+      it('writes no row when the discard fails upstream', async () => {
+        manualImportService.discard.mockRejectedValue(
+          new ServiceUnavailableException('try again shortly'),
+        )
+
+        await expect(
+          controller.discardImport('tvdb:2', {}, alice),
+        ).rejects.toThrow(ServiceUnavailableException)
 
         expect(auditLogService.record).not.toHaveBeenCalled()
       })
@@ -1162,6 +1398,101 @@ describe('DownloadController - media endpoints', () => {
             removedFromLibrary: false,
           },
           target: { id: 'tvdb:2', type: 'media' },
+        })
+      })
+
+      // An import targets the media key rather than a job for the same
+      // reason a grab does - and more sharply, since one import can move
+      // several jobs (a series job and an episode job on one queue item).
+      it('records a scoped import with its count, paths and scope', async () => {
+        manualImportService.importFiles.mockResolvedValue({ importedCount: 2 })
+
+        await controller.importFiles(
+          'tvdb:2',
+          {
+            episodeId: 4412,
+            paths: ['/downloads/a.mkv', '/downloads/b.mkv'],
+            seasonNumber: 3,
+          },
+          alice,
+        )
+
+        expect(auditLogService.record).toHaveBeenCalledTimes(1)
+        expect(auditLogService.record).toHaveBeenCalledWith({
+          action: 'media.manual_import',
+          actor: alice,
+          metadata: {
+            episodeId: 4412,
+            importedCount: 2,
+            paths: ['/downloads/a.mkv', '/downloads/b.mkv'],
+            seasonNumber: 3,
+          },
+          target: { id: 'tvdb:2', type: 'media' },
+        })
+      })
+
+      it('records an unscoped import with no scope keys', async () => {
+        manualImportService.importFiles.mockResolvedValue({ importedCount: 1 })
+
+        await controller.importFiles(
+          'tmdb:1',
+          { paths: ['/downloads/a.mkv'] },
+          alice,
+        )
+
+        expect(auditLogService.record).toHaveBeenCalledWith({
+          action: 'media.manual_import',
+          actor: alice,
+          metadata: { importedCount: 1, paths: ['/downloads/a.mkv'] },
+          target: { id: 'tmdb:1', type: 'media' },
+        })
+      })
+
+      // @OptionalCurrentUser(), so a service caller lands a row with no
+      // actor - which AuditLogService turns into `origin: 'service'`.
+      it('records actor undefined for a service-origin import', async () => {
+        manualImportService.importFiles.mockResolvedValue({ importedCount: 1 })
+
+        await controller.importFiles(
+          'tmdb:1',
+          { paths: ['/downloads/a.mkv'] },
+          undefined,
+        )
+
+        expect(auditLogService.record).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: 'media.manual_import',
+            actor: undefined,
+          }),
+        )
+      })
+
+      it('records a scoped discard with its count and scope', async () => {
+        manualImportService.discard.mockResolvedValue({ discardedCount: 1 })
+
+        await controller.discardImport('tvdb:2', { seasonNumber: 3 }, alice)
+
+        expect(auditLogService.record).toHaveBeenCalledTimes(1)
+        expect(auditLogService.record).toHaveBeenCalledWith({
+          action: 'media.discard_download',
+          actor: alice,
+          metadata: { discardedCount: 1, seasonNumber: 3 },
+          target: { id: 'tvdb:2', type: 'media' },
+        })
+      })
+
+      // Same reasoning as the zero-count file delete: someone asked for that
+      // download to be gone, and "nothing was there" belongs in the log.
+      it('records a discard that removed nothing', async () => {
+        manualImportService.discard.mockResolvedValue({ discardedCount: 0 })
+
+        await controller.discardImport('tmdb:1', {}, undefined)
+
+        expect(auditLogService.record).toHaveBeenCalledWith({
+          action: 'media.discard_download',
+          actor: undefined,
+          metadata: { discardedCount: 0 },
+          target: { id: 'tmdb:1', type: 'media' },
         })
       })
     })

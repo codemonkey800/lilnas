@@ -23,6 +23,7 @@ import { ProfileService } from 'src/download/profile.service'
 import { createFakeMediaResolver } from 'src/media/__tests__/helpers/fake-media-resolver'
 import { CurrentReleaseService } from 'src/media/current-release.service'
 import { DiscoveryService } from 'src/media/discovery.service'
+import { ManualImportService } from 'src/media/manual-import.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import { MediaFileService } from 'src/media/media-file.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
@@ -98,6 +99,7 @@ describe('DownloadController - current release on the detail route', () => {
           provide: JobQueryService,
           useValue: { listJobsForMedia: jest.fn().mockResolvedValue([]) },
         },
+        { provide: ManualImportService, useValue: {} },
         { provide: MediaDownloadService, useValue: {} },
         { provide: MediaFileService, useValue: {} },
         { provide: MediaResolverService, useValue: mediaResolver },
