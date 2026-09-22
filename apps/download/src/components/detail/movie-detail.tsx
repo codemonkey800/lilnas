@@ -17,6 +17,7 @@ import {
   DetailAttribution,
   DetailHeader,
 } from 'src/components/detail/detail-header'
+import type { ImportDialogActions } from 'src/components/detail/import-dialog'
 import { JobHistory, JobLifecycle } from 'src/components/detail/job-lifecycle'
 import { latestJob } from 'src/components/detail/job-state'
 import type {
@@ -256,6 +257,11 @@ export type MovieDetailProps = Omit<
 > & {
   /** `client.listBadFiles(movie.id)` — passed through to the release list. */
   badFiles?: readonly BadFile[]
+  /**
+   * The three importer server actions, handed to the lifecycle panel. Omitted
+   * renders no Import control — see {@link MovieDetail}.
+   */
+  imports?: ImportDialogActions
   /** `MediaDetailResponse.jobs` verbatim, newest first. */
   jobs: readonly DownloadJob[]
   movie: Movie
@@ -287,14 +293,17 @@ export type MovieDetailProps = Omit<
  *   built server-side from `EMBY_EXTERNAL_URL`, which is the browser-reachable
  *   host; `EMBY_URL` is the in-network one and is not. Nothing here constructs
  *   a URL.
- * - **The lifecycle panel is read-only.** Pause, resume and cancel are
- *   `PATCH /download/videos/:id/…` — *video-only* routes. There is no movie
- *   equivalent, so `JobLifecycle` is given no `onPause`/`onCancel`/`onRetry`
- *   and renders the status chip and the queue progress alone. It renders no
- *   `watch`/`save` link either: both live in the header row instead, because
- *   the panel only offers them while the newest job is `completed`, and a
- *   library movie with a file and no job at all — a common state here — would
- *   otherwise lose both.
+ * - **The lifecycle panel offers exactly one action, and it is Import.** Pause,
+ *   resume and cancel are `PATCH /download/videos/:id/…` — *video-only* routes
+ *   with no movie equivalent — so `JobLifecycle` is given no
+ *   `onPause`/`onCancel`/`onRetry` and renders the status chip and the queue
+ *   progress alone for every status but one. The exception is
+ *   `needs_attention`: Radarr finished the download, refused to import it and
+ *   will sit there forever, and `imports` is what the panel mounts
+ *   `ImportDialog` from to resolve it. It renders no `watch`/`save` link
+ *   either: both live in the header row instead, because the panel only offers
+ *   them while the newest job is `completed`, and a library movie with a file
+ *   and no job at all — a common state here — would otherwise lose both.
  * - **There is no one-press "Download".** The mockup's state legend draws one;
  *   the real path to a file is the release picker, which is strictly better
  *   (the user picks) and is the only one this page has an action for.
@@ -315,6 +324,7 @@ export type MovieDetailProps = Omit<
 export function MovieDetail({
   badFiles,
   className,
+  imports,
   jobs,
   movie,
   now,
@@ -456,7 +466,11 @@ export function MovieDetail({
           about; every state with a real job is still the panel's.
         */}
         {job || !hasFile ? (
-          <JobLifecycle emptyNote={MOVIE_EMPTY_NOTE} jobs={jobs} />
+          <JobLifecycle
+            emptyNote={MOVIE_EMPTY_NOTE}
+            imports={imports}
+            jobs={jobs}
+          />
         ) : (
           <div
             className={cns('flex flex-wrap items-center gap-2.5')}

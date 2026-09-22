@@ -2,9 +2,11 @@ import '@testing-library/jest-dom'
 
 import type { DownloadJob, Movie } from '@lilnas/utils/download/types'
 import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
+import type { ImportDialogActions } from 'src/components/detail/import-dialog'
+import { IMPORT_TRIGGER_LABEL } from 'src/components/detail/import-dialog'
 import type { JobLifecycleProps } from 'src/components/detail/job-lifecycle'
 import { JobHistory, JobLifecycle } from 'src/components/detail/job-lifecycle'
 import { jobStatusLabel } from 'src/components/detail/job-state'
@@ -58,12 +60,31 @@ function jobAction(): jest.Mock<Promise<void>, [string]> {
 }
 
 /**
+ * The importer's three calls, as the page genuinely supplies them.
+ *
+ * Not a `JobAction` at all: the panel hands these to `ImportDialog`, which
+ * calls them with the media key and the scope rather than with a job id.
+ */
+function importActions(): ImportDialogActions & {
+  commit: jest.Mock
+  discard: jest.Mock
+  list: jest.Mock
+} {
+  return {
+    commit: jest.fn().mockResolvedValue({ importedCount: 1 }),
+    discard: jest.fn().mockResolvedValue({ discardedCount: 1 }),
+    list: jest.fn().mockResolvedValue({ candidates: [] }),
+  }
+}
+
+/**
  * Every lifecycle control wired at once, so a status's action set is whatever
  * it genuinely offers rather than whatever this render happened to supply.
  */
 function renderPanel(status: DownloadJobStatus, jobs?: DownloadJob[]) {
   return render(
     <JobLifecycle
+      imports={importActions()}
       jobs={jobs ?? [job({ status })]}
       onCancel={jobAction()}
       onPause={jobAction()}
@@ -121,9 +142,11 @@ const EXPECTED_ACTIONS: Record<DownloadJobStatus, string[]> = {
   [DownloadJobStatus.Downloading]: ['Pause', 'Cancel'],
   [DownloadJobStatus.Failed]: ['Retry'],
   [DownloadJobStatus.Importing]: ['Cancel'],
-  // The Import control lands in a later task; until then the only way out of
-  // a stuck import from this panel is to cancel it.
-  [DownloadJobStatus.NeedsAttention]: ['Cancel'],
+  // ⚠️ The only status that offers Import, and the only control in this table
+  // that is a dialog rather than a bound button. Cancel is still here — the
+  // download is technically still in flight as far as `isInProgress` is
+  // concerned — but importing or discarding is the way a stuck one ends.
+  [DownloadJobStatus.NeedsAttention]: [IMPORT_TRIGGER_LABEL, 'Cancel'],
   [DownloadJobStatus.Paused]: ['Resume', 'Cancel'],
   [DownloadJobStatus.Pausing]: ['Pause', 'Cancel'],
   [DownloadJobStatus.Pending]: ['Cancel'],
@@ -325,6 +348,82 @@ describe('JobLifecycle', () => {
       )
 
       expect(controlLabels(container)).toEqual(['Watch', 'Delete'])
+    })
+  })
+
+  describe('the import control', () => {
+    it('renders nothing when the page wired no importer', () => {
+      // Exactly how a missing `onCancel` behaves: a page with no importer
+      // offers no way to resolve a stuck import from this panel.
+      const { container } = render(
+        <JobLifecycle
+          jobs={[job({ status: DownloadJobStatus.NeedsAttention })]}
+          onCancel={jobAction()}
+        />,
+      )
+
+      expect(controlLabels(container)).toEqual(['Cancel'])
+    })
+
+    it('asks for the candidates of the job it is rendering, scope and all', async () => {
+      const user = userEvent.setup()
+      const imports = importActions()
+
+      render(
+        <JobLifecycle
+          imports={imports}
+          jobs={[
+            job({
+              media: { ...MOVIE, id: 'tvdb:277165' },
+              scope: { seasonNumber: 2 },
+              status: DownloadJobStatus.NeedsAttention,
+            }),
+          ]}
+        />,
+      )
+      await user.click(
+        screen.getByRole('button', { name: IMPORT_TRIGGER_LABEL }),
+      )
+
+      // ⚠️ The media key and the scope both come off the job, so a season pack
+      // stuck inside a series asks about that season and not the whole show.
+      await waitFor(() =>
+        expect(imports.list).toHaveBeenCalledWith('tvdb:277165', {
+          episodeId: undefined,
+          seasonNumber: 2,
+        }),
+      )
+    })
+
+    it('names the dialog after the media the job carries', async () => {
+      const user = userEvent.setup()
+      const imports = importActions()
+
+      render(
+        <JobLifecycle
+          imports={imports}
+          jobs={[job({ status: DownloadJobStatus.NeedsAttention })]}
+        />,
+      )
+      await user.click(
+        screen.getByRole('button', { name: IMPORT_TRIGGER_LABEL }),
+      )
+
+      // No new plumbing for this: `DownloadJob.media` is a whole `Media`.
+      expect(await screen.findByText('Import "Following"')).toBeInTheDocument()
+    })
+
+    it('offers it on no other status, whatever the page wired', () => {
+      for (const status of EVERY_STATUS) {
+        if (status === DownloadJobStatus.NeedsAttention) {
+          continue
+        }
+
+        const { container, unmount } = renderPanel(status)
+
+        expect(controlLabels(container)).not.toContain(IMPORT_TRIGGER_LABEL)
+        unmount()
+      }
     })
   })
 

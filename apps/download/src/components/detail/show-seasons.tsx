@@ -16,6 +16,7 @@ import type {
 } from 'src/components/detail/bad-file-flag'
 import type { DeleteMediaFilesAction } from 'src/components/detail/delete-confirm'
 import { DeleteConfirm } from 'src/components/detail/delete-confirm'
+import type { ImportDialogActions } from 'src/components/detail/import-dialog'
 import { JobLifecycle } from 'src/components/detail/job-lifecycle'
 import type {
   ReleaseAction,
@@ -84,6 +85,12 @@ const SCOPE_DELETE = cns('w-full sm:w-auto', 'sm:[&>button]:w-auto')
 export type ShowSeasonsProps = {
   /** This title's flags, passed through to each episode's picker. */
   badFiles?: readonly BadFile[]
+  /**
+   * The three importer server actions, passed straight through to the season's
+   * own `JobLifecycle`. The scope on a season job is `{ seasonNumber }`, which
+   * the dialog forwards to each call - nothing is assembled here.
+   */
+  imports?: ImportDialogActions
   /** Every job for the title, newest first. Scoped per season/episode here. */
   jobs: readonly DownloadJob[]
   media: Show
@@ -137,6 +144,7 @@ export type ShowSeasonsProps = {
  */
 export function ShowSeasons({
   badFiles,
+  imports,
   jobs,
   media,
   onDelete,
@@ -252,6 +260,7 @@ export function ShowSeasons({
         <JobLifecycle
           actionSize="sm"
           className={cns('mb-[14px]')}
+          imports={imports}
           jobs={scopedJobs}
           // ⚠️ The season's own aggregate, not the job's `queueSnapshot`. A
           // season job does not reach `completed` until the *last* episode

@@ -5,6 +5,11 @@ import type { DownloadJob } from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX, ReactNode } from 'react'
 import { useTransition } from 'react'
 
+import type { ImportDialogActions } from 'src/components/detail/import-dialog'
+import {
+  IMPORT_TRIGGER_LABEL,
+  ImportDialog,
+} from 'src/components/detail/import-dialog'
 import type { JobActionKey } from 'src/components/detail/job-state'
 import {
   JOB_LIFECYCLE_EMPTY_LABEL,
@@ -60,10 +65,21 @@ type ActionSpec = {
  *
  * Which of these appear is never decided here - `jobActionState` decides, per
  * status, and this table only says what each one looks like.
+ *
+ * ⚠️ `import` is the one entry that is **not** a `Button` bound to a
+ * `JobAction`, and it is listed here anyway so that the render order stays one
+ * list. Every other control is a single press against a job id; an import is a
+ * decision - which of the files that came down should be taken, or none of
+ * them - so it needs the media key, the scope and three separate server
+ * actions, and it owns a modal to ask in. `ImportDialog` is that control, it
+ * arrives on its own `imports` prop rather than through the handler map, and
+ * it gets its own branch in the controls map below. `label` and `variant` here
+ * still decide what its trigger looks like, exactly as for the rest.
  */
 const ACTION_SPECS: readonly ActionSpec[] = [
   { iconEnd: 'pause', key: 'pause', label: 'Pause', variant: 'outline' },
   { key: 'resume', label: 'Resume', variant: 'uv' },
+  { key: 'import', label: IMPORT_TRIGGER_LABEL, variant: 'outline' },
   { key: 'retry', label: 'Retry', variant: 'outline' },
   { iconEnd: 'eye', key: 'watch', label: 'Watch', variant: 'uv' },
   {
@@ -126,6 +142,11 @@ export type JobLifecycleProps = Omit<
    */
   explain?: ReactNode
   /**
+   * The three importer actions. Omitted renders no Import control, like a
+   * missing `onCancel`.
+   */
+  imports?: ImportDialogActions
+  /**
    * `MediaDetailResponse.jobs` verbatim - **every** job for the media key,
    * newest first. The panel picks the newest itself (`latestJob`); the rest
    * are history, which `JobHistory` renders from the same unsliced list.
@@ -173,6 +194,7 @@ export function JobLifecycle({
   emptyNote = 'Nothing downloaded yet.',
   explain,
   extraActions,
+  imports,
   jobs,
   onCancel,
   onPause,
@@ -250,6 +272,39 @@ export function JobLifecycle({
     const availability = jobActionState(job.status, spec.key)
     if (availability === 'none') {
       return null
+    }
+
+    // ⚠️ The one control that is not a bound `Button`, and the one the panel's
+    // own in-flight state deliberately does not reach: `ImportDialog` owns its
+    // open state, its one fetch and its own pending flag, so `inert`/`pending`
+    // are not threaded onto its trigger. They would only disable the press
+    // that opens a modal, which no lifecycle call in flight has any business
+    // doing - and `import` is never `acknowledged` anyway, since nothing
+    // upstream moves a job out of `needs_attention` until a human answers.
+    if (spec.key === 'import') {
+      // No `imports` renders no control, exactly how a missing `onCancel`
+      // behaves a few lines below.
+      if (!imports) {
+        return null
+      }
+
+      return (
+        <ImportDialog
+          actions={imports}
+          className={cns(ACTION_BUTTON)}
+          key="import"
+          label={spec.label}
+          mediaId={job.media.id}
+          // Both off the job itself: the scope is what narrows the request to
+          // the season or episode that is actually stuck, and the title is
+          // what turns the dialog heading into the mockup's `Import "<title>"`.
+          // Neither is new plumbing - `DownloadJob` carries its own `media`.
+          scope={job.scope}
+          size={actionSize}
+          title={job.media.title}
+          variant={spec.variant}
+        />
+      )
     }
 
     // An action already in flight - the user pressed it, the backend

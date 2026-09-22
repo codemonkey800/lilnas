@@ -16,6 +16,7 @@ import {
   UNDO_REPORT_LABEL,
 } from 'src/components/detail/bad-file-flag'
 import { deleteConfirmCopy } from 'src/components/detail/delete-confirm'
+import { IMPORT_TRIGGER_LABEL } from 'src/components/detail/import-dialog'
 import { JOB_LIFECYCLE_EMPTY_LABEL } from 'src/components/detail/job-state'
 import type { MovieDetailProps } from 'src/components/detail/movie-detail'
 import {
@@ -601,6 +602,48 @@ describe('MovieDetail — the lifecycle panel', () => {
 
     // A 0% bar is a claim. `jobProgress` answering null means "draw nothing".
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+  })
+
+  it('hands the importer through to the panel for a stuck import', async () => {
+    const imports = {
+      commit: jest.fn().mockResolvedValue({ importedCount: 1 }),
+      discard: jest.fn().mockResolvedValue({ discardedCount: 1 }),
+      list: jest.fn().mockResolvedValue({ candidates: [] }),
+    }
+
+    renderDetail({
+      imports,
+      jobs: [
+        {
+          ...JOB,
+          completedAt: null,
+          status: DownloadJobStatus.NeedsAttention,
+        },
+      ],
+    })
+
+    await userEvent.click(firstButton(IMPORT_TRIGGER_LABEL))
+
+    // A movie carries no scope at all - Radarr's import endpoints key on the
+    // movie alone, so both narrowing fields go out undefined.
+    await waitFor(() =>
+      expect(imports.list).toHaveBeenCalledWith(MOVIE_ID, {
+        episodeId: undefined,
+        seasonNumber: undefined,
+      }),
+    )
+  })
+
+  it('offers no Import control when the page wired no importer', () => {
+    renderDetail({
+      jobs: [
+        { ...JOB, completedAt: null, status: DownloadJobStatus.NeedsAttention },
+      ],
+    })
+
+    expect(
+      screen.queryByRole('button', { name: IMPORT_TRIGGER_LABEL }),
+    ).not.toBeInTheDocument()
   })
 
   it('lists earlier attempts under the current one', () => {

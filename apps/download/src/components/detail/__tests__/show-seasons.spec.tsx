@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import type { DownloadJob, Season } from '@lilnas/utils/download/types'
 import { DownloadJobStatus } from '@lilnas/utils/download/types'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import {
@@ -13,6 +13,8 @@ import {
   SHOW_ID,
   specials,
 } from 'src/components/detail/__tests__/fixtures/show'
+import type { ImportDialogActions } from 'src/components/detail/import-dialog'
+import { IMPORT_TRIGGER_LABEL } from 'src/components/detail/import-dialog'
 import { RELEASE_SEARCH_LABEL } from 'src/components/detail/release-picker'
 import { EPISODE_ACTIONS_LABEL } from 'src/components/detail/show-episode-row'
 import {
@@ -53,8 +55,25 @@ type Handlers = {
   onSearch: jest.Mock
 }
 
+/** The importer's three calls, as the page supplies them. */
+function importActions(): ImportDialogActions & {
+  commit: jest.Mock
+  discard: jest.Mock
+  list: jest.Mock
+} {
+  return {
+    commit: jest.fn().mockResolvedValue({ importedCount: 1 }),
+    discard: jest.fn().mockResolvedValue({ discardedCount: 1 }),
+    list: jest.fn().mockResolvedValue({ candidates: [] }),
+  }
+}
+
 function renderSeasons(
-  options: { jobs?: DownloadJob[]; seasons?: Season[] } = {},
+  options: {
+    imports?: ImportDialogActions
+    jobs?: DownloadJob[]
+    seasons?: Season[]
+  } = {},
 ): Handlers & { user: ReturnType<typeof userEvent.setup> } {
   const handlers: Handlers = {
     onDelete: jest.fn().mockResolvedValue({ deletedCount: 1 }),
@@ -64,6 +83,7 @@ function renderSeasons(
 
   render(
     <ShowSeasons
+      imports={options.imports}
       jobs={options.jobs ?? []}
       media={show()}
       seasons={options.seasons ?? [specials(), S1, S2]}
@@ -270,6 +290,48 @@ describe('season-level progress aggregates across episodes', () => {
     for (const tab of screen.getAllByRole('tab')) {
       expect(tab).not.toHaveTextContent('%')
     }
+  })
+
+  it('hands the importer through for a stuck season pack', async () => {
+    const imports = importActions()
+    const { user } = renderSeasons({
+      imports,
+      jobs: [
+        scopedJob(
+          { seasonNumber: 2 },
+          { id: 'job_s2', status: DownloadJobStatus.NeedsAttention },
+        ),
+      ],
+    })
+
+    await user.click(screen.getByRole('tab', { name: /Season 2/ }))
+    await user.click(screen.getByRole('button', { name: IMPORT_TRIGGER_LABEL }))
+
+    // ⚠️ The season travels as `seasonNumber` on the unchanged media key, the
+    // same way every other scoped call on this page addresses a season.
+    await waitFor(() =>
+      expect(imports.list).toHaveBeenCalledWith(SHOW_ID, {
+        episodeId: undefined,
+        seasonNumber: 2,
+      }),
+    )
+  })
+
+  it('offers no season Import control when the page wired no importer', async () => {
+    const { user } = renderSeasons({
+      jobs: [
+        scopedJob(
+          { seasonNumber: 2 },
+          { id: 'job_s2', status: DownloadJobStatus.NeedsAttention },
+        ),
+      ],
+    })
+
+    await user.click(screen.getByRole('tab', { name: /Season 2/ }))
+
+    expect(
+      screen.queryByRole('button', { name: IMPORT_TRIGGER_LABEL }),
+    ).not.toBeInTheDocument()
   })
 
   it('draws no season bar once the job is terminal', async () => {

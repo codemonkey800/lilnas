@@ -18,6 +18,7 @@ import {
   DetailAttribution,
   DetailHeader,
 } from 'src/components/detail/detail-header'
+import type { ImportDialogActions } from 'src/components/detail/import-dialog'
 import { JobHistory, JobLifecycle } from 'src/components/detail/job-lifecycle'
 import { latestJob } from 'src/components/detail/job-state'
 import { LibraryLink } from 'src/components/detail/library-link'
@@ -126,6 +127,11 @@ const HEADER_DELETE = cns('w-full sm:w-auto', 'sm:[&>button]:w-auto')
 export type ShowDetailProps = {
   /** `client.listBadFiles(id)` - this title's flags, joined per release guid. */
   badFiles?: readonly BadFile[]
+  /**
+   * The three importer server actions. Reaches the series panel here *and*
+   * every season panel inside `ShowSeasons` - see {@link ShowDetail}.
+   */
+  imports?: ImportDialogActions
   /** `MediaDetailResponse.jobs` verbatim, newest first. Scoped downstream. */
   jobs: readonly DownloadJob[]
   media: Show
@@ -176,10 +182,24 @@ export type ShowDetailProps = {
  *   anchor - the same call D2 made for the gallery avatars.
  * - **Pause / resume / cancel.** Those three routes are `/download/videos/:id`
  *   only. A show download has no cancel endpoint at any scope, so
- *   `JobLifecycle` is given no handlers and offers none.
+ *   `JobLifecycle` is given no handlers and offers none of the three, at any
+ *   of the three scopes.
+ *
+ * ## The one action the panels do wire
+ *
+ * **Import.** A Sonarr download that finished and then refused to import parks
+ * the job in `needs_attention`, and nothing on either side moves it until a
+ * human picks the files or discards them - so that is the one state the
+ * lifecycle panel acts on rather than merely reports. `imports` carries the
+ * three server actions to the series panel below and, unchanged, through
+ * `ShowSeasons` to the season panel, so a stuck season pack is resolved from
+ * the season it belongs to. Neither scope is assembled here: the panel reads
+ * it off the job it is rendering, which is the same rule the rest of this page
+ * follows.
  */
 export function ShowDetail({
   badFiles,
+  imports,
   jobs,
   media,
   now,
@@ -274,6 +294,7 @@ export function ShowDetail({
         <JobLifecycle
           className={cns('mb-7 sm:mb-8')}
           emptyNote={SERIES_EMPTY_NOTE}
+          imports={imports}
           jobs={seriesJobs}
           // ⚠️ The library aggregate, never the job's `queueSnapshot`. A series
           // download does not reach `completed` until the last episode leaves
@@ -303,6 +324,7 @@ export function ShowDetail({
 
       <ShowSeasons
         badFiles={badFiles}
+        imports={imports}
         jobs={jobs}
         media={media}
         seasons={seasons}

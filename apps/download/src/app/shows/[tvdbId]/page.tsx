@@ -7,8 +7,11 @@ import type { JSX } from 'react'
 
 import {
   deleteMediaFiles,
+  discardImport,
   flagBadFile,
   grabRelease,
+  importFiles,
+  listImportCandidates,
   replaceRelease,
   searchReleases,
   unflagBadFile,
@@ -221,6 +224,14 @@ export default async function ShowPage({
     <ShowPageShell>
       <ShowDetail
         badFiles={badFiles}
+        // The three unbound server actions `ImportDialog` calls. They reach
+        // both the series panel and each season panel; the scope that narrows
+        // every request is read off the stuck job, never assembled here.
+        imports={{
+          commit: importFiles,
+          discard: discardImport,
+          list: listImportCandidates,
+        }}
         jobs={detail.jobs}
         media={detail.media}
         now={getRequestInstant()}

@@ -8,8 +8,11 @@ import { cache } from 'react'
 
 import {
   deleteMediaFiles,
+  discardImport,
   flagBadFile,
   grabRelease,
+  importFiles,
+  listImportCandidates,
   replaceRelease,
   searchReleases,
   unflagBadFile,
@@ -166,6 +169,15 @@ export default async function MoviePage({
         <LibraryLink />
         <MovieDetail
           badFiles={badFiles}
+          // The three unbound server actions `ImportDialog` calls, handed
+          // through the detail component to the lifecycle panel. Unbound on
+          // purpose: the dialog supplies the media key and the scope, so this
+          // page never has to know which job is stuck.
+          imports={{
+            commit: importFiles,
+            discard: discardImport,
+            list: listImportCandidates,
+          }}
           jobs={detail.jobs}
           movie={detail.media}
           now={now}

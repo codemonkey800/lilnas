@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import type { DownloadJob, Season, Show } from '@lilnas/utils/download/types'
 import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import {
@@ -14,6 +14,8 @@ import {
   SHOW_ID,
   specials,
 } from 'src/components/detail/__tests__/fixtures/show'
+import type { ImportDialogActions } from 'src/components/detail/import-dialog'
+import { IMPORT_TRIGGER_LABEL } from 'src/components/detail/import-dialog'
 import { LIBRARY_HREF } from 'src/components/detail/library-link'
 import {
   EMBY_INDEXING_LABEL,
@@ -40,8 +42,22 @@ const S2 = season({
   seasonNumber: 2,
 })
 
+/** The importer's three calls, as the page supplies them. */
+function importActions(): ImportDialogActions & {
+  commit: jest.Mock
+  discard: jest.Mock
+  list: jest.Mock
+} {
+  return {
+    commit: jest.fn().mockResolvedValue({ importedCount: 1 }),
+    discard: jest.fn().mockResolvedValue({ discardedCount: 1 }),
+    list: jest.fn().mockResolvedValue({ candidates: [] }),
+  }
+}
+
 function renderDetail(
   options: {
+    imports?: ImportDialogActions
     jobs?: DownloadJob[]
     media?: Show
     onRequest?: jest.Mock
@@ -54,6 +70,7 @@ function renderDetail(
 
   const result = render(
     <ShowDetail
+      imports={options.imports}
       jobs={options.jobs ?? []}
       media={options.media ?? show()}
       now={NOW}
@@ -212,6 +229,39 @@ describe('the series lifecycle panel', () => {
     expect(
       screen.getByRole('progressbar', { name: 'Download progress' }),
     ).toHaveAttribute('aria-valuenow', String((14 / 24) * 100))
+  })
+
+  it('hands the importer through for a stuck series import', async () => {
+    const imports = importActions()
+    const { user } = renderDetail({
+      imports,
+      jobs: [
+        scopedJob(undefined, { status: DownloadJobStatus.NeedsAttention }),
+      ],
+    })
+
+    await user.click(screen.getByRole('button', { name: IMPORT_TRIGGER_LABEL }))
+
+    // ⚠️ The unchanged media key and an empty scope: a series-wide job names
+    // neither a season nor an episode, so the whole title's queue is in scope.
+    await waitFor(() =>
+      expect(imports.list).toHaveBeenCalledWith(SHOW_ID, {
+        episodeId: undefined,
+        seasonNumber: undefined,
+      }),
+    )
+  })
+
+  it('offers no Import control when the page wired no importer', () => {
+    renderDetail({
+      jobs: [
+        scopedJob(undefined, { status: DownloadJobStatus.NeedsAttention }),
+      ],
+    })
+
+    expect(
+      screen.queryByRole('button', { name: IMPORT_TRIGGER_LABEL }),
+    ).not.toBeInTheDocument()
   })
 
   it('draws no bar at all once the series job is terminal', () => {
