@@ -95,6 +95,10 @@ describe('DownloadJobStatus', () => {
     expect(DownloadJobStatus.Paused).toBe('paused')
     expect(DownloadJobStatus.Pausing).toBe('pausing')
   })
+
+  it('adds the plan 020 needs-attention member', () => {
+    expect(DownloadJobStatus.NeedsAttention).toBe('needs_attention')
+  })
 })
 
 describe('TERMINAL_DOWNLOAD_JOB_STATUSES / IN_PROGRESS_DOWNLOAD_JOB_STATUSES', () => {
@@ -139,6 +143,26 @@ describe('TERMINAL_DOWNLOAD_JOB_STATUSES / IN_PROGRESS_DOWNLOAD_JOB_STATUSES', (
       expect(IN_PROGRESS_DOWNLOAD_JOB_STATUSES).toContain(status)
       expect(TERMINAL_DOWNLOAD_JOB_STATUSES).not.toContain(status)
     }
+
+    // Pinned: adding a status must not grow the terminal list.
+    expect(TERMINAL_DOWNLOAD_JOB_STATUSES).toHaveLength(3)
+  })
+
+  // Plan 020. `needs_attention` is a finished-but-unimported job: the bytes
+  // are on disk and a human still has to act, so it is neither `failed` (a
+  // Retry would re-grab a file we already have) nor terminal. It reaches the
+  // in-progress set the same way `paused` does - by being absent from the
+  // terminal list - which keeps it on the Activity feed. Unlike `paused` it
+  // is meant to survive a restart, so `reconcileInterruptedJobs()`
+  // (apps/download/src/db/reconcile-interrupted-jobs.ts) has to exempt it
+  // rather than sweep it to `failed`.
+  it('treats needs_attention as in-progress, never terminal', () => {
+    const status = DownloadJobStatus.NeedsAttention
+
+    expect(isTerminalDownloadJobStatus(status)).toBe(false)
+    expect(isInProgressDownloadJobStatus(status)).toBe(true)
+    expect(IN_PROGRESS_DOWNLOAD_JOB_STATUSES).toContain(status)
+    expect(TERMINAL_DOWNLOAD_JOB_STATUSES).not.toContain(status)
 
     // Pinned: adding a status must not grow the terminal list.
     expect(TERMINAL_DOWNLOAD_JOB_STATUSES).toHaveLength(3)

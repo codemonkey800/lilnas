@@ -16,6 +16,25 @@ export enum DownloadJobStatus {
   Failed = 'failed',
   Importing = 'importing',
   /**
+   * Plan 020. The download finished and the bytes are on disk, but
+   * Radarr/Sonarr refused to import them - their queue row reads
+   * "Downloaded - Waiting to Import" with a one-line reason, and nothing
+   * moves until a human acts. Deliberately **not** `failed` (Retry would
+   * re-grab a file we already have) and **not** `importing` (nothing is
+   * moving).
+   *
+   * Non-terminal for the same reason as {@link DownloadJobStatus.Paused}:
+   * the job is still an open piece of work, so it stays on the Activity feed
+   * rather than dropping into history. Unlike `paused`, though, it
+   * **survives** a restart - the finished file sits in Radarr/Sonarr's
+   * download directory rather than in this process's memory, so a reboot
+   * changes nothing about what the human still has to do. That makes it the
+   * one non-terminal status `reconcileInterruptedJobs()`
+   * (`apps/download/src/db/reconcile-interrupted-jobs.ts`) must leave alone
+   * instead of sweeping to `failed` at boot.
+   */
+  NeedsAttention = 'needs_attention',
+  /**
    * Phase 5. Deliberately **not** in `TERMINAL_DOWNLOAD_JOB_STATUSES`
    * (./types.ts): a paused job is still an open piece of work, so it stays on
    * the Activity feed rather than dropping into history. The other half of
