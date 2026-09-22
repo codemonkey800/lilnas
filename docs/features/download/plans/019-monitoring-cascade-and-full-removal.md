@@ -469,9 +469,9 @@ your own paths; take `/tmp/lilnas-download-commit.lock` first; never `git reset`
 
 ### Group A — Sonarr primitives
 
-- [ ] **A1. `SonarrService.setSeasonsMonitored`, and the retired comments.** A
+- [x] **A1. `SonarrService.setSeasonsMonitored`, and the retired comments.** A
       season-flag writer exists, and the two doc comments the plan invalidates are
-      rewritten.
+      rewritten. — `c9390b4a`
 
   **Files:** edit `apps/download/src/media/sonarr.service.ts`,
   `apps/download/src/media/__tests__/sonarr.service.test.ts`.
@@ -518,12 +518,27 @@ your own paths; take `/tmp/lilnas-download-commit.lock` first; never `git reset`
   returns only the changed numbers; warns and skips an unknown season number; empty
   list makes no call; a PUT error throws `setSeasonsMonitored failed`.
 
+  **Findings (A1):**
+  - 8 tests in the `setSeasonsMonitored` block; `src/media` is 614/614 across 20
+    suites. One test beyond the plan's list: `monitors specials when season 0 is
+named explicitly` — the plan's `'all'` case and the "already at target" case
+    both left season `0` at `false`, so neither would have caught a truthiness-based
+    scope check.
+  - `?? 0` for a missing `seasonNumber` follows `listSeasons`'s existing convention,
+    but it aliases a hypothetical season with no `seasonNumber` onto specials.
+    Unreachable in practice; recorded, not diverged over.
+  - The `wasMonitored` fallback in `ensureSeries` has **zero reachable callers** once
+    B1 lands — every in-app caller passes `monitorEpisodes`. Kept as documented
+    defence for a human unmonitoring in Sonarr's own UI, as the plan decided.
+  - ⏳ The live checkpoint still owes an answer on what Sonarr does to episode flags
+    on a season-flag PUT.
+
 ### Group B — Request side (cascade down)
 
-- [ ] **B1. `requestShow` monitors the scope's season flags.** A bare series request
+- [x] **B1. `requestShow` monitors the scope's season flags.** A bare series request
       monitors every season flag and every episode; a season request monitors that
       season's flag and its episodes; an episode request monitors only the episode.
-      Depends on **A1**.
+      Depends on **A1**. — `97df9b0`
 
   **Files:** edit `apps/download/src/media/media-download.service.ts`,
   `apps/download/src/media/__tests__/media-download.service.test.ts`.
@@ -567,10 +582,16 @@ your own paths; take `/tmp/lilnas-download-commit.lock` first; never `git reset`
   season write moves the job to `Failed`. `sonarrService` mock literal (`:62-130`) gains
   `setSeasonsMonitored: jest.fn()`.
 
+  **Findings (B1):** 36/36 in the file, no new exports. The plan named two tests to
+  update; a **third** also had to change — `triggers the generic search command when
+the title has no flagged releases` (`:253`) asserted `ensureSeries` called with a
+  **single** argument. Seven tests added beyond the two rewritten.
+
 ### Group C — Delete side (cascade up, full removal)
 
-- [ ] **C1. The pure cascade planner.** Given one snapshot of a series' episodes and
+- [x] **C1. The pure cascade planner.** Given one snapshot of a series' episodes and
       its queue, decide exactly what a scoped delete does. No I/O. Independent of A1.
+      — `527cdd99`
 
   **Files:** create `apps/download/src/media/delete-cascade.util.ts`,
   `apps/download/src/media/__tests__/delete-cascade.util.test.ts`.
@@ -636,9 +657,30 @@ your own paths; take `/tmp/lilnas-download-commit.lock` first; never `git reset`
   "remaining" matrix (file only / queue only / both / neither) for both cascade levels;
   the specials season; the shared-file dedupe; the unknown episode id.
 
-- [ ] **C2. `ShowService.deleteFiles` cascades and removes.** Movies are removed from
+  **Findings (C1):** 32 tests, all passing. Only `ShowDeleteCascade`,
+  `ShowDeletePlan` and `planShowDelete` are exported; every helper is module-private.
+  - ⚠️ **The plan's series-level rule is not implementable as written.** It says
+    "queue items with no `episodeId` but a **matching `seriesId`**", but
+    `planShowDelete` takes no `seriesId` and so cannot filter. The planner instead
+    assumes the queue handed to it is **already series-scoped**. **C2 must call
+    `getQueue([sonarrId])`, never a bare `getQueue()`** — a whole-instance queue
+    would make every series look permanently "remaining" and no delete would ever
+    cascade.
+  - `isRemaining` counts `hasFile === true` as well as a truthy `episodeFileId` —
+    wider than the plan's file test, but only in the safe direction (it can prevent
+    a cascade, never cause one).
+  - Corner case left as-is: a queue item carrying **both** `episodeId` and
+    `seasonNumber` registers only at the episode level. If that episode is absent
+    from the snapshot, the item holds nothing open. Registering the season too would
+    break the rule that the target's own in-flight item must not keep its own season
+    alive. Narrow Sonarr race; both reads come from the same series.
+  - `seriesPlan` sets `unmonitorScope: undefined` explicitly — key present, value
+    `undefined`. `toEqual` and `?.`/`!= null` treat it identically and the repo does
+    not enable `exactOptionalPropertyTypes`.
+
+- [x] **C2. `ShowService.deleteFiles` cascades and removes.** Movies are removed from
       Radarr; shows follow the planner; the method returns a structured result. Depends
-      on **A1** and **C1**.
+      on **A1** and **C1**. — `5395d66e`
 
   **Files:** edit `apps/download/src/media/show.service.ts`,
   `apps/download/src/media/__tests__/show.service.test.ts`; minimal edits to
@@ -718,9 +760,31 @@ your own paths; take `/tmp/lilnas-download-commit.lock` first; never `git reset`
   movie is a zero-count removal. `sonarrService` mock literal gains `getQueue`,
   `setSeasonsMonitored`, `unmonitorAndDelete`; loses `getEpisodeFiles`.
 
-- [ ] **C3. The wire contract, the audit row, and the route's docs.** The response says
+  **Findings (C2):** 35 in `show.service.test.ts` (22 across the two `deleteFiles`
+  describes); full `apps/download` 177 suites / 3699 tests. `cascade` re-uses
+  `ShowDeleteCascade` from `./delete-cascade.util` rather than redeclaring the union.
+  Deviations, all deliberate:
+  - **The `radarrService` mock keeps `deleteMovieFile` and `setMonitored`.** The plan
+    said to drop them, but it also requires asserting they are **not** called —
+    dropped from the literal they are `undefined` and
+    `expect(undefined).not.toHaveBeenCalled()` throws. Kept as bare `jest.fn()`s that
+    exist only to prove the old path is dead. The `sonarrService` literal is as
+    planned, and also lost the now-unused `setSeriesMonitored`.
+  - **`plan.unmonitorScope` cannot be passed straight to `unmonitorScope`.**
+    `ShowDeletePlan` is not a discriminated union, so narrowing on
+    `cascade !== 'series'` does not narrow the optional field. Passed as
+    `plan.unmonitorScope ?? scope`; the fallback is unreachable (every
+    `episodePlan` / `seasonPlan` sets it).
+  - **`unmonitor()`'s `source` narrowed from `'radarr' | 'sonarr'` to `'sonarr'`** —
+    the movie path no longer uses the helper, so `'radarr'` was dead.
+  - The movie test `swallows a failed movie unmonitor` became `propagates a failed
+removal`, matching the new edge case.
+  - Correction to this plan's pointers: `SonarrService.unmonitorAndDelete` is at
+    `sonarr.service.ts:1032`, not `:956`.
+
+- [x] **C3. The wire contract, the audit row, and the route's docs.** The response says
       whether the title was removed; the audit metadata says how far the delete
-      cascaded. Depends on **C2**.
+      cascaded. Depends on **C2**. — `e902035c`
 
   **Files:** edit `packages/utils/src/download/types.ts`,
   `packages/utils/src/download/client.ts` (doc comment only),
@@ -752,9 +816,29 @@ your own paths; take `/tmp/lilnas-download-commit.lock` first; never `git reset`
   zero-count row still records. `packages/utils`: `pnpm test`, `pnpm lint`,
   `pnpm type-check` pass.
 
-- [ ] **C4. A removed title's in-flight jobs are cancelled.** After a movie or series
+  **Findings (C3):** `download.controller.media.test.ts` 70 passing (3 new cases);
+  consumer regression check 81 across 7 suites; `packages/utils` 392 across 8 suites.
+  `packages/utils` was rebuilt so `dist/` exposes the new field. Corrections to this
+  plan's claims:
+  - **`:1454-1456` needed no change.** `deleteVideoJob`'s comment only says the files
+    route _refuses a `video:` key_ — still true. It never claims the route spares the
+    library entry.
+  - **There is no second job-keyed route comment.** `@Delete('/movies/:id')` (`:1580`)
+    and `@Delete('/shows/:id')` (`:1707`) carry no doc comments at all. The only two
+    copies of the false claim were `types.ts:386` and the route's own comment at
+    `:948`; a repo-wide grep for the stale phrasings now returns nothing outside
+    E1-owned files.
+  - **`client.spec.ts` did need a touch** — `:705` asserts `resolves.toEqual(result)`
+    against a fake response, so the mock was an invalid `DeleteMediaFilesResponse`.
+    Both mocks are now wire-accurate.
+  - `media-files.spec.ts` survives the required-field addition only because its
+    `stubClient` helper takes `Record<string, jest.Mock>` and casts. Worth knowing
+    for whoever threads `removedFromLibrary` through the server action — the mocks
+    are untyped, so the compiler will not catch a drift there.
+
+- [x] **C4. A removed title's in-flight jobs are cancelled.** After a movie or series
       removal, every non-terminal job for that media id is moved to `Cancelled`.
-      Depends on **C2**.
+      Depends on **C2**. — `026577db`
 
   **Files:** edit `apps/download/src/media/show.service.ts`,
   `apps/download/src/media/__tests__/show.service.test.ts`,
@@ -796,10 +880,22 @@ your own paths; take `/tmp/lilnas-download-commit.lock` first; never `git reset`
   season delete cancels nothing; an `updateJob` throw is swallowed and logged.
   `downloadStateService` becomes a mocked provider with a real `Map` for `jobs`.
 
+  **Findings (C4):** `show.service.test.ts` 41 → 47, all passing;
+  `media.module.test.ts` 5 passing, including `instantiates ShowService and injects
+it across the forwardRef` — the real graph boots with the new cross-`forwardRef`
+  dependency. No new exports; `TERMINAL_STATUSES` and `cancelInFlightJobs` are both
+  private, as planned. Deviations, both deliberate and commented in the code:
+  - **Per-record `try`/`catch`, not a wrap around the whole loop.** The plan said
+    "wrap the loop", but then the first throwing record aborts every later
+    cancellation for the same title. Guarding inside still swallows and logs and
+    strictly dominates — the swallow test asserts both jobs are attempted.
+  - The warn log carries `jobId` alongside `mediaId`, since the per-record guard can
+    name the record that failed.
+
 ### Group D — Frontend
 
-- [ ] **D1. Movie and series dialog copy says "removed".** The two whole-title
-      sentences describe removal from Radarr/Sonarr. Independent.
+- [x] **D1. Movie and series dialog copy says "removed".** The two whole-title
+      sentences describe removal from Radarr/Sonarr. Independent. — `c7d3370`
 
   **Files:** edit `apps/download/src/components/detail/delete-confirm.tsx`,
   `apps/download/src/components/detail/__tests__/delete-confirm.spec.tsx`.
@@ -818,9 +914,17 @@ your own paths; take `/tmp/lilnas-download-commit.lock` first; never `git reset`
   `no two scopes read the same` still pass; the video case still never mentions a
   library.
 
-- [ ] **D2. Season and episode dialogs warn about the cascade.** When a season or
+  **Findings (D1):**
+  - Full jsdom project green: 81 suites, 1564 tests.
+  - `movie-detail.spec.tsx:653` consumes `deleteConfirmCopy` rather than hard-coding
+    the sentence, so it tracked the change with no edit.
+  - Two stale comments asserting the old behaviour were left for their owning tasks:
+    `show.service.ts:30` (**C2** owns it) and `media-files.ts:332` (**E1** owns it).
+    Both are already in those tasks' file lists — no follow-up needed.
+
+- [x] **D2. Season and episode dialogs warn about the cascade.** When a season or
       episode delete will reach a higher level, the dialog says so before the user
-      confirms. Depends on **D1** (same file).
+      confirms. Depends on **D1** (same file). — `5db76aa`
 
   **Files:** edit `apps/download/src/components/detail/delete-confirm.tsx`,
   `apps/download/src/components/detail/show-state.ts`,
@@ -882,10 +986,31 @@ your own paths; take `/tmp/lilnas-download-commit.lock` first; never `git reset`
   `DeleteConfirm` and to the episode rows (assert on the rendered dialog description,
   as `DeleteConfirm — the dialog` already does at `delete-confirm.spec.tsx:275`).
 
+  **Findings (D2):** 18 new `show-state` cases plus the three component specs;
+  `components/detail` 710 passing, full jsdom project 1585. Exports
+  `DeleteCascade`, `DeleteCascadeScope`, `deleteCascade`; `cascadeSentence` stays
+  private so `deleteConfirmCopy` remains the single public spelling of the copy.
+  - ⚠️ **The appended copy reads as a near-contradiction.** With a cascade, the
+    episode dialog says "The rest of the season is left alone. It's the last
+    downloaded episode of the season, so the season is unmonitored too." — and the
+    season one likewise. Both sentences are literally true (nothing else has a file
+    to leave alone), but the leading clause undercuts the warning. Implemented as
+    the plan specified (append, keep the base copy byte-identical). **Open question
+    for the human checkpoint: rewrite the leading clause when a cascade fires.**
+  - `cascadesTo: 'season'` on a **season** scope is ignored rather than rendered —
+    the template would have said "last downloaded episode of the season" over a
+    season delete. `deleteCascade` cannot produce it for a season scope anyway.
+  - `delete-confirm.tsx` now type-imports from `show-state.ts` (fully erased). A
+    show-specific module reaching into a component the movie and video pages also
+    use; the alternative was declaring the union twice.
+  - Two backend behaviours mirrored beyond the plan's literal text, both matching
+    `planShowDelete`: a whole-series job in flight blocks the `'series'` answer, and
+    an episode no listed season holds returns `'none'` rather than guessing.
+
 ### Group E — Docs & verification
 
-- [ ] **E1. Docs say what a delete does now.** Independent of code tasks (but write it
-      last so it records what shipped).
+- [x] **E1. Docs say what a delete does now.** Independent of code tasks (but write it
+      last so it records what shipped). — `32cdc8d0`
 
   **Files:** edit `docs/features/download/backend.md`,
   `apps/download/src/app/actions/media-files.ts` (the comment at `:328-336` only).
@@ -899,11 +1024,33 @@ your own paths; take `/tmp/lilnas-download-commit.lock` first; never `git reset`
   Include a **Manual verification** block in the style of the existing phase sections
   (`:577`), containing the recipe from [human checkpoint 1](#human-checkpoints).
 
-- [ ] **E2. Full verification.** From `apps/download`: `pnpm test`, `pnpm lint`,
+  **Findings (E1):** +216 net in `backend.md`. The recipe landed as
+  `### Manual verification (needs live Sonarr/Radarr — human only)` behind a
+  `> [!CAUTION]` block quoting `local-verification.md`'s "no mutating requests
+  against the media library" rule. The Phase 4 `### Delete removes files, not the
+library entry` section is intact with a superseded pointer at its top. One
+  pre-existing prettier drift in `backend.md` (`*action*` → `_action_`) was fixed in
+  passing.
+  - **This plan understated one rule, now written correctly into the docs:** a
+    **season**-scope delete also escalates straight to series removal when nothing
+    outside that season remains, and a bare **series**-scope delete calls
+    `seriesPlan` unconditionally with no guard at all.
+  - E1 observed C4 and C3 as uncommitted while it worked. That was a race — both
+    landed (`026577db`, `e902035c`) before E1 committed. Verified after the fact.
+
+- [x] **E2. Full verification.** From `apps/download`: `pnpm test`, `pnpm lint`,
       `pnpm type-check`. From `packages/utils`: the same three. From the repo root:
       `pnpm run type-check`. Confirms nothing else broke and every prior commit is
       present (`git log --oneline` shows every hash recorded above). Then fill in the
-      [Final report](#final-report). Depends on everything.
+      [Final report](#final-report). Depends on everything. — run by the orchestrator,
+      no commit of its own
+
+  **Findings (E2):** all green, first run, no triage needed. Results in the
+  [Final report](#final-report). One deviation from the plan's protocol: the
+  orchestrator ran E2 itself rather than delegating it. E2 only runs commands and
+  reports, and the orchestrator needs the raw output to write the final report —
+  delegating would have added a summarisation layer between the numbers and the
+  record.
 
 ---
 
@@ -1003,13 +1150,93 @@ the delete side need the season-flag writer, so it should not slip.
 
 ## Final report
 
-When every box is checked, report:
+**Status: all 12 tasks complete.** Landed as 10 commits on `jeremy/download` across
+four waves, plus the wave-0 baseline. Every check green on the first E2 run.
 
-1. **Per-task outcome** — status, files changed, exported names, commit hashes
-2. **Test results** — `apps/download` and `packages/utils`, plus the repo-wide
-   type-check
-3. **Deviations** from this plan, and why
-4. **Deferred** — both human checkpoints, the fresh-add accepted gap, and anything
-   tagged 🚧 / ⏳
-5. **Open questions** discovered during implementation — in particular what Sonarr
-   did to episode flags on a season-flag PUT, once checkpoint 1 has run
+### 1. Per-task outcome
+
+| Task                               | Status | Commit     | Exports introduced                                                                  |
+| ---------------------------------- | ------ | ---------- | ----------------------------------------------------------------------------------- |
+| A1 `setSeasonsMonitored`           | ✅     | `c9390b4a` | `SonarrService.setSeasonsMonitored` (method)                                        |
+| C1 cascade planner                 | ✅     | `527cdd99` | `ShowDeleteCascade`, `ShowDeletePlan`, `planShowDelete`                             |
+| D1 movie/series copy               | ✅     | `c7d3370d` | none                                                                                |
+| B1 `requestShow` cascade down      | ✅     | `97df9b09` | none                                                                                |
+| C2 `deleteFiles` cascade + removal | ✅     | `5395d66e` | `DeleteFilesResult`                                                                 |
+| D2 cascade-aware dialog copy       | ✅     | `5db76aac` | `DeleteCascade`, `DeleteCascadeScope`, `deleteCascade`, `DeleteScope['cascadesTo']` |
+| C4 cancel in-flight jobs           | ✅     | `026577db` | none (`TERMINAL_STATUSES`, `cancelInFlightJobs` private)                            |
+| C3 wire contract + audit row       | ✅     | `e902035c` | `DeleteMediaFilesResponse.removedFromLibrary` (member)                              |
+| E1 docs                            | ✅     | `32cdc8d0` | n/a                                                                                 |
+| E2 verification                    | ✅     | —          | n/a                                                                                 |
+
+Wave 0 baseline: `a671d4d2` (the re-monitor fix) and `39605492` (this plan).
+Per-task file lists and detail live in the **Findings** notes under each task.
+
+### 2. Test results
+
+| Scope                                       | Result                                                                 |
+| ------------------------------------------- | ---------------------------------------------------------------------- |
+| `apps/download` `pnpm test`                 | **177 suites / 3720 passed**, 1 suite + 9 tests skipped (pre-existing) |
+| `apps/download` `pnpm lint`                 | eslint clean · prettier clean                                          |
+| `apps/download` `pnpm type-check`           | clean                                                                  |
+| `packages/utils` `pnpm test`                | **8 suites / 392 passed**                                              |
+| `packages/utils` `pnpm lint` / `type-check` | clean                                                                  |
+| repo root `pnpm run type-check`             | **12/12 tasks successful**                                             |
+
+Jest's "a worker process has failed to exit gracefully" warning on the
+`apps/download` run is pre-existing and unrelated.
+
+### 3. Deviations from this plan
+
+Each is recorded in full under its task. The ones that change what the plan claimed:
+
+| #   | Task | Deviation                                                                                                                                                                                                                                                                                                                                                                                |
+| --- | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | C1   | **The plan's series-level rule was not implementable.** It said the planner counts queue items "with no `episodeId` but a matching `seriesId`", but `planShowDelete` takes no `seriesId`. The planner assumes a **series-scoped queue**; C2 must call `getQueue([sonarrId])`. A bare `getQueue()` would make every series look permanently "remaining" and no delete would ever cascade. |
+| 2   | C2   | The `radarrService` mock **keeps** `deleteMovieFile` / `setMonitored`. The plan said drop them, but also required asserting they are not called — dropped, they are `undefined` and the assertion throws.                                                                                                                                                                                |
+| 3   | C2   | `plan.unmonitorScope` passed as `plan.unmonitorScope ?? scope` — `ShowDeletePlan` is not a discriminated union, so `cascade !== 'series'` does not narrow the optional field. Fallback unreachable.                                                                                                                                                                                      |
+| 4   | C2   | `unmonitor()`'s `source` narrowed to `'sonarr'`; the movie path no longer uses the helper.                                                                                                                                                                                                                                                                                               |
+| 5   | C3   | **Two of the plan's "correct in passing" comment targets did not exist.** `:1454-1456` was already accurate, and the two job-keyed routes carry no doc comments at all. The false claim lived in exactly two places, both fixed.                                                                                                                                                         |
+| 6   | C3   | `client.spec.ts` **did** need a touch — `:705` asserts `resolves.toEqual(result)`, so the fake was an invalid `DeleteMediaFilesResponse`.                                                                                                                                                                                                                                                |
+| 7   | C4   | Per-record `try`/`catch` rather than the planned wrap around the whole loop — a wrap lets the first throwing record abort every later cancellation for the same title.                                                                                                                                                                                                                   |
+| 8   | B1   | A **third** test needed updating beyond the two named (`triggers the generic search command when the title has no flagged releases`).                                                                                                                                                                                                                                                    |
+| 9   | E1   | The plan understated one rule: a **season**-scope delete also escalates straight to series removal, and a bare series-scope delete calls `seriesPlan` with no guard at all. Documented correctly.                                                                                                                                                                                        |
+| 10  | E2   | Run by the orchestrator rather than delegated — it only runs commands, and the raw output feeds this report directly.                                                                                                                                                                                                                                                                    |
+
+### 4. Deferred
+
+- 🚧 **Human checkpoint 1 — live verification.** Not run. Mutates the real
+  Sonarr/Radarr library, which `local-verification.md` forbids as an agent task. The
+  recipe now lives in `backend.md` under
+  `### Manual verification (needs live Sonarr/Radarr — human only)`.
+- 🚧 **Human checkpoint 2 — deploy.** ⚠️ The first production delete after this lands
+  **removes a title from Radarr/Sonarr**. Someone should do the first one
+  deliberately, on a title they are happy to lose.
+- ⏭️ **The fresh-add accepted gap** stands as designed: a season- or episode-scoped
+  request that has to _add_ the series still adds it with `monitor: 'all'`. Reachable
+  only from tdr-bot / the raw API. Documented in `backend.md`.
+- ⏭️ **The job-keyed routes** (`DELETE /movies/:id`, `DELETE /shows/:id`) are
+  untouched, as scoped. Still zero callers outside their tests.
+
+### 5. Open questions
+
+1. ⏳ **What does Sonarr actually do to episode flags on a season-flag PUT?** Still
+   unanswered — it needs checkpoint 1. Nothing depends on the answer (every episode
+   flag is written explicitly and every read precedes the season write), but A1's doc
+   comment asserts the hazard and should be confirmed.
+2. ⚠️ **The cascade dialog copy reads as a near-contradiction** (D2). "The rest of the
+   season is left alone. It's the last downloaded episode of the season, so the season
+   is unmonitored too." Both clauses are literally true, but the first undercuts the
+   second. Implemented as the plan specified (append, base copy byte-identical).
+   Fixing it means varying the leading clause when a cascade fires — a copy decision,
+   not a code one.
+3. **`media-files.spec.ts` mocks are untyped.** Its `stubClient` helper takes
+   `Record<string, jest.Mock>` and casts, so the compiler will not catch drift if
+   anyone threads `removedFromLibrary` through the server action later (C3).
+4. **`delete-confirm.tsx` now type-imports from `show-state.ts`** (D2) — a
+   show-specific module reaching into a component the movie and video pages also use.
+   The alternative was declaring the `DeleteCascade` union twice. Worth revisiting if
+   a neutral home appears.
+5. **`ensureSeries`'s `wasMonitored` fallback now has zero reachable callers** in this
+   app (A1, confirmed by B1). Kept as documented defence for a series a human
+   unmonitored in Sonarr's own UI. A later cleanup could delete the branch; its
+   comment is the place to start.
