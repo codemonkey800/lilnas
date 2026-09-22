@@ -1945,6 +1945,360 @@ doubt.
 
 ---
 
+## Stuck imports and the in-app importer (plan 020)
+
+**Status: done.** Full plan in
+`docs/features/download/plans/020-stuck-import-needs-attention.md`. Commits,
+in order: `8d8e6420` (the `needs_attention` status), `1fc5ad5c` / `b2ddb13a`
+(Radarr's and Sonarr's manual-import and queue-removal methods), `135bc8d5`
+(the wire contract), `a8e41f5e` (the classification), `42c0afa4` (rendering
+it as stopped rather than busy), `6c2bf12f` (the restart exemption),
+`22959ced` / `be95eaa6` (the server actions and their audit actions),
+`495d03eb` (upstream's own sentence carried onto the job), `af14a9a5` (the
+dialog), `77ac2729` (`ManualImportService`), `3cf9ecae` / `0ddc7d2b` (the
+dialog mounted in the lifecycle panel and on a stuck episode row),
+`5bd08375` (the three routes).
+
+Radarr and Sonarr can finish a download and then refuse to import it. The
+bytes are on disk, the queue row reads "Downloaded - Waiting to Import" with
+a warning icon and a one-line reason — usually that the folder name did not
+match the grabbed release — and **nothing moves again** until a human opens
+their manual-import dialog and picks the destination by hand. This app used
+to fold that row into `importing`: accent colour, breathing dot, "the machine
+is working on it", and upstream's sentence dropped on the floor. A
+permanently stuck job was indistinguishable from a 30-second import, and
+never reached a terminal status.
+
+### The signal, and the ordering trap
+
+Classification is `deriveStatusFromQueueItem` in
+`apps/download/src/media/queue-status.util.ts`. A queue item is
+`NeedsAttention` when either holds:
+
+| Condition                                                              | Why it counts                                                   |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `trackedDownloadState` of `importPending` or `importBlocked`           | Upstream's own words for "the file is here and I won't move it" |
+| `status === 'completed'` **and** `trackedDownloadStatus === 'warning'` | The transfer is done and something is wrong with the import     |
+
+> ⚠️ **The branch order is load-bearing.** A live stuck item is
+> `status: 'completed'` **and** `trackedDownloadState: 'importPending'` at
+> the same time, so the needs-attention test has to run **before** both
+> importing branches — the branch below it, which calls an `imported` state
+> or a `completed` status `Importing`, would otherwise swallow it, and the
+> job would sit in the accent colour forever.
+
+Not every warning is this. Radarr and Sonarr warn about a stalled torrent, a
+missing category, an unpack in progress — all still `downloading`, and none
+of them fixed by a manual import — so a warning on an item that is still
+transferring deliberately stays `Downloading`. **Only import-stage signals
+count.**
+
+`STATUS_PRECEDENCE` (the fold `aggregateQueueItems` uses when Sonarr queues
+one row per episode) is `[Failed, NeedsAttention, Downloading, Importing]`.
+A season with one blocked episode and nine still transferring therefore
+reports `needs_attention` immediately rather than minutes later: it is the
+one thing in the list a person can act on **now**. The summed
+`size`/`sizeleft` still drive the bar, so the card reads "9 of 10 — needs
+your decision", which is exactly true.
+
+### The status, and why it is not `failed`
+
+`DownloadJobStatus.NeedsAttention = 'needs_attention'`
+(`packages/utils/src/download/schema.ts`), **non-terminal** — the job is
+still open work, still on the Activity feed, still polled.
+
+- Not `failed`, because `failed` offers Retry, and a retry re-searches and
+  re-grabs a file that is already sitting on disk.
+- Not `importing`, because that is the bug this replaced.
+
+It renders tone `warn` with **no breathing dot** — the visual grammar
+`paused` already uses — and the chip reads **"needs your decision"**
+(`statusTone` in `src/lib/format.ts`, `JOB_STATUS_LABELS` in
+`src/components/detail/job-state.ts`). `jobActionState` offers `import` for
+this status and no other: everywhere else there is either nothing on disk to
+import or nobody waiting on a choice.
+
+Upstream's own sentence rides on `job.error`, written by the poller through
+`describeQueueItemError` — the same field a `failed` job uses, because both
+statuses are "upstream said why". A job can sit here for hours while upstream
+re-parses the release and changes its mind about _why_, so `applyUpdate`
+treats a changed reason at an unchanged status as a real update rather than
+letting the early return pin the first sentence forever.
+
+> ⚠️ **Leaving the status must clear `error` explicitly**, as
+> `{ error: undefined }`. `updateJob` spreads its patch over the record and
+> never touches `error` on its own, and `buildJobRow` persists
+> `record.error ?? null` — so without the explicit `undefined` a job that
+> finally imported carries "was not found in the grabbed release" into its
+> history forever. Both writers do it: `MediaPollerService.applyUpdate` when
+> the poller moves the job on, and `ManualImportService.moveJobs` when a
+> person does.
+
+### The three routes, and the command they post
+
+Media-keyed, with the show scope alongside, mirroring the release routes.
+All three live on `DownloadController` and delegate to `ManualImportService`.
+⚠️ The scope arrives **in the query** on the GET and the DELETE and **in the
+body** on the POST, so the paths and the season/episode they belong to arrive
+as one document — which is also why `ImportFilesInputSchema` uses plain
+`z.number()` where the two query schemas coerce.
+
+| Route                                | Does                                                                     |
+| ------------------------------------ | ------------------------------------------------------------------------ |
+| `GET /download/media/:id/imports`    | Lists the manual-import candidates for every queue item in scope         |
+| `POST /download/media/:id/imports`   | Commits the chosen candidates through upstream's `ManualImport` command  |
+| `DELETE /download/media/:id/imports` | Discards every queue item in scope, the download client's files included |
+
+Keyed on **media plus scope, never on a job id**: the candidate list belongs
+to a title's download, and one title can have several jobs pointed at the
+same queue item (a series job and an episode job). Answering per media
+answers all of them at once — `moveJobs` then moves every `needs_attention`
+job of that title the request covers, `Importing` for a commit and
+`Cancelled` for a discard. Which jobs those are is `jobScopeCovers`: an
+episode-level request cannot finish a season job, because the season may
+still have other episodes waiting.
+
+The client sends **paths and nothing else**. Quality, languages, release
+group, indexer flags, folder name and `downloadId` are all re-resolved
+server-side from a **fresh** candidate list — the same trust boundary
+`GrabReleaseInputSchema` draws with `guid`. A path that is no longer on offer
+is a 400, as is one the server marked `importable: false`; an empty `paths`
+is a 400 from zod (`.min(1)`), and a scope with no queue rows at all is a
+404 response. The download client's `downloadId` is **never persisted**: it
+lives on the queue item and is re-read on every call, because a column is a
+second copy of transient upstream state that goes stale the moment upstream
+re-queues.
+
+> ⚠️ **`postApiV3Manualimport` is the _reprocess_ endpoint.** That route
+> (`POST /api/v3/manualimport`) re-evaluates candidates after a user edits a
+> field in upstream's own dialog and hands back updated candidates — it
+> **imports nothing**, and is deliberately unused here.
+
+The import is a command posted through `postApiV3Command`. Neither SDK types
+command-specific fields, so both services declare the body locally as
+`CommandResourceWritable & { files, importMode }`:
+
+```ts
+// Radarr
+{ name: 'ManualImport', importMode: 'auto', files: [{
+  path, folderName, movieId, quality, languages, releaseGroup, indexerFlags,
+  downloadId }] }
+// Sonarr
+{ name: 'ManualImport', importMode: 'auto', files: [{
+  path, folderName, seriesId, episodeIds, episodeFileId?, quality, languages,
+  releaseGroup, indexerFlags, releaseType, downloadId }] }
+```
+
+One command per upstream carrying **every** file, because upstream processes
+a `ManualImport` as a unit and one call per file would be N commands racing
+over the same folder. `importMode: 'auto'` is what upstream's own UI sends —
+it lets upstream pick move-vs-copy from the download client's settings rather
+than this app overriding a choice the user already made there.
+
+`importedCount` is how many files were **submitted**, not how many landed:
+the command queues at upstream's end. This is also why the jobs move to
+`Importing` rather than `Completed`, and why **the import path never removes
+the queue row** — upstream drops it once the import succeeds, and the
+poller's existing "no queue entry while Downloading/Importing/NeedsAttention
+→ Completed" branch finishes the job a tick or two later. If the import fails
+upstream, the row stays with a new warning and the poller puts the job
+straight back to `needs_attention` carrying the new sentence.
+`removeQueueItem` has exactly one caller, and it is discard.
+
+### A rejection is informational, and `importable` is not
+
+A candidate's `rejections` explain why the **automatic** import declined.
+Upstream's `ManualImportService` builds a **fresh** `ImportDecision` with no
+rejections for every file it is handed, so even a `permanent` rejection does
+not block a manual import. `manual-import-mapper.util.ts` therefore keeps the
+`reason` sentences and **drops the `type`** (`permanent`/`temporary`) on
+purpose: surfacing the severity would only invite the dialog to gate on it.
+
+What _does_ gate a row is the server-decided `importable` flag, and there is
+exactly one way to be false:
+
+- **Movie candidates are always `importable: true`.** Radarr is asked by
+  `downloadId` **and** `movieId`, and resolves the movie from that id even
+  when the filename defeats its parser — which is precisely the case this
+  feature exists for.
+- **A show candidate needs episode ids**, because the command is keyed on
+  `episodeIds`. Sonarr's parse is used when it has one; failing that, an
+  **episode-scoped** request supplies the answer from its own scope, since
+  the job already names the episode. Only a file with neither is
+  `importable: false`, carrying `UNPARSED_EPISODES_REASON` — the one sentence
+  that points the user at Sonarr.
+
+### The dialog
+
+`src/components/detail/import-dialog.tsx`, mounted by `JobLifecycle` (movie
+and series panels) and by `ShowEpisodeRow`, wherever
+`jobActionState(status, 'import')` is `offered`. The three calls arrive as an
+`ImportDialogActions` prop — `listImportCandidates` / `importFiles` /
+`discardImport` from `src/app/actions/media-files.ts` — so the _page_ wires
+the backend and the component tests need none of it. A page that never wired
+the importer simply renders no Import control.
+
+- **Trigger:** an `outline` button reading `Import`, beside the "needs your
+  decision" chip. The `uv` treatment belongs to the footer's confirm, not to
+  the trigger.
+- **Fetch on open, once.** `GET …/imports` asks upstream about live queue
+  items, and a detail page rendering this control once per episode row would
+  otherwise fire one request per row on load. A ref keyed on
+  `mediaId|episodeId|seasonNumber` makes a parent re-render a no-op rather
+  than a second round trip.
+- **A list, not a file.** Every row is a real `<button role="checkbox">` with
+  a **square** box, not the mockup's round dot: a round indicator would be
+  promising a radio group, and several rows can be committed together.
+  Importable rows start checked. A blocked row renders `aria-disabled`, never
+  `disabled`, so it keeps the focus order and the `aria-describedby` that
+  carries its reason.
+- **Rejections in one note.** `importRejections` collects every distinct
+  cleaned rejection across the whole list — a real list repeats the same
+  sentence on every row — and the note closes with
+  `IMPORT_REJECTION_NOTE`: "Informational only — a manual import ignores it."
+  Without that line the note reads as a blocker on a row the user is
+  perfectly able to import.
+- **Discard is confirmed inline**, and its note says the three things that
+  matter: the files go too, the job ends, and **nothing is blocklisted**.
+- An empty candidate list hides Import and keeps Discard: the queue row is
+  real even when the file list is not, and discarding is the only honest way
+  out of it.
+
+### Discard: the give-up path
+
+`DELETE /api/v3/queue/{id}` per row, with `removeFromClient: true`,
+`blocklist: false`, `skipRedownload: true`.
+
+- **No blocklist**, because the release was never the problem — the folder
+  name was — and blocklisting it would stop upstream picking the same
+  perfectly good release next time. This is the whole reason Discard sits
+  beside Retry instead of being Retry.
+- **`skipRedownload: true`**, so upstream does not immediately go searching
+  for a replacement nobody asked for.
+
+Removals run through `Promise.allSettled`, so one failing row does not lose
+the others; each failure is logged. Discarding **zero** rows is a success for
+the reason `DeleteMediaFilesResponse` gives — the caller asked for a state
+and that state already held — but a discard whose removals **all** fail
+throws `ServiceUnavailableException` (503). A poller tick landing between the
+removal and the job write can briefly stamp the job `Completed`; the
+`Cancelled` write simply wins, and the stamp is harmless — not a race worth a
+lock.
+
+Both routes audit. `media.manual_import` renders `IMPORT` in tone `uv` and
+reads "manually imported files"; `media.discard_download` renders `DISCARD`
+in tone `bad` and reads "discarded a stuck download". The import row keeps
+the paths verbatim, because "which files did someone force in" is the whole
+question a later reader brings to it, and the discard row is recorded even at
+zero.
+
+### Surviving a restart
+
+`reconcileInterruptedJobs` fails every non-terminal row at boot — that is
+what keeps a `downloading` row from sitting frozen after the process that was
+downloading it died. `needs_attention` is the one exemption,
+`RESTART_SURVIVING_STATUSES` in
+`apps/download/src/db/reconcile-interrupted-jobs.ts`.
+
+The reason: the state it describes is **upstream's queue row**, which
+outlived this process. Failing it would be a lie about Radarr/Sonarr _and_
+would hand the user a Retry that re-grabs a file they already have.
+
+Sparing the row is only half of it, though — `MediaPollerService` iterates
+the in-memory Map, and a restart empties it, so an unadopted row would sit at
+`needs_attention` forever with nothing watching it.
+`DownloadStateService.adoptSurvivingJobs()` puts every spared row back in the
+Map, and `bootstrap.ts` runs it in order: **sweep → adopt → library sync**,
+all before `app.listen()`, so the poller tracks the job on its first tick and
+there is no WS subscriber to miss a broadcast.
+
+### ⚠️ Accepted gaps
+
+- **A season pack Sonarr could not parse cannot be imported from here**, on a
+  season- or series-scoped request: the command needs episode ids and nobody
+  has them. The row says so and points at Sonarr, whose own dialog lets a
+  human pick the episodes. An episode-scoped request is unaffected — its
+  scope answers the question. A "choose the episodes" picker in this app is a
+  separate feature.
+- **Disappearance from the queue still means `completed`**, exactly as it
+  does for `importing`. A user who removes the item at Radarr's own UI gets a
+  `completed` job for a download that produced no file. `didJobComplete`
+  (`src/media/job-completion.util.ts`, plan 016) is the eventual fix — it
+  asks the library whether a file actually appeared — and it is **not wired
+  here**; it has no production caller yet.
+- **Whether Radarr accepts `ManualImport` with `importMode: 'auto'` for a
+  file carrying a `permanent` rejection** is confirmed from Radarr's source
+  (a fresh `ImportDecision` per file, no rejections) but **not yet exercised
+  live**.
+
+### Manual verification (needs live Radarr)
+
+> [!CAUTION]
+> The import and discard steps **mutate the real Radarr library and the
+> download client's files**. `local-verification.md`'s standing rule — no
+> mutating requests against the media library — forbids them as an agent
+> task. A human runs those, on a throwaway stuck download, with explicit
+> intent. Only step 1 is safe to run unattended.
+
+⚠️ **Not yet run.** _Checking for:_ that a real stuck row is classified,
+explained, importable and discardable from this app, and that it survives a
+restart.
+
+⚠️ **The stuck item the plan was written against is gone.** As of
+2026-09-21 Radarr's queue is **empty** and _Game Night (2018)_
+(`tmdb:445571`, Radarr movie `434`) **has a file** — something imported it
+out of band. Step 1's shape is still right, but it now answers
+`{"candidates":[]}`, and steps 2–4 need a **fresh** stuck download to work
+on.
+
+1. **Read-only.** The candidate list, through Next's `/api` rewrite (the
+   backend's 8081 has no published host port — see `local-verification.md`):
+
+   ```bash
+   curl -s 'localhost:8090/api/download/media/tmdb:445571/imports' | jq
+   ```
+
+   Against a genuinely stuck movie, expect one candidate with
+   `importable: true`, its parsed quality (`Bluray-1080p`) and languages
+   (`English`), and Radarr's cleaned rejection — "Movie [Game Night
+   (2018)][tt2704998, 445571] was not found in the grabbed release: …". A
+   GET only; nothing mutates.
+
+2. **The import, by hand.** Open `download.lilnas.io/movies/445571` (or
+   whatever title is stuck). The lifecycle panel should read **"needs your
+   decision"** in `warn` with **no breathing dot**, Radarr's sentence beside
+   the chip, and an **Import** control. Press it, tick the file, Import.
+   Then confirm all four:
+   - Radarr's queue drops the row within a minute and the movie has a file.
+   - The job goes `importing` → `completed`, with **no `error`** left on it.
+   - `/download/activity` and the detail page agree.
+   - The audit log has a `media.manual_import` row carrying the path.
+
+3. **The discard**, when a throwaway case exists: it removes the queue row
+   **and** the download client's files, leaves the title in the library
+   **un-blocklisted**, and the job reads `cancelled` with Retry offered.
+
+4. **A restart with a stuck job present.** Run
+   `docker restart lilnas-download-dev`, then confirm the job comes back
+   `needs_attention` — **not `failed`** — is still tracked by the poller (its
+   reason updates on the next tick), and still offers Import.
+
+⚠️ Before trusting any live result, confirm the dev backend is actually
+running this code — the running process is the one thing none of the above
+checks. It mounts this worktree, but `nest start -w` does not always pick up
+a rebase:
+
+```bash
+docker inspect lilnas-download-dev --format '{{.State.StartedAt}}'
+docker logs lilnas-download-dev 2>&1 | grep 'Mapped {/download/media/:id/imports'
+```
+
+If the routes are not in that list, the process predates `5bd08375`; a `GET
+…/imports` answers 404 for that reason and not because the title has nothing
+stuck. `docker restart lilnas-download-dev` and re-check.
+
+---
+
 ## Verification conventions
 
 The conventions Phases 0–8 followed, and that anything built on top of them
