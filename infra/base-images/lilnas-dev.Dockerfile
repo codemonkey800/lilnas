@@ -22,6 +22,14 @@ FROM lilnas-node-base
 # production stage of apps/download/Dockerfile: yt-dlp is a python3 program, it
 # shells out to ffmpeg to merge separate video/audio streams, and
 # download-video.service.ts spawns /usr/bin/ffmpeg directly for conversion.
+#
+# procps (for `ps`) is load-bearing for every app's `nest start -w`: on
+# recompile, @nestjs/cli's watcher kills the previous instance via tree-kill,
+# which shells out to `ps --ppid` to find descendant PIDs. Without it, the
+# first backend file change after boot throws an uncaught `spawn ps ENOENT`
+# that crashes the whole watch supervisor - the container stays "Up
+# (healthy)" (the healthcheck only probes the frontend), but the backend
+# freezes on stale code for the rest of the container's life.
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
@@ -31,6 +39,7 @@ RUN apt-get update \
     g++ \
     git \
     make \
+    procps \
     python3 \
   && rm -rf /var/lib/apt/lists/*
 
