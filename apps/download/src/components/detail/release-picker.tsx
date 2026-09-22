@@ -22,7 +22,7 @@ import { BadFileFlag } from 'src/components/detail/bad-file-flag'
 import { Button } from 'src/components/ui/button'
 import { Card, Note } from 'src/components/ui/card'
 import { Chip } from 'src/components/ui/chip'
-import { Spinner } from 'src/components/ui/feedback'
+import { Skeleton } from 'src/components/ui/feedback'
 import { StateLineActions } from 'src/components/ui/state-line'
 import { UNKNOWN_VALUE } from 'src/lib/format'
 
@@ -600,13 +600,16 @@ function SearchPrompt({
   onSearch,
   pending,
 }: SearchPromptProps): JSX.Element {
+  if (pending) {
+    return <ReleaseListSkeleton mobile={mobile} />
+  }
+
   return (
     <Card className={cns(mobile ? 'px-[14px] py-4' : 'px-4 py-[18px]')} sunk>
       <p className={cns('mb-[14px] text-sm text-ink-3')}>
-        {pending ? RELEASE_SEARCHING_NOTE : RELEASE_SEARCH_NOTE}
+        {RELEASE_SEARCH_NOTE}
       </p>
       <Button
-        aria-disabled={pending || undefined}
         full={mobile}
         icon="search"
         size="sm"
@@ -615,7 +618,72 @@ function SearchPrompt({
       >
         {RELEASE_SEARCH_LABEL}
       </Button>
-      {pending ? <Spinner className={cns('mt-[14px] h-4 w-4')} /> : null}
+    </Card>
+  )
+}
+
+/**
+ * Column widths for {@link ReleaseRowSkeleton}, varied so the placeholder list
+ * does not read as a checkerboard — the same reasoning as `search-skeletons.tsx`'s
+ * `GRID_SKELETONS`.
+ */
+const SKELETON_ROWS: ReadonlyArray<{ secondary: string; title: string }> = [
+  { secondary: '30%', title: '62%' },
+  { secondary: '42%', title: '48%' },
+  { secondary: '24%', title: '70%' },
+  { secondary: '36%', title: '55%' },
+]
+
+/**
+ * One placeholder row, shaped like {@link ReleaseRow} — same columns, same
+ * `sm`-sized action bar — so the list does not jump when the real rows land.
+ */
+function ReleaseRowSkeleton({
+  mobile,
+  secondary,
+  title,
+}: {
+  mobile: boolean
+  secondary: string
+  title: string
+}): JSX.Element {
+  if (mobile) {
+    return (
+      <div className={cns(ROW_BASE, ROW_MOBILE)}>
+        <Skeleton className={cns('h-[13px] w-[90px]')} />
+        <Skeleton className={cns('h-[13px] w-full')} style={{ width: title }} />
+        <Skeleton className={cns('h-[11px]')} style={{ width: secondary }} />
+      </div>
+    )
+  }
+
+  return (
+    <div className={cns(ROW_BASE, ROW_DESKTOP)}>
+      <Skeleton className={cns('h-[13px] w-[110px] shrink-0')} />
+      <Skeleton
+        className={cns('h-[13px] w-[340px] min-w-0 shrink')}
+        style={{ width: title }}
+      />
+      <Skeleton
+        className={cns('h-[11px] min-w-0 flex-1')}
+        style={{ maxWidth: secondary }}
+      />
+      <Skeleton className={cns('h-[30px] w-[130px] shrink-0 rounded-md')} />
+    </div>
+  )
+}
+
+/**
+ * The shape of the answer before the answer arrives, shown while
+ * {@link ReleasePicker} is asking every indexer. Same `Card` the real list
+ * lands in, so nothing about the frame around it changes when the rows do.
+ */
+function ReleaseListSkeleton({ mobile }: { mobile: boolean }): JSX.Element {
+  return (
+    <Card className={cns(mobile ? 'px-[14px] py-1' : 'px-4 py-1')} sunk>
+      {SKELETON_ROWS.map((widths, index) => (
+        <ReleaseRowSkeleton key={index} mobile={mobile} {...widths} />
+      ))}
     </Card>
   )
 }
