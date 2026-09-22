@@ -6,6 +6,7 @@ import { EmbyModule } from 'src/emby/emby.module'
 import { radarrClientProvider, sonarrClientProvider } from './clients'
 import { CurrentReleaseService } from './current-release.service'
 import { DiscoveryService } from './discovery.service'
+import { ManualImportService } from './manual-import.service'
 import { MediaDownloadService } from './media-download.service'
 import { MediaFileService } from './media-file.service'
 import { MediaPollerService } from './media-poller.service'
@@ -36,6 +37,7 @@ import { SonarrService } from './sonarr.service'
     DiscoveryService,
     RadarrService,
     SonarrService,
+    ManualImportService,
     MediaDownloadService,
     MediaFileService,
     MediaPollerService,
@@ -48,6 +50,9 @@ import { SonarrService } from './sonarr.service'
     // is assembled outside this module.
     CurrentReleaseService,
     DiscoveryService,
+    // Exported for the controller's manual-import routes, which live on the
+    // far side of the DownloadModule forwardRef.
+    ManualImportService,
     MediaDownloadService,
     MediaFileService,
     MediaResolverService,
