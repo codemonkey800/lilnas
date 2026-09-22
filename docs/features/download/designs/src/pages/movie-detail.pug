@@ -131,6 +131,51 @@ mixin reportModal(view)
           +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
           +btn({ label: 'Submit report', variant: 'uv', size: 'sm' })
 
+//-
+  Radarr's own manual-import picker, mirrored: the one file it found, what it
+  resolved, and the informational rejection that's blocking the auto-pick.
+  Discard sits opposite Import rather than in the page's own Delete flow —
+  this is "I don't want this download", not "remove the title from the
+  library".
+mixin importModal(view)
+  - const mobile = view === 'mobile'
+  +modalScrim
+    +modal
+      p(class='mb-1.5 text-h3')= `Import "${TITLE}"`
+      p(class='mb-3 text-sm text-ink-3')
+        | The bytes are already down — Radarr just couldn't match the file. Pick it and import, or discard.
+      div(
+        class="mb-3 flex items-start gap-2.5 rounded-md border border-uv/40 bg-uv-ghost px-3 py-[11px]"
+      )
+        span(
+          class="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border-[1.5px] border-uv after:h-2 after:w-2 after:rounded-full after:bg-uv after:content-['']"
+        )
+        div(class='flex min-w-0 flex-1 flex-col gap-1.5')
+          p(class='truncate font-mono text-mono-sm text-ink')= FILE.name
+          div(class='flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-mono-sm text-ink-3')
+            +mchip(null, FILE.size)
+            +mchip(null, FILE.quality)
+            +mchip(null, FILE.language)
+      +note('alert')(class='mb-3')
+        p(class='text-sm text-ink-2')= FILE.rejection
+        p(class='mt-1 text-xs text-ink-4') Informational only — a manual import ignores it.
+      if mobile
+        div(class='flex flex-col gap-2')
+          +btn({ label: 'Import', variant: 'uv', size: 'sm', iconEnd: 'check', full: true })
+          +btn({ label: 'Cancel', variant: 'ghost', size: 'sm', full: true })
+          +discardBtn(true)
+      else
+        div(class='flex items-center justify-between gap-2')
+          +discardBtn
+          div(class='flex gap-2')
+            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
+            +btn({ label: 'Import', variant: 'uv', size: 'sm', iconEnd: 'check' })
+
+//- The Discard button that lives inside +importModal, styled like +deleteBtn
+    but distinct: it means "give the download back", not "erase the title".
+mixin discardBtn(full)
+  +btn({ label: 'Discard', iconEnd: 'trash', size: 'sm', full: full })(class='border-bad/40 bg-bad-ghost text-bad')
+
 mixin deleteModal(view)
   +modalScrim
     +modal
@@ -193,6 +238,15 @@ mixin appendix(view)
       else
         +btn({ label: 'Cancel', variant: 'bad', size: 'sm', iconEnd: 'x' })
     +stline({ mobile: mobile })
+      +chip({ label: 'needs your decision', tone: 'warn' })(class=mobile ? '' : 'w-[168px] justify-center')
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3'])
+        | The file's on disk, but Radarr couldn't match it automatically — pick it yourself.
+      if mobile
+        +stlineActions
+          +btn({ label: 'Import', variant: 'outline', size: 'sm', iconEnd: 'check' })
+      else
+        +btn({ label: 'Import', variant: 'outline', size: 'sm', iconEnd: 'check' })
+    +stline({ mobile: mobile })
       +chip({ label: 'failed', tone: 'bad' })(class=mobile ? '' : 'w-[118px] justify-center')
       span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3']) Stopped responding partway through.
       if mobile
@@ -246,6 +300,65 @@ mixin appendix(view)
       +storyboardFrame(mobile ? 96 : 128)
         +chip({ label: 'reported', tone: 'mute' })
         p(class='text-cap text-ink-3') This release won't be auto-picked again.
+
+  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Import — flow
+  +storyboard(mobile)
+    +storyboardStep('1 · Trigger')
+      +storyboardFrame(mobile ? 96 : 128)
+        +chip({ label: 'needs your decision', tone: 'warn' })
+        +btn({ label: 'Import', variant: 'outline', size: 'sm', iconEnd: 'check' })
+    +storyboardStep('2 · Pick and import', !mobile)
+      div(class='rounded-lg border border-line bg-surface p-4')
+        p(class='mb-2.5 text-h3')= `Import "${TITLE}"`
+        div(
+          class="mb-3 flex items-start gap-2.5 rounded-md border border-uv/40 bg-uv-ghost px-3 py-[11px]"
+        )
+          span(
+            class="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border-[1.5px] border-uv after:h-2 after:w-2 after:rounded-full after:bg-uv after:content-['']"
+          )
+          div(class='flex min-w-0 flex-1 flex-col gap-1.5')
+            p(class='truncate font-mono text-mono-sm text-ink')= FILE.name
+            div(class='flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-mono-sm text-ink-3')
+              +mchip(null, FILE.size)
+              +mchip(null, FILE.quality)
+              +mchip(null, FILE.language)
+        if mobile
+          div(class='flex flex-col gap-2')
+            +btn({ label: 'Import', variant: 'uv', size: 'sm', iconEnd: 'check', full: true })
+            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm', full: true })
+        else
+          div(class='flex justify-end gap-2')
+            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
+            +btn({ label: 'Import', variant: 'uv', size: 'sm', iconEnd: 'check' })
+    +storyboardStep('3 · Importing')
+      +storyboardFrame(mobile ? 96 : 128)
+        +chip({ tone: 'ok' })
+          +dot('live')
+          | importing
+        p(class='text-cap text-ink-3') Same job — the queue row is just gone now.
+
+  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Discard — flow
+  +storyboard(mobile)
+    +storyboardStep('1 · Trigger, inside the dialog')
+      +storyboardFrame(mobile ? 96 : 128)
+        +discardBtn
+    +storyboardStep('2 · Confirm inline', !mobile)
+      div(class='rounded-lg border border-line bg-surface p-[18px]')
+        p(class='mb-1.5 text-h3') Discard this download?
+        p(class='mb-4 text-sm text-ink-3')
+          | Removes it from the download client, files and all, and cancels the job. Nothing is blocklisted, so
+          | a Retry afterwards can grab the same release again.
+        if mobile
+          div(class='flex flex-col gap-2')
+            +discardBtn(true)
+            +btn({ label: 'Keep it', variant: 'ghost', size: 'sm', full: true })
+        else
+          div(class='flex justify-end gap-2')
+            +btn({ label: 'Keep it', variant: 'ghost', size: 'sm' })
+            +discardBtn
+    +storyboardStep('3 · Cancelled')
+      +storyboardFrame(mobile ? 96 : 128)
+        +chip({ label: 'cancelled', tone: 'mute' })(class='w-[118px] justify-center')
 
   p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Delete — confirm flow
   +storyboard(mobile)
@@ -333,7 +446,9 @@ block content
     p(class='max-w-[62ch] text-sm text-ink-3')
       | Everything a movie card leads to: cast and metadata, the Emby handoff, and the release picker — browse
       | what Radarr found instead of being stuck with its auto-pick, with a bad-file flag that blocks a release
-      | from being auto-selected again.
+      | from being auto-selected again. When Radarr grabs a file but can't match it, the job reads
+      | "needs your decision" instead of pretending it's still importing — an Import dialog mirrors Radarr's own
+      | manual picker, with Discard as the way out that doesn't just re-grab the same file.
 
   div(class='vp-scope')
     +viewportToggle('viewport')(class='mb-8' role='radiogroup' aria-label='Viewport')
@@ -366,6 +481,8 @@ block content
 
         +modalFrame(view, 'Report a problem — as a modal')
           +reportModal(view)
+        +modalFrame(view, 'Import — as a modal')
+          +importModal(view)
         +modalFrame(view, 'Delete — as a modal')
           +deleteModal(view)
         +loadingState(view)

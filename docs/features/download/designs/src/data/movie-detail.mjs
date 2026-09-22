@@ -23,6 +23,19 @@ export default {
   DELETE_WARNING:
     "Removes the file from Emby and frees 2.1 GB. This can't be undone.",
 
+  // The one manual-import candidate on a stuck download — plan 020's
+  // needs-attention state. Shaped after the real Radarr rejection sentence,
+  // renamed onto this page's fictional title.
+  FILE: {
+    name: 'Salt.Ceremony.2024.1080p.BluRay.x265.mp4',
+    size: '2.1 GB',
+    quality: 'Bluray-1080p',
+    language: 'English',
+    rejection:
+      'Movie [Salt & Ceremony (2024)][tmdb:558212] was not found in the grabbed release: ' +
+      'Salt.Ceremony.2024.1080p.BluRay.x265',
+  },
+
   // Plain language, not error codes — the user is telling us what they saw.
   REASONS: ['Wrong audio or subtitles', "Video won't play", 'Not this movie'],
 
