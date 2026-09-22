@@ -16,20 +16,32 @@ import {
 import type { MediaFileReleaseRow } from 'src/db/schema'
 
 import { CurrentReleaseService } from './current-release.service'
-import { resolveEpisodeFileIds } from './episode-files.util'
+import { planShowDelete, type ShowDeleteCascade } from './delete-cascade.util'
 import { MediaResolverService } from './media-resolver.service'
 import { RadarrService } from './radarr.service'
 import { parseReleaseTarget } from './release.service'
 import { SonarrService } from './sonarr.service'
 
+/** What a delete removed, and how far up the title it reached. */
+export interface DeleteFilesResult {
+  /** Widest level the delete reached. Always `'none'` for a movie. */
+  cascade: ShowDeleteCascade
+  /** Files on disk the delete removed. Zero is a legitimate success. */
+  deletedCount: number
+  /** Whether the title itself is gone from Sonarr/Radarr now. */
+  removedFromLibrary: boolean
+}
+
 /**
  * The season/episode half of Phase 4: browsing a series' structure, and
- * deleting part of what's on disk for a title.
+ * deleting what's on disk for a title.
  *
- * Neither operation touches a `DownloadJob`. A delete here removes **files**,
- * not the library entry - the series or movie stays in Sonarr/Radarr, and
- * existing jobs for the title keep their history. Removing a title outright
- * is still the job-keyed `DELETE /download/shows/:jobId`.
+ * Neither operation touches a `DownloadJob` - existing jobs for the title
+ * keep their history either way. A delete here **can** remove the library
+ * entry: a movie delete always removes the movie from Radarr, and a show
+ * delete that leaves nothing behind removes the series from Sonarr. The
+ * job-keyed `DELETE /download/shows/:jobId` is no longer the only way a
+ * title leaves the library.
  */
 @Injectable()
 export class ShowService {
@@ -165,22 +177,27 @@ export class ShowService {
   }
 
   /**
-   * Deletes the files a scope names and returns how many went. Narrowest
-   * first: `episodeId` is one file, `seasonNumber` is that season's, neither
-   * is every file of the title.
+   * Deletes the files a scope names and reports what went. Narrowest first:
+   * `episodeId` is one file, `seasonNumber` is that season's, neither is
+   * every file of the title.
    *
    * **Deleting zero files is a success**, not a 404 - the caller asked for a
    * state and that state already held.
    *
-   * The unmonitor afterwards is what makes the delete stick, and it runs even
-   * when nothing was deleted: to Sonarr a monitored episode with no file is a
-   * *missing* episode, which is exactly the thing the next RSS sync would
-   * re-grab.
+   * The unmonitor afterwards is what makes a partial delete stick, and it
+   * runs even when nothing was deleted: to Sonarr a monitored episode with no
+   * file is a *missing* episode, which is exactly the thing the next RSS sync
+   * would re-grab. A delete that leaves nothing behind goes further and
+   * removes the title from the library outright, so there is no monitoring
+   * state left to get wrong.
    */
-  async deleteFiles(mediaId: string, scope: ShowScope): Promise<number> {
+  async deleteFiles(
+    mediaId: string,
+    scope: ShowScope,
+  ): Promise<DeleteFilesResult> {
     const target = parseReleaseTarget(mediaId)
 
-    const deletedCount =
+    const result =
       target.type === DownloadType.Movie
         ? await this.deleteMovieFiles(mediaId, scope)
         : await this.deleteShowFiles(mediaId, scope)
@@ -190,13 +207,13 @@ export class ShowService {
     // copy from up to a TTL window ago that this app already knows is wrong.
     this.mediaResolverService.invalidate(mediaId)
 
-    return deletedCount
+    return result
   }
 
   private async deleteMovieFiles(
     mediaId: string,
     scope: ShowScope,
-  ): Promise<number> {
+  ): Promise<DeleteFilesResult> {
     // Checked before resolving anything upstream: a season or episode on a
     // movie key is malformed regardless of what the library holds, and
     // ignoring it silently would let a caller believe they had deleted one
@@ -212,86 +229,110 @@ export class ShowService {
       throw new NotFoundException(`Movie '${mediaId}' is not in the library`)
     }
 
+    // Read before the removal purely for the count - Radarr deletes the
+    // files itself, so this is the last moment anything can say how many
+    // there were.
     const files = await this.radarrService.getMovieFiles(radarrId)
-    const fileIds = files
-      .map(file => file.id)
-      .filter((id): id is number => id != null)
 
-    // Sequential rather than Promise.all, matching the replace path: these
-    // are destructive calls against a service that rescans the folder
-    // afterwards, and a half-succeeded parallel batch is much harder to
-    // reason about than a half-finished sequential one.
-    for (const id of fileIds) {
-      await this.radarrService.deleteMovieFile(id)
-    }
-
-    await this.unmonitor('radarr', mediaId, () =>
-      this.radarrService.setMonitored(radarrId, false),
-    )
+    // A movie has exactly one scope, so every movie delete is a whole-title
+    // delete: there is no "some of it is left" state to unmonitor towards.
+    // `unmonitorAndDelete` cancels any in-flight queue item first, then
+    // removes the movie and its files in one upstream call.
+    await this.radarrService.unmonitorAndDelete(radarrId, true)
 
     this.logger.log(
       {
         action: 'deleteFiles',
-        deletedCount: fileIds.length,
+        cascade: 'none',
+        deletedCount: files.length,
         mediaId,
         radarrId,
       },
-      'Deleted a movie’s files and unmonitored it',
+      'Deleted a movie’s files and removed it from Radarr',
     )
 
-    return fileIds.length
+    return {
+      cascade: 'none',
+      deletedCount: files.length,
+      removedFromLibrary: true,
+    }
   }
 
   private async deleteShowFiles(
     mediaId: string,
     scope: ShowScope,
-  ): Promise<number> {
+  ): Promise<DeleteFilesResult> {
     const sonarrId = await this.resolveUpstreamId(mediaId, DownloadType.Show)
     if (sonarrId == null) {
       throw new NotFoundException(`Show '${mediaId}' is not in the library`)
     }
 
-    const fileIds = await resolveEpisodeFileIds(
-      this.sonarrService,
-      sonarrId,
-      scope,
-    )
+    // One snapshot of the series decides everything. The queue **must** be
+    // filtered to this series: `planShowDelete` takes no series id and reads
+    // every item it is handed as belonging here, so a whole-instance queue
+    // would make the series look permanently "remaining" and no delete would
+    // ever cascade.
+    const [episodes, queue] = await Promise.all([
+      this.sonarrService.getEpisodes(sonarrId),
+      this.sonarrService.getQueue([sonarrId]),
+    ])
 
-    for (const id of fileIds) {
-      await this.sonarrService.deleteEpisodeFile(id)
-    }
+    const plan = planShowDelete(episodes, queue, scope)
 
-    // `unmonitorScope` only ever touches episodes. For a whole-series delete
-    // (no season or episode named) that leaves the series row itself
-    // monitored with every episode off - `ensureSeries` then sees an
-    // already-monitored series on the next plain re-request, skips its
-    // episode pass, and `SeriesSearch` silently finds nothing to grab.
-    // Unmonitoring the series row too makes that state visible to
-    // `ensureSeries`, which re-monitors every episode when it flips the
-    // series back on.
-    const isWholeSeriesDelete =
-      scope.seasonNumber == null && scope.episodeId == null
-
-    await this.unmonitor('sonarr', mediaId, async () => {
-      await this.sonarrService.unmonitorScope(sonarrId, scope)
-      if (isWholeSeriesDelete) {
-        await this.sonarrService.setSeriesMonitored(sonarrId, false)
+    if (plan.cascade === 'series') {
+      // Nothing is left once this scope goes, so the series itself goes -
+      // no per-file deletes, Sonarr removes the folder. A throw here has
+      // destroyed nothing yet, so it propagates rather than degrading.
+      await this.sonarrService.unmonitorAndDelete(sonarrId, true)
+    } else {
+      // Sequential rather than Promise.all, matching the replace path: these
+      // are destructive calls against a service that rescans the folder
+      // afterwards, and a half-succeeded parallel batch is much harder to
+      // reason about than a half-finished sequential one.
+      for (const id of plan.fileIds) {
+        await this.sonarrService.deleteEpisodeFile(id)
       }
-    })
+
+      await this.unmonitor('sonarr', mediaId, async () => {
+        // Episodes first, then the season flag: Sonarr's `PUT /series` may
+        // cascade a changed `seasons[].monitored` down to that season's
+        // episodes, and `unmonitorScope` re-reads the episodes to decide
+        // what to write.
+        // Always set on a non-series plan; `scope` is an equivalent fallback
+        // that only exists to satisfy the optional field's type.
+        await this.sonarrService.unmonitorScope(
+          sonarrId,
+          plan.unmonitorScope ?? scope,
+        )
+        await this.sonarrService.setSeasonsMonitored(
+          sonarrId,
+          plan.seasonNumbersToUnmonitor,
+          false,
+        )
+      })
+    }
 
     this.logger.log(
       {
         action: 'deleteFiles',
-        deletedCount: fileIds.length,
+        cascade: plan.cascade,
+        deletedCount: plan.fileCount,
         episodeId: scope.episodeId,
         mediaId,
         seasonNumber: scope.seasonNumber,
+        seasonNumbersToUnmonitor: plan.seasonNumbersToUnmonitor,
         sonarrId,
       },
-      'Deleted a show’s files and unmonitored the scope',
+      plan.cascade === 'series'
+        ? 'Deleted a show’s files and removed the series from Sonarr'
+        : 'Deleted a show’s files and unmonitored the scope',
     )
 
-    return fileIds.length
+    return {
+      cascade: plan.cascade,
+      deletedCount: plan.fileCount,
+      removedFromLibrary: plan.cascade === 'series',
+    }
   }
 
   /**
@@ -317,15 +358,17 @@ export class ShowService {
   }
 
   /**
-   * Runs the unmonitor half of a delete, downgrading a failure to a warning
-   * the way `ReleaseService.restore()` does.
+   * Runs the unmonitor half of a partial delete, downgrading a failure to a
+   * warning the way `ReleaseService.restore()` does.
    *
    * The files are already gone by the time this runs, so failing the caller
    * now helps nobody - but the warning has to say what was left monitored,
-   * because that title is now a candidate for re-grabbing.
+   * because that title is now a candidate for re-grabbing. A full removal
+   * never comes through here: it deletes nothing before the upstream call,
+   * so there is nothing to downgrade and the error propagates.
    */
   private async unmonitor(
-    source: 'radarr' | 'sonarr',
+    source: 'sonarr',
     mediaId: string,
     undo: () => Promise<unknown>,
   ): Promise<void> {

@@ -135,18 +135,22 @@ describe('ShowService', () => {
       forEpisodeFiles: jest.fn().mockResolvedValue(new Map()),
     } as unknown as jest.Mocked<CurrentReleaseService>
 
+    // `deleteMovieFile`/`setMonitored` are kept only so the tests can assert
+    // the pre-removal path is dead - `ShowService` no longer calls either.
     radarrService = {
       deleteMovieFile: jest.fn(),
       getMovieFiles: jest.fn().mockResolvedValue([]),
       setMonitored: jest.fn(),
+      unmonitorAndDelete: jest.fn(),
     } as unknown as jest.Mocked<RadarrService>
 
     sonarrService = {
       deleteEpisodeFile: jest.fn(),
-      getEpisodeFiles: jest.fn().mockResolvedValue([]),
       getEpisodes: jest.fn().mockResolvedValue([]),
+      getQueue: jest.fn().mockResolvedValue([]),
       listSeasons: jest.fn().mockResolvedValue([SEASON]),
-      setSeriesMonitored: jest.fn(),
+      setSeasonsMonitored: jest.fn().mockResolvedValue([]),
+      unmonitorAndDelete: jest.fn(),
       unmonitorScope: jest.fn().mockResolvedValue(0),
     } as unknown as jest.Mocked<SonarrService>
 
@@ -312,93 +316,272 @@ describe('ShowService', () => {
   })
 
   describe('deleteFiles - shows', () => {
-    it('deletes the resolved files, unmonitors the scope, and invalidates the cache', async () => {
+    it('deletes one episode’s file and unmonitors just that episode', async () => {
+      resolvesTo(showInLibrary())
+      sonarrService.getEpisodes.mockResolvedValue([
+        { episodeFileId: 991, id: 4412, seasonNumber: 3 },
+        { episodeFileId: 992, id: 4413, seasonNumber: 3 },
+      ])
+
+      await expect(
+        service.deleteFiles(SHOW_ID, { episodeId: 4412, seasonNumber: 3 }),
+      ).resolves.toEqual({
+        cascade: 'none',
+        deletedCount: 1,
+        removedFromLibrary: false,
+      })
+
+      expect(sonarrService.deleteEpisodeFile).toHaveBeenCalledWith(991)
+      expect(sonarrService.unmonitorScope).toHaveBeenCalledWith(9, {
+        episodeId: 4412,
+      })
+      // A sibling still has a file, so the season flag is left alone and
+      // the series stays in the library.
+      expect(sonarrService.setSeasonsMonitored).toHaveBeenCalledWith(
+        9,
+        [],
+        false,
+      )
+      expect(sonarrService.unmonitorAndDelete).not.toHaveBeenCalled()
+      expect(mediaResolverService.invalidate).toHaveBeenCalledWith(SHOW_ID)
+    })
+
+    // The planner is only ever handed this series' queue - a whole-instance
+    // queue would make every series look permanently "remaining".
+    it('scopes the queue read to the series', async () => {
+      resolvesTo(showInLibrary())
+
+      await service.deleteFiles(SHOW_ID, { episodeId: 4412 })
+
+      expect(sonarrService.getQueue).toHaveBeenCalledWith([9])
+    })
+
+    it('unmonitors the season when the last episode in it goes', async () => {
+      resolvesTo(showInLibrary())
+      sonarrService.getEpisodes.mockResolvedValue([
+        { episodeFileId: 991, id: 4412, seasonNumber: 3 },
+        { episodeFileId: 900, id: 4401, seasonNumber: 1 },
+      ])
+
+      await expect(
+        service.deleteFiles(SHOW_ID, { episodeId: 4412 }),
+      ).resolves.toEqual({
+        cascade: 'season',
+        deletedCount: 1,
+        removedFromLibrary: false,
+      })
+
+      expect(sonarrService.deleteEpisodeFile).toHaveBeenCalledWith(991)
+      expect(sonarrService.unmonitorScope).toHaveBeenCalledWith(9, {
+        seasonNumber: 3,
+      })
+      expect(sonarrService.setSeasonsMonitored).toHaveBeenCalledWith(
+        9,
+        [3],
+        false,
+      )
+      expect(sonarrService.unmonitorAndDelete).not.toHaveBeenCalled()
+    })
+
+    // Sonarr's `PUT /series` may cascade a changed season flag down to that
+    // season's episodes, so the episode writes have to land first.
+    it('unmonitors the episodes before it flips the season flag', async () => {
+      resolvesTo(showInLibrary())
+      sonarrService.getEpisodes.mockResolvedValue([
+        { episodeFileId: 991, id: 4412, seasonNumber: 3 },
+        { episodeFileId: 900, id: 4401, seasonNumber: 1 },
+      ])
+
+      await service.deleteFiles(SHOW_ID, { episodeId: 4412 })
+
+      const scopeCall = sonarrService.unmonitorScope.mock.invocationCallOrder[0]
+      const flagCall =
+        sonarrService.setSeasonsMonitored.mock.invocationCallOrder[0]
+      expect(scopeCall).toBeLessThan(flagCall as number)
+    })
+
+    it('removes the series when the last episode of the last season goes', async () => {
       resolvesTo(showInLibrary())
       sonarrService.getEpisodes.mockResolvedValue([
         { episodeFileId: 991, id: 4412, seasonNumber: 3 },
       ])
 
-      const scope = { episodeId: 4412, seasonNumber: 3 }
-      await expect(service.deleteFiles(SHOW_ID, scope)).resolves.toBe(1)
+      await expect(
+        service.deleteFiles(SHOW_ID, { episodeId: 4412 }),
+      ).resolves.toEqual({
+        cascade: 'series',
+        deletedCount: 1,
+        removedFromLibrary: true,
+      })
 
-      expect(sonarrService.deleteEpisodeFile).toHaveBeenCalledWith(991)
-      expect(sonarrService.unmonitorScope).toHaveBeenCalledWith(9, scope)
-      expect(mediaResolverService.invalidate).toHaveBeenCalledWith(SHOW_ID)
-      // A scoped delete (one episode here) leaves the series row alone -
-      // only a whole-series delete unmonitors the series itself.
-      expect(sonarrService.setSeriesMonitored).not.toHaveBeenCalled()
+      expect(sonarrService.unmonitorAndDelete).toHaveBeenCalledWith(9, true)
+      // Sonarr removes the folder itself - deleting the files first would be
+      // a wasted round trip against something that is about to be gone.
+      expect(sonarrService.deleteEpisodeFile).not.toHaveBeenCalled()
+      expect(sonarrService.unmonitorScope).not.toHaveBeenCalled()
+      expect(sonarrService.setSeasonsMonitored).not.toHaveBeenCalled()
     })
 
-    it('deletes every file of a season, sequentially', async () => {
+    it('deletes every file of a season, sequentially, when another season remains', async () => {
       resolvesTo(showInLibrary())
-      sonarrService.getEpisodeFiles.mockResolvedValue([
-        { id: 1, seasonNumber: 3 },
-        { id: 2, seasonNumber: 3 },
-        { id: 3, seasonNumber: 4 },
+      sonarrService.getEpisodes.mockResolvedValue([
+        { episodeFileId: 991, id: 4412, seasonNumber: 3 },
+        { episodeFileId: 992, id: 4413, seasonNumber: 3 },
+        { episodeFileId: 900, id: 4401, seasonNumber: 4 },
       ])
 
       await expect(
         service.deleteFiles(SHOW_ID, { seasonNumber: 3 }),
-      ).resolves.toBe(2)
+      ).resolves.toEqual({
+        cascade: 'season',
+        deletedCount: 2,
+        removedFromLibrary: false,
+      })
 
-      expect(sonarrService.deleteEpisodeFile.mock.calls).toEqual([[1], [2]])
-      // A single-season delete isn't a whole-series delete.
-      expect(sonarrService.setSeriesMonitored).not.toHaveBeenCalled()
+      expect(sonarrService.deleteEpisodeFile.mock.calls).toEqual([[991], [992]])
+      expect(sonarrService.setSeasonsMonitored).toHaveBeenCalledWith(
+        9,
+        [3],
+        false,
+      )
     })
 
-    it('deletes every file of the title when the scope is empty, and unmonitors the series row too', async () => {
+    it('removes the series when the deleted season was the only one left', async () => {
       resolvesTo(showInLibrary())
-      sonarrService.getEpisodeFiles.mockResolvedValue([
-        { id: 1, seasonNumber: 1 },
-        { id: 2, seasonNumber: 3 },
+      sonarrService.getEpisodes.mockResolvedValue([
+        { episodeFileId: 991, id: 4412, seasonNumber: 3 },
+        { episodeFileId: 992, id: 4413, seasonNumber: 3 },
       ])
 
-      await expect(service.deleteFiles(SHOW_ID, {})).resolves.toBe(2)
-      expect(sonarrService.unmonitorScope).toHaveBeenCalledWith(9, {})
-      // Without this, `ensureSeries` sees the series row still monitored on
-      // the next plain re-request, skips its episode pass, and Sonarr's
-      // `SeriesSearch` silently finds nothing to grab.
-      expect(sonarrService.setSeriesMonitored).toHaveBeenCalledWith(9, false)
+      await expect(
+        service.deleteFiles(SHOW_ID, { seasonNumber: 3 }),
+      ).resolves.toEqual({
+        cascade: 'series',
+        deletedCount: 2,
+        removedFromLibrary: true,
+      })
+
+      expect(sonarrService.unmonitorAndDelete).toHaveBeenCalledWith(9, true)
+      expect(sonarrService.deleteEpisodeFile).not.toHaveBeenCalled()
+    })
+
+    // A queue item is a file that is about to exist: removing the series
+    // would cancel a download nobody asked to cancel.
+    it('does not remove the series when another season is only in the queue', async () => {
+      resolvesTo(showInLibrary())
+      sonarrService.getEpisodes.mockResolvedValue([
+        { episodeFileId: 991, id: 4412, seasonNumber: 3 },
+      ])
+      sonarrService.getQueue.mockResolvedValue([{ id: 1, seasonNumber: 4 }])
+
+      await expect(
+        service.deleteFiles(SHOW_ID, { seasonNumber: 3 }),
+      ).resolves.toEqual({
+        cascade: 'season',
+        deletedCount: 1,
+        removedFromLibrary: false,
+      })
+
+      expect(sonarrService.unmonitorAndDelete).not.toHaveBeenCalled()
+    })
+
+    it('removes the series on an empty scope, counting each file once', async () => {
+      resolvesTo(showInLibrary())
+      // 5 backs two episodes - one multi-episode file on disk, not two.
+      sonarrService.getEpisodes.mockResolvedValue([
+        { episodeFileId: 5, id: 4401, seasonNumber: 1 },
+        { episodeFileId: 5, id: 4402, seasonNumber: 1 },
+        { episodeFileId: 6, id: 4412, seasonNumber: 3 },
+      ])
+
+      await expect(service.deleteFiles(SHOW_ID, {})).resolves.toEqual({
+        cascade: 'series',
+        deletedCount: 2,
+        removedFromLibrary: true,
+      })
+
+      expect(sonarrService.unmonitorAndDelete).toHaveBeenCalledWith(9, true)
     })
 
     // The caller asked for a state, and that state already holds.
     it('treats deleting zero files as a success', async () => {
       resolvesTo(showInLibrary())
-      sonarrService.getEpisodeFiles.mockResolvedValue([])
+      sonarrService.getEpisodes.mockResolvedValue([
+        { id: 4412, seasonNumber: 3 },
+        { episodeFileId: 900, id: 4413, seasonNumber: 3 },
+      ])
 
-      await expect(service.deleteFiles(SHOW_ID, {})).resolves.toBe(0)
+      await expect(
+        service.deleteFiles(SHOW_ID, { episodeId: 4412 }),
+      ).resolves.toEqual({
+        cascade: 'none',
+        deletedCount: 0,
+        removedFromLibrary: false,
+      })
+
       expect(sonarrService.deleteEpisodeFile).not.toHaveBeenCalled()
-    })
-
-    // A monitored, file-less episode is exactly what the next RSS sync
-    // re-grabs, so the unmonitor is the load-bearing half here.
-    it('unmonitors even when it deleted nothing', async () => {
-      resolvesTo(showInLibrary())
-      sonarrService.getEpisodeFiles.mockResolvedValue([])
-
-      await service.deleteFiles(SHOW_ID, { seasonNumber: 3 })
-
+      // A monitored, file-less episode is exactly what the next RSS sync
+      // re-grabs, so the unmonitor is the load-bearing half here.
       expect(sonarrService.unmonitorScope).toHaveBeenCalledWith(9, {
-        seasonNumber: 3,
+        episodeId: 4412,
       })
     })
 
     // The files are already gone - failing the caller now helps nobody.
-    it('swallows an unmonitor failure, logs it, and still reports the count', async () => {
+    it('swallows an unmonitor failure, logs it, and still reports the plan', async () => {
       resolvesTo(showInLibrary())
-      sonarrService.getEpisodeFiles.mockResolvedValue([
-        { id: 1, seasonNumber: 1 },
+      sonarrService.getEpisodes.mockResolvedValue([
+        { episodeFileId: 991, id: 4412, seasonNumber: 3 },
+        { episodeFileId: 992, id: 4413, seasonNumber: 3 },
       ])
       sonarrService.unmonitorScope.mockRejectedValue(new Error('sonarr down'))
       const warn = jest.spyOn(Logger.prototype, 'warn')
 
-      await expect(service.deleteFiles(SHOW_ID, {})).resolves.toBe(1)
+      await expect(
+        service.deleteFiles(SHOW_ID, { episodeId: 4412 }),
+      ).resolves.toEqual({
+        cascade: 'none',
+        deletedCount: 1,
+        removedFromLibrary: false,
+      })
 
       expect(warn).toHaveBeenCalledWith(
         expect.objectContaining({ error: 'sonarr down', source: 'sonarr' }),
         expect.stringContaining('failed to unmonitor'),
       )
       expect(mediaResolverService.invalidate).toHaveBeenCalledWith(SHOW_ID)
+    })
+
+    // Same downgrade, the other call inside it.
+    it('swallows a failed season-flag write too', async () => {
+      resolvesTo(showInLibrary())
+      sonarrService.getEpisodes.mockResolvedValue([
+        { episodeFileId: 991, id: 4412, seasonNumber: 3 },
+        { episodeFileId: 900, id: 4401, seasonNumber: 1 },
+      ])
+      sonarrService.setSeasonsMonitored.mockRejectedValue(
+        new Error('sonarr down'),
+      )
+
+      await expect(
+        service.deleteFiles(SHOW_ID, { episodeId: 4412 }),
+      ).resolves.toMatchObject({ cascade: 'season', deletedCount: 1 })
+    })
+
+    // Nothing was deleted before the removal call, so there is no
+    // half-finished state to report a success over.
+    it('propagates a failed series removal', async () => {
+      resolvesTo(showInLibrary())
+      sonarrService.getEpisodes.mockResolvedValue([
+        { episodeFileId: 991, id: 4412, seasonNumber: 3 },
+      ])
+      sonarrService.unmonitorAndDelete.mockRejectedValue(
+        new Error('sonarr down'),
+      )
+
+      await expect(service.deleteFiles(SHOW_ID, {})).rejects.toThrow(
+        'sonarr down',
+      )
     })
 
     it('404s a show that is not in the library', async () => {
@@ -408,18 +591,26 @@ describe('ShowService', () => {
         NotFoundException,
       )
       expect(sonarrService.deleteEpisodeFile).not.toHaveBeenCalled()
+      expect(sonarrService.unmonitorAndDelete).not.toHaveBeenCalled()
     })
   })
 
   describe('deleteFiles - movies', () => {
-    it('deletes the movie file and unmonitors the movie', async () => {
+    it('removes the movie from Radarr and reports its file count', async () => {
       resolvesTo(movieInLibrary())
       radarrService.getMovieFiles.mockResolvedValue([{ id: 77 }])
 
-      await expect(service.deleteFiles(MOVIE_ID, {})).resolves.toBe(1)
+      await expect(service.deleteFiles(MOVIE_ID, {})).resolves.toEqual({
+        cascade: 'none',
+        deletedCount: 1,
+        removedFromLibrary: true,
+      })
 
-      expect(radarrService.deleteMovieFile).toHaveBeenCalledWith(77)
-      expect(radarrService.setMonitored).toHaveBeenCalledWith(5, false)
+      expect(radarrService.unmonitorAndDelete).toHaveBeenCalledWith(5, true)
+      // A movie has exactly one scope, so there is no per-file delete and
+      // no monitoring state left to write.
+      expect(radarrService.deleteMovieFile).not.toHaveBeenCalled()
+      expect(radarrService.setMonitored).not.toHaveBeenCalled()
       expect(mediaResolverService.invalidate).toHaveBeenCalledWith(MOVIE_ID)
     })
 
@@ -434,22 +625,31 @@ describe('ShowService', () => {
         BadRequestException,
       )
       expect(radarrService.getMovieFiles).not.toHaveBeenCalled()
+      expect(radarrService.unmonitorAndDelete).not.toHaveBeenCalled()
     })
 
-    it('treats a movie with no file as a successful zero-delete', async () => {
+    it('treats a movie with no file as a zero-count removal', async () => {
       resolvesTo(movieInLibrary())
       radarrService.getMovieFiles.mockResolvedValue([])
 
-      await expect(service.deleteFiles(MOVIE_ID, {})).resolves.toBe(0)
-      expect(radarrService.setMonitored).toHaveBeenCalledWith(5, false)
+      await expect(service.deleteFiles(MOVIE_ID, {})).resolves.toEqual({
+        cascade: 'none',
+        deletedCount: 0,
+        removedFromLibrary: true,
+      })
+      expect(radarrService.unmonitorAndDelete).toHaveBeenCalledWith(5, true)
     })
 
-    it('swallows a failed movie unmonitor', async () => {
+    it('propagates a failed removal', async () => {
       resolvesTo(movieInLibrary())
       radarrService.getMovieFiles.mockResolvedValue([{ id: 77 }])
-      radarrService.setMonitored.mockRejectedValue(new Error('radarr down'))
+      radarrService.unmonitorAndDelete.mockRejectedValue(
+        new Error('radarr down'),
+      )
 
-      await expect(service.deleteFiles(MOVIE_ID, {})).resolves.toBe(1)
+      await expect(service.deleteFiles(MOVIE_ID, {})).rejects.toThrow(
+        'radarr down',
+      )
     })
 
     it('404s a movie that is not in the library', async () => {

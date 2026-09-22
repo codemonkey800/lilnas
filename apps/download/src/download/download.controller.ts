@@ -964,7 +964,7 @@ export class DownloadController {
     const action = 'deleteMediaFiles'
     const startTime = Date.now()
 
-    const deletedCount = await this.showService.deleteFiles(id, {
+    const { deletedCount } = await this.showService.deleteFiles(id, {
       episodeId: query.episodeId,
       seasonNumber: query.seasonNumber,
     })

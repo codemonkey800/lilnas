@@ -673,7 +673,11 @@ describe('DownloadController - media endpoints', () => {
       ['season 0', { seasonNumber: 0 }],
       ['the whole title', {}],
     ])('passes the %s scope through to the service', async (_l, query) => {
-      showService.deleteFiles.mockResolvedValue(2)
+      showService.deleteFiles.mockResolvedValue({
+        cascade: 'none',
+        deletedCount: 2,
+        removedFromLibrary: false,
+      })
 
       await expect(
         controller.deleteMediaFiles('tvdb:2', query, undefined),
@@ -688,7 +692,11 @@ describe('DownloadController - media endpoints', () => {
     // Deleting nothing is a 200 with a zero count, not a 404: the caller
     // asked for a state and that state already held.
     it('returns 200 with deletedCount 0 when there was nothing to delete', async () => {
-      showService.deleteFiles.mockResolvedValue(0)
+      showService.deleteFiles.mockResolvedValue({
+        cascade: 'none',
+        deletedCount: 0,
+        removedFromLibrary: false,
+      })
 
       await expect(
         controller.deleteMediaFiles('tvdb:2', {}, undefined),
@@ -716,7 +724,11 @@ describe('DownloadController - media endpoints', () => {
     })
 
     it('works for a caller with no forwarded identity', async () => {
-      showService.deleteFiles.mockResolvedValue(1)
+      showService.deleteFiles.mockResolvedValue({
+        cascade: 'none',
+        deletedCount: 1,
+        removedFromLibrary: false,
+      })
 
       await expect(
         controller.deleteMediaFiles('tvdb:2', {}, undefined),
@@ -1020,7 +1032,11 @@ describe('DownloadController - media endpoints', () => {
       })
 
       it('records a scoped file delete with its count and scope', async () => {
-        showService.deleteFiles.mockResolvedValue(2)
+        showService.deleteFiles.mockResolvedValue({
+          cascade: 'none',
+          deletedCount: 2,
+          removedFromLibrary: false,
+        })
 
         await controller.deleteMediaFiles(
           'tvdb:2',
@@ -1043,7 +1059,11 @@ describe('DownloadController - media endpoints', () => {
       // The request succeeded - "there was nothing there" is a fact worth
       // logging, not a reason to omit the attempt.
       it('records a delete that removed nothing', async () => {
-        showService.deleteFiles.mockResolvedValue(0)
+        showService.deleteFiles.mockResolvedValue({
+          cascade: 'none',
+          deletedCount: 0,
+          removedFromLibrary: false,
+        })
 
         await controller.deleteMediaFiles('tvdb:2', {}, alice)
 
