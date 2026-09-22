@@ -7,7 +7,6 @@ import {
   isManagedMedia,
   isMovie,
   Media,
-  type ShowScope,
 } from '@lilnas/utils/download/types'
 import { getErrorMessage } from '@lilnas/utils/error'
 import { Injectable, Logger } from '@nestjs/common'
@@ -21,6 +20,7 @@ import {
   deriveStatusFromQueueItem,
   describeQueueItemError,
   isQueueSnapshotEqual,
+  matchesScope,
   PollableQueueItem,
   toQueueSnapshot,
 } from './queue-status.util'
@@ -67,7 +67,8 @@ export interface PollableCompletionData {
 /**
  * Polls Radarr's/Sonarr's queues for movie/show jobs tracked in
  * DownloadStateService and drives them through
- * Requested -> Searching -> Downloading -> Importing -> Completed/Failed.
+ * Requested -> Searching -> Downloading -> Importing/NeedsAttention ->
+ * Completed/Failed.
  *
  * Writes only `status`/`error` to the job. The queue snapshot goes to
  * `DownloadStateService.setQueueSnapshot()` instead of onto the job row -
@@ -271,8 +272,28 @@ export class MediaPollerService {
     const newStatus = deriveStatusFromQueueItem(record.status, item)
     const newSnapshot = item ? toQueueSnapshot(item) : previousSnapshot
 
+    // The two statuses that carry upstream's own sentence: a failure says
+    // why it failed, and a blocked import says why Radarr/Sonarr refused it
+    // ("was not found in the grabbed release"). Without this the one line
+    // that tells a person what to do in the manual-import dialog is dropped.
+    const carriesReason =
+      newStatus === DownloadJobStatus.Failed ||
+      newStatus === DownloadJobStatus.NeedsAttention
+    const error =
+      item && carriesReason ? describeQueueItemError(item) : undefined
+
+    // A job can sit in NeedsAttention for hours while upstream re-parses the
+    // release and changes its mind about *why* it's stuck. That is a real
+    // change with no status move and no snapshot move behind it, so without
+    // this the early return below would pin the first sentence forever.
+    const reasonChanged =
+      newStatus === DownloadJobStatus.NeedsAttention &&
+      record.status === DownloadJobStatus.NeedsAttention &&
+      error !== record.error
+
     if (
       newStatus === record.status &&
+      !reasonChanged &&
       isQueueSnapshotEqual(newSnapshot, previousSnapshot)
     ) {
       return
@@ -297,15 +318,22 @@ export class MediaPollerService {
       this.downloadStateService.setQueueSnapshot(record.id, newSnapshot)
     }
 
-    if (newStatus === record.status) return
-
-    const error =
-      item && newStatus === DownloadJobStatus.Failed
-        ? describeQueueItemError(item)
-        : undefined
+    if (newStatus === record.status && !reasonChanged) return
 
     this.downloadStateService.updateJob(record.id, {
-      ...(error ? { error } : {}),
+      // Leaving NeedsAttention must drop the reason explicitly - updateJob
+      // spreads the patch over the record and never touches `error` on its
+      // own, and buildJobRow persists `record.error ?? null`, so only an
+      // explicit `undefined` clears both the record and the row. Without it
+      // a job that finally imported would carry "was not found in the
+      // grabbed release" into history forever.
+      ...(carriesReason
+        ? error
+          ? { error }
+          : {}
+        : record.status === DownloadJobStatus.NeedsAttention
+          ? { error: undefined }
+          : {}),
       status: newStatus,
     })
   }
@@ -314,30 +342,4 @@ export class MediaPollerService {
 function upstreamLibraryId(media: Media | undefined): number | undefined {
   if (!media || !isManagedMedia(media)) return undefined
   return isMovie(media) ? media.radarrId : media.sonarrId
-}
-
-/**
- * Whether a Sonarr queue item falls inside a job's scope, narrowest first:
- * an exact episode match, an exact season match, or - for an unscoped job -
- * every item of the series.
- *
- * A queue item with a null/absent `episodeId` can never match an
- * episode-scoped job. Strict equality gives that for free, and it's the
- * right answer: an item Sonarr can't attribute to an episode is not
- * evidence about *this* episode.
- */
-function matchesScope(
-  item: PollableQueueItem,
-  scope: ShowScope | undefined,
-): boolean {
-  if (scope?.episodeId != null) {
-    return item.episodeId === scope.episodeId
-  }
-
-  // `!= null`, not truthiness - season 0 is Sonarr's specials season.
-  if (scope?.seasonNumber != null) {
-    return item.seasonNumber === scope.seasonNumber
-  }
-
-  return true
 }

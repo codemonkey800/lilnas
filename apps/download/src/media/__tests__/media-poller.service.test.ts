@@ -7,7 +7,7 @@ jest.mock('nanoid', () => ({
   nanoid: jest.fn(() => 'mock-id'),
 }))
 
-import type { MovieFileResource } from '@lilnas/media/radarr'
+import type { MovieFileResource, QueueResource } from '@lilnas/media/radarr'
 import type { EpisodeFileResource, EpisodeResource } from '@lilnas/media/sonarr'
 import {
   DownloadJobRecord,
@@ -20,6 +20,7 @@ import { Test, TestingModule } from '@nestjs/testing'
 import { fakeAttributionResolutionProvider } from 'src/auth/__tests__/helpers/attribution-resolution'
 import { createTestDbService } from 'src/db/__tests__/test-utils'
 import { DbService } from 'src/db/db.service'
+import { getJobById } from 'src/db/jobs.repo'
 import { DownloadStateService } from 'src/download/download-state.service'
 import { DownloadGateway } from 'src/download-gateway/download.gateway'
 import {
@@ -31,6 +32,42 @@ import { RadarrService } from 'src/media/radarr.service'
 import { SonarrService } from 'src/media/sonarr.service'
 
 const NOW_ISO = '2026-08-20T12:00:00.000Z'
+
+/**
+ * The real Radarr queue row for a blocked import, read off the live instance
+ * on 2026-09-21: movie 434, `Game Night (2018)` (`tmdb:445571`).
+ *
+ * Kept verbatim because its shape is the whole point - it is
+ * `status: 'completed'` **and** `trackedDownloadState: 'importPending'` at
+ * once, with `sizeleft: 0`. Every byte is on disk, nothing is moving it, and
+ * the one thing a person needs in order to act is the sentence buried in
+ * `statusMessages`.
+ */
+const BLOCKED_IMPORT_ITEM: QueueResource = {
+  downloadClient: 'SABnzbd',
+  downloadId: 'ce427a39-be9f-4271-b193-f7067dd82c4a',
+  id: 152557673,
+  movieId: 434,
+  outputPath: '/downloads/Game.Night.2018.1080p.BluRay.x265/',
+  protocol: 'usenet',
+  size: 1681143972,
+  sizeleft: 0,
+  status: 'completed',
+  statusMessages: [
+    {
+      messages: [
+        'Movie [Game Night (2018)][tt2704998, 445571] was not found in the grabbed release: Game.Night.2018.1080p.BluRay.x265',
+      ],
+      title: 'Game.Night.2018.1080p.BluRay.x265',
+    },
+  ],
+  title: 'Game.Night.2018.1080p.BluRay.x265',
+  trackedDownloadState: 'importPending',
+  trackedDownloadStatus: 'warning',
+}
+
+const BLOCKED_IMPORT_REASON =
+  'Movie [Game Night (2018)][tt2704998, 445571] was not found in the grabbed release: Game.Night.2018.1080p.BluRay.x265'
 
 function buildRecord(
   type: DownloadType,
@@ -533,6 +570,157 @@ describe('MediaPollerService', () => {
       const updated = downloadStateService.jobs.get(job.id)
       expect(updated?.status).toBe(DownloadJobStatus.Failed)
       expect(updated?.error).toBe('disk full; unpack failed')
+    })
+  })
+
+  describe('needs_attention reasons', () => {
+    // Every test here polls the real fixture, so the job has to resolve to
+    // the movie it actually belongs to.
+    function seedBlockedMovieJob(): DownloadJobRecord {
+      upstreamIds.set('tmdb:445571', 434)
+      const job = buildMovieJob({
+        mediaId: 'tmdb:445571',
+        status: DownloadJobStatus.Downloading,
+      })
+      downloadStateService.jobs.set(job.id, job)
+      return job
+    }
+
+    it("carries upstream's own sentence onto the job when an import is blocked", async () => {
+      const job = seedBlockedMovieJob()
+
+      radarrService.getQueue.mockResolvedValue([BLOCKED_IMPORT_ITEM])
+
+      await service.poll()
+
+      const updated = downloadStateService.jobs.get(job.id)
+      expect(updated?.status).toBe(DownloadJobStatus.NeedsAttention)
+      expect(updated?.error).toBe(BLOCKED_IMPORT_REASON)
+    })
+
+    // `updateJob` spreads its patch over the record and never touches
+    // `error` on its own, so nothing clears it implicitly. Without the
+    // explicit `undefined` the job would carry "was not found in the grabbed
+    // release" into history forever - including into the persisted row,
+    // which `buildJobRow` writes as `record.error ?? null`.
+    it('drops the reason from the record and the row once the job completes', async () => {
+      const job = seedBlockedMovieJob()
+
+      radarrService.getQueue.mockResolvedValue([BLOCKED_IMPORT_ITEM])
+      await service.poll()
+
+      expect(getJobById(dbService.db, job.id)?.error).toBe(
+        BLOCKED_IMPORT_REASON,
+      )
+
+      // A human worked the manual-import dialog, so Radarr dropped the row.
+      radarrService.getQueue.mockResolvedValue([])
+      await service.poll()
+
+      const updated = downloadStateService.jobs.get(job.id)
+      expect(updated?.status).toBe(DownloadJobStatus.Completed)
+      expect(updated?.error).toBeUndefined()
+      expect(getJobById(dbService.db, job.id)?.error).toBeNull()
+    })
+
+    // The status never moves and neither does the snapshot, so the only
+    // thing that makes this tick a change at all is the sentence itself.
+    it('re-writes the reason when upstream re-parses while still blocked', async () => {
+      const job = seedBlockedMovieJob()
+
+      radarrService.getQueue.mockResolvedValue([BLOCKED_IMPORT_ITEM])
+      await service.poll()
+
+      const reparsed =
+        'Found matching movie via grab history, but release was matched to movie by ID. Automatic import is not possible.'
+      radarrService.getQueue.mockResolvedValue([
+        {
+          ...BLOCKED_IMPORT_ITEM,
+          statusMessages: [
+            { messages: [reparsed], title: BLOCKED_IMPORT_ITEM.title },
+          ],
+        },
+      ])
+      await service.poll()
+
+      const updated = downloadStateService.jobs.get(job.id)
+      expect(updated?.status).toBe(DownloadJobStatus.NeedsAttention)
+      expect(updated?.error).toBe(reparsed)
+    })
+
+    it('replaces the block reason with the failure message on a later failure', async () => {
+      const job = seedBlockedMovieJob()
+
+      radarrService.getQueue.mockResolvedValue([BLOCKED_IMPORT_ITEM])
+      await service.poll()
+
+      radarrService.getQueue.mockResolvedValue([
+        {
+          ...BLOCKED_IMPORT_ITEM,
+          status: 'failed',
+          statusMessages: [
+            {
+              messages: ['Download client reported an error'],
+              title: BLOCKED_IMPORT_ITEM.title,
+            },
+          ],
+          trackedDownloadState: 'failedPending',
+        },
+      ])
+      await service.poll()
+
+      const updated = downloadStateService.jobs.get(job.id)
+      expect(updated?.status).toBe(DownloadJobStatus.Failed)
+      expect(updated?.error).toBe('Download client reported an error')
+    })
+
+    // A season is blocked as a whole the moment any one of its episodes is:
+    // that is the one thing in the scope a person can act on now, and the
+    // sibling still transferring must not hide it.
+    it('reports a season blocked by one episode, with every message joined', async () => {
+      const job = buildShowJob({
+        scope: { seasonNumber: 3 },
+        status: DownloadJobStatus.Downloading,
+      })
+      downloadStateService.jobs.set(job.id, job)
+
+      sonarrService.getQueue.mockResolvedValue([
+        {
+          episodeId: 1,
+          seasonNumber: 3,
+          seriesId: 9,
+          size: 100,
+          sizeleft: 0,
+          status: 'completed',
+          statusMessages: [
+            {
+              messages: [
+                'Episode [S03E01] was not found in the grabbed release',
+                'One or more episodes expected in this release were not imported or missing',
+              ],
+              title: 'A.Show.S03E01.1080p.WEB.x265',
+            },
+          ],
+          trackedDownloadState: 'importBlocked',
+          trackedDownloadStatus: 'warning',
+        },
+        {
+          episodeId: 2,
+          seasonNumber: 3,
+          seriesId: 9,
+          size: 100,
+          sizeleft: 40,
+          status: 'downloading',
+        },
+      ])
+
+      await service.poll()
+
+      const updated = downloadStateService.jobs.get(job.id)
+      expect(updated?.status).toBe(DownloadJobStatus.NeedsAttention)
+      expect(updated?.error).toBe(
+        'Episode [S03E01] was not found in the grabbed release; One or more episodes expected in this release were not imported or missing',
+      )
     })
   })
 

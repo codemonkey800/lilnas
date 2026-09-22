@@ -328,6 +328,13 @@ const RESTING_STATUSES: ReadonlySet<DownloadJobStatus> = new Set([
  * no item and any other current status it returns the status unchanged. So a
  * job that never entered the queue stays in `Searching` indefinitely — which
  * is a legitimate outcome (no indexer had the release), not a stall to fail on.
+ *
+ * `NeedsAttention` is reachable from every in-flight state, `Searching`
+ * included: a small usenet grab can be fetched *and* rejected by the importer
+ * between two ticks, so the first queue item this script ever reads for it can
+ * already be `importPending`. It is not terminal — a human working the
+ * manual-import dialog pushes it on to `Importing`/`Completed`, and a second
+ * grab for the same title puts it back on `Downloading`.
  */
 const MEDIA_TRANSITIONS: ReadonlyMap<
   DownloadJobStatus,
@@ -336,15 +343,35 @@ const MEDIA_TRANSITIONS: ReadonlyMap<
   [DownloadJobStatus.Requested, [DownloadJobStatus.Searching]],
   [
     DownloadJobStatus.Searching,
-    [DownloadJobStatus.Downloading, DownloadJobStatus.Importing],
+    [
+      DownloadJobStatus.Downloading,
+      DownloadJobStatus.Importing,
+      DownloadJobStatus.NeedsAttention,
+    ],
   ],
   [
     DownloadJobStatus.Downloading,
-    [DownloadJobStatus.Importing, DownloadJobStatus.Completed],
+    [
+      DownloadJobStatus.Importing,
+      DownloadJobStatus.NeedsAttention,
+      DownloadJobStatus.Completed,
+    ],
   ],
   [
     DownloadJobStatus.Importing,
-    [DownloadJobStatus.Downloading, DownloadJobStatus.Completed],
+    [
+      DownloadJobStatus.Downloading,
+      DownloadJobStatus.NeedsAttention,
+      DownloadJobStatus.Completed,
+    ],
+  ],
+  [
+    DownloadJobStatus.NeedsAttention,
+    [
+      DownloadJobStatus.Downloading,
+      DownloadJobStatus.Importing,
+      DownloadJobStatus.Completed,
+    ],
   ],
 ])
 
