@@ -34,6 +34,7 @@ import {
   movieMetaLine,
   movieWatchState,
 } from 'src/components/detail/movie-detail'
+import { MOVIE_REQUEST_LABEL } from 'src/components/detail/movie-request-button'
 import {
   RELEASE_CURRENT_LABEL,
   RELEASE_GRAB_LABEL,
@@ -709,6 +710,58 @@ describe('MovieDetail — the lifecycle panel', () => {
 
     expect(screen.getByText('Earlier attempts')).toBeInTheDocument()
     expect(screen.getByText('failed')).toBeInTheDocument()
+  })
+})
+
+describe('MovieDetail — the download shortcut', () => {
+  it('offers it for a movie with neither job nor file', () => {
+    renderDetail({ jobs: [], movie: UNFETCHED })
+
+    expect(
+      screen.getAllByRole('button', { name: MOVIE_REQUEST_LABEL }).length,
+    ).toBeGreaterThan(0)
+  })
+
+  it('⚠️ still offers it once a completed job’s file is gone — that state reads as no job at all', () => {
+    // The same reconciliation `currentJob` makes for the status chip: a
+    // stale `completed` row for a deleted movie counts as no job, so the
+    // shortcut comes back rather than staying hidden behind history.
+    renderDetail({ jobs: [JOB], movie: UNFETCHED })
+
+    expect(
+      screen.getAllByRole('button', { name: MOVIE_REQUEST_LABEL }).length,
+    ).toBeGreaterThan(0)
+  })
+
+  it('hides it once a file is already on disk', () => {
+    renderDetail({ jobs: [], movie: MOVIE })
+
+    expect(
+      screen.queryByRole('button', { name: MOVIE_REQUEST_LABEL }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('hides it while a real job is in flight, so a press can never race one', () => {
+    renderDetail({
+      jobs: [
+        { ...JOB, completedAt: null, status: DownloadJobStatus.Downloading },
+      ],
+      movie: UNFETCHED,
+    })
+
+    expect(
+      screen.queryByRole('button', { name: MOVIE_REQUEST_LABEL }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('passes the movie’s own media key to the handler, and nothing else', async () => {
+    const onRequest = jest.fn().mockResolvedValue(undefined)
+    const user = userEvent.setup()
+    renderDetail({ jobs: [], movie: UNFETCHED, onRequest })
+
+    await user.click(firstButton(MOVIE_REQUEST_LABEL))
+
+    expect(onRequest).toHaveBeenCalledWith(MOVIE_ID)
   })
 })
 

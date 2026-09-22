@@ -20,6 +20,8 @@ import {
 import type { ImportDialogActions } from 'src/components/detail/import-dialog'
 import { JobHistory, JobLifecycle } from 'src/components/detail/job-lifecycle'
 import { currentJob } from 'src/components/detail/job-state'
+import type { MovieRequestAction } from 'src/components/detail/movie-request-button'
+import { MovieRequestButton } from 'src/components/detail/movie-request-button'
 import type {
   ReleaseAction,
   ReleaseSearchAction,
@@ -56,9 +58,11 @@ export const MOVIE_STATUS_LABEL = 'Status'
 /**
  * What the lifecycle panel says when a movie has no job and no file.
  *
- * The second sentence points at the one control that changes it, because
- * `JobLifecycle` is given no `emptyActions` — see {@link MovieDetail} for why
- * a movie has no one-press "Download".
+ * The second sentence points at the release picker, which stays the
+ * recommended path — the header's `MovieRequestButton` is a shortcut beside
+ * it, not a replacement, so this note still sends a reader downward rather
+ * than pointing back up at the header. `JobLifecycle` is given no
+ * `emptyActions` either way; see {@link MovieDetail} for the header button.
  */
 export const MOVIE_EMPTY_NOTE =
   'Nothing grabbed yet. Find a release below to download it.'
@@ -271,6 +275,8 @@ export type MovieDetailProps = Omit<
   onFlag?: FlagBadFileAction
   onGrab?: ReleaseAction
   onReplace?: ReleaseAction
+  /** Fires `MovieRequestButton` — see {@link MovieDetail}. */
+  onRequest?: MovieRequestAction
   onSearch?: ReleaseSearchAction
   onUnflag?: UnflagBadFileAction
 }
@@ -304,9 +310,14 @@ export type MovieDetailProps = Omit<
  *   either: both live in the header row instead, because the panel only offers
  *   them while the newest job is `completed`, and a library movie with a file
  *   and no job at all — a common state here — would otherwise lose both.
- * - **There is no one-press "Download".** The mockup's state legend draws one;
- *   the real path to a file is the release picker, which is strictly better
- *   (the user picks) and is the only one this page has an action for.
+ * - **The one-press "Download" is a shortcut, not the recommended path.** It
+ *   only ever appears in place of Watch/Delete, gated on `job === null &&
+ *   !hasFile` — the same "nothing grabbed, nothing on disk" state
+ *   `MOVIE_EMPTY_NOTE` describes — so it disappears the moment a job exists,
+ *   a file lands, or both. The release picker below is still strictly better
+ *   (the user picks a release instead of trusting Radarr's own scoring), and
+ *   stays visible the whole time; `MovieRequestButton` is `outline`, not the
+ *   header's `uv` Watch variant, so it never reads as competing advice.
  * - **Attribution is unconditional and has no hide toggle.** `requester`
  *   arrives already masked by `projectJobForViewer`, so `null` means "not
  *   yours to see" and `DetailAttribution` draws the dashed avatar for it. The
@@ -332,6 +343,7 @@ export function MovieDetail({
   onFlag,
   onGrab,
   onReplace,
+  onRequest,
   onSearch,
   onUnflag,
   ...props
@@ -378,6 +390,22 @@ export function MovieDetail({
             : MOVIE_EMBY_UNAVAILABLE_LABEL
         }
         tone={watch === 'indexing' ? 'uv' : 'mute'}
+      />,
+    )
+  }
+
+  // ⚠️ Mirrors `job || !hasFile`'s *other* branch below — this is
+  // specifically the half of it with no real job, not "any not-downloaded
+  // reading". A queued/downloading/failed job already has a control of its
+  // own inside `JobLifecycle`; offering a second "Download" beside it would
+  // race a request already in flight.
+  if (job === null && !hasFile) {
+    actions.push(
+      <MovieRequestButton
+        className={cns(ACTION_BUTTON)}
+        key="request"
+        mediaId={movie.id}
+        onRequest={onRequest}
       />,
     )
   }
