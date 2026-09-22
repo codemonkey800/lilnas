@@ -610,6 +610,161 @@ describe('SonarrService', () => {
     })
   })
 
+  describe('setSeasonsMonitored', () => {
+    const seasons = [
+      { monitored: false, seasonNumber: 0, statistics: { episodeCount: 2 } },
+      { monitored: false, seasonNumber: 1, statistics: { episodeCount: 10 } },
+      { monitored: true, seasonNumber: 2, statistics: { episodeCount: 8 } },
+      { monitored: false, seasonNumber: 3, statistics: { episodeCount: 6 } },
+    ]
+
+    const series = {
+      id: 9,
+      monitored: true,
+      qualityProfileId: 2,
+      rootFolderPath: '/tv',
+      seasons,
+      tags: [3],
+    }
+
+    beforeEach(() => {
+      mockGetApiV3SeriesById.mockResolvedValue({ data: series })
+      mockPutApiV3SeriesById.mockResolvedValue({ data: {} })
+    })
+
+    it('re-sends the whole resource with only the named seasons changed', async () => {
+      const changed = await service.setSeasonsMonitored(9, [1, 3], true)
+
+      expect(changed).toEqual([1, 3])
+      expect(getApiV3SeriesById).toHaveBeenCalledWith(
+        expect.objectContaining({ path: { id: 9 } }),
+      )
+      expect(putApiV3SeriesById).toHaveBeenCalledTimes(1)
+      expect(putApiV3SeriesById).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: {
+            id: 9,
+            monitored: true,
+            qualityProfileId: 2,
+            rootFolderPath: '/tv',
+            seasons: [
+              seasons[0],
+              { ...seasons[1], monitored: true },
+              seasons[2],
+              { ...seasons[3], monitored: true },
+            ],
+            tags: [3],
+          },
+          path: { id: '9' },
+        }),
+      )
+    })
+
+    it("'all' touches every season, specials included", async () => {
+      const changed = await service.setSeasonsMonitored(9, 'all', true)
+
+      expect(changed).toEqual([0, 1, 3])
+      expect(putApiV3SeriesById).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: expect.objectContaining({
+            seasons: seasons.map(season => ({ ...season, monitored: true })),
+          }),
+        }),
+      )
+    })
+
+    // Specials are season `0`: every scope check has to be a `!= null` /
+    // set-membership test, never a truthy one.
+    it('monitors specials when season 0 is named explicitly', async () => {
+      const changed = await service.setSeasonsMonitored(9, [0], true)
+
+      expect(changed).toEqual([0])
+      expect(putApiV3SeriesById).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: expect.objectContaining({
+            seasons: [
+              { ...seasons[0], monitored: true },
+              seasons[1],
+              seasons[2],
+              seasons[3],
+            ],
+          }),
+        }),
+      )
+    })
+
+    it('skips the PUT and returns [] when every season is already at the target', async () => {
+      const changed = await service.setSeasonsMonitored(9, [0, 1, 3], false)
+
+      expect(changed).toEqual([])
+      expect(getApiV3SeriesById).toHaveBeenCalledTimes(1)
+      expect(putApiV3SeriesById).not.toHaveBeenCalled()
+    })
+
+    it('returns only the seasons it actually changed', async () => {
+      const changed = await service.setSeasonsMonitored(9, [1, 2], true)
+
+      // Season 2 was already monitored, so it is neither re-sent changed nor
+      // reported.
+      expect(changed).toEqual([1])
+      expect(putApiV3SeriesById).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: expect.objectContaining({
+            seasons: [
+              seasons[0],
+              { ...seasons[1], monitored: true },
+              seasons[2],
+              seasons[3],
+            ],
+          }),
+        }),
+      )
+    })
+
+    // The delete side may name a season Sonarr has since dropped; that must
+    // not stop the seasons it does still have from being written.
+    it('warns and skips a season Sonarr does not list, still writing the rest', async () => {
+      const changed = await service.setSeasonsMonitored(9, [3, 7], true)
+
+      expect(changed).toEqual([3])
+      expect(Logger.prototype.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ seasonNumber: 7, sonarrId: 9 }),
+        expect.any(String),
+      )
+      expect(putApiV3SeriesById).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: expect.objectContaining({
+            seasons: [
+              seasons[0],
+              seasons[1],
+              seasons[2],
+              { ...seasons[3], monitored: true },
+            ],
+          }),
+        }),
+      )
+    })
+
+    it('makes no call at all for an empty season list', async () => {
+      const changed = await service.setSeasonsMonitored(9, [], true)
+
+      expect(changed).toEqual([])
+      expect(getApiV3SeriesById).not.toHaveBeenCalled()
+      expect(putApiV3SeriesById).not.toHaveBeenCalled()
+    })
+
+    it('throws a descriptive error when the series write fails', async () => {
+      mockPutApiV3SeriesById.mockResolvedValue({
+        error: { message: 'boom' },
+        response: { status: 500 },
+      })
+
+      await expect(service.setSeasonsMonitored(9, [1], true)).rejects.toThrow(
+        'setSeasonsMonitored failed',
+      )
+    })
+  })
+
   describe('getEpisodes', () => {
     it('scopes to one season when a season number is given', async () => {
       mockGetApiV3Episode.mockResolvedValue({ data: [{ id: 100 }] })

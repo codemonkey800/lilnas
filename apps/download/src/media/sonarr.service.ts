@@ -98,10 +98,11 @@ export interface EnsureSeriesOptions {
    * When present, `ensureSeries` also walks the episodes this scope names
    * and monitors any that are off - an empty object means the whole series.
    *
-   * Opt-in rather than always-on because only the release paths need it.
-   * `requestShow` deliberately passes nothing: a user who has monitored just
-   * season 3 of a show and then re-requests the show should not silently
-   * have all ten seasons switched on.
+   * `ensureSeries` never widens the scope on its own: the request path
+   * decides what a request covers (a bare `POST /download/shows` is an
+   * explicit whole-series request and monitors everything), and the
+   * release-listing borrow (`ReleaseService.withMonitoring`) passes exactly
+   * the scope it was asked for and nothing more.
    */
   monitorEpisodes?: SeriesScope
 }
@@ -400,14 +401,15 @@ export class SonarrService {
         await this.setSeriesMonitored(existing.id, true)
       }
 
-      // An unmonitored series only happens via a whole-series delete (see
-      // `ShowService.deleteShowFiles`), which also unmonitors every episode.
-      // No `monitorEpisodes` scope would otherwise leave those episodes off
-      // forever - the series row would be monitored again but Sonarr would
-      // still have nothing monitored to search for. Treat it the same as an
-      // explicit whole-series scope; a partially-monitored series (some
-      // seasons on, some off) never trips this because it stays
-      // series-level-monitored the whole time.
+      // Only reached by a caller passing no `monitorEpisodes` at all - no
+      // caller in this app does today. It covers a series a human
+      // unmonitored in Sonarr's own UI (a whole-series delete here removes
+      // the series outright, so it never produces this state): re-monitoring
+      // the row alone would leave every episode off and `SeriesSearch` with
+      // nothing to grab. Treat it the same as an explicit whole-series
+      // scope; a partially-monitored series (some seasons on, some off)
+      // never trips this because it stays series-level-monitored the whole
+      // time.
       const turnedOnEpisodeIds = opts.monitorEpisodes
         ? await this.monitorScopedEpisodes(existing.id, opts.monitorEpisodes)
         : wasMonitored
@@ -610,6 +612,80 @@ export class SonarrService {
       }),
       'setSeriesMonitored',
     )
+  }
+
+  /**
+   * Flips `seasons[].monitored` for the named seasons (or every season) and
+   * returns the season numbers that actually changed. One GET + at most one
+   * PUT - the PUT is skipped when nothing would change.
+   *
+   * Season `0` (specials) is a season like any other, so `'all'` includes
+   * it. A season number Sonarr doesn't list is warned about and skipped
+   * rather than thrown on - the delete side may name a season Sonarr has
+   * since dropped. A season already at the target value is left alone and
+   * not reported.
+   *
+   * Sonarr's `PUT /series` may itself cascade a season flag change down to
+   * that season's episodes. Callers that need to know or set episode state
+   * must read/write the episodes BEFORE calling this, not after.
+   */
+  async setSeasonsMonitored(
+    sonarrId: number,
+    seasons: readonly number[] | 'all',
+    monitored: boolean,
+  ): Promise<number[]> {
+    if (seasons !== 'all' && seasons.length === 0) {
+      return []
+    }
+
+    const series = await this.getSeriesById(sonarrId)
+    const existing = series.seasons ?? []
+
+    // `?? 0` matches `listSeasons`: Sonarr always sends `seasonNumber`, the
+    // generated type just can't promise it.
+    if (seasons !== 'all') {
+      const known = new Set(existing.map(season => season.seasonNumber ?? 0))
+      for (const seasonNumber of seasons) {
+        if (!known.has(seasonNumber)) {
+          this.logger.warn(
+            { seasonNumber, sonarrId },
+            'Season not present in Sonarr series; skipping monitored change',
+          )
+        }
+      }
+    }
+
+    const wanted = seasons === 'all' ? null : new Set(seasons)
+    const changed: number[] = []
+
+    const patchedSeasons = existing.map(season => {
+      const seasonNumber = season.seasonNumber ?? 0
+      const inScope = wanted === null || wanted.has(seasonNumber)
+      if (!inScope || season.monitored === monitored) {
+        return season
+      }
+
+      changed.push(seasonNumber)
+      return { ...season, monitored }
+    })
+
+    if (changed.length === 0) {
+      return []
+    }
+
+    checkSdkError(
+      await putApiV3SeriesById({
+        client: this.client,
+        path: { id: String(sonarrId) },
+        body: {
+          ...series,
+          seasons: patchedSeasons,
+        } as unknown as SeriesResourceWritable,
+      }),
+      'setSeasonsMonitored',
+    )
+
+    return changed
   }
 
   /** A series' episodes, optionally narrowed to one season. */
