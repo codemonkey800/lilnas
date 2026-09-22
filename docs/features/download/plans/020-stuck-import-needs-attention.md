@@ -670,7 +670,7 @@ Addenda:
 
 ### Group A — Contracts (`packages/utils`)
 
-- [ ] **A1. The status member.** `DownloadJobStatus.NeedsAttention = 'needs_attention'`
+- [x] **A1. The status member.** `8d8e6420` `DownloadJobStatus.NeedsAttention = 'needs_attention'`
       exists, is non-terminal, and every consumer that enumerates the enum still
       compiles.
 
@@ -691,7 +691,7 @@ needs-attention member'` case beside the Phase 5 one at :94, and the partition t
   **Tests:** the member's wire value; it is in `IN_PROGRESS_DOWNLOAD_JOB_STATUSES` and
   not terminal.
 
-- [ ] **A2. The manual-import wire contract and client methods.** The schemas, types,
+- [x] **A2. The manual-import wire contract and client methods.** `135bc8d5` The schemas, types,
       audit actions and `DownloadClient` methods the routes and the UI share.
 
   **Files:** edit `packages/utils/src/download/schema.ts`, `types.ts`, `client.ts`;
@@ -762,7 +762,7 @@ needs-attention member'` case beside the Phase 5 one at :94, and the partition t
 
 ### Group B — Poller classification and restart
 
-- [ ] **B1. Classify a stuck import.** `deriveStatusFromQueueItem` returns
+- [x] **B1. Classify a stuck import.** `a8e41f5` `deriveStatusFromQueueItem` returns
       `NeedsAttention` for the live fixture; the aggregate ranks it; `matchesScope` is
       shared.
 
@@ -808,7 +808,15 @@ needs-attention member'` case beside the Phase 5 one at :94, and the partition t
   `statusMessages` still concatenated; `matchesScope` cases (episode, season, season 0,
   null `episodeId` never matches an episode scope) moved/added here.
 
-- [ ] **B2. The poller records the sentence and clears it.** `job.error` carries
+  **Findings (B1, during execution):** appending `'media.manual_import'` and
+  `'media.discard_download'` to `AUDIT_ACTIONS` in A2 broke type-check in three app
+  files the plan never listed - `apps/download/src/db/audit-log.repo.ts`,
+  `apps/download/src/db/schema.ts` and `apps/download/src/lib/admin-audit.ts` all hold
+  exhaustive `Record<AuditAction, ...>` tables. The Shared Context Pack listed only the
+  `Record<DownloadJobStatus, ...>` tables. **D2 now owns those three files** (it is the
+  task that introduces the audit rows); its file list and tests are extended below.
+
+- [x] **B2. The poller records the sentence and clears it.** `495d03e` `job.error` carries
       Radarr's message while stuck and is gone once the job moves on.
 
   **Files:** edit `apps/download/src/media/media-poller.service.ts`,
@@ -852,7 +860,7 @@ NeedsAttention` (a usenet grab can land blocked between two ticks), and
   re-writes `error`; a season scope with one blocked episode reports `NeedsAttention`
   and the joined messages.
 
-- [ ] **B3. It survives a restart.** The boot sweep leaves `needs_attention` rows
+- [x] **B3. It survives a restart.** `6c2bf12f` The boot sweep leaves `needs_attention` rows
       alone and re-adopts them so the poller tracks them.
 
   **Files:** edit `apps/download/src/db/reconcile-interrupted-jobs.ts`,
@@ -896,7 +904,7 @@ NeedsAttention` (a usenet grab can land blocked between two ticks), and
 
 ### Group C — Upstream wrappers
 
-- [ ] **C1. `RadarrService` manual-import and queue-removal methods.**
+- [x] **C1. `RadarrService` manual-import and queue-removal methods.** `1fc5ad5c`
 
   **Files:** edit `apps/download/src/media/radarr.service.ts`,
   `apps/download/src/media/__tests__/radarr.service.test.ts` (add
@@ -934,7 +942,7 @@ NeedsAttention` (a usenet grab can land blocked between two ticks), and
   surfaces an upstream error with the `commitManualImport` context; the queue delete's
   path and three query flags.
 
-- [ ] **C2. `SonarrService` twins.** Same three methods, Sonarr's shapes.
+- [x] **C2. `SonarrService` twins.** `b2ddb13a` Same three methods, Sonarr's shapes.
 
   **Files:** edit `apps/download/src/media/sonarr.service.ts`,
   `apps/download/src/media/__tests__/sonarr.service.test.ts` (extend the mock factory).
@@ -958,7 +966,28 @@ NeedsAttention` (a usenet grab can land blocked between two ticks), and
 
 ### Group D — Service and routes
 
-- [ ] **D1. `ManualImportService`.** One service that lists, commits and discards for a
+- [x] **D0. Unbreak the audit-action tables.** `be95eaa6` **Not in the original plan** -
+      added mid-flight after B1 and B3 both hit it. A2 appended `'media.manual_import'`
+      and `'media.discard_download'` to `AUDIT_ACTIONS` in `packages/utils`, but
+      `apps/download` mirrors that list in `AUDIT_ACTIONS_LOCAL`
+      (`src/db/schema.ts:357`) behind a compile-time `auditActionPin` assertion (:378),
+      and `src/lib/admin-audit.ts` holds two exhaustive `Record<AuditAction, ...>`
+      tables. The stale tuple broke **every ts-jest suite importing `src/db/schema.ts`**,
+      not just type-check, which blocked B2 and D1 from running their tests at all. The
+      Shared Context Pack listed only the `Record<DownloadJobStatus, ...>` tables, so
+      nothing in the plan owned this.
+
+  **Files:** `apps/download/src/db/schema.ts`, `src/lib/admin-audit.ts`,
+  `src/lib/__tests__/admin-audit.spec.ts`, `src/db/__tests__/audit-log.repo.spec.ts`.
+  `src/db/audit-log.repo.ts` needed no change - it uses `AuditAction` only as a type, and
+  its errors were cascades from the stale drizzle column enum.
+
+  **Landed text:** `media.manual_import` -> `{ label: 'IMPORT', tone: 'uv' }`, phrase
+  `'manually imported files'`; `media.discard_download` ->
+  `{ label: 'DISCARD', tone: 'bad' }`, phrase `'discarded a stuck download'`. (`uv` = an
+  admin acting, `bad` = destruction, per the map's own doc comment.)
+
+- [x] **D1. `ManualImportService`.** `77ac272` One service that lists, commits and discards for a
       media key and scope, and moves the affected jobs.
 
   **Files:** create `apps/download/src/media/manual-import.service.ts`,
@@ -1045,7 +1074,21 @@ NeedsAttention` (a usenet grab can land blocked between two ticks), and
   when at least one removal succeeded. **Tests (mapper):** flattening of quality,
   languages, rejections; the three show branches.
 
-- [ ] **D2. The routes and their audit rows.**
+  **Findings (D1, during execution):** `importFiles` takes its scope from the **body**
+  (`input.episodeId` / `input.seasonNumber`), not as a separate argument - the plan's
+  sketch implied a scope parameter on all three methods. The mapper exports
+  `toMovieCandidate` / `toShowCandidate` / `UNPARSED_EPISODES_REASON` rather than one
+  `map` entry point. A discard whose removals **all** fail throws
+  `ServiceUnavailableException`, not a bare `Error`; `listCandidates` returning `[]` and
+  `discard` returning `{ discardedCount: 0 }` are successes, not 404s.
+
+- [x] **D2. The routes and their audit rows.** `5bd08375`
+
+  **⚠️ Scope change during execution:** the exhaustive audit-action tables A2 broke were
+  split out into **D0** (above) and landed before this task - D2 only records the rows.
+  Match D0's committed text: `media.manual_import` is `{ label: 'IMPORT', tone: 'uv' }` /
+  `'manually imported files'`; `media.discard_download` is
+  `{ label: 'DISCARD', tone: 'bad' }` / `'discarded a stuck download'`.
 
   **Files:** edit `apps/download/src/download/download.controller.ts` (DTOs beside the
   others at :97-114; three routes beside the release routes; `ManualImportService`
@@ -1077,9 +1120,20 @@ NeedsAttention` (a usenet grab can land blocked between two ticks), and
   and DELETE with the metadata shape, none for GET; a service `NotFoundException`
   passes through as 404, a `BadRequestException` as 400.
 
+  **Findings (D2, during execution):** injecting `ManualImportService` into
+  `DownloadController` broke **every** testing module that builds the controller - 10
+  suites / 155 tests failed with "Nest can't resolve dependencies" until
+  `{ provide: ManualImportService, useValue: {} }` was added to each. So D2's commit also
+  touches ten sibling controller specs
+  (`src/download/__tests__/download.controller.*.test.ts` and
+  `src/media/__tests__/download.controller.file.test.ts`), 2-3 lines each; the plan's file
+  list named only the media controller spec. Scope reaches `listCandidates`/`discard` as
+  `narrowScope(...)`, i.e. `undefined` rather than `{}` when unscoped, matching the
+  service signature.
+
 ### Group E — Frontend
 
-- [ ] **E1. The status renders stopped, labelled, and offers `import`.** Every
+- [x] **E1. The status renders stopped, labelled, and offers `import`.** `42c0afa` Every
       exhaustive table knows the member; the pure state table offers the new action.
 
   **Files:** edit `apps/download/src/lib/format.ts` (`STATUS_TONES`: `warn`; extend
@@ -1111,7 +1165,7 @@ NeedsAttention` (a usenet grab can land blocked between two ticks), and
   lifecycle panel renders the chip with no `.dot-live`; `episodeState` for a
   needs-attention episode job is `{ live: false, tone: 'warn' }`.
 
-- [ ] **E2. Server actions.** Three `'use server'` functions the dialog calls.
+- [x] **E2. Server actions.** `22959ce` Three `'use server'` functions the dialog calls.
 
   **Files:** edit `apps/download/src/app/actions/media-files.ts`; extend
   `apps/download/src/app/actions/__tests__/media-files.spec.ts`, following its
@@ -1153,7 +1207,7 @@ that download — try again'`.
   **Tests:** success shapes; 404 mapping; generic failure copy; revalidation called
   only on success of the two mutations.
 
-- [ ] **E3. `ImportDialog`.** A self-contained control: trigger, dialog, candidate
+- [x] **E3. `ImportDialog`.** `af14a9a5` A self-contained control: trigger, dialog, candidate
       rows, Import, Discard with an inline confirm.
 
   **Files:** create `apps/download/src/components/detail/import-dialog.tsx`,
@@ -1237,7 +1291,20 @@ that download — try again'`.
   paths plus the scope; discard is two-step and calls the action; `{ error }` renders
   and keeps the dialog open; success closes and reports `onDone`; empty list note.
 
-- [ ] **E4. Wire it into the lifecycle panel and the pages.**
+  **Findings (E3, during execution):** the mockup draws the one-file case, so four
+  reconciliations were made and are worth knowing downstream. (1) The row indicator is a
+  **square checkbox**, not the mockup's round dot - a round dot in a multi-select list
+  promises a radio group. (2) Rejections are collected across the whole list,
+  de-duplicated and rendered in **one** alert note rather than per row, which is the
+  mockup's treatment scaled past one file. (3) The description sentence was de-branded
+  from the mockup's "Radarr just couldn't match the file", because Sonarr reaches this
+  dialog too. (4) The scope is forwarded as the two wire keys `{ episodeId, seasonNumber }`
+  read off `ShowScope`, not spread whole - `ShowScope` also carries a display-only
+  `episodeNumber`, and primitive deps keep the fetch effect stable. Also: an empty
+  candidate list **removes** Import rather than disabling it, and `ImportDialogProps`
+  omits `'title'` from the `div` props so the component's own `title` is unambiguous.
+
+- [x] **E4. Wire it into the lifecycle panel and the pages.** `3cf9eca`
 
   **Files:** edit `apps/download/src/components/detail/job-lifecycle.tsx`,
   `movie-detail.tsx`, `show-detail.tsx`, `show-seasons.tsx`,
@@ -1280,7 +1347,13 @@ that download — try again'`.
   opens the dialog with the job's media id and scope (assert the `list` stub's args);
   each page-level spec asserts the prop reaches the panel.
 
-- [ ] **E5. The episode row.** An episode-scoped needs-attention job gets the control
+  **Findings (E4, during execution):** `DownloadJob.media` is a full `Media`, so
+  `title={job.media.title}` is passed from inside the controls map - every panel mount
+  gets the mockup's `Import "<title>"` heading with no new plumbing at any call site.
+  `ACTION_SPECS`' import row uses `variant: 'outline'` (the mockup's trigger), not the
+  `uv` the plan sketched; `uv` is the footer's confirm button inside the dialog.
+
+- [x] **E5. The episode row.** `0ddc7d2` An episode-scoped needs-attention job gets the control
       in its row.
 
   **Files:** edit `apps/download/src/components/detail/show-episode-row.tsx` (+
@@ -1296,13 +1369,39 @@ that download — try again'`.
   **Tests:** the control renders only for a needs-attention episode job and forwards
   the episode scope.
 
+  **Findings (E5, during execution):** the heading passes
+  `` `${media.title} ${episodeCode(...)}` `` - `Import "Silicon Valley S02E05"` - rather
+  than the bare series title `JobLifecycle` passes. On a row that already names one
+  episode, the series title alone reads as though the whole show were stuck, and it is
+  identical on all 25 rows of a season, so it identifies nothing.
+
 ### Group F — Verification & docs
 
-- [ ] **F1. Full-repo verification.** From the repo root: `pnpm run lint`,
+- [x] **F1. Full-repo verification.** (run by the orchestrator, no commit) From the repo root: `pnpm run lint`,
       `pnpm run type-check`, `pnpm test`. ❌ Not `pnpm run build`. Confirms every
       package still agrees on the enum and nothing else broke.
 
-- [ ] **F2. Docs + status.** Add a top-level section to
+  **Result:** `pnpm run type-check` 12/12 packages clean · `pnpm run lint` 15/15 clean
+  (eslint + prettier, including the prettier pass over `docs/features/*/designs`) ·
+  `@lilnas/utils` 421 passed / 8 suites · `@lilnas/download` 3926 passed, 9 skipped,
+  0 failed / 180 suites.
+
+  ⚠️ **`pnpm test` from the root exits non-zero, for a pre-existing reason this plan did
+  not cause.** `@lilnas/equations` has 7 failing tests and turbo cancels its six sibling
+  test tasks when one fails, which makes the root run report `0 successful, 7 total` and
+  look far worse than it is. Both equations failures are unrelated and predate this work:
+  - `validateLatexSafety` "Long Line Detection" (7 cases) still asserts
+    `'Line too long (max 200 characters per line)'`, but commit `8118a3a8`
+    _fix(equations): remove line length check_ removed the check; the input now trips
+    `'Excessive repetition detected'` instead. Implementation moved, tests did not.
+  - `__tests__/e2e/equations-controller.test.ts` cannot run at all: its jest
+    `moduleNameMapper` resolves `@lilnas/utils/*` to `apps/utils/src/$1`, and `apps/utils`
+    has never existed in this repo (it is `packages/utils`).
+
+  `git diff 95f4e30e..HEAD -- apps/equations` is empty - plan 020 never touched the
+  package. Worth its own small fix, but out of scope here.
+
+- [x] **F2. Docs + status.** `e115795e` Add a top-level section to
       `docs/features/download/backend.md` — `## Stuck imports and the in-app importer
 (plan 020)` — in the shape of the plan 019 section (:1735): the signal, the
       status and why not `failed`, the three routes and the command body, the
@@ -1416,16 +1515,153 @@ one checks.
    `needs_attention` job exists; it must come back `needs_attention` (not `failed`),
    still tracked, with the Import control offered.
 
+   **Findings (F2, during execution):** verifying the plan's material against the landed
+   code corrected five things, all now recorded in `backend.md`:
+
+5. **The POST carries its scope in the body, not the query.** Only the GET and DELETE
+   are query-scoped. `ImportFilesInputSchema` uses plain `z.number()` where the query
+   schemas coerce.
+6. **An import never removes the queue row.** `removeQueueItem` has exactly one caller,
+   `discard`. Upstream drops the row itself once the command succeeds, and the poller's
+   "no entry while `Importing` -> `Completed`" branch finishes the job. C1/C2's doc
+   comments claimed the opposite; fixed separately.
+7. **The season-pack gap is narrower than stated.** It bites a season- or series-scoped
+   request only: `toShowCandidate`'s middle branch lets an **episode-scoped** request
+   supply the episode id from its own scope, and the row stays importable.
+8. **The verification curl needs Next's rewrite**, `localhost:8090/api/download/...` -
+   8090 maps to the container's 8080, and the Nest side on 8081 publishes no host port.
+9. ⚠️ **The live fixture is gone.** Radarr's queue is empty and `tmdb:445571` (Radarr
+   movie 434) has a file as of 2026-09-21 - _Game Night_ was imported out of band while
+   this plan was being executed. Human checkpoints 1, 2 and 4 now need a **fresh** stuck
+   download; the doc says so.
+
+It also documented two things the plan's material never mentioned but the code does:
+`jobScopeCovers` (an episode-level import cannot finish a season job) and the poller's
+`reasonChanged` rule (a changed reason at an unchanged status is still an update, so
+upstream's sentence is never pinned to the first one).
+
 ---
 
 ## Final report
 
-When every box is checked, report:
+**Executed 2026-09-21.** All 16 planned tasks landed, plus two unplanned ones (D0, and a
+doc-comment correction F2 surfaced), across **18 commits** on `jeremy/download`,
+orchestrated in seven waves with one sub-agent per task. The plan doc was committed first
+as `6e5dec26`.
 
-1. **Per-task outcome** — status, files changed, exported names, commit hashes
-2. **Test results** — per package plus the repo-wide sweep from F1
-3. **Deviations** from this plan, and why
-4. **Deferred** — the four human checkpoints and their state, plus anything tagged
-   🚧 or ⏳
-5. **Open questions** discovered during implementation — in particular anything Radarr
-   or Sonarr answered differently from the fixture in this doc
+### 1. Per-task outcome
+
+| Task | Status | Commit     | Landed                                                                                                                                                         |
+| ---- | ------ | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A1   | ✅     | `8d8e6420` | `DownloadJobStatus.NeedsAttention`, non-terminal, in-progress by derivation                                                                                    |
+| A2   | ✅     | `135bc8d5` | `ManualImportCandidateSchema`, `ImportFilesInputSchema`, the two query aliases, three response interfaces, three `DownloadClient` methods, two `AUDIT_ACTIONS` |
+| C1   | ✅     | `1fc5ad5c` | `RadarrManualImportFile`; `getManualImportCandidates` / `commitManualImport` / `removeQueueItem`                                                               |
+| C2   | ✅     | `b2ddb13a` | `SonarrManualImportFile`; the same three, with `seasonNumber` forwarded only when `!= null`                                                                    |
+| B1   | ✅     | `a8e41f5e` | The `NeedsAttention` branch and its ordering, `STATUS_PRECEDENCE`, `matchesScope` exported, `PollableQueueItem` widened                                        |
+| B3   | ✅     | `6c2bf12f` | `RESTART_SURVIVING_STATUSES`, `listJobsByStatus`, `adoptSurvivingJobs()`, the `bootstrap.ts` call                                                              |
+| E1   | ✅     | `42c0afa4` | Tone `warn`, label `needs your decision`, `JobActionKey` gains `'import'`                                                                                      |
+| E2   | ✅     | `22959ced` | `listImportCandidates` / `importFiles` / `discardImport` server actions                                                                                        |
+| D0   | ✅     | `be95eaa6` | **Unplanned.** `AUDIT_ACTIONS_LOCAL` + the `Record<AuditAction, ...>` tables                                                                                   |
+| B2   | ✅     | `495d03eb` | `applyUpdate` carries and clears the reason; poller's private `matchesScope` deleted; `MEDIA_TRANSITIONS`                                                      |
+| E3   | ✅     | `af14a9a5` | `ImportDialog` + 13 exported copy constants                                                                                                                    |
+| D1   | ✅     | `77ac2729` | `ManualImportService`, `jobScopeCovers`, the mapper                                                                                                            |
+| E4   | ✅     | `3cf9eca`  | `imports` threaded to the movie, series and season panels; `ACTION_SPECS` import row                                                                           |
+| D2   | ✅     | `5bd08375` | The three routes, their DTOs and audit rows                                                                                                                    |
+| E5   | ✅     | `0ddc7d2`  | The episode-row control                                                                                                                                        |
+| F1   | ✅     | —          | Full-repo verification, no commit                                                                                                                              |
+| F2   | ✅     | see below  | `backend.md` section + this report                                                                                                                             |
+
+### 2. Test results
+
+| Package                | Result                                         |
+| ---------------------- | ---------------------------------------------- |
+| `@lilnas/utils`        | 421 passed, 8 suites                           |
+| `@lilnas/download`     | 3926 passed, 9 skipped, 0 failed, 180 suites   |
+| Repo-wide `type-check` | 12/12 packages clean                           |
+| Repo-wide `lint`       | 15/15 clean (eslint + prettier)                |
+| `@lilnas/equations`    | 7 failed — **pre-existing, unrelated**, see F1 |
+
+### 3. Deviations
+
+1. **D0 did not exist in the plan.** A2's two new `AUDIT_ACTIONS` members broke
+   `AUDIT_ACTIONS_LOCAL` (`src/db/schema.ts`) behind its `auditActionPin` assertion and
+   two `Record<AuditAction, ...>` tables in `src/lib/admin-audit.ts`. That did not merely
+   fail type-check - it stopped **every ts-jest suite importing `src/db/schema.ts`** from
+   compiling, blocking B2 and D1 from running tests at all. The Shared Context Pack
+   listed only the `Record<DownloadJobStatus, ...>` tables. Split out as its own task and
+   landed ahead of D2, which then only records the rows.
+2. **B3 had to touch `src/db/schema.ts`**, outside its file list, for the same class of
+   reason: `DOWNLOAD_JOB_STATUSES` is pinned to the enum by `statusPin`, and nothing in
+   `src/db/` could compile until the drizzle tuple caught up with A1.
+3. **D2's commit touches ten sibling controller specs.** Injecting `ManualImportService`
+   into `DownloadController` broke every testing module that builds it (10 suites / 155
+   tests, "Nest can't resolve dependencies"). Unavoidable; 2-3 lines each.
+4. **The import trigger is `outline`, not `uv`.** The design mockup landed after the plan
+   was written and is the source of truth for the control's look; `uv` is the dialog
+   footer's confirm button.
+5. **The dialog generalises the mockup's single-file case.** Square checkboxes rather
+   than the mockup's round dot (a round dot in a multi-select list promises a radio
+   group), and rejections collected across the list into one de-duplicated alert note
+   rather than one per row. The mockup's description sentence was de-branded from
+   "Radarr just couldn't match the file" because Sonarr reaches the same dialog.
+6. **`ManualImportService.importFiles` takes its scope from the body**, not as a separate
+   argument as the plan's sketch implied. The other two take `ShowScope | undefined`.
+7. **The mapper exports `toMovieCandidate` / `toShowCandidate` / `UNPARSED_EPISODES_REASON`**
+   rather than a single entry point.
+8. **A discard whose removals all fail throws `ServiceUnavailableException`**, not a bare
+   error, so the route surfaces a 503 rather than a 500.
+9. **The scope is forwarded as `{ episodeId, seasonNumber }`**, not by spreading
+   `ShowScope` - it also carries a display-only `episodeNumber`, and primitive deps keep
+   the dialog's fetch effect stable.
+10. **`ImportDialog` gained a `title` prop** the plan did not list. `JobLifecycle` passes
+    `job.media.title`; the episode row passes `` `${media.title} ${episodeCode(...)}` ``
+    so a row that names one episode does not read as though the whole show were stuck.
+11. **An empty candidate list removes Import entirely** rather than disabling it, keeping
+    Discard as the way out.
+12. **C1/C2 shipped a wrong doc comment**, corrected in `98e0a89`. Both described
+    `removeQueueItem` as the cleanup step after a manual import; it is the discard path
+    and has exactly one caller. F2's verification pass caught it - an import never
+    removes the queue row, because upstream drops it itself.
+13. **Two sessions restarted mid-execution.** Seven sub-agents were interrupted before
+    committing; all were resumed from their transcripts, four with work already on disk
+    and three with none. No work was lost and no task was re-done from scratch.
+
+### 4. Deferred
+
+All four **human checkpoints** remain outstanding - the executor was instructed not to
+perform them, and no mutating request was ever sent to Radarr, Sonarr or
+`lilnas-download-dev`:
+
+1. ⏳ **Read-only candidate list against live Radarr.**
+   `curl http://localhost:8090/api/download/media/<key>/imports`, through Next's rewrite -
+   8090 maps to the container's 8080, and the Nest side on 8081 publishes no host port.
+   ⚠️ `lilnas-download-dev` started at 18:15, before the routes landed at 19:45, and
+   `nest start -w` did not pick them up, so it needs a `docker restart` first. The
+   container was deliberately **not** restarted during execution, since it is shared.
+2. ⏳ **The real import, on production.** The only place the `ManualImport` command is
+   ever exercised end to end. This is the accepted gap: that Radarr accepts
+   `importMode: 'auto'` for a file carrying a `permanent` rejection is confirmed from
+   Radarr's source, not from a live run.
+3. ⏳ **Discard** - no throwaway live item exists to sacrifice.
+4. ⏳ **A restart with a stuck job present.**
+
+⚠️ **The live fixture no longer exists.** _Game Night_ (`tmdb:445571`) was imported out of
+band during execution - Radarr's queue is now empty and the movie has a file. Checkpoints
+1, 2 and 4 all need a **fresh** stuck download to exercise. Every unit test still pins the
+fixture's exact shapes, which were captured read-only before it disappeared.
+
+Nothing was marked ⚠️ PARTIAL or ⏭️ DROPPED.
+
+### 5. Open questions
+
+- **Nothing Radarr or Sonarr answered differently from the fixture** - every shape in
+  this doc was checked read-only before execution and nothing contradicted it during.
+  The live `ManualImport` **response** is still unobserved (checkpoint 2).
+- **`@lilnas/equations` has 7 pre-existing test failures** and a broken jest
+  `moduleNameMapper` pointing at a directory that has never existed. Out of scope here;
+  worth its own small fix, and it currently makes a root `pnpm test` exit non-zero for
+  everyone.
+- **`aggregateQueueItems` does not carry `downloadId`/`id` through a multi-item fold** -
+  a synthetic season aggregate has no single row id. Single-item lists pass through by
+  identity, so the importer is unaffected today, but anything later that wants a queue
+  row id off an aggregate will need to revisit it.
