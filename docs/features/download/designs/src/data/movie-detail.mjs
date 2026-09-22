@@ -53,6 +53,7 @@ export default {
   JUMP: [
     ['Primary', 'primary'],
     ['States & flows', 'states'],
+    ['Not downloaded', 'not-downloaded'],
     ['Loading', 'loading'],
   ],
   SKELETON_RELEASES: [

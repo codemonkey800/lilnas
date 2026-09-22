@@ -4,10 +4,10 @@ block title
   | Movie detail — download UI mockups · lilnas
 
 //-
-  The movie a card leads to. The screen is drawn four times per viewport —
-  primary, the two modals, and the loading state — so everything that repeats
-  between them (the header block, the release list) is a mixin here rather
-  than four hand-kept copies.
+  The movie a card leads to. The screen is drawn several times per viewport —
+  primary, not-downloaded, the three modals, and the loading state — so
+  everything that repeats between them (the header block, the release list)
+  is a mixin here rather than hand-kept copies.
 
 //- Back-to-library breadcrumb inside the app body.
 mixin libraryLink
@@ -19,9 +19,17 @@ mixin libraryLink
   Poster + title + metadata + actions.
     synopsis / attribution / cast — each omitted in the cropped modal frames,
     which only need enough of the page for the scrim to sit over something.
+    downloaded — false renders the not-yet-downloaded actions (a single,
+    outline-weight Download that triggers Radarr's own best-release search)
+    instead of Watch/Delete. Default true: every existing call site is a
+    downloaded movie, so this stays opt-in rather than needing a flag
+    everywhere. Outline, not the primary `uv` variant, on purpose — the
+    release picker below is still the better path (the user picks), and this
+    is a shortcut next to it, not competing advice.
 mixin movieHeader(view, opts)
   - opts = opts || {}
   - const mobile = view === 'mobile'
+  - const downloaded = opts.downloaded !== false
   if mobile
     +poster({ shape: 'tall', v: 1, src: 'assets/emby/movie-1.jpg', label: TITLE })(
       class='mx-auto mb-4 w-full max-w-[220px]'
@@ -39,8 +47,11 @@ mixin movieHeader(view, opts)
         +avatar('JA', { href: 'profile.html' })(class='h-5 w-5 text-[9px]')
         span(class='font-mono text-mono-sm text-ink-4') Jeremy · 12m ago
     div(class='mb-7 flex flex-col gap-2')
-      +btn({ label: 'Watch', variant: 'uv', iconEnd: 'eye', full: true })
-      +btn({ label: 'Delete', variant: 'bad', iconEnd: 'trash', full: true })
+      if downloaded
+        +btn({ label: 'Watch', variant: 'uv', iconEnd: 'eye', full: true })
+        +btn({ label: 'Delete', variant: 'bad', iconEnd: 'trash', full: true })
+      else
+        +btn({ label: 'Download', variant: 'outline', iconEnd: 'download', full: true })
   else
     div(class='mb-7 flex items-start gap-6')
       +poster({ shape: 'tall', v: 1, src: 'assets/emby/movie-1.jpg', label: TITLE })(class='w-[200px]')
@@ -59,8 +70,11 @@ mixin movieHeader(view, opts)
             +avatar('JA', { href: 'profile.html' })(class='h-5 w-5 text-[9px]')
             span(class='font-mono text-mono-sm text-ink-4') Jeremy · 12m ago
         div(class='mt-1 flex items-center gap-2.5')
-          +btn({ label: 'Watch', variant: 'uv', iconEnd: 'eye' })
-          +btn({ label: 'Delete', variant: 'bad', iconEnd: 'trash' })
+          if downloaded
+            +btn({ label: 'Watch', variant: 'uv', iconEnd: 'eye' })
+            +btn({ label: 'Delete', variant: 'bad', iconEnd: 'trash' })
+          else
+            +btn({ label: 'Download', variant: 'outline', iconEnd: 'download' })
 
 //-
   What Radarr found, rather than just what it auto-picked. `flagged` adds the
@@ -203,6 +217,27 @@ mixin modalFrame(view, label)
         +movieHeader(view, { cast: true })
         +releaseList(view, {})
     block
+
+//-
+  The page before anything's been grabbed: no Watch, no Delete, just the
+  header's Download shortcut sitting above the same release picker the
+  downloaded frame has — the picker doesn't go away just because the
+  shortcut exists.
+mixin notDownloadedFrame(view)
+  - const suffix = view === 'mobile' ? 'm' : 'd'
+  +frameLabel()(class='mt-1' id='not-downloaded-' + suffix)
+    | Not downloaded yet
+  +appFrame(view)
+    +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
+    +appBody(view)
+      if view === 'mobile'
+        +movieHeader(view, { downloaded: false })
+        +releaseList(view, {})
+      else
+        div(class='mx-auto max-w-[1080px]')
+          +libraryLink
+          +movieHeader(view, { downloaded: false })
+          +releaseList(view, {})
 
 //- Everything below the fold on the primary frame: state legend, cast
     overflow, and the two flows as storyboards.
@@ -478,6 +513,8 @@ block content
 
         div(class=view === 'desktop' ? 'mx-auto max-w-[1080px]' : 'w-full max-w-[390px]')
           +appendix(view)
+
+        +notDownloadedFrame(view)
 
         +modalFrame(view, 'Report a problem — as a modal')
           +reportModal(view)
