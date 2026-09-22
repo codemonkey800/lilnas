@@ -241,10 +241,20 @@ describe('statusTone', () => {
     expect(statusTone(DownloadJobStatus.Cleaning)).toBe('uv')
   })
 
-  it('warns on the statuses a user intervened on', () => {
+  it('warns on the statuses a person has to act on', () => {
     expect(statusTone(DownloadJobStatus.Pausing)).toBe('warn')
     expect(statusTone(DownloadJobStatus.Paused)).toBe('warn')
     expect(statusTone(DownloadJobStatus.Cancelling)).toBe('warn')
+  })
+
+  it('⚠️ gives a stuck import the resting tone, not the working one', () => {
+    // The whole point of the status: upstream grabbed the file and then
+    // refused to import it, so the job is stopped until somebody decides.
+    // `uv` would put it in the same visual bucket as a 30-second import.
+    expect(statusTone(DownloadJobStatus.NeedsAttention)).toBe('warn')
+    expect(statusTone(DownloadJobStatus.NeedsAttention)).toBe(
+      statusTone(DownloadJobStatus.Paused),
+    )
   })
 
   it('mutes a job that has not started yet', () => {

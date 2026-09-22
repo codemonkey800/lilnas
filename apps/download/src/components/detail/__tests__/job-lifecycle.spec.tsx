@@ -103,6 +103,7 @@ const TONE_MARKERS: Record<DownloadJobStatus, string> = {
   [DownloadJobStatus.Downloading]: 'text-uv-hi',
   [DownloadJobStatus.Failed]: 'text-bad',
   [DownloadJobStatus.Importing]: 'text-uv-hi',
+  [DownloadJobStatus.NeedsAttention]: 'text-warn',
   [DownloadJobStatus.Paused]: 'text-warn',
   [DownloadJobStatus.Pausing]: 'text-warn',
   [DownloadJobStatus.Pending]: 'text-ink-3',
@@ -120,6 +121,9 @@ const EXPECTED_ACTIONS: Record<DownloadJobStatus, string[]> = {
   [DownloadJobStatus.Downloading]: ['Pause', 'Cancel'],
   [DownloadJobStatus.Failed]: ['Retry'],
   [DownloadJobStatus.Importing]: ['Cancel'],
+  // The Import control lands in a later task; until then the only way out of
+  // a stuck import from this panel is to cancel it.
+  [DownloadJobStatus.NeedsAttention]: ['Cancel'],
   [DownloadJobStatus.Paused]: ['Resume', 'Cancel'],
   [DownloadJobStatus.Pausing]: ['Pause', 'Cancel'],
   [DownloadJobStatus.Pending]: ['Cancel'],
@@ -174,6 +178,16 @@ describe('JobLifecycle', () => {
       const { container } = renderPanel(DownloadJobStatus.Paused)
 
       expect(container.querySelector('.dot-live')).not.toBeInTheDocument()
+    })
+
+    it('⚠️ leaves a stuck import undotted, because nothing is happening to it', () => {
+      // The bug this status exists to fix: folded into `importing`, a job
+      // nobody will ever import breathed away like a 30-second one. The dot
+      // is derived from the tone, so `warn` is what stops it.
+      const { container } = renderPanel(DownloadJobStatus.NeedsAttention)
+
+      expect(container.querySelector('.dot-live')).not.toBeInTheDocument()
+      expect(screen.getByText('needs your decision')).toBeInTheDocument()
     })
   })
 

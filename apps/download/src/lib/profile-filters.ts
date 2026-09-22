@@ -84,13 +84,14 @@ const STATUS_RANK: Record<DownloadJobStatus, number> = {
   [DownloadJobStatus.Converting]: 4,
   [DownloadJobStatus.Uploading]: 5,
   [DownloadJobStatus.Importing]: 6,
-  [DownloadJobStatus.Cleaning]: 7,
-  [DownloadJobStatus.Pausing]: 8,
-  [DownloadJobStatus.Paused]: 9,
-  [DownloadJobStatus.Cancelling]: 10,
-  [DownloadJobStatus.Completed]: 11,
-  [DownloadJobStatus.Failed]: 12,
-  [DownloadJobStatus.Cancelled]: 13,
+  [DownloadJobStatus.NeedsAttention]: 7,
+  [DownloadJobStatus.Cleaning]: 8,
+  [DownloadJobStatus.Pausing]: 9,
+  [DownloadJobStatus.Paused]: 10,
+  [DownloadJobStatus.Cancelling]: 11,
+  [DownloadJobStatus.Completed]: 12,
+  [DownloadJobStatus.Failed]: 13,
+  [DownloadJobStatus.Cancelled]: 14,
 }
 
 /** Every status, in lifecycle order — see {@link STATUS_RANK}. */

@@ -15,7 +15,7 @@ import { isInProgress } from 'src/lib/format'
  */
 
 /**
- * The six things a detail page can offer to do to a job. `watch` and `save`
+ * The seven things a detail page can offer to do to a job. `watch` and `save`
  * are navigations rather than mutations - see `JobLifecycleLink` - but they
  * are part of the same state table, because "which of these does this status
  * offer" is one question and answering it in two places is how the three
@@ -23,6 +23,7 @@ import { isInProgress } from 'src/lib/format'
  */
 export type JobActionKey =
   | 'cancel'
+  | 'import'
   | 'pause'
   | 'resume'
   | 'retry'
@@ -46,7 +47,7 @@ export type JobActionAvailability = 'acknowledged' | 'none' | 'offered'
  * complement of `TERMINAL_DOWNLOAD_JOB_STATUSES` - so a status added to the
  * enum lands on the correct side of both without an edit here.
  *
- * The four statuses named explicitly are named because they are genuinely
+ * The five statuses named explicitly are named because they are genuinely
  * specific, not because the set was enumerated:
  *
  * - `Downloading` is the *only* status a pause is legal in; the API answers
@@ -55,6 +56,9 @@ export type JobActionAvailability = 'acknowledged' | 'none' | 'offered'
  * - `Pausing` and `Cancelling` are acknowledgements of a request already in
  *   flight.
  * - `Completed` is the only status with a file to watch or save.
+ * - `NeedsAttention` is the only status with a decision outstanding, so it is
+ *   the only one an import can resolve - anywhere else there is either
+ *   nothing on disk to import or nobody waiting on a choice.
  */
 export function jobActionState(
   status: DownloadJobStatus,
@@ -69,6 +73,9 @@ export function jobActionState(
       return status === DownloadJobStatus.Cancelling
         ? 'acknowledged'
         : 'offered'
+
+    case 'import':
+      return status === DownloadJobStatus.NeedsAttention ? 'offered' : 'none'
 
     case 'pause':
       if (status === DownloadJobStatus.Pausing) {
@@ -103,7 +110,9 @@ export function jobActionState(
  * acknowledgement states carry an ellipsis because they describe a request in
  * flight rather than a resting state, and `pending` reads `queued` because
  * that is what the mockups call the wait for a slot and what it means to
- * somebody who did not write the queue.
+ * somebody who did not write the queue. `needs_attention` reads `needs your
+ * decision` for the same reason: the wire word names the condition, the chip
+ * has to name what the reader is supposed to do about it.
  */
 const JOB_STATUS_LABELS: Record<DownloadJobStatus, string> = {
   [DownloadJobStatus.Cancelled]: 'cancelled',
@@ -114,6 +123,7 @@ const JOB_STATUS_LABELS: Record<DownloadJobStatus, string> = {
   [DownloadJobStatus.Downloading]: 'downloading',
   [DownloadJobStatus.Failed]: 'failed',
   [DownloadJobStatus.Importing]: 'importing',
+  [DownloadJobStatus.NeedsAttention]: 'needs your decision',
   [DownloadJobStatus.Paused]: 'paused',
   [DownloadJobStatus.Pausing]: 'pausing…',
   [DownloadJobStatus.Pending]: 'queued',

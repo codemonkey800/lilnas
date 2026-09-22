@@ -30,6 +30,29 @@ function subsets<T>(values: readonly T[]): T[][] {
   )
 }
 
+describe('PROFILE_STATUS_ORDER', () => {
+  it('lists every status exactly once', () => {
+    expect([...PROFILE_STATUS_ORDER].sort()).toEqual(
+      Object.values(DownloadJobStatus).sort(),
+    )
+  })
+
+  it('sits a stuck import where the import it stalled would have been', () => {
+    // Lifecycle order, not alphabetical: the chip row reads as the shape of a
+    // job's life, and a decision upstream is waiting on happens at the import
+    // step rather than beside `cancelled`.
+    const at = (status: DownloadJobStatus) =>
+      PROFILE_STATUS_ORDER.indexOf(status)
+
+    expect(at(DownloadJobStatus.NeedsAttention)).toBe(
+      at(DownloadJobStatus.Importing) + 1,
+    )
+    expect(at(DownloadJobStatus.NeedsAttention)).toBeLessThan(
+      at(DownloadJobStatus.Cleaning),
+    )
+  })
+})
+
 describe('parseProfileFilters', () => {
   it('reads nothing out of a bare path', () => {
     expect(parseProfileFilters({})).toEqual(EMPTY_PROFILE_FILTERS)
@@ -114,13 +137,13 @@ describe('profileFiltersToSearch', () => {
   })
 
   // The exhaustive round-trip proof. Every reachable filter state is
-  // 3 types x 14 statuses x (no user | a user), and `parse(serialize(f))` has
+  // 3 types x 15 statuses x (no user | a user), and `parse(serialize(f))` has
   // to be `f` for all of them — that property is the only thing that makes the
   // URL safe to treat as the state rather than as a copy of it.
   it('round-trips every reachable state through the URL', () => {
     // `user` is a third, independent dimension: it is written first, read by
     // its own reader, and cannot collide with either facet's parameter. Two
-    // values cover it, which keeps this at ~130k states rather than ~260k.
+    // values cover it, which keeps this at ~260k states rather than ~520k.
     const users = [null, 'sam@lilnas.io']
     // Collected rather than asserted per iteration: one `toEqual` per state
     // turns a four-second test into half a minute. A failure still names the

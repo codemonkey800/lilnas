@@ -210,7 +210,15 @@ export type StatusTone = 'bad' | 'mute' | 'ok' | 'uv' | 'warn'
  *
  * The grouping: `mute` for a job that is inert (queued and not yet started,
  * or cancelled), `uv` for one the machine is actively working, `warn` for
- * one a user has intervened on, `ok` for done, `bad` for broken.
+ * one a person has to act on, `ok` for done, `bad` for broken.
+ *
+ * `warn` covers both halves of "a person has to act": an intervention a user
+ * already made (`pausing`/`paused`/`cancelling`) and a decision upstream is
+ * waiting on (`needs_attention`, where Radarr/Sonarr grabbed the file but
+ * will not import it until somebody picks it by hand). Both are *stopped*
+ * rather than busy, which is precisely why the second one cannot be `uv` -
+ * an accent and a breathing dot would read as "the machine is working on it"
+ * for a job that will sit there forever.
  */
 const STATUS_TONES: Record<DownloadJobStatus, StatusTone> = {
   [DownloadJobStatus.Cancelled]: 'mute',
@@ -221,6 +229,7 @@ const STATUS_TONES: Record<DownloadJobStatus, StatusTone> = {
   [DownloadJobStatus.Downloading]: 'uv',
   [DownloadJobStatus.Failed]: 'bad',
   [DownloadJobStatus.Importing]: 'uv',
+  [DownloadJobStatus.NeedsAttention]: 'warn',
   [DownloadJobStatus.Paused]: 'warn',
   [DownloadJobStatus.Pausing]: 'warn',
   [DownloadJobStatus.Pending]: 'mute',

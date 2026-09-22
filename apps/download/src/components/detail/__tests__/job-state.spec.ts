@@ -55,6 +55,7 @@ const EXPECTED: Record<
   [DownloadJobStatus.Converting]: { cancel: 'offered' },
   [DownloadJobStatus.Uploading]: { cancel: 'offered' },
   [DownloadJobStatus.Importing]: { cancel: 'offered' },
+  [DownloadJobStatus.NeedsAttention]: { cancel: 'offered', import: 'offered' },
   [DownloadJobStatus.Cleaning]: { cancel: 'offered' },
   [DownloadJobStatus.Cancelling]: { cancel: 'acknowledged' },
   [DownloadJobStatus.Completed]: { save: 'offered', watch: 'offered' },
@@ -64,6 +65,7 @@ const EXPECTED: Record<
 
 const ACTION_KEYS: JobActionKey[] = [
   'cancel',
+  'import',
   'pause',
   'resume',
   'retry',
@@ -110,6 +112,28 @@ describe('jobActionState', () => {
     }
   })
 
+  it('offers import on needs_attention only', () => {
+    // Import resolves a decision upstream is waiting on. Every other status
+    // either has nothing on disk yet or nobody waiting on a choice, so an
+    // Import control anywhere else would be a button with nothing to decide.
+    const offering = EVERY_STATUS.filter(
+      status => jobActionState(status, 'import') === 'offered',
+    )
+
+    expect(offering).toEqual([DownloadJobStatus.NeedsAttention])
+  })
+
+  it('keeps a stuck import cancellable and un-retryable, because it is not over', () => {
+    // Non-terminal: the job is still open work, so the way out is to cancel
+    // it rather than to ask again for something already sitting on disk.
+    expect(jobActionState(DownloadJobStatus.NeedsAttention, 'cancel')).toBe(
+      'offered',
+    )
+    expect(jobActionState(DownloadJobStatus.NeedsAttention, 'retry')).toBe(
+      'none',
+    )
+  })
+
   it('offers retry on every terminal status except success', () => {
     expect(jobActionState(DownloadJobStatus.Failed, 'retry')).toBe('offered')
     expect(jobActionState(DownloadJobStatus.Cancelled, 'retry')).toBe('offered')
@@ -131,6 +155,14 @@ describe('jobStatusLabel', () => {
   it('marks the two acknowledgement states as in flight', () => {
     expect(jobStatusLabel(DownloadJobStatus.Pausing)).toBe('pausing…')
     expect(jobStatusLabel(DownloadJobStatus.Cancelling)).toBe('cancelling…')
+  })
+
+  it('names what the reader has to do about a stuck import', () => {
+    // The mockup's words. `needs_attention` describes the condition; the chip
+    // has to say whose move it is.
+    expect(jobStatusLabel(DownloadJobStatus.NeedsAttention)).toBe(
+      'needs your decision',
+    )
   })
 })
 

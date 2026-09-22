@@ -495,6 +495,20 @@ describe('episodeState', () => {
     })
   })
 
+  it('⚠️ does not call a stuck import live, even though the job is in flight', () => {
+    // `live` is derived from the tone rather than from `isInProgress`: the
+    // job is still open work, but nothing is moving until somebody imports
+    // it by hand, so the row must not breathe.
+    expect(
+      episodeState(episode({ hasFile: false }), [
+        scopedJob(
+          { episodeId: 2430 },
+          { status: DownloadJobStatus.NeedsAttention },
+        ),
+      ]),
+    ).toEqual({ live: false, label: 'needs your decision', tone: 'warn' })
+  })
+
   it('reports a failed attempt rather than "not downloaded"', () => {
     expect(
       episodeState(episode({ hasFile: false }), [
