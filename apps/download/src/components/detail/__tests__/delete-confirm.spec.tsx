@@ -12,6 +12,7 @@ import {
   deleteConfirmCopy,
   deleteScopeQuery,
 } from 'src/components/detail/delete-confirm'
+import type { DeleteCascade } from 'src/components/detail/show-state'
 
 const MOVIE_ID = 'tmdb:438631'
 const SHOW_ID = 'tvdb:121361'
@@ -36,6 +37,40 @@ const EPISODE: MediaFilesScope = {
 
 /** The fifth scope, which deletes a job rather than a file. */
 const VIDEO: DeleteScope = { jobId: VIDEO_JOB_ID, kind: 'video' }
+
+/**
+ * The same two show scopes, with a cascade prediction on them.
+ *
+ * Built by a function rather than spread from the constants above: those are
+ * typed as the whole union, and spreading a union is not the same object the
+ * component would be handed.
+ */
+function seasonScope(cascadesTo?: DeleteCascade): MediaFilesScope {
+  return { cascadesTo, kind: 'season', seasonNumber: 2 }
+}
+
+function episodeScope(cascadesTo?: DeleteCascade): MediaFilesScope {
+  return {
+    cascadesTo,
+    episodeId: 4823,
+    episodeNumber: 5,
+    kind: 'episode',
+    seasonNumber: 2,
+  }
+}
+
+/**
+ * The two sentences as they read with no cascade, spelled out in full.
+ *
+ * ⚠️ Compared with `toBe`, not `toContain`. The cascade clause is inserted
+ * into these, and "byte-identical when there is nothing to warn about" is the
+ * guarantee that keeps a prediction from rewriting the base copy.
+ */
+const EPISODE_PLAIN =
+  "Removes the file for this one episode from the library. The rest of the season is left alone. This can't be undone."
+
+const SEASON_PLAIN =
+  "Removes the file for every episode in season 2 from the library. Other seasons are left alone. This can't be undone."
 
 const EVERY_SCOPE: readonly DeleteScope[] = [
   MOVIE,
@@ -130,6 +165,22 @@ describe('deleteScopeQuery', () => {
   it('never carries a key it was not given', () => {
     expect(Object.keys(deleteScopeQuery(SEASON))).toEqual(['seasonNumber'])
     expect(Object.keys(deleteScopeQuery(EPISODE))).toEqual(['episodeId'])
+  })
+
+  /**
+   * ⚠️ The prediction is copy, and copy only. A client that guessed `'series'`
+   * from a stale seasons payload must not be able to turn one episode's delete
+   * into a series removal - the backend decides the cascade from Sonarr's own
+   * episodes and queue, and it can only do that if this never travels.
+   */
+  it('⚠️ never puts cascadesTo on the wire', () => {
+    expect(deleteScopeQuery(seasonScope('series'))).toEqual({ seasonNumber: 2 })
+    expect(deleteScopeQuery(episodeScope('series'))).toEqual({
+      episodeId: 4823,
+    })
+    expect(Object.keys(deleteScopeQuery(episodeScope('season')))).toEqual([
+      'episodeId',
+    ])
   })
 
   /**
@@ -237,6 +288,90 @@ describe('deleteConfirmCopy — the dialog names its scope', () => {
         title: MOVIE_TITLE,
       }).description,
     ).toContain('and frees 2.1 GB')
+  })
+})
+
+describe('deleteConfirmCopy — the cascade warning', () => {
+  const SEASON_WARNING =
+    "It's the last downloaded episode of the season, so the season is unmonitored too."
+
+  const SERIES_WARNING_FROM_EPISODE =
+    "It's the last downloaded episode of the series, so the series is removed from Sonarr."
+
+  const SERIES_WARNING_FROM_SEASON =
+    "It's the last downloaded season of the series, so the series is removed from Sonarr."
+
+  it.each([['absent', undefined], ['none', 'none'] as const])(
+    'leaves the episode sentence untouched when the cascade is %s',
+    (_name, cascadesTo) => {
+      expect(
+        deleteConfirmCopy(episodeScope(cascadesTo), { title: SHOW_TITLE })
+          .description,
+      ).toBe(EPISODE_PLAIN)
+    },
+  )
+
+  it.each([['absent', undefined], ['none', 'none'] as const])(
+    'leaves the season sentence untouched when the cascade is %s',
+    (_name, cascadesTo) => {
+      expect(
+        deleteConfirmCopy(seasonScope(cascadesTo), { title: SHOW_TITLE })
+          .description,
+      ).toBe(SEASON_PLAIN)
+    },
+  )
+
+  it('warns an episode delete will unmonitor the season', () => {
+    expect(
+      deleteConfirmCopy(episodeScope('season'), { title: SHOW_TITLE })
+        .description,
+    ).toBe(
+      `Removes the file for this one episode from the library. The rest of the season is left alone. ${SEASON_WARNING} This can't be undone.`,
+    )
+  })
+
+  it('warns an episode delete will remove the series from Sonarr', () => {
+    expect(
+      deleteConfirmCopy(episodeScope('series'), { title: SHOW_TITLE })
+        .description,
+    ).toContain(SERIES_WARNING_FROM_EPISODE)
+  })
+
+  it('warns a season delete will remove the series from Sonarr, in its own words', () => {
+    const { description } = deleteConfirmCopy(seasonScope('series'), {
+      title: SHOW_TITLE,
+    })
+
+    expect(description).toContain(SERIES_WARNING_FROM_SEASON)
+    // The season scope never claims to be an episode.
+    expect(description).not.toContain(SERIES_WARNING_FROM_EPISODE)
+  })
+
+  it('⚠️ ignores a "season" cascade on a season scope, which is already taking it', () => {
+    expect(
+      deleteConfirmCopy(seasonScope('season'), { title: SHOW_TITLE })
+        .description,
+    ).toBe(SEASON_PLAIN)
+  })
+
+  it('⚠️ keeps "This can\'t be undone" last, so the warning never trails it', () => {
+    for (const cascade of ['season', 'series'] as const) {
+      expect(
+        deleteConfirmCopy(episodeScope(cascade), { title: SHOW_TITLE })
+          .description,
+      ).toMatch(/so the (season|series) is [^.]+\. This can't be undone\.$/)
+    }
+  })
+
+  it('still names the space it frees, before the warning', () => {
+    expect(
+      deleteConfirmCopy(seasonScope('series'), {
+        freesBytes: 2.1 * 1024 ** 3,
+        title: SHOW_TITLE,
+      }).description,
+    ).toContain(
+      `from the library and frees 2.1 GB. Other seasons are left alone. ${SERIES_WARNING_FROM_SEASON}`,
+    )
   })
 })
 

@@ -29,6 +29,7 @@ import {
   EPISODE_ACTIONS_LABEL,
   ShowEpisodeRow,
 } from 'src/components/detail/show-episode-row'
+import type { DeleteCascade } from 'src/components/detail/show-state'
 
 /** The guid `listSeasons` stamps onto an episode whose file it could trace. */
 const CURRENT_GUID = 'guid-s01e01'
@@ -62,6 +63,7 @@ const ALTERNATIVE: Release = {
 
 function renderRow(
   options: {
+    cascadesTo?: DeleteCascade
     episode?: Episode
     jobs?: DownloadJob[]
     open?: boolean
@@ -76,6 +78,7 @@ function renderRow(
 
   const result = render(
     <ShowEpisodeRow
+      cascadesTo={options.cascadesTo}
       episode={options.episode ?? episode()}
       jobs={options.jobs ?? []}
       media={show()}
@@ -245,6 +248,61 @@ describe('the actions drawer', () => {
         .getByRole('button', { name: 'Delete episode' })
         .getAttribute('class'),
     ).toContain('w-full')
+  })
+
+  /**
+   * ⚠️ A prop, not a derivation. `deleteCascade` needs every season and every
+   * job for the title; this row has one episode and its own jobs, so the
+   * season panel computes it and hands it over. These assert the value reaches
+   * the sentence the user reads.
+   */
+  describe('the cascade warning the season panel computed', () => {
+    async function openDelete(
+      user: ReturnType<typeof userEvent.setup>,
+    ): Promise<HTMLElement> {
+      await user.click(screen.getByRole('button', { name: 'Delete episode' }))
+
+      return screen.getByRole('dialog')
+    }
+
+    it('says the season is unmonitored too', async () => {
+      const { user } = renderRow({
+        cascadesTo: 'season',
+        episode: episode({ hasFile: true }),
+        open: true,
+      })
+
+      expect(await openDelete(user)).toHaveTextContent(
+        'the season is unmonitored too',
+      )
+    })
+
+    it('says the series is removed from Sonarr', async () => {
+      const { user } = renderRow({
+        cascadesTo: 'series',
+        episode: episode({ hasFile: true }),
+        open: true,
+      })
+
+      expect(await openDelete(user)).toHaveTextContent(
+        'the series is removed from Sonarr',
+      )
+    })
+
+    it.each([['omitted', undefined], ['none', 'none'] as const])(
+      'says nothing extra when it is %s',
+      async (_name, cascadesTo) => {
+        const { user } = renderRow({
+          cascadesTo,
+          episode: episode({ hasFile: true }),
+          open: true,
+        })
+
+        expect(await openDelete(user)).not.toHaveTextContent(
+          /Sonarr|unmonitored/,
+        )
+      },
+    )
   })
 
   it('reports the episode with the episode-flavoured prompt and reasons', async () => {

@@ -26,6 +26,7 @@ import type { ShowRequestAction } from 'src/components/detail/show-request-butto
 import { ShowRequestButton } from 'src/components/detail/show-request-button'
 import {
   defaultSeasonNumber,
+  deleteCascade,
   episodeProgressLabel,
   episodeScopedJobs,
   isScopeDownloading,
@@ -229,7 +230,16 @@ export function ShowSeasons({
               freesBytes={season.sizeOnDisk}
               full
               mediaId={media.id}
-              scope={{ kind: 'season', seasonNumber: season.seasonNumber }}
+              scope={{
+                // ⚠️ Predicted here, where every season and every job for the
+                // title is in hand, so the dialog can say "this removes the
+                // series from Sonarr" *before* the press rather than after.
+                cascadesTo: deleteCascade(seasons, jobs, {
+                  seasonNumber: season.seasonNumber,
+                }),
+                kind: 'season',
+                seasonNumber: season.seasonNumber,
+              }}
               size="sm"
               title={media.title}
               onDelete={onDelete}
@@ -263,6 +273,12 @@ export function ShowSeasons({
           season.episodes.map(episode => (
             <ShowEpisodeRow
               badFiles={badFiles}
+              // ⚠️ The row cannot work this out: it holds one episode and its
+              // own jobs, and the answer needs every season and every job.
+              cascadesTo={deleteCascade(seasons, jobs, {
+                episodeId: episode.id,
+                seasonNumber: episode.seasonNumber,
+              })}
               episode={episode}
               // ⚠️ Keyed on Sonarr's episode id, the same key every scoped
               // action uses - `episodeNumber` repeats across seasons.

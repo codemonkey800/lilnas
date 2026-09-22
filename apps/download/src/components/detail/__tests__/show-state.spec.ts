@@ -1,3 +1,4 @@
+import type { Season } from '@lilnas/utils/download/types'
 import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
 
 import {
@@ -9,6 +10,7 @@ import {
 } from 'src/components/detail/__tests__/fixtures/show'
 import {
   defaultSeasonNumber,
+  deleteCascade,
   episodeCode,
   episodeKey,
   episodeProgressLabel,
@@ -270,6 +272,206 @@ describe('isScopeDownloading', () => {
 
   it('is false for an empty scope', () => {
     expect(isScopeDownloading([])).toBe(false)
+  })
+})
+
+describe('deleteCascade', () => {
+  /**
+   * A season whose episodes are described by which of them are on disk.
+   *
+   * ⚠️ Ids are `seasonNumber * 100 + n` so they are unique across seasons and
+   * never equal to an episode *number* - the two are matched on different
+   * fields and a fixture that conflated them would prove nothing.
+   */
+  function withEpisodes(
+    seasonNumber: number,
+    files: readonly boolean[],
+    overrides: Partial<Season> = {},
+  ): Season {
+    return season({
+      episodeCount: files.length,
+      episodeFileCount: files.filter(Boolean).length,
+      episodes: files.map((hasFile, index) =>
+        episode({
+          episodeNumber: index + 1,
+          hasFile,
+          id: seasonNumber * 100 + index + 1,
+          seasonNumber,
+        }),
+      ),
+      seasonNumber,
+      ...overrides,
+    })
+  }
+
+  const downloading = { status: DownloadJobStatus.Downloading }
+  const finished = { status: DownloadJobStatus.Completed }
+
+  describe('deleting a season', () => {
+    it('stops at the season while another season still has files', () => {
+      expect(
+        deleteCascade([withEpisodes(1, [true]), withEpisodes(2, [true])], [], {
+          seasonNumber: 1,
+        }),
+      ).toBe('none')
+    })
+
+    it('⚠️ stops at the season while another season is only DOWNLOADING', () => {
+      // A queued grab is a file that is about to exist. Removing the series
+      // out from under it would cancel a download nobody asked to cancel.
+      expect(
+        deleteCascade(
+          [withEpisodes(1, [true]), withEpisodes(2, [false])],
+          [scopedJob({ seasonNumber: 2 }, downloading)],
+          { seasonNumber: 1 },
+        ),
+      ).toBe('none')
+    })
+
+    it('reaches the series when nothing else is left', () => {
+      expect(
+        deleteCascade([withEpisodes(1, [true]), withEpisodes(2, [false])], [], {
+          seasonNumber: 1,
+        }),
+      ).toBe('series')
+    })
+
+    it('is held back by a whole-series job, which could land anywhere', () => {
+      expect(
+        deleteCascade(
+          [withEpisodes(1, [true]), withEpisodes(2, [false])],
+          [scopedJob(undefined, downloading)],
+          { seasonNumber: 1 },
+        ),
+      ).toBe('none')
+    })
+
+    it('is not held back by another season’s FINISHED job', () => {
+      expect(
+        deleteCascade(
+          [withEpisodes(1, [true]), withEpisodes(2, [false])],
+          [scopedJob({ seasonNumber: 2 }, finished)],
+          { seasonNumber: 1 },
+        ),
+      ).toBe('series')
+    })
+  })
+
+  describe('deleting an episode', () => {
+    it('stops at the episode while a sibling still has a file', () => {
+      expect(
+        deleteCascade([withEpisodes(1, [true, true])], [], {
+          episodeId: 101,
+          seasonNumber: 1,
+        }),
+      ).toBe('none')
+    })
+
+    it('stops at the episode while a sibling is only DOWNLOADING', () => {
+      expect(
+        deleteCascade(
+          [withEpisodes(1, [true, false])],
+          [scopedJob({ episodeId: 102, seasonNumber: 1 }, downloading)],
+          { episodeId: 101, seasonNumber: 1 },
+        ),
+      ).toBe('none')
+    })
+
+    it('stops at the episode while a season-level job is still unpinned', () => {
+      expect(
+        deleteCascade(
+          [withEpisodes(1, [true, false])],
+          [scopedJob({ seasonNumber: 1 }, downloading)],
+          { episodeId: 101, seasonNumber: 1 },
+        ),
+      ).toBe('none')
+    })
+
+    it('⚠️ is not held back by the target’s OWN in-flight job', () => {
+      // The thing being deleted cannot be the reason its own season survives.
+      expect(
+        deleteCascade(
+          [withEpisodes(1, [true, false]), withEpisodes(2, [true])],
+          [scopedJob({ episodeId: 101, seasonNumber: 1 }, downloading)],
+          { episodeId: 101, seasonNumber: 1 },
+        ),
+      ).toBe('season')
+    })
+
+    it('unmonitors the season when it was the last file in it', () => {
+      expect(
+        deleteCascade(
+          [withEpisodes(1, [true, false]), withEpisodes(2, [true])],
+          [],
+          { episodeId: 101, seasonNumber: 1 },
+        ),
+      ).toBe('season')
+    })
+
+    it('reaches the series when it was the last file in the series', () => {
+      expect(
+        deleteCascade(
+          [withEpisodes(1, [true, false]), withEpisodes(2, [false])],
+          [],
+          { episodeId: 101, seasonNumber: 1 },
+        ),
+      ).toBe('series')
+    })
+
+    it('stops one short of the series while a whole-series job is in flight', () => {
+      expect(
+        deleteCascade(
+          [withEpisodes(1, [true, false]), withEpisodes(2, [false])],
+          [scopedJob(undefined, downloading)],
+          { episodeId: 101, seasonNumber: 1 },
+        ),
+      ).toBe('season')
+    })
+
+    it('cascades nowhere for an episode no listed season holds', () => {
+      // The same answer `planShowDelete` gives an episode it cannot place.
+      expect(
+        deleteCascade([withEpisodes(1, [true])], [], {
+          episodeId: 999,
+          seasonNumber: 1,
+        }),
+      ).toBe('none')
+      expect(
+        deleteCascade([withEpisodes(1, [true])], [], {
+          episodeId: 101,
+          seasonNumber: 7,
+        }),
+      ).toBe('none')
+    })
+  })
+
+  describe('⚠️ specials are a season on both sides of the rule', () => {
+    it('lets season 0’s files keep another season’s delete from cascading', () => {
+      // `0` is falsy. A rule written on truthiness would remove the series and
+      // take the specials with it.
+      expect(
+        deleteCascade([withEpisodes(0, [true]), withEpisodes(1, [true])], [], {
+          seasonNumber: 1,
+        }),
+      ).toBe('none')
+    })
+
+    it('cascades from season 0 itself like any other season', () => {
+      expect(
+        deleteCascade([withEpisodes(0, [true]), withEpisodes(1, [false])], [], {
+          seasonNumber: 0,
+        }),
+      ).toBe('series')
+    })
+
+    it('cascades from an episode of season 0', () => {
+      expect(
+        deleteCascade([withEpisodes(0, [true]), withEpisodes(1, [true])], [], {
+          episodeId: 1,
+          seasonNumber: 0,
+        }),
+      ).toBe('season')
+    })
   })
 })
 

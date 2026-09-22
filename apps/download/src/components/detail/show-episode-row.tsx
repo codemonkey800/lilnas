@@ -28,6 +28,7 @@ import { ReleasePicker } from 'src/components/detail/release-picker'
 import { SaveLocal } from 'src/components/detail/save-local'
 import type { ShowRequestAction } from 'src/components/detail/show-request-button'
 import { ShowRequestButton } from 'src/components/detail/show-request-button'
+import type { DeleteCascade } from 'src/components/detail/show-state'
 import {
   episodeCode,
   episodeScopedJobs,
@@ -82,6 +83,16 @@ const ROW_ACTION = cns(
 export type ShowEpisodeRowProps = {
   /** This title's flags, passed through to the picker. Joined on `releaseGuid`. */
   badFiles?: readonly BadFile[]
+  /**
+   * What deleting this episode takes beyond it - `'season'` unmonitors the
+   * season, `'series'` removes the series from Sonarr.
+   *
+   * ⚠️ A **prop**, not something this row derives. `deleteCascade` needs every
+   * season and every job for the title to answer; a row holds one episode and
+   * its own jobs. The season panel has both, so it computes it once per row
+   * rather than each row reaching for data it was never given.
+   */
+  cascadesTo?: DeleteCascade
   episode: Episode
   /**
    * Every job for this title. Filtered to this episode here rather than by the
@@ -139,6 +150,7 @@ export type ShowEpisodeRowProps = {
  */
 export function ShowEpisodeRow({
   badFiles,
+  cascadesTo,
   episode,
   jobs,
   media,
@@ -267,6 +279,7 @@ export function ShowEpisodeRow({
                 full
                 mediaId={media.id}
                 scope={{
+                  cascadesTo,
                   episodeId: episode.id,
                   episodeNumber: episode.episodeNumber,
                   kind: 'episode',

@@ -8,6 +8,7 @@ import { useRef, useState, useTransition } from 'react'
 import type { DeleteMediaFilesResult } from 'src/app/actions/media-files'
 import type { DeleteVideoJobResult } from 'src/app/actions/video-job'
 import { formatBytes } from 'src/components/detail/release-picker'
+import type { DeleteCascade } from 'src/components/detail/show-state'
 import { Button } from 'src/components/ui/button'
 import type { ButtonSize, ButtonVariant } from 'src/components/ui/button-recipe'
 import { buttonRecipeClassName } from 'src/components/ui/button-recipe'
@@ -40,6 +41,15 @@ import { DeleteButton, Modal } from 'src/components/ui/modal'
  */
 export type DeleteScope =
   | {
+      /**
+       * What this delete takes *beyond* the episode — see {@link deleteCascade}
+       * in `show-state.ts`, which is what computes it. Absent or `'none'` says
+       * the sentence the dialog has always said.
+       *
+       * ⚠️ Copy only. {@link deleteScopeQuery} never reads it, so a wrong
+       * prediction can widen a sentence but can never widen a request.
+       */
+      cascadesTo?: DeleteCascade
       /** Sonarr's episode primary key, *not* the episode number. */
       episodeId: number
       /** For the `S02E05` in the heading. Omitted falls back to "this episode". */
@@ -49,7 +59,16 @@ export type DeleteScope =
       seasonNumber?: number
     }
   | { kind: 'movie' }
-  | { kind: 'season'; seasonNumber: number }
+  | {
+      /**
+       * What this delete takes *beyond* the season. Only `'series'` is
+       * meaningful — a season delete unmonitors its own season by definition.
+       * Copy only, exactly as on the `episode` member.
+       */
+      cascadesTo?: DeleteCascade
+      kind: 'season'
+      seasonNumber: number
+    }
   | { kind: 'series' }
   | {
       /**
@@ -78,6 +97,11 @@ export type MediaFilesScope = Exclude<DeleteScope, { kind: 'video' }>
  * would be the *widest* request against a route that does not serve videos at
  * all. The one caller that could reach it with a video scope is `confirm()`
  * below, and this signature is what forces it to branch.
+ *
+ * ⚠️ `cascadesTo` is deliberately **not** read here. It is a sentence the
+ * dialog says, derived from what this client happens to know; the cascade the
+ * backend actually performs is decided there, from Sonarr's own episodes and
+ * queue. Putting it on the wire would let a stale client widen a delete.
  */
 export function deleteScopeQuery(
   scope: MediaFilesScope,
@@ -90,6 +114,36 @@ export function deleteScopeQuery(
     case 'movie':
     case 'series':
       return {}
+  }
+}
+
+/**
+ * The one extra sentence a cascading show delete adds, or `''`.
+ *
+ * ⚠️ It leads with its own space and lands **before** "This can't be undone.",
+ * so a scope with no cascade produces a description byte-identical to the one
+ * this dialog has always shown.
+ *
+ * A prediction, not a promise — see {@link deleteCascade}. It is worth saying
+ * anyway: "delete this episode" quietly removing the whole series from Sonarr
+ * is the single most surprising thing this dialog can do.
+ */
+function cascadeSentence(scope: DeleteScope): string {
+  if (scope.kind !== 'episode' && scope.kind !== 'season') {
+    return ''
+  }
+
+  switch (scope.cascadesTo) {
+    case 'season':
+      // Meaningless for a season scope, which is already taking the season.
+      return scope.kind === 'episode'
+        ? " It's the last downloaded episode of the season, so the season is unmonitored too."
+        : ''
+    case 'series':
+      return ` It's the last downloaded ${scope.kind === 'season' ? 'season' : 'episode'} of the series, so the series is removed from Sonarr.`
+    case 'none':
+    case undefined:
+      return ''
   }
 }
 
@@ -155,6 +209,13 @@ export type DeleteConfirmCopy = {
  * again" — a re-request re-adds the title rather than re-fetching one that is
  * still there.
  *
+ * ⚠️ A `season` or `episode` scope may add one more sentence before the final
+ * one — see {@link cascadeSentence}. `DELETE /download/media/:id/files` now
+ * cascades *upwards*: the last downloaded episode of a season unmonitors the
+ * season, and the last downloaded season removes the series from Sonarr. A
+ * dialog that promised "the rest of the season is left alone" and then took
+ * the series would be the worst kind of wrong this component can be.
+ *
  * ⚠️ The `video` sentence deliberately says neither "library" nor "Radarr".
  * A video was never in `/storage/media-library` and no arr ever knew about it:
  * `deleteVideoJob` removes the objects the download produced and clears the
@@ -172,16 +233,17 @@ export function deleteConfirmCopy(
   const { freesBytes, title } = options
   const frees =
     freesBytes === undefined ? '' : ` and frees ${formatBytes(freesBytes)}`
+  const cascade = cascadeSentence(scope)
 
   switch (scope.kind) {
     case 'episode':
       return {
-        description: `Removes the file for this one episode from the library${frees}. The rest of the season is left alone. This can't be undone.`,
+        description: `Removes the file for this one episode from the library${frees}. The rest of the season is left alone.${cascade} This can't be undone.`,
         title: `Delete ${episodeLabel(scope.seasonNumber, scope.episodeNumber)} of "${title}"?`,
       }
     case 'season':
       return {
-        description: `Removes the file for every episode in season ${scope.seasonNumber} from the library${frees}. Other seasons are left alone. This can't be undone.`,
+        description: `Removes the file for every episode in season ${scope.seasonNumber} from the library${frees}. Other seasons are left alone.${cascade} This can't be undone.`,
         title: `Delete season ${scope.seasonNumber} of "${title}"?`,
       }
     case 'series':

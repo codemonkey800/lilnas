@@ -426,3 +426,100 @@ describe('the delete control', () => {
     )
   })
 })
+
+/**
+ * ⚠️ `DELETE /download/media/:id/files` cascades *upwards* - the last
+ * downloaded episode of a season unmonitors it, and the last downloaded season
+ * removes the series from Sonarr. This panel is the only place on the page
+ * holding both every season and every job, so it is where the prediction is
+ * made; a row cannot work it out from the one episode it was handed.
+ *
+ * Asserted on the rendered dialog rather than on a prop, because the sentence
+ * reaching the user is the whole point of computing it.
+ */
+describe('⚠️ the dialog warns about the delete cascade before the press', () => {
+  /** Season 1 with BOTH episodes on disk, so neither is the last one. */
+  const S1_FULL = season({
+    ...S1,
+    episodeFileCount: 2,
+    episodes: [
+      episode({ episodeNumber: 1, hasFile: true, id: 2430, seasonNumber: 1 }),
+      episode({ episodeNumber: 2, hasFile: true, id: 2431, seasonNumber: 1 }),
+    ],
+  })
+
+  async function openEpisodeDelete(
+    user: ReturnType<typeof userEvent.setup>,
+  ): Promise<HTMLElement> {
+    await user.click(
+      screen.getAllByRole('button', { name: EPISODE_ACTIONS_LABEL })[0]!,
+    )
+    await user.click(screen.getByRole('button', { name: 'Delete episode' }))
+
+    return screen.getByRole('dialog')
+  }
+
+  it('says a season delete removes the series when no other season has files', async () => {
+    const { user } = renderSeasons({ seasons: [S1] })
+
+    await user.click(screen.getByRole('button', { name: 'Delete season' }))
+
+    expect(screen.getByRole('dialog')).toHaveTextContent(
+      'the series is removed from Sonarr',
+    )
+  })
+
+  it('says nothing extra while another season still has files', async () => {
+    // The default list keeps season 2 at six files.
+    const { user } = renderSeasons()
+
+    await user.click(screen.getByRole('button', { name: 'Delete season' }))
+
+    expect(screen.getByRole('dialog')).not.toHaveTextContent(
+      /Sonarr|unmonitored/,
+    )
+  })
+
+  it('⚠️ says nothing extra while another season is only DOWNLOADING', async () => {
+    const { user } = renderSeasons({
+      jobs: [
+        scopedJob(
+          { seasonNumber: 2 },
+          { status: DownloadJobStatus.Downloading },
+        ),
+      ],
+      seasons: [S1, season({ ...S2, episodeFileCount: 0 })],
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Delete season' }))
+
+    expect(screen.getByRole('dialog')).not.toHaveTextContent(
+      /Sonarr|unmonitored/,
+    )
+  })
+
+  it('hands each episode row its own cascade - here, the last file in the season', async () => {
+    // E1 is the only file in season 1; season 2's six files keep the series.
+    const { user } = renderSeasons()
+
+    expect(await openEpisodeDelete(user)).toHaveTextContent(
+      'the season is unmonitored too',
+    )
+  })
+
+  it('escalates the row’s warning to the series when the season is all there is', async () => {
+    const { user } = renderSeasons({ seasons: [S1] })
+
+    expect(await openEpisodeDelete(user)).toHaveTextContent(
+      'the series is removed from Sonarr',
+    )
+  })
+
+  it('leaves a row alone when a sibling episode still has a file', async () => {
+    const { user } = renderSeasons({ seasons: [S1_FULL] })
+
+    expect(await openEpisodeDelete(user)).not.toHaveTextContent(
+      /Sonarr|unmonitored/,
+    )
+  })
+})

@@ -240,6 +240,120 @@ export function isScopeDownloading(jobs: readonly DownloadJob[]): boolean {
   return job !== null && isInProgress(job.status)
 }
 
+/**
+ * How far up the series a delete reaches once it removes what was asked.
+ *
+ * The same three answers `ShowDeleteCascade` gives on the backend, and
+ * deliberately the same words: `'none'` takes only what was named, `'season'`
+ * also unmonitors the season, `'series'` removes the series from Sonarr.
+ */
+export type DeleteCascade = 'none' | 'season' | 'series'
+
+/** The delete a cascade is being predicted for - one episode, or one season. */
+export type DeleteCascadeScope =
+  | { episodeId: number; seasonNumber: number }
+  | { seasonNumber: number }
+
+/**
+ * Whether anything outside `seasonNumber` is still on disk or on its way - a
+ * file in another season, a download scoped to another season, or a
+ * whole-series download that could land anywhere.
+ *
+ * ⚠️ Specials are a season here, on both sides of the comparison. Season 0 is
+ * compared with `!==` against a number, never tested for truthiness, and it is
+ * never filtered out: a series whose only remaining file is a special is still
+ * a series Sonarr should keep.
+ */
+function seriesRemains(
+  seasons: readonly Season[],
+  jobs: readonly DownloadJob[],
+  seasonNumber: number,
+): boolean {
+  if (isScopeDownloading(seriesScopedJobs(jobs))) {
+    return true
+  }
+
+  return seasons.some(
+    other =>
+      other.seasonNumber !== seasonNumber &&
+      (other.episodeFileCount > 0 ||
+        isScopeDownloading(seasonScopedJobs(jobs, other))),
+  )
+}
+
+/**
+ * Whether anything in `season` other than `target` is still on disk or on its
+ * way.
+ *
+ * The job half is `seasonScopedJobs` minus `episodeScopedJobs` rather than a
+ * fresh read of `job.scope`: a job naming only this season has not been pinned
+ * to an episode yet and so keeps the season alive, while the target's own
+ * in-flight job obviously does not.
+ */
+function seasonRemains(
+  season: Season,
+  jobs: readonly DownloadJob[],
+  target: Episode,
+): boolean {
+  if (season.episodes.some(entry => entry.id !== target.id && entry.hasFile)) {
+    return true
+  }
+
+  const mine = new Set(episodeScopedJobs(jobs, target).map(entry => entry.id))
+
+  return isScopeDownloading(
+    seasonScopedJobs(jobs, season).filter(entry => !mine.has(entry.id)),
+  )
+}
+
+/**
+ * ⚠️ What a delete will take *beyond* what it was asked for, so the confirm
+ * dialog can say it before the user presses the button.
+ *
+ * Mirrors the backend planner (`media/delete-cascade.util.ts`): "remaining"
+ * means a file on disk **or** an in-flight download, because a download is a
+ * file that is about to exist and a delete must never cancel a sibling's grab
+ * by unmonitoring the season it is landing in. Deleting the last remaining
+ * episode of a season unmonitors the season; deleting the last remaining
+ * season removes the series from Sonarr.
+ *
+ * ⚠️ This is a **prediction**, and the backend's own queue read is the truth.
+ * It is deliberately the over-warning side of the disagreement: this sees only
+ * the jobs this app started, so a grab Sonarr made from its own RSS feed can
+ * leave the backend not cascading after the dialog said it would. A dialog
+ * that over-warns is recoverable; one that under-warns is a series the user
+ * did not know they were removing.
+ */
+export function deleteCascade(
+  seasons: readonly Season[],
+  jobs: readonly DownloadJob[],
+  scope: DeleteCascadeScope,
+): DeleteCascade {
+  const season = seasons.find(
+    entry => entry.seasonNumber === scope.seasonNumber,
+  )
+
+  if ('episodeId' in scope) {
+    const target = season?.episodes.find(entry => entry.id === scope.episodeId)
+
+    // An episode that cannot be placed in a listed season cannot cascade to
+    // one - the same answer `planShowDelete` gives an unplaceable episode.
+    if (season === undefined || target === undefined) {
+      return 'none'
+    }
+
+    if (seasonRemains(season, jobs, target)) {
+      return 'none'
+    }
+
+    return seriesRemains(seasons, jobs, season.seasonNumber)
+      ? 'season'
+      : 'series'
+  }
+
+  return seriesRemains(seasons, jobs, scope.seasonNumber) ? 'none' : 'series'
+}
+
 /** How an episode row's chip reads. */
 export type EpisodeState = {
   /** Draw the breathing `Dot` - true exactly when the machine is working. */
