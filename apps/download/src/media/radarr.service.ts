@@ -663,19 +663,20 @@ export class RadarrService {
   }
 
   /**
-   * Drops one row from Radarr's queue - the cleanup step after a manual
-   * import, since importing the files does not itself clear the stuck
-   * "waiting to import" entry.
+   * Drops one row from Radarr's queue - the *discard* path, where the user
+   * gives the download back instead of importing it. This is not the tail of
+   * an import: Radarr clears the row itself once a ManualImport command
+   * succeeds.
    *
    * The three flags are all deliberate:
-   * - `removeFromClient: true` also tells the download client to let go of
-   *   the finished download, so it does not sit there forever.
+   * - `removeFromClient: true` because giving the download back means the
+   *   download client should drop its copy too, not sit on it forever.
    * - `blocklist: false` because the release was never the problem - the
    *   folder name was. Blocklisting it would stop Radarr from picking the
    *   same (perfectly good) release the next time it searches.
-   * - `skipRedownload: true` because the files have just been imported by
-   *   hand; without it Radarr would immediately go searching for a
-   *   replacement nobody asked for.
+   * - `skipRedownload: true` because the user asked to be rid of this one;
+   *   without it Radarr would immediately go searching for a replacement
+   *   nobody asked for.
    */
   async removeQueueItem(queueId: number): Promise<void> {
     checkSdkError(

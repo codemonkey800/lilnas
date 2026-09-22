@@ -1185,14 +1185,17 @@ export class SonarrService {
   }
 
   /**
-   * Drops a single queue row once its files have been imported by hand - the
-   * "Downloaded - Waiting to Import" row Sonarr would otherwise keep showing
-   * forever.
+   * Drops a single queue row when the user *discards* a stuck download
+   * instead of importing it - handing the download back rather than keeping
+   * it. Not the tail of an import: Sonarr clears the row itself once a
+   * ManualImport command succeeds.
    *
-   * `blocklist: false` because the release itself was fine - the folder name
-   * was the problem - and blocklisting it would stop Sonarr picking the same
-   * release next time. `skipRedownload: true` keeps Sonarr from immediately
-   * searching again on the user's behalf, since the file is already imported.
+   * `removeFromClient: true` because giving the download back means the
+   * download client drops its copy too. `blocklist: false` because the
+   * release itself was fine - the folder name was the problem - and
+   * blocklisting it would stop Sonarr picking the same release next time.
+   * `skipRedownload: true` keeps Sonarr from immediately searching again on
+   * the user's behalf.
    */
   async removeQueueItem(queueId: number): Promise<void> {
     checkSdkError(
