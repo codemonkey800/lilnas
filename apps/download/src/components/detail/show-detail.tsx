@@ -20,7 +20,7 @@ import {
 } from 'src/components/detail/detail-header'
 import type { ImportDialogActions } from 'src/components/detail/import-dialog'
 import { JobHistory, JobLifecycle } from 'src/components/detail/job-lifecycle'
-import { latestJob } from 'src/components/detail/job-state'
+import { currentJob } from 'src/components/detail/job-state'
 import { LibraryLink } from 'src/components/detail/library-link'
 import type {
   ReleaseAction,
@@ -213,11 +213,16 @@ export function ShowDetail({
   seasons,
 }: ShowDetailProps): JSX.Element {
   const seriesJobs = seriesScopedJobs(jobs)
-  const latest = latestJob(seriesJobs)
   const progress = seriesProgress(seasons)
   const downloading = isScopeDownloading(seriesJobs)
   const hasFiles =
     progress.files > 0 || seasons.some(s => s.episodeFileCount > 0)
+  // ⚠️ Not `latestJob(seriesJobs)`. A series delete leaves a `Completed` job's
+  // row untouched for history - see `ShowService.deleteFiles` - so the newest
+  // job can still say `completed` for a series that was just removed from
+  // Sonarr. `currentJob` discounts exactly that contradiction back to "no
+  // job", matching `MovieDetail`.
+  const latest = currentJob(seriesJobs, hasFiles)
   const libraryLabel = seriesLibraryLabel(progress)
 
   return (
@@ -294,6 +299,7 @@ export function ShowDetail({
         <JobLifecycle
           className={cns('mb-7 sm:mb-8')}
           emptyNote={SERIES_EMPTY_NOTE}
+          hasFile={hasFiles}
           imports={imports}
           jobs={seriesJobs}
           // ⚠️ The library aggregate, never the job's `queueSnapshot`. A series
@@ -320,7 +326,12 @@ export function ShowDetail({
       )}
 
       {/* Renders `null` for a single attempt, so it costs no gap. */}
-      <JobHistory className={cns('mb-7 sm:mb-8')} jobs={seriesJobs} now={now} />
+      <JobHistory
+        className={cns('mb-7 sm:mb-8')}
+        hasFile={hasFiles}
+        jobs={seriesJobs}
+        now={now}
+      />
 
       <ShowSeasons
         badFiles={badFiles}

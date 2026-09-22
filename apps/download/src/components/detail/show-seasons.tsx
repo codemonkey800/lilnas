@@ -262,6 +262,13 @@ export function ShowSeasons({
         <JobLifecycle
           actionSize="sm"
           className={cns('mb-[14px]')}
+          // ⚠️ Not omitted. A season delete leaves a `Completed` job's row
+          // untouched for history - see `ShowService.deleteFiles` - so a
+          // re-deleted season's newest job can still say `completed` here.
+          // `hasFile` lets `JobLifecycle` discount that stale claim back to
+          // "no job", the same reconciliation `ShowDetail` makes at the
+          // series level.
+          hasFile={season.episodeFileCount > 0}
           imports={imports}
           jobs={scopedJobs}
           // ⚠️ The season's own aggregate, not the job's `queueSnapshot`. A

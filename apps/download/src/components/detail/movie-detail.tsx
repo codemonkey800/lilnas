@@ -19,7 +19,7 @@ import {
 } from 'src/components/detail/detail-header'
 import type { ImportDialogActions } from 'src/components/detail/import-dialog'
 import { JobHistory, JobLifecycle } from 'src/components/detail/job-lifecycle'
-import { latestJob } from 'src/components/detail/job-state'
+import { currentJob } from 'src/components/detail/job-state'
 import type {
   ReleaseAction,
   ReleaseSearchAction,
@@ -336,13 +336,20 @@ export function MovieDetail({
   onUnflag,
   ...props
 }: MovieDetailProps): JSX.Element {
-  const job = latestJob(jobs)
   const watch = movieWatchState(movie)
   const watchUrl = movie.embyStatus?.watchUrl
   // ⚠️ Not `movie.filePath !== undefined`, which is what this used to be and
   // what read false for every downloaded movie on the live page. See
   // `movieHasFile`.
   const hasFile = movieHasFile(movie)
+  // ⚠️ Not `latestJob(jobs)`. Delete leaves a `Completed` job's row untouched
+  // for history even after removing the movie's file - see
+  // `ShowService.deleteFiles` - so the newest job can say `completed` for a
+  // movie that was just deleted. `currentJob` discounts exactly that
+  // contradiction back to "no job", which is what makes the page fall through
+  // to `JobLifecycle`'s own not-downloaded state below instead of replaying a
+  // stale chip.
+  const job = currentJob(jobs, hasFile)
   const degraded = isMetadataUnavailable(movie)
 
   const actions: ReactNode[] = []
@@ -468,6 +475,7 @@ export function MovieDetail({
         {job || !hasFile ? (
           <JobLifecycle
             emptyNote={MOVIE_EMPTY_NOTE}
+            hasFile={hasFile}
             imports={imports}
             jobs={jobs}
           />
@@ -487,7 +495,12 @@ export function MovieDetail({
           </div>
         )}
       </div>
-      <JobHistory className={cns(SECTION)} jobs={jobs} now={now} />
+      <JobHistory
+        className={cns(SECTION)}
+        hasFile={hasFile}
+        jobs={jobs}
+        now={now}
+      />
       {/*
         Two layouts, one of them `display: none` at any given width — the same
         arrangement `ActivityFeed` makes, and for the same reason: `mobile` is a

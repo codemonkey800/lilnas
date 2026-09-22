@@ -12,11 +12,11 @@ import {
 } from 'src/components/detail/import-dialog'
 import type { JobActionKey } from 'src/components/detail/job-state'
 import {
+  currentJob,
   JOB_LIFECYCLE_EMPTY_LABEL,
   jobActionState,
   jobProgress,
   jobStatusLabel,
-  latestJob,
 } from 'src/components/detail/job-state'
 import { Button } from 'src/components/ui/button'
 import { ButtonLink } from 'src/components/ui/button-link'
@@ -142,13 +142,22 @@ export type JobLifecycleProps = Omit<
    */
   explain?: ReactNode
   /**
+   * Whether the title still has a file on disk, straight through to
+   * `currentJob`. Omitted trusts the newest job's status unconditionally -
+   * the right default for a video job, which has no file signal of its own to
+   * reconcile against. A movie/show page passes its own `hasFile`/`hasFiles`
+   * so a stale `Completed` job left behind by a delete renders as no job
+   * rather than a file that is no longer there.
+   */
+  hasFile?: boolean
+  /**
    * The three importer actions. Omitted renders no Import control, like a
    * missing `onCancel`.
    */
   imports?: ImportDialogActions
   /**
    * `MediaDetailResponse.jobs` verbatim - **every** job for the media key,
-   * newest first. The panel picks the newest itself (`latestJob`); the rest
+   * newest first. The panel picks its own job itself (`currentJob`); the rest
    * are history, which `JobHistory` renders from the same unsliced list.
    */
   jobs: readonly DownloadJob[]
@@ -194,6 +203,7 @@ export function JobLifecycle({
   emptyNote = 'Nothing downloaded yet.',
   explain,
   extraActions,
+  hasFile,
   imports,
   jobs,
   onCancel,
@@ -208,7 +218,7 @@ export function JobLifecycle({
   ...props
 }: JobLifecycleProps): JSX.Element {
   const [pending, startTransition] = useTransition()
-  const job = latestJob(jobs)
+  const job = currentJob(jobs, hasFile)
 
   // A movie sitting in the library that this app never fetched, or a title
   // somebody navigated to from search. Nothing has a status, so nothing in the
@@ -459,9 +469,20 @@ export type JobHistoryProps = Omit<
   'children'
 > & {
   /**
+   * Whether the title still has a file on disk - the same value passed to the
+   * sibling `JobLifecycle`, and for the same reason: they have to agree on
+   * which job (if any) the panel above consumed, or this list either repeats
+   * it or silently drops it. See `JobLifecycle`'s `hasFile`.
+   */
+  hasFile?: boolean
+  /**
    * The same unsliced `MediaDetailResponse.jobs` the panel gets. The newest is
    * the one `JobLifecycle` is rendering, so it is dropped here - this list is
    * the *prior* attempts.
+   *
+   * ⚠️ Unless `currentJob` discounted it as stale (a `Completed` job with no
+   * `hasFile` to back it) - in which case the panel rendered no job at all,
+   * and every entry here, including the newest, is "prior".
    */
   jobs: readonly DownloadJob[]
   /** The eyebrow over the list. */
@@ -484,12 +505,14 @@ export type JobHistoryProps = Omit<
  */
 export function JobHistory({
   className,
+  hasFile,
   jobs,
   label = 'Earlier attempts',
   now,
   ...props
 }: JobHistoryProps): JSX.Element | null {
-  const prior = jobs.slice(1)
+  const current = currentJob(jobs, hasFile)
+  const prior = current ? jobs.filter(job => job.id !== current.id) : jobs
 
   if (prior.length === 0) {
     return null

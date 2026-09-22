@@ -156,6 +156,33 @@ export function latestJob(jobs: readonly DownloadJob[]): DownloadJob | null {
   return jobs[0] ?? null
 }
 
+/**
+ * `latestJob`, discounted against whether the file it claims to have
+ * produced is actually still there.
+ *
+ * A delete removes the title from Radarr/Sonarr and the file on disk, but
+ * `ShowService.deleteFiles` deliberately leaves a terminal `DownloadJob` row
+ * untouched - it is kept as history, not as a live claim. So a `Completed`
+ * job whose title has no file any more is stale: `null` reads exactly like
+ * "no current job", which is the state a re-deleted title should present as.
+ * Any other status - including `Failed` and `Cancelled` - is trusted as-is,
+ * because those never claimed a file existed in the first place.
+ *
+ * `hasFile` is optional because not every caller has the concept: a video job
+ * has no library-backed file signal to reconcile against (see
+ * `VideoSchema`), so passing nothing here keeps `latestJob`'s original,
+ * unconditional behaviour.
+ */
+export function currentJob(
+  jobs: readonly DownloadJob[],
+  hasFile?: boolean,
+): DownloadJob | null {
+  const job = latestJob(jobs)
+  return job?.status === DownloadJobStatus.Completed && hasFile === false
+    ? null
+    : job
+}
+
 /** Everything a progress block draws, or `null` when there is nothing to draw. */
 export type JobProgress = {
   /**

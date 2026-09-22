@@ -480,6 +480,14 @@ describe('MovieDetail — attribution', () => {
     // Deliberately narrow: the synopsis fixture ends "ten years ago".
     expect(screen.queryByText(/· \d+\w+ ago/)).not.toBeInTheDocument()
   })
+
+  it('draws no attribution for a completed job whose movie was since deleted', () => {
+    // The header's own half of the same bug: crediting whoever downloaded a
+    // file that Delete already removed reads just as stale as the chip did.
+    renderDetail({ jobs: [JOB], movie: UNFETCHED })
+
+    expect(screen.queryByText(/jeremy\.asuncion/)).not.toBeInTheDocument()
+  })
 })
 
 describe('MovieDetail — the lifecycle panel', () => {
@@ -554,6 +562,45 @@ describe('MovieDetail — the lifecycle panel', () => {
 
     expect(screen.getByText('completed')).toBeInTheDocument()
     expect(screen.queryByText(MOVIE_LIBRARY_LABEL)).not.toBeInTheDocument()
+  })
+
+  it('⚠️ shows not-downloaded, not completed, once a completed movie is deleted', () => {
+    // The reported bug: Delete removes the movie from Radarr and the file
+    // with it, but `ShowService.deleteFiles` deliberately leaves a terminal
+    // job row alone as history - so without this reconciliation the panel
+    // kept reading `completed` off the stale row for a movie no longer on
+    // disk. The job itself is real history, and still shows up below as an
+    // "earlier attempt" - only the *current*-state panel has to stop
+    // claiming the file is there.
+    renderDetail({ jobs: [JOB], movie: UNFETCHED })
+
+    expect(screen.getByText(JOB_LIFECYCLE_EMPTY_LABEL)).toBeInTheDocument()
+    expect(screen.getByText(MOVIE_EMPTY_NOTE)).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: MOVIE_WATCH_LABEL }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: SAVE_LOCAL_LABEL }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('keeps a deleted movie’s completed run as an earlier attempt, not the current one', () => {
+    renderDetail({ jobs: [JOB], movie: UNFETCHED })
+
+    expect(screen.getByText('Earlier attempts')).toBeInTheDocument()
+    expect(screen.getByText('completed')).toBeInTheDocument()
+  })
+
+  it('keeps a failed or cancelled status after delete — neither ever claimed a file', () => {
+    renderDetail({
+      jobs: [{ ...JOB, completedAt: null, status: DownloadJobStatus.Failed }],
+      movie: UNFETCHED,
+    })
+
+    expect(screen.getByText('failed')).toBeInTheDocument()
+    expect(
+      screen.queryByText(JOB_LIFECYCLE_EMPTY_LABEL),
+    ).not.toBeInTheDocument()
   })
 
   it('offers no pause, resume, cancel or retry — those routes are video-only', () => {

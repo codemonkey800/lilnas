@@ -3,6 +3,7 @@ import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
 
 import type { JobActionKey } from 'src/components/detail/job-state'
 import {
+  currentJob,
   jobActionState,
   jobProgress,
   jobStatusLabel,
@@ -176,6 +177,44 @@ describe('latestJob', () => {
 
   it('answers null for a title this app never fetched', () => {
     expect(latestJob([])).toBeNull()
+  })
+})
+
+describe('currentJob', () => {
+  it('discounts a completed job whose file is gone, the same as no job at all', () => {
+    // A deleted title: Radarr/Sonarr no longer has the file, but the
+    // Completed row survives as history (`ShowService.deleteFiles` never
+    // rewrites a terminal job).
+    const stale = job({ status: DownloadJobStatus.Completed })
+
+    expect(currentJob([stale], false)).toBeNull()
+  })
+
+  it('trusts a completed job when the file is still there', () => {
+    const completed = job({ status: DownloadJobStatus.Completed })
+
+    expect(currentJob([completed], true)?.id).toBe(completed.id)
+  })
+
+  it('trusts a non-completed terminal job regardless of file state', () => {
+    // Failed/cancelled never claimed a file existed, so there is nothing to
+    // discount - a stuck-then-retried title should still show 'failed'.
+    const failed = job({ status: DownloadJobStatus.Failed })
+
+    expect(currentJob([failed], false)?.id).toBe(failed.id)
+  })
+
+  it('behaves exactly like latestJob when hasFile is omitted', () => {
+    // The video page has no file-existence signal at all - the default has
+    // to be the original, unconditional behaviour.
+    const completed = job({ status: DownloadJobStatus.Completed })
+
+    expect(currentJob([completed])?.id).toBe(completed.id)
+  })
+
+  it('answers null for an empty list either way', () => {
+    expect(currentJob([], false)).toBeNull()
+    expect(currentJob([], true)).toBeNull()
   })
 })
 
