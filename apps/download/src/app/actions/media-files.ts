@@ -4,10 +4,14 @@ import { DownloadApiError } from '@lilnas/utils/download/client'
 import type {
   BadFile,
   DeleteMediaFilesQuery,
+  DiscardImportQuery,
   DownloadJob,
   FlagBadFileInput,
   GrabReleaseInput,
+  ImportFilesInput,
+  ListImportCandidatesQuery,
   ListReleasesQuery,
+  ManualImportCandidate,
   Release,
   ReplaceReleaseInput,
 } from '@lilnas/utils/download/types'
@@ -47,6 +51,17 @@ export type DeleteMediaFilesResult =
 /** What {@link searchReleases} answers with. */
 export type ReleaseSearchResult = { error: string } | { releases: Release[] }
 
+/** What {@link listImportCandidates} answers with. */
+export type ImportCandidatesResult =
+  | { candidates: ManualImportCandidate[] }
+  | { error: string }
+
+/** What {@link importFiles} answers with. */
+export type ImportFilesResult = { error: string } | { importedCount: number }
+
+/** What {@link discardImport} answers with. */
+export type DiscardImportResult = { discardedCount: number } | { error: string }
+
 /**
  * The refusal the backend answers a grab of a flagged release with (409).
  *
@@ -63,6 +78,20 @@ const REPLACE_FAILED = 'Could not replace that file — try again'
 const FLAG_FAILED = 'Could not send that report — try again'
 const UNFLAG_FAILED = 'Could not undo that report — try again'
 const DELETE_FAILED = 'Could not delete those files — try again'
+const IMPORT_LIST_FAILED =
+  'Could not read what is waiting to import — try again'
+const IMPORT_FAILED = 'Could not start the import — try again'
+
+/**
+ * The 404 branch on import and discard: upstream no longer has the queue row.
+ *
+ * Not a failure of ours, and not "try again" — somebody else already imported
+ * or discarded it, or Radarr/Sonarr retried the import on its own and moved on.
+ * The only wrong thing left is the page the user is looking at, which is why
+ * this branch still revalidates.
+ */
+const IMPORT_NOTHING = 'Nothing is waiting to be imported any more'
+const DISCARD_FAILED = 'Could not discard that download — try again'
 
 /**
  * ⚠️ Re-thrown, never swallowed. Next signals a static-generation bailout,
@@ -368,4 +397,134 @@ export async function deleteMediaFiles(
   revalidateDetail(mediaId)
 
   return { deletedCount }
+}
+
+/**
+ * Lists what Radarr or Sonarr downloaded but refused to import (spec §7).
+ *
+ * The read behind the importer dialog: one entry per file upstream is holding
+ * in "Downloaded - Waiting to Import", each carrying the `rejections` that
+ * explain why it stalled and an `importable` flag saying whether committing it
+ * is even allowed.
+ *
+ * Deliberately **not** revalidating: it is a read, and the dialog calls it on
+ * open. A `revalidatePath` here would re-render the page underneath the dialog
+ * that just asked for the list.
+ *
+ * A 404 is not special-cased. Unlike the two mutations, a missing queue row
+ * here means the dialog simply has nothing to show, and the generic copy says
+ * so without claiming an import was lost.
+ */
+export async function listImportCandidates(
+  mediaId: string,
+  query: ListImportCandidatesQuery = {},
+): Promise<ImportCandidatesResult> {
+  const client = await getIdentifiedDownloadClient()
+
+  try {
+    const { candidates } = await client.listImportCandidates(mediaId, query)
+
+    return { candidates }
+  } catch (error) {
+    if (isFrameworkSignal(error)) {
+      throw error
+    }
+
+    console.error('[media-files] GET /download/media/:id/imports failed', error)
+
+    return { error: IMPORT_LIST_FAILED }
+  }
+}
+
+/**
+ * Commits the candidates the user ticked, keyed by `paths` alone.
+ *
+ * The path is the commit key because it is the one thing upstream's
+ * `ManualImport` command re-resolves against its own candidate list — nothing
+ * else the dialog rendered is sent back or trusted.
+ *
+ * ⚠️ The 404 branch **still revalidates**. It means the queue row is gone —
+ * another tab imported it, or the arr retried and succeeded on its own — so
+ * the page the user is looking at is stale by definition, and leaving it
+ * un-refreshed would keep showing a "needs attention" job that upstream
+ * already resolved.
+ */
+export async function importFiles(
+  mediaId: string,
+  input: ImportFilesInput,
+): Promise<ImportFilesResult> {
+  const client = await getIdentifiedDownloadClient()
+
+  let importedCount: number
+
+  try {
+    ;({ importedCount } = await client.importFiles(mediaId, input))
+  } catch (error) {
+    if (isFrameworkSignal(error)) {
+      throw error
+    }
+
+    console.error(
+      '[media-files] POST /download/media/:id/imports failed',
+      error,
+    )
+
+    if (error instanceof DownloadApiError && error.status === 404) {
+      revalidateDetail(mediaId)
+
+      return { error: IMPORT_NOTHING }
+    }
+
+    return { error: IMPORT_FAILED }
+  }
+
+  revalidateDetail(mediaId)
+
+  return { importedCount }
+}
+
+/**
+ * Throws the stuck download away — the other way out of `needs_attention`, and
+ * the destructive one.
+ *
+ * It removes every queue item in scope **and the client's files with them**, so
+ * the bytes that were sitting there waiting are gone; the job is cancelled
+ * rather than imported. Discarding nothing is a success, exactly as deleting
+ * zero files is.
+ *
+ * ⚠️ Same 404-still-revalidates rule as {@link importFiles}, for the same
+ * reason: the row being gone is precisely the case where the page is wrong.
+ */
+export async function discardImport(
+  mediaId: string,
+  query: DiscardImportQuery = {},
+): Promise<DiscardImportResult> {
+  const client = await getIdentifiedDownloadClient()
+
+  let discardedCount: number
+
+  try {
+    ;({ discardedCount } = await client.discardImport(mediaId, query))
+  } catch (error) {
+    if (isFrameworkSignal(error)) {
+      throw error
+    }
+
+    console.error(
+      '[media-files] DELETE /download/media/:id/imports failed',
+      error,
+    )
+
+    if (error instanceof DownloadApiError && error.status === 404) {
+      revalidateDetail(mediaId)
+
+      return { error: IMPORT_NOTHING }
+    }
+
+    return { error: DISCARD_FAILED }
+  }
+
+  revalidateDetail(mediaId)
+
+  return { discardedCount }
 }

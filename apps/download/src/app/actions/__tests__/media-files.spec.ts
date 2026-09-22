@@ -2,6 +2,7 @@ import { DownloadApiError } from '@lilnas/utils/download/client'
 import type {
   BadFile,
   DownloadJob,
+  ManualImportCandidate,
   Release,
 } from '@lilnas/utils/download/types'
 import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
@@ -9,8 +10,11 @@ import { revalidatePath } from 'next/cache'
 
 import {
   deleteMediaFiles,
+  discardImport,
   flagBadFile,
   grabRelease,
+  importFiles,
+  listImportCandidates,
   replaceRelease,
   searchReleases,
   unflagBadFile,
@@ -69,6 +73,15 @@ const RELEASE: Release = {
   title: 'Dune.2021.1080p.WEB-DL',
 }
 
+const CANDIDATE: ManualImportCandidate = {
+  importable: true,
+  name: 'Dune.2021.1080p.WEB-DL.mkv',
+  path: '/downloads/Dune.2021.1080p.WEB-DL/Dune.2021.1080p.WEB-DL.mkv',
+  quality: { name: 'WEBDL-1080p', resolution: 1080 },
+  rejections: [],
+  size: 8_589_934_592,
+}
+
 /**
  * Every client method the module can reach, all as spies, so a test can assert
  * on the ones it expects *and* on the ones it must not have touched. That
@@ -78,8 +91,11 @@ const RELEASE: Release = {
 function stubClient(overrides: Record<string, jest.Mock> = {}) {
   const client = {
     deleteMediaFiles: jest.fn(),
+    discardImport: jest.fn(),
     flagBadFile: jest.fn(),
     grabRelease: jest.fn(),
+    importFiles: jest.fn(),
+    listImportCandidates: jest.fn(),
     listReleases: jest.fn(),
     replaceRelease: jest.fn(),
     unflagBadFile: jest.fn(),
@@ -116,6 +132,17 @@ describe('identity', () => {
     ['unflagBadFile', () => unflagBadFile(MOVIE_ID, 7), 'unflagBadFile'],
     ['deleteMediaFiles', () => deleteMediaFiles(MOVIE_ID), 'deleteMediaFiles'],
     ['searchReleases', () => searchReleases(MOVIE_ID), 'listReleases'],
+    [
+      'listImportCandidates',
+      () => listImportCandidates(MOVIE_ID, {}),
+      'listImportCandidates',
+    ],
+    [
+      'importFiles',
+      () => importFiles(MOVIE_ID, { paths: ['/downloads/a.mkv'] }),
+      'importFiles',
+    ],
+    ['discardImport', () => discardImport(MOVIE_ID, {}), 'discardImport'],
   ])(
     // ⚠️ The single most important server-side rule in the app: a plain
     // `DownloadClient.localInstance` drops `X-Forwarded-User` and persists every
@@ -479,5 +506,237 @@ describe('searchReleases', () => {
     expect(await searchReleases(MOVIE_ID)).toEqual({
       error: 'No indexer answered — try again in a minute',
     })
+  })
+})
+
+describe('listImportCandidates', () => {
+  it('unwraps the candidate list', async () => {
+    const client = stubClient({
+      listImportCandidates: jest
+        .fn()
+        .mockResolvedValue({ candidates: [CANDIDATE] }),
+    })
+
+    expect(await listImportCandidates(MOVIE_ID, {})).toEqual({
+      candidates: [CANDIDATE],
+    })
+    expect(client.listImportCandidates).toHaveBeenCalledWith(MOVIE_ID, {})
+  })
+
+  it('carries a show scope straight through', async () => {
+    const client = stubClient({
+      listImportCandidates: jest.fn().mockResolvedValue({ candidates: [] }),
+    })
+
+    await listImportCandidates(SHOW_ID, { episodeId: 4823, seasonNumber: 2 })
+
+    expect(client.listImportCandidates).toHaveBeenCalledWith(SHOW_ID, {
+      episodeId: 4823,
+      seasonNumber: 2,
+    })
+  })
+
+  it('revalidates nothing — it is a read', async () => {
+    // The dialog calls this on open. Revalidating here would re-render the page
+    // underneath the dialog that just asked for the list.
+    stubClient({
+      listImportCandidates: jest
+        .fn()
+        .mockResolvedValue({ candidates: [CANDIDATE] }),
+    })
+
+    await listImportCandidates(MOVIE_ID, {})
+
+    expect(mockRevalidate).not.toHaveBeenCalled()
+  })
+
+  it('answers with copy rather than throwing when the read fails', async () => {
+    stubClient({
+      listImportCandidates: jest
+        .fn()
+        .mockRejectedValue(new Error('gateway timeout')),
+    })
+
+    expect(await listImportCandidates(MOVIE_ID, {})).toEqual({
+      error: 'Could not read what is waiting to import — try again',
+    })
+  })
+
+  it('keeps the generic copy on a 404, and still revalidates nothing', async () => {
+    // Unlike the two mutations, a missing queue row here just means there is
+    // nothing to show — no stale page to fix, so no special copy and no
+    // revalidation.
+    stubClient({
+      listImportCandidates: jest
+        .fn()
+        .mockRejectedValue(
+          new DownloadApiError(404, 'Not Found', { message: 'no queue item' }),
+        ),
+    })
+
+    expect(await listImportCandidates(MOVIE_ID, {})).toEqual({
+      error: 'Could not read what is waiting to import — try again',
+    })
+    expect(mockRevalidate).not.toHaveBeenCalled()
+  })
+
+  it('re-throws a framework bailout instead of swallowing it', async () => {
+    stubClient({
+      listImportCandidates: jest.fn().mockRejectedValue(BAILOUT),
+    })
+
+    await expect(listImportCandidates(MOVIE_ID, {})).rejects.toBe(BAILOUT)
+  })
+})
+
+describe('importFiles', () => {
+  it('commits the ticked paths and hands back how many landed', async () => {
+    const client = stubClient({
+      importFiles: jest.fn().mockResolvedValue({ importedCount: 2 }),
+    })
+
+    const result = await importFiles(SHOW_ID, {
+      paths: ['/downloads/s02e01.mkv', '/downloads/s02e02.mkv'],
+      seasonNumber: 2,
+    })
+
+    expect(client.importFiles).toHaveBeenCalledWith(SHOW_ID, {
+      paths: ['/downloads/s02e01.mkv', '/downloads/s02e02.mkv'],
+      seasonNumber: 2,
+    })
+    expect(result).toEqual({ importedCount: 2 })
+  })
+
+  it('revalidates the detail route the media key names', async () => {
+    stubClient({
+      importFiles: jest.fn().mockResolvedValue({ importedCount: 1 }),
+    })
+
+    await importFiles(MOVIE_ID, { paths: ['/downloads/dune.mkv'] })
+
+    expect(mockRevalidate).toHaveBeenCalledWith('/movies/438631')
+  })
+
+  it('says nothing is waiting on a 404 — and STILL revalidates', async () => {
+    // ⚠️ The queue row is gone: another tab imported it, or the arr retried and
+    // succeeded on its own. The page is stale by definition, so this failure
+    // branch is the one that has to refresh it, or the user keeps staring at a
+    // "needs attention" job upstream already resolved.
+    stubClient({
+      importFiles: jest
+        .fn()
+        .mockRejectedValue(
+          new DownloadApiError(404, 'Not Found', { message: 'no queue item' }),
+        ),
+    })
+
+    expect(
+      await importFiles(MOVIE_ID, { paths: ['/downloads/dune.mkv'] }),
+    ).toEqual({ error: 'Nothing is waiting to be imported any more' })
+    expect(mockRevalidate).toHaveBeenCalledWith('/movies/438631')
+  })
+
+  it('falls back to the generic failure for anything else', async () => {
+    stubClient({
+      importFiles: jest.fn().mockRejectedValue(new Error('socket hang up')),
+    })
+
+    expect(
+      await importFiles(MOVIE_ID, { paths: ['/downloads/dune.mkv'] }),
+    ).toEqual({ error: 'Could not start the import — try again' })
+  })
+
+  it('does not revalidate a generic failure', async () => {
+    stubClient({
+      importFiles: jest.fn().mockRejectedValue(new Error('nope')),
+    })
+
+    await importFiles(MOVIE_ID, { paths: ['/downloads/dune.mkv'] })
+
+    expect(mockRevalidate).not.toHaveBeenCalled()
+  })
+
+  it('re-throws a framework bailout instead of swallowing it', async () => {
+    stubClient({ importFiles: jest.fn().mockRejectedValue(BAILOUT) })
+
+    await expect(
+      importFiles(MOVIE_ID, { paths: ['/downloads/dune.mkv'] }),
+    ).rejects.toBe(BAILOUT)
+  })
+})
+
+describe('discardImport', () => {
+  it('discards the scope and hands back how many went', async () => {
+    const client = stubClient({
+      discardImport: jest.fn().mockResolvedValue({ discardedCount: 3 }),
+    })
+
+    const result = await discardImport(SHOW_ID, { seasonNumber: 2 })
+
+    expect(client.discardImport).toHaveBeenCalledWith(SHOW_ID, {
+      seasonNumber: 2,
+    })
+    expect(result).toEqual({ discardedCount: 3 })
+  })
+
+  it('treats discarding zero as a success', async () => {
+    // Same rule as deleting zero files: the caller asked for a state, and that
+    // state already held.
+    stubClient({
+      discardImport: jest.fn().mockResolvedValue({ discardedCount: 0 }),
+    })
+
+    expect(await discardImport(MOVIE_ID, {})).toEqual({ discardedCount: 0 })
+  })
+
+  it('revalidates the detail route the media key names', async () => {
+    stubClient({
+      discardImport: jest.fn().mockResolvedValue({ discardedCount: 1 }),
+    })
+
+    await discardImport(SHOW_ID, { episodeId: 4823 })
+
+    expect(mockRevalidate).toHaveBeenCalledWith('/shows/121361')
+  })
+
+  it('says nothing is waiting on a 404 — and STILL revalidates', async () => {
+    stubClient({
+      discardImport: jest
+        .fn()
+        .mockRejectedValue(
+          new DownloadApiError(404, 'Not Found', { message: 'no queue item' }),
+        ),
+    })
+
+    expect(await discardImport(MOVIE_ID, {})).toEqual({
+      error: 'Nothing is waiting to be imported any more',
+    })
+    expect(mockRevalidate).toHaveBeenCalledWith('/movies/438631')
+  })
+
+  it('has its own failure copy, because a failed discard is not a failed import', async () => {
+    stubClient({
+      discardImport: jest.fn().mockRejectedValue(new Error('offline')),
+    })
+
+    expect(await discardImport(MOVIE_ID, {})).toEqual({
+      error: 'Could not discard that download — try again',
+    })
+  })
+
+  it('does not revalidate a generic failure', async () => {
+    stubClient({
+      discardImport: jest.fn().mockRejectedValue(new Error('offline')),
+    })
+
+    await discardImport(MOVIE_ID, {})
+
+    expect(mockRevalidate).not.toHaveBeenCalled()
+  })
+
+  it('re-throws a framework bailout instead of swallowing it', async () => {
+    stubClient({ discardImport: jest.fn().mockRejectedValue(BAILOUT) })
+
+    await expect(discardImport(MOVIE_ID, {})).rejects.toBe(BAILOUT)
   })
 })
