@@ -5,8 +5,34 @@ import {
   deriveStatusFromQueueItem,
   describeQueueItemError,
   isQueueSnapshotEqual,
+  matchesScope,
   toQueueSnapshot,
 } from 'src/media/queue-status.util'
+
+/**
+ * Radarr's queue, read live on 2026-09-21: a movie whose download finished
+ * and which Radarr then refused to import, because it couldn't match the
+ * release to the movie it grabbed it for. Note `status: 'completed'` *and*
+ * `trackedDownloadState: 'importPending'` at the same time - the ordering
+ * trap the classifier has to get right.
+ */
+const STUCK_IMPORT = {
+  downloadId: 'ce427a39-be9f-4271-b193-f7067dd82c4a',
+  id: 152557673,
+  size: 1681143972,
+  sizeleft: 0,
+  status: 'completed',
+  statusMessages: [
+    {
+      messages: [
+        'Movie [Game Night (2018)][tt2704998, 445571] was not found in the grabbed release: Game.Night.2018.1080p.BluRay.x265',
+      ],
+      title: 'Game.Night.2018.1080p.BluRay.x265',
+    },
+  ],
+  trackedDownloadState: 'importPending',
+  trackedDownloadStatus: 'warning',
+}
 
 describe('toQueueSnapshot', () => {
   it('computes progress as a percentage of size downloaded', () => {
@@ -114,14 +140,58 @@ describe('deriveStatusFromQueueItem', () => {
     ).toBe(DownloadJobStatus.Failed)
   })
 
-  it('maps importing tracked-download-states to Importing', () => {
-    for (const state of ['importBlocked', 'importPending', 'importing']) {
+  it('maps the importing tracked-download-state to Importing', () => {
+    expect(
+      deriveStatusFromQueueItem(DownloadJobStatus.Downloading, {
+        trackedDownloadState: 'importing',
+      }),
+    ).toBe(DownloadJobStatus.Importing)
+  })
+
+  // The whole point of the status: the bytes are on disk, Radarr/Sonarr has
+  // given up on importing them by itself, and nothing moves until a human
+  // works the manual-import dialog.
+  it('maps the live stuck-import queue item to NeedsAttention', () => {
+    expect(
+      deriveStatusFromQueueItem(DownloadJobStatus.Downloading, STUCK_IMPORT),
+    ).toBe(DownloadJobStatus.NeedsAttention)
+  })
+
+  it('maps blocked/pending import tracked-download-states to NeedsAttention', () => {
+    for (const state of ['importBlocked', 'importPending']) {
       expect(
         deriveStatusFromQueueItem(DownloadJobStatus.Downloading, {
           trackedDownloadState: state,
         }),
-      ).toBe(DownloadJobStatus.Importing)
+      ).toBe(DownloadJobStatus.NeedsAttention)
     }
+  })
+
+  it('maps a completed item carrying a warning to NeedsAttention', () => {
+    expect(
+      deriveStatusFromQueueItem(DownloadJobStatus.Downloading, {
+        status: 'completed',
+        trackedDownloadStatus: 'warning',
+      }),
+    ).toBe(DownloadJobStatus.NeedsAttention)
+  })
+
+  // Radarr/Sonarr also warns about a stalled torrent, a missing category or
+  // an unpack in progress. None of those is fixed by a manual import, so
+  // only import-stage signals count.
+  it('leaves a warning on a still-transferring item as Downloading', () => {
+    expect(
+      deriveStatusFromQueueItem(DownloadJobStatus.Downloading, {
+        status: 'downloading',
+        trackedDownloadStatus: 'warning',
+      }),
+    ).toBe(DownloadJobStatus.Downloading)
+  })
+
+  it('completes a needs-attention job once it drops out of the queue', () => {
+    expect(
+      deriveStatusFromQueueItem(DownloadJobStatus.NeedsAttention, undefined),
+    ).toBe(DownloadJobStatus.Completed)
   })
 
   it('maps trackedDownloadState "imported" and status "completed" to Importing', () => {
@@ -195,6 +265,45 @@ describe('aggregateQueueItems', () => {
     expect(
       deriveStatusFromQueueItem(DownloadJobStatus.Downloading, aggregate),
     ).toBe(DownloadJobStatus.Failed)
+  })
+
+  // A block is the one thing in the list a person can act on *now*, so it
+  // outranks siblings that are still transferring - hiding it behind
+  // "downloading" until the last episode lands would surface it minutes
+  // late. The summed bytes still drive the progress bar.
+  it('lets a single needs-attention item dominate downloading siblings', () => {
+    const aggregate = aggregateQueueItems([
+      { size: 1, sizeleft: 1, status: 'downloading' },
+      { ...STUCK_IMPORT, size: 1, sizeleft: 0 },
+      { size: 1, sizeleft: 1, status: 'queued' },
+    ])
+
+    expect(aggregate).toMatchObject({ size: 3, sizeleft: 2 })
+    expect(
+      deriveStatusFromQueueItem(DownloadJobStatus.Downloading, aggregate),
+    ).toBe(DownloadJobStatus.NeedsAttention)
+  })
+
+  it('still lets a failed item dominate a needs-attention one', () => {
+    const aggregate = aggregateQueueItems([
+      { trackedDownloadState: 'importBlocked' },
+      { status: 'failed' },
+    ])
+
+    expect(
+      deriveStatusFromQueueItem(DownloadJobStatus.Downloading, aggregate),
+    ).toBe(DownloadJobStatus.Failed)
+  })
+
+  it('concatenates statusMessages across a needs-attention fold', () => {
+    const aggregate = aggregateQueueItems([
+      { statusMessages: [{ messages: ['still downloading'], title: 'a' }] },
+      STUCK_IMPORT,
+    ])
+
+    expect(describeQueueItemError(aggregate!)).toBe(
+      'still downloading; Movie [Game Night (2018)][tt2704998, 445571] was not found in the grabbed release: Game.Night.2018.1080p.BluRay.x265',
+    )
   })
 
   // The bug this whole function exists to prevent: a season must not report
@@ -298,5 +407,48 @@ describe('aggregateQueueItems', () => {
     expect(
       aggregateQueueItems([{ status: 'queued' }, { size: 10 }]),
     ).toMatchObject({ size: 10, sizeleft: 0 })
+  })
+})
+
+describe('matchesScope', () => {
+  it('matches an episode-scoped job only on that exact episode', () => {
+    expect(matchesScope({ episodeId: 42 }, { episodeId: 42 })).toBe(true)
+    expect(matchesScope({ episodeId: 43 }, { episodeId: 42 })).toBe(false)
+  })
+
+  // An item Sonarr can't attribute to an episode is not evidence about
+  // *this* episode, so it must never match an episode-scoped job.
+  it('never matches an episode scope on a null or absent episodeId', () => {
+    expect(matchesScope({ episodeId: null }, { episodeId: 42 })).toBe(false)
+    expect(matchesScope({}, { episodeId: 42 })).toBe(false)
+  })
+
+  it('matches a season-scoped job on the season number', () => {
+    expect(matchesScope({ seasonNumber: 3 }, { seasonNumber: 3 })).toBe(true)
+    expect(matchesScope({ seasonNumber: 4 }, { seasonNumber: 3 })).toBe(false)
+  })
+
+  // Season 0 is Sonarr's specials season, so the scope check is `!= null`
+  // rather than truthiness - truthiness would silently widen a specials job
+  // to the whole series.
+  it('treats season 0 as a real season', () => {
+    expect(matchesScope({ seasonNumber: 0 }, { seasonNumber: 0 })).toBe(true)
+    expect(matchesScope({ seasonNumber: 1 }, { seasonNumber: 0 })).toBe(false)
+  })
+
+  it('prefers the episode scope over the season scope', () => {
+    expect(
+      matchesScope(
+        { episodeId: 7, seasonNumber: 9 },
+        { episodeId: 7, seasonNumber: 3 },
+      ),
+    ).toBe(true)
+  })
+
+  it('matches every item of the series for an unscoped job', () => {
+    expect(matchesScope({ episodeId: 1, seasonNumber: 2 }, undefined)).toBe(
+      true,
+    )
+    expect(matchesScope({}, {})).toBe(true)
   })
 })
