@@ -326,7 +326,7 @@ describe('deleteConfirmCopy — the cascade warning', () => {
       deleteConfirmCopy(episodeScope('season'), { title: SHOW_TITLE })
         .description,
     ).toBe(
-      `Removes the file for this one episode from the library. The rest of the season is left alone. ${SEASON_WARNING} This can't be undone.`,
+      `Removes the file for this one episode from the library. ${SEASON_WARNING} This can't be undone.`,
     )
   })
 
@@ -335,6 +335,28 @@ describe('deleteConfirmCopy — the cascade warning', () => {
       deleteConfirmCopy(episodeScope('series'), { title: SHOW_TITLE })
         .description,
     ).toContain(SERIES_WARNING_FROM_EPISODE)
+  })
+
+  // The whole point of the swap: a dialog that says the rest of the season
+  // survives and then takes the series is worse than one that says neither.
+  it.each([
+    ['season', 'The rest of the season is left alone'],
+    ['series', 'The rest of the season is left alone'],
+  ] as const)(
+    '⚠️ withdraws the episode reassurance for a %s cascade rather than contradicting it',
+    (cascadesTo, reassurance) => {
+      expect(
+        deleteConfirmCopy(episodeScope(cascadesTo), { title: SHOW_TITLE })
+          .description,
+      ).not.toContain(reassurance)
+    },
+  )
+
+  it('⚠️ withdraws the season reassurance when the series goes', () => {
+    expect(
+      deleteConfirmCopy(seasonScope('series'), { title: SHOW_TITLE })
+        .description,
+    ).not.toContain('Other seasons are left alone')
   })
 
   it('warns a season delete will remove the series from Sonarr, in its own words', () => {
@@ -370,7 +392,7 @@ describe('deleteConfirmCopy — the cascade warning', () => {
         title: SHOW_TITLE,
       }).description,
     ).toContain(
-      `from the library and frees 2.1 GB. Other seasons are left alone. ${SERIES_WARNING_FROM_SEASON}`,
+      `from the library and frees 2.1 GB. ${SERIES_WARNING_FROM_SEASON}`,
     )
   })
 })

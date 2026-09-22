@@ -1223,12 +1223,16 @@ Each is recorded in full under its task. The ones that change what the plan clai
    unanswered — it needs checkpoint 1. Nothing depends on the answer (every episode
    flag is written explicitly and every read precedes the season write), but A1's doc
    comment asserts the hazard and should be confirmed.
-2. ⚠️ **The cascade dialog copy reads as a near-contradiction** (D2). "The rest of the
-   season is left alone. It's the last downloaded episode of the season, so the season
-   is unmonitored too." Both clauses are literally true, but the first undercuts the
-   second. Implemented as the plan specified (append, base copy byte-identical).
-   Fixing it means varying the leading clause when a cascade fires — a copy decision,
-   not a code one.
+2. ✅ **RESOLVED — the cascade dialog copy read as a near-contradiction** (D2).
+   "The rest of the season is left alone. It's the last downloaded episode of the
+   season, so the season is unmonitored too." Both clauses were literally true, but
+   the first undercut the second, and the half that mattered was the half a user
+   skims past. D2 shipped it that way because the plan specified appending with the
+   base copy byte-identical. **Fixed in a follow-up:** `cascadeSentence` became
+   `scopeClause`, which owns the middle sentence outright and returns the
+   reassurance **or** the warning, never both. No-cascade copy is still
+   byte-identical. Three tests added asserting the reassurance is _withdrawn_, not
+   contradicted.
 3. **`media-files.spec.ts` mocks are untyped.** Its `stubClient` helper takes
    `Record<string, jest.Mock>` and casts, so the compiler will not catch drift if
    anyone threads `removedFromLibrary` through the server action later (C3).

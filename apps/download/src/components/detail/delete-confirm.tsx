@@ -118,33 +118,39 @@ export function deleteScopeQuery(
 }
 
 /**
- * The one extra sentence a cascading show delete adds, or `''`.
+ * The middle clause of a show delete's description — what this delete touches
+ * *beyond* the thing named in the heading.
  *
- * ⚠️ It leads with its own space and lands **before** "This can't be undone.",
- * so a scope with no cascade produces a description byte-identical to the one
- * this dialog has always shown.
+ * ⚠️ A reassurance **or** a warning, never both. When nothing cascades this is
+ * the sentence the dialog has always shown, so the description stays
+ * byte-identical. When something does, the reassurance is **replaced** rather
+ * than appended to: "The rest of the season is left alone. It's the last
+ * downloaded episode of the series, so the series is removed from Sonarr."
+ * reads as a contradiction, and the half that matters is the half a user
+ * skims past.
  *
  * A prediction, not a promise — see {@link deleteCascade}. It is worth saying
  * anyway: "delete this episode" quietly removing the whole series from Sonarr
  * is the single most surprising thing this dialog can do.
  */
-function cascadeSentence(scope: DeleteScope): string {
-  if (scope.kind !== 'episode' && scope.kind !== 'season') {
-    return ''
+function scopeClause(
+  scope: Extract<DeleteScope, { kind: 'episode' | 'season' }>,
+): string {
+  if (scope.cascadesTo === 'series') {
+    const last = scope.kind === 'season' ? 'season' : 'episode'
+
+    return `It's the last downloaded ${last} of the series, so the series is removed from Sonarr.`
   }
 
-  switch (scope.cascadesTo) {
-    case 'season':
-      // Meaningless for a season scope, which is already taking the season.
-      return scope.kind === 'episode'
-        ? " It's the last downloaded episode of the season, so the season is unmonitored too."
-        : ''
-    case 'series':
-      return ` It's the last downloaded ${scope.kind === 'season' ? 'season' : 'episode'} of the series, so the series is removed from Sonarr.`
-    case 'none':
-    case undefined:
-      return ''
+  // `'season'` on a season scope is meaningless - a season delete unmonitors
+  // its own season by definition - so it keeps the reassurance.
+  if (scope.cascadesTo === 'season' && scope.kind === 'episode') {
+    return "It's the last downloaded episode of the season, so the season is unmonitored too."
   }
+
+  return scope.kind === 'episode'
+    ? 'The rest of the season is left alone.'
+    : 'Other seasons are left alone.'
 }
 
 /** `S02E05` when both numbers are known; "this episode" when they are not. */
@@ -209,12 +215,13 @@ export type DeleteConfirmCopy = {
  * again" — a re-request re-adds the title rather than re-fetching one that is
  * still there.
  *
- * ⚠️ A `season` or `episode` scope may add one more sentence before the final
- * one — see {@link cascadeSentence}. `DELETE /download/media/:id/files` now
+ * ⚠️ A `season` or `episode` scope swaps its middle sentence when the delete
+ * cascades — see {@link scopeClause}. `DELETE /download/media/:id/files` now
  * cascades *upwards*: the last downloaded episode of a season unmonitors the
  * season, and the last downloaded season removes the series from Sonarr. A
  * dialog that promised "the rest of the season is left alone" and then took
- * the series would be the worst kind of wrong this component can be.
+ * the series would be the worst kind of wrong this component can be, so the
+ * promise is withdrawn rather than contradicted a sentence later.
  *
  * ⚠️ The `video` sentence deliberately says neither "library" nor "Radarr".
  * A video was never in `/storage/media-library` and no arr ever knew about it:
@@ -233,17 +240,16 @@ export function deleteConfirmCopy(
   const { freesBytes, title } = options
   const frees =
     freesBytes === undefined ? '' : ` and frees ${formatBytes(freesBytes)}`
-  const cascade = cascadeSentence(scope)
 
   switch (scope.kind) {
     case 'episode':
       return {
-        description: `Removes the file for this one episode from the library${frees}. The rest of the season is left alone.${cascade} This can't be undone.`,
+        description: `Removes the file for this one episode from the library${frees}. ${scopeClause(scope)} This can't be undone.`,
         title: `Delete ${episodeLabel(scope.seasonNumber, scope.episodeNumber)} of "${title}"?`,
       }
     case 'season':
       return {
-        description: `Removes the file for every episode in season ${scope.seasonNumber} from the library${frees}. Other seasons are left alone.${cascade} This can't be undone.`,
+        description: `Removes the file for every episode in season ${scope.seasonNumber} from the library${frees}. ${scopeClause(scope)} This can't be undone.`,
         title: `Delete season ${scope.seasonNumber} of "${title}"?`,
       }
     case 'series':
