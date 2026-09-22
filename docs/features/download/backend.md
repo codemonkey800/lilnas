@@ -471,6 +471,11 @@ frontend fetched the seasons endpoint per job. Same reasoning as
 
 ### Delete removes files, not the library entry
 
+> ⚠️ **Superseded by
+> [Monitoring cascades and full removal (plan 019)](#monitoring-cascades-and-full-removal-plan-019)**,
+> which cascades a delete up and makes a whole-title delete a real
+> Radarr/Sonarr `DELETE`. Kept as the historical record of Phase 4.
+
 ```
 DELETE /download/media/tvdb:81189/files?seasonNumber=3&episodeId=4412
 ```
@@ -928,7 +933,7 @@ deliberately untouched — `Paused` sits outside it, so a season with one
 paused episode and others still active still folds to `Downloading`, only
 reporting `Paused` once every episode in scope is.
 
-There is still no in-app *action* for this — resuming happens back at
+There is still no in-app _action_ for this — resuming happens back at
 Radarr/Sonarr or the download client, since this app has no route for it and
 the spec scopes pause/resume to the yt-dlp pipeline. This fix is
 classification only: the job's `type` is what a future frontend uses to tell
@@ -1724,6 +1729,219 @@ not duplicated here. The shape of it:
 4. Then perform a few mutating actions and confirm the rows land with the
    right actor, action, target and metadata — including a tdr-bot-style
    service call landing as `origin: 'service'` with a null actor.
+
+---
+
+## Monitoring cascades and full removal (plan 019)
+
+**Status: done.** Full plan in
+`docs/features/download/plans/019-monitoring-cascade-and-full-removal.md`.
+Commits, in order: `c9390b4a` (`SonarrService.setSeasonsMonitored`),
+`527cdd99` (the pure `planShowDelete` planner), `c7d3370d` (movie/series
+confirm-dialog copy), `97df9b09` (the request-side cascade), `5395d66e` (the
+delete-side cascade and removal) — plus the wire contract gaining
+`removedFromLibrary` and the audit metadata gaining `cascade`, and the
+cancellation of a removed title's non-terminal jobs, which landed alongside
+this section.
+
+Sonarr keeps **three independent `monitored` flags** — series, season and
+episode — and this app had only ever written two. Nothing here touched
+`series.seasons[].monitored`, so after a delete unmonitored and removed every
+episode of a season, Sonarr's own UI and its RSS / missing-episode jobs still
+saw a **monitored season**. Radarr has one flag and one scope, so none of this
+applies to a movie beyond the removal rule below.
+
+### Three flags, and what writes each
+
+| Flag                         | Writer                               | Called from                                                                                                     |
+| ---------------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `series.monitored`           | `SonarrService.setSeriesMonitored`   | `ensureSeries` (on, for an existing unmonitored series); `ReleaseService.withMonitoring` (back off, on restore) |
+| `series.seasons[].monitored` | `SonarrService.setSeasonsMonitored`  | `MediaDownloadService.requestShow` (on); `ShowService.deleteFiles`'s show path (off) — **new in `c9390b4a`**    |
+| `episode.monitored`          | `SonarrService.setEpisodesMonitored` | `ensureSeries`'s episode pass, `unmonitorScope`, and `ReleaseService.withMonitoring`'s restore                  |
+
+`setSeasonsMonitored(sonarrId, seasons, monitored)` takes `readonly number[]`
+or `'all'` and returns **only the season numbers it actually changed**. It
+costs one `GET /api/v3/series/{id}` and at most one `PUT` — an empty list is
+answered before the GET, and an already-correct series skips the PUT
+entirely. A season Sonarr no longer lists is logged as a warning and skipped,
+never thrown: the delete side can name a season that has since disappeared,
+and failing the whole unmonitor over it helps nobody. Every scope check is set
+membership rather than truthiness, because **season 0 is specials** — a real
+season, and one `'all'` includes.
+
+### Request side — the cascade goes down
+
+`POST /download/shows` now always hands `ensureSeries` an explicit scope
+(`monitorEpisodes: scope ?? {}`; `{}` is "the whole series"), and then writes
+the season flags the request covers:
+
+| Request                    | Season flag                 | Episodes                    |
+| -------------------------- | --------------------------- | --------------------------- |
+| `{ tvdbId, episodeId }`    | **untouched, deliberately** | that episode only           |
+| `{ tvdbId, seasonNumber }` | that season's, on           | every episode in the season |
+| `{ tvdbId }` (bare)        | **every** season's, on      | every episode               |
+
+A bare request is not an absence of scope — it is an explicit "monitor
+everything", which is why it reaches `ensureSeries` as `{}` rather than as no
+options at all.
+
+**Season flags are written after episodes, never before.** Sonarr's
+`PUT /series` may cascade a changed `seasons[].monitored` down to that
+season's episodes, so every episode read that feeds a result
+(`turnedOnEpisodeIds` here, the unmonitored count on the delete side) has to
+have happened already. Nothing depends on that cascade either way — every
+episode flag this app wants is written explicitly through
+`setEpisodesMonitored`.
+
+### Delete side — the cascade goes up
+
+`DELETE /download/media/:id/files` no longer stops at the scope it was given.
+The show path takes **one** snapshot — `getEpisodes(sonarrId)` plus
+`getQueue([sonarrId])`, in parallel — and hands it to `planShowDelete`
+(`apps/download/src/media/delete-cascade.util.ts`), a pure function returning
+a `ShowDeletePlan`: the file ids to delete, the seasons to unmonitor, the
+scope to unmonitor, and how far the delete reaches (`'none' | 'season' |
+'series'`).
+
+- Deleting the **last remaining episode of a season** also unmonitors the
+  season — the first time any path here writes the season flag on a delete.
+- Deleting the **last remaining season of a series** removes the series.
+- An episode delete can therefore escalate two levels at once: episode →
+  season → series.
+
+The plan's `unmonitorScope` then `setSeasonsMonitored(..., false)` pair runs
+inside the existing warn-don't-fail `unmonitor()` wrapper: the files are gone
+by then, so a failed flag write is a logged inconsistency, not a failed
+delete. On a `'series'` plan there are no per-file deletes at all — Sonarr
+removes the folder. Deleting zero files is still a **success**, not a 404.
+
+The response carries `removedFromLibrary`, and the audit row's metadata
+carries `cascade`, so a caller can tell a partial delete from a removal. A
+removal also cancels the title's non-terminal jobs: nothing upstream is
+searching for them any more, and `MediaPollerService.trackedJobs` skips a job
+whose media no longer resolves to an upstream id, so left alone they would sit
+at `Searching` until a restart failed them.
+
+### A whole-title delete is the arr's real `DELETE`
+
+A movie delete, and a series-scope show delete, are now Radarr's
+`DELETE /api/v3/movie/{id}` and Sonarr's `DELETE /api/v3/series/{id}` with
+`deleteFiles=true`, through the existing `unmonitorAndDelete` wrappers — not
+"delete the files and unmonitor". Leaving a title in the library with
+everything unmonitored was the source of the re-grab bugs this kept patching:
+`ensureSeries` reads a monitored series row, skips its episode pass, and
+`SeriesSearch` finds nothing to grab. A title with nothing left is better off
+gone, and it can still be requested again later — that re-adds it.
+
+A movie has exactly one scope, so **every** movie delete is a whole-title
+delete; a season or episode on a `tmdb:` key is a 400, checked before anything
+upstream is resolved. Both wrappers cancel the title's queue items
+(`removeFromClient: true`) before issuing the `DELETE`, and Sonarr's passes
+`addImportListExclusion: false` so a re-request is not blocked.
+
+This is also what the confirm dialog says: the movie/series copy names the
+removal from Radarr/Sonarr and offers "can be requested again later" in place
+of the old, now-false "stays in Radarr/Sonarr" reassurance. Season and episode
+copy is untouched — those scopes really are files only.
+
+### The in-flight guard, and why one snapshot
+
+"Remaining" means an episode **has a file on disk OR has a Sonarr queue
+item**. A queue item is a file that is about to exist, and the cascade's
+removal path calls `unmonitorAndDelete`, which cancels the title's queue items
+— so cascading over something still downloading would be a silent, destructive
+side effect of an unrelated click. Queue items Sonarr could not pin to an
+episode still count: one naming only a season keeps that season, one naming
+neither keeps the series.
+
+An **explicit** whole-series or movie delete is not guarded. The user named
+the title.
+
+> ⚠️ **Say this plainly:** a currently-airing show whose only downloaded
+> episode is deleted **is** removed from Sonarr, even though future episodes
+> are monitored and expected. Unaired episodes are neither downloaded nor in
+> flight, so nothing remains by this definition. The cascade-aware dialog copy
+> is what makes that a choice the user sees rather than a surprise.
+
+Cascade detection reads that one snapshot and is **not** re-queried after each
+delete. A fresh read is not more accurate: Sonarr's file list and an import
+racing the delete disagree for the same few seconds either way. The snapshot
+is the truth the user was looking at when they clicked. The queue read is
+series-scoped on purpose — `planShowDelete` takes no series id and would read
+a whole-instance queue as this series still having work in flight.
+
+One more subtlety the planner handles: a multi-episode file appears as the
+same `episodeFileId` on each episode it backs, so file ids are deduplicated
+before anything is deleted.
+
+### ⚠️ Accepted gap: a scoped request on a fresh add
+
+`ensureSeries` adds a missing series with `addOptions.monitor: 'all'`. For a
+**scoped** request that has to add the series, that monitors every episode.
+
+It stays that way because Sonarr creates a series' episodes
+**asynchronously** after `POST /series` — a `RefreshSeries` command runs after
+the add. Adding with `monitor: 'none'` and then monitoring the scope would
+find no episodes to monitor yet, and the scoped search would find nothing
+monitored: a job that wedges instead of a series that over-monitors. Making
+the scope stick at add time needs a wait for the refresh to finish, which is
+its own feature.
+
+Reachable only from tdr-bot or the raw API — the web UI cannot request a
+season of a show that is not in the library, because there are no seasons to
+list yet. Recorded here so nobody re-discovers it as a bug.
+
+### Manual verification (needs live Sonarr/Radarr — human only)
+
+> [!CAUTION]
+> **Every step below mutates the real Sonarr/Radarr library**, and the delete
+> steps remove real titles and real files. `local-verification.md`'s standing
+> rule — **no mutating requests against the media library** — forbids this as
+> an agent task. A human runs it, on a throwaway title, with explicit intent.
+
+⚠️ **Not yet run.** _Checking for:_ the three flags end in the state this
+section promises at each level, and that a whole-title delete really removes
+the title.
+
+All through `http://localhost:8090`, loopback only; Sonarr checks via
+`GET /api/v3/series/{id}` and `GET /api/v3/episode?seriesId=`.
+
+1. Pick a **short, cheap, disposable** series nobody wants (2–3 short
+   seasons). Record Sonarr's `series.monitored`, every `seasons[].monitored`,
+   every `episode.monitored` / `hasFile` as the baseline.
+2. `POST /download/shows { tvdbId, seasonNumber: 1 }` → expect: series on,
+   **season 1 flag on**, S1 episodes on, other seasons' flags and episodes
+   **unchanged**.
+3. `POST /download/shows { tvdbId }` (bare) → expect: **every** season flag
+   on, every episode on.
+4. Let one season finish downloading.
+   `DELETE /media/tvdb:N/files?episodeId=<one>` → expect: that episode off,
+   file gone, season flag **unchanged** (siblings remain). Response
+   `removedFromLibrary: false`.
+5. Delete the rest of that season one episode at a time; on the **last** one
+   expect: season flag **off**, every S1 episode off. If it was the only
+   downloaded season: the series is **gone** from `GET /api/v3/series`,
+   `removedFromLibrary: true`, and the title's `searching` jobs (if any) show
+   `cancelled` in `/download/activity`.
+6. Re-add with a bare request → a fresh add, everything monitored.
+7. **Record what Sonarr did to the episodes when only the season flag was
+   PUT** — that is the ordering gotcha this section assumes but has not
+   observed.
+8. Movie: request a disposable movie, let it land, `DELETE /media/tmdb:M/files`
+   → gone from `GET /api/v3/movie`, `removedFromLibrary: true`.
+9. Confirm nothing else changed against the baselines. Remove the throwaway
+   titles.
+
+⚠️ Before trusting any live result, confirm the dev backend is running this
+code:
+
+```bash
+docker logs lilnas-download-dev 2>&1 \
+  | grep -c "Nest application successfully started"
+```
+
+against when the commits landed; `docker restart lilnas-download-dev` if in
+doubt.
 
 ---
 

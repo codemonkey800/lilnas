@@ -329,9 +329,15 @@ export async function unflagBadFile(
  * verbatim in the dialog, so what the user read and what this deletes are the
  * same value.
  *
- * Files only. The series/movie stays in Sonarr/Radarr — removing the title
- * entirely is still `DELETE /download/shows/:jobId` /
- * `DELETE /download/movies/:jobId`, which this is not.
+ * ⚠️ Not files only for a whole title. A `movie` scope, and a `series` scope
+ * with no season or episode, are Radarr's / Sonarr's real `DELETE` with
+ * `deleteFiles=true`: the title leaves the library **and** the arr, and the
+ * response says so with `removedFromLibrary`. A season or episode scope
+ * deletes files and unmonitors — but it cascades up, so removing the last
+ * downloaded episode of a season unmonitors the season, and removing the last
+ * downloaded season removes the series. Whatever is removed can be requested
+ * again later, which re-adds it. See "Monitoring cascades and full removal"
+ * in `docs/features/download/backend.md`.
  *
  * Deleting zero files is a success, not an error: the caller asked for a state
  * and that state already held.
