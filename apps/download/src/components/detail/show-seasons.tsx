@@ -87,8 +87,10 @@ export type ShowSeasonsProps = {
   badFiles?: readonly BadFile[]
   /**
    * The three importer server actions, passed straight through to the season's
-   * own `JobLifecycle`. The scope on a season job is `{ seasonNumber }`, which
-   * the dialog forwards to each call - nothing is assembled here.
+   * own `JobLifecycle` and to every episode row under it. Whichever surface is
+   * stuck forwards its own scope — a season job's is the season number, an
+   * episode row's is the episode id and the season number — so nothing is
+   * assembled here.
    */
   imports?: ImportDialogActions
   /** Every job for the title, newest first. Scoped per season/episode here. */
@@ -289,6 +291,7 @@ export function ShowSeasons({
                 seasonNumber: episode.seasonNumber,
               })}
               episode={episode}
+              imports={imports}
               // ⚠️ Keyed on Sonarr's episode id, the same key every scoped
               // action uses - `episodeNumber` repeats across seasons.
               key={episode.id}

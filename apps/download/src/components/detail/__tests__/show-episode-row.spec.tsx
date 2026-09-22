@@ -6,7 +6,7 @@ import type {
   Release,
 } from '@lilnas/utils/download/types'
 import { DownloadJobStatus } from '@lilnas/utils/download/types'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import {
@@ -19,6 +19,8 @@ import {
   REPORT_LABEL,
   REPORT_PROMPT_EPISODE,
 } from 'src/components/detail/bad-file-flag'
+import type { ImportDialogActions } from 'src/components/detail/import-dialog'
+import { IMPORT_TRIGGER_LABEL } from 'src/components/detail/import-dialog'
 import {
   RELEASE_CURRENT_LABEL,
   RELEASE_REPLACE_LABEL,
@@ -61,10 +63,29 @@ const ALTERNATIVE: Release = {
   title: 'Silicon.Valley.S01E01.2160p.WEB-DL.HDR',
 }
 
+/**
+ * The three importer calls, typed as the page passes them rather than as bare
+ * `jest.fn()`s — the same reason `job-lifecycle.spec.tsx` types its own.
+ * `candidates: []` is enough: this suite asserts what the row *asks*, and the
+ * dialog's own rendering is already covered by `import-dialog.spec.tsx`.
+ */
+function importActions(): ImportDialogActions & {
+  commit: jest.Mock
+  discard: jest.Mock
+  list: jest.Mock
+} {
+  return {
+    commit: jest.fn().mockResolvedValue({ importedCount: 1 }),
+    discard: jest.fn().mockResolvedValue({ discardedCount: 1 }),
+    list: jest.fn().mockResolvedValue({ candidates: [] }),
+  }
+}
+
 function renderRow(
   options: {
     cascadesTo?: DeleteCascade
     episode?: Episode
+    imports?: ImportDialogActions
     jobs?: DownloadJob[]
     open?: boolean
     releases?: Release[]
@@ -80,6 +101,7 @@ function renderRow(
     <ShowEpisodeRow
       cascadesTo={options.cascadesTo}
       episode={options.episode ?? episode()}
+      imports={options.imports}
       jobs={options.jobs ?? []}
       media={show()}
       open={options.open ?? false}
@@ -393,5 +415,108 @@ describe('the release currently on disk', () => {
     expect(
       screen.getAllByRole('button', { name: RELEASE_REPLACE_LABEL }),
     ).toHaveLength(2)
+  })
+})
+
+/**
+ * The last of the four surfaces a stuck import can be resolved from - the other
+ * three are the movie panel, the series panel and the season panel, all three
+ * through `JobLifecycle`. This one is a row whose *own* episode-scoped job is
+ * the one waiting on a decision.
+ */
+describe('the import control', () => {
+  const needsAttention = () =>
+    scopedJob(
+      { episodeId: 2430, seasonNumber: 1 },
+      { status: DownloadJobStatus.NeedsAttention },
+    )
+
+  it('offers it when this episode’s own job is waiting on a decision', () => {
+    renderRow({ imports: importActions(), jobs: [needsAttention()] })
+
+    expect(
+      screen.getByRole('button', { name: IMPORT_TRIGGER_LABEL }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('needs your decision')).toBeInTheDocument()
+  })
+
+  it('⚠️ asks about this episode, not the whole series', async () => {
+    const imports = importActions()
+    const { user } = renderRow({
+      episode: episode({ episodeNumber: 5, id: 4823, seasonNumber: 2 }),
+      imports,
+      jobs: [
+        scopedJob(
+          { episodeId: 4823, seasonNumber: 2 },
+          { status: DownloadJobStatus.NeedsAttention },
+        ),
+      ],
+    })
+
+    await user.click(screen.getByRole('button', { name: IMPORT_TRIGGER_LABEL }))
+
+    // The media key is unchanged - every scope for a show is `tvdb:277165` -
+    // and the narrowing is entirely in the scope, which carries both keys.
+    await waitFor(() =>
+      expect(imports.list).toHaveBeenCalledWith(SHOW_ID, {
+        episodeId: 4823,
+        seasonNumber: 2,
+      }),
+    )
+  })
+
+  it('names the dialog after the episode rather than the series alone', async () => {
+    const { user } = renderRow({
+      episode: episode({ episodeNumber: 5, id: 4823, seasonNumber: 2 }),
+      imports: importActions(),
+      jobs: [
+        scopedJob(
+          { episodeId: 4823, seasonNumber: 2 },
+          { status: DownloadJobStatus.NeedsAttention },
+        ),
+      ],
+    })
+
+    await user.click(screen.getByRole('button', { name: IMPORT_TRIGGER_LABEL }))
+
+    expect(
+      await screen.findByText('Import "Silicon Valley S02E05"'),
+    ).toBeInTheDocument()
+  })
+
+  it('offers it on no other status', () => {
+    for (const status of Object.values(DownloadJobStatus)) {
+      if (status === DownloadJobStatus.NeedsAttention) {
+        continue
+      }
+
+      const { unmount } = renderRow({
+        imports: importActions(),
+        jobs: [scopedJob({ episodeId: 2430, seasonNumber: 1 }, { status })],
+      })
+
+      expect(
+        screen.queryByRole('button', { name: IMPORT_TRIGGER_LABEL }),
+      ).not.toBeInTheDocument()
+      unmount()
+    }
+  })
+
+  it('renders nothing when the page wired no importer', () => {
+    renderRow({ jobs: [needsAttention()] })
+
+    expect(
+      screen.queryByRole('button', { name: IMPORT_TRIGGER_LABEL }),
+    ).not.toBeInTheDocument()
+    // The chip still says why the row is stuck - only the control is absent.
+    expect(screen.getByText('needs your decision')).toBeInTheDocument()
+  })
+
+  it('⚠️ leaves the request branch alone - a stuck job is still a job', () => {
+    renderRow({ imports: importActions(), jobs: [needsAttention()] })
+
+    expect(
+      screen.queryByRole('button', { name: 'Download' }),
+    ).not.toBeInTheDocument()
   })
 })

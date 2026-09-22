@@ -19,7 +19,13 @@ import {
 } from 'src/components/detail/bad-file-flag'
 import type { DeleteMediaFilesAction } from 'src/components/detail/delete-confirm'
 import { DeleteConfirm } from 'src/components/detail/delete-confirm'
-import { jobProgress, latestJob } from 'src/components/detail/job-state'
+import type { ImportDialogActions } from 'src/components/detail/import-dialog'
+import { ImportDialog } from 'src/components/detail/import-dialog'
+import {
+  jobActionState,
+  jobProgress,
+  latestJob,
+} from 'src/components/detail/job-state'
 import type {
   ReleaseAction,
   ReleaseSearchAction,
@@ -95,6 +101,12 @@ export type ShowEpisodeRowProps = {
   cascadesTo?: DeleteCascade
   episode: Episode
   /**
+   * The three importer server actions. Omitted renders no Import control, the
+   * same way a missing `onCancel` does in `JobLifecycle` — a page that never
+   * wired the importer offers no way to resolve a stuck import from this row.
+   */
+  imports?: ImportDialogActions
+  /**
    * Every job for this title. Filtered to this episode here rather than by the
    * caller, so the `scope.episodeId` match has exactly one spelling.
    */
@@ -152,6 +164,7 @@ export function ShowEpisodeRow({
   badFiles,
   cascadesTo,
   episode,
+  imports,
   jobs,
   media,
   onDelete,
@@ -215,6 +228,28 @@ export function ShowEpisodeRow({
           </span>
         ) : null}
         <span className={cns('flex w-full gap-2 sm:w-auto sm:shrink-0')}>
+          {latest &&
+          jobActionState(latest.status, 'import') === 'offered' &&
+          imports ? (
+            <ImportDialog
+              actions={imports}
+              className={cns(ROW_ACTION)}
+              mediaId={media.id}
+              // ⚠️ `Episode.id` is what narrows the request to this episode;
+              // `seasonNumber` rides along because the importer's queries take
+              // the whole `ShowScope`. The media key stays `tvdb:277165`.
+              scope={{
+                episodeId: episode.id,
+                seasonNumber: episode.seasonNumber,
+              }}
+              size="sm"
+              // ⚠️ `job.media.title` is the *series* title, which on a row that
+              // already names one episode would read as though the whole show
+              // were stuck. The code is what distinguishes this row from the
+              // other twenty-four, so the heading is `Silicon Valley S01E01`.
+              title={`${media.title} ${code}`}
+            />
+          ) : null}
           {episode.hasFile || latest ? null : (
             <ShowRequestButton
               className={cns(ROW_ACTION)}
