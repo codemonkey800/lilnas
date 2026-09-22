@@ -9,6 +9,7 @@ import {
   countJobsByType,
   getRequesterActivityBounds,
   isRequesterScoped,
+  listJobsByStatus,
   listJobsPage,
   listLatestJobsForMediaIds,
   listMediaGroupsPage,
@@ -1388,6 +1389,51 @@ describe('the gallery grouped selection', () => {
       seedJob(db, { createdAt: new Date(T0), id: 'web-grab', mediaId: CLIP })
 
       expect(listLatestJobsForMediaIds(db, {}, [])).toEqual([])
+    } finally {
+      close()
+    }
+  })
+})
+
+/**
+ * Plan 020. The boot path's reader: `DownloadStateService.adoptSurvivingJobs()`
+ * needs a whole status bucket, unfiltered and unpaged, to put the rows
+ * `reconcileInterruptedJobs()` spared back in the in-memory Map.
+ */
+describe('listJobsByStatus', () => {
+  it('returns only rows at the requested status, newest first', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedJob(db, {
+        createdAt: new Date(T0),
+        id: 'attention-old',
+        status: 'needs_attention',
+      })
+      seedJob(db, {
+        createdAt: new Date(T0 + 1000),
+        id: 'attention-new',
+        status: 'needs_attention',
+      })
+      seedJob(db, { id: 'done-1', status: 'completed' })
+      seedJob(db, { id: 'downloading-1', status: 'downloading' })
+
+      const rows = listJobsByStatus(db, DownloadJobStatus.NeedsAttention)
+
+      expect(rows.map(row => row.id)).toEqual([
+        'attention-new',
+        'attention-old',
+      ])
+    } finally {
+      close()
+    }
+  })
+
+  it('returns an empty array when no row is at that status', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedJob(db, { id: 'done-1', status: 'completed' })
+
+      expect(listJobsByStatus(db, DownloadJobStatus.NeedsAttention)).toEqual([])
     } finally {
       close()
     }

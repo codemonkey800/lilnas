@@ -262,6 +262,22 @@ export function listJobsByMediaId(db: Db, mediaId: string): JobRow[] {
     .all()
 }
 
+/**
+ * Every job at one status, newest first. Used at boot by
+ * `DownloadStateService.adoptSurvivingJobs()` to re-adopt the rows
+ * `reconcileInterruptedJobs()` deliberately spared - the only reader that
+ * needs a whole status bucket without any of the list endpoints' filtering,
+ * paging or attribution masking.
+ */
+export function listJobsByStatus(db: Db, status: DownloadJobStatus): JobRow[] {
+  return db
+    .select()
+    .from(jobs)
+    .where(eq(jobs.status, status))
+    .orderBy(desc(jobs.createdAt), desc(jobs.id))
+    .all()
+}
+
 export interface MediaGroupRow {
   downloadCount: number
   lastJobAtMs: number

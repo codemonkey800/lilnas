@@ -7,6 +7,7 @@ import { Logger } from 'nestjs-pino'
 import { AppModule } from './app.module'
 import { DbService } from './db/db.service'
 import { reconcileInterruptedJobs } from './db/reconcile-interrupted-jobs'
+import { DownloadStateService } from './download/download-state.service'
 import { EnvKeys } from './env'
 import { syncDownloadedLibrary } from './media/library-sync'
 import { RadarrService } from './media/radarr.service'
@@ -28,8 +29,13 @@ export async function bootstrap() {
     // After integrity is confirmed sound, but before serving any traffic -
     // any row left at a non-terminal status belongs to the previous
     // process, which is gone along with its in-memory DownloadStateService
-    // Map.
+    // Map. The exception is RESTART_SURVIVING_STATUSES, which the sweep
+    // leaves alone because the state they name (a Radarr/Sonarr queue row)
+    // outlived this process; those get re-adopted into the fresh Map right
+    // after, so the poller tracks them again from its first tick.
     reconcileInterruptedJobs(dbService.db)
+    const adopted = app.get(DownloadStateService).adoptSurvivingJobs()
+    console.log(`Re-adopted ${adopted} restart-surviving job(s)`)
 
     // Backfills a completed job for every Radarr/Sonarr title that's already
     // downloaded but has no job of its own, so "Browse movies/shows" (built

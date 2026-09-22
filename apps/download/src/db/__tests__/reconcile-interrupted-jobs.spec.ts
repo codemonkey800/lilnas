@@ -1,6 +1,10 @@
+import { DownloadJobStatus } from '@lilnas/utils/download/types'
 import { eq } from 'drizzle-orm'
 
-import { reconcileInterruptedJobs } from 'src/db/reconcile-interrupted-jobs'
+import {
+  reconcileInterruptedJobs,
+  RESTART_SURVIVING_STATUSES,
+} from 'src/db/reconcile-interrupted-jobs'
 import { DOWNLOAD_JOB_STATUSES, jobs } from 'src/db/schema'
 
 import { createTestDb } from './test-utils'
@@ -22,12 +26,13 @@ describe('reconcileInterruptedJobs', () => {
       .run()
   }
 
-  it('marks every non-terminal row as failed with an interruption error', () => {
+  it('marks every non-terminal row except needs_attention as failed with an interruption error', () => {
     const { db, close } = createTestDb()
     try {
       seed(db, 'downloading-1', 'downloading')
       seed(db, 'converting-1', 'converting')
       seed(db, 'pending-1', 'pending')
+      seed(db, 'attention-1', 'needs_attention')
 
       const changed = reconcileInterruptedJobs(db)
 
@@ -37,9 +42,58 @@ describe('reconcileInterruptedJobs', () => {
         expect(row?.status).toBe('failed')
         expect(row?.error).toBe('Interrupted by a service restart')
       }
+
+      const spared = db
+        .select()
+        .from(jobs)
+        .where(eq(jobs.id, 'attention-1'))
+        .all()[0]
+
+      expect(spared?.status).toBe('needs_attention')
+      expect(spared?.error).toBeNull()
     } finally {
       close()
     }
+  })
+
+  // Plan 020. `needs_attention` is the one non-terminal status the sweep
+  // spares: it describes Radarr/Sonarr's "Downloaded - Waiting to Import"
+  // queue row, which is still there after this process restarts. Failing it
+  // would both lie about upstream and offer a Retry that re-grabs a file
+  // already sitting on disk. `bootstrap.ts` re-adopts these rows instead.
+  it('leaves a needs_attention row completely untouched - status, error and updatedAt', () => {
+    const { db, close } = createTestDb()
+    try {
+      seed(db, 'attention-1', 'needs_attention')
+
+      const before = db
+        .select()
+        .from(jobs)
+        .where(eq(jobs.id, 'attention-1'))
+        .all()[0]
+
+      const changed = reconcileInterruptedJobs(db)
+
+      expect(changed).toBe(0)
+
+      const after = db
+        .select()
+        .from(jobs)
+        .where(eq(jobs.id, 'attention-1'))
+        .all()[0]
+
+      expect(after?.status).toBe('needs_attention')
+      expect(after?.error).toBeNull()
+      expect(after?.updatedAt.getTime()).toBe(before?.updatedAt.getTime())
+    } finally {
+      close()
+    }
+  })
+
+  it('lists needs_attention in RESTART_SURVIVING_STATUSES', () => {
+    expect([...RESTART_SURVIVING_STATUSES]).toEqual([
+      DownloadJobStatus.NeedsAttention,
+    ])
   })
 
   // Phase 5. `paused`/`pausing` are non-terminal, so this sweep catches them

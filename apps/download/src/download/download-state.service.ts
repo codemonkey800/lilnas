@@ -20,8 +20,9 @@ import { nanoid } from 'nanoid'
 import { AttributionResolutionService } from 'src/auth/attribution-resolution.service'
 import { DbService } from 'src/db/db.service'
 import { buildJobRow, hydrateJobRow } from 'src/db/job-row'
-import { getJobById } from 'src/db/jobs.repo'
+import { getJobById, listJobsByStatus } from 'src/db/jobs.repo'
 import { mediaIdSuffix, videoNaturalKey } from 'src/db/media-id'
+import { RESTART_SURVIVING_STATUSES } from 'src/db/reconcile-interrupted-jobs'
 import { jobs, type VideoRow } from 'src/db/schema'
 import {
   getVideoById,
@@ -247,6 +248,33 @@ export class DownloadStateService {
     }
 
     return record
+  }
+
+  /**
+   * Boot: puts every restart-surviving row back in the Map so the poller sees
+   * it. Returns the count.
+   *
+   * `reconcileInterruptedJobs()` spares these rows rather than failing them
+   * (their truth lives in Radarr/Sonarr, which outlived this process), but
+   * sparing the row is only half the job - the Map is what
+   * `MediaPollerService` iterates, and a restart empties it, so an unadopted
+   * row would sit at `needs_attention` forever with nothing watching it.
+   *
+   * No `Updated` broadcast: this runs before `app.listen()`, so there is no
+   * WS subscriber to tell, and nothing about the record changed anyway.
+   */
+  adoptSurvivingJobs(): number {
+    let adopted = 0
+
+    for (const status of RESTART_SURVIVING_STATUSES) {
+      for (const row of listJobsByStatus(this.dbService.db, status)) {
+        if (this.adoptJob(row.id)) adopted++
+      }
+    }
+
+    this.logger.log(`Adopted ${adopted} restart-surviving job(s) at boot`)
+
+    return adopted
   }
 
   /** `resolveJobRecord()` with its `media` resolved - the wire shape. */

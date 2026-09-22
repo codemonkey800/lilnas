@@ -679,4 +679,64 @@ describe('DownloadStateService', () => {
       )
     })
   })
+
+  /**
+   * Plan 020. `reconcileInterruptedJobs()` spares `needs_attention` rows at
+   * boot, but the Map is what MediaPollerService iterates and a restart
+   * empties it - so sparing the row only helps if something adopts it back.
+   */
+  describe('adoptSurvivingJobs', () => {
+    function seedRow(id: string, status: DownloadJobStatus) {
+      dbService.db
+        .insert(jobs)
+        .values({
+          id,
+          mediaId: `tmdb:${id}`,
+          origin: 'service',
+          status,
+          type: 'movie',
+        })
+        .run()
+    }
+
+    it('puts every restart-surviving row in the map and returns the count', () => {
+      seedRow('attention-1', DownloadJobStatus.NeedsAttention)
+      seedRow('attention-2', DownloadJobStatus.NeedsAttention)
+      seedRow('done-1', DownloadJobStatus.Completed)
+      seedRow('downloading-1', DownloadJobStatus.Downloading)
+
+      expect(service.adoptSurvivingJobs()).toBe(2)
+      expect([...service.jobs.keys()].sort()).toEqual([
+        'attention-1',
+        'attention-2',
+      ])
+      expect(service.jobs.get('attention-1')?.status).toBe(
+        DownloadJobStatus.NeedsAttention,
+      )
+    })
+
+    it('broadcasts nothing - nothing is connected at boot', () => {
+      seedRow('attention-1', DownloadJobStatus.NeedsAttention)
+
+      service.adoptSurvivingJobs()
+
+      expect(downloadGateway.broadcastPerViewer).not.toHaveBeenCalled()
+    })
+
+    it('is idempotent - a second sweep re-adopts nothing new', () => {
+      seedRow('attention-1', DownloadJobStatus.NeedsAttention)
+      const first = service.adoptSurvivingJobs()
+      const adopted = service.jobs.get('attention-1')
+
+      expect(first).toBe(1)
+      expect(service.adoptSurvivingJobs()).toBe(1)
+      expect(service.jobs.size).toBe(1)
+      expect(service.jobs.get('attention-1')).toBe(adopted)
+    })
+
+    it('returns 0 on an empty table', () => {
+      expect(service.adoptSurvivingJobs()).toBe(0)
+      expect(service.jobs.size).toBe(0)
+    })
+  })
 })

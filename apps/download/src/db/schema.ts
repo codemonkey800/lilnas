@@ -47,6 +47,11 @@ export const DOWNLOAD_JOB_STATUSES = [
   'downloading',
   'failed',
   'importing',
+  // Plan 020. Same story as the two below - no migration, the enum is
+  // TypeScript-only. Unlike them, this one is *meant* to outlive the
+  // process: it describes Radarr/Sonarr's queue row, not anything this
+  // process holds (see reconcile-interrupted-jobs.ts).
+  'needs_attention',
   // Phase 5. No migration accompanies these two: `status` is a bare
   // `text NOT NULL` column with no CHECK constraint behind it (the enum
   // lives only in drizzle's TS types), so widening the tuple emits no SQL.
