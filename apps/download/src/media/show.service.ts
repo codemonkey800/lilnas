@@ -261,9 +261,23 @@ export class ShowService {
       await this.sonarrService.deleteEpisodeFile(id)
     }
 
-    await this.unmonitor('sonarr', mediaId, () =>
-      this.sonarrService.unmonitorScope(sonarrId, scope),
-    )
+    // `unmonitorScope` only ever touches episodes. For a whole-series delete
+    // (no season or episode named) that leaves the series row itself
+    // monitored with every episode off - `ensureSeries` then sees an
+    // already-monitored series on the next plain re-request, skips its
+    // episode pass, and `SeriesSearch` silently finds nothing to grab.
+    // Unmonitoring the series row too makes that state visible to
+    // `ensureSeries`, which re-monitors every episode when it flips the
+    // series back on.
+    const isWholeSeriesDelete =
+      scope.seasonNumber == null && scope.episodeId == null
+
+    await this.unmonitor('sonarr', mediaId, async () => {
+      await this.sonarrService.unmonitorScope(sonarrId, scope)
+      if (isWholeSeriesDelete) {
+        await this.sonarrService.setSeriesMonitored(sonarrId, false)
+      }
+    })
 
     this.logger.log(
       {

@@ -400,9 +400,19 @@ export class SonarrService {
         await this.setSeriesMonitored(existing.id, true)
       }
 
+      // An unmonitored series only happens via a whole-series delete (see
+      // `ShowService.deleteShowFiles`), which also unmonitors every episode.
+      // No `monitorEpisodes` scope would otherwise leave those episodes off
+      // forever - the series row would be monitored again but Sonarr would
+      // still have nothing monitored to search for. Treat it the same as an
+      // explicit whole-series scope; a partially-monitored series (some
+      // seasons on, some off) never trips this because it stays
+      // series-level-monitored the whole time.
       const turnedOnEpisodeIds = opts.monitorEpisodes
         ? await this.monitorScopedEpisodes(existing.id, opts.monitorEpisodes)
-        : []
+        : wasMonitored
+          ? []
+          : await this.monitorScopedEpisodes(existing.id, {})
 
       return {
         series: existing,

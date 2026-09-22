@@ -146,6 +146,7 @@ describe('ShowService', () => {
       getEpisodeFiles: jest.fn().mockResolvedValue([]),
       getEpisodes: jest.fn().mockResolvedValue([]),
       listSeasons: jest.fn().mockResolvedValue([SEASON]),
+      setSeriesMonitored: jest.fn(),
       unmonitorScope: jest.fn().mockResolvedValue(0),
     } as unknown as jest.Mocked<SonarrService>
 
@@ -323,6 +324,9 @@ describe('ShowService', () => {
       expect(sonarrService.deleteEpisodeFile).toHaveBeenCalledWith(991)
       expect(sonarrService.unmonitorScope).toHaveBeenCalledWith(9, scope)
       expect(mediaResolverService.invalidate).toHaveBeenCalledWith(SHOW_ID)
+      // A scoped delete (one episode here) leaves the series row alone -
+      // only a whole-series delete unmonitors the series itself.
+      expect(sonarrService.setSeriesMonitored).not.toHaveBeenCalled()
     })
 
     it('deletes every file of a season, sequentially', async () => {
@@ -338,9 +342,11 @@ describe('ShowService', () => {
       ).resolves.toBe(2)
 
       expect(sonarrService.deleteEpisodeFile.mock.calls).toEqual([[1], [2]])
+      // A single-season delete isn't a whole-series delete.
+      expect(sonarrService.setSeriesMonitored).not.toHaveBeenCalled()
     })
 
-    it('deletes every file of the title when the scope is empty', async () => {
+    it('deletes every file of the title when the scope is empty, and unmonitors the series row too', async () => {
       resolvesTo(showInLibrary())
       sonarrService.getEpisodeFiles.mockResolvedValue([
         { id: 1, seasonNumber: 1 },
@@ -349,6 +355,10 @@ describe('ShowService', () => {
 
       await expect(service.deleteFiles(SHOW_ID, {})).resolves.toBe(2)
       expect(sonarrService.unmonitorScope).toHaveBeenCalledWith(9, {})
+      // Without this, `ensureSeries` sees the series row still monitored on
+      // the next plain re-request, skips its episode pass, and Sonarr's
+      // `SeriesSearch` silently finds nothing to grab.
+      expect(sonarrService.setSeriesMonitored).toHaveBeenCalledWith(9, false)
     })
 
     // The caller asked for a state, and that state already holds.

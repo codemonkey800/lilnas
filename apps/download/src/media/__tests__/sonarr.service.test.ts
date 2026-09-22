@@ -374,7 +374,7 @@ describe('SonarrService', () => {
       expect(postApiV3Command).not.toHaveBeenCalled()
     })
 
-    it('flips series-level monitoring on for a library series that is unmonitored', async () => {
+    it('flips series-level monitoring on for a library series that is unmonitored, and re-monitors every episode', async () => {
       mockGetApiV3Series.mockResolvedValue({
         data: [{ id: 9, monitored: false, tvdbId: 456 }],
       })
@@ -382,14 +382,35 @@ describe('SonarrService', () => {
         data: { id: 9, monitored: false, qualityProfileId: 2, tvdbId: 456 },
       })
       mockPutApiV3SeriesById.mockResolvedValue({ data: {} })
+      mockGetApiV3Episode.mockResolvedValue({
+        data: [
+          { id: 100, monitored: false, seasonNumber: 1 },
+          { id: 101, monitored: false, seasonNumber: 2 },
+        ],
+      })
+      mockPutApiV3EpisodeMonitor.mockResolvedValue({ data: {} })
 
       const result = await service.ensureSeries(456)
 
-      expect(result).toMatchObject({ sonarrId: 9, wasMonitored: false })
+      expect(result).toMatchObject({
+        sonarrId: 9,
+        turnedOnEpisodeIds: [100, 101],
+        wasMonitored: false,
+      })
       expect(putApiV3SeriesById).toHaveBeenCalledWith(
         expect.objectContaining({
           body: expect.objectContaining({ monitored: true }),
           path: { id: '9' },
+        }),
+      )
+      // No `monitorEpisodes` scope was given, so this must widen to the
+      // whole series the same way an empty scope does everywhere else -
+      // otherwise a series brought back from a whole-series delete would
+      // have its row re-monitored but every episode still off, and Sonarr's
+      // `SeriesSearch` finds nothing to grab.
+      expect(putApiV3EpisodeMonitor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: { episodeIds: [100, 101], monitored: true },
         }),
       )
     })
