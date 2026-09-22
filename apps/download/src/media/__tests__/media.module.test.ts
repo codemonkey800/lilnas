@@ -102,10 +102,12 @@ describe('DownloadModule <-> MediaModule wiring', () => {
   })
 
   // Phase 4's ShowService is injected into DownloadController across the
-  // same forwardRef. It depends only on same-module providers, so the thing
-  // actually at risk is the providers/exports pair in media.module.ts - a
-  // provider registered but not exported type-checks fine and fails only
-  // here, at boot.
+  // same forwardRef, and reaches back over it for DownloadStateService to
+  // cancel a removed title's in-flight jobs - so it now rides the cycle in
+  // both directions. Two things are at risk and both fail only here, at
+  // boot: the providers/exports pair in media.module.ts (a provider
+  // registered but not exported type-checks fine), and DownloadModule
+  // continuing to export DownloadStateService.
   it('instantiates ShowService and injects it across the forwardRef', async () => {
     const module: TestingModule = await Test.createTestingModule({
       imports: [RootTestModule],

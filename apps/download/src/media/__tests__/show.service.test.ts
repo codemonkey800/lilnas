@@ -6,6 +6,8 @@ jest.mock('nanoid', () => ({
 }))
 
 import {
+  type DownloadJobRecord,
+  DownloadJobStatus,
   DownloadType,
   type Episode,
   type Media,
@@ -15,6 +17,7 @@ import { BadRequestException, Logger, NotFoundException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 
 import type { MediaFileReleaseRow } from 'src/db/schema'
+import { DownloadStateService } from 'src/download/download-state.service'
 import { CurrentReleaseService } from 'src/media/current-release.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
 import { RadarrService } from 'src/media/radarr.service'
@@ -93,9 +96,33 @@ function releaseRow(
   }
 }
 
+const JOB_ISO = '2026-09-01T00:00:00.000Z'
+
+function job(
+  id: string,
+  mediaId: string,
+  status: DownloadJobStatus,
+  type: DownloadType = DownloadType.Show,
+): DownloadJobRecord {
+  return {
+    completedAt: null,
+    createdAt: JOB_ISO,
+    discordRequester: null,
+    hiddenAttribution: false,
+    id,
+    linkedDiscord: null,
+    mediaId,
+    requester: null,
+    status,
+    type,
+    updatedAt: JOB_ISO,
+  }
+}
+
 describe('ShowService', () => {
   let service: ShowService
   let currentReleaseService: jest.Mocked<CurrentReleaseService>
+  let downloadStateService: jest.Mocked<DownloadStateService>
   let radarrService: jest.Mocked<RadarrService>
   let sonarrService: jest.Mocked<SonarrService>
   let mediaResolverService: jest.Mocked<MediaResolverService>
@@ -159,10 +186,18 @@ describe('ShowService', () => {
       resolve: jest.fn(),
     } as unknown as jest.Mocked<MediaResolverService>
 
+    // A real Map, not a mock: the cancellation pass iterates it, and the
+    // set of records it holds is the whole point of these assertions.
+    downloadStateService = {
+      jobs: new Map<string, DownloadJobRecord>(),
+      updateJob: jest.fn(),
+    } as unknown as jest.Mocked<DownloadStateService>
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ShowService,
         { provide: CurrentReleaseService, useValue: currentReleaseService },
+        { provide: DownloadStateService, useValue: downloadStateService },
         { provide: MediaResolverService, useValue: mediaResolverService },
         { provide: RadarrService, useValue: radarrService },
         { provide: SonarrService, useValue: sonarrService },
@@ -658,6 +693,114 @@ describe('ShowService', () => {
       await expect(service.deleteFiles(MOVIE_ID, {})).rejects.toThrow(
         NotFoundException,
       )
+    })
+  })
+
+  // A removal leaves the title with no upstream id, and
+  // `MediaPollerService.trackedJobs` skips any job whose media resolves
+  // without one - so an in-flight job the delete does not cancel here is
+  // invisible to the poller until a restart fails it.
+  describe('deleteFiles - cancelling the title’s in-flight jobs', () => {
+    /** Makes a show delete cascade all the way to a series removal. */
+    function removesTheSeries() {
+      resolvesTo(showInLibrary())
+      sonarrService.getEpisodes.mockResolvedValue([
+        { episodeFileId: 991, id: 4412, seasonNumber: 3 },
+      ])
+    }
+
+    function seedJobs(...records: DownloadJobRecord[]) {
+      for (const record of records) {
+        downloadStateService.jobs.set(record.id, record)
+      }
+    }
+
+    it('cancels a searching job when the series is removed', async () => {
+      removesTheSeries()
+      seedJobs(job('show-1', SHOW_ID, DownloadJobStatus.Searching))
+
+      await service.deleteFiles(SHOW_ID, { episodeId: 4412 })
+
+      expect(downloadStateService.updateJob).toHaveBeenCalledWith('show-1', {
+        error: 'Removed from the library',
+        status: DownloadJobStatus.Cancelled,
+      })
+    })
+
+    it('cancels a searching job when the movie is removed', async () => {
+      resolvesTo(movieInLibrary())
+      seedJobs(
+        job(
+          'movie-1',
+          MOVIE_ID,
+          DownloadJobStatus.Searching,
+          DownloadType.Movie,
+        ),
+      )
+
+      await service.deleteFiles(MOVIE_ID, {})
+
+      expect(downloadStateService.updateJob).toHaveBeenCalledWith('movie-1', {
+        error: 'Removed from the library',
+        status: DownloadJobStatus.Cancelled,
+      })
+    })
+
+    it('leaves a terminal job alone', async () => {
+      removesTheSeries()
+      seedJobs(job('show-done', SHOW_ID, DownloadJobStatus.Completed))
+
+      await service.deleteFiles(SHOW_ID, { episodeId: 4412 })
+
+      expect(downloadStateService.updateJob).not.toHaveBeenCalled()
+    })
+
+    it('leaves another title’s job alone', async () => {
+      removesTheSeries()
+      seedJobs(job('other-1', 'tvdb:999', DownloadJobStatus.Searching))
+
+      await service.deleteFiles(SHOW_ID, { episodeId: 4412 })
+
+      expect(downloadStateService.updateJob).not.toHaveBeenCalled()
+    })
+
+    // The title is still in the library after a partial delete, so its jobs
+    // are still pollable and keep running.
+    it('cancels nothing when the delete only reaches a season', async () => {
+      resolvesTo(showInLibrary())
+      sonarrService.getEpisodes.mockResolvedValue([
+        { episodeFileId: 991, id: 4412, seasonNumber: 3 },
+        { episodeFileId: 900, id: 4401, seasonNumber: 1 },
+      ])
+      seedJobs(job('show-1', SHOW_ID, DownloadJobStatus.Searching))
+
+      await expect(
+        service.deleteFiles(SHOW_ID, { episodeId: 4412 }),
+      ).resolves.toMatchObject({ cascade: 'season', removedFromLibrary: false })
+
+      expect(downloadStateService.updateJob).not.toHaveBeenCalled()
+    })
+
+    // The files are already gone upstream by the time this runs, so a
+    // failed bookkeeping write is a warning, not a failed delete.
+    it('swallows and logs an updateJob failure', async () => {
+      removesTheSeries()
+      seedJobs(
+        job('show-1', SHOW_ID, DownloadJobStatus.Searching),
+        job('show-2', SHOW_ID, DownloadJobStatus.Searching),
+      )
+      downloadStateService.updateJob.mockImplementationOnce(() => {
+        throw new Error('job gone')
+      })
+
+      await expect(
+        service.deleteFiles(SHOW_ID, { episodeId: 4412 }),
+      ).resolves.toMatchObject({ removedFromLibrary: true })
+
+      // The second job still gets cancelled - one bad record does not cost
+      // the rest their cancellation.
+      expect(downloadStateService.updateJob).toHaveBeenCalledTimes(2)
+      expect(Logger.prototype.warn).toHaveBeenCalled()
     })
   })
 

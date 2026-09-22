@@ -1,4 +1,5 @@
 import {
+  DownloadJobStatus,
   DownloadType,
   isMovie,
   isShow,
@@ -14,6 +15,7 @@ import {
 } from '@nestjs/common'
 
 import type { MediaFileReleaseRow } from 'src/db/schema'
+import { DownloadStateService } from 'src/download/download-state.service'
 
 import { CurrentReleaseService } from './current-release.service'
 import { planShowDelete, type ShowDeleteCascade } from './delete-cascade.util'
@@ -21,6 +23,18 @@ import { MediaResolverService } from './media-resolver.service'
 import { RadarrService } from './radarr.service'
 import { parseReleaseTarget } from './release.service'
 import { SonarrService } from './sonarr.service'
+
+/**
+ * Statuses a job can never leave. Deliberately a second copy of the set in
+ * media-poller.service.ts rather than an import from it: four members are
+ * cheaper to duplicate than a dependency from this service onto the poller,
+ * which it otherwise has nothing to do with.
+ */
+const TERMINAL_STATUSES = new Set<DownloadJobStatus>([
+  DownloadJobStatus.Cancelled,
+  DownloadJobStatus.Completed,
+  DownloadJobStatus.Failed,
+])
 
 /** What a delete removed, and how far up the title it reached. */
 export interface DeleteFilesResult {
@@ -47,8 +61,12 @@ export interface DeleteFilesResult {
 export class ShowService {
   private readonly logger = new Logger(ShowService.name)
 
+  // `DownloadStateService` arrives across the DownloadModule <-> MediaModule
+  // forwardRef, exactly as it does for MediaDownloadService and
+  // MediaPollerService - see media.module.ts for why that cycle exists.
   constructor(
     private readonly currentReleaseService: CurrentReleaseService,
+    private readonly downloadStateService: DownloadStateService,
     private readonly mediaResolverService: MediaResolverService,
     private readonly radarrService: RadarrService,
     private readonly sonarrService: SonarrService,
@@ -190,6 +208,12 @@ export class ShowService {
    * would re-grab. A delete that leaves nothing behind goes further and
    * removes the title from the library outright, so there is no monitoring
    * state left to get wrong.
+   *
+   * A removal also cancels the title's in-flight jobs. Nothing upstream is
+   * searching for them any more, and `MediaPollerService.trackedJobs` skips
+   * any job whose media no longer resolves to an upstream id - so left alone
+   * they would sit at `Searching` forever, until a restart failed them with
+   * "Interrupted by a service restart".
    */
   async deleteFiles(
     mediaId: string,
@@ -207,7 +231,51 @@ export class ShowService {
     // copy from up to a TTL window ago that this app already knows is wrong.
     this.mediaResolverService.invalidate(mediaId)
 
+    // A season or episode delete leaves the title in the library, so its
+    // jobs are still perfectly pollable and are left alone.
+    if (result.removedFromLibrary) {
+      this.cancelInFlightJobs(mediaId)
+    }
+
     return result
+  }
+
+  /**
+   * Moves every non-terminal job of a removed title to `Cancelled`.
+   *
+   * Iterates the live Map rather than the `jobs` table on purpose: those are
+   * exactly the records `updateJob` can write, and it *throws* on anything
+   * else. A job the Map has never seen (one from before a restart) needs no
+   * help here - it is either already terminal or the next boot sweep fails
+   * it.
+   *
+   * Best-effort by design. The delete has already succeeded upstream by the
+   * time this runs, so a write that fails here is a logged inconsistency,
+   * never a failed delete - and the guard sits inside the loop so one bad
+   * record cannot cost the title's other jobs their cancellation.
+   */
+  private cancelInFlightJobs(mediaId: string): void {
+    for (const record of this.downloadStateService.jobs.values()) {
+      if (record.mediaId !== mediaId || TERMINAL_STATUSES.has(record.status))
+        continue
+
+      try {
+        this.downloadStateService.updateJob(record.id, {
+          error: 'Removed from the library',
+          status: DownloadJobStatus.Cancelled,
+        })
+      } catch (err) {
+        this.logger.warn(
+          {
+            action: 'deleteFiles',
+            error: getErrorMessage(err),
+            jobId: record.id,
+            mediaId,
+          },
+          'Removed the title but failed to cancel one of its in-flight jobs',
+        )
+      }
+    }
   }
 
   private async deleteMovieFiles(
