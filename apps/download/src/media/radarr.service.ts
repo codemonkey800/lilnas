@@ -1,8 +1,11 @@
 import type {
   CommandResourceWritable,
   HistoryResource,
+  Language,
+  ManualImportResource,
   MovieFileResource,
   MovieResource,
+  QualityModel,
   QueueResource,
   ReleaseResource,
 } from '@lilnas/media/radarr'
@@ -11,6 +14,7 @@ import {
   deleteApiV3MoviefileById,
   deleteApiV3QueueById,
   getApiV3HistoryMovie,
+  getApiV3Manualimport,
   getApiV3Movie,
   getApiV3MovieById,
   getApiV3Moviefile,
@@ -47,6 +51,43 @@ import { generateTitleSlug } from 'src/media/title-slug.util'
  * (Mirrors apps/tdr-bot/src/media/services/radarr.service.ts.)
  */
 type MoviesSearchCommand = CommandResourceWritable & { movieIds?: number[] }
+
+/**
+ * One file in a ManualImport command body - what Radarr's own manual-import
+ * dialog sends per row once the user has confirmed it.
+ *
+ * `path` and `movieId` are the only required fields: the path is the file on
+ * disk Radarr refused to import automatically, and `movieId` is the library
+ * entry it should be imported into. Everything else is carried over from the
+ * `ManualImportResource` candidate so Radarr keeps the quality, languages and
+ * release group it already parsed instead of re-deriving them from the
+ * filename - `downloadId` in particular is what lets Radarr tie the import
+ * back to the queue item that produced it.
+ *
+ * Built by the caller from `getManualImportCandidates()` output; exported
+ * because the mapping from candidate to file lives outside this service.
+ */
+export type RadarrManualImportFile = {
+  downloadId?: string | null
+  folderName?: string | null
+  indexerFlags?: number
+  languages?: Language[] | null
+  movieId: number
+  path: string
+  quality?: QualityModel
+  releaseGroup?: string | null
+}
+
+/**
+ * The ManualImport command body. Neither SDK types command-specific fields -
+ * `CommandResourceWritable` carries only `name` - so this is the same
+ * locally-typed intersection trick `MoviesSearchCommand` above uses, posted
+ * through `postApiV3Command`.
+ */
+type ManualImportCommand = CommandResourceWritable & {
+  files: RadarrManualImportFile[]
+  importMode: 'auto' | 'copy' | 'move'
+}
 
 export interface RequestMovieResult {
   overview?: string
@@ -539,6 +580,116 @@ export class RadarrService {
     )
 
     return paging.records ?? []
+  }
+
+  /**
+   * The files Radarr found for a stuck download, as *manual-import
+   * candidates* - the same list its manual-import dialog shows when a
+   * download finished but Radarr refused to import it ("Downloaded - Waiting
+   * to Import").
+   *
+   * `filterExistingFiles: true` matches what the dialog itself sends: files
+   * Radarr already holds for the movie are dropped, so the list is only what
+   * is genuinely still outside the library.
+   *
+   * Returned **raw and unmapped** on purpose. A candidate carries the quality,
+   * languages, release group and indexer flags Radarr parsed, and the caller
+   * has to hand all of them straight back in the import command - mapping to
+   * a domain shape here would mean reconstructing them afterwards.
+   *
+   * An empty list is a legitimate answer (nothing left to import), so it is
+   * returned as `[]` rather than treated as an error; the caller decides what
+   * that means. An upstream failure still throws, via `unwrapSdkResult`.
+   *
+   * A candidate's `rejections` are informational. They explain why the
+   * *automatic* import was refused - typically that the folder name did not
+   * match the grabbed release - but Radarr's `ManualImportService` builds a
+   * fresh import decision with no rejections for each file it is handed, so
+   * even a `permanent` rejection does not block the manual import below.
+   */
+  async getManualImportCandidates(
+    downloadId: string,
+    radarrId: number,
+  ): Promise<ManualImportResource[]> {
+    return unwrapSdkResult(
+      await getApiV3Manualimport({
+        client: this.client,
+        query: {
+          downloadId,
+          filterExistingFiles: true,
+          movieId: radarrId,
+        },
+      }),
+      'getManualImportCandidates',
+    )
+  }
+
+  /**
+   * Actually performs the import of files picked out of
+   * `getManualImportCandidates()`.
+   *
+   * Note which endpoint this is **not**: `postApiV3Manualimport` (`POST
+   * /api/v3/manualimport`) is Radarr's *reprocess* endpoint. It re-evaluates
+   * candidates after a user edits a field in the dialog - changing the movie,
+   * the quality, the languages - and hands back updated candidates. It
+   * imports nothing, so it is deliberately unused here.
+   *
+   * The import is a Radarr *command*, posted through `postApiV3Command` like
+   * every other command this service sends.
+   *
+   * `importMode: 'auto'` is what Radarr's own UI sends: it lets Radarr pick
+   * move-vs-copy from the download client's settings, rather than this app
+   * overriding a choice the user already made there (hardlink-friendly copy
+   * for a still-seeding torrent, move for a finished usenet grab).
+   *
+   * Throws on an empty list before touching Radarr - a command with no files
+   * is a caller bug, and Radarr would accept it and silently do nothing.
+   */
+  async commitManualImport(files: RadarrManualImportFile[]): Promise<void> {
+    if (files.length === 0) {
+      throw new Error('commitManualImport requires at least one file')
+    }
+
+    const command: ManualImportCommand = {
+      name: 'ManualImport',
+      importMode: 'auto',
+      files,
+    }
+
+    checkSdkError(
+      await postApiV3Command({ client: this.client, body: command }),
+      'commitManualImport',
+    )
+  }
+
+  /**
+   * Drops one row from Radarr's queue - the cleanup step after a manual
+   * import, since importing the files does not itself clear the stuck
+   * "waiting to import" entry.
+   *
+   * The three flags are all deliberate:
+   * - `removeFromClient: true` also tells the download client to let go of
+   *   the finished download, so it does not sit there forever.
+   * - `blocklist: false` because the release was never the problem - the
+   *   folder name was. Blocklisting it would stop Radarr from picking the
+   *   same (perfectly good) release the next time it searches.
+   * - `skipRedownload: true` because the files have just been imported by
+   *   hand; without it Radarr would immediately go searching for a
+   *   replacement nobody asked for.
+   */
+  async removeQueueItem(queueId: number): Promise<void> {
+    checkSdkError(
+      await deleteApiV3QueueById({
+        client: this.client,
+        path: { id: queueId },
+        query: {
+          blocklist: false,
+          removeFromClient: true,
+          skipRedownload: true,
+        },
+      }),
+      'removeQueueItem',
+    )
   }
 
   /**

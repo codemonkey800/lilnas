@@ -7,6 +7,7 @@ jest.mock('@lilnas/media/radarr', () => ({
   deleteApiV3MoviefileById: jest.fn(),
   deleteApiV3QueueById: jest.fn(),
   getApiV3HistoryMovie: jest.fn(),
+  getApiV3Manualimport: jest.fn(),
   getApiV3Movie: jest.fn(),
   getApiV3MovieById: jest.fn(),
   getApiV3Moviefile: jest.fn(),
@@ -27,6 +28,7 @@ import {
   deleteApiV3MoviefileById,
   deleteApiV3QueueById,
   getApiV3HistoryMovie,
+  getApiV3Manualimport,
   getApiV3Movie,
   getApiV3MovieById,
   getApiV3Moviefile,
@@ -43,6 +45,7 @@ import {
 } from '@lilnas/media/radarr'
 
 import { RADARR_CLIENT } from 'src/media/clients'
+import type { RadarrManualImportFile } from 'src/media/radarr.service'
 import { RadarrService } from 'src/media/radarr.service'
 
 const mockGetApiV3MovieLookup = getApiV3MovieLookup as jest.Mock
@@ -62,6 +65,7 @@ const mockGetApiV3Moviefile = getApiV3Moviefile as jest.Mock
 const mockDeleteApiV3MoviefileById = deleteApiV3MoviefileById as jest.Mock
 const mockPutApiV3MovieById = putApiV3MovieById as jest.Mock
 const mockGetApiV3HistoryMovie = getApiV3HistoryMovie as jest.Mock
+const mockGetApiV3Manualimport = getApiV3Manualimport as jest.Mock
 
 describe('RadarrService', () => {
   let service: RadarrService
@@ -839,6 +843,181 @@ describe('RadarrService', () => {
       const result = await service.getQueue()
 
       expect(result).toEqual([])
+    })
+  })
+
+  describe('getManualImportCandidates', () => {
+    // Trimmed from the real stuck candidate on the production Radarr:
+    // movie 434, Game Night (2018), whose folder name did not match the
+    // grabbed release so the automatic import was refused.
+    const candidate = {
+      downloadId: 'ce427a39-be9f-4271-b193-f7067dd82c4a',
+      folderName: 'Game.Night.2018.1080p.BluRay.x265',
+      id: 26454175,
+      indexerFlags: 0,
+      languages: [{ id: 1, name: 'English' }],
+      path: '/downloads/Game.Night.2018.1080p.BluRay.x265/Game.Night.2018.1080p.BluRay.x265.mp4',
+      quality: {
+        quality: {
+          id: 7,
+          modifier: 'none',
+          name: 'Bluray-1080p',
+          resolution: 1080,
+          source: 'bluray',
+        },
+        revision: { isRepack: false, real: 0, version: 1 },
+      },
+      rejections: [
+        {
+          reason:
+            'Movie [Game Night (2018)][tt2704998, 445571] was not found in the grabbed release: Game.Night.2018.1080p.BluRay.x265',
+          type: 'permanent',
+        },
+      ],
+      relativePath: 'Game.Night.2018.1080p.BluRay.x265.mp4',
+      releaseGroup: null,
+      size: 1674940307,
+    }
+
+    it('queries by both ids and filters files already in the library', async () => {
+      mockGetApiV3Manualimport.mockResolvedValue({ data: [candidate] })
+
+      await service.getManualImportCandidates(
+        'ce427a39-be9f-4271-b193-f7067dd82c4a',
+        434,
+      )
+
+      expect(getApiV3Manualimport).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: {
+            downloadId: 'ce427a39-be9f-4271-b193-f7067dd82c4a',
+            filterExistingFiles: true,
+            movieId: 434,
+          },
+        }),
+      )
+    })
+
+    it('returns the raw candidates, rejections and all, unmapped', async () => {
+      mockGetApiV3Manualimport.mockResolvedValue({ data: [candidate] })
+
+      const result = await service.getManualImportCandidates('abc', 434)
+
+      expect(result).toEqual([candidate])
+    })
+
+    it('returns an empty array when Radarr has nothing left to import', async () => {
+      mockGetApiV3Manualimport.mockResolvedValue({ data: [] })
+
+      await expect(
+        service.getManualImportCandidates('abc', 434),
+      ).resolves.toEqual([])
+    })
+
+    it('throws when the lookup fails upstream', async () => {
+      mockGetApiV3Manualimport.mockResolvedValue({
+        error: { message: 'radarr exploded' },
+        response: { status: 500 },
+      })
+
+      await expect(
+        service.getManualImportCandidates('abc', 434),
+      ).rejects.toThrow('getManualImportCandidates failed')
+    })
+  })
+
+  describe('commitManualImport', () => {
+    const file: RadarrManualImportFile = {
+      downloadId: 'ce427a39-be9f-4271-b193-f7067dd82c4a',
+      folderName: 'Game.Night.2018.1080p.BluRay.x265',
+      indexerFlags: 0,
+      languages: [{ id: 1, name: 'English' }],
+      movieId: 434,
+      path: '/downloads/Game.Night.2018.1080p.BluRay.x265/Game.Night.2018.1080p.BluRay.x265.mp4',
+      quality: {
+        quality: {
+          id: 7,
+          modifier: 'none',
+          name: 'Bluray-1080p',
+          resolution: 1080,
+          source: 'bluray',
+        },
+        revision: { isRepack: false, real: 0, version: 1 },
+      },
+      releaseGroup: null,
+    }
+
+    it('posts the ManualImport command with importMode auto and the files untouched', async () => {
+      mockPostApiV3Command.mockResolvedValue({ data: {} })
+
+      await service.commitManualImport([file])
+
+      expect(postApiV3Command).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: {
+            name: 'ManualImport',
+            importMode: 'auto',
+            files: [file],
+          },
+        }),
+      )
+    })
+
+    it('goes through the command endpoint, not the reprocess endpoint', async () => {
+      mockPostApiV3Command.mockResolvedValue({ data: {} })
+
+      await service.commitManualImport([file])
+
+      expect(postApiV3Command).toHaveBeenCalledTimes(1)
+      expect(getApiV3Manualimport).not.toHaveBeenCalled()
+    })
+
+    it('throws without calling Radarr when handed no files', async () => {
+      await expect(service.commitManualImport([])).rejects.toThrow(
+        'commitManualImport requires at least one file',
+      )
+      expect(postApiV3Command).not.toHaveBeenCalled()
+    })
+
+    it('surfaces an upstream command failure with its context', async () => {
+      mockPostApiV3Command.mockResolvedValue({
+        error: { message: 'command rejected' },
+        response: { status: 400 },
+      })
+
+      await expect(service.commitManualImport([file])).rejects.toThrow(
+        'commitManualImport failed',
+      )
+    })
+  })
+
+  describe('removeQueueItem', () => {
+    it('deletes the queue row without blocklisting or re-searching', async () => {
+      mockDeleteApiV3QueueById.mockResolvedValue({ data: undefined })
+
+      await service.removeQueueItem(99)
+
+      expect(deleteApiV3QueueById).toHaveBeenCalledWith(
+        expect.objectContaining({
+          path: { id: 99 },
+          query: {
+            blocklist: false,
+            removeFromClient: true,
+            skipRedownload: true,
+          },
+        }),
+      )
+    })
+
+    it('throws when Radarr refuses the removal', async () => {
+      mockDeleteApiV3QueueById.mockResolvedValue({
+        error: { message: 'no such queue item' },
+        response: { status: 404 },
+      })
+
+      await expect(service.removeQueueItem(99)).rejects.toThrow(
+        'removeQueueItem failed',
+      )
     })
   })
 
