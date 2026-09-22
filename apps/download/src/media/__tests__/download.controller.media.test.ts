@@ -681,7 +681,11 @@ describe('DownloadController - media endpoints', () => {
 
       await expect(
         controller.deleteMediaFiles('tvdb:2', query, undefined),
-      ).resolves.toEqual({ deletedCount: 2, mediaId: 'tvdb:2' })
+      ).resolves.toEqual({
+        deletedCount: 2,
+        mediaId: 'tvdb:2',
+        removedFromLibrary: false,
+      })
 
       expect(showService.deleteFiles).toHaveBeenCalledWith('tvdb:2', {
         episodeId: (query as { episodeId?: number }).episodeId,
@@ -700,8 +704,36 @@ describe('DownloadController - media endpoints', () => {
 
       await expect(
         controller.deleteMediaFiles('tvdb:2', {}, undefined),
-      ).resolves.toEqual({ deletedCount: 0, mediaId: 'tvdb:2' })
+      ).resolves.toEqual({
+        deletedCount: 0,
+        mediaId: 'tvdb:2',
+        removedFromLibrary: false,
+      })
     })
+
+    // The wire contract's whole point: the caller has to be told the title
+    // itself is gone, because its page has nothing left to show.
+    it.each([
+      ['a movie the delete removed from Radarr', 'tmdb:1', 'none'],
+      ['a series the delete removed from Sonarr', 'tvdb:2', 'series'],
+    ] as const)(
+      'reports removedFromLibrary for %s',
+      async (_l, mediaId, cascade) => {
+        showService.deleteFiles.mockResolvedValue({
+          cascade,
+          deletedCount: 9,
+          removedFromLibrary: true,
+        })
+
+        await expect(
+          controller.deleteMediaFiles(mediaId, {}, undefined),
+        ).resolves.toEqual({
+          deletedCount: 9,
+          mediaId,
+          removedFromLibrary: true,
+        })
+      },
+    )
 
     // The reason this route is not `mediaJobRoute()`: that helper would
     // report this as "not found", hiding a malformed request.
@@ -1049,8 +1081,62 @@ describe('DownloadController - media endpoints', () => {
           action: 'media.delete_files',
           actor: alice,
           metadata: {
+            cascade: 'none',
             deletedCount: 2,
+            removedFromLibrary: false,
             scope: { episodeId: 4412, seasonNumber: 3 },
+          },
+          target: { id: 'tvdb:2', type: 'media' },
+        })
+      })
+
+      // How far the delete reached is the part of the story the count and
+      // the scope cannot tell: an episode delete that emptied the season
+      // unmonitored the season too.
+      it('records how far the delete cascaded', async () => {
+        showService.deleteFiles.mockResolvedValue({
+          cascade: 'season',
+          deletedCount: 1,
+          removedFromLibrary: false,
+        })
+
+        await controller.deleteMediaFiles(
+          'tvdb:2',
+          { episodeId: 4412, seasonNumber: 3 },
+          alice,
+        )
+
+        expect(auditLogService.record).toHaveBeenCalledWith(
+          expect.objectContaining({
+            metadata: {
+              cascade: 'season',
+              deletedCount: 1,
+              removedFromLibrary: false,
+              scope: { episodeId: 4412, seasonNumber: 3 },
+            },
+          }),
+        )
+      })
+
+      // A series-wide cascade is the one row an admin most needs to find
+      // later - it is why the title vanished from the library.
+      it('records a cascade that removed the series from Sonarr', async () => {
+        showService.deleteFiles.mockResolvedValue({
+          cascade: 'series',
+          deletedCount: 4,
+          removedFromLibrary: true,
+        })
+
+        await controller.deleteMediaFiles('tvdb:2', { seasonNumber: 3 }, alice)
+
+        expect(auditLogService.record).toHaveBeenCalledWith({
+          action: 'media.delete_files',
+          actor: alice,
+          metadata: {
+            cascade: 'series',
+            deletedCount: 4,
+            removedFromLibrary: true,
+            scope: { seasonNumber: 3 },
           },
           target: { id: 'tvdb:2', type: 'media' },
         })
@@ -1070,7 +1156,11 @@ describe('DownloadController - media endpoints', () => {
         expect(auditLogService.record).toHaveBeenCalledWith({
           action: 'media.delete_files',
           actor: alice,
-          metadata: { deletedCount: 0 },
+          metadata: {
+            cascade: 'none',
+            deletedCount: 0,
+            removedFromLibrary: false,
+          },
           target: { id: 'tvdb:2', type: 'media' },
         })
       })

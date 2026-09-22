@@ -945,9 +945,13 @@ export class DownloadController {
    * of the title - and unmonitors that same scope so Sonarr doesn't treat
    * the result as a missing episode and re-grab it.
    *
-   * **Removes files, not the library entry.** The series/movie stays in
-   * Sonarr/Radarr and existing jobs keep their history; removing a title
-   * outright is still `DELETE /shows/:jobId` / `DELETE /movies/:jobId`.
+   * **The delete cascades upward.** Emptying a season unmonitors that
+   * season, and emptying the last monitored season removes the series from
+   * Sonarr outright; a movie, or a whole-title show scope, always removes
+   * the title from Radarr/Sonarr. The response's `removedFromLibrary` says
+   * whether the title itself is gone, and the audit row's `cascade` says how
+   * far the delete reached. Existing jobs keep their history, and nothing
+   * here is permanent - requesting the title again re-adds it.
    *
    * Deliberately **not** `mediaJobRoute()`: that helper turns every failure
    * into a 404, which would report a movie-with-scope `BadRequestException`
@@ -964,25 +968,28 @@ export class DownloadController {
     const action = 'deleteMediaFiles'
     const startTime = Date.now()
 
-    const { deletedCount } = await this.showService.deleteFiles(id, {
-      episodeId: query.episodeId,
-      seasonNumber: query.seasonNumber,
-    })
+    const { cascade, deletedCount, removedFromLibrary } =
+      await this.showService.deleteFiles(id, {
+        episodeId: query.episodeId,
+        seasonNumber: query.seasonNumber,
+      })
 
     this.logger.log(
       {
         action,
+        cascade,
         deletedCount,
         duration: Date.now() - startTime,
         episodeId: query.episodeId,
         mediaId: id,
+        removedFromLibrary,
         // Not masked and not used for authorization - a delete is an action
         // someone took, and the log is the only place it's recorded.
         requestedBy: user?.email ?? null,
         seasonNumber: query.seasonNumber,
         statusCode: HttpStatus.OK,
       },
-      'DELETE /media/:id/files - deleted files and unmonitored the scope',
+      'DELETE /media/:id/files - deleted files and cascaded the unmonitor',
     )
 
     // A zero-count delete is still recorded: the request succeeded, someone
@@ -996,11 +1003,18 @@ export class DownloadController {
     this.auditLogService.record({
       action: 'media.delete_files',
       actor: user,
-      metadata: { deletedCount, ...(scope ? { scope } : {}) },
+      // `cascade` is what tells a later reader whether this row is the one
+      // that took the season - or the whole series - out of Sonarr.
+      metadata: {
+        cascade,
+        deletedCount,
+        removedFromLibrary,
+        ...(scope ? { scope } : {}),
+      },
       target: { id, type: 'media' },
     })
 
-    return { deletedCount, mediaId: id }
+    return { deletedCount, mediaId: id, removedFromLibrary }
   }
 
   // @OptionalCurrentUser() rather than a guard, matching POST /movies: a

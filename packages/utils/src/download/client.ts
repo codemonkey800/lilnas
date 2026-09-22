@@ -616,7 +616,9 @@ export class DownloadClient {
    * Deletes the files of a title, scoped narrowest-first by the query
    * (`episodeId`, then `seasonNumber`, then everything).
    *
-   * Deletes files only - see `DeleteMediaFilesResponse` for what survives.
+   * The delete cascades up, and a movie or a whole-title show scope takes
+   * the title out of Radarr/Sonarr with it - read `removedFromLibrary` on
+   * the answer to know whether it did. See `DeleteMediaFilesResponse`.
    */
   async deleteMediaFiles(
     id: string,

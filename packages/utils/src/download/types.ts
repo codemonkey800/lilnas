@@ -383,13 +383,20 @@ export interface ListSeasonsResponse {
  * `DELETE /download/media/:id/files`. Deleting zero files is a success, not
  * a 404: the caller asked for a state, and that state already held.
  *
- * This removes **files**, never the library entry - the series/movie stays
- * in Sonarr/Radarr. Removing the title entirely is still
- * `DELETE /download/shows/:jobId` / `DELETE /download/movies/:jobId`.
+ * The delete **cascades upward**. Emptying a season unmonitors that season,
+ * and emptying the last monitored season removes the series from Sonarr
+ * outright; a movie, or a whole-title show scope, always removes the title
+ * from Radarr/Sonarr. `removedFromLibrary` reports whether that happened.
+ * Nothing here is permanent - requesting the title again re-adds it.
  */
 export interface DeleteMediaFilesResponse {
   deletedCount: number
   mediaId: string
+  /**
+   * `true` when the delete reached the whole title and it was removed from
+   * Radarr/Sonarr.
+   */
+  removedFromLibrary: boolean
 }
 
 // ---- Phase 7: local save-to-device ----

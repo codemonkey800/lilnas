@@ -703,7 +703,11 @@ describe('DownloadClient', () => {
     })
 
     it('deleteMediaFiles issues a DELETE to /files with the scope query', async () => {
-      const result = { deletedCount: 3, mediaId: MEDIA_ID }
+      const result = {
+        deletedCount: 3,
+        mediaId: MEDIA_ID,
+        removedFromLibrary: false,
+      }
       const fetchSpy = mockFetchJson(result)
 
       await expect(
@@ -716,7 +720,11 @@ describe('DownloadClient', () => {
     })
 
     it('deleteMediaFiles omits the query string entirely when unscoped', async () => {
-      const fetchSpy = mockFetchJson({ deletedCount: 0, mediaId: MEDIA_ID })
+      const fetchSpy = mockFetchJson({
+        deletedCount: 0,
+        mediaId: MEDIA_ID,
+        removedFromLibrary: true,
+      })
 
       await client.deleteMediaFiles(MEDIA_ID)
 
