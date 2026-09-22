@@ -136,12 +136,17 @@ export class MediaDownloadService {
   /**
    * Requests a show, optionally narrowed to one season or one episode.
    *
-   * With no `scope` this is byte-for-byte the pre-Phase-4 path: bare
-   * `ensureSeries`, `SeriesSearch`, no scope-resolution round trip and no
-   * `scope` on the job. `ensureSeries` deliberately keeps receiving *no*
-   * options in that case - a user who has monitored just season 3 and then
-   * re-requests the show must not silently get all ten seasons switched on
-   * (see `EnsureSeriesOptions`).
+   * Whatever the scope, the request monitors exactly what it covers, across
+   * all three of Sonarr's independent `monitored` flags: a bare request
+   * monitors every season flag and every episode, a season request monitors
+   * that season's flag and its episodes, and an episode request monitors
+   * only the episode and leaves its season's flag alone. A bare
+   * `POST /download/shows` is an *explicit* whole-series request, so it
+   * passes an empty scope rather than no options at all (see
+   * `EnsureSeriesOptions`).
+   *
+   * With no `scope` there is still no scope-resolution round trip and no
+   * `scope` on the job - the search stays the generic `SeriesSearch`.
    */
   async requestShow(
     tvdbId: number,
@@ -158,11 +163,24 @@ export class MediaDownloadService {
       requester,
       scope,
       submit: async () => {
-        const { sonarrId } = scope
-          ? await this.sonarrService.ensureSeries(tvdbId, {
-              monitorEpisodes: scope,
-            })
-          : await this.sonarrService.ensureSeries(tvdbId)
+        // Always an explicit scope now - `{}` is "the whole series", which
+        // is what a bare request means. See `EnsureSeriesOptions`.
+        const { sonarrId } = await this.sonarrService.ensureSeries(tvdbId, {
+          monitorEpisodes: scope ?? {},
+        })
+
+        // Season flags after episodes, never before: Sonarr's `PUT /series`
+        // may cascade a changed season flag down to that season's episodes,
+        // so every episode read that feeds a result has to have happened
+        // already. An episode request leaves its season's flag alone.
+        if (scope?.episodeId == null) {
+          await this.sonarrService.setSeasonsMonitored(
+            sonarrId,
+            // `!= null`, not truthiness - season 0 is Sonarr's specials.
+            scope?.seasonNumber != null ? [scope.seasonNumber] : 'all',
+            true,
+          )
+        }
 
         // Resolved *after* `ensureSeries`, not before: an episode id can't
         // exist for a series Sonarr has never seen, so resolving first

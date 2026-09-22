@@ -94,6 +94,7 @@ describe('MediaDownloadService', () => {
           : scope,
       ),
       search: jest.fn(),
+      setSeasonsMonitored: jest.fn().mockResolvedValue([]),
       triggerEpisodeSearch: jest.fn(),
       triggerSeasonSearch: jest.fn(),
       triggerSearch: jest.fn(),
@@ -253,7 +254,9 @@ describe('MediaDownloadService', () => {
     it('triggers the generic search command when the title has no flagged releases', async () => {
       await service.requestShow(456)
 
-      expect(sonarrService.ensureSeries).toHaveBeenCalledWith(456)
+      expect(sonarrService.ensureSeries).toHaveBeenCalledWith(456, {
+        monitorEpisodes: {},
+      })
       expect(sonarrService.triggerSearch).toHaveBeenCalledWith(9)
       expect(sonarrService.getReleases).not.toHaveBeenCalled()
     })
@@ -267,17 +270,52 @@ describe('MediaDownloadService', () => {
       expect(job.error).toBe('sonarr down')
     })
 
-    // The no-regression guarantee: an unscoped request must be exactly what
-    // it was before Phase 4 - bare ensureSeries, generic command, no
-    // resolution round trip, no scope on the job.
-    it('leaves an unscoped request untouched by Phase 4', async () => {
+    // A bare request is an *explicit* whole-series request: an empty scope
+    // (not "no options"), every season flag on, the generic command, no
+    // resolution round trip and no scope on the job.
+    it('monitors the whole series for an unscoped request', async () => {
       const job = await service.requestShow(456)
 
-      expect(sonarrService.ensureSeries).toHaveBeenCalledWith(456)
+      expect(sonarrService.ensureSeries).toHaveBeenCalledWith(456, {
+        monitorEpisodes: {},
+      })
+      expect(sonarrService.setSeasonsMonitored).toHaveBeenCalledWith(
+        9,
+        'all',
+        true,
+      )
       expect(sonarrService.resolveScope).not.toHaveBeenCalled()
       expect(sonarrService.triggerEpisodeSearch).not.toHaveBeenCalled()
       expect(sonarrService.triggerSeasonSearch).not.toHaveBeenCalled()
       expect(job.scope).toBeUndefined()
+    })
+
+    // Sonarr's `PUT /series` may cascade a season flag down to that
+    // season's episodes, so every episode read/write has to be done before
+    // the season write - otherwise a cascade could change what gets
+    // reported back as the restore set.
+    it('writes the season flags after ensureSeries, never before', async () => {
+      await service.requestShow(456)
+
+      const ensureOrder =
+        sonarrService.ensureSeries.mock.invocationCallOrder[0] ?? 0
+      const seasonOrder =
+        sonarrService.setSeasonsMonitored.mock.invocationCallOrder[0] ?? 0
+
+      expect(ensureOrder).toBeGreaterThan(0)
+      expect(seasonOrder).toBeGreaterThan(ensureOrder)
+    })
+
+    it('fails the job when the season-flag write throws', async () => {
+      sonarrService.setSeasonsMonitored.mockRejectedValue(
+        new Error('sonarr rejected the season write'),
+      )
+
+      const job = await service.requestShow(456)
+
+      expect(job.status).toBe(DownloadJobStatus.Failed)
+      expect(job.error).toBe('sonarr rejected the season write')
+      expect(sonarrService.triggerSearch).not.toHaveBeenCalled()
     })
   })
 
@@ -329,6 +367,45 @@ describe('MediaDownloadService', () => {
       expect(sonarrService.ensureSeries).toHaveBeenCalledWith(456, {
         monitorEpisodes: scope,
       })
+    })
+
+    // The season flag is Sonarr's third, independent `monitored` switch:
+    // without this write, Sonarr's own UI and its RSS/missing jobs still
+    // see an unmonitored season even though the episodes are on.
+    it('monitors the scoped season flag', async () => {
+      await service.requestShow(456, null, { seasonNumber: 3 })
+
+      expect(sonarrService.setSeasonsMonitored).toHaveBeenCalledWith(
+        9,
+        [3],
+        true,
+      )
+    })
+
+    // Season 0 is specials - a truthiness check would widen this to every
+    // season's flag.
+    it('monitors the season 0 flag rather than every season', async () => {
+      await service.requestShow(456, null, { seasonNumber: 0 })
+
+      expect(sonarrService.setSeasonsMonitored).toHaveBeenCalledWith(
+        9,
+        [0],
+        true,
+      )
+    })
+
+    it('leaves the season flag alone for an episode request', async () => {
+      await service.requestShow(456, null, { episodeId: 4412 })
+
+      expect(sonarrService.setSeasonsMonitored).not.toHaveBeenCalled()
+    })
+
+    // Narrowest wins here too: a scope naming both is an episode request,
+    // so the season flag stays untouched.
+    it('leaves the season flag alone when the scope names both', async () => {
+      await service.requestShow(456, null, { episodeId: 4412, seasonNumber: 3 })
+
+      expect(sonarrService.setSeasonsMonitored).not.toHaveBeenCalled()
     })
 
     it('mints the job with the requested scope before submit resolves it', async () => {
