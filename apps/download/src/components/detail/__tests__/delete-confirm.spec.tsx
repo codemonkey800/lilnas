@@ -153,7 +153,9 @@ describe('deleteConfirmCopy — the dialog names its scope', () => {
 
     expect(copy.title).toBe('Delete "Salt & Ceremony"?')
     expect(copy.description).toContain("this movie's file")
-    expect(copy.description).toContain('stays in Radarr')
+    expect(copy.description).toContain('removes the movie from Radarr')
+    expect(copy.description).toContain('requested again')
+    expect(copy.description).not.toContain('stays in')
   })
 
   it('a series says it is every season', () => {
@@ -161,7 +163,9 @@ describe('deleteConfirmCopy — the dialog names its scope', () => {
 
     expect(copy.title).toBe('Delete "Harbor Watch"?')
     expect(copy.description).toContain('every episode of every season')
-    expect(copy.description).toContain('stays in Sonarr')
+    expect(copy.description).toContain('removes the series from Sonarr')
+    expect(copy.description).toContain('requested again')
+    expect(copy.description).not.toContain('stays in')
   })
 
   it('a season names the season, and says the others survive', () => {

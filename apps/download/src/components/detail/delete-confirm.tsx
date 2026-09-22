@@ -145,10 +145,15 @@ export type DeleteConfirmCopy = {
  * things that will notice. Naming the player rather than the thing being
  * deleted would understate what happens.
  *
- * The "stays in Radarr/Sonarr" clause is not reassurance — it is
- * `DeleteMediaFilesResponse`'s documented behaviour. This route removes
- * **files**, never the library entry, and a user who reads "delete" as
- * "un-request it" would otherwise be surprised twice.
+ * ⚠️ The "removes the movie/series from Radarr/Sonarr" clause is not a
+ * flourish — it is what `DELETE /download/media/:id/files` now does for a
+ * `movie` or `series` scope. Those two are the arr's real `DELETE /movie/{id}`
+ * / `DELETE /series/{id}` with `deleteFiles=true`: the title goes from the
+ * library **and** from Radarr/Sonarr, so a user who reads "delete" as "just the
+ * files" would otherwise be surprised to find the request itself gone. "Can be
+ * requested again later" is the honest replacement for "can be downloaded
+ * again" — a re-request re-adds the title rather than re-fetching one that is
+ * still there.
  *
  * ⚠️ The `video` sentence deliberately says neither "library" nor "Radarr".
  * A video was never in `/storage/media-library` and no arr ever knew about it:
@@ -157,7 +162,8 @@ export type DeleteConfirmCopy = {
  * dialog claim a file is leaving a library it was never in. What survives is
  * the `videos` row and therefore this page — keyed on `(sourceUrl,
  * timeRange)`, which is why the same link can simply be fetched again — so the
- * clause in the same position as "stays in Radarr" says exactly that.
+ * clause in the same position as "removes the movie from Radarr" says exactly
+ * that.
  */
 export function deleteConfirmCopy(
   scope: DeleteScope,
@@ -180,12 +186,12 @@ export function deleteConfirmCopy(
       }
     case 'series':
       return {
-        description: `Removes the file for every episode of every season from the library${frees}. The series stays in Sonarr, so it can be downloaded again. This can't be undone.`,
+        description: `Removes every episode of every season from the library${frees} and removes the series from Sonarr. It can be requested again later. This can't be undone.`,
         title: `Delete "${title}"?`,
       }
     case 'movie':
       return {
-        description: `Removes this movie's file from the library${frees}. The movie stays in Radarr, so it can be downloaded again. This can't be undone.`,
+        description: `Removes this movie's file from the library${frees} and removes the movie from Radarr. It can be requested again later. This can't be undone.`,
         title: `Delete "${title}"?`,
       }
     case 'video':
