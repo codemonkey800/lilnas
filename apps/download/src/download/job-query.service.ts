@@ -200,6 +200,10 @@ export class JobQueryService {
       excludeHiddenVideos: isRequesterScoped(params)
         ? !params.isAdmin
         : undefined,
+      // A deleted title's jobs stay in `jobs` for history, but the gallery
+      // is "what's in the library right now" - see `removedFromLibrary`
+      // on the schema for why this is the only list route that sets it.
+      excludeRemovedFromLibrary: true,
       requesterEmail: params.requesterEmail,
       statuses: [DownloadJobStatus.Completed],
       types: params.types,

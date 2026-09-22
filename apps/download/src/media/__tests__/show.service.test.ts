@@ -190,6 +190,7 @@ describe('ShowService', () => {
     // set of records it holds is the whole point of these assertions.
     downloadStateService = {
       jobs: new Map<string, DownloadJobRecord>(),
+      markRemovedFromLibrary: jest.fn(),
       updateJob: jest.fn(),
     } as unknown as jest.Mocked<DownloadStateService>
 
@@ -725,6 +726,9 @@ describe('ShowService', () => {
         error: 'Removed from the library',
         status: DownloadJobStatus.Cancelled,
       })
+      expect(downloadStateService.markRemovedFromLibrary).toHaveBeenCalledWith(
+        SHOW_ID,
+      )
     })
 
     it('cancels a searching job when the movie is removed', async () => {
@@ -744,6 +748,9 @@ describe('ShowService', () => {
         error: 'Removed from the library',
         status: DownloadJobStatus.Cancelled,
       })
+      expect(downloadStateService.markRemovedFromLibrary).toHaveBeenCalledWith(
+        MOVIE_ID,
+      )
     })
 
     it('leaves a terminal job alone', async () => {
@@ -779,6 +786,7 @@ describe('ShowService', () => {
       ).resolves.toMatchObject({ cascade: 'season', removedFromLibrary: false })
 
       expect(downloadStateService.updateJob).not.toHaveBeenCalled()
+      expect(downloadStateService.markRemovedFromLibrary).not.toHaveBeenCalled()
     })
 
     // The files are already gone upstream by the time this runs, so a

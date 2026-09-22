@@ -50,11 +50,14 @@ export interface DeleteFilesResult {
  * The season/episode half of Phase 4: browsing a series' structure, and
  * deleting what's on disk for a title.
  *
- * Neither operation touches a `DownloadJob` - existing jobs for the title
- * keep their history either way. A delete here **can** remove the library
- * entry: a movie delete always removes the movie from Radarr, and a show
- * delete that leaves nothing behind removes the series from Sonarr. The
- * job-keyed `DELETE /download/shows/:jobId` is no longer the only way a
+ * Neither operation rewrites a `DownloadJob`'s own fields - existing jobs for
+ * the title keep their history either way. A delete here **can** remove the
+ * library entry: a movie delete always removes the movie from Radarr, and a
+ * show delete that leaves nothing behind removes the series from Sonarr.
+ * When that happens every job for the title is flagged
+ * `removedFromLibrary` (`DownloadStateService.markRemovedFromLibrary`) so
+ * the gallery stops rendering it while its history stays intact elsewhere.
+ * The job-keyed `DELETE /download/shows/:jobId` is no longer the only way a
  * title leaves the library.
  */
 @Injectable()
@@ -235,6 +238,7 @@ export class ShowService {
     // jobs are still perfectly pollable and are left alone.
     if (result.removedFromLibrary) {
       this.cancelInFlightJobs(mediaId)
+      this.downloadStateService.markRemovedFromLibrary(mediaId)
     }
 
     return result

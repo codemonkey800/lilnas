@@ -64,6 +64,13 @@ export interface JobListFilter {
   // note on `excludeHiddenVideos` below.
   requesterDiscordUserId?: string
   requesterEmail?: string
+  // The gallery's "deleted titles stop showing" guard
+  // (`JobQueryService.listGallery`) - excludes every job
+  // `markJobsRemovedFromLibrary` has flagged. Never set by
+  // `listActivity`/`listHistory`: those are event feeds, and a job for a
+  // title that's since been removed from the library is still a real event
+  // that happened.
+  excludeRemovedFromLibrary?: boolean
   statuses?: readonly DownloadJobStatus[]
   // Plural/array, not a single value - the query schema accepts
   // comma-separated multi-select (`?type=movie,video`), matched here with
@@ -131,6 +138,9 @@ function buildJobWhere(filter: JobListFilter): SQL | undefined {
     filter.createdTo ? lte(jobs.createdAt, filter.createdTo) : undefined,
     filter.excludeHiddenVideos
       ? sql`NOT (${jobs.type} = 'video' AND ${jobs.hiddenAttribution} = 1)`
+      : undefined,
+    filter.excludeRemovedFromLibrary
+      ? eq(jobs.removedFromLibrary, false)
       : undefined,
   ]
 
@@ -276,6 +286,25 @@ export function listJobsByStatus(db: Db, status: DownloadJobStatus): JobRow[] {
     .where(eq(jobs.status, status))
     .orderBy(desc(jobs.createdAt), desc(jobs.id))
     .all()
+}
+
+/**
+ * Flags every job for one title as removed from the library - called once,
+ * right after `ShowService.deleteFiles` reports `removedFromLibrary: true`
+ * for a movie or a whole-series show delete. A bulk `UPDATE`, not a
+ * per-job write through `DownloadStateService.updateJob()`: the thing that
+ * changed is a fact about the *title*, not about any one job, and a title
+ * can have many completed jobs behind it.
+ *
+ * Never reverses itself - there is no "unmark" - a re-add starts a fresh job
+ * row with the column at its `false` default, which is what lets the
+ * gallery pick the title back up on its own the next time it's downloaded.
+ */
+export function markJobsRemovedFromLibrary(db: Db, mediaId: string): void {
+  db.update(jobs)
+    .set({ removedFromLibrary: true })
+    .where(eq(jobs.mediaId, mediaId))
+    .run()
 }
 
 export interface MediaGroupRow {

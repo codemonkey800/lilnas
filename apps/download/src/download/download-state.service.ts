@@ -20,7 +20,11 @@ import { nanoid } from 'nanoid'
 import { AttributionResolutionService } from 'src/auth/attribution-resolution.service'
 import { DbService } from 'src/db/db.service'
 import { buildJobRow, hydrateJobRow } from 'src/db/job-row'
-import { getJobById, listJobsByStatus } from 'src/db/jobs.repo'
+import {
+  getJobById,
+  listJobsByStatus,
+  markJobsRemovedFromLibrary,
+} from 'src/db/jobs.repo'
 import { mediaIdSuffix, videoNaturalKey } from 'src/db/media-id'
 import { RESTART_SURVIVING_STATUSES } from 'src/db/reconcile-interrupted-jobs'
 import { jobs, type VideoRow } from 'src/db/schema'
@@ -444,6 +448,20 @@ export class DownloadStateService {
     this.broadcastJobEvent(updatedJob, DownloadJobEventType.Updated)
 
     return updatedJob
+  }
+
+  /**
+   * Flags every `jobs` row for `mediaId` as removed from the library - the
+   * DB-only counterpart to `updateJob()`: that method writes one
+   * `DownloadJobRecord` by id, but a title's jobs aren't held in `this.jobs`
+   * as a group and `removedFromLibrary` isn't part of that record's shape,
+   * so there's nothing here for the in-memory Map to stay in sync with.
+   * `ShowService.deleteFiles` calls this once, right after a movie delete
+   * or a whole-series show delete, so the gallery (which reads `jobs`
+   * straight from the DB) stops rendering the title on its very next load.
+   */
+  markRemovedFromLibrary(mediaId: string): void {
+    markJobsRemovedFromLibrary(this.dbService.db, mediaId)
   }
 
   /**
