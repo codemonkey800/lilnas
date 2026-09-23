@@ -13,6 +13,7 @@ import {
   listJobsPage,
   listLatestJobsForMediaIds,
   listMediaGroupsPage,
+  listOpenJobs,
 } from 'src/db/jobs.repo'
 import type { ListCursor } from 'src/db/list-cursor'
 import { jobs } from 'src/db/schema'
@@ -1396,8 +1397,8 @@ describe('the gallery grouped selection', () => {
 })
 
 /**
- * Plan 020. The boot path's reader: `DownloadStateService.adoptSurvivingJobs()`
- * needs a whole status bucket, unfiltered and unpaged, to put the rows
+ * Plan 020. A boot path reader: `DownloadStateService.adoptOpenJobs()` needs
+ * the whole `needs_attention` bucket, unfiltered and unpaged, to put the rows
  * `reconcileInterruptedJobs()` spared back in the in-memory Map.
  */
 describe('listJobsByStatus', () => {
@@ -1434,6 +1435,97 @@ describe('listJobsByStatus', () => {
       seedJob(db, { id: 'done-1', status: 'completed' })
 
       expect(listJobsByStatus(db, DownloadJobStatus.NeedsAttention)).toEqual([])
+    } finally {
+      close()
+    }
+  })
+})
+
+/**
+ * Plan 021. The other boot path reader: `DownloadStateService.adoptOpenJobs()`
+ * re-adopts every open movie/show attempt a restart leaves behind.
+ */
+describe('listOpenJobs', () => {
+  function seedMixed(db: Db): void {
+    seedJob(db, {
+      createdAt: new Date(T0),
+      id: 'movie-downloading',
+      status: 'downloading',
+      type: 'movie',
+    })
+    seedJob(db, {
+      createdAt: new Date(T0 + 1000),
+      id: 'show-paused',
+      status: 'paused',
+      type: 'show',
+    })
+    seedJob(db, {
+      createdAt: new Date(T0 + 2000),
+      id: 'video-attention',
+      status: 'needs_attention',
+      type: 'video',
+    })
+    seedJob(db, { id: 'movie-done', status: 'completed', type: 'movie' })
+    seedJob(db, { id: 'show-failed', status: 'failed', type: 'show' })
+    seedJob(db, { id: 'video-cancelled', status: 'cancelled' })
+  }
+
+  it('returns every non-terminal row of every type, newest first, when no types are given', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedMixed(db)
+
+      expect(listOpenJobs(db).map(row => row.id)).toEqual([
+        'video-attention',
+        'show-paused',
+        'movie-downloading',
+      ])
+    } finally {
+      close()
+    }
+  })
+
+  it('treats an empty types list as no filter', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedMixed(db)
+
+      expect(listOpenJobs(db, []).map(row => row.id)).toEqual([
+        'video-attention',
+        'show-paused',
+        'movie-downloading',
+      ])
+    } finally {
+      close()
+    }
+  })
+
+  it('narrows to the given types', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedMixed(db)
+
+      expect(
+        listOpenJobs(db, [DownloadType.Movie, DownloadType.Show]).map(
+          row => row.id,
+        ),
+      ).toEqual(['show-paused', 'movie-downloading'])
+      expect(listOpenJobs(db, [DownloadType.Video]).map(row => row.id)).toEqual(
+        ['video-attention'],
+      )
+    } finally {
+      close()
+    }
+  })
+
+  it('returns an empty array when every row is terminal', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedJob(db, { id: 'done-1', status: 'completed', type: 'movie' })
+      seedJob(db, { id: 'failed-1', status: 'failed' })
+
+      expect(listOpenJobs(db)).toEqual([])
+      expect(listOpenJobs(db, [DownloadType.Movie])).toEqual([])
     } finally {
       close()
     }

@@ -29,6 +29,7 @@ import { eq } from 'drizzle-orm'
 import { fakeAttributionResolutionProvider } from 'src/auth/__tests__/helpers/attribution-resolution'
 import { createTestDbService } from 'src/db/__tests__/test-utils'
 import { DbService } from 'src/db/db.service'
+import { reconcileInterruptedJobs } from 'src/db/reconcile-interrupted-jobs'
 import { jobs, videos } from 'src/db/schema'
 import { DownloadStateService } from 'src/download/download-state.service'
 import { JobInterruptedError } from 'src/download/job-interrupted.error'
@@ -877,61 +878,163 @@ describe('DownloadStateService', () => {
   })
 
   /**
-   * Plan 020. `reconcileInterruptedJobs()` spares `needs_attention` rows at
-   * boot, but the Map is what MediaPollerService iterates and a restart
-   * empties it - so sparing the row only helps if something adopts it back.
+   * Plans 020 and 021. `reconcileInterruptedJobs()` spares every open
+   * movie/show row and every `needs_attention` row at boot, but the Map is
+   * what MediaPollerService iterates and a restart empties it - so sparing
+   * the row only helps if something adopts it back.
    */
-  describe('adoptSurvivingJobs', () => {
-    function seedRow(id: string, status: DownloadJobStatus) {
+  describe('adoptOpenJobs', () => {
+    const MEDIA_PREFIX = { movie: 'tmdb', show: 'tvdb', video: 'video' }
+
+    function seedRow(
+      id: string,
+      status: DownloadJobStatus,
+      type: DownloadType = DownloadType.Movie,
+    ) {
       dbService.db
         .insert(jobs)
         .values({
           id,
-          mediaId: `tmdb:${id}`,
+          mediaId: `${MEDIA_PREFIX[type]}:${id}`,
           origin: 'service',
           status,
-          type: 'movie',
+          type,
         })
         .run()
     }
 
-    it('puts every restart-surviving row in the map and returns the count', () => {
-      seedRow('attention-1', DownloadJobStatus.NeedsAttention)
-      seedRow('attention-2', DownloadJobStatus.NeedsAttention)
-      seedRow('done-1', DownloadJobStatus.Completed)
-      seedRow('downloading-1', DownloadJobStatus.Downloading)
+    it('puts every open movie/show row in the map and returns the count', () => {
+      seedRow('movie-downloading', DownloadJobStatus.Downloading)
+      seedRow('movie-attention', DownloadJobStatus.NeedsAttention)
+      seedRow('show-searching', DownloadJobStatus.Searching, DownloadType.Show)
+      seedRow('show-requested', DownloadJobStatus.Requested, DownloadType.Show)
+      seedRow('show-importing', DownloadJobStatus.Importing, DownloadType.Show)
+      seedRow('show-paused', DownloadJobStatus.Paused, DownloadType.Show)
 
-      expect(service.adoptSurvivingJobs()).toBe(2)
+      expect(service.adoptOpenJobs()).toBe(6)
       expect([...service.jobs.keys()].sort()).toEqual([
-        'attention-1',
-        'attention-2',
+        'movie-attention',
+        'movie-downloading',
+        'show-importing',
+        'show-paused',
+        'show-requested',
+        'show-searching',
       ])
-      expect(service.jobs.get('attention-1')?.status).toBe(
-        DownloadJobStatus.NeedsAttention,
+      expect(service.jobs.get('movie-downloading')?.status).toBe(
+        DownloadJobStatus.Downloading,
       )
+      expect(service.jobs.get('show-paused')?.status).toBe(
+        DownloadJobStatus.Paused,
+      )
+    })
+
+    it('adopts a needs_attention row of any type, videos included', () => {
+      seedRow('movie-attention', DownloadJobStatus.NeedsAttention)
+      seedRow(
+        'show-attention',
+        DownloadJobStatus.NeedsAttention,
+        DownloadType.Show,
+      )
+      seedRow(
+        'video-attention',
+        DownloadJobStatus.NeedsAttention,
+        DownloadType.Video,
+      )
+
+      expect(service.adoptOpenJobs()).toBe(3)
+      expect([...service.jobs.keys()].sort()).toEqual([
+        'movie-attention',
+        'show-attention',
+        'video-attention',
+      ])
+    })
+
+    // In production `reconcileInterruptedJobs()` has already failed these by
+    // the time this runs; adopting one anyway would track a yt-dlp run that
+    // died with the previous process.
+    it('never adopts any other open video row', () => {
+      seedRow(
+        'video-downloading',
+        DownloadJobStatus.Downloading,
+        DownloadType.Video,
+      )
+      seedRow('video-paused', DownloadJobStatus.Paused, DownloadType.Video)
+
+      expect(service.adoptOpenJobs()).toBe(0)
+      expect(service.jobs.size).toBe(0)
+    })
+
+    it('never adopts a terminal row of any type', () => {
+      for (const type of Object.values(DownloadType)) {
+        seedRow(`${type}-done`, DownloadJobStatus.Completed, type)
+        seedRow(`${type}-failed`, DownloadJobStatus.Failed, type)
+        seedRow(`${type}-cancelled`, DownloadJobStatus.Cancelled, type)
+      }
+
+      expect(service.adoptOpenJobs()).toBe(0)
+      expect(service.jobs.size).toBe(0)
     })
 
     it('broadcasts nothing - nothing is connected at boot', () => {
       seedRow('attention-1', DownloadJobStatus.NeedsAttention)
+      seedRow('downloading-1', DownloadJobStatus.Downloading)
 
-      service.adoptSurvivingJobs()
+      service.adoptOpenJobs()
 
       expect(downloadGateway.broadcastPerViewer).not.toHaveBeenCalled()
     })
 
     it('is idempotent - a second sweep re-adopts nothing new', () => {
-      seedRow('attention-1', DownloadJobStatus.NeedsAttention)
-      const first = service.adoptSurvivingJobs()
-      const adopted = service.jobs.get('attention-1')
+      seedRow('downloading-1', DownloadJobStatus.Downloading)
+      const first = service.adoptOpenJobs()
+      const adopted = service.jobs.get('downloading-1')
 
       expect(first).toBe(1)
-      expect(service.adoptSurvivingJobs()).toBe(1)
+      expect(service.adoptOpenJobs()).toBe(1)
       expect(service.jobs.size).toBe(1)
-      expect(service.jobs.get('attention-1')).toBe(adopted)
+      expect(service.jobs.get('downloading-1')).toBe(adopted)
+    })
+
+    // The boot sequence in bootstrap.ts: the sweep, then the adoption. Every
+    // row ends up either failed or back in the Map - never both, never
+    // neither - and terminal rows are left alone by both halves.
+    it('adopts exactly the rows reconcileInterruptedJobs() spares', () => {
+      seedRow('movie-downloading', DownloadJobStatus.Downloading)
+      seedRow('show-paused', DownloadJobStatus.Paused, DownloadType.Show)
+      seedRow(
+        'video-attention',
+        DownloadJobStatus.NeedsAttention,
+        DownloadType.Video,
+      )
+      seedRow(
+        'video-downloading',
+        DownloadJobStatus.Downloading,
+        DownloadType.Video,
+      )
+      seedRow('video-paused', DownloadJobStatus.Paused, DownloadType.Video)
+      seedRow('movie-done', DownloadJobStatus.Completed)
+
+      expect(reconcileInterruptedJobs(dbService.db)).toBe(2)
+      expect(service.adoptOpenJobs()).toBe(3)
+
+      expect([...service.jobs.keys()].sort()).toEqual([
+        'movie-downloading',
+        'show-paused',
+        'video-attention',
+      ])
+      for (const id of ['video-downloading', 'video-paused']) {
+        const row = dbService.db
+          .select()
+          .from(jobs)
+          .where(eq(jobs.id, id))
+          .get()
+        expect(row?.status).toBe(DownloadJobStatus.Failed)
+        expect(row?.error).toBe('Interrupted by a service restart')
+      }
     })
 
     it('returns 0 on an empty table', () => {
-      expect(service.adoptSurvivingJobs()).toBe(0)
+      expect(service.adoptOpenJobs()).toBe(0)
       expect(service.jobs.size).toBe(0)
     })
   })

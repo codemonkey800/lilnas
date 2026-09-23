@@ -131,8 +131,8 @@ describe('TERMINAL_DOWNLOAD_JOB_STATUSES / IN_PROGRESS_DOWNLOAD_JOB_STATUSES', (
   // from the terminal list - which is the whole point of deriving the
   // in-progress set by complement. Two consequences ride on it: a paused job
   // keeps its slot on the Activity feed, and `reconcileInterruptedJobs()`
-  // (apps/download/src/db/reconcile-interrupted-jobs.ts) sweeps it to
-  // `failed` on the next boot. Both are intended, not fallout.
+  // (apps/download/src/db/reconcile-interrupted-jobs.ts) sweeps a paused
+  // video to `failed` on the next boot. Both are intended, not fallout.
   it('treats paused/pausing as in-progress, never terminal', () => {
     for (const status of [
       DownloadJobStatus.Paused,
@@ -152,8 +152,9 @@ describe('TERMINAL_DOWNLOAD_JOB_STATUSES / IN_PROGRESS_DOWNLOAD_JOB_STATUSES', (
   // are on disk and a human still has to act, so it is neither `failed` (a
   // Retry would re-grab a file we already have) nor terminal. It reaches the
   // in-progress set the same way `paused` does - by being absent from the
-  // terminal list - which keeps it on the Activity feed. Unlike `paused` it
-  // is meant to survive a restart, so `reconcileInterruptedJobs()`
+  // terminal list - which keeps it on the Activity feed. Unlike a paused
+  // video it is meant to survive a restart whatever its type, so
+  // `reconcileInterruptedJobs()`
   // (apps/download/src/db/reconcile-interrupted-jobs.ts) has to exempt it
   // rather than sweep it to `failed`.
   it('treats needs_attention as in-progress, never terminal', () => {

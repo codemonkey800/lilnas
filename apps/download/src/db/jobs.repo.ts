@@ -1,6 +1,7 @@
-import type {
-  DownloadJobStatus,
-  DownloadType,
+import {
+  type DownloadJobStatus,
+  type DownloadType,
+  TERMINAL_DOWNLOAD_JOB_STATUSES,
 } from '@lilnas/utils/download/types'
 import {
   and,
@@ -12,6 +13,7 @@ import {
   inArray,
   isNotNull,
   lte,
+  notInArray,
   or,
   type SQL,
   sql,
@@ -274,16 +276,37 @@ export function listJobsByMediaId(db: Db, mediaId: string): JobRow[] {
 
 /**
  * Every job at one status, newest first. Used at boot by
- * `DownloadStateService.adoptSurvivingJobs()` to re-adopt the rows
- * `reconcileInterruptedJobs()` deliberately spared - the only reader that
- * needs a whole status bucket without any of the list endpoints' filtering,
- * paging or attribution masking.
+ * `DownloadStateService.adoptOpenJobs()` to find the `needs_attention` rows
+ * `reconcileInterruptedJobs()` spares whatever their type - a boot-path
+ * reader that needs a whole status bucket without any of the list endpoints'
+ * filtering, paging or attribution masking.
  */
 export function listJobsByStatus(db: Db, status: DownloadJobStatus): JobRow[] {
   return db
     .select()
     .from(jobs)
     .where(eq(jobs.status, status))
+    .orderBy(desc(jobs.createdAt), desc(jobs.id))
+    .all()
+}
+
+/**
+ * Every non-terminal job, newest first, optionally narrowed to `types` (an
+ * omitted or empty `types` means every type). Used at boot by
+ * `DownloadStateService.adoptOpenJobs()` to re-adopt the movie/show attempts
+ * a restart leaves open - like `listJobsByStatus()`, an unfiltered, unpaged
+ * boot-path reader with no attribution masking.
+ */
+export function listOpenJobs(
+  db: Db,
+  types?: readonly DownloadType[],
+): JobRow[] {
+  const open = notInArray(jobs.status, [...TERMINAL_DOWNLOAD_JOB_STATUSES])
+
+  return db
+    .select()
+    .from(jobs)
+    .where(types?.length ? and(open, inArray(jobs.type, [...types])) : open)
     .orderBy(desc(jobs.createdAt), desc(jobs.id))
     .all()
 }

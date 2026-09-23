@@ -25,10 +25,10 @@ import { buildJobRow, hydrateJobRow } from 'src/db/job-row'
 import {
   getJobById,
   listJobsByStatus,
+  listOpenJobs,
   markJobsRemovedFromLibrary,
 } from 'src/db/jobs.repo'
 import { mediaIdSuffix, videoNaturalKey } from 'src/db/media-id'
-import { RESTART_SURVIVING_STATUSES } from 'src/db/reconcile-interrupted-jobs'
 import { jobs, type VideoRow } from 'src/db/schema'
 import {
   getVideoById,
@@ -260,28 +260,38 @@ export class DownloadStateService {
   }
 
   /**
-   * Boot: puts every restart-surviving row back in the Map so the poller sees
-   * it. Returns the count.
+   * Boot: puts every job a restart leaves open back in the Map so the poller
+   * sees it. Returns the count.
    *
-   * `reconcileInterruptedJobs()` spares these rows rather than failing them
-   * (their truth lives in Radarr/Sonarr, which outlived this process), but
-   * sparing the row is only half the job - the Map is what
-   * `MediaPollerService` iterates, and a restart empties it, so an unadopted
-   * row would sit at `needs_attention` forever with nothing watching it.
+   * That is every non-terminal movie/show row, plus every `needs_attention`
+   * row of any type - exactly the rows `reconcileInterruptedJobs()` spares.
+   * A movie/show attempt's truth lives in Radarr/Sonarr, which outlived this
+   * process, so the download carries on across the restart; failing it
+   * would be wrong (the file can still land), and sparing the row is only
+   * half the job - the Map is what `MediaPollerService` iterates, and a
+   * restart empties it, so an unadopted row would sit at its last status
+   * forever with nothing watching it. Once adopted, the poller settles it
+   * from the queue and the files on its next tick.
    *
    * No `Updated` broadcast: this runs before `app.listen()`, so there is no
    * WS subscriber to tell, and nothing about the record changed anyway.
    */
-  adoptSurvivingJobs(): number {
-    let adopted = 0
+  adoptOpenJobs(): number {
+    const { db } = this.dbService
+    const rows = [
+      ...listOpenJobs(db, [DownloadType.Movie, DownloadType.Show]),
+      // Movie/show `needs_attention` rows are already in the list above.
+      ...listJobsByStatus(db, DownloadJobStatus.NeedsAttention).filter(
+        row => row.type === DownloadType.Video,
+      ),
+    ]
 
-    for (const status of RESTART_SURVIVING_STATUSES) {
-      for (const row of listJobsByStatus(this.dbService.db, status)) {
-        if (this.adoptJob(row.id)) adopted++
-      }
+    let adopted = 0
+    for (const row of rows) {
+      if (this.adoptJob(row.id)) adopted++
     }
 
-    this.logger.log(`Adopted ${adopted} restart-surviving job(s) at boot`)
+    this.logger.log(`Adopted ${adopted} open job(s) at boot`)
 
     return adopted
   }

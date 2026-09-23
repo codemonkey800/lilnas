@@ -27,15 +27,16 @@ export async function bootstrap() {
     dbService.runMigrations()
     dbService.checkIntegrity()
     // After integrity is confirmed sound, but before serving any traffic -
-    // any row left at a non-terminal status belongs to the previous
-    // process, which is gone along with its in-memory DownloadStateService
-    // Map. The exception is RESTART_SURVIVING_STATUSES, which the sweep
-    // leaves alone because the state they name (a Radarr/Sonarr queue row)
-    // outlived this process; those get re-adopted into the fresh Map right
-    // after, so the poller tracks them again from its first tick.
+    // a video row left at a non-terminal status belongs to the previous
+    // process, which is gone along with its yt-dlp run and its in-memory
+    // DownloadStateService Map, so the sweep fails it. Movie/show rows (and
+    // any needs_attention row) are left alone because their download lives
+    // in Radarr/Sonarr, which outlived this process; those get re-adopted
+    // into the fresh Map right after, so the poller settles them from its
+    // first tick.
     reconcileInterruptedJobs(dbService.db)
-    const adopted = app.get(DownloadStateService).adoptSurvivingJobs()
-    console.log(`Re-adopted ${adopted} restart-surviving job(s)`)
+    const adopted = app.get(DownloadStateService).adoptOpenJobs()
+    console.log(`Re-adopted ${adopted} open job(s)`)
 
     // Backfills a completed job for every Radarr/Sonarr title that's already
     // downloaded but has no job of its own, so "Browse movies/shows" (built

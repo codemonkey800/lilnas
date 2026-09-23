@@ -25,25 +25,28 @@ export enum DownloadJobStatus {
    *
    * Non-terminal for the same reason as {@link DownloadJobStatus.Paused}:
    * the job is still an open piece of work, so it stays on the Activity feed
-   * rather than dropping into history. Unlike `paused`, though, it
-   * **survives** a restart - the finished file sits in Radarr/Sonarr's
+   * rather than dropping into history. It always **survives** a restart,
+   * whatever the job's type - the finished file sits in Radarr/Sonarr's
    * download directory rather than in this process's memory, so a reboot
-   * changes nothing about what the human still has to do. That makes it the
-   * one non-terminal status `reconcileInterruptedJobs()`
-   * (`apps/download/src/db/reconcile-interrupted-jobs.ts`) must leave alone
-   * instead of sweeping to `failed` at boot.
+   * changes nothing about what the human still has to do.
+   * `reconcileInterruptedJobs()`
+   * (`apps/download/src/db/reconcile-interrupted-jobs.ts`) leaves it alone
+   * instead of sweeping it to `failed` at boot, and
+   * `DownloadStateService.adoptOpenJobs()` re-adopts it.
    */
   NeedsAttention = 'needs_attention',
   /**
    * Phase 5. Deliberately **not** in `TERMINAL_DOWNLOAD_JOB_STATUSES`
    * (./types.ts): a paused job is still an open piece of work, so it stays on
    * the Activity feed rather than dropping into history. The other half of
-   * that choice is that a paused job does *not* survive a restart -
+   * that choice is that a paused video does *not* survive a restart -
    * `reconcileInterruptedJobs()`
    * (`apps/download/src/db/reconcile-interrupted-jobs.ts`) sweeps every
-   * non-terminal row to `failed` at boot, and that is intended: the partial
-   * file lives under `/download/videos`, which has no volume behind it, so
-   * there is nothing left to resume from.
+   * non-terminal video row (bar `needs_attention`) to `failed` at boot, and
+   * that is intended: the partial file lives under `/download/videos`, which
+   * has no volume behind it, so there is nothing left to resume from. A
+   * paused movie/show is Radarr/Sonarr's state, not ours, so it survives and
+   * is re-adopted like any other open movie/show job.
    */
   Paused = 'paused',
   /** Phase 5. Pause requested, not yet acknowledged - non-terminal for the
