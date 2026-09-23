@@ -747,9 +747,9 @@ phase before the previous phase's verification task is green.**
 
 ### Phase 0 — Prep
 
-- [ ] **A1. Commit this plan.** `docs/features/download/plans/021-media-as-source-of-truth.md`
+- [x] **A1. Commit this plan.** `docs/features/download/plans/021-media-as-source-of-truth.md`
       lands as its own `docs(download): …` commit before any code moves, so the record
-      exists and later tasks can append findings to a tracked file.
+      exists and later tasks can append findings to a tracked file. `6534baad`
 
 - [ ] **A2. Baseline.** From `apps/download` and `packages/utils`: `pnpm test`,
       `pnpm lint`, `pnpm type-check`; from the root: `pnpm run type-check`, `pnpm run lint`.
@@ -758,6 +758,11 @@ phase before the previous phase's verification task is green.**
       pre-existing failures that are not this plan's). No commit. If anything is red that
       plan 020 reported green, **stop and report** before Phase 1.
 
+  > **Findings (2026-09-22):** all green. `apps/download`: 3958 passed + 9 skipped
+  > (3967 tests), 182 passed + 1 skipped (183 suites) — the skipped suite is the
+  > Docker-only `ytdlp-update.integration.spec.ts`. `packages/utils`: 421 / 8 suites.
+  > Lint and type-check clean in both; root type-check 12/12, root lint 15/15.
+
 ### Phase 1 — Media state on the backend
 
 Additive only. Nothing the frontend reads today changes meaning; new fields appear and
@@ -765,7 +770,7 @@ a new event type is broadcast that no client yet parses.
 
 #### Group A — Contracts (`packages/utils`)
 
-- [ ] **A1. Media state vocabulary and fields.** `MediaState` exists, `Media`/`Episode`
+- [x] **A1. Media state vocabulary and fields.** `c42ae042` `MediaState` exists, `Media`/`Episode`
       carry the new optional fields, and the rollup and reader helpers are shared.
 
   **Files:** edit `packages/utils/src/download/schema.ts`, `types.ts`; add tests in
@@ -804,7 +809,7 @@ a new event type is broadcast that no client yet parses.
   every adjacent pair; `mediaState` fallback; a movie/show/video/episode fixture without
   the new fields still parses. Run `pnpm build` here so `dist/` is current.
 
-- [ ] **A2. Media event contract and frame parser.** The wire shape of a media event and
+- [x] **A2. Media event contract and frame parser.** `1cef3ea8` The wire shape of a media event and
       a parser the client can use.
 
   **Files:** edit `packages/utils/src/download/types.ts`, `job-events.ts`; tests in
@@ -831,9 +836,11 @@ a new event type is broadcast that no client yet parses.
   with and without episodes); a job frame returns `undefined` from this parser and vice
   versa.
 
+  > **Findings:** `DownloadGatewayMessage.type` was already `string`; no widening needed.
+
 #### Group B — State derivation, queue cache and events (`apps/download`)
 
-- [ ] **B1. Pure derivation.** State for one movie, one episode, one video, from
+- [x] **B1. Pure derivation.** `9601f4e0` State for one movie, one episode, one video, from
       upstream facts and a queue item, as table-tested pure functions.
 
   **Files:** create `apps/download/src/media/media-state.util.ts` +
@@ -882,7 +889,11 @@ downloading`; `queueSnapshot = toQueueSnapshot(item)`. No item: `hasFile → ava
   **Tests:** one table per function covering every `DownloadJobStatus` and every
   branch above.
 
-- [ ] **B2. `MediaStateService`.** The fed cache and the two annotators.
+  > **Findings:** `Importing` (not in the video list) maps to `importing`. Episodes
+  > without an `id`/`seasonNumber` are skipped rather than thrown on. Episode entries
+  > carry no `stateReason` (the schema has no field for it).
+
+- [x] **B2. `MediaStateService`.** `29a1e5d1` The fed cache and the two annotators.
 
   **Files:** create `apps/download/src/media/media-state.service.ts` +
   `__tests__/media-state.service.test.ts`; edit `media.module.ts` (providers **and**
@@ -925,7 +936,13 @@ downloading`; `queueSnapshot = toQueueSnapshot(item)`. No item: `hasFile → ava
   series with one downloading episode and 44 files is `downloading`; with none, 45
   files, `available`; with 0 files, monitored, `wanted`.
 
-- [ ] **B3. Mappers carry the new upstream facts.** `toMovie`/`toShow` expose what the
+  > **Findings:** `PollableQueueItem` had no `movieId`/`seriesId`; both added as
+  > optional. Videos have no `queueSnapshot` field, so `annotate` sets only `state` on
+  > them. A shared `deriveManagedStateFromItems(library, items)` helper serves movies,
+  > series and episodes; a multi-item series snapshot is
+  > `toQueueSnapshot(aggregateQueueItems(items))`.
+
+- [x] **B3. Mappers carry the new upstream facts.** `2d27b7c6` `toMovie`/`toShow` expose what the
       state derivation and the gallery need.
 
   **Files:** edit `apps/download/src/media/radarr.service.ts` (`toMovie` :168),
@@ -941,7 +958,16 @@ statistics?.episodeFileCount`.
   **Tests:** the mapper specs gain the four fields, including the absent-`movieFile`
   and absent-`statistics` cases (undefined, not `0`/`new Date()`).
 
-- [ ] **B4. Resolver annotates state.** Every `Media` the API serves has `state`.
+  > **Findings:** Sonarr's search/lookup returns `statistics` zeroed even for library
+  > series (Severance: 0 from search, 19 from `/series/40`), so search and
+  > `lookupByTvdbId` go through a new `toLookupShow` with no counts; only `getLibrary()`
+  > carries real counts. Non-library search results carry junk (`monitored: true`,
+  > `added: 0001-01-01…`), so `monitored`/`addedAt`/counts are set only when a
+  > `radarrId`/`sonarrId` exists. Dates normalise through `toUpstreamIsoDateTime`
+  > (`upstream-date.util.ts`). A video's `addedAt` (`updated_at`) moves forward when an
+  > already-downloaded video is re-requested — accepted for now.
+
+- [x] **B4. Resolver annotates state.** `55da3a26` Every `Media` the API serves has `state`.
 
   **Files:** edit `apps/download/src/media/media-resolver.service.ts` (constructor,
   `resolve` after :115) and `__tests__/media-resolver.service.test.ts`;
@@ -955,7 +981,7 @@ statistics?.episodeFileCount`.
   existing tests keep passing with `MediaStateService` provided (a real instance — it
   has no deps — not a mock).
 
-- [ ] **B5. Poller reads the whole queue and feeds the cache.** Un-owned downloads are
+- [x] **B5. Poller reads the whole queue and feeds the cache.** `210209a6` Un-owned downloads are
       seen.
 
   **Files:** edit `apps/download/src/media/media-poller.service.ts` (`pollMovies` :129,
@@ -973,7 +999,7 @@ upstreamId` / `q.seriesId === upstreamId && matchesScope`).
   previous queue with no tracked jobs and **not** sent for empty + none tracked; tracked
   job matching still passes every existing case.
 
-- [ ] **B6. Gateway `broadcast` and media events from the poller.** A changed media
+- [x] **B6. Gateway `broadcast` and media events from the poller.** `9fd24a68` A changed media
       state reaches every open client.
 
   **Files:** edit `apps/download/src/download-gateway/download.gateway.ts` (add
@@ -997,7 +1023,15 @@ upstreamId` / `q.seriesId === upstreamId && matchesScope`).
   one with `filePath` after the item vanishes; `broadcast` serialises once and sends to
   every client.
 
-- [ ] **B7. Video activity and video media events.** A video's state is live too.
+  > **Findings:** `broadcast()` landed with B7 (which committed first). The poller maps
+  > `movieId`/`seriesId` to media ids through the resolver's cached libraries, so
+  > `getMovieLibrary`/`getShowLibrary` became public; a title added after the 60 s cache
+  > filled gets its first event up to 60 s late. `poll()` moved to `Promise.allSettled`
+  > so the diff runs after both sources finish. "Vanished" is judged by upstream id
+  > leaving the queue, and a degraded resolve skips the batch for a retry.
+  > `MediaModule` imports `DownloadGatewayModule` directly (no new cycle).
+
+- [x] **B7. Video activity and video media events.** `1c453bb5` A video's state is live too.
 
   **Files:** edit `apps/download/src/download/download-state.service.ts` (`addJob` :203,
   `updateJob` :352, `updateVideo` :183, constructor — `MediaStateService` via
@@ -1014,7 +1048,11 @@ record.mediaId, isTerminalDownloadJobStatus(status) ? undefined : status)`. Afte
   Converting → Completed and is cleared at the end; a media event accompanies each job
   event; movie/show jobs never touch the activity map.
 
-- [ ] **B8. Episode state on the seasons route.** The show page's per-episode truth.
+  > **Findings:** the video media event reuses the media the job event already hydrated
+  > (one resolve per event, not two). Eight sibling specs gained the real
+  > `MediaStateService` provider and `broadcast: jest.fn()`.
+
+- [x] **B8. Episode state on the seasons route.** `f08f4ef1` The show page's per-episode truth.
 
   **Files:** edit `apps/download/src/media/show.service.ts` (`listSeasons` :87, after
   `sonarrService.listSeasons` :106) and its test.
@@ -1026,7 +1064,7 @@ record.mediaId, isTerminalDownloadJobStatus(status) ? undefined : status)`. Afte
 
 #### Group C — Verification & docs
 
-- [ ] **C1. Phase 1 verification.** Run the three package checks (test, lint,
+- [x] **C1. Phase 1 verification.** (no commit) Run the three package checks (test, lint,
       type-check) from `apps/download` and from `packages/utils`, then the root
       type-check and lint. Then a read-only live check from inside `lilnas-download-dev`:
 
@@ -1038,10 +1076,20 @@ record.mediaId, isTerminalDownloadJobStatus(status) ? undefined : status)`. Afte
   the container has not picked up the new provider — record it and raise [human
   checkpoint 1](#human-checkpoints); do not restart it yourself.
 
-- [ ] **C2. Docs.** Add `## Media state and the fed cache (plan 021 · Phase 1)` to
+  > **Findings (2026-09-23):** all green — app 4111 passed + 9 skipped (186 suites),
+  > utils 495 / 9 suites, root type-check 12/12, lint 15/15. Live: `tmdb:50546` →
+  > `available` (`addedAt 2024-03-13T06:08:15.000Z`, `monitored: true`), `tmdb:1158406`
+  > → `wanted`. `nest start -w` picked up the new providers, so checkpoint 1's restart
+  > was not needed for Phase 1.
+
+- [x] **C2. Docs.** `e1ab2356` Add `## Media state and the fed cache (plan 021 · Phase 1)` to
       `docs/features/download/backend.md` after the plan 020 section (:1948): the
       vocabulary table, the derivation rules, the event shape, the refresh rule. Check
       boxes above with hashes; add Findings.
+
+  > **Findings:** a movie/show can be `paused` too (the queue item's own `paused`
+  > status at the download client) — not video-only as the `MEDIA_STATES` comment says.
+  > No video job reaches `needs_attention` today.
 
 ### Phase 2 — Detail pages read media
 
@@ -1049,7 +1097,7 @@ Fixes the user-visible bugs. Starts with mockups and a hard human gate.
 
 #### Group A — Mockups
 
-- [ ] **A1. Draw the reshaped detail pages.** Movie, show and video mockups show the
+- [x] **A1. Draw the reshaped detail pages.** `4d8f3347` Movie, show and video mockups show the
       media-state chip, the Attempts list, and progress for an un-owned download.
 
   **Files:** edit `docs/features/download/designs/src/pages/movie-detail.pug`,
@@ -1081,6 +1129,13 @@ mockups` from the root and commit the regenerated `designs/*.html`.
 
   > ⛔ **Human checkpoint 2 sits here.** Groups B–D do not start until the mockups are
   > approved. Record the approval (date, any requested changes) in a Findings note.
+
+  > **Findings (2026-09-22):** the mockups were drawn in a separate session before
+  > execution started and committed as `4d8f3347`; the human directed execution to "use
+  > the recently completed mockups", which is taken as approval of checkpoint 2. The
+  > data files carry the vocabulary (`MEDIA_STATE` in `src/data/movie-detail.mjs` and
+  > `show-detail.mjs`), an `ATTEMPTS` list, and "Started from Radarr" / "Started from
+  > Sonarr" frames.
 
 #### Group B — Live plumbing (`apps/download/src/lib`)
 
