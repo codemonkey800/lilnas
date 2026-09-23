@@ -15,6 +15,7 @@ import { Cron } from '@nestjs/schedule'
 import { DownloadStateService } from 'src/download/download-state.service'
 
 import { MediaResolverService } from './media-resolver.service'
+import { MediaStateService, type QueueSource } from './media-state.service'
 import {
   aggregateQueueItems,
   deriveStatusFromQueueItem,
@@ -65,9 +66,11 @@ export interface PollableCompletionData {
 }
 
 /**
- * Polls Radarr's/Sonarr's queues for movie/show jobs tracked in
- * DownloadStateService and drives them through
- * Requested -> Searching -> Downloading -> Importing/NeedsAttention ->
+ * Reads Radarr's and Sonarr's **whole** queues every tick, hands them to
+ * `MediaStateService` (so a download this app didn't start - grabbed in
+ * Radarr's own UI, from Discord, from another tab - still shows up on its
+ * media), and drives the movie/show jobs tracked in DownloadStateService
+ * through Requested -> Searching -> Downloading -> Importing/NeedsAttention ->
  * Completed/Failed.
  *
  * Writes only `status`/`error` to the job. The queue snapshot goes to
@@ -76,9 +79,10 @@ export interface PollableCompletionData {
  * persisting a copy of it was only ever a way for the two to disagree.
  *
  * Runs every 10s via @Cron (this codebase has no @Interval precedent - see
- * ytdlp-update.service.ts). Each tick with work to do first asks upstream to
- * refresh its queue, which otherwise only moves once a minute. On error, backs off exponentially from 10s up to
- * a 2min cap; a success resets the backoff immediately.
+ * ytdlp-update.service.ts). A tick with work to do first asks upstream to
+ * refresh its queue, which otherwise only moves once a minute. On error,
+ * backs off exponentially from 10s up to a 2min cap; a success resets the
+ * backoff immediately.
  */
 @Injectable()
 export class MediaPollerService {
@@ -89,6 +93,7 @@ export class MediaPollerService {
   constructor(
     private readonly downloadStateService: DownloadStateService,
     private readonly mediaResolverService: MediaResolverService,
+    private readonly mediaStateService: MediaStateService,
     private readonly radarrService: RadarrService,
     private readonly sonarrService: SonarrService,
   ) {}
@@ -128,15 +133,15 @@ export class MediaPollerService {
    */
   private async pollMovies(): Promise<void> {
     const tracked = await this.trackedJobs(DownloadType.Movie)
-    if (tracked.length === 0) return
 
-    await this.requestQueueRefresh('radarr', () =>
+    await this.requestQueueRefresh('radarr', tracked, () =>
       this.radarrService.refreshMonitoredDownloads(),
     )
 
-    const queue = await this.radarrService.getQueue(
-      tracked.map(job => job.upstreamId),
-    )
+    // Unfiltered: the tracked jobs are only some of what's in flight, and the
+    // rest is exactly what the media state cache is for.
+    const queue = await this.radarrService.getQueue()
+    this.mediaStateService.setQueue('radarr', queue)
 
     for (const job of tracked) {
       this.applyUpdate(
@@ -158,15 +163,13 @@ export class MediaPollerService {
    */
   private async pollShows(): Promise<void> {
     const tracked = await this.trackedJobs(DownloadType.Show)
-    if (tracked.length === 0) return
 
-    await this.requestQueueRefresh('sonarr', () =>
+    await this.requestQueueRefresh('sonarr', tracked, () =>
       this.sonarrService.refreshMonitoredDownloads(),
     )
 
-    const queue = await this.sonarrService.getQueue(
-      tracked.map(job => job.upstreamId),
-    )
+    const queue = await this.sonarrService.getQueue()
+    this.mediaStateService.setQueue('sonarr', queue)
 
     for (const job of tracked) {
       const matches = queue.filter(
@@ -182,17 +185,27 @@ export class MediaPollerService {
    * tick reads is at most one tick old rather than up to a minute. See
    * `RadarrService.refreshMonitoredDownloads`.
    *
-   * Only ever reached with at least one job in flight, so an idle app sends
-   * nothing. Best-effort: a refused refresh just means reading the queue as
-   * upstream last refreshed it, which is exactly the old behavior, so it is
-   * logged and swallowed rather than tripping `poll()`'s backoff. If
-   * upstream is genuinely down, the `getQueue` right after it throws and
-   * the backoff happens there.
+   * Sent only while there is something to watch move: a tracked job, or
+   * anything at all in the queue as of the previous tick - which covers a
+   * download this app didn't start, until it leaves the queue. An idle
+   * Radarr/Sonarr is sent nothing, rather than a command six times a minute
+   * forever. The previous queue is read here, so this must run before the
+   * tick's own `setQueue`.
+   *
+   * Best-effort: a refused refresh just means reading the queue as upstream
+   * last refreshed it, which is exactly the old behavior, so it is logged
+   * and swallowed rather than tripping `poll()`'s backoff. If upstream is
+   * genuinely down, the `getQueue` right after it throws and the backoff
+   * happens there.
    */
   private async requestQueueRefresh(
-    source: 'radarr' | 'sonarr',
+    source: QueueSource,
+    tracked: readonly TrackedJob[],
     refresh: () => Promise<void>,
   ): Promise<void> {
+    const previousQueue = this.mediaStateService.getQueue(source)
+    if (tracked.length === 0 && previousQueue.length === 0) return
+
     try {
       await refresh()
     } catch (err) {
