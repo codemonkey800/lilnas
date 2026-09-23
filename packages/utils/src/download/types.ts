@@ -20,6 +20,7 @@ import {
   DownloadType,
   EmbyStatusSchema,
   EpisodeSchema,
+  EpisodeStateEntrySchema,
   FlagBadFileInputSchema,
   GalleryFacetsQuerySchema,
   GalleryItemSchema,
@@ -33,9 +34,11 @@ import {
   ListReleasesQuerySchema,
   ManagedMediaBaseSchema,
   ManualImportCandidateSchema,
+  MEDIA_STATES,
   MediaBaseSchema,
   MediaSchema,
   MediaSearchQuerySchema,
+  MediaStateSchema,
   MovieSchema,
   ProfileQuerySchema,
   ReleaseProtocolSchema,
@@ -53,7 +56,13 @@ import {
   VideoSchema,
 } from './schema'
 
-export { AUDIT_ACTIONS, AUDIT_TARGET_TYPES, DownloadJobStatus, DownloadType }
+export {
+  AUDIT_ACTIONS,
+  AUDIT_TARGET_TYPES,
+  DownloadJobStatus,
+  DownloadType,
+  MEDIA_STATES,
+}
 
 // Terminal = a status that will never change again on its own (see
 // reconcile-interrupted-jobs.ts, the original owner of this exact list).
@@ -162,6 +171,83 @@ export function isManagedMedia(media: Media): media is Movie | Show {
   return media.type === DownloadType.Movie || media.type === DownloadType.Show
 }
 
+// ---- Plan 021: media state ----
+
+/**
+ * Where a piece of media stands right now - one of {@link MEDIA_STATES},
+ * whose doc spells out what each value means for a movie, a show and a
+ * video.
+ */
+export type MediaState = z.infer<typeof MediaStateSchema>
+
+/**
+ * One episode's state, keyed by Sonarr's episode id. See
+ * `EpisodeStateEntrySchema` for why `state` is required here but optional on
+ * `Episode`.
+ */
+export type EpisodeStateEntry = z.infer<typeof EpisodeStateEntrySchema>
+
+/**
+ * Highest first: the order {@link rollupMediaState} picks a season's or a
+ * series' state by. Something a human must act on outranks anything moving,
+ * anything moving outranks anything settled, and a file on disk outranks
+ * having none - so a series with 3 of 45 episodes on disk is `available`,
+ * and the counts say how much of it.
+ */
+export const MEDIA_STATE_PRECEDENCE: readonly MediaState[] = [
+  'needs_attention',
+  'downloading',
+  'importing',
+  'paused',
+  'available',
+  'wanted',
+  'absent',
+]
+
+/**
+ * The one way to read a media's state. `Media.state` is optional because the
+ * mappers build a `Media` before anything has looked at the queue (see
+ * `MediaBaseSchema.state`), so an unresolved media - a placeholder, a search
+ * hit - reads as `absent`.
+ */
+export function mediaState(media: Pick<Media, 'state'>): MediaState {
+  return media.state ?? 'absent'
+}
+
+const IN_FLIGHT_MEDIA_STATES: ReadonlySet<MediaState> = new Set<MediaState>([
+  'downloading',
+  'importing',
+  'needs_attention',
+  'paused',
+])
+
+/**
+ * Whether a download is under way - moving bytes, importing them, stuck on a
+ * human, or paused. `wanted` is deliberately not in-flight: nothing has been
+ * grabbed yet.
+ */
+export function isMediaInFlight(state: MediaState): boolean {
+  return IN_FLIGHT_MEDIA_STATES.has(state)
+}
+
+/**
+ * Rolls episode (or season) states up into one, taking the highest
+ * {@link MEDIA_STATE_PRECEDENCE} entry present. Nothing to roll up means
+ * nothing is there, so an empty input is `absent`.
+ */
+export function rollupMediaState(states: Iterable<MediaState>): MediaState {
+  let best: MediaState = 'absent'
+  let bestRank = MEDIA_STATE_PRECEDENCE.indexOf(best)
+  for (const state of states) {
+    const rank = MEDIA_STATE_PRECEDENCE.indexOf(state)
+    if (rank !== -1 && rank < bestRank) {
+      best = state
+      bestRank = rank
+    }
+  }
+  return best
+}
+
 /**
  * A download *event*: who asked, when, and what happened. A plain,
  * non-union object - the only type-varying part is nested at `media`, which
@@ -185,10 +271,22 @@ export type DownloadJobRecord = Omit<DownloadJob, 'media'> & {
   type: DownloadType
 }
 
+/**
+ * One gallery card: a piece of media plus a summary of its download
+ * attempts - how many there were, and who made the latest one and when.
+ * Plan 021 treats each job as one attempt at getting the media, never as
+ * the media's status; that comes from `media.state` (read it through
+ * `mediaState()`).
+ */
 export type GalleryItem = z.infer<typeof GalleryItemSchema>
 
 /** `GET /download/media/:id`'s response - see plan §3.1. */
 export interface MediaDetailResponse {
+  /**
+   * The download attempts for this media, newest first. History, not status:
+   * pages don't derive what state the media is in from these - that is
+   * `media.state`, read through `mediaState()`.
+   */
   jobs: DownloadJob[]
   media: Media
 }

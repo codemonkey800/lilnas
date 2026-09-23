@@ -171,7 +171,51 @@ export const RequestShowInputSchema = z.object({
 
 // ---- The Media hierarchy ----
 
+/**
+ * Plan 021. Where a piece of media stands right now, derived from upstream
+ * (Radarr/Sonarr's library and queue, or the `videos` row plus its yt-dlp
+ * job) on every poll. This is what a page renders as a title's status - a job
+ * is only one download attempt, and pages don't read status off it.
+ *
+ *   - `absent` - not in the library, or in it unmonitored with no file.
+ *     Video: no row, or a row with no file.
+ *   - `wanted` - monitored, no file, nothing in the queue. Video: queued, not
+ *     started.
+ *   - `downloading` - a queue item is moving bytes. Video: yt-dlp running, or
+ *     cancelling.
+ *   - `importing` - the bytes are down and the file is being made available:
+ *     a Radarr/Sonarr import, or yt-dlp's convert/upload/clean.
+ *   - `needs_attention` - a queue item is stuck and a human must act; the
+ *     media carries a `stateReason` saying why.
+ *   - `paused` - video only today: yt-dlp paused or pausing.
+ *   - `available` - a file is on disk. Movie: `filePath`; show:
+ *     `episodeFileCount > 0`; video: `downloadUrls` non-empty.
+ *
+ * A closed tuple rather than a TS `enum` so the literals read the same on the
+ * wire, in a `Record<MediaState, …>` table, and in a test. The order here is
+ * the lifecycle, not the rollup precedence - that is
+ * `MEDIA_STATE_PRECEDENCE` (./types.ts).
+ */
+export const MEDIA_STATES = [
+  'absent',
+  'wanted',
+  'downloading',
+  'importing',
+  'needs_attention',
+  'paused',
+  'available',
+] as const
+
+export const MediaStateSchema = z.enum(MEDIA_STATES)
+
 export const MediaBaseSchema = z.object({
+  /**
+   * Plan 021. When the file landed - movie: `movieFile.dateAdded`; series:
+   * `series.added`; video: `videos.updated_at` once `download_urls` is set.
+   * Optional because a title with no file (and every search/discovery hit)
+   * has no such moment.
+   */
+  addedAt: z.iso.datetime().optional(),
   certification: z.string().optional(),
   genres: z.array(z.string()).optional(),
   /** Derived by `mediaId()` — e.g. `tmdb:438631` — never minted directly. */
@@ -192,6 +236,21 @@ export const MediaBaseSchema = z.object({
    * (`14:02`, `0:58`) while movie/show detail renders `2h 04m`.
    */
   runtime: z.number().int().optional(),
+  /**
+   * Plan 021. See {@link MEDIA_STATES} for what each value means.
+   *
+   * **Optional on purpose, like `embyStatus`**: the mappers (`toMovie`,
+   * `toShow`, `hydrateVideo`) and a few dozen test fixtures build a `Media`
+   * before anything has looked at the queue, and the resolver always fills it
+   * on anything the API serves. So readers never read `media.state` directly -
+   * they call `mediaState(media)` (./types.ts), which falls back to `absent`.
+   */
+  state: MediaStateSchema.optional(),
+  /**
+   * Plan 021. Upstream's one-line reason a queue item is stuck - present iff
+   * `state === 'needs_attention'`.
+   */
+  stateReason: z.string().optional(),
   title: z.string(),
   type: z.enum(DownloadType),
   year: z.number().int().optional(),
@@ -227,6 +286,12 @@ export const EmbyStatusSchema = z.object({
 export const ManagedMediaBaseSchema = MediaBaseSchema.extend({
   embyStatus: EmbyStatusSchema.optional(),
   filePath: z.string().optional(),
+  /**
+   * Plan 021. Radarr's/Sonarr's own `monitored` flag on the movie/series -
+   * what tells `wanted` (monitored, no file) from `absent` (unmonitored, no
+   * file). Absent when the title isn't in the library at all.
+   */
+  monitored: z.boolean().optional(),
   queueSnapshot: DownloadQueueSnapshotSchema.optional(),
 })
 
@@ -244,6 +309,18 @@ export const MovieSchema = ManagedMediaBaseSchema.extend({
 })
 
 export const ShowSchema = ManagedMediaBaseSchema.extend({
+  /**
+   * Plan 021. Straight from Sonarr's series `statistics`, like
+   * `SeasonSchema`'s per-season counts - Sonarr's number is the honest one.
+   * Optional because a series not yet in the library has no statistics.
+   */
+  episodeCount: z.number().int().min(0).optional(),
+  /**
+   * Plan 021. Sonarr's series `statistics.episodeFileCount`. Anything above
+   * `0` makes the series `available`; together with `episodeCount` it says
+   * how much of it is.
+   */
+  episodeFileCount: z.number().int().min(0).optional(),
   sonarrId: z.number().int().positive().optional(),
   tvdbId: z.number().int().positive(),
   type: z.literal(DownloadType.Show),
@@ -633,6 +710,12 @@ export const EpisodeSchema = z.object({
   monitored: z.boolean(),
   overview: z.string().optional(),
   /**
+   * Plan 021. This episode's live Sonarr queue entry, when it has one. Filled
+   * by the server for the seasons route; optional for the same reason as
+   * `state` below.
+   */
+  queueSnapshot: DownloadQueueSnapshotSchema.optional(),
+  /**
    * **Seconds**, matching `MediaBaseSchema.runtime`'s documented convention.
    * Sonarr reports minutes, so `toEpisode()` multiplies by 60 - the same
    * conversion `toShow()`/`toMovie()` already do.
@@ -640,6 +723,13 @@ export const EpisodeSchema = z.object({
   runtime: z.number().int().optional(),
   /** `.min(0)` - Sonarr numbers specials as season 0. */
   seasonNumber: z.number().int().min(0),
+  /**
+   * Plan 021. This episode's {@link MEDIA_STATES} value, filled by the server
+   * for the seasons route. Optional because `toEpisode()` builds an `Episode`
+   * before anything has looked at the queue - the same reason
+   * `MediaBaseSchema.state` is optional.
+   */
+  state: MediaStateSchema.optional(),
   title: z.string().optional(),
 })
 
@@ -935,3 +1025,27 @@ export const ImportFilesInputSchema = z.object({
  * the same reason {@link ListImportCandidatesQuerySchema} is.
  */
 export const DiscardImportQuerySchema = ListReleasesQuerySchema
+
+// ---- Plan 021: media is the source of truth ----
+//
+// `MEDIA_STATES`/`MediaStateSchema` belong to this plan too, but are declared
+// up with the Media hierarchy, which carries them - the same arrangement
+// `ShowScopeSchema` has with Phase 4.
+
+/**
+ * One episode's state, keyed by Sonarr's episode id - the compact form of a
+ * series' per-episode states, for when the full {@link EpisodeSchema} (title,
+ * overview, file ids) would be dead weight.
+ *
+ * `state` is **required** here, unlike on `EpisodeSchema`: an entry only
+ * exists because something worked the state out, so there is no
+ * pre-resolution window to allow for.
+ */
+export const EpisodeStateEntrySchema = z.object({
+  /** Sonarr's episode id - the same key as `EpisodeSchema.id`. */
+  episodeId: z.number().int().positive(),
+  queueSnapshot: DownloadQueueSnapshotSchema.optional(),
+  /** `.min(0)` - Sonarr numbers specials as season 0. */
+  seasonNumber: z.number().int().min(0),
+  state: MediaStateSchema,
+})
