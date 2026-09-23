@@ -16,12 +16,13 @@ import {
   searchReleases,
   unflagBadFile,
 } from 'src/app/actions/media-files'
-import { ShowDetail } from 'src/components/detail/show-detail'
+import { ShowDetailLive } from 'src/components/detail/show-detail-live'
 import { ShowPageShell } from 'src/components/detail/show-page-shell'
 import type {
   ShowRequestResult,
   ShowRequestScope,
 } from 'src/components/detail/show-request-button'
+import { JobEventsProvider } from 'src/components/live/job-events'
 import { mediaIdSuffix } from 'src/db/media-id'
 import { getIdentifiedDownloadClient } from 'src/lib/download-client'
 import { mediaIdFromRoute } from 'src/lib/media-route'
@@ -222,28 +223,31 @@ export default async function ShowPage({
 
   return (
     <ShowPageShell>
-      <ShowDetail
-        badFiles={badFiles}
-        // The three unbound server actions `ImportDialog` calls. They reach
-        // both the series panel and each season panel; the scope that narrows
-        // every request is read off the stuck job, never assembled here.
-        imports={{
-          commit: importFiles,
-          discard: discardImport,
-          list: listImportCandidates,
-        }}
-        jobs={detail.jobs}
-        media={detail.media}
-        now={getRequestInstant()}
-        seasons={seasons}
-        onDelete={deleteMediaFiles}
-        onFlag={flagBadFile}
-        onGrab={grabRelease}
-        onReplace={replaceRelease}
-        onRequest={requestShowScope}
-        onSearch={searchReleases}
-        onUnflag={unflagBadFile}
-      />
+      {/* Placed as on the movie page: the socket belongs to this page alone. */}
+      <JobEventsProvider>
+        <ShowDetailLive
+          badFiles={badFiles}
+          // The three unbound server actions `ImportDialog` calls. They reach
+          // both the series panel and each season panel; the scope that narrows
+          // every request is read off the stuck job, never assembled here.
+          imports={{
+            commit: importFiles,
+            discard: discardImport,
+            list: listImportCandidates,
+          }}
+          jobs={detail.jobs}
+          media={detail.media}
+          now={getRequestInstant()}
+          seasons={seasons}
+          onDelete={deleteMediaFiles}
+          onFlag={flagBadFile}
+          onGrab={grabRelease}
+          onReplace={replaceRelease}
+          onRequest={requestShowScope}
+          onSearch={searchReleases}
+          onUnflag={unflagBadFile}
+        />
+      </JobEventsProvider>
     </ShowPageShell>
   )
 }

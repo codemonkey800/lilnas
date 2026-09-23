@@ -8,6 +8,7 @@ import {
   jobProgress,
   jobStatusLabel,
   latestJob,
+  mergeLiveMediaJobs,
 } from 'src/components/detail/job-state'
 
 const EVERY_STATUS = Object.values(DownloadJobStatus)
@@ -265,5 +266,60 @@ describe('jobProgress', () => {
 
   it('answers null when there is no queue snapshot at all', () => {
     expect(jobProgress(job())).toBeNull()
+  })
+})
+
+describe('mergeLiveMediaJobs', () => {
+  const current = job({ id: 'job_2', status: DownloadJobStatus.Searching })
+  const earlier = job({
+    createdAt: '2026-09-14T12:00:00.000Z',
+    id: 'job_1',
+    status: DownloadJobStatus.Failed,
+  })
+
+  it('lets the live copy win and keeps the server order', () => {
+    const live = new Map([
+      ['job_2', job({ id: 'job_2', status: DownloadJobStatus.Downloading })],
+    ])
+
+    expect(mergeLiveMediaJobs([current, earlier], live)).toEqual({
+      jobs: [
+        job({ id: 'job_2', status: DownloadJobStatus.Downloading }),
+        earlier,
+      ],
+      landed: [],
+    })
+  })
+
+  it('ignores a frame for a job the page does not show', () => {
+    const live = new Map([['job_9', job({ id: 'job_9' })]])
+
+    expect(mergeLiveMediaJobs([current], live)).toEqual({
+      jobs: [current],
+      landed: [],
+    })
+  })
+
+  it('holds a job that just completed at importing and reports it landed', () => {
+    const done = job({
+      completedAt: '2026-09-15T12:00:00.000Z',
+      id: 'job_2',
+      status: DownloadJobStatus.Completed,
+    })
+
+    const merged = mergeLiveMediaJobs([current], new Map([['job_2', done]]))
+
+    expect(merged.landed).toEqual(['job_2'])
+    expect(merged.jobs[0]?.status).toBe(DownloadJobStatus.Importing)
+    expect(merged.jobs[0]?.completedAt).toBe(done.completedAt)
+  })
+
+  it('passes a completed job through once the server render agrees', () => {
+    const done = job({ id: 'job_2', status: DownloadJobStatus.Completed })
+
+    expect(mergeLiveMediaJobs([done], new Map([['job_2', done]]))).toEqual({
+      jobs: [done],
+      landed: [],
+    })
   })
 })

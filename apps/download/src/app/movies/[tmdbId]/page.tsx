@@ -2,6 +2,7 @@ import { cns } from '@lilnas/utils/cns'
 import type { MediaDetailResponse } from '@lilnas/utils/download/types'
 import { isMovie } from '@lilnas/utils/download/types'
 import type { Metadata } from 'next'
+import { revalidatePath } from 'next/cache'
 import { notFound } from 'next/navigation'
 import type { JSX } from 'react'
 import { cache } from 'react'
@@ -18,7 +19,10 @@ import {
   unflagBadFile,
 } from 'src/app/actions/media-files'
 import { LibraryLink } from 'src/components/detail/library-link'
-import { MovieDetail } from 'src/components/detail/movie-detail'
+import { MovieDetailLive } from 'src/components/detail/movie-detail-live'
+import type { MovieRequestResult } from 'src/components/detail/movie-request-button'
+import { JobEventsProvider } from 'src/components/live/job-events'
+import { mediaIdSuffix } from 'src/db/media-id'
 import { getIdentifiedDownloadClient } from 'src/lib/download-client'
 import { mediaIdFromRoute } from 'src/lib/media-route'
 import { getRequestInstant } from 'src/lib/request-instant'
@@ -31,6 +35,8 @@ const PAGE_SHELL = cns(
 
 /** The tab title when the movie's own could not be resolved. */
 const FALLBACK_TITLE = 'Movie · Download'
+
+const REQUEST_FAILED = 'Could not start that download — try again'
 
 export type MoviePageProps = {
   params: Promise<{ tmdbId: string }>
@@ -73,6 +79,52 @@ async function loadBadFiles(mediaId: string) {
   const client = await getIdentifiedDownloadClient()
 
   return client.listBadFiles(mediaId)
+}
+
+/**
+ * Starts a movie download at Radarr's own best-release pick.
+ *
+ * ⚠️ **This writes to the real Radarr library** — `POST /download/movies`
+ * ensures the movie is monitored and fires `MoviesSearch`, exactly the way
+ * `requestShowScope` on the show page does for Sonarr, minus a scope: a
+ * movie has exactly one release slot, so there is nothing to narrow.
+ *
+ * An inline server action rather than a module in `src/app/actions/`, for the
+ * same reason `requestShowScope` is one: this is the only page that requests
+ * a movie, and the action closes over nothing, so a shared module would buy
+ * nothing but another file. Failures come back as a result rather than a
+ * throw, so a refused request renders next to the button that caused it
+ * instead of taking the whole page down.
+ */
+async function requestMovie(mediaId: string): Promise<MovieRequestResult> {
+  'use server'
+
+  const tmdbId = Number(mediaIdSuffix(mediaId))
+
+  if (!Number.isSafeInteger(tmdbId) || tmdbId <= 0) {
+    return { error: REQUEST_FAILED }
+  }
+
+  // Outside the `try`, exactly as in `media-files.ts`: `headers()` signals a
+  // static-generation bailout by throwing a value carrying a `digest`, and
+  // this keeps the `try` wrapping precisely one call.
+  const client = await getIdentifiedDownloadClient()
+
+  try {
+    const job = await client.requestMovie({ tmdbId })
+
+    revalidatePath(`/movies/${tmdbId}`)
+
+    return { job }
+  } catch (error) {
+    if (isFrameworkSignal(error)) {
+      throw error
+    }
+
+    console.error('[movies] POST /download/movies failed', error)
+
+    return { error: REQUEST_FAILED }
+  }
 }
 
 /**
@@ -167,27 +219,35 @@ export default async function MoviePage({
     <main className={PAGE_SHELL}>
       <div className={cns('mx-auto max-w-[1080px]')}>
         <LibraryLink />
-        <MovieDetail
-          badFiles={badFiles}
-          // The three unbound server actions `ImportDialog` calls, handed
-          // through the detail component to the lifecycle panel. Unbound on
-          // purpose: the dialog supplies the media key and the scope, so this
-          // page never has to know which job is stuck.
-          imports={{
-            commit: importFiles,
-            discard: discardImport,
-            list: listImportCandidates,
-          }}
-          jobs={detail.jobs}
-          movie={detail.media}
-          now={now}
-          onDelete={deleteMediaFiles}
-          onFlag={flagBadFile}
-          onGrab={grabRelease}
-          onReplace={replaceRelease}
-          onSearch={searchReleases}
-          onUnflag={unflagBadFile}
-        />
+        {/*
+          The provider owns the socket, so it goes here rather than in the
+          layout, and nothing above it carries a `key` — the same placement
+          `/videos/<videoId>` makes, for the reasons given there.
+        */}
+        <JobEventsProvider>
+          <MovieDetailLive
+            badFiles={badFiles}
+            // The three unbound server actions `ImportDialog` calls, handed
+            // through the detail component to the lifecycle panel. Unbound on
+            // purpose: the dialog supplies the media key and the scope, so this
+            // page never has to know which job is stuck.
+            imports={{
+              commit: importFiles,
+              discard: discardImport,
+              list: listImportCandidates,
+            }}
+            jobs={detail.jobs}
+            movie={detail.media}
+            now={now}
+            onDelete={deleteMediaFiles}
+            onFlag={flagBadFile}
+            onGrab={grabRelease}
+            onReplace={replaceRelease}
+            onRequest={requestMovie}
+            onSearch={searchReleases}
+            onUnflag={unflagBadFile}
+          />
+        </JobEventsProvider>
       </div>
     </main>
   )

@@ -183,6 +183,60 @@ export function currentJob(
     : job
 }
 
+/** What {@link mergeLiveMediaJobs} hands a movie or show page. */
+export type LiveMediaJobs = {
+  /** The server's list with every live frame folded in, in the server's order. */
+  jobs: DownloadJob[]
+  /**
+   * Ids a live frame says `completed` that the server render does not. Only a
+   * fresh server render can catch the page up once one lands, because the file,
+   * the Emby link and the current release all arrive on the *media*, not on
+   * the job frame.
+   */
+  landed: string[]
+}
+
+/**
+ * The server's job list for a movie or show with every live frame folded in.
+ *
+ * Replacement in place, keyed by `job.id`, live copy winning, for the same
+ * reasons as `mergeVideoJobs`: no re-sort, no insertion, no eviction.
+ *
+ * ⚠️ One difference, and it is why this is not `mergeVideoJobs`. A job that
+ * turned `completed` live is held at `importing` until the page re-renders.
+ * The media prop still predates the import, so it says there is no file, and
+ * `currentJob` reads "completed with no file" as a deleted title. Passed
+ * through as-is, the page would flash "not downloaded" and a Download button
+ * for as long as the refresh takes. `importing` is also simply true: Radarr
+ * or Sonarr has the file and this page has not been told where it landed yet.
+ */
+export function mergeLiveMediaJobs(
+  jobs: readonly DownloadJob[],
+  live: ReadonlyMap<string, DownloadJob>,
+): LiveMediaJobs {
+  const landed: string[] = []
+
+  const merged = jobs.map(job => {
+    const next = live.get(job.id)
+
+    if (!next) {
+      return job
+    }
+
+    if (
+      next.status === DownloadJobStatus.Completed &&
+      job.status !== DownloadJobStatus.Completed
+    ) {
+      landed.push(job.id)
+      return { ...next, status: DownloadJobStatus.Importing }
+    }
+
+    return next
+  })
+
+  return { jobs: merged, landed }
+}
+
 /** Everything a progress block draws, or `null` when there is nothing to draw. */
 export type JobProgress = {
   /**
