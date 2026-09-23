@@ -1,0 +1,669 @@
+import '@testing-library/jest-dom'
+
+import type { DownloadJob, Movie, Show } from '@lilnas/utils/download/types'
+import {
+  DownloadJobStatus,
+  DownloadType,
+  isTerminalDownloadJobStatus,
+} from '@lilnas/utils/download/types'
+import { render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+
+import type { AttemptListProps } from 'src/components/detail/attempt-list'
+import {
+  AttemptList,
+  attemptScopeLabel,
+} from 'src/components/detail/attempt-list'
+import type { ImportDialogActions } from 'src/components/detail/import-dialog'
+import { IMPORT_TRIGGER_LABEL } from 'src/components/detail/import-dialog'
+import { jobStatusLabel } from 'src/components/detail/job-state'
+
+/** The one instant every stamp on the page is measured against. */
+const NOW = new Date('2026-09-15T12:00:00.000Z')
+
+const EVERY_STATUS = Object.values(DownloadJobStatus)
+
+const MOVIE: Movie = {
+  id: 'tmdb:920',
+  title: 'Cars',
+  tmdbId: 920,
+  type: DownloadType.Movie,
+}
+
+const SHOW: Show = {
+  id: 'tvdb:79126',
+  title: 'The Wire',
+  tvdbId: 79126,
+  type: DownloadType.Show,
+}
+
+function job(overrides: Partial<DownloadJob> = {}): DownloadJob {
+  return {
+    completedAt: null,
+    createdAt: '2026-09-15T11:48:00.000Z',
+    discordRequester: null,
+    hiddenAttribution: false,
+    id: 'job_1',
+    linkedDiscord: null,
+    media: MOVIE,
+    requester: { email: 'jeremy.asuncion@lilnas.io', userId: 'u_1' },
+    status: DownloadJobStatus.Downloading,
+    updatedAt: '2026-09-15T11:50:00.000Z',
+    ...overrides,
+  }
+}
+
+/**
+ * Typed as the thing a page passes — never a bare `jest.fn()`, which would
+ * type-check against the `<section>` media-event collision `AttemptListProps`
+ * omits. See the same helper in `job-lifecycle.spec.tsx`.
+ */
+function jobAction(): jest.Mock<Promise<void>, [string]> {
+  return jest.fn<Promise<void>, [string]>()
+}
+
+function importActions(): ImportDialogActions {
+  return {
+    commit: jest.fn().mockResolvedValue({ importedCount: 1 }),
+    discard: jest.fn().mockResolvedValue({ discardedCount: 1 }),
+    list: jest.fn().mockResolvedValue({ candidates: [] }),
+  }
+}
+
+type Handlers = Required<
+  Pick<AttemptListProps, 'onCancel' | 'onPause' | 'onResume' | 'onRetry'>
+>
+
+function handlers(): Handlers {
+  return {
+    onCancel: jobAction(),
+    onPause: jobAction(),
+    onResume: jobAction(),
+    onRetry: jobAction(),
+  }
+}
+
+/** Every control wired at once, so a status's set is what it truly offers. */
+function renderList(jobs: DownloadJob[], wired: Handlers = handlers()) {
+  return render(
+    <AttemptList imports={importActions()} jobs={jobs} now={NOW} {...wired} />,
+  )
+}
+
+/** The labels of every control on screen, in DOM order. */
+function controlLabels(container: HTMLElement): string[] {
+  return Array.from(container.querySelectorAll('button, a')).map(
+    element => element.textContent ?? '',
+  )
+}
+
+function inertLabels(container: HTMLElement): string[] {
+  return Array.from(container.querySelectorAll('[aria-disabled="true"]')).map(
+    element => element.textContent ?? '',
+  )
+}
+
+function attempt(container: HTMLElement, id: string): HTMLElement {
+  const element = container.querySelector<HTMLElement>(`[data-job-id="${id}"]`)
+  if (!element) {
+    throw new Error(`no attempt rendered for ${id}`)
+  }
+  return element
+}
+
+/**
+ * `job-lifecycle.spec.tsx`'s table, minus what an attempt no longer carries:
+ * a terminal job is a history row with no controls by default (Retry is
+ * opt-in through `retryable` — see its own block below — and Watch/Save are
+ * media actions), so `retry`, `watch` and `save` never appear here.
+ */
+const EXPECTED_ACTIONS: Record<DownloadJobStatus, string[]> = {
+  [DownloadJobStatus.Cancelled]: [],
+  [DownloadJobStatus.Cancelling]: ['Cancel'],
+  [DownloadJobStatus.Cleaning]: ['Cancel'],
+  [DownloadJobStatus.Completed]: [],
+  [DownloadJobStatus.Converting]: ['Cancel'],
+  [DownloadJobStatus.Downloading]: ['Pause', 'Cancel'],
+  [DownloadJobStatus.Failed]: [],
+  [DownloadJobStatus.Importing]: ['Cancel'],
+  [DownloadJobStatus.NeedsAttention]: [IMPORT_TRIGGER_LABEL, 'Cancel'],
+  [DownloadJobStatus.Paused]: ['Resume', 'Cancel'],
+  [DownloadJobStatus.Pausing]: ['Pause', 'Cancel'],
+  [DownloadJobStatus.Pending]: ['Cancel'],
+  [DownloadJobStatus.Requested]: ['Cancel'],
+  [DownloadJobStatus.Searching]: ['Cancel'],
+  [DownloadJobStatus.Uploading]: ['Cancel'],
+}
+
+describe('attemptScopeLabel', () => {
+  it('names a season', () => {
+    expect(attemptScopeLabel({ seasonNumber: 3 })).toBe('Season 3')
+  })
+
+  it('names an episode', () => {
+    expect(
+      attemptScopeLabel({ episodeId: 9, episodeNumber: 6, seasonNumber: 3 }),
+    ).toBe('Season 3, episode 6')
+  })
+
+  it('names specials as season 0 rather than dropping them', () => {
+    expect(attemptScopeLabel({ seasonNumber: 0 })).toBe('Season 0')
+  })
+
+  it('says nothing for a series-wide or unscoped job', () => {
+    expect(attemptScopeLabel(undefined)).toBeNull()
+    expect(attemptScopeLabel({})).toBeNull()
+  })
+})
+
+describe('AttemptList', () => {
+  it('renders nothing for an empty list', () => {
+    const { container } = renderList([])
+
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('heads the list "Attempts" by default', () => {
+    renderList([job()])
+
+    expect(screen.getByRole('region', { name: 'Attempts' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { level: 2, name: 'Attempts' }),
+    ).toBeInTheDocument()
+  })
+
+  it('takes a heading override', () => {
+    render(<AttemptList jobs={[job()]} label="Season 3 attempts" now={NOW} />)
+
+    expect(
+      screen.getByRole('heading', { name: 'Season 3 attempts' }),
+    ).toBeInTheDocument()
+  })
+
+  describe('ordering', () => {
+    it('lists in-flight attempts first, then history, each newest first', () => {
+      const { container } = renderList([
+        job({
+          createdAt: '2026-09-14T10:00:00.000Z',
+          id: 'old_failed',
+          status: DownloadJobStatus.Failed,
+        }),
+        job({
+          createdAt: '2026-09-15T09:00:00.000Z',
+          id: 'old_live',
+          status: DownloadJobStatus.Downloading,
+        }),
+        job({
+          createdAt: '2026-09-15T11:00:00.000Z',
+          id: 'new_cancelled',
+          status: DownloadJobStatus.Cancelled,
+        }),
+        job({
+          createdAt: '2026-09-15T11:30:00.000Z',
+          id: 'new_live',
+          status: DownloadJobStatus.Paused,
+        }),
+      ])
+
+      const ids = Array.from(container.querySelectorAll('[data-job-id]')).map(
+        element => element.getAttribute('data-job-id'),
+      )
+
+      expect(ids).toEqual([
+        'new_live',
+        'old_live',
+        'new_cancelled',
+        'old_failed',
+      ])
+    })
+
+    it('does not reorder the page’s own array', () => {
+      const jobs = [
+        job({ createdAt: '2026-09-14T10:00:00.000Z', id: 'older' }),
+        job({ createdAt: '2026-09-15T10:00:00.000Z', id: 'newer' }),
+      ]
+
+      renderList(jobs)
+
+      expect(jobs.map(entry => entry.id)).toEqual(['older', 'newer'])
+    })
+  })
+
+  describe('in-flight attempts', () => {
+    it.each(EVERY_STATUS)('offers %s exactly its own action set', status => {
+      const { container } = renderList([job({ status })])
+
+      expect(controlLabels(container)).toEqual(EXPECTED_ACTIONS[status])
+    })
+
+    it.each(EVERY_STATUS)(
+      'draws %s as a card only while it is in flight',
+      status => {
+        const { container } = renderList([job({ status })])
+        const element = attempt(container, 'job_1')
+
+        expect(element.getAttribute('class')?.includes('border-uv/35')).toBe(
+          !isTerminalDownloadJobStatus(status),
+        )
+      },
+    )
+
+    it('chips the attempt with its job status and a live dot', () => {
+      const { container } = renderList([job()])
+      const card = attempt(container, 'job_1')
+
+      expect(
+        within(card).getByText(jobStatusLabel(DownloadJobStatus.Downloading)),
+      ).toBeInTheDocument()
+      expect(card.querySelector('.dot-live')).toBeInTheDocument()
+    })
+
+    it('leaves a paused attempt undotted', () => {
+      const { container } = renderList([
+        job({ status: DownloadJobStatus.Paused }),
+      ])
+
+      expect(container.querySelector('.dot-live')).not.toBeInTheDocument()
+    })
+
+    it('draws the attempt’s own progress from its media snapshot', () => {
+      renderList([
+        job({
+          media: {
+            ...MOVIE,
+            queueSnapshot: { progress: 47, timeLeft: '00:12:00' },
+          },
+        }),
+      ])
+
+      expect(
+        screen.getByRole('progressbar', { name: 'Download progress' }),
+      ).toHaveAttribute('aria-valuenow', '47')
+      expect(screen.getByText('47%')).toBeInTheDocument()
+      expect(screen.getByText('~00:12:00 left')).toBeInTheDocument()
+    })
+
+    it('draws no bar when the attempt has no progress to prove', () => {
+      renderList([job()])
+
+      expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+    })
+
+    it('keeps an acknowledged action on screen but inert', () => {
+      const { container } = renderList([
+        job({ status: DownloadJobStatus.Pausing }),
+      ])
+
+      expect(inertLabels(container)).toEqual(['Pause'])
+    })
+
+    it('renders nothing for an action the page did not wire', () => {
+      const { container } = render(
+        <AttemptList jobs={[job()]} now={NOW} onCancel={jobAction()} />,
+      )
+
+      expect(controlLabels(container)).toEqual(['Cancel'])
+    })
+
+    it('hands each handler the id of the attempt it was pressed on', async () => {
+      const user = userEvent.setup()
+      const wired = handlers()
+
+      renderList(
+        [
+          job({ id: 'job_dl', status: DownloadJobStatus.Downloading }),
+          job({
+            createdAt: '2026-09-15T11:00:00.000Z',
+            id: 'job_paused',
+            status: DownloadJobStatus.Paused,
+          }),
+        ],
+        wired,
+      )
+
+      const downloading = screen
+        .getByText(jobStatusLabel(DownloadJobStatus.Downloading))
+        .closest<HTMLElement>('[data-job-id]')
+      const paused = screen
+        .getByText(jobStatusLabel(DownloadJobStatus.Paused))
+        .closest<HTMLElement>('[data-job-id]')
+
+      if (!downloading || !paused) {
+        throw new Error('expected two attempt cards')
+      }
+
+      await user.click(
+        within(downloading).getByRole('button', { name: 'Pause' }),
+      )
+      await user.click(within(paused).getByRole('button', { name: 'Resume' }))
+      await user.click(within(paused).getByRole('button', { name: 'Cancel' }))
+
+      expect(wired.onPause).toHaveBeenCalledWith('job_dl')
+      expect(wired.onResume).toHaveBeenCalledWith('job_paused')
+      expect(wired.onCancel).toHaveBeenCalledWith('job_paused')
+      expect(wired.onCancel).toHaveBeenCalledTimes(1)
+    })
+
+    it('takes an unbound server action on every handler prop', async () => {
+      const calls: string[] = []
+      const serverAction = async (jobId: string): Promise<void> => {
+        calls.push(jobId)
+      }
+      const wired: Handlers = {
+        onCancel: serverAction,
+        onPause: serverAction,
+        onResume: serverAction,
+        onRetry: serverAction,
+      }
+
+      render(<AttemptList jobs={[job({ id: 'job_7' })]} now={NOW} {...wired} />)
+      await userEvent.click(screen.getByRole('button', { name: 'Pause' }))
+
+      expect(calls).toEqual(['job_7'])
+    })
+  })
+
+  describe('two attempts in flight at one show', () => {
+    const season = job({
+      createdAt: '2026-09-15T11:00:00.000Z',
+      id: 'job_season',
+      media: SHOW,
+      scope: { seasonNumber: 3 },
+      status: DownloadJobStatus.Downloading,
+    })
+    const episode = job({
+      createdAt: '2026-09-15T11:30:00.000Z',
+      id: 'job_episode',
+      media: SHOW,
+      scope: { episodeId: 41, episodeNumber: 6, seasonNumber: 3 },
+      status: DownloadJobStatus.Importing,
+    })
+
+    it('gives each its own card, scope and actions', () => {
+      const { container } = renderList([season, episode])
+      const seasonCard = attempt(container, 'job_season')
+      const episodeCard = attempt(container, 'job_episode')
+
+      expect(within(seasonCard).getByText('Season 3')).toBeInTheDocument()
+      expect(controlLabels(seasonCard)).toEqual(['Pause', 'Cancel'])
+      expect(
+        within(episodeCard).getByText('Season 3, episode 6'),
+      ).toBeInTheDocument()
+      expect(controlLabels(episodeCard)).toEqual(['Cancel'])
+    })
+
+    it('cancels only the attempt that was pressed', async () => {
+      const user = userEvent.setup()
+      const wired = handlers()
+      const { container } = renderList([season, episode], wired)
+
+      await user.click(
+        within(attempt(container, 'job_season')).getByRole('button', {
+          name: 'Cancel',
+        }),
+      )
+
+      expect(wired.onCancel).toHaveBeenCalledTimes(1)
+      expect(wired.onCancel).toHaveBeenCalledWith('job_season')
+    })
+  })
+
+  describe('a stuck import', () => {
+    it('puts Import on the needs_attention attempt, not anywhere else', () => {
+      const { container } = renderList([
+        job({ id: 'job_stuck', status: DownloadJobStatus.NeedsAttention }),
+        job({
+          createdAt: '2026-09-15T11:00:00.000Z',
+          id: 'job_live',
+          media: SHOW,
+          status: DownloadJobStatus.Downloading,
+        }),
+      ])
+
+      expect(
+        within(attempt(container, 'job_stuck')).getByRole('button', {
+          name: IMPORT_TRIGGER_LABEL,
+        }),
+      ).toBeInTheDocument()
+      expect(
+        within(attempt(container, 'job_live')).queryByRole('button', {
+          name: IMPORT_TRIGGER_LABEL,
+        }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('offers no Import without the importer actions', () => {
+      const { container } = render(
+        <AttemptList
+          jobs={[job({ status: DownloadJobStatus.NeedsAttention })]}
+          now={NOW}
+          onCancel={jobAction()}
+        />,
+      )
+
+      expect(controlLabels(container)).toEqual(['Cancel'])
+    })
+
+    it('says why beside the attempt', () => {
+      renderList([
+        job({
+          error: 'Radarr could not match the file',
+          status: DownloadJobStatus.NeedsAttention,
+        }),
+      ])
+
+      expect(
+        screen.getByText('Radarr could not match the file'),
+      ).toBeInTheDocument()
+    })
+  })
+
+  describe('retry', () => {
+    const failed = job({
+      completedAt: '2026-09-15T11:00:00.000Z',
+      createdAt: '2026-09-15T10:00:00.000Z',
+      id: 'job_new_failed',
+      status: DownloadJobStatus.Failed,
+    })
+    const olderFailed = job({
+      completedAt: '2026-09-14T11:00:00.000Z',
+      createdAt: '2026-09-14T10:00:00.000Z',
+      id: 'job_old_failed',
+      status: DownloadJobStatus.Failed,
+    })
+
+    function renderRetryable(
+      jobs: DownloadJob[],
+      retryable: boolean,
+      wired: Handlers = handlers(),
+    ) {
+      return render(
+        <AttemptList jobs={jobs} now={NOW} retryable={retryable} {...wired} />,
+      )
+    }
+
+    it('offers none by default, even on a failed newest attempt', () => {
+      const { container } = renderList([failed])
+
+      expect(controlLabels(container)).toEqual([])
+    })
+
+    it('offers none when the page says the title is not retryable', () => {
+      const { container } = renderRetryable([failed], false)
+
+      expect(controlLabels(container)).toEqual([])
+    })
+
+    it.each([DownloadJobStatus.Failed, DownloadJobStatus.Cancelled])(
+      'offers Retry on a %s newest attempt',
+      status => {
+        const { container } = renderRetryable([job({ status })], true)
+
+        expect(controlLabels(attempt(container, 'job_1'))).toEqual(['Retry'])
+      },
+    )
+
+    it('offers it on the newest row only, never an older failure', () => {
+      const { container } = renderRetryable([olderFailed, failed], true)
+
+      expect(controlLabels(attempt(container, 'job_new_failed'))).toEqual([
+        'Retry',
+      ])
+      expect(controlLabels(attempt(container, 'job_old_failed'))).toEqual([])
+    })
+
+    it('offers none when the newest attempt completed', () => {
+      const { container } = renderRetryable(
+        [
+          olderFailed,
+          job({
+            createdAt: '2026-09-15T11:00:00.000Z',
+            id: 'job_done',
+            status: DownloadJobStatus.Completed,
+          }),
+        ],
+        true,
+      )
+
+      expect(controlLabels(container)).toEqual([])
+    })
+
+    it('offers none on history while a newer attempt is in flight', () => {
+      const { container } = renderRetryable(
+        [
+          failed,
+          job({
+            createdAt: '2026-09-15T11:30:00.000Z',
+            id: 'job_live',
+            status: DownloadJobStatus.Downloading,
+          }),
+        ],
+        true,
+      )
+
+      expect(controlLabels(attempt(container, 'job_new_failed'))).toEqual([])
+    })
+
+    it('offers none without a retry handler', () => {
+      const { container } = render(
+        <AttemptList jobs={[failed]} now={NOW} retryable />,
+      )
+
+      expect(controlLabels(container)).toEqual([])
+    })
+
+    it('hands onRetry the newest attempt’s id', async () => {
+      const user = userEvent.setup()
+      const wired = handlers()
+
+      renderRetryable([olderFailed, failed], true, wired)
+      await user.click(screen.getByRole('button', { name: 'Retry' }))
+
+      expect(wired.onRetry).toHaveBeenCalledTimes(1)
+      expect(wired.onRetry).toHaveBeenCalledWith('job_new_failed')
+    })
+  })
+
+  describe('finished attempts', () => {
+    it('shows the status, when it ended, who asked and what went wrong', () => {
+      const { container } = renderList([
+        job({
+          completedAt: '2026-09-15T10:00:00.000Z',
+          error: 'Connection reset by peer',
+          status: DownloadJobStatus.Failed,
+        }),
+      ])
+      const line = attempt(container, 'job_1')
+
+      expect(within(line).getByText('failed').getAttribute('class')).toContain(
+        'text-bad',
+      )
+      expect(within(line).getByText('2h ago')).toBeInTheDocument()
+      expect(within(line).getByText('jeremy.asuncion')).toBeInTheDocument()
+      expect(
+        within(line).getByTitle('jeremy.asuncion@lilnas.io'),
+      ).toHaveTextContent('JA')
+      expect(
+        within(line)
+          .getByText('Connection reset by peer')
+          .getAttribute('class'),
+      ).toContain('text-bad')
+    })
+
+    it('falls back to when the attempt started', () => {
+      const { container } = renderList([
+        job({
+          completedAt: null,
+          createdAt: '2026-09-14T12:00:00.000Z',
+          status: DownloadJobStatus.Cancelled,
+        }),
+      ])
+
+      expect(
+        within(attempt(container, 'job_1')).getByText('1d ago'),
+      ).toBeInTheDocument()
+    })
+
+    it('renders a masked requester as hidden, with nothing behind the mask', () => {
+      const { container } = renderList([
+        job({
+          discordRequester: null,
+          linkedDiscord: null,
+          requester: null,
+          status: DownloadJobStatus.Completed,
+        }),
+      ])
+      const line = attempt(container, 'job_1')
+
+      expect(within(line).getByText('hidden')).toBeInTheDocument()
+      expect(within(line).getByTitle('Attribution hidden')).toHaveTextContent(
+        '–',
+      )
+      expect(line.querySelector('a')).not.toBeInTheDocument()
+    })
+
+    it('renders an unlinked Discord requester by handle', () => {
+      const { container } = renderList([
+        job({
+          discordRequester: {
+            discordUserId: '123456789012345678',
+            discordUsername: 'sam.pham',
+          },
+          requester: null,
+          status: DownloadJobStatus.Completed,
+        }),
+      ])
+
+      expect(
+        within(attempt(container, 'job_1')).getByText('sam.pham'),
+      ).toBeInTheDocument()
+    })
+
+    it('renders a linked Discord handle beside the requester', () => {
+      const { container } = renderList([
+        job({
+          linkedDiscord: {
+            discordUserId: '123456789012345678',
+            discordUsername: 'jeremy',
+          },
+          status: DownloadJobStatus.Completed,
+        }),
+      ])
+
+      expect(
+        within(attempt(container, 'job_1')).getByText('@jeremy'),
+      ).toBeInTheDocument()
+    })
+
+    it('draws no progress bar for a finished attempt', () => {
+      renderList([
+        job({
+          media: { ...MOVIE, queueSnapshot: { progress: 100 } },
+          status: DownloadJobStatus.Completed,
+        }),
+      ])
+
+      expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+    })
+  })
+})

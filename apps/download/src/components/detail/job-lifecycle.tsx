@@ -6,10 +6,16 @@ import type { ComponentPropsWithoutRef, JSX, ReactNode } from 'react'
 import { useTransition } from 'react'
 
 import type { ImportDialogActions } from 'src/components/detail/import-dialog'
+import { ImportDialog } from 'src/components/detail/import-dialog'
+import type {
+  JobAction,
+  JobLifecycleLink,
+} from 'src/components/detail/job-actions'
 import {
-  IMPORT_TRIGGER_LABEL,
-  ImportDialog,
-} from 'src/components/detail/import-dialog'
+  ACTION_BUTTON,
+  ACTION_SPECS,
+  ActionRow,
+} from 'src/components/detail/job-actions'
 import type { JobActionKey } from 'src/components/detail/job-state'
 import {
   currentJob,
@@ -18,86 +24,21 @@ import {
   jobProgress,
   jobStatusLabel,
 } from 'src/components/detail/job-state'
+import { ProgressBlock } from 'src/components/detail/progress-block'
 import { Button } from 'src/components/ui/button'
 import { ButtonLink } from 'src/components/ui/button-link'
-import type { ButtonSize, ButtonVariant } from 'src/components/ui/button-recipe'
+import type { ButtonSize } from 'src/components/ui/button-recipe'
 import { Card } from 'src/components/ui/card'
 import { Chip } from 'src/components/ui/chip'
-import type { IconName } from 'src/components/ui/icon'
 import { StateLine } from 'src/components/ui/state-line'
-import { Bar, Dot } from 'src/components/ui/status'
+import { Dot } from 'src/components/ui/status'
 import { formatRelative, statusTone } from 'src/lib/format'
 
 /**
- * What a page hands over for one of the four mutating actions.
- *
- * It takes the job id rather than closing over one, which is the whole reason
- * a page never has to pick the job itself: E2's `src/app/actions/video-job.ts`
- * exports plain `(jobId: string) => Promise<void>` server actions, the page
- * passes the unbound reference straight through, and the panel calls it with
- * whichever job it is actually rendering. There is no second place for the two
- * to disagree about which attempt is current.
- *
- * `void` as well as `Promise<void>` so a client-side handler (an optimistic
- * store update, a test spy) is assignable too.
+ * Re-exported from their new home in `job-actions.tsx`, which `AttemptList`
+ * shares, so every existing `import … from 'job-lifecycle'` keeps working.
  */
-export type JobAction = (jobId: string) => Promise<void> | void
-
-/** Where a `watch`/`save` control navigates. */
-export type JobLifecycleLink = {
-  /** Opens in a new tab with `rel="noreferrer"` - Emby's `watchUrl`. */
-  external?: boolean
-  href: string
-}
-
-type ActionSpec = {
-  iconEnd?: IconName
-  key: JobActionKey
-  label: string
-  variant: ButtonVariant
-}
-
-/**
- * Every lifecycle control, in render order, with the label and weight the
- * mockups give it. The order is the mockups' own: pause before cancel on the
- * live video frame, watch before save on the completed one, and the
- * destructive control last everywhere.
- *
- * Which of these appear is never decided here - `jobActionState` decides, per
- * status, and this table only says what each one looks like.
- *
- * ⚠️ `import` is the one entry that is **not** a `Button` bound to a
- * `JobAction`, and it is listed here anyway so that the render order stays one
- * list. Every other control is a single press against a job id; an import is a
- * decision - which of the files that came down should be taken, or none of
- * them - so it needs the media key, the scope and three separate server
- * actions, and it owns a modal to ask in. `ImportDialog` is that control, it
- * arrives on its own `imports` prop rather than through the handler map, and
- * it gets its own branch in the controls map below. `label` and `variant` here
- * still decide what its trigger looks like, exactly as for the rest.
- */
-const ACTION_SPECS: readonly ActionSpec[] = [
-  { iconEnd: 'pause', key: 'pause', label: 'Pause', variant: 'outline' },
-  { key: 'resume', label: 'Resume', variant: 'uv' },
-  { key: 'import', label: IMPORT_TRIGGER_LABEL, variant: 'outline' },
-  { key: 'retry', label: 'Retry', variant: 'outline' },
-  { iconEnd: 'eye', key: 'watch', label: 'Watch', variant: 'uv' },
-  {
-    iconEnd: 'device',
-    key: 'save',
-    label: 'Save to device',
-    variant: 'outline',
-  },
-  { iconEnd: 'x', key: 'cancel', label: 'Cancel', variant: 'bad' },
-]
-
-/**
- * Stacked and full-width on a phone, inline from `sm`. Deliberately not
- * `Button`'s own `full`, which is an unconditional `w-full`; these need the
- * width at one breakpoint and not the other, and `w-full` + `sm:w-auto` are
- * different variants, so `twMerge` keeps both.
- */
-const ACTION_BUTTON = 'w-full sm:w-auto'
+export type { JobAction, JobLifecycleLink }
 
 /**
  * ⚠️ `onCancel` and `onPause` are real `<div>` attributes — React's
@@ -376,7 +317,7 @@ export function JobLifecycle({
         ) : null}
       </div>
       {pct === null ? null : (
-        <JobProgressBlock detail={barDetail} note={barNote} pct={pct} />
+        <ProgressBlock detail={barDetail} note={barNote} pct={pct} />
       )}
       {controls.length > 0 || extraActions ? (
         <ActionRow>
@@ -385,82 +326,6 @@ export function JobLifecycle({
         </ActionRow>
       ) : null}
     </div>
-  )
-}
-
-/**
- * The button row - stacked on a phone, inline from `sm`, which is the same
- * reconciliation `video-detail.pug` writes as two separate frames.
- *
- * ⚠️ Deviation: the desktop mockup nests Pause and Cancel *inside* the
- * progress card, where the mobile one puts them under it. Outside is the only
- * arrangement that generalises - a completed or failed job draws no card at
- * all and its buttons have to sit somewhere - so the row is always the card's
- * sibling, at both widths.
- */
-function ActionRow({ children }: { children: ReactNode }): JSX.Element {
-  return (
-    <div
-      className={cns(
-        'flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2.5',
-      )}
-    >
-      {children}
-    </div>
-  )
-}
-
-type JobProgressBlockProps = {
-  detail: ReactNode
-  note: ReactNode
-  pct: number
-}
-
-/**
- * `video-detail.pug`'s `progress` mixin: an annotation and a percentage over a
- * bar, then one mono line under it.
- *
- * ⚠️ The mixin's line reads `412 MB / 640 MB · 3.1 MB/s · ~2m left` and its
- * annotation reads `fragment 4 of 9`. Neither has anything behind it - see
- * `jobProgress` - so what lands here is upstream's queue status word and its
- * `hh:mm:ss` estimate, and either can be absent.
- *
- * The `Bar` keeps its `progressbar` role and gains a name; it is the numeric
- * percentage beside it that is `aria-hidden`, since that is the redundant
- * half. The alternative the primitive allows - `role="presentation"` on the
- * bar - would leave the bar unannounced *and* the number nameless.
- */
-function JobProgressBlock({
-  detail,
-  note,
-  pct,
-}: JobProgressBlockProps): JSX.Element {
-  return (
-    <Card className={cns('max-w-[480px] p-4 sm:p-5')}>
-      <div className={cns('flex flex-col gap-[14px] sm:gap-4')}>
-        <div>
-          <div
-            className={cns('mb-2 flex items-center justify-between gap-2.5')}
-          >
-            <span className={cns('font-mono text-mono-sm text-ink-3')}>
-              {note}
-            </span>
-            <span
-              aria-hidden="true"
-              className={cns('font-mono text-mono-sm tabular-nums text-uv-hi')}
-            >
-              {`${Math.round(pct)}%`}
-            </span>
-          </div>
-          <Bar aria-label="Download progress" pct={pct} />
-        </div>
-        {detail ? (
-          <p className={cns('font-mono text-mono-sm tabular-nums text-ink-3')}>
-            {detail}
-          </p>
-        ) : null}
-      </div>
-    </Card>
   )
 }
 
