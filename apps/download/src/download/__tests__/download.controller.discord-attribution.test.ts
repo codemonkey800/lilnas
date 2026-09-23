@@ -40,6 +40,7 @@ import { ManualImportService } from 'src/media/manual-import.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import { MediaFileService } from 'src/media/media-file.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
+import { MediaStateService } from 'src/media/media-state.service'
 import { RadarrService } from 'src/media/radarr.service'
 import { ReleaseService } from 'src/media/release.service'
 import { ShowService } from 'src/media/show.service'
@@ -124,7 +125,7 @@ describe('DownloadController - Discord attribution', () => {
         { provide: DiscoveryService, useValue: {} },
         {
           provide: DownloadGateway,
-          useValue: { broadcastPerViewer: jest.fn() },
+          useValue: { broadcast: jest.fn(), broadcastPerViewer: jest.fn() },
         },
         {
           provide: DownloadMetricsService,
@@ -135,6 +136,7 @@ describe('DownloadController - Discord attribution', () => {
         { provide: ManualImportService, useValue: {} },
         { provide: MediaFileService, useValue: {} },
         { provide: MediaResolverService, useValue: createFakeMediaResolver() },
+        MediaStateService,
         { provide: ProfileService, useValue: {} },
         { provide: RadarrService, useValue: radarrService },
         { provide: ReleaseService, useValue: {} },

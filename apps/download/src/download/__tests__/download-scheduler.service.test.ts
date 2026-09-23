@@ -32,6 +32,7 @@ import {
   flushAsync,
 } from 'src/media/__tests__/helpers/fake-media-resolver'
 import { MediaResolverService } from 'src/media/media-resolver.service'
+import { MediaStateService } from 'src/media/media-state.service'
 
 const NOW_ISO = '2026-08-25T12:00:00.000Z'
 
@@ -130,11 +131,12 @@ describe('DownloadSchedulerService', () => {
         { provide: DbService, useValue: dbService },
         {
           provide: DownloadGateway,
-          useValue: { broadcastPerViewer: jest.fn() },
+          useValue: { broadcast: jest.fn(), broadcastPerViewer: jest.fn() },
         },
         { provide: DownloadMetricsService, useValue: metrics },
         { provide: DownloadVideoService, useValue: steps },
         { provide: MediaResolverService, useValue: createFakeMediaResolver() },
+        MediaStateService,
       ],
     }).compile()
 

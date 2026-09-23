@@ -36,6 +36,7 @@ import { ManualImportService } from 'src/media/manual-import.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import { MediaFileService } from 'src/media/media-file.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
+import { MediaStateService } from 'src/media/media-state.service'
 import { RadarrService } from 'src/media/radarr.service'
 import { ReleaseService } from 'src/media/release.service'
 import { ShowService } from 'src/media/show.service'
@@ -77,7 +78,7 @@ describe('DownloadController - detail-route restart fallback', () => {
         { provide: DbService, useValue: dbService },
         {
           provide: DownloadGateway,
-          useValue: { broadcastPerViewer: jest.fn() },
+          useValue: { broadcast: jest.fn(), broadcastPerViewer: jest.fn() },
         },
         { provide: JobQueryService, useValue: {} },
         MediaDownloadService,
@@ -86,6 +87,7 @@ describe('DownloadController - detail-route restart fallback', () => {
         { provide: ManualImportService, useValue: {} },
         { provide: MediaFileService, useValue: {} },
         { provide: MediaResolverService, useValue: mediaResolver },
+        MediaStateService,
         { provide: ProfileService, useValue: {} },
         // Phase 3/4: DownloadController injects ReleaseService for the
         // release and bad-file routes and ShowService for the seasons and

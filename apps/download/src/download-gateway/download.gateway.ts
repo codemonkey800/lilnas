@@ -97,4 +97,20 @@ export class DownloadGateway
       client.send(message)
     }
   }
+
+  /**
+   * Sends the same payload to every connected client, serialised once. For
+   * frames that carry nothing viewer-specific - a media snapshot has no
+   * requester for the attribution oracle to mask, so unlike a job event it
+   * needs no per-viewer variants (see `broadcastPerViewer()`). Every open
+   * client gets every frame; filtering is left to the client.
+   */
+  broadcast(message: DownloadGatewayMessage): void {
+    const serialised = JSON.stringify(message)
+
+    for (const client of this.clients.keys()) {
+      if (client.readyState !== WebSocket.OPEN) continue
+      client.send(serialised)
+    }
+  }
 }

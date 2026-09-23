@@ -9,6 +9,8 @@ import {
   DownloadType,
   isTerminalDownloadJobStatus,
   type Media,
+  MEDIA_EVENT_TYPE,
+  type MediaEvent,
   type TimeRange,
 } from '@lilnas/utils/download/types'
 import { getErrorMessage } from '@lilnas/utils/error'
@@ -36,6 +38,7 @@ import {
 } from 'src/db/videos.repo'
 import { DownloadGateway } from 'src/download-gateway/download.gateway'
 import { MediaResolverService } from 'src/media/media-resolver.service'
+import { MediaStateService } from 'src/media/media-state.service'
 
 import { projectJobForViewer } from './attribution'
 import { JobInterruptKind } from './job-interrupted.error'
@@ -83,6 +86,7 @@ export class DownloadStateService {
     private readonly dbService: DbService,
     private readonly downloadGateway: DownloadGateway,
     private readonly mediaResolverService: MediaResolverService,
+    private readonly mediaStateService: MediaStateService,
   ) {}
 
   setProc(id: string, proc: ChildProcessWithoutNullStreams): void {
@@ -176,9 +180,9 @@ export class DownloadStateService {
 
   /**
    * Patches the `videos` row a job points at as the pipeline learns real
-   * values, then re-broadcasts the job so subscribers see the new title /
-   * download URLs. The job row itself is untouched - none of this is job
-   * state anymore.
+   * values, then re-broadcasts the job - and, the job being a video's, the
+   * video's media event - so subscribers see the new title / download URLs.
+   * The job row itself is untouched - none of this is job state anymore.
    */
   updateVideo(id: string, patch: UpdateVideoPatch): void {
     const record = this.jobs.get(id)
@@ -211,6 +215,7 @@ export class DownloadStateService {
     // system of record. Contrast with updateJob() below.
     this.persistJob(record)
     this.jobs.set(record.id, record)
+    this.trackVideoActivity(record)
     this.broadcastJobEvent(record, DownloadJobEventType.Created)
   }
 
@@ -445,6 +450,7 @@ export class DownloadStateService {
       'Job update completed',
     )
 
+    this.trackVideoActivity(updatedJob)
     this.broadcastJobEvent(updatedJob, DownloadJobEventType.Updated)
 
     return updatedJob
@@ -498,6 +504,36 @@ export class DownloadStateService {
   }
 
   /**
+   * Plan 021. Feeds a video job's status to `MediaStateService`, which is
+   * what a video's `state` is derived from - `addJob()` and `updateJob()`
+   * are the only places a job's status changes, so calling this from both
+   * keeps the activity map exact. A terminal status clears the entry.
+   * Called before the job is broadcast, so the resolver's annotate - which
+   * the broadcast's hydrate runs - already sees the new status.
+   *
+   * Movie/show jobs are skipped: their state comes from the Radarr/Sonarr
+   * queues the poller feeds, not from the job.
+   */
+  private trackVideoActivity(record: DownloadJobRecord): void {
+    if (record.type !== DownloadType.Video) return
+
+    this.mediaStateService.setVideoActivity(
+      record.mediaId,
+      isTerminalDownloadJobStatus(record.status) ? undefined : record.status,
+    )
+  }
+
+  /**
+   * Plan 021. Sends a media snapshot to every client. Unlike a job event it
+   * carries no requester, so it goes out as one frame for every viewer
+   * rather than through `broadcastPerViewer()`.
+   */
+  private broadcastMediaEvent(media: Media): void {
+    const event = { media } satisfies MediaEvent
+    this.downloadGateway.broadcast({ data: event, type: MEDIA_EVENT_TYPE })
+  }
+
+  /**
    * Resolves the record's media and broadcasts it. Fire-and-forget: the
    * callers are HTTP handlers and background pipeline steps that must not
    * block on (or fail because of) a Radarr lookup, and the resolver never
@@ -511,6 +547,16 @@ export class DownloadStateService {
     void this.hydrate([record])
       .then(async ([job]) => {
         if (!job) return
+
+        // A video's state follows its job (see trackVideoActivity()), so
+        // every video job event is also a media event - sent from the media
+        // this hydrate already resolved and annotated, rather than resolving
+        // it a second time. Sent ahead of the attribution lookup below so a
+        // failure there can't swallow it. Movies and shows are the poller's
+        // to broadcast: their state moves with the upstream queue, not here.
+        if (job.media.type === DownloadType.Video) {
+          this.broadcastMediaEvent(job.media)
+        }
 
         // Link resolution runs **once**, here, outside broadcastPerViewer() -
         // that callback fires once per distinct isAdmin value, and resolving

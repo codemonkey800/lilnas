@@ -28,6 +28,7 @@ import { DownloadStateService } from 'src/download/download-state.service'
 import { DownloadGateway } from 'src/download-gateway/download.gateway'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
+import { MediaStateService } from 'src/media/media-state.service'
 import { RadarrService } from 'src/media/radarr.service'
 import { SonarrService } from 'src/media/sonarr.service'
 
@@ -100,7 +101,10 @@ describe('MediaDownloadService', () => {
       triggerSearch: jest.fn(),
       unmonitorAndDelete: jest.fn(),
     }
-    const mockDownloadGateway = { broadcastPerViewer: jest.fn() }
+    const mockDownloadGateway = {
+      broadcast: jest.fn(),
+      broadcastPerViewer: jest.fn(),
+    }
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -112,6 +116,7 @@ describe('MediaDownloadService', () => {
         { provide: SonarrService, useValue: mockSonarrService },
         { provide: DownloadGateway, useValue: mockDownloadGateway },
         { provide: MediaResolverService, useValue: mediaResolver },
+        MediaStateService,
       ],
     }).compile()
 

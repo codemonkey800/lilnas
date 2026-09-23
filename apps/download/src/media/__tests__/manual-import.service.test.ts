@@ -38,6 +38,7 @@ import {
 } from 'src/media/manual-import.service'
 import { UNPARSED_EPISODES_REASON } from 'src/media/manual-import-mapper.util'
 import { MediaResolverService } from 'src/media/media-resolver.service'
+import { MediaStateService } from 'src/media/media-state.service'
 import { RadarrService } from 'src/media/radarr.service'
 import { SonarrService } from 'src/media/sonarr.service'
 
@@ -226,9 +227,10 @@ describe('ManualImportService', () => {
         { provide: DbService, useValue: dbService },
         {
           provide: DownloadGateway,
-          useValue: { broadcastPerViewer: jest.fn() },
+          useValue: { broadcast: jest.fn(), broadcastPerViewer: jest.fn() },
         },
         { provide: MediaResolverService, useValue: mediaResolver },
+        MediaStateService,
         { provide: RadarrService, useValue: mockRadarrService },
         { provide: SonarrService, useValue: mockSonarrService },
       ],

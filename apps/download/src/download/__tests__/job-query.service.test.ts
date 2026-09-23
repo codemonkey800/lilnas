@@ -18,6 +18,7 @@ import { JobQueryService } from 'src/download/job-query.service'
 import { DownloadGateway } from 'src/download-gateway/download.gateway'
 import { createFakeMediaResolver } from 'src/media/__tests__/helpers/fake-media-resolver'
 import { MediaResolverService } from 'src/media/media-resolver.service'
+import { MediaStateService } from 'src/media/media-state.service'
 
 type RowInsert = typeof jobs.$inferInsert
 
@@ -54,9 +55,10 @@ describe('JobQueryService', () => {
         { provide: DbService, useValue: dbService },
         {
           provide: DownloadGateway,
-          useValue: { broadcastPerViewer: jest.fn() },
+          useValue: { broadcast: jest.fn(), broadcastPerViewer: jest.fn() },
         },
         { provide: MediaResolverService, useValue: mediaResolver },
+        MediaStateService,
       ],
     }).compile()
 

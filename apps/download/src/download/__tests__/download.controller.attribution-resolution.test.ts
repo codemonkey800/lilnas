@@ -31,6 +31,7 @@ import { ManualImportService } from 'src/media/manual-import.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import { MediaFileService } from 'src/media/media-file.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
+import { MediaStateService } from 'src/media/media-state.service'
 import { ReleaseService } from 'src/media/release.service'
 import { ShowService } from 'src/media/show.service'
 
@@ -109,7 +110,7 @@ describe('DownloadController - read-time link resolution', () => {
         { provide: DiscoveryService, useValue: {} },
         {
           provide: DownloadGateway,
-          useValue: { broadcastPerViewer: jest.fn() },
+          useValue: { broadcast: jest.fn(), broadcastPerViewer: jest.fn() },
         },
         { provide: DownloadMetricsService, useValue: {} },
         { provide: DownloadService, useValue: {} },
@@ -118,6 +119,7 @@ describe('DownloadController - read-time link resolution', () => {
         { provide: MediaDownloadService, useValue: {} },
         { provide: MediaFileService, useValue: {} },
         { provide: MediaResolverService, useValue: createFakeMediaResolver() },
+        MediaStateService,
         { provide: ProfileService, useValue: {} },
         { provide: ReleaseService, useValue: {} },
         { provide: ShowService, useValue: {} },

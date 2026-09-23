@@ -269,4 +269,85 @@ describe('DownloadGateway', () => {
       ).resolves.not.toThrow()
     })
   })
+
+  describe('broadcast', () => {
+    afterEach(() => {
+      jest.restoreAllMocks()
+    })
+
+    it('sends the same serialised frame to every open client, serialising once', () => {
+      const anonymous = createMockClient()
+      const alice = createMockClient()
+      gateway.handleConnection(anonymous, buildRequest())
+      gateway.handleConnection(
+        alice,
+        buildRequest({
+          'x-forwarded-user': 'alice@example.com',
+          'x-forwarded-user-id': 'user_1',
+        }),
+      )
+      const stringify = jest.spyOn(JSON, 'stringify')
+      const message = { type: 'media', data: { media: { id: 'm1' } } }
+
+      gateway.broadcast(message)
+
+      expect(stringify).toHaveBeenCalledTimes(1)
+      expect(stringify).toHaveBeenCalledWith(message)
+      const serialised = stringify.mock.results[0]?.value
+      expect(serialised).toBe(JSON.stringify(message))
+      expect(anonymous.send).toHaveBeenCalledTimes(1)
+      expect(anonymous.send).toHaveBeenCalledWith(serialised)
+      expect(alice.send).toHaveBeenCalledTimes(1)
+      expect(alice.send).toHaveBeenCalledWith(serialised)
+    })
+
+    it('never resolves admin status - the frame is the same for every viewer', () => {
+      const client = createMockClient()
+      gateway.handleConnection(
+        client,
+        buildRequest({
+          'x-forwarded-user': 'alice@example.com',
+          'x-forwarded-user-id': 'user_1',
+        }),
+      )
+
+      gateway.broadcast({ type: 'ping' })
+
+      expect(client.send).toHaveBeenCalledTimes(1)
+      expect(adminCheckService.checkIsAdmin).not.toHaveBeenCalled()
+    })
+
+    it('does not send to clients that are not in the OPEN state', () => {
+      const openClient = createMockClient(WebSocket.OPEN)
+      const connectingClient = createMockClient(WebSocket.CONNECTING)
+      const closingClient = createMockClient(WebSocket.CLOSING)
+      const closedClient = createMockClient(WebSocket.CLOSED)
+
+      gateway.handleConnection(openClient, buildRequest())
+      gateway.handleConnection(connectingClient, buildRequest())
+      gateway.handleConnection(closingClient, buildRequest())
+      gateway.handleConnection(closedClient, buildRequest())
+
+      gateway.broadcast({ type: 'ping' })
+
+      expect(openClient.send).toHaveBeenCalledTimes(1)
+      expect(connectingClient.send).not.toHaveBeenCalled()
+      expect(closingClient.send).not.toHaveBeenCalled()
+      expect(closedClient.send).not.toHaveBeenCalled()
+    })
+
+    it('does not send to a client that has disconnected', () => {
+      const client = createMockClient()
+      gateway.handleConnection(client, buildRequest())
+      gateway.handleDisconnect(client)
+
+      gateway.broadcast({ type: 'ping' })
+
+      expect(client.send).not.toHaveBeenCalled()
+    })
+
+    it('does not throw when there are no connected clients', () => {
+      expect(() => gateway.broadcast({ type: 'ping' })).not.toThrow()
+    })
+  })
 })

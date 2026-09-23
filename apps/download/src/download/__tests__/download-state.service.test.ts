@@ -10,6 +10,7 @@ jest.mock('nanoid', () => {
   return { nanoid: jest.fn(() => `mock-id-${++counter}`) }
 })
 
+import { parseMediaEventFrame } from '@lilnas/utils/download/job-events'
 import {
   DOWNLOAD_JOB_EVENT_TYPE,
   DownloadJobEvent,
@@ -17,6 +18,9 @@ import {
   DownloadJobRecord,
   DownloadJobStatus,
   DownloadType,
+  MEDIA_EVENT_TYPE,
+  type MediaEvent,
+  type MediaState,
 } from '@lilnas/utils/download/types'
 import { Test, TestingModule } from '@nestjs/testing'
 import { ChildProcessWithoutNullStreams } from 'child_process'
@@ -37,6 +41,7 @@ import {
   flushAsync,
 } from 'src/media/__tests__/helpers/fake-media-resolver'
 import { MediaResolverService } from 'src/media/media-resolver.service'
+import { MediaStateService } from 'src/media/media-state.service'
 
 const NOW_ISO = '2026-08-20T12:00:00.000Z'
 const VIDEO_URL = 'https://example.com/video'
@@ -85,6 +90,7 @@ describe('DownloadStateService', () => {
   let dbService: DbService
   let downloadGateway: jest.Mocked<DownloadGateway>
   let mediaResolver: ReturnType<typeof createFakeMediaResolver>
+  let mediaStateService: MediaStateService
 
   // `mock.calls[n]` is `[BroadcastBuild] | undefined` under
   // noUncheckedIndexedAccess - this centralizes the "was it actually
@@ -118,7 +124,10 @@ describe('DownloadStateService', () => {
   beforeEach(async () => {
     dbService = createTestDbService()
     mediaResolver = createFakeMediaResolver()
-    const mockDownloadGateway = { broadcastPerViewer: jest.fn() }
+    const mockDownloadGateway = {
+      broadcast: jest.fn(),
+      broadcastPerViewer: jest.fn(),
+    }
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -127,11 +136,13 @@ describe('DownloadStateService', () => {
         { provide: DbService, useValue: dbService },
         { provide: DownloadGateway, useValue: mockDownloadGateway },
         { provide: MediaResolverService, useValue: mediaResolver },
+        MediaStateService,
       ],
     }).compile()
 
     service = module.get(DownloadStateService)
     downloadGateway = module.get(DownloadGateway)
+    mediaStateService = module.get(MediaStateService)
   })
 
   afterEach(() => {
@@ -662,6 +673,191 @@ describe('DownloadStateService', () => {
         "Job with ID 'missing' not found",
       )
     })
+  })
+
+  /**
+   * Plan 021. A video's state follows its job: `addJob()`/`updateJob()` feed
+   * the job's status to `MediaStateService`, and every video job event (and
+   * `updateVideo()`) is followed by a `media` frame carrying the annotated
+   * media. Movie/show state moves with the upstream queue instead, so their
+   * jobs touch neither.
+   */
+  describe('video activity and media events', () => {
+    let setVideoActivity: jest.SpiedFunction<
+      MediaStateService['setVideoActivity']
+    >
+
+    /**
+     * Every `media` frame sent so far, decoded the way a client would - off
+     * the wire, through the shared parser - so a malformed frame fails here.
+     */
+    function mediaEvents(): MediaEvent[] {
+      return downloadGateway.broadcast.mock.calls.map(([message]) => {
+        const event = parseMediaEventFrame(JSON.stringify(message))
+        if (!event) {
+          throw new Error(`Not a media frame: ${JSON.stringify(message)}`)
+        }
+        return event
+      })
+    }
+
+    function mediaEventStates(): (MediaState | undefined)[] {
+      return mediaEvents().map(event => event.media.state)
+    }
+
+    beforeEach(() => {
+      // The real resolver annotates everything it resolves through
+      // MediaStateService (see MediaResolverService.resolve()); the fake
+      // doesn't, so do it here - that's what puts `state` on the frames.
+      const answer = createFakeMediaResolver().resolve
+      mediaResolver.resolve.mockImplementation(async keys => {
+        const result = await answer(keys)
+        mediaStateService.annotate(result.media.values())
+        return result
+      })
+      setVideoActivity = jest.spyOn(mediaStateService, 'setVideoActivity')
+    })
+
+    it('follows a video job from Pending to Completed and clears it at the end', async () => {
+      const record = seedVideoJob()
+
+      service.addJob(record)
+      await flushAsync()
+      for (const status of [
+        DownloadJobStatus.Downloading,
+        DownloadJobStatus.Converting,
+        DownloadJobStatus.Completed,
+      ]) {
+        service.updateJob(record.id, { status })
+        await flushAsync()
+      }
+
+      expect(setVideoActivity.mock.calls).toEqual([
+        [record.mediaId, DownloadJobStatus.Pending],
+        [record.mediaId, DownloadJobStatus.Downloading],
+        [record.mediaId, DownloadJobStatus.Converting],
+        [record.mediaId, undefined],
+      ])
+      // The fake's video has no download URLs, so once the job stops
+      // speaking for it the video has no file - `absent`, not a stale
+      // `importing` left behind by the Converting step.
+      expect(mediaEventStates()).toEqual([
+        'wanted',
+        'downloading',
+        'importing',
+        'absent',
+      ])
+    })
+
+    it('records the resulting status even when an update does not change it', () => {
+      const record = seedVideoJob({ status: DownloadJobStatus.Downloading })
+      service.addJob(record)
+      setVideoActivity.mockClear()
+
+      service.updateJob(record.id, { requester: null })
+
+      expect(setVideoActivity).toHaveBeenCalledWith(
+        record.mediaId,
+        DownloadJobStatus.Downloading,
+      )
+    })
+
+    it('clears the activity on every terminal status', () => {
+      for (const status of [
+        DownloadJobStatus.Cancelled,
+        DownloadJobStatus.Failed,
+      ]) {
+        const record = seedVideoJob({ id: `job-${status}` })
+        service.addJob(record)
+        setVideoActivity.mockClear()
+
+        service.updateJob(record.id, { status })
+
+        expect(setVideoActivity).toHaveBeenCalledWith(record.mediaId, undefined)
+      }
+    })
+
+    it('sends one media frame, for the same media, alongside every video job event', async () => {
+      const record = seedVideoJob()
+
+      service.addJob(record)
+      service.updateJob(record.id, { status: DownloadJobStatus.Downloading })
+      await flushAsync()
+
+      expect(downloadGateway.broadcastPerViewer).toHaveBeenCalledTimes(2)
+      expect(downloadGateway.broadcast).toHaveBeenCalledTimes(2)
+      for (const [message] of downloadGateway.broadcast.mock.calls) {
+        expect(message.type).toBe(MEDIA_EVENT_TYPE)
+      }
+      for (const event of mediaEvents()) {
+        expect(event.media).toMatchObject({
+          id: record.mediaId,
+          type: DownloadType.Video,
+        })
+        // A media frame has no episodes, and nothing viewer-specific.
+        expect(event).toEqual({ media: event.media })
+      }
+    })
+
+    it("reuses the job event's resolve rather than resolving the media twice", async () => {
+      const record = seedVideoJob()
+
+      service.addJob(record)
+      await flushAsync()
+
+      expect(mediaResolver.resolve).toHaveBeenCalledTimes(1)
+    })
+
+    it('sends a media frame after updateVideo, reflecting the patched row', async () => {
+      const record = seedVideoJob({ status: DownloadJobStatus.Uploading })
+      service.addJob(record)
+      await flushAsync()
+      downloadGateway.broadcast.mockClear()
+
+      service.updateVideo(record.id, { title: 'The Real Title' })
+      await flushAsync()
+
+      expect(mediaEventStates()).toEqual(['importing'])
+      expect(mediaEvents()[0]?.media.id).toBe(record.mediaId)
+    })
+
+    it('skips the media frame, without throwing, when the media cannot be resolved', async () => {
+      const record = seedVideoJob()
+      mediaResolver.resolve.mockRejectedValue(new Error('resolver down'))
+
+      expect(() => service.addJob(record)).not.toThrow()
+      expect(() =>
+        service.updateJob(record.id, { status: DownloadJobStatus.Downloading }),
+      ).not.toThrow()
+      await flushAsync()
+
+      expect(downloadGateway.broadcast).not.toHaveBeenCalled()
+      // The activity is recorded regardless - it doesn't depend on a resolve.
+      expect(setVideoActivity).toHaveBeenLastCalledWith(
+        record.mediaId,
+        DownloadJobStatus.Downloading,
+      )
+    })
+
+    it.each([
+      ['movie', buildMovieRecord],
+      ['show', buildShowRecord],
+    ])(
+      'never touches the activity map or sends a media frame for a %s job',
+      async (_kind, build) => {
+        const record = build()
+
+        service.addJob(record)
+        service.updateJob(record.id, { status: DownloadJobStatus.Downloading })
+        service.setQueueSnapshot(record.id, { progress: 50 })
+        service.updateJob(record.id, { status: DownloadJobStatus.Completed })
+        await flushAsync()
+
+        expect(downloadGateway.broadcastPerViewer).toHaveBeenCalledTimes(4)
+        expect(setVideoActivity).not.toHaveBeenCalled()
+        expect(downloadGateway.broadcast).not.toHaveBeenCalled()
+      },
+    )
   })
 
   describe('getVideo / requireVideo', () => {
