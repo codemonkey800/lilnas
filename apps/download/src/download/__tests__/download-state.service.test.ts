@@ -18,6 +18,7 @@ import {
   DownloadJobRecord,
   DownloadJobStatus,
   DownloadType,
+  isManagedMedia,
   MEDIA_EVENT_TYPE,
   type MediaEvent,
   type MediaState,
@@ -424,40 +425,80 @@ describe('DownloadStateService', () => {
     })
   })
 
-  describe('queue snapshots', () => {
-    it('keeps the snapshot out of the persisted row entirely', async () => {
+  describe('touchJob / queue snapshots', () => {
+    it('re-broadcasts the job as Updated without writing its row', async () => {
       const record = buildMovieRecord()
       service.addJob(record)
       await flushAsync()
       downloadGateway.broadcastPerViewer.mockClear()
+      const rowBefore = readRow(record.id)
 
-      service.setQueueSnapshot(record.id, { progress: 50 })
+      service.touchJob(record.id)
       await flushAsync()
 
-      expect(readRow(record.id)).not.toHaveProperty('queue_snapshot', {
-        progress: 50,
+      expect(downloadGateway.broadcastPerViewer).toHaveBeenCalledTimes(1)
+      expect(firstBroadcastBuild()(true)).toEqual({
+        data: {
+          job: expect.objectContaining({ id: record.id }),
+          type: DownloadJobEventType.Updated,
+        },
+        type: DOWNLOAD_JOB_EVENT_TYPE,
       })
-      expect(service.getQueueSnapshot(record.id)).toEqual({ progress: 50 })
+      expect(readRow(record.id)).toEqual(rowBefore)
+      expect(service.jobs.get(record.id)).toBe(record)
     })
 
-    it('grafts the snapshot onto the resolved media so subscribers still see progress', async () => {
+    it('does nothing for a job the Map does not hold', async () => {
+      service.touchJob('nope')
+      await flushAsync()
+
+      expect(downloadGateway.broadcastPerViewer).not.toHaveBeenCalled()
+    })
+
+    it('never invents a snapshot the resolver did not supply', async () => {
       const record = buildMovieRecord()
       service.addJob(record)
-      service.setQueueSnapshot(record.id, { progress: 50 })
 
       const job = await service.hydrateOne(record)
 
-      expect(job.media).toMatchObject({ queueSnapshot: { progress: 50 } })
+      expect(job.media).not.toHaveProperty('queueSnapshot')
     })
 
-    it('drops the snapshot once the job reaches a terminal status', () => {
+    // The resolver annotates from MediaStateService's queue cache on every
+    // resolve(), so each broadcast reads the progress as of the last poll.
+    it("carries the queue cache's snapshot on every touch", async () => {
+      mediaResolver.fixtures.set('tmdb:1', {
+        id: 'tmdb:1',
+        monitored: true,
+        radarrId: 42,
+        title: 'A Movie',
+        tmdbId: 1,
+        type: DownloadType.Movie,
+      })
+      const unannotated = createFakeMediaResolver(mediaResolver.fixtures)
+      mediaResolver.resolve.mockImplementation(async keys => {
+        const result = await unannotated.resolve(keys)
+        mediaStateService.annotate(result.media.values())
+        return result
+      })
       const record = buildMovieRecord()
       service.addJob(record)
-      service.setQueueSnapshot(record.id, { progress: 50 })
+      await flushAsync()
 
-      service.updateJob(record.id, { status: DownloadJobStatus.Completed })
+      const progressAfterTouch = async (sizeleft: number) => {
+        mediaStateService.setQueue('radarr', [
+          { movieId: 42, size: 1000, sizeleft, status: 'downloading' },
+        ])
+        downloadGateway.broadcastPerViewer.mockClear()
+        service.touchJob(record.id)
+        await flushAsync()
+        const { media } = (firstBroadcastBuild()(true).data as DownloadJobEvent)
+          .job
+        return isManagedMedia(media) ? media.queueSnapshot?.progress : undefined
+      }
 
-      expect(service.getQueueSnapshot(record.id)).toBeUndefined()
+      expect(await progressAfterTouch(500)).toBe(50)
+      expect(await progressAfterTouch(250)).toBe(75)
     })
   })
 
@@ -850,7 +891,7 @@ describe('DownloadStateService', () => {
 
         service.addJob(record)
         service.updateJob(record.id, { status: DownloadJobStatus.Downloading })
-        service.setQueueSnapshot(record.id, { progress: 50 })
+        service.touchJob(record.id)
         service.updateJob(record.id, { status: DownloadJobStatus.Completed })
         await flushAsync()
 

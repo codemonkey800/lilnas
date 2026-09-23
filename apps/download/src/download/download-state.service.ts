@@ -5,7 +5,6 @@ import {
   DownloadJobEventType,
   DownloadJobRecord,
   DownloadJobStatus,
-  DownloadQueueSnapshot,
   DownloadType,
   isTerminalDownloadJobStatus,
   type Media,
@@ -74,11 +73,6 @@ export class DownloadStateService {
   // restart kills that process anyway, so a surviving entry could only ever
   // be a lie about a job the new process never started.
   interruptions = new Map<string, JobInterruptKind>()
-  // A movie/show job's last-known Radarr/Sonarr queue entry, keyed by job id
-  // and never persisted - it's live upstream state, which is where it was
-  // always coming from. MediaPollerService writes it; `hydrate()` below
-  // grafts it onto the resolved Movie/Show on the way out.
-  queueSnapshots = new Map<string, DownloadQueueSnapshot>()
   queue = new Queue<string>()
 
   constructor(
@@ -121,22 +115,17 @@ export class DownloadStateService {
   }
 
   /**
-   * Records the live queue snapshot for a movie/show job and re-broadcasts
-   * it. Separate from `updateJob()` because a snapshot change is not a
-   * change to the job row at all - nothing here is persisted - but
-   * subscribers still need the progress tick.
+   * Re-broadcasts a job as `Updated` without changing or persisting
+   * anything. For a change that lives on the job's media rather than its
+   * row - a movie/show's queue progress, which `MediaStateService` holds and
+   * the broadcast's hydrate reads - so subscribers still get the tick. An id
+   * the Map doesn't hold is a no-op.
    */
-  setQueueSnapshot(id: string, snapshot: DownloadQueueSnapshot): void {
-    this.queueSnapshots.set(id, snapshot)
-
+  touchJob(id: string): void {
     const record = this.jobs.get(id)
     if (record) {
       this.broadcastJobEvent(record, DownloadJobEventType.Updated)
     }
-  }
-
-  getQueueSnapshot(id: string): DownloadQueueSnapshot | undefined {
-    return this.queueSnapshots.get(id)
   }
 
   /**
@@ -342,7 +331,10 @@ export class DownloadStateService {
     resolved: Media | undefined,
   ): DownloadJob {
     const { mediaId: recordMediaId, type, ...jobFields } = record
-    const base: Media = resolved ?? {
+    // No per-job graft: a movie/show's `queueSnapshot` is the resolver's,
+    // derived from the queue cache on every resolve(), so it is as fresh as
+    // the last poll and there is only one place it can come from.
+    const media: Media = resolved ?? {
       id: recordMediaId,
       title: recordMediaId,
       ...(type === DownloadType.Movie
@@ -351,15 +343,6 @@ export class DownloadStateService {
           ? { tvdbId: Number(mediaIdSuffix(recordMediaId)) || 1, type }
           : { sourceUrl: '', type: DownloadType.Video }),
     }
-
-    // The queue snapshot is per-*job* (two requests for the same movie have
-    // independent progress) while everything else on `Media` is per-title,
-    // so it's grafted on here rather than inside the resolver.
-    const snapshot = this.queueSnapshots.get(record.id)
-    const media =
-      snapshot && base.type !== DownloadType.Video
-        ? { ...base, queueSnapshot: snapshot }
-        : base
 
     return { ...jobFields, media }
   }
@@ -412,7 +395,6 @@ export class DownloadStateService {
     if (newStatus && isTerminalDownloadJobStatus(newStatus)) {
       this.clearProc(id)
       this.clearInterruption(id)
-      this.queueSnapshots.delete(id)
     }
 
     this.jobs.set(id, updatedJob)

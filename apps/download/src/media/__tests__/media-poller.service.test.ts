@@ -14,9 +14,12 @@ import type {
   QueueResource as SonarrQueueResource,
 } from '@lilnas/media/sonarr'
 import {
+  type DownloadJobEvent,
+  DownloadJobEventType,
   DownloadJobRecord,
   DownloadJobStatus,
   DownloadType,
+  isManagedMedia,
   isMovie,
   isShow,
   MEDIA_EVENT_TYPE,
@@ -33,6 +36,7 @@ import { DbService } from 'src/db/db.service'
 import { getJobById } from 'src/db/jobs.repo'
 import { DownloadStateService } from 'src/download/download-state.service'
 import { DownloadGateway } from 'src/download-gateway/download.gateway'
+import { flushAsync } from 'src/media/__tests__/helpers/fake-media-resolver'
 import {
   MediaPollerService,
   type PollableCompletionData,
@@ -140,6 +144,24 @@ describe('MediaPollerService', () => {
   let sonarrService: jest.Mocked<SonarrService>
   let dbService: DbService
 
+  /**
+   * Every job event broadcast so far, as an admin sees it. Job events are
+   * fire-and-forget (the broadcast resolves the media first), so this lets
+   * them settle before reading.
+   */
+  async function jobFrames(): Promise<DownloadJobEvent[]> {
+    await flushAsync()
+    return downloadGateway.broadcastPerViewer.mock.calls.map(
+      ([build]) => build(true).data as DownloadJobEvent,
+    )
+  }
+
+  /** A job frame's media snapshot - movies and shows only have one. */
+  function snapshotOf(frame: DownloadJobEvent | undefined) {
+    const media = frame?.job.media
+    return media && isManagedMedia(media) ? media.queueSnapshot : undefined
+  }
+
   beforeEach(async () => {
     upstreamIds = new Map([
       ['tmdb:1', 42],
@@ -163,7 +185,9 @@ describe('MediaPollerService', () => {
     }
     // `radarrId`/`sonarrId` are no longer persisted on the job - the poller
     // reads them off the resolved media, so the resolver is what supplies
-    // "which upstream id do I poll this by".
+    // "which upstream id do I poll this by". It annotates like the real one,
+    // so a job frame's `media.queueSnapshot` comes off the queue cache the
+    // poller fed - the only place it comes from.
     const mockMediaResolverService = {
       // Empty by default: a queue item no job owns maps to no media, so only
       // the 'media events' block below ever sees a media event.
@@ -171,9 +195,8 @@ describe('MediaPollerService', () => {
       getShowLibrary: jest.fn().mockResolvedValue(new Map()),
       invalidate: jest.fn(),
       resolve: jest.fn(
-        (keys: Array<{ mediaId: string; type: DownloadType }>) => ({
-          degradedSources: [],
-          media: new Map(
+        (keys: Array<{ mediaId: string; type: DownloadType }>) => {
+          const media = new Map<string, Movie | Show>(
             keys.map(key => [
               key.mediaId,
               key.type === DownloadType.Movie
@@ -192,8 +215,10 @@ describe('MediaPollerService', () => {
                     type: DownloadType.Show,
                   },
             ]),
-          ),
-        }),
+          )
+          mediaStateService.annotate(media.values())
+          return { degradedSources: [], media }
+        },
       ),
     }
 
@@ -352,7 +377,8 @@ describe('MediaPollerService', () => {
       await service.poll()
 
       expect(mediaStateService.getQueue('radarr')).toEqual(queue)
-      expect(downloadStateService.getQueueSnapshot(job.id)?.progress).toBe(50)
+      const [frame] = await jobFrames()
+      expect(snapshotOf(frame)?.progress).toBe(50)
     })
 
     // An empty queue is news - whatever was downloading has left - so it
@@ -485,13 +511,10 @@ describe('MediaPollerService', () => {
       // Only the tracked job moved; the completed one and the one with no
       // library id were never matched against the queue.
       expect(updateJobSpy).not.toHaveBeenCalled()
-      expect(downloadStateService.getQueueSnapshot(trackedJob.id)).toBeDefined()
-      expect(
-        downloadStateService.getQueueSnapshot(completedJob.id),
-      ).toBeUndefined()
-      expect(
-        downloadStateService.getQueueSnapshot(notInLibraryJob.id),
-      ).toBeUndefined()
+      // The tracked job's progress still went out, as a bare re-broadcast.
+      expect((await jobFrames()).map(frame => frame.job.id)).toEqual([
+        trackedJob.id,
+      ])
       expect(downloadStateService.jobs.get(notInLibraryJob.id)?.status).toBe(
         DownloadJobStatus.Searching,
       )
@@ -514,31 +537,31 @@ describe('MediaPollerService', () => {
 
       const updated = downloadStateService.jobs.get(job.id)
       expect(updated?.status).toBe(DownloadJobStatus.Downloading)
-      // The snapshot lives in DownloadStateService's side map now, not on
-      // the job - it's live upstream state and is never persisted.
-      expect(downloadStateService.getQueueSnapshot(job.id)).toEqual({
+      // The snapshot is never on the job - the frame's media carries the
+      // one the resolver derived from the queue cache.
+      const frames = await jobFrames()
+      expect(frames).toHaveLength(1)
+      expect(snapshotOf(frames[0])).toMatchObject({
         progress: 50,
         status: 'downloading',
-        timeLeft: undefined,
       })
     })
 
-    it('does not call updateJob when nothing has changed', async () => {
+    it('neither calls updateJob nor broadcasts when nothing has changed', async () => {
       const job = buildMovieJob({ status: DownloadJobStatus.Downloading })
       downloadStateService.jobs.set(job.id, job)
-      downloadStateService.queueSnapshots.set(job.id, {
-        progress: 50,
-        status: 'downloading',
-      })
-      const updateJobSpy = jest.spyOn(downloadStateService, 'updateJob')
-
       radarrService.getQueue.mockResolvedValue([
         { movieId: 42, status: 'downloading', size: 1000, sizeleft: 500 },
       ])
+      await service.poll()
+      await flushAsync()
+      downloadGateway.broadcastPerViewer.mockClear()
+      const updateJobSpy = jest.spyOn(downloadStateService, 'updateJob')
 
       await service.poll()
 
       expect(updateJobSpy).not.toHaveBeenCalled()
+      expect(await jobFrames()).toEqual([])
     })
 
     it('marks the job Completed once it leaves the queue with its file imported', async () => {
@@ -608,6 +631,104 @@ describe('MediaPollerService', () => {
     })
   })
 
+  // A job's `media.queueSnapshot` is the resolver's, off the queue cache, so
+  // the poller's only part in live progress is deciding when a job is worth
+  // re-broadcasting - once per change, never twice in a tick.
+  describe('job frames', () => {
+    const downloading = (sizeleft: number): QueueResource => ({
+      movieId: 42,
+      size: 1000,
+      sizeleft,
+      status: 'downloading',
+    })
+
+    async function pollOnce(): Promise<DownloadJobEvent[]> {
+      downloadGateway.broadcastPerViewer.mockClear()
+      await service.poll()
+      return jobFrames()
+    }
+
+    it('sends one Updated frame carrying the new progress on a progress-only tick', async () => {
+      const job = buildMovieJob({ status: DownloadJobStatus.Downloading })
+      downloadStateService.jobs.set(job.id, job)
+      radarrService.getQueue.mockResolvedValue([downloading(500)])
+      await pollOnce()
+      const updateJobSpy = jest.spyOn(downloadStateService, 'updateJob')
+
+      radarrService.getQueue.mockResolvedValue([downloading(250)])
+      const frames = await pollOnce()
+
+      expect(updateJobSpy).not.toHaveBeenCalled()
+      expect(frames).toHaveLength(1)
+      expect(frames[0]).toMatchObject({
+        job: { id: job.id, status: DownloadJobStatus.Downloading },
+        type: DownloadJobEventType.Updated,
+      })
+      expect(snapshotOf(frames[0])?.progress).toBe(75)
+    })
+
+    it('sends no frame when the snapshot is unchanged', async () => {
+      const job = buildMovieJob({ status: DownloadJobStatus.Downloading })
+      downloadStateService.jobs.set(job.id, job)
+      radarrService.getQueue.mockResolvedValue([downloading(500)])
+      await pollOnce()
+
+      expect(await pollOnce()).toEqual([])
+    })
+
+    it('sends one frame, not two, when the status and the progress move together', async () => {
+      const job = buildMovieJob({ status: DownloadJobStatus.Searching })
+      downloadStateService.jobs.set(job.id, job)
+      const touchSpy = jest.spyOn(downloadStateService, 'touchJob')
+
+      radarrService.getQueue.mockResolvedValue([downloading(500)])
+      const frames = await pollOnce()
+
+      expect(touchSpy).not.toHaveBeenCalled()
+      expect(frames).toHaveLength(1)
+      expect(frames[0]?.job.status).toBe(DownloadJobStatus.Downloading)
+      expect(snapshotOf(frames[0])?.progress).toBe(50)
+    })
+
+    // The item is gone but nothing has landed yet, so the job stays where it
+    // is - and its frame must stop showing the progress it last had.
+    it('sends one frame without a snapshot when the item leaves the queue unsettled', async () => {
+      const job = buildMovieJob({ status: DownloadJobStatus.Downloading })
+      downloadStateService.jobs.set(job.id, job)
+      radarrService.getQueue.mockResolvedValue([downloading(500)])
+      await pollOnce()
+
+      radarrService.getQueue.mockResolvedValue([])
+      const frames = await pollOnce()
+
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Downloading,
+      )
+      expect(frames).toHaveLength(1)
+      expect(frames[0]?.job.media).not.toHaveProperty('queueSnapshot')
+      // Still gone: nothing new to say.
+      expect(await pollOnce()).toEqual([])
+    })
+
+    it('sends only the status frame when the item leaves and the job settles in the same tick', async () => {
+      const job = buildMovieJob({ status: DownloadJobStatus.Downloading })
+      downloadStateService.jobs.set(job.id, job)
+      radarrService.getQueue.mockResolvedValue([downloading(500)])
+      await pollOnce()
+      const touchSpy = jest.spyOn(downloadStateService, 'touchJob')
+
+      radarrService.getQueue.mockResolvedValue([])
+      radarrService.getMovieFiles.mockResolvedValue([
+        { dateAdded: AFTER_ISO, id: 501, movieId: 42 },
+      ])
+      const frames = await pollOnce()
+
+      expect(touchSpy).not.toHaveBeenCalled()
+      expect(frames).toHaveLength(1)
+      expect(frames[0]?.job.status).toBe(DownloadJobStatus.Completed)
+    })
+  })
+
   describe('pollShows', () => {
     it('only updates tracked, non-terminal show jobs', async () => {
       const trackedJob = buildShowJob({ status: DownloadJobStatus.Downloading })
@@ -625,10 +746,9 @@ describe('MediaPollerService', () => {
       await service.poll()
 
       expect(sonarrService.getQueue).toHaveBeenCalledWith()
-      expect(downloadStateService.getQueueSnapshot(trackedJob.id)).toBeDefined()
-      expect(
-        downloadStateService.getQueueSnapshot(failedJob.id),
-      ).toBeUndefined()
+      expect((await jobFrames()).map(frame => frame.job.id)).toEqual([
+        trackedJob.id,
+      ])
       expect(downloadStateService.jobs.get(failedJob.id)?.status).toBe(
         DownloadJobStatus.Failed,
       )
@@ -686,7 +806,8 @@ describe('MediaPollerService', () => {
         DownloadJobStatus.Downloading,
       )
       // Progress is over the whole season, not over the finished episode.
-      expect(downloadStateService.getQueueSnapshot(job.id)?.progress).toBe(60)
+      const [frame] = await jobFrames()
+      expect(snapshotOf(frame)?.progress).toBe(60)
     })
 
     it('completes a season job once every episode leaves the queue with its file', async () => {
@@ -713,7 +834,9 @@ describe('MediaPollerService', () => {
       )
     })
 
-    it('gives two differently-scoped jobs for one series different snapshots', async () => {
+    // The frame's snapshot is the series' - the media is per-title - but
+    // whether a job is re-broadcast at all is decided by its own scope.
+    it('re-broadcasts only the jobs whose own queue items moved', async () => {
       const episodeJob = buildShowJob({
         id: 'show-episode',
         scope: { episodeId: 2, seasonNumber: 3 },
@@ -725,14 +848,13 @@ describe('MediaPollerService', () => {
       })
       downloadStateService.jobs.set(episodeJob.id, episodeJob)
       downloadStateService.jobs.set(seriesJob.id, seriesJob)
-
-      sonarrService.getQueue.mockResolvedValue([
+      const queue = (episodeOneLeft: number): SonarrQueueResource[] => [
         {
           episodeId: 1,
           seasonNumber: 3,
           seriesId: 9,
           size: 100,
-          sizeleft: 0,
+          sizeleft: episodeOneLeft,
           status: 'downloading',
         },
         {
@@ -743,18 +865,23 @@ describe('MediaPollerService', () => {
           sizeleft: 50,
           status: 'downloading',
         },
-      ])
+      ]
 
+      sonarrService.getQueue.mockResolvedValue(queue(100))
+      await service.poll()
+      expect((await jobFrames()).map(frame => frame.job.id).sort()).toEqual([
+        episodeJob.id,
+        seriesJob.id,
+      ])
+      downloadGateway.broadcastPerViewer.mockClear()
+
+      // Only episode 1 moved, which is outside the episode job's scope.
+      sonarrService.getQueue.mockResolvedValue(queue(0))
       await service.poll()
 
-      // The episode job sees only its own item...
-      expect(
-        downloadStateService.getQueueSnapshot(episodeJob.id)?.progress,
-      ).toBe(50)
-      // ...while the unscoped job sees both, aggregated.
-      expect(
-        downloadStateService.getQueueSnapshot(seriesJob.id)?.progress,
-      ).toBe(75)
+      const frames = await jobFrames()
+      expect(frames.map(frame => frame.job.id)).toEqual([seriesJob.id])
+      expect(snapshotOf(frames[0])?.progress).toBe(75)
     })
 
     // An item Sonarr can't attribute to an episode is not evidence about

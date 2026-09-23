@@ -3,6 +3,7 @@ import type { EpisodeFileResource, EpisodeResource } from '@lilnas/media/sonarr'
 import {
   DownloadJobRecord,
   DownloadJobStatus,
+  type DownloadQueueSnapshot,
   DownloadType,
   type EpisodeStateEntry,
   isManagedMedia,
@@ -99,10 +100,11 @@ export interface PollableCompletionData {
  * tick - owned by a job or not - so an open page follows a download it
  * never asked for. See `broadcastMediaChanges`.
  *
- * Writes only `status`/`error` to the job. The queue snapshot goes to
- * `DownloadStateService.setQueueSnapshot()` instead of onto the job row -
- * it's live upstream state, which is where it was always coming from, so
- * persisting a copy of it was only ever a way for the two to disagree.
+ * Writes only `status`/`error` to the job. The queue snapshot is never
+ * stored against the job at all: a job's `media.queueSnapshot` is the
+ * resolver's, read off the queue cache this poller feeds, so a progress-only
+ * change just re-broadcasts the job (`DownloadStateService.touchJob()`) and
+ * the hydrate that broadcast runs picks the new number up.
  *
  * Runs every 10s via @Cron (this codebase has no @Interval precedent - see
  * ytdlp-update.service.ts). A tick with work to do first asks upstream to
@@ -136,6 +138,15 @@ export class MediaPollerService {
    * clears it; so does the job settling or no longer being tracked.
    */
   private readonly absentSince = new Map<string, number>()
+
+  /**
+   * Job id -> the snapshot of the job's own queue item(s) as of the last
+   * frame this poller caused for it. Only a change detector: what goes on
+   * the wire is the media's snapshot, which the broadcast's resolve derives
+   * from the queue cache. Dropped once the job has no item, and once it
+   * settles or is no longer tracked.
+   */
+  private readonly lastSnapshot = new Map<string, DownloadQueueSnapshot>()
 
   constructor(
     private readonly downloadGateway: DownloadGateway,
@@ -188,7 +199,7 @@ export class MediaPollerService {
       this.backoffMs = Math.min(this.backoffMs * 2, MAX_BACKOFF_MS)
     }
 
-    this.forgetUntrackedAbsences()
+    this.forgetUntrackedJobs()
     await this.broadcastMediaChanges(stored)
   }
 
@@ -221,7 +232,8 @@ export class MediaPollerService {
       }
     }
 
-    await this.settleAbsentJobs(DownloadType.Movie, absent)
+    const settled = await this.settleAbsentJobs(DownloadType.Movie, absent)
+    this.touchDequeuedJobs(absent, settled)
   }
 
   /**
@@ -259,7 +271,8 @@ export class MediaPollerService {
       }
     }
 
-    await this.settleAbsentJobs(DownloadType.Show, absent)
+    const settled = await this.settleAbsentJobs(DownloadType.Show, absent)
+    this.touchDequeuedJobs(absent, settled)
   }
 
   /**
@@ -272,12 +285,15 @@ export class MediaPollerService {
    * past the grace period or not: without the listing there is no telling a
    * finished import from a dropped download, and guessing either way is
    * worse than asking again next tick.
+   *
+   * Returns the ids of the jobs whose status it wrote.
    */
   private async settleAbsentJobs(
     type: DownloadType.Movie | DownloadType.Show,
     jobs: readonly TrackedJob[],
-  ): Promise<void> {
-    if (jobs.length === 0) return
+  ): Promise<Set<string>> {
+    const settled = new Set<string>()
+    if (jobs.length === 0) return settled
 
     const now = Date.now()
     for (const { record } of jobs) {
@@ -333,19 +349,42 @@ export class MediaPollerService {
 
       this.absentSince.delete(record.id)
       this.writeStatus(record, next, error)
+      settled.add(record.id)
+    }
+
+    return settled
+  }
+
+  /**
+   * Re-broadcasts each job whose queue item left this tick, so its media
+   * frame drops the progress the last one carried. A job `settleAbsentJobs`
+   * just moved is skipped - its status write already broadcast, and that
+   * hydrate reads the same, item-less, cache.
+   */
+  private touchDequeuedJobs(
+    absent: readonly TrackedJob[],
+    settled: ReadonlySet<string>,
+  ): void {
+    for (const { record } of absent) {
+      if (this.lastSnapshot.delete(record.id) && !settled.has(record.id)) {
+        this.downloadStateService.touchJob(record.id)
+      }
     }
   }
 
   /**
-   * Drops the absence timer of every job that is no longer in flight, so
-   * the map only ever holds jobs the poller still tracks. Runs every tick,
-   * failed or not: a job cancelled while upstream was down still goes.
+   * Drops the absence timer and remembered snapshot of every job that is no
+   * longer in flight, so both maps only ever hold jobs the poller still
+   * tracks. Runs every tick, failed or not: a job cancelled while upstream
+   * was down still goes.
    */
-  private forgetUntrackedAbsences(): void {
-    for (const jobId of this.absentSince.keys()) {
-      const record = this.downloadStateService.jobs.get(jobId)
-      if (!record || TERMINAL_STATUSES.has(record.status)) {
-        this.absentSince.delete(jobId)
+  private forgetUntrackedJobs(): void {
+    for (const byJob of [this.absentSince, this.lastSnapshot]) {
+      for (const jobId of byJob.keys()) {
+        const record = this.downloadStateService.jobs.get(jobId)
+        if (!record || TERMINAL_STATUSES.has(record.status)) {
+          byJob.delete(jobId)
+        }
       }
     }
   }
@@ -717,9 +756,7 @@ export class MediaPollerService {
     record: DownloadJobRecord,
     item: PollableQueueItem,
   ): void {
-    const previousSnapshot = this.downloadStateService.getQueueSnapshot(
-      record.id,
-    )
+    const previousSnapshot = this.lastSnapshot.get(record.id)
     const newStatus = deriveStatusFromQueueItem(record.status, item)
     const newSnapshot = toQueueSnapshot(item)
 
@@ -761,12 +798,16 @@ export class MediaPollerService {
       'Media job status changed',
     )
 
-    // Snapshot first: it broadcasts on its own, so a progress-only tick
-    // (same status, new percentage) still reaches subscribers without a
-    // pointless job-row write.
-    this.downloadStateService.setQueueSnapshot(record.id, newSnapshot)
+    this.lastSnapshot.set(record.id, newSnapshot)
 
-    if (newStatus === record.status && !reasonChanged) return
+    // One frame either way. A status move broadcasts from updateJob, and
+    // that hydrate already carries the new snapshot off the queue cache; a
+    // progress-only tick (same status, new percentage) re-broadcasts the job
+    // instead of making a pointless job-row write.
+    if (newStatus === record.status && !reasonChanged) {
+      this.downloadStateService.touchJob(record.id)
+      return
+    }
 
     this.writeStatus(record, newStatus, error)
   }
