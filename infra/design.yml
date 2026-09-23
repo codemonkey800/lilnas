@@ -5,6 +5,11 @@ services:
   design:
     image: ghcr.io/nexu-io/od:latest
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     # Runs as the host user's uid, not the image's built-in open-design
     # (1001), so the mounted OAuth credentials stay readable via owner
     # permissions even after Claude Code's own token refresh rewrites

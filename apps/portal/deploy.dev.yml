@@ -3,6 +3,11 @@ services:
     image: lilnas-dev
     command: -c "pnpm --filter=portal dev"
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ../..:/source

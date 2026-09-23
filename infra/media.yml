@@ -1,7 +1,14 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   sonarr:
     image: lscr.io/linuxserver/sonarr
     restart: unless-stopped
+    logging: *default-logging
     environment:
       PUID: 1000
       PGID: 1000
@@ -21,6 +28,7 @@ services:
   radarr:
     image: lscr.io/linuxserver/radarr
     restart: unless-stopped
+    logging: *default-logging
     environment:
       PUID: 1000
       PGID: 1000
@@ -40,6 +48,7 @@ services:
   sabnzbd:
     image: lscr.io/linuxserver/sabnzbd
     restart: unless-stopped
+    logging: *default-logging
     environment:
       PUID: 1000
       PGID: 1000
@@ -58,6 +67,7 @@ services:
   emby:
     image: emby/embyserver
     restart: unless-stopped
+    logging: *default-logging
     environment:
       PUID: 1000
       PGID: 1000

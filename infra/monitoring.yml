@@ -1,7 +1,14 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   yacht:
     image: selfhostedpro/yacht
     restart: unless-stopped
+    logging: *default-logging
     environment:
       DISABLE_AUTH: true
     volumes:
@@ -18,6 +25,7 @@ services:
   prometheus:
     image: prom/prometheus:latest
     restart: unless-stopped
+    logging: *default-logging
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
@@ -37,6 +45,7 @@ services:
   grafana:
     image: grafana/grafana:latest
     restart: unless-stopped
+    logging: *default-logging
     environment:
       GF_AUTH_DISABLE_LOGIN_FORM: false
       GF_SECURITY_ALLOW_EMBEDDING: true
@@ -60,6 +69,7 @@ services:
   loki:
     image: grafana/loki:latest
     restart: unless-stopped
+    logging: *default-logging
     command: -config.file=/etc/loki/loki.yml
     volumes:
       - ./monitoring/loki.yml:/etc/loki/loki.yml:ro
@@ -68,6 +78,7 @@ services:
   promtail:
     image: grafana/promtail:latest
     restart: unless-stopped
+    logging: *default-logging
     command: -config.file=/etc/promtail/promtail.yml
     volumes:
       - ./monitoring/promtail.yml:/etc/promtail/promtail.yml:ro
@@ -77,6 +88,7 @@ services:
   node-exporter:
     image: prom/node-exporter:latest
     restart: unless-stopped
+    logging: *default-logging
     command:
       - --path.procfs=/host/proc
       - --path.sysfs=/host/sys
@@ -91,6 +103,7 @@ services:
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:latest
     restart: unless-stopped
+    logging: *default-logging
     privileged: true
     devices:
       - /dev/kmsg:/dev/kmsg

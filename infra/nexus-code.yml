@@ -2,6 +2,11 @@ services:
   nexus-code:
     image: nginx:alpine
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     entrypoint: ['/bin/sh', '/local-proxy/entrypoint.sh']
     command: ['nginx', '-g', 'daemon off;']
     networks:
