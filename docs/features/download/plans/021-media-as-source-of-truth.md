@@ -1139,7 +1139,7 @@ mockups` from the root and commit the regenerated `designs/*.html`.
 
 #### Group B — Live plumbing (`apps/download/src/lib`)
 
-- [ ] **B1. The store learns media frames and media-id interest.** One socket, two
+- [x] **B1. The store learns media frames and media-id interest.** `be9351b5` One socket, two
       maps.
 
   **Files:** edit `apps/download/src/lib/use-job-events.ts` (`JobEventsFilter` :65,
@@ -1172,7 +1172,7 @@ mockups` from the root and commit the regenerated `designs/*.html`.
   **Tests:** every existing case; the new filter combinations; a media frame updates
   `media` and not `jobs`; `useMediaEvents` re-renders on a matching frame only.
 
-- [ ] **B2. `useLiveMedia` replaces `useLiveMediaJobs`.** Pages merge live media,
+- [x] **B2. `useLiveMedia` replaces `useLiveMediaJobs`.** `3476e87b` Pages merge live media,
       episodes and jobs without `router.refresh()`.
 
   **Files:** create `apps/download/src/lib/use-live-media.ts` + spec; delete
@@ -1208,7 +1208,7 @@ mockups` from the root and commit the regenerated `designs/*.html`.
 
 #### Group C — Components (`apps/download/src/components/detail`)
 
-- [ ] **C1. Media-state vocabulary for the UI.** Labels and tones for the seven states,
+- [x] **C1. Media-state vocabulary for the UI.** `879fab78` Labels and tones for the seven states,
       per media type where they differ.
 
   **Files:** create `apps/download/src/components/detail/media-state.ts` +
@@ -1226,7 +1226,7 @@ mockups` from the root and commit the regenerated `designs/*.html`.
 
   **Tests:** every state × type; the tone table is exhaustive.
 
-- [ ] **C2. `MediaStatus` + `AttemptList` replace `JobLifecycle` + `JobHistory`.** The
+- [x] **C2. `MediaStatus` + `AttemptList` replace `JobLifecycle` + `JobHistory`.** `7dc6d173` The
       status panel is media-driven; attempts are a list.
 
   **Files:** rewrite `apps/download/src/components/detail/job-lifecycle.tsx` into
@@ -1269,7 +1269,15 @@ mockups` from the root and commit the regenerated `designs/*.html`.
   **Tests:** every state renders its label/tone/dot; progress with and without a job;
   attempt ordering and action gating for every status; empty list.
 
-- [ ] **C3. Movie page reads media.** `MovieDetail` derives nothing from jobs.
+  > **Findings:** built beside `JobLifecycle` (not a rewrite in place) so pages keep
+  > compiling until C3/C4/C6; shared pieces moved to `job-actions.tsx` and
+  > `progress-block.tsx`. Terminal attempts carry no buttons, which stranded Retry, so
+  > `AttemptList` gained `retryable?: boolean`: Retry on the newest job only when it is
+  > failed/cancelled, and pages pass it only for `absent`/`wanted` media (the _Cars_
+  > case offers no re-grab). `save`/`watch` are header media actions, not attempt props.
+  > Video `available` reads "downloaded" and `importing` "processing…" (from the mockup).
+
+- [x] **C3. Movie page reads media.** `79716fe6` `MovieDetail` derives nothing from jobs.
 
   **Files:** edit `apps/download/src/components/detail/movie-detail.tsx` (:335-549),
   `movie-detail-live.tsx`, `__tests__/movie-detail.spec.tsx`.
@@ -1289,7 +1297,15 @@ mockups` from the root and commit the regenerated `designs/*.html`.
   `in library` (the _Cars_ case, as a named test); a Discord-created job appearing via a
   media-id job frame lands in Attempts.
 
-- [ ] **C4. Video page reads media.** Same for `VideoDetail`.
+  > **Findings:** there are no movie cancel/pause/resume/retry routes (only videos have
+  > them, and the old wiring passed only `imports`), so `MovieDetail` takes optional
+  > handlers the page does not yet pass — an in-flight movie attempt offers only Import,
+  > as before. `DetailHeader`'s `meta` slot is a `<p>`, so `MediaStatus` (chip +
+  > progress) sits in the `lifecycle` slot above the actions rather than directly under
+  > the meta line, and the "Started from Radarr" bar is in the header, not a separate
+  > card. The live wrapper passes `stale={!connected}` (matching `VideoDetail`).
+
+- [x] **C4. Video page reads media.** `169d9ed1` Same for `VideoDetail`.
 
   **Files:** edit `apps/download/src/components/detail/video-detail.tsx` (:336-522),
   `video-detail-live.tsx` (:116-131), `__tests__/video-detail.spec.tsx`.
@@ -1302,7 +1318,12 @@ mockups` from the root and commit the regenerated `designs/*.html`.
   **Tests:** rewrite around states; a completed job whose video was later deleted
   (`downloadUrls: []`) reads `not downloaded`, not `completed`.
 
-- [ ] **C5. Show state from episodes, not job scopes.** `show-state.ts` reads
+  > **Findings:** today's page drew no yt-dlp progress (`jobProgress()` is null for
+  > videos), so nothing was lost. `videoSourceJob(jobs, available)` drives attribution
+  > and Delete's job id. Gap carried to Phase 3 · A3 (see there): no re-download path
+  > for an `absent` video whose newest attempt is `completed`.
+
+- [x] **C5. Show state from episodes, not job scopes.** `6ab7439d` `show-state.ts` reads
       `Episode.state`.
 
   **Files:** edit `apps/download/src/components/detail/show-state.ts` (:180-241,
@@ -1324,7 +1345,7 @@ mockups` from the root and commit the regenerated `designs/*.html`.
   excluded from the series rollup; `deleteCascade` with an in-flight episode state and
   no job; the existing progress helpers unchanged.
 
-- [ ] **C6. Show page, seasons and episode rows read media.**
+- [x] **C6. Show page, seasons and episode rows read media.** `c9cfd0d5`
 
   **Files:** edit `show-detail.tsx` (:200-352), `show-detail-live.tsx`,
   `show-seasons.tsx` (:147-370), `show-episode-row.tsx` (:163-333), their specs.
@@ -1344,7 +1365,16 @@ wanted}` and no in-flight scoped job; Import via `AttemptList`'s highlighted att
   on its row and a live dot on its tab; a series `needs_attention` on one episode
   reads `needs your decision` at the top.
 
-- [ ] **C7. Server pages and wrappers.** Props are named for what they are.
+  > **Findings:** no show-side cancel/retry exists on the frontend (a
+  > `DELETE /download/shows/:id` route exists with no client caller), so `onCancel`/
+  > `onRetry` are threaded through but unwired. Import is gated on the episode being
+  > `needs_attention`, not on a job — it now works for grabs this app never started. A
+  > stuck scoped attempt shows in both the series and the season Attempts (two Import
+  > buttons, one job). "Download series" stays visible on `available` (partial series
+  > roll up to `available`). Paused/needs_attention season tabs get a warn dot.
+  > `episodeState` now reads `mediaStateLabel`/`mediaStateTone`.
+
+- [x] **C7. Server pages and wrappers.** `be15095c` Props are named for what they are.
 
   **Files:** edit `apps/download/src/app/movies/[tmdbId]/page.tsx` (:227-250),
   `shows/[tvdbId]/page.tsx` (:225-251), `videos/[videoId]/page.tsx` (:140-160); the
@@ -1356,7 +1386,10 @@ wanted}` and no in-flight scoped job; Import via `AttemptList`'s highlighted att
 
   **Tests:** the page specs, if any, still render.
 
-- [ ] **C8. Delete the job-derived helpers.** Nothing derives status from jobs anymore.
+  > **Findings:** `MovieDetail`'s own prop was renamed `movie → media` too (it shares
+  > `MovieDetailProps` with the live wrapper). No page derived status from jobs.
+
+- [x] **C8. Delete the job-derived helpers.** `d8d4ad79` Nothing derives status from jobs anymore.
 
   **Files:** edit `apps/download/src/components/detail/job-state.ts` — delete
   `currentJob` (:176), `mergeLiveMediaJobs` + `LiveMediaJobs` (:187-238), `jobProgress`
@@ -1366,15 +1399,30 @@ wanted}` and no in-flight scoped job; Import via `AttemptList`'s highlighted att
 
   **Tests:** `grep -rn "currentJob\|mergeLiveMediaJobs\|useLiveMediaJobs\|JOB_LIFECYCLE_EMPTY_LABEL\|router.refresh" apps/download/src` returns nothing.
 
+  > **Findings:** `job-lifecycle.tsx` (with `JobLifecycle`, `JobHistory`,
+  > `JobLifecycleLink`) was deleted whole; its still-relevant cases moved to the
+  > `attempt-list`/`media-status` specs. `jobProgress`/`JobProgress` stay —
+  > `AttemptList`'s in-flight card uses them. The grep's only hits are a backend
+  > `currentJobs` metrics field. `JobActionKey`/`ACTION_SPECS` still carry unrendered
+  > `save`/`watch` entries (candidates for Phase 5).
+
 #### Group D — Verification & docs
 
-- [ ] **D1. Phase 2 verification.** Full app + utils test/lint/type-check, root
+- [x] **D1. Phase 2 verification.** (no commit) Full app + utils test/lint/type-check, root
       type-check + lint. Then, read-only in a browser against
       `http://localhost:8090`: `/movies/50546` reads `in library` with no job; a
       movie with a `failed` newest job and a file (create none — find one, or record
       that none exists) reads `in library`.
 
-- [ ] **D2. Docs.** `backend.md` section `## Detail pages read media (plan 021 · Phase 2)`;
+  > **Findings (2026-09-23):** all green — app 4324 passed + 9 skipped (190 suites),
+  > utils 495 / 9, root type-check 12/12, lint 15/15. Live: `/movies/50546` "in
+  > library" (one completed attempt); `/movies/1158406` "wanted" + Download;
+  > **`/movies/920` (_Cars_) "in library", Watch available, the `failed` "Interrupted by
+  > a service restart" attempt listed, no Retry**; `/shows/74413` "in library", 45 of
+  > 55 episodes. No console errors. The dev DB has no videos, so the video page was not
+  > exercised live.
+
+- [x] **D2. Docs.** `2f12ea7d` `backend.md` section `## Detail pages read media (plan 021 · Phase 2)`;
       check boxes, Findings.
 
 ### Phase 3 — Jobs become attempts
@@ -1446,6 +1494,14 @@ terminal` (paused videos included, as today and for the documented reason); movi
 
   **Tests:** deleting a completed movie/show/video leaves `completed` and `completedAt`;
   deleting a downloading one still cancels.
+
+  > ⚠️ **Carried in from Phase 2 · C4:** the video page's only re-download path after
+  > a delete is Retry on the newest attempt, which `AttemptList` offers only for a
+  > failed/cancelled newest job. Today the page's own Delete cancels the completed job,
+  > so Retry appears. Once this task leaves it `completed`, a deleted video (`absent`)
+  > has no way back on its page. A3 must give the video page a re-download affordance
+  > for `absent` media whose newest attempt is `completed` (e.g. a header Download, as
+  > the mockup's `not downloaded` state implies, calling the same retry/request path).
 
 - [ ] **A4. Remove the per-job snapshot graft.** One source for `queueSnapshot`.
 
