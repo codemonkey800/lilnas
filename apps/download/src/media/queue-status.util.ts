@@ -28,7 +28,15 @@ export interface PollableQueueItem {
   estimatedCompletionTime?: string | null
   /** The queue row's own id, used to remove the row once it is imported. */
   id?: number
+  /**
+   * The Radarr movie the item was grabbed for - Radarr-only, the movie-side
+   * counterpart of `seriesId`. What `MediaStateService` keys a movie's queue
+   * items on.
+   */
+  movieId?: number | null
   seasonNumber?: number | null
+  /** Sonarr-only: the series the item was grabbed for. */
+  seriesId?: number | null
   sizeleft?: number
   size?: number
   status?: string

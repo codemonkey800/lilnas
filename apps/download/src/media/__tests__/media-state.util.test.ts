@@ -4,6 +4,7 @@ import { DownloadJobStatus } from '@lilnas/utils/download/types'
 
 import {
   deriveManagedState,
+  deriveManagedStateFromItems,
   deriveVideoState,
   toEpisodeStateEntries,
 } from 'src/media/media-state.util'
@@ -287,6 +288,40 @@ describe('deriveVideoState', () => {
 
   it('reports a video with no file and a cancelled job as absent', () => {
     expect(deriveVideoState(false, DownloadJobStatus.Cancelled)).toBe('absent')
+  })
+})
+
+describe('deriveManagedStateFromItems', () => {
+  const library = { hasFile: true, monitored: true }
+
+  it('leaves it to the library when there are no items', () => {
+    expect(deriveManagedStateFromItems(library, [])).toEqual({
+      state: 'available',
+    })
+    expect(
+      deriveManagedStateFromItems({ hasFile: false, monitored: false }, []),
+    ).toEqual({ state: 'absent' })
+  })
+
+  it('derives a single item the same as deriveManagedState', () => {
+    expect(deriveManagedStateFromItems(library, [DOWNLOADING])).toEqual(
+      deriveManagedState({ ...library, item: DOWNLOADING }),
+    )
+  })
+
+  it("takes the highest-precedence item with that item's snapshot and reason", () => {
+    expect(
+      deriveManagedStateFromItems(library, [DOWNLOADING, STUCK_IMPORT]),
+    ).toEqual(deriveManagedState({ ...library, item: STUCK_IMPORT }))
+  })
+
+  it('keeps the first of two items with equal precedence', () => {
+    const later: PollableQueueItem = { ...DOWNLOADING, sizeleft: 0 }
+
+    expect(
+      deriveManagedStateFromItems(library, [DOWNLOADING, later]).queueSnapshot
+        ?.progress,
+    ).toBe(75)
   })
 })
 

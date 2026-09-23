@@ -11,6 +11,7 @@ import { MediaDownloadService } from './media-download.service'
 import { MediaFileService } from './media-file.service'
 import { MediaPollerService } from './media-poller.service'
 import { MediaResolverService } from './media-resolver.service'
+import { MediaStateService } from './media-state.service'
 import { RadarrService } from './radarr.service'
 import { ReleaseService } from './release.service'
 import { ShowService } from './show.service'
@@ -42,6 +43,7 @@ import { SonarrService } from './sonarr.service'
     MediaFileService,
     MediaPollerService,
     MediaResolverService,
+    MediaStateService,
     ReleaseService,
     ShowService,
   ],
@@ -56,6 +58,9 @@ import { SonarrService } from './sonarr.service'
     MediaDownloadService,
     MediaFileService,
     MediaResolverService,
+    // Exported for DownloadStateService, across the forwardRef, which feeds
+    // it the status of every in-flight video job.
+    MediaStateService,
     RadarrService,
     ReleaseService,
     ShowService,

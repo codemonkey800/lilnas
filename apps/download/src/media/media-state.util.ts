@@ -135,6 +135,30 @@ export function deriveVideoState(
 const precedence = (state: MediaState) => MEDIA_STATE_PRECEDENCE.indexOf(state)
 
 /**
+ * State for one movie, series or episode given *every* queue item that
+ * belongs to it (already filtered by the caller). Each item is derived on its
+ * own with {@link deriveManagedState} and the highest-precedence result wins,
+ * keeping that item's snapshot and reason; no items leaves it to the library.
+ *
+ * The library's own state never needs to join the contest: every state an
+ * item can produce (`needs_attention`, `downloading`, `importing`, `paused`)
+ * outranks every state the library can (`available`, `wanted`, `absent`), so
+ * "the best item, else the library" *is* the rollup over both.
+ */
+export function deriveManagedStateFromItems(
+  library: Omit<ManagedStateInput, 'item'>,
+  items: readonly PollableQueueItem[],
+): DerivedState {
+  if (items.length === 0) return deriveManagedState(library)
+
+  return items
+    .map(item => deriveManagedState({ ...library, item }))
+    .reduce((best, next) =>
+      precedence(next.state) < precedence(best.state) ? next : best,
+    )
+}
+
+/**
  * One state entry per Sonarr episode.
  *
  * Items are matched to an episode one by one with `matchesScope`, *before*
@@ -165,14 +189,7 @@ export function toEpisodeStateEntries(
     }
     const matches = items.filter(item => matchesScope(item, { episodeId }))
 
-    const derived =
-      matches.length === 0
-        ? deriveManagedState(library)
-        : matches
-            .map(item => deriveManagedState({ ...library, item }))
-            .reduce((best, next) =>
-              precedence(next.state) < precedence(best.state) ? next : best,
-            )
+    const derived = deriveManagedStateFromItems(library, matches)
 
     entries.push({
       episodeId,
