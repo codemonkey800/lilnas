@@ -325,11 +325,37 @@ export interface DownloadJobEvent {
 export const DOWNLOAD_JOB_EVENT_TYPE = 'download-job'
 
 /**
+ * The `type` field of the `DownloadGatewayMessage` envelope used for every
+ * {@link MediaEvent} broadcast - the media-side sibling of
+ * {@link DOWNLOAD_JOB_EVENT_TYPE}.
+ */
+export const MEDIA_EVENT_TYPE = 'media'
+
+/**
+ * Plan 021. Broadcast over the download WebSocket gateway as the `data` of a
+ * `DownloadGatewayMessage` whenever a media's derived state changes. A media
+ * snapshot carries no requester, so unlike a job event there is no
+ * per-viewer projection - every subscriber gets the same frame.
+ */
+export interface MediaEvent {
+  /**
+   * Per-episode states, only for a show. Absent for a movie or a video, and
+   * for a show frame that only moved the series-level state.
+   */
+  episodes?: EpisodeStateEntry[]
+  /**
+   * A full, current media snapshot - it carries `state`, `stateReason` and
+   * `queueSnapshot`, so a subscriber may replace its copy blind.
+   */
+  media: Media
+}
+
+/**
  * The WS envelope every gateway frame is wrapped in. Deliberately
  * loosely-typed: `type` discriminates between payload kinds and `data`
- * varies per kind. The one kind sent today is {@link DOWNLOAD_JOB_EVENT_TYPE}
- * carrying a {@link DownloadJobEvent} (see
- * `DownloadStateService.broadcastJobEvent`).
+ * varies per kind. {@link DOWNLOAD_JOB_EVENT_TYPE} carries a
+ * {@link DownloadJobEvent} (see `DownloadStateService.broadcastJobEvent`);
+ * {@link MEDIA_EVENT_TYPE} carries a {@link MediaEvent}.
  */
 export interface DownloadGatewayMessage {
   type: string

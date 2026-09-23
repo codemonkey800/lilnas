@@ -1,6 +1,20 @@
-import { DownloadJobSchema } from './schema'
-import type { DownloadGatewayMessage, DownloadJobEvent } from './types'
-import { DOWNLOAD_JOB_EVENT_TYPE, DownloadJobEventType } from './types'
+import { z } from 'zod'
+
+import {
+  DownloadJobSchema,
+  EpisodeStateEntrySchema,
+  MediaSchema,
+} from './schema'
+import type {
+  DownloadGatewayMessage,
+  DownloadJobEvent,
+  MediaEvent,
+} from './types'
+import {
+  DOWNLOAD_JOB_EVENT_TYPE,
+  DownloadJobEventType,
+  MEDIA_EVENT_TYPE,
+} from './types'
 
 /**
  * Reconnect backoff schedule, in milliseconds. Attempt `n` waits
@@ -96,6 +110,45 @@ export function parseJobEventFrame(
       : DownloadJobEventType.Updated
 
   return { job: job.data, type: eventType }
+}
+
+const EpisodeStateEntriesSchema = z.array(EpisodeStateEntrySchema)
+
+/**
+ * Parses one raw frame from the download gateway into the media event it
+ * describes, or `undefined` if it does not describe one — a non-string
+ * payload, malformed JSON, some other envelope `type`, or a `media` that
+ * does not satisfy `MediaSchema`. The media-side twin of
+ * {@link parseJobEventFrame}, and silent for the same reason.
+ *
+ * A bad `episodes` array does **not** reject the frame: the media is
+ * returned with `episodes` omitted. The page's state chip reads `media`, so
+ * it must not freeze over an episode row nobody is looking at.
+ */
+export function parseMediaEventFrame(rawData: unknown): MediaEvent | undefined {
+  if (typeof rawData !== 'string') return undefined
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(rawData)
+  } catch {
+    return undefined
+  }
+
+  if (!isDownloadGatewayMessage(parsed)) return undefined
+  if (parsed.type !== MEDIA_EVENT_TYPE) return undefined
+  if (typeof parsed.data !== 'object' || parsed.data === null) return undefined
+  if (!('media' in parsed.data)) return undefined
+
+  const media = MediaSchema.safeParse(parsed.data.media)
+  if (!media.success) return undefined
+
+  if (!('episodes' in parsed.data)) return { media: media.data }
+
+  const episodes = EpisodeStateEntriesSchema.safeParse(parsed.data.episodes)
+  return episodes.success
+    ? { episodes: episodes.data, media: media.data }
+    : { media: media.data }
 }
 
 /**

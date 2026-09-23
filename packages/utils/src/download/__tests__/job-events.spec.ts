@@ -2,6 +2,7 @@ import {
   DEFAULT_RECONNECT_DELAYS_MS,
   jobEventsSocketUrl,
   parseJobEventFrame,
+  parseMediaEventFrame,
   RECONNECT_JITTER_RATIO,
   reconnectDelayMs,
 } from 'src/download/job-events'
@@ -12,6 +13,10 @@ import {
   DownloadJobEventType,
   DownloadJobStatus,
   DownloadType,
+  EpisodeStateEntry,
+  MEDIA_EVENT_TYPE,
+  MediaEvent,
+  Show,
 } from 'src/download/types'
 
 const NOW_ISO = '2026-08-20T12:00:00.000Z'
@@ -137,6 +142,131 @@ describe('parseJobEventFrame', () => {
 
   it('returns undefined for non-string message data', () => {
     expect(parseJobEventFrame({ not: 'a string' })).toBeUndefined()
+  })
+})
+
+describe('parseMediaEventFrame', () => {
+  const show: Show = {
+    episodeCount: 10,
+    episodeFileCount: 4,
+    id: 'tvdb:121361',
+    queueSnapshot: {
+      progress: 42,
+      status: 'downloading',
+      timeLeft: '00:10:00',
+    },
+    sonarrId: 7,
+    state: 'downloading',
+    stateReason: 'Grabbing S01E05',
+    title: 'A Show',
+    tvdbId: 121361,
+    type: DownloadType.Show,
+  }
+
+  const episodes: EpisodeStateEntry[] = [
+    {
+      episodeId: 101,
+      queueSnapshot: { progress: 42 },
+      seasonNumber: 1,
+      state: 'downloading',
+    },
+    { episodeId: 102, seasonNumber: 0, state: 'available' },
+  ]
+
+  function buildMediaFrame(data: unknown): string {
+    return buildFrame(data, MEDIA_EVENT_TYPE)
+  }
+
+  it('returns the media and episodes for a well-formed show frame', () => {
+    const event: MediaEvent = { episodes, media: show }
+
+    expect(parseMediaEventFrame(buildMediaFrame(event))).toEqual(event)
+  })
+
+  it('returns the media alone when the frame carries no episodes', () => {
+    const media = {
+      id: 'tmdb:1',
+      state: 'available',
+      title: 'A Movie',
+      tmdbId: 1,
+      type: DownloadType.Movie,
+    }
+
+    const event = parseMediaEventFrame(buildMediaFrame({ media }))
+
+    expect(event).toEqual({ media })
+    expect(event).not.toHaveProperty('episodes')
+  })
+
+  // The state chip reads `media`; a bad episode row must not freeze it.
+  it('returns the media with episodes omitted when episodes fail the schema', () => {
+    const event = parseMediaEventFrame(
+      buildMediaFrame({
+        episodes: [{ episodeId: -1, seasonNumber: 1, state: 'not-a-state' }],
+        media: show,
+      }),
+    )
+
+    expect(event).toEqual({ media: show })
+    expect(event).not.toHaveProperty('episodes')
+  })
+
+  it('returns the media with episodes omitted when episodes is not an array', () => {
+    expect(
+      parseMediaEventFrame(buildMediaFrame({ episodes: null, media: show })),
+    ).toEqual({ media: show })
+  })
+
+  it('returns undefined when the media does not parse as a Media', () => {
+    expect(
+      parseMediaEventFrame(
+        buildMediaFrame({
+          episodes,
+          media: { ...show, state: 'not-a-real-state' },
+        }),
+      ),
+    ).toBeUndefined()
+  })
+
+  it('returns undefined when the data has no media', () => {
+    expect(parseMediaEventFrame(buildMediaFrame({ episodes }))).toBeUndefined()
+  })
+
+  it('returns undefined when the envelope carries no data', () => {
+    expect(
+      parseMediaEventFrame(JSON.stringify({ type: MEDIA_EVENT_TYPE })),
+    ).toBeUndefined()
+  })
+
+  it('returns undefined when the envelope type is not the media-event type', () => {
+    expect(
+      parseMediaEventFrame(buildFrame({ media: show }, 'some-other-type')),
+    ).toBeUndefined()
+  })
+
+  it('returns undefined for an envelope without a string type', () => {
+    expect(
+      parseMediaEventFrame(JSON.stringify({ data: { media: show } })),
+    ).toBeUndefined()
+  })
+
+  it('returns undefined for malformed JSON', () => {
+    expect(parseMediaEventFrame('{not json')).toBeUndefined()
+  })
+
+  it('returns undefined for non-string message data', () => {
+    expect(parseMediaEventFrame({ media: show })).toBeUndefined()
+  })
+
+  // The two parsers share one socket; each must ignore the other's frames.
+  it('returns undefined for a job frame', () => {
+    expect(parseMediaEventFrame(buildJobFrame(buildVideoJob()))).toBeUndefined()
+  })
+
+  it('leaves parseJobEventFrame returning undefined for a media frame', () => {
+    expect(
+      parseJobEventFrame(buildMediaFrame({ episodes, media: show })),
+    ).toBeUndefined()
   })
 })
 
