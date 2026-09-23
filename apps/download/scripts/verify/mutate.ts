@@ -292,10 +292,15 @@ const TERMINAL_STATUSES: ReadonlySet<DownloadJobStatus> = new Set([
  * Every non-terminal state can be interrupted or swept, so these are legal
  * successors of *anything* that has not already finished:
  *
- * - `Failed` — `reconcileInterruptedJobs()` sweeps every non-terminal row to
- *   `failed` at boot (`schema.ts:18-28`), and the poller writes it on a queue
- *   error.
- * - `Cancelled`/`Cancelling` — teardown, which this script issues itself.
+ * - `Failed` — `reconcileInterruptedJobs()` sweeps every in-flight **video**
+ *   row to `failed` at boot (a restart kills the yt-dlp process and its
+ *   partial file), and the poller writes it on a queue error or when a
+ *   grabbed job left the queue without producing a file. Movie and show
+ *   rows survive a restart — their download lives in Radarr/Sonarr — and are
+ *   re-adopted and settled by the next poll rather than failed.
+ * - `Cancelled`/`Cancelling` — teardown, which this script issues itself. The
+ *   delete routes cancel only an attempt still in flight; see
+ *   {@link legalSuccessors} for a finished one.
  */
 const ALWAYS_REACHABLE: readonly DownloadJobStatus[] = [
   DownloadJobStatus.Cancelled,
@@ -319,15 +324,22 @@ const RESTING_STATUSES: ReadonlySet<DownloadJobStatus> = new Set([
 
 /**
  * Movie/show transitions, read off `MediaDownloadService.request()`
- * (`Requested` → `Searching`|`Failed`), `MediaPollerService.applyUpdate()` and
- * `deriveStatusFromQueueItem()` (`queue-status.util.ts`).
+ * (`Requested` → `Searching`|`Failed`), `MediaPollerService.applyUpdate()`,
+ * `deriveStatusFromQueueItem()` and `settleWithoutQueueItem()`
+ * (`queue-status.util.ts`).
  *
- * The one that is easy to get wrong: **`Searching` cannot reach `Completed`
- * directly.** `deriveStatusFromQueueItem` only returns `Completed` for a job
- * already in `Downloading` or `Importing` whose queue item has vanished; with
- * no item and any other current status it returns the status unchanged. So a
- * job that never entered the queue stays in `Searching` indefinitely — which
- * is a legitimate outcome (no indexer had the release), not a stall to fail on.
+ * **`Completed` is decided by the library, not the queue.** A job with no
+ * queue item completes the moment a file newer than the job lands for its
+ * scope — whatever status it was in. That makes `Requested → Completed` and
+ * `Searching → Completed` legal: a small grab can be fetched *and* imported
+ * between two ticks, so the queue never shows it at all. With no item and no
+ * file, a waiting job (`Requested`/`Searching`/`NeedsAttention`) stays where
+ * it is — a job that never entered the queue sits in `Searching`
+ * indefinitely, which is a legitimate outcome (no indexer had the release),
+ * not a stall to fail on — while a grabbed one
+ * (`Downloading`/`Importing`/`Paused`) fails with `Left the queue without
+ * producing a file` after a grace period. `Failed` needs no entry here: it is
+ * in {@link ALWAYS_REACHABLE}.
  *
  * `NeedsAttention` is reachable from every in-flight state, `Searching`
  * included: a small usenet grab can be fetched *and* rejected by the importer
@@ -335,18 +347,29 @@ const RESTING_STATUSES: ReadonlySet<DownloadJobStatus> = new Set([
  * already be `importPending`. It is not terminal — a human working the
  * manual-import dialog pushes it on to `Importing`/`Completed`, and a second
  * grab for the same title puts it back on `Downloading`.
+ *
+ * `Paused` is the queue's own `status: 'paused'` — the download client
+ * holding the item, from Radarr's/Sonarr's UI or its own, never this app. So
+ * any queued state (`Searching`/`Downloading`/`Importing`) can land on it,
+ * and unpausing puts the job back on `Downloading`, or on `Importing` when
+ * the transfer finished while it was held.
  */
 const MEDIA_TRANSITIONS: ReadonlyMap<
   DownloadJobStatus,
   readonly DownloadJobStatus[]
 > = new Map([
-  [DownloadJobStatus.Requested, [DownloadJobStatus.Searching]],
+  [
+    DownloadJobStatus.Requested,
+    [DownloadJobStatus.Searching, DownloadJobStatus.Completed],
+  ],
   [
     DownloadJobStatus.Searching,
     [
       DownloadJobStatus.Downloading,
       DownloadJobStatus.Importing,
       DownloadJobStatus.NeedsAttention,
+      DownloadJobStatus.Paused,
+      DownloadJobStatus.Completed,
     ],
   ],
   [
@@ -354,6 +377,7 @@ const MEDIA_TRANSITIONS: ReadonlyMap<
     [
       DownloadJobStatus.Importing,
       DownloadJobStatus.NeedsAttention,
+      DownloadJobStatus.Paused,
       DownloadJobStatus.Completed,
     ],
   ],
@@ -362,11 +386,20 @@ const MEDIA_TRANSITIONS: ReadonlyMap<
     [
       DownloadJobStatus.Downloading,
       DownloadJobStatus.NeedsAttention,
+      DownloadJobStatus.Paused,
       DownloadJobStatus.Completed,
     ],
   ],
   [
     DownloadJobStatus.NeedsAttention,
+    [
+      DownloadJobStatus.Downloading,
+      DownloadJobStatus.Importing,
+      DownloadJobStatus.Completed,
+    ],
+  ],
+  [
+    DownloadJobStatus.Paused,
     [
       DownloadJobStatus.Downloading,
       DownloadJobStatus.Importing,
@@ -418,8 +451,10 @@ function legalSuccessors(
   if (TERMINAL_STATUSES.has(from)) {
     // The poller filters terminal jobs out of `trackedJobs`, and
     // `updateJob()` is never called on one again during a watch. Absorbing,
-    // by construction. (The delete routes *do* write Cancelled onto a
-    // Completed job, but a watch has already stopped by then.)
+    // by construction - and the delete routes keep it that way: they cancel
+    // only an attempt still in flight, so teardown of a finished job leaves
+    // `completed` as `completed` (and `failed` as `failed`) rather than
+    // rewriting it to `cancelled`.
     return []
   }
   const table = kind === 'video' ? VIDEO_TRANSITIONS : MEDIA_TRANSITIONS
@@ -2042,8 +2077,9 @@ async function confirmObject(
 /**
  * After teardown, the title must be back out of the library. Checked through
  * `radarrId`/`sonarrId` rather than by re-fetching the job: `deleteJob()`
- * leaves the job row behind as `Cancelled`, so the job is *not* gone — the
- * library entry is what teardown actually removed.
+ * leaves the job row behind — `Cancelled` if it was still in flight, otherwise
+ * with the outcome it finished on — so the job is *not* gone, and the library
+ * entry is what teardown actually removed.
  */
 async function confirmGone(
   ctx: MutateContext,
@@ -2083,7 +2119,8 @@ async function confirmGone(
       details: [
         `${key} resolves without a ${kind === 'movie' ? 'radarrId' : 'sonarrId'}, ` +
           'which is what a title that is merely known-about (not held) looks ' +
-          'like. The job row itself survives as Cancelled by design.',
+          'like. The job row itself survives by design — cancelled if it was ' +
+          'still in flight, otherwise with the outcome it finished on.',
       ],
     }
   }

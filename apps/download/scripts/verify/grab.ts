@@ -641,8 +641,9 @@ async function auditRow(
  * Cancel the queue item, delete the movie, and prove the library is back
  * where it started.
  *
- * `DELETE /download/movies/:jobId` leaves the *job* row behind as
- * `Cancelled` by design — the library entry is what teardown removes, so
+ * `DELETE /download/movies/:jobId` leaves the *job* row behind by design —
+ * `Cancelled` if it was still in flight, otherwise with the outcome it
+ * finished on — and the library entry is what teardown removes, so
  * `radarrId` is what gets checked, exactly as `mutate.ts`'s `confirmGone`
  * does.
  */
@@ -699,7 +700,10 @@ async function teardown(
         : `still held as ${held ?? '?'}${filePath ? ` with ${filePath}` : ''}`,
     details:
       held === undefined && !filePath
-        ? ['the job row survives as Cancelled by design']
+        ? [
+            'the job row survives by design — cancelled if it was still in ' +
+              'flight, otherwise with the outcome it finished on',
+          ]
         : [
             'teardown ran but the title is still in the library — remove by hand',
           ],

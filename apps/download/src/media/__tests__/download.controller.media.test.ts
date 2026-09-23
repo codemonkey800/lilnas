@@ -262,10 +262,12 @@ describe('DownloadController - media endpoints', () => {
   })
 
   describe('deleteMovieJob', () => {
+    // A finished attempt keeps its outcome through a delete (plan 021) -
+    // the route answers with the job exactly as the service left it.
     it('returns the mapped job after deletion', async () => {
       mediaDownloadService.deleteMovieJob.mockResolvedValue({
         ...movieJob,
-        status: DownloadJobStatus.Cancelled,
+        status: DownloadJobStatus.Completed,
       })
 
       const response = await controller.deleteMovieJob('movie-1', undefined)
@@ -273,7 +275,7 @@ describe('DownloadController - media endpoints', () => {
       expect(mediaDownloadService.deleteMovieJob).toHaveBeenCalledWith(
         'movie-1',
       )
-      expect(response.status).toBe(DownloadJobStatus.Cancelled)
+      expect(response.status).toBe(DownloadJobStatus.Completed)
     })
 
     it('converts a MediaDownloadService error into a 404 HttpException', async () => {
@@ -315,10 +317,10 @@ describe('DownloadController - media endpoints', () => {
 
       mediaDownloadService.deleteShowJob.mockResolvedValue({
         ...showJob,
-        status: DownloadJobStatus.Cancelled,
+        status: DownloadJobStatus.Completed,
       })
       const deleted = await controller.deleteShowJob('show-1', undefined)
-      expect(deleted.status).toBe(DownloadJobStatus.Cancelled)
+      expect(deleted.status).toBe(DownloadJobStatus.Completed)
     })
   })
 

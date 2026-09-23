@@ -628,16 +628,33 @@ export class DownloadService {
       job.mediaId,
     )
 
+    // Broadcasts the job with its now-empty video, so every open page hears
+    // the file go - whether or not the job itself changes below.
     this.downloadStateService.updateVideo(id, { downloadUrls: [] })
 
-    // `Cancelled`, the same terminal status `DELETE /movies/:id` lands on:
-    // the job row stays as history, and the gallery keeps a card that now
-    // honestly has nothing to download.
-    const deleted = this.downloadStateService.updateJob(id, {
-      status: DownloadJobStatus.Cancelled,
-    })
+    // Only an attempt that was still in flight is cancelled - the same rule
+    // `DELETE /movies/:id` follows. A finished one keeps its outcome: a
+    // completed attempt did download the file, and deleting that file later
+    // is a second fact about the video, not a rewrite of the first. The row
+    // stays as history either way, and the video's own state (no
+    // `downloadUrls`) is what says there is nothing here any more.
+    const deleted = isTerminalDownloadJobStatus(job.status)
+      ? job
+      : this.downloadStateService.updateJob(id, {
+          status: DownloadJobStatus.Cancelled,
+        })
 
-    this.logger.log({ ...logArgs, deletedObjects }, 'Video download deleted')
+    // The gallery lists videos with a `Completed` job, so a completed attempt
+    // left completed would keep a card up with nothing behind it - and so
+    // would any older completed attempt at the same video. Flagging every
+    // job of the video takes it out; a re-download mints a fresh, unflagged
+    // job, which is what puts the card back.
+    this.downloadStateService.markRemovedFromLibrary(job.mediaId)
+
+    this.logger.log(
+      { ...logArgs, deletedObjects, status: deleted.status },
+      'Video download deleted',
+    )
 
     return this.downloadStateService.hydrateOne(deleted)
   }

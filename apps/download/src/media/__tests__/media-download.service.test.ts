@@ -24,6 +24,7 @@ import { fakeAttributionResolutionProvider } from 'src/auth/__tests__/helpers/at
 import { createTestDbService } from 'src/db/__tests__/test-utils'
 import { insertBadFile } from 'src/db/bad-files.repo'
 import { DbService } from 'src/db/db.service'
+import { getJobById } from 'src/db/jobs.repo'
 import { DownloadStateService } from 'src/download/download-state.service'
 import { DownloadGateway } from 'src/download-gateway/download.gateway'
 import { MediaDownloadService } from 'src/media/media-download.service'
@@ -658,6 +659,161 @@ describe('MediaDownloadService', () => {
       expect(radarrService.unmonitorAndDelete).not.toHaveBeenCalled()
       expect(result.status).toBe(DownloadJobStatus.Cancelled)
     })
+
+    // Plan 021: a job is one attempt. Deleting the file a completed attempt
+    // produced is a second fact, not a rewrite of the first.
+    describe('a finished attempt', () => {
+      const COMPLETED_AT = '2026-08-20T12:30:00.000Z'
+
+      beforeEach(() => {
+        mediaResolver.fixtures.set('tmdb:1', {
+          filePath: '/movies/A Movie (2026)/a-movie.mkv',
+          id: 'tmdb:1',
+          radarrId: 42,
+          title: 'A Movie',
+          tmdbId: 1,
+          type: DownloadType.Movie,
+        })
+        // What Radarr's delete leaves behind: the title resolves again, but
+        // with no upstream id and no file.
+        radarrService.unmonitorAndDelete.mockImplementation(async () => {
+          mediaResolver.fixtures.set('tmdb:1', {
+            id: 'tmdb:1',
+            title: 'A Movie',
+            tmdbId: 1,
+            type: DownloadType.Movie,
+          })
+        })
+      })
+
+      it('leaves a completed attempt completed, completedAt and all', async () => {
+        const movieJob = buildRecord(DownloadType.Movie, 'tmdb:1', {
+          completedAt: COMPLETED_AT,
+          id: 'movie-1',
+          status: DownloadJobStatus.Completed,
+        })
+        downloadStateService.jobs.set(movieJob.id, movieJob)
+        const updateJob = jest.spyOn(downloadStateService, 'updateJob')
+
+        const result = await service.deleteMovieJob('movie-1')
+
+        expect(radarrService.unmonitorAndDelete).toHaveBeenCalledWith(42)
+        expect(updateJob).not.toHaveBeenCalled()
+        expect(result.status).toBe(DownloadJobStatus.Completed)
+        expect(result.completedAt).toBe(COMPLETED_AT)
+        expect(downloadStateService.jobs.get('movie-1')).toEqual(movieJob)
+      })
+
+      // The route still answers with the job, and its media is read after
+      // the delete - not the pre-delete copy the upstream id came off.
+      it('answers with the post-delete media', async () => {
+        const movieJob = buildRecord(DownloadType.Movie, 'tmdb:1', {
+          completedAt: COMPLETED_AT,
+          id: 'movie-1',
+          status: DownloadJobStatus.Completed,
+        })
+        downloadStateService.jobs.set(movieJob.id, movieJob)
+
+        const result = await service.deleteMovieJob('movie-1')
+
+        expect(mediaResolver.invalidate).toHaveBeenCalledWith('tmdb:1')
+        expect(result.media).not.toHaveProperty('radarrId')
+        expect(result.media).not.toHaveProperty('filePath')
+      })
+
+      // Nothing about the job changed, so there is no job event to send.
+      it('broadcasts no job event', async () => {
+        const movieJob = buildRecord(DownloadType.Movie, 'tmdb:1', {
+          completedAt: COMPLETED_AT,
+          id: 'movie-1',
+          status: DownloadJobStatus.Completed,
+        })
+        downloadStateService.jobs.set(movieJob.id, movieJob)
+
+        await service.deleteMovieJob('movie-1')
+        await flushAsync()
+
+        expect(downloadGateway.broadcastPerViewer).not.toHaveBeenCalled()
+      })
+
+      it('leaves a failed attempt failed', async () => {
+        const movieJob = buildRecord(DownloadType.Movie, 'tmdb:1', {
+          error: 'No release found',
+          id: 'movie-1',
+          status: DownloadJobStatus.Failed,
+        })
+        downloadStateService.jobs.set(movieJob.id, movieJob)
+
+        const result = await service.deleteMovieJob('movie-1')
+
+        expect(result.status).toBe(DownloadJobStatus.Failed)
+        expect(result.error).toBe('No release found')
+      })
+
+      // A restart empties the Map, and `updateJob()` throws for a job the
+      // Map has never seen - which used to make a finished movie from before
+      // the restart undeletable. Nothing is written now, so the durable row
+      // is enough.
+      it('deletes a finished attempt that only the durable row remembers', async () => {
+        const movieJob = buildRecord(DownloadType.Movie, 'tmdb:1', {
+          completedAt: COMPLETED_AT,
+          id: 'movie-1',
+          status: DownloadJobStatus.Completed,
+        })
+        downloadStateService.addJob(movieJob)
+        downloadStateService.jobs.delete(movieJob.id)
+
+        const result = await service.deleteMovieJob('movie-1')
+
+        expect(radarrService.unmonitorAndDelete).toHaveBeenCalledWith(42)
+        expect(result.status).toBe(DownloadJobStatus.Completed)
+        expect(result.completedAt).toBe(COMPLETED_AT)
+      })
+
+      // The gallery is `Completed` jobs minus removed titles. A cancel used
+      // to be what took a deleted movie's card down; now the flag has to.
+      it('flags the title removed from the library, so the gallery drops it', async () => {
+        const movieJob = buildRecord(DownloadType.Movie, 'tmdb:1', {
+          completedAt: COMPLETED_AT,
+          id: 'movie-1',
+          status: DownloadJobStatus.Completed,
+        })
+        const olderJob = buildRecord(DownloadType.Movie, 'tmdb:1', {
+          completedAt: '2026-08-01T00:00:00.000Z',
+          createdAt: '2026-08-01T00:00:00.000Z',
+          id: 'movie-0',
+          status: DownloadJobStatus.Completed,
+        })
+        downloadStateService.addJob(olderJob)
+        downloadStateService.addJob(movieJob)
+
+        await service.deleteMovieJob('movie-1')
+
+        expect(getJobById(dbService.db, 'movie-1')).toMatchObject({
+          removedFromLibrary: true,
+          status: DownloadJobStatus.Completed,
+        })
+        expect(getJobById(dbService.db, 'movie-0')).toMatchObject({
+          removedFromLibrary: true,
+          status: DownloadJobStatus.Completed,
+        })
+      })
+    })
+
+    it('flags an in-flight title removed from the library too', async () => {
+      const movieJob = buildRecord(DownloadType.Movie, 'tmdb:1', {
+        id: 'movie-1',
+        status: DownloadJobStatus.Downloading,
+      })
+      downloadStateService.addJob(movieJob)
+
+      await service.deleteMovieJob('movie-1')
+
+      expect(getJobById(dbService.db, 'movie-1')).toMatchObject({
+        removedFromLibrary: true,
+        status: DownloadJobStatus.Cancelled,
+      })
+    })
   })
 
   describe('deleteShowJob', () => {
@@ -679,6 +835,44 @@ describe('MediaDownloadService', () => {
       const result = await service.deleteShowJob('show-1')
 
       expect(sonarrService.unmonitorAndDelete).toHaveBeenCalledWith(9)
+      expect(result.status).toBe(DownloadJobStatus.Cancelled)
+    })
+
+    it('leaves a completed attempt completed, completedAt and all', async () => {
+      const completedAt = '2026-08-20T12:30:00.000Z'
+      mediaResolver.fixtures.set('tvdb:1', {
+        id: 'tvdb:1',
+        sonarrId: 9,
+        title: 'A Show',
+        tvdbId: 1,
+        type: DownloadType.Show,
+      })
+      const showJob = buildRecord(DownloadType.Show, 'tvdb:1', {
+        completedAt,
+        id: 'show-1',
+        status: DownloadJobStatus.Completed,
+      })
+      downloadStateService.jobs.set(showJob.id, showJob)
+      sonarrService.unmonitorAndDelete.mockResolvedValue(undefined)
+
+      const result = await service.deleteShowJob('show-1')
+
+      expect(sonarrService.unmonitorAndDelete).toHaveBeenCalledWith(9)
+      expect(result.status).toBe(DownloadJobStatus.Completed)
+      expect(result.completedAt).toBe(completedAt)
+    })
+
+    it('leaves a cancelled attempt cancelled without writing it again', async () => {
+      const showJob = buildRecord(DownloadType.Show, 'tvdb:1', {
+        id: 'show-1',
+        status: DownloadJobStatus.Cancelled,
+      })
+      downloadStateService.jobs.set(showJob.id, showJob)
+      const updateJob = jest.spyOn(downloadStateService, 'updateJob')
+
+      const result = await service.deleteShowJob('show-1')
+
+      expect(updateJob).not.toHaveBeenCalled()
       expect(result.status).toBe(DownloadJobStatus.Cancelled)
     })
   })

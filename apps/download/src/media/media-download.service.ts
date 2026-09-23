@@ -5,6 +5,7 @@ import {
   DownloadJobStatus,
   DownloadType,
   isManagedMedia,
+  isTerminalDownloadJobStatus,
   JobRequester,
   Media,
   type Release,
@@ -425,7 +426,8 @@ export class MediaDownloadService {
   }
 
   /**
-   * Unmonitors and deletes upstream, then cancels the job. The upstream id
+   * Unmonitors and deletes upstream, then cancels the job if it was still in
+   * flight (a finished one is left as it finished). The upstream id
    * (`radarrId`/`sonarrId`) is read off the *resolved* media rather than a
    * persisted column - it's Radarr's own primary key, so Radarr is the only
    * honest place to get it, and a title that has since been removed from the
@@ -458,10 +460,30 @@ export class MediaDownloadService {
     // stale one from up to a TTL window ago.
     this.mediaResolverService.invalidate(job.media.id)
 
-    return this.downloadStateService.hydrateOne(
-      this.downloadStateService.updateJob(id, {
-        status: DownloadJobStatus.Cancelled,
-      }),
-    )
+    // Only an attempt still in flight is cancelled. A finished one keeps its
+    // outcome - a completed attempt did download the file, and deleting the
+    // file afterwards is a second fact about the title, not a rewrite of the
+    // first. Nothing is written to it, so no job event goes out: the job did
+    // not change.
+    const cancelled = isTerminalDownloadJobStatus(job.status)
+      ? undefined
+      : this.downloadStateService.updateJob(id, {
+          status: DownloadJobStatus.Cancelled,
+        })
+
+    // The gallery lists titles with a `Completed` job, so a completed attempt
+    // left completed would keep a deleted title's card up. The title is out
+    // of the library either way (removed just now, or already gone when no
+    // upstream id resolved), which is exactly what this flag records - the
+    // same one `ShowService.deleteFiles` sets. After the cancel, so every
+    // write about this title lands before the gallery can re-read it.
+    this.downloadStateService.markRemovedFromLibrary(job.media.id)
+
+    // Re-read rather than `job` as-is so the media is the post-delete truth
+    // the invalidate above made room for, not the copy the upstream id came
+    // off.
+    return cancelled
+      ? this.downloadStateService.hydrateOne(cancelled)
+      : this.getJob(id, type)
   }
 }

@@ -121,6 +121,7 @@ function createStateMock() {
     ),
     interruptions,
     jobs,
+    markRemovedFromLibrary: jest.fn(),
     procs,
     setInterruption: jest.fn((id: string, kind: JobInterruptKind) => {
       callOrder.push('setInterruption')
@@ -534,13 +535,13 @@ describe('DownloadService', () => {
   })
 
   describe('deleteVideoDownloadJob', () => {
-    it('deletes the objects, clears the download URLs and lands the job at Cancelled', async () => {
+    it('deletes the objects and clears the download URLs', async () => {
       const record = seed(
         { status: DownloadJobStatus.Completed },
         { withProc: false },
       )
 
-      const job = await service.deleteVideoDownloadJob(record.id)
+      await service.deleteVideoDownloadJob(record.id)
 
       expect(mediaFileService.deleteVideoObjects).toHaveBeenCalledWith(
         'video:v1',
@@ -548,7 +549,59 @@ describe('DownloadService', () => {
       expect(state.updateVideo).toHaveBeenCalledWith(record.id, {
         downloadUrls: [],
       })
-      expect(state.updateJob).toHaveBeenCalledWith(record.id, {
+    })
+
+    // The gallery is `Completed` jobs minus removed titles. A cancel used to
+    // be what took a deleted video's card down; now the flag has to - for
+    // every attempt at the video, not only the one named here.
+    it('flags the video removed from the library, so the gallery drops it', async () => {
+      const record = seed(
+        { status: DownloadJobStatus.Completed },
+        { withProc: false },
+      )
+
+      await service.deleteVideoDownloadJob(record.id)
+
+      expect(state.markRemovedFromLibrary).toHaveBeenCalledWith('video:v1')
+    })
+
+    // Plan 021: a job is one attempt. The file was downloaded, then deleted -
+    // both are true, and the second must not rewrite the first.
+    it('leaves a completed attempt completed, completedAt and all', async () => {
+      const completedAt = '2026-08-25T12:30:00.000Z'
+      const record = seed(
+        { completedAt, status: DownloadJobStatus.Completed },
+        { withProc: false },
+      )
+
+      const job = await service.deleteVideoDownloadJob(record.id)
+
+      expect(state.updateJob).not.toHaveBeenCalled()
+      expect(job.status).toBe(DownloadJobStatus.Completed)
+      expect(job.completedAt).toBe(completedAt)
+      expect(state.jobs.get(record.id)).toEqual(record)
+    })
+
+    it('leaves a failed attempt failed', async () => {
+      const record = seed(
+        { error: 'yt-dlp exited 1', status: DownloadJobStatus.Failed },
+        { withProc: false },
+      )
+
+      const job = await service.deleteVideoDownloadJob(record.id)
+
+      expect(state.updateJob).not.toHaveBeenCalled()
+      expect(job.status).toBe(DownloadJobStatus.Failed)
+      expect(job.error).toBe('yt-dlp exited 1')
+      expect(mediaFileService.deleteVideoObjects).toHaveBeenCalled()
+    })
+
+    it('lands an attempt that was still running at Cancelled', async () => {
+      const record = seed({ status: DownloadJobStatus.Downloading })
+
+      const job = await service.deleteVideoDownloadJob(record.id)
+
+      expect(state.updateJob).toHaveBeenLastCalledWith(record.id, {
         status: DownloadJobStatus.Cancelled,
       })
       expect(job.status).toBe(DownloadJobStatus.Cancelled)

@@ -273,7 +273,7 @@ describe('DownloadController - video endpoints', () => {
       const job = buildVideoJob({
         hiddenAttribution: true,
         requester: { email: 'alice@example.com', userId: 'u1' },
-        status: DownloadJobStatus.Cancelled,
+        status: DownloadJobStatus.Completed,
       })
       downloadService.deleteVideoDownloadJob.mockResolvedValue(job)
 
@@ -289,7 +289,7 @@ describe('DownloadController - video endpoints', () => {
     })
 
     it('records a video.delete audit row against the job', async () => {
-      const job = buildVideoJob({ status: DownloadJobStatus.Cancelled })
+      const job = buildVideoJob({ status: DownloadJobStatus.Completed })
       downloadService.deleteVideoDownloadJob.mockResolvedValue(job)
 
       await controller.deleteVideoJob(job.id, admin)
