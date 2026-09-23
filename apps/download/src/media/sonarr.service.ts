@@ -54,6 +54,7 @@ import { mapCatalogueEntries } from 'src/media/map-media.util'
 import { toCommonRelease } from 'src/media/release-mapper.util'
 import { checkSdkError, unwrapSdkResult } from 'src/media/sdk-result.util'
 import { generateTitleSlug } from 'src/media/title-slug.util'
+import { toUpstreamIsoDateTime } from 'src/media/upstream-date.util'
 
 /**
  * Sonarr's SeriesSearch command accepts seriesId but the generated SDK type
@@ -218,25 +219,51 @@ export function toShow(series: SeriesResource): Show {
     )
   }
 
+  // Falsy-guarded rather than nullish-guarded: Sonarr returns `id: 0` for
+  // a lookup result that isn't in the library (see toMovie()).
+  const sonarrId = series.id || undefined
+
   return {
+    // A non-library lookup hit's `added` is .NET's `DateTime.MinValue`,
+    // which `toUpstreamIsoDateTime()` drops - gated on the library id too so
+    // the intent doesn't rest on that sentinel alone.
+    addedAt: sonarrId ? toUpstreamIsoDateTime(series.added) : undefined,
     certification: series.certification ?? undefined,
+    // `statistics` is Sonarr's own count - the one that says whether the
+    // series has anything on disk (`episodeFileCount > 0`), since
+    // `filePath` below is set for every library series, files or not.
+    episodeCount: sonarrId ? series.statistics?.episodeCount : undefined,
+    episodeFileCount: sonarrId
+      ? series.statistics?.episodeFileCount
+      : undefined,
     filePath: series.path ?? undefined,
     genres: series.genres ?? [],
     id: mediaId({ tvdbId, type: DownloadType.Show }),
+    // A non-library lookup hit comes back `monitored: true` (Sonarr's
+    // default for the add form), which says nothing about this title.
+    monitored: sonarrId ? series.monitored : undefined,
     overview: series.overview ?? undefined,
     posterUrl: posterUrl ?? undefined,
     ratingValue: series.ratings?.value,
     releaseDate,
     // Sonarr reports minutes; `Media.runtime` is seconds (see MediaBaseSchema).
     runtime: series.runtime != null ? series.runtime * 60 : undefined,
-    // Falsy-guarded rather than nullish-guarded: Sonarr returns `id: 0` for
-    // a lookup result that isn't in the library (see toMovie()).
-    sonarrId: series.id || undefined,
+    sonarrId,
     title: series.title ?? 'Unknown title',
     tvdbId,
     type: DownloadType.Show,
     year: series.year,
   }
+}
+
+/**
+ * `toShow()` for a `/series/lookup` hit. Sonarr's lookup zeroes `statistics`
+ * even for a series that is in the library - a fully downloaded series comes
+ * back `episodeFileCount: 0` - so the counts are dropped rather than
+ * reported as "nothing on disk". Everything else on a lookup hit is sound.
+ */
+export function toLookupShow(series: SeriesResource): Show {
+  return toShow({ ...series, statistics: undefined })
 }
 
 /**
@@ -328,7 +355,7 @@ export class SonarrService {
       'searchShows',
     )
 
-    return mapCatalogueEntries(series, toShow, {
+    return mapCatalogueEntries(series, toLookupShow, {
       action: 'searchShows',
       logger: this.logger,
     })
@@ -402,7 +429,7 @@ export class SonarrService {
       throw new Error(`Series with TVDB ID ${tvdbId} not found`)
     }
 
-    return toShow(lookup)
+    return toLookupShow(lookup)
   }
 
   /**

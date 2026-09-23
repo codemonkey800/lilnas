@@ -127,6 +127,57 @@ describe('MediaResolverService', () => {
       })
     })
 
+    // Plan 021: `addedAt` is when the file landed - `updated_at` once
+    // `download_urls` is set, and nothing (never "now") before then.
+    it('carries updatedAt as addedAt once the video has download URLs', async () => {
+      dbService.db
+        .insert(videos)
+        .values({
+          downloadUrls: ['https://files.example.com/a.mp4'],
+          id: 'vid-1',
+          naturalKey: 'https://example.com/a#-',
+          sourceUrl: 'https://example.com/a',
+          title: 'A Video',
+          updatedAt: new Date('2026-09-01T12:34:56.789Z'),
+        })
+        .run()
+
+      const { media } = await service.resolve([
+        { mediaId: 'video:vid-1', type: DownloadType.Video },
+      ])
+
+      expect(media.get('video:vid-1')).toMatchObject({
+        addedAt: '2026-09-01T12:34:56.789Z',
+        downloadUrls: ['https://files.example.com/a.mp4'],
+      })
+    })
+
+    it.each([
+      ['no download URLs yet', undefined],
+      ['an empty download URL list', []],
+    ])(
+      'leaves addedAt undefined for a video with %s',
+      async (_label, downloadUrls) => {
+        dbService.db
+          .insert(videos)
+          .values({
+            downloadUrls,
+            id: 'vid-1',
+            naturalKey: 'https://example.com/a#-',
+            sourceUrl: 'https://example.com/a',
+            title: 'A Video',
+            updatedAt: new Date('2026-09-01T12:34:56.789Z'),
+          })
+          .run()
+
+        const { media } = await service.resolve([
+          { mediaId: 'video:vid-1', type: DownloadType.Video },
+        ])
+
+        expect(media.get('video:vid-1')?.addedAt).toBeUndefined()
+      },
+    )
+
     // `jobs.media_id` has no foreign key (it points at `videos` for some
     // rows and at TMDB/TVDB for others), so a dangling video key is
     // structurally possible. Answering with a placeholder rather than a gap

@@ -118,10 +118,12 @@ describe('RadarrService', () => {
       // loss is what the single `toMovie()` mapper removes.
       expect(result).toEqual([
         {
+          addedAt: undefined,
           certification: 'PG-13',
           filePath: undefined,
           genres: ['Action', 'Comedy'],
           id: 'tmdb:123',
+          monitored: undefined,
           overview: 'A movie',
           posterUrl: 'poster.jpg',
           radarrId: undefined,
@@ -144,10 +146,12 @@ describe('RadarrService', () => {
 
       expect(result).toEqual([
         {
+          addedAt: undefined,
           certification: undefined,
           filePath: undefined,
           genres: [],
           id: 'tmdb:9',
+          monitored: undefined,
           overview: undefined,
           posterUrl: undefined,
           radarrId: undefined,
@@ -305,6 +309,100 @@ describe('RadarrService', () => {
       })
 
       await expect(service.search('x')).rejects.toThrow('searchMovies failed')
+    })
+  })
+
+  // Plan 021: the upstream facts state derivation reads - `monitored` tells
+  // `wanted` from `absent`, and `addedAt` is when the *file* landed.
+  describe('getLibrary', () => {
+    it('carries monitored and the file dateAdded for a library movie with a file', async () => {
+      mockGetApiV3Movie.mockResolvedValue({
+        data: [
+          {
+            added: '2024-03-13T06:00:51Z',
+            hasFile: true,
+            id: 3,
+            monitored: true,
+            movieFile: {
+              dateAdded: '2024-03-13T06:08:15Z',
+              id: 1,
+              path: '/movies/Just Go with It (2011)/Just Go with It.mkv',
+            },
+            tmdbId: 50546,
+          },
+        ],
+      })
+
+      const [result] = await service.getLibrary()
+
+      expect(result).toMatchObject({
+        // The file's dateAdded, not the movie's `added` (library entry).
+        addedAt: '2024-03-13T06:08:15.000Z',
+        filePath: '/movies/Just Go with It (2011)/Just Go with It.mkv',
+        monitored: true,
+        radarrId: 3,
+      })
+    })
+
+    it('leaves addedAt undefined for a wanted movie with no movieFile at all', async () => {
+      mockGetApiV3Movie.mockResolvedValue({
+        data: [
+          {
+            added: '2025-04-05T08:30:54Z',
+            id: 171,
+            monitored: true,
+            tmdbId: 1158406,
+          },
+        ],
+      })
+
+      const [result] = await service.getLibrary()
+
+      // Never "now", and never the library `added` standing in for it.
+      expect(result?.addedAt).toBeUndefined()
+      expect(result?.filePath).toBeUndefined()
+      expect(result?.monitored).toBe(true)
+    })
+
+    it('leaves addedAt undefined when hasFile is false, matching filePath', async () => {
+      mockGetApiV3Movie.mockResolvedValue({
+        data: [
+          {
+            hasFile: false,
+            id: 7,
+            monitored: true,
+            movieFile: { dateAdded: '2024-03-13T06:08:15Z', path: '/m/a.mkv' },
+            tmdbId: 5,
+          },
+        ],
+      })
+
+      const [result] = await service.getLibrary()
+
+      expect(result?.addedAt).toBeUndefined()
+      expect(result?.filePath).toBeUndefined()
+    })
+
+    it('reports an unmonitored library movie as monitored: false, not undefined', async () => {
+      mockGetApiV3Movie.mockResolvedValue({
+        data: [{ id: 7, monitored: false, tmdbId: 5 }],
+      })
+
+      const [result] = await service.getLibrary()
+
+      expect(result?.monitored).toBe(false)
+    })
+
+    // A lookup hit outside the library carries Radarr's add-form default
+    // for `monitored`, which says nothing about the title.
+    it('leaves monitored undefined for a lookup hit outside the library', async () => {
+      mockGetApiV3MovieLookup.mockResolvedValue({
+        data: [{ id: 0, monitored: false, tmdbId: 5 }],
+      })
+
+      const [result] = await service.search('x')
+
+      expect(result?.monitored).toBeUndefined()
     })
   })
 

@@ -123,10 +123,14 @@ describe('SonarrService', () => {
       )
       expect(result).toEqual([
         {
+          addedAt: undefined,
           certification: 'TV-14',
+          episodeCount: undefined,
+          episodeFileCount: undefined,
           filePath: undefined,
           genres: ['Drama', 'Mystery'],
           id: 'tvdb:456',
+          monitored: undefined,
           overview: 'A show',
           posterUrl: 'poster.jpg',
           // Sonarr's ratings are already a flat { votes, value } pair,
@@ -151,10 +155,14 @@ describe('SonarrService', () => {
 
       expect(result).toEqual([
         {
+          addedAt: undefined,
           certification: undefined,
+          episodeCount: undefined,
+          episodeFileCount: undefined,
           filePath: undefined,
           genres: [],
           id: 'tvdb:9',
+          monitored: undefined,
           overview: undefined,
           posterUrl: undefined,
           ratingValue: undefined,
@@ -235,6 +243,135 @@ describe('SonarrService', () => {
       })
 
       await expect(service.search('x')).rejects.toThrow('searchShows failed')
+    })
+  })
+
+  // Plan 021: the upstream facts state derivation reads. `filePath` is the
+  // series folder and is set for every library series, files or not - so
+  // "has files" for a show is `episodeFileCount > 0`, never `filePath`.
+  describe('getLibrary', () => {
+    it('carries monitored, added and the statistics counts for a library series', async () => {
+      mockGetApiV3Series.mockResolvedValue({
+        data: [
+          {
+            added: '2024-03-13T17:24:00Z',
+            id: 3,
+            monitored: true,
+            path: '/tv/The Boondocks',
+            statistics: {
+              episodeCount: 45,
+              episodeFileCount: 45,
+              percentOfEpisodes: 100,
+              seasonCount: 4,
+              sizeOnDisk: 67477969060,
+              totalEpisodeCount: 98,
+            },
+            tvdbId: 74413,
+          },
+        ],
+      })
+
+      const [result] = await service.getLibrary()
+
+      expect(result).toMatchObject({
+        addedAt: '2024-03-13T17:24:00.000Z',
+        episodeCount: 45,
+        episodeFileCount: 45,
+        filePath: '/tv/The Boondocks',
+        monitored: true,
+        sonarrId: 3,
+      })
+    })
+
+    it('reports a monitored series with nothing on disk as episodeFileCount 0, folder and all', async () => {
+      mockGetApiV3Series.mockResolvedValue({
+        data: [
+          {
+            added: '2025-04-05T03:19:59Z',
+            id: 40,
+            monitored: true,
+            path: '/tv/Some Show',
+            statistics: { episodeCount: 10, episodeFileCount: 0 },
+            tvdbId: 5,
+          },
+        ],
+      })
+
+      const [result] = await service.getLibrary()
+
+      // The folder is there regardless; the count is the file signal.
+      expect(result?.filePath).toBe('/tv/Some Show')
+      expect(result?.episodeFileCount).toBe(0)
+      expect(result?.episodeCount).toBe(10)
+    })
+
+    it('leaves the counts undefined, not 0, when statistics is absent', async () => {
+      mockGetApiV3Series.mockResolvedValue({
+        data: [{ id: 3, monitored: false, tvdbId: 5 }],
+      })
+
+      const [result] = await service.getLibrary()
+
+      expect(result?.episodeCount).toBeUndefined()
+      expect(result?.episodeFileCount).toBeUndefined()
+      // Never "now" for a missing `added`.
+      expect(result?.addedAt).toBeUndefined()
+      expect(result?.monitored).toBe(false)
+    })
+  })
+
+  describe('lookup hits (search / lookupByTvdbId)', () => {
+    // Live Sonarr: a non-library hit comes back `monitored: true`, `added`
+    // as .NET's DateTime.MinValue and zeroed statistics - none of it about
+    // this title.
+    it('leaves every library-only fact undefined for a hit outside the library', async () => {
+      mockGetApiV3SeriesLookup.mockResolvedValue({
+        data: [
+          {
+            added: '0001-01-01T07:53:00Z',
+            monitored: true,
+            statistics: { episodeCount: 0, episodeFileCount: 0 },
+            tvdbId: 5,
+          },
+        ],
+      })
+
+      const [result] = await service.search('x')
+
+      expect(result?.addedAt).toBeUndefined()
+      expect(result?.monitored).toBeUndefined()
+      expect(result?.episodeCount).toBeUndefined()
+      expect(result?.episodeFileCount).toBeUndefined()
+    })
+
+    // Live Sonarr: the lookup zeroes statistics even for a library series
+    // (a fully downloaded one reads `episodeFileCount: 0`), so a lookup hit
+    // reports no counts rather than a false "nothing on disk".
+    it('drops the lookup statistics for a library hit but keeps monitored and added', async () => {
+      mockGetApiV3SeriesLookup.mockResolvedValue({
+        data: [
+          {
+            added: '2025-04-05T03:19:59Z',
+            id: 40,
+            monitored: true,
+            statistics: { episodeCount: 0, episodeFileCount: 0 },
+            tvdbId: 371980,
+          },
+        ],
+      })
+
+      const [searched] = await service.search('x')
+      const looked = await service.lookupByTvdbId(371980)
+
+      for (const result of [searched, looked]) {
+        expect(result).toMatchObject({
+          addedAt: '2025-04-05T03:19:59.000Z',
+          monitored: true,
+          sonarrId: 40,
+        })
+        expect(result?.episodeCount).toBeUndefined()
+        expect(result?.episodeFileCount).toBeUndefined()
+      }
     })
   })
 

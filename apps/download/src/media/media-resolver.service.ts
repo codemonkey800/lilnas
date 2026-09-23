@@ -33,7 +33,14 @@ interface LibraryCacheEntry<T> {
 }
 
 function hydrateVideo(row: VideoRow): Video {
+  const hasFile = (row.downloadUrls?.length ?? 0) > 0
+
   return {
+    // `updated_at` is the row's last write, and setting `download_urls` is
+    // the pipeline's final one - so for a finished video it stands in for
+    // "the file landed". A row with no file has no such moment, and its
+    // bumps from title/metadata writes must not read as one.
+    addedAt: hasFile ? row.updatedAt.toISOString() : undefined,
     downloadUrls: row.downloadUrls ?? undefined,
     id: mediaId({ id: row.id, type: DownloadType.Video }),
     overview: row.overview ?? undefined,

@@ -43,6 +43,7 @@ import { mapCatalogueEntries } from 'src/media/map-media.util'
 import { toCommonRelease } from 'src/media/release-mapper.util'
 import { checkSdkError, unwrapSdkResult } from 'src/media/sdk-result.util'
 import { generateTitleSlug } from 'src/media/title-slug.util'
+import { toUpstreamIsoDateTime } from 'src/media/upstream-date.util'
 
 /**
  * Radarr's MoviesSearch command accepts movieIds but the generated SDK type
@@ -179,17 +180,28 @@ export function toMovie(movie: MovieResource): Movie {
     )
   }
 
+  // Radarr returns `id: 0` for a lookup result that isn't in the library
+  // - falsy rather than absent - so `|| undefined` (not `?? undefined`)
+  // is what keeps a non-library hit from claiming radarrId 0.
+  const radarrId = movie.id || undefined
+
   return {
+    // Gated on `hasFile` exactly like `filePath`: the file's own
+    // `dateAdded`, not the movie's `added` (when it entered the library).
+    addedAt: movie.hasFile
+      ? toUpstreamIsoDateTime(movie.movieFile?.dateAdded)
+      : undefined,
     certification: movie.certification ?? undefined,
     filePath: movie.hasFile ? (movie.movieFile?.path ?? undefined) : undefined,
     genres: movie.genres ?? [],
     id: mediaId({ tmdbId, type: DownloadType.Movie }),
+    // A lookup hit outside the library still carries `monitored` (Radarr's
+    // default for the add form), which says nothing about this title - so
+    // only a library movie reports one.
+    monitored: radarrId ? movie.monitored : undefined,
     overview: movie.overview ?? undefined,
     posterUrl: posterUrl ?? undefined,
-    // Radarr returns `id: 0` for a lookup result that isn't in the library
-    // - falsy rather than absent - so `|| undefined` (not `?? undefined`)
-    // is what keeps a non-library hit from claiming radarrId 0.
-    radarrId: movie.id || undefined,
+    radarrId,
     ratingValue: movie.ratings?.tmdb?.value ?? movie.ratings?.imdb?.value,
     releaseDate,
     // Radarr reports minutes; `Media.runtime` is seconds (see MediaBaseSchema).
