@@ -20,6 +20,7 @@ import { DownloadStateService } from 'src/download/download-state.service'
 import { CurrentReleaseService } from './current-release.service'
 import { planShowDelete, type ShowDeleteCascade } from './delete-cascade.util'
 import { MediaResolverService } from './media-resolver.service'
+import { MediaStateService } from './media-state.service'
 import { RadarrService } from './radarr.service'
 import { parseReleaseTarget } from './release.service'
 import { SonarrService } from './sonarr.service'
@@ -71,13 +72,17 @@ export class ShowService {
     private readonly currentReleaseService: CurrentReleaseService,
     private readonly downloadStateService: DownloadStateService,
     private readonly mediaResolverService: MediaResolverService,
+    private readonly mediaStateService: MediaStateService,
     private readonly radarrService: RadarrService,
     private readonly sonarrService: SonarrService,
   ) {}
 
   /**
    * Every season of a show with its episodes, each episode stamped with the
-   * release that produced the file on disk where that is recoverable.
+   * release that produced the file on disk where that is recoverable, and
+   * with its state (`downloading` + `queueSnapshot` while in the queue,
+   * otherwise `available`/`wanted`/`absent` off its own file and monitored
+   * flag) - the show page's per-episode truth.
    *
    * Deliberately does **not** call `ensureSeries`, unlike the release listing
    * path: browsing the season list of a show nobody has added has nothing to
@@ -105,6 +110,10 @@ export class ShowService {
       sonarrId,
       await this.sonarrService.listSeasons(sonarrId),
     )
+
+    // Synchronous and in place - it reads the Sonarr queue the poller last
+    // fed `MediaStateService`, so this costs no upstream call of its own.
+    this.mediaStateService.annotateEpisodes(sonarrId, seasons)
 
     this.logger.log(
       {

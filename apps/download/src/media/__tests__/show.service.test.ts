@@ -20,6 +20,8 @@ import type { MediaFileReleaseRow } from 'src/db/schema'
 import { DownloadStateService } from 'src/download/download-state.service'
 import { CurrentReleaseService } from 'src/media/current-release.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
+import { MediaStateService } from 'src/media/media-state.service'
+import type { PollableQueueItem } from 'src/media/queue-status.util'
 import { RadarrService } from 'src/media/radarr.service'
 import { ShowService } from 'src/media/show.service'
 import { SonarrService } from 'src/media/sonarr.service'
@@ -28,7 +30,10 @@ const MOVIE_ID = 'tmdb:27205'
 const SHOW_ID = 'tvdb:81189'
 const VIDEO_ID = 'video:V1StGXR8_Z5'
 
-const SEASON: Season = {
+// A factory rather than a shared constant: `listSeasons` annotates the
+// episodes it returns in place, so a shared object would carry one test's
+// state into the next.
+const SEASON = (): Season => ({
   episodeCount: 1,
   episodeFileCount: 1,
   episodes: [
@@ -43,7 +48,7 @@ const SEASON: Season = {
   monitored: true,
   seasonNumber: 1,
   sizeOnDisk: 100,
-}
+})
 
 /** `episodeFileId` absent is Sonarr's "no file" once `toEpisode()` has
  * dropped the zero it reports for that case. */
@@ -51,14 +56,27 @@ function episode(
   id: number,
   seasonNumber: number,
   episodeFileId?: number,
+  monitored = true,
 ): Episode {
   return {
     episodeFileId,
     episodeNumber: id % 100,
     hasFile: episodeFileId != null,
     id,
-    monitored: true,
+    monitored,
     seasonNumber,
+  }
+}
+
+/** A Sonarr queue item for one episode of the in-library show (`sonarrId` 9). */
+function queueItem(episodeId: number): PollableQueueItem {
+  return {
+    episodeId,
+    seriesId: 9,
+    size: 1000,
+    sizeleft: 250,
+    status: 'downloading',
+    timeleft: '00:05:00',
   }
 }
 
@@ -126,6 +144,9 @@ describe('ShowService', () => {
   let radarrService: jest.Mocked<RadarrService>
   let sonarrService: jest.Mocked<SonarrService>
   let mediaResolverService: jest.Mocked<MediaResolverService>
+  // Real, not mocked: it is a fed in-memory cache with no dependencies, so
+  // the tests seed its queue and assert on what it derives.
+  let mediaStateService: MediaStateService
 
   /** Makes `resolve()` answer with one resolved media, or with nothing. */
   function resolvesTo(media: Media | undefined) {
@@ -175,7 +196,7 @@ describe('ShowService', () => {
       deleteEpisodeFile: jest.fn(),
       getEpisodes: jest.fn().mockResolvedValue([]),
       getQueue: jest.fn().mockResolvedValue([]),
-      listSeasons: jest.fn().mockResolvedValue([SEASON]),
+      listSeasons: jest.fn().mockImplementation(async () => [SEASON()]),
       setSeasonsMonitored: jest.fn().mockResolvedValue([]),
       unmonitorAndDelete: jest.fn(),
       unmonitorScope: jest.fn().mockResolvedValue(0),
@@ -200,12 +221,14 @@ describe('ShowService', () => {
         { provide: CurrentReleaseService, useValue: currentReleaseService },
         { provide: DownloadStateService, useValue: downloadStateService },
         { provide: MediaResolverService, useValue: mediaResolverService },
+        MediaStateService,
         { provide: RadarrService, useValue: radarrService },
         { provide: SonarrService, useValue: sonarrService },
       ],
     }).compile()
 
     service = module.get<ShowService>(ShowService)
+    mediaStateService = module.get(MediaStateService)
 
     jest.spyOn(Logger.prototype, 'log').mockImplementation()
     jest.spyOn(Logger.prototype, 'warn').mockImplementation()
@@ -216,7 +239,14 @@ describe('ShowService', () => {
     it('returns the seasons Sonarr reports for a library show', async () => {
       resolvesTo(showInLibrary())
 
-      await expect(service.listSeasons(SHOW_ID)).resolves.toEqual([SEASON])
+      const expected = SEASON()
+
+      await expect(service.listSeasons(SHOW_ID)).resolves.toEqual([
+        {
+          ...expected,
+          episodes: expected.episodes.map(e => ({ ...e, state: 'available' })),
+        },
+      ])
       expect(sonarrService.listSeasons).toHaveBeenCalledWith(9)
     })
 
@@ -262,8 +292,12 @@ describe('ShowService', () => {
       const [first] = await service.listSeasons(SHOW_ID)
 
       expect(first?.episodes).toEqual([
-        { ...episode(101, 1, 991), currentReleaseGuid: 'guid-991' },
-        episode(102, 1),
+        {
+          ...episode(101, 1, 991),
+          currentReleaseGuid: 'guid-991',
+          state: 'available',
+        },
+        { ...episode(102, 1), state: 'wanted' },
       ])
     })
 
@@ -347,7 +381,82 @@ describe('ShowService', () => {
 
       const seasons = await service.listSeasons(SHOW_ID)
 
-      expect(seasons).toEqual([season(1, [episode(101, 1, 991)])])
+      expect(seasons).toEqual([
+        season(1, [{ ...episode(101, 1, 991), state: 'available' }]),
+      ])
+    })
+  })
+
+  describe('listSeasons - episode state', () => {
+    beforeEach(() => resolvesTo(showInLibrary()))
+
+    it('reports each episode’s state off the queue and the library', async () => {
+      sonarrService.listSeasons.mockResolvedValue([
+        season(1, [
+          episode(101, 1),
+          episode(102, 1, 991),
+          episode(103, 1),
+          episode(104, 1, undefined, false),
+        ]),
+      ])
+      mediaStateService.setQueue('sonarr', [queueItem(101)])
+
+      const [first] = await service.listSeasons(SHOW_ID)
+
+      expect(
+        first?.episodes.map(e => ({
+          id: e.id,
+          queueSnapshot: e.queueSnapshot,
+          state: e.state,
+        })),
+      ).toEqual([
+        {
+          id: 101,
+          queueSnapshot: {
+            progress: 75,
+            status: 'downloading',
+            timeLeft: '00:05:00',
+          },
+          state: 'downloading',
+        },
+        { id: 102, queueSnapshot: undefined, state: 'available' },
+        { id: 103, queueSnapshot: undefined, state: 'wanted' },
+        { id: 104, queueSnapshot: undefined, state: 'absent' },
+      ])
+    })
+
+    // The stored Sonarr queue is instance-wide: an item for the same episode
+    // id under another series must not leak onto this one.
+    it('ignores queue items for another series', async () => {
+      sonarrService.listSeasons.mockResolvedValue([
+        season(1, [episode(101, 1)]),
+      ])
+      mediaStateService.setQueue('sonarr', [
+        { ...queueItem(101), seriesId: 10 },
+      ])
+
+      const [first] = await service.listSeasons(SHOW_ID)
+
+      expect(first?.episodes[0]?.state).toBe('wanted')
+      expect(first?.episodes[0]?.queueSnapshot).toBeUndefined()
+    })
+
+    // Both enrichments land on the same episode: the guid pass may copy the
+    // episode, and the state must be set on the copy that is returned.
+    it('keeps the current release guid alongside the state', async () => {
+      sonarrService.listSeasons.mockResolvedValue([
+        season(1, [episode(101, 1, 991)]),
+      ])
+      currentReleaseService.forEpisodeFiles.mockResolvedValue(
+        new Map([[991, releaseRow(991, 'guid-991')]]),
+      )
+
+      const [first] = await service.listSeasons(SHOW_ID)
+
+      expect(first?.episodes[0]).toMatchObject({
+        currentReleaseGuid: 'guid-991',
+        state: 'available',
+      })
     })
   })
 
