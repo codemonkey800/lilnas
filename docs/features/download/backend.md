@@ -2513,6 +2513,205 @@ freeze over an episode row nobody is looking at.
 
 ---
 
+## Detail pages read media (plan 021 · Phase 2)
+
+**Status: Phase 2 done.** Frontend only — no backend or wire change. Commits,
+in order: `879fab78` (labels and tones), `be9351b5` (the live store follows
+media frames), `6ab7439d` (show/season/episode state from episodes),
+`3476e87b` (`useLiveMedia`), `7dc6d173` (`MediaStatus` and `AttemptList`),
+`79716fe6` (movie page), `169d9ed1` (video page), `c9cfd0d5` (show page),
+`be15095c` (one `media` prop name), `d8d4ad79` (the job-derived helpers
+deleted).
+
+Phase 1 put `state` on every media; Phase 2 makes the movie, show and video
+pages read it. The motivating bug: **_Cars_ read `failed` while it was
+playable**, because a restart failed its newest job and the page's chip was
+that job's status.
+
+### What changed for the user
+
+- **The chip is the media's.** `mediaState(media)` (or a rollup of episode
+  states on a show), never a job. _Cars_ now reads `in library`, with the
+  failed attempt listed under it and no Retry.
+- **Jobs are an Attempts list** under the chip, newest first. Only an
+  in-flight attempt carries controls.
+- **Downloads started elsewhere show live.** A grab from Radarr's/Sonarr's
+  own UI, Discord or another tab reaches the page by media id — chip and
+  progress bar, with "Grabbed from Radarr/Sonarr directly — no attempt to
+  show, cancel or pause here." when no attempt of ours is behind it.
+- **No `router.refresh()` anywhere in the app.** The media frame carries
+  the file, state and queue snapshot, so the page never asks for a server
+  re-render.
+
+### Vocabulary → UI
+
+Words in `apps/download/src/components/detail/media-state.ts`
+(`mediaStateLabel(state, type)`, `mediaStateIsLive`, `mediaProgress`); tones
+in `src/lib/format.ts` (`MEDIA_STATE_TONES`, `mediaStateTone`). `Record`
+tables keyed on `MediaState` and `DownloadType`, so a new state or type fails
+type-check here.
+
+| State             | Movie / show        | Video               | Tone   | Live dot |
+| ----------------- | ------------------- | ------------------- | ------ | -------- |
+| `available`       | in library          | **downloaded**      | `ok`   | –        |
+| `wanted`          | wanted              | wanted              | `mute` | –        |
+| `downloading`     | downloading         | downloading         | `uv`   | yes      |
+| `importing`       | importing…          | **processing…**     | `uv`   | yes      |
+| `needs_attention` | needs your decision | needs your decision | `warn` | –        |
+| `paused`          | paused              | paused              | `warn` | –        |
+| `absent`          | not downloaded      | not downloaded      | `mute` | –        |
+
+- **Live dot is narrower than `isMediaInFlight`**: `needs_attention` and
+  `paused` are in flight but stopped, and a breathing dot would promise
+  movement.
+- **`mediaProgress(media)`** reads `queueSnapshot` — `null` for a video, no
+  queue item, or a non-finite percentage (a `0%` bar is a claim).
+- **Rollups** (`components/detail/show-state.ts`): `seasonState(season)` is
+  `rollupMediaState` over its episodes; `seriesState(show, seasons)` over
+  every episode **outside season 0** (specials would pin a finished series at
+  `wanted`), falling back to `mediaState(show)` when there is nothing to roll
+  up. `episodeState(episode)` maps an episode's own state through the same
+  label/tone/live helpers — one vocabulary at every level.
+
+### Live plumbing
+
+**The store** (`src/lib/use-job-events.ts`, one socket per page) holds two
+maps — jobs by `job.id`, media frames by `media.id` — and replaces only the
+one a frame touched, so subscribers can memoize on identity.
+
+| Frame | Kept when                                                                                                  |
+| ----- | ---------------------------------------------------------------------------------------------------------- |
+| Job   | an unfiltered subscriber exists, **or** `job.id` ∈ `jobIds`, **or** `job.media.id` ∈ job-filter `mediaIds` |
+| Media | `media.id` ∈ a `useMediaEvents` subscriber's `mediaIds`                                                    |
+
+- **Two separate media-id interest sets** (`jobMediaIds`, `mediaIds`), each
+  ref-counted. One shared set would make a job-only subscriber store every
+  media frame for its title (and vice versa) that nobody reads.
+- **`JobEventsFilter { jobIds?, mediaIds? }`** — once either key is given,
+  the omitted one means "nothing"; both omitted is the activity feed's
+  unfiltered mode.
+- **`useMediaEvents({ mediaIds })`** returns the latest `MediaEvent` per
+  requested id through a cached selector — it re-renders only when one of
+  its own ids gets a frame or `connected` flips.
+
+**`useLiveMedia({ jobs, media, seasons? })`** (`src/lib/use-live-media.ts`)
+subscribes both ways by `media.id` and folds the frames into the page's
+server props:
+
+- **Media** — the live frame replaces the prop **only when its `type`
+  matches**; a mismatched frame is ignored whole, episodes included.
+- **Episodes** — patched by `episodeId` (`state`, `queueSnapshot`; an entry
+  with no snapshot drops the served one). Unmoved seasons keep their
+  identity.
+- **Jobs** — live jobs for this media upserted by id over the served ones,
+  newest first by `createdAt` (stable). Other media's jobs are ignored.
+- **No importing hold, no refresh** — a landed job is shown as landed; the
+  chip reads the media, not the job.
+
+### Components
+
+- **`MediaStatus`** (`media-status.tsx`) — no directive, no hooks, so a
+  server page can render it. Chip from `scopeState ?? mediaState(media)` in
+  `media.type`'s wording; note is `explain ?? media.stateReason`; a
+  `ProgressBlock` whenever `progressPct ?? mediaProgress(media)?.pct` exists —
+  **with or without a job**. Takes no job at all, so a failed attempt cannot
+  reach the chip.
+- **`AttemptList`** (`attempt-list.tsx`, client) — heading "Attempts",
+  newest first, `null` when empty.
+  - **Every non-terminal job gets its own highlighted card** (a deviation
+    from the mockup's one card: a show can have a season grab and an episode
+    grab in flight together). Status chip, scope note
+    (`attemptScopeLabel` → "Season 3, episode 6"), `jobProgress` bar, and
+    controls gated by `jobActionState` — `acknowledged` (`pausing`,
+    `cancelling`) stays drawn but `aria-disabled`; a missing handler draws
+    nothing; Import mounts `ImportDialog` when `imports` is passed.
+  - **Terminal jobs are `StateLine` rows** in a sunk card: status chip,
+    relative `completedAt ?? createdAt`, requester masked as the header masks
+    it, error in `text-bad`.
+  - **`retryable`** puts Retry on the **newest** job only, only when it is
+    failed/cancelled. ⚠️ Pages pass it from the **media** state
+    (`absent`/`wanted`), never the job — a failed attempt says nothing about
+    the file, and a Retry over _Cars_ would re-grab a title on disk.
+- **Shared pieces** — `job-actions.tsx` (`JobAction`, `ActionSpec`,
+  `ACTION_SPECS`, `ACTION_BUTTON`, `ActionRow`) and `progress-block.tsx`
+  (`ProgressBlock`).
+- **Deleted** — `JobLifecycle`, `JobHistory`, `JobLifecycleLink`,
+  `currentJob`, `mergeLiveMediaJobs` (and its importing hold),
+  `mergeVideoJobs`, `useLiveMediaJobs` (the app's only `router.refresh()`),
+  `seriesScopedJobs`, `isScopeDownloading`. `jobProgress` stays for the
+  attempt card.
+
+### Per-page gating
+
+**Movie** (`movie-detail.tsx`, `MovieDetailLive`):
+
+- **Download** (outline `MovieRequestButton`) iff the movie is
+  `absent`/`wanted` **and** no attempt is in flight — a press beside a
+  pending grab would race it.
+- **Watch, Save, Delete** follow the file (`movieHasFile`: `filePath` or
+  `embyStatus`), not the state.
+- **Attempts** get `retryable` from `absent`/`wanted`, but `onRetry` is
+  unwired (see gaps) — Import is the only attempt control a movie offers.
+
+**Video** (`video-detail.tsx`, `VideoDetailLive`):
+
+- **`complete = state === 'available'`** gates the player, Save and Delete —
+  a video whose file was deleted no longer draws a player over nothing.
+- **`videoSourceJob(jobs, complete)`** — the newest **completed** attempt
+  once downloaded (who produced the file), else the newest. Drives the
+  attribution line and the delete's job id (`DELETE /download/videos/:jobId`).
+- **Pause, Cancel, Resume** on the in-flight card; **Retry** only while
+  `absent`/`wanted` and the newest attempt is not an unrecognised link.
+- No progress bar, ever — nothing on the wire carries a video's progress.
+
+**Show** (`show-detail.tsx`, `show-seasons.tsx`, `show-episode-row.tsx`):
+
+- **Series chip** from `seriesState`; bar from the show's `queueSnapshot`,
+  else the files-on-disk rollup while in flight. The series Attempts lists
+  every attempt at the show, any scope.
+- **Season** — its own `MediaStatus` (`seasonState`, the series' snapshot
+  stripped so its bar doesn't draw on every tab) and "Season N attempts"
+  (`seasonScopedJobs`). `retryable` from `isDownloadableState(seasonState)`.
+- **Season tabs** — live dot + files-on-disk pct for `downloading`/
+  `importing`; warn dot (with `sr-only` state text) for `needs_attention`/
+  `paused`.
+- **Episode rows** — chip and bar from the episode's own `state` and
+  `queueSnapshot`. **Download** when `absent`/`wanted` and no in-flight
+  attempt at that episode; **Import** when the **episode** is
+  `needs_attention` (the importer is addressed by media key + scope, so it
+  needs no job); **Cancel** on the episode's in-flight attempt when wired.
+
+### ⚠️ Known gaps
+
+- **No movie/show cancel, pause, resume or retry.** Those routes are
+  `/download/videos/:id/…` only, and the frontend never calls a show's
+  `DELETE /download/shows/:id`. The handlers are threaded through every
+  scope but unwired, so a movie/show attempt offers only Import.
+- **The chip sits in `DetailHeader`'s `lifecycle` slot**, above the
+  actions, not directly under the title as in the mockup — `meta` is a
+  `<p>` and cannot hold `MediaStatus`'s `<div>`.
+- **A stuck scoped show attempt appears twice** — in the series Attempts and
+  again in its season's.
+- **"Download series" stays visible on an `available` partial series** —
+  the header's `ShowRequestButton` is not gated.
+- **A deleted video whose newest attempt is `completed` has no re-download
+  path**: completed attempts offer no Retry and videos have no Download. The
+  page's own Delete cancels the attempt, which does leave a Retry; a file
+  removed any other way doesn't. To be addressed with Phase 3's delete
+  change.
+- **Activity and home "in flight" counts are still job-driven.**
+
+### Verified live (2026-09-23)
+
+| Page              | Result                                                |
+| ----------------- | ----------------------------------------------------- |
+| `/movies/50546`   | `in library`                                          |
+| `/movies/1158406` | `wanted` + Download                                   |
+| `/movies/920`     | _Cars_: `in library`, failed attempt listed, no Retry |
+| `/shows/74413`    | series `in library`, 45 of 55 episodes                |
+
+---
+
 ## Verification conventions
 
 The conventions Phases 0–8 followed, and that anything built on top of them
