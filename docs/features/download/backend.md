@@ -2299,6 +2299,220 @@ stuck. `docker restart lilnas-download-dev` and re-check.
 
 ---
 
+## Media state and the fed cache (plan 021 · Phase 1)
+
+**Status: Phase 1 done.** Full plan in
+`docs/features/download/plans/021-media-as-source-of-truth.md`. Commits, in
+order: `c42ae042` (the vocabulary), `1cef3ea8` (the `media` frame and its
+parser), `9601f4e0` (the derivation), `2d27b7c6` (the mapper fields),
+`29a1e5d1` (`MediaStateService`), `55da3a26` (the resolver annotates),
+`210209a6` (full-queue polling), `f08f4ef1` (episode states on the seasons
+route), `1c453bb5` (video media events), `9fd24a68` (movie/show media events
+from the poller).
+
+The `jobs` table used to stand in for a media table: a title's status was
+its newest job's. Plan 021 makes **media** — a Radarr movie, a Sonarr
+series, a `videos` row — carry a live `state` derived from upstream on every
+poll, and turns a **job** into one download attempt (who, when, scope,
+outcome). **Phase 1 is additive**: every field is new and optional, and
+nothing the frontend already reads changes meaning.
+
+### The vocabulary
+
+`MEDIA_STATES` / `MediaStateSchema` in `packages/utils/src/download/schema.ts`;
+the helpers in `types.ts`.
+
+| State             | Movie / show                                                   | Video                                  |
+| ----------------- | -------------------------------------------------------------- | -------------------------------------- |
+| `absent`          | Not in the library, or unmonitored with no file                | No row, or a row with no file          |
+| `wanted`          | Monitored, no file, nothing queued                             | Job queued, not started                |
+| `downloading`     | A queue item is moving bytes                                   | yt-dlp running, or cancelling          |
+| `importing`       | Bytes down, Radarr/Sonarr importing                            | Converting, uploading or cleaning      |
+| `needs_attention` | A queue item is stuck or failed; a human must act              | Mapped for completeness; never reached |
+| `paused`          | The queue item is paused at the download client                | Paused or pausing                      |
+| `available`       | A file on disk — movie `filePath`, show `episodeFileCount > 0` | `downloadUrls` non-empty               |
+
+- **Precedence** (`MEDIA_STATE_PRECEDENCE`, highest first): `needs_attention`
+  → `downloading` → `importing` → `paused` → `available` → `wanted` →
+  `absent`. `rollupMediaState()` picks the highest present; an empty input
+  is `absent`. So a series with 3 of 45 episodes on disk is `available`, and
+  the counts say how much.
+- **`stateReason`** is upstream's one-line sentence, present **only** for
+  `needs_attention`. Episodes carry no reason — the series-level one is the
+  rollup's.
+- **`state` is optional on the wire, like `embyStatus`**: the mappers build a
+  `Media` before anything has looked at the queue. The resolver fills it on
+  everything the API serves, but readers never read `media.state` directly
+  — they call `mediaState(media)`, which falls back to `absent`.
+  `isMediaInFlight()` is `downloading`, `importing`, `needs_attention` or
+  `paused`; `wanted` is not in flight, since nothing has been grabbed.
+
+### Derivation
+
+`apps/download/src/media/media-state.util.ts`, pure functions.
+
+- **Managed (`deriveManagedState`).** A queue item wins over the library — a
+  movie with a file _and_ a downloading item is an upgrade in flight and
+  reads `downloading`, with a `queueSnapshot`. The item is classified
+  through the same `deriveStatusFromQueueItem` the poller uses for jobs, so
+  a media's state can never disagree with its attempt's status:
+  `Failed`/`NeedsAttention` → `needs_attention` (reason from
+  `describeQueueItemError`), `Importing` → `importing`, `Paused` → `paused`,
+  anything else → `downloading`. No item: file → `available`, else
+  monitored → `wanted`, else `absent`.
+- **Several items (`deriveManagedStateFromItems`).** Each item is derived on
+  its own and the highest-precedence result wins, keeping that item's
+  snapshot and reason. The library never needs to join the contest: every
+  item state outranks every library state.
+- **Series.** The rollup over every item with the series' `seriesId`, plus
+  the library. ⚠️ The file signal is **`episodeFileCount > 0`, never
+  `filePath`** — on a `Show`, `filePath` is the series folder and is set for
+  every library series. With more than one item, the winner's state and
+  reason stand but the snapshot is `aggregateQueueItems` over all of them
+  (summed bytes, last-to-finish ETA), so a season grab shows the whole
+  grab's progress rather than one episode's.
+- **Episodes (`toEpisodeStateEntries`, `annotateEpisodes`).** Items are
+  matched per episode with `matchesScope` **before any fold** —
+  `aggregateQueueItems` would collapse a season into one synthetic item with
+  no episode id. An episode with no item falls back to its own
+  `hasFile`/`monitored`.
+- **Video (`deriveVideoState`).** An in-flight job's status wins, through
+  the `VIDEO_JOB_STATE` `Record` (a new `DownloadJobStatus` fails
+  type-check there); a terminal job, or none, leaves it to the file:
+  `available` or `absent`.
+
+### The fed cache
+
+`MediaStateService` (`apps/download/src/media/media-state.service.ts`)
+holds the last Radarr and Sonarr queues and the status of every in-flight
+video job. It **fetches nothing and injects nothing**: `DownloadStateService`
+already reaches into `MediaModule` through the `DownloadModule ⇄
+MediaModule` forwardRef, and the resolver annotates through this service,
+so if it injected `DownloadStateService` the cycle would need a second
+forwardRef pair. The writers push instead.
+
+| Side   | Who                                                              | Call                                         |
+| ------ | ---------------------------------------------------------------- | -------------------------------------------- |
+| Writes | `MediaPollerService`, every tick, both sources                   | `setQueue(source, items)` — replaces, copies |
+| Writes | `DownloadStateService.trackVideoActivity` (`addJob`/`updateJob`) | `setVideoActivity(mediaId, status)`          |
+| Reads  | `MediaResolverService.resolve()`, right after Emby's annotate    | `annotate(media.values())`                   |
+| Reads  | `ShowService.listSeasons`                                        | `annotateEpisodes(sonarrId, seasons)`        |
+
+- Both annotators are **synchronous and mutate in place**, the shape of
+  `EmbyStatusService.annotate()` — they only read memory.
+- `annotate` is **idempotent**: a field that no longer applies is deleted,
+  so re-annotating after the queue empties clears a stale snapshot and
+  reason. It never touches `embyStatus`. A placeholder (no upstream id, no
+  file, no `monitored`) falls through to `absent` with no special case.
+- `setVideoActivity` with `undefined` or a terminal status **clears** the
+  entry, so the map never grows by one per video ever downloaded.
+  `trackVideoActivity` runs **before** the job is broadcast, so the
+  broadcast's hydrate already annotates with the new status. Movie/show jobs
+  are skipped — their state comes from the queues.
+
+### Full-queue polling, and when to refresh
+
+`pollMovies`/`pollShows` read **the whole queue** every tick (`getQueue()`
+with no ids), `setQueue` it, then match tracked jobs from that list. Before
+this, a download grabbed in Radarr's own UI, from Discord or another tab was
+invisible.
+
+- **`RefreshMonitoredDownloads` is sent only when there is something to
+  watch** (`requestQueueRefresh`): a tracked job, **or** a non-empty cached
+  queue from the previous tick. An un-owned download keeps refreshing until
+  it leaves the queue, without nudging an idle Radarr six times a minute
+  forever. A failed refresh logs and reads the queue as-is.
+- **A failed `getQueue` throws before `setQueue`**: the previous cache is
+  kept and the poller backs off as before. `poll()` awaits both sources with
+  `Promise.allSettled` (rethrowing the first failure), so the media diff
+  never starts while the other source is mid-tick.
+
+### The media event
+
+```ts
+// MEDIA_EVENT_TYPE = 'media', inside the usual { type, data } envelope
+{ type: 'media', data: { media: Media, episodes?: EpisodeStateEntry[] } }
+```
+
+`media` is a full, current snapshot — `state`, `stateReason`,
+`queueSnapshot` included — so a subscriber may replace its copy blind.
+`episodes` rides only on a show. It goes out through
+**`DownloadGateway.broadcast()`**: serialised once, the same frame to every
+open client. A media snapshot has no requester for the attribution oracle to
+mask, so it needs none of `broadcastPerViewer()`'s per-viewer variants.
+
+**Movies and shows — the poller** (`broadcastMediaChanges`, after the job
+updates, only for sources whose queue was stored this tick):
+
+- **Which media.** Every media id with a queue item this tick **or last**.
+  The first half reaches pages for downloads no job owns; the second sends
+  the event a finished download ends on. "Left the queue" is judged by
+  **upstream id**, not by whether the media id still resolves, so a failed
+  or lagging library read can't read as every download finishing at once.
+- **Upstream id → media id** comes off the resolver's **cached library**
+  (`getMovieLibrary`/`getShowLibrary`, now public), costing upstream
+  nothing. ⚠️ A title added upstream since the cache filled isn't found yet
+  and is retried each tick — **up to 60 s** (`TTL_MS`) before its first
+  event.
+- **Invalidate before resolve.** A media whose upstream id left the queue is
+  `invalidate()`d first, so its last event carries the imported file rather
+  than the cache's mid-download copy. Then one batched `resolve()`; a
+  **degraded** source skips the tick entirely (a placeholder would clobber
+  a subscriber's real copy) and the whole batch is retried.
+- **One event per series**, whatever its queued-episode count: one
+  `getEpisodes` call, folded through `toEpisodeStateEntries`.
+- **Diff by digest** of `{ state, stateReason, queueSnapshot, episodes }`
+  (`JSON.stringify`) against the last one sent for that media id — a tick
+  that moved nothing sends nothing. An event that couldn't be built
+  (episode read failed, media missing) is kept for next tick; a media gone
+  from the queue whose last event went out is forgotten.
+- **Never throws**: resolve, library and episode failures log and retry
+  next tick; none back off the poll or touch job tracking.
+
+**Videos — ride along with job events.** Every video job event also sends a
+`media` frame (`DownloadStateService.broadcastMediaEvent`) from the media the
+job's hydrate already resolved and annotated, ahead of the attribution
+lookup so a failure there can't swallow it.
+
+**Parsing — `parseMediaEventFrame`**
+(`packages/utils/src/download/job-events.ts`), the twin of
+`parseJobEventFrame` and silent the same way: a non-string,
+malformed JSON, another `type`, or a `media` failing `MediaSchema` →
+`undefined`. ⚠️ A bad **`episodes`** array does **not** reject the frame —
+the media is returned with `episodes` omitted, so the state chip can't
+freeze over an episode row nobody is looking at.
+
+### Mapper fields
+
+| Field                               | Source                                                                 |
+| ----------------------------------- | ---------------------------------------------------------------------- |
+| `Movie.monitored`, `Show.monitored` | Upstream's flag, **library titles only** — a lookup hit's is a default |
+| `Movie.addedAt`                     | `movieFile.dateAdded`, only when `hasFile`                             |
+| `Show.addedAt`                      | `series.added`, library series only                                    |
+| `Video.addedAt`                     | `videos.updated_at`, only when `download_urls` is non-empty            |
+| `Show.episodeCount` / `…FileCount`  | `series.statistics`, from **`getLibrary()` only**                      |
+
+- ⚠️ **Sonarr's `/series/lookup` zeroes `statistics`** even for a library
+  series — a fully downloaded one comes back `episodeFileCount: 0`. Search
+  and lookup map through `toLookupShow`, which drops `statistics` so the
+  counts are absent rather than a false "nothing on disk".
+- Upstream dates go through `toUpstreamIsoDateTime`
+  (`src/media/upstream-date.util.ts`), which drops .NET's
+  `DateTime.MinValue` (`0001-01-01…`, a non-library lookup's `added`) and
+  never substitutes "now".
+
+### ⚠️ Known gaps
+
+- **The per-job `queueSnapshot` graft in `toJob` still exists** until
+  Phase 3: `DownloadStateService` grafts the poller's per-job snapshot onto
+  the job's `media`, over the media-level one `annotate` set. Both are read
+  from the same queue through the same helpers, so they agree.
+- **A video's `addedAt` moves on re-request.** It is `videos.updated_at`,
+  and `upsertVideoByNaturalKey`'s conflict branch bumps it on every
+  re-request, so a video requested again reads as freshly added.
+
+---
+
 ## Verification conventions
 
 The conventions Phases 0–8 followed, and that anything built on top of them
