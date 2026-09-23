@@ -35,6 +35,7 @@ import { DownloadStateService } from 'src/download/download-state.service'
 import { DownloadGateway } from 'src/download-gateway/download.gateway'
 import {
   MediaPollerService,
+  type PollableCompletionData,
   type TrackedJob,
 } from 'src/media/media-poller.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
@@ -43,6 +44,10 @@ import { RadarrService } from 'src/media/radarr.service'
 import { SonarrService } from 'src/media/sonarr.service'
 
 const NOW_ISO = '2026-08-20T12:00:00.000Z'
+/** A file imported after every job built here was created. */
+const AFTER_ISO = '2026-08-20T12:05:00.000Z'
+/** A file already in the library before any job built here was created. */
+const BEFORE_ISO = '2026-08-20T11:00:00.000Z'
 
 /**
  * The real Radarr queue row for a blocked import, read off the live instance
@@ -536,11 +541,14 @@ describe('MediaPollerService', () => {
       expect(updateJobSpy).not.toHaveBeenCalled()
     })
 
-    it('marks the job Completed once it disappears from the queue after downloading', async () => {
+    it('marks the job Completed once it leaves the queue with its file imported', async () => {
       const job = buildMovieJob({ status: DownloadJobStatus.Downloading })
       downloadStateService.jobs.set(job.id, job)
 
       radarrService.getQueue.mockResolvedValue([])
+      radarrService.getMovieFiles.mockResolvedValue([
+        { dateAdded: AFTER_ISO, id: 501, movieId: 42 },
+      ])
 
       await service.poll()
 
@@ -555,6 +563,9 @@ describe('MediaPollerService', () => {
       const updateJobSpy = jest.spyOn(downloadStateService, 'updateJob')
 
       radarrService.getQueue.mockResolvedValue([])
+      radarrService.getMovieFiles.mockResolvedValue([
+        { dateAdded: AFTER_ISO, id: 501, movieId: 42 },
+      ])
 
       await service.poll()
 
@@ -678,7 +689,7 @@ describe('MediaPollerService', () => {
       expect(downloadStateService.getQueueSnapshot(job.id)?.progress).toBe(60)
     })
 
-    it('completes a season job only once every episode leaves the queue', async () => {
+    it('completes a season job once every episode leaves the queue with its file', async () => {
       const job = buildShowJob({
         scope: { seasonNumber: 3 },
         status: DownloadJobStatus.Downloading,
@@ -686,6 +697,14 @@ describe('MediaPollerService', () => {
       downloadStateService.jobs.set(job.id, job)
 
       sonarrService.getQueue.mockResolvedValue([])
+      sonarrService.getEpisodes.mockResolvedValue([
+        { episodeFileId: 901, id: 1, seasonNumber: 3, seriesId: 9 },
+        { episodeFileId: 902, id: 2, seasonNumber: 3, seriesId: 9 },
+      ])
+      sonarrService.getEpisodeFiles.mockResolvedValue([
+        { dateAdded: AFTER_ISO, id: 901, seasonNumber: 3, seriesId: 9 },
+        { dateAdded: AFTER_ISO, id: 902, seasonNumber: 3, seriesId: 9 },
+      ])
 
       await service.poll()
 
@@ -753,9 +772,10 @@ describe('MediaPollerService', () => {
 
       await service.poll()
 
-      // No match at all, so the disappeared-means-completed rule applies.
+      // No match at all, so the job is settled from its files - and with
+      // none landed, inside the grace period, it is left where it was.
       expect(downloadStateService.jobs.get(job.id)?.status).toBe(
-        DownloadJobStatus.Completed,
+        DownloadJobStatus.Downloading,
       )
     })
 
@@ -772,8 +792,9 @@ describe('MediaPollerService', () => {
 
       await service.poll()
 
+      // Not Failed: the other season's failure is not this job's.
       expect(downloadStateService.jobs.get(job.id)?.status).toBe(
-        DownloadJobStatus.Completed,
+        DownloadJobStatus.Downloading,
       )
     })
 
@@ -791,9 +812,12 @@ describe('MediaPollerService', () => {
 
       await service.poll()
 
+      // The season 1 item is no evidence about season 0, so the job has no
+      // item at all and nothing it can be settled from yet.
       expect(downloadStateService.jobs.get(job.id)?.status).toBe(
-        DownloadJobStatus.Completed,
+        DownloadJobStatus.Downloading,
       )
+      expect(sonarrService.getEpisodeFiles).toHaveBeenCalledWith(9)
     })
 
     it('surfaces every failure message across a scope', async () => {
@@ -868,8 +892,12 @@ describe('MediaPollerService', () => {
         BLOCKED_IMPORT_REASON,
       )
 
-      // A human worked the manual-import dialog, so Radarr dropped the row.
+      // A human worked the manual-import dialog, so Radarr imported the file
+      // and dropped the row.
       radarrService.getQueue.mockResolvedValue([])
+      radarrService.getMovieFiles.mockResolvedValue([
+        { dateAdded: AFTER_ISO, id: 501, movieId: 434 },
+      ])
       await service.poll()
 
       const updated = downloadStateService.jobs.get(job.id)
@@ -979,9 +1007,6 @@ describe('MediaPollerService', () => {
     })
   })
 
-  // Exercised directly rather than through `poll()`: nothing calls it yet -
-  // the queue-empty completion check that consumes it lands separately, and
-  // this fetch is deliberately inert until then.
   describe('media events', () => {
     // What upstream holds right now, by media id: a movie (Radarr 77) and a
     // series (Sonarr 12) that no job owns. The resolver mock below models the
@@ -1312,11 +1337,28 @@ describe('MediaPollerService', () => {
   })
 
   describe('completionInputs', () => {
+    // Private - `settleAbsentJobs` is its only caller - but its batching is
+    // a contract of its own, so it is exercised directly as well as through
+    // `poll()` below.
+    function completionInputs(
+      type: DownloadType.Movie | DownloadType.Show,
+      jobs: readonly TrackedJob[],
+    ): Promise<Map<string, PollableCompletionData>> {
+      return (
+        service as unknown as {
+          completionInputs: (
+            type: DownloadType.Movie | DownloadType.Show,
+            jobs: readonly TrackedJob[],
+          ) => Promise<Map<string, PollableCompletionData>>
+        }
+      ).completionInputs(type, jobs)
+    }
+
     // The steady state: every job has a queue entry, so nothing ever reaches
     // the completion check and it must cost exactly nothing.
     it('makes no upstream call at all when handed no jobs', async () => {
-      const movies = await service.completionInputs(DownloadType.Movie, [])
-      const shows = await service.completionInputs(DownloadType.Show, [])
+      const movies = await completionInputs(DownloadType.Movie, [])
+      const shows = await completionInputs(DownloadType.Show, [])
 
       expect(movies.size).toBe(0)
       expect(shows.size).toBe(0)
@@ -1332,7 +1374,7 @@ describe('MediaPollerService', () => {
       ]
       radarrService.getMovieFiles.mockResolvedValue(files)
 
-      const result = await service.completionInputs(DownloadType.Movie, [
+      const result = await completionInputs(DownloadType.Movie, [
         { record, upstreamId: 42 },
       ])
 
@@ -1355,7 +1397,7 @@ describe('MediaPollerService', () => {
       sonarrService.getEpisodeFiles.mockResolvedValue(files)
       sonarrService.getEpisodes.mockResolvedValue(episodes)
 
-      const result = await service.completionInputs(DownloadType.Show, [
+      const result = await completionInputs(DownloadType.Show, [
         { record, upstreamId: 9 },
       ])
 
@@ -1378,7 +1420,7 @@ describe('MediaPollerService', () => {
         }),
       )
 
-      const result = await service.completionInputs(DownloadType.Show, jobs)
+      const result = await completionInputs(DownloadType.Show, jobs)
 
       expect(sonarrService.getEpisodeFiles).toHaveBeenCalledTimes(1)
       expect(sonarrService.getEpisodes).toHaveBeenCalledTimes(1)
@@ -1392,7 +1434,7 @@ describe('MediaPollerService', () => {
     })
 
     it('still fetches once per series when the jobs span two series', async () => {
-      const result = await service.completionInputs(DownloadType.Show, [
+      const result = await completionInputs(DownloadType.Show, [
         buildTrackedShowJob(9, { id: 'a' }),
         buildTrackedShowJob(9, { id: 'b' }),
         buildTrackedShowJob(11, { id: 'c' }),
@@ -1405,16 +1447,425 @@ describe('MediaPollerService', () => {
       expect(result.get('a')).not.toBe(result.get('c'))
     })
 
-    // `poll()` already owns the exponential backoff; a second one here would
-    // only let the two disagree about when to retry.
-    it('lets an upstream rejection propagate rather than swallowing it', async () => {
-      radarrService.getMovieFiles.mockRejectedValue(new Error('radarr down'))
+    // One title's failed read must not hold up another's, nor trip the
+    // poll's backoff: its jobs are simply left out, and stay as they are.
+    it('leaves out only the jobs whose title could not be read', async () => {
+      sonarrService.getEpisodeFiles.mockImplementation(async seriesId => {
+        if (seriesId === 11) throw new Error('sonarr down')
+        return []
+      })
 
-      await expect(
-        service.completionInputs(DownloadType.Movie, [
-          { record: buildMovieJob(), upstreamId: 42 },
-        ]),
-      ).rejects.toThrow('radarr down')
+      const result = await completionInputs(DownloadType.Show, [
+        buildTrackedShowJob(9, { id: 'a' }),
+        buildTrackedShowJob(11, { id: 'b' }),
+      ])
+
+      expect(result.has('a')).toBe(true)
+      expect(result.has('b')).toBe(false)
+      expect(Logger.prototype.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'completionInputs',
+          error: 'sonarr down',
+          upstreamId: 11,
+        }),
+        expect.any(String),
+      )
+    })
+  })
+
+  describe('settling a job with no queue item', () => {
+    const T0 = Date.parse('2026-08-20T13:00:00.000Z')
+
+    // Wall-clock, like the poller's own timer: every tick below reads the
+    // clock this controls.
+    function at(ms: number): void {
+      jest.spyOn(Date, 'now').mockReturnValue(ms)
+    }
+
+    function clearBackoff(): void {
+      ;(service as unknown as { nextAllowedRunAt: number }).nextAllowedRunAt = 0
+    }
+
+    function absentSince(): Map<string, number> {
+      return (service as unknown as { absentSince: Map<string, number> })
+        .absentSince
+    }
+
+    const DOWNLOADING_ITEM: QueueResource = {
+      movieId: 42,
+      size: 1000,
+      sizeleft: 500,
+      status: 'downloading',
+    }
+
+    it('reads no files while every job has a queue item', async () => {
+      const job = buildMovieJob({ status: DownloadJobStatus.Downloading })
+      downloadStateService.jobs.set(job.id, job)
+      radarrService.getQueue.mockResolvedValue([DOWNLOADING_ITEM])
+
+      await service.poll()
+
+      expect(radarrService.getMovieFiles).not.toHaveBeenCalled()
+      expect(absentSince().size).toBe(0)
+    })
+
+    // The race the grace period exists for: the queue row goes a tick before
+    // the file listing shows the import.
+    it('completes a job whose file is listed a tick after its item left', async () => {
+      const job = buildMovieJob({ status: DownloadJobStatus.Downloading })
+      downloadStateService.jobs.set(job.id, job)
+
+      at(T0)
+      radarrService.getQueue.mockResolvedValue([])
+      await service.poll()
+
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Downloading,
+      )
+      expect(mediaResolverService.invalidate).not.toHaveBeenCalled()
+
+      at(T0 + 10_000)
+      radarrService.getMovieFiles.mockResolvedValue([
+        { dateAdded: AFTER_ISO, id: 501, movieId: 42 },
+      ])
+      await service.poll()
+
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Completed,
+      )
+      expect(downloadStateService.jobs.get(job.id)?.error).toBeUndefined()
+      expect(mediaResolverService.invalidate).toHaveBeenCalledWith(job.mediaId)
+      expect(absentSince().has(job.id)).toBe(false)
+    })
+
+    it('fails a job whose item left over a minute ago with no file', async () => {
+      const job = buildMovieJob({ status: DownloadJobStatus.Downloading })
+      downloadStateService.jobs.set(job.id, job)
+      radarrService.getQueue.mockResolvedValue([])
+
+      at(T0)
+      await service.poll()
+      at(T0 + 59_000)
+      await service.poll()
+
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Downloading,
+      )
+
+      at(T0 + 61_000)
+      await service.poll()
+
+      const updated = downloadStateService.jobs.get(job.id)
+      expect(updated?.status).toBe(DownloadJobStatus.Failed)
+      expect(updated?.error).toBe('Left the queue without producing a file')
+      expect(getJobById(dbService.db, job.id)?.error).toBe(
+        'Left the queue without producing a file',
+      )
+      expect(mediaResolverService.invalidate).not.toHaveBeenCalled()
+      expect(absentSince().has(job.id)).toBe(false)
+    })
+
+    it('fails an importing show job the same way', async () => {
+      const job = buildShowJob({
+        scope: { seasonNumber: 3 },
+        status: DownloadJobStatus.Importing,
+      })
+      downloadStateService.jobs.set(job.id, job)
+      sonarrService.getQueue.mockResolvedValue([])
+
+      at(T0)
+      await service.poll()
+      at(T0 + 61_000)
+      await service.poll()
+
+      const updated = downloadStateService.jobs.get(job.id)
+      expect(updated?.status).toBe(DownloadJobStatus.Failed)
+      expect(updated?.error).toBe('Left the queue without producing a file')
+    })
+
+    it('restarts the grace period when the item comes back', async () => {
+      const job = buildMovieJob({ status: DownloadJobStatus.Downloading })
+      downloadStateService.jobs.set(job.id, job)
+
+      at(T0)
+      radarrService.getQueue.mockResolvedValue([])
+      await service.poll()
+      expect(absentSince().get(job.id)).toBe(T0)
+
+      at(T0 + 30_000)
+      radarrService.getQueue.mockResolvedValue([DOWNLOADING_ITEM])
+      await service.poll()
+      expect(absentSince().has(job.id)).toBe(false)
+
+      at(T0 + 50_000)
+      radarrService.getQueue.mockResolvedValue([])
+      await service.poll()
+
+      // 70s after it first went, but only 20s since it last went.
+      at(T0 + 70_000)
+      await service.poll()
+
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Downloading,
+      )
+      expect(absentSince().get(job.id)).toBe(T0 + 50_000)
+    })
+
+    // Wall-clock, not tick-count: polls that fail in between still count.
+    it('keeps the grace timer running through a failed poll', async () => {
+      const job = buildMovieJob({ status: DownloadJobStatus.Downloading })
+      downloadStateService.jobs.set(job.id, job)
+      radarrService.getQueue.mockResolvedValue([])
+
+      at(T0)
+      await service.poll()
+
+      at(T0 + 20_000)
+      radarrService.getQueue.mockRejectedValueOnce(new Error('radarr down'))
+      await service.poll()
+      expect(absentSince().get(job.id)).toBe(T0)
+
+      clearBackoff()
+      at(T0 + 61_000)
+      await service.poll()
+
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Failed,
+      )
+    })
+
+    // Without the listing there is no telling a finished import from a
+    // dropped download, so a failed read decides nothing - even past the
+    // grace period - and never backs the poll off.
+    it('leaves a job unchanged when its files cannot be read', async () => {
+      const job = buildMovieJob({ status: DownloadJobStatus.Downloading })
+      downloadStateService.jobs.set(job.id, job)
+      radarrService.getQueue.mockResolvedValue([])
+
+      at(T0)
+      await service.poll()
+
+      at(T0 + 61_000)
+      radarrService.getMovieFiles.mockRejectedValueOnce(
+        new Error('radarr down'),
+      )
+      await service.poll()
+
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Downloading,
+      )
+      expect(
+        (service as unknown as { nextAllowedRunAt: number }).nextAllowedRunAt,
+      ).toBe(0)
+
+      // Readable again, and still nothing landed: now it fails.
+      at(T0 + 71_000)
+      await service.poll()
+
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Failed,
+      )
+    })
+
+    // The wedge this whole check exists for: a small usenet grab can go
+    // grabbed -> imported entirely between two ticks.
+    it('completes a searching job whose whole download ran between ticks', async () => {
+      const job = buildMovieJob({ status: DownloadJobStatus.Searching })
+      downloadStateService.jobs.set(job.id, job)
+      radarrService.getQueue.mockResolvedValue([])
+      radarrService.getMovieFiles.mockResolvedValue([
+        { dateAdded: AFTER_ISO, id: 501, movieId: 42 },
+      ])
+
+      await service.poll()
+
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Completed,
+      )
+    })
+
+    // A file from before the job is the library's old copy, not this
+    // attempt's result.
+    it('leaves a searching job searching when its only file is older than it', async () => {
+      const job = buildMovieJob({ status: DownloadJobStatus.Searching })
+      downloadStateService.jobs.set(job.id, job)
+      radarrService.getQueue.mockResolvedValue([])
+      radarrService.getMovieFiles.mockResolvedValue([
+        { dateAdded: BEFORE_ISO, id: 501, movieId: 42 },
+      ])
+
+      at(T0)
+      await service.poll()
+      at(T0 + 120_000)
+      await service.poll()
+
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Searching,
+      )
+    })
+
+    // A blocked import that vanished without a file is a human's call -
+    // they may still import it by hand - so it waits; with a file, it's done.
+    it('never fails a needs-attention job, and completes it once a file lands', async () => {
+      const job = buildMovieJob({ status: DownloadJobStatus.NeedsAttention })
+      downloadStateService.jobs.set(job.id, job)
+      radarrService.getQueue.mockResolvedValue([])
+
+      at(T0)
+      await service.poll()
+      at(T0 + 120_000)
+      await service.poll()
+
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.NeedsAttention,
+      )
+
+      radarrService.getMovieFiles.mockResolvedValue([
+        { dateAdded: AFTER_ISO, id: 501, movieId: 42 },
+      ])
+      at(T0 + 130_000)
+      await service.poll()
+
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Completed,
+      )
+    })
+
+    describe('a show job completes only once its own scope lands', () => {
+      const EPISODES: EpisodeResource[] = [
+        { episodeFileId: 0, id: 1, seasonNumber: 3, seriesId: 9 },
+        { episodeFileId: 0, id: 2, seasonNumber: 3, seriesId: 9 },
+        { episodeFileId: 0, id: 3, seasonNumber: 4, seriesId: 9 },
+      ]
+
+      function landed(...episodeIds: number[]): void {
+        sonarrService.getEpisodes.mockResolvedValue(
+          EPISODES.map(episode =>
+            episodeIds.includes(episode.id as number)
+              ? { ...episode, episodeFileId: 900 + (episode.id as number) }
+              : episode,
+          ),
+        )
+        sonarrService.getEpisodeFiles.mockResolvedValue(
+          episodeIds.map(id => ({
+            dateAdded: AFTER_ISO,
+            id: 900 + id,
+            seasonNumber: EPISODES.find(e => e.id === id)?.seasonNumber,
+            seriesId: 9,
+          })),
+        )
+      }
+
+      beforeEach(() => {
+        sonarrService.getQueue.mockResolvedValue([])
+      })
+
+      it('an episode job, on its own episode', async () => {
+        const job = buildShowJob({
+          scope: { episodeId: 2, seasonNumber: 3 },
+          status: DownloadJobStatus.Downloading,
+        })
+        downloadStateService.jobs.set(job.id, job)
+
+        landed(1, 3)
+        await service.poll()
+        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+          DownloadJobStatus.Downloading,
+        )
+
+        landed(2)
+        await service.poll()
+        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+          DownloadJobStatus.Completed,
+        )
+      })
+
+      // One new file in its season is enough - how much of the season is
+      // on disk is the media's state, not the attempt's - but a file from
+      // another season is not.
+      it('a season job, on any new file in its season', async () => {
+        const job = buildShowJob({
+          scope: { seasonNumber: 3 },
+          status: DownloadJobStatus.Downloading,
+        })
+        downloadStateService.jobs.set(job.id, job)
+
+        landed(3)
+        await service.poll()
+        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+          DownloadJobStatus.Downloading,
+        )
+
+        landed(1, 3)
+        await service.poll()
+        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+          DownloadJobStatus.Completed,
+        )
+      })
+
+      it('reads a series once for all of its settling jobs', async () => {
+        const episodeJob = buildShowJob({
+          id: 'show-episode',
+          scope: { episodeId: 3, seasonNumber: 4 },
+          status: DownloadJobStatus.Downloading,
+        })
+        const seasonJob = buildShowJob({
+          id: 'show-season',
+          scope: { seasonNumber: 3 },
+          status: DownloadJobStatus.Downloading,
+        })
+        downloadStateService.jobs.set(episodeJob.id, episodeJob)
+        downloadStateService.jobs.set(seasonJob.id, seasonJob)
+
+        landed(3)
+        await service.poll()
+
+        expect(sonarrService.getEpisodeFiles).toHaveBeenCalledTimes(1)
+        expect(downloadStateService.jobs.get(episodeJob.id)?.status).toBe(
+          DownloadJobStatus.Completed,
+        )
+        expect(downloadStateService.jobs.get(seasonJob.id)?.status).toBe(
+          DownloadJobStatus.Downloading,
+        )
+      })
+    })
+
+    // Cancelled while its listing was in flight: the cancel stands.
+    it('does not move a job that settled while its files were being read', async () => {
+      const job = buildMovieJob({ status: DownloadJobStatus.Downloading })
+      downloadStateService.jobs.set(job.id, job)
+      radarrService.getQueue.mockResolvedValue([])
+      radarrService.getMovieFiles.mockImplementation(async () => {
+        downloadStateService.jobs.set(job.id, {
+          ...job,
+          status: DownloadJobStatus.Cancelled,
+        })
+        return [{ dateAdded: AFTER_ISO, id: 501, movieId: 42 }]
+      })
+
+      await service.poll()
+
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Cancelled,
+      )
+      expect(mediaResolverService.invalidate).not.toHaveBeenCalled()
+    })
+
+    it('forgets the timer of a job that stops being tracked', async () => {
+      const job = buildMovieJob({ status: DownloadJobStatus.Downloading })
+      downloadStateService.jobs.set(job.id, job)
+      radarrService.getQueue.mockResolvedValue([])
+
+      await service.poll()
+      expect(absentSince().has(job.id)).toBe(true)
+
+      downloadStateService.jobs.set(job.id, {
+        ...job,
+        status: DownloadJobStatus.Cancelled,
+      })
+      await service.poll()
+
+      expect(absentSince().has(job.id)).toBe(false)
     })
   })
 })

@@ -20,6 +20,7 @@ import { Cron } from '@nestjs/schedule'
 import { DownloadStateService } from 'src/download/download-state.service'
 import { DownloadGateway } from 'src/download-gateway/download.gateway'
 
+import { didJobComplete } from './job-completion.util'
 import { MediaResolverService } from './media-resolver.service'
 import { MediaStateService, type QueueSource } from './media-state.service'
 import { toEpisodeStateEntries } from './media-state.util'
@@ -28,8 +29,10 @@ import {
   deriveStatusFromQueueItem,
   describeQueueItemError,
   isQueueSnapshotEqual,
+  LEFT_QUEUE_WITHOUT_FILE_ERROR,
   matchesScope,
   PollableQueueItem,
+  settleWithoutQueueItem,
   toQueueSnapshot,
 } from './queue-status.util'
 import { RadarrService } from './radarr.service'
@@ -86,6 +89,12 @@ export interface PollableCompletionData {
  * through Requested -> Searching -> Downloading -> Importing/NeedsAttention ->
  * Completed/Failed.
  *
+ * A job's queue item says where it is; a job with **no** item is settled
+ * from the library instead - `completed` only once a file for its scope
+ * landed after it was created, `failed` once a grabbed job has been gone
+ * from the queue for `QUEUE_ABSENCE_GRACE_MS` with nothing to show for it.
+ * See `settleAbsentJobs`.
+ *
  * Also broadcasts a `MediaEvent` for every movie/show whose state moved this
  * tick - owned by a job or not - so an open page follows a download it
  * never asked for. See `broadcastMediaChanges`.
@@ -120,6 +129,13 @@ export class MediaPollerService {
 
   /** Media id -> digest of the last media event broadcast for it. */
   private readonly lastDigest = new Map<string, string>()
+
+  /**
+   * Job id -> when (epoch ms, wall-clock) a tracked job was first seen with
+   * no queue item, for as long as it stays that way. An item reappearing
+   * clears it; so does the job settling or no longer being tracked.
+   */
+  private readonly absentSince = new Map<string, number>()
 
   constructor(
     private readonly downloadGateway: DownloadGateway,
@@ -172,6 +188,7 @@ export class MediaPollerService {
       this.backoffMs = Math.min(this.backoffMs * 2, MAX_BACKOFF_MS)
     }
 
+    this.forgetUntrackedAbsences()
     await this.broadcastMediaChanges(stored)
   }
 
@@ -193,12 +210,18 @@ export class MediaPollerService {
     this.mediaStateService.setQueue('radarr', queue)
     stored.add('radarr')
 
+    const absent: TrackedJob[] = []
     for (const job of tracked) {
-      this.applyUpdate(
-        job.record,
-        queue.find(q => q.movieId === job.upstreamId),
-      )
+      const item = queue.find(q => q.movieId === job.upstreamId)
+      if (item) {
+        this.absentSince.delete(job.record.id)
+        this.applyUpdate(job.record, item)
+      } else {
+        absent.push(job)
+      }
     }
+
+    await this.settleAbsentJobs(DownloadType.Movie, absent)
   }
 
   /**
@@ -222,12 +245,108 @@ export class MediaPollerService {
     this.mediaStateService.setQueue('sonarr', queue)
     stored.add('sonarr')
 
+    const absent: TrackedJob[] = []
     for (const job of tracked) {
       const matches = queue.filter(
         q => q.seriesId === job.upstreamId && matchesScope(q, job.record.scope),
       )
+      const item = aggregateQueueItems(matches)
+      if (item) {
+        this.absentSince.delete(job.record.id)
+        this.applyUpdate(job.record, item)
+      } else {
+        absent.push(job)
+      }
+    }
 
-      this.applyUpdate(job.record, aggregateQueueItems(matches))
+    await this.settleAbsentJobs(DownloadType.Show, absent)
+  }
+
+  /**
+   * Settles the tracked jobs that had no queue item this tick, from the
+   * files upstream holds for them. See `settleWithoutQueueItem` for the
+   * rule; this supplies its two inputs - `didJobComplete`'s verdict and how
+   * long the job has been missing from the queue.
+   *
+   * Never throws. A job whose files can't be read is left exactly as it is,
+   * past the grace period or not: without the listing there is no telling a
+   * finished import from a dropped download, and guessing either way is
+   * worse than asking again next tick.
+   */
+  private async settleAbsentJobs(
+    type: DownloadType.Movie | DownloadType.Show,
+    jobs: readonly TrackedJob[],
+  ): Promise<void> {
+    if (jobs.length === 0) return
+
+    const now = Date.now()
+    for (const { record } of jobs) {
+      if (!this.absentSince.has(record.id)) {
+        this.absentSince.set(record.id, now)
+      }
+    }
+
+    const inputs = await this.completionInputs(type, jobs)
+
+    for (const { record: tracked } of jobs) {
+      const data = inputs.get(tracked.id)
+      if (!data) continue
+
+      // Re-read: the file listing was awaited, and a cancel may have landed
+      // in the meantime. A job that settled elsewhere is not ours to move.
+      const record = this.downloadStateService.jobs.get(tracked.id)
+      if (!record || TERMINAL_STATUSES.has(record.status)) continue
+
+      const fileLanded = didJobComplete({
+        createdAt: new Date(record.createdAt),
+        episodes: data.episodes,
+        files: data.files,
+        scope: record.scope,
+      })
+      const absentForMs = now - (this.absentSince.get(record.id) ?? now)
+
+      const next = settleWithoutQueueItem(
+        record.status,
+        fileLanded,
+        absentForMs,
+      )
+      if (next === undefined) continue
+
+      const error =
+        next === DownloadJobStatus.Failed
+          ? LEFT_QUEUE_WITHOUT_FILE_ERROR
+          : undefined
+
+      this.logger.log(
+        {
+          action: 'settleAbsentJobs',
+          absentForMs,
+          error,
+          fileLanded,
+          jobId: record.id,
+          mediaId: record.mediaId,
+          newStatus: next,
+          oldStatus: record.status,
+        },
+        'Media job settled without a queue item',
+      )
+
+      this.absentSince.delete(record.id)
+      this.writeStatus(record, next, error)
+    }
+  }
+
+  /**
+   * Drops the absence timer of every job that is no longer in flight, so
+   * the map only ever holds jobs the poller still tracks. Runs every tick,
+   * failed or not: a job cancelled while upstream was down still goes.
+   */
+  private forgetUntrackedAbsences(): void {
+    for (const jobId of this.absentSince.keys()) {
+      const record = this.downloadStateService.jobs.get(jobId)
+      if (!record || TERMINAL_STATUSES.has(record.status)) {
+        this.absentSince.delete(jobId)
+      }
     }
   }
 
@@ -534,42 +653,41 @@ export class MediaPollerService {
    * "did a file appear since this job started?" question turns on. Scope
    * narrowing belongs to the caller, applied to this shared list.
    *
-   * Errors propagate untouched - `poll()` already owns the exponential
-   * backoff, and a second one here would only let the two disagree about
-   * when to retry.
-   *
-   * Public, not `private`, only because nothing calls it yet:
-   * `noUnusedLocals` rejects an uncalled private member, and this landed
-   * ahead of the queue-empty check that consumes it. Narrow it back to
-   * `private` the moment `pollMovies`/`pollShows` call it.
+   * Never throws. A title whose read fails is logged and left out of the
+   * map, so its jobs stay exactly as they are this tick while every other
+   * title's jobs still settle - one flaky title must not hold up the rest,
+   * nor trip `poll()`'s backoff, which the queue read already owns.
    */
-  async completionInputs(
-    type: DownloadType,
+  private async completionInputs(
+    type: DownloadType.Movie | DownloadType.Show,
     jobs: readonly TrackedJob[],
   ): Promise<Map<string, PollableCompletionData>> {
     const byJobId = new Map<string, PollableCompletionData>()
     if (jobs.length === 0) return byJobId
 
     const upstreamIds = Array.from(new Set(jobs.map(job => job.upstreamId)))
+    const byUpstreamId = new Map<number, PollableCompletionData>()
 
-    const fetched = await Promise.all(
-      upstreamIds.map(
-        async (upstreamId): Promise<[number, PollableCompletionData]> => {
-          if (type === DownloadType.Movie) {
-            const files = await this.radarrService.getMovieFiles(upstreamId)
-            return [upstreamId, { files }]
-          }
-
-          const [files, episodes] = await Promise.all([
-            this.sonarrService.getEpisodeFiles(upstreamId),
-            this.sonarrService.getEpisodes(upstreamId),
-          ])
-          return [upstreamId, { episodes, files }]
-        },
-      ),
+    await Promise.all(
+      upstreamIds.map(async upstreamId => {
+        try {
+          byUpstreamId.set(
+            upstreamId,
+            await this.fetchCompletionData(type, upstreamId),
+          )
+        } catch (err) {
+          this.logger.warn(
+            {
+              action: 'completionInputs',
+              error: getErrorMessage(err),
+              type,
+              upstreamId,
+            },
+            'File listing failed, leaving its jobs unsettled this tick',
+          )
+        }
+      }),
     )
-
-    const byUpstreamId = new Map(fetched)
 
     for (const job of jobs) {
       const inputs = byUpstreamId.get(job.upstreamId)
@@ -579,16 +697,31 @@ export class MediaPollerService {
     return byJobId
   }
 
+  private async fetchCompletionData(
+    type: DownloadType.Movie | DownloadType.Show,
+    upstreamId: number,
+  ): Promise<PollableCompletionData> {
+    if (type === DownloadType.Movie) {
+      return { files: await this.radarrService.getMovieFiles(upstreamId) }
+    }
+
+    const [files, episodes] = await Promise.all([
+      this.sonarrService.getEpisodeFiles(upstreamId),
+      this.sonarrService.getEpisodes(upstreamId),
+    ])
+    return { episodes, files }
+  }
+
+  /** Moves a job that has a queue item this tick to what the item says. */
   private applyUpdate(
     record: DownloadJobRecord,
-    item: PollableQueueItem | undefined,
+    item: PollableQueueItem,
   ): void {
-    const action = 'applyUpdate'
     const previousSnapshot = this.downloadStateService.getQueueSnapshot(
       record.id,
     )
     const newStatus = deriveStatusFromQueueItem(record.status, item)
-    const newSnapshot = item ? toQueueSnapshot(item) : previousSnapshot
+    const newSnapshot = toQueueSnapshot(item)
 
     // The two statuses that carry upstream's own sentence: a failure says
     // why it failed, and a blocked import says why Radarr/Sonarr refused it
@@ -597,8 +730,7 @@ export class MediaPollerService {
     const carriesReason =
       newStatus === DownloadJobStatus.Failed ||
       newStatus === DownloadJobStatus.NeedsAttention
-    const error =
-      item && carriesReason ? describeQueueItemError(item) : undefined
+    const error = carriesReason ? describeQueueItemError(item) : undefined
 
     // A job can sit in NeedsAttention for hours while upstream re-parses the
     // release and changes its mind about *why* it's stuck. That is a real
@@ -619,7 +751,7 @@ export class MediaPollerService {
 
     this.logger.log(
       {
-        action,
+        action: 'applyUpdate',
         jobId: record.id,
         mediaId: record.mediaId,
         oldStatus: record.status,
@@ -632,11 +764,26 @@ export class MediaPollerService {
     // Snapshot first: it broadcasts on its own, so a progress-only tick
     // (same status, new percentage) still reaches subscribers without a
     // pointless job-row write.
-    if (item && newSnapshot) {
-      this.downloadStateService.setQueueSnapshot(record.id, newSnapshot)
-    }
+    this.downloadStateService.setQueueSnapshot(record.id, newSnapshot)
 
     if (newStatus === record.status && !reasonChanged) return
+
+    this.writeStatus(record, newStatus, error)
+  }
+
+  /**
+   * Writes a status move to the job. `error` is the reason a Failed or
+   * NeedsAttention status carries, when there is one; any other status
+   * leaves `error` alone, except that leaving NeedsAttention clears it.
+   */
+  private writeStatus(
+    record: DownloadJobRecord,
+    newStatus: DownloadJobStatus,
+    error: string | undefined,
+  ): void {
+    const carriesReason =
+      newStatus === DownloadJobStatus.Failed ||
+      newStatus === DownloadJobStatus.NeedsAttention
 
     // Before updateJob, because updateJob is what broadcasts: a detail page
     // re-renders the moment it hears `completed`, and the resolver's library

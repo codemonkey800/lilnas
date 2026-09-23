@@ -43,8 +43,8 @@ export interface DerivedState {
  * its snapshot rather than `available`. The item is classified through the
  * same `deriveStatusFromQueueItem` the poller uses for jobs, so a media's
  * state can never disagree with its attempt's status. The current status
- * passed in is `Downloading` - non-terminal - but it is irrelevant here: it
- * only matters for the "no item" branch, which this never reaches.
+ * passed in is `Downloading` - non-terminal - but it is irrelevant here: a
+ * present item decides on its own.
  *
  * - `Failed`/`NeedsAttention` -> `needs_attention`, with Radarr/Sonarr's own
  *   sentence as `stateReason`. A failed queue item sits in the queue until

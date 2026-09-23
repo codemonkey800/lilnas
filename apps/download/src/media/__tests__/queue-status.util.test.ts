@@ -5,7 +5,10 @@ import {
   deriveStatusFromQueueItem,
   describeQueueItemError,
   isQueueSnapshotEqual,
+  LEFT_QUEUE_WITHOUT_FILE_ERROR,
   matchesScope,
+  QUEUE_ABSENCE_GRACE_MS,
+  settleWithoutQueueItem,
   toQueueSnapshot,
 } from 'src/media/queue-status.util'
 
@@ -105,24 +108,6 @@ describe('describeQueueItemError', () => {
 })
 
 describe('deriveStatusFromQueueItem', () => {
-  it('completes a job that was downloading/importing once it drops out of the queue', () => {
-    expect(
-      deriveStatusFromQueueItem(DownloadJobStatus.Downloading, undefined),
-    ).toBe(DownloadJobStatus.Completed)
-    expect(
-      deriveStatusFromQueueItem(DownloadJobStatus.Importing, undefined),
-    ).toBe(DownloadJobStatus.Completed)
-  })
-
-  it('leaves a not-yet-grabbed job alone when there is no queue entry', () => {
-    expect(
-      deriveStatusFromQueueItem(DownloadJobStatus.Requested, undefined),
-    ).toBe(DownloadJobStatus.Requested)
-    expect(
-      deriveStatusFromQueueItem(DownloadJobStatus.Searching, undefined),
-    ).toBe(DownloadJobStatus.Searching)
-  })
-
   it('maps a failed queue status to Failed', () => {
     expect(
       deriveStatusFromQueueItem(DownloadJobStatus.Downloading, {
@@ -188,12 +173,6 @@ describe('deriveStatusFromQueueItem', () => {
     ).toBe(DownloadJobStatus.Downloading)
   })
 
-  it('completes a needs-attention job once it drops out of the queue', () => {
-    expect(
-      deriveStatusFromQueueItem(DownloadJobStatus.NeedsAttention, undefined),
-    ).toBe(DownloadJobStatus.Completed)
-  })
-
   it('maps trackedDownloadState "imported" and status "completed" to Importing', () => {
     expect(
       deriveStatusFromQueueItem(DownloadJobStatus.Downloading, {
@@ -228,9 +207,110 @@ describe('deriveStatusFromQueueItem', () => {
   })
 })
 
+describe('settleWithoutQueueItem', () => {
+  const GRACE = QUEUE_ABSENCE_GRACE_MS
+  const {
+    Cancelled,
+    Cancelling,
+    Cleaning,
+    Completed,
+    Converting,
+    Downloading,
+    Failed,
+    Importing,
+    NeedsAttention,
+    Paused,
+    Pausing,
+    Pending,
+    Requested,
+    Searching,
+    Uploading,
+  } = DownloadJobStatus
+
+  // [current, fileLanded, absentForMs, expected] - `undefined` is "leave the
+  // job unchanged".
+  const rows: Array<
+    [DownloadJobStatus, boolean, number, DownloadJobStatus | undefined]
+  > = [
+    // A file landed: completed, whatever the job last looked like - that
+    // includes a whole download that ran between two ticks while the job
+    // still read `searching`, and a blocked import a human finished.
+    [Requested, true, 0, Completed],
+    [Searching, true, 0, Completed],
+    [Downloading, true, 0, Completed],
+    [Importing, true, 0, Completed],
+    [NeedsAttention, true, 0, Completed],
+    [Paused, true, 0, Completed],
+    [Downloading, true, GRACE * 10, Completed],
+
+    // Grabbed, no file, inside the grace period: the import may be racing
+    // the file listing.
+    [Downloading, false, 0, undefined],
+    [Downloading, false, GRACE - 1, undefined],
+    [Importing, false, 0, undefined],
+    [Importing, false, GRACE - 1, undefined],
+    [Paused, false, GRACE - 1, undefined],
+
+    // Grabbed, no file, grace spent: the download left and nothing landed.
+    [Downloading, false, GRACE, Failed],
+    [Downloading, false, GRACE + 1_000, Failed],
+    [Importing, false, GRACE, Failed],
+    [Paused, false, GRACE, Failed],
+
+    // Never grabbed, or waiting on a human: an empty queue is expected, and
+    // no amount of waiting makes it a failure.
+    [Requested, false, 0, undefined],
+    [Requested, false, GRACE * 10, undefined],
+    [Searching, false, 0, undefined],
+    [Searching, false, GRACE * 10, undefined],
+    [NeedsAttention, false, 0, undefined],
+    [NeedsAttention, false, GRACE * 10, undefined],
+
+    // Video-only statuses a movie/show job never holds: never moved.
+    ...[Cancelling, Cleaning, Converting, Pausing, Pending, Uploading].flatMap(
+      (status): Array<[DownloadJobStatus, boolean, number, undefined]> => [
+        [status, true, GRACE, undefined],
+        [status, false, GRACE, undefined],
+      ],
+    ),
+
+    // Terminal: already settled.
+    ...[Cancelled, Completed, Failed].flatMap(
+      (status): Array<[DownloadJobStatus, boolean, number, undefined]> => [
+        [status, true, GRACE, undefined],
+        [status, false, GRACE, undefined],
+      ],
+    ),
+  ]
+
+  it.each(rows)(
+    '%s, file landed %s, absent %d ms -> %s',
+    (current, fileLanded, absentForMs, expected) => {
+      expect(settleWithoutQueueItem(current, fileLanded, absentForMs)).toBe(
+        expected,
+      )
+    },
+  )
+
+  it('covers every job status', () => {
+    const covered = new Set(rows.map(([status]) => status))
+
+    expect(Array.from(covered).sort()).toEqual(
+      Object.values(DownloadJobStatus).sort(),
+    )
+  })
+
+  it('waits a minute', () => {
+    expect(QUEUE_ABSENCE_GRACE_MS).toBe(60_000)
+    expect(LEFT_QUEUE_WITHOUT_FILE_ERROR).toBe(
+      'Left the queue without producing a file',
+    )
+  })
+})
+
 describe('aggregateQueueItems', () => {
-  // The same thing `queue.find()` returned for "no entry", so
-  // deriveStatusFromQueueItem's existing no-entry branch keeps working.
+  // The same thing `queue.find()` returns for "no entry", so the poller
+  // hands both to settleWithoutQueueItem the same way.
   it('returns undefined for an empty list', () => {
     expect(aggregateQueueItems([])).toBeUndefined()
   })
@@ -263,7 +343,7 @@ describe('aggregateQueueItems', () => {
     ])
 
     expect(
-      deriveStatusFromQueueItem(DownloadJobStatus.Downloading, aggregate),
+      deriveStatusFromQueueItem(DownloadJobStatus.Downloading, aggregate!),
     ).toBe(DownloadJobStatus.Failed)
   })
 
@@ -280,7 +360,7 @@ describe('aggregateQueueItems', () => {
 
     expect(aggregate).toMatchObject({ size: 3, sizeleft: 2 })
     expect(
-      deriveStatusFromQueueItem(DownloadJobStatus.Downloading, aggregate),
+      deriveStatusFromQueueItem(DownloadJobStatus.Downloading, aggregate!),
     ).toBe(DownloadJobStatus.NeedsAttention)
   })
 
@@ -291,7 +371,7 @@ describe('aggregateQueueItems', () => {
     ])
 
     expect(
-      deriveStatusFromQueueItem(DownloadJobStatus.Downloading, aggregate),
+      deriveStatusFromQueueItem(DownloadJobStatus.Downloading, aggregate!),
     ).toBe(DownloadJobStatus.Failed)
   })
 
@@ -315,7 +395,7 @@ describe('aggregateQueueItems', () => {
     ])
 
     expect(
-      deriveStatusFromQueueItem(DownloadJobStatus.Downloading, aggregate),
+      deriveStatusFromQueueItem(DownloadJobStatus.Downloading, aggregate!),
     ).toBe(DownloadJobStatus.Downloading)
   })
 
@@ -329,7 +409,7 @@ describe('aggregateQueueItems', () => {
     ])
 
     expect(
-      deriveStatusFromQueueItem(DownloadJobStatus.Downloading, aggregate),
+      deriveStatusFromQueueItem(DownloadJobStatus.Downloading, aggregate!),
     ).toBe(DownloadJobStatus.Downloading)
   })
 
@@ -340,7 +420,7 @@ describe('aggregateQueueItems', () => {
     ])
 
     expect(
-      deriveStatusFromQueueItem(DownloadJobStatus.Downloading, aggregate),
+      deriveStatusFromQueueItem(DownloadJobStatus.Downloading, aggregate!),
     ).toBe(DownloadJobStatus.Paused)
   })
 
@@ -351,7 +431,7 @@ describe('aggregateQueueItems', () => {
     ])
 
     expect(
-      deriveStatusFromQueueItem(DownloadJobStatus.Downloading, aggregate),
+      deriveStatusFromQueueItem(DownloadJobStatus.Downloading, aggregate!),
     ).toBe(DownloadJobStatus.Importing)
   })
 

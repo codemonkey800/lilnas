@@ -135,9 +135,8 @@ const STATUS_PRECEDENCE: DownloadJobStatus[] = [
  *   every failure rather than whichever happened to sort first.
  *
  * Returns `undefined` for an empty list, which is deliberately the same
- * thing `queue.find()` used to return for "no entry" - so
- * `deriveStatusFromQueueItem`'s existing no-entry branch (and its
- * disappeared-means-completed rule) keeps working untouched.
+ * thing `queue.find()` returns for "no entry" - so the poller hands both to
+ * `settleWithoutQueueItem` the same way.
  */
 export function aggregateQueueItems(
   items: PollableQueueItem[],
@@ -192,16 +191,13 @@ export function describeQueueItemError(
 }
 
 /**
- * Maps a job's current status plus its latest (possibly absent) queue entry
- * to the next `DownloadJobStatus`, per the
+ * Maps a job's current status plus its queue entry to the next
+ * `DownloadJobStatus`, per the
  * `Requested -> Searching -> Downloading -> Importing/NeedsAttention ->
- * Completed/Failed` lifecycle:
+ * Completed/Failed` lifecycle. The entry is required: a job with **no**
+ * entry is `settleWithoutQueueItem`'s question, because the queue alone
+ * can't tell a finished import from a download that vanished.
  *
- * - No entry: if we'd already seen it downloading/importing/needing
- *   attention, its disappearance means Radarr/Sonarr finished the import
- *   (or a human did, from the manual-import dialog) and dropped it from the
- *   queue, so we call it Completed. Otherwise (still Requested/Searching)
- *   we haven't been grabbed yet - stay put.
  * - `status: 'failed'` or `trackedDownloadStatus: 'error'`: Failed.
  * - `trackedDownloadState: 'importBlocked'`/`'importPending'`, or a
  *   `status: 'completed'` item carrying `trackedDownloadStatus: 'warning'`:
@@ -213,7 +209,7 @@ export function describeQueueItemError(
  * - `trackedDownloadState: 'importing'`: Importing.
  * - `trackedDownloadState: 'imported'` or `status: 'completed'`: the file
  *   landed but may still be finishing import bookkeeping - Importing until
- *   it drops out of the queue entirely (see the "no entry" branch above).
+ *   it drops out of the queue entirely (see `settleWithoutQueueItem`).
  * - `status: 'paused'`: Paused. This is Radarr's/Sonarr's own queue reporting
  *   that the *backing download client* (qBittorrent, SABnzbd, ...) paused the
  *   item - independent of, and unrelated to, this app's video-only
@@ -226,21 +222,11 @@ export function describeQueueItemError(
  *   Only import-stage signals count as NeedsAttention.
  */
 export function deriveStatusFromQueueItem(
-  currentStatus: DownloadJobStatus,
-  item: PollableQueueItem | undefined,
+  // Unread since the no-entry branch moved out - every present item decides
+  // on its own - but kept so a caller still states where the job stands.
+  _current: DownloadJobStatus,
+  item: PollableQueueItem,
 ): DownloadJobStatus {
-  if (!item) {
-    if (
-      currentStatus === DownloadJobStatus.Downloading ||
-      currentStatus === DownloadJobStatus.Importing ||
-      currentStatus === DownloadJobStatus.NeedsAttention
-    ) {
-      return DownloadJobStatus.Completed
-    }
-
-    return currentStatus
-  }
-
   if (item.status === 'failed' || item.trackedDownloadStatus === 'error') {
     return DownloadJobStatus.Failed
   }
@@ -279,6 +265,77 @@ export function deriveStatusFromQueueItem(
   }
 
   return DownloadJobStatus.Downloading
+}
+
+/**
+ * How long a grabbed job may be missing from the queue, with no file to show
+ * for it, before it is called failed. Wall-clock, so a run of failed polls
+ * counts toward it rather than pausing it.
+ *
+ * Long enough to cover the one honest reason for the gap: Radarr/Sonarr drop
+ * the queue row at the end of an import slightly before the file listing
+ * reports the new file, so a tick can land in between.
+ */
+export const QUEUE_ABSENCE_GRACE_MS = 60_000
+
+/** The error a job fails with when it left the queue and nothing landed. */
+export const LEFT_QUEUE_WITHOUT_FILE_ERROR =
+  'Left the queue without producing a file'
+
+// Statuses that mean a release was grabbed: the job has been seen in the
+// queue, so leaving it is the end of the attempt one way or the other.
+// `Paused` is here because only a queue item can report it.
+const GRABBED_STATUSES = new Set<DownloadJobStatus>([
+  DownloadJobStatus.Downloading,
+  DownloadJobStatus.Importing,
+  DownloadJobStatus.Paused,
+])
+
+// Statuses where an empty queue is the expected reading: nothing grabbed
+// yet, or a blocked import waiting on a human.
+const WAITING_STATUSES = new Set<DownloadJobStatus>([
+  DownloadJobStatus.Requested,
+  DownloadJobStatus.Searching,
+  DownloadJobStatus.NeedsAttention,
+])
+
+/**
+ * Where a movie/show job goes when no queue item matches it this tick, or
+ * `undefined` to leave it where it is.
+ *
+ * An empty queue is ambiguous on its own - "never grabbed", "grabbed and
+ * imported between two ticks" and "grabbed and then dropped" all look the
+ * same - so the answer comes from the library instead: `fileLanded` is
+ * `didJobComplete`'s verdict on whether a file for the job's scope was added
+ * after the job was created.
+ *
+ * - A file landed: Completed, whatever the status. That includes a
+ *   `searching` job whose whole download happened between two ticks, and a
+ *   `needs_attention` job a human imported by hand.
+ * - Grabbed (downloading/importing/paused), no file: unchanged for
+ *   `QUEUE_ABSENCE_GRACE_MS`, since the import may still be racing the file
+ *   listing, then Failed.
+ * - Waiting (requested/searching/needs_attention), no file: unchanged.
+ *   Nothing was grabbed, or a person has not acted yet.
+ * - Anything else - terminal, or a video-only status a movie/show job never
+ *   holds: unchanged.
+ */
+export function settleWithoutQueueItem(
+  current: DownloadJobStatus,
+  fileLanded: boolean,
+  absentForMs: number,
+): DownloadJobStatus | undefined {
+  const grabbed = GRABBED_STATUSES.has(current)
+
+  if (!grabbed && !WAITING_STATUSES.has(current)) return undefined
+
+  if (fileLanded) return DownloadJobStatus.Completed
+
+  if (grabbed && absentForMs >= QUEUE_ABSENCE_GRACE_MS) {
+    return DownloadJobStatus.Failed
+  }
+
+  return undefined
 }
 
 /**
