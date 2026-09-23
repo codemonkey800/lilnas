@@ -263,7 +263,7 @@ export type MovieDetailProps = Omit<
   imports?: ImportDialogActions
   /** `MediaDetailResponse.jobs` verbatim, newest first. */
   jobs: readonly DownloadJob[]
-  movie: Movie
+  media: Movie
   /** The instant every relative stamp is measured against, pinned by the page. */
   now: number
   /**
@@ -359,7 +359,7 @@ export function MovieDetail({
   className,
   imports,
   jobs,
-  movie,
+  media,
   now,
   onCancel,
   onDelete,
@@ -375,13 +375,13 @@ export function MovieDetail({
   stale = false,
   ...props
 }: MovieDetailProps): JSX.Element {
-  const watch = movieWatchState(movie)
-  const watchUrl = movie.embyStatus?.watchUrl
+  const watch = movieWatchState(media)
+  const watchUrl = media.embyStatus?.watchUrl
   // ⚠️ Not `movie.filePath !== undefined`, which is what this used to be and
   // what read false for every downloaded movie on the live page. See
   // `movieHasFile`.
-  const hasFile = movieHasFile(movie)
-  const state = mediaState(movie)
+  const hasFile = movieHasFile(media)
+  const state = mediaState(media)
   const downloadable = DOWNLOADABLE_STATES.has(state)
   const attemptInFlight = jobs.some(
     job => !isTerminalDownloadJobStatus(job.status),
@@ -389,12 +389,12 @@ export function MovieDetail({
   // Attribution only — who asked last, whatever became of it. Nothing on this
   // page reads a job's status as the movie's.
   const job = latestJob(jobs)
-  const degraded = isMetadataUnavailable(movie)
+  const degraded = isMetadataUnavailable(media)
 
   // "Started from Radarr": a bar with nothing of ours behind it. The server's
   // own reason wins when there is one — it is the more specific sentence.
   const externalQueue =
-    mediaProgress(movie) !== null && !attemptInFlight && !movie.stateReason
+    mediaProgress(media) !== null && !attemptInFlight && !media.stateReason
 
   // ⚠️ Disconnected **and** something to miss — the same guard the video page
   // makes. A socket down while the movie is settled costs the reader nothing;
@@ -437,7 +437,7 @@ export function MovieDetail({
       <MovieRequestButton
         className={cns(ACTION_BUTTON)}
         key="request"
-        mediaId={movie.id}
+        mediaId={media.id}
         onRequest={onRequest}
       />,
     )
@@ -445,7 +445,7 @@ export function MovieDetail({
 
   if (hasFile) {
     actions.push(
-      <SaveLocal className={cns(ACTION_BUTTON)} key="save" media={movie} />,
+      <SaveLocal className={cns(ACTION_BUTTON)} key="save" media={media} />,
       // ⚠️ `full` **and** `w-full sm:w-auto`. `DeleteConfirm` renders a `<div>`
       // root, so `full` is the only way to stretch the trigger inside it; the
       // className then narrows the root itself back to content width from `sm`,
@@ -454,17 +454,17 @@ export function MovieDetail({
         className={cns(ACTION_BUTTON)}
         full
         key="delete"
-        mediaId={movie.id}
+        mediaId={media.id}
         onDelete={onDelete}
         scope={MOVIE_SCOPE}
-        title={movie.title}
+        title={media.title}
       />,
     )
   }
 
   const releaseProps = {
     badFiles,
-    currentGuid: movie.currentReleaseGuid,
+    currentGuid: media.currentReleaseGuid,
     // Every pick is a replace once there is a file — one call that deletes and
     // grabs together, never a delete followed by a grab. Passed explicitly
     // because the prop otherwise defaults off `currentGuid`, and the two are
@@ -472,7 +472,7 @@ export function MovieDetail({
     // recovered has no guid and still has to replace rather than grab.
     // `filePath` is the fact that decides it.
     hasFile,
-    mediaId: movie.id,
+    mediaId: media.id,
     onFlag,
     onGrab,
     onReplace,
@@ -488,7 +488,7 @@ export function MovieDetail({
         reopen, so the structure is supplied here — the same call `gallery`
         made for its own unlabelled screen.
       */}
-      <h1 className={cns('sr-only')}>{movie.title}</h1>
+      <h1 className={cns('sr-only')}>{media.title}</h1>
       {degraded ? (
         <Note className={cns('mb-4')}>{MOVIE_METADATA_NOTE}</Note>
       ) : null}
@@ -521,7 +521,7 @@ export function MovieDetail({
           <div className={cns('flex flex-col gap-[14px]')}>
             <MediaStatus
               explain={externalQueue ? MOVIE_EXTERNAL_QUEUE_NOTE : undefined}
-              media={movie}
+              media={media}
             />
             {reconnecting ? (
               // `w-fit` because this is a flex column — see the same marker on
@@ -533,9 +533,9 @@ export function MovieDetail({
             ) : null}
           </div>
         }
-        media={movie}
-        meta={movieMetaLine(movie)}
-        synopsis={movie.overview}
+        media={media}
+        meta={movieMetaLine(media)}
+        synopsis={media.overview}
       />
       <AttemptList
         className={cns(SECTION)}

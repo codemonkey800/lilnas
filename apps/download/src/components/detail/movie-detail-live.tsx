@@ -18,16 +18,16 @@ import { useLiveMedia } from 'src/lib/use-live-media'
  */
 export function MovieDetailLive({
   jobs,
-  movie,
+  media,
   ...props
 }: MovieDetailProps): JSX.Element {
-  const live = useLiveMedia({ jobs, media: movie })
+  const live = useLiveMedia({ jobs, media })
 
   return (
     <MovieDetail
       {...props}
       jobs={live.jobs}
-      movie={live.media}
+      media={live.media}
       stale={!live.connected}
     />
   )

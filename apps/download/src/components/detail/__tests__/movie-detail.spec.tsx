@@ -199,7 +199,7 @@ const CURRENT_FLAG: BadFile = {
 
 function renderDetail(overrides: Partial<MovieDetailProps> = {}) {
   return render(
-    <MovieDetail jobs={[JOB]} movie={MOVIE} now={NOW} {...overrides} />,
+    <MovieDetail jobs={[JOB]} media={MOVIE} now={NOW} {...overrides} />,
   )
 }
 
@@ -408,7 +408,7 @@ describe('MovieDetail — the Emby handoff', () => {
   })
 
   it('offers no Watch while Emby is still indexing, and says so', () => {
-    renderDetail({ movie: { ...MOVIE, embyStatus: { state: 'indexing' } } })
+    renderDetail({ media: { ...MOVIE, embyStatus: { state: 'indexing' } } })
 
     expect(
       screen.queryByRole('link', { name: MOVIE_WATCH_LABEL }),
@@ -417,7 +417,7 @@ describe('MovieDetail — the Emby handoff', () => {
   })
 
   it('says Emby could not be asked when its lookup failed', () => {
-    renderDetail({ movie: { ...MOVIE, embyStatus: { state: 'unknown' } } })
+    renderDetail({ media: { ...MOVIE, embyStatus: { state: 'unknown' } } })
 
     expect(
       screen.queryByRole('link', { name: MOVIE_WATCH_LABEL }),
@@ -426,7 +426,7 @@ describe('MovieDetail — the Emby handoff', () => {
   })
 
   it('draws neither a Watch nor an indexing state when there is no file', () => {
-    renderDetail({ jobs: [], movie: UNFETCHED })
+    renderDetail({ jobs: [], media: UNFETCHED })
 
     expect(
       screen.queryByRole('link', { name: MOVIE_WATCH_LABEL }),
@@ -476,7 +476,7 @@ describe('MovieDetail — metadata', () => {
   it('explains a Radarr outage instead of pretending the movie is missing', () => {
     renderDetail({
       jobs: [],
-      movie: {
+      media: {
         id: MOVIE_ID,
         title: MOVIE_ID,
         tmdbId: 438631,
@@ -563,14 +563,14 @@ describe('MovieDetail — media state', () => {
   it('⚠️ reads the live payload shape: filePath absent, embyStatus indexed', () => {
     // The shape `GET /media/:id` actually handed the page. The chip reads
     // `state`; Watch, Save and Delete still read the file witnesses.
-    renderDetail({ jobs: [], movie: INDEXED_NO_PATH })
+    renderDetail({ jobs: [], media: INDEXED_NO_PATH })
 
     expect(screen.getByText('in library')).toBeInTheDocument()
     expect(firstButton(/^delete$/i)).toBeInTheDocument()
   })
 
   it('chips a movie with nothing grabbed "not downloaded" and offers Download', () => {
-    renderDetail({ jobs: [], movie: UNFETCHED })
+    renderDetail({ jobs: [], media: UNFETCHED })
 
     expect(screen.getByText('not downloaded')).toBeInTheDocument()
     expect(downloadButton()).toBeInTheDocument()
@@ -578,14 +578,14 @@ describe('MovieDetail — media state', () => {
   })
 
   it('offers Download for a wanted movie', () => {
-    renderDetail({ jobs: [], movie: WANTED })
+    renderDetail({ jobs: [], media: WANTED })
 
     expect(screen.getByText('wanted')).toBeInTheDocument()
     expect(downloadButton()).toBeInTheDocument()
   })
 
   it('draws the queue’s progress with no attempt behind it — started from Radarr', () => {
-    renderDetail({ jobs: [], movie: RADARR_GRAB })
+    renderDetail({ jobs: [], media: RADARR_GRAB })
 
     // The chip, not the queue's own status note under the bar, which happens
     // to say the same word.
@@ -603,7 +603,7 @@ describe('MovieDetail — media state', () => {
   })
 
   it('draws no bar at all when there is no queue snapshot', () => {
-    renderDetail({ jobs: [], movie: WANTED })
+    renderDetail({ jobs: [], media: WANTED })
 
     // A 0% bar is a claim. No snapshot means "draw nothing".
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
@@ -612,7 +612,7 @@ describe('MovieDetail — media state', () => {
   it('says a stuck import needs a decision, and why', () => {
     renderDetail({
       jobs: [],
-      movie: {
+      media: {
         ...UNFETCHED,
         state: 'needs_attention',
         stateReason: 'No files found are eligible for import',
@@ -651,7 +651,7 @@ describe('MovieDetail — media state', () => {
   it('offers Retry on a failed newest attempt while the movie is still wanted', async () => {
     const onRetry = jest.fn()
     const user = userEvent.setup()
-    renderDetail({ jobs: [FAILED], movie: WANTED, onRetry })
+    renderDetail({ jobs: [FAILED], media: WANTED, onRetry })
 
     await user.click(screen.getByRole('button', { name: /^retry$/i }))
 
@@ -661,7 +661,7 @@ describe('MovieDetail — media state', () => {
   it('chips a deleted movie "not downloaded" and keeps its old run as an attempt', () => {
     // Delete leaves a completed job row as history. It is an attempt that
     // happened, not a claim that the file is there.
-    renderDetail({ jobs: [JOB], movie: UNFETCHED })
+    renderDetail({ jobs: [JOB], media: UNFETCHED })
 
     expect(screen.getByText('not downloaded')).toBeInTheDocument()
     expect(
@@ -681,7 +681,7 @@ describe('MovieDetail — attempts', () => {
   it('highlights an in-flight attempt with Cancel, and hides the header Download', async () => {
     const onCancel = jest.fn()
     const user = userEvent.setup()
-    renderDetail({ jobs: [PENDING], movie: WANTED, onCancel })
+    renderDetail({ jobs: [PENDING], media: WANTED, onCancel })
 
     const card = document.querySelector(`[data-job-id="${PENDING.id}"]`)
     expect(card).toBeInstanceOf(HTMLElement)
@@ -700,7 +700,7 @@ describe('MovieDetail — attempts', () => {
   })
 
   it('offers no pause, resume, cancel or retry when the page wires none', () => {
-    renderDetail({ jobs: [PENDING], movie: WANTED })
+    renderDetail({ jobs: [PENDING], media: WANTED })
 
     for (const name of [/^pause$/i, /^resume$/i, /^cancel$/i, /^retry$/i]) {
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
@@ -717,7 +717,7 @@ describe('MovieDetail — attempts', () => {
     renderDetail({
       imports,
       jobs: [{ ...PENDING, status: DownloadJobStatus.NeedsAttention }],
-      movie: { ...UNFETCHED, state: 'needs_attention' },
+      media: { ...UNFETCHED, state: 'needs_attention' },
     })
 
     await userEvent.click(firstButton(IMPORT_TRIGGER_LABEL))
@@ -735,7 +735,7 @@ describe('MovieDetail — attempts', () => {
   it('offers no Import control when the page wired no importer', () => {
     renderDetail({
       jobs: [{ ...PENDING, status: DownloadJobStatus.NeedsAttention }],
-      movie: { ...UNFETCHED, state: 'needs_attention' },
+      media: { ...UNFETCHED, state: 'needs_attention' },
     })
 
     expect(
@@ -756,7 +756,7 @@ describe('MovieDetail — attempts', () => {
 
 describe('MovieDetail — the live feed marker', () => {
   it('says it is reconnecting while a download is moving', () => {
-    renderDetail({ jobs: [], movie: RADARR_GRAB, stale: true })
+    renderDetail({ jobs: [], media: RADARR_GRAB, stale: true })
 
     expect(screen.getByText(MOVIE_STALE_LABEL)).toBeInTheDocument()
   })
@@ -772,7 +772,7 @@ describe('MovieDetail — the download shortcut', () => {
   it('passes the movie’s own media key to the handler, and nothing else', async () => {
     const onRequest = jest.fn().mockResolvedValue(undefined)
     const user = userEvent.setup()
-    renderDetail({ jobs: [], movie: UNFETCHED, onRequest })
+    renderDetail({ jobs: [], media: UNFETCHED, onRequest })
 
     await user.click(firstButton(MOVIE_REQUEST_LABEL))
 
@@ -785,7 +785,7 @@ describe('MovieDetail — the download shortcut', () => {
     ['paused'] as const,
     ['needs_attention'] as const,
   ])('hides it while the movie is %s', state => {
-    renderDetail({ jobs: [], movie: { ...UNFETCHED, state } })
+    renderDetail({ jobs: [], media: { ...UNFETCHED, state } })
 
     expect(
       screen.queryByRole('button', { name: MOVIE_REQUEST_LABEL }),
@@ -803,7 +803,7 @@ describe('MovieDetail — save and delete', () => {
   })
 
   it('offers neither save nor delete when there is no file', () => {
-    renderDetail({ jobs: [], movie: UNFETCHED })
+    renderDetail({ jobs: [], media: UNFETCHED })
 
     expect(
       screen.queryByRole('link', { name: SAVE_LOCAL_LABEL }),
@@ -920,7 +920,7 @@ describe('MovieDetail — the release picker', () => {
     const onSearch = jest.fn().mockResolvedValue({ releases: [ALTERNATIVE] })
     const onGrab = jest.fn().mockResolvedValue({ job: JOB })
 
-    renderDetail({ jobs: [], movie: UNFETCHED, onGrab, onSearch })
+    renderDetail({ jobs: [], media: UNFETCHED, onGrab, onSearch })
     await user.click(firstButton(RELEASE_SEARCH_LABEL))
     await user.click(
       await screen.findByRole('button', {
@@ -995,7 +995,7 @@ describe('MovieDetail — the release picker', () => {
       .mockResolvedValue({ releases: [CURRENT, ALTERNATIVE] })
 
     renderDetail({
-      movie: ON_DISK,
+      media: ON_DISK,
       onFlag: jest.fn(),
       onReplace: jest.fn(),
       onSearch,
@@ -1025,7 +1025,7 @@ describe('MovieDetail — the release picker', () => {
     const user = userEvent.setup()
     const onSearch = jest.fn().mockResolvedValue({ releases: [CURRENT] })
 
-    renderDetail({ movie: ON_DISK, onFlag: jest.fn(), onSearch })
+    renderDetail({ media: ON_DISK, onFlag: jest.fn(), onSearch })
     await user.click(firstButton(RELEASE_SEARCH_LABEL))
     await screen.findAllByText(RELEASE_CURRENT_LABEL)
 
@@ -1044,7 +1044,7 @@ describe('MovieDetail — the release picker', () => {
 
     renderDetail({
       badFiles: [CURRENT_FLAG],
-      movie: ON_DISK,
+      media: ON_DISK,
       onFlag: jest.fn(),
       onReplace: jest.fn(),
       onSearch,
@@ -1068,7 +1068,7 @@ describe('MovieDetail — the release picker', () => {
   it('never searches on mount, guid or no guid', async () => {
     const onSearch = jest.fn()
 
-    renderDetail({ movie: ON_DISK, onFlag: jest.fn(), onSearch })
+    renderDetail({ media: ON_DISK, onFlag: jest.fn(), onSearch })
 
     // Knowing which release is current must not become a reason to go looking
     // for the rest of them — `GET /media/:id/releases` still writes upstream.

@@ -61,7 +61,7 @@ function setup(jobs: readonly DownloadJob[] = []) {
       getLocation={() => TEST_LOCATION}
       random={NO_JITTER}
     >
-      <MovieDetailLive jobs={jobs} movie={DOWNLOADING} now={NOW} />
+      <MovieDetailLive jobs={jobs} media={DOWNLOADING} now={NOW} />
     </JobEventsProvider>,
   )
 

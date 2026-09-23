@@ -228,7 +228,7 @@ export default async function MoviePage({
           <MovieDetailLive
             badFiles={badFiles}
             // The three unbound server actions `ImportDialog` calls, handed
-            // through the detail component to the lifecycle panel. Unbound on
+            // through the detail component to the attempts list. Unbound on
             // purpose: the dialog supplies the media key and the scope, so this
             // page never has to know which job is stuck.
             imports={{
@@ -237,7 +237,7 @@ export default async function MoviePage({
               list: listImportCandidates,
             }}
             jobs={detail.jobs}
-            movie={detail.media}
+            media={detail.media}
             now={now}
             onDelete={deleteMediaFiles}
             onFlag={flagBadFile}
