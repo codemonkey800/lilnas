@@ -9,10 +9,11 @@ import type { ButtonVariant } from 'src/components/ui/button-recipe'
 import type { IconName } from 'src/components/ui/icon'
 
 /**
- * The action pieces `JobLifecycle` and `AttemptList` share — what a page hands
- * over for a job action, what each control looks like and in what order, and
- * the row they sit in. Which of them a given job offers is never decided here:
- * that is `jobActionState` in `job-state.ts`.
+ * The job action pieces — what a page hands over for a job action, what each
+ * control looks like and in what order, and the row they sit in. `AttemptList`
+ * renders them; `show-episode-row.tsx` and `video-detail.tsx` borrow single
+ * pieces. Which of them a given job offers is never decided here: that is
+ * `jobActionState` in `job-state.ts`.
  */
 
 /**
@@ -21,21 +22,14 @@ import type { IconName } from 'src/components/ui/icon'
  * It takes the job id rather than closing over one, which is the whole reason
  * a page never has to pick the job itself: E2's `src/app/actions/video-job.ts`
  * exports plain `(jobId: string) => Promise<void>` server actions, the page
- * passes the unbound reference straight through, and the panel calls it with
- * whichever job it is actually rendering. There is no second place for the two
- * to disagree about which attempt is current.
+ * passes the unbound reference straight through, and each attempt card calls
+ * it with the id of the job it is rendering. There is no second place for the
+ * two to disagree about which attempt a press was meant for.
  *
  * `void` as well as `Promise<void>` so a client-side handler (an optimistic
  * store update, a test spy) is assignable too.
  */
 export type JobAction = (jobId: string) => Promise<void> | void
-
-/** Where a `watch`/`save` control navigates. */
-export type JobLifecycleLink = {
-  /** Opens in a new tab with `rel="noreferrer"` - Emby's `watchUrl`. */
-  external?: boolean
-  href: string
-}
 
 export type ActionSpec = {
   iconEnd?: IconName

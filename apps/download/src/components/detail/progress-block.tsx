@@ -13,7 +13,7 @@ export type ProgressBlockProps = {
 /**
  * `video-detail.pug`'s `progress` mixin, and `movie-detail.pug`'s
  * `startedFromRadarrFrame` card: an annotation and a percentage over a bar,
- * then one mono line under it. Shared by `JobLifecycle` and `MediaStatus`.
+ * then one mono line under it. Drawn by `MediaStatus`.
  *
  * ⚠️ The mixin's line reads `412 MB / 640 MB · 3.1 MB/s · ~2m left` and its
  * annotation reads `fragment 4 of 9`. Neither has anything behind it - see

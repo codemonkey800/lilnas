@@ -412,7 +412,7 @@ export type DeleteConfirmProps = Omit<
  *
  * The delete itself is a callback, never an import: the server actions live in
  * `src/app/actions/media-files.ts` and `src/app/actions/video-job.ts` and the
- * *page* wires one, exactly as `JobLifecycle` takes `onCancel`. That is also
+ * *page* wires one, exactly as `AttemptList` takes `onCancel`. That is also
  * what makes this component testable without a backend anywhere near it.
  */
 export function DeleteConfirm({

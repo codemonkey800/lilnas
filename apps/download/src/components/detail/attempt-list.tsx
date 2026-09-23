@@ -56,7 +56,9 @@ const ATTEMPT_ACTION_SPECS = ACTION_SPECS.filter(spec =>
 /**
  * ⚠️ `onCancel` and `onPause` are real `<section>` attributes (React's
  * `DOMAttributes` puts the media events on every element), so they are removed
- * before ours take those names — see the same note on `JobLifecycleProps`.
+ * before ours take those names. Left in, each intersects to
+ * `ReactEventHandler<HTMLElement> & JobAction` and no plain server action is
+ * assignable to either.
  */
 export type AttemptListProps = Omit<
   ComponentPropsWithoutRef<'section'>,
@@ -108,8 +110,8 @@ function newestFirst(jobs: readonly DownloadJob[]): DownloadJob[] {
  * history under them.
  *
  * Ports the `attemptsList`, `attemptInFlight` and `attemptLine` mixins from
- * `movie-detail.pug`, `show-detail.pug` and `video-detail.pug`, and replaces
- * `JobLifecycle` + `JobHistory`. The chip at the top of the page is
+ * `movie-detail.pug`, `show-detail.pug` and `video-detail.pug`. The chip at
+ * the top of the page is
  * `MediaStatus`'s and reads the media; this list reads only jobs, so neither
  * can talk the other into a wrong answer.
  *
@@ -232,8 +234,9 @@ function AttemptCard({
   const [pending, startTransition] = useTransition()
 
   const tone = statusTone(job.status)
-  // The same derivation `JobLifecycle` makes: `uv` is the tone of work the
-  // machine is actively doing, which is what the breathing dot means.
+  // Derived from the tone rather than a second list of statuses: `uv` is the
+  // tone of work the machine is actively doing, which is what the breathing
+  // dot means.
   const live = tone === 'uv'
   const progress = jobProgress(job)
   const note = [attemptScopeLabel(job.scope), job.error]
@@ -252,8 +255,11 @@ function AttemptCard({
       return null
     }
 
-    // The dialog owns its own open and pending state — see the same branch in
-    // `JobLifecycle` for why the card's transition does not reach it.
+    // The dialog owns its own open state, its one fetch and its own pending
+    // flag, so the card's transition does not reach it — it would only disable
+    // the press that opens a modal, and `import` is never `acknowledged`
+    // anyway: nothing moves a job out of `needs_attention` until a human
+    // answers.
     if (spec.key === 'import') {
       if (!imports) {
         return null

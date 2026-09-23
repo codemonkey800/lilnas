@@ -98,7 +98,7 @@ export default function MovieLoading(): JSX.Element {
         </div>
 
         <div className={cns('mt-7 sm:mt-8')}>
-          {/* The `Status` eyebrow, then the chip `JobLifecycle` opens with. */}
+          {/* The `Status` eyebrow, then the chip `MediaStatus` opens with. */}
           <Skeleton className={cns('mb-2.5 h-[11px] w-[58px]')} />
           <Skeleton className={cns('h-[23px] w-[132px] rounded-full')} />
         </div>

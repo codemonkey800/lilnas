@@ -21,9 +21,9 @@ import { mediaHref } from 'src/lib/media-route'
  * Every one of these is addressed by **job** id, never by the `video:` media
  * key — `PATCH /download/videos/:id/{cancel,pause,resume}` and
  * `DELETE /download/videos/:id` all take the job. That is also why the four
- * lifecycle actions can be passed to `JobLifecycle` completely unbound: its
- * `JobAction` is `(jobId: string) => …` and the panel calls it with whichever
- * attempt it is actually rendering, so the page never picks a job itself.
+ * lifecycle actions can be passed to `AttemptList` completely unbound: its
+ * `JobAction` is `(jobId: string) => …` and each attempt card calls it with
+ * the id of the job it is rendering, so the page never picks a job itself.
  */
 
 /**
@@ -160,7 +160,7 @@ export async function resumeVideoJob(jobId: string): Promise<void> {
  * `{sourceUrl}#{start}-{end}` behind a unique index, so
  * `upsertVideoByNaturalKey()` collapses the request onto the existing row and
  * keeps its first-minted `id`. The user lands back on this same URL with the
- * new attempt on top and the failed one beneath it in `JobHistory`.
+ * new attempt on top and the failed one beneath it in `AttemptList`.
  *
  * That is also why `timeRange` and `hiddenAttribution` are carried across
  * rather than defaulted: dropping the range would mint a *different* natural

@@ -4,22 +4,21 @@ import { DownloadJobStatus, isManagedMedia } from '@lilnas/utils/download/types'
 import { isInProgress } from 'src/lib/format'
 
 /**
- * The lifecycle logic `JobLifecycle` renders, kept in a module of its own
- * rather than beside the component.
+ * The per-job logic `AttemptList` renders, kept in a module of its own rather
+ * than beside the component.
  *
- * `job-lifecycle.tsx` is `'use client'`, and every export of a `'use client'`
+ * `attempt-list.tsx` is `'use client'`, and every export of a `'use client'`
  * module reaches a server component as an opaque client *reference* - calling
  * one from a server page throws. A detail page legitimately needs some of this
- * on the server (deciding whether to render a Delete control at all, say), so
- * the pure half lives here, where both sides of the boundary can call it.
+ * on the server (picking the newest job, say), so the pure half lives here,
+ * where both sides of the boundary can call it.
  */
 
 /**
  * The seven things a detail page can offer to do to a job. `watch` and `save`
- * are navigations rather than mutations - see `JobLifecycleLink` - but they
- * are part of the same state table, because "which of these does this status
- * offer" is one question and answering it in two places is how the three
- * detail pages would drift apart.
+ * are navigations rather than mutations, but they are part of the same state
+ * table, because "which of these does this status offer" is one question and
+ * answering it in two places is how the three detail pages would drift apart.
  */
 export type JobActionKey =
   | 'cancel'
@@ -137,104 +136,20 @@ export function jobStatusLabel(status: DownloadJobStatus): string {
   return JOB_STATUS_LABELS[status]
 }
 
-/** What the lifecycle panel reads when a title has never been downloaded. */
-export const JOB_LIFECYCLE_EMPTY_LABEL = 'not downloaded'
-
 /**
- * The job a detail page is *about*.
+ * The newest job for a media key.
  *
  * `MediaDetailResponse.jobs` is every job ever run for a media key, newest
- * first; the panel renders the newest and `JobHistory` renders the rest. This
- * is exported so a page needing the same job for its own reasons picks it the
- * same way rather than reaching for `jobs[0]` and quietly disagreeing the day
- * the ordering is revisited.
+ * first. This is exported so a page needing the newest job for its own reasons
+ * picks it the same way rather than reaching for `jobs[0]` and quietly
+ * disagreeing the day the ordering is revisited. It says nothing about the
+ * media's state - that is `mediaState(media)`.
  *
  * `null` for an empty list - a movie sitting in the library that this app
  * never fetched is a real state on the movie page, not a bug.
  */
 export function latestJob(jobs: readonly DownloadJob[]): DownloadJob | null {
   return jobs[0] ?? null
-}
-
-/**
- * `latestJob`, discounted against whether the file it claims to have
- * produced is actually still there.
- *
- * A delete removes the title from Radarr/Sonarr and the file on disk, but
- * `ShowService.deleteFiles` deliberately leaves a terminal `DownloadJob` row
- * untouched - it is kept as history, not as a live claim. So a `Completed`
- * job whose title has no file any more is stale: `null` reads exactly like
- * "no current job", which is the state a re-deleted title should present as.
- * Any other status - including `Failed` and `Cancelled` - is trusted as-is,
- * because those never claimed a file existed in the first place.
- *
- * `hasFile` is optional because not every caller has the concept: a video job
- * has no library-backed file signal to reconcile against (see
- * `VideoSchema`), so passing nothing here keeps `latestJob`'s original,
- * unconditional behaviour.
- */
-export function currentJob(
-  jobs: readonly DownloadJob[],
-  hasFile?: boolean,
-): DownloadJob | null {
-  const job = latestJob(jobs)
-  return job?.status === DownloadJobStatus.Completed && hasFile === false
-    ? null
-    : job
-}
-
-/** What {@link mergeLiveMediaJobs} hands a movie or show page. */
-export type LiveMediaJobs = {
-  /** The server's list with every live frame folded in, in the server's order. */
-  jobs: DownloadJob[]
-  /**
-   * Ids a live frame says `completed` that the server render does not. Only a
-   * fresh server render can catch the page up once one lands, because the file,
-   * the Emby link and the current release all arrive on the *media*, not on
-   * the job frame.
-   */
-  landed: string[]
-}
-
-/**
- * The server's job list for a movie or show with every live frame folded in.
- *
- * Replacement in place, keyed by `job.id`, live copy winning, for the same
- * reasons as `mergeVideoJobs`: no re-sort, no insertion, no eviction.
- *
- * ⚠️ One difference, and it is why this is not `mergeVideoJobs`. A job that
- * turned `completed` live is held at `importing` until the page re-renders.
- * The media prop still predates the import, so it says there is no file, and
- * `currentJob` reads "completed with no file" as a deleted title. Passed
- * through as-is, the page would flash "not downloaded" and a Download button
- * for as long as the refresh takes. `importing` is also simply true: Radarr
- * or Sonarr has the file and this page has not been told where it landed yet.
- */
-export function mergeLiveMediaJobs(
-  jobs: readonly DownloadJob[],
-  live: ReadonlyMap<string, DownloadJob>,
-): LiveMediaJobs {
-  const landed: string[] = []
-
-  const merged = jobs.map(job => {
-    const next = live.get(job.id)
-
-    if (!next) {
-      return job
-    }
-
-    if (
-      next.status === DownloadJobStatus.Completed &&
-      job.status !== DownloadJobStatus.Completed
-    ) {
-      landed.push(job.id)
-      return { ...next, status: DownloadJobStatus.Importing }
-    }
-
-    return next
-  })
-
-  return { jobs: merged, landed }
 }
 
 /** Everything a progress block draws, or `null` when there is nothing to draw. */

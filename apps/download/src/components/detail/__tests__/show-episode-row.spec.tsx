@@ -66,7 +66,7 @@ const ALTERNATIVE: Release = {
 
 /**
  * The three importer calls, typed as the page passes them rather than as bare
- * `jest.fn()`s — the same reason `job-lifecycle.spec.tsx` types its own.
+ * `jest.fn()`s — the same reason `attempt-list.spec.tsx` types its own.
  * `candidates: []` is enough: this suite asserts what the row *asks*, and the
  * dialog's own rendering is already covered by `import-dialog.spec.tsx`.
  */

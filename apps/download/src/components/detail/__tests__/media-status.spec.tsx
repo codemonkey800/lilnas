@@ -202,6 +202,13 @@ describe('MediaStatus', () => {
       expect(screen.queryByText('~01:00:00 left')).not.toBeInTheDocument()
     })
 
+    it('names the bar and hides the percentage that repeats it', () => {
+      render(<MediaStatus media={VIDEO} progressPct={58} />)
+
+      expect(progressBar()).toBeInTheDocument()
+      expect(screen.getByText('58%')).toHaveAttribute('aria-hidden', 'true')
+    })
+
     it('draws an explicit percentage with no snapshot at all', () => {
       render(<MediaStatus media={VIDEO} progressPct={64} />)
 

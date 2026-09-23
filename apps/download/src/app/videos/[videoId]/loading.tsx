@@ -21,9 +21,9 @@ const POSTER = 'mb-4 aspect-video w-full rounded-md sm:mb-0 sm:w-[340px]'
  * arrived.
  *
  * Deliberately no status chip and no action row: which of those exist is a
- * function of a job status nobody has yet, and drawing a button-shaped
- * placeholder for a control that may not appear is a promise the page cannot
- * keep. `Skeleton` is `aria-hidden` and carries no size of its own, which is
+ * function of the video's media state, which nobody has yet, and drawing a
+ * button-shaped placeholder for a control that may not appear is a promise the
+ * page cannot keep. `Skeleton` is `aria-hidden` and carries no size of its own, which is
  * why every one of these is measured here.
  */
 export default function VideoDetailLoading(): JSX.Element {

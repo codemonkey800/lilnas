@@ -45,9 +45,11 @@ export type DetailHeaderProps = Omit<
   /** Credited names - a `CastRow`, or nothing. */
   cast?: ReactNode
   /**
-   * The job-state panel. On `video-detail.pug` the status chip and the
-   * progress card sit *inside* the header column, above the actions; the movie
-   * and show pages leave this out and put their lifecycle further down.
+   * The media-state panel — every detail page puts its `MediaStatus` here. On
+   * `video-detail.pug` the status chip and the progress card sit *inside* the
+   * header column, above the actions; the movie and show pages have no slot
+   * under their metadata line, so theirs lands here too, just above the
+   * actions it gates.
    */
   lifecycle?: ReactNode
   /** Out-of-app links - `video-detail.pug`'s "View original post". */

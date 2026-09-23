@@ -928,7 +928,7 @@ describe('VideoDetailLive', () => {
   })
 
   // The whole point: the page follows the media frame that lands with the
-  // job event — no reload, no router refresh.
+  // job event — no reload, no server re-render.
   it('swaps the poster for the player once the video is downloaded', () => {
     const { container, recorder } = renderLive()
 

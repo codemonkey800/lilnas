@@ -111,8 +111,8 @@ function confirmButton(): HTMLElement {
  * Opens the dialog for a scope and hands back both spies.
  *
  * Both are always wired, so which one a scope reaches for is the component's
- * decision rather than this render's — the same reason `renderPanel` in
- * `job-lifecycle.spec.tsx` wires every lifecycle control at once.
+ * decision rather than this render's — the same reason `renderList` in
+ * `attempt-list.spec.tsx` wires every attempt control at once.
  */
 async function open(
   scope: DeleteScope,

@@ -6,7 +6,7 @@ import {
   DownloadType,
   isTerminalDownloadJobStatus,
 } from '@lilnas/utils/download/types'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import type { AttemptListProps } from 'src/components/detail/attempt-list'
@@ -56,13 +56,14 @@ function job(overrides: Partial<DownloadJob> = {}): DownloadJob {
 /**
  * Typed as the thing a page passes — never a bare `jest.fn()`, which would
  * type-check against the `<section>` media-event collision `AttemptListProps`
- * omits. See the same helper in `job-lifecycle.spec.tsx`.
+ * omits. An untyped mock is `(...args: any[]) => any`, assignable even to a
+ * type nothing can inhabit, so the collision would come back unnoticed.
  */
 function jobAction(): jest.Mock<Promise<void>, [string]> {
   return jest.fn<Promise<void>, [string]>()
 }
 
-function importActions(): ImportDialogActions {
+function importActions(): ImportDialogActions & { list: jest.Mock } {
   return {
     commit: jest.fn().mockResolvedValue({ importedCount: 1 }),
     discard: jest.fn().mockResolvedValue({ discardedCount: 1 }),
@@ -112,11 +113,30 @@ function attempt(container: HTMLElement, id: string): HTMLElement {
 }
 
 /**
- * `job-lifecycle.spec.tsx`'s table, minus what an attempt no longer carries:
- * a terminal job is a history row with no controls by default (Retry is
+ * `jobActionState`'s table, minus what an attempt does not carry: a
+ * terminal job is a history row with no controls by default (Retry is
  * opt-in through `retryable` — see its own block below — and Watch/Save are
  * media actions), so `retry`, `watch` and `save` never appear here.
  */
+/** The one class in each tone's table that is unique to it. */
+const TONE_MARKERS: Record<DownloadJobStatus, string> = {
+  [DownloadJobStatus.Cancelled]: 'text-ink-3',
+  [DownloadJobStatus.Cancelling]: 'text-warn',
+  [DownloadJobStatus.Cleaning]: 'text-uv-hi',
+  [DownloadJobStatus.Completed]: 'text-ok',
+  [DownloadJobStatus.Converting]: 'text-uv-hi',
+  [DownloadJobStatus.Downloading]: 'text-uv-hi',
+  [DownloadJobStatus.Failed]: 'text-bad',
+  [DownloadJobStatus.Importing]: 'text-uv-hi',
+  [DownloadJobStatus.NeedsAttention]: 'text-warn',
+  [DownloadJobStatus.Paused]: 'text-warn',
+  [DownloadJobStatus.Pausing]: 'text-warn',
+  [DownloadJobStatus.Pending]: 'text-ink-3',
+  [DownloadJobStatus.Requested]: 'text-ink-3',
+  [DownloadJobStatus.Searching]: 'text-uv-hi',
+  [DownloadJobStatus.Uploading]: 'text-uv-hi',
+}
+
 const EXPECTED_ACTIONS: Record<DownloadJobStatus, string[]> = {
   [DownloadJobStatus.Cancelled]: [],
   [DownloadJobStatus.Cancelling]: ['Cancel'],
@@ -229,6 +249,19 @@ describe('AttemptList', () => {
     })
   })
 
+  it.each(EVERY_STATUS)('tints the %s chip with its own tone', status => {
+    const { container } = renderList([job({ status })])
+
+    // The rendered `class` attribute, not the string handed to `cns` —
+    // twMerge reshapes the list afterwards, and it is the reshaped list that
+    // decides what a reader actually sees.
+    const chip = within(attempt(container, 'job_1')).getByText(
+      jobStatusLabel(status),
+    )
+
+    expect(chip.getAttribute('class')).toContain(TONE_MARKERS[status])
+  })
+
   describe('in-flight attempts', () => {
     it.each(EVERY_STATUS)('offers %s exactly its own action set', status => {
       const { container } = renderList([job({ status })])
@@ -289,12 +322,44 @@ describe('AttemptList', () => {
       expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
     })
 
-    it('keeps an acknowledged action on screen but inert', () => {
+    it('leaves a stuck import undotted, because nothing is happening to it', () => {
+      // The dot is derived from the tone, so `warn` is what stops a job nobody
+      // will ever import from breathing away like a 30-second one.
       const { container } = renderList([
-        job({ status: DownloadJobStatus.Pausing }),
+        job({ status: DownloadJobStatus.NeedsAttention }),
       ])
 
-      expect(inertLabels(container)).toEqual(['Pause'])
+      expect(container.querySelector('.dot-live')).not.toBeInTheDocument()
+    })
+
+    it.each([
+      [DownloadJobStatus.Pausing, 'Pause'],
+      [DownloadJobStatus.Cancelling, 'Cancel'],
+    ])('keeps %s’s acknowledged %s on screen but inert', (status, label) => {
+      const { container } = renderList([job({ status })])
+
+      expect(inertLabels(container)).toEqual([label])
+    })
+
+    it('uses aria-disabled rather than the real attribute, so focus is not stranded', () => {
+      renderList([job({ status: DownloadJobStatus.Pausing })])
+
+      const pause = screen.getByRole('button', { name: 'Pause' })
+
+      // A real `disabled` would drop the button out of the tab order under the
+      // cursor of the person who just pressed it.
+      expect(pause).toHaveAttribute('aria-disabled', 'true')
+      expect(pause).not.toBeDisabled()
+    })
+
+    it('swallows a second press on an acknowledged action', async () => {
+      const user = userEvent.setup()
+      const wired = handlers()
+
+      renderList([job({ status: DownloadJobStatus.Pausing })], wired)
+      await user.click(screen.getByRole('button', { name: 'Pause' }))
+
+      expect(wired.onPause).not.toHaveBeenCalled()
     })
 
     it('renders nothing for an action the page did not wire', () => {
@@ -430,6 +495,48 @@ describe('AttemptList', () => {
           name: IMPORT_TRIGGER_LABEL,
         }),
       ).not.toBeInTheDocument()
+    })
+
+    it('asks for the candidates of the attempt it sits on, scope and all', async () => {
+      const user = userEvent.setup()
+      const imports = importActions()
+
+      render(
+        <AttemptList
+          imports={imports}
+          jobs={[
+            job({
+              media: SHOW,
+              scope: { seasonNumber: 2 },
+              status: DownloadJobStatus.NeedsAttention,
+            }),
+          ]}
+          now={NOW}
+        />,
+      )
+      await user.click(
+        screen.getByRole('button', { name: IMPORT_TRIGGER_LABEL }),
+      )
+
+      // ⚠️ The media key and the scope both come off the job, so a season pack
+      // stuck inside a series asks about that season and not the whole show.
+      await waitFor(() =>
+        expect(imports.list).toHaveBeenCalledWith(SHOW.id, {
+          episodeId: undefined,
+          seasonNumber: 2,
+        }),
+      )
+    })
+
+    it('names the dialog after the media the attempt carries', async () => {
+      const user = userEvent.setup()
+
+      renderList([job({ status: DownloadJobStatus.NeedsAttention })])
+      await user.click(
+        screen.getByRole('button', { name: IMPORT_TRIGGER_LABEL }),
+      )
+
+      expect(await screen.findByText('Import "Cars"')).toBeInTheDocument()
     })
 
     it('offers no Import without the importer actions', () => {

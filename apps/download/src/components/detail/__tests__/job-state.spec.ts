@@ -3,12 +3,10 @@ import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
 
 import type { JobActionKey } from 'src/components/detail/job-state'
 import {
-  currentJob,
   jobActionState,
   jobProgress,
   jobStatusLabel,
   latestJob,
-  mergeLiveMediaJobs,
 } from 'src/components/detail/job-state'
 
 const EVERY_STATUS = Object.values(DownloadJobStatus)
@@ -181,44 +179,6 @@ describe('latestJob', () => {
   })
 })
 
-describe('currentJob', () => {
-  it('discounts a completed job whose file is gone, the same as no job at all', () => {
-    // A deleted title: Radarr/Sonarr no longer has the file, but the
-    // Completed row survives as history (`ShowService.deleteFiles` never
-    // rewrites a terminal job).
-    const stale = job({ status: DownloadJobStatus.Completed })
-
-    expect(currentJob([stale], false)).toBeNull()
-  })
-
-  it('trusts a completed job when the file is still there', () => {
-    const completed = job({ status: DownloadJobStatus.Completed })
-
-    expect(currentJob([completed], true)?.id).toBe(completed.id)
-  })
-
-  it('trusts a non-completed terminal job regardless of file state', () => {
-    // Failed/cancelled never claimed a file existed, so there is nothing to
-    // discount - a stuck-then-retried title should still show 'failed'.
-    const failed = job({ status: DownloadJobStatus.Failed })
-
-    expect(currentJob([failed], false)?.id).toBe(failed.id)
-  })
-
-  it('behaves exactly like latestJob when hasFile is omitted', () => {
-    // The video page has no file-existence signal at all - the default has
-    // to be the original, unconditional behaviour.
-    const completed = job({ status: DownloadJobStatus.Completed })
-
-    expect(currentJob([completed])?.id).toBe(completed.id)
-  })
-
-  it('answers null for an empty list either way', () => {
-    expect(currentJob([], false)).toBeNull()
-    expect(currentJob([], true)).toBeNull()
-  })
-})
-
 describe('jobProgress', () => {
   it('reads a managed title from its queue snapshot', () => {
     const progress = jobProgress(
@@ -266,60 +226,5 @@ describe('jobProgress', () => {
 
   it('answers null when there is no queue snapshot at all', () => {
     expect(jobProgress(job())).toBeNull()
-  })
-})
-
-describe('mergeLiveMediaJobs', () => {
-  const current = job({ id: 'job_2', status: DownloadJobStatus.Searching })
-  const earlier = job({
-    createdAt: '2026-09-14T12:00:00.000Z',
-    id: 'job_1',
-    status: DownloadJobStatus.Failed,
-  })
-
-  it('lets the live copy win and keeps the server order', () => {
-    const live = new Map([
-      ['job_2', job({ id: 'job_2', status: DownloadJobStatus.Downloading })],
-    ])
-
-    expect(mergeLiveMediaJobs([current, earlier], live)).toEqual({
-      jobs: [
-        job({ id: 'job_2', status: DownloadJobStatus.Downloading }),
-        earlier,
-      ],
-      landed: [],
-    })
-  })
-
-  it('ignores a frame for a job the page does not show', () => {
-    const live = new Map([['job_9', job({ id: 'job_9' })]])
-
-    expect(mergeLiveMediaJobs([current], live)).toEqual({
-      jobs: [current],
-      landed: [],
-    })
-  })
-
-  it('holds a job that just completed at importing and reports it landed', () => {
-    const done = job({
-      completedAt: '2026-09-15T12:00:00.000Z',
-      id: 'job_2',
-      status: DownloadJobStatus.Completed,
-    })
-
-    const merged = mergeLiveMediaJobs([current], new Map([['job_2', done]]))
-
-    expect(merged.landed).toEqual(['job_2'])
-    expect(merged.jobs[0]?.status).toBe(DownloadJobStatus.Importing)
-    expect(merged.jobs[0]?.completedAt).toBe(done.completedAt)
-  })
-
-  it('passes a completed job through once the server render agrees', () => {
-    const done = job({ id: 'job_2', status: DownloadJobStatus.Completed })
-
-    expect(mergeLiveMediaJobs([done], new Map([['job_2', done]]))).toEqual({
-      jobs: [done],
-      landed: [],
-    })
   })
 })

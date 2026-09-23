@@ -120,14 +120,14 @@ function mergeJobs(
 
 /**
  * A movie, show or video page's media, episodes and attempts, kept current
- * off the download gateway — the replacement for `useLiveMediaJobs`.
+ * off the download gateway.
  *
  * Both subscriptions key on `media.id`, not on the served job ids, so a
  * download this tab did not start (Radarr's UI, Discord, another tab) shows
  * up live. The media frame carries the file, the state and the queue
- * snapshot, which is what used to need a `router.refresh()`: nothing here
- * asks the router for anything, and a landed job is shown as landed — the
- * page's chip reads the media's state, not the job's.
+ * snapshot, so nothing here asks the router for a fresh server render, and a
+ * landed job is shown as landed — the page's chip reads the media's state,
+ * not the job's.
  *
  * Every output is memoized, and the whole result keeps its identity until a
  * frame for this media (or a `connected` flip) actually changes something.

@@ -113,7 +113,7 @@ describe('MovieDetailLive', () => {
     expect(attempts()).not.toBeInTheDocument()
   })
 
-  it('flips the chip to "in library" off a media frame, with no router refresh', () => {
+  it('flips the chip to "in library" off a media frame, with no server re-render', () => {
     const { send } = setup()
 
     send(

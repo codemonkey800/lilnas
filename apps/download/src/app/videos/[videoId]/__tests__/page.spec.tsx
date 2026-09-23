@@ -20,7 +20,7 @@ jest.mock('src/lib/download-client', () => ({
   getIdentifiedDownloadClient: jest.fn(),
 }))
 
-// The page hands these to `JobLifecycle` as callbacks; their own module graph
+// The page hands these to `AttemptList` as callbacks; their own module graph
 // reaches `next/headers` and `next/cache`, neither available outside a request
 // scope. What they *do* is covered in `actions/__tests__/video-job.spec.ts`.
 jest.mock('src/app/actions/video-job', () => ({

@@ -34,7 +34,7 @@ export type VideoDetailLiveProps = Omit<VideoDetailProps, 'stale'>
  * - **The video's own state.** The server sends a media frame alongside every
  *   video job event, carrying the `Video` with its `state` and
  *   `downloadUrls` — which is what flips the chip to `downloaded` and swaps
- *   the poster for the player, with no router refresh.
+ *   the poster for the player, with no server re-render.
  * - **Attempts this page was not rendered with.** A re-paste of the same link
  *   from another tab or Discord mints a new job for the same `video:` key;
  *   it lands in the Attempts list, newest first, as it starts.

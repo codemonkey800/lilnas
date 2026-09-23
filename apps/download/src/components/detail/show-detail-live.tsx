@@ -15,7 +15,7 @@ import { useLiveMedia } from 'src/lib/use-live-media'
  * did not start (Sonarr's own UI, Discord, another tab) shows up live — an
  * attempt at any scope lands in the Attempts lists, and a media frame's
  * `episodes` move each row's chip and bar, and its season tab's dot, in place.
- * No router refresh.
+ * No server re-render.
  */
 export function ShowDetailLive({
   jobs,
