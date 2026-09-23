@@ -3,6 +3,7 @@ import type { DownloadJob, Video } from '@lilnas/utils/download/types'
 import {
   DownloadJobStatus,
   isMediaInFlight,
+  isTerminalDownloadJobStatus,
   mediaState,
 } from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX } from 'react'
@@ -26,6 +27,7 @@ import {
   mediaFileHref,
   SaveLocal,
 } from 'src/components/detail/save-local'
+import { VideoDownloadButton } from 'src/components/detail/video-detail-download'
 import { VideoPlayer } from 'src/components/detail/video-player'
 import { ButtonLink } from 'src/components/ui/button-link'
 import { Note } from 'src/components/ui/card'
@@ -86,8 +88,8 @@ export const VIDEO_UNRECOGNIZED_EXPLAIN =
  *
  * ⚠️ It points at the nav bar and **never at a retry**. The same link will be
  * refused by the same extractor every time, so an offer to try again is an
- * offer to fail again; `VideoDetail` tells `AttemptList` the attempt is not
- * retryable for this state, so no Retry is drawn at all.
+ * offer to fail again; `VideoDetail` draws no Download for this state, so
+ * there is nothing to press at all.
  */
 export const VIDEO_UNRECOGNIZED_GUIDANCE =
   'Paste a different link in the search field at the top of the page. Nothing was downloaded, and asking for this one again would fail the same way.'
@@ -283,6 +285,13 @@ export type VideoDetailProps = Omit<
   onDelete?: DeleteVideoJobAction
   onPause?: JobAction
   onResume?: JobAction
+  /**
+   * `retryVideoJob` — what the page's **Download** fires, with the newest
+   * attempt's id, while the video has no file. It asks for the same source
+   * again as a new attempt, so the one it names keeps its outcome.
+   *
+   * Not handed to `AttemptList`: one verb, one button. See {@link VideoDetail}.
+   */
   onRetry?: JobAction
   /**
    * Whether the live feed is currently **not** connected — `!connected` from
@@ -322,14 +331,20 @@ export type VideoDetailProps = Omit<
  * draws a bar — the honest rendering, since a 0% bar is a claim. Where a
  * mockup and the API disagree about content, the API wins.
  *
- * Three more places the mockup is not followed:
+ * **Download, never Retry.** The mockup's `not downloaded` frame draws a
+ * Download, and it is the page's one way back to a file whatever the newest
+ * attempt did: deleted after completing (a delete leaves a completed attempt
+ * completed, so no attempt row would offer anything), failed or cancelled.
+ * `AttemptList` gets no `onRetry`, so a failed row never draws a second
+ * button for the same request — the movie page's arrangement too. It needs
+ * an attempt to name the source by, so a page with none (only a degraded
+ * payload produces one — a `videos` row exists because a job minted it)
+ * keeps `VIDEO_EMPTY_NOTE` beside the chip instead.
+ *
+ * Two more places the mockup is not followed:
  *
  * - **No state legend.** `video-detail.pug`'s "Other states" panel is the
  *   mockup documenting its own vocabulary, not something the page shows.
- * - **No Download button for `not downloaded`.** A `videos` row only exists
- *   because a job minted it, so there is always an attempt to Retry instead;
- *   the empty frame keeps `VIDEO_EMPTY_NOTE` beside the chip for the page a
- *   degraded payload can still produce.
  * - **The poster carries no play mark while there is no file.** The mockup
  *   draws one on the downloading frame; pressing it would play nothing.
  *
@@ -379,10 +394,22 @@ export function VideoDetail({
     stale &&
     (isMediaInFlight(state) || jobs.some(job => isInProgress(job.status)))
 
-  // A retry is offered only while there is no file — a failed attempt over a
-  // downloaded video would re-fetch what is already here — and never for a
-  // link yt-dlp refused, which would fail the same way again.
-  const retryable = (state === 'absent' || state === 'wanted') && !unrecognized
+  // Download is offered from the video's state, never an attempt's: only
+  // while there is no file (a failed attempt over a downloaded video would
+  // re-fetch what is already here), only while nothing is already fetching it
+  // (a press beside a live attempt would race it), and never for a link
+  // yt-dlp refused, which would fail the same way again. It names the newest
+  // attempt, which by then is a finished one.
+  const attemptInFlight = jobs.some(
+    job => !isTerminalDownloadJobStatus(job.status),
+  )
+  const downloadFrom =
+    (state === 'absent' || state === 'wanted') &&
+    !attemptInFlight &&
+    !unrecognized &&
+    onRetry !== undefined
+      ? newest
+      : null
 
   // `video-detail.pug`'s completed frame: `Save to device` whenever the video
   // is downloaded *and* there is an object to hand over — `canSaveLocal`
@@ -472,9 +499,18 @@ export function VideoDetail({
               onCancel={onCancel}
               onPause={onPause}
               onResume={onResume}
-              onRetry={onRetry}
-              retryable={retryable}
             />
+            {downloadFrom && onRetry ? (
+              // The same media-actions slot Save and Delete take once there
+              // is a file — the two never show together.
+              <ActionRow>
+                <VideoDownloadButton
+                  className={cns(ACTION_BUTTON)}
+                  jobId={downloadFrom.id}
+                  onDownload={onRetry}
+                />
+              </ActionRow>
+            ) : null}
             {saveable ? (
               // Media actions, under the attempts — `video-detail.pug`'s
               // completed frame, Save then Delete in one row.

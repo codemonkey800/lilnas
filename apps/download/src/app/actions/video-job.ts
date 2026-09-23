@@ -152,7 +152,9 @@ export async function resumeVideoJob(jobId: string): Promise<void> {
 }
 
 /**
- * Asks for the same video again after a failed or cancelled attempt.
+ * Asks for the same video again — the video page's **Download**, offered
+ * while the video has no file: after a failed or cancelled attempt, or after
+ * {@link deleteVideoJob} removed what a completed one fetched.
  *
  * There is no retry *endpoint* — a job is an event, and re-running one would
  * rewrite history. A retry is therefore a new `POST /download/videos` for the
@@ -198,10 +200,12 @@ export async function retryVideoJob(jobId: string): Promise<void> {
  *
  * The `videos` row deliberately survives: it is keyed on
  * `(sourceUrl, timeRange)` and every job's `mediaId` points at it, so deleting
- * it would orphan history rather than clean it up. The job lands on
- * `Cancelled` and this page stays reachable, honestly showing a video with no
- * file — which is why nothing here navigates away and revalidating the detail
- * path is the whole of the refresh.
+ * it would orphan history rather than clean it up. So does the job: a
+ * finished attempt keeps its outcome (a completed one did fetch the file) and
+ * only one still running lands on `Cancelled`. This page stays reachable,
+ * honestly showing a video with no file and a Download to fetch it again —
+ * which is why nothing here navigates away and revalidating the detail path
+ * is the whole of the refresh.
  */
 export async function deleteVideoJob(
   jobId: string,

@@ -19,6 +19,7 @@ import {
   videoPlayerSrc,
   videoSourceJob,
 } from 'src/components/detail/video-detail'
+import { VIDEO_DOWNLOAD_LABEL } from 'src/components/detail/video-detail-download'
 import type { VideoDetailLiveProps } from 'src/components/detail/video-detail-live'
 import { VideoDetailLive } from 'src/components/detail/video-detail-live'
 import { VIDEO_PLAYER_LABEL } from 'src/components/detail/video-player'
@@ -109,6 +110,10 @@ function mediaPanel(): HTMLElement {
 
 function attempts(): HTMLElement {
   return screen.getByRole('region', { name: 'Attempts' })
+}
+
+function downloadButton(): HTMLElement | null {
+  return screen.queryByRole('button', { name: VIDEO_DOWNLOAD_LABEL })
 }
 
 describe('isUnrecognizedLink', () => {
@@ -322,8 +327,29 @@ describe('VideoDetail', () => {
       ).not.toBeInTheDocument()
     })
 
-    // A completed attempt is not one `jobActionState` retries from, whatever
-    // the media says.
+    // What the page's own Delete leaves behind: the attempt stays
+    // `completed` (it did download the file), so no attempt row offers
+    // anything — the page's Download is the way back.
+    it('offers Download, and it asks again through the newest attempt', async () => {
+      const onRetry = jest.fn()
+      renderDetail({
+        jobs: [
+          completedJob({ id: 'job_2' }),
+          completedJob({ createdAt: '2026-09-14T12:00:00.000Z', id: 'job_1' }),
+        ],
+        media: deleted,
+        onRetry,
+      })
+
+      await userEvent.click(
+        screen.getByRole('button', { name: VIDEO_DOWNLOAD_LABEL }),
+      )
+
+      expect(onRetry).toHaveBeenCalledTimes(1)
+      expect(onRetry).toHaveBeenCalledWith('job_2')
+    })
+
+    // One verb, one button: the attempt rows never draw a Retry beside it.
     it('offers no Retry off the completed attempt itself', () => {
       renderDetail({
         jobs: [completedJob()],
@@ -336,22 +362,32 @@ describe('VideoDetail', () => {
       ).not.toBeInTheDocument()
     })
 
-    // What the page's own Delete actually leaves behind: `deleteVideoJob`
-    // moves the attempt to `cancelled`, and a cancelled attempt over a video
-    // with no file is one Retry away from coming back.
-    it('offers Retry once the page’s own Delete cancelled the attempt', () => {
+    it('draws no Download when the page wired no action for it', () => {
+      renderDetail({ jobs: [completedJob()], media: deleted })
+
+      expect(downloadButton()).not.toBeInTheDocument()
+    })
+
+    // `wanted` is also "no file and nothing moving" — the movie page's rule.
+    it('offers Download for a wanted video too', () => {
       renderDetail({
-        jobs: [completedJob({ status: DownloadJobStatus.Cancelled })],
-        media: deleted,
+        jobs: [completedJob()],
+        media: video({ downloadUrls: [], state: 'wanted' }),
         onRetry: jest.fn(),
       })
 
-      expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
+      expect(downloadButton()).toBeInTheDocument()
     })
   })
 
   describe('downloaded', () => {
     const jobs = [completedJob()]
+
+    it('offers no Download — the file is already here', () => {
+      renderDetail({ jobs, media: downloaded(), onRetry: jest.fn() })
+
+      expect(downloadButton()).not.toBeInTheDocument()
+    })
 
     it('reads "downloaded"', () => {
       renderDetail({ jobs, media: downloaded() })
@@ -518,12 +554,29 @@ describe('VideoDetail', () => {
       ).toBeInTheDocument()
     })
 
-    it('offers no Retry while an attempt is running', () => {
+    it('offers no Retry or Download while an attempt is running', () => {
       renderDetail({ onRetry: jest.fn() })
 
       expect(
         screen.queryByRole('button', { name: 'Retry' }),
       ).not.toBeInTheDocument()
+      expect(downloadButton()).not.toBeInTheDocument()
+    })
+
+    // A press beside a live attempt would race it — even when the media
+    // frame saying so has not arrived yet and the chip still reads the old
+    // state.
+    it('offers no Download while an attempt is open over a deleted file', () => {
+      renderDetail({
+        jobs: [
+          job({ id: 'job_2', status: DownloadJobStatus.Pending }),
+          completedJob({ createdAt: '2026-09-14T12:00:00.000Z', id: 'job_1' }),
+        ],
+        media: video({ downloadUrls: [], state: 'absent' }),
+        onRetry: jest.fn(),
+      })
+
+      expect(downloadButton()).not.toBeInTheDocument()
     })
 
     it('pauses and cancels by job id, never the video id', async () => {
@@ -613,7 +666,9 @@ describe('VideoDetail', () => {
       status: DownloadJobStatus.Failed,
     })
 
-    it('offers Retry over a video with no file, by job id', async () => {
+    // The same Download a deleted video gets — never a Retry on the row as
+    // well, which would be two buttons for one request.
+    it('offers Download over a video with no file, by job id', async () => {
       const onRetry = jest.fn()
       renderDetail({
         jobs: [failed],
@@ -624,15 +679,34 @@ describe('VideoDetail', () => {
       expect(within(mediaPanel()).getByText('not downloaded')).toBeVisible()
       expect(within(attempts()).getByText('failed')).toBeInTheDocument()
       expect(within(attempts()).getByText('ETIMEDOUT')).toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Retry' }),
+      ).not.toBeInTheDocument()
 
-      await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
+      await userEvent.click(
+        screen.getByRole('button', { name: VIDEO_DOWNLOAD_LABEL }),
+      )
 
       expect(onRetry).toHaveBeenCalledWith('job_5')
     })
 
-    // *Cars*, for a video: the file is still here, so a retry would re-fetch
-    // what is already on disk. The chip says so, and no Retry is drawn.
-    it('offers no Retry over a downloaded video', () => {
+    it('offers Download after a cancelled attempt too', () => {
+      renderDetail({
+        jobs: [job({ id: 'job_6', status: DownloadJobStatus.Cancelled })],
+        media: video({ state: 'absent' }),
+        onRetry: jest.fn(),
+      })
+
+      expect(downloadButton()).toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Retry' }),
+      ).not.toBeInTheDocument()
+    })
+
+    // *Cars*, for a video: the file is still here, so asking again would
+    // re-fetch what is already on disk. The chip says so, and nothing is
+    // offered.
+    it('offers no Retry or Download over a downloaded video', () => {
       const { container } = renderDetail({
         jobs: [failed, completedJob()],
         media: downloaded(),
@@ -644,6 +718,7 @@ describe('VideoDetail', () => {
       expect(
         screen.queryByRole('button', { name: 'Retry' }),
       ).not.toBeInTheDocument()
+      expect(downloadButton()).not.toBeInTheDocument()
     })
 
     it('attributes a downloaded video to the attempt that produced it', () => {
@@ -688,14 +763,15 @@ describe('VideoDetail', () => {
       ).toBeInTheDocument()
     })
 
-    // The point of the state: retrying would fail identically, so the control
-    // is withheld rather than rendered and disabled.
-    it('offers no Retry', () => {
+    // The point of the state: asking again would fail identically, so the
+    // control is withheld rather than rendered and disabled.
+    it('offers no Retry or Download', () => {
       renderDetail({ jobs: unrecognized, media: absent, onRetry: jest.fn() })
 
       expect(
         screen.queryByRole('button', { name: 'Retry' }),
       ).not.toBeInTheDocument()
+      expect(downloadButton()).not.toBeInTheDocument()
     })
 
     it('leaves an ordinary failure to the attempt row', () => {
@@ -751,13 +827,19 @@ describe('VideoDetail', () => {
   })
 
   it('renders only the chip when nothing has ever been fetched', () => {
-    renderDetail({ jobs: [], media: video({ state: 'absent' }) })
+    renderDetail({
+      jobs: [],
+      media: video({ state: 'absent' }),
+      onRetry: jest.fn(),
+    })
 
     expect(within(mediaPanel()).getByText('not downloaded')).toBeVisible()
     expect(within(mediaPanel()).getByText(VIDEO_EMPTY_NOTE)).toBeVisible()
     expect(
       screen.queryByRole('region', { name: 'Attempts' }),
     ).not.toBeInTheDocument()
+    // No attempt to name the source by, so nothing to ask again through.
+    expect(downloadButton()).not.toBeInTheDocument()
   })
 
   // A video with no `state` on the wire reads through `mediaState()`.
