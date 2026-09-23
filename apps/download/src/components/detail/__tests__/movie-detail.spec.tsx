@@ -17,17 +17,14 @@ import {
 } from 'src/components/detail/bad-file-flag'
 import { deleteConfirmCopy } from 'src/components/detail/delete-confirm'
 import { IMPORT_TRIGGER_LABEL } from 'src/components/detail/import-dialog'
-import { JOB_LIFECYCLE_EMPTY_LABEL } from 'src/components/detail/job-state'
 import type { MovieDetailProps } from 'src/components/detail/movie-detail'
 import {
   isMetadataUnavailable,
   MOVIE_EMBY_UNAVAILABLE_LABEL,
-  MOVIE_EMPTY_NOTE,
+  MOVIE_EXTERNAL_QUEUE_NOTE,
   MOVIE_INDEXING_LABEL,
-  MOVIE_LIBRARY_LABEL,
-  MOVIE_LIBRARY_NOTE,
   MOVIE_METADATA_NOTE,
-  MOVIE_STATUS_LABEL,
+  MOVIE_STALE_LABEL,
   MOVIE_WATCH_LABEL,
   MovieDetail,
   movieHasFile,
@@ -62,17 +59,32 @@ const MOVIE: Movie = {
   ratingValue: 7.44,
   releaseDate: '2024-03-08',
   runtime: RUNTIME_SECONDS,
+  state: 'available',
   title: 'Salt & Ceremony',
   tmdbId: 438631,
   type: DownloadType.Movie,
   year: 2024,
 }
 
-/** Requested but with nothing on disk yet — no `filePath`, so no `embyStatus`. */
+/** Nothing on disk and nothing asked for — no `filePath`, so no `embyStatus`. */
 const UNFETCHED: Movie = {
   ...MOVIE,
   embyStatus: undefined,
   filePath: undefined,
+  state: 'absent',
+}
+
+/** Monitored in Radarr, nothing queued yet. */
+const WANTED: Movie = { ...UNFETCHED, state: 'wanted' }
+
+/**
+ * A queue item Radarr is running that this app never started a job for —
+ * `movie-detail.pug`'s "Started from Radarr" frame.
+ */
+const RADARR_GRAB: Movie = {
+  ...UNFETCHED,
+  queueSnapshot: { progress: 47, status: 'downloading', timeLeft: '00:12:30' },
+  state: 'downloading',
 }
 
 /**
@@ -109,6 +121,27 @@ const JOB: DownloadJob = {
   status: DownloadJobStatus.Completed,
   updatedAt: '2026-09-15T11:48:00.000Z',
 }
+
+/** The restart that failed *Cars*' newest job, long after the file landed. */
+const FAILED: DownloadJob = {
+  ...JOB,
+  completedAt: '2026-09-15T11:50:00.000Z',
+  createdAt: '2026-09-15T11:49:00.000Z',
+  error: 'Stopped responding partway through.',
+  id: 'job-failed',
+  status: DownloadJobStatus.Failed,
+}
+
+/** A grab this app just asked Radarr for. */
+const PENDING: DownloadJob = {
+  ...JOB,
+  completedAt: null,
+  createdAt: '2026-09-15T11:55:00.000Z',
+  id: 'job-pending',
+  status: DownloadJobStatus.Pending,
+}
+
+const EARLIER = '2026-09-15T10:00:00.000Z'
 
 const NOW = Date.parse('2026-09-15T12:00:00.000Z')
 
@@ -184,6 +217,21 @@ function firstButton(name: RegExp | string): HTMLElement {
   }
 
   return first
+}
+
+/** The Attempts section, or `null` when the page drew none. */
+function attempts(): HTMLElement | null {
+  return screen.queryByRole('region', { name: 'Attempts' })
+}
+
+/** `MediaStatus`'s root, which carries the state it drew as `data-state`. */
+function mediaStatus(): Element | null {
+  return document.querySelector('div[data-state]')
+}
+
+/** The header's one-press Download, which the page draws exactly once. */
+function downloadButton(): HTMLElement {
+  return screen.getByRole('button', { name: MOVIE_REQUEST_LABEL })
 }
 
 /**
@@ -482,177 +530,184 @@ describe('MovieDetail — attribution', () => {
     expect(screen.queryByText(/· \d+\w+ ago/)).not.toBeInTheDocument()
   })
 
-  it('draws no attribution for a completed job whose movie was since deleted', () => {
-    // The header's own half of the same bug: crediting whoever downloaded a
-    // file that Delete already removed reads just as stale as the chip did.
-    renderDetail({ jobs: [JOB], movie: UNFETCHED })
+  it('credits the newest attempt, whatever became of it', () => {
+    renderDetail({
+      jobs: [
+        {
+          ...FAILED,
+          id: 'job-2',
+          requester: { email: 'sam@lilnas.io', userId: 'u_sam' },
+        },
+        JOB,
+      ],
+    })
 
-    expect(screen.queryByText(/jeremy\.asuncion/)).not.toBeInTheDocument()
+    expect(screen.getByText(/^sam · /)).toBeInTheDocument()
   })
 })
 
-describe('MovieDetail — the lifecycle panel', () => {
-  it('labels the panel and shows the job status', () => {
-    renderDetail()
-
-    expect(
-      screen.getByRole('heading', { level: 2, name: MOVIE_STATUS_LABEL }),
-    ).toBeInTheDocument()
-    expect(screen.getByText('completed')).toBeInTheDocument()
-  })
-
-  it('renders the empty state for a movie with neither job nor file', () => {
-    renderDetail({ jobs: [], movie: UNFETCHED })
-
-    expect(screen.getByText(JOB_LIFECYCLE_EMPTY_LABEL)).toBeInTheDocument()
-    expect(screen.getByText(MOVIE_EMPTY_NOTE)).toBeInTheDocument()
-  })
-
-  it('does not say "nothing grabbed" about a movie that is already on disk', () => {
-    // The common state on this page: Radarr's library is full of titles this
-    // app never fetched. `not downloaded` is true of the job and false of the
-    // file, so the note beside it has to say which.
+describe('MovieDetail — media state', () => {
+  it('chips a library movie with no attempts "in library", with no Download and no Attempts', () => {
     renderDetail({ jobs: [] })
 
-    expect(screen.getByText(MOVIE_LIBRARY_NOTE)).toBeInTheDocument()
-    expect(screen.queryByText(MOVIE_EMPTY_NOTE)).not.toBeInTheDocument()
+    expect(screen.getByText('in library')).toBeInTheDocument()
     expect(
-      screen.getByRole('link', { name: MOVIE_WATCH_LABEL }),
-    ).toBeInTheDocument()
-  })
-
-  it('⚠️ never says "not downloaded" beside a working Watch button', () => {
-    // Reproduced on all six movies tested live. The note said one thing and
-    // the chip right next to it said the opposite; a note cannot argue a chip
-    // down.
-    renderDetail({ jobs: [] })
-
-    expect(
-      screen.queryByText(JOB_LIFECYCLE_EMPTY_LABEL),
+      screen.queryByRole('button', { name: MOVIE_REQUEST_LABEL }),
     ).not.toBeInTheDocument()
-    expect(screen.getByText(MOVIE_LIBRARY_LABEL)).toBeInTheDocument()
+    expect(attempts()).not.toBeInTheDocument()
     expect(
       screen.getByRole('link', { name: MOVIE_WATCH_LABEL }),
     ).toBeInTheDocument()
   })
 
   it('⚠️ reads the live payload shape: filePath absent, embyStatus indexed', () => {
-    // The shape `GET /media/:id` actually handed the page — and the one that
-    // defeats a check keyed on a `hasFile` field `MovieSchema` does not have.
+    // The shape `GET /media/:id` actually handed the page. The chip reads
+    // `state`; Watch, Save and Delete still read the file witnesses.
     renderDetail({ jobs: [], movie: INDEXED_NO_PATH })
 
-    expect(screen.getByText(MOVIE_LIBRARY_LABEL)).toBeInTheDocument()
-    expect(screen.getByText(MOVIE_LIBRARY_NOTE)).toBeInTheDocument()
-    expect(
-      screen.queryByText(JOB_LIFECYCLE_EMPTY_LABEL),
-    ).not.toBeInTheDocument()
-    expect(screen.queryByText(MOVIE_EMPTY_NOTE)).not.toBeInTheDocument()
+    expect(screen.getByText('in library')).toBeInTheDocument()
+    expect(firstButton(/^delete$/i)).toBeInTheDocument()
   })
 
-  it('keeps the real empty state for a movie Emby was never asked about', () => {
-    // `embyStatus` absent entirely is the one case that genuinely means "no
-    // file" — the resolver only consults Emby for a title that has one.
+  it('chips a movie with nothing grabbed "not downloaded" and offers Download', () => {
     renderDetail({ jobs: [], movie: UNFETCHED })
 
-    expect(screen.getByText(JOB_LIFECYCLE_EMPTY_LABEL)).toBeInTheDocument()
-    expect(screen.queryByText(MOVIE_LIBRARY_LABEL)).not.toBeInTheDocument()
+    expect(screen.getByText('not downloaded')).toBeInTheDocument()
+    expect(downloadButton()).toBeInTheDocument()
+    expect(attempts()).not.toBeInTheDocument()
   })
 
-  it('leaves every state with a real job to the lifecycle panel', () => {
-    renderDetail()
+  it('offers Download for a wanted movie', () => {
+    renderDetail({ jobs: [], movie: WANTED })
 
-    expect(screen.getByText('completed')).toBeInTheDocument()
-    expect(screen.queryByText(MOVIE_LIBRARY_LABEL)).not.toBeInTheDocument()
+    expect(screen.getByText('wanted')).toBeInTheDocument()
+    expect(downloadButton()).toBeInTheDocument()
   })
 
-  it('⚠️ shows not-downloaded, not completed, once a completed movie is deleted', () => {
-    // The reported bug: Delete removes the movie from Radarr and the file
-    // with it, but `ShowService.deleteFiles` deliberately leaves a terminal
-    // job row alone as history - so without this reconciliation the panel
-    // kept reading `completed` off the stale row for a movie no longer on
-    // disk. The job itself is real history, and still shows up below as an
-    // "earlier attempt" - only the *current*-state panel has to stop
-    // claiming the file is there.
+  it('draws the queue’s progress with no attempt behind it — started from Radarr', () => {
+    renderDetail({ jobs: [], movie: RADARR_GRAB })
+
+    // The chip, not the queue's own status note under the bar, which happens
+    // to say the same word.
+    expect(mediaStatus()).toHaveAttribute('data-state', 'downloading')
+    expect(screen.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuenow',
+      '47',
+    )
+    expect(screen.getByText(MOVIE_EXTERNAL_QUEUE_NOTE)).toBeInTheDocument()
+    expect(attempts()).not.toBeInTheDocument()
+    // Radarr has it in hand — a second grab would race the queue item.
+    expect(
+      screen.queryByRole('button', { name: MOVIE_REQUEST_LABEL }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('draws no bar at all when there is no queue snapshot', () => {
+    renderDetail({ jobs: [], movie: WANTED })
+
+    // A 0% bar is a claim. No snapshot means "draw nothing".
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+  })
+
+  it('says a stuck import needs a decision, and why', () => {
+    renderDetail({
+      jobs: [],
+      movie: {
+        ...UNFETCHED,
+        state: 'needs_attention',
+        stateReason: 'No files found are eligible for import',
+      },
+    })
+
+    expect(screen.getByText('needs your decision')).toBeInTheDocument()
+    expect(
+      screen.getByText('No files found are eligible for import'),
+    ).toBeInTheDocument()
+  })
+
+  it('⚠️ Cars: a failed newest attempt over a movie on disk still reads "in library"', () => {
+    // The motivating bug. A restart failed the newest job for a movie that was
+    // perfectly playable, and the page — reading the job — chipped it
+    // `failed`. The chip reads the movie; the failure is an attempt.
+    renderDetail({ jobs: [FAILED, JOB], onRetry: jest.fn() })
+
+    expect(screen.getByText('in library')).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: MOVIE_WATCH_LABEL }),
+    ).toBeInTheDocument()
+
+    const list = attempts()
+    expect(list).toBeInTheDocument()
+    expect(within(list as HTMLElement).getByText('failed')).toBeInTheDocument()
+    expect(
+      within(list as HTMLElement).getByText(FAILED.error ?? ''),
+    ).toBeInTheDocument()
+    // Retrying would re-grab a title that is already on disk.
+    expect(
+      screen.queryByRole('button', { name: /^retry$/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('offers Retry on a failed newest attempt while the movie is still wanted', async () => {
+    const onRetry = jest.fn()
+    const user = userEvent.setup()
+    renderDetail({ jobs: [FAILED], movie: WANTED, onRetry })
+
+    await user.click(screen.getByRole('button', { name: /^retry$/i }))
+
+    expect(onRetry).toHaveBeenCalledWith(FAILED.id)
+  })
+
+  it('chips a deleted movie "not downloaded" and keeps its old run as an attempt', () => {
+    // Delete leaves a completed job row as history. It is an attempt that
+    // happened, not a claim that the file is there.
     renderDetail({ jobs: [JOB], movie: UNFETCHED })
 
-    expect(screen.getByText(JOB_LIFECYCLE_EMPTY_LABEL)).toBeInTheDocument()
-    expect(screen.getByText(MOVIE_EMPTY_NOTE)).toBeInTheDocument()
+    expect(screen.getByText('not downloaded')).toBeInTheDocument()
+    expect(
+      within(attempts() as HTMLElement).getByText('completed'),
+    ).toBeInTheDocument()
+    expect(downloadButton()).toBeInTheDocument()
     expect(
       screen.queryByRole('link', { name: MOVIE_WATCH_LABEL }),
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByRole('button', { name: SAVE_LOCAL_LABEL }),
+      screen.queryByRole('link', { name: SAVE_LOCAL_LABEL }),
     ).not.toBeInTheDocument()
   })
+})
 
-  it('keeps a deleted movie’s completed run as an earlier attempt, not the current one', () => {
-    renderDetail({ jobs: [JOB], movie: UNFETCHED })
+describe('MovieDetail — attempts', () => {
+  it('highlights an in-flight attempt with Cancel, and hides the header Download', async () => {
+    const onCancel = jest.fn()
+    const user = userEvent.setup()
+    renderDetail({ jobs: [PENDING], movie: WANTED, onCancel })
 
-    expect(screen.getByText('Earlier attempts')).toBeInTheDocument()
-    expect(screen.getByText('completed')).toBeInTheDocument()
-  })
-
-  it('keeps a failed or cancelled status after delete — neither ever claimed a file', () => {
-    renderDetail({
-      jobs: [{ ...JOB, completedAt: null, status: DownloadJobStatus.Failed }],
-      movie: UNFETCHED,
-    })
-
-    expect(screen.getByText('failed')).toBeInTheDocument()
+    const card = document.querySelector(`[data-job-id="${PENDING.id}"]`)
+    expect(card).toBeInstanceOf(HTMLElement)
+    expect(card).toHaveClass('border-uv/35')
+    expect(within(attempts() as HTMLElement).getByText('queued')).toBeVisible()
+    // A press beside a grab already in flight would race it.
     expect(
-      screen.queryByText(JOB_LIFECYCLE_EMPTY_LABEL),
+      screen.queryByRole('button', { name: MOVIE_REQUEST_LABEL }),
     ).not.toBeInTheDocument()
+
+    await user.click(
+      within(card as HTMLElement).getByRole('button', { name: /^cancel$/i }),
+    )
+
+    expect(onCancel).toHaveBeenCalledWith(PENDING.id)
   })
 
-  it('offers no pause, resume, cancel or retry — those routes are video-only', () => {
-    renderDetail({
-      jobs: [
-        { ...JOB, completedAt: null, status: DownloadJobStatus.Downloading },
-      ],
-    })
+  it('offers no pause, resume, cancel or retry when the page wires none', () => {
+    renderDetail({ jobs: [PENDING], movie: WANTED })
 
     for (const name of [/^pause$/i, /^resume$/i, /^cancel$/i, /^retry$/i]) {
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
     }
   })
 
-  it('draws the Radarr queue percentage when the snapshot carries one', () => {
-    renderDetail({
-      jobs: [
-        {
-          ...JOB,
-          completedAt: null,
-          media: {
-            ...MOVIE,
-            queueSnapshot: {
-              progress: 47,
-              status: 'downloading',
-              timeLeft: '00:12:30',
-            },
-          },
-          status: DownloadJobStatus.Downloading,
-        },
-      ],
-    })
-
-    expect(screen.getByRole('progressbar')).toHaveAttribute(
-      'aria-valuenow',
-      '47',
-    )
-  })
-
-  it('draws no bar at all when there is no queue snapshot', () => {
-    renderDetail({
-      jobs: [
-        { ...JOB, completedAt: null, status: DownloadJobStatus.Downloading },
-      ],
-    })
-
-    // A 0% bar is a claim. `jobProgress` answering null means "draw nothing".
-    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
-  })
-
-  it('hands the importer through to the panel for a stuck import', async () => {
+  it('hands the importer through for a stuck import', async () => {
     const imports = {
       commit: jest.fn().mockResolvedValue({ importedCount: 1 }),
       discard: jest.fn().mockResolvedValue({ discardedCount: 1 }),
@@ -661,13 +716,8 @@ describe('MovieDetail — the lifecycle panel', () => {
 
     renderDetail({
       imports,
-      jobs: [
-        {
-          ...JOB,
-          completedAt: null,
-          status: DownloadJobStatus.NeedsAttention,
-        },
-      ],
+      jobs: [{ ...PENDING, status: DownloadJobStatus.NeedsAttention }],
+      movie: { ...UNFETCHED, state: 'needs_attention' },
     })
 
     await userEvent.click(firstButton(IMPORT_TRIGGER_LABEL))
@@ -684,9 +734,8 @@ describe('MovieDetail — the lifecycle panel', () => {
 
   it('offers no Import control when the page wired no importer', () => {
     renderDetail({
-      jobs: [
-        { ...JOB, completedAt: null, status: DownloadJobStatus.NeedsAttention },
-      ],
+      jobs: [{ ...PENDING, status: DownloadJobStatus.NeedsAttention }],
+      movie: { ...UNFETCHED, state: 'needs_attention' },
     })
 
     expect(
@@ -694,66 +743,32 @@ describe('MovieDetail — the lifecycle panel', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('lists earlier attempts under the current one', () => {
-    renderDetail({
-      jobs: [
-        JOB,
-        {
-          ...JOB,
-          createdAt: '2026-09-15T10:00:00.000Z',
-          error: 'Stopped responding partway through.',
-          id: 'job-0',
-          status: DownloadJobStatus.Failed,
-        },
-      ],
-    })
+  it('lists every attempt, newest first', () => {
+    renderDetail({ jobs: [JOB, { ...FAILED, createdAt: EARLIER }] })
 
-    expect(screen.getByText('Earlier attempts')).toBeInTheDocument()
-    expect(screen.getByText('failed')).toBeInTheDocument()
+    const rows = within(attempts() as HTMLElement)
+      .getAllByText(/^(completed|failed)$/)
+      .map(chip => chip.textContent)
+
+    expect(rows).toEqual(['completed', 'failed'])
+  })
+})
+
+describe('MovieDetail — the live feed marker', () => {
+  it('says it is reconnecting while a download is moving', () => {
+    renderDetail({ jobs: [], movie: RADARR_GRAB, stale: true })
+
+    expect(screen.getByText(MOVIE_STALE_LABEL)).toBeInTheDocument()
+  })
+
+  it('stays quiet about a settled movie — there is no frame to miss', () => {
+    renderDetail({ jobs: [JOB], stale: true })
+
+    expect(screen.queryByText(MOVIE_STALE_LABEL)).not.toBeInTheDocument()
   })
 })
 
 describe('MovieDetail — the download shortcut', () => {
-  it('offers it for a movie with neither job nor file', () => {
-    renderDetail({ jobs: [], movie: UNFETCHED })
-
-    expect(
-      screen.getAllByRole('button', { name: MOVIE_REQUEST_LABEL }).length,
-    ).toBeGreaterThan(0)
-  })
-
-  it('⚠️ still offers it once a completed job’s file is gone — that state reads as no job at all', () => {
-    // The same reconciliation `currentJob` makes for the status chip: a
-    // stale `completed` row for a deleted movie counts as no job, so the
-    // shortcut comes back rather than staying hidden behind history.
-    renderDetail({ jobs: [JOB], movie: UNFETCHED })
-
-    expect(
-      screen.getAllByRole('button', { name: MOVIE_REQUEST_LABEL }).length,
-    ).toBeGreaterThan(0)
-  })
-
-  it('hides it once a file is already on disk', () => {
-    renderDetail({ jobs: [], movie: MOVIE })
-
-    expect(
-      screen.queryByRole('button', { name: MOVIE_REQUEST_LABEL }),
-    ).not.toBeInTheDocument()
-  })
-
-  it('hides it while a real job is in flight, so a press can never race one', () => {
-    renderDetail({
-      jobs: [
-        { ...JOB, completedAt: null, status: DownloadJobStatus.Downloading },
-      ],
-      movie: UNFETCHED,
-    })
-
-    expect(
-      screen.queryByRole('button', { name: MOVIE_REQUEST_LABEL }),
-    ).not.toBeInTheDocument()
-  })
-
   it('passes the movie’s own media key to the handler, and nothing else', async () => {
     const onRequest = jest.fn().mockResolvedValue(undefined)
     const user = userEvent.setup()
@@ -762,6 +777,19 @@ describe('MovieDetail — the download shortcut', () => {
     await user.click(firstButton(MOVIE_REQUEST_LABEL))
 
     expect(onRequest).toHaveBeenCalledWith(MOVIE_ID)
+  })
+
+  it.each([
+    ['downloading'] as const,
+    ['importing'] as const,
+    ['paused'] as const,
+    ['needs_attention'] as const,
+  ])('hides it while the movie is %s', state => {
+    renderDetail({ jobs: [], movie: { ...UNFETCHED, state } })
+
+    expect(
+      screen.queryByRole('button', { name: MOVIE_REQUEST_LABEL }),
+    ).not.toBeInTheDocument()
   })
 })
 

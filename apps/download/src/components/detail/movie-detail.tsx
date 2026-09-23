@@ -1,7 +1,18 @@
 import { cns } from '@lilnas/utils/cns'
-import type { BadFile, DownloadJob, Movie } from '@lilnas/utils/download/types'
+import type {
+  BadFile,
+  DownloadJob,
+  MediaState,
+  Movie,
+} from '@lilnas/utils/download/types'
+import {
+  isMediaInFlight,
+  isTerminalDownloadJobStatus,
+  mediaState,
+} from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX, ReactNode } from 'react'
 
+import { AttemptList } from 'src/components/detail/attempt-list'
 import type {
   FlagBadFileAction,
   UnflagBadFileAction,
@@ -18,8 +29,10 @@ import {
   DetailHeader,
 } from 'src/components/detail/detail-header'
 import type { ImportDialogActions } from 'src/components/detail/import-dialog'
-import { JobHistory, JobLifecycle } from 'src/components/detail/job-lifecycle'
-import { currentJob } from 'src/components/detail/job-state'
+import type { JobAction } from 'src/components/detail/job-actions'
+import { latestJob } from 'src/components/detail/job-state'
+import { mediaProgress } from 'src/components/detail/media-state'
+import { MediaStatus } from 'src/components/detail/media-status'
 import type { MovieRequestAction } from 'src/components/detail/movie-request-button'
 import { MovieRequestButton } from 'src/components/detail/movie-request-button'
 import type {
@@ -31,6 +44,7 @@ import { SaveLocal } from 'src/components/detail/save-local'
 import { ButtonLink } from 'src/components/ui/button-link'
 import { Note } from 'src/components/ui/card'
 import { Chip } from 'src/components/ui/chip'
+import { Dot } from 'src/components/ui/status'
 import { formatRuntime, UNKNOWN_VALUE } from 'src/lib/format'
 
 /** The Emby handoff. `movie-detail.pug:42`. */
@@ -52,69 +66,45 @@ export const MOVIE_INDEXING_LABEL = 'indexing…'
  */
 export const MOVIE_EMBY_UNAVAILABLE_LABEL = 'emby unavailable'
 
-/** The eyebrow over the lifecycle panel. */
-export const MOVIE_STATUS_LABEL = 'Status'
+/**
+ * The note beside a download's progress when no attempt of ours is behind it
+ * — `movie-detail.pug`'s "Started from Radarr" frame. Progress comes off the
+ * queue snapshot alone, so a grab from Radarr's own UI still draws a bar; this
+ * says why there is nothing under it to cancel or pause.
+ */
+export const MOVIE_EXTERNAL_QUEUE_NOTE =
+  'Grabbed from Radarr directly — no attempt to show, cancel or pause here.'
 
 /**
- * What the lifecycle panel says when a movie has no job and no file.
- *
- * The second sentence points at the release picker, which stays the
- * recommended path — the header's `MovieRequestButton` is a shortcut beside
- * it, not a replacement, so this note still sends a reader downward rather
- * than pointing back up at the header. `JobLifecycle` is given no
- * `emptyActions` either way; see {@link MovieDetail} for the header button.
+ * The marker under a moving download while the live feed is not connected.
+ * The same word the video page and `/activity` use for the same condition.
  */
-export const MOVIE_EMPTY_NOTE =
-  'Nothing grabbed yet. Find a release below to download it.'
-
-/**
- * What it says when a movie has no job but *does* have a file.
- *
- * ⚠️ The common case on this page, and the one the empty state reads wrong
- * without this. Radarr's library is full of titles this app never fetched —
- * `getMedia` resolves every one of them, jobs and all, and most have no job at
- * all. `JOB_LIFECYCLE_EMPTY_LABEL` is fixed at `not downloaded`, which is true
- * of the *job* and false of the *file*, so the note beside it has to be the
- * thing that says which. Spotted on the real page: "Nothing grabbed yet" sat
- * next to a working Watch button.
- */
-export const MOVIE_LIBRARY_NOTE =
-  "Already in the library — this app didn't fetch it, so there is no download to show."
-
-/**
- * The status chip for a movie that has a file and no job.
- *
- * ⚠️ Why this exists at all. `JobLifecycle`'s empty state is chipped
- * `JOB_LIFECYCLE_EMPTY_LABEL` — the fixed string `not downloaded` — which is
- * true of the *job* and flatly false of the *file*. On the real page that read
- * `not downloaded` directly beside a working **Watch** button, on all six
- * movies tested, with {@link MOVIE_LIBRARY_NOTE} sitting right next to it
- * saying the opposite. A note cannot argue a chip down; the chip has to be
- * right.
- *
- * `JobLifecycle` takes no label override and is not this task's to reopen, so
- * the page renders the one state it can describe better than the panel can —
- * see {@link MovieDetail}.
- */
-export const MOVIE_LIBRARY_LABEL = 'in library'
+export const MOVIE_STALE_LABEL = 'reconnecting…'
 
 /** Said when the resolver handed back a placeholder instead of a movie. */
 export const MOVIE_METADATA_NOTE =
   "Radarr didn't answer, so this movie's title and details are missing — only its id is known. Trying again in a moment usually fixes it."
 
 /**
- * Stacked and full width on a phone, inline from `sm` — `JobLifecycle`'s own
- * `ACTION_BUTTON`, spelled again here because that one is module-private and
- * this row is the header's, not the panel's.
+ * Stacked and full width on a phone, inline from `sm` — `job-actions.tsx`'s
+ * `ACTION_BUTTON`, spelled again here because that module is `'use client'`,
+ * and a server render importing a plain string from one gets a client
+ * reference back instead of the string.
  */
 const ACTION_BUTTON = 'w-full sm:w-auto'
 
-/** `movie-detail.pug`'s gap between the header, the status block and the list. */
+/** `movie-detail.pug`'s gap between the header, the attempts and the releases. */
 const SECTION = 'mt-7 sm:mt-8'
 
-/** `movie-detail.pug:351`'s section eyebrow (`Trailer`, here `Status`). */
-const EYEBROW =
-  'mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4'
+/**
+ * The states the header's one-press Download is offered in — nothing on disk
+ * and nothing in Radarr's queue. Everything else either has a file or already
+ * has a download under way.
+ */
+const DOWNLOADABLE_STATES: ReadonlySet<MediaState> = new Set<MediaState>([
+  'absent',
+  'wanted',
+])
 
 /**
  * ⚠️ A movie passes **no** `episodeId` and **no** `seasonNumber` anywhere —
@@ -255,14 +245,19 @@ export function movieHasFile(movie: Movie): boolean {
   return movie.filePath !== undefined || movie.embyStatus !== undefined
 }
 
+/**
+ * ⚠️ `onCancel` and `onPause` are real `<div>` attributes (React's
+ * `DOMAttributes` puts the media events on every element), so they are removed
+ * before ours take those names — the same note `AttemptListProps` carries.
+ */
 export type MovieDetailProps = Omit<
   ComponentPropsWithoutRef<'div'>,
-  'children'
+  'children' | 'onCancel' | 'onPause'
 > & {
   /** `client.listBadFiles(movie.id)` — passed through to the release list. */
   badFiles?: readonly BadFile[]
   /**
-   * The three importer server actions, handed to the lifecycle panel. Omitted
+   * The three importer server actions, handed to the attempts list. Omitted
    * renders no Import control — see {@link MovieDetail}.
    */
   imports?: ImportDialogActions
@@ -271,57 +266,84 @@ export type MovieDetailProps = Omit<
   movie: Movie
   /** The instant every relative stamp is measured against, pinned by the page. */
   now: number
+  /**
+   * An in-flight attempt's controls, handed to the attempts list. Omitted
+   * renders none — see {@link MovieDetail} for why the page passes none today.
+   */
+  onCancel?: JobAction
   onDelete?: DeleteMediaFilesAction
   onFlag?: FlagBadFileAction
   onGrab?: ReleaseAction
+  onPause?: JobAction
   onReplace?: ReleaseAction
   /** Fires `MovieRequestButton` — see {@link MovieDetail}. */
   onRequest?: MovieRequestAction
+  onResume?: JobAction
+  /**
+   * Retries the newest attempt when it failed or was cancelled — offered only
+   * while the movie is `absent` or `wanted`. See `AttemptListProps.retryable`.
+   */
+  onRetry?: JobAction
   onSearch?: ReleaseSearchAction
   onUnflag?: UnflagBadFileAction
+  /**
+   * Whether the live feed is currently **not** connected — `!connected` off
+   * the socket, handed in by `MovieDetailLive` so this stays a plain function
+   * of its props that renders without a `<JobEventsProvider>`. Drives
+   * {@link MOVIE_STALE_LABEL}, and only while a download is under way: a
+   * settled movie has no frame to miss.
+   */
+  stale?: boolean
 }
 
 /**
  * `/movies/<tmdbId>` — everything a movie card leads to.
  *
- * Composes E1's header/lifecycle, E6's release picker and delete confirm and
- * E7's local save. It owns no state and no `'use client'` directive: the page
- * renders it on the server and hands the six server actions straight through,
- * and every interactive part below it is already a client component of its
- * own.
+ * Composes the header, the media status, the attempts list, the release
+ * picker, the delete confirm and the local save. It owns no state and no
+ * `'use client'` directive: every interactive part below it is already a
+ * client component of its own, and `MovieDetailLive` is what keeps its props
+ * current off the socket.
  *
- * Five call-site decisions worth stating, because each of them is a place the
+ * Plan 021's rule is the spine of it: **the chip reads the movie, never a
+ * job.** `MediaStatus` takes the media's own `state` (derived from Radarr on
+ * every poll), and `AttemptList` takes the jobs — so a failed restart over a
+ * playable file (*Cars*) reads `in library` with the failure listed as an
+ * attempt under it, not `failed` beside a working Watch button.
+ *
+ * Call-site decisions worth stating, because each of them is a place the
  * mockup, the API or a sibling page says something different:
  *
+ * - **The status sits in the header's `lifecycle` slot.** `movie-detail.pug`
+ *   draws the chip directly under the metadata line; `DetailHeader` has no
+ *   slot there (its `meta` is a `<p>`, which cannot hold `MediaStatus`'s
+ *   `<div>`), so it lands in the one slot it has, just above the actions it
+ *   gates. One `MediaStatus`, so the chip is drawn once and its progress bar —
+ *   whenever the queue snapshot has one, attempt or not — goes with it.
  * - **Watch is a link to Emby, never an in-app player.** `ButtonLink`, not a
  *   `Button` — it navigates, so ⌘-click and "copy link address" have to work —
  *   and the URL is `embyStatus.watchUrl` exactly as it arrives. That string is
  *   built server-side from `EMBY_EXTERNAL_URL`, which is the browser-reachable
  *   host; `EMBY_URL` is the in-network one and is not. Nothing here constructs
  *   a URL.
- * - **The lifecycle panel offers exactly one action, and it is Import.** Pause,
- *   resume and cancel are `PATCH /download/videos/:id/…` — *video-only* routes
- *   with no movie equivalent — so `JobLifecycle` is given no
- *   `onPause`/`onCancel`/`onRetry` and renders the status chip and the queue
- *   progress alone for every status but one. The exception is
- *   `needs_attention`: Radarr finished the download, refused to import it and
- *   will sit there forever, and `imports` is what the panel mounts
- *   `ImportDialog` from to resolve it. It renders no `watch`/`save` link
- *   either: both live in the header row instead, because the panel only offers
- *   them while the newest job is `completed`, and a library movie with a file
- *   and no job at all — a common state here — would otherwise lose both.
- * - **The one-press "Download" is a shortcut, not the recommended path.** It
- *   only ever appears in place of Watch/Delete, gated on `job === null &&
- *   !hasFile` — the same "nothing grabbed, nothing on disk" state
- *   `MOVIE_EMPTY_NOTE` describes — so it disappears the moment a job exists,
- *   a file lands, or both. The release picker below is still strictly better
- *   (the user picks a release instead of trusting Radarr's own scoring), and
- *   stays visible the whole time; `MovieRequestButton` is `outline`, not the
- *   header's `uv` Watch variant, so it never reads as competing advice.
- * - **Attribution is unconditional and has no hide toggle.** `requester`
- *   arrives already masked by `projectJobForViewer`, so `null` means "not
- *   yours to see" and `DetailAttribution` draws the dashed avatar for it. The
- *   rule is never re-derived here.
+ * - **Watch, Save and Delete follow the file; Download follows the state.**
+ *   The first three need a file on disk (`movieHasFile`). The one-press
+ *   Download shows while the movie is `absent` or `wanted` **and** no attempt
+ *   is in flight — a press beside a pending grab would race it. It is a
+ *   shortcut, not the recommended path: the release picker below stays
+ *   visible the whole time, and `MovieRequestButton` is `outline`, not
+ *   Watch's `uv`, so it never reads as competing advice.
+ * - **The attempts list offers Import, and the page passes no other control.**
+ *   Pause, resume, cancel and retry are `/download/videos/:id/…` —
+ *   *video-only* routes with no movie equivalent — so the page wires none of
+ *   `onCancel`/`onPause`/`onResume`/`onRetry` and each is simply absent from
+ *   the list. They are props here so the day a movie route exists it is a
+ *   page change, not a component one. `needs_attention` is the exception
+ *   that already works: `imports` is what the list mounts `ImportDialog` from.
+ * - **Attribution reads the newest attempt, if any.** `requester` arrives
+ *   already masked by `projectJobForViewer`, so `null` means "not yours to
+ *   see" and `DetailAttribution` draws the dashed avatar for it. A movie this
+ *   app never fetched has no attempt and so no attribution.
  * - **`currentGuid` is the payload's, and is often absent.** `GET /media/:id`
  *   annotates a movie with `currentReleaseGuid` — the release whose grab
  *   produced the file on disk, recovered from Radarr's history — and
@@ -339,13 +361,18 @@ export function MovieDetail({
   jobs,
   movie,
   now,
+  onCancel,
   onDelete,
   onFlag,
   onGrab,
+  onPause,
   onReplace,
   onRequest,
+  onResume,
+  onRetry,
   onSearch,
   onUnflag,
+  stale = false,
   ...props
 }: MovieDetailProps): JSX.Element {
   const watch = movieWatchState(movie)
@@ -354,15 +381,26 @@ export function MovieDetail({
   // what read false for every downloaded movie on the live page. See
   // `movieHasFile`.
   const hasFile = movieHasFile(movie)
-  // ⚠️ Not `latestJob(jobs)`. Delete leaves a `Completed` job's row untouched
-  // for history even after removing the movie's file - see
-  // `ShowService.deleteFiles` - so the newest job can say `completed` for a
-  // movie that was just deleted. `currentJob` discounts exactly that
-  // contradiction back to "no job", which is what makes the page fall through
-  // to `JobLifecycle`'s own not-downloaded state below instead of replaying a
-  // stale chip.
-  const job = currentJob(jobs, hasFile)
+  const state = mediaState(movie)
+  const downloadable = DOWNLOADABLE_STATES.has(state)
+  const attemptInFlight = jobs.some(
+    job => !isTerminalDownloadJobStatus(job.status),
+  )
+  // Attribution only — who asked last, whatever became of it. Nothing on this
+  // page reads a job's status as the movie's.
+  const job = latestJob(jobs)
   const degraded = isMetadataUnavailable(movie)
+
+  // "Started from Radarr": a bar with nothing of ours behind it. The server's
+  // own reason wins when there is one — it is the more specific sentence.
+  const externalQueue =
+    mediaProgress(movie) !== null && !attemptInFlight && !movie.stateReason
+
+  // ⚠️ Disconnected **and** something to miss — the same guard the video page
+  // makes. A socket down while the movie is settled costs the reader nothing;
+  // while it is moving, a bar that stopped advancing is indistinguishable
+  // from one that is still advancing, and this marker tells the two apart.
+  const reconnecting = stale && (isMediaInFlight(state) || attemptInFlight)
 
   const actions: ReactNode[] = []
 
@@ -394,12 +432,7 @@ export function MovieDetail({
     )
   }
 
-  // ⚠️ Mirrors `job || !hasFile`'s *other* branch below — this is
-  // specifically the half of it with no real job, not "any not-downloaded
-  // reading". A queued/downloading/failed job already has a control of its
-  // own inside `JobLifecycle`; offering a second "Download" beside it would
-  // race a request already in flight.
-  if (job === null && !hasFile) {
+  if (downloadable && !attemptInFlight) {
     actions.push(
       <MovieRequestButton
         className={cns(ACTION_BUTTON)}
@@ -484,50 +517,38 @@ export function MovieDetail({
           ) : null
         }
         cast={<CastRow people={NO_CAST} />}
+        lifecycle={
+          <div className={cns('flex flex-col gap-[14px]')}>
+            <MediaStatus
+              explain={externalQueue ? MOVIE_EXTERNAL_QUEUE_NOTE : undefined}
+              media={movie}
+            />
+            {reconnecting ? (
+              // `w-fit` because this is a flex column — see the same marker on
+              // the video page.
+              <Chip className={cns('w-fit')} tone="warn">
+                <Dot tone="warn" />
+                {MOVIE_STALE_LABEL}
+              </Chip>
+            ) : null}
+          </div>
+        }
         media={movie}
         meta={movieMetaLine(movie)}
         synopsis={movie.overview}
       />
-      <div className={cns(SECTION)}>
-        <h2 className={cns(EYEBROW)}>{MOVIE_STATUS_LABEL}</h2>
-        {/*
-          ⚠️ Two panels, and the branch is not a style choice. `JobLifecycle`'s
-          own empty state is chipped `not downloaded` — a fixed string it takes
-          no override for — which is a true statement about the job and a false
-          one about the file. A movie with a file and no job is the *common*
-          case on this page (Radarr's library is full of titles this app never
-          fetched) and it was rendering `not downloaded` beside a working Watch
-          button. So that one state is drawn here, where the file is known
-          about; every state with a real job is still the panel's.
-        */}
-        {job || !hasFile ? (
-          <JobLifecycle
-            emptyNote={MOVIE_EMPTY_NOTE}
-            hasFile={hasFile}
-            imports={imports}
-            jobs={jobs}
-          />
-        ) : (
-          <div
-            className={cns('flex flex-wrap items-center gap-2.5')}
-            data-library="true"
-          >
-            <Chip
-              className={cns('w-fit')}
-              label={MOVIE_LIBRARY_LABEL}
-              tone="ok"
-            />
-            <span className={cns('min-w-0 flex-1 text-sm text-ink-3')}>
-              {MOVIE_LIBRARY_NOTE}
-            </span>
-          </div>
-        )}
-      </div>
-      <JobHistory
+      <AttemptList
         className={cns(SECTION)}
-        hasFile={hasFile}
+        imports={imports}
         jobs={jobs}
         now={now}
+        onCancel={onCancel}
+        onPause={onPause}
+        onResume={onResume}
+        onRetry={onRetry}
+        // From the movie, never the attempt: a failed newest job over a file
+        // on disk (*Cars*) must not offer to grab the title again.
+        retryable={downloadable}
       />
       {/*
         Two layouts, one of them `display: none` at any given width — the same

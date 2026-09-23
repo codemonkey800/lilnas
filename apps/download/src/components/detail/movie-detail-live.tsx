@@ -4,20 +4,31 @@ import type { JSX } from 'react'
 
 import type { MovieDetailProps } from 'src/components/detail/movie-detail'
 import { MovieDetail } from 'src/components/detail/movie-detail'
-import { useLiveMediaJobs } from 'src/lib/use-live-media-jobs'
+import { useLiveMedia } from 'src/lib/use-live-media'
 
 /**
- * `MovieDetail`, re-rendered as Radarr's queue moves.
+ * `MovieDetail`, kept current off the download gateway.
  *
- * The client half of `/movies/<tmdbId>`, split out the same way
- * `VideoDetailLive` is: `MovieDetail` stays a plain function of `jobs` that
- * renders without a `<JobEventsProvider>`, and this wrapper is the one place
- * that knows the jobs come off a socket. See `useLiveMediaJobs` for how a
- * finished download pulls the file and the Watch link in with it.
+ * The client half of `/movies/<tmdbId>`: `MovieDetail` stays a plain function
+ * of its props that renders without a `<JobEventsProvider>`, and this wrapper
+ * is the one place that knows they come off a socket. `useLiveMedia` follows
+ * the movie by **media id**, so a download this tab did not start (Radarr's
+ * own UI, Discord, another tab) shows up live, and a media frame carries the
+ * new state, file and queue snapshot itself — no router refresh.
  */
 export function MovieDetailLive({
   jobs,
+  movie,
   ...props
 }: MovieDetailProps): JSX.Element {
-  return <MovieDetail {...props} jobs={useLiveMediaJobs(jobs)} />
+  const live = useLiveMedia({ jobs, media: movie })
+
+  return (
+    <MovieDetail
+      {...props}
+      jobs={live.jobs}
+      movie={live.media}
+      stale={!live.connected}
+    />
+  )
 }
