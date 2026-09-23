@@ -517,6 +517,11 @@ returns `undefined` — exactly what `find()` returned for "no entry" — so the
 disappeared-means-completed rule is untouched. Radarr keeps `find()`: one
 movie, one file, one queue item.
 
+> ⚠️ **Superseded by
+> [Jobs are attempts (plan 021 · Phase 3)](#jobs-are-attempts-plan-021--phase-3)**:
+> a job with no queue item now settles from the files, not straight to
+> `completed`.
+
 ### Scoped search picks a narrower command
 
 The Phase 3 rule holds — a title with no `bad_files` rows keeps the command
@@ -830,6 +835,10 @@ column with no enum values. Verified: no CHECK in any migration references
 (`apps/download/src/db/reconcile-interrupted-jobs.ts`) sweeps every
 non-terminal row to `failed` with `Interrupted by a service restart` at boot,
 and Phase 5 deliberately does **not** exempt `paused`.
+
+> ⚠️ **Narrowed by
+> [Jobs are attempts (plan 021 · Phase 3)](#jobs-are-attempts-plan-021--phase-3)**:
+> the sweep now fails video rows only; a paused video is still failed.
 
 The reason is where the bytes live. `VIDEO_DIR` is `/download/videos`, and
 **neither `apps/download/deploy.yml` nor `deploy.dev.yml` mounts a volume
@@ -1822,6 +1831,9 @@ searching for them any more, and `MediaPollerService.trackedJobs` skips a job
 whose media no longer resolves to an upstream id, so left alone they would sit
 at `Searching` until a restart failed them.
 
+> Since plan 021 · Phase 3 a restart re-adopts movie/show rows rather than
+> failing them, so left alone they would now sit at `Searching` indefinitely.
+
 ### A whole-title delete is the arr's real `DELETE`
 
 A movie delete, and a series-scope show delete, are now Radarr's
@@ -2212,6 +2224,12 @@ Map, and `bootstrap.ts` runs it in order: **sweep → adopt → library sync**,
 all before `app.listen()`, so the poller tracks the job on its first tick and
 there is no WS subscriber to miss a broadcast.
 
+> ⚠️ **Superseded by
+> [Jobs are attempts (plan 021 · Phase 3)](#jobs-are-attempts-plan-021--phase-3)**:
+> `RESTART_SURVIVING_STATUSES` is gone, the sweep fails video rows only, and
+> `adoptSurvivingJobs()` is now `adoptOpenJobs()`, which adopts every open
+> movie/show row plus `needs_attention` videos.
+
 ### ⚠️ Accepted gaps
 
 - **A season pack Sonarr could not parse cannot be imported from here**, on a
@@ -2225,7 +2243,9 @@ there is no WS subscriber to miss a broadcast.
   `completed` job for a download that produced no file. `didJobComplete`
   (`src/media/job-completion.util.ts`, plan 016) is the eventual fix — it
   asks the library whether a file actually appeared — and it is **not wired
-  here**; it has no production caller yet.
+  here**; it has no production caller yet. **Closed by
+  [plan 021 · Phase 3](#jobs-are-attempts-plan-021--phase-3)**: such a job
+  now fails with `Left the queue without producing a file`.
 - **Whether Radarr accepts `ManualImport` with `importMode: 'auto'` for a
   file carrying a `permanent` rejection** is confirmed from Radarr's source
   (a fresh `ImportDecision` per file, no rejections) but **not yet exercised
@@ -2506,7 +2526,8 @@ freeze over an episode row nobody is looking at.
 - **The per-job `queueSnapshot` graft in `toJob` still exists** until
   Phase 3: `DownloadStateService` grafts the poller's per-job snapshot onto
   the job's `media`, over the media-level one `annotate` set. Both are read
-  from the same queue through the same helpers, so they agree.
+  from the same queue through the same helpers, so they agree. **Removed in
+  [Phase 3](#jobs-are-attempts-plan-021--phase-3).**
 - **A video's `addedAt` moves on re-request.** It is `videos.updated_at`,
   and `upsertVideoByNaturalKey`'s conflict branch bumps it on every
   re-request, so a video requested again reads as freshly added.
@@ -2662,6 +2683,7 @@ server props:
   attribution line and the delete's job id (`DELETE /download/videos/:jobId`).
 - **Pause, Cancel, Resume** on the in-flight card; **Retry** only while
   `absent`/`wanted` and the newest attempt is not an unrecognised link.
+  Phase 3 replaced that Retry with a page-level **Download**.
 - No progress bar, ever — nothing on the wire carries a video's progress.
 
 **Show** (`show-detail.tsx`, `show-seasons.tsx`, `show-episode-row.tsx`):
@@ -2698,7 +2720,8 @@ server props:
   path**: completed attempts offer no Retry and videos have no Download. The
   page's own Delete cancels the attempt, which does leave a Retry; a file
   removed any other way doesn't. To be addressed with Phase 3's delete
-  change.
+  change. **Closed by [Phase 3](#jobs-are-attempts-plan-021--phase-3)'s
+  Download button.**
 - **Activity and home "in flight" counts are still job-driven.**
 
 ### Verified live (2026-09-23)
@@ -2709,6 +2732,185 @@ server props:
 | `/movies/1158406` | `wanted` + Download                                   |
 | `/movies/920`     | _Cars_: `in library`, failed attempt listed, no Retry |
 | `/shows/74413`    | series `in library`, 45 of 55 episodes                |
+
+---
+
+## Jobs are attempts (plan 021 · Phase 3)
+
+**Status: Phase 3 done.** Commits, in order: `09650431` (the restart sweeps
+video jobs only), `3286894b` (`didJobComplete` needs one file, not every
+episode), `435a73f3` (jobs settle from files), `fe52ba90` (deletes keep
+completed attempts), `d2398e51` (the video page's Download), `b5341653` (one
+source for `queueSnapshot`).
+
+Phase 1 gave media a state; Phase 2 made the pages read it. Phase 3 makes a
+**job** what the plan always said it was: one download attempt, whose status
+records how that attempt ended and nothing else. Three rules used to rewrite
+an attempt after the fact, and each is gone:
+
+- **No queue item meant `completed`**, file or no file.
+- **A restart failed every open job**, including downloads Radarr/Sonarr were
+  still running. This is the job side of _Cars_.
+- **A delete cancelled the attempt** that had downloaded the file.
+
+### Settling from files
+
+A tracked movie/show job with a queue item still takes its status from the
+item (`deriveStatusFromQueueItem(current, item)`, which now requires one).
+A job with **no** item is settled from the library instead, by
+`settleWithoutQueueItem(current, fileLanded, absentForMs)` in
+`queue-status.util.ts`:
+
+| Status, no queue item                         | A file landed | No file, < 60 s | No file, ≥ 60 s |
+| --------------------------------------------- | ------------- | --------------- | --------------- |
+| `downloading` / `importing` / `paused`        | `completed`   | unchanged       | `failed`        |
+| `requested` / `searching` / `needs_attention` | `completed`   | unchanged       | unchanged       |
+| terminal, or a video-only status              | unchanged     | unchanged       | unchanged       |
+
+- **The poller's path**: private `settleAbsentJobs` → private
+  `completionInputs` (one file read per title: Radarr `getMovieFiles`, or
+  Sonarr `getEpisodeFiles` + `getEpisodes`) → `didJobComplete`.
+- **`completionInputs` never throws.** A failed read logs and leaves that
+  title's jobs exactly as they are, past the grace or not. Without the
+  listing there is no telling a finished import from a dropped download, and
+  one flaky title must not trip `poll()`'s backoff.
+- **`completed` invalidates the resolver first**, as before, so the broadcast
+  carries the imported file.
+- **A `searching` job whose download went grabbed → imported between two
+  ticks now completes.** It used to wedge at `searching` with its file on
+  disk. A `needs_attention` job a human imported at Radarr/Sonarr completes
+  the same way.
+
+### `didJobComplete`, per scope
+
+`src/media/job-completion.util.ts` (plan 016) has its first production
+caller. "Newer" means a file's `dateAdded` is strictly after the job's
+`createdAt`; an equal or unparseable timestamp is not new.
+
+| Scope                                                  | Completes when                                 |
+| ------------------------------------------------------ | ---------------------------------------------- |
+| Movie                                                  | any movie file is newer than the job           |
+| Episode (`episodeId`)                                  | that episode's file is newer                   |
+| Season (`seasonNumber`)                                | **any** episode of the season has a newer file |
+| Whole series (no scope, `{}`, or `episodeNumber` only) | **any** series file is newer                   |
+
+- **Lenient on purpose.** The rule was "every episode in scope". Episodes
+  already on disk before the job, unaired ones and ones no indexer had never
+  get a new file, so demanding them failed an attempt that landed everything
+  it could.
+- **The job records the attempt; media state says how much landed.** The
+  chip and "N of M episodes" come from the media, not from this verdict.
+- **Some evidence is still required**, so a download that vanished without
+  a file doesn't read as finished.
+
+### The 60 s grace
+
+A grabbed job (`downloading`/`importing`/`paused`) with no item and no file
+waits `QUEUE_ABSENCE_GRACE_MS = 60_000`, then fails with
+`LEFT_QUEUE_WITHOUT_FILE_ERROR`:
+
+```
+Left the queue without producing a file
+```
+
+- **Why wait**: Radarr/Sonarr drop the queue row at the end of an import
+  slightly before the file listing reports the file, and a tick can land in
+  between.
+- **`absentSince`** (job id → epoch ms) is wall-clock, so a run of failed
+  polls counts toward the grace rather than pausing it. It clears when the
+  item reappears, the job settles, or the job is no longer tracked.
+- **Plan 020's accepted gap is closed**: an item removed in Radarr's own UI
+  now ends its job `failed`, not `completed`.
+
+### Surviving a restart
+
+| Row at boot                        | Before Phase 3                     | Now                                           |
+| ---------------------------------- | ---------------------------------- | --------------------------------------------- |
+| Video, non-terminal (incl. paused) | `failed`                           | `failed` — `Interrupted by a service restart` |
+| Movie/show, non-terminal           | `failed`, unless `needs_attention` | untouched, re-adopted                         |
+| `needs_attention`, any type        | spared, re-adopted                 | spared, re-adopted                            |
+
+- **`reconcileInterruptedJobs` sweeps `type = 'video'` rows only.** A video's
+  download _is_ this process (yt-dlp, the in-memory Map, bytes under an
+  unmounted `/download/videos`), so a restart really did end it. A movie/show
+  download runs in Radarr/Sonarr, which outlived the process; failing it was
+  a lie, and on _Cars_ it put `failed` on a playable title.
+- **`adoptSurvivingJobs()` is now `DownloadStateService.adoptOpenJobs()`**:
+  every non-terminal movie/show row (`listOpenJobs(db, types?)` in
+  `jobs.repo.ts`) plus every `needs_attention` video.
+  `RESTART_SURVIVING_STATUSES` is deleted.
+- **Boot order is unchanged**: sweep → adopt → library sync, all before
+  `app.listen()`. The boot log reads `Re-adopted N open job(s)`.
+- **The poller settles an adopted row on its first tick** — from its queue
+  item if it has one, otherwise from the files. A download that finished
+  while the process was down completes; one that vanished fails after the
+  grace.
+
+### Deletes keep history
+
+- **Only an attempt still in flight is cancelled.** `MediaDownloadService.deleteJob`
+  (`DELETE /download/movies/:id`, `/shows/:id`) and
+  `DownloadService.deleteVideoDownloadJob` (`DELETE /download/videos/:id`)
+  cancel only when `!isTerminalDownloadJobStatus`. A completed attempt stays
+  `completed` with its `completedAt`: it did download the file, and deleting
+  that file later is a second fact about the title, not a rewrite of the
+  first.
+- **A finished movie/show attempt gets no job event on delete**, since
+  nothing about it changed. A video still broadcasts, through `updateVideo`
+  clearing its `downloadUrls`.
+- **Also fixed**: a job completed before a restart could not be deleted.
+- ⚠️ **Stopgap — `markRemovedFromLibrary`.** The gallery lists titles with a
+  `Completed` job, and relied on the delete's `cancelled` to drop a deleted
+  one. Both delete paths now flag every job of the title
+  `removed_from_library`, the flag `ShowService.deleteFiles` already sets on
+  a whole-title removal (plan 019). A re-request mints a fresh, unflagged
+  job, which brings the card back. **Phase 4 moves the gallery onto media
+  state and removes the flag.**
+- **`scripts/verify/mutate.ts` `MEDIA_TRANSITIONS`**: `completed → cancelled`
+  on delete is gone. Newly legal: `requested`/`searching` → `completed`,
+  `searching`/`downloading`/`importing` → `paused`, `paused` →
+  `downloading`/`importing`/`completed`.
+
+### The video page's Download
+
+Closes Phase 2's gap: a deleted video whose newest attempt was `completed`
+had no way back to a file.
+
+- **Download** (`VideoDownloadButton`,
+  `components/detail/video-detail-download.tsx`) shows while the video is
+  `absent`/`wanted`, no attempt is in flight, and the newest attempt is not
+  an unrecognised link.
+- **It calls the existing `retryVideoJob`** with the newest attempt's id — a
+  fresh `POST /download/videos` from that attempt's `sourceUrl`, `timeRange`
+  and `hiddenAttribution`. That is a **new** job row; the attempt it names
+  keeps its outcome.
+- **Retry is gone from the video's `AttemptList`** — one verb, one button.
+
+### One source for `queueSnapshot`
+
+- **Removed**: `DownloadStateService.queueSnapshots` / `setQueueSnapshot` /
+  `getQueueSnapshot`, and `toJob`'s graft of the poller's per-job snapshot
+  onto `job.media` (Phase 1's known gap).
+- **`job.media.queueSnapshot` is only what `MediaStateService.annotate()`
+  sets** during `resolve()`, off the queue cache. It is per title, not per
+  job: two attempts at one series show the same whole-grab progress.
+- **`touchJob(id)`** re-broadcasts a job as `Updated` and writes nothing; the
+  broadcast's hydrate picks up the new snapshot. The poller calls it on a
+  progress-only tick (a status move already broadcasts through `updateJob`),
+  and once when a job's item leaves the queue without settling, so the stale
+  bar clears.
+- **The poller's private `lastSnapshot`** (job id → last snapshot) is only a
+  change detector. It is never what goes on the wire.
+
+### ⚠️ Known gaps
+
+- **`removed_from_library` is a stopgap** until Phase 4 (above).
+- **Not yet verified live.** The dev container's backend process predates
+  every Phase 3 commit — its `nest start -w` watcher has exited, and its last
+  boot log still reads `Re-adopted 0 restart-surviving job(s)`. Reads of
+  `tmdb:50546` and `tmdb:920` (_Cars_) both return `available`, but that is
+  Phase 1/2 behaviour. Re-check after the next restart: the boot line should
+  read `Re-adopted N open job(s)`.
 
 ---
 
