@@ -243,9 +243,31 @@ describe('season-level progress aggregates across episodes', () => {
     { seasonNumber: 2 },
     { id: 'job_s2', status: DownloadJobStatus.Downloading },
   )
+  // What the seasons route serves while that job runs: one of season 2's
+  // episodes in Sonarr's queue. The tab dot and the bar follow the episodes'
+  // rolled-up state, not the job.
+  const downloadingSeasons = [
+    specials(),
+    S1,
+    season({
+      ...S2,
+      episodes: [
+        ...S2.episodes,
+        episode({
+          episodeNumber: 2,
+          id: 2441,
+          seasonNumber: 2,
+          state: 'downloading',
+        }),
+      ],
+    }),
+  ]
 
   it('reports the season’s own file count, not the queue entry', async () => {
-    const { user } = renderSeasons({ jobs: [seasonJob] })
+    const { user } = renderSeasons({
+      jobs: [seasonJob],
+      seasons: downloadingSeasons,
+    })
 
     await user.click(screen.getByRole('tab', { name: /Season 2/ }))
 
@@ -258,7 +280,7 @@ describe('season-level progress aggregates across episodes', () => {
   })
 
   it('marks the season’s own tab as live, and leaves the others alone', () => {
-    renderSeasons({ jobs: [seasonJob] })
+    renderSeasons({ jobs: [seasonJob], seasons: downloadingSeasons })
 
     expect(screen.getByRole('tab', { name: /Season 2/ })).toHaveTextContent(
       '60%',
@@ -274,7 +296,7 @@ describe('season-level progress aggregates across episodes', () => {
     // accessible name concatenated. `·` is the separator this app already
     // uses for exactly this (`Season 2 · 10 episodes`, `1080p WEB-DL · 2.1
     // GB`, `paused · 62%`).
-    renderSeasons({ jobs: [seasonJob] })
+    renderSeasons({ jobs: [seasonJob], seasons: downloadingSeasons })
 
     const tab = screen.getByRole('tab', { name: /Season 2/ })
 

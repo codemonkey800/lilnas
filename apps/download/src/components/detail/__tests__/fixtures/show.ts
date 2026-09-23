@@ -1,6 +1,7 @@
 import type {
   DownloadJob,
   Episode,
+  MediaState,
   Season,
   Show,
   ShowScope,
@@ -44,8 +45,15 @@ export function show(overrides: Partial<Show> = {}): Show {
   }
 }
 
+/**
+ * An episode, with the `state` the server would derive for it when nothing is
+ * queued: `available` with a file, else `wanted` when monitored, else `absent`
+ * (`deriveManagedState`'s no-queue-item branch). So `episode({ hasFile: true })`
+ * stays self-consistent; pass `state` to describe a queued one, or
+ * `state: undefined` to model a payload that carries none.
+ */
 export function episode(overrides: Partial<Episode> = {}): Episode {
-  return {
+  const base: Episode = {
     episodeNumber: 1,
     hasFile: false,
     // ⚠️ Sonarr's episode primary key, not the episode number.
@@ -56,6 +64,16 @@ export function episode(overrides: Partial<Episode> = {}): Episode {
     title: 'Minimum Viable Product',
     ...overrides,
   }
+
+  return 'state' in overrides ? base : { ...base, state: restingState(base) }
+}
+
+function restingState({ hasFile, monitored }: Episode): MediaState {
+  if (hasFile) {
+    return 'available'
+  }
+
+  return monitored ? 'wanted' : 'absent'
 }
 
 export function season(overrides: Partial<Season> = {}): Season {

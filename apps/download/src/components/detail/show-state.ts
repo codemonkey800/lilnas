@@ -2,14 +2,18 @@ import type {
   DownloadJob,
   Episode,
   Media,
+  MediaState,
   Season,
   Show,
 } from '@lilnas/utils/download/types'
-import { DownloadJobStatus } from '@lilnas/utils/download/types'
+import {
+  isMediaInFlight,
+  mediaState,
+  rollupMediaState,
+} from '@lilnas/utils/download/types'
 
-import { jobStatusLabel, latestJob } from 'src/components/detail/job-state'
 import type { StatusTone } from 'src/lib/format'
-import { formatRuntime, isInProgress, statusTone } from 'src/lib/format'
+import { formatRuntime } from 'src/lib/format'
 
 /**
  * Everything the show detail screen *decides*, in a module with no directive
@@ -19,9 +23,10 @@ import { formatRuntime, isInProgress, statusTone } from 'src/lib/format'
  * is `'use client'` (a tab strip owns which season is open), and every export
  * of a `'use client'` module reaches a server component as an opaque client
  * reference - so the page itself could not call any of this if it lived beside
- * the component. And this is where the load-bearing rules are: which job
- * belongs to which scope, what a season's progress actually adds up to, and
- * the fact that **scope is never expressed by mutating the media id**. Those
+ * the component. And this is where the load-bearing rules are: how episode
+ * states roll up into a season's and a series', which job belongs to which
+ * scope's Attempts, what a season's progress actually adds up to, and the fact
+ * that **scope is never expressed by mutating the media id**. Those
  * are worth unit tests that do not need a DOM.
  */
 
@@ -159,32 +164,16 @@ export function seasonHeading(season: Season): string {
  * the gallery groups a show into one card instead of fragmenting it into one
  * per episode - so **nothing here ever looks at, or produces, a modified media
  * id**. An absent (or empty) scope means the whole series.
+ *
+ * Jobs are attempts, not state: these helpers only decide which attempts a
+ * season's or an episode's Attempts list shows. What a scope *is* right now
+ * comes from its episodes - see {@link seasonState}.
  */
 function scopeOf(job: DownloadJob): {
   episodeId?: number
   seasonNumber?: number
 } {
   return job.scope ?? {}
-}
-
-/**
- * Jobs for the whole series - the ones whose scope names no season and no
- * episode.
- *
- * Deliberately not "every job", even though `JobLifecycle` would happily take
- * the lot and pick the newest: the newest job for a series is very often an
- * episode grab, and a panel headed with the series' name reporting one
- * episode's status would be a quiet lie. Every job lands in exactly one panel
- * - this one, or its season's.
- */
-export function seriesScopedJobs(
-  jobs: readonly DownloadJob[],
-): readonly DownloadJob[] {
-  return jobs.filter(job => {
-    const scope = scopeOf(job)
-
-    return scope.episodeId === undefined && scope.seasonNumber === undefined
-  })
 }
 
 /**
@@ -197,9 +186,9 @@ export function seriesScopedJobs(
  * only the id. Matching the id against the season's own episodes catches both.
  *
  * A whole-series job is **not** included. It covers this season in the sense
- * that it will eventually fetch it, but reporting it on all seven tabs at once
- * turns one download into seven blinking dots; the series panel reports it
- * once, which is where it belongs.
+ * that it will eventually fetch it, but listing it on all seven tabs at once
+ * turns one attempt into seven; the series lists it once, which is where it
+ * belongs.
  */
 export function seasonScopedJobs(
   jobs: readonly DownloadJob[],
@@ -233,11 +222,49 @@ export function episodeScopedJobs(
   return jobs.filter(job => scopeOf(job).episodeId === episode.id)
 }
 
-/** Whether the newest job in a list is still open work. */
-export function isScopeDownloading(jobs: readonly DownloadJob[]): boolean {
-  const job = latestJob(jobs)
+/**
+ * One episode's state, exactly as the seasons route served it.
+ *
+ * `mediaState` rather than `episode.state` read directly: `state` is optional
+ * on the wire (an `Episode` is built before the queue is consulted), and the
+ * shared reader is the one place that decides what a missing one means.
+ */
+export function episodeMediaState(episode: Episode): MediaState {
+  return mediaState(episode)
+}
 
-  return job !== null && isInProgress(job.status)
+/**
+ * A season's state, rolled up over its episodes by `MEDIA_STATE_PRECEDENCE` -
+ * one episode needing a decision outranks nine on disk, because that is the
+ * one somebody has to do something about. A season Sonarr has listed no
+ * episodes for is `absent`.
+ */
+export function seasonState(season: Season): MediaState {
+  return rollupMediaState(season.episodes.map(episodeMediaState))
+}
+
+/**
+ * The series' state, rolled up over every episode outside season 0.
+ *
+ * ⚠️ **Specials are excluded**, for the same reason {@link seriesProgress}
+ * excludes them: they are opt-in extras almost nobody grabs, and a series
+ * whose only unfetched episodes are specials would otherwise never read as
+ * anything but `wanted`. The specials tab still carries its own rollup.
+ *
+ * Falls back to the show's own `state` when there is nothing to roll up - the
+ * seasons payload failed or has not landed, or the series only has specials -
+ * because the server computes that one from the same episodes and it is the
+ * honest answer when the per-episode detail is missing.
+ */
+export function seriesState(
+  show: Show,
+  seasons: readonly Season[],
+): MediaState {
+  const states = seasons
+    .filter(season => season.seasonNumber !== SPECIALS_SEASON_NUMBER)
+    .flatMap(season => season.episodes.map(episodeMediaState))
+
+  return states.length === 0 ? mediaState(show) : rollupMediaState(states)
 }
 
 /**
@@ -255,9 +282,17 @@ export type DeleteCascadeScope =
   | { seasonNumber: number }
 
 /**
+ * Whether an episode is on disk or on its way. A download in any in-flight
+ * state - moving, importing, paused, or waiting on a human - is a file that is
+ * about to exist, whoever started it.
+ */
+function episodeRemains(episode: Episode): boolean {
+  return episode.hasFile || isMediaInFlight(episodeMediaState(episode))
+}
+
+/**
  * Whether anything outside `seasonNumber` is still on disk or on its way - a
- * file in another season, a download scoped to another season, or a
- * whole-series download that could land anywhere.
+ * file in another season, or an episode of another season in flight.
  *
  * ⚠️ Specials are a season here, on both sides of the comparison. Season 0 is
  * compared with `!==` against a number, never tested for truthiness, and it is
@@ -266,43 +301,19 @@ export type DeleteCascadeScope =
  */
 function seriesRemains(
   seasons: readonly Season[],
-  jobs: readonly DownloadJob[],
   seasonNumber: number,
 ): boolean {
-  if (isScopeDownloading(seriesScopedJobs(jobs))) {
-    return true
-  }
-
   return seasons.some(
     other =>
       other.seasonNumber !== seasonNumber &&
-      (other.episodeFileCount > 0 ||
-        isScopeDownloading(seasonScopedJobs(jobs, other))),
+      (other.episodeFileCount > 0 || other.episodes.some(episodeRemains)),
   )
 }
 
-/**
- * Whether anything in `season` other than `target` is still on disk or on its
- * way.
- *
- * The job half is `seasonScopedJobs` minus `episodeScopedJobs` rather than a
- * fresh read of `job.scope`: a job naming only this season has not been pinned
- * to an episode yet and so keeps the season alive, while the target's own
- * in-flight job obviously does not.
- */
-function seasonRemains(
-  season: Season,
-  jobs: readonly DownloadJob[],
-  target: Episode,
-): boolean {
-  if (season.episodes.some(entry => entry.id !== target.id && entry.hasFile)) {
-    return true
-  }
-
-  const mine = new Set(episodeScopedJobs(jobs, target).map(entry => entry.id))
-
-  return isScopeDownloading(
-    seasonScopedJobs(jobs, season).filter(entry => !mine.has(entry.id)),
+/** Whether anything in `season` other than `target` is still on disk or on its way. */
+function seasonRemains(season: Season, target: Episode): boolean {
+  return season.episodes.some(
+    entry => entry.id !== target.id && episodeRemains(entry),
   )
 }
 
@@ -317,16 +328,14 @@ function seasonRemains(
  * episode of a season unmonitors the season; deleting the last remaining
  * season removes the series from Sonarr.
  *
- * ⚠️ This is a **prediction**, and the backend's own queue read is the truth.
- * It is deliberately the over-warning side of the disagreement: this sees only
- * the jobs this app started, so a grab Sonarr made from its own RSS feed can
- * leave the backend not cascading after the dialog said it would. A dialog
- * that over-warns is recoverable; one that under-warns is a series the user
- * did not know they were removing.
+ * "In flight" is read off each episode's `state`, which the server derives
+ * from Sonarr's **full** queue - so a grab Sonarr made from its own RSS feed
+ * holds a season back exactly as one this app started does. It is still a
+ * **prediction**: the states are as fresh as the last poll, and the backend's
+ * own queue read at delete time is the truth.
  */
 export function deleteCascade(
   seasons: readonly Season[],
-  jobs: readonly DownloadJob[],
   scope: DeleteCascadeScope,
 ): DeleteCascade {
   const season = seasons.find(
@@ -342,16 +351,14 @@ export function deleteCascade(
       return 'none'
     }
 
-    if (seasonRemains(season, jobs, target)) {
+    if (seasonRemains(season, target)) {
       return 'none'
     }
 
-    return seriesRemains(seasons, jobs, season.seasonNumber)
-      ? 'season'
-      : 'series'
+    return seriesRemains(seasons, season.seasonNumber) ? 'season' : 'series'
   }
 
-  return seriesRemains(seasons, jobs, scope.seasonNumber) ? 'none' : 'series'
+  return seriesRemains(seasons, scope.seasonNumber) ? 'none' : 'series'
 }
 
 /** How an episode row's chip reads. */
@@ -364,66 +371,36 @@ export type EpisodeState = {
 }
 
 /**
- * The three states an episode can be in that no job describes.
- * `show-detail.mjs`'s own words for the first two; the third is this app's,
- * because the mockup has no unmonitored row and "not downloaded" would be
- * misleading for an episode nothing is looking for.
+ * Every {@link MediaState} to its episode chip - the movie/show column of the
+ * plan 021 vocabulary, in `show-detail.mjs`'s own words.
+ *
+ * A `Record` rather than a `switch`, so a new state fails type-check here
+ * instead of quietly rendering as something else. `live` is only ever set on
+ * a `uv` tone: `needs_attention` and `paused` are in flight but *stopped*, and
+ * a breathing dot would claim the machine is working on something that will
+ * sit there until somebody acts.
  */
-const EPISODE_DOWNLOADED_LABEL = 'downloaded'
-const EPISODE_MISSING_LABEL = 'not downloaded'
-const EPISODE_UNMONITORED_LABEL = 'not monitored'
+const EPISODE_STATES: Record<MediaState, EpisodeState> = {
+  absent: { label: 'not downloaded', live: false, tone: 'mute' },
+  available: { label: 'in library', live: false, tone: 'ok' },
+  downloading: { label: 'downloading', live: true, tone: 'uv' },
+  importing: { label: 'importing…', live: true, tone: 'uv' },
+  needs_attention: { label: 'needs your decision', live: false, tone: 'warn' },
+  paused: { label: 'paused', live: false, tone: 'warn' },
+  wanted: { label: 'wanted', live: false, tone: 'mute' },
+}
 
 /**
- * What one episode row says about itself.
+ * What one episode row says about itself - its own `state`, nothing else.
  *
- * The order is the point:
- *
- * 1. **A job in flight wins.** It is the only thing on the row that is
- *    changing, and it is the thing the user just asked for.
- * 2. **Then the file.** `hasFile` is a fact about the disk; a job that
- *    finished three weeks ago is not.
- * 3. **Then a failed attempt**, because "this was tried and did not work" is
- *    strictly more useful than "there is no file here".
- * 4. **Then monitoring.** An unmonitored episode with no file is not missing -
- *    nobody asked for it, and Sonarr will not go looking.
- *
- * `jobs` is the episode's own scoped list (see {@link episodeScopedJobs}),
- * newest first. A season- or series-scoped download is deliberately *not*
- * smeared across every row it will eventually touch: it says nothing about
- * which episode is transferring right now, and the season header aggregates it
- * honestly instead.
+ * No job is consulted: a job is one attempt, and the newest one failing says
+ * nothing about whether the file is on disk now (the *Cars* bug). A season- or
+ * series-scoped download shows up here as this episode's own state once Sonarr
+ * queues it, which is also the only honest answer to "which episode is
+ * transferring right now".
  */
-export function episodeState(
-  episode: Episode,
-  jobs: readonly DownloadJob[],
-): EpisodeState {
-  const job = latestJob(jobs)
-
-  if (job && isInProgress(job.status)) {
-    const tone = statusTone(job.status)
-
-    return { live: tone === 'uv', label: jobStatusLabel(job.status), tone }
-  }
-
-  if (episode.hasFile) {
-    return { live: false, label: EPISODE_DOWNLOADED_LABEL, tone: 'ok' }
-  }
-
-  if (job && job.status !== DownloadJobStatus.Completed) {
-    return {
-      live: false,
-      label: jobStatusLabel(job.status),
-      tone: statusTone(job.status),
-    }
-  }
-
-  return {
-    live: false,
-    label: episode.monitored
-      ? EPISODE_MISSING_LABEL
-      : EPISODE_UNMONITORED_LABEL,
-    tone: 'mute',
-  }
+export function episodeState(episode: Episode): EpisodeState {
+  return EPISODE_STATES[episodeMediaState(episode)]
 }
 
 /**

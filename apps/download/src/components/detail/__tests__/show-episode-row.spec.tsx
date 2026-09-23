@@ -140,10 +140,10 @@ describe('the row itself', () => {
     expect(screen.getByText('—')).toBeInTheDocument()
   })
 
-  it('reads "downloaded" when the file is on disk', () => {
+  it('reads "in library" when the file is on disk', () => {
     renderRow({ episode: episode({ hasFile: true }) })
 
-    expect(screen.getByText('downloaded')).toBeInTheDocument()
+    expect(screen.getByText('in library')).toBeInTheDocument()
   })
 })
 
@@ -193,7 +193,9 @@ describe('the scoped download control', () => {
     expect(
       screen.queryByRole('button', { name: 'Download' }),
     ).not.toBeInTheDocument()
-    expect(screen.getByText('searching')).toBeInTheDocument()
+    // The chip reads the episode's own state, not the job's: a search has not
+    // queued anything yet, so Sonarr still has it as wanted.
+    expect(screen.getByText('wanted')).toBeInTheDocument()
   })
 })
 
@@ -430,9 +432,16 @@ describe('the import control', () => {
       { episodeId: 2430, seasonNumber: 1 },
       { status: DownloadJobStatus.NeedsAttention },
     )
+  // The chip reads the episode's state, which the server derives from the
+  // same stuck queue item the job is parked on.
+  const stuckEpisode = () => episode({ state: 'needs_attention' })
 
   it('offers it when this episode’s own job is waiting on a decision', () => {
-    renderRow({ imports: importActions(), jobs: [needsAttention()] })
+    renderRow({
+      episode: stuckEpisode(),
+      imports: importActions(),
+      jobs: [needsAttention()],
+    })
 
     expect(
       screen.getByRole('button', { name: IMPORT_TRIGGER_LABEL }),
@@ -503,7 +512,7 @@ describe('the import control', () => {
   })
 
   it('renders nothing when the page wired no importer', () => {
-    renderRow({ jobs: [needsAttention()] })
+    renderRow({ episode: stuckEpisode(), jobs: [needsAttention()] })
 
     expect(
       screen.queryByRole('button', { name: IMPORT_TRIGGER_LABEL }),

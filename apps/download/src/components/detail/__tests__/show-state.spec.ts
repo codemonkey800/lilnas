@@ -1,5 +1,8 @@
-import type { Season } from '@lilnas/utils/download/types'
-import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
+import type { MediaState, Season } from '@lilnas/utils/download/types'
+import {
+  DownloadType,
+  MEDIA_STATE_PRECEDENCE,
+} from '@lilnas/utils/download/types'
 
 import {
   episode,
@@ -13,20 +16,21 @@ import {
   deleteCascade,
   episodeCode,
   episodeKey,
+  episodeMediaState,
   episodeProgressLabel,
   episodeScopedJobs,
   episodeState,
   isMetadataMissing,
-  isScopeDownloading,
   seasonByTabValue,
   seasonEpisodeTotal,
   seasonHeading,
   seasonLabel,
   seasonProgress,
   seasonScopedJobs,
+  seasonState,
   seasonTabValue,
   seriesProgress,
-  seriesScopedJobs,
+  seriesState,
   showMetaLine,
   SPECIALS_SEASON_NUMBER,
 } from 'src/components/detail/show-state'
@@ -197,11 +201,11 @@ describe('⚠️ scope lives on the JOB, never in the media id', () => {
     )
   })
 
-  it('treats an absent AND an empty scope as the whole series', () => {
-    expect(seriesScopedJobs(ALL).map(entry => entry.id)).toEqual([
-      'job_series',
-      'job_empty',
-    ])
+  it('⚠️ leaves an absent AND an empty scope (the whole series) out of a season', () => {
+    const ids = seasonScopedJobs(ALL, two).map(entry => entry.id)
+
+    expect(ids).not.toContain('job_series')
+    expect(ids).not.toContain('job_empty')
   })
 
   it('matches a season job by its seasonNumber', () => {
@@ -245,39 +249,124 @@ describe('⚠️ scope lives on the JOB, never in the media id', () => {
   })
 })
 
-describe('isScopeDownloading', () => {
-  it('reads the newest job in the scope', () => {
-    expect(
-      isScopeDownloading([
-        scopedJob(
-          { seasonNumber: 2 },
-          { status: DownloadJobStatus.Downloading },
-        ),
-        scopedJob({ seasonNumber: 2 }, { status: DownloadJobStatus.Completed }),
-      ]),
-    ).toBe(true)
+/**
+ * Every adjacent pair in the precedence, highest first - six of them. Each is
+ * the one comparison a rollup could get wrong without any other test noticing.
+ */
+const ADJACENT_PAIRS: readonly (readonly [MediaState, MediaState])[] = [
+  ['needs_attention', 'downloading'],
+  ['downloading', 'importing'],
+  ['importing', 'paused'],
+  ['paused', 'available'],
+  ['available', 'wanted'],
+  ['wanted', 'absent'],
+]
+
+describe('episodeMediaState', () => {
+  it('reads the state the seasons route served', () => {
+    expect(episodeMediaState(episode({ state: 'importing' }))).toBe('importing')
   })
 
-  it('is false once the newest job is terminal, whatever came before it', () => {
+  it('reads a payload that carries no state as absent', () => {
     expect(
-      isScopeDownloading([
-        scopedJob({ seasonNumber: 2 }, { status: DownloadJobStatus.Completed }),
-        scopedJob(
-          { seasonNumber: 2 },
-          { status: DownloadJobStatus.Downloading },
-        ),
-      ]),
-    ).toBe(false)
+      episodeMediaState(episode({ hasFile: true, state: undefined })),
+    ).toBe('absent')
+  })
+})
+
+describe('seasonState rolls up its episodes', () => {
+  it('covers every adjacent pair in the precedence', () => {
+    expect(ADJACENT_PAIRS.map(([higher]) => higher)).toEqual(
+      MEDIA_STATE_PRECEDENCE.slice(0, -1),
+    )
+    expect(ADJACENT_PAIRS.map(([, lower]) => lower)).toEqual(
+      MEDIA_STATE_PRECEDENCE.slice(1),
+    )
   })
 
-  it('is false for an empty scope', () => {
-    expect(isScopeDownloading([])).toBe(false)
+  it.each(ADJACENT_PAIRS)('%s outranks %s', (higher, lower) => {
+    const inOrder = season({
+      episodes: [
+        episode({ id: 101, state: lower }),
+        episode({ id: 102, state: higher }),
+      ],
+    })
+    const reversed = season({
+      episodes: [
+        episode({ id: 101, state: higher }),
+        episode({ id: 102, state: lower }),
+      ],
+    })
+
+    expect(seasonState(inOrder)).toBe(higher)
+    expect(seasonState(reversed)).toBe(higher)
+  })
+
+  it('is absent for a season Sonarr has listed no episodes for', () => {
+    expect(seasonState(season({ episodes: [] }))).toBe('absent')
+  })
+})
+
+describe('seriesState rolls up every non-special episode', () => {
+  it.each(ADJACENT_PAIRS)('%s outranks %s across seasons', (higher, lower) => {
+    const seasons = [
+      season({
+        episodes: [episode({ id: 101, state: lower })],
+        seasonNumber: 1,
+      }),
+      season({
+        episodes: [episode({ id: 201, state: higher })],
+        seasonNumber: 2,
+      }),
+    ]
+
+    expect(seriesState(show(), seasons)).toBe(higher)
+    expect(seriesState(show(), [...seasons].reverse())).toBe(higher)
+  })
+
+  it('⚠️ excludes specials, so an extra nobody grabbed cannot outrank the series', () => {
+    const seasons = [
+      specials({
+        episodes: [
+          episode({ id: 9001, seasonNumber: 0, state: 'needs_attention' }),
+        ],
+      }),
+      season({ episodes: [episode({ hasFile: true })], seasonNumber: 1 }),
+    ]
+
+    expect(seriesState(show(), seasons)).toBe('available')
+  })
+
+  it("falls back to the show's own state when there are no seasons", () => {
+    expect(seriesState(show({ state: 'downloading' }), [])).toBe('downloading')
+  })
+
+  it('falls back when the only season is specials', () => {
+    expect(
+      seriesState(show({ state: 'wanted' }), [
+        specials({
+          episodes: [episode({ seasonNumber: 0, state: 'available' })],
+        }),
+      ]),
+    ).toBe('wanted')
+  })
+
+  it('falls back when no season lists any episodes', () => {
+    expect(
+      seriesState(show({ state: 'available' }), [season({ episodes: [] })]),
+    ).toBe('available')
+  })
+
+  it('reads a show with no state of its own as absent in the fallback', () => {
+    expect(seriesState(show(), [])).toBe('absent')
   })
 })
 
 describe('deleteCascade', () => {
   /**
-   * A season whose episodes are described by which of them are on disk.
+   * A season whose episodes are described one entry each: `true` is a file on
+   * disk, `false` is nothing (`wanted`), and a `MediaState` is no file in
+   * that state - `'downloading'` for a grab in flight.
    *
    * ⚠️ Ids are `seasonNumber * 100 + n` so they are unique across seasons and
    * never equal to an episode *number* - the two are matched on different
@@ -285,18 +374,19 @@ describe('deleteCascade', () => {
    */
   function withEpisodes(
     seasonNumber: number,
-    files: readonly boolean[],
+    entries: readonly (boolean | MediaState)[],
     overrides: Partial<Season> = {},
   ): Season {
     return season({
-      episodeCount: files.length,
-      episodeFileCount: files.filter(Boolean).length,
-      episodes: files.map((hasFile, index) =>
+      episodeCount: entries.length,
+      episodeFileCount: entries.filter(entry => entry === true).length,
+      episodes: entries.map((entry, index) =>
         episode({
           episodeNumber: index + 1,
-          hasFile,
+          hasFile: entry === true,
           id: seasonNumber * 100 + index + 1,
           seasonNumber,
+          ...(typeof entry === 'string' ? { state: entry } : {}),
         }),
       ),
       seasonNumber,
@@ -304,55 +394,43 @@ describe('deleteCascade', () => {
     })
   }
 
-  const downloading = { status: DownloadJobStatus.Downloading }
-  const finished = { status: DownloadJobStatus.Completed }
-
   describe('deleting a season', () => {
     it('stops at the season while another season still has files', () => {
       expect(
-        deleteCascade([withEpisodes(1, [true]), withEpisodes(2, [true])], [], {
+        deleteCascade([withEpisodes(1, [true]), withEpisodes(2, [true])], {
           seasonNumber: 1,
         }),
       ).toBe('none')
     })
 
-    it('⚠️ stops at the season while another season is only DOWNLOADING', () => {
-      // A queued grab is a file that is about to exist. Removing the series
-      // out from under it would cancel a download nobody asked to cancel.
-      expect(
-        deleteCascade(
-          [withEpisodes(1, [true]), withEpisodes(2, [false])],
-          [scopedJob({ seasonNumber: 2 }, downloading)],
-          { seasonNumber: 1 },
-        ),
-      ).toBe('none')
-    })
+    it.each(['downloading', 'importing', 'needs_attention', 'paused'] as const)(
+      '⚠️ stops at the season while another season is only %s, with no job at all',
+      state => {
+        // A queued grab is a file that is about to exist - whoever started
+        // it. The state comes from Sonarr's full queue, so a grab from its own
+        // RSS feed holds the series back exactly like one this app made.
+        expect(
+          deleteCascade([withEpisodes(1, [true]), withEpisodes(2, [state])], {
+            seasonNumber: 1,
+          }),
+        ).toBe('none')
+      },
+    )
 
     it('reaches the series when nothing else is left', () => {
       expect(
-        deleteCascade([withEpisodes(1, [true]), withEpisodes(2, [false])], [], {
+        deleteCascade([withEpisodes(1, [true]), withEpisodes(2, [false])], {
           seasonNumber: 1,
         }),
       ).toBe('series')
     })
 
-    it('is held back by a whole-series job, which could land anywhere', () => {
+    it('is not held back by an episode that is only wanted', () => {
+      // Nothing has been grabbed for it, so nothing is about to land.
       expect(
-        deleteCascade(
-          [withEpisodes(1, [true]), withEpisodes(2, [false])],
-          [scopedJob(undefined, downloading)],
-          { seasonNumber: 1 },
-        ),
-      ).toBe('none')
-    })
-
-    it('is not held back by another season’s FINISHED job', () => {
-      expect(
-        deleteCascade(
-          [withEpisodes(1, [true]), withEpisodes(2, [false])],
-          [scopedJob({ seasonNumber: 2 }, finished)],
-          { seasonNumber: 1 },
-        ),
+        deleteCascade([withEpisodes(1, [true]), withEpisodes(2, ['wanted'])], {
+          seasonNumber: 1,
+        }),
       ).toBe('series')
     })
   })
@@ -360,7 +438,7 @@ describe('deleteCascade', () => {
   describe('deleting an episode', () => {
     it('stops at the episode while a sibling still has a file', () => {
       expect(
-        deleteCascade([withEpisodes(1, [true, true])], [], {
+        deleteCascade([withEpisodes(1, [true, true])], {
           episodeId: 101,
           seasonNumber: 1,
         }),
@@ -369,30 +447,18 @@ describe('deleteCascade', () => {
 
     it('stops at the episode while a sibling is only DOWNLOADING', () => {
       expect(
-        deleteCascade(
-          [withEpisodes(1, [true, false])],
-          [scopedJob({ episodeId: 102, seasonNumber: 1 }, downloading)],
-          { episodeId: 101, seasonNumber: 1 },
-        ),
+        deleteCascade([withEpisodes(1, [true, 'downloading'])], {
+          episodeId: 101,
+          seasonNumber: 1,
+        }),
       ).toBe('none')
     })
 
-    it('stops at the episode while a season-level job is still unpinned', () => {
-      expect(
-        deleteCascade(
-          [withEpisodes(1, [true, false])],
-          [scopedJob({ seasonNumber: 1 }, downloading)],
-          { episodeId: 101, seasonNumber: 1 },
-        ),
-      ).toBe('none')
-    })
-
-    it('⚠️ is not held back by the target’s OWN in-flight job', () => {
+    it('⚠️ is not held back by the target’s OWN in-flight download', () => {
       // The thing being deleted cannot be the reason its own season survives.
       expect(
         deleteCascade(
-          [withEpisodes(1, [true, false]), withEpisodes(2, [true])],
-          [scopedJob({ episodeId: 101, seasonNumber: 1 }, downloading)],
+          [withEpisodes(1, ['downloading', false]), withEpisodes(2, [true])],
           { episodeId: 101, seasonNumber: 1 },
         ),
       ).toBe('season')
@@ -402,7 +468,6 @@ describe('deleteCascade', () => {
       expect(
         deleteCascade(
           [withEpisodes(1, [true, false]), withEpisodes(2, [true])],
-          [],
           { episodeId: 101, seasonNumber: 1 },
         ),
       ).toBe('season')
@@ -412,17 +477,15 @@ describe('deleteCascade', () => {
       expect(
         deleteCascade(
           [withEpisodes(1, [true, false]), withEpisodes(2, [false])],
-          [],
           { episodeId: 101, seasonNumber: 1 },
         ),
       ).toBe('series')
     })
 
-    it('stops one short of the series while a whole-series job is in flight', () => {
+    it('stops one short of the series while another season is importing', () => {
       expect(
         deleteCascade(
-          [withEpisodes(1, [true, false]), withEpisodes(2, [false])],
-          [scopedJob(undefined, downloading)],
+          [withEpisodes(1, [true, false]), withEpisodes(2, ['importing'])],
           { episodeId: 101, seasonNumber: 1 },
         ),
       ).toBe('season')
@@ -431,13 +494,13 @@ describe('deleteCascade', () => {
     it('cascades nowhere for an episode no listed season holds', () => {
       // The same answer `planShowDelete` gives an episode it cannot place.
       expect(
-        deleteCascade([withEpisodes(1, [true])], [], {
+        deleteCascade([withEpisodes(1, [true])], {
           episodeId: 999,
           seasonNumber: 1,
         }),
       ).toBe('none')
       expect(
-        deleteCascade([withEpisodes(1, [true])], [], {
+        deleteCascade([withEpisodes(1, [true])], {
           episodeId: 101,
           seasonNumber: 7,
         }),
@@ -450,15 +513,24 @@ describe('deleteCascade', () => {
       // `0` is falsy. A rule written on truthiness would remove the series and
       // take the specials with it.
       expect(
-        deleteCascade([withEpisodes(0, [true]), withEpisodes(1, [true])], [], {
+        deleteCascade([withEpisodes(0, [true]), withEpisodes(1, [true])], {
           seasonNumber: 1,
         }),
       ).toBe('none')
     })
 
+    it('lets a season 0 download keep another season’s delete from cascading', () => {
+      expect(
+        deleteCascade(
+          [withEpisodes(0, ['downloading']), withEpisodes(1, [true])],
+          { seasonNumber: 1 },
+        ),
+      ).toBe('none')
+    })
+
     it('cascades from season 0 itself like any other season', () => {
       expect(
-        deleteCascade([withEpisodes(0, [true]), withEpisodes(1, [false])], [], {
+        deleteCascade([withEpisodes(0, [true]), withEpisodes(1, [false])], {
           seasonNumber: 0,
         }),
       ).toBe('series')
@@ -466,7 +538,7 @@ describe('deleteCascade', () => {
 
     it('cascades from an episode of season 0', () => {
       expect(
-        deleteCascade([withEpisodes(0, [true]), withEpisodes(1, [true])], [], {
+        deleteCascade([withEpisodes(0, [true]), withEpisodes(1, [true])], {
           episodeId: 1,
           seasonNumber: 0,
         }),
@@ -476,56 +548,30 @@ describe('deleteCascade', () => {
 })
 
 describe('episodeState', () => {
-  it('lets a job in flight win, because it is the thing that is changing', () => {
+  it.each<[MediaState, string, 'mute' | 'ok' | 'uv' | 'warn', boolean]>([
+    ['available', 'in library', 'ok', false],
+    ['wanted', 'wanted', 'mute', false],
+    ['downloading', 'downloading', 'uv', true],
+    ['importing', 'importing…', 'uv', true],
+    ['needs_attention', 'needs your decision', 'warn', false],
+    ['paused', 'paused', 'warn', false],
+    ['absent', 'not downloaded', 'mute', false],
+  ])('reads %s as "%s" (%s, live: %s)', (state, label, tone, live) => {
+    expect(episodeState(episode({ state }))).toEqual({ label, live, tone })
+  })
+
+  it('⚠️ reads the state, not the disk: an upgrade in flight is downloading', () => {
+    // A queue item outranks the file on the server (`deriveManagedState`), and
+    // the row says what the server said.
     expect(
-      episodeState(episode({ hasFile: true }), [
-        scopedJob(
-          { episodeId: 2430 },
-          { status: DownloadJobStatus.Downloading },
-        ),
-      ]),
-    ).toEqual({ live: true, label: 'downloading', tone: 'uv' })
+      episodeState(episode({ hasFile: true, state: 'downloading' })),
+    ).toEqual({ label: 'downloading', live: true, tone: 'uv' })
   })
 
-  it('reads the disk next', () => {
-    expect(episodeState(episode({ hasFile: true }), [])).toEqual({
-      live: false,
-      label: 'downloaded',
-      tone: 'ok',
-    })
-  })
-
-  it('⚠️ does not call a stuck import live, even though the job is in flight', () => {
-    // `live` is derived from the tone rather than from `isInProgress`: the
-    // job is still open work, but nothing is moving until somebody imports
-    // it by hand, so the row must not breathe.
-    expect(
-      episodeState(episode({ hasFile: false }), [
-        scopedJob(
-          { episodeId: 2430 },
-          { status: DownloadJobStatus.NeedsAttention },
-        ),
-      ]),
-    ).toEqual({ live: false, label: 'needs your decision', tone: 'warn' })
-  })
-
-  it('reports a failed attempt rather than "not downloaded"', () => {
-    expect(
-      episodeState(episode({ hasFile: false }), [
-        scopedJob({ episodeId: 2430 }, { status: DownloadJobStatus.Failed }),
-      ]),
-    ).toEqual({ live: false, label: 'failed', tone: 'bad' })
-  })
-
-  it('distinguishes an unmonitored episode from a missing one', () => {
-    expect(episodeState(episode({ monitored: false }), [])).toEqual({
-      live: false,
-      label: 'not monitored',
-      tone: 'mute',
-    })
-    expect(episodeState(episode({ monitored: true }), [])).toEqual({
-      live: false,
+  it('reads an episode with no state on the wire as not downloaded', () => {
+    expect(episodeState(episode({ state: undefined }))).toEqual({
       label: 'not downloaded',
+      live: false,
       tone: 'mute',
     })
   })

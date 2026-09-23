@@ -221,6 +221,19 @@ describe('the series lifecycle panel', () => {
   it('⚠️ aggregates across episodes rather than reporting the queue entry', () => {
     renderDetail({
       jobs: [scopedJob(undefined, { status: DownloadJobStatus.Downloading })],
+      // The bar follows the series' rolled-up state, so one of its episodes
+      // has to be in flight for it to draw.
+      seasons: [
+        specials(),
+        S1,
+        season({
+          ...S2,
+          episodes: [
+            ...S2.episodes,
+            episode({ id: 2441, seasonNumber: 2, state: 'downloading' }),
+          ],
+        }),
+      ],
     })
 
     // 14 of 24 across two seasons - the figure the mockup's own legend prints,
@@ -305,16 +318,23 @@ describe('the series lifecycle panel', () => {
   })
 
   it('⚠️ counts the episodes rather than claiming the series is "in library"', () => {
-    renderDetail()
+    const { container } = renderDetail()
+    const panel = container.querySelector('[data-library="true"]')
+
+    if (!(panel instanceof HTMLElement)) {
+      throw new Error('expected the series library panel')
+    }
 
     // The same aggregate the progress bar prints, and the only completeness
     // claim the payload supports: 14 of 24 across two seasons, specials
     // excluded. `in library` - the movie page's chip - would be the same class
     // of untruth as `not downloaded`, pointing the other way.
-    const chip = screen.getByText('14 of 24 episodes')
+    // Scoped to the panel: an episode row reading `in library` is a true claim
+    // about one episode.
+    const chip = within(panel).getByText('14 of 24 episodes')
 
     expect(chip).toBeInTheDocument()
-    expect(screen.queryByText('in library')).not.toBeInTheDocument()
+    expect(within(panel).queryByText('in library')).not.toBeInTheDocument()
   })
 
   it('withholds the count when the payload cannot support one', () => {

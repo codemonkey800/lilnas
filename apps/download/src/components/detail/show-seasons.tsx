@@ -7,6 +7,7 @@ import type {
   Season,
   Show,
 } from '@lilnas/utils/download/types'
+import { isMediaInFlight } from '@lilnas/utils/download/types'
 import type { JSX } from 'react'
 import { useState } from 'react'
 
@@ -30,12 +31,12 @@ import {
   deleteCascade,
   episodeProgressLabel,
   episodeScopedJobs,
-  isScopeDownloading,
   seasonByTabValue,
   seasonHeading,
   seasonLabel,
   seasonProgress,
   seasonScopedJobs,
+  seasonState,
   seasonTabValue,
 } from 'src/components/detail/show-state'
 import { Card } from 'src/components/ui/card'
@@ -189,7 +190,7 @@ export function ShowSeasons({
 
   const scopedJobs = seasonScopedJobs(jobs, season)
   const progress = seasonProgress(season)
-  const downloading = isScopeDownloading(scopedJobs)
+  const downloading = isMediaInFlight(seasonState(season))
 
   function toggleEpisode(episodeId: number): void {
     setOpenEpisodeId(current => (current === episodeId ? null : episodeId))
@@ -208,7 +209,7 @@ export function ShowSeasons({
         onValueChange={setValue}
       >
         {seasons.map(entry => (
-          <SeasonTab jobs={jobs} key={entry.seasonNumber} season={entry} />
+          <SeasonTab key={entry.seasonNumber} season={entry} />
         ))}
       </Tabs>
 
@@ -241,10 +242,10 @@ export function ShowSeasons({
               full
               mediaId={media.id}
               scope={{
-                // ⚠️ Predicted here, where every season and every job for the
-                // title is in hand, so the dialog can say "this removes the
+                // ⚠️ Predicted here, where every season and every episode's
+                // state is in hand, so the dialog can say "this removes the
                 // series from Sonarr" *before* the press rather than after.
-                cascadesTo: deleteCascade(seasons, jobs, {
+                cascadesTo: deleteCascade(seasons, {
                   seasonNumber: season.seasonNumber,
                 }),
                 kind: 'season',
@@ -291,9 +292,9 @@ export function ShowSeasons({
           season.episodes.map(episode => (
             <ShowEpisodeRow
               badFiles={badFiles}
-              // ⚠️ The row cannot work this out: it holds one episode and its
-              // own jobs, and the answer needs every season and every job.
-              cascadesTo={deleteCascade(seasons, jobs, {
+              // ⚠️ The row cannot work this out: it holds one episode, and the
+              // answer needs every season and every episode's state.
+              cascadesTo={deleteCascade(seasons, {
                 episodeId: episode.id,
                 seasonNumber: episode.seasonNumber,
               })}
@@ -322,13 +323,12 @@ export function ShowSeasons({
 }
 
 type SeasonTabProps = {
-  jobs: readonly DownloadJob[]
   season: Season
 }
 
 /**
  * One tab: the season's name, plus a breathing dot and its percentage while
- * something scoped to it is in flight - `show-detail.pug`'s `Season 3 ● 58%`.
+ * any of its episodes is in flight - `show-detail.pug`'s `Season 3 ● 58%`.
  *
  * ⚠️ The label is the long form (`Season 3`, `Specials`) at both widths, where
  * the mockup abbreviates to `S3` on its phone frame. One responsive document
@@ -337,9 +337,8 @@ type SeasonTabProps = {
  * strip already opts into - is the affordance that makes a seven-season strip
  * work at 390px.
  */
-function SeasonTab({ jobs, season }: SeasonTabProps): JSX.Element {
-  const scoped = seasonScopedJobs(jobs, season)
-  const live = isScopeDownloading(scoped)
+function SeasonTab({ season }: SeasonTabProps): JSX.Element {
+  const live = isMediaInFlight(seasonState(season))
   const progress = seasonProgress(season)
 
   return (

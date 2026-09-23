@@ -5,6 +5,7 @@ import type {
   Season,
   Show,
 } from '@lilnas/utils/download/types'
+import { isMediaInFlight } from '@lilnas/utils/download/types'
 import type { JSX } from 'react'
 
 import type {
@@ -33,9 +34,8 @@ import type { ShowProgress } from 'src/components/detail/show-state'
 import {
   episodeProgressLabel,
   isMetadataMissing,
-  isScopeDownloading,
   seriesProgress,
-  seriesScopedJobs,
+  seriesState,
   showMetaLine,
 } from 'src/components/detail/show-state'
 import { ButtonLink } from 'src/components/ui/button-link'
@@ -212,9 +212,9 @@ export function ShowDetail({
   onUnflag,
   seasons,
 }: ShowDetailProps): JSX.Element {
-  const seriesJobs = seriesScopedJobs(jobs)
+  const seriesJobs = wholeSeriesJobs(jobs)
   const progress = seriesProgress(seasons)
-  const downloading = isScopeDownloading(seriesJobs)
+  const downloading = isMediaInFlight(seriesState(media, seasons))
   const hasFiles =
     progress.files > 0 || seasons.some(s => s.episodeFileCount > 0)
   // ⚠️ Not `latestJob(seriesJobs)`. A series delete leaves a `Completed` job's
@@ -348,6 +348,19 @@ export function ShowDetail({
         onUnflag={onUnflag}
       />
     </>
+  )
+}
+
+/**
+ * Jobs whose scope names no season and no episode — the attempts the series
+ * panel lists. Every other job lands in its season's panel instead (see
+ * `seasonScopedJobs`), so no attempt is listed twice.
+ */
+function wholeSeriesJobs(jobs: readonly DownloadJob[]): readonly DownloadJob[] {
+  return jobs.filter(
+    job =>
+      job.scope?.episodeId === undefined &&
+      job.scope?.seasonNumber === undefined,
   )
 }
 

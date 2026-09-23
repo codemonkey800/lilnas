@@ -94,9 +94,9 @@ export type ShowEpisodeRowProps = {
    * season, `'series'` removes the series from Sonarr.
    *
    * ⚠️ A **prop**, not something this row derives. `deleteCascade` needs every
-   * season and every job for the title to answer; a row holds one episode and
-   * its own jobs. The season panel has both, so it computes it once per row
-   * rather than each row reaching for data it was never given.
+   * season and every episode's state to answer; a row holds one episode. The
+   * season panel has them all, so it computes it once per row rather than
+   * each row reaching for data it was never given.
    */
   cascadesTo?: DeleteCascade
   episode: Episode
@@ -178,7 +178,7 @@ export function ShowEpisodeRow({
   open,
 }: ShowEpisodeRowProps): JSX.Element {
   const scoped = episodeScopedJobs(jobs, episode)
-  const state = episodeState(episode, scoped)
+  const state = episodeState(episode)
   const latest = latestJob(scoped)
   const runtime = formatRuntime(episode.runtime, 'hours')
   // ⚠️ Only while the job is open work. `jobProgress` reads the *series'*
