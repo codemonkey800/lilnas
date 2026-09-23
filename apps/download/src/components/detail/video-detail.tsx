@@ -1,8 +1,13 @@
 import { cns } from '@lilnas/utils/cns'
 import type { DownloadJob, Video } from '@lilnas/utils/download/types'
-import { DownloadJobStatus } from '@lilnas/utils/download/types'
+import {
+  DownloadJobStatus,
+  isMediaInFlight,
+  mediaState,
+} from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX } from 'react'
 
+import { AttemptList } from 'src/components/detail/attempt-list'
 import type {
   DeleteScope,
   DeleteVideoJobAction,
@@ -12,13 +17,15 @@ import {
   DetailAttribution,
   DetailHeader,
 } from 'src/components/detail/detail-header'
-import type {
-  JobAction,
-  JobLifecycleLink,
-} from 'src/components/detail/job-lifecycle'
-import { JobHistory, JobLifecycle } from 'src/components/detail/job-lifecycle'
+import type { JobAction } from 'src/components/detail/job-actions'
+import { ACTION_BUTTON, ActionRow } from 'src/components/detail/job-actions'
 import { latestJob } from 'src/components/detail/job-state'
-import { canSaveLocal, mediaFileHref } from 'src/components/detail/save-local'
+import { MediaStatus } from 'src/components/detail/media-status'
+import {
+  canSaveLocal,
+  mediaFileHref,
+  SaveLocal,
+} from 'src/components/detail/save-local'
 import { VideoPlayer } from 'src/components/detail/video-player'
 import { ButtonLink } from 'src/components/ui/button-link'
 import { Note } from 'src/components/ui/card'
@@ -63,21 +70,24 @@ export function VideoDetailShell({
 /** `video-detail.pug:118` — the out-of-app link to where the video came from. */
 export const VIDEO_SOURCE_LABEL = 'View original post'
 
-/** `video-detail.pug:166` — what the panel says before anything has been fetched. */
+/**
+ * `video-detail.pug`'s `not downloaded` legend line — what the chip says
+ * beside itself before anything has ever been fetched.
+ */
 export const VIDEO_EMPTY_NOTE = 'Ready to grab whenever.'
 
-/** The clause beside the status chip when yt-dlp refused the link outright. */
+/** The clause beside the media chip when yt-dlp refused the link outright. */
 export const VIDEO_UNRECOGNIZED_EXPLAIN =
   'That link isn’t one yt-dlp recognises.'
 
 /**
- * What to do about it — `video-detail.pug:184` in the register the real page
- * needs rather than the legend's one-liner.
+ * What to do about it — `video-detail.pug`'s "not recognized" line in the
+ * register the real page needs rather than the legend's one-liner.
  *
  * ⚠️ It points at the nav bar and **never at a retry**. The same link will be
  * refused by the same extractor every time, so an offer to try again is an
- * offer to fail again; `VideoDetail` withholds `onRetry` for this state and
- * `JobLifecycle` renders nothing for an action with no handler.
+ * offer to fail again; `VideoDetail` tells `AttemptList` the attempt is not
+ * retryable for this state, so no Retry is drawn at all.
  */
 export const VIDEO_UNRECOGNIZED_GUIDANCE =
   'Paste a different link in the search field at the top of the page. Nothing was downloaded, and asking for this one again would fail the same way.'
@@ -95,8 +105,8 @@ export const VIDEO_STALE_LABEL = 'reconnecting…'
 const UNRECOGNIZED_NOTE = 'border-bad/35! bg-bad-ghost! [&>svg]:text-bad!'
 
 /**
- * Full-width on a phone, intrinsic from `sm` — the same shape `JobLifecycle`
- * gives every control in the row this sits in, because it *is* in that row.
+ * Full-width on a phone, intrinsic from `sm` — `ACTION_BUTTON`'s shape, which
+ * `Save to device` beside it wears too, because they share one `ActionRow`.
  *
  * ⚠️ On `DeleteConfirm` this pairs with its `full`, exactly as
  * `MovieDetail` does it: the component renders a `<div>` root, so `full` is
@@ -113,7 +123,7 @@ const DELETE_BUTTON = 'w-full sm:w-auto'
  * `getErrorMessage(err)` on the job and nothing structured, and the download
  * step throws yt-dlp's `stderrTail` verbatim — so these two patterns are the
  * two sentences yt-dlp actually prints, not a guess at a taxonomy. Anything
- * else stays a plain `failed` with its message beside the chip and a Retry
+ * else stays a plain `failed` attempt with its message on its row and a Retry
  * offered, which is the honest default: "we do not know why, try again" is
  * true of a timeout and false of an unsupported site.
  */
@@ -210,38 +220,27 @@ export function videoPlayerSrc(media: Video): string {
 }
 
 /**
- * The server's job list with every live frame folded in — what
- * `/videos/<videoId>` actually renders once the socket is up.
+ * The attempt the header attributes the video to, and whose id a delete goes
+ * through.
  *
- * **Replacement in place**, keyed by `job.id`, with the live copy winning: a
- * `DownloadJobEvent.job` is documented as a full current snapshot, so it is by
- * construction no older than the HTML rendered before the socket opened.
+ * Once the video is `downloaded`, that is the newest **completed** attempt —
+ * the one that actually produced the file — rather than whatever was tried
+ * last: a later failure over a playable video says nothing about who put the
+ * file there. Otherwise it is simply the newest attempt, which is the one in
+ * flight when anything is. `null` for a video nobody has ever fetched.
  *
- * Three things this deliberately does *not* do, each for its own reason:
- *
- * - **No re-sort.** The order is `createdAt` descending and no update ever
- *   moves a job's `createdAt`, so the server's order survives every frame.
- *   `buildActivityRows` re-derives the ordering because that feed genuinely
- *   gains rows mid-flight; this one cannot.
- * - **No insertion.** The subscription asks only about the ids already on the
- *   page, so a job created anywhere else is dropped at ingest and never
- *   reaches here. A re-paste of the same link *while this page is open* mints
- *   a new attempt that therefore needs a reload to appear — the honest cost of
- *   an id-keyed filter, and the alternative (subscribing unfiltered) would
- *   have a single video's permalink accumulating every download in the house.
- * - **No eviction.** `useJobEvents` upserts and never evicts, and this page
- *   wants exactly that: a video's permalink shows its attempts whatever their
- *   status. `/activity` evicts because it is a feed of what is *in flight*;
- *   this is the record of what happened.
- *
- * Pure, and exported from this no-directive module rather than from the client
- * wrapper, so it is testable without mounting a provider or a socket.
+ * `jobs` is newest first, the order `MediaDetailResponse.jobs` and
+ * `useLiveMedia` both keep.
  */
-export function mergeVideoJobs(
+export function videoSourceJob(
   jobs: readonly DownloadJob[],
-  live: ReadonlyMap<string, DownloadJob>,
-): DownloadJob[] {
-  return jobs.map(job => live.get(job.id) ?? job)
+  available: boolean,
+): DownloadJob | null {
+  const completed = available
+    ? jobs.find(job => job.status === DownloadJobStatus.Completed)
+    : undefined
+
+  return completed ?? latestJob(jobs)
 }
 
 /**
@@ -258,9 +257,9 @@ export type VideoDetailProps = Omit<
   'children' | 'onCancel' | 'onPause'
 > & {
   /**
-   * `MediaDetailResponse.jobs` verbatim — **every** job for this `video:` key,
-   * newest first. `JobLifecycle` picks the newest itself and `JobHistory`
-   * renders the rest, both from this same unsliced list.
+   * `MediaDetailResponse.jobs` verbatim — **every** attempt at this `video:`
+   * key, newest first. `AttemptList` draws all of them; none of them decides
+   * the chip.
    *
    * A re-paste of the same link lands here rather than on a second page:
    * `videos.naturalKey` is uniquely indexed and `upsertVideoByNaturalKey()`
@@ -268,16 +267,17 @@ export type VideoDetailProps = Omit<
    * and every prior attempt is already in this array.
    */
   jobs: readonly DownloadJob[]
+  /** The video, whose `state` is what the page's chip, player and actions read. */
   media: Video
   /** The instant every relative stamp is measured against, pinned by the page. */
   now: number
   onCancel?: JobAction
   /**
-   * `deleteVideoJob` — the completed frame's destructive control.
+   * `deleteVideoJob` — the downloaded video's destructive control.
    *
    * ⚠️ Not a `JobAction`, even though it too takes a job id: it answers with a
    * `DeleteVideoJobResult` so the dialog can keep itself open and say what went
-   * wrong, where the four lifecycle actions can only log and return. See
+   * wrong, where the attempt actions can only log and return. See
    * `video-job.ts`.
    */
   onDelete?: DeleteVideoJobAction
@@ -286,42 +286,50 @@ export type VideoDetailProps = Omit<
   onRetry?: JobAction
   /**
    * Whether the live feed is currently **not** connected — `!connected` from
-   * `useJobEvents`, handed in as a prop rather than read here so this stays a
+   * `useLiveMedia`, handed in as a prop rather than read here so this stays a
    * plain function of its arguments that renders without a
    * `<JobEventsProvider>` ancestor. `VideoDetailLive` is what supplies it.
    *
    * ⚠️ `connected` means strictly "a socket is OPEN right now": it is `false`
    * for the whole of the first connect and for every backoff window. On its
    * own that would make a marker flicker on a page where nothing is happening,
-   * which is why the marker it drives is withheld unless the newest job is
+   * which is why the marker it drives is withheld unless something is
    * actually in flight — see the render below.
    */
   stale?: boolean
 }
 
 /**
- * The body of `/videos/<videoId>` — `video-detail.pug`'s two frames reconciled
+ * The body of `/videos/<videoId>` — `video-detail.pug`'s frames reconciled
  * into one responsive document.
  *
+ * Plan 021: the chip under the title is the **video's** state
+ * (`MediaStatus`), not the newest job's status, and the attempts sit under it
+ * as a list (`AttemptList`) whose in-flight card carries its own Pause,
+ * Cancel and Resume. The player, `Save to device` and Delete read the state
+ * too — `downloaded` means a file is behind the page, whatever the newest
+ * attempt did. The bug this exists to prevent: a video whose file was later
+ * deleted used to read `completed` off its old job and draw a player with
+ * nothing to play.
+ *
  * ⚠️ **No progress bar, ever.** `video-detail.pug` draws `fragment 4 of 9` and
- * `412 MB / 640 MB · 3.1 MB/s` over a 64% bar; none of it exists. The only
- * progress on the wire is `ManagedMediaBase.queueSnapshot`, which is a
- * Radarr/Sonarr queue entry and therefore movies and shows only — a video job
- * has no progress field anywhere in `DownloadJob`, and the backend does not
- * merely fail to expose one: `download-video.service.ts` pipes yt-dlp's stdout
- * into a log file and never parses it. `jobProgress()` answers `null` for a
- * video and `JobLifecycle` draws no bar, which is the honest rendering — a 0%
- * bar is a claim. Where a mockup and the API disagree about content, the API
- * wins. E1 left `progressPct`/`progressDetail`/`progressNote` on the props so
- * a later backend change can feed real numbers in with no signature change;
- * they are deliberately unused here.
+ * `412 MB / 640 MB · 3.1 MB/s` over a 64% bar; none of it exists. A video has
+ * no `queueSnapshot` (that is a Radarr/Sonarr queue entry), a video job has
+ * no progress field anywhere in `DownloadJob`, and the backend does not merely
+ * fail to expose one: `download-video.service.ts` pipes yt-dlp's stdout into
+ * a log file and never parses it. `mediaProgress()` and `jobProgress()` both
+ * answer `null` for a video, so neither `MediaStatus` nor the attempt card
+ * draws a bar — the honest rendering, since a 0% bar is a claim. Where a
+ * mockup and the API disagree about content, the API wins.
  *
- * Two more places the mockup is not followed, both in the same direction:
+ * Three more places the mockup is not followed:
  *
- * - **The status chip does not stretch.** `video-detail.pug:122` gives it
- *   `w-fit` on desktop but `flex w-fit` in a stretch container on mobile,
- *   which the designs README lists as an unreconciled quirk. `JobLifecycle`
- *   renders it intrinsic at both widths.
+ * - **No state legend.** `video-detail.pug`'s "Other states" panel is the
+ *   mockup documenting its own vocabulary, not something the page shows.
+ * - **No Download button for `not downloaded`.** A `videos` row only exists
+ *   because a job minted it, so there is always an attempt to Retry instead;
+ *   the empty frame keeps `VIDEO_EMPTY_NOTE` beside the chip for the page a
+ *   degraded payload can still produce.
  * - **The poster carries no play mark while there is no file.** The mockup
  *   draws one on the downloading frame; pressing it would play nothing.
  *
@@ -346,113 +354,97 @@ export function VideoDetail({
   stale = false,
   ...props
 }: VideoDetailProps): JSX.Element {
-  const job = latestJob(jobs)
-  const unrecognized = job !== null && isUnrecognizedLink(job)
-  const complete = job?.status === DownloadJobStatus.Completed
+  const state = mediaState(media)
+  const complete = state === 'available'
+  const newest = latestJob(jobs)
+  const source = videoSourceJob(jobs, complete)
+  // Only the newest attempt can be the link yt-dlp refused *now* — an older
+  // refusal a later attempt already got past is history, not guidance.
+  const unrecognized = newest !== null && isUnrecognizedLink(newest)
   const href = sourcePostHref(media.sourceUrl)
 
-  // ⚠️ Disconnected **and** something to miss. A socket that is down while the
-  // newest job is `completed`, `failed` or `cancelled` costs the reader
-  // nothing — that panel is final and no frame is coming — so saying
-  // "reconnecting…" there would raise a doubt about a page that cannot change.
-  // While a job is genuinely moving, the opposite is true: a `downloading`
-  // chip that stopped advancing is indistinguishable from one that is still
-  // advancing, and this marker is the only thing that tells the two apart.
+  // ⚠️ Disconnected **and** something to miss. A socket that is down while
+  // nothing is moving costs the reader nothing — no frame is coming — so
+  // saying "reconnecting…" there would raise a doubt about a page that cannot
+  // change. While a download is genuinely moving, the opposite is true: a
+  // `downloading` chip that stopped advancing is indistinguishable from one
+  // that is still advancing, and this marker is the only thing that tells the
+  // two apart.
   //
-  // `isInProgress` is the complement of `TERMINAL_DOWNLOAD_JOB_STATUSES`
-  // rather than a list written out here, which is what keeps `paused` and
-  // `pausing` on the marked side: a paused download is still open work whose
-  // resume this tab would otherwise silently fail to hear about.
-  const reconnecting = stale && job !== null && isInProgress(job.status)
+  // Either side counts: the media in flight (which keeps `paused` on the
+  // marked side — a paused download is still open work whose resume this tab
+  // would otherwise silently fail to hear about), or an attempt still open
+  // whose next frame has not moved the media yet.
+  const reconnecting =
+    stale &&
+    (isMediaInFlight(state) || jobs.some(job => isInProgress(job.status)))
 
-  // E7's guard and E7's URL builder, rather than E7's button: `JobLifecycle`
-  // takes `save` as a `JobLifecycleLink` and renders the control itself, which
-  // is what keeps "Save to device" in the same row and the same order as the
-  // lifecycle controls it sits with. A second `SaveLocal` here would be a
-  // duplicate button one status out of step with the panel's own.
-  const save: JobLifecycleLink | undefined = canSaveLocal(media, {})
-    ? { href: mediaFileHref(media.id, {}) }
-    : undefined
+  // A retry is offered only while there is no file — a failed attempt over a
+  // downloaded video would re-fetch what is already here — and never for a
+  // link yt-dlp refused, which would fail the same way again.
+  const retryable = (state === 'absent' || state === 'wanted') && !unrecognized
 
-  const handlers = {
-    onCancel,
-    onPause,
-    onResume,
-    // Withheld for a link yt-dlp refused: the same URL fails the same way, so
-    // `JobLifecycle` renders no Retry at all rather than one that cannot work.
-    onRetry: unrecognized ? undefined : onRetry,
-  }
+  // `video-detail.pug`'s completed frame: `Save to device` whenever the video
+  // is downloaded *and* there is an object to hand over — `canSaveLocal`
+  // reading `downloadUrls`, the same guard `SaveLocal` applies itself.
+  const saveable = complete && canSaveLocal(media, {})
 
-  // ⚠️ Offered on exactly the frame `video-detail.pug:159` draws it on: a
-  // completed job with a file still behind it. Three conditions, none of which
-  // implies another.
+  // ⚠️ Delete is offered on exactly the frame `video-detail.pug` draws it on:
+  // a downloaded video. Three conditions, none of which implies another.
   //
-  // - **Completed**, because a delete on a running job would cancel it, and
-  //   the control that means "stop this" is Cancel, sitting in the same row
-  //   saying so. Two buttons for one verb is how a user presses the wrong one.
-  // - **With a file**, the same `save !== undefined` test that decides whether
-  //   `Save to device` is drawn — `canSaveLocal` reading `downloadUrls`. A
-  //   completed job whose objects were already deleted has nothing left to
-  //   delete, and an offer to remove nothing is a lie the same size as a link
-  //   that 404s.
-  // - **Wired**, matching `JobLifecycle` in the row this sits in: it renders
-  //   nothing for an action the page did not supply, rather than a control
-  //   whose dialog would confirm a request nobody is listening for.
+  // - **Downloaded**, the media state rather than a job's status: a video
+  //   being fetched again is `downloading`, and the control that means "stop
+  //   this" is the attempt's Cancel. Two buttons for one verb is how a user
+  //   presses the wrong one.
+  // - **With a file**, the same `canSaveLocal` test that decides whether
+  //   `Save to device` is drawn — an offer to remove nothing is a lie the same
+  //   size as a link that 404s.
+  // - **Wired**, rather than a control whose dialog would confirm a request
+  //   nobody is listening for.
   //
-  // The scope carries the **job** id: `deleteVideoJob` is
+  // The scope carries a **job** id: `deleteVideoJob` is
   // `DELETE /download/videos/:jobId`, and `media.id` is a `video:` key the
-  // media-files route refuses outright.
+  // media-files route refuses outright. The backend deletes the video's
+  // objects whichever attempt names it; `videoSourceJob` picks the one that
+  // produced them.
   const deleteScope: DeleteScope | null =
-    job !== null && complete && save !== undefined && onDelete !== undefined
-      ? { jobId: job.id, kind: 'video' }
+    source !== null && saveable && onDelete !== undefined
+      ? { jobId: source.id, kind: 'video' }
       : null
 
   return (
     <div {...props} className={className}>
       <DetailHeader
         attribution={
-          job ? (
+          source ? (
             <DetailAttribution
-              discordRequester={job.discordRequester}
-              linkedDiscord={job.linkedDiscord}
+              discordRequester={source.discordRequester}
+              linkedDiscord={source.linkedDiscord}
               now={now}
               prefix="downloaded by "
-              requester={job.requester}
-              timestamp={job.createdAt}
+              requester={source.requester}
+              timestamp={source.createdAt}
             />
           ) : null
         }
         lifecycle={
           <div className={cns('flex flex-col gap-[14px]')}>
-            <JobLifecycle
-              {...handlers}
-              emptyNote={VIDEO_EMPTY_NOTE}
-              explain={unrecognized ? VIDEO_UNRECOGNIZED_EXPLAIN : undefined}
-              // `extraActions` rather than a sibling of the panel: the mockup
-              // puts Delete in the same row as `Save to device`, and that row
-              // is `JobLifecycle`'s own `ActionRow`, which is the only thing
-              // that knows how it stacks at each width.
-              extraActions={
-                deleteScope ? (
-                  <DeleteConfirm
-                    className={cns(DELETE_BUTTON)}
-                    full
-                    mediaId={media.id}
-                    onDeleteVideo={onDelete}
-                    scope={deleteScope}
-                    title={media.title}
-                  />
-                ) : null
+            <MediaStatus
+              explain={
+                unrecognized
+                  ? VIDEO_UNRECOGNIZED_EXPLAIN
+                  : jobs.length === 0 && state === 'absent'
+                    ? VIDEO_EMPTY_NOTE
+                    : undefined
               }
-              jobs={jobs}
-              save={save}
+              media={media}
             />
             {reconnecting ? (
               // `w-fit` because this is a flex column: an `inline-flex` chip
               // is still stretched to the column's width by the default
               // `align-items: stretch`, and the chip is a badge rather than a
-              // banner. The same intrinsic sizing `JobLifecycle` gives the
-              // status chip it sits under.
+              // banner. The same intrinsic sizing `MediaStatus` gives the
+              // chip it sits under.
               //
               // Not a live region, matching `/activity`, which keeps its one
               // polite region for row departures and leaves this marker
@@ -464,17 +456,41 @@ export function VideoDetail({
               </Chip>
             ) : null}
             {unrecognized ? (
+              // The refusal itself is on the attempt's own row below; this is
+              // only what to do about it.
               <Note
                 className={cns('max-w-[480px]', UNRECOGNIZED_NOTE)}
                 icon="alert"
               >
                 <p>{VIDEO_UNRECOGNIZED_GUIDANCE}</p>
-                {job?.error ? (
-                  <p className={cns('mt-2 font-mono text-mono-sm text-ink-4')}>
-                    {job.error}
-                  </p>
-                ) : null}
               </Note>
+            ) : null}
+            <AttemptList
+              className={cns('mt-1.5 max-w-[480px]')}
+              jobs={jobs}
+              now={now}
+              onCancel={onCancel}
+              onPause={onPause}
+              onResume={onResume}
+              onRetry={onRetry}
+              retryable={retryable}
+            />
+            {saveable ? (
+              // Media actions, under the attempts — `video-detail.pug`'s
+              // completed frame, Save then Delete in one row.
+              <ActionRow>
+                <SaveLocal className={cns(ACTION_BUTTON)} media={media} />
+                {deleteScope ? (
+                  <DeleteConfirm
+                    className={cns(DELETE_BUTTON)}
+                    full
+                    mediaId={media.id}
+                    onDeleteVideo={onDelete}
+                    scope={deleteScope}
+                    title={media.title}
+                  />
+                ) : null}
+              </ActionRow>
             ) : null}
           </div>
         }
@@ -516,7 +532,6 @@ export function VideoDetail({
         }
         posterShape="wide"
       />
-      <JobHistory className={cns('mt-8 sm:mt-10')} jobs={jobs} now={now} />
     </div>
   )
 }

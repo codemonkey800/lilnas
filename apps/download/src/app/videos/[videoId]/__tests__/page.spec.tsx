@@ -219,6 +219,8 @@ describe('VideoDetailPage', () => {
         downloadUrls: [
           'https://storage.lilnas.io/videos/V1StGXR8_Z5/part-0.mp4',
         ],
+        // The page gates Save and Delete on the video's state, not the job's.
+        state: 'available',
       },
     })
 
@@ -244,8 +246,13 @@ describe('VideoDetailPage', () => {
 
     await renderPage()
 
-    expect(screen.getByText('downloading')).toBeInTheDocument()
-    expect(screen.getByText('Earlier attempts')).toBeInTheDocument()
+    const attempts = screen.getByRole('region', { name: 'Attempts' })
+
+    expect(
+      Array.from(attempts.querySelectorAll('[data-job-id]')).map(el =>
+        el.getAttribute('data-job-id'),
+      ),
+    ).toEqual([JOB.id, 'job_0'])
     expect(screen.getByText('failed')).toBeInTheDocument()
   })
 })

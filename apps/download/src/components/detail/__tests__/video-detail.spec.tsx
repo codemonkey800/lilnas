@@ -2,13 +2,12 @@ import '@testing-library/jest-dom'
 
 import type { DownloadJob, Video } from '@lilnas/utils/download/types'
 import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import type { VideoDetailProps } from 'src/components/detail/video-detail'
 import {
   isUnrecognizedLink,
-  mergeVideoJobs,
   sourcePostHref,
   VIDEO_EMPTY_NOTE,
   VIDEO_SOURCE_LABEL,
@@ -18,6 +17,7 @@ import {
   VideoDetail,
   videoMetaLabel,
   videoPlayerSrc,
+  videoSourceJob,
 } from 'src/components/detail/video-detail'
 import type { VideoDetailLiveProps } from 'src/components/detail/video-detail-live'
 import { VideoDetailLive } from 'src/components/detail/video-detail-live'
@@ -25,6 +25,7 @@ import { VIDEO_PLAYER_LABEL } from 'src/components/detail/video-player'
 import { JobEventsProvider } from 'src/components/live/job-events'
 import {
   buildJobFrame,
+  buildMediaFrame,
   createSocketRecorder,
   NO_JITTER,
   TEST_LOCATION,
@@ -34,19 +35,30 @@ import { UNKNOWN_VALUE } from 'src/lib/format'
 const MEDIA_ID = 'video:V1StGXR8_Z5'
 const SOURCE_URL = 'https://www.youtube.com/watch?v=aqz-KE-bpKQ'
 const OBJECT_URL = 'https://storage.lilnas.io/videos/V1StGXR8_Z5/part-0.mp4'
+const FILE_HREF = `/api/download/media/${encodeURIComponent(MEDIA_ID)}/file`
 
 /** 2026-09-15T12:00:00Z, the instant every relative stamp below is read at. */
 const NOW = Date.parse('2026-09-15T12:00:00.000Z')
 
+/**
+ * The video as the server serves it. `downloading` by default, matching
+ * `job()`'s default status, so the plain render is one coherent page.
+ */
 function video(overrides: Partial<Video> = {}): Video {
   return {
     id: MEDIA_ID,
     runtime: 842,
     sourceUrl: SOURCE_URL,
+    state: 'downloading',
     title: 'Sourdough starter, day one to seven',
     type: DownloadType.Video,
     ...overrides,
   }
+}
+
+/** A downloaded video — `available`, with the object that makes it so. */
+function downloaded(overrides: Partial<Video> = {}): Video {
+  return video({ downloadUrls: [OBJECT_URL], state: 'available', ...overrides })
 }
 
 function job(overrides: Partial<DownloadJob> = {}): DownloadJob {
@@ -65,6 +77,14 @@ function job(overrides: Partial<DownloadJob> = {}): DownloadJob {
   }
 }
 
+function completedJob(overrides: Partial<DownloadJob> = {}): DownloadJob {
+  return job({
+    completedAt: '2026-09-15T11:59:00.000Z',
+    status: DownloadJobStatus.Completed,
+    ...overrides,
+  })
+}
+
 function renderDetail(overrides: Partial<VideoDetailProps> = {}) {
   const props: VideoDetailProps = {
     jobs: [job()],
@@ -74,6 +94,21 @@ function renderDetail(overrides: Partial<VideoDetailProps> = {}) {
   }
 
   return render(<VideoDetail {...props} />)
+}
+
+/**
+ * `MediaStatus`'s root — the media-state chip and its note. Scoped because an
+ * attempt card can carry the same word (`downloading`, `paused`) for its own
+ * job status, and a test about the chip must not pass on the attempt's.
+ */
+function mediaPanel(): HTMLElement {
+  const panel = document.querySelector<HTMLElement>('div[data-state]')
+  if (!panel) throw new Error('Expected the media status panel to render')
+  return panel
+}
+
+function attempts(): HTMLElement {
+  return screen.getByRole('region', { name: 'Attempts' })
 }
 
 describe('isUnrecognizedLink', () => {
@@ -190,65 +225,30 @@ describe('videoPlayerSrc', () => {
   })
 })
 
-describe('mergeVideoJobs', () => {
-  const current = job({ id: 'job_2' })
-  const earlier = job({
-    createdAt: '2026-09-14T12:00:00.000Z',
-    id: 'job_1',
+describe('videoSourceJob', () => {
+  const failedLater = job({
+    createdAt: '2026-09-15T11:55:00.000Z',
+    id: 'job_3',
     status: DownloadJobStatus.Failed,
   })
+  const produced = completedJob({ id: 'job_2' })
 
-  it('lets the live copy win for a job the page already knows', () => {
-    const live = new Map([
-      ['job_2', job({ id: 'job_2', status: DownloadJobStatus.Converting })],
-    ])
-
-    expect(mergeVideoJobs([current, earlier], live)).toEqual([
-      job({ id: 'job_2', status: DownloadJobStatus.Converting }),
-      earlier,
-    ])
+  // A later failure over a playable video says nothing about who put the
+  // file there.
+  it('is the newest completed attempt once the video is downloaded', () => {
+    expect(videoSourceJob([failedLater, produced], true)?.id).toBe('job_2')
   })
 
-  it('keeps the server’s newest-first order rather than re-deriving one', () => {
-    const live = new Map([
-      ['job_1', job({ ...earlier, status: DownloadJobStatus.Completed })],
-    ])
-
-    expect(mergeVideoJobs([current, earlier], live).map(j => j.id)).toEqual([
-      'job_2',
-      'job_1',
-    ])
+  it('is the newest attempt while there is no file', () => {
+    expect(videoSourceJob([failedLater, produced], false)?.id).toBe('job_3')
   })
 
-  /**
-   * The subscription only ever asks about the ids already on the page, so a
-   * stray id in the map is a contract violation rather than a new attempt to
-   * display — and this page has no idea where it would belong.
-   */
-  it('never inserts a job the page was not rendered with', () => {
-    const live = new Map([['job_99', job({ id: 'job_99' })]])
-
-    expect(mergeVideoJobs([current], live)).toEqual([current])
+  it('falls back to the newest attempt when none completed', () => {
+    expect(videoSourceJob([failedLater], true)?.id).toBe('job_3')
   })
 
-  /**
-   * The opposite of `/activity`, deliberately. `useJobEvents` upserts and
-   * never evicts, and a video's permalink shows its attempts whatever their
-   * status — a finished download must not vanish off its own page.
-   */
-  it('keeps a job that has gone terminal', () => {
-    const done = job({ id: 'job_2', status: DownloadJobStatus.Completed })
-
-    expect(mergeVideoJobs([current], new Map([['job_2', done]]))).toEqual([
-      done,
-    ])
-  })
-
-  it('is the server’s list untouched before any frame has landed', () => {
-    expect(mergeVideoJobs([current, earlier], new Map())).toEqual([
-      current,
-      earlier,
-    ])
+  it('is null for a video nobody has fetched', () => {
+    expect(videoSourceJob([], false)).toBeNull()
   })
 })
 
@@ -281,101 +281,91 @@ describe('VideoDetail', () => {
   })
 
   /**
-   * ⚠️ The headline reconciliation. `video-detail.pug` draws `fragment 4 of 9`
-   * over a 64% bar with `412 MB / 640 MB · 3.1 MB/s` under it; a video job
-   * carries no progress field anywhere on the wire, so `jobProgress()` answers
-   * `null` and nothing is drawn. A 0% bar would be a claim.
+   * ⚠️ The motivating bug, video-shaped. The newest job completed, and the
+   * file was deleted afterwards — `downloadUrls: []`, state `absent`. The
+   * page used to read `completed` off the job and draw a player with nothing
+   * to play; the chip now reads the video.
    */
-  it('draws no progress bar for a downloading video', () => {
-    renderDetail()
+  describe('a completed attempt whose file was later deleted', () => {
+    const deleted = video({ downloadUrls: [], state: 'absent' })
 
-    expect(screen.getByText('downloading')).toBeInTheDocument()
-    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
-    expect(screen.queryByText(/MB\/s/)).not.toBeInTheDocument()
-  })
+    it('reads "not downloaded", not "completed"', () => {
+      renderDetail({ jobs: [completedJob()], media: deleted })
 
-  it('offers Pause and Cancel while downloading, and no Retry', () => {
-    renderDetail({
-      onCancel: jest.fn(),
-      onPause: jest.fn(),
-      onRetry: jest.fn(),
-    })
-
-    expect(screen.getByRole('button', { name: 'Pause' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: 'Retry' }),
-    ).not.toBeInTheDocument()
-  })
-
-  it('calls the cancel action with the job id, never the video id', async () => {
-    const onCancel = jest.fn()
-    renderDetail({ jobs: [job({ id: 'job_99' })], onCancel })
-
-    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-
-    expect(onCancel).toHaveBeenCalledWith('job_99')
-  })
-
-  describe('the link yt-dlp did not recognise', () => {
-    const unrecognized = [
-      job({
-        error: 'ERROR: Unsupported URL: https://example.com/not-a-video',
-        status: DownloadJobStatus.Failed,
-      }),
-    ]
-
-    it('explains what happened and points at the nav bar', () => {
-      renderDetail({ jobs: unrecognized })
-
-      expect(screen.getByText(VIDEO_UNRECOGNIZED_EXPLAIN)).toBeInTheDocument()
-      expect(screen.getByText(VIDEO_UNRECOGNIZED_GUIDANCE)).toBeInTheDocument()
+      expect(mediaPanel()).toHaveAttribute('data-state', 'absent')
+      expect(within(mediaPanel()).getByText('not downloaded')).toBeVisible()
       expect(
-        screen.getByText(
-          'ERROR: Unsupported URL: https://example.com/not-a-video',
-        ),
-      ).toBeInTheDocument()
+        within(mediaPanel()).queryByText('completed'),
+      ).not.toBeInTheDocument()
     })
 
-    // The point of the state: retrying would fail identically, so the control
-    // is withheld rather than rendered and disabled.
-    it('offers no Retry', () => {
-      renderDetail({ jobs: unrecognized, onRetry: jest.fn() })
+    // The attempt itself did complete, and the history says so honestly.
+    it('still lists the attempt as completed', () => {
+      renderDetail({ jobs: [completedJob()], media: deleted })
+
+      expect(within(attempts()).getByText('completed')).toBeInTheDocument()
+    })
+
+    it('shows no player, no Save and no Delete', () => {
+      const { container } = renderDetail({
+        jobs: [completedJob()],
+        media: deleted,
+        onDelete: jest.fn(),
+      })
+
+      expect(container.querySelector('video')).toBeNull()
+      expect(
+        screen.queryByRole('link', { name: 'Save to device' }),
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Delete' }),
+      ).not.toBeInTheDocument()
+    })
+
+    // A completed attempt is not one `jobActionState` retries from, whatever
+    // the media says.
+    it('offers no Retry off the completed attempt itself', () => {
+      renderDetail({
+        jobs: [completedJob()],
+        media: deleted,
+        onRetry: jest.fn(),
+      })
 
       expect(
         screen.queryByRole('button', { name: 'Retry' }),
       ).not.toBeInTheDocument()
     })
 
-    it('still offers Retry for an ordinary failure', () => {
+    // What the page's own Delete actually leaves behind: `deleteVideoJob`
+    // moves the attempt to `cancelled`, and a cancelled attempt over a video
+    // with no file is one Retry away from coming back.
+    it('offers Retry once the page’s own Delete cancelled the attempt', () => {
       renderDetail({
-        jobs: [job({ error: 'ETIMEDOUT', status: DownloadJobStatus.Failed })],
+        jobs: [completedJob({ status: DownloadJobStatus.Cancelled })],
+        media: deleted,
         onRetry: jest.fn(),
       })
 
       expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
-      expect(screen.getByText('ETIMEDOUT')).toBeInTheDocument()
-      expect(
-        screen.queryByText(VIDEO_UNRECOGNIZED_GUIDANCE),
-      ).not.toBeInTheDocument()
     })
   })
 
-  describe('once the download has completed', () => {
-    const completed = [
-      job({
-        completedAt: '2026-09-15T11:59:00.000Z',
-        status: DownloadJobStatus.Completed,
-      }),
-    ]
-    const withFile = video({ downloadUrls: [OBJECT_URL] })
+  describe('downloaded', () => {
+    const jobs = [completedJob()]
 
-    it('plays in app, from the object this job produced', () => {
-      const { container } = renderDetail({ jobs: completed, media: withFile })
+    it('reads "downloaded"', () => {
+      renderDetail({ jobs, media: downloaded() })
+
+      expect(within(mediaPanel()).getByText('downloaded')).toBeInTheDocument()
+      expect(mediaPanel().querySelector('.dot-live')).toBeNull()
+    })
+
+    it('plays in app, from the object the download produced', () => {
+      const { container } = renderDetail({ jobs, media: downloaded() })
 
       expect(
         screen.getByRole('region', {
-          name: `${withFile.title} — ${VIDEO_PLAYER_LABEL}`,
+          name: `${downloaded().title} — ${VIDEO_PLAYER_LABEL}`,
         }),
       ).toBeInTheDocument()
       expect(container.querySelector('video')).toHaveAttribute(
@@ -385,57 +375,50 @@ describe('VideoDetail', () => {
     })
 
     it('names the player region generically when the title is missing', () => {
-      renderDetail({
-        jobs: completed,
-        media: video({ downloadUrls: [OBJECT_URL], title: '' }),
-      })
+      renderDetail({ jobs, media: downloaded({ title: '' }) })
 
       expect(
         screen.getByRole('region', { name: VIDEO_PLAYER_LABEL }),
       ).toBeInTheDocument()
     })
 
+    // Media state, not job status: a playable video with no job on the page
+    // at all (a degraded payload) is still playable.
+    it('plays even when no attempt is on the page', () => {
+      const { container } = renderDetail({ jobs: [], media: downloaded() })
+
+      expect(container.querySelector('video')).not.toBeNull()
+    })
+
     it('offers Save to device as a real link to the media-file route', () => {
-      renderDetail({ jobs: completed, media: withFile })
+      renderDetail({ jobs, media: downloaded() })
 
       expect(
         screen.getByRole('link', { name: 'Save to device' }),
-      ).toHaveAttribute(
-        'href',
-        `/api/download/media/${encodeURIComponent(MEDIA_ID)}/file`,
-      )
-    })
-
-    // `canSaveLocal` is the guard: a completed job whose objects were deleted
-    // has no file, and a link that 404s is worse than no link.
-    it('withholds Save to device when there is no file', () => {
-      renderDetail({ jobs: completed, media: video({ downloadUrls: [] }) })
-
-      expect(
-        screen.queryByRole('link', { name: 'Save to device' }),
-      ).not.toBeInTheDocument()
+      ).toHaveAttribute('href', FILE_HREF)
     })
 
     it('offers no Watch — the player is on this page, not in Emby', () => {
-      renderDetail({ jobs: completed, media: withFile })
+      renderDetail({ jobs, media: downloaded() })
 
       expect(
         screen.queryByRole('link', { name: 'Watch' }),
       ).not.toBeInTheDocument()
     })
 
-    describe('Delete', () => {
-      it('sits in the action row beside Save to device', () => {
-        renderDetail({
-          jobs: completed,
-          media: withFile,
-          onDelete: jest.fn(),
-        })
+    it('lists the attempt that produced it', () => {
+      renderDetail({ jobs, media: downloaded() })
 
-        // `video-detail.pug:158-159` — the two controls, in that order, in one
-        // row. The row is `JobLifecycle`'s own `ActionRow` and Delete reaches
-        // it through `extraActions`, which is why `Save to device`'s parent is
-        // the right element to look inside rather than the whole page.
+      expect(within(attempts()).getByText('completed')).toBeInTheDocument()
+    })
+
+    describe('Delete', () => {
+      it('sits in one row with Save to device, Save first', () => {
+        renderDetail({ jobs, media: downloaded(), onDelete: jest.fn() })
+
+        // `video-detail.pug`'s completed frame — the two controls, in that
+        // order, in one `ActionRow`. `DeleteConfirm` renders its own `<div>`
+        // root, so the row is `Save to device`'s parent.
         const row = screen.getByRole('link', {
           name: 'Save to device',
         }).parentElement
@@ -449,22 +432,21 @@ describe('VideoDetail', () => {
       })
 
       it('raises no dialog until it is pressed', () => {
-        renderDetail({ jobs: completed, media: withFile, onDelete: jest.fn() })
+        renderDetail({ jobs, media: downloaded(), onDelete: jest.fn() })
 
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
       })
 
       it('names the video and says the link survives', async () => {
-        renderDetail({ jobs: completed, media: withFile, onDelete: jest.fn() })
+        renderDetail({ jobs, media: downloaded(), onDelete: jest.fn() })
 
         await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
 
         const dialog = screen.getByRole('dialog')
 
-        expect(dialog).toHaveAccessibleName(`Delete "${withFile.title}"?`)
+        expect(dialog).toHaveAccessibleName(`Delete "${downloaded().title}"?`)
         // ⚠️ The copy is the `video` scope's own. A video's file was never in
-        // the media library and no arr ever knew about it, so the movie
-        // sentence would be a claim about something that never happened.
+        // the media library and no arr ever knew about it.
         expect(dialog).toHaveAccessibleDescription(
           expect.stringContaining("this video's downloaded file"),
         )
@@ -473,19 +455,21 @@ describe('VideoDetail', () => {
         )
       })
 
-      // ⚠️ The job id, not `video:V1StGXR8_Z5` — `deleteVideoJob` is
-      // `DELETE /download/videos/:jobId`, exactly like the four lifecycle
-      // actions beside it.
-      it('deletes the job it is rendering, never the video key', async () => {
+      // ⚠️ A job id, not `video:V1StGXR8_Z5` — `deleteVideoJob` is
+      // `DELETE /download/videos/:jobId` — and the attempt that produced the
+      // file, not a later one that failed over it.
+      it('deletes through the attempt that produced the file', async () => {
         const onDelete = jest.fn().mockResolvedValue({ job: { id: 'job_42' } })
         renderDetail({
           jobs: [
             job({
-              id: 'job_42',
-              status: DownloadJobStatus.Completed,
+              createdAt: '2026-09-15T11:55:00.000Z',
+              id: 'job_43',
+              status: DownloadJobStatus.Failed,
             }),
+            completedJob({ id: 'job_42' }),
           ],
-          media: withFile,
+          media: downloaded(),
           onDelete,
         })
 
@@ -497,41 +481,8 @@ describe('VideoDetail', () => {
         expect(onDelete).toHaveBeenCalledWith('job_42')
       })
 
-      // The same guard `Save to device` gets, and for the same reason: a
-      // completed job whose objects are already gone has nothing to delete,
-      // and offering to remove nothing is the same lie as a link that 404s.
-      it('is withheld once there is no file left to delete', () => {
-        renderDetail({
-          jobs: completed,
-          media: video({ downloadUrls: [] }),
-          onDelete: jest.fn(),
-        })
-
-        expect(
-          screen.queryByRole('button', { name: 'Delete' }),
-        ).not.toBeInTheDocument()
-      })
-
-      // Cancel is the control that means "stop this", and it is in the same
-      // row saying so. Two buttons for one verb is how the wrong one gets
-      // pressed.
-      it('is not offered while the download is still running', () => {
-        renderDetail({
-          media: withFile,
-          onCancel: jest.fn(),
-          onDelete: jest.fn(),
-        })
-
-        expect(
-          screen.getByRole('button', { name: 'Cancel' }),
-        ).toBeInTheDocument()
-        expect(
-          screen.queryByRole('button', { name: 'Delete' }),
-        ).not.toBeInTheDocument()
-      })
-
       it('is not offered when the page wired no delete action', () => {
-        renderDetail({ jobs: completed, media: withFile })
+        renderDetail({ jobs, media: downloaded() })
 
         expect(
           screen.getByRole('link', { name: 'Save to device' }),
@@ -543,12 +494,220 @@ describe('VideoDetail', () => {
     })
   })
 
-  it('shows no player while the video is still downloading', () => {
-    const { container } = renderDetail({
-      media: video({ downloadUrls: [OBJECT_URL] }),
+  describe('downloading', () => {
+    it('reads "downloading" with the live dot', () => {
+      renderDetail()
+
+      expect(within(mediaPanel()).getByText('downloading')).toBeInTheDocument()
+      expect(mediaPanel().querySelector('.dot-live')).not.toBeNull()
     })
 
-    expect(container.querySelector('video')).toBeNull()
+    it('draws the in-flight attempt as a card with Pause and Cancel', () => {
+      renderDetail({ onCancel: jest.fn(), onPause: jest.fn() })
+
+      const card = attempts().querySelector<HTMLElement>(
+        '[data-job-id="job_1"]',
+      )
+
+      expect(card).toHaveAttribute('data-status', DownloadJobStatus.Downloading)
+      expect(
+        within(card as HTMLElement).getByRole('button', { name: 'Pause' }),
+      ).toBeInTheDocument()
+      expect(
+        within(card as HTMLElement).getByRole('button', { name: 'Cancel' }),
+      ).toBeInTheDocument()
+    })
+
+    it('offers no Retry while an attempt is running', () => {
+      renderDetail({ onRetry: jest.fn() })
+
+      expect(
+        screen.queryByRole('button', { name: 'Retry' }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('pauses and cancels by job id, never the video id', async () => {
+      const onCancel = jest.fn()
+      const onPause = jest.fn()
+      renderDetail({ jobs: [job({ id: 'job_99' })], onCancel, onPause })
+
+      await userEvent.click(screen.getByRole('button', { name: 'Pause' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+      expect(onPause).toHaveBeenCalledWith('job_99')
+      expect(onCancel).toHaveBeenCalledWith('job_99')
+    })
+
+    /**
+     * ⚠️ `video-detail.pug` draws `fragment 4 of 9` over a 64% bar with
+     * `412 MB / 640 MB · 3.1 MB/s` under it. Nothing on the wire carries a
+     * video's progress, so nothing is drawn — a 0% bar would be a claim.
+     */
+    it('draws no progress bar', () => {
+      renderDetail()
+
+      expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+      expect(screen.queryByText(/MB\/s/)).not.toBeInTheDocument()
+    })
+
+    // A re-download over a file that is still there: the media is
+    // `downloading`, so the stop control is the attempt's Cancel, not Delete.
+    it('shows no player, Save or Delete even with an old file behind it', () => {
+      const { container } = renderDetail({
+        media: video({ downloadUrls: [OBJECT_URL] }),
+        onCancel: jest.fn(),
+        onDelete: jest.fn(),
+      })
+
+      expect(container.querySelector('video')).toBeNull()
+      expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
+      expect(
+        screen.queryByRole('link', { name: 'Save to device' }),
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Delete' }),
+      ).not.toBeInTheDocument()
+    })
+  })
+
+  it('reads "processing…" while yt-dlp converts, uploads or cleans up', () => {
+    renderDetail({
+      jobs: [job({ status: DownloadJobStatus.Converting })],
+      media: video({ state: 'importing' }),
+    })
+
+    expect(within(mediaPanel()).getByText('processing…')).toBeInTheDocument()
+    expect(mediaPanel().querySelector('.dot-live')).not.toBeNull()
+    expect(within(attempts()).getByText('converting')).toBeInTheDocument()
+  })
+
+  describe('paused', () => {
+    const props = {
+      jobs: [job({ id: 'job_7', status: DownloadJobStatus.Paused })],
+      media: video({ state: 'paused' }),
+    }
+
+    it('reads "paused", with no live dot', () => {
+      renderDetail(props)
+
+      expect(within(mediaPanel()).getByText('paused')).toBeInTheDocument()
+      expect(mediaPanel().querySelector('.dot-live')).toBeNull()
+    })
+
+    it('offers Resume on the attempt, by job id', async () => {
+      const onResume = jest.fn()
+      renderDetail({ ...props, onResume })
+
+      await userEvent.click(
+        within(attempts()).getByRole('button', { name: 'Resume' }),
+      )
+
+      expect(onResume).toHaveBeenCalledWith('job_7')
+    })
+  })
+
+  describe('a failed newest attempt', () => {
+    const failed = job({
+      error: 'ETIMEDOUT',
+      id: 'job_5',
+      status: DownloadJobStatus.Failed,
+    })
+
+    it('offers Retry over a video with no file, by job id', async () => {
+      const onRetry = jest.fn()
+      renderDetail({
+        jobs: [failed],
+        media: video({ state: 'absent' }),
+        onRetry,
+      })
+
+      expect(within(mediaPanel()).getByText('not downloaded')).toBeVisible()
+      expect(within(attempts()).getByText('failed')).toBeInTheDocument()
+      expect(within(attempts()).getByText('ETIMEDOUT')).toBeInTheDocument()
+
+      await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+      expect(onRetry).toHaveBeenCalledWith('job_5')
+    })
+
+    // *Cars*, for a video: the file is still here, so a retry would re-fetch
+    // what is already on disk. The chip says so, and no Retry is drawn.
+    it('offers no Retry over a downloaded video', () => {
+      const { container } = renderDetail({
+        jobs: [failed, completedJob()],
+        media: downloaded(),
+        onRetry: jest.fn(),
+      })
+
+      expect(within(mediaPanel()).getByText('downloaded')).toBeInTheDocument()
+      expect(container.querySelector('video')).not.toBeNull()
+      expect(
+        screen.queryByRole('button', { name: 'Retry' }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('attributes a downloaded video to the attempt that produced it', () => {
+      renderDetail({
+        jobs: [
+          job({
+            ...failed,
+            createdAt: '2026-09-15T11:58:00.000Z',
+            requester: null,
+          }),
+          completedJob(),
+        ],
+        media: downloaded(),
+      })
+
+      expect(
+        screen.getByText('downloaded by jeremy.asuncion · 12m ago'),
+      ).toBeInTheDocument()
+    })
+  })
+
+  describe('the link yt-dlp did not recognise', () => {
+    const unrecognized = [
+      job({
+        error: 'ERROR: Unsupported URL: https://example.com/not-a-video',
+        status: DownloadJobStatus.Failed,
+      }),
+    ]
+    const absent = video({ state: 'absent' })
+
+    it('explains what happened and points at the nav bar', () => {
+      renderDetail({ jobs: unrecognized, media: absent })
+
+      expect(
+        within(mediaPanel()).getByText(VIDEO_UNRECOGNIZED_EXPLAIN),
+      ).toBeInTheDocument()
+      expect(screen.getByText(VIDEO_UNRECOGNIZED_GUIDANCE)).toBeInTheDocument()
+      expect(
+        within(attempts()).getByText(
+          'ERROR: Unsupported URL: https://example.com/not-a-video',
+        ),
+      ).toBeInTheDocument()
+    })
+
+    // The point of the state: retrying would fail identically, so the control
+    // is withheld rather than rendered and disabled.
+    it('offers no Retry', () => {
+      renderDetail({ jobs: unrecognized, media: absent, onRetry: jest.fn() })
+
+      expect(
+        screen.queryByRole('button', { name: 'Retry' }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('leaves an ordinary failure to the attempt row', () => {
+      renderDetail({
+        jobs: [job({ error: 'ETIMEDOUT', status: DownloadJobStatus.Failed })],
+        media: absent,
+      })
+
+      expect(
+        screen.queryByText(VIDEO_UNRECOGNIZED_GUIDANCE),
+      ).not.toBeInTheDocument()
+    })
   })
 
   it('attributes the download to the requester the server let through', () => {
@@ -568,7 +727,7 @@ describe('VideoDetail', () => {
     ).toBeInTheDocument()
   })
 
-  it('lists earlier attempts beneath the current one', () => {
+  it('lists earlier attempts under the in-flight one', () => {
     renderDetail({
       jobs: [
         job({ id: 'job_2' }),
@@ -581,40 +740,49 @@ describe('VideoDetail', () => {
       ],
     })
 
-    expect(screen.getByText('Earlier attempts')).toBeInTheDocument()
-    expect(screen.getByText('failed')).toBeInTheDocument()
+    const list = attempts()
+
+    expect(
+      Array.from(list.querySelectorAll('[data-job-id]')).map(el =>
+        el.getAttribute('data-job-id'),
+      ),
+    ).toEqual(['job_2', 'job_1'])
+    expect(within(list).getByText('failed')).toBeInTheDocument()
   })
 
-  it('renders the empty panel when nothing has ever been fetched', () => {
-    renderDetail({ jobs: [] })
+  it('renders only the chip when nothing has ever been fetched', () => {
+    renderDetail({ jobs: [], media: video({ state: 'absent' }) })
 
-    expect(screen.getByText('not downloaded')).toBeInTheDocument()
-    expect(screen.getByText(VIDEO_EMPTY_NOTE)).toBeInTheDocument()
-    expect(screen.queryByText('Earlier attempts')).not.toBeInTheDocument()
+    expect(within(mediaPanel()).getByText('not downloaded')).toBeVisible()
+    expect(within(mediaPanel()).getByText(VIDEO_EMPTY_NOTE)).toBeVisible()
+    expect(
+      screen.queryByRole('region', { name: 'Attempts' }),
+    ).not.toBeInTheDocument()
   })
 
-  /**
-   * The designs README lists the mockup's full-width `downloading` chip as an
-   * unreconciled quirk — it stretches only because it is a flex child in a
-   * stretch container. The port renders it intrinsic, which is `w-fit` on the
-   * rendered class attribute rather than on the string handed to `cns()`.
-   */
-  it('keeps the status chip intrinsic rather than stretching it', () => {
+  // A video with no `state` on the wire reads through `mediaState()`.
+  it('reads a missing state as not downloaded', () => {
+    renderDetail({ jobs: [], media: video({ state: undefined }) })
+
+    expect(mediaPanel()).toHaveAttribute('data-state', 'absent')
+  })
+
+  it('keeps the media chip intrinsic rather than stretching it', () => {
     renderDetail()
 
-    const chip = screen.getByText('downloading').closest('span')
+    const chip = within(mediaPanel()).getByText('downloading').closest('span')
 
     expect(chip?.getAttribute('class')).toContain('w-fit')
   })
 
   /**
-   * ⚠️ `connected` from `useJobEvents` means strictly "a socket is OPEN right
-   * now" — false through the first connect and every backoff window — so
-   * `stale` alone is not enough to warn anybody. The marker is about *missing
-   * an update*, which is only possible while there is an update to miss.
+   * ⚠️ `connected` means strictly "a socket is OPEN right now" — false through
+   * the first connect and every backoff window — so `stale` alone is not
+   * enough to warn anybody. The marker is about *missing an update*, which is
+   * only possible while there is an update to miss.
    */
   describe('the stale marker', () => {
-    it('warns while a running job’s feed is disconnected', () => {
+    it('warns while a download’s feed is disconnected', () => {
       renderDetail({ stale: true })
 
       expect(screen.getByText(VIDEO_STALE_LABEL)).toBeInTheDocument()
@@ -626,16 +794,12 @@ describe('VideoDetail', () => {
       expect(screen.queryByText(VIDEO_STALE_LABEL)).not.toBeInTheDocument()
     })
 
-    // A completed page is final. Raising a doubt about a panel that cannot
+    // A downloaded page is final. Raising a doubt about a panel that cannot
     // change is telling the reader something untrue.
-    it('says nothing about a job that has already finished', () => {
+    it('says nothing about a video that is done', () => {
       renderDetail({
-        jobs: [
-          job({
-            completedAt: '2026-09-15T11:59:00.000Z',
-            status: DownloadJobStatus.Completed,
-          }),
-        ],
+        jobs: [completedJob()],
+        media: downloaded(),
         stale: true,
       })
 
@@ -643,28 +807,40 @@ describe('VideoDetail', () => {
     })
 
     it('says nothing when nothing was ever downloaded', () => {
-      renderDetail({ jobs: [], stale: true })
+      renderDetail({
+        jobs: [],
+        media: video({ state: 'absent' }),
+        stale: true,
+      })
 
       expect(screen.queryByText(VIDEO_STALE_LABEL)).not.toBeInTheDocument()
     })
 
-    /**
-     * `paused` is **not** terminal — `isInProgress` is the complement of
-     * `TERMINAL_DOWNLOAD_JOB_STATUSES` — and a paused download is still open
-     * work whose resume this tab would otherwise fail to hear about.
-     */
-    it('warns for a paused job too, which is still open work', () => {
+    // Paused is still open work whose resume this tab would otherwise fail
+    // to hear about.
+    it('warns for a paused video too', () => {
       renderDetail({
         jobs: [job({ status: DownloadJobStatus.Paused })],
+        media: video({ state: 'paused' }),
         stale: true,
       })
 
       expect(screen.getByText(VIDEO_STALE_LABEL)).toBeInTheDocument()
     })
 
-    // A badge in a flex column, not a banner: `inline-flex` is still stretched
-    // by the column's default `align-items: stretch`.
-    it('renders intrinsic rather than spanning the lifecycle column', () => {
+    // An attempt the media has not caught up with yet is still something to
+    // hear about.
+    it('warns for an open attempt the media has not reflected yet', () => {
+      renderDetail({
+        jobs: [job({ status: DownloadJobStatus.Pending })],
+        media: video({ state: 'absent' }),
+        stale: true,
+      })
+
+      expect(screen.getByText(VIDEO_STALE_LABEL)).toBeInTheDocument()
+    })
+
+    it('renders intrinsic rather than spanning the status column', () => {
       renderDetail({ stale: true })
 
       expect(
@@ -707,25 +883,33 @@ describe('VideoDetailLive', () => {
     return { ...view, props, recorder }
   }
 
-  function emit(
+  function emitJob(
     recorder: ReturnType<typeof createSocketRecorder>,
     next: DownloadJob,
   ): void {
     act(() => recorder.latest().emitMessage(buildJobFrame(next)))
   }
 
-  it('renders the server’s jobs before a single frame arrives', () => {
+  function emitMedia(
+    recorder: ReturnType<typeof createSocketRecorder>,
+    next: Video,
+  ): void {
+    act(() => recorder.latest().emitMessage(buildMediaFrame(next)))
+  }
+
+  it('renders the server’s video and attempts before any frame arrives', () => {
     renderLive()
 
-    expect(screen.getByText('downloading')).toBeInTheDocument()
+    expect(within(mediaPanel()).getByText('downloading')).toBeInTheDocument()
+    expect(
+      attempts().querySelector('[data-job-id="job_1"]'),
+    ).toBeInTheDocument()
   })
 
   /**
    * The structural requirement, pinned. `useJobEvents` throws without a
    * provider by design — the provider owns the socket, so a silent fallback
-   * would let every call site quietly open another connection. This test is
-   * what makes "mount the provider on the page" a failure rather than a
-   * regression nobody notices until the gateway's client count doubles.
+   * would let every call site quietly open another connection.
    */
   it('refuses to render outside a <JobEventsProvider>', () => {
     jest.spyOn(console, 'error').mockImplementation(() => {})
@@ -735,121 +919,121 @@ describe('VideoDetailLive', () => {
     ).toThrow(/JobEventsProvider/)
   })
 
-  /**
-   * The whole point of the task. The user pastes a link, is redirected here,
-   * and the status moves on its own — no reload, no router refresh, nothing
-   * re-fetched.
-   */
-  it('advances the status chip when the gateway says the job moved', () => {
+  it('flips the chip when a media frame says the video moved', () => {
     const { recorder } = renderLive()
 
-    emit(recorder, job({ status: DownloadJobStatus.Converting }))
+    emitMedia(recorder, video({ state: 'importing' }))
 
-    expect(screen.getByText('converting')).toBeInTheDocument()
-    expect(screen.queryByText('downloading')).not.toBeInTheDocument()
+    expect(within(mediaPanel()).getByText('processing…')).toBeInTheDocument()
   })
 
-  // The controls are a function of the live status too, not just the chip:
-  // Pause is legal only while `downloading`, so it has to go when that does.
-  it('withdraws Pause once the job is no longer downloading', () => {
+  // The whole point: the page follows the media frame that lands with the
+  // job event — no reload, no router refresh.
+  it('swaps the poster for the player once the video is downloaded', () => {
+    const { container, recorder } = renderLive()
+
+    expect(container.querySelector('video')).toBeNull()
+
+    emitJob(recorder, completedJob())
+    emitMedia(recorder, downloaded())
+
+    expect(within(mediaPanel()).getByText('downloaded')).toBeInTheDocument()
+    expect(container.querySelector('video')).toHaveAttribute('src', OBJECT_URL)
+  })
+
+  // A job frame alone never decides the chip — the media frame does.
+  it('keeps the chip on the media while only a job frame has landed', () => {
+    const { container, recorder } = renderLive()
+
+    emitJob(recorder, completedJob())
+
+    expect(within(mediaPanel()).getByText('downloading')).toBeInTheDocument()
+    expect(within(attempts()).getByText('completed')).toBeInTheDocument()
+    expect(container.querySelector('video')).toBeNull()
+  })
+
+  it('ignores a media frame for another video', () => {
+    const { recorder } = renderLive()
+
+    emitMedia(recorder, video({ id: 'video:other', state: 'available' }))
+
+    expect(within(mediaPanel()).getByText('downloading')).toBeInTheDocument()
+  })
+
+  /**
+   * Subscribed by media id, so a re-paste of the same link from Discord or
+   * another tab — a job this page was never rendered with — shows up live.
+   */
+  it('adds an attempt at this video that the server did not render', () => {
+    const { recorder } = renderLive({
+      jobs: [
+        job({
+          error: 'ETIMEDOUT',
+          status: DownloadJobStatus.Failed,
+        }),
+      ],
+      media: video({ state: 'absent' }),
+      onPause: jest.fn(),
+    })
+
+    emitJob(
+      recorder,
+      job({ createdAt: '2026-09-15T11:59:30.000Z', id: 'job_new' }),
+    )
+
+    const ids = Array.from(attempts().querySelectorAll('[data-job-id]')).map(
+      el => el.getAttribute('data-job-id'),
+    )
+
+    expect(ids).toEqual(['job_new', 'job_1'])
+    expect(
+      within(attempts()).getByRole('button', { name: 'Pause' }),
+    ).toBeInTheDocument()
+  })
+
+  it('ignores a job frame for another video', () => {
+    const { recorder } = renderLive()
+
+    emitJob(
+      recorder,
+      job({
+        id: 'job_someone_else',
+        media: video({ id: 'video:other' }),
+        status: DownloadJobStatus.Completed,
+      }),
+    )
+
+    expect(
+      attempts().querySelector('[data-job-id="job_someone_else"]'),
+    ).toBeNull()
+  })
+
+  // The attempt card's controls are a function of the live job status: Pause
+  // is legal only while `downloading`.
+  it('withdraws Pause once the attempt is no longer downloading', () => {
     const { recorder } = renderLive({ onCancel: jest.fn(), onPause: jest.fn() })
 
     expect(screen.getByRole('button', { name: 'Pause' })).toBeInTheDocument()
 
-    emit(recorder, job({ status: DownloadJobStatus.Converting }))
+    emitJob(recorder, job({ status: DownloadJobStatus.Converting }))
 
     expect(
       screen.queryByRole('button', { name: 'Pause' }),
     ).not.toBeInTheDocument()
   })
 
-  it('swaps the poster for the player when the download completes', () => {
-    const { container, recorder } = renderLive()
-
-    expect(container.querySelector('video')).toBeNull()
-
-    emit(
-      recorder,
-      job({
-        completedAt: '2026-09-15T11:59:00.000Z',
-        status: DownloadJobStatus.Completed,
-      }),
-    )
-
-    expect(container.querySelector('video')).toHaveAttribute(
-      'src',
-      `/api/download/media/${encodeURIComponent(MEDIA_ID)}/file`,
-    )
-  })
-
-  it('shows the failure the gateway reports, and offers a Retry', () => {
-    const { recorder } = renderLive({ onRetry: jest.fn() })
-
-    emit(
-      recorder,
-      job({ error: 'ETIMEDOUT', status: DownloadJobStatus.Failed }),
-    )
-
-    expect(screen.getByText('failed')).toBeInTheDocument()
-    expect(screen.getByText('ETIMEDOUT')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
-  })
-
-  /**
-   * The filter is the reason this page can share the gateway's firehose
-   * without displaying it. Another user's download is broadcast to this tab
-   * and must never reach the panel.
-   */
-  it('ignores a frame for a job that is not on this page', () => {
-    const { recorder } = renderLive()
-
-    emit(
-      recorder,
-      job({ id: 'job_someone_else', status: DownloadJobStatus.Completed }),
-    )
-
-    expect(screen.getByText('downloading')).toBeInTheDocument()
-    expect(screen.queryByText('completed')).not.toBeInTheDocument()
-  })
-
-  it('leaves an earlier attempt alone while the current one advances', () => {
-    const { recorder } = renderLive({
-      jobs: [
-        job({ id: 'job_2' }),
-        job({
-          createdAt: '2026-09-14T12:00:00.000Z',
-          error: 'ETIMEDOUT',
-          id: 'job_1',
-          status: DownloadJobStatus.Failed,
-        }),
-      ],
-    })
-
-    emit(recorder, job({ id: 'job_2', status: DownloadJobStatus.Uploading }))
-
-    expect(screen.getByText('uploading')).toBeInTheDocument()
-    expect(screen.getByText('Earlier attempts')).toBeInTheDocument()
-    expect(screen.getByText('failed')).toBeInTheDocument()
-  })
-
-  /**
-   * ⚠️ `useJobEvents({ jobIds: [...] })` is called with a **fresh array every
-   * render**, which is the documented call shape: the interest is keyed on the
-   * array's sorted contents, not its identity. If that ever regressed, this
-   * call site would re-subscribe on every frame — and, were the socket ever
-   * moved out of the provider, reconnect on every frame too.
-   */
   it('opens exactly one socket no matter how many frames arrive', () => {
     const { recorder } = renderLive()
 
-    emit(recorder, job({ status: DownloadJobStatus.Converting }))
-    emit(recorder, job({ status: DownloadJobStatus.Uploading }))
+    emitJob(recorder, job({ status: DownloadJobStatus.Converting }))
+    emitMedia(recorder, video({ state: 'importing' }))
+    emitJob(recorder, job({ status: DownloadJobStatus.Uploading }))
 
     expect(recorder.sockets).toHaveLength(1)
   })
 
   describe('when the feed drops', () => {
-    it('marks the running panel stale', () => {
+    it('shows reconnecting', () => {
       const { recorder } = renderLive()
 
       expect(screen.queryByText(VIDEO_STALE_LABEL)).not.toBeInTheDocument()
@@ -859,15 +1043,15 @@ describe('VideoDetailLive', () => {
       expect(screen.getByText(VIDEO_STALE_LABEL)).toBeInTheDocument()
     })
 
-    // The status is a server fact that does not stop being true because this
+    // The state is a server fact that does not stop being true because this
     // tab stopped hearing about it — one marker, not a blanked-out panel.
-    it('keeps showing the last status it heard', () => {
+    it('keeps showing the last state it heard', () => {
       const { recorder } = renderLive()
 
-      emit(recorder, job({ status: DownloadJobStatus.Converting }))
+      emitMedia(recorder, video({ state: 'importing' }))
       act(() => recorder.latest().emitClose())
 
-      expect(screen.getByText('converting')).toBeInTheDocument()
+      expect(within(mediaPanel()).getByText('processing…')).toBeInTheDocument()
     })
 
     it('clears the marker once a socket is open again', () => {
