@@ -4,6 +4,11 @@ services:
       context: ../..
       dockerfile: apps/swole/Dockerfile
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     # Give the process up to 30s to flush in-flight writes and close the
     # SQLite handle on `docker-compose down` / rolling restart before SIGKILL.
     # The instrumentation.ts SIGTERM handler runs inside this window.

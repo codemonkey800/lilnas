@@ -2,6 +2,11 @@ services:
   palworld:
     image: thijsvanloef/palworld-server-docker:v2.7.1
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     stop_grace_period: 30s # Set to however long you are willing to wait for the container to gracefully stop
     ports:
       - 8211:8211/udp

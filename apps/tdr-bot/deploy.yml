@@ -1,3 +1,9 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   tdr-bot-db:
     image: postgres:17-alpine
@@ -22,12 +28,14 @@ services:
       - -c
       - wal_compression=on
     restart: unless-stopped
+    logging: *default-logging
 
   tdr-bot:
     build:
       context: ../../
       dockerfile: apps/tdr-bot/Dockerfile
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_HOST: tdr-bot-db
     env_file:

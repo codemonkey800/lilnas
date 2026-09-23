@@ -1,7 +1,14 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   storage:
     image: minio/minio:RELEASE.2025-04-22T22-12-26Z-cpuv1
     restart: unless-stopped
+    logging: *default-logging
     command: server --console-address ":9001" /data
     environment:
       MINIO_PROMETHEUS_AUTH_TYPE: public
@@ -34,6 +41,7 @@ services:
   turbo:
     image: ducktors/turborepo-remote-cache
     restart: unless-stopped
+    logging: *default-logging
     env_file:
       - .env.turbo
     labels:

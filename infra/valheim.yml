@@ -2,6 +2,11 @@ services:
   valheim:
     image: lloesche/valheim-server:latest
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     cap_add:
       - sys_nice
     stop_grace_period: 2m

@@ -1,8 +1,15 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   rustdesk-hbbs:
     image: rustdesk/rustdesk-server:latest
     command: hbbs
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - 21115:21115
       - 21116:21116
@@ -16,6 +23,7 @@ services:
     image: rustdesk/rustdesk-server:latest
     command: hbbr
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - 21117:21117
     volumes:
