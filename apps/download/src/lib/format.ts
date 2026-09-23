@@ -1,6 +1,7 @@
 import {
   DownloadJobStatus,
   isInProgressDownloadJobStatus,
+  type MediaState,
 } from '@lilnas/utils/download/types'
 
 /**
@@ -241,6 +242,34 @@ const STATUS_TONES: Record<DownloadJobStatus, StatusTone> = {
 /** The design-system tone a job status renders in. See {@link STATUS_TONES}. */
 export function statusTone(status: DownloadJobStatus): StatusTone {
   return STATUS_TONES[status]
+}
+
+/**
+ * Every {@link MediaState} to the tone its chip renders in - plan 021's
+ * media-state vocabulary, straight from the approved mockups. Exported (unlike
+ * {@link STATUS_TONES}) so a test can walk it; a `Record` for the same reason
+ * as that table, so a new state fails type-check here.
+ *
+ * The same grouping as a job's status: `uv` for the two states the machine is
+ * working (`downloading`, `importing`), `warn` for the two that are stopped
+ * until somebody acts (`needs_attention`, `paused`), `ok` for a file on disk
+ * and `mute` for nothing to show (`absent`, `wanted`). There is no `bad` - a
+ * failure belongs to a download *attempt*, not to the media, which is exactly
+ * how a playable title used to read "failed".
+ */
+export const MEDIA_STATE_TONES: Record<MediaState, StatusTone> = {
+  absent: 'mute',
+  available: 'ok',
+  downloading: 'uv',
+  importing: 'uv',
+  needs_attention: 'warn',
+  paused: 'warn',
+  wanted: 'mute',
+}
+
+/** The design-system tone a media state renders in. See {@link MEDIA_STATE_TONES}. */
+export function mediaStateTone(state: MediaState): StatusTone {
+  return MEDIA_STATE_TONES[state]
 }
 
 /**

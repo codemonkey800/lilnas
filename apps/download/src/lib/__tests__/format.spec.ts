@@ -1,6 +1,8 @@
 import {
   DownloadJobStatus,
   isTerminalDownloadJobStatus,
+  MEDIA_STATES,
+  type MediaState,
 } from '@lilnas/utils/download/types'
 
 import {
@@ -8,6 +10,8 @@ import {
   formatRuntime,
   initials,
   isInProgress,
+  MEDIA_STATE_TONES,
+  mediaStateTone,
   posterVariant,
   type StatusTone,
   statusTone,
@@ -260,6 +264,37 @@ describe('statusTone', () => {
   it('mutes a job that has not started yet', () => {
     expect(statusTone(DownloadJobStatus.Requested)).toBe('mute')
     expect(statusTone(DownloadJobStatus.Pending)).toBe('mute')
+  })
+})
+
+describe('mediaStateTone', () => {
+  // The approved mockups' tones, spelled out once.
+  const EXPECTED: Record<MediaState, StatusTone> = {
+    absent: 'mute',
+    available: 'ok',
+    downloading: 'uv',
+    importing: 'uv',
+    needs_attention: 'warn',
+    paused: 'warn',
+    wanted: 'mute',
+  }
+
+  it('covers exactly the states in MEDIA_STATES', () => {
+    expect(Object.keys(MEDIA_STATE_TONES).sort()).toEqual(
+      [...MEDIA_STATES].sort(),
+    )
+  })
+
+  it.each(MEDIA_STATES)('tones %s per the mockups', state => {
+    expect(mediaStateTone(state)).toBe(EXPECTED[state])
+  })
+
+  it('never renders a media state as broken', () => {
+    // A failure belongs to a download attempt, not to the media - that is how
+    // a playable title used to read "failed".
+    for (const state of MEDIA_STATES) {
+      expect(mediaStateTone(state)).not.toBe('bad')
+    }
   })
 })
 
