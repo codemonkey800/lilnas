@@ -23,7 +23,7 @@ import { getIdentifiedDownloadClient } from 'src/lib/download-client'
 import { mediaIdFromRoute } from 'src/lib/media-route'
 import { getRequestInstant } from 'src/lib/request-instant'
 
-/** `mock.pug`'s `appBody` at both widths, spelled the way `src/app/page.tsx` does. */
+/** `mock.pug`'s `appBody` at both widths, spelled the way `src/app/(home)/page.tsx` does. */
 const PAGE_SHELL = cns(
   'flex-auto px-6 pt-[18px] pb-[30px]',
   'sm:px-8 sm:pt-[30px] sm:pb-11',

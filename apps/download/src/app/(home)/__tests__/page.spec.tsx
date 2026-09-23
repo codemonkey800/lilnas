@@ -10,7 +10,7 @@ import type {
 import { DownloadType } from '@lilnas/utils/download/types'
 import { render, screen } from '@testing-library/react'
 
-import HomePage from 'src/app/page'
+import HomePage from 'src/app/(home)/page'
 import { RECENTLY_ADDED_LIMIT } from 'src/components/home/recently-added'
 import { getIdentifiedDownloadClient } from 'src/lib/download-client'
 import { PROFILE_HREF } from 'src/lib/profile-filters'
