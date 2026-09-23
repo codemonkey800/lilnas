@@ -14,6 +14,7 @@ import type { VideoRow } from 'src/db/schema'
 import { getVideosByIds } from 'src/db/videos.repo'
 import { EmbyStatusService } from 'src/emby/emby-status.service'
 
+import { MediaStateService } from './media-state.service'
 import { RadarrService } from './radarr.service'
 import { SonarrService } from './sonarr.service'
 
@@ -68,7 +69,10 @@ function hydrateVideo(row: VideoRow): Video {
  *
  * Every resolved movie/show that has a file on disk is then annotated with
  * its Emby state (`EmbyStatusService.annotate()`), so a caller never has to
- * ask a second service where to watch something.
+ * ask a second service where to watch something - and then every resolved
+ * media, placeholders included, is annotated with its live state
+ * (`MediaStateService.annotate()`, plan 021), so nothing the API serves is
+ * missing one.
  */
 @Injectable()
 export class MediaResolverService {
@@ -82,6 +86,7 @@ export class MediaResolverService {
   constructor(
     private readonly dbService: DbService,
     private readonly embyStatusService: EmbyStatusService,
+    private readonly mediaStateService: MediaStateService,
     private readonly radarrService: RadarrService,
     private readonly sonarrService: SonarrService,
   ) {}
@@ -131,6 +136,12 @@ export class MediaResolverService {
         'Emby annotation threw - returning media without Emby status',
       )
     }
+
+    // Plan 021: every media the API serves carries a state. Synchronous and
+    // memory-only (the poller feeds it the queues), so it needs no guard. The
+    // two annotators write disjoint fields - Emby never touches `state`,
+    // this never touches `embyStatus` - so their order is not load-bearing.
+    this.mediaStateService.annotate(media.values())
 
     return { degradedSources: [...degradedSources], media }
   }

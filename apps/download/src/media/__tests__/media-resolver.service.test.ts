@@ -12,6 +12,8 @@ import { DbService } from 'src/db/db.service'
 import { videos } from 'src/db/schema'
 import { EmbyStatusService } from 'src/emby/emby-status.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
+import { MediaStateService } from 'src/media/media-state.service'
+import type { PollableQueueItem } from 'src/media/queue-status.util'
 import { RadarrService } from 'src/media/radarr.service'
 import { SonarrService } from 'src/media/sonarr.service'
 
@@ -61,6 +63,7 @@ describe('MediaResolverService', () => {
   let radarrService: jest.Mocked<RadarrService>
   let sonarrService: jest.Mocked<SonarrService>
   let embyStatusService: jest.Mocked<EmbyStatusService>
+  let mediaStateService: MediaStateService
   let annotateCalls: Media[][]
 
   beforeEach(async () => {
@@ -80,6 +83,9 @@ describe('MediaResolverService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MediaResolverService,
+        // The real one, not a mock: it has no dependencies and only reads
+        // memory, and its output is part of what resolve() promises.
+        MediaStateService,
         { provide: DbService, useValue: dbService },
         { provide: EmbyStatusService, useValue: mockEmbyStatusService },
         { provide: RadarrService, useValue: mockRadarrService },
@@ -91,6 +97,7 @@ describe('MediaResolverService', () => {
     radarrService = module.get(RadarrService)
     sonarrService = module.get(SonarrService)
     embyStatusService = module.get(EmbyStatusService)
+    mediaStateService = module.get(MediaStateService)
 
     jest.spyOn(Logger.prototype, 'log').mockImplementation()
     jest.spyOn(Logger.prototype, 'error').mockImplementation()
@@ -192,6 +199,7 @@ describe('MediaResolverService', () => {
       expect(media.get('video:missing')).toEqual({
         id: 'video:missing',
         sourceUrl: '',
+        state: 'absent',
         title: 'video:missing',
         type: DownloadType.Video,
       })
@@ -242,6 +250,7 @@ describe('MediaResolverService', () => {
 
       expect(media.get('tmdb:5')).toEqual({
         id: 'tmdb:5',
+        state: 'absent',
         title: 'tmdb:5',
         tmdbId: 5,
         type: DownloadType.Movie,
@@ -438,6 +447,154 @@ describe('MediaResolverService', () => {
       expect(media.get('tmdb:1')).toMatchObject({ id: 'tmdb:1', tmdbId: 1 })
       expect(media.get('tmdb:1')).not.toHaveProperty('embyStatus')
       expect(degradedSources).toEqual([])
+    })
+  })
+
+  // Plan 021: every media resolve() returns carries a `state`. The derivation
+  // rules belong to media-state.service.test.ts; these pin the seam - that
+  // each type and a placeholder come back annotated, and that the queue the
+  // poller feeds MediaStateService reaches the resolved media.
+  describe('state annotation', () => {
+    it('marks a movie with a file available', async () => {
+      radarrService.getLibrary.mockResolvedValue([
+        buildMovie(1, {
+          filePath: '/media/movies/Movie 1',
+          monitored: true,
+          radarrId: 11,
+        }),
+      ])
+
+      const { media } = await service.resolve([
+        { mediaId: 'tmdb:1', type: DownloadType.Movie },
+      ])
+
+      expect(media.get('tmdb:1')?.state).toBe('available')
+    })
+
+    it('marks a monitored movie with no file wanted', async () => {
+      radarrService.getLibrary.mockResolvedValue([
+        buildMovie(1, { monitored: true, radarrId: 11 }),
+      ])
+
+      const { media } = await service.resolve([
+        { mediaId: 'tmdb:1', type: DownloadType.Movie },
+      ])
+
+      expect(media.get('tmdb:1')?.state).toBe('wanted')
+    })
+
+    it('marks a show with episode files available', async () => {
+      sonarrService.getLibrary.mockResolvedValue([
+        buildShow(10, {
+          episodeCount: 10,
+          episodeFileCount: 3,
+          filePath: '/media/tv/Show 10',
+          monitored: true,
+          sonarrId: 21,
+        }),
+      ])
+
+      const { media } = await service.resolve([
+        { mediaId: 'tvdb:10', type: DownloadType.Show },
+      ])
+
+      expect(media.get('tvdb:10')?.state).toBe('available')
+    })
+
+    it('marks a video with download URLs available', async () => {
+      dbService.db
+        .insert(videos)
+        .values({
+          downloadUrls: ['https://files.example.com/a.mp4'],
+          id: 'vid-1',
+          naturalKey: 'https://example.com/a#-',
+          sourceUrl: 'https://example.com/a',
+          title: 'A Video',
+        })
+        .run()
+
+      const { media } = await service.resolve([
+        { mediaId: 'video:vid-1', type: DownloadType.Video },
+      ])
+
+      expect(media.get('video:vid-1')?.state).toBe('available')
+    })
+
+    it('marks a placeholder for an unreachable source absent', async () => {
+      radarrService.getLibrary.mockRejectedValue(new Error('radarr down'))
+      radarrService.lookupByTmdbId.mockRejectedValue(new Error('radarr down'))
+
+      const { media } = await service.resolve([
+        { mediaId: 'tmdb:5', type: DownloadType.Movie },
+      ])
+
+      expect(media.get('tmdb:5')?.state).toBe('absent')
+      expect(media.get('tmdb:5')).not.toHaveProperty('queueSnapshot')
+    })
+
+    it('marks a movie with a queue item downloading, with its snapshot', async () => {
+      const item: PollableQueueItem = {
+        movieId: 11,
+        size: 1000,
+        sizeleft: 250,
+        status: 'downloading',
+        timeleft: '00:05:00',
+      }
+      mediaStateService.setQueue('radarr', [item])
+      radarrService.getLibrary.mockResolvedValue([
+        buildMovie(1, { monitored: true, radarrId: 11 }),
+      ])
+
+      const { media } = await service.resolve([
+        { mediaId: 'tmdb:1', type: DownloadType.Movie },
+      ])
+
+      expect(media.get('tmdb:1')).toMatchObject({
+        queueSnapshot: {
+          progress: 75,
+          status: 'downloading',
+          timeLeft: '00:05:00',
+        },
+        state: 'downloading',
+      })
+    })
+
+    // The two annotators write disjoint fields, so neither can clobber the
+    // other's work on the same object.
+    it('keeps the Emby status alongside the state', async () => {
+      radarrService.getLibrary.mockResolvedValue([
+        buildMovie(1, { filePath: '/media/movies/Movie 1', radarrId: 11 }),
+      ])
+      embyStatusService.annotate.mockImplementation(async items => {
+        for (const item of items) {
+          if (item.type !== DownloadType.Movie) continue
+          item.embyStatus = { state: 'indexing' }
+        }
+      })
+
+      const { media } = await service.resolve([
+        { mediaId: 'tmdb:1', type: DownloadType.Movie },
+      ])
+
+      expect(media.get('tmdb:1')).toMatchObject({
+        embyStatus: { state: 'indexing' },
+        state: 'available',
+      })
+    })
+
+    // The Emby guard sits before the state annotation, so a throwing Emby
+    // must not cost the state too.
+    it('still annotates state when Emby annotation rejects', async () => {
+      radarrService.getLibrary.mockResolvedValue([
+        buildMovie(1, { monitored: true, radarrId: 11 }),
+      ])
+      embyStatusService.annotate.mockRejectedValue(new Error('emby exploded'))
+
+      const { media } = await service.resolve([
+        { mediaId: 'tmdb:1', type: DownloadType.Movie },
+      ])
+
+      expect(media.get('tmdb:1')?.state).toBe('wanted')
     })
   })
 })
