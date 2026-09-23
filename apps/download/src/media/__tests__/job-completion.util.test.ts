@@ -258,22 +258,70 @@ describe('didJobComplete', () => {
       ).toBe(true)
     })
 
-    // A half-imported season is still downloading; completing here would
-    // strand the rest of it.
-    it('does not complete on a partially imported season', () => {
+    // The attempt landed what it could; how much of the season is on disk
+    // is media state's to say, not this job's.
+    it('completes a season with three old files and seven new ones', () => {
+      const tenEpisodes = Array.from({ length: 10 }, (_, index) =>
+        episode(index + 1, 3, 300 + index + 1),
+      )
+      const files = tenEpisodes.map((_, index) =>
+        file(300 + index + 1, index < 3 ? BEFORE : AFTER, 3),
+      )
+
+      expect(
+        didJobComplete({
+          createdAt: CREATED_AT,
+          episodes: tenEpisodes,
+          files,
+          scope,
+        }),
+      ).toBe(true)
+    })
+
+    // Unaired episodes and ones no indexer had never get a file, and must
+    // not hold the attempt open.
+    it('completes when some episodes of the season never got a file', () => {
+      expect(
+        didJobComplete({
+          createdAt: CREATED_AT,
+          episodes: [...episodes, episode(4, 3), episode(5, 3, 0)],
+          files: [file(301, AFTER, 3)],
+          scope,
+        }),
+      ).toBe(true)
+    })
+
+    // Evidence is still required: the library's old copies are not this
+    // attempt's result.
+    it('does not complete when every file in the season is older than the job', () => {
       expect(
         didJobComplete({
           createdAt: CREATED_AT,
           episodes,
-          files: [file(301, AFTER, 3), file(302, BEFORE, 3)],
+          files: [file(301, BEFORE, 3), file(302, BEFORE, 3)],
           scope,
         }),
       ).toBe(false)
     })
 
-    // Unsatisfiable, not ignorable: an episode we cannot identify might be
-    // the one still downloading, so it blocks the scope.
-    it('does not complete when an episode of the season has no id', () => {
+    it('does not complete when only another season got a new file', () => {
+      expect(
+        didJobComplete({
+          createdAt: CREATED_AT,
+          episodes,
+          files: [
+            file(101, AFTER, 1),
+            file(301, BEFORE, 3),
+            file(302, BEFORE, 3),
+          ],
+          scope,
+        }),
+      ).toBe(false)
+    })
+
+    // Season membership comes from the episode, and the file it points at is
+    // the evidence - neither needs the episode's own id.
+    it('counts a new file pointed at by an episode that has no id', () => {
       expect(
         didJobComplete({
           createdAt: CREATED_AT,
@@ -281,37 +329,11 @@ describe('didJobComplete', () => {
           files: [file(301, AFTER, 3)],
           scope,
         }),
-      ).toBe(false)
+      ).toBe(true)
     })
 
-    it('lets one id-less episode block an otherwise satisfied season', () => {
-      expect(
-        didJobComplete({
-          createdAt: CREATED_AT,
-          episodes: [...episodes, { episodeFileId: 303, seasonNumber: 3 }],
-          files: [
-            file(301, AFTER, 3),
-            file(302, AFTER, 3),
-            file(303, AFTER, 3),
-          ],
-          scope,
-        }),
-      ).toBe(false)
-    })
-
-    it('does not complete when one episode of the season has no file', () => {
-      expect(
-        didJobComplete({
-          createdAt: CREATED_AT,
-          episodes: [...episodes, episode(4, 3)],
-          files: [file(301, AFTER, 3), file(302, AFTER, 3)],
-          scope,
-        }),
-      ).toBe(false)
-    })
-
-    // Nothing to satisfy is not success - it means the episode list never
-    // resolved, which is no evidence rather than proof of completion.
+    // No episode in the season means the episode list never resolved, which
+    // is no evidence rather than proof of completion.
     it('does not complete when no episode belongs to that season', () => {
       expect(
         didJobComplete({
@@ -334,8 +356,8 @@ describe('didJobComplete', () => {
       ).toBe(false)
     })
 
-    // Season 0 is specials: a truthiness check would widen this to the whole
-    // series and demand every other season had landed too.
+    // Season 0 is specials: a falsiness check would widen this to the whole
+    // series, where season 1's new file would complete it.
     it('treats season 0 as a real scope, not as "the whole series"', () => {
       expect(
         didJobComplete({
@@ -345,56 +367,58 @@ describe('didJobComplete', () => {
           scope: { seasonNumber: 0 },
         }),
       ).toBe(true)
+      expect(
+        didJobComplete({
+          createdAt: CREATED_AT,
+          episodes: [episode(1, 0, 1), episode(2, 1, 2)],
+          files: [file(1, BEFORE, 0), file(2, AFTER, 1)],
+          scope: { seasonNumber: 0 },
+        }),
+      ).toBe(false)
     })
   })
 
-  describe('a series scope', () => {
-    const episodes = [episode(1, 1, 101), episode(2, 2, 201)]
+  // A bare request stores no scope, an explicit whole-series one stores
+  // `{}`, and `episodeNumber` alone is display-only - all three are the same
+  // job and must read the same.
+  describe.each([
+    ['no scope', undefined],
+    ['an empty scope', {}],
+    ['a scope with only episodeNumber', { episodeNumber: 5 }],
+  ])('a whole series, as %s', (_label, scope) => {
+    const episodes = [episode(1, 1, 101), episode(2, 2, 201), episode(3, 2)]
 
-    it('completes when every episode of the series has a new file', () => {
+    it('completes when every episode has a new file', () => {
       expect(
         didJobComplete({
           createdAt: CREATED_AT,
           episodes,
           files: [file(101, AFTER, 1), file(201, LATER, 2)],
-          scope: {},
+          scope,
         }),
       ).toBe(true)
     })
 
-    it('does not complete while one episode is still missing its file', () => {
+    it('completes on one new file among old ones and missing ones', () => {
       expect(
         didJobComplete({
           createdAt: CREATED_AT,
           episodes,
-          files: [file(101, AFTER, 1), file(201, BEFORE, 2)],
-          scope: {},
-        }),
-      ).toBe(false)
-    })
-
-    it('does not complete with an empty episode list', () => {
-      expect(
-        didJobComplete({
-          createdAt: CREATED_AT,
-          episodes: [],
-          files: [file(101, AFTER, 1)],
-          scope: {},
-        }),
-      ).toBe(false)
-    })
-
-    // `episodeNumber` is display-only, so a scope carrying just that one is
-    // still a whole-series scope.
-    it('treats a scope with only episodeNumber as the whole series', () => {
-      expect(
-        didJobComplete({
-          createdAt: CREATED_AT,
-          episodes,
-          files: [file(101, AFTER, 1), file(201, AFTER, 2)],
-          scope: { episodeNumber: 5 },
+          files: [file(101, BEFORE, 1), file(201, AFTER, 2)],
+          scope,
         }),
       ).toBe(true)
+    })
+
+    it('does not complete when every file is older than the job', () => {
+      expect(
+        didJobComplete({
+          createdAt: CREATED_AT,
+          episodes,
+          files: [file(101, BEFORE, 1), file(201, BEFORE, 2)],
+          scope,
+        }),
+      ).toBe(false)
     })
 
     it('does not complete with no files at all', () => {
@@ -403,7 +427,7 @@ describe('didJobComplete', () => {
           createdAt: CREATED_AT,
           episodes,
           files: [],
-          scope: {},
+          scope,
         }),
       ).toBe(false)
     })

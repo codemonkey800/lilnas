@@ -27,10 +27,9 @@ export interface CompletionFile {
  * drops straight in at every call site with no `.filter()` or cast. That
  * zero-conversion promise is the whole reason these types are structural,
  * and it has to hold for both callers - the poller and the boot sweep.
- * An episode that arrived without an id is treated as **unsatisfiable**: it
- * can never be the target of an `episodeId` scope, and its presence in a
- * season or series scope blocks that scope from completing. See
- * `everyEpisodeHasNewFile`.
+ * An episode that arrived without an id can never be the target of an
+ * `episodeId` scope. A season scope doesn't need the id - only the season
+ * and the file the episode points at.
  */
 export interface CompletionEpisode {
   id?: number
@@ -93,38 +92,27 @@ function indexFilesById(
 }
 
 /**
- * Every episode in `episodes` has a file that landed after `createdAtMs`.
+ * Whether the file `episode` points at landed after `createdAtMs`.
  *
- * An empty list is `false`, not a vacuous `true`: nothing to satisfy is not
- * success, it means the episode list never resolved and we have no evidence
- * either way. Same for an episode with no `id`, an `episodeFileId` of `0`
- * (Sonarr's "no file") and one pointing at a file id that is not in `files` -
- * unsatisfied, never a throw.
+ * An `episodeFileId` of `0` (Sonarr's "no file"), an absent one, and one
+ * pointing at a file id that is not in `files` are all `false`, never a
+ * throw.
  */
-function everyEpisodeHasNewFile(
-  episodes: readonly CompletionEpisode[],
+function hasNewFile(
+  episode: CompletionEpisode,
   filesById: Map<number, CompletionFile>,
   createdAtMs: number,
 ): boolean {
-  if (episodes.length === 0) return false
+  const fileId = episode.episodeFileId
 
-  return episodes.every(episode => {
-    // An episode Sonarr returned without an id is an episode we cannot
-    // reason about at all - it blocks its scope rather than being waved
-    // through, for the same reason a missing file does.
-    if (episode.id == null) return false
+  // `0` is Sonarr's "no file", so truthiness is the right check here.
+  if (!fileId) return false
 
-    const fileId = episode.episodeFileId
-
-    // `0` is Sonarr's "no file", so truthiness is the right check here.
-    if (!fileId) return false
-
-    return isAddedAfter(filesById.get(fileId), createdAtMs)
-  })
+  return isAddedAfter(filesById.get(fileId), createdAtMs)
 }
 
 /**
- * Did this job's download already finish?
+ * Did a file land for this job since it was created?
  *
  * The poller infers a job's progress from Radarr's/Sonarr's queue, sampled
  * every 10s - but an **empty queue is ambiguous**. It means either "nothing
@@ -138,11 +126,26 @@ function everyEpisodeHasNewFile(
  * mid-flight, by asking the library instead of the queue: **did a file
  * appear for this job's target since the job was created?**
  *
- * - **Movie** (no `scope`): any file added after `createdAt`.
+ * - **Movie**: any file added after `createdAt`.
  * - **Episode scope**: the episode's own file was added after `createdAt`.
- * - **Season scope**: *every* episode of that season has one. A partially
- *   imported season is still downloading, not done.
- * - **Series scope**: every episode of the series has one.
+ * - **Season scope**: *at least one* episode of that season has one.
+ * - **Whole series** - no `scope`, `{}`, or a scope carrying only the
+ *   display-only `episodeNumber`, all the same thing: any file of the series
+ *   was added after `createdAt`, which is the movie rule on the series' file
+ *   list.
+ *
+ * A season or series needs one new file, not every episode filled, because
+ * a job is the record of one attempt, not a measure of the title: episodes
+ * already on disk before the job, unaired ones and ones no indexer had never
+ * get a new file, and demanding them would fail an attempt that landed
+ * everything it could. How much of the title is on disk is media state's
+ * job - it is what drives the page's chip and its "N of M episodes". This
+ * only asks that the attempt left *some* evidence behind, so a job whose
+ * download vanished without a file still reads as not finished.
+ *
+ * Only this function says what landed; the caller decides what a `false`
+ * means (the poller waits, then fails a grabbed job - see
+ * `settleWithoutQueueItem`).
  *
  * Pure and total: no I/O, no clock reads, and no input - malformed,
  * inconsistent or empty - makes it throw. Everything it cannot positively
@@ -160,9 +163,11 @@ export function didJobComplete(input: CompletionInput): boolean {
 
   if (files.length === 0) return false
 
-  // A movie is one file and one target, so there is no episode indirection
-  // to walk - any newly added file is this job's file.
-  if (!scope) {
+  // A movie is one file and one target, and a whole series is every file
+  // the series has, so neither has an episode indirection to walk - any
+  // newly added file is this job's file. `== null` rather than falsiness:
+  // Sonarr numbers specials as season 0, which is a season, not the series.
+  if (scope?.episodeId == null && scope?.seasonNumber == null) {
     return files.some(file => isAddedAfter(file, createdAtMs))
   }
 
@@ -180,20 +185,15 @@ export function didJobComplete(input: CompletionInput): boolean {
 
     // An episode id matching nothing means the episode list is stale or was
     // fetched for the wrong series - no evidence, so no completion.
-    return episode
-      ? everyEpisodeHasNewFile([episode], filesById, createdAtMs)
-      : false
+    return episode ? hasNewFile(episode, filesById, createdAtMs) : false
   }
 
-  if (scope.seasonNumber != null) {
-    // `!= null` rather than truthiness: Sonarr numbers specials as season 0,
-    // and a truthy check would silently widen that to the whole series.
-    const seasonEpisodes = scopeEpisodes.filter(
-      episode => episode.seasonNumber === scope.seasonNumber,
-    )
-
-    return everyEpisodeHasNewFile(seasonEpisodes, filesById, createdAtMs)
-  }
-
-  return everyEpisodeHasNewFile(scopeEpisodes, filesById, createdAtMs)
+  // Episode-first rather than by the file's own `seasonNumber`, so the
+  // episode list stays the one source of truth for what a scope covers - an
+  // empty or unresolved list is no evidence, same as for an episode scope.
+  return scopeEpisodes.some(
+    episode =>
+      episode.seasonNumber === scope.seasonNumber &&
+      hasNewFile(episode, filesById, createdAtMs),
+  )
 }
