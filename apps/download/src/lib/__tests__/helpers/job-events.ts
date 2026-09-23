@@ -1,12 +1,16 @@
 import type {
   DownloadJob,
   DownloadJobEvent,
+  Media,
+  MediaEvent,
+  Movie,
 } from '@lilnas/utils/download/types'
 import {
   DOWNLOAD_JOB_EVENT_TYPE,
   DownloadJobEventType,
   DownloadJobStatus,
   DownloadType,
+  MEDIA_EVENT_TYPE,
 } from '@lilnas/utils/download/types'
 
 /**
@@ -57,6 +61,27 @@ export function buildJobFrame(
 ): string {
   const event: DownloadJobEvent = { job, type }
   return buildFrame(event)
+}
+
+/** A library movie, as the poller would broadcast it. */
+export function buildMovie(overrides: Partial<Movie> = {}): Movie {
+  return {
+    id: 'tmdb:1',
+    state: 'downloading',
+    title: 'A movie',
+    tmdbId: 1,
+    type: DownloadType.Movie,
+    ...overrides,
+  }
+}
+
+/** A well-formed gateway frame announcing `media`'s current state. */
+export function buildMediaFrame(
+  media: Media,
+  episodes?: MediaEvent['episodes'],
+): string {
+  const event: MediaEvent = episodes ? { episodes, media } : { media }
+  return buildFrame(event, MEDIA_EVENT_TYPE)
 }
 
 /**

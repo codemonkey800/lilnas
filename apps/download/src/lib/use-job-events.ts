@@ -5,10 +5,11 @@ import {
   isDownloadGatewayMessage,
   jobEventsSocketUrl,
   parseJobEventFrame,
+  parseMediaEventFrame,
   RECONNECT_JITTER_RATIO,
   reconnectDelayMs,
 } from '@lilnas/utils/download/job-events'
-import type { DownloadJob } from '@lilnas/utils/download/types'
+import type { DownloadJob, MediaEvent } from '@lilnas/utils/download/types'
 import {
   createContext,
   useCallback,
@@ -52,27 +53,72 @@ export interface JobEventsSnapshot {
 }
 
 /**
- * Which jobs a subscriber cares about.
- *
- * - `jobIds` **omitted** — every job the gateway broadcasts is accumulated.
- *   This is the activity feed's mode, and the only unfiltered consumer.
- * - `jobIds` **provided** — anything outside the list is dropped on arrival,
- *   never stored. This is the detail page's mode: one media's jobs.
- *
- * An empty `jobIds` array is a real filter meaning "nothing", not the same
- * as omitting the key.
+ * What `useMediaEvents` hands back: the latest media frame for each media id
+ * it asked about, keyed by `media.id`, plus the same `connected` flag as
+ * {@link JobEventsSnapshot}.
  */
-export interface JobEventsFilter {
-  jobIds?: readonly string[]
+export interface MediaEventsSnapshot {
+  connected: boolean
+  media: ReadonlyMap<string, MediaEvent>
 }
 
 /**
- * A subscriber's registered interest: the set of ids it wants, or `null` for
- * "everything". The store keeps the union of every live interest and drops
- * uninteresting frames at ingest, so a filtered page never accumulates the
- * broadcast traffic it is going to hide anyway.
+ * The store's own snapshot — both maps off the one socket. Consumers never
+ * see it whole: `useJobEvents` and `useMediaEvents` each project their half.
  */
-type JobInterest = ReadonlySet<string> | null
+export interface JobEventsStoreSnapshot extends JobEventsSnapshot {
+  /** The latest `MediaEvent` per `media.id`, replaced wholesale per frame. */
+  media: ReadonlyMap<string, MediaEvent>
+}
+
+/**
+ * Which jobs a subscriber cares about.
+ *
+ * - **Both keys omitted** — every job the gateway broadcasts is accumulated.
+ *   This is the activity feed's mode, and the only unfiltered consumer.
+ * - **Either key provided** — a job is kept if its `job.id` is in `jobIds`
+ *   **or** its `job.media.id` is in `mediaIds`; anything else is dropped on
+ *   arrival, never stored. This is the detail page's mode: one media's jobs,
+ *   including one this tab never knew about (a download started from
+ *   Discord or another tab reaches the page by its media id).
+ *
+ * An empty array is a real filter meaning "nothing", not the same as
+ * omitting the key — and once either key is given, the omitted one means
+ * "nothing" too.
+ */
+export interface JobEventsFilter {
+  jobIds?: readonly string[]
+  mediaIds?: readonly string[]
+}
+
+/** Which media a `useMediaEvents` subscriber cares about. Empty is "nothing". */
+export interface MediaEventsFilter {
+  mediaIds: readonly string[]
+}
+
+/**
+ * A subscriber's registered interest. The store keeps the union of every
+ * live interest and drops uninteresting frames at ingest, so a filtered page
+ * never accumulates the broadcast traffic it is going to hide anyway. An
+ * omitted set means "nothing".
+ *
+ * Media ids are tracked as **two** interests, not one shared set: a job
+ * filter's `mediaIds` (`jobMediaIds` here) only ever admit *job* frames, and
+ * a `useMediaEvents` subscriber's `mediaIds` only ever admit *media* frames.
+ * One shared set would make a job-only page quietly store every media frame
+ * for its title (and a media-only one every job frame), which no subscriber
+ * would ever read.
+ */
+export interface JobEventsInterest {
+  /** Every job frame, whatever its ids — the activity feed. */
+  allJobs?: boolean
+  /** Job frames kept by `job.id`. */
+  jobIds?: ReadonlySet<string>
+  /** Job frames kept by `job.media.id`. */
+  jobMediaIds?: ReadonlySet<string>
+  /** Media frames kept by `media.id`. */
+  mediaIds?: ReadonlySet<string>
+}
 
 export interface CreateJobEventsStoreOptions {
   /**
@@ -91,14 +137,14 @@ export interface CreateJobEventsStoreOptions {
 export interface JobEventsStore {
   /** Opens the socket and keeps it open; the returned function tears it down. */
   connect: () => () => void
-  getSnapshot: () => JobEventsSnapshot
+  getSnapshot: () => JobEventsStoreSnapshot
   /**
    * The raw message sink. Public so a test can drive the store without
    * standing up a socket at all; production only ever reaches it through
    * `connect()`'s `onmessage`.
    */
   ingest: (rawData: unknown) => void
-  subscribe: (listener: () => void, interest: JobInterest) => () => void
+  subscribe: (listener: () => void, interest: JobEventsInterest) => () => void
 }
 
 /**
@@ -117,20 +163,39 @@ export function getJobEventsSocketUrl(
   return jobEventsSocketUrl('/api', location)
 }
 
+/** Adds one reference per id — see the interest bookkeeping below. */
+function retain(counts: Map<string, number>, ids?: ReadonlySet<string>): void {
+  if (!ids) return
+  for (const id of ids) counts.set(id, (counts.get(id) ?? 0) + 1)
+}
+
+/** Drops one reference per id, forgetting an id at zero. */
+function release(counts: Map<string, number>, ids?: ReadonlySet<string>): void {
+  if (!ids) return
+  for (const id of ids) {
+    const next = (counts.get(id) ?? 1) - 1
+    if (next > 0) counts.set(id, next)
+    else counts.delete(id)
+  }
+}
+
 /**
- * The live job feed for one page: one socket, one job map, many subscribers.
+ * The live feed for one page: one socket, two maps (jobs by `job.id`, media
+ * frames by `media.id`), many subscribers.
  *
  * Deliberately framework-agnostic (no React) so the wire handling, the
  * interest bookkeeping and the backoff ladder are all unit-testable without
  * mounting anything. `JobEventsProvider` is the thin React wrapper that owns
- * one of these, and `useJobEvents` is how a component reads it.
+ * one of these, and `useJobEvents`/`useMediaEvents` are how a component reads
+ * it.
  *
- * Snapshots are immutable: every change replaces both the snapshot object
- * and its `jobs` map, which is what lets a subscriber memoize on identity.
- * The store never evicts — its size is bounded by the jobs its subscribers
- * asked about, or, with an unfiltered subscriber, by what the gateway
- * broadcast while the page was open, which is the activity feed's whole
- * point.
+ * Snapshots are immutable: every change replaces the snapshot object and the
+ * one map that changed — a job frame replaces `jobs` and leaves `media`'s
+ * identity alone, and vice versa — which is what lets a subscriber memoize
+ * on identity. The store never evicts — its size is bounded by the ids its
+ * subscribers asked about, or, with an unfiltered subscriber, by what the
+ * gateway broadcast while the page was open, which is the activity feed's
+ * whole point.
  */
 export function createJobEventsStore({
   createSocket = url => new WebSocket(url),
@@ -142,19 +207,30 @@ export function createJobEventsStore({
 
   // The union of every live subscriber's interest, as a reference count per
   // id (an id two components both watch must survive one of them
-  // unmounting). `unfilteredCount` is the same bookkeeping for the "give me
-  // everything" subscribers, which no id-level count could express.
-  const interestCounts = new Map<string, number>()
+  // unmounting) — one count per kind of interest, see `JobEventsInterest`
+  // for why media ids get two. `unfilteredCount` is the same bookkeeping for
+  // the "every job" subscribers, which no id-level count could express.
+  const jobIdCounts = new Map<string, number>()
+  const jobMediaIdCounts = new Map<string, number>()
+  const mediaIdCounts = new Map<string, number>()
   let unfilteredCount = 0
 
-  let snapshot: JobEventsSnapshot = { connected: false, jobs: new Map() }
+  let snapshot: JobEventsStoreSnapshot = {
+    connected: false,
+    jobs: new Map(),
+    media: new Map(),
+  }
 
   function emit(): void {
     for (const listener of listeners) listener()
   }
 
-  function isInteresting(jobId: string): boolean {
-    return unfilteredCount > 0 || interestCounts.has(jobId)
+  function isJobInteresting(job: DownloadJob): boolean {
+    return (
+      unfilteredCount > 0 ||
+      jobIdCounts.has(job.id) ||
+      jobMediaIdCounts.has(job.media.id)
+    )
   }
 
   function setConnected(connected: boolean): void {
@@ -164,40 +240,45 @@ export function createJobEventsStore({
   }
 
   function ingest(rawData: unknown): void {
-    const event = parseJobEventFrame(rawData)
-    if (!event) return
-    if (!isInteresting(event.job.id)) return
+    const jobEvent = parseJobEventFrame(rawData)
+    if (jobEvent) {
+      if (!isJobInteresting(jobEvent.job)) return
 
-    const jobs = new Map(snapshot.jobs)
-    jobs.set(event.job.id, event.job)
-    snapshot = { ...snapshot, jobs }
+      const jobs = new Map(snapshot.jobs)
+      jobs.set(jobEvent.job.id, jobEvent.job)
+      snapshot = { ...snapshot, jobs }
+      emit()
+      return
+    }
+
+    const mediaEvent = parseMediaEventFrame(rawData)
+    if (!mediaEvent) return
+    if (!mediaIdCounts.has(mediaEvent.media.id)) return
+
+    const media = new Map(snapshot.media)
+    media.set(mediaEvent.media.id, mediaEvent)
+    snapshot = { ...snapshot, media }
     emit()
   }
 
-  function subscribe(listener: () => void, interest: JobInterest): () => void {
+  function subscribe(
+    listener: () => void,
+    interest: JobEventsInterest,
+  ): () => void {
     listeners.add(listener)
 
-    if (interest === null) {
-      unfilteredCount += 1
-    } else {
-      for (const id of interest) {
-        interestCounts.set(id, (interestCounts.get(id) ?? 0) + 1)
-      }
-    }
+    if (interest.allJobs) unfilteredCount += 1
+    retain(jobIdCounts, interest.jobIds)
+    retain(jobMediaIdCounts, interest.jobMediaIds)
+    retain(mediaIdCounts, interest.mediaIds)
 
     return () => {
       listeners.delete(listener)
 
-      if (interest === null) {
-        unfilteredCount -= 1
-        return
-      }
-
-      for (const id of interest) {
-        const next = (interestCounts.get(id) ?? 1) - 1
-        if (next > 0) interestCounts.set(id, next)
-        else interestCounts.delete(id)
-      }
+      if (interest.allJobs) unfilteredCount -= 1
+      release(jobIdCounts, interest.jobIds)
+      release(jobMediaIdCounts, interest.jobMediaIds)
+      release(mediaIdCounts, interest.mediaIds)
     }
   }
 
@@ -281,16 +362,27 @@ export const JobEventsContext = createContext<JobEventsStore | undefined>(
   undefined,
 )
 
-function useJobEventsStore(): JobEventsStore {
+function useJobEventsStore(hookName: string): JobEventsStore {
   const store = useContext(JobEventsContext)
 
   if (!store) {
-    throw new Error(
-      'useJobEvents() must be called inside a <JobEventsProvider>',
-    )
+    throw new Error(`${hookName}() must be called inside a <JobEventsProvider>`)
   }
 
   return store
+}
+
+/**
+ * Keys an id list on its *contents*. A call site writing
+ * `useJobEvents({ jobIds: [a, b] })` allocates a fresh array on every render;
+ * keying the interest on the sorted ids (so reordering is not a change
+ * either) is what stops that from re-running the subscription effect on
+ * every render — and, because the socket lives in the provider rather than
+ * in these hooks, no amount of interest churn can tear the connection down
+ * regardless.
+ */
+function idsKey(ids: readonly string[] | undefined): string[] {
+  return ids === undefined ? [] : [...ids].sort()
 }
 
 /**
@@ -308,32 +400,30 @@ function useJobEventsStore(): JobEventsStore {
  * // Activity feed — unfiltered: every job the gateway broadcasts.
  * const { connected, jobs } = useJobEvents()
  *
- * // Detail page — only this media's jobs; everything else is dropped on
- * // arrival. The inline array is safe: the interest is keyed on the ids it
- * // contains, not on the array's identity.
- * const { connected, jobs } = useJobEvents({ jobIds: media.jobs.map(j => j.id) })
+ * // Detail page — this media's jobs, known or not; everything else is
+ * // dropped on arrival. The inline arrays are safe: the interest is keyed on
+ * // the ids they contain, not on the arrays' identity.
+ * const { connected, jobs } = useJobEvents({
+ *   jobIds: media.jobs.map(j => j.id),
+ *   mediaIds: [media.id],
+ * })
  * ```
  */
 export function useJobEvents(filter?: JobEventsFilter): JobEventsSnapshot {
-  const store = useJobEventsStore()
-  const jobIds = filter?.jobIds
+  const store = useJobEventsStore('useJobEvents')
+  const unfiltered =
+    filter?.jobIds === undefined && filter?.mediaIds === undefined
 
-  // A call site writing `useJobEvents({ jobIds: [a, b] })` allocates a fresh
-  // array on every render. Keying the interest on the *contents* (sorted, so
-  // reordering is not a change either) is what stops that from re-running
-  // the subscription effect on every render — and, because the socket lives
-  // in the provider rather than in this hook, no amount of interest churn
-  // can tear the connection down regardless.
-  const interestKey =
-    jobIds === undefined ? null : JSON.stringify([...jobIds].sort())
+  const interestKey = unfiltered
+    ? null
+    : JSON.stringify([idsKey(filter?.jobIds), idsKey(filter?.mediaIds)])
 
-  const interest = useMemo<JobInterest>(
-    () =>
-      interestKey === null
-        ? null
-        : new Set(JSON.parse(interestKey) as string[]),
-    [interestKey],
-  )
+  const interest = useMemo<JobEventsInterest>(() => {
+    if (interestKey === null) return { allJobs: true }
+
+    const [jobIds, mediaIds] = JSON.parse(interestKey) as [string[], string[]]
+    return { jobIds: new Set(jobIds), jobMediaIds: new Set(mediaIds) }
+  }, [interestKey])
 
   const subscribe = useCallback(
     (listener: () => void) => store.subscribe(listener, interest),
@@ -351,16 +441,105 @@ export function useJobEvents(filter?: JobEventsFilter): JobEventsSnapshot {
     store.getSnapshot,
   )
 
+  // Keyed on `snapshot.jobs`, not the whole snapshot: a media frame replaces
+  // the snapshot but not its `jobs`, and must not hand callers a new map.
+  const allJobs = snapshot.jobs
   const jobs = useMemo<ReadonlyMap<string, DownloadJob>>(() => {
-    if (interest === null) return snapshot.jobs
+    if (interest.allJobs) return allJobs
 
     const filtered = new Map<string, DownloadJob>()
-    for (const id of interest) {
-      const job = snapshot.jobs.get(id)
-      if (job) filtered.set(id, job)
+    for (const [id, job] of allJobs) {
+      if (interest.jobIds?.has(id) || interest.jobMediaIds?.has(job.media.id)) {
+        filtered.set(id, job)
+      }
     }
     return filtered
-  }, [interest, snapshot])
+  }, [allJobs, interest])
 
   return { connected: snapshot.connected, jobs }
+}
+
+/**
+ * A `getSnapshot` for `useSyncExternalStore` that projects the store down to
+ * `mediaIds` and returns the **previous object** whenever that projection is
+ * unchanged — a job frame, or a media frame for some other subscriber's id,
+ * leaves the result identical, so React skips the re-render outright.
+ * Identity is compared per entry: the store replaces a `MediaEvent` only
+ * when a frame for it lands.
+ */
+function createMediaSelector(
+  store: JobEventsStore,
+  mediaIds: ReadonlySet<string>,
+): () => MediaEventsSnapshot {
+  let source: JobEventsStoreSnapshot | undefined
+  let selected: MediaEventsSnapshot | undefined
+
+  return () => {
+    const next = store.getSnapshot()
+    if (selected && next === source) return selected
+    source = next
+
+    const media = new Map<string, MediaEvent>()
+    for (const id of mediaIds) {
+      const event = next.media.get(id)
+      if (event) media.set(id, event)
+    }
+
+    const previous = selected?.media
+    const mediaUnchanged =
+      previous !== undefined &&
+      previous.size === media.size &&
+      [...media].every(([id, event]) => previous.get(id) === event)
+
+    if (selected && mediaUnchanged && selected.connected === next.connected) {
+      return selected
+    }
+
+    selected = {
+      connected: next.connected,
+      media: mediaUnchanged && previous ? previous : media,
+    }
+    return selected
+  }
+}
+
+/**
+ * Subscribes to live media frames — each media's derived state, pushed by
+ * the poller and alongside every video job event — for the given media ids.
+ * The same socket and provider as {@link useJobEvents}, and the same
+ * requirement to sit under a `<JobEventsProvider>`.
+ *
+ * `media` holds the latest `MediaEvent` per requested id that has arrived
+ * since mount; an id with no frame yet is simply absent, and the caller
+ * falls back to its server-rendered media. Frames for any other id are never
+ * stored, and the returned object keeps its identity until one of *these*
+ * ids gets a frame (or `connected` flips).
+ *
+ * ```tsx
+ * const { connected, media } = useMediaEvents({ mediaIds: [movie.id] })
+ * const live = media.get(movie.id)?.media ?? movie
+ * ```
+ */
+export function useMediaEvents(filter: MediaEventsFilter): MediaEventsSnapshot {
+  const store = useJobEventsStore('useMediaEvents')
+  const interestKey = JSON.stringify(idsKey(filter.mediaIds))
+
+  const mediaIds = useMemo<ReadonlySet<string>>(
+    () => new Set(JSON.parse(interestKey) as string[]),
+    [interestKey],
+  )
+
+  const subscribe = useCallback(
+    (listener: () => void) => store.subscribe(listener, { mediaIds }),
+    [mediaIds, store],
+  )
+
+  // Memoized per id set so the selector's cache survives re-renders; were
+  // React to drop it, the cost is one extra render, never a loop.
+  const getSnapshot = useMemo(
+    () => createMediaSelector(store, mediaIds),
+    [mediaIds, store],
+  )
+
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 }
