@@ -7,13 +7,18 @@ import type {
   Show,
 } from '@lilnas/utils/download/types'
 import {
+  DownloadType,
   isMediaInFlight,
   mediaState,
   rollupMediaState,
 } from '@lilnas/utils/download/types'
 
+import {
+  mediaStateIsLive,
+  mediaStateLabel,
+} from 'src/components/detail/media-state'
 import type { StatusTone } from 'src/lib/format'
-import { formatRuntime } from 'src/lib/format'
+import { formatRuntime, mediaStateTone } from 'src/lib/format'
 
 /**
  * Everything the show detail screen *decides*, in a module with no directive
@@ -371,26 +376,6 @@ export type EpisodeState = {
 }
 
 /**
- * Every {@link MediaState} to its episode chip - the movie/show column of the
- * plan 021 vocabulary, in `show-detail.mjs`'s own words.
- *
- * A `Record` rather than a `switch`, so a new state fails type-check here
- * instead of quietly rendering as something else. `live` is only ever set on
- * a `uv` tone: `needs_attention` and `paused` are in flight but *stopped*, and
- * a breathing dot would claim the machine is working on something that will
- * sit there until somebody acts.
- */
-const EPISODE_STATES: Record<MediaState, EpisodeState> = {
-  absent: { label: 'not downloaded', live: false, tone: 'mute' },
-  available: { label: 'in library', live: false, tone: 'ok' },
-  downloading: { label: 'downloading', live: true, tone: 'uv' },
-  importing: { label: 'importing…', live: true, tone: 'uv' },
-  needs_attention: { label: 'needs your decision', live: false, tone: 'warn' },
-  paused: { label: 'paused', live: false, tone: 'warn' },
-  wanted: { label: 'wanted', live: false, tone: 'mute' },
-}
-
-/**
  * What one episode row says about itself - its own `state`, nothing else.
  *
  * No job is consulted: a job is one attempt, and the newest one failing says
@@ -398,9 +383,35 @@ const EPISODE_STATES: Record<MediaState, EpisodeState> = {
  * series-scoped download shows up here as this episode's own state once Sonarr
  * queues it, which is also the only honest answer to "which episode is
  * transferring right now".
+ *
+ * The words, tone and live dot are the same `mediaStateLabel` /
+ * `mediaStateTone` / `mediaStateIsLive` the series chip reads, so the page has
+ * one vocabulary at every level rather than a second table that can drift.
  */
 export function episodeState(episode: Episode): EpisodeState {
-  return EPISODE_STATES[episodeMediaState(episode)]
+  const state = episodeMediaState(episode)
+
+  return {
+    label: mediaStateLabel(state, DownloadType.Show),
+    live: mediaStateIsLive(state),
+    tone: mediaStateTone(state),
+  }
+}
+
+/** See {@link isDownloadableState}. */
+const DOWNLOADABLE_STATES: ReadonlySet<MediaState> = new Set<MediaState>([
+  'absent',
+  'wanted',
+])
+
+/**
+ * Whether a scope can be asked for right now: nothing on disk and nothing in
+ * Sonarr's queue (`absent` or `wanted`). Everything else either has its files
+ * or already has a download under way. Drives an episode row's Download and
+ * whether an Attempts list offers Retry - read off the media, never the job.
+ */
+export function isDownloadableState(state: MediaState): boolean {
+  return DOWNLOADABLE_STATES.has(state)
 }
 
 /**

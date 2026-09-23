@@ -3,6 +3,7 @@ import '@testing-library/jest-dom'
 import type {
   DownloadJob,
   Episode,
+  MediaState,
   Release,
 } from '@lilnas/utils/download/types'
 import { DownloadJobStatus } from '@lilnas/utils/download/types'
@@ -87,6 +88,7 @@ function renderRow(
     episode?: Episode
     imports?: ImportDialogActions
     jobs?: DownloadJob[]
+    onCancel?: jest.Mock
     open?: boolean
     releases?: Release[]
   } = {},
@@ -105,6 +107,7 @@ function renderRow(
       jobs={options.jobs ?? []}
       media={show()}
       open={options.open ?? false}
+      onCancel={options.onCancel}
       onDelete={jest.fn()}
       onFlag={jest.fn()}
       onGrab={jest.fn()}
@@ -145,6 +148,68 @@ describe('the row itself', () => {
 
     expect(screen.getByText('in library')).toBeInTheDocument()
   })
+
+  it.each<[MediaState, string]>([
+    ['needs_attention', 'needs your decision'],
+    ['downloading', 'downloading'],
+    ['importing', 'importing…'],
+    ['wanted', 'wanted'],
+    ['absent', 'not downloaded'],
+  ])(
+    'reads its own %s state as "%s", with no job behind it',
+    (state, label) => {
+      renderRow({ episode: episode({ state }) })
+
+      expect(screen.getByText(label)).toBeInTheDocument()
+    },
+  )
+})
+
+describe('the progress bar', () => {
+  it('⚠️ draws the episode’s own queue progress with no job behind it', () => {
+    // Grabbed from Sonarr's own UI: the server derived the state and the
+    // snapshot from the full queue, and no attempt of ours exists.
+    renderRow({
+      episode: episode({
+        episodeNumber: 3,
+        queueSnapshot: { progress: 31, status: 'downloading' },
+        state: 'downloading',
+      }),
+    })
+
+    expect(
+      screen.getByRole('progressbar', { name: 'S01E03 download progress' }),
+    ).toHaveAttribute('aria-valuenow', '31')
+    expect(screen.getByText('31%')).toBeInTheDocument()
+  })
+
+  it('draws nothing from an in-flight job while the episode has no snapshot', () => {
+    renderRow({
+      jobs: [
+        scopedJob(
+          { episodeId: 2430 },
+          {
+            media: show({ queueSnapshot: { progress: 80 } }),
+            status: DownloadJobStatus.Downloading,
+          },
+        ),
+      ],
+    })
+
+    // The job's snapshot is the series' queue, not this episode's.
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+  })
+
+  it('draws nothing for a snapshot with no finite percentage', () => {
+    renderRow({
+      episode: episode({
+        queueSnapshot: { status: 'queued' },
+        state: 'downloading',
+      }),
+    })
+
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+  })
 })
 
 describe('the scoped download control', () => {
@@ -175,6 +240,41 @@ describe('the scoped download control', () => {
     expect(classes).not.toContain('w-full')
   })
 
+  it.each<MediaState>(['wanted', 'absent'])(
+    'is offered for a %s episode',
+    state => {
+      renderRow({ episode: episode({ state }) })
+
+      expect(
+        screen.getByRole('button', { name: 'Download' }),
+      ).toBeInTheDocument()
+    },
+  )
+
+  it.each<MediaState>([
+    'available',
+    'downloading',
+    'importing',
+    'needs_attention',
+    'paused',
+  ])('is withdrawn for a %s episode, job or no job', state => {
+    renderRow({ episode: episode({ state }) })
+
+    expect(
+      screen.queryByRole('button', { name: 'Download' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('comes back once this episode’s attempt has failed', () => {
+    renderRow({
+      jobs: [
+        scopedJob({ episodeId: 2430 }, { status: DownloadJobStatus.Failed }),
+      ],
+    })
+
+    expect(screen.getByRole('button', { name: 'Download' })).toBeInTheDocument()
+  })
+
   it('is withdrawn once there is a file', () => {
     renderRow({ episode: episode({ hasFile: true }) })
 
@@ -196,6 +296,68 @@ describe('the scoped download control', () => {
     // The chip reads the episode's own state, not the job's: a search has not
     // queued anything yet, so Sonarr still has it as wanted.
     expect(screen.getByText('wanted')).toBeInTheDocument()
+  })
+})
+
+describe('the Cancel control', () => {
+  const inFlight = (status = DownloadJobStatus.Downloading) =>
+    scopedJob({ episodeId: 2430, seasonNumber: 1 }, { id: 'job_e1', status })
+
+  it('cancels this episode’s own in-flight attempt by its job id', async () => {
+    const onCancel = jest.fn()
+    const { user } = renderRow({
+      episode: episode({ state: 'downloading' }),
+      jobs: [inFlight()],
+      onCancel,
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(onCancel).toHaveBeenCalledWith('job_e1')
+  })
+
+  it('stays, inert, once the backend has taken the press', () => {
+    renderRow({
+      jobs: [inFlight(DownloadJobStatus.Cancelling)],
+      onCancel: jest.fn(),
+    })
+
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    )
+  })
+
+  it('is not offered when the page wired no cancel', () => {
+    renderRow({ jobs: [inFlight()] })
+
+    expect(
+      screen.queryByRole('button', { name: 'Cancel' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('⚠️ is not offered for a download with no attempt of ours behind it', () => {
+    renderRow({
+      episode: episode({ state: 'downloading' }),
+      onCancel: jest.fn(),
+    })
+
+    expect(
+      screen.queryByRole('button', { name: 'Cancel' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('is not offered for a finished attempt', () => {
+    renderRow({
+      jobs: [
+        scopedJob({ episodeId: 2430 }, { status: DownloadJobStatus.Failed }),
+      ],
+      onCancel: jest.fn(),
+    })
+
+    expect(
+      screen.queryByRole('button', { name: 'Cancel' }),
+    ).not.toBeInTheDocument()
   })
 })
 
@@ -421,10 +583,10 @@ describe('the release currently on disk', () => {
 })
 
 /**
- * The last of the four surfaces a stuck import can be resolved from - the other
- * three are the movie panel, the series panel and the season panel, all three
- * through `JobLifecycle`. This one is a row whose *own* episode-scoped job is
- * the one waiting on a decision.
+ * The last of the surfaces a stuck import can be resolved from - the others
+ * are the movie, series and season Attempts lists. This one is keyed on the
+ * episode's own `needs_attention` state: the importer is addressed by media
+ * key and scope, so it needs no attempt of ours behind it.
  */
 describe('the import control', () => {
   const needsAttention = () =>
@@ -436,7 +598,7 @@ describe('the import control', () => {
   // same stuck queue item the job is parked on.
   const stuckEpisode = () => episode({ state: 'needs_attention' })
 
-  it('offers it when this episode’s own job is waiting on a decision', () => {
+  it('offers it when this episode is waiting on a decision', () => {
     renderRow({
       episode: stuckEpisode(),
       imports: importActions(),
@@ -449,10 +611,23 @@ describe('the import control', () => {
     expect(screen.getByText('needs your decision')).toBeInTheDocument()
   })
 
+  it('⚠️ offers it for a stuck grab this app never started', () => {
+    renderRow({ episode: stuckEpisode(), imports: importActions() })
+
+    expect(
+      screen.getByRole('button', { name: IMPORT_TRIGGER_LABEL }),
+    ).toBeInTheDocument()
+  })
+
   it('⚠️ asks about this episode, not the whole series', async () => {
     const imports = importActions()
     const { user } = renderRow({
-      episode: episode({ episodeNumber: 5, id: 4823, seasonNumber: 2 }),
+      episode: episode({
+        episodeNumber: 5,
+        id: 4823,
+        seasonNumber: 2,
+        state: 'needs_attention',
+      }),
       imports,
       jobs: [
         scopedJob(
@@ -476,7 +651,12 @@ describe('the import control', () => {
 
   it('names the dialog after the episode rather than the series alone', async () => {
     const { user } = renderRow({
-      episode: episode({ episodeNumber: 5, id: 4823, seasonNumber: 2 }),
+      episode: episode({
+        episodeNumber: 5,
+        id: 4823,
+        seasonNumber: 2,
+        state: 'needs_attention',
+      }),
       imports: importActions(),
       jobs: [
         scopedJob(
@@ -493,15 +673,23 @@ describe('the import control', () => {
     ).toBeInTheDocument()
   })
 
-  it('offers it on no other status', () => {
-    for (const status of Object.values(DownloadJobStatus)) {
-      if (status === DownloadJobStatus.NeedsAttention) {
-        continue
-      }
+  it('⚠️ offers it on no other episode state, whatever the job says', () => {
+    const states: MediaState[] = [
+      'absent',
+      'available',
+      'downloading',
+      'importing',
+      'paused',
+      'wanted',
+    ]
 
+    for (const state of states) {
+      // Even a job parked on `needs_attention`: the episode's state is the
+      // truth, and a stale job over a file on disk has nothing to import.
       const { unmount } = renderRow({
+        episode: episode({ state }),
         imports: importActions(),
-        jobs: [scopedJob({ episodeId: 2430, seasonNumber: 1 }, { status })],
+        jobs: [needsAttention()],
       })
 
       expect(

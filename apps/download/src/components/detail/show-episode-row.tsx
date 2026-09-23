@@ -7,7 +7,9 @@ import type {
   Episode,
   Show,
 } from '@lilnas/utils/download/types'
+import { isTerminalDownloadJobStatus } from '@lilnas/utils/download/types'
 import type { JSX } from 'react'
+import { useTransition } from 'react'
 
 import type {
   FlagBadFileAction,
@@ -21,11 +23,9 @@ import type { DeleteMediaFilesAction } from 'src/components/detail/delete-confir
 import { DeleteConfirm } from 'src/components/detail/delete-confirm'
 import type { ImportDialogActions } from 'src/components/detail/import-dialog'
 import { ImportDialog } from 'src/components/detail/import-dialog'
-import {
-  jobActionState,
-  jobProgress,
-  latestJob,
-} from 'src/components/detail/job-state'
+import type { JobAction } from 'src/components/detail/job-actions'
+import { ACTION_SPECS } from 'src/components/detail/job-actions'
+import { jobActionState } from 'src/components/detail/job-state'
 import type {
   ReleaseAction,
   ReleaseSearchAction,
@@ -37,14 +37,16 @@ import { ShowRequestButton } from 'src/components/detail/show-request-button'
 import type { DeleteCascade } from 'src/components/detail/show-state'
 import {
   episodeCode,
+  episodeMediaState,
   episodeScopedJobs,
   episodeState,
+  isDownloadableState,
 } from 'src/components/detail/show-state'
 import { Button } from 'src/components/ui/button'
 import { Chip } from 'src/components/ui/chip'
 import { StateLineActions } from 'src/components/ui/state-line'
 import { Bar, Dot } from 'src/components/ui/status'
-import { formatRuntime, isInProgress, UNKNOWN_VALUE } from 'src/lib/format'
+import { formatRuntime, UNKNOWN_VALUE } from 'src/lib/format'
 
 /** The disclosure's two labels, and the eyebrow over what it reveals. */
 export const EPISODE_ACTIONS_LABEL = 'Manage'
@@ -67,6 +69,21 @@ const EPISODE_ROW = cns(
 )
 
 const EPISODE_NUMBER = 'w-[26px] shrink-0 font-mono text-mono-sm text-ink-4'
+
+/** `ACTION_SPECS`' own Cancel, so the row's button reads like every other. */
+const CANCEL_SPEC = ACTION_SPECS.find(spec => spec.key === 'cancel')
+
+/**
+ * How far this episode's own queue item has got, or `null` for no bar. Read
+ * off the episode's `queueSnapshot` - which the server derives from Sonarr's
+ * **full** queue - so a grab this app never started still draws one. A
+ * missing or non-finite percentage draws nothing: a `0%` bar is a claim.
+ */
+function episodeQueuePct(episode: Episode): number | null {
+  const pct = episode.queueSnapshot?.progress
+
+  return pct !== undefined && Number.isFinite(pct) ? pct : null
+}
 const EPISODE_RUNTIME = 'font-mono text-mono-sm text-ink-4'
 
 /**
@@ -102,18 +119,25 @@ export type ShowEpisodeRowProps = {
   episode: Episode
   /**
    * The three importer server actions. Omitted renders no Import control, the
-   * same way a missing `onCancel` does in `JobLifecycle` — a page that never
-   * wired the importer offers no way to resolve a stuck import from this row.
+   * same way a missing `onCancel` renders no Cancel — a page that never wired
+   * the importer offers no way to resolve a stuck import from this row.
    */
   imports?: ImportDialogActions
   /**
    * Every job for this title. Filtered to this episode here rather than by the
-   * caller, so the `scope.episodeId` match has exactly one spelling.
+   * caller, so the `scope.episodeId` match has exactly one spelling. Only an
+   * in-flight one matters to the row — it withdraws Download and carries
+   * Cancel; the attempts themselves are listed by the season and the series.
    */
   jobs: readonly DownloadJob[]
   media: Show
   /** Whether the actions drawer is open. Owned by the season panel. */
   open: boolean
+  /**
+   * Cancels this episode's in-flight attempt. Omitted renders no Cancel — the
+   * page wires none for a show today (see {@link ShowEpisodeRow}).
+   */
+  onCancel?: JobAction
   onDelete?: DeleteMediaFilesAction
   onFlag?: FlagBadFileAction
   onGrab?: ReleaseAction
@@ -149,16 +173,27 @@ export type ShowEpisodeRowProps = {
  * searches without a press; the drawer means the press is two deliberate steps
  * away rather than one stray click.
  *
- * ## Two controls the mockup draws that are not here
+ * ## State from the episode, controls from the attempt
  *
- * - **Watch, per episode.** Emby's handoff is at the *series* level - its
- *   `Path` is the series folder and `embyStatus.watchUrl` addresses the series
- *   item. There is no per-episode Emby URL on the wire, so the Watch action
- *   lives once, in the header.
- * - **Cancel, per episode.** `cancelJob`/`pauseJob`/`resumeJob` are all
- *   `/download/videos/:id` routes - **video only**. A show download has no
- *   cancel endpoint at any scope, so offering the button would be offering a
- *   404.
+ * The chip and the bar read the episode's own `state` and `queueSnapshot`, so
+ * an episode Sonarr grabbed on its own reads `downloading` with a bar and no
+ * job anywhere. Each control is gated on what it acts on:
+ *
+ * - **Download** - the episode is `absent`/`wanted` and no attempt at it is in
+ *   flight (a search that has not queued anything yet still reads `wanted`).
+ * - **Import** - the episode is `needs_attention`. The importer is addressed
+ *   by media key and scope, never by job, so it needs no attempt behind it.
+ * - **Cancel** - this episode's own in-flight attempt, and only when the page
+ *   wired `onCancel`. It does not today: `cancelJob`/`pauseJob`/`resumeJob`
+ *   are `/download/videos/:id` routes, and nothing reaches a show's
+ *   `DELETE /download/shows/:id` from the UI yet.
+ *
+ * ## One control the mockup draws that is not here
+ *
+ * **Watch, per episode.** Emby's handoff is at the *series* level - its
+ * `Path` is the series folder and `embyStatus.watchUrl` addresses the series
+ * item. There is no per-episode Emby URL on the wire, so the Watch action
+ * lives once, in the header.
  */
 export function ShowEpisodeRow({
   badFiles,
@@ -167,6 +202,7 @@ export function ShowEpisodeRow({
   imports,
   jobs,
   media,
+  onCancel,
   onDelete,
   onFlag,
   onGrab,
@@ -177,16 +213,25 @@ export function ShowEpisodeRow({
   onUnflag,
   open,
 }: ShowEpisodeRowProps): JSX.Element {
-  const scoped = episodeScopedJobs(jobs, episode)
+  const [cancelling, startCancel] = useTransition()
+
+  const mediaState = episodeMediaState(episode)
   const state = episodeState(episode)
-  const latest = latestJob(scoped)
+  // The newest attempt at this episode that is still open work, if any.
+  const attempt =
+    episodeScopedJobs(jobs, episode).find(
+      job => !isTerminalDownloadJobStatus(job.status),
+    ) ?? null
+  const cancel = attempt ? jobActionState(attempt.status, 'cancel') : 'none'
+  const pct = episodeQueuePct(episode)
   const runtime = formatRuntime(episode.runtime, 'hours')
-  // ⚠️ Only while the job is open work. `jobProgress` reads the *series'*
-  // `queueSnapshot`, so a finished episode job would otherwise keep drawing
-  // whatever Sonarr's queue happens to hold for some other episode.
-  const progress =
-    latest && isInProgress(latest.status) ? jobProgress(latest) : null
   const code = episodeCode(episode.seasonNumber, episode.episodeNumber)
+
+  function runCancel(action: JobAction, jobId: string): void {
+    startCancel(async () => {
+      await action(jobId)
+    })
+  }
 
   return (
     <div className={cns(EPISODE_BLOCK)} data-episode-id={episode.id}>
@@ -208,7 +253,7 @@ export function ShowEpisodeRow({
             {state.label}
           </Chip>
         </span>
-        {progress ? (
+        {pct === null ? null : (
           <span
             className={cns(
               'flex w-full items-center gap-2 sm:w-[120px] sm:shrink-0',
@@ -217,20 +262,18 @@ export function ShowEpisodeRow({
             <Bar
               aria-label={`${code} download progress`}
               className={cns('flex-1')}
-              pct={progress.pct}
+              pct={pct}
             />
             <span
               aria-hidden="true"
               className={cns('font-mono text-mono-sm tabular-nums text-uv-hi')}
             >
-              {`${Math.round(progress.pct)}%`}
+              {`${Math.round(pct)}%`}
             </span>
           </span>
-        ) : null}
+        )}
         <span className={cns('flex w-full gap-2 sm:w-auto sm:shrink-0')}>
-          {latest &&
-          jobActionState(latest.status, 'import') === 'offered' &&
-          imports ? (
+          {mediaState === 'needs_attention' && imports ? (
             <ImportDialog
               actions={imports}
               className={cns(ROW_ACTION)}
@@ -250,7 +293,23 @@ export function ShowEpisodeRow({
               title={`${media.title} ${code}`}
             />
           ) : null}
-          {episode.hasFile || latest ? null : (
+          {attempt && onCancel && CANCEL_SPEC && cancel !== 'none' ? (
+            <Button
+              // `acknowledged` is a press the backend already took
+              // (`cancelling`): the control stays, inert, rather than vanishing.
+              aria-disabled={
+                cancel === 'acknowledged' || cancelling || undefined
+              }
+              className={cns('flex-1 sm:flex-none')}
+              iconEnd={CANCEL_SPEC.iconEnd}
+              size="sm"
+              variant={CANCEL_SPEC.variant}
+              onClick={() => runCancel(onCancel, attempt.id)}
+            >
+              {CANCEL_SPEC.label}
+            </Button>
+          ) : null}
+          {isDownloadableState(mediaState) && !attempt ? (
             <ShowRequestButton
               className={cns(ROW_ACTION)}
               mediaId={media.id}
@@ -258,7 +317,7 @@ export function ShowEpisodeRow({
               target={{ episodeId: episode.id, kind: 'episode' }}
               onRequest={onRequest}
             />
-          )}
+          ) : null}
           <Button
             aria-expanded={open}
             className={cns('flex-1 sm:flex-none')}

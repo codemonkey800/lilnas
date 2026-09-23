@@ -20,6 +20,7 @@ import {
   episodeProgressLabel,
   episodeScopedJobs,
   episodeState,
+  isDownloadableState,
   isMetadataMissing,
   seasonByTabValue,
   seasonEpisodeTotal,
@@ -654,5 +655,21 @@ describe('isMetadataMissing', () => {
 
   it('leaves a real title alone', () => {
     expect(isMetadataMissing(show())).toBe(false)
+  })
+})
+
+describe('isDownloadableState', () => {
+  it.each<[MediaState, boolean]>([
+    ['absent', true],
+    ['wanted', true],
+    ['available', false],
+    ['downloading', false],
+    ['importing', false],
+    ['needs_attention', false],
+    ['paused', false],
+  ])('reads %s as downloadable: %s', (state, downloadable) => {
+    // Nothing on disk and nothing queued - every other state either has its
+    // files or already has a download under way.
+    expect(isDownloadableState(state)).toBe(downloadable)
   })
 })

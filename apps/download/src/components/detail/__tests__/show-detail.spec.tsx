@@ -20,8 +20,8 @@ import { LIBRARY_HREF } from 'src/components/detail/library-link'
 import {
   EMBY_INDEXING_LABEL,
   METADATA_MISSING_NOTE,
-  SERIES_EMPTY_NOTE,
-  SERIES_IN_LIBRARY_NOTE,
+  SHOW_EXTERNAL_QUEUE_NOTE,
+  SHOW_STALE_LABEL,
   ShowDetail,
   WATCH_LABEL,
 } from 'src/components/detail/show-detail'
@@ -204,7 +204,7 @@ describe('the series-scoped controls', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('⚠️ offers no pause, resume, cancel or retry - those routes are video-only', () => {
+  it('⚠️ offers no pause, resume, cancel or retry the page did not wire', () => {
     renderDetail({
       jobs: [scopedJob(undefined, { status: DownloadJobStatus.Downloading })],
     })
@@ -217,34 +217,242 @@ describe('the series-scoped controls', () => {
   })
 })
 
-describe('the series lifecycle panel', () => {
-  it('⚠️ aggregates across episodes rather than reporting the queue entry', () => {
-    renderDetail({
-      jobs: [scopedJob(undefined, { status: DownloadJobStatus.Downloading })],
-      // The bar follows the series' rolled-up state, so one of its episodes
-      // has to be in flight for it to draw.
-      seasons: [
-        specials(),
-        S1,
-        season({
-          ...S2,
-          episodes: [
-            ...S2.episodes,
-            episode({ id: 2441, seasonNumber: 2, state: 'downloading' }),
-          ],
+/** The series' own status block in the header — not a season's. */
+function seriesStatus(container: HTMLElement): HTMLElement {
+  const status = container.querySelector('[data-scope="series"]')
+
+  if (!(status instanceof HTMLElement)) {
+    throw new Error('expected the series status')
+  }
+
+  return status
+}
+
+/** The series-wide Attempts section. */
+function seriesAttempts(): HTMLElement {
+  return screen.getByRole('region', { name: 'Attempts' })
+}
+
+/** Season 2 with one more episode, in whatever state the test needs. */
+function s2With(extra: Parameters<typeof episode>[0]): Season {
+  return season({
+    ...S2,
+    episodes: [
+      ...S2.episodes,
+      episode({ episodeNumber: 2, id: 2441, seasonNumber: 2, ...extra }),
+    ],
+  })
+}
+
+describe('the series status reads the media, never a job', () => {
+  it('reads "in library" with the episode count beside it for a settled series', () => {
+    const { container } = renderDetail()
+    const status = seriesStatus(container)
+
+    // `show-detail.pug`'s `episodeInfo`: 14 of 24 across two seasons, specials
+    // excluded — the prose that used to be a second chip.
+    expect(within(status).getByText('in library')).toBeInTheDocument()
+    expect(within(status).getByText('14 of 24 episodes')).toBeInTheDocument()
+    expect(status).toHaveAttribute('data-state', 'available')
+  })
+
+  it('renders no Attempts section for a series nobody downloaded through this app', () => {
+    renderDetail()
+
+    // The mockup's empty state: the chip above is the only signal.
+    expect(
+      screen.queryByRole('heading', { name: 'Attempts' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('⚠️ reads "in library" over a failed newest attempt — the Cars bug', () => {
+    const { container } = renderDetail({
+      jobs: [
+        scopedJob(undefined, {
+          error: 'Indexer timed out after 3 retries',
+          status: DownloadJobStatus.Failed,
         }),
       ],
     })
 
-    // 14 of 24 across two seasons - the figure the mockup's own legend prints,
-    // and the only one that is true of the whole series.
-    expect(screen.getByText('14 of 24 episodes')).toBeInTheDocument()
+    // The failure is an attempt, listed under the chip — not the chip.
     expect(
-      screen.getByRole('progressbar', { name: 'Download progress' }),
+      within(seriesStatus(container)).getByText('in library'),
+    ).toBeInTheDocument()
+    expect(within(seriesAttempts()).getByText('failed')).toBeInTheDocument()
+    expect(
+      within(seriesAttempts()).getByText('Indexer timed out after 3 retries'),
+    ).toBeInTheDocument()
+  })
+
+  it('reads "needs your decision" when one episode needs one, with the server’s reason', () => {
+    const reason = 'No files found are eligible for import'
+    const { container } = renderDetail({
+      media: show({ state: 'needs_attention', stateReason: reason }),
+      seasons: [specials(), S1, s2With({ state: 'needs_attention' })],
+    })
+    const status = seriesStatus(container)
+
+    // One episode waiting on a human outranks thirteen on disk.
+    expect(within(status).getByText('needs your decision')).toBeInTheDocument()
+    expect(within(status).getByText(reason)).toBeInTheDocument()
+  })
+
+  it('says "not downloaded" and nothing more when the library has nothing', () => {
+    const { container } = renderDetail({ seasons: [] })
+    const status = seriesStatus(container)
+
+    expect(within(status).getByText('not downloaded')).toBeInTheDocument()
+    // `0 of 0 episodes` would be worse than nothing.
+    expect(within(status).queryByText(/episodes?$/)).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: 'Attempts' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('withholds the count when the only files are specials', () => {
+    // `seriesProgress` excludes specials, so the figure would read `0 of 0`.
+    const { container } = renderDetail({
+      seasons: [specials({ episodeFileCount: 2 })],
+    })
+
+    expect(
+      within(seriesStatus(container)).queryByText(/episodes?$/),
+    ).not.toBeInTheDocument()
+  })
+})
+
+describe('⚠️ Started from Sonarr — progress with no attempt behind it', () => {
+  const grabbed = () => ({
+    media: show({
+      queueSnapshot: {
+        progress: 35,
+        status: 'downloading',
+        timeLeft: '00:12:00',
+      },
+      state: 'downloading' as const,
+    }),
+    seasons: [
+      specials(),
+      S1,
+      s2With({
+        queueSnapshot: { progress: 35, status: 'downloading' },
+        state: 'downloading',
+      }),
+    ],
+  })
+
+  it('draws the series chip and the queue’s bar, and explains the missing attempt', () => {
+    const { container } = renderDetail(grabbed())
+    const status = seriesStatus(container)
+
+    // Twice: the chip, and the queue's own status over the bar.
+    expect(status).toHaveAttribute('data-state', 'downloading')
+    expect(within(status).getAllByText('downloading')).toHaveLength(2)
+    expect(
+      within(status).getByRole('progressbar', { name: 'Download progress' }),
+    ).toHaveAttribute('aria-valuenow', '35')
+    expect(
+      within(status).getByText(SHOW_EXTERNAL_QUEUE_NOTE),
+    ).toBeInTheDocument()
+    // The count moves under the bar, beside the queue's own estimate.
+    expect(
+      within(status).getByText('14 of 24 episodes · ~00:12:00 left'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: 'Attempts' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows the episode’s own progress on its row and a live dot on its season tab', async () => {
+    const { user } = renderDetail(grabbed())
+
+    // The tab reads live before it is even opened — with the season's own
+    // six of sixteen on disk, not the queue item's percentage.
+    expect(screen.getByRole('tab', { name: /Season 2/ })).toHaveAccessibleName(
+      'Season 2 · 38%',
+    )
+
+    await user.click(screen.getByRole('tab', { name: /Season 2/ }))
+
+    expect(
+      screen.getByRole('progressbar', { name: 'S02E02 download progress' }),
+    ).toHaveAttribute('aria-valuenow', '35')
+  })
+
+  it('drops the note once an attempt of ours is in flight', () => {
+    const { container } = renderDetail({
+      ...grabbed(),
+      jobs: [scopedJob({ seasonNumber: 2 })],
+    })
+
+    expect(
+      within(seriesStatus(container)).queryByText(SHOW_EXTERNAL_QUEUE_NOTE),
+    ).not.toBeInTheDocument()
+  })
+
+  it('falls back to the files-on-disk rollup while episodes move and the show has no snapshot', () => {
+    const { container } = renderDetail({
+      seasons: [specials(), S1, s2With({ state: 'downloading' })],
+    })
+
+    expect(
+      within(seriesStatus(container)).getByRole('progressbar', {
+        name: 'Download progress',
+      }),
     ).toHaveAttribute('aria-valuenow', String((14 / 24) * 100))
   })
 
-  it('hands the importer through for a stuck series import', async () => {
+  it('marks a moving series as reconnecting while the live feed is down', () => {
+    render(
+      <ShowDetail
+        jobs={[]}
+        media={grabbed().media}
+        now={NOW}
+        seasons={grabbed().seasons}
+        stale
+      />,
+    )
+
+    expect(screen.getByText(SHOW_STALE_LABEL)).toBeInTheDocument()
+  })
+
+  it('says nothing about the feed while the series is settled', () => {
+    render(
+      <ShowDetail jobs={[]} media={show()} now={NOW} seasons={[S1]} stale />,
+    )
+
+    expect(screen.queryByText(SHOW_STALE_LABEL)).not.toBeInTheDocument()
+  })
+})
+
+describe('the series Attempts', () => {
+  it('⚠️ lists an episode grab with its scope, and again under its own season', () => {
+    const { container } = renderDetail({
+      jobs: [
+        scopedJob(
+          { episodeId: 2430, episodeNumber: 1, seasonNumber: 1 },
+          { id: 'job_ep', status: DownloadJobStatus.Downloading },
+        ),
+      ],
+    })
+
+    // An episode grab is an attempt on this show.
+    const series = seriesAttempts()
+    expect(within(series).getByText('Season 1, episode 1')).toBeInTheDocument()
+    expect(series.querySelector('[data-job-id="job_ep"]')).not.toBeNull()
+
+    // Season 1 is the default tab, and lists it too.
+    const seasonList = screen.getByRole('region', { name: 'Season 1 attempts' })
+    expect(seasonList.querySelector('[data-job-id="job_ep"]')).not.toBeNull()
+
+    // A search has not queued anything, so the chip still reads the disk.
+    expect(
+      within(seriesStatus(container)).getByText('in library'),
+    ).toBeInTheDocument()
+  })
+
+  it('hands the importer through for a stuck series attempt', async () => {
     const imports = importActions()
     const { user } = renderDetail({
       imports,
@@ -253,7 +461,11 @@ describe('the series lifecycle panel', () => {
       ],
     })
 
-    await user.click(screen.getByRole('button', { name: IMPORT_TRIGGER_LABEL }))
+    await user.click(
+      within(seriesAttempts()).getByRole('button', {
+        name: IMPORT_TRIGGER_LABEL,
+      }),
+    )
 
     // ⚠️ The unchanged media key and an empty scope: a series-wide job names
     // neither a season nor an episode, so the whole title's queue is in scope.
@@ -277,109 +489,47 @@ describe('the series lifecycle panel', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('draws no bar at all once the series job is terminal', () => {
-    renderDetail({
-      jobs: [scopedJob(undefined, { status: DownloadJobStatus.Completed })],
-    })
+  it('offers Retry on a failed newest attempt only while the series is downloadable', () => {
+    const failed = scopedJob(undefined, { status: DownloadJobStatus.Failed })
+    const onRetry = jest.fn()
 
+    const { unmount } = render(
+      <ShowDetail
+        jobs={[failed]}
+        media={show({ state: 'wanted' })}
+        now={NOW}
+        seasons={[]}
+        onRetry={onRetry}
+      />,
+    )
     expect(
-      screen.queryByRole('progressbar', { name: 'Download progress' }),
+      within(seriesAttempts()).getByRole('button', { name: 'Retry' }),
+    ).toBeInTheDocument()
+    unmount()
+
+    // Files on disk: a retry would re-grab what is already there.
+    render(
+      <ShowDetail
+        jobs={[failed]}
+        media={show()}
+        now={NOW}
+        seasons={[S1]}
+        onRetry={onRetry}
+      />,
+    )
+    expect(
+      screen.queryByRole('button', { name: 'Retry' }),
     ).not.toBeInTheDocument()
   })
 
-  it('⚠️ reports only whole-series jobs, never the newest episode grab', () => {
+  it('attributes the newest request at any scope against the pinned instant', () => {
     renderDetail({
       jobs: [
         scopedJob(
-          { episodeId: 2430 },
-          { id: 'job_ep', status: DownloadJobStatus.Downloading },
+          { episodeId: 2430, seasonNumber: 1 },
+          { createdAt: '2026-09-15T11:48:00.000Z' },
         ),
-        scopedJob(undefined, {
-          id: 'job_series',
-          status: DownloadJobStatus.Completed,
-        }),
       ],
-    })
-
-    // A panel headed with the series' name reporting one episode's status would
-    // be a quiet lie. The newest *series* job is what it reports.
-    expect(screen.getAllByText('completed').length).toBeGreaterThan(0)
-  })
-
-  it('⚠️ never says "not downloaded" over a series that has files', () => {
-    const { container } = renderDetail()
-
-    // The bug this replaced: `JobLifecycle`'s empty state chips the fixed
-    // string `not downloaded`, which was rendering over 14 episodes on disk
-    // with `SERIES_IN_LIBRARY_NOTE` beside it saying the opposite.
-    expect(screen.queryByText('not downloaded')).not.toBeInTheDocument()
-    expect(container.querySelector('[data-empty="true"]')).toBeNull()
-    expect(screen.getByText(SERIES_IN_LIBRARY_NOTE)).toBeInTheDocument()
-  })
-
-  it('⚠️ counts the episodes rather than claiming the series is "in library"', () => {
-    const { container } = renderDetail()
-    const panel = container.querySelector('[data-library="true"]')
-
-    if (!(panel instanceof HTMLElement)) {
-      throw new Error('expected the series library panel')
-    }
-
-    // The same aggregate the progress bar prints, and the only completeness
-    // claim the payload supports: 14 of 24 across two seasons, specials
-    // excluded. `in library` - the movie page's chip - would be the same class
-    // of untruth as `not downloaded`, pointing the other way.
-    // Scoped to the panel: an episode row reading `in library` is a true claim
-    // about one episode.
-    const chip = within(panel).getByText('14 of 24 episodes')
-
-    expect(chip).toBeInTheDocument()
-    expect(within(panel).queryByText('in library')).not.toBeInTheDocument()
-  })
-
-  it('withholds the count when the payload cannot support one', () => {
-    // Files only in season 0. `hasFiles` is true (a `some` over every season)
-    // but `seriesProgress` excludes specials, so the figure would read
-    // `0 of 0 episodes` - worse than printing nothing.
-    const { container } = renderDetail({
-      seasons: [specials({ episodeFileCount: 2 })],
-    })
-    const panel = container.querySelector('[data-library="true"]')
-
-    if (!(panel instanceof HTMLElement)) {
-      throw new Error('expected the series library panel')
-    }
-
-    // Scoped to the panel: an individual *episode* row saying `not downloaded`
-    // is a different claim about a different thing, and a true one.
-    expect(within(panel).getByText(SERIES_IN_LIBRARY_NOTE)).toBeInTheDocument()
-    expect(within(panel).queryByText(/episodes?$/)).not.toBeInTheDocument()
-    expect(within(panel).queryByText('not downloaded')).not.toBeInTheDocument()
-  })
-
-  it('hands the panel back as soon as there is a real series job', () => {
-    renderDetail({
-      jobs: [scopedJob(undefined, { status: DownloadJobStatus.Completed })],
-    })
-
-    // A job outranks the library aggregate: the chip is the job's status, and
-    // the library note has nothing left to explain.
-    expect(screen.getAllByText('completed').length).toBeGreaterThan(0)
-    expect(screen.queryByText(SERIES_IN_LIBRARY_NOTE)).not.toBeInTheDocument()
-  })
-
-  it('says the plainer thing when the library has nothing either', () => {
-    renderDetail({ seasons: [] })
-
-    expect(screen.getByText(SERIES_EMPTY_NOTE)).toBeInTheDocument()
-    // Nothing on disk, so `not downloaded` is simply true here.
-    expect(screen.getByText('not downloaded')).toBeInTheDocument()
-    expect(screen.queryByText(SERIES_IN_LIBRARY_NOTE)).not.toBeInTheDocument()
-  })
-
-  it('attributes the newest series request against the pinned instant', () => {
-    renderDetail({
-      jobs: [scopedJob(undefined, { createdAt: '2026-09-15T11:48:00.000Z' })],
     })
 
     expect(

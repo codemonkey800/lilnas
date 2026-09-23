@@ -4,13 +4,15 @@ import { cns } from '@lilnas/utils/cns'
 import type {
   BadFile,
   DownloadJob,
+  MediaState,
   Season,
   Show,
 } from '@lilnas/utils/download/types'
-import { isMediaInFlight } from '@lilnas/utils/download/types'
+import { DownloadType, isMediaInFlight } from '@lilnas/utils/download/types'
 import type { JSX } from 'react'
 import { useState } from 'react'
 
+import { AttemptList } from 'src/components/detail/attempt-list'
 import type {
   FlagBadFileAction,
   UnflagBadFileAction,
@@ -18,7 +20,12 @@ import type {
 import type { DeleteMediaFilesAction } from 'src/components/detail/delete-confirm'
 import { DeleteConfirm } from 'src/components/detail/delete-confirm'
 import type { ImportDialogActions } from 'src/components/detail/import-dialog'
-import { JobLifecycle } from 'src/components/detail/job-lifecycle'
+import type { JobAction } from 'src/components/detail/job-actions'
+import {
+  mediaStateIsLive,
+  mediaStateLabel,
+} from 'src/components/detail/media-state'
+import { MediaStatus } from 'src/components/detail/media-status'
 import type {
   ReleaseAction,
   ReleaseSearchAction,
@@ -31,6 +38,7 @@ import {
   deleteCascade,
   episodeProgressLabel,
   episodeScopedJobs,
+  isDownloadableState,
   seasonByTabValue,
   seasonHeading,
   seasonLabel,
@@ -65,8 +73,18 @@ export const SEASONS_TABLIST_LABEL = 'Season'
 const TAB_SEPARATOR = '·'
 
 /**
+ * The season states a tab marks with an amber dot: in flight but *stopped* -
+ * somebody has to decide, or somebody paused it. `show-detail.pug`'s
+ * `dot: 'warn'`.
+ */
+const WARN_TAB_STATES: ReadonlySet<MediaState> = new Set<MediaState>([
+  'needs_attention',
+  'paused',
+])
+
+/**
  * Stacked and full-width on a phone, inline from `sm` - the same
- * reconciliation `JobLifecycle`'s own action row makes, and the same one
+ * reconciliation the attempt cards' action row makes, and the same one
  * `show-detail.pug` writes as two separate frames.
  */
 const SCOPE_ACTION = 'w-full sm:w-auto'
@@ -88,8 +106,8 @@ export type ShowSeasonsProps = {
   badFiles?: readonly BadFile[]
   /**
    * The three importer server actions, passed straight through to the season's
-   * own `JobLifecycle` and to every episode row under it. Whichever surface is
-   * stuck forwards its own scope — a season job's is the season number, an
+   * own `AttemptList` and to every episode row under it. Whichever surface is
+   * stuck forwards its own scope — a season attempt's is the season number, an
    * episode row's is the episode id and the season number — so nothing is
    * assembled here.
    */
@@ -97,8 +115,12 @@ export type ShowSeasonsProps = {
   /** Every job for the title, newest first. Scoped per season/episode here. */
   jobs: readonly DownloadJob[]
   media: Show
+  /** The instant every relative stamp is measured against, pinned by the page. */
+  now: number
   /** `listSeasons` verbatim, including **season 0** - specials are listed. */
   seasons: readonly Season[]
+  /** Reaches the season's attempt cards and each episode row's Cancel. */
+  onCancel?: JobAction
   onDelete?: DeleteMediaFilesAction
   onFlag?: FlagBadFileAction
   onGrab?: ReleaseAction
@@ -107,6 +129,8 @@ export type ShowSeasonsProps = {
   /** ⚠️ Reaches a `ReleasePicker` trigger only. Never called on mount. */
   onSearch?: ReleaseSearchAction
   onUnflag?: UnflagBadFileAction
+  /** Retries a season's newest failed attempt, while the season is downloadable. */
+  onRetry?: JobAction
 }
 
 /**
@@ -144,17 +168,28 @@ export type ShowSeasonsProps = {
  * its episodes are individually downloadable and deletable like any other. It
  * *is* excluded from the series-level totals, because Sonarr excludes it from
  * its own - see `seriesProgress`.
+ *
+ * ## The season's status and attempts
+ *
+ * Under the heading, the season's own `MediaStatus` - its episodes rolled up
+ * by `seasonState`, so one episode needing a decision reads on the whole
+ * season - and its `AttemptList`: every attempt scoped to this season or one
+ * of its episodes. A whole-series attempt is listed once, by the series, not
+ * on every tab.
  */
 export function ShowSeasons({
   badFiles,
   imports,
   jobs,
   media,
+  now,
+  onCancel,
   onDelete,
   onFlag,
   onGrab,
   onReplace,
   onRequest,
+  onRetry,
   onSearch,
   onUnflag,
   seasons,
@@ -190,7 +225,9 @@ export function ShowSeasons({
 
   const scopedJobs = seasonScopedJobs(jobs, season)
   const progress = seasonProgress(season)
-  const downloading = isMediaInFlight(seasonState(season))
+  const state = seasonState(season)
+  const inFlight = isMediaInFlight(state)
+  const label = seasonLabel(season.seasonNumber)
 
   function toggleEpisode(episodeId: number): void {
     setOpenEpisodeId(current => (current === episodeId ? null : episodeId))
@@ -229,7 +266,7 @@ export function ShowSeasons({
           <ShowRequestButton
             className={cns(SCOPE_ACTION)}
             full
-            label={`Download ${seasonLabel(season.seasonNumber).toLowerCase()}`}
+            label={`Download ${label.toLowerCase()}`}
             mediaId={media.id}
             size="sm"
             target={{ kind: 'season', seasonNumber: season.seasonNumber }}
@@ -259,29 +296,40 @@ export function ShowSeasons({
         </div>
       </div>
 
-      {scopedJobs.length > 0 ? (
-        <JobLifecycle
-          actionSize="sm"
-          className={cns('mb-[14px]')}
-          // ⚠️ Not omitted. A season delete leaves a `Completed` job's row
-          // untouched for history - see `ShowService.deleteFiles` - so a
-          // re-deleted season's newest job can still say `completed` here.
-          // `hasFile` lets `JobLifecycle` discount that stale claim back to
-          // "no job", the same reconciliation `ShowDetail` makes at the
-          // series level.
-          hasFile={season.episodeFileCount > 0}
-          imports={imports}
-          jobs={scopedJobs}
-          // ⚠️ The season's own aggregate, not the job's `queueSnapshot`. A
-          // season job does not reach `completed` until the *last* episode
-          // leaves Sonarr's queue, and the queue only ever describes the one
-          // file moving right now - "6 of 10 episodes" is the honest measure of
-          // how far a season download has got, and it is the figure
-          // `show-detail.pug`'s own legend row prints.
-          progressDetail={episodeProgressLabel(progress)}
-          progressPct={downloading ? progress.pct : undefined}
-        />
-      ) : null}
+      <MediaStatus
+        className={cns('mb-[14px]')}
+        data-scope="season"
+        explain={
+          // The count beside a settled chip; while the season is in flight
+          // it moves under the bar instead, and a stuck one keeps the reason.
+          inFlight || progress.total === 0 ? undefined : (
+            <span className={cns('font-mono text-mono-sm')}>
+              {episodeProgressLabel(progress)}
+            </span>
+          )
+        }
+        media={seasonMedia(media, state)}
+        // ⚠️ The season's own aggregate, not a queue snapshot. The show's
+        // snapshot is the whole series' grab, and a season is only ever as
+        // far along as its files - "6 of 10 episodes" is the honest measure,
+        // and the figure `show-detail.pug`'s own legend row prints.
+        progressDetail={inFlight ? episodeProgressLabel(progress) : undefined}
+        progressPct={inFlight ? progress.pct : undefined}
+        scopeState={state}
+      />
+
+      <AttemptList
+        className={cns('mb-[14px]')}
+        imports={imports}
+        jobs={scopedJobs}
+        label={`${label} attempts`}
+        now={now}
+        onCancel={onCancel}
+        onRetry={onRetry}
+        // From the season's episodes, never the attempt: a failed season
+        // grab over files that landed anyway must not offer to grab again.
+        retryable={isDownloadableState(state)}
+      />
 
       <Card className={cns('px-[14px] py-1 sm:px-4')} sunk>
         {season.episodes.length === 0 ? (
@@ -306,6 +354,7 @@ export function ShowSeasons({
               jobs={episodeScopedJobs(jobs, episode)}
               media={media}
               open={openEpisodeId === episode.id}
+              onCancel={onCancel}
               onDelete={onDelete}
               onFlag={onFlag}
               onGrab={onGrab}
@@ -322,13 +371,34 @@ export function ShowSeasons({
   )
 }
 
+/**
+ * The show as one season sees it, for that season's `MediaStatus`: the
+ * season's rolled-up `state`, and **without** the series' `queueSnapshot` -
+ * that is the whole series' grab, and would draw its bar on every tab. The
+ * series' `stateReason` is kept only while the season itself needs a
+ * decision; beside any other chip it would be explaining some other season.
+ */
+function seasonMedia(media: Show, state: MediaState): Show {
+  const view: Show = { ...media, state }
+
+  delete view.queueSnapshot
+  if (state !== 'needs_attention') {
+    delete view.stateReason
+  }
+
+  return view
+}
+
 type SeasonTabProps = {
   season: Season
 }
 
 /**
- * One tab: the season's name, plus a breathing dot and its percentage while
- * any of its episodes is in flight - `show-detail.pug`'s `Season 3 ● 58%`.
+ * One tab: the season's name, plus its rolled-up state when that is worth a
+ * glance from another tab - `show-detail.pug`'s `seasonTabs`. A breathing dot
+ * and the season's percentage while it is downloading or importing
+ * (`Season 3 ● 58%`); an amber dot while it needs a decision or is paused
+ * (`Season 4 ●`); nothing for a settled season.
  *
  * ⚠️ The label is the long form (`Season 3`, `Specials`) at both widths, where
  * the mockup abbreviates to `S3` on its phone frame. One responsive document
@@ -338,14 +408,14 @@ type SeasonTabProps = {
  * work at 390px.
  */
 function SeasonTab({ season }: SeasonTabProps): JSX.Element {
-  const live = isMediaInFlight(seasonState(season))
+  const state = seasonState(season)
   const progress = seasonProgress(season)
 
   return (
     <Tab value={seasonTabValue(season.seasonNumber)}>
       <span className={cns('inline-flex items-center gap-1.5')}>
         {seasonLabel(season.seasonNumber)}
-        {live ? (
+        {mediaStateIsLive(state) ? (
           <>
             {/*
               Real text, before the dot rather than after it: the dot marks the
@@ -357,9 +427,21 @@ function SeasonTab({ season }: SeasonTabProps): JSX.Element {
             <span className={cns('text-ink-4')}>{TAB_SEPARATOR}</span>
             <Dot tone="live" />
             <span
-              className={cns('font-mono text-mono-sm tabular-nums text-ok')}
+              className={cns('font-mono text-mono-sm tabular-nums text-uv-hi')}
             >
               {`${Math.round(progress.pct)}%`}
+            </span>
+          </>
+        ) : null}
+        {WARN_TAB_STATES.has(state) ? (
+          <>
+            <Dot tone="warn" />
+            {/*
+              The dot is `aria-hidden`, so the state it marks is spelled out
+              for assistive technology: `Season 4 · needs your decision`.
+            */}
+            <span className={cns('sr-only')}>
+              {`${TAB_SEPARATOR} ${mediaStateLabel(state, DownloadType.Show)}`}
             </span>
           </>
         ) : null}

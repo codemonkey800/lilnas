@@ -5,9 +5,13 @@ import type {
   Season,
   Show,
 } from '@lilnas/utils/download/types'
-import { isMediaInFlight } from '@lilnas/utils/download/types'
-import type { JSX } from 'react'
+import {
+  isMediaInFlight,
+  isTerminalDownloadJobStatus,
+} from '@lilnas/utils/download/types'
+import type { JSX, ReactNode } from 'react'
 
+import { AttemptList } from 'src/components/detail/attempt-list'
 import type {
   FlagBadFileAction,
   UnflagBadFileAction,
@@ -20,9 +24,11 @@ import {
   DetailHeader,
 } from 'src/components/detail/detail-header'
 import type { ImportDialogActions } from 'src/components/detail/import-dialog'
-import { JobHistory, JobLifecycle } from 'src/components/detail/job-lifecycle'
-import { currentJob } from 'src/components/detail/job-state'
+import type { JobAction } from 'src/components/detail/job-actions'
+import { latestJob } from 'src/components/detail/job-state'
 import { LibraryLink } from 'src/components/detail/library-link'
+import { mediaProgress } from 'src/components/detail/media-state'
+import { MediaStatus } from 'src/components/detail/media-status'
 import type {
   ReleaseAction,
   ReleaseSearchAction,
@@ -30,9 +36,9 @@ import type {
 import type { ShowRequestAction } from 'src/components/detail/show-request-button'
 import { ShowRequestButton } from 'src/components/detail/show-request-button'
 import { ShowSeasons } from 'src/components/detail/show-seasons'
-import type { ShowProgress } from 'src/components/detail/show-state'
 import {
   episodeProgressLabel,
+  isDownloadableState,
   isMetadataMissing,
   seriesProgress,
   seriesState,
@@ -41,6 +47,7 @@ import {
 import { ButtonLink } from 'src/components/ui/button-link'
 import { Note } from 'src/components/ui/card'
 import { Chip } from 'src/components/ui/chip'
+import { Dot } from 'src/components/ui/status'
 
 /** `show-detail.pug:44`. Emby's own word, not "Play". */
 export const WATCH_LABEL = 'Watch'
@@ -51,55 +58,20 @@ export const WATCH_LABEL = 'Watch'
  */
 export const EMBY_INDEXING_LABEL = 'indexing…'
 
-/** What the lifecycle panel says when the library has the show and this app never fetched it. */
-export const SERIES_IN_LIBRARY_NOTE =
-  'Already in the library. Nothing here was downloaded through this app.'
-
-/** ...and when the library has nothing either. */
-export const SERIES_EMPTY_NOTE = 'Nothing grabbed yet.'
+/**
+ * The note beside the series chip when Sonarr's queue is moving and no
+ * attempt of ours is behind it — `show-detail.pug`'s "Started from Sonarr"
+ * frame. The bar comes off the queue snapshot alone; this says why there is
+ * nothing under it to cancel or pause.
+ */
+export const SHOW_EXTERNAL_QUEUE_NOTE =
+  'Grabbed from Sonarr directly — no attempt to show, cancel or pause here.'
 
 /**
- * Whether the series chip can state a figure at all.
- *
- * `seriesProgress` sums `episodeFileCount` against `seasonEpisodeTotal` and
- * **excludes specials**, so `hasFiles` and `progress.files` genuinely disagree
- * for a show whose only files are in season 0. `total` is likewise 0 for a
- * series Sonarr has listed with no seasons yet. Neither supports a count, and
- * `0 of 0 episodes` is a worse thing to print than nothing at all — in that
- * case the note carries the whole answer on its own.
+ * The marker under a moving series while the live feed is not connected. The
+ * same word the movie and video pages use for the same condition.
  */
-export function canCountEpisodes({ files, total }: ShowProgress): boolean {
-  return files > 0 && total > 0
-}
-
-/**
- * The status chip for a series with files on disk and no series-scoped job.
- *
- * ⚠️ **Why this is not the movie page's `in library` chip.** `JobLifecycle`'s
- * empty state is chipped `JOB_LIFECYCLE_EMPTY_LABEL` — the fixed string
- * `not downloaded` — which is true of the *job* and flatly false of a series
- * with 455 files behind it. `MovieDetail` answers that by drawing its own
- * `in library` chip, and a movie can: a movie is binary, it is either on disk
- * or it is not.
- *
- * **A series is not.** "In library" said over 6 of 24 episodes is the same
- * class of untruth as `not downloaded`, just pointing the other way, and
- * nothing on the wire says whether a series is *finished* — `episodeCount` is
- * Sonarr's count of what it currently knows about, which grows as a show airs.
- *
- * So the chip states the one thing the payload does support, which is the
- * count: the identical `files of total` figure `episodeProgressLabel` already
- * prints under the progress bar while a series is downloading, from the same
- * `seriesProgress` aggregate. It claims no completeness in either direction,
- * and it is the figure a reader actually wants here.
- *
- * Tone `mute` deliberately, and never `ok`/`uv`: this is a measurement, not a
- * verdict on it, and `uv` in this system means the machine is working right
- * now — which, with no job, it is not.
- */
-export function seriesLibraryLabel(progress: ShowProgress): string | null {
-  return canCountEpisodes(progress) ? episodeProgressLabel(progress) : null
-}
+export const SHOW_STALE_LABEL = 'reconnecting…'
 
 /** The metadata lookup placeholder's explanation. See `isMetadataMissing`. */
 export const METADATA_MISSING_NOTE =
@@ -139,14 +111,32 @@ export type ShowDetailProps = {
   now: number
   /** `listSeasons` verbatim, **including season 0**. Empty = not in Sonarr yet. */
   seasons: readonly Season[]
+  /**
+   * Cancels an in-flight attempt, at any scope — its card in the Attempts
+   * lists and its episode row's Cancel. Omitted offers none; see
+   * {@link ShowDetail} for why the page wires none today.
+   */
+  onCancel?: JobAction
   onDelete?: DeleteMediaFilesAction
   onFlag?: FlagBadFileAction
   onGrab?: ReleaseAction
   onReplace?: ReleaseAction
   onRequest?: ShowRequestAction
+  /**
+   * Retries the newest attempt when it failed or was cancelled — offered only
+   * while its scope is `absent` or `wanted`. See `AttemptListProps.retryable`.
+   */
+  onRetry?: JobAction
   /** ⚠️ Reaches a `ReleasePicker` trigger only. Never called on mount. */
   onSearch?: ReleaseSearchAction
   onUnflag?: UnflagBadFileAction
+  /**
+   * Whether the live feed is currently **not** connected — `!connected` off
+   * the socket, handed in by `ShowDetailLive` so this stays a plain function
+   * of its props. Drives {@link SHOW_STALE_LABEL}, and only while something
+   * is moving: a settled series has no frame to miss.
+   */
+  stale?: boolean
 }
 
 /**
@@ -181,21 +171,28 @@ export type ShowDetailProps = {
  *   not ship until a later task, and `DetailAttribution` deliberately does not
  *   anchor - the same call D2 made for the gallery avatars.
  * - **Pause / resume / cancel.** Those three routes are `/download/videos/:id`
- *   only. A show download has no cancel endpoint at any scope, so
- *   `JobLifecycle` is given no handlers and offers none of the three, at any
- *   of the three scopes.
+ *   only, and nothing reaches a show's `DELETE /download/shows/:id` from the
+ *   UI yet. `onCancel`/`onRetry` are threaded to every scope so wiring one is
+ *   a page-level change, but until then no attempt offers them.
  *
- * ## The one action the panels do wire
+ * ## State from the media, attempts from the jobs
  *
- * **Import.** A Sonarr download that finished and then refused to import parks
- * the job in `needs_attention`, and nothing on either side moves it until a
- * human picks the files or discards them - so that is the one state the
- * lifecycle panel acts on rather than merely reports. `imports` carries the
- * three server actions to the series panel below and, unchanged, through
- * `ShowSeasons` to the season panel, so a stuck season pack is resolved from
- * the season it belongs to. Neither scope is assembled here: the panel reads
- * it off the job it is rendering, which is the same rule the rest of this page
- * follows.
+ * ⚠️ The chip reads `seriesState` — every non-special episode's own `state`,
+ * rolled up — and never the newest job: a failed attempt over a series that
+ * is on disk reads `in library`, with the failure listed under it. A queue
+ * item Sonarr is running on its own ("Started from Sonarr") draws the chip and
+ * the bar off the show's `queueSnapshot` with no attempt anywhere.
+ *
+ * `AttemptList` then lists **every** attempt at this show, any scope — an
+ * episode grab is an attempt on this show, and its card says which episode.
+ * Each season's panel lists the ones scoped to it again, so a stuck season
+ * pack is resolved from the season it belongs to as well.
+ *
+ * **Import** is the one control the attempts do wire: a Sonarr download that
+ * finished and then refused to import sits in `needs_attention` until a human
+ * picks the files or discards them. `imports` carries the three server actions
+ * to every Attempts list and every episode row; none of them assembles a
+ * scope here — each reads it off the attempt or the episode it renders.
  */
 export function ShowDetail({
   badFiles,
@@ -203,27 +200,45 @@ export function ShowDetail({
   jobs,
   media,
   now,
+  onCancel,
   onDelete,
   onFlag,
   onGrab,
   onReplace,
   onRequest,
+  onRetry,
   onSearch,
   onUnflag,
   seasons,
+  stale = false,
 }: ShowDetailProps): JSX.Element {
-  const seriesJobs = wholeSeriesJobs(jobs)
+  const state = seriesState(media, seasons)
   const progress = seriesProgress(seasons)
-  const downloading = isMediaInFlight(seriesState(media, seasons))
+  const inFlight = isMediaInFlight(state)
   const hasFiles =
     progress.files > 0 || seasons.some(s => s.episodeFileCount > 0)
-  // ⚠️ Not `latestJob(seriesJobs)`. A series delete leaves a `Completed` job's
-  // row untouched for history - see `ShowService.deleteFiles` - so the newest
-  // job can still say `completed` for a series that was just removed from
-  // Sonarr. `currentJob` discounts exactly that contradiction back to "no
-  // job", matching `MovieDetail`.
-  const latest = currentJob(seriesJobs, hasFiles)
-  const libraryLabel = seriesLibraryLabel(progress)
+  const queue = mediaProgress(media)
+  const attemptInFlight = jobs.some(
+    job => !isTerminalDownloadJobStatus(job.status),
+  )
+  // Attribution only — who asked last, at any scope, whatever became of it.
+  // Nothing on this page reads a job's status as the series'.
+  const latest = latestJob(jobs)
+  // `0 of 0 episodes` — a series Sonarr lists with no seasons yet, or whose
+  // only files are specials — is a worse thing to print than nothing.
+  const count = progress.total > 0 ? episodeProgressLabel(progress) : null
+
+  // The bar: Sonarr's queue snapshot for the whole grab when there is one —
+  // `MediaStatus`'s own default — else the files-on-disk rollup while an
+  // episode is in flight. Under it, the count and the queue's time estimate.
+  const hasBar = queue !== null || inFlight
+  const detail = [count, queue?.timeLeft ? `~${queue.timeLeft} left` : null]
+    .filter(Boolean)
+    .join(' · ')
+
+  // ⚠️ Disconnected **and** something to miss — the same guard the movie and
+  // video pages make.
+  const reconnecting = stale && (inFlight || attemptInFlight)
 
   return (
     <>
@@ -277,60 +292,47 @@ export function ShowDetail({
         // renders `null` for an empty list, so this costs a gap-free nothing.
         cast={<CastRow people={[]} />}
         className={cns('mb-7 sm:mb-8')}
+        lifecycle={
+          <div className={cns('flex flex-col gap-[14px]')}>
+            <MediaStatus
+              data-scope="series"
+              explain={seriesNote({
+                count: hasBar ? null : count,
+                external: queue !== null && !attemptInFlight,
+                reason: media.stateReason,
+              })}
+              media={media}
+              progressDetail={hasBar && detail ? detail : undefined}
+              progressPct={
+                queue === null && inFlight ? progress.pct : undefined
+              }
+              scopeState={state}
+            />
+            {reconnecting ? (
+              // `w-fit` because this is a flex column — see the same marker on
+              // the movie and video pages.
+              <Chip className={cns('w-fit')} tone="warn">
+                <Dot tone="warn" />
+                {SHOW_STALE_LABEL}
+              </Chip>
+            ) : null}
+          </div>
+        }
         media={media}
         meta={showMetaLine(media, seasons)}
         synopsis={media.overview}
       />
 
-      {/*
-        ⚠️ Two panels, and the branch is not a style choice. `JobLifecycle`'s
-        empty state is chipped `not downloaded` — a fixed string it takes no
-        override for — which is a true statement about the job and a false one
-        about the disk. A series Sonarr already holds and this app never
-        fetched is the *common* case here (every show reached from `/search`
-        that somebody grabbed through Sonarr directly), and it was rendering
-        `not downloaded` over 455 files with `SERIES_IN_LIBRARY_NOTE` sitting
-        beside it saying the opposite. A note cannot argue a chip down.
-
-        Same shape as `MovieDetail`'s branch, different chip: see
-        `seriesLibraryLabel` for why a series does not get `in library`.
-      */}
-      {latest || !hasFiles ? (
-        <JobLifecycle
-          className={cns('mb-7 sm:mb-8')}
-          emptyNote={SERIES_EMPTY_NOTE}
-          hasFile={hasFiles}
-          imports={imports}
-          jobs={seriesJobs}
-          // ⚠️ The library aggregate, never the job's `queueSnapshot`. A series
-          // download does not reach `completed` until the last episode leaves
-          // Sonarr's queue, and the queue entry only ever describes the single
-          // file moving right now - `14 of 24 episodes` is what the mockup's own
-          // legend row prints, and it is the only figure that is true of the
-          // whole series.
-          progressDetail={episodeProgressLabel(progress)}
-          progressPct={downloading ? progress.pct : undefined}
-        />
-      ) : (
-        <div
-          className={cns('mb-7 flex flex-wrap items-center gap-2.5 sm:mb-8')}
-          data-library="true"
-        >
-          {libraryLabel === null ? null : (
-            <Chip className={cns('w-fit')} label={libraryLabel} tone="mute" />
-          )}
-          <span className={cns('min-w-0 flex-1 text-sm text-ink-3')}>
-            {SERIES_IN_LIBRARY_NOTE}
-          </span>
-        </div>
-      )}
-
-      {/* Renders `null` for a single attempt, so it costs no gap. */}
-      <JobHistory
+      <AttemptList
         className={cns('mb-7 sm:mb-8')}
-        hasFile={hasFiles}
-        jobs={seriesJobs}
+        imports={imports}
+        jobs={jobs}
         now={now}
+        onCancel={onCancel}
+        onRetry={onRetry}
+        // From the series, never the attempt: a failed newest grab over a
+        // series on disk must not offer to grab it again.
+        retryable={isDownloadableState(state)}
       />
 
       <ShowSeasons
@@ -338,12 +340,15 @@ export function ShowDetail({
         imports={imports}
         jobs={jobs}
         media={media}
+        now={now}
         seasons={seasons}
+        onCancel={onCancel}
         onDelete={onDelete}
         onFlag={onFlag}
         onGrab={onGrab}
         onReplace={onReplace}
         onRequest={onRequest}
+        onRetry={onRetry}
         onSearch={onSearch}
         onUnflag={onUnflag}
       />
@@ -352,15 +357,31 @@ export function ShowDetail({
 }
 
 /**
- * Jobs whose scope names no season and no episode — the attempts the series
- * panel lists. Every other job lands in its season's panel instead (see
- * `seasonScopedJobs`), so no attempt is listed twice.
+ * What sits beside the series chip. The server's `stateReason` wins when there
+ * is one — `undefined` hands it back to `MediaStatus`, which reads it itself;
+ * then "Started from Sonarr"; then, on a settled series, the count —
+ * `show-detail.pug`'s "14 of 24 episodes" prose, which used to be a second
+ * chip.
  */
-function wholeSeriesJobs(jobs: readonly DownloadJob[]): readonly DownloadJob[] {
-  return jobs.filter(
-    job =>
-      job.scope?.episodeId === undefined &&
-      job.scope?.seasonNumber === undefined,
+function seriesNote({
+  count,
+  external,
+  reason,
+}: {
+  count: string | null
+  external: boolean
+  reason: string | undefined
+}): ReactNode {
+  if (reason) {
+    return undefined
+  }
+
+  if (external) {
+    return SHOW_EXTERNAL_QUEUE_NOTE
+  }
+
+  return count === null ? undefined : (
+    <span className={cns('font-mono text-mono-sm')}>{count}</span>
   )
 }
 

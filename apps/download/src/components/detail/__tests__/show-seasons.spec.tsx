@@ -1,12 +1,13 @@
 import '@testing-library/jest-dom'
 
-import type { DownloadJob, Season } from '@lilnas/utils/download/types'
+import type { DownloadJob, Season, Show } from '@lilnas/utils/download/types'
 import { DownloadJobStatus } from '@lilnas/utils/download/types'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import {
   episode,
+  NOW,
   scopedJob,
   season,
   show,
@@ -72,6 +73,8 @@ function renderSeasons(
   options: {
     imports?: ImportDialogActions
     jobs?: DownloadJob[]
+    media?: Show
+    onRetry?: jest.Mock
     seasons?: Season[]
   } = {},
 ): Handlers & { user: ReturnType<typeof userEvent.setup> } {
@@ -85,13 +88,15 @@ function renderSeasons(
     <ShowSeasons
       imports={options.imports}
       jobs={options.jobs ?? []}
-      media={show()}
+      media={options.media ?? show()}
+      now={NOW}
       seasons={options.seasons ?? [specials(), S1, S2]}
       onDelete={handlers.onDelete}
       onFlag={jest.fn()}
       onGrab={jest.fn()}
       onReplace={jest.fn()}
       onRequest={handlers.onRequest}
+      onRetry={options.onRetry}
       onSearch={handlers.onSearch}
       onUnflag={jest.fn()}
     />,
@@ -371,6 +376,129 @@ describe('season-level progress aggregates across episodes', () => {
   })
 })
 
+/** The open season's own status block — not the series'. */
+function seasonStatus(): HTMLElement {
+  const status = document.querySelector('[data-scope="season"]')
+
+  if (!(status instanceof HTMLElement)) {
+    throw new Error('expected the season status')
+  }
+
+  return status
+}
+
+describe('the season status reads its episodes, never a job', () => {
+  it('reads "in library" with the season’s own count once it settles', () => {
+    renderSeasons()
+
+    // Season 1 is the default tab: one of two episodes on disk rolls up to
+    // `available` — the wanted one is outranked, as it is at series level.
+    expect(within(seasonStatus()).getByText('in library')).toBeInTheDocument()
+    expect(
+      within(seasonStatus()).getByText('1 of 2 episodes'),
+    ).toBeInTheDocument()
+  })
+
+  it('reads "needs your decision" when one of its episodes does, with the reason', async () => {
+    const reason = 'No files found are eligible for import'
+    const { user } = renderSeasons({
+      media: show({ state: 'needs_attention', stateReason: reason }),
+      seasons: [
+        S1,
+        season({
+          ...S2,
+          episodes: [
+            ...S2.episodes,
+            episode({ id: 2441, seasonNumber: 2, state: 'needs_attention' }),
+          ],
+        }),
+      ],
+    })
+
+    await user.click(screen.getByRole('tab', { name: /Season 2/ }))
+
+    expect(
+      within(seasonStatus()).getByText('needs your decision'),
+    ).toBeInTheDocument()
+    expect(within(seasonStatus()).getByText(reason)).toBeInTheDocument()
+  })
+
+  it('⚠️ never borrows the series’ queue bar or reason for a settled season', () => {
+    renderSeasons({
+      media: show({
+        queueSnapshot: { progress: 35, status: 'downloading' },
+        state: 'needs_attention',
+        stateReason: 'Something about another season',
+      }),
+    })
+
+    // The show's snapshot is the whole series' grab; season 1 has nothing
+    // moving and nothing stuck.
+    expect(
+      within(seasonStatus()).queryByRole('progressbar'),
+    ).not.toBeInTheDocument()
+    expect(
+      within(seasonStatus()).queryByText('Something about another season'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('lists the season’s own attempts, and a whole-series one on no tab', () => {
+    renderSeasons({
+      jobs: [
+        scopedJob(
+          { seasonNumber: 1 },
+          { id: 'job_s1', status: DownloadJobStatus.Failed },
+        ),
+        scopedJob(undefined, {
+          id: 'job_series',
+          status: DownloadJobStatus.Completed,
+        }),
+      ],
+    })
+
+    const list = screen.getByRole('region', { name: 'Season 1 attempts' })
+
+    expect(list.querySelector('[data-job-id="job_s1"]')).not.toBeNull()
+    expect(list.querySelector('[data-job-id="job_series"]')).toBeNull()
+  })
+
+  it('renders no season Attempts when none is scoped to it', () => {
+    renderSeasons()
+
+    expect(
+      screen.queryByRole('region', { name: /attempts$/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('offers Retry on a failed season attempt only while the season is downloadable', async () => {
+    const onRetry = jest.fn()
+    const { user } = renderSeasons({
+      jobs: [
+        scopedJob(
+          { seasonNumber: 0 },
+          { id: 'job_s0', status: DownloadJobStatus.Failed },
+        ),
+        scopedJob(
+          { seasonNumber: 1 },
+          { id: 'job_s1', status: DownloadJobStatus.Failed },
+        ),
+      ],
+      onRetry,
+    })
+
+    // Season 1 has a file on disk: a retry would grab what is already there.
+    expect(
+      screen.queryByRole('button', { name: 'Retry' }),
+    ).not.toBeInTheDocument()
+
+    // Specials: nothing on disk, nothing queued.
+    await user.click(screen.getByRole('tab', { name: /Specials/ }))
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+
+    expect(onRetry).toHaveBeenCalledWith('job_s0')
+  })
+})
+
 describe('the season tab strip', () => {
   it('⚠️ activates on arrow keys, because switching seasons loads nothing', async () => {
     // `listSeasons` returns every season with every episode in one payload, so
@@ -389,6 +517,51 @@ describe('the season tab strip', () => {
     expect(
       screen.getByRole('heading', { name: 'Season 2 · 10 episodes' }),
     ).toBeInTheDocument()
+  })
+
+  it('marks a season that needs a decision with a warn dot, spelled out for AT', () => {
+    renderSeasons({
+      seasons: [
+        S1,
+        season({
+          ...S2,
+          episodes: [
+            episode({ id: 2441, seasonNumber: 2, state: 'needs_attention' }),
+          ],
+        }),
+      ],
+    })
+
+    const tab = screen.getByRole('tab', { name: /Season 2/ })
+
+    // No percentage: nothing is moving, somebody has to act.
+    expect(tab).toHaveAccessibleName('Season 2 · needs your decision')
+    expect(tab.querySelector('.bg-warn')).not.toBeNull()
+    expect(tab).not.toHaveTextContent('%')
+  })
+
+  it('marks a paused season with the same warn dot', () => {
+    renderSeasons({
+      seasons: [
+        S1,
+        season({
+          ...S2,
+          episodes: [episode({ id: 2441, seasonNumber: 2, state: 'paused' })],
+        }),
+      ],
+    })
+
+    expect(screen.getByRole('tab', { name: /Season 2/ })).toHaveAccessibleName(
+      'Season 2 · paused',
+    )
+  })
+
+  it('leaves a settled season’s tab bare', () => {
+    renderSeasons()
+
+    expect(screen.getByRole('tab', { name: /Season 1/ })).toHaveAccessibleName(
+      'Season 1',
+    )
   })
 
   it('names the whole strip for assistive technology', () => {

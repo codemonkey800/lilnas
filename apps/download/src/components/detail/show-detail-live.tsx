@@ -4,17 +4,34 @@ import type { JSX } from 'react'
 
 import type { ShowDetailProps } from 'src/components/detail/show-detail'
 import { ShowDetail } from 'src/components/detail/show-detail'
-import { useLiveMediaJobs } from 'src/lib/use-live-media-jobs'
+import { useLiveMedia } from 'src/lib/use-live-media'
 
 /**
- * `ShowDetail`, re-rendered as Sonarr's queue moves.
+ * `ShowDetail`, kept current off the download gateway.
  *
- * The show twin of `MovieDetailLive`. A landed job refreshes the page, which
- * also re-reads the seasons, so an episode's file shows up alongside it.
+ * The show twin of `MovieDetailLive`: `ShowDetail` stays a plain function of
+ * its props, and this wrapper is the one place that knows they come off a
+ * socket. `useLiveMedia` follows the series by **media id**, so a grab this tab
+ * did not start (Sonarr's own UI, Discord, another tab) shows up live — an
+ * attempt at any scope lands in the Attempts lists, and a media frame's
+ * `episodes` move each row's chip and bar, and its season tab's dot, in place.
+ * No router refresh.
  */
 export function ShowDetailLive({
   jobs,
+  media,
+  seasons,
   ...props
 }: ShowDetailProps): JSX.Element {
-  return <ShowDetail {...props} jobs={useLiveMediaJobs(jobs)} />
+  const live = useLiveMedia({ jobs, media, seasons })
+
+  return (
+    <ShowDetail
+      {...props}
+      jobs={live.jobs}
+      media={live.media}
+      seasons={live.seasons ?? seasons}
+      stale={!live.connected}
+    />
+  )
 }
