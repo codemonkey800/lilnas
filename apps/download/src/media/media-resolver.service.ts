@@ -302,7 +302,15 @@ export class MediaResolverService {
     this.showLibraryCache?.entries.delete(suffix)
   }
 
-  private async getMovieLibrary(): Promise<Map<number, Movie>> {
+  /**
+   * The cached Radarr library, keyed by `tmdbId`. Public for
+   * `MediaPollerService`, which has only a queue item's Radarr `movieId` and
+   * needs the media id it belongs to - read through this cache rather than
+   * a `getLibrary()` of its own, so it costs upstream nothing extra. The map
+   * is the cache itself: read it, never mutate it. Throws when a fetch
+   * fails, and returns an empty map for `FAILURE_TTL_MS` after that.
+   */
+  async getMovieLibrary(): Promise<Map<number, Movie>> {
     const now = Date.now()
     if (this.movieLibraryCache && this.movieLibraryCache.expiresAtMs > now) {
       return this.movieLibraryCache.entries
@@ -325,7 +333,8 @@ export class MediaResolverService {
     }
   }
 
-  private async getShowLibrary(): Promise<Map<number, Show>> {
+  /** `getMovieLibrary()`'s Sonarr twin, keyed by `tvdbId`. */
+  async getShowLibrary(): Promise<Map<number, Show>> {
     const now = Date.now()
     if (this.showLibraryCache && this.showLibraryCache.expiresAtMs > now) {
       return this.showLibraryCache.entries

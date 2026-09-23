@@ -17,6 +17,12 @@ import {
   DownloadJobRecord,
   DownloadJobStatus,
   DownloadType,
+  isMovie,
+  isShow,
+  MEDIA_EVENT_TYPE,
+  type MediaEvent,
+  type Movie,
+  type Show,
 } from '@lilnas/utils/download/types'
 import { Logger } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
@@ -121,6 +127,7 @@ describe('MediaPollerService', () => {
   let upstreamIds: Map<string, number>
 
   let service: MediaPollerService
+  let downloadGateway: jest.Mocked<DownloadGateway>
   let downloadStateService: DownloadStateService
   let mediaResolverService: jest.Mocked<MediaResolverService>
   let mediaStateService: MediaStateService
@@ -145,11 +152,18 @@ describe('MediaPollerService', () => {
       getQueue: jest.fn().mockResolvedValue([]),
       refreshMonitoredDownloads: jest.fn().mockResolvedValue(undefined),
     }
-    const mockDownloadGateway = { broadcastPerViewer: jest.fn() }
+    const mockDownloadGateway = {
+      broadcast: jest.fn(),
+      broadcastPerViewer: jest.fn(),
+    }
     // `radarrId`/`sonarrId` are no longer persisted on the job - the poller
     // reads them off the resolved media, so the resolver is what supplies
     // "which upstream id do I poll this by".
     const mockMediaResolverService = {
+      // Empty by default: a queue item no job owns maps to no media, so only
+      // the 'media events' block below ever sees a media event.
+      getMovieLibrary: jest.fn().mockResolvedValue(new Map()),
+      getShowLibrary: jest.fn().mockResolvedValue(new Map()),
       invalidate: jest.fn(),
       resolve: jest.fn(
         (keys: Array<{ mediaId: string; type: DownloadType }>) => ({
@@ -195,6 +209,7 @@ describe('MediaPollerService', () => {
     }).compile()
 
     service = module.get(MediaPollerService)
+    downloadGateway = module.get(DownloadGateway)
     downloadStateService = module.get(DownloadStateService)
     radarrService = module.get(RadarrService)
     sonarrService = module.get(SonarrService)
@@ -967,6 +982,335 @@ describe('MediaPollerService', () => {
   // Exercised directly rather than through `poll()`: nothing calls it yet -
   // the queue-empty completion check that consumes it lands separately, and
   // this fetch is deliberately inert until then.
+  describe('media events', () => {
+    // What upstream holds right now, by media id: a movie (Radarr 77) and a
+    // series (Sonarr 12) that no job owns. The resolver mock below models the
+    // real one's library cache - it serves the copy it first read until
+    // `invalidate()` evicts it - so an event can only carry a freshly
+    // imported file if the poller invalidated before resolving.
+    let upstream: Map<string, Movie | Show>
+    let cached: Map<string, Movie | Show>
+
+    const UNOWNED_MOVIE_ITEM: QueueResource = {
+      movieId: 77,
+      size: 1000,
+      sizeleft: 750,
+      status: 'downloading',
+    }
+
+    function mediaEvents(): MediaEvent[] {
+      return downloadGateway.broadcast.mock.calls.map(([message]) => {
+        expect(message.type).toBe(MEDIA_EVENT_TYPE)
+        return message.data as MediaEvent
+      })
+    }
+
+    // The poll gate is a backoff concern the tests below don't exercise.
+    function clearBackoff(): void {
+      ;(service as unknown as { nextAllowedRunAt: number }).nextAllowedRunAt = 0
+    }
+
+    function buildEpisodes(count: number): EpisodeResource[] {
+      return Array.from({ length: count }, (_, index) => ({
+        episodeNumber: index + 1,
+        hasFile: false,
+        id: index + 1,
+        monitored: true,
+        seasonNumber: 1,
+        seriesId: 12,
+      }))
+    }
+
+    beforeEach(() => {
+      upstream = new Map<string, Movie | Show>([
+        [
+          'tmdb:500',
+          {
+            id: 'tmdb:500',
+            monitored: true,
+            radarrId: 77,
+            title: 'Unowned Movie',
+            tmdbId: 500,
+            type: DownloadType.Movie,
+          },
+        ],
+        [
+          'tvdb:300',
+          {
+            id: 'tvdb:300',
+            monitored: true,
+            sonarrId: 12,
+            title: 'Unowned Show',
+            tvdbId: 300,
+            type: DownloadType.Show,
+          },
+        ],
+      ])
+      cached = new Map()
+
+      mediaResolverService.getMovieLibrary.mockImplementation(
+        async () =>
+          new Map(
+            Array.from(upstream.values())
+              .filter(isMovie)
+              .map(movie => [movie.tmdbId, movie]),
+          ),
+      )
+      mediaResolverService.getShowLibrary.mockImplementation(
+        async () =>
+          new Map(
+            Array.from(upstream.values())
+              .filter(isShow)
+              .map(show => [show.tvdbId, show]),
+          ),
+      )
+      mediaResolverService.invalidate.mockImplementation(key => {
+        cached.delete(key)
+      })
+
+      const byUpstreamIds = mediaResolverService.resolve.getMockImplementation()
+      mediaResolverService.resolve.mockImplementation(async keys => {
+        const result = await byUpstreamIds!(keys)
+
+        for (const { mediaId } of keys) {
+          const current = upstream.get(mediaId)
+          if (!current) continue
+
+          if (!cached.has(mediaId)) cached.set(mediaId, { ...current })
+          result.media.set(mediaId, cached.get(mediaId) as Movie | Show)
+        }
+
+        // What the real resolve() ends on.
+        mediaStateService.annotate(result.media.values())
+        return result
+      })
+    })
+
+    it('costs nothing while both queues are empty', async () => {
+      await service.poll()
+
+      expect(mediaResolverService.getMovieLibrary).not.toHaveBeenCalled()
+      expect(mediaResolverService.resolve).not.toHaveBeenCalled()
+      expect(sonarrService.getEpisodes).not.toHaveBeenCalled()
+      expect(downloadGateway.broadcast).not.toHaveBeenCalled()
+    })
+
+    it('broadcasts a download no job owns the first tick it is seen', async () => {
+      radarrService.getQueue.mockResolvedValue([UNOWNED_MOVIE_ITEM])
+
+      await service.poll()
+
+      expect(downloadStateService.jobs.size).toBe(0)
+      const events = mediaEvents()
+      expect(events).toHaveLength(1)
+      expect(events[0]?.media).toMatchObject({
+        id: 'tmdb:500',
+        queueSnapshot: { progress: 25, status: 'downloading' },
+        state: 'downloading',
+      })
+      expect(events[0]).not.toHaveProperty('episodes')
+    })
+
+    it('sends nothing on a tick that changed nothing', async () => {
+      radarrService.getQueue.mockResolvedValue([UNOWNED_MOVIE_ITEM])
+
+      await service.poll()
+      await service.poll()
+
+      expect(mediaEvents()).toHaveLength(1)
+    })
+
+    // Anything seen last tick already knows its media id, so the library is
+    // read only for an upstream id that is new.
+    it('reads the library only for a queue item it has not seen before', async () => {
+      radarrService.getQueue.mockResolvedValue([UNOWNED_MOVIE_ITEM])
+
+      await service.poll()
+      await service.poll()
+
+      expect(mediaResolverService.getMovieLibrary).toHaveBeenCalledTimes(1)
+    })
+
+    it('sends one event when the progress moves', async () => {
+      radarrService.getQueue.mockResolvedValue([UNOWNED_MOVIE_ITEM])
+      await service.poll()
+
+      radarrService.getQueue.mockResolvedValue([
+        { ...UNOWNED_MOVIE_ITEM, sizeleft: 500 },
+      ])
+      await service.poll()
+
+      const events = mediaEvents()
+      expect(events).toHaveLength(2)
+      expect(events[1]?.media).toMatchObject({
+        queueSnapshot: { progress: 50 },
+      })
+    })
+
+    it('sends one last event, carrying the imported file, once the item leaves the queue', async () => {
+      radarrService.getQueue.mockResolvedValue([UNOWNED_MOVIE_ITEM])
+      await service.poll()
+
+      // Radarr imported it between ticks.
+      upstream.set('tmdb:500', {
+        ...(upstream.get('tmdb:500') as Movie),
+        filePath: '/movies/Unowned Movie (2020)/unowned.mkv',
+      })
+      radarrService.getQueue.mockResolvedValue([])
+      await service.poll()
+
+      const events = mediaEvents()
+      expect(events).toHaveLength(2)
+      expect(events[1]?.media).toMatchObject({
+        filePath: '/movies/Unowned Movie (2020)/unowned.mkv',
+        id: 'tmdb:500',
+        state: 'available',
+      })
+      expect(events[1]?.media).not.toHaveProperty('queueSnapshot')
+
+      expect(mediaResolverService.invalidate).toHaveBeenCalledWith('tmdb:500')
+      expect(
+        mediaResolverService.invalidate.mock.invocationCallOrder[0],
+      ).toBeLessThan(
+        mediaResolverService.resolve.mock.invocationCallOrder.at(-1) as number,
+      )
+    })
+
+    it('sends nothing more once the last event is out', async () => {
+      radarrService.getQueue.mockResolvedValue([UNOWNED_MOVIE_ITEM])
+      await service.poll()
+      radarrService.getQueue.mockResolvedValue([])
+      await service.poll()
+      const resolveCalls = mediaResolverService.resolve.mock.calls.length
+
+      await service.poll()
+
+      expect(mediaEvents()).toHaveLength(2)
+      expect(mediaResolverService.resolve).toHaveBeenCalledTimes(resolveCalls)
+    })
+
+    it('sends a series as one event carrying every episode, however many are queued', async () => {
+      sonarrService.getEpisodes.mockResolvedValue(buildEpisodes(200))
+      sonarrService.getQueue.mockResolvedValue([
+        { episodeId: 1, seasonNumber: 1, seriesId: 12, status: 'downloading' },
+        { episodeId: 2, seasonNumber: 1, seriesId: 12, status: 'downloading' },
+        { episodeId: 3, seasonNumber: 1, seriesId: 12, status: 'downloading' },
+      ])
+
+      await service.poll()
+
+      const events = mediaEvents()
+      expect(events).toHaveLength(1)
+      expect(events[0]?.media).toMatchObject({
+        id: 'tvdb:300',
+        state: 'downloading',
+      })
+      expect(sonarrService.getEpisodes).toHaveBeenCalledTimes(1)
+      expect(sonarrService.getEpisodes).toHaveBeenCalledWith(12)
+
+      const episodes = events[0]?.episodes ?? []
+      expect(episodes).toHaveLength(200)
+      expect(episodes[0]).toMatchObject({ episodeId: 1, state: 'downloading' })
+      expect(episodes[3]).toEqual({
+        episodeId: 4,
+        seasonNumber: 1,
+        state: 'wanted',
+      })
+    })
+
+    it('skips a series whose episodes cannot be read, and retries it next tick', async () => {
+      sonarrService.getQueue.mockResolvedValue([
+        { episodeId: 1, seasonNumber: 1, seriesId: 12, status: 'downloading' },
+      ])
+      sonarrService.getEpisodes.mockRejectedValueOnce(new Error('sonarr down'))
+
+      await service.poll()
+
+      expect(downloadGateway.broadcast).not.toHaveBeenCalled()
+      expect(
+        (service as unknown as { nextAllowedRunAt: number }).nextAllowedRunAt,
+      ).toBe(0)
+
+      sonarrService.getEpisodes.mockResolvedValue(buildEpisodes(1))
+      await service.poll()
+
+      expect(mediaEvents()).toHaveLength(1)
+    })
+
+    it('swallows a resolve failure without disturbing the job update', async () => {
+      upstream.set('tmdb:1', {
+        id: 'tmdb:1',
+        monitored: true,
+        radarrId: 42,
+        title: 'A Movie',
+        tmdbId: 1,
+        type: DownloadType.Movie,
+      })
+      const job = buildMovieJob({ status: DownloadJobStatus.Searching })
+      downloadStateService.jobs.set(job.id, job)
+      radarrService.getQueue.mockResolvedValue([
+        { movieId: 42, size: 1000, sizeleft: 500, status: 'downloading' },
+      ])
+      // The job lookup's resolve succeeds and every later one - the media
+      // diff's, and the job broadcast's fire-and-forget hydrate - rejects.
+      const resolve = mediaResolverService.resolve.getMockImplementation()
+      mediaResolverService.resolve
+        .mockImplementationOnce(resolve!)
+        .mockRejectedValue(new Error('resolver broke'))
+
+      await service.poll()
+
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Downloading,
+      )
+      expect(downloadGateway.broadcast).not.toHaveBeenCalled()
+      expect(
+        (service as unknown as { nextAllowedRunAt: number }).nextAllowedRunAt,
+      ).toBe(0)
+
+      // Nothing was recorded, so the next tick sends it.
+      mediaResolverService.resolve.mockImplementation(resolve!)
+      await service.poll()
+
+      expect(mediaEvents().map(event => event.media.id)).toEqual(['tmdb:1'])
+    })
+
+    it('sends no vanish event for a source whose queue read failed', async () => {
+      sonarrService.getQueue.mockResolvedValue([
+        { episodeId: 1, seasonNumber: 1, seriesId: 12, status: 'downloading' },
+      ])
+      await service.poll()
+      expect(mediaEvents()).toHaveLength(1)
+
+      sonarrService.getQueue.mockRejectedValueOnce(new Error('sonarr down'))
+      await service.poll()
+
+      expect(mediaEvents()).toHaveLength(1)
+      expect(mediaResolverService.invalidate).not.toHaveBeenCalled()
+
+      // Still queued once Sonarr answers again: nothing moved, nothing sent.
+      clearBackoff()
+      await service.poll()
+
+      expect(mediaEvents()).toHaveLength(1)
+    })
+
+    it('skips the batch, and retries it, when the resolve comes back degraded', async () => {
+      radarrService.getQueue.mockResolvedValue([UNOWNED_MOVIE_ITEM])
+      const resolve = mediaResolverService.resolve.getMockImplementation()
+      mediaResolverService.resolve.mockImplementationOnce(async keys => ({
+        ...(await resolve!(keys)),
+        degradedSources: [DownloadType.Movie],
+      }))
+
+      await service.poll()
+      expect(downloadGateway.broadcast).not.toHaveBeenCalled()
+
+      await service.poll()
+      expect(mediaEvents()).toHaveLength(1)
+    })
+  })
+
   describe('completionInputs', () => {
     // The steady state: every job has a queue entry, so nothing ever reaches
     // the completion check and it must cost exactly nothing.

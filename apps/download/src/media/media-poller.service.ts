@@ -4,18 +4,25 @@ import {
   DownloadJobRecord,
   DownloadJobStatus,
   DownloadType,
+  type EpisodeStateEntry,
   isManagedMedia,
   isMovie,
   Media,
+  MEDIA_EVENT_TYPE,
+  type MediaEvent,
+  type Movie,
+  type Show,
 } from '@lilnas/utils/download/types'
 import { getErrorMessage } from '@lilnas/utils/error'
 import { Injectable, Logger } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 
 import { DownloadStateService } from 'src/download/download-state.service'
+import { DownloadGateway } from 'src/download-gateway/download.gateway'
 
 import { MediaResolverService } from './media-resolver.service'
 import { MediaStateService, type QueueSource } from './media-state.service'
+import { toEpisodeStateEntries } from './media-state.util'
 import {
   aggregateQueueItems,
   deriveStatusFromQueueItem,
@@ -36,6 +43,12 @@ const TERMINAL_STATUSES = new Set<DownloadJobStatus>([
   DownloadJobStatus.Completed,
   DownloadJobStatus.Failed,
 ])
+
+/** The media type whose upstream library ids a queue source's items carry. */
+const SOURCE_TYPE = {
+  radarr: DownloadType.Movie,
+  sonarr: DownloadType.Show,
+} as const satisfies Record<QueueSource, DownloadType>
 
 /** A tracked job paired with the upstream library id to poll it by. */
 export interface TrackedJob {
@@ -73,6 +86,10 @@ export interface PollableCompletionData {
  * through Requested -> Searching -> Downloading -> Importing/NeedsAttention ->
  * Completed/Failed.
  *
+ * Also broadcasts a `MediaEvent` for every movie/show whose state moved this
+ * tick - owned by a job or not - so an open page follows a download it
+ * never asked for. See `broadcastMediaChanges`.
+ *
  * Writes only `status`/`error` to the job. The queue snapshot goes to
  * `DownloadStateService.setQueueSnapshot()` instead of onto the job row -
  * it's live upstream state, which is where it was always coming from, so
@@ -90,7 +107,22 @@ export class MediaPollerService {
   private nextAllowedRunAt = 0
   private backoffMs = BASE_BACKOFF_MS
 
+  /**
+   * Per source, every media id that had a queue item as of the last media
+   * diff, with the upstream id (Radarr `movieId` / Sonarr `seriesId`) it was
+   * queued under. What tells a media that just left the queue - and so owes
+   * one last event - apart from one that was never in it.
+   */
+  private readonly queuedMedia: Record<QueueSource, Map<string, number>> = {
+    radarr: new Map(),
+    sonarr: new Map(),
+  }
+
+  /** Media id -> digest of the last media event broadcast for it. */
+  private readonly lastDigest = new Map<string, string>()
+
   constructor(
+    private readonly downloadGateway: DownloadGateway,
     private readonly downloadStateService: DownloadStateService,
     private readonly mediaResolverService: MediaResolverService,
     private readonly mediaStateService: MediaStateService,
@@ -106,8 +138,23 @@ export class MediaPollerService {
       return
     }
 
+    // The sources whose queue was stored this tick. Only those are diffed, so
+    // a source whose read failed - its previous queue kept - can't make every
+    // one of its media look like it just left the queue.
+    const stored = new Set<QueueSource>()
+
     try {
-      await Promise.all([this.pollMovies(), this.pollShows()])
+      // allSettled rather than all, so the media diff below never starts
+      // while the other source is still mid-tick.
+      const results = await Promise.allSettled([
+        this.pollMovies(stored),
+        this.pollShows(stored),
+      ])
+      const failure = results.find(
+        (result): result is PromiseRejectedResult =>
+          result.status === 'rejected',
+      )
+      if (failure) throw failure.reason
 
       if (this.backoffMs !== BASE_BACKOFF_MS) {
         this.logger.log({ action }, 'Media queue poll recovered, backoff reset')
@@ -124,6 +171,8 @@ export class MediaPollerService {
       )
       this.backoffMs = Math.min(this.backoffMs * 2, MAX_BACKOFF_MS)
     }
+
+    await this.broadcastMediaChanges(stored)
   }
 
   /**
@@ -131,7 +180,7 @@ export class MediaPollerService {
    * is nothing to aggregate and routing it through `aggregateQueueItems`
    * would only obscure that.
    */
-  private async pollMovies(): Promise<void> {
+  private async pollMovies(stored: Set<QueueSource>): Promise<void> {
     const tracked = await this.trackedJobs(DownloadType.Movie)
 
     await this.requestQueueRefresh('radarr', tracked, () =>
@@ -142,6 +191,7 @@ export class MediaPollerService {
     // rest is exactly what the media state cache is for.
     const queue = await this.radarrService.getQueue()
     this.mediaStateService.setQueue('radarr', queue)
+    stored.add('radarr')
 
     for (const job of tracked) {
       this.applyUpdate(
@@ -161,7 +211,7 @@ export class MediaPollerService {
    * two episode-scoped jobs can exist for the same series: both would read
    * the same arbitrary item.
    */
-  private async pollShows(): Promise<void> {
+  private async pollShows(stored: Set<QueueSource>): Promise<void> {
     const tracked = await this.trackedJobs(DownloadType.Show)
 
     await this.requestQueueRefresh('sonarr', tracked, () =>
@@ -170,6 +220,7 @@ export class MediaPollerService {
 
     const queue = await this.sonarrService.getQueue()
     this.mediaStateService.setQueue('sonarr', queue)
+    stored.add('sonarr')
 
     for (const job of tracked) {
       const matches = queue.filter(
@@ -214,6 +265,225 @@ export class MediaPollerService {
         'Queue refresh request failed, reading the queue as-is',
       )
     }
+  }
+
+  /**
+   * Broadcasts a `MediaEvent` for each movie/show whose state moved since the
+   * last tick, for every source whose queue was stored this tick.
+   *
+   * Never throws: this runs after the job updates, and a media event that
+   * can't be built is a missed frame the next tick re-sends, never a reason
+   * to back off the poll or stall job tracking.
+   */
+  private async broadcastMediaChanges(
+    stored: ReadonlySet<QueueSource>,
+  ): Promise<void> {
+    await Promise.all(
+      Array.from(stored, async source => {
+        try {
+          await this.broadcastSourceChanges(source)
+        } catch (err) {
+          this.logger.warn(
+            {
+              action: 'broadcastMediaChanges',
+              error: getErrorMessage(err),
+              source,
+            },
+            'Media event diff failed, retrying next tick',
+          )
+        }
+      }),
+    )
+  }
+
+  /**
+   * The media diff for one source. Covers every media id with a queue item
+   * this tick **or last**: the second half is what sends the event a
+   * finished download ends on - `available`, with the file path the import
+   * just produced - and the first is what makes a download started outside
+   * this app, with no job to track it, reach every open page at all.
+   *
+   * Costs one batched `resolve()` per tick while anything is queued (served
+   * from the resolver's library cache), plus one `getEpisodes` per series
+   * with activity - a series is one event however many episodes it has
+   * queued, carrying every episode's state. A source with nothing queued
+   * this tick or last costs nothing.
+   *
+   * A media left the queue when its upstream id did, not when its media id
+   * stopped resolving: a library read that fails or lags must not read as
+   * every download finishing at once.
+   */
+  private async broadcastSourceChanges(source: QueueSource): Promise<void> {
+    const type = SOURCE_TYPE[source]
+    const queuedIds = new Set(
+      this.mediaStateService.getQueue(source).flatMap(item => {
+        const upstreamId = source === 'radarr' ? item.movieId : item.seriesId
+        return upstreamId == null ? [] : [upstreamId]
+      }),
+    )
+    const previous = this.queuedMedia[source]
+    if (queuedIds.size === 0 && previous.size === 0) return
+
+    // Media id -> upstream id. Anything seen last tick already knows its
+    // media id; only an upstream id new this tick needs the library.
+    const batch = new Map(previous)
+    const known = new Set(previous.values())
+    const unknown = Array.from(queuedIds).filter(id => !known.has(id))
+    for (const [mediaId, upstreamId] of await this.mediaIdsFor(type, unknown)) {
+      batch.set(mediaId, upstreamId)
+    }
+    if (batch.size === 0) return
+
+    // Before resolve(), so a media that just left the queue is read fresh
+    // from upstream rather than as the cache last saw it - mid-download, no
+    // file, no Emby link.
+    for (const [mediaId, upstreamId] of batch) {
+      if (!queuedIds.has(upstreamId)) {
+        this.mediaResolverService.invalidate(mediaId)
+      }
+    }
+
+    const { degradedSources, media } = await this.mediaResolverService.resolve(
+      Array.from(batch.keys(), mediaId => ({ mediaId, type })),
+    )
+
+    // A degraded source hands back placeholders, and broadcasting one would
+    // replace a subscriber's real copy with a bare id. Nothing is recorded,
+    // so the whole batch - vanished ids included - is retried next tick.
+    if (degradedSources.includes(type)) {
+      this.logger.warn(
+        { action: 'broadcastSourceChanges', source },
+        'Media resolve degraded, skipping media events this tick',
+      )
+      return
+    }
+
+    const next = new Map<string, number>()
+
+    await Promise.all(
+      Array.from(batch, async ([mediaId, upstreamId]) => {
+        const digest = await this.broadcastIfChanged(
+          type,
+          mediaId,
+          media.get(mediaId),
+          upstreamId,
+        )
+
+        // Unsent: kept, whether still queued or just gone, so the next tick
+        // tries it again.
+        if (digest === undefined) {
+          next.set(mediaId, upstreamId)
+          return
+        }
+
+        // Gone and its last event sent (or unneeded): forgotten, so it costs
+        // nothing until it is queued again.
+        if (!queuedIds.has(upstreamId)) {
+          this.lastDigest.delete(mediaId)
+          return
+        }
+
+        this.lastDigest.set(mediaId, digest)
+        next.set(mediaId, upstreamId)
+      }),
+    )
+
+    this.queuedMedia[source] = next
+  }
+
+  /**
+   * Media id -> upstream id for the given Radarr/Sonarr ids, read off the
+   * resolver's cached library rather than asked of upstream per item. An id
+   * the library doesn't hold yet (added since the cache filled) is simply
+   * absent and gets another try next tick; a library that can't be read
+   * yields nothing, for the same reason.
+   */
+  private async mediaIdsFor(
+    type: DownloadType.Movie | DownloadType.Show,
+    upstreamIds: readonly number[],
+  ): Promise<Map<string, number>> {
+    const found = new Map<string, number>()
+    if (upstreamIds.length === 0) return found
+
+    let library: ReadonlyMap<number, Movie | Show>
+    try {
+      library =
+        type === DownloadType.Movie
+          ? await this.mediaResolverService.getMovieLibrary()
+          : await this.mediaResolverService.getShowLibrary()
+    } catch (err) {
+      this.logger.warn(
+        { action: 'mediaIdsFor', error: getErrorMessage(err), type },
+        'Library read failed, new queue items wait for the next tick',
+      )
+      return found
+    }
+
+    const wanted = new Set(upstreamIds)
+    for (const item of library.values()) {
+      const upstreamId = upstreamLibraryId(item)
+      if (upstreamId != null && wanted.has(upstreamId)) {
+        found.set(item.id, upstreamId)
+      }
+    }
+
+    return found
+  }
+
+  /**
+   * Broadcasts one media's event if its state moved since the last one sent,
+   * and returns the digest it was compared by - or `undefined` when no event
+   * could be built, which the caller retries.
+   *
+   * The digest covers only what the poller moves - state, reason, snapshot,
+   * episodes - so a tick that changed nothing sends nothing even though the
+   * media object is rebuilt each time. A show's episodes come from one
+   * `getEpisodes` call, not one per queued episode.
+   */
+  private async broadcastIfChanged(
+    type: DownloadType.Movie | DownloadType.Show,
+    mediaId: string,
+    media: Media | undefined,
+    upstreamId: number,
+  ): Promise<string | undefined> {
+    if (!media || !isManagedMedia(media)) return undefined
+
+    // Read before the await below: `media` is the resolver's cached object,
+    // which another resolve() may re-annotate in the meantime.
+    const { queueSnapshot, state, stateReason } = media
+
+    let episodes: EpisodeStateEntry[] | undefined
+    if (type === DownloadType.Show) {
+      try {
+        episodes = toEpisodeStateEntries(
+          await this.sonarrService.getEpisodes(upstreamId),
+          this.mediaStateService.queueItemsFor(DownloadType.Show, upstreamId),
+        )
+      } catch (err) {
+        this.logger.warn(
+          {
+            action: 'broadcastIfChanged',
+            error: getErrorMessage(err),
+            mediaId,
+          },
+          'Episode read failed, skipping this media event',
+        )
+        return undefined
+      }
+    }
+
+    const digest = JSON.stringify({
+      state,
+      stateReason,
+      queueSnapshot,
+      episodes,
+    })
+    if (digest === this.lastDigest.get(mediaId)) return digest
+
+    const event: MediaEvent = { media, ...(episodes ? { episodes } : {}) }
+    this.downloadGateway.broadcast({ data: event, type: MEDIA_EVENT_TYPE })
+
+    return digest
   }
 
   /**

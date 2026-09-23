@@ -1,6 +1,7 @@
 import { forwardRef, Module } from '@nestjs/common'
 
 import { DownloadModule } from 'src/download/download.module'
+import { DownloadGatewayModule } from 'src/download-gateway/download-gateway.module'
 import { EmbyModule } from 'src/emby/emby.module'
 
 import { radarrClientProvider, sonarrClientProvider } from './clients'
@@ -29,8 +30,16 @@ import { SonarrService } from './sonarr.service'
 // MediaModule or DownloadModule (EmbyService talks to Emby over HTTP,
 // EmbyStatusService only to EmbyService), so there is no cycle to break and
 // forwardRef() would only hide that fact from the next reader.
+//
+// DownloadGatewayModule is plain for the same reason: it imports only
+// AuthModule, so MediaPollerService can inject DownloadGateway to broadcast
+// media state changes without adding a second cycle.
 @Module({
-  imports: [forwardRef(() => DownloadModule), EmbyModule],
+  imports: [
+    forwardRef(() => DownloadModule),
+    DownloadGatewayModule,
+    EmbyModule,
+  ],
   providers: [
     radarrClientProvider,
     sonarrClientProvider,
