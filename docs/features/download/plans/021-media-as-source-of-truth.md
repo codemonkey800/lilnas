@@ -1427,8 +1427,8 @@ wanted}` and no in-flight scoped job; Import via `AttemptList`'s highlighted att
 
 ### Phase 3 — Jobs become attempts
 
-- [ ] **A1. Settle tracked movie/show jobs from files.** `didJobComplete` is finally
-      called.
+- [x] **A1. Settle tracked movie/show jobs from files.** `3286894b` `435a73f3`
+      `didJobComplete` is finally called.
 
   **Files:** edit `apps/download/src/media/media-poller.service.ts` (`applyUpdate` :299
   and the two pollers), `queue-status.util.ts` (`deriveStatusFromQueueItem` :220 — the
@@ -1464,7 +1464,20 @@ record.createdAt, scope: record.scope, files, episodes })`. `Completed` still
   tick) completes; the true failure (item gone, 61 s, no file) fails with the exact
   error string.
 
-- [ ] **A2. Restart sweeps only video jobs.** A movie/show attempt survives a reboot.
+  > **Findings:** `didJobComplete`'s "every episode in scope has a newer file" rule would
+  > have **failed** a season grab where some episodes were already on disk, unaired or
+  > unfindable (today those complete), and treated a bare-scope series job differently
+  > from `scope: {}`. Orchestrator decision, landed as `3286894b`: a season or
+  > whole-series job completes once **any** in-scope file is newer than the job (the
+  > chip and "N of M episodes" come from media state; the job only records the attempt).
+  > Movie and episode scope are unchanged. Also: `Paused` counts as grabbed (an item that
+  > vanishes while paused, with no file, fails after 60 s); `requested`/`searching` jobs
+  > with no item read files every tick (one call per movie, two per series), which is
+  > what un-sticks a `searching` job whose file already landed. `completionInputs` is now
+  > private and never throws (a failed read leaves that title's jobs unchanged). New
+  > export `LEFT_QUEUE_WITHOUT_FILE_ERROR`.
+
+- [x] **A2. Restart sweeps only video jobs.** `09650431` A movie/show attempt survives a reboot.
 
   **Files:** edit `apps/download/src/db/reconcile-interrupted-jobs.ts` (:21, :36),
   `download-state.service.ts` (`adoptSurvivingJobs` :270 → `adoptOpenJobs`),
@@ -1481,7 +1494,14 @@ terminal` (paused videos included, as today and for the documented reason); movi
   row is failed with `Interrupted by a service restart`; `needs_attention` of any type
   survives.
 
-- [ ] **A3. Deletes don't rewrite history.**
+  > **Findings:** `needs_attention` videos are still spared (no video reaches that status
+  > today; kept so "needs_attention always survives" holds). `adoptOpenJobs` reads
+  > `listOpenJobs(db, [movie, show])` plus `listJobsByStatus(needs_attention)` filtered to
+  > videos, so the two never overlap. Stale descriptions of the old sweep remain in
+  > `backend.md` (:830, :2200, :2210), `docs/context/download-backend-verification-status.md:241`
+  > and `docs/features/download/local-verification.md:395` — A5 updates `backend.md`.
+
+- [x] **A3. Deletes don't rewrite history.** `fe52ba90` `d2398e51`
 
   **Files:** edit `apps/download/src/media/media-download.service.ts` (`deleteJob`
   :434-463), `download.service.ts` (`deleteVideoDownloadJob` :590-637),
@@ -1503,7 +1523,32 @@ terminal` (paused videos included, as today and for the documented reason); movi
   > for `absent` media whose newest attempt is `completed` (e.g. a header Download, as
   > the mockup's `not downloaded` state implies, calling the same retry/request path).
 
-- [ ] **A4. Remove the per-job snapshot graft.** One source for `queueSnapshot`.
+  > **Findings:** the gap is closed by `d2398e51`: a **Download** button
+  > (`VideoDownloadButton`, `video-detail-download.tsx`) in the media-actions slot for
+  > `absent`/`wanted` videos with no attempt in flight. It calls the existing
+  > `retryVideoJob`, which already creates a **new** job row (a fresh
+  > `POST /download/videos` with the old `sourceUrl`/`timeRange`/`hiddenAttribution`)
+  > and never reopens the completed one. Retry was dropped from the video page's `AttemptList` so
+  > there is one re-download path. A video with no attempts shows no button. Other
+  > outcomes:
+  >
+  > - **Gallery regression, avoided.** The gallery hid deleted titles only because their
+  >   job went `cancelled`. Both job-delete routes now call `markRemovedFromLibrary`
+  >   instead. **Phase 4 · A3 must delete these new calls too** (see there).
+  > - **Bug fixed.** A completed movie/show job from before a restart could not be
+  >   deleted (`updateJob` threw for a job not in memory).
+  > - **Broadcasts.** Deleting a finished movie/show attempt sends no job event. Nothing
+  >   sends a media event either, so other open tabs don't see the title leave (unchanged
+  >   from before).
+  > - **Hidden attribution.** A re-download keeps the previous attempt's
+  >   `hiddenAttribution`, whoever presses Download.
+  > - **`MEDIA_TRANSITIONS`.** Now legal: `Requested/Searching → Completed` (from A1),
+  >   `Searching/Downloading/Importing → Paused`, `Paused → Downloading/Importing/Completed`.
+  > - **Stale comments** remain in `download-state.service.ts`: the
+  >   `markRemovedFromLibrary` doc, and the ~:394 example "deleting an already-finished
+  >   movie". Picked up by Phase 5 · A1.
+
+- [x] **A4. Remove the per-job snapshot graft.** `b5341653` One source for `queueSnapshot`.
 
   **Files:** edit `download-state.service.ts` (`toJob` :325-347 — stop grafting;
   `setQueueSnapshot` :125 becomes `touchJob(id)`: broadcast an `Updated` job event
@@ -1517,9 +1562,39 @@ terminal` (paused videos included, as today and for the documented reason); movi
   **Tests:** a progress change still produces a job `Updated` frame carrying the new
   `queueSnapshot`; `grep -rn queueSnapshots apps/download/src` is empty.
 
-- [ ] **A5. Phase 3 verification + docs.** Full checks as in Phase 1 · C1. `backend.md`
+  > **Findings:** the premise held: every broadcast hydrates through `resolve()` →
+  > `annotate()`. The poller remembers each job's last snapshot in a private
+  > `lastSnapshot` map, because by `applyUpdate` time the previous queue has already been
+  > replaced. It calls `touchJob` only for a progress-only change, so each job gets at most
+  > one frame per tick. A job whose item leaves the queue without settling gets one touch,
+  > so clients drop its stale progress; before, the graft kept the last progress until
+  > the job went terminal. Behaviour change: `job.media.queueSnapshot` is now per title,
+  > so an episode job and a whole-series job on one show carry the same series-wide
+  > progress on the wire.
+
+- [x] **A5. Phase 3 verification + docs.** `48f83b3c` Full checks as in Phase 1 · C1. `backend.md`
       section `## Jobs are attempts (plan 021 · Phase 3)`. Raise [human checkpoint
       4](#human-checkpoints) (restart with an in-flight movie).
+
+  > **Findings (2026-09-23):** all green. App: 4428 passed + 9 skipped (190 suites).
+  > Utils: 495 / 9. Root: type-check 12/12, lint 15/15. Live (read-only): `tmdb:50546` →
+  > `available` (one `completed` attempt); `tmdb:920` (_Cars_) → `available` (`failed`
+  > "Interrupted by a service restart" + `completed`).
+  >
+  > ⚠️ **The dev container is not running Phase 3.** Its `nest start -w` watcher is gone.
+  > The backend process and `dist/` date from 2026-09-22 20:25/20:26, and the last boot
+  > line uses the old wording (`Re-adopted 0 restart-surviving job(s)`). The live reads
+  > above therefore exercise Phase 1–2 code only. Phase 3 needs the restart in [human
+  > checkpoint 1](#human-checkpoints) before checkpoint 5 can be observed; the new boot
+  > line reads `Re-adopted N open job(s)`.
+  >
+  > `backend.md` passages about the old sweep, the no-item ⇒ completed rule and the
+  > snapshot graft sit in dated history sections, so each got a "superseded by
+  > Phase 3" pointer; the history text itself is unchanged. The frontend logs a
+  > pre-existing, unrelated `controller[kState].transformAlgorithm is not a function`
+  > (29×).
+  >
+  > ⛔ **Stopped here for human checkpoint 5** (restart with an in-flight movie).
 
 ### Phase 4 — Gallery and home read the library
 
@@ -1576,8 +1651,9 @@ terminal` (paused videos included, as today and for the documented reason); movi
   modelled on `migrate-0002.spec.ts`. Delete `src/media/library-sync.ts` + test; remove
   the call from `bootstrap.ts:47`; remove `markRemovedFromLibrary`
   (`download-state.service.ts:463`), `markJobsRemovedFromLibrary` (`jobs.repo.ts:303`),
-  `JobListFilter.excludeRemovedFromLibrary` (:73, :142) and the `show.service.ts:241`
-  call; keep `DeleteMediaFilesResponse.removedFromLibrary` (it means "removed from
+  `JobListFilter.excludeRemovedFromLibrary` (:73, :142), the `show.service.ts:241`
+  call **and the two calls Phase 3 · A3 added** in `MediaDownloadService.deleteJob` and
+  `DownloadService.deleteVideoDownloadJob` (plus their tests); keep `DeleteMediaFilesResponse.removedFromLibrary` (it means "removed from
   Radarr/Sonarr", not the column).
 
   ```sql
@@ -1620,7 +1696,11 @@ terminal` (paused videos included, as today and for the documented reason); movi
   **Files:** whatever this grep still finds — `grep -rn "adoptSurvivingJobs\|RESTART_SURVIVING_STATUSES\|listMediaGroupsPage\|excludeRemovedFromLibrary\|removedFromLibrary\|syncDownloadedLibrary\|getDownloadedMovies\|getDownloadedSeries\|queueSnapshots\|currentJob\b\|mergeLiveMediaJobs" apps/download/src packages/utils/src docs/features/download/backend.md` —
   plus `getDownloadedMovies`/`getDownloadedSeries` (`radarr.service.ts:262`,
   `sonarr.service.ts:365`) if A1 of Phase 4 left them unused, and the
-  `DownloadQueueSnapshotSchema` doc comment (:66-70) that still says "per tracked job".
+  `DownloadQueueSnapshotSchema` doc comment (:66-70) that still says "per tracked job",
+  and the stale comments Phase 3 · A2/A3 reported (`download-state.service.ts`'s
+  "deleting an already-finished movie" example, and the old restart sweep described in
+  `docs/context/download-backend-verification-status.md` and
+  `docs/features/download/local-verification.md`).
 
   **Tests:** the grep is empty except for `backend.md` history sections, which stay.
 
