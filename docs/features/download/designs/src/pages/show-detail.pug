@@ -6,10 +6,10 @@ block title
 //-
   Three levels of "download this" — series, season, episode — and an episode
   list where each level's state is legible without opening anything. The
-  screen is drawn several times per viewport — primary, two modals, and the
-  loading state — so everything that repeats between them (the header block,
-  the season strip, the episode list) is a mixin here rather than hand-kept
-  copies.
+  screen is drawn several times per viewport — primary, started-from-Sonarr,
+  two modals, and the loading state — so everything that repeats between
+  them (the header block, the season strip, the episode list, the Attempts
+  list) is a mixin here rather than hand-kept copies.
 
 //- Back-to-library breadcrumb inside the app body.
 mixin libraryLink
@@ -18,18 +18,37 @@ mixin libraryLink
     span(class='text-sm text-ink-3') Library
 
 //-
+  The media-state chip — the same seven-value vocabulary as the movie and
+  video pages (plan 021), used at series, season-tab and episode level alike.
+  `available` is what the old "in library" / "N of M episodes" chips already
+  were; there's one rendering path now, the count is just prose next to it.
+mixin mediaChip(state)
+  - const s = MEDIA_STATE[state] || MEDIA_STATE.absent
+  +chip({ label: s.live ? null : s.label, tone: s.tone })&attributes(attributes)
+    if s.live
+      +dot('live')
+      = s.label
+
+//-
   Poster + title + metadata + cast + actions. `opts.cast`/`opts.synopsis`/
   `opts.attribution` are omitted in the cropped modal frames, which only need
-  enough of the page for the scrim to sit over something.
+  enough of the page for the scrim to sit over something. `opts.state` drives
+  the chip; `opts.episodeInfo` is the "N of M episodes" prose that used to be
+  a second chip.
 mixin showHeader(view, opts)
   - opts = opts || {}
   - const mobile = view === 'mobile'
+  - const state = opts.state || 'available'
   if mobile
     +poster({ shape: 'tall', v: 3, src: 'assets/emby/show-1.jpg', label: TITLE })(
       class='mx-auto mb-4 w-full max-w-[220px]'
     )
     p(class='mb-1.5 text-h1')= TITLE
-    p(class=['text-sm text-ink-3', opts.synopsis ? 'mb-3' : 'mb-4'])= META
+    p(class='mb-2 text-sm text-ink-3')= META
+    div(class='mb-4 flex flex-wrap items-center gap-2')
+      +mediaChip(state)
+      if opts.episodeInfo
+        span(class='font-mono text-mono-sm text-ink-3')= opts.episodeInfo
     if opts.synopsis
       p(class='mb-4 text-sm text-ink-3')= SYNOPSIS
     if opts.cast
@@ -50,7 +69,11 @@ mixin showHeader(view, opts)
       div(class='flex flex-1 flex-col gap-[14px] pt-0.5')
         div
           p(class='mb-1.5 text-h1')= TITLE
-          p(class='text-sm text-ink-3')= META
+          p(class='mb-2 text-sm text-ink-3')= META
+          div(class='flex items-center gap-2')
+            +mediaChip(state)
+            if opts.episodeInfo
+              span(class='font-mono text-mono-sm text-ink-3')= opts.episodeInfo
         if opts.synopsis
           p(class='max-w-[62ch] text-sm text-ink-3')= SYNOPSIS
         if opts.cast
@@ -66,27 +89,79 @@ mixin showHeader(view, opts)
           +btn({ label: 'Download series', variant: 'outline', iconEnd: 'download' })
           +btn({ label: 'Delete series', variant: 'bad', iconEnd: 'trash' })
 
-//- The season strip: which season is open, and whether another is mid-grab.
+//-
+  Attempts — replaces the old lifecycle panel + "Earlier attempts" list, at
+  series level. Newest first: an in-flight attempt is highlighted with its
+  own progress/note and actions; terminal ones are StateLines (chip,
+  relative time, requester, error). An empty list renders nothing.
+mixin attemptInFlight(a, mobile)
+  +card()(class=['border-uv/35 bg-uv-ghost/30', mobile ? 'p-4' : 'p-5'])&attributes(attributes)
+    div(class='mb-3 flex items-center justify-between gap-3')
+      +mediaChip(a.state)
+      if a.progress !== undefined
+        span(class='font-mono text-mono-sm tabular-nums text-uv-hi')= `${a.progress}%`
+    if a.progress !== undefined
+      +bar(a.progress)(class='mb-2')
+    if a.note
+      p(class='mb-3 text-sm text-ink-3')= a.note
+    if a.throughput
+      p(class='mb-3 font-mono text-mono-sm tabular-nums text-ink-3')= a.throughput
+    div(class=['flex items-center gap-2', mobile ? 'flex-col' : ''])
+      each act in a.actions
+        +btn({ label: act.label, variant: act.variant, iconEnd: act.icon, full: mobile })
+
+mixin attemptLine(a, mobile)
+  +stline({ mobile: mobile })
+    +chip({ label: a.label, tone: a.tone })(class=mobile ? '' : 'w-[108px] justify-center')
+    span(
+      class=[mobile ? '' : 'min-w-0 flex-1', 'flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-ink-3']
+    )
+      span(class='font-mono text-mono-sm text-ink-4')= a.when
+      span(class='flex items-center gap-1.5')
+        +avatar(a.who[0])(class='h-5 w-5 text-[9px]')
+        span(class='font-mono text-mono-sm text-ink-3')= a.who[1]
+      if a.error
+        span(class='text-bad')= a.error
+
+mixin attemptsList(view, items)
+  - const mobile = view === 'mobile'
+  if items && items.length
+    p(class='mb-3 text-h2') Attempts
+    - const inFlight = items.find(a => a.inFlight)
+    - const terminal = items.filter(a => !a.inFlight)
+    if inFlight
+      +attemptInFlight(inFlight, mobile)(class='mb-3')
+    if terminal.length
+      +card({ sunk: true })(class=[mobile ? 'px-[14px] py-1' : 'px-4 py-1', mobile ? 'mb-7' : 'mb-8'])
+        each a in terminal
+          +attemptLine(a, mobile)
+
+//- The season strip: which season is open, and the rollup dot for whichever
+    others aren't just `available` — live-green for downloading/importing,
+    warn-amber for needs_attention, generalised rather than hardcoded to
+    "the one season that's downloading".
 mixin seasonTabs(view)
   - const mobile = view === 'mobile'
   if mobile
     +tabs({ scroll: true })(class='mb-4')
-      +tab('S1', false)
-      +tab('S2', true)
-      +tab('', false)
-        span(class='inline-flex items-center gap-[5px]')
-          | S3
-          +dot('live')
-          span(class='font-mono text-mono-sm tabular-nums text-ok') 58%
+      each s in SEASONS
+        +tab(s.dot ? '' : s.short, !!s.selected)
+          if s.dot
+            span(class='inline-flex items-center gap-[5px]')
+              = s.short
+              +dot(s.dot)
+              if s.pct
+                span(class='font-mono text-mono-sm tabular-nums text-uv-hi')= `${s.pct}%`
   else
     +tabs()(class='mb-5')
-      +tab('Season 1', false)
-      +tab('Season 2', true)
-      +tab('', false)
-        span(class='inline-flex items-center gap-1.5')
-          | Season 3
-          +dot('live')
-          span(class='font-mono text-mono-sm tabular-nums text-ok') 58%
+      each s in SEASONS
+        +tab(s.dot ? '' : s.label, !!s.selected)
+          if s.dot
+            span(class='inline-flex items-center gap-1.5')
+              = s.label
+              +dot(s.dot)
+              if s.pct
+                span(class='font-mono text-mono-sm tabular-nums text-uv-hi')= `${s.pct}%`
 
 //- One episode row. Desktop puts everything on one line; mobile stacks the
     number and title, then the metadata, then any progress row.
@@ -196,6 +271,41 @@ mixin modalFrame(view, label)
         +episodeList(view)
     block
 
+//-
+  A queue item Sonarr is running that this app never started a job for — the
+  gap plan 021 closes: progress comes from the queue snapshot alone, whether
+  or not a job exists, so there's a chip and a bar but no attempt row to hang
+  cancel/pause on.
+mixin startedFromSonarrFrame(view)
+  - const suffix = view === 'mobile' ? 'm' : 'd'
+  +frameLabel()(class='mt-1' id='started-from-sonarr-' + suffix)
+    | Started from Sonarr
+  +appFrame(view)
+    +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
+    +appBody(view)
+      if view === 'mobile'
+        +showHeader(view, { state: 'downloading' })
+        +card()(class='mb-7 p-4')
+          div(class='mb-2 flex items-center justify-between')
+            span(class='font-mono text-mono-sm text-ink-3') queue snapshot
+            span(class='font-mono text-mono-sm tabular-nums text-uv-hi')= `${EXTERNAL_QUEUE.progress}%`
+          +bar(EXTERNAL_QUEUE.progress)(class='mb-3')
+          p(class='mb-3 font-mono text-mono-sm tabular-nums text-ink-3')= EXTERNAL_QUEUE.throughput
+          +note('alert')
+            p(class='text-sm text-ink-2') Grabbed from Sonarr directly — no attempt to show, cancel or pause here.
+      else
+        div(class='mx-auto max-w-[1080px]')
+          +libraryLink
+          +showHeader(view, { state: 'downloading' })
+          +card()(class='mb-8 max-w-[480px] p-5')
+            div(class='mb-2 flex items-center justify-between')
+              span(class='font-mono text-mono-sm text-ink-3') queue snapshot
+              span(class='font-mono text-mono-sm tabular-nums text-uv-hi')= `${EXTERNAL_QUEUE.progress}%`
+            +bar(EXTERNAL_QUEUE.progress)(class='mb-3')
+            p(class='mb-3 font-mono text-mono-sm tabular-nums text-ink-3')= EXTERNAL_QUEUE.throughput
+            +note('alert')
+              p(class='text-sm text-ink-2') Grabbed from Sonarr directly — no attempt to show, cancel or pause here.
+
 //- Everything below the fold on the primary frame: state legend, cast
     overflow, and the two flows as storyboards.
 mixin appendix(view)
@@ -205,7 +315,7 @@ mixin appendix(view)
   p(class='mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Other states on this page
   +card({ sunk: true })(class=mobile ? 'px-[14px] py-1' : 'px-4 py-1')
     +stline({ mobile: mobile })
-      +chip({ label: 'not started', tone: 'mute' })(class=mobile ? '' : 'w-[118px] justify-center')
+      +chip({ label: 'not downloaded', tone: 'mute' })(class=mobile ? '' : 'w-[168px] justify-center')
       span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3']) Nothing grabbed yet — 0 of 24 episodes.
       if mobile
         +stlineActions
@@ -213,7 +323,10 @@ mixin appendix(view)
       else
         +btn({ label: 'Download series', variant: 'outline', size: 'sm', iconEnd: 'download' })
     +stline({ mobile: mobile })
-      +chip({ tone: 'ok' })(class=mobile ? '' : 'w-[118px] justify-center')
+      +chip({ label: 'wanted', tone: 'mute' })(class=mobile ? '' : 'w-[168px] justify-center')
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3']) Monitored — nothing queued yet.
+    +stline({ mobile: mobile })
+      +chip({ tone: 'uv' })(class=mobile ? '' : 'w-[168px] justify-center')
         +dot('live')
         | downloading
       div(class=['flex items-center gap-2', mobile ? 'w-full' : 'w-[140px]'])
@@ -226,21 +339,33 @@ mixin appendix(view)
       else
         +btn({ label: 'Cancel', variant: 'bad', size: 'sm', iconEnd: 'x' })
     +stline({ mobile: mobile })
-      +chip({ label: 'completed', tone: 'ok' })(class=mobile ? '' : 'w-[118px] justify-center')
-      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3']) Season 1 · all 8 episodes downloaded.
-      if mobile
-        +stlineActions
-          +btn({ label: 'Delete season', variant: 'bad', size: 'sm', iconEnd: 'trash' })
-      else
-        +btn({ label: 'Delete season', variant: 'bad', size: 'sm', iconEnd: 'trash' })
+      +chip({ tone: 'uv' })(class=mobile ? '' : 'w-[168px] justify-center')
+        +dot('live')
+        | importing…
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3']) Season 3, episode 6 is finishing its import.
     +stline({ mobile: mobile })
-      +chip({ label: 'failed', tone: 'bad' })(class=mobile ? '' : 'w-[118px] justify-center')
+      +chip({ label: 'needs your decision', tone: 'warn' })(class=mobile ? '' : 'w-[168px] justify-center')
       span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3']) Season 3 stopped after 4 of 7 episodes.
       if mobile
         +stlineActions
           +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
       else
         +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+    +stline({ mobile: mobile })
+      +chip({ label: 'in library', tone: 'ok' })(class=mobile ? '' : 'w-[168px] justify-center')
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3']) Season 1 · all 8 episodes downloaded.
+      if mobile
+        +stlineActions
+          +btn({ label: 'Delete season', variant: 'bad', size: 'sm', iconEnd: 'trash' })
+      else
+        +btn({ label: 'Delete season', variant: 'bad', size: 'sm', iconEnd: 'trash' })
+
+  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Attempts — empty state
+  p(class='mb-3 text-sm text-ink-3')
+    | No attempts yet: the Attempts heading, the in-flight card and the terminal list are all omitted —
+    | the "not downloaded" chip above is the only signal.
+  +card({ sunk: true })(class=[mobile ? 'px-[14px]' : 'px-4', 'py-[13px] text-center text-sm text-ink-4'])
+    | (nothing renders here)
 
   p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Cast — overflow
   if mobile
@@ -373,10 +498,11 @@ mixin loadingState(view)
 block content
   +mockHead({ eyebrow: 'lilnas · download', title: 'Show detail' })
     p(class='max-w-[62ch] text-sm text-ink-3')
-      | Three levels of "download this": the whole series, one season, or a single episode — the episode list
-      | makes each level's current state legible at a glance, from downloaded to indexing to flagged, with a
-      | compact legend below for the series- and season-level states that aren't already on screen, plus the
-      | delete and report-a-problem flows.
+      | Three levels of "download this": the whole series, one season, or a single episode — since plan 021,
+      | every level reads the same media-state chip instead of the newest job, the season strip carries a
+      | rollup dot for whichever season isn't just downloaded, and an Attempts list at series level replaces the
+      | lifecycle panel and "Earlier attempts". A compact legend below covers the series- and season-level
+      | states that aren't already on screen, plus the delete and report-a-problem flows.
 
   div(class='vp-scope')
     +viewportToggle('viewport')(class='mb-8' role='radiogroup' aria-label='Viewport')
@@ -390,18 +516,27 @@ block content
           +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
           +appBody(view)
             if view === 'mobile'
-              +showHeader(view, { synopsis: true, cast: true, attribution: true })
+              +showHeader(view, { synopsis: true, cast: true, attribution: true, episodeInfo: '14 of 24 episodes' })
+              +attemptsList(view, ATTEMPTS)
               +seasonTabs(view)
               +episodeList(view)
             else
               div(class='mx-auto max-w-[1080px]')
                 +libraryLink
-                +showHeader(view, { synopsis: true, cast: true, attribution: true })
+                +showHeader(view, {
+                  synopsis: true,
+                  cast: true,
+                  attribution: true,
+                  episodeInfo: '14 of 24 episodes',
+                })
+                +attemptsList(view, ATTEMPTS)
                 +seasonTabs(view)
                 +episodeList(view)
 
         div(class=view === 'desktop' ? 'mx-auto max-w-[1080px]' : 'w-full max-w-[390px]')
           +appendix(view)
+
+        +startedFromSonarrFrame(view)
 
         +modalFrame(view, 'Report an episode — as a modal')
           +reportModal(view)

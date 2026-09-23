@@ -1369,6 +1369,9 @@
         .gap-px {
           gap: 1px;
         }
+        .gap-x-2 {
+          column-gap: calc(var(--spacing) * 2);
+        }
         .gap-x-3 {
           column-gap: calc(var(--spacing) * 3);
         }
@@ -1377,6 +1380,9 @@
         }
         .gap-y-1 {
           row-gap: calc(var(--spacing) * 1);
+        }
+        .gap-y-1\.5 {
+          row-gap: calc(var(--spacing) * 1.5);
         }
         .gap-y-\[22px\] {
           row-gap: 22px;
@@ -1628,6 +1634,18 @@
         .bg-uv-ghost {
           background-color: var(--color-uv-ghost);
         }
+        .bg-uv-ghost\/30 {
+          background-color: #ad73ff0a;
+        }
+        @supports (color: color-mix(in lab, red, red)) {
+          .bg-uv-ghost\/30 {
+            background-color: color-mix(
+              in oklab,
+              var(--color-uv-ghost) 30%,
+              transparent
+            );
+          }
+        }
         .bg-uv\/70 {
           background-color: #ad73ffb3;
         }
@@ -1639,6 +1657,9 @@
               transparent
             );
           }
+        }
+        .bg-warn {
+          background-color: var(--color-warn);
         }
         .bg-warn-ghost {
           background-color: var(--color-warn-ghost);
@@ -2242,9 +2263,6 @@
         }
         .opacity-55 {
           opacity: 0.55;
-        }
-        .opacity-60 {
-          opacity: 0.6;
         }
         .opacity-70 {
           opacity: 0.7;
@@ -3745,9 +3763,11 @@
         <p class="max-w-[62ch] text-sm text-ink-3">
           The permalink for a video someone shared, distinct from its own
           author's post: a self-contained page with the source, who grabbed it
-          internally, and — where pause/resume becomes real — the download's
-          progress right on the page, with a compact legend beneath it showing
-          how every other state reads.
+          internally, and a media-state chip (plan 021) instead of a job status
+          — an Attempts list under it carries progress for whichever attempt is
+          in flight and its own actions, with earlier tries as a compact
+          history, and a legend further down showing how every other state
+          reads.
         </p>
       </header>
       <div class="vp-scope">
@@ -3896,56 +3916,92 @@
                       >
                     </div>
                     <span
-                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-ok-ghost text-ok border-ok/30 mt-0.5 w-fit"
+                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30 w-fit"
                       ><span
                         class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
                       ></span
                       >downloading</span
                     >
-                    <div
-                      class="rounded-lg border border-line p-5 bg-surface mt-1.5 max-w-[480px]"
-                    >
-                      <div class="flex flex-col gap-4">
-                        <div>
-                          <div class="mb-2 flex items-center justify-between">
-                            <span class="font-mono text-mono-sm text-ink-3"
-                              >fragment 4 of 9</span
-                            ><span
-                              class="font-mono text-mono-sm tabular-nums text-uv-hi"
-                              >64%</span
+                    <div class="mt-1.5 max-w-[480px]">
+                      <p class="mb-2.5 text-h2">Attempts</p>
+                      <div
+                        class="rounded-lg border border-line p-5 bg-surface border-uv/35 bg-uv-ghost/30 p-5 mb-3"
+                      >
+                        <span
+                          class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30 mb-3 w-fit"
+                          ><span
+                            class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
+                          ></span
+                          >downloading</span
+                        >
+                        <div class="flex flex-col gap-4">
+                          <div>
+                            <div class="mb-2 flex items-center justify-between">
+                              <span class="font-mono text-mono-sm text-ink-3"
+                                >fragment 4 of 9</span
+                              ><span
+                                class="font-mono text-mono-sm tabular-nums text-uv-hi"
+                                >64%</span
+                              >
+                            </div>
+                            <div
+                              class="h-[5px] overflow-hidden rounded-full bg-surface-3"
                             >
+                              <i
+                                class="block h-full rounded-full bg-uv transition-[width] duration-[380ms] ease-uv"
+                                style="width: 64%"
+                              ></i>
+                            </div>
                           </div>
-                          <div
-                            class="h-[5px] overflow-hidden rounded-full bg-surface-3"
+                          <p
+                            class="font-mono text-mono-sm tabular-nums text-ink-3"
                           >
-                            <i
-                              class="block h-full rounded-full bg-uv transition-[width] duration-[380ms] ease-uv"
-                              style="width: 64%"
-                            ></i>
+                            412&nbsp;MB / 640&nbsp;MB &nbsp;·&nbsp;
+                            3.1&nbsp;MB/s &nbsp;·&nbsp; ~2m left
+                          </p>
+                          <div class="flex items-center gap-2.5">
+                            <button
+                              class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[38px] px-[15px]"
+                              type="button"
+                            >
+                              Pause<svg class="h-[15px] w-[15px] shrink-0">
+                                <use href="#i-pause"></use>
+                              </svg></button
+                            ><button
+                              class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[38px] px-[11px]"
+                              type="button"
+                            >
+                              Cancel<svg class="h-[15px] w-[15px] shrink-0">
+                                <use href="#i-x"></use>
+                              </svg>
+                            </button>
                           </div>
                         </div>
-                        <p
-                          class="font-mono text-mono-sm tabular-nums text-ink-3"
+                      </div>
+                      <div
+                        class="rounded-lg border border-line p-5 bg-bg-sunk px-4 py-1"
+                      >
+                        <div
+                          class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft items-center gap-[14px]"
                         >
-                          412&nbsp;MB / 640&nbsp;MB &nbsp;·&nbsp; 3.1&nbsp;MB/s
-                          &nbsp;·&nbsp; ~2m left
-                        </p>
-                        <div class="flex items-center gap-2.5">
-                          <button
-                            class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[38px] px-[15px]"
-                            type="button"
+                          <span
+                            class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-bad-ghost text-bad border-bad/32 w-[108px] justify-center"
+                            >failed</span
+                          ><span
+                            class="min-w-0 flex-1 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-ink-3"
+                            ><span class="font-mono text-mono-sm text-ink-4"
+                              >1h ago</span
+                            ><span class="flex items-center gap-1.5"
+                              ><span
+                                class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] h-5 w-5 text-[9px]"
+                                >JA</span
+                              ><span class="font-mono text-mono-sm text-ink-3"
+                                >Jeremy</span
+                              ></span
+                            ><span class="text-bad"
+                              >HTTP 403 from source</span
+                            ></span
                           >
-                            Pause<svg class="h-[15px] w-[15px] shrink-0">
-                              <use href="#i-pause"></use>
-                            </svg></button
-                          ><button
-                            class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[38px] px-[11px]"
-                            type="button"
-                          >
-                            Cancel<svg class="h-[15px] w-[15px] shrink-0">
-                              <use href="#i-x"></use>
-                            </svg>
-                          </button>
                         </div>
                       </div>
                     </div>
@@ -4110,9 +4166,36 @@
                       >
                     </div>
                     <span
-                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-ok-ghost text-ok border-ok/30 mt-0.5 w-fit"
-                      >completed</span
+                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-ok-ghost text-ok border-ok/30 w-fit"
+                      >downloaded</span
                     >
+                    <div class="mt-1.5 max-w-[480px]">
+                      <p class="mb-2.5 text-h2">Attempts</p>
+                      <div
+                        class="rounded-lg border border-line p-5 bg-bg-sunk px-4 py-1"
+                      >
+                        <div
+                          class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft items-center gap-[14px]"
+                        >
+                          <span
+                            class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-ok-ghost text-ok border-ok/30 w-[108px] justify-center"
+                            >completed</span
+                          ><span
+                            class="min-w-0 flex-1 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-ink-3"
+                            ><span class="font-mono text-mono-sm text-ink-4"
+                              >12m ago</span
+                            ><span class="flex items-center gap-1.5"
+                              ><span
+                                class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] h-5 w-5 text-[9px]"
+                                >JA</span
+                              ><span class="font-mono text-mono-sm text-ink-3"
+                                >Jeremy</span
+                              ></span
+                            ></span
+                          >
+                        </div>
+                      </div>
+                    </div>
                     <div class="mt-1 flex items-center gap-2.5">
                       <button
                         class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[38px] px-[15px]"
@@ -4157,7 +4240,7 @@
                 class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft items-center gap-[14px]"
               >
                 <span
-                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-surface-2 text-ink-3 border-line w-[108px] justify-center"
+                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-surface-2 text-ink-3 border-line w-[130px] justify-center"
                   >not downloaded</span
                 ><span class="min-w-0 flex-1 text-sm text-ink-3"
                   >Ready to grab whenever.</span
@@ -4174,17 +4257,59 @@
                 class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft items-center gap-[14px]"
               >
                 <span
-                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-surface-2 text-ink-3 border-line w-[108px] justify-center"
-                  >queued</span
+                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-surface-2 text-ink-3 border-line w-[130px] justify-center"
+                  >wanted</span
                 ><span class="min-w-0 flex-1 text-sm text-ink-3"
-                  >Waiting for a slot — usually seconds.</span
+                  >Queued — waiting for a slot, usually seconds.</span
                 >
               </div>
               <div
                 class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft items-center gap-[14px]"
               >
                 <span
-                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-surface-2 text-ink-3 border-line w-[108px] justify-center"
+                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30 w-[130px] justify-center"
+                  ><span
+                    class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
+                  ></span
+                  >downloading</span
+                ><span class="min-w-0 flex-1 text-sm text-ink-3"
+                  >Bytes are moving — see the Attempts card above.</span
+                >
+              </div>
+              <div
+                class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft items-center gap-[14px]"
+              >
+                <span
+                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30 w-[130px] justify-center"
+                  ><span
+                    class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
+                  ></span
+                  >processing…</span
+                ><span class="min-w-0 flex-1 text-sm text-ink-3"
+                  >Down, and yt-dlp is converting/uploading/cleaning up.</span
+                >
+              </div>
+              <div
+                class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft items-center gap-[14px]"
+              >
+                <span
+                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-warn-ghost text-warn border-warn/30 w-[130px] justify-center"
+                  >needs your decision</span
+                ><span class="min-w-0 flex-1 text-sm text-ink-3"
+                  >yt-dlp got stuck partway through — pick retry or
+                  discard.</span
+                ><button
+                  class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[30px] px-[11px] text-[13px]"
+                  type="button"
+                >
+                  Retry
+                </button>
+              </div>
+              <div
+                class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft items-center gap-[14px]"
+              >
+                <span
+                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-warn-ghost text-warn border-warn/30 w-[130px] justify-center"
                   >paused</span
                 ><span class="min-w-0 flex-1 text-sm text-ink-3"
                   >64% — resume anytime, nothing's lost.</span
@@ -4199,8 +4324,8 @@
                 class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft items-center gap-[14px]"
               >
                 <span
-                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-ok-ghost text-ok border-ok/30 w-[108px] justify-center"
-                  >completed</span
+                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-ok-ghost text-ok border-ok/30 w-[130px] justify-center"
+                  >downloaded</span
                 ><span class="min-w-0 flex-1 text-sm text-ink-3"
                   >Ready to watch.</span
                 ><button
@@ -4219,35 +4344,41 @@
                   </svg>
                 </button>
               </div>
+            </div>
+            <p
+              class="mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+            >
+              Not a media state — the link itself didn't resolve
+            </p>
+            <div class="rounded-lg border border-line p-5 bg-bg-sunk px-4 py-1">
               <div
                 class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft items-center gap-[14px]"
               >
                 <span
-                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-bad-ghost text-bad border-bad/32 w-[108px] justify-center"
-                  >failed</span
-                ><span class="min-w-0 flex-1 text-sm text-ink-3"
-                  >That link stopped responding halfway through.
-                  <span class="font-mono text-mono-sm text-ink-4"
-                    >ETIMEDOUT</span
-                  ></span
-                ><button
-                  class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[30px] px-[11px] text-[13px]"
-                  type="button"
-                >
-                  Retry
-                </button>
-              </div>
-              <div
-                class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft items-center gap-[14px]"
-              >
-                <span
-                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-bad-ghost text-bad border-bad/32 w-[108px] justify-center"
+                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-bad-ghost text-bad border-bad/32 w-[130px] justify-center"
                   >not recognized</span
                 ><span class="min-w-0 flex-1 text-sm text-ink-3"
                   >That link isn't one yt-dlp recognises — try a different link
-                  from the nav bar.</span
+                  from the nav bar. Nothing was ever created, so there's no
+                  media state to show — this is a submission error, not a row in
+                  the seven-value vocabulary above.</span
                 >
               </div>
+            </div>
+            <p
+              class="mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+            >
+              Attempts — empty state
+            </p>
+            <p class="mb-3 text-sm text-ink-3">
+              No attempts yet: the Attempts heading, the in-flight card and the
+              terminal list are all omitted — the "not downloaded" chip above is
+              the only signal.
+            </p>
+            <div
+              class="rounded-lg border border-line p-5 bg-bg-sunk px-4 py-[13px] text-center text-sm text-ink-4"
+            >
+              (nothing renders here)
             </div>
           </div>
         </div>
@@ -4355,14 +4486,24 @@
                 >
               </div>
               <span
-                class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-ok-ghost text-ok border-ok/30 mb-4 flex w-fit"
+                class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30 mb-4 flex w-fit"
                 ><span
                   class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
                 ></span
                 >downloading</span
               >
-              <div class="rounded-lg border border-line p-5 bg-surface p-4">
-                <div class="flex flex-col gap-4 gap-[14px]">
+              <p class="mb-2.5 text-h2">Attempts</p>
+              <div
+                class="rounded-lg border border-line p-5 bg-surface border-uv/35 bg-uv-ghost/30 p-4 mb-3"
+              >
+                <span
+                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30 mb-3 w-fit"
+                  ><span
+                    class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
+                  ></span
+                  >downloading</span
+                >
+                <div class="flex flex-col gap-4">
                   <div>
                     <div class="mb-2 flex items-center justify-between">
                       <span class="font-mono text-mono-sm text-ink-3"
@@ -4385,24 +4526,48 @@
                     412&nbsp;MB / 640&nbsp;MB &nbsp;·&nbsp; 3.1&nbsp;MB/s
                     &nbsp;·&nbsp; ~2m left
                   </p>
+                  <div class="flex items-center gap-2.5 flex-col">
+                    <button
+                      class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[38px] px-[15px] w-full"
+                      type="button"
+                    >
+                      Pause<svg class="h-[15px] w-[15px] shrink-0">
+                        <use href="#i-pause"></use>
+                      </svg></button
+                    ><button
+                      class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[38px] px-[11px] w-full"
+                      type="button"
+                    >
+                      Cancel<svg class="h-[15px] w-[15px] shrink-0">
+                        <use href="#i-x"></use>
+                      </svg>
+                    </button>
+                  </div>
                 </div>
               </div>
-              <div class="mt-[14px] flex flex-col gap-2">
-                <button
-                  class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[38px] px-[15px] w-full"
-                  type="button"
+              <div
+                class="rounded-lg border border-line p-5 bg-bg-sunk px-[14px] py-1"
+              >
+                <div
+                  class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft flex-col items-start gap-[9px]"
                 >
-                  Pause<svg class="h-[15px] w-[15px] shrink-0">
-                    <use href="#i-pause"></use>
-                  </svg></button
-                ><button
-                  class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[38px] px-[11px] w-full"
-                  type="button"
-                >
-                  Cancel<svg class="h-[15px] w-[15px] shrink-0">
-                    <use href="#i-x"></use>
-                  </svg>
-                </button>
+                  <span
+                    class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-bad-ghost text-bad border-bad/32"
+                    >failed</span
+                  ><span
+                    class="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-ink-3"
+                    ><span class="font-mono text-mono-sm text-ink-4"
+                      >1h ago</span
+                    ><span class="flex items-center gap-1.5"
+                      ><span
+                        class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] h-5 w-5 text-[9px]"
+                        >JA</span
+                      ><span class="font-mono text-mono-sm text-ink-3"
+                        >Jeremy</span
+                      ></span
+                    ><span class="text-bad">HTTP 403 from source</span></span
+                  >
+                </div>
               </div>
             </div>
           </div>
@@ -4552,9 +4717,34 @@
               </div>
               <span
                 class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-ok-ghost text-ok border-ok/30 mb-4 w-fit"
-                >completed</span
+                >downloaded</span
               >
-              <div class="flex flex-col gap-2">
+              <p class="mb-2.5 text-h2">Attempts</p>
+              <div
+                class="rounded-lg border border-line p-5 bg-bg-sunk px-[14px] py-1"
+              >
+                <div
+                  class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft flex-col items-start gap-[9px]"
+                >
+                  <span
+                    class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-ok-ghost text-ok border-ok/30"
+                    >completed</span
+                  ><span
+                    class="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-ink-3"
+                    ><span class="font-mono text-mono-sm text-ink-4"
+                      >12m ago</span
+                    ><span class="flex items-center gap-1.5"
+                      ><span
+                        class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] h-5 w-5 text-[9px]"
+                        >JA</span
+                      ><span class="font-mono text-mono-sm text-ink-3"
+                        >Jeremy</span
+                      ></span
+                    ></span
+                  >
+                </div>
+              </div>
+              <div class="mt-[14px] flex flex-col gap-2">
                 <button
                   class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[38px] px-[15px] w-full"
                   type="button"
@@ -4615,16 +4805,60 @@
               >
                 <span
                   class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-surface-2 text-ink-3 border-line"
-                  >queued</span
+                  >wanted</span
                 ><span class="text-sm text-ink-3"
-                  >Waiting for a slot — usually seconds.</span
+                  >Queued — waiting for a slot, usually seconds.</span
                 >
               </div>
               <div
                 class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft flex-col items-start gap-[9px]"
               >
                 <span
-                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-surface-2 text-ink-3 border-line"
+                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30"
+                  ><span
+                    class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
+                  ></span
+                  >downloading</span
+                ><span class="text-sm text-ink-3"
+                  >Bytes are moving — see the Attempts card above.</span
+                >
+              </div>
+              <div
+                class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft flex-col items-start gap-[9px]"
+              >
+                <span
+                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30"
+                  ><span
+                    class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
+                  ></span
+                  >processing…</span
+                ><span class="text-sm text-ink-3"
+                  >Down, and yt-dlp is converting/uploading/cleaning up.</span
+                >
+              </div>
+              <div
+                class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft flex-col items-start gap-[9px]"
+              >
+                <span
+                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-warn-ghost text-warn border-warn/30"
+                  >needs your decision</span
+                ><span class="text-sm text-ink-3"
+                  >yt-dlp got stuck partway through — pick retry or
+                  discard.</span
+                ><span class="flex w-full gap-2 [&>button]:flex-1"
+                  ><button
+                    class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[30px] px-[11px] text-[13px]"
+                    type="button"
+                  >
+                    Retry
+                  </button></span
+                >
+              </div>
+              <div
+                class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft flex-col items-start gap-[9px]"
+              >
+                <span
+                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-warn-ghost text-warn border-warn/30"
                   >paused</span
                 ><span class="text-sm text-ink-3"
                   >64% — resume anytime, nothing's lost.</span
@@ -4642,7 +4876,7 @@
               >
                 <span
                   class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-ok-ghost text-ok border-ok/30"
-                  >completed</span
+                  >downloaded</span
                 ><span class="text-sm text-ink-3">Ready to watch.</span
                 ><span class="flex w-full gap-2 [&>button]:flex-1"
                   ><button
@@ -4661,26 +4895,15 @@
                     </svg></button
                 ></span>
               </div>
-              <div
-                class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft flex-col items-start gap-[9px]"
-              >
-                <span
-                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-bad-ghost text-bad border-bad/32"
-                  >failed</span
-                ><span class="text-sm text-ink-3"
-                  >Stopped responding halfway through.
-                  <span class="font-mono text-mono-sm text-ink-4"
-                    >ETIMEDOUT</span
-                  ></span
-                ><span class="flex w-full gap-2 [&>button]:flex-1"
-                  ><button
-                    class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[30px] px-[11px] text-[13px]"
-                    type="button"
-                  >
-                    Retry
-                  </button></span
-                >
-              </div>
+            </div>
+            <p
+              class="mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+            >
+              Not a media state — the link itself didn't resolve
+            </p>
+            <div
+              class="rounded-lg border border-line p-5 bg-bg-sunk px-[14px] py-1"
+            >
               <div
                 class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft flex-col items-start gap-[9px]"
               >
@@ -4689,9 +4912,23 @@
                   >not recognized</span
                 ><span class="text-sm text-ink-3"
                   >That link isn't one yt-dlp recognises — try a different link
-                  from the nav bar.</span
+                  from the nav bar. No media was ever created here.</span
                 >
               </div>
+            </div>
+            <p
+              class="mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+            >
+              Attempts — empty state
+            </p>
+            <p class="mb-3 text-sm text-ink-3">
+              No attempts yet: the Attempts heading, the in-flight card and the
+              terminal list are all omitted.
+            </p>
+            <div
+              class="rounded-lg border border-line p-5 bg-bg-sunk px-[14px] py-[13px] text-center text-sm text-ink-4"
+            >
+              (nothing renders here)
             </div>
           </div>
         </div>
