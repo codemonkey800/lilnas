@@ -76,7 +76,8 @@ export interface PollableCompletionData {
  * persisting a copy of it was only ever a way for the two to disagree.
  *
  * Runs every 10s via @Cron (this codebase has no @Interval precedent - see
- * ytdlp-update.service.ts). On error, backs off exponentially from 10s up to
+ * ytdlp-update.service.ts). Each tick with work to do first asks upstream to
+ * refresh its queue, which otherwise only moves once a minute. On error, backs off exponentially from 10s up to
  * a 2min cap; a success resets the backoff immediately.
  */
 @Injectable()
@@ -129,6 +130,10 @@ export class MediaPollerService {
     const tracked = await this.trackedJobs(DownloadType.Movie)
     if (tracked.length === 0) return
 
+    await this.requestQueueRefresh('radarr', () =>
+      this.radarrService.refreshMonitoredDownloads(),
+    )
+
     const queue = await this.radarrService.getQueue(
       tracked.map(job => job.upstreamId),
     )
@@ -155,6 +160,10 @@ export class MediaPollerService {
     const tracked = await this.trackedJobs(DownloadType.Show)
     if (tracked.length === 0) return
 
+    await this.requestQueueRefresh('sonarr', () =>
+      this.sonarrService.refreshMonitoredDownloads(),
+    )
+
     const queue = await this.sonarrService.getQueue(
       tracked.map(job => job.upstreamId),
     )
@@ -165,6 +174,32 @@ export class MediaPollerService {
       )
 
       this.applyUpdate(job.record, aggregateQueueItems(matches))
+    }
+  }
+
+  /**
+   * Nudges Radarr/Sonarr to re-read the download client, so the queue this
+   * tick reads is at most one tick old rather than up to a minute. See
+   * `RadarrService.refreshMonitoredDownloads`.
+   *
+   * Only ever reached with at least one job in flight, so an idle app sends
+   * nothing. Best-effort: a refused refresh just means reading the queue as
+   * upstream last refreshed it, which is exactly the old behavior, so it is
+   * logged and swallowed rather than tripping `poll()`'s backoff. If
+   * upstream is genuinely down, the `getQueue` right after it throws and
+   * the backoff happens there.
+   */
+  private async requestQueueRefresh(
+    source: 'radarr' | 'sonarr',
+    refresh: () => Promise<void>,
+  ): Promise<void> {
+    try {
+      await refresh()
+    } catch (err) {
+      this.logger.warn(
+        { action: 'requestQueueRefresh', error: getErrorMessage(err), source },
+        'Queue refresh request failed, reading the queue as-is',
+      )
     }
   }
 
@@ -319,6 +354,14 @@ export class MediaPollerService {
     }
 
     if (newStatus === record.status && !reasonChanged) return
+
+    // Before updateJob, because updateJob is what broadcasts: a detail page
+    // re-renders the moment it hears `completed`, and the resolver's library
+    // cache would otherwise hand it the pre-import copy - no file, no Watch
+    // link - for up to a minute.
+    if (newStatus === DownloadJobStatus.Completed) {
+      this.mediaResolverService.invalidate(record.mediaId)
+    }
 
     this.downloadStateService.updateJob(record.id, {
       // Leaving NeedsAttention must drop the reason explicitly - updateJob

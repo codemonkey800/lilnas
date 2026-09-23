@@ -562,6 +562,28 @@ export class RadarrService {
   }
 
   /**
+   * Asks Radarr to re-read its download client now rather than on its own
+   * once-a-minute schedule. Its queue endpoint serves a cache that only that
+   * task updates, so without this the poller reads the same stale snapshot
+   * for up to a minute however often it asks.
+   *
+   * Queued, not awaited: Radarr runs it in the background (~20ms of work,
+   * done well inside a poll tick), so the refresh lands in time for the next
+   * read. Radarr de-duplicates an identical queued command, so a slow run
+   * never piles them up.
+   */
+  async refreshMonitoredDownloads(): Promise<void> {
+    const command: CommandResourceWritable = {
+      name: 'RefreshMonitoredDownloads',
+    }
+
+    checkSdkError(
+      await postApiV3Command({ client: this.client, body: command }),
+      'refreshMonitoredDownloads',
+    )
+  }
+
+  /**
    * Fetches the current Radarr queue, optionally scoped to specific movie
    * IDs. Used by MediaPollerService (no filter -> all tracked jobs matched
    * client-side) and by unmonitorAndDelete (filtered to one movie).

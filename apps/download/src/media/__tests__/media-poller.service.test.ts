@@ -117,6 +117,7 @@ describe('MediaPollerService', () => {
 
   let service: MediaPollerService
   let downloadStateService: DownloadStateService
+  let mediaResolverService: jest.Mocked<MediaResolverService>
   let radarrService: jest.Mocked<RadarrService>
   let sonarrService: jest.Mocked<SonarrService>
   let dbService: DbService
@@ -130,11 +131,13 @@ describe('MediaPollerService', () => {
     const mockRadarrService = {
       getMovieFiles: jest.fn().mockResolvedValue([]),
       getQueue: jest.fn().mockResolvedValue([]),
+      refreshMonitoredDownloads: jest.fn().mockResolvedValue(undefined),
     }
     const mockSonarrService = {
       getEpisodeFiles: jest.fn().mockResolvedValue([]),
       getEpisodes: jest.fn().mockResolvedValue([]),
       getQueue: jest.fn().mockResolvedValue([]),
+      refreshMonitoredDownloads: jest.fn().mockResolvedValue(undefined),
     }
     const mockDownloadGateway = { broadcastPerViewer: jest.fn() }
     // `radarrId`/`sonarrId` are no longer persisted on the job - the poller
@@ -186,6 +189,7 @@ describe('MediaPollerService', () => {
     downloadStateService = module.get(DownloadStateService)
     radarrService = module.get(RadarrService)
     sonarrService = module.get(SonarrService)
+    mediaResolverService = module.get(MediaResolverService)
 
     jest.spyOn(Logger.prototype, 'log').mockImplementation()
     jest.spyOn(Logger.prototype, 'error').mockImplementation()
@@ -203,6 +207,8 @@ describe('MediaPollerService', () => {
 
       expect(radarrService.getQueue).not.toHaveBeenCalled()
       expect(sonarrService.getQueue).not.toHaveBeenCalled()
+      expect(radarrService.refreshMonitoredDownloads).not.toHaveBeenCalled()
+      expect(sonarrService.refreshMonitoredDownloads).not.toHaveBeenCalled()
     })
 
     it('no-ops when called before nextAllowedRunAt (mid-backoff)', async () => {
@@ -214,6 +220,54 @@ describe('MediaPollerService', () => {
       await service.poll()
 
       expect(radarrService.getQueue).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('queue refresh', () => {
+    it('asks Radarr to refresh its queue before reading it', async () => {
+      const job = buildMovieJob()
+      downloadStateService.jobs.set(job.id, job)
+
+      await service.poll()
+
+      expect(radarrService.refreshMonitoredDownloads).toHaveBeenCalledTimes(1)
+      expect(
+        radarrService.refreshMonitoredDownloads.mock.invocationCallOrder[0],
+      ).toBeLessThan(
+        radarrService.getQueue.mock.invocationCallOrder[0] as number,
+      )
+      // Nothing tracked on the Sonarr side, so nothing sent there.
+      expect(sonarrService.refreshMonitoredDownloads).not.toHaveBeenCalled()
+    })
+
+    it('asks Sonarr the same way for a show job', async () => {
+      const job = buildShowJob()
+      downloadStateService.jobs.set(job.id, job)
+
+      await service.poll()
+
+      expect(sonarrService.refreshMonitoredDownloads).toHaveBeenCalledTimes(1)
+      expect(radarrService.refreshMonitoredDownloads).not.toHaveBeenCalled()
+    })
+
+    it('reads the queue anyway, without backing off, when the refresh is refused', async () => {
+      const job = buildMovieJob({ status: DownloadJobStatus.Searching })
+      downloadStateService.jobs.set(job.id, job)
+      radarrService.refreshMonitoredDownloads.mockRejectedValueOnce(
+        new Error('radarr said no'),
+      )
+      radarrService.getQueue.mockResolvedValue([
+        { movieId: 42, status: 'downloading', size: 1000, sizeleft: 500 },
+      ])
+
+      await service.poll()
+
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Downloading,
+      )
+      expect(
+        (service as unknown as { nextAllowedRunAt: number }).nextAllowedRunAt,
+      ).toBe(0)
     })
   })
 
@@ -329,6 +383,34 @@ describe('MediaPollerService', () => {
       expect(downloadStateService.jobs.get(job.id)?.status).toBe(
         DownloadJobStatus.Completed,
       )
+    })
+
+    it('evicts the media from the resolver cache before broadcasting Completed', async () => {
+      const job = buildMovieJob({ status: DownloadJobStatus.Downloading })
+      downloadStateService.jobs.set(job.id, job)
+      const updateJobSpy = jest.spyOn(downloadStateService, 'updateJob')
+
+      radarrService.getQueue.mockResolvedValue([])
+
+      await service.poll()
+
+      expect(mediaResolverService.invalidate).toHaveBeenCalledWith(job.mediaId)
+      expect(
+        mediaResolverService.invalidate.mock.invocationCallOrder[0],
+      ).toBeLessThan(updateJobSpy.mock.invocationCallOrder[0] as number)
+    })
+
+    it('leaves the resolver cache alone for a non-terminal status change', async () => {
+      const job = buildMovieJob({ status: DownloadJobStatus.Searching })
+      downloadStateService.jobs.set(job.id, job)
+
+      radarrService.getQueue.mockResolvedValue([
+        { movieId: 42, status: 'downloading', size: 1000, sizeleft: 500 },
+      ])
+
+      await service.poll()
+
+      expect(mediaResolverService.invalidate).not.toHaveBeenCalled()
     })
 
     it('captures an error message when the queue reports a failure', async () => {
