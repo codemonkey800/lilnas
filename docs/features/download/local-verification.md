@@ -78,15 +78,15 @@ gate. Loopback gives them one without giving it to the LAN — which matters,
 because anything arriving without an identity header takes the admin fallback.
 8090 rather than 8080 because `url-shortener-proxy-1` owns host 8080.
 
-**The database is ephemeral, but the gallery isn't empty for long.** `/data` is
-a tmpfs, so `jobs` is built from scratch on every start and destroyed when the
-container stops - nothing persists, and nothing needs cleaning up. But boot
-also runs `syncDownloadedLibrary()` (`src/media/library-sync.ts`, wired in
-`bootstrap.ts`), which backfills a `completed` job for every Radarr/Sonarr
-title that already has a file, before the app starts serving traffic. So a
-fresh container still shows this app's actual download _history_ as empty
-(nobody has requested anything through it yet), but "Browse movies/shows"
-reflects Radarr's/Sonarr's real libraries from the first request onward.
+**The database is ephemeral, but the gallery isn't empty.** `/data` is a
+tmpfs, so `jobs` is built from scratch on every start and destroyed when the
+container stops - nothing persists, and nothing needs cleaning up. The
+gallery does not read `jobs` for movies and shows: it lists Radarr's/Sonarr's
+libraries directly (plan 021 · Phase 4), joining the job log only for each
+card's download summary. So a fresh container shows this app's download
+_history_ as empty (nobody has requested anything through it yet), but the
+gallery and "Browse movies/shows" reflect Radarr's/Sonarr's real libraries
+from the first request onward.
 
 **This IS `apps/download/deploy.dev.yml`, and it IS in `docker-compose.dev.yml`'s
 `include:` list, on purpose.** Earlier this environment lived in a separate
@@ -183,7 +183,7 @@ Observed 2026-09-15 against a freshly started container:
 | Check                                   | Observed                                            |
 | --------------------------------------- | --------------------------------------------------- |
 | `GET /api/auth/whoami`                  | `isAdmin: true`, `userId: "verify-user-1"`          |
-| `GET /api/download/gallery`             | `total: 0` — pre-library-sync; see note below       |
+| `GET /api/download/gallery`             | `total: 0` — before plan 021; see note below        |
 | `GET /api/download/history`             | `total: 0` — expected, the database is ephemeral    |
 | `GET /api/download/discover?query=star` | `total: 40`, `degradedSources: []`, 20 genre facets |
 
@@ -204,13 +204,12 @@ Reading the numbers:
   has requested anything through this instance yet. To get rows, paste a link
   into the nav-bar field and let a real yt-dlp job run, or request a
   movie/show.
-- **`gallery` being 0 in the table above predates `syncDownloadedLibrary()`**
-  (`src/media/library-sync.ts`). That boot step backfills a `completed` job
-  for every Radarr/Sonarr title that already has a file, so on a container
-  started after that landed, `gallery`'s `total` reflects Radarr's/Sonarr's
-  real libraries instead - zero only if those libraries genuinely have
-  nothing downloaded. Discovery was always live either way: `/discover` reads
-  Radarr and Sonarr directly, never the database.
+- **`gallery` being 0 in the table above predates plan 021 · Phase 4,** when
+  the gallery was still a `GROUP BY` over completed jobs. It now lists the
+  Radarr/Sonarr libraries (plus finished videos) directly, so on a current
+  container `gallery`'s `total` reflects those real libraries - zero only if
+  they genuinely have nothing downloaded. Discovery was always live either
+  way: `/discover` reads Radarr and Sonarr directly, never the database.
 - `total` is the full result count; `items` is one page. Default page size is 24,
   so a first page of 24 with a non-null `nextCursor` is correct, not truncated.
 - `degradedSources: []` is the important one on `/discover` — a non-empty array
@@ -392,10 +391,15 @@ geometry. Measuring beats eyeballing — it is how the card-stretch bug in
   as the database here — that's expected, not a bug.
 - **The container runs as `1000:1001`** so `.next` and `.turbo` written into the
   bind mount stay owned by the host user rather than root.
-- **Booting sweeps interrupted jobs.** `reconcileInterruptedJobs()`
-  (`src/bootstrap.ts`) moves every non-terminal job to `failed` at startup.
-  Irrelevant on an ephemeral database, but it means an in-flight job does not
-  survive a restart.
+- **Booting fails interrupted video jobs and re-adopts everything else.**
+  `reconcileInterruptedJobs()` (`src/db/reconcile-interrupted-jobs.ts`, run
+  from `src/bootstrap.ts`) moves every non-terminal **video** job to `failed`
+  (`Interrupted by a service restart`) - its yt-dlp run and partial file died
+  with the process. Movie/show jobs are never failed: Radarr/Sonarr hold
+  their truth, so `DownloadStateService.adoptOpenJobs()` re-adopts every open
+  one and the poller settles it on its first tick. The boot log reads
+  `Re-adopted N open job(s)`. Mostly moot on an ephemeral database, since a
+  restart empties `jobs` anyway.
 - **Container IPs are irrelevant in this shape.** The container resolves
   `radarr` / `sonarr` / `emby` / `storage` by service name on `lilnas_default`,
   so nothing goes stale when an upstream is recreated. Do not hardcode an IP.

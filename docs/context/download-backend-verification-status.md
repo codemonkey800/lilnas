@@ -238,19 +238,25 @@ snapshot baked into `lilnas-monorepo-builder`. Skip the rebuild and
 `docker-compose build download` cheerfully produces an image from stale
 source, with no error to tell you.
 
-**Restart side effect worth knowing.** `reconcileInterruptedJobs()` sweeps
-every non-terminal job at boot, so the deploy wiped the in-flight movie and
-show jobs that had been kept for §4 and left `/activity` at `total: 0`. This
-is correct behaviour, not a regression — a partial download is explicitly not
-meant to survive a restart. Completed videos were unaffected. The two job
-rows were re-created afterwards to restore the `movie-job` / `show-job`
-fixtures.
+**What a restart does to open jobs (current, since plan 021 Phase 3).** A
+restart never fails a movie or show job. Their downloads run in
+Radarr/Sonarr, which outlive this process, so `reconcileInterruptedJobs()`
+(`src/db/reconcile-interrupted-jobs.ts`) leaves every movie/show row alone
+and `DownloadStateService.adoptOpenJobs()` re-adopts every open one into the
+in-memory Map right after. The boot log reads `Re-adopted N open job(s)`,
+and the poller settles each one from the queue and the files on its first
+tick. Only in-process **video** jobs (yt-dlp/ffmpeg, partial file on an
+unbacked path) are failed with `Interrupted by a service restart`. A
+`needs_attention` row of any type is spared too.
 
-It happened again on the **2026-08-30** deploy for §7, which swept one
-in-flight `movie` job (_Following_) to `failed` at `04:34:49Z`. Expect this
-on **every** deploy; it is the documented cost of restarting. The library
-content itself is untouched — the 11 kept clips still carry their
-`downloadUrls` and the gallery is unchanged at 15 items.
+**History (before plan 021).** The sweep used to fail movie/show jobs as
+well. The 2026-08-28 deploy wiped the in-flight movie and show jobs kept for
+§4 and left `/activity` at `total: 0`; the two rows were re-created to
+restore the `movie-job` / `show-job` fixtures. The **2026-08-30** deploy for
+§7 swept one in-flight `movie` job (_Following_) to `failed` at
+`04:34:49Z`. Neither would happen now. The library content was untouched
+both times — the 11 kept clips still carried their `downloadUrls` and the
+gallery stayed at 15 items.
 
 ### 7. `PATCH /videos/:id/pause` and `/resume` ✅ CLOSED
 
