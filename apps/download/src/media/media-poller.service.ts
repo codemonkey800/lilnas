@@ -110,6 +110,12 @@ export interface PollableCompletionData {
  * `QUEUE_ABSENCE_GRACE_MS` with nothing to show for it. See
  * `settleAbsentJobs`.
  *
+ * A `cancelling` job - cancel pressed here, its queue items already removed
+ * - is carried the rest of the way. A queue item it still has (a search
+ * running at the press can grab a release seconds later) is removed rather
+ * than followed, and once the queue has none it settles `cancelled`, or
+ * `completed` if a file landed anyway. See `removeLateGrab`.
+ *
  * Also broadcasts a `MediaEvent` for every movie/show whose state moved this
  * tick - owned by a job or not - so an open page follows a download it
  * never asked for, through to the file it lands. See
@@ -173,7 +179,9 @@ export class MediaPollerService {
   /**
    * Job id -> when (epoch ms, wall-clock) a tracked job was first seen with
    * no queue item, for as long as it stays that way. An item reappearing
-   * clears it; so does the job settling or no longer being tracked.
+   * clears it - except on a `cancelling` job, whose late grab is removed
+   * without restarting its grace period - and so does the job settling or
+   * no longer being tracked.
    */
   private readonly absentSince = new Map<string, number>()
 
@@ -282,12 +290,18 @@ export class MediaPollerService {
     const absent: TrackedJob[] = []
     for (const job of tracked) {
       const item = queue.find(q => q.movieId === job.upstreamId)
-      if (item) {
+      if (!item) {
+        absent.push(job)
+      } else if (job.record.status === DownloadJobStatus.Cancelling) {
+        // Every row for the movie, not just the first: none of them is
+        // wanted any more.
+        const items = queue.filter(q => q.movieId === job.upstreamId)
+        this.rememberDownloads(job.record.id, items)
+        await this.removeLateGrab(DownloadType.Movie, job.record, items)
+      } else {
         this.absentSince.delete(job.record.id)
         this.rememberDownloads(job.record.id, [item])
         this.applyUpdate(job.record, item)
-      } else {
-        absent.push(job)
       }
     }
 
@@ -322,12 +336,17 @@ export class MediaPollerService {
         q => q.seriesId === job.upstreamId && matchesScope(q, job.record.scope),
       )
       const item = aggregateQueueItems(matches)
-      if (item) {
+      if (!item) {
+        absent.push(job)
+      } else if (job.record.status === DownloadJobStatus.Cancelling) {
+        // `matches` is already narrowed to the job's scope, so a sibling
+        // episode's download is never touched.
+        this.rememberDownloads(job.record.id, matches)
+        await this.removeLateGrab(DownloadType.Show, job.record, matches)
+      } else {
         this.absentSince.delete(job.record.id)
         this.rememberDownloads(job.record.id, matches)
         this.applyUpdate(job.record, item)
-      } else {
-        absent.push(job)
       }
     }
 
@@ -350,11 +369,88 @@ export class MediaPollerService {
   }
 
   /**
+   * Removes the queue items a `cancelling` job still has - a release the
+   * search already running at the press grabbed afterwards, or a removal
+   * that hadn't shown in the queue yet. The job's status is left alone and
+   * so is its absence timer: `settleAbsentJobs` moves it once the queue has
+   * nothing for it, and a late grab must not restart the grace period.
+   *
+   * Best-effort and never throws: an item with no id can't be named to
+   * Radarr/Sonarr, and a refused removal is logged and tried again next tick
+   * rather than tripping `poll()`'s backoff.
+   */
+  private async removeLateGrab(
+    type: DownloadType.Movie | DownloadType.Show,
+    record: DownloadJobRecord,
+    items: readonly PollableQueueItem[],
+  ): Promise<void> {
+    const action = 'removeLateGrab'
+    const source = SOURCE_OF[type]
+
+    const queueIds: number[] = []
+    for (const item of items) {
+      if (item.id != null) {
+        queueIds.push(item.id)
+        continue
+      }
+
+      this.logger.warn(
+        { action, jobId: record.id, mediaId: record.mediaId, source },
+        'Queue item of a cancelling job has no id, cannot remove it',
+      )
+    }
+    if (queueIds.length === 0) return
+
+    const removals = await Promise.allSettled(
+      queueIds.map(queueId =>
+        type === DownloadType.Movie
+          ? this.radarrService.removeQueueItem(queueId)
+          : this.sonarrService.removeQueueItem(queueId),
+      ),
+    )
+
+    for (const [index, result] of removals.entries()) {
+      const queueId = queueIds[index]
+      if (result.status === 'fulfilled') {
+        this.logger.log(
+          {
+            action,
+            jobId: record.id,
+            mediaId: record.mediaId,
+            queueId,
+            source,
+          },
+          'Removed a queue item from a cancelling job',
+        )
+        continue
+      }
+
+      this.logger.warn(
+        {
+          action,
+          error: getErrorMessage(result.reason),
+          jobId: record.id,
+          mediaId: record.mediaId,
+          queueId,
+          source,
+        },
+        'Failed to remove a queue item from a cancelling job, retrying next tick',
+      )
+    }
+  }
+
+  /**
    * Settles the tracked jobs that had no queue item this tick, from the
    * files upstream holds for them and the history of their downloads. See
    * `settleWithoutQueueItem` for the rule; this supplies its inputs -
    * `didJobComplete`'s verdict, how long the job has been missing from the
    * queue, and its `DequeuedOutcome`.
+   *
+   * That includes a `cancelling` job, which is not terminal: it settles
+   * `cancelled` - with no `error`, the cancel being the user's own - once
+   * its removal is confirmed or `CANCEL_GRACE_MS` passes, or `completed` if
+   * its file landed anyway. Its absence is timed from the first tick it had
+   * no item, however many late grabs `removeLateGrab` has removed since.
    *
    * Never throws. A job whose files can't be read is left exactly as it is,
    * past the grace period or not: without the listing there is no telling a
@@ -418,7 +514,7 @@ export class MediaPollerService {
       )
       if (next === undefined) continue
 
-      const error = settledError(next, outcome, SOURCE_OF[type])
+      const error = settledError(next, outcome, SOURCE_OF[type], record.status)
 
       this.logger.log(
         {
@@ -1021,8 +1117,10 @@ export class MediaPollerService {
   /**
    * Writes a status move to the job. `error` is the reason a Cancelled,
    * Failed or NeedsAttention status carries, when there is one; any other
-   * status
-   * leaves `error` alone, except that leaving NeedsAttention clears it.
+   * status leaves `error` alone, except that leaving NeedsAttention clears
+   * it. Leaving Cancelling without a reason clears it too, whatever the new
+   * status: the cancel action already did, and nothing from before the press
+   * is why the job ended.
    */
   private writeStatus(
     record: DownloadJobRecord,
@@ -1033,6 +1131,9 @@ export class MediaPollerService {
       newStatus === DownloadJobStatus.Cancelled ||
       newStatus === DownloadJobStatus.Failed ||
       newStatus === DownloadJobStatus.NeedsAttention
+    const dropsReason =
+      record.status === DownloadJobStatus.Cancelling ||
+      (record.status === DownloadJobStatus.NeedsAttention && !carriesReason)
 
     // Before updateJob, because updateJob is what broadcasts: a detail page
     // re-renders the moment it hears `completed`, and the resolver's library
@@ -1049,11 +1150,9 @@ export class MediaPollerService {
       // explicit `undefined` clears both the record and the row. Without it
       // a job that finally imported would carry "was not found in the
       // grabbed release" into history forever.
-      ...(carriesReason
-        ? error
-          ? { error }
-          : {}
-        : record.status === DownloadJobStatus.NeedsAttention
+      ...(carriesReason && error
+        ? { error }
+        : dropsReason
           ? { error: undefined }
           : {}),
       status: newStatus,
@@ -1065,12 +1164,24 @@ export class MediaPollerService {
  * The reason a job settled without a queue item carries: Radarr's/Sonarr's
  * own failure message when there is one, which queue a cancelled job was
  * removed from, and otherwise that it left the queue with nothing to show.
+ *
+ * A job settling out of `previous` Cancelling carries none short of a
+ * failure: its downloads were removed by the cancel pressed here, and "Removed
+ * from Radarr's queue" is the sentence for a removal someone made upstream.
  */
 function settledError(
   status: DownloadJobStatus,
   outcome: DequeuedOutcome | undefined,
   source: QueueSource,
+  previous: DownloadJobStatus,
 ): string | undefined {
+  if (
+    previous === DownloadJobStatus.Cancelling &&
+    status !== DownloadJobStatus.Failed
+  ) {
+    return undefined
+  }
+
   if (status === DownloadJobStatus.Cancelled) {
     return REMOVED_FROM_QUEUE_ERROR[source]
   }

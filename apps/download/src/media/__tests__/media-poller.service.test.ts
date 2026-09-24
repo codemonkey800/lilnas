@@ -44,6 +44,10 @@ import {
 } from 'src/media/media-poller.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
 import { MediaStateService } from 'src/media/media-state.service'
+import {
+  CANCEL_GRACE_MS,
+  QUEUE_REMOVAL_CONFIRM_MS,
+} from 'src/media/queue-status.util'
 import { RadarrService } from 'src/media/radarr.service'
 import { SonarrService } from 'src/media/sonarr.service'
 
@@ -173,6 +177,7 @@ describe('MediaPollerService', () => {
       getMovieHistory: jest.fn().mockResolvedValue([]),
       getQueue: jest.fn().mockResolvedValue([]),
       refreshMonitoredDownloads: jest.fn().mockResolvedValue(undefined),
+      removeQueueItem: jest.fn().mockResolvedValue(undefined),
     }
     const mockSonarrService = {
       getEpisodeFiles: jest.fn().mockResolvedValue([]),
@@ -180,6 +185,7 @@ describe('MediaPollerService', () => {
       getQueue: jest.fn().mockResolvedValue([]),
       getSeriesHistory: jest.fn().mockResolvedValue([]),
       refreshMonitoredDownloads: jest.fn().mockResolvedValue(undefined),
+      removeQueueItem: jest.fn().mockResolvedValue(undefined),
     }
     const mockDownloadGateway = {
       broadcast: jest.fn(),
@@ -2325,6 +2331,254 @@ describe('MediaPollerService', () => {
         const updated = downloadStateService.jobs.get(job.id)
         expect(updated?.status).toBe(DownloadJobStatus.Failed)
         expect(updated?.error).toBe('Left the queue without producing a file')
+      })
+    })
+
+    // Cancel pressed here: the action removed the queue items and wrote
+    // `cancelling`, and the poller carries the job the rest of the way.
+    describe('carrying a cancelling job to its end', () => {
+      /** A release a search still running at the press grabbed afterwards. */
+      const LATE_GRAB: QueueResource = {
+        ...DOWNLOADING_ITEM,
+        downloadId: 'dl-late',
+        id: 7001,
+      }
+
+      function cancellingMovie(
+        overrides: Partial<DownloadJobRecord> = {},
+      ): DownloadJobRecord {
+        const job = buildMovieJob({
+          status: DownloadJobStatus.Cancelling,
+          ...overrides,
+        })
+        downloadStateService.jobs.set(job.id, job)
+        return job
+      }
+
+      it('removes a late grab instead of following it', async () => {
+        const job = cancellingMovie()
+
+        at(T0)
+        radarrService.getQueue.mockResolvedValue([])
+        await service.poll()
+
+        at(T0 + 10_000)
+        radarrService.getQueue.mockResolvedValue([LATE_GRAB])
+        await service.poll()
+
+        expect(radarrService.removeQueueItem).toHaveBeenCalledTimes(1)
+        expect(radarrService.removeQueueItem).toHaveBeenCalledWith(7001)
+        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+          DownloadJobStatus.Cancelling,
+        )
+        expect(getJobById(dbService.db, job.id)).toBeUndefined()
+      })
+
+      it("never removes a sibling episode's download", async () => {
+        const job = buildShowJob({
+          scope: { episodeId: 2, seasonNumber: 3 },
+          status: DownloadJobStatus.Cancelling,
+        })
+        downloadStateService.jobs.set(job.id, job)
+
+        const sibling: SonarrQueueResource = {
+          episodeId: 1,
+          id: 8001,
+          seasonNumber: 3,
+          seriesId: 9,
+          status: 'downloading',
+        }
+        sonarrService.getQueue.mockResolvedValue([sibling])
+        await service.poll()
+
+        expect(sonarrService.removeQueueItem).not.toHaveBeenCalled()
+
+        sonarrService.getQueue.mockResolvedValue([
+          sibling,
+          { ...sibling, episodeId: 2, id: 8002 },
+        ])
+        await service.poll()
+
+        expect(sonarrService.removeQueueItem).toHaveBeenCalledTimes(1)
+        expect(sonarrService.removeQueueItem).toHaveBeenCalledWith(8002)
+        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+          DownloadJobStatus.Cancelling,
+        )
+      })
+
+      it('logs a refused removal and finishes the tick without backing off', async () => {
+        const job = cancellingMovie()
+        radarrService.removeQueueItem.mockRejectedValue(
+          new Error('radarr said no'),
+        )
+        radarrService.getQueue.mockResolvedValue([LATE_GRAB])
+
+        await expect(service.poll()).resolves.toBeUndefined()
+
+        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+          DownloadJobStatus.Cancelling,
+        )
+        expect(Logger.prototype.warn).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: 'removeLateGrab',
+            error: 'radarr said no',
+            jobId: job.id,
+            queueId: 7001,
+          }),
+          expect.any(String),
+        )
+        expect(
+          (service as unknown as { nextAllowedRunAt: number }).nextAllowedRunAt,
+        ).toBe(0)
+      })
+
+      it('skips an item with no id', async () => {
+        const job = cancellingMovie()
+        radarrService.getQueue.mockResolvedValue([
+          { ...LATE_GRAB, id: undefined },
+        ])
+
+        await service.poll()
+
+        expect(radarrService.removeQueueItem).not.toHaveBeenCalled()
+        expect(Logger.prototype.warn).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: 'removeLateGrab',
+            jobId: job.id,
+          }),
+          expect.any(String),
+        )
+      })
+
+      // The cancel was the user's own press, so the job carries none of
+      // "Removed from Radarr's queue" - nor whatever it said before.
+      it('cancels with no error once the history confirms the removal', async () => {
+        const job = cancellingMovie({ error: BLOCKED_IMPORT_REASON })
+        radarrService.getMovieHistory.mockResolvedValue([
+          { downloadId: 'dl-late', eventType: 'grabbed' },
+        ])
+
+        at(T0)
+        radarrService.getQueue.mockResolvedValue([LATE_GRAB])
+        await service.poll()
+
+        at(T0 + 1_000)
+        radarrService.getQueue.mockResolvedValue([])
+        await service.poll()
+        at(T0 + 1_000 + QUEUE_REMOVAL_CONFIRM_MS - 1)
+        await service.poll()
+
+        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+          DownloadJobStatus.Cancelling,
+        )
+
+        at(T0 + 1_000 + QUEUE_REMOVAL_CONFIRM_MS)
+        await service.poll()
+
+        const updated = downloadStateService.jobs.get(job.id)
+        expect(radarrService.getMovieHistory).toHaveBeenCalledWith(42)
+        expect(updated?.status).toBe(DownloadJobStatus.Cancelled)
+        expect(updated?.error).toBeUndefined()
+        expect(getJobById(dbService.db, job.id)?.status).toBe(
+          DownloadJobStatus.Cancelled,
+        )
+        expect(getJobById(dbService.db, job.id)?.error).toBeNull()
+      })
+
+      it('cancels a show job with no error once the history confirms the removal', async () => {
+        const job = buildShowJob({ status: DownloadJobStatus.Cancelling })
+        downloadStateService.jobs.set(job.id, job)
+        sonarrService.getSeriesHistory.mockResolvedValue([
+          { downloadId: 'dl-1', eventType: 'grabbed' },
+        ])
+
+        at(T0)
+        sonarrService.getQueue.mockResolvedValue([
+          { downloadId: 'dl-1', id: 8001, seriesId: 9, status: 'downloading' },
+        ])
+        await service.poll()
+        expect(sonarrService.removeQueueItem).toHaveBeenCalledWith(8001)
+
+        sonarrService.getQueue.mockResolvedValue([])
+        at(T0 + 10_000)
+        await service.poll()
+        at(T0 + 20_000)
+        await service.poll()
+
+        const updated = downloadStateService.jobs.get(job.id)
+        expect(updated?.status).toBe(DownloadJobStatus.Cancelled)
+        expect(updated?.error).toBeUndefined()
+        expect(getJobById(dbService.db, job.id)?.error).toBeNull()
+      })
+
+      it('cancels at the grace period when nothing says what became of it', async () => {
+        const job = cancellingMovie()
+        radarrService.getQueue.mockResolvedValue([])
+
+        at(T0)
+        await service.poll()
+        at(T0 + CANCEL_GRACE_MS - 1)
+        await service.poll()
+
+        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+          DownloadJobStatus.Cancelling,
+        )
+
+        at(T0 + CANCEL_GRACE_MS)
+        await service.poll()
+
+        const updated = downloadStateService.jobs.get(job.id)
+        expect(radarrService.getMovieHistory).not.toHaveBeenCalled()
+        expect(updated?.status).toBe(DownloadJobStatus.Cancelled)
+        expect(updated?.error).toBeUndefined()
+        expect(getJobById(dbService.db, job.id)?.error).toBeNull()
+      })
+
+      // Removing a late grab must not restart the clock, or a search that
+      // keeps grabbing would hold the job in `cancelling` forever.
+      it('times the grace period from the first absence across a late grab', async () => {
+        const job = cancellingMovie()
+
+        at(T0)
+        radarrService.getQueue.mockResolvedValue([])
+        await service.poll()
+
+        // No download id, so no history can confirm it: only the clock can.
+        at(T0 + 10_000)
+        radarrService.getQueue.mockResolvedValue([
+          { ...LATE_GRAB, downloadId: undefined },
+        ])
+        await service.poll()
+        expect(radarrService.removeQueueItem).toHaveBeenCalledWith(7001)
+        expect(absentSince().get(job.id)).toBe(T0)
+
+        at(T0 + 20_000)
+        radarrService.getQueue.mockResolvedValue([])
+        await service.poll()
+        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+          DownloadJobStatus.Cancelling,
+        )
+
+        at(T0 + CANCEL_GRACE_MS)
+        await service.poll()
+
+        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+          DownloadJobStatus.Cancelled,
+        )
+      })
+
+      it('completes a cancelling job whose file landed anyway', async () => {
+        const job = cancellingMovie()
+        radarrService.getQueue.mockResolvedValue([])
+        radarrService.getMovieFiles.mockResolvedValue([
+          { dateAdded: AFTER_ISO, id: 501, movieId: 42 },
+        ])
+
+        await service.poll()
+
+        const updated = downloadStateService.jobs.get(job.id)
+        expect(updated?.status).toBe(DownloadJobStatus.Completed)
+        expect(updated?.error).toBeUndefined()
       })
     })
 
