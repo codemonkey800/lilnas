@@ -990,6 +990,9 @@ curl -s -XPATCH "$BASE/videos/$ID/resume" | jq '.status'         # pending|downl
 #    file grows FROM there rather than restarting at zero.
 docker-compose exec download \
   grep -i 'Resuming download at byte' "/download/videos/$ID/download.log"
+#    Since plan 015, `progress` is a live snapshot while the job downloads or
+#    is paused (bytes, percent, file/fragment counters), and a resumed run's
+#    first tick replaces the paused one. It is absent once the job completes.
 watch -n5 "curl -s $BASE/videos/$ID | jq '{status, progress}'"   # -> completed
 
 # 2. Pausing a job that isn't downloading is a 409, not a 404.
@@ -3122,6 +3125,150 @@ The dev container restarted at 10:59 PDT. `nest start -w` last reloaded at
 | `GET /download/gallery?limit=3`                               | `total: 358`; newest first by `addedAt`; `downloadCount: 0`, `lastDownloadedAt: null` |
 | `GET /download/gallery/facets`                                | `types`: 284 movie, 74 show; `uploaders`: `[]`                                        |
 | `GET /download/gallery?cursor=abc`                            | 400                                                                                   |
+
+---
+
+## Video download progress (plan 015)
+
+**Status: done, not yet verified live.** Full plan in
+`docs/features/download/plans/015-video-download-progress.md`. Commits, in
+order: `0ec93d8f` (`VideoProgressSchema` and `DownloadJob.progress`),
+`4f2c38a2` (`formatBytes` moves to `lib/format`, plus `formatSpeed` and
+`formatEta`), `9bcc6ba6` (the in-memory snapshot and its throttle),
+`6f1eeceb` (the parser), `a95b4bd9` (`jobProgress`'s video arm,
+`jobTransferLine`, the `'processing'` handoff), `f7d590b4` (the activity
+feed), `4c36c780` (the attempt card), `035d62c9` (the capture).
+
+A video download — a yt-dlp job, the only download this app runs itself —
+now shows live progress on the page, the same way a movie or show's
+Radarr/Sonarr queue progress already did. Before this, yt-dlp's stdout went
+straight into `download.log` and was never read. **No route, gateway,
+frame-parser, client-store or tdr-bot change**: the snapshot rides on
+`DownloadJob.progress` inside the existing `download-job` frame.
+
+### What yt-dlp is asked
+
+`YTDLP_PROGRESS_ARGS` (`apps/download/src/download/ytdlp-progress.ts`),
+placed before the URL on the download spawn:
+
+```bash
+--newline --progress-delta 1 --progress-template 'download:LILNAS_PROGRESS %(progress)j'
+```
+
+yt-dlp then prints one JSON line per tick: each file's first line, at most
+one transfer line a second, and a `finished` line. The `--dump-json` probe
+and ffmpeg's convert step are untouched.
+
+### Capture
+
+`download-video.service.ts` **tees** stdout rather than redirecting it: it
+is still piped into `download.log` unchanged, and is also read line by line.
+`createLineSplitter` carries partial lines across chunks.
+`createProgressReducer`, fresh per run so a resume starts clean:
+
+- parses each `LILNAS_PROGRESS {json}` line (`parseYtdlpProgressLine`);
+- reads the file count from yt-dlp's
+  `[info] <id>: Downloading 1 format(s): 160+139` line
+  (`parseYtdlpFormatCountLine`);
+- increments `fileIndex` when `filename` changes;
+- computes `percent = round2(clamp(downloadedBytes / totalBytes × 100))`
+  itself. ⚠️ yt-dlp's own `_percent` reads 100% at fragment 0 of an HLS
+  stream.
+- takes `totalBytes` from `total_bytes`, falling back to
+  `total_bytes_estimate` with `totalIsEstimate: true`. With no total there
+  is no `percent`, so no bar, but the bytes-and-speed line still shows.
+- leaves a null `speed`/`eta` **absent**, never `0`.
+
+**The line handler never throws.** A throw is logged once per run and
+swallowed — the lesson of the `c7eebc62` spawn-error wedge.
+
+### The snapshot
+
+`VideoProgressSchema` in `packages/utils/src/download/schema.ts`:
+
+```ts
+{ downloadedBytes, etaSeconds?, fileCount?, fileIndex, fragmentCount?,
+  fragmentIndex?, percent?, speedBps?, totalBytes?, totalIsEstimate? }
+```
+
+- **Per job and per file.** A default YouTube grab is two files, video then
+  audio, each running 0 → 100%, with a `file 1 of 2` counter rather than a
+  blended figure.
+- `DownloadJobRecord` is `Omit<DownloadJob, 'media' | 'progress'>` — the
+  row never carries it.
+
+### Lifetime
+
+**In memory only**: `DownloadStateService`'s `progress` Map, beside `procs`.
+Never SQLite, and no migration — `reconcileInterruptedJobs()` fails every
+non-terminal video row at boot anyway, so a stored snapshot could only
+describe a dead download.
+
+- **`toJob()` attaches it**, so `GET /download/videos/:id`,
+  `GET /download/media/:id`'s `jobs[]` and the activity/history pages all
+  carry it, and a server-rendered page mid-download has it before the first
+  socket frame.
+- **Terminal transitions clear it** (`Completed`/`Failed`/`Cancelled`).
+- **`Pausing`/`Paused`/`Pending` (resume)/`Converting` keep it.**
+- **A resumed run's first tick replaces it.**
+
+### The throttle
+
+`setProgress` re-broadcasts through `touchJob()` — the Radarr poller's
+no-write re-broadcast path — at most once per
+`PROGRESS_BROADCAST_INTERVAL_MS` (1 s) per job, **trailing-edge**: a tick
+inside the window arms one `.unref()`'d timer that sends the latest
+snapshot.
+
+- **Two kinds of tick flush immediately:** the first tick of a new file,
+  and a `finished` tick when no further file is expected.
+- `download()` calls `flushProgress` in a `.finally` on the process promise,
+  so it flushes on every exit path, before `assertNotInterrupted`.
+
+### What a tick costs
+
+`touchJob` → `broadcastJobEvent` → `hydrate()` (resolver cached 60 s) →
+`broadcastPerViewer`. The same cost as a movie queue tick today, once a
+second per job; with `MAX_DOWNLOADS=5` the ceiling is 5 ticks a second.
+
+`parseJobEventFrame` validates with `DownloadJobSchema`, so a malformed
+`progress` drops the whole frame.
+
+### Frontend
+
+- **`AttemptCard`**, while in flight, shows a counter
+  (`file 1 of 2 · fragment 4 of 123`), a percentage and a bar, with
+  `412 MB / 640 MB · 3.1 MB/s · ~2m left` underneath (`jobTransferLine()`;
+  a `~` before an estimated total).
+- **The bar keeps settling** through `Converting`/`Uploading`/`Cleaning` (a
+  new `'processing'` handoff in `components/detail/job-state.ts`), as well
+  as `finishing` at 100% during yt-dlp's merge.
+- **The activity feed's** `jobProgressPct()` reads `job.progress.percent`,
+  so its progress column shows the same figure.
+- **`MediaStatus`**, the header chip, stays chip-only for a video.
+
+### ⚠️ Accepted gaps
+
+1. **A clip gets no bar.** A `timeRange` download (`--download-sections`)
+   uses yt-dlp's ffmpeg downloader, which is not expected to print
+   progress, so it keeps the status word with no bar. Still to be confirmed
+   live.
+2. **A tick sends two frames.** Every video job frame is still followed by a
+   `media` frame, which carries no progress: redundant, not wrong.
+3. **The header chip stays chip-only.**
+
+### Operational note
+
+`download.log`'s human-readable progress bar is replaced by
+`LILNAS_PROGRESS {json}` lines. Each still includes yt-dlp's
+`_default_template` string, so it stays readable.
+
+### Not yet verified live
+
+The dev-container restart and a live run on `download.dev.lilnas.io` —
+progressive, HLS, clip, pause/resume — are pending human checkpoints. The
+polling snippet is in `local-verification.md` under "Watching a video
+download".
 
 ---
 

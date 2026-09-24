@@ -6691,7 +6691,8 @@ are the two original copies and are still in the tree.
   `packages/utils` lint / type-check / build / 311 tests clean; **`portal` and
   `dashcam` type-check and build clean.**
 
-- [ ] **H1. Video download progress — a backend change, so a separate plan.**
+- [x] **H1. Video download progress — a backend change, so a separate plan.** —
+      shipped by plan 015 — `4c36c780` (card), `035d62c9` (capture)
 
   **Why:** the mockups draw progress the API does not carry, and the gap is real
   rather than cosmetic. Discovered by E1, verified independently by the orchestrator

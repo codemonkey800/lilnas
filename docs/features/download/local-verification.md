@@ -348,6 +348,22 @@ curl -s 'localhost:8090/api/download/history?requester=<email>' | jq '.total'
   the roster row change). Until then the stored column holds the historical
   name — and that stored name is also what renders whenever auth is unreachable.
 
+### Watching a video download
+
+Start a video (paste a link into the nav-bar field, or the `POST` above
+without the Discord headers), then poll it:
+
+```bash
+watch -n1 "curl -s localhost:8090/api/download/videos/<id> | jq '{status, progress}'"
+```
+
+- **`progress` is present while the job is downloading or paused**, and
+  absent after a terminal state (`completed`, `failed`, `cancelled`) or a
+  restart — it lives in memory only (plan 015).
+- **`download.log` carries `LILNAS_PROGRESS` JSON lines** instead of
+  yt-dlp's usual progress bar. Each still includes yt-dlp's human-readable
+  line, so the log stays readable.
+
 ### Screenshots
 
 Headless Chrome cannot log in, so always target `localhost:8090`, never the
