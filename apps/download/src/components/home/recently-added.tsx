@@ -2,9 +2,8 @@ import type { GalleryItem } from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX } from 'react'
 
 import { GALLERY_HREF } from 'src/components/home/quick-access'
-import { RecentCard } from 'src/components/home/recent-card'
+import { RecentlyAddedGrid } from 'src/components/home/recently-added-grid'
 import { ButtonLink } from 'src/components/ui/button-link'
-import { Note } from 'src/components/ui/card'
 import type { Viewer } from 'src/lib/viewer'
 
 /**
@@ -58,23 +57,7 @@ export function RecentlyAdded({
           See full library
         </ButtonLink>
       </div>
-      {items.length === 0 ? (
-        <Note>
-          Nothing in the library yet. Paste a link in the search field above to
-          download something, or search for a title to request it.
-        </Note>
-      ) : (
-        <div className="flex flex-wrap gap-4 stagger">
-          {items.map(item => (
-            <RecentCard
-              key={item.media.id}
-              item={item}
-              now={now}
-              viewer={viewer}
-            />
-          ))}
-        </div>
-      )}
+      <RecentlyAddedGrid items={items} now={now} viewer={viewer} />
     </section>
   )
 }

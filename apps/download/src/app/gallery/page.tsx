@@ -4,6 +4,7 @@ import type { JSX } from 'react'
 import { GalleryControls } from 'src/components/gallery/gallery-controls'
 import { GalleryPageShell } from 'src/components/gallery/gallery-page-shell'
 import { GalleryResults } from 'src/components/gallery/gallery-results'
+import { JobEventsProvider } from 'src/components/live/job-events'
 import { Note } from 'src/components/ui/card'
 import { loadGalleryView } from 'src/lib/gallery-data'
 import type { GallerySearchParams } from 'src/lib/gallery-filters'
@@ -82,16 +83,20 @@ export default async function GalleryPage({
           to change the dates.
         </Note>
       ) : (
-        <GalleryResults
-          filtered={hasGalleryFilters(filters)}
-          initialItems={view.items}
-          initialNextCursor={view.nextCursor}
-          initialTotal={view.total ?? 0}
-          key={search}
-          now={view.now}
-          search={search}
-          viewer={viewer}
-        />
+        // The live feed is what drops a card whose title leaves the library
+        // while the page is open.
+        <JobEventsProvider>
+          <GalleryResults
+            filtered={hasGalleryFilters(filters)}
+            initialItems={view.items}
+            initialNextCursor={view.nextCursor}
+            initialTotal={view.total ?? 0}
+            key={search}
+            now={view.now}
+            search={search}
+            viewer={viewer}
+          />
+        </JobEventsProvider>
       )}
     </GalleryPageShell>
   )

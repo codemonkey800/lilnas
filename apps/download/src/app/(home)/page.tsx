@@ -6,6 +6,7 @@ import {
   RECENTLY_ADDED_LIMIT,
   RecentlyAdded,
 } from 'src/components/home/recently-added'
+import { JobEventsProvider } from 'src/components/live/job-events'
 import { getIdentifiedDownloadClient } from 'src/lib/download-client'
 import { getRequestInstant } from 'src/lib/request-instant'
 import { getViewer } from 'src/lib/viewer'
@@ -52,12 +53,15 @@ export default async function HomePage(): Promise<JSX.Element> {
     >
       <div className="mx-auto max-w-[1080px]">
         <QuickAccess facets={facets} running={activity.total} />
-        <RecentlyAdded
-          className="mt-[34px] sm:mt-10"
-          items={recent.items}
-          now={now}
-          viewer={viewer}
-        />
+        {/* The live feed drops a card whose title leaves the library. */}
+        <JobEventsProvider>
+          <RecentlyAdded
+            className="mt-[34px] sm:mt-10"
+            items={recent.items}
+            now={now}
+            viewer={viewer}
+          />
+        </JobEventsProvider>
       </div>
     </main>
   )

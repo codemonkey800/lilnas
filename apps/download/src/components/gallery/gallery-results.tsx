@@ -10,6 +10,7 @@ import { GalleryEmpty } from 'src/components/gallery/gallery-empty'
 import { GalleryItemCard } from 'src/components/gallery/gallery-item-card'
 import { Note } from 'src/components/ui/card'
 import { LoadMore } from 'src/components/ui/load-more'
+import { useLiveLibraryItems } from 'src/lib/use-live-library-items'
 import type { Viewer } from 'src/lib/viewer'
 
 /**
@@ -66,6 +67,10 @@ export type GalleryResultsProps = {
  * rather than navigating — the URL describes the *filter*, not how far down the
  * user has scrolled, so paging must not create history entries a back button
  * then has to walk back through.
+ *
+ * A card whose title leaves the library while the page is open drops out
+ * live (`useLiveLibraryItems`), and the count drops with it. Needs a
+ * `<JobEventsProvider>` ancestor for that.
  */
 export function GalleryResults({
   filtered,
@@ -81,6 +86,8 @@ export function GalleryResults({
   const [total, setTotal] = useState(initialTotal)
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
+  const visible = useLiveLibraryItems(items)
+  const removed = items.length - visible.length
 
   function handleLoadMore(): void {
     if (cursor === null) {
@@ -96,7 +103,10 @@ export function GalleryResults({
       }
 
       setError(null)
-      setItems(previous => [...previous, ...result.items])
+      // Cards that left the library are pruned here rather than kept hidden:
+      // the fresh `total` below already leaves them out, so still counting
+      // them in `removed` would take them off twice.
+      setItems([...visible, ...result.items])
       // `total` is re-read from every page rather than kept from the first:
       // the library is live, and a title downloaded while the user was reading
       // would otherwise leave the count permanently one short.
@@ -105,14 +115,14 @@ export function GalleryResults({
     })
   }
 
-  if (items.length === 0) {
+  if (visible.length === 0 && (removed === 0 || cursor === null)) {
     return <GalleryEmpty filtered={filtered} />
   }
 
   return (
     <>
       <div className={GALLERY_GRID}>
-        {items.map(item => (
+        {visible.map(item => (
           <GalleryItemCard
             item={item}
             key={item.media.id}
@@ -129,10 +139,10 @@ export function GalleryResults({
       <LoadMore
         className="mt-6"
         hasMore={cursor !== null}
-        loaded={items.length}
+        loaded={visible.length}
         onLoadMore={handleLoadMore}
         pending={pending}
-        total={total}
+        total={total - removed}
       />
     </>
   )
