@@ -402,6 +402,36 @@ describe('MediaResolverService', () => {
     })
   })
 
+  // The poller's call: it holds a queue item's Radarr/Sonarr id, not a media
+  // id, when the cached library doesn't have the title yet.
+  describe('invalidateLibrary', () => {
+    it('makes the next read of that library go back upstream', async () => {
+      radarrService.getLibrary.mockResolvedValueOnce([])
+      await service.getMovieLibrary()
+
+      radarrService.getLibrary.mockResolvedValueOnce([
+        buildMovie(1, { radarrId: 7 }),
+      ])
+      service.invalidateLibrary(DownloadType.Movie)
+      const library = await service.getMovieLibrary()
+
+      expect(radarrService.getLibrary).toHaveBeenCalledTimes(2)
+      expect(library.get(1)).toMatchObject({ radarrId: 7 })
+    })
+
+    it("leaves the other source's cache alone", async () => {
+      radarrService.getLibrary.mockResolvedValue([])
+      sonarrService.getLibrary.mockResolvedValue([])
+      await Promise.all([service.getMovieLibrary(), service.getShowLibrary()])
+
+      service.invalidateLibrary(DownloadType.Show)
+      await Promise.all([service.getMovieLibrary(), service.getShowLibrary()])
+
+      expect(radarrService.getLibrary).toHaveBeenCalledTimes(1)
+      expect(sonarrService.getLibrary).toHaveBeenCalledTimes(2)
+    })
+  })
+
   describe('invalidateAfterEnsure', () => {
     const movieKey = { mediaId: 'tmdb:1', type: DownloadType.Movie } as const
 

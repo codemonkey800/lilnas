@@ -334,13 +334,19 @@ export class MediaResolverService {
    */
   invalidate(key: string): void {
     const type = mediaTypeFromKey(key)
+    if (type === DownloadType.Movie || type === DownloadType.Show) {
+      this.invalidateLibrary(type)
+    }
+  }
+
+  /**
+   * `invalidate()` by media type, for a caller that knows which library is
+   * stale but not the media id - `MediaPollerService`, holding a queue item
+   * whose Radarr/Sonarr id the cached library doesn't have yet.
+   */
+  invalidateLibrary(type: DownloadType.Movie | DownloadType.Show): void {
     const cache =
-      type === DownloadType.Movie
-        ? this.movieLibrary
-        : type === DownloadType.Show
-          ? this.showLibrary
-          : undefined
-    if (!cache) return
+      type === DownloadType.Movie ? this.movieLibrary : this.showLibrary
 
     cache.current = undefined
     cache.epoch += 1

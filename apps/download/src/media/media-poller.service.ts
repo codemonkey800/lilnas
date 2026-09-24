@@ -194,6 +194,18 @@ export class MediaPollerService {
    */
   private readonly downloadIds = new Map<string, Set<string>>()
 
+  /**
+   * Per source, the queued upstream ids `mediaIdsFor` already re-read the
+   * library for. Each id gets one early re-read, not one a tick: an item
+   * whose title isn't in the library at all would otherwise refetch the whole
+   * library every second. It still resolves once the cache expires on its
+   * own. An id is dropped once it leaves the queue.
+   */
+  private readonly refetchedFor: Record<QueueSource, Set<number>> = {
+    radarr: new Set(),
+    sonarr: new Set(),
+  }
+
   constructor(
     private readonly downloadGateway: DownloadGateway,
     private readonly downloadStateService: DownloadStateService,
@@ -576,6 +588,13 @@ export class MediaPollerService {
         return upstreamId == null ? [] : [upstreamId]
       }),
     )
+    // Before the early return below, so an id that left the queue gets its
+    // early re-read again if it is queued again.
+    for (const upstreamId of this.refetchedFor[source]) {
+      if (!queuedIds.has(upstreamId))
+        this.refetchedFor[source].delete(upstreamId)
+    }
+
     const previous = this.queuedMedia[source]
     if (queuedIds.size === 0 && previous.size === 0) return
 
@@ -671,10 +690,15 @@ export class MediaPollerService {
 
   /**
    * Media id -> upstream id for the given Radarr/Sonarr ids, read off the
-   * resolver's cached library rather than asked of upstream per item. An id
-   * the library doesn't hold yet (added since the cache filled) is simply
-   * absent and gets another try next tick; a library that can't be read
-   * yields nothing, for the same reason.
+   * resolver's cached library rather than asked of upstream per item.
+   *
+   * An id the cache doesn't hold is usually a title added upstream since the
+   * cache filled - say, in Radarr's own UI, which searches and grabs within
+   * seconds of the add. Waiting out the TTL would keep that download off
+   * every open page for up to a minute, so the library is invalidated and
+   * read again, once per missing id (see `refetchedFor`). An id still
+   * missing after that, or a library that can't be read, gets another try
+   * next tick.
    */
   private async mediaIdsFor(
     type: DownloadType.Movie | DownloadType.Show,
@@ -683,29 +707,35 @@ export class MediaPollerService {
     const found = new Map<string, number>()
     if (upstreamIds.length === 0) return found
 
-    let library: ReadonlyMap<number, Movie | Show>
+    const refetched = this.refetchedFor[SOURCE_OF[type]]
     try {
-      library =
-        type === DownloadType.Movie
-          ? await this.mediaResolverService.getMovieLibrary()
-          : await this.mediaResolverService.getShowLibrary()
+      matchLibrary(await this.readLibrary(type), upstreamIds, found)
+
+      const matched = new Set(found.values())
+      const unrefetched = upstreamIds.filter(
+        id => !matched.has(id) && !refetched.has(id),
+      )
+      if (unrefetched.length > 0) {
+        for (const upstreamId of unrefetched) refetched.add(upstreamId)
+        this.mediaResolverService.invalidateLibrary(type)
+        matchLibrary(await this.readLibrary(type), unrefetched, found)
+      }
     } catch (err) {
       this.logger.warn(
         { action: 'mediaIdsFor', error: getErrorMessage(err), type },
         'Library read failed, new queue items wait for the next tick',
       )
-      return found
-    }
-
-    const wanted = new Set(upstreamIds)
-    for (const item of library.values()) {
-      const upstreamId = upstreamLibraryId(item)
-      if (upstreamId != null && wanted.has(upstreamId)) {
-        found.set(item.id, upstreamId)
-      }
     }
 
     return found
+  }
+
+  private readLibrary(
+    type: DownloadType.Movie | DownloadType.Show,
+  ): Promise<ReadonlyMap<number, Movie | Show>> {
+    return type === DownloadType.Movie
+      ? this.mediaResolverService.getMovieLibrary()
+      : this.mediaResolverService.getShowLibrary()
   }
 
   /**
@@ -1098,6 +1128,21 @@ function hasLanded(
       .map(entry => entry.episodeId),
   )
   return Array.from(queued).every(id => available.has(id))
+}
+
+/** Adds `media id -> upstream id` to `found` for each wanted id `library` holds. */
+function matchLibrary(
+  library: ReadonlyMap<number, Movie | Show>,
+  upstreamIds: readonly number[],
+  found: Map<string, number>,
+): void {
+  const wanted = new Set(upstreamIds)
+  for (const item of library.values()) {
+    const upstreamId = upstreamLibraryId(item)
+    if (upstreamId != null && wanted.has(upstreamId)) {
+      found.set(item.id, upstreamId)
+    }
+  }
 }
 
 function upstreamLibraryId(media: Media | undefined): number | undefined {

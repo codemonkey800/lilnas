@@ -196,6 +196,7 @@ describe('MediaPollerService', () => {
       getMovieLibrary: jest.fn().mockResolvedValue(new Map()),
       getShowLibrary: jest.fn().mockResolvedValue(new Map()),
       invalidate: jest.fn(),
+      invalidateLibrary: jest.fn(),
       resolve: jest.fn(
         (keys: Array<{ mediaId: string; type: DownloadType }>) => {
           const media = new Map<string, Movie | Show>(
@@ -1283,6 +1284,70 @@ describe('MediaPollerService', () => {
       await service.poll()
 
       expect(mediaResolverService.getMovieLibrary).toHaveBeenCalledTimes(1)
+    })
+
+    // Added in Radarr's own UI, which searches and grabs within seconds: the
+    // resolver's library cache was filled before the add, and serves that
+    // copy until `invalidateLibrary()` drops it.
+    describe('a title added upstream after the library was cached', () => {
+      let cachedLibrary: Map<number, Movie> | undefined
+
+      beforeEach(() => {
+        cachedLibrary = new Map()
+        mediaResolverService.getMovieLibrary.mockImplementation(async () => {
+          cachedLibrary ??= new Map(
+            Array.from(upstream.values())
+              .filter(isMovie)
+              .map(movie => [movie.tmdbId, movie]),
+          )
+          return cachedLibrary
+        })
+        mediaResolverService.invalidateLibrary.mockImplementation(() => {
+          cachedLibrary = undefined
+        })
+      })
+
+      it('re-reads the library and broadcasts the download the first tick it is seen', async () => {
+        radarrService.getQueue.mockResolvedValue([UNOWNED_MOVIE_ITEM])
+
+        await service.poll()
+
+        expect(mediaResolverService.invalidateLibrary).toHaveBeenCalledWith(
+          DownloadType.Movie,
+        )
+        const events = mediaEvents()
+        expect(events).toHaveLength(1)
+        expect(events[0]?.media).toMatchObject({
+          id: 'tmdb:500',
+          state: 'downloading',
+        })
+      })
+
+      it('re-reads the library only once for an id it still cannot find', async () => {
+        radarrService.getQueue.mockResolvedValue([
+          { ...UNOWNED_MOVIE_ITEM, movieId: 99 },
+        ])
+
+        await service.poll()
+        await service.poll()
+        await service.poll()
+
+        expect(mediaResolverService.invalidateLibrary).toHaveBeenCalledTimes(1)
+        expect(mediaEvents()).toHaveLength(0)
+      })
+
+      it('re-reads the library again once the id leaves the queue and comes back', async () => {
+        const orphan = { ...UNOWNED_MOVIE_ITEM, movieId: 99 }
+        radarrService.getQueue.mockResolvedValue([orphan])
+        await service.poll()
+        radarrService.getQueue.mockResolvedValue([])
+        await service.poll()
+        radarrService.getQueue.mockResolvedValue([orphan])
+
+        await service.poll()
+
+        expect(mediaResolverService.invalidateLibrary).toHaveBeenCalledTimes(2)
+      })
     })
 
     it('sends one event when the progress moves', async () => {
