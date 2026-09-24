@@ -1,4 +1,8 @@
-import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
+import {
+  type DownloadJobRecord,
+  DownloadJobStatus,
+  DownloadType,
+} from '@lilnas/utils/download/types'
 import { eq } from 'drizzle-orm'
 
 import { buildJobRow, hydrateJobRow } from 'src/db/job-row'
@@ -169,6 +173,23 @@ describe('job-row codec', () => {
       type: 'show',
       updatedAt: new Date('2026-01-05T00:00:00.000Z'),
     },
+    // Plan 022: a download someone started in Radarr's own UI, adopted as a
+    // job. The same all-NULL attribution as a `service` row - only `origin`
+    // tells the two apart.
+    'movie (upstream origin)': {
+      completedAt: null,
+      createdAt: new Date('2026-01-08T00:00:00.000Z'),
+      error: null,
+      hiddenAttribution: false,
+      id: 'movie-upstream',
+      mediaId: 'tmdb:2',
+      origin: 'upstream',
+      requesterEmail: null,
+      requesterUserId: null,
+      status: 'downloading',
+      type: 'movie',
+      updatedAt: new Date('2026-01-08T00:00:00.000Z'),
+    },
   }
 
   it.each(Object.entries(fixtures))(
@@ -336,11 +357,13 @@ describe('job-row codec', () => {
   })
 
   // The origin derivation is the whole reason `origin` can be dropped on the
-  // way out and rebuilt on the way in. Three arms now, not two.
+  // way out and rebuilt on the way in. Four arms now: plan 022 added
+  // `upstream`, the one origin that comes back as a record field of its own.
   it.each([
     ['video (web origin, hidden, completed)', 'web'],
     ['video (service origin, minimal)', 'service'],
     ['video (discord origin)', 'discord'],
+    ['movie (upstream origin)', 'upstream'],
   ] as const)('re-derives origin `%s` -> `%s`', (name, origin) => {
     const { db, close } = createTestDb()
     try {
@@ -374,4 +397,96 @@ describe('job-row codec', () => {
       }
     },
   )
+
+  // ---- Plan 022: `startedUpstream` <-> `origin = 'upstream'` ----
+
+  describe('startedUpstream', () => {
+    // An adopted Radarr download as the poller would hand it over: no
+    // requester of either kind, and the flag saying who started it instead.
+    const adopted: DownloadJobRecord = {
+      completedAt: null,
+      createdAt: '2026-01-08T00:00:00.000Z',
+      discordRequester: null,
+      hiddenAttribution: false,
+      id: 'movie-adopted',
+      linkedDiscord: null,
+      mediaId: 'tmdb:2',
+      requester: null,
+      startedUpstream: true,
+      status: DownloadJobStatus.Downloading,
+      type: DownloadType.Movie,
+      updatedAt: '2026-01-08T00:00:00.000Z',
+    }
+
+    it('derives origin `upstream` for a requester-less job that Radarr/Sonarr started', () => {
+      expect(buildJobRow(adopted)).toMatchObject({
+        discordUserId: null,
+        discordUsername: null,
+        origin: 'upstream',
+        requesterEmail: null,
+        requesterUserId: null,
+      })
+    })
+
+    // A person's attribution always wins over the flag - and has to, since
+    // the CHECK would reject an `upstream` row carrying one.
+    it.each([
+      [
+        'requester',
+        { requester: { email: 'alice@example.com', userId: 'user_1' } },
+        'web',
+      ],
+      [
+        'discordRequester',
+        {
+          discordRequester: {
+            discordUserId: '183948273649182736',
+            discordUsername: 'jeremy',
+          },
+        },
+        'discord',
+      ],
+    ] as const)(
+      'lets %s win over startedUpstream',
+      (_label, attribution, origin) => {
+        expect(buildJobRow({ ...adopted, ...attribution }).origin).toBe(origin)
+      },
+    )
+
+    it('derives `service`, not `upstream`, when the flag is absent or false', () => {
+      const unflagged: DownloadJobRecord = { ...adopted }
+      delete unflagged.startedUpstream
+
+      expect(buildJobRow(unflagged).origin).toBe('service')
+      expect(buildJobRow({ ...adopted, startedUpstream: false }).origin).toBe(
+        'service',
+      )
+    })
+
+    it('stores an `upstream` row the origin CHECK accepts, and hydrates it back to startedUpstream: true', () => {
+      const { db, close } = createTestDb()
+      try {
+        const row = insertAndRead(db, buildJobRow(adopted))
+
+        expect(row.origin).toBe('upstream')
+        expect(hydrateJobRow(row).startedUpstream).toBe(true)
+      } finally {
+        close()
+      }
+    })
+
+    // Absent, not `false`: the key is optional on the wire, and a `false`
+    // on every other job would be noise in every payload.
+    it.each(
+      Object.keys(fixtures).filter(name => name !== 'movie (upstream origin)'),
+    )('leaves startedUpstream off a hydrated %s row entirely', name => {
+      const { db, close } = createTestDb()
+      try {
+        const row = insertAndRead(db, fixtures[name]!)
+        expect(hydrateJobRow(row)).not.toHaveProperty('startedUpstream')
+      } finally {
+        close()
+      }
+    })
+  })
 })

@@ -6,7 +6,7 @@ import {
   JobRequester,
 } from '@lilnas/utils/download/types'
 
-import { JOB_ORIGINS, type JobRow, jobs } from './schema'
+import { JOB_ROW_ORIGINS, type JobRow, jobs } from './schema'
 
 /**
  * Maps a `DownloadJobRecord` onto the `jobs` table's row shape. No branch on
@@ -38,14 +38,19 @@ export function buildJobRow(
     // hypothetical job carrying both still lands as `web`: the two are
     // mutually exclusive at the DB layer, so a row carrying both would be
     // rejected by the CHECK rather than silently stored either way.
-    // Explicitly typed against JOB_ORIGINS's own element type (not left to
-    // infer as `string`) since the object literal has no annotation for it to
-    // be contextually typed against.
+    // `startedUpstream` (plan 022, an adopted Radarr/Sonarr download) is
+    // checked last for the same reason: a person's attribution always wins,
+    // and the CHECK would reject an `upstream` row carrying one anyway.
+    // Explicitly typed against JOB_ROW_ORIGINS's own element type (not left
+    // to infer as `string`) since the object literal has no annotation for it
+    // to be contextually typed against.
     origin: (record.requester
       ? 'web'
       : record.discordRequester
         ? 'discord'
-        : 'service') as (typeof JOB_ORIGINS)[number],
+        : record.startedUpstream
+          ? 'upstream'
+          : 'service') as (typeof JOB_ROW_ORIGINS)[number],
     requesterEmail: record.requester?.email ?? null,
     requesterUserId: record.requester?.userId ?? null,
     // `null`, not `undefined`, on the way *in* - a column is either set or
@@ -63,7 +68,10 @@ export function buildJobRow(
  * The inverse of `buildJobRow()` - reconstructs a `DownloadJobRecord` from a
  * persisted `jobs` row. `origin` still has no home on the record (it's a
  * write-only derived column, fully determined by which attribution the job
- * carries), but the two other round-trip caveats this function used to carry
+ * carries) - except that `upstream` is the one origin no attribution column
+ * can express, so it comes back as `startedUpstream: true`, and every other
+ * origin leaves that key off entirely. The two other round-trip caveats this
+ * function used to carry
  * are gone: `createdAt`/`updatedAt` are on the record now, and there is no
  * longer a `proc`/`file` field with no column behind it.
  *
@@ -101,6 +109,10 @@ export function hydrateJobRow(row: JobRow): DownloadJobRecord {
     mediaId: row.mediaId,
     requester,
     scope: row.scope ?? undefined,
+    // Spread rather than `startedUpstream: row.origin === 'upstream'`: the
+    // field is optional on the wire and absent means "no", so a `false` on
+    // every other job would just be noise in every payload and fixture.
+    ...(row.origin === 'upstream' ? { startedUpstream: true } : {}),
     status: row.status as DownloadJobStatus,
     type: row.type as DownloadType,
     updatedAt: row.updatedAt.toISOString(),

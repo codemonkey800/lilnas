@@ -235,6 +235,9 @@ describe('schema + migrations', () => {
     ['service', {}],
     ['web', WEB_ATTRIBUTION],
     ['discord', DISCORD_ATTRIBUTION],
+    // Plan 022: an adopted Radarr/Sonarr download - `service`'s all-NULL
+    // shape under its own name.
+    ['upstream', {}],
   ])(
     '`jobs_origin_matches_requester` accepts a `%s` row carrying exactly its own attribution',
     (origin, attribution) => {
@@ -302,6 +305,19 @@ describe('schema + migrations', () => {
       'a `discord` row carrying a web requester instead',
       'discord',
       WEB_ATTRIBUTION,
+    ],
+    // Radarr/Sonarr started it, so there is nobody to attribute it to - a
+    // person on an `upstream` row means `buildJobRow` derived it wrongly.
+    ['an `upstream` row carrying a web requester', 'upstream', WEB_ATTRIBUTION],
+    [
+      'an `upstream` row carrying a Discord requester',
+      'upstream',
+      DISCORD_ATTRIBUTION,
+    ],
+    [
+      'an `upstream` row carrying only half a web requester',
+      'upstream',
+      { requesterUserId: WEB_ATTRIBUTION.requesterUserId },
     ],
   ])(
     '`jobs_origin_matches_requester` rejects %s',
@@ -1020,6 +1036,9 @@ describe('schema + migrations', () => {
   // matrix with `actor_`-prefixed columns.
 
   type AuditInsert = typeof auditLog.$inferInsert
+  // Not `JobOrigin`: `jobs.origin` also allows plan 022's `upstream`, which
+  // `audit_log.origin` deliberately does not (see `JOB_ROW_ORIGINS`).
+  type AuditOrigin = NonNullable<AuditInsert['origin']>
   type AuditActor = Pick<
     AuditInsert,
     'actorDiscordUserId' | 'actorDiscordUsername' | 'actorEmail' | 'actorUserId'
@@ -1035,7 +1054,7 @@ describe('schema + migrations', () => {
     actorUserId: 'user_1',
   }
 
-  function expectAuditRejected(origin: JobOrigin, actor: AuditActor): void {
+  function expectAuditRejected(origin: AuditOrigin, actor: AuditActor): void {
     const { db, close } = createTestDb()
     try {
       expect(() =>
@@ -1049,7 +1068,7 @@ describe('schema + migrations', () => {
     }
   }
 
-  it.each<[JobOrigin, AuditActor]>([
+  it.each<[AuditOrigin, AuditActor]>([
     ['service', {}],
     ['web', WEB_ACTOR],
     ['discord', DISCORD_ACTOR],
@@ -1075,7 +1094,7 @@ describe('schema + migrations', () => {
     },
   )
 
-  it.each<[string, JobOrigin, AuditActor]>([
+  it.each<[string, AuditOrigin, AuditActor]>([
     ['a `service` row carrying a web actor', 'service', WEB_ACTOR],
     ['a `service` row carrying a Discord actor', 'service', DISCORD_ACTOR],
     ['a `web` row carrying no actor at all', 'web', {}],
@@ -1104,6 +1123,23 @@ describe('schema + migrations', () => {
     ['a `discord` row carrying a web actor instead', 'discord', WEB_ACTOR],
   ])('`audit_log_origin_matches_actor` rejects %s', (_label, origin, actor) => {
     expectAuditRejected(origin, actor)
+  })
+
+  // Plan 022 widened `jobs.origin` only. Raw SQL, because `AuditOrigin`
+  // already refuses the value at compile time - this pins the DB half.
+  it('`audit_log_origin_matches_actor` rejects `upstream` - no audit actor is Radarr/Sonarr', () => {
+    const { sqlite, close } = createTestDb()
+    try {
+      expect(() =>
+        sqlite
+          .prepare(
+            `INSERT INTO audit_log (origin, action, created_at) VALUES ('upstream', 'video.create', 1)`,
+          )
+          .run(),
+      ).toThrow(/CHECK constraint failed/)
+    } finally {
+      close()
+    }
   })
 
   it.each([

@@ -433,6 +433,15 @@ export const DownloadJobSchema = z.object({
   requester: JobRequesterSchema.nullable(),
   /** Phase 4. Absent = the whole series (and always absent for a movie). */
   scope: ShowScopeSchema.optional(),
+  /**
+   * Plan 022. `true` only on a movie/show job adopted from a download
+   * someone started in Radarr's or Sonarr's own UI - such a job has no
+   * `requester` and no `discordRequester`, and this is what tells it apart
+   * from a service caller's (tdr-bot's) job, which has neither either.
+   * Absent on every other job, so existing fixtures, stored rows and
+   * `apps/tdr-bot`'s parse stay valid unchanged.
+   */
+  startedUpstream: z.boolean().optional(),
   status: z.enum(DownloadJobStatus),
   updatedAt: z.iso.datetime(),
 })

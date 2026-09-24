@@ -80,6 +80,16 @@ export const DOWNLOAD_JOB_STATUSES = [
 // `audit_log` banner comment below for the full reasoning).
 export const JOB_ORIGINS = ['service', 'web', 'discord'] as const
 
+// Plan 022: `jobs.origin`'s own tuple - `JOB_ORIGINS` plus `upstream`, a
+// movie/show job adopted from a download someone started in Radarr's or
+// Sonarr's own UI (`DownloadJobRecord.startedUpstream`). Kept separate rather
+// than widening `JOB_ORIGINS` because that tuple is shared with
+// `audit_log.origin` and mirrored by `AuditLogEntrySchema.origin`: an audit
+// actor is a person or a service caller acting on this app, never Radarr.
+// `service` is not reused either - it means tdr-bot or an unauthenticated
+// caller, which is a different answer to "who started this".
+export const JOB_ROW_ORIGINS = [...JOB_ORIGINS, 'upstream'] as const
+
 // Compile-time-only guard that the SQL enum tuples in this file never
 // silently drift from the shared TS enums they mirror (`DownloadType`/
 // `DownloadJobStatus` in `@lilnas/utils/download/types`, plus Phase 8's
@@ -116,7 +126,8 @@ export const jobs = sqliteTable(
     status: text({ enum: DOWNLOAD_JOB_STATUSES }).notNull(),
 
     // Attribution. Null = a service caller with no forwarded identity
-    // (apps/tdr-bot). NEVER nulled to implement hiding — hiding is a
+    // (apps/tdr-bot), or a job adopted from Radarr/Sonarr (`origin`
+    // `upstream`). NEVER nulled to implement hiding — hiding is a
     // presentation filter applied at serialization
     // (src/download/attribution.ts), the truth stays here.
     requesterEmail: text('requester_email'),
@@ -143,7 +154,7 @@ export const jobs = sqliteTable(
     discordUserId: text('discord_user_id'),
     discordUsername: text('discord_username'),
 
-    origin: text({ enum: JOB_ORIGINS }).notNull(),
+    origin: text({ enum: JOB_ROW_ORIGINS }).notNull(),
     hiddenAttribution: integer('hidden_attribution', { mode: 'boolean' })
       .notNull()
       .default(false),
@@ -206,15 +217,23 @@ export const jobs = sqliteTable(
     // Discord pair, which would make `origin` decorative rather than
     // authoritative and leave every consumer guessing which attribution to
     // render.
+    //
+    // Plan 022 added the `upstream` arm, the same all-NULL shape as
+    // `service`: Radarr/Sonarr started the download, so there is no person to
+    // record. The two arms differ only in what `origin` says about it, which
+    // is exactly why `upstream` needed its own value. `audit_log`'s mirror
+    // CHECK has no such arm - see `JOB_ROW_ORIGINS`.
     check(
       'jobs_origin_matches_requester',
       sql`(
-        (${t.origin} = 'web'     AND ${t.requesterEmail} IS NOT NULL AND ${t.requesterUserId} IS NOT NULL
-                                 AND ${t.discordUserId} IS NULL      AND ${t.discordUsername} IS NULL) OR
-        (${t.origin} = 'discord' AND ${t.discordUserId} IS NOT NULL  AND ${t.discordUsername} IS NOT NULL
-                                 AND ${t.requesterEmail} IS NULL     AND ${t.requesterUserId} IS NULL) OR
-        (${t.origin} = 'service' AND ${t.requesterEmail} IS NULL     AND ${t.requesterUserId} IS NULL
-                                 AND ${t.discordUserId} IS NULL      AND ${t.discordUsername} IS NULL)
+        (${t.origin} = 'web'      AND ${t.requesterEmail} IS NOT NULL AND ${t.requesterUserId} IS NOT NULL
+                                  AND ${t.discordUserId} IS NULL      AND ${t.discordUsername} IS NULL) OR
+        (${t.origin} = 'discord'  AND ${t.discordUserId} IS NOT NULL  AND ${t.discordUsername} IS NOT NULL
+                                  AND ${t.requesterEmail} IS NULL     AND ${t.requesterUserId} IS NULL) OR
+        (${t.origin} = 'service'  AND ${t.requesterEmail} IS NULL     AND ${t.requesterUserId} IS NULL
+                                  AND ${t.discordUserId} IS NULL      AND ${t.discordUsername} IS NULL) OR
+        (${t.origin} = 'upstream' AND ${t.requesterEmail} IS NULL     AND ${t.requesterUserId} IS NULL
+                                  AND ${t.discordUserId} IS NULL      AND ${t.discordUsername} IS NULL)
       )`,
     ),
     // Ties `media_id`'s prefix to `type`, the DB-level expression of the
@@ -398,7 +417,8 @@ export const auditLog = sqliteTable(
   {
     id: integer('id', { mode: 'number' }).primaryKey({ autoIncrement: true }),
     // Same `service`/`web`/`discord` split - and the same meaning - as
-    // `jobs.origin`, reusing that tuple rather than a parallel one: a null
+    // `jobs.origin`, reusing that tuple rather than a parallel one (minus
+    // `jobs`' `upstream`, which no audit actor can be): a null
     // actor on a `web` row would mean a browser request arrived without
     // `X-Forwarded-User`, which is a bug, not a shape the log should be able
     // to record.

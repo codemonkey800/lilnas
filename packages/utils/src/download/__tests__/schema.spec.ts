@@ -961,6 +961,40 @@ describe('DownloadJobSchema with a scope', () => {
   })
 })
 
+describe('DownloadJobSchema with startedUpstream', () => {
+  // An adopted job: Radarr started it, so nobody requested it here.
+  const baseJob = {
+    completedAt: null,
+    createdAt: '2026-08-20T12:00:00.000Z',
+    discordRequester: null,
+    hiddenAttribution: false,
+    id: 'job-1',
+    linkedDiscord: null,
+    media: validMovie,
+    requester: null,
+    status: DownloadJobStatus.Downloading,
+    updatedAt: '2026-08-20T12:00:00.000Z',
+  }
+
+  it('round-trips an adopted job carrying startedUpstream', () => {
+    const input = { ...baseJob, startedUpstream: true }
+    expect(DownloadJobSchema.parse(input)).toEqual(input)
+  })
+
+  // Every job this app started, and every job before the field existed,
+  // has no `startedUpstream` key at all.
+  it('parses a job with no startedUpstream key', () => {
+    expect(DownloadJobSchema.parse(baseJob).startedUpstream).toBeUndefined()
+  })
+
+  it('rejects a non-boolean startedUpstream rather than dropping it', () => {
+    expect(
+      DownloadJobSchema.safeParse({ ...baseJob, startedUpstream: 'radarr' })
+        .success,
+    ).toBe(false)
+  })
+})
+
 describe('VideoProgressSchema', () => {
   // A progressive (non-fragmented) grab: one of two files that get merged,
   // with a real `total_bytes`.
