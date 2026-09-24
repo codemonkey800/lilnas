@@ -112,10 +112,19 @@ cherry-pick otherwise — so every task diffs against a committed baseline in th
 
 1. Work tasks in wave order (see [Sequencing](#sequencing)). Never start a task before
    its dependencies are green.
-2. Implement → write or update tests → from `apps/download` run `pnpm test`,
-   `pnpm lint` (eslint **and** prettier), `pnpm type-check`. A task that touches
-   `packages/utils` runs the same three there too, **and** `pnpm build` in
-   `packages/utils` (the app type-checks against `dist/`; jest maps to `src/`).
+2. Implement → write or update tests → from `apps/download` run **only the task's
+   own specs** (`pnpm exec jest <spec paths> --maxWorkers=2` — not `pnpm test -- …`,
+   which hands `--maxWorkers` to jest as a path pattern), eslint + prettier on the
+   task's own files, and `pnpm type-check`. A task that touches `packages/utils` runs
+   the same there too, **and** `pnpm build` in `packages/utils` (the app type-checks
+   against `dist/`; jest maps to `src/`).
+
+   > ⚠️ **Never run the full `apps/download` suite from a task.** This host has 32
+   > cores, so an uncapped `pnpm test` spawns ~31 jest workers (many jsdom); Wave 2's
+   > three or four sub-agents doing that at once ran the production server out of
+   > memory on 2026-09-24. The full suite runs **once**, at E1, with `--maxWorkers=4`
+   > and nothing else running.
+
 3. **`/commit`** — one task, one commit. Stage only the task's own paths (see the
    mutex rule in [Instructions for the orchestrator](#instructions-for-the-orchestrator-agent)).
 4. Check the box below and append the commit hash.
@@ -672,8 +681,8 @@ Addenda:
 
 ### Group A — Contracts (`packages/utils`)
 
-- [ ] **A1. `VideoProgressSchema` on the wire.** The snapshot's schema, its type, and
-      `DownloadJob.progress`.
+- [x] **A1. `VideoProgressSchema` on the wire.** The snapshot's schema, its type, and
+      `DownloadJob.progress`. `0ec93d8f`
 
   **Files:** edit `packages/utils/src/download/schema.ts` (add `VideoProgressSchema`
   directly after `DownloadQueueSnapshotSchema` at :76-80, with a doc comment that says
@@ -709,8 +718,14 @@ Addenda:
 
 ### Group B — Capture (`apps/download/src/download`)
 
-- [ ] **B1. The yt-dlp progress parser, pure.** A module that turns stdout lines into
-      `VideoProgress` snapshots, with no I/O and no Nest.
+- [x] **B1. The yt-dlp progress parser, pure.** A module that turns stdout lines into
+      `VideoProgress` snapshots, with no I/O and no Nest. `6f1eeceb`
+
+  **Findings:** beyond the spec, the splitter also breaks on a bare `\r`, decodes
+  `Buffer` chunks through a `StringDecoder` (a multi-byte char split across chunks
+  stays whole), and caps the carried remainder at 64 KiB (the over-long line is
+  dropped up to its next newline). `parseYtdlpFormatCountLine` also counts `,`-joined
+  ids.
 
   **Files:** create `apps/download/src/download/ytdlp-progress.ts`; create
   `apps/download/src/download/__tests__/ytdlp-progress.test.ts`.
@@ -790,8 +805,18 @@ Addenda:
   `fileIndex` 1 then 2, `fileCount` 2 from the info line, `flush` true on the file
   change and on the _second_ file's `finished` but false on the first's.
 
-- [ ] **B2. Tee stdout and feed the reducer.** `runProcess()` grows a line callback;
+- [x] **B2. Tee stdout and feed the reducer.** `runProcess()` grows a line callback;
       `download()` passes the progress args and forwards snapshots to the state service.
+      `035d62c9`
+
+  **Findings:** the flush is `await downloadProcess.promise.finally(() => flushProgress(id))`,
+  so it runs on clean exit, crash, pause/cancel SIGTERM and spawn-error rejection alike,
+  always before `assertNotInterrupted`. A throwing line handler warns **once per run**
+  (not once a second) and is swallowed. `runProcess()` also gained an optional `log`
+  param so the warning carries the job logger. Stale `:311`/`:292` line refs in the
+  spawn-error comment were replaced with method names. `flushProgress` is not guarded
+  inside the `.finally` — it cannot throw today, but if it ever did it would turn into
+  a download failure.
 
   **Files:** edit `apps/download/src/download/download-video.service.ts`; edit
   `apps/download/src/download/__tests__/download-video.service.test.ts`.
@@ -834,9 +859,13 @@ Addenda:
 
 ### Group C — State and broadcast (`apps/download/src/download`)
 
-- [ ] **C1. The progress map and the throttled re-broadcast.** `DownloadStateService`
+- [x] **C1. The progress map and the throttled re-broadcast.** `DownloadStateService`
       holds one `VideoProgress` per job, attaches it in `toJob()`, and sends it through
-      `touchJob()` at most once a second.
+      `touchJob()` at most once a second. `9bcc6ba6`
+
+  **Findings:** the throttle spec needs
+  `jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] })`
+  because the file's `flushAsync()` runs on `setImmediate`.
 
   **Files:** edit `apps/download/src/download/download-state.service.ts`; edit
   `apps/download/src/download/__tests__/download-state.service.test.ts`; edit the
@@ -891,7 +920,11 @@ Addenda:
 
 ### Group D — Frontend (`apps/download/src`)
 
-- [ ] **D1. Formatters.** Bytes, speed and ETA live in `lib/format.ts`.
+- [x] **D1. Formatters.** Bytes, speed and ETA live in `lib/format.ts`. `4f2c38a2`
+
+  **Findings:** `formatEta` rounds to the nearest minute before handing to
+  `formatRuntime` (which truncates), so `170` → `~3m left`, `3590` → `~1h 00m left`.
+  All listed cases hold.
 
   **Files:** edit `apps/download/src/lib/format.ts` (move `formatBytes` and
   `BYTE_UNITS` here from `release-picker.tsx:35-67`, keeping its contract and doc; add
@@ -916,8 +949,15 @@ Addenda:
   **Tests:** the cases above, plus the moved `formatBytes` cases still pass from their new
   home; `release-picker.spec.tsx` unchanged in behaviour.
 
-- [ ] **D2. `jobProgress()` learns the video arm, and the bar keeps settling through
-      processing.** The pure helpers in `job-state.ts` read `job.progress`.
+- [x] **D2. `jobProgress()` learns the video arm, and the bar keeps settling through
+      processing.** The pure helpers in `job-state.ts` read `job.progress`. `a95b4bd9`
+
+  **Findings:** also touched `components/detail/media-state.ts` + its spec —
+  `mediaProgress()` returns `JobProgress`, so the new required `detail` forced
+  `detail: null` there. The transfer line drops the speed segment whenever
+  `formatSpeed` would print `—`, not only when `speedBps` is absent. A video's
+  `timeLeft` is now pre-phrased (`~2m left`), so `attempt-list.tsx`'s
+  `` `~${timeLeft} left` `` must branch on type — handed to D3.
 
   **Files:** edit `apps/download/src/components/detail/job-state.ts`; extend
   `apps/download/src/components/detail/__tests__/job-state.spec.ts`.
@@ -969,8 +1009,15 @@ the wire'` (:206-218) with: null when `progress` absent; null when `progress` ha
   `jobHandoff(Converting, undefined)` → `'processing'` too (a snapshot is not required to
   settle - but the card only draws a bar when there is one).
 
-- [ ] **D3. The attempt card draws it.** Counter, percentage, bar and transfer line on the
-      in-flight video card; the video page's "never" comment and test flip.
+- [x] **D3. The attempt card draws it.** Counter, percentage, bar and transfer line on the
+      in-flight video card; the video page's "never" comment and test flip. `4c36c780`
+
+  **Findings:** the aside moved into a private `attemptAside()`; a video joins
+  `[detail, timeLeft]`, a movie keeps `~${timeLeft} left` (fixes the `~~2m left left`
+  D2 flagged). The settling bar draws the last tick's percent as-is — in practice the
+  last tick before `Converting` is yt-dlp's `finished` line (100%), but a run whose
+  final tick was below 100 would settle short of full. Left for
+  [checkpoint 2](#human-checkpoints) to confirm; not forced to 100.
 
   **Files:** edit `apps/download/src/components/detail/attempt-list.tsx`; edit
   `apps/download/src/components/detail/video-detail.tsx` (the doc comment at :324-332
@@ -1014,8 +1061,8 @@ the wire'` (:206-218) with: null when `progress` absent; null when `progress` ha
   and a `VideoDetailLive` case (:943-980 pattern) where an `emitJob` frame with
   `progress` updates the bar without a re-render from the server.
 
-- [ ] **D4. The activity feed's progress column.** `jobProgressPct()` reads a video's
-      snapshot; the mobile label follows.
+- [x] **D4. The activity feed's progress column.** `jobProgressPct()` reads a video's
+      snapshot; the mobile label follows. `f7d590b4`
 
   **Files:** edit `apps/download/src/components/activity/activity-rows.ts`; extend
   `apps/download/src/components/activity/__tests__/activity-rows.spec.ts`.
@@ -1034,16 +1081,22 @@ the wire'` (:206-218) with: null when `progress` absent; null when `progress` ha
 
 ### Group E — Verification & docs
 
-- [ ] **E1. Integration checkpoint.** From the repo root: `pnpm run type-check` and
+- [x] **E1. Integration checkpoint.** From the repo root: `pnpm run type-check` and
       `pnpm run lint`; from `packages/utils`: `pnpm test`, `pnpm build`; from
       `apps/download`: `pnpm test` (both projects), `pnpm lint`, `pnpm type-check`. Also
       `apps/tdr-bot`: `pnpm type-check` (it consumes `DownloadJob` through
       `@lilnas/utils`; a new optional field must not break it). Record counts against
       the baseline in the [Final report](#final-report). Must see every prior commit.
       No commit unless something needed fixing - then one `fix(download): …` commit
-      naming the task it corrects.
+      naming the task it corrects. **Green at `035d62c9`, no fix commit.**
 
-- [ ] **E2. Docs.** Record what shipped where the series keeps its record.
+  **Findings:** run sequentially with caps (`packages/utils` jest `--maxWorkers=2`;
+  `apps/download` `pnpm exec jest --maxWorkers=4`; root turbo `--concurrency=4`);
+  73 GB available before and after. The one failure is the baseline's
+  `reduced-motion.spec.ts` — its expected list lacks `bar-settling`, introduced by
+  `c4c74fab` before this plan; none of this plan's commits touch it.
+
+- [x] **E2. Docs.** Record what shipped where the series keeps its record. `2deb6f81`
 
   **Files:** edit `docs/features/download/backend.md` (a new top-level section
   `## Video download progress (plan 015)` after the plan 021 sections, in the shape of
@@ -1169,6 +1222,13 @@ When every box is checked, report:
    type-check, root type-check and lint, against the pre-Wave-1 baseline (record the
    baseline counts before A1 lands; plan 021's final numbers were 4520 + 9 skipped in
    `@lilnas/download` and 497 in `@lilnas/utils` on 2026-09-24).
+
+   > **Baseline** (recorded at `0890cda6`, before A1): `@lilnas/utils` 9 suites,
+   > **497 passed**. `@lilnas/download` 193 of 194 suites, **4594 passed, 9 skipped,
+   > 1 failed** — the failure is pre-existing and unrelated
+   > (`src/__tests__/reduced-motion.spec.ts` › _finds the animated utilities it expects
+   > to find_).
+
 3. **Deviations** from this plan, and why — in particular anything the
    [live facts](#live-facts-yt-dlp-20260819-probed-2026-09-24) got wrong once real lines
    flowed through the real service.
@@ -1182,3 +1242,75 @@ When every box is checked, report:
 6. **What the live run showed** — the `progress` object at three moments (first tick,
    mid-download, `finished`), the file/fragment counters observed, the pause/resume
    byte offsets, and the clip run's behaviour.
+
+---
+
+### Report — 2026-09-24
+
+**1. Per-task outcome**
+
+| Task | Status | Commit     | Files                                                                                          | Exported names                                                                                                                                                            |
+| ---- | ------ | ---------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A1   | ✅     | `0ec93d8f` | `utils` `schema.ts`, `types.ts`, `schema.spec.ts`, `job-events.spec.ts`                        | `VideoProgressSchema`, `VideoProgress`; `DownloadJob.progress`; `DownloadJobRecord` omits `progress`                                                                      |
+| D1   | ✅     | `4f2c38a2` | `lib/format.ts` + spec, `release-picker.tsx` + spec, `delete-confirm.tsx`, `import-dialog.tsx` | `formatBytes` (moved), `formatSpeed`, `formatEta`                                                                                                                         |
+| C1   | ✅     | `9bcc6ba6` | `download-state.service.ts` + test, `media/media-state.service.ts` (comment)                   | `setProgress`, `flushProgress`, `getProgress`, `PROGRESS_BROADCAST_INTERVAL_MS`                                                                                           |
+| B1   | ✅     | `6f1eeceb` | `download/ytdlp-progress.ts` + test (new)                                                      | `YTDLP_PROGRESS_PREFIX`, `YTDLP_PROGRESS_ARGS`, `createLineSplitter`, `parseYtdlpProgressLine`, `YtdlpProgressTick`, `parseYtdlpFormatCountLine`, `createProgressReducer` |
+| D2   | ✅     | `a95b4bd9` | `job-state.ts` + spec, `media-state.ts` + spec                                                 | `JobProgress.detail`, `jobTransferLine`, `Handoff` gains `'processing'`                                                                                                   |
+| D4   | ✅     | `f7d590b4` | `activity-rows.ts` + spec                                                                      | —                                                                                                                                                                         |
+| D3   | ✅     | `4c36c780` | `attempt-list.tsx` + spec, `video-detail.tsx` (comment) + spec, `progress-block.tsx` (comment) | —                                                                                                                                                                         |
+| B2   | ✅     | `035d62c9` | `download-video.service.ts` + test                                                             | — (`runProcess` gains optional `onStdoutLine`, `log`)                                                                                                                     |
+| E1   | ✅     | —          | none (green, no fix needed)                                                                    | —                                                                                                                                                                         |
+| E2   | ✅     | `2deb6f81` | `backend.md`, `spec.md`, `013-frontend-rewrite.md`, `local-verification.md`                    | —                                                                                                                                                                         |
+
+**2. Test results** (E1, at `035d62c9`)
+
+| Check                                   | Baseline (`0890cda6`)            | Now                                         |
+| --------------------------------------- | -------------------------------- | ------------------------------------------- |
+| `@lilnas/utils` jest                    | 9 suites, 497 passed             | 9 suites, **519 passed** (+22)              |
+| `@lilnas/download` jest (both projects) | 4594 passed, 9 skipped, 1 failed | **4731 passed** (+137), 9 skipped, 1 failed |
+| `@lilnas/download` lint / type-check    | —                                | clean / clean                               |
+| `tdr-bot` type-check                    | —                                | clean                                       |
+| root `type-check` / `lint`              | —                                | 12/12 / 15/15 tasks clean                   |
+
+The one failure is the baseline's `reduced-motion.spec.ts` (expects no `bar-settling`,
+which `c4c74fab` added before this plan) — not caused here, not fixed here.
+
+**3. Deviations**
+
+- **The plan doc was cherry-picked, not fast-forwarded** — `jeremy/download` had
+  moved one commit (`37946bf3`); it landed as `0890cda6`.
+- **D2 touched `components/detail/media-state.ts` + spec** — `mediaProgress()` returns
+  `JobProgress`, so the new required `detail` forced `detail: null` there.
+- **D3 branches the aside on media type** — a video's `timeLeft` is pre-phrased, so
+  the movie's `` `~${timeLeft} left` `` would have read `~~2m left left`.
+- **B1 is more defensive than specified** — bare `\r`, a UTF-8 `StringDecoder`, a
+  64 KiB remainder cap, `,`-joined format ids.
+- **B2 flushes in `.finally`**, so every exit path flushes; the line-handler warning
+  fires once per run.
+- **Test commands:** Wave 2's sub-agents each ran the full `apps/download` suite
+  uncapped and, on this 32-core host, nearly ran production out of memory; they were
+  stopped and restarted with targeted specs only. `pnpm test -- … --maxWorkers=N` also
+  turned out not to cap anything (jest reads it as a path pattern) — `pnpm exec jest …
+--maxWorkers=N` does. [How to work this plan](#how-to-work-this-plan) now says so.
+- **Live facts** — not yet exercised against the real service; see §6.
+
+**4. Deferred**
+
+- 🧑 **Checkpoint 1** — restart `lilnas-download-dev`.
+- 🧑 **Checkpoint 2** — the live run (progressive, HLS, clip, pause/resume/cancel).
+- 🧑 **Checkpoint 3** — production deploy.
+- **Accepted gaps**, unchanged: (1) a clip draws no bar — **not yet confirmed** live;
+  (2) each video tick sends a redundant media frame; (3) the header chip stays
+  chip-only.
+
+**5. Open questions**
+
+- Should `MediaStatus` also draw the bar for a video? (Left chip-only per the mockup.)
+- Does tdr-bot want an `onEvent` on `waitForJob` now that frames carry progress?
+- Should `download.log` keep yt-dlp's human bar? It now holds `LILNAS_PROGRESS` JSON
+  lines, each carrying `_default_template`, so it stays readable.
+- If a video's last tick before `Converting` were below 100%, the settling bar would
+  stop short of full (D3). The `finished` line should make this moot — confirm live.
+- `flushProgress` is unguarded inside B2's `.finally`; it cannot throw today.
+
+**6. What the live run showed** — pending checkpoint 2.
