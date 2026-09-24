@@ -17,10 +17,11 @@ export type ProgressBlockProps = {
  * `startedFromRadarrFrame` card: an annotation and a percentage over a bar,
  * then one mono line under it. Drawn by `MediaStatus`.
  *
- * ⚠️ The mixin's line reads `412 MB / 640 MB · 3.1 MB/s · ~2m left` and its
- * annotation reads `fragment 4 of 9`. Neither has anything behind it - see
- * `jobProgress` - so what lands here is upstream's queue status word and its
- * `hh:mm:ss` estimate, and either can be absent.
+ * ⚠️ Only a movie or show reaches this block, so what lands here is
+ * upstream's queue status word and its `hh:mm:ss` estimate, and either can be
+ * absent. The mixin's `fragment 4 of 9` and `412 MB / 640 MB · 3.1 MB/s · ~2m
+ * left` are a video's, and a video's progress is its job's - `AttemptList`'s
+ * in-flight card draws those, off `jobProgress`.
  *
  * The `Bar` keeps its `progressbar` role and gains a name; it is the numeric
  * percentage beside it that is `aria-hidden`, since that is the redundant

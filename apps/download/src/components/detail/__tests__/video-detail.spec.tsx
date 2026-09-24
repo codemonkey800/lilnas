@@ -1,6 +1,10 @@
 import '@testing-library/jest-dom'
 
-import type { DownloadJob, Video } from '@lilnas/utils/download/types'
+import type {
+  DownloadJob,
+  Video,
+  VideoProgress,
+} from '@lilnas/utils/download/types'
 import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
 import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -74,6 +78,22 @@ function job(overrides: Partial<DownloadJob> = {}): DownloadJob {
     requester: { email: 'jeremy.asuncion@lilnas.io', userId: 'u_jeremy' },
     status: DownloadJobStatus.Downloading,
     updatedAt: '2026-09-15T11:59:00.000Z',
+    ...overrides,
+  }
+}
+
+const MB = 1024 * 1024
+
+/** yt-dlp's tick as the wire carries it: 64% of a 640 MB merge at 3.1 MB/s. */
+function tick(overrides: Partial<VideoProgress> = {}): VideoProgress {
+  return {
+    downloadedBytes: 412 * MB,
+    etaSeconds: 125,
+    fileCount: 2,
+    fileIndex: 1,
+    percent: 64,
+    speedBps: 3.25e6,
+    totalBytes: 640 * MB,
     ...overrides,
   }
 }
@@ -591,16 +611,29 @@ describe('VideoDetail', () => {
       expect(onCancel).toHaveBeenCalledWith('job_99')
     })
 
-    /**
-     * ⚠️ `video-detail.pug` draws `fragment 4 of 9` over a 64% bar with
-     * `412 MB / 640 MB · 3.1 MB/s` under it. Nothing on the wire carries a
-     * video's progress, so nothing is drawn — a 0% bar would be a claim.
-     */
-    it('draws no progress bar', () => {
+    // Before yt-dlp's first tick there is nothing to prove — a 0% bar would
+    // be a claim.
+    it('draws no progress bar when the attempt carries no progress', () => {
       renderDetail()
 
       expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
       expect(screen.queryByText(/MB\/s/)).not.toBeInTheDocument()
+    })
+
+    // `video-detail.pug`'s `fragment 4 of 9` over a 64% bar, drawn on the
+    // attempt card rather than beside the media chip.
+    it('draws the attempt’s progress when the wire carries it', () => {
+      renderDetail({ jobs: [job({ progress: tick() })] })
+
+      const bar = within(attempts()).getByRole('progressbar', {
+        name: 'Download progress',
+      })
+
+      expect(bar).toHaveAttribute('aria-valuenow', '64')
+      expect(within(attempts()).getByText(/MB\/s/)).toBeInTheDocument()
+      expect(
+        within(mediaPanel()).queryByRole('progressbar'),
+      ).not.toBeInTheDocument()
     })
 
     // A re-download over a file that is still there: the media is
@@ -1102,6 +1135,29 @@ describe('VideoDetailLive', () => {
     expect(
       screen.queryByRole('button', { name: 'Pause' }),
     ).not.toBeInTheDocument()
+  })
+
+  // yt-dlp's ticks ride the `download-job` frame — the bar moves off the
+  // socket alone, with no server re-render in between.
+  it('moves the attempt’s bar as progress frames arrive', () => {
+    const { recorder } = renderLive()
+
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+
+    emitJob(recorder, job({ progress: tick({ percent: 12 }) }))
+
+    const bar = within(attempts()).getByRole('progressbar', {
+      name: 'Download progress',
+    })
+    expect(bar).toHaveAttribute('aria-valuenow', '12')
+
+    emitJob(recorder, job({ progress: tick() }))
+
+    expect(bar).toHaveAttribute('aria-valuenow', '64')
+    expect(within(attempts()).getByText('64%')).toBeInTheDocument()
+    expect(
+      within(attempts()).getByText('412 MB / 640 MB · 3.1 MB/s · ~2m left'),
+    ).toBeInTheDocument()
   })
 
   it('opens exactly one socket no matter how many frames arrive', () => {

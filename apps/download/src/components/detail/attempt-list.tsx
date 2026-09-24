@@ -2,7 +2,10 @@
 
 import { cns } from '@lilnas/utils/cns'
 import type { DownloadJob, ShowScope } from '@lilnas/utils/download/types'
-import { isTerminalDownloadJobStatus } from '@lilnas/utils/download/types'
+import {
+  DownloadType,
+  isTerminalDownloadJobStatus,
+} from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX } from 'react'
 import { useId, useTransition } from 'react'
 
@@ -21,7 +24,11 @@ import {
   ACTION_SPECS,
   ActionRow,
 } from 'src/components/detail/job-actions'
-import type { JobActionKey } from 'src/components/detail/job-state'
+import type {
+  Handoff,
+  JobActionKey,
+  JobProgress,
+} from 'src/components/detail/job-state'
 import {
   FINISHING_LABEL,
   handoffDetail,
@@ -29,6 +36,7 @@ import {
   jobHandoff,
   jobProgress,
   jobStatusLabel,
+  jobTransferLine,
 } from 'src/components/detail/job-state'
 import { Avatar } from 'src/components/ui/avatar'
 import { Button } from 'src/components/ui/button'
@@ -224,8 +232,14 @@ type AttemptCardProps = {
 
 /**
  * `attemptInFlight`: the attempt's status chip and percentage over a bar, a
- * note, the queue's time estimate (or, once the bytes are down, what happens
- * next), and whatever this status lets you do.
+ * note, the time estimate (or, once the bytes are down, what happens next),
+ * and whatever this status lets you do.
+ *
+ * A video's card is `video-detail.pug`'s `progress` mixin: yt-dlp's counter
+ * (`fragment 4 of 9`) between the chip and the percentage, and the transfer
+ * line (`412 MB / 640 MB · 3.1 MB/s · ~2m left`) under the bar. A movie's or
+ * show's queue entry has a status word but no counter and no bytes, so its
+ * card keeps the bare `~hh:mm:ss left`.
  *
  * Its own component so each card owns its own transition — pausing one of two
  * in-flight attempts must not grey out the other's buttons.
@@ -242,17 +256,20 @@ function AttemptCard({
   // tone of work the machine is actively doing, which is what the breathing
   // dot means.
   const live = tone === 'uv'
+  const isVideo = job.media.type === DownloadType.Video
   const progress = jobProgress(job)
+  // A video whose total yt-dlp does not know yet: bytes and a rate, but no
+  // percentage to draw a bar with.
+  const transfer = progress ? null : jobTransferLine(job)
   // Every byte down but not in the library yet: the chip says so, the bar
   // settles, and the spent `~00:00:00 left` gives way to what happens next.
   const handoff = jobHandoff(job.status, progress?.pct)
   const label =
     handoff === 'finishing' ? FINISHING_LABEL : jobStatusLabel(job.status)
-  const aside = handoff
-    ? handoffDetail(handoff, job.media.type)
-    : progress?.timeLeft
-      ? `~${progress.timeLeft} left`
-      : null
+  // Only a video's note is a counter. A movie's is Radarr's status word, which
+  // the chip already says better.
+  const counter = isVideo ? (progress?.note ?? null) : null
+  const aside = attemptAside(job, handoff, progress, transfer)
   const note = [attemptScopeLabel(job.scope), job.error]
     .filter(Boolean)
     .join(' — ')
@@ -327,6 +344,15 @@ function AttemptCard({
           {live ? <Dot tone="live" /> : null}
           {label}
         </Chip>
+        {counter ? (
+          <span
+            className={cns(
+              'min-w-0 flex-1 truncate font-mono text-mono-sm text-ink-3',
+            )}
+          >
+            {counter}
+          </span>
+        ) : null}
         {progress ? (
           <span
             aria-hidden="true"
@@ -362,6 +388,39 @@ function AttemptCard({
       ) : null}
     </Card>
   )
+}
+
+/**
+ * The mono line under an attempt's bar, first match wins:
+ *
+ * - A handoff says what happens next (`handoffDetail`) — nothing for a video,
+ *   whose chip already names the step.
+ * - A video with a bar reads its transfer and yt-dlp's estimate, which
+ *   `formatEta` has already phrased: `412 MB / 640 MB · 3.1 MB/s · ~2m left`.
+ * - A movie or show wraps the queue's raw `hh:mm:ss` as `~00:12:00 left`.
+ * - A video with bytes but no percentage reads the transfer alone.
+ */
+function attemptAside(
+  job: DownloadJob,
+  handoff: Handoff | null,
+  progress: JobProgress | null,
+  transfer: string | null,
+): string | null {
+  if (handoff) {
+    return handoffDetail(handoff, job.media.type)
+  }
+
+  if (!progress) {
+    return transfer
+  }
+
+  if (job.media.type === DownloadType.Video) {
+    return (
+      [progress.detail, progress.timeLeft].filter(Boolean).join(' · ') || null
+    )
+  }
+
+  return progress.timeLeft ? `~${progress.timeLeft} left` : null
 }
 
 type AttemptLineProps = {

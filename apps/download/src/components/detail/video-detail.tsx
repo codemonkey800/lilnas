@@ -322,15 +322,15 @@ export type VideoDetailProps = Omit<
  * deleted used to read `completed` off its old job and draw a player with
  * nothing to play.
  *
- * ⚠️ **No progress bar, ever.** `video-detail.pug` draws `fragment 4 of 9` and
- * `412 MB / 640 MB · 3.1 MB/s` over a 64% bar; none of it exists. A video has
- * no `queueSnapshot` (that is a Radarr/Sonarr queue entry), a video job has
- * no progress field anywhere in `DownloadJob`, and the backend does not merely
- * fail to expose one: `download-video.service.ts` pipes yt-dlp's stdout into
- * a log file and never parses it. `mediaProgress()` and `jobProgress()` both
- * answer `null` for a video, so neither `MediaStatus` nor the attempt card
- * draws a bar — the honest rendering, since a 0% bar is a claim. Where a
- * mockup and the API disagree about content, the API wins.
+ * **The progress lives on the attempt, not the chip.** `video-detail.pug`'s
+ * `fragment 4 of 9` over a 64% bar with `412 MB / 640 MB · 3.1 MB/s · ~2m
+ * left` under it is yt-dlp's own tick, carried on the job as
+ * `DownloadJob.progress` while the process lives and pushed over the
+ * `download-job` frame — so the in-flight attempt card draws it, off
+ * `jobProgress()`. A video has no `queueSnapshot` (that is a Radarr/Sonarr
+ * queue entry), so `mediaProgress()` still answers `null` and `MediaStatus`
+ * draws no bar of its own. An attempt with no tick yet, or no percentage (no
+ * total known), draws no bar either — a 0% bar is a claim.
  *
  * **Download, never Retry.** The mockup's `not downloaded` frame draws a
  * Download, and it is the page's one way back to a file whatever the newest

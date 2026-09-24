@@ -1,6 +1,12 @@
 import '@testing-library/jest-dom'
 
-import type { DownloadJob, Movie, Show } from '@lilnas/utils/download/types'
+import type {
+  DownloadJob,
+  Movie,
+  Show,
+  Video,
+  VideoProgress,
+} from '@lilnas/utils/download/types'
 import {
   DownloadJobStatus,
   DownloadType,
@@ -35,6 +41,30 @@ const SHOW: Show = {
   title: 'The Wire',
   tvdbId: 79126,
   type: DownloadType.Show,
+}
+
+const VIDEO: Video = {
+  id: 'video:V1StGXR8_Z5',
+  sourceUrl: 'https://www.youtube.com/watch?v=aqz-KE-bpKQ',
+  state: 'downloading',
+  title: 'Sourdough starter, day one to seven',
+  type: DownloadType.Video,
+}
+
+const MB = 1024 * 1024
+
+/** yt-dlp's tick two files into a merge: 64% of 640 MB at 3.1 MB/s. */
+function tick(overrides: Partial<VideoProgress> = {}): VideoProgress {
+  return {
+    downloadedBytes: 412 * MB,
+    etaSeconds: 125,
+    fileCount: 2,
+    fileIndex: 1,
+    percent: 64,
+    speedBps: 3.25e6,
+    totalBytes: 640 * MB,
+    ...overrides,
+  }
 }
 
 function job(overrides: Partial<DownloadJob> = {}): DownloadJob {
@@ -358,6 +388,145 @@ describe('AttemptList', () => {
       renderList([job()])
 
       expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+    })
+
+    describe('a video', () => {
+      function videoJob(overrides: Partial<DownloadJob> = {}): DownloadJob {
+        return job({ media: VIDEO, progress: tick(), ...overrides })
+      }
+
+      it('draws no bar when the video carries no progress', () => {
+        const { container } = renderList([videoJob({ progress: undefined })])
+        const card = attempt(container, 'job_1')
+
+        expect(within(card).queryByRole('progressbar')).not.toBeInTheDocument()
+        expect(within(card).queryByText(/%$/)).not.toBeInTheDocument()
+        expect(within(card).queryByText(/MB\/s/)).not.toBeInTheDocument()
+      })
+
+      it('draws yt-dlp’s tick: bar, percentage, counter and transfer line', () => {
+        const { container } = renderList([videoJob()])
+        const card = attempt(container, 'job_1')
+
+        expect(
+          within(card).getByRole('progressbar', { name: 'Download progress' }),
+        ).toHaveAttribute('aria-valuenow', '64')
+        expect(within(card).getByText('64%')).toBeInTheDocument()
+        expect(within(card).getByText('file 1 of 2')).toBeInTheDocument()
+        expect(
+          within(card).getByText('412 MB / 640 MB · 3.1 MB/s · ~2m left'),
+        ).toBeInTheDocument()
+      })
+
+      // `formatEta` already phrased the estimate, so the movie's
+      // `~${timeLeft} left` wrapping would stutter.
+      it('does not wrap an estimate that is already phrased', () => {
+        const { container } = renderList([videoJob()])
+        const card = attempt(container, 'job_1')
+
+        expect(card.textContent).not.toContain('~~')
+        expect(card.textContent).not.toContain('left left')
+      })
+
+      it('sits the counter between the chip and the percentage', () => {
+        const { container } = renderList([videoJob()])
+        const card = attempt(container, 'job_1')
+        const row = within(card).getByText('file 1 of 2').parentElement
+
+        expect(
+          Array.from(row?.children ?? []).map(child => child.textContent),
+        ).toEqual(['downloading', 'file 1 of 2', '64%'])
+      })
+
+      it('counts fragments on an HLS download', () => {
+        const { container } = renderList([
+          videoJob({
+            progress: tick({ fragmentCount: 123, fragmentIndex: 4 }),
+          }),
+        ])
+
+        expect(
+          within(attempt(container, 'job_1')).getByText(
+            'file 1 of 2 · fragment 4 of 123',
+          ),
+        ).toBeInTheDocument()
+      })
+
+      it('draws the transfer alone when yt-dlp does not know the total', () => {
+        const { container } = renderList([
+          videoJob({
+            progress: tick({
+              etaSeconds: undefined,
+              percent: undefined,
+              totalBytes: undefined,
+            }),
+          }),
+        ])
+        const card = attempt(container, 'job_1')
+
+        expect(within(card).queryByRole('progressbar')).not.toBeInTheDocument()
+        expect(within(card).queryByText(/%$/)).not.toBeInTheDocument()
+        expect(within(card).getByText('412 MB · 3.1 MB/s')).toBeInTheDocument()
+      })
+
+      it('keeps a paused video’s bar and last line, undotted', () => {
+        const { container } = renderList([
+          videoJob({ status: DownloadJobStatus.Paused }),
+        ])
+        const card = attempt(container, 'job_1')
+
+        expect(within(card).getByRole('progressbar')).toHaveAttribute(
+          'aria-valuenow',
+          '64',
+        )
+        expect(within(card).getByText('paused')).toBeInTheDocument()
+        expect(card.querySelector('.dot-live')).not.toBeInTheDocument()
+        expect(
+          within(card).getByText('412 MB / 640 MB · 3.1 MB/s · ~2m left'),
+        ).toBeInTheDocument()
+      })
+
+      it('settles once the bytes are down and the file is converting', () => {
+        const { container } = renderList([
+          videoJob({
+            progress: tick({
+              downloadedBytes: 640 * MB,
+              etaSeconds: undefined,
+              percent: 100,
+            }),
+            status: DownloadJobStatus.Converting,
+          }),
+        ])
+        const card = attempt(container, 'job_1')
+        const bar = within(card).getByRole('progressbar', {
+          name: 'Download progress',
+        })
+
+        expect(bar).toHaveAttribute('aria-valuenow', '100')
+        expect(bar).toHaveAttribute('aria-valuetext', '100%, converting')
+        expect(bar.querySelector('[data-settling]')).toBeInTheDocument()
+        expect(within(card).getByText('converting')).toBeInTheDocument()
+        expect(within(card).queryByText(/MB\/s/)).not.toBeInTheDocument()
+      })
+    })
+
+    it('never draws a movie’s queue status word as a counter', () => {
+      const { container } = renderList([
+        job({
+          media: {
+            ...MOVIE,
+            queueSnapshot: {
+              progress: 47,
+              status: 'warning',
+              timeLeft: '00:12:00',
+            },
+          },
+        }),
+      ])
+      const card = attempt(container, 'job_1')
+
+      expect(within(card).queryByText('warning')).not.toBeInTheDocument()
+      expect(within(card).getByText('~00:12:00 left')).toBeInTheDocument()
     })
 
     it('leaves a stuck import undotted, because nothing is happening to it', () => {
