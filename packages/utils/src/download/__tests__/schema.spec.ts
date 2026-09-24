@@ -35,6 +35,7 @@ import {
   SeasonSchema,
   ShowSchema,
   ShowScopeSchema,
+  VideoProgressSchema,
   VideoSchema,
 } from 'src/download/schema'
 import {
@@ -956,6 +957,121 @@ describe('DownloadJobSchema with a scope', () => {
     expect(
       DownloadJobSchema.safeParse({ ...baseJob, scope: { episodeId: -1 } })
         .success,
+    ).toBe(false)
+  })
+})
+
+describe('VideoProgressSchema', () => {
+  // A progressive (non-fragmented) grab: one of two files that get merged,
+  // with a real `total_bytes`.
+  const progressive = {
+    downloadedBytes: 2096128,
+    etaSeconds: 0,
+    fileCount: 2,
+    fileIndex: 1,
+    percent: 48.48,
+    speedBps: 42971715.11,
+    totalBytes: 4323893,
+  }
+
+  // An HLS grab: fragment counters, and a total that is only yt-dlp's
+  // `total_bytes_estimate`. `etaSeconds` arrives as a float.
+  const hls = {
+    downloadedBytes: 27851094,
+    etaSeconds: 31.97,
+    fileIndex: 1,
+    fragmentCount: 123,
+    fragmentIndex: 4,
+    percent: 4.07,
+    speedBps: 18432231.02,
+    totalBytes: 685111722,
+    totalIsEstimate: true,
+  }
+
+  it.each([
+    ['progressive', progressive],
+    ['HLS', hls],
+  ])('round-trips a mapped %s sample', (_label, sample) => {
+    expect(VideoProgressSchema.parse(sample)).toEqual(sample)
+  })
+
+  it('accepts the bare minimum: bytes so far and the file index', () => {
+    expect(
+      VideoProgressSchema.safeParse({ downloadedBytes: 0, fileIndex: 1 })
+        .success,
+    ).toBe(true)
+  })
+
+  // yt-dlp prints `frag 0/123`, so a 0 index is its first fragment.
+  it('accepts fragmentIndex 0', () => {
+    expect(
+      VideoProgressSchema.safeParse({ ...hls, fragmentIndex: 0 }).success,
+    ).toBe(true)
+  })
+
+  it.each([
+    ['percent above 100', { ...progressive, percent: 101 }],
+    ['negative percent', { ...progressive, percent: -1 }],
+    ['negative downloadedBytes', { ...progressive, downloadedBytes: -1 }],
+    ['fractional downloadedBytes', { ...progressive, downloadedBytes: 1.5 }],
+    // yt-dlp's `null` speed is mapped to an absent key, never passed through.
+    ['null speedBps', { ...progressive, speedBps: null }],
+    ['null etaSeconds', { ...progressive, etaSeconds: null }],
+    ['negative speedBps', { ...progressive, speedBps: -1 }],
+    ['fileIndex 0 (it is 1-based)', { ...progressive, fileIndex: 0 }],
+    ['fileCount 0', { ...progressive, fileCount: 0 }],
+    ['negative fragmentIndex', { ...hls, fragmentIndex: -1 }],
+    ['fragmentCount 0', { ...hls, fragmentCount: 0 }],
+    ['totalBytes 0', { ...progressive, totalBytes: 0 }],
+  ])('rejects %s', (_label, input) => {
+    expect(VideoProgressSchema.safeParse(input).success).toBe(false)
+  })
+
+  it('rejects a sample with no fileIndex', () => {
+    expect(
+      VideoProgressSchema.safeParse(without(progressive, 'fileIndex')).success,
+    ).toBe(false)
+  })
+})
+
+describe('DownloadJobSchema with progress', () => {
+  const baseJob = {
+    completedAt: null,
+    createdAt: '2026-08-20T12:00:00.000Z',
+    discordRequester: null,
+    hiddenAttribution: false,
+    id: 'job-1',
+    linkedDiscord: null,
+    media: validVideo,
+    requester: null,
+    status: DownloadJobStatus.Downloading,
+    updatedAt: '2026-08-20T12:00:00.000Z',
+  }
+
+  const progress = {
+    downloadedBytes: 2096128,
+    fileIndex: 1,
+    percent: 48.48,
+    totalBytes: 4323893,
+  }
+
+  it('round-trips a video job carrying progress', () => {
+    const input = { ...baseJob, progress }
+    expect(DownloadJobSchema.parse(input)).toEqual(input)
+  })
+
+  // Every job before this field existed, every movie/show job, and every
+  // job after a restart has no `progress` key at all.
+  it('parses a job with no progress key', () => {
+    expect(DownloadJobSchema.parse(baseJob).progress).toBeUndefined()
+  })
+
+  it('rejects a malformed progress rather than dropping it', () => {
+    expect(
+      DownloadJobSchema.safeParse({
+        ...baseJob,
+        progress: { ...progress, percent: 101 },
+      }).success,
     ).toBe(false)
   })
 })

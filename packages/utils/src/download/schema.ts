@@ -80,6 +80,46 @@ export const DownloadQueueSnapshotSchema = z.object({
 })
 
 /**
+ * How far yt-dlp has got with a job's current file - per job, per file. The
+ * download app maps yt-dlp's own progress fields into this shape and hangs it
+ * on `DownloadJob.progress`. Video jobs only today, and process-lifetime:
+ * held in memory while the job runs and never persisted, so a restart drops
+ * it. The managed-media (Radarr/Sonarr) counterpart is
+ * {@link DownloadQueueSnapshotSchema}, which is per media rather than per job.
+ */
+export const VideoProgressSchema = z.object({
+  /** Bytes of the current file yt-dlp has written so far. */
+  downloadedBytes: z.number().int().min(0),
+  /**
+   * yt-dlp's `eta`, seconds. Absent when it has none (`null` on the wire
+   * from yt-dlp).
+   */
+  etaSeconds: z.number().min(0).optional(),
+  /**
+   * How many separate files this grab downloads before merging
+   * (`160+139` -> 2). Absent when the info line was not seen.
+   */
+  fileCount: z.number().int().positive().optional(),
+  /** 1-based; increments each time yt-dlp starts a new `filename`. */
+  fileIndex: z.number().int().positive(),
+  /** Present only for fragmented (HLS/DASH) downloads. */
+  fragmentCount: z.number().int().positive().optional(),
+  /** 0-based, as yt-dlp counts it - `frag 0/123` is what it prints. */
+  fragmentIndex: z.number().int().min(0).optional(),
+  /**
+   * 0-100, two decimals, `downloadedBytes / totalBytes`. Absent when
+   * `totalBytes` is.
+   */
+  percent: z.number().min(0).max(100).optional(),
+  /** yt-dlp's `speed`, bytes per second. Absent when it reports `null`. */
+  speedBps: z.number().min(0).optional(),
+  /** `total_bytes`, else `total_bytes_estimate`; absent when neither is known. */
+  totalBytes: z.number().int().positive().optional(),
+  /** `true` when `totalBytes` came from `total_bytes_estimate`. */
+  totalIsEstimate: z.boolean().optional(),
+})
+
+/**
  * The identity of whoever asked for a job, threaded down from the
  * `X-Forwarded-User`/`X-Forwarded-User-Id` headers set by Traefik's
  * `lilnas-auth` middleware (see `apps/download/src/auth/forwarded-user.ts`).
@@ -385,6 +425,11 @@ export const DownloadJobSchema = z.object({
    */
   linkedDiscord: DiscordIdentitySchema.nullable(),
   media: MediaSchema,
+  /**
+   * Video jobs only, while the process lives; absent for movies/shows and
+   * for any job after a restart.
+   */
+  progress: VideoProgressSchema.optional(),
   requester: JobRequesterSchema.nullable(),
   /** Phase 4. Absent = the whole series (and always absent for a movie). */
   scope: ShowScopeSchema.optional(),

@@ -124,6 +124,40 @@ describe('parseJobEventFrame', () => {
     ).toBeUndefined()
   })
 
+  it('round-trips a video job frame carrying progress', () => {
+    const job = buildVideoJob({
+      progress: {
+        downloadedBytes: 27851094,
+        etaSeconds: 31.97,
+        fileIndex: 1,
+        fragmentCount: 123,
+        fragmentIndex: 4,
+        percent: 4.07,
+        speedBps: 18432231.02,
+        totalBytes: 685111722,
+        totalIsEstimate: true,
+      },
+      status: DownloadJobStatus.Downloading,
+    })
+
+    expect(parseJobEventFrame(buildJobFrame(job))).toEqual({
+      job,
+      type: DownloadJobEventType.Updated,
+    })
+  })
+
+  // A bad `progress` is a bad field like any other: the whole frame is
+  // dropped, not just the field. The page keeps its last good snapshot and
+  // the next frame replaces it.
+  it('drops a frame whose progress is malformed', () => {
+    const job = buildVideoJob({
+      progress: { downloadedBytes: 1, fileIndex: 1, percent: 101 },
+      status: DownloadJobStatus.Downloading,
+    })
+
+    expect(parseJobEventFrame(buildJobFrame(job))).toBeUndefined()
+  })
+
   it('returns undefined for malformed JSON', () => {
     expect(parseJobEventFrame('{not json')).toBeUndefined()
   })

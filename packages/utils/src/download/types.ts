@@ -53,6 +53,7 @@ import {
   TimeRangeSchema,
   UpdateCheckResultSchema,
   VideoInfoSchema,
+  VideoProgressSchema,
   VideoSchema,
 } from './schema'
 
@@ -136,6 +137,13 @@ export type DiscordIdentity = z.infer<typeof DiscordIdentitySchema>
  * it was always coming from.
  */
 export type DownloadQueueSnapshot = z.infer<typeof DownloadQueueSnapshotSchema>
+
+/**
+ * yt-dlp's progress on a video job's current file, per job and per file.
+ * Process-lifetime only - see {@link VideoProgressSchema}; the managed-media
+ * counterpart is {@link DownloadQueueSnapshot}.
+ */
+export type VideoProgress = z.infer<typeof VideoProgressSchema>
 
 /**
  * Emby's indexed-state for a downloaded movie/show, attached to the resolved
@@ -265,8 +273,11 @@ export type DownloadJob = z.infer<typeof DownloadJobSchema>
  * `DownloadStateService.jobs` holds and what the `jobs` table stores -
  * caching a resolved `Media` copy per job would just be a second cache with
  * its own staleness.
+ *
+ * `progress` is left off too: `toJob()` attaches it from process-lifetime
+ * state (the running yt-dlp's latest line), so it is never stored.
  */
-export type DownloadJobRecord = Omit<DownloadJob, 'media'> & {
+export type DownloadJobRecord = Omit<DownloadJob, 'media' | 'progress'> & {
   mediaId: string
   type: DownloadType
 }
