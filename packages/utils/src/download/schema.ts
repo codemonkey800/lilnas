@@ -66,10 +66,12 @@ export const TimeRangeSchema = z.object({
 })
 
 /**
- * A snapshot of a movie/show job's last-known Radarr/Sonarr queue entry.
- * The queue poller keeps one of these per tracked job and diffs it against
- * the latest queue response each tick, only emitting an update when
- * something has changed.
+ * A snapshot of a title's last-known Radarr/Sonarr queue entry - per media,
+ * not per job. The resolver sets `media.queueSnapshot` from
+ * `MediaStateService`'s queue cache (a series' entries rolled up into one
+ * series-wide figure), so an episode job and a whole-series job on the same
+ * show carry the same progress. An episode's own entry rides on
+ * `EpisodeSchema.queueSnapshot`.
  */
 export const DownloadQueueSnapshotSchema = z.object({
   progress: z.number().optional(),

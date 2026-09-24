@@ -368,10 +368,8 @@ export class DownloadStateService {
     }
 
     // Stamp the completion time exactly once, on the transition into
-    // Completed - never cleared or re-derived on any other write, so a
-    // later Completed -> Cancelled/Failed transition (e.g. a user deleting
-    // an already-finished movie) doesn't wipe out when it actually
-    // finished.
+    // Completed - never cleared or re-derived on any other write, so no
+    // later update to the row can move when it actually finished.
     if (
       updates.status === DownloadJobStatus.Completed &&
       oldStatus !== DownloadJobStatus.Completed
