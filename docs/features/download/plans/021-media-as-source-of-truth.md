@@ -751,7 +751,7 @@ phase before the previous phase's verification task is green.**
       lands as its own `docs(download): …` commit before any code moves, so the record
       exists and later tasks can append findings to a tracked file. `6534baad`
 
-- [ ] **A2. Baseline.** From `apps/download` and `packages/utils`: `pnpm test`,
+- [x] **A2. Baseline.** (no commit) From `apps/download` and `packages/utils`: `pnpm test`,
       `pnpm lint`, `pnpm type-check`; from the root: `pnpm run type-check`, `pnpm run lint`.
       Record the passing counts in a **Findings** note here (plan 020's final numbers were
       3926 tests / 180 suites in the app, 421 / 8 in utils; `@lilnas/equations` has 7
@@ -1789,7 +1789,8 @@ wasMonitored })`, called from `requestMovie`/`requestShow` and
 
 ### Phase 5 — Cleanup
 
-- [ ] **A1. Dead code sweep.** Everything the earlier phases orphaned.
+- [x] **A1. Dead code sweep.** `17c8e625` `a0480efd` `43e5e543` Everything the earlier
+      phases orphaned.
 
   **Files:** whatever this grep still finds — `grep -rn "adoptSurvivingJobs\|RESTART_SURVIVING_STATUSES\|listMediaGroupsPage\|excludeRemovedFromLibrary\|removedFromLibrary\|syncDownloadedLibrary\|getDownloadedMovies\|getDownloadedSeries\|queueSnapshots\|currentJob\b\|mergeLiveMediaJobs" apps/download/src packages/utils/src docs/features/download/backend.md` —
   plus `getDownloadedMovies`/`getDownloadedSeries` (`radarr.service.ts:262`,
@@ -1802,9 +1803,45 @@ wasMonitored })`, called from `requestMovie`/`requestShow` and
 
   **Tests:** the grep is empty except for `backend.md` history sections, which stay.
 
-- [ ] **A2. Final verification + report.** Full checks in both packages and at the root;
-      re-run the read-only live reads from Phase 1 · C1 and Phase 2 · D1; fill in the
-      [Final report](#final-report).
+  > **Findings:** `getDownloadedMovies`/`getDownloadedSeries` and their 6 tests are
+  > deleted. The `DownloadQueueSnapshotSchema` comment now says per title, and the
+  > `completedAt` comment in `download-state.service.ts` lost its delete example. The two
+  > verification docs describe restart re-adoption (`adoptOpenJobs()`, only video jobs are
+  > failed) and the library-backed gallery; the old behaviour stays as a marked history
+  > paragraph. What the grep still finds:
+  >
+  > - `removedFromLibrary`: only the `DeleteMediaFilesResponse` field, which is kept.
+  > - `syncDownloadedLibrary`: migration `0004` and its spec.
+  > - `backend.md`: dated history sections only. Phase 4's "Known gaps" line saying
+  >   Phase 5 removes `getDownloadedMovies`/`getDownloadedSeries` is now resolved and was
+  >   left as written.
+  >
+  > App: 4520 passed + 9 skipped + 1 failed (192 suites). The failure is the known
+  > `reduced-motion.spec.ts` (plan 022's `c4c74fab`). Utils: 497 / 9. Root: type-check
+  > 12/12, lint 15/15.
+
+- [x] **A2. Final verification + report.** (no commit of its own; recorded with this
+      doc) Full checks in both packages and at the root; re-run the read-only live
+      reads from Phase 1 · C1 and Phase 2 · D1; fill in the [Final report](#final-report).
+
+  > **Findings (2026-09-24):** all green except the known `reduced-motion.spec.ts`.
+  > App: 4520 passed + 9 skipped + 1 failed (192 suites). Utils: 497 / 9. Root:
+  > type-check 12/12, lint 15/15. Live, read-only, against the container started at
+  > 11:13 PDT (its watcher also reloaded A1's edits at 11:19):
+  >
+  > - **Boot log:** `Re-adopted 0 open job(s)`, no `Library sync:` line.
+  >   `runMigrations` logs nothing, so the log can't show 0004 applying.
+  > - **`/download/media`:** `tmdb:50546`, `tmdb:920` (_Cars_), `tmdb:77016` (_End of
+  >   Watch_) and `tvdb:74413` read `available`; `tmdb:1158406` reads `wanted`. Every
+  >   one has 0 jobs, because the tmpfs DB is empty.
+  > - **Gallery:** `total` 358 over 15 pages, sorted by `addedAt` desc, no duplicates
+  >   or null `addedAt`. Facets: 284 movies / 74 shows, `uploaders` `[]`. Every item has
+  >   `downloadCount: 0`, so the non-zero join is still not observed live.
+  > - **Queues:** Radarr and Sonarr are both empty; nothing is in flight.
+  > - **Browser:** `/movies/50546` "in library"; `/movies/1158406` "wanted" +
+  >   Download; `/movies/920` "in library" + Watch; `/shows/74413` "in library", "45 of
+  >   55 episodes". Home and `/gallery` cards read "added …" with no requester line. No
+  >   app console errors.
 
 ---
 
@@ -2010,3 +2047,97 @@ When every box is checked, report:
 5. **Open questions** discovered during implementation.
 6. **What the live reads showed** — the media state each read-only check returned, and
    whether the un-owned download (checkpoint 4) was observed or is still pending.
+
+### Report (2026-09-24)
+
+**1. Per-task outcome.** Every task is checked; none is ⚠️ PARTIAL or ⏭️ DROPPED. Per-task
+files and exported names are in each task's Findings above.
+
+| Phase                          | Tasks                                | Commits                                                                                                                             |
+| ------------------------------ | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| 0 — Prep                       | A1, A2 (no commit)                   | `6534baad`                                                                                                                          |
+| 1 — Media state on the backend | A1–A2, B1–B8, C1 (no commit), C2     | `c42ae042` `1cef3ea8` `9601f4e0` `29a1e5d1` `2d27b7c6` `55da3a26` `210209a6` `9fd24a68` `1c453bb5` `f08f4ef1` `e1ab2356`            |
+| 2 — Detail pages read media    | A1, B1–B2, C1–C8, D1 (no commit), D2 | `4d8f3347` `be9351b5` `3476e87b` `879fab78` `7dc6d173` `79716fe6` `169d9ed1` `6ab7439d` `c9cfd0d5` `be15095c` `d8d4ad79` `2f12ea7d` |
+| 3 — Jobs become attempts       | A1–A5, plus unplanned fixes          | `3286894b` `435a73f3` `09650431` `fe52ba90` `d2398e51` `b5341653` `48f83b3c` · unplanned `5f3a73df` `d21ab325` `493dff1c`           |
+| 4 — Gallery reads the library  | A1–A3, B1, C1                        | `e9ecc01d` `941df833` `40057f70` `dbb59b6e` `34f9e815` `571a9af6` `3bead502`                                                        |
+| 5 — Cleanup                    | A1, A2 (no commit)                   | `17c8e625` `a0480efd` `43e5e543`                                                                                                    |
+
+**2. Test results against the Phase 0 baseline.**
+
+| Check                            | Baseline (2026-09-22)        | Final (2026-09-24)                          |
+| -------------------------------- | ---------------------------- | ------------------------------------------- |
+| `@lilnas/download` tests         | 3958 + 9 skipped, 183 suites | 4520 + 9 skipped + **1 failed**, 192 suites |
+| `@lilnas/utils` tests            | 421, 8 suites                | 497, 9 suites                               |
+| Lint / type-check, both packages | clean                        | clean                                       |
+| Root type-check / lint           | 12/12 · 15/15                | 12/12 · 15/15                               |
+
+The one failure is `src/__tests__/reduced-motion.spec.ts`, not this plan's: plan 022's
+`c4c74fab` added the `bar-settling` animation without adding it to the spec's list.
+
+**3. Deviations.**
+
+- **Season and whole-series jobs complete once any in-scope file is newer than the job**
+  (3 · A1). The planned "every episode" rule would have failed season grabs with
+  episodes already on disk, unaired or unfindable.
+- **The video page got a header Download button** (3 · A3, `d2398e51`), and Retry left
+  its Attempts list. Without it, a deleted video had no way back once deletes stopped
+  cancelling completed jobs.
+- **Unplanned fixes after the first live download** (3 · A5): `invalidate()` now expires
+  the whole source's cache instead of one key (`5f3a73df`). A title added upstream is
+  re-read right away (`d21ab325`). A vanished download is followed until it lands
+  (`493dff1c`).
+- **`listLibrary()` returns `{ degradedSources, entries }`** (4 · A1). The library
+  cache's failure entries now carry a `failed` flag.
+- **The gallery response has no `degradedSources`**, so a down source's titles drop out
+  of `items` and `total` until it recovers (4 · A2).
+- **`getGalleryFacets` is async**, and a cursor issued before Phase 4 now gets a 400
+  (4 · A2).
+- **Movie/show `MediaStatus` sits in the header's lifecycle slot** rather than under the
+  meta line (2 · C3), because the `meta` slot is a `<p>`.
+
+**4. Deferred.**
+
+- **Checkpoint 3, both sides.** Prod: after the next deploy, confirm 0003 + 0004 applied
+  and `select count(*) from jobs where origin='service' and type in ('movie','show')`
+  deleted **0** rows. Dev: never really observed. The container's `/data` is tmpfs, so
+  0004 ran on an empty `jobs` table, and `runMigrations` logs nothing.
+- **Checkpoint 4.** Start a download in Radarr's own UI and watch its page go
+  `wanted → downloading → importing… → in library` with no refresh and no attempt row.
+- **Checkpoint 5.** Restart with an in-flight movie download: the attempt reads
+  `downloading` after boot, not `failed`.
+- **Checkpoint 6.** Deploy is a human call, and checkpoint 3's dev count was never
+  confirmed. The prod count is the check that matters, because prod's DB persists.
+- **Gallery job join.** `downloadCount ≥ 1`, `lastDownloadedAt` and `lastRequester` are
+  unverified live. That needs one completed download on dev with no restart before the
+  read.
+- Nothing is tagged 🚧 or ⏳.
+
+**5. Open questions.**
+
+- **Movies and shows have no cancel/pause/resume/retry routes.** Their Attempts lists
+  thread the handlers through unwired, and plan 022 covers cancel.
+- **Should `runMigrations` log what it applied?** Without that line, checkpoint 3 can
+  only be checked by a count query.
+- **Deleting a finished movie/show attempt sends no media event**, so other open tabs
+  don't see the title leave until they refresh.
+- **A video's `addedAt` (`updated_at`) moves forward on a re-request**, which re-sorts it
+  to the top of Recently added.
+- **`JobActionKey`/`ACTION_SPECS` still carry `save`/`watch` entries** that nothing
+  renders (noted in 2 · C8, outside 5 · A1's grep).
+- **Accepted gaps from the Overview still stand.** Activity and the home "in flight"
+  count are job-driven. A new season doesn't bubble a show up. Emby's `indexed` flip
+  needs a refresh.
+
+**6. What the live reads showed.**
+
+| Read                          | Phase 1 · C1 / 2 · D1                       | Final                                                          |
+| ----------------------------- | ------------------------------------------- | -------------------------------------------------------------- |
+| `tmdb:50546`                  | `available`                                 | `available`, "in library"                                      |
+| `tmdb:1158406`                | `wanted`                                    | `wanted`, "wanted" + Download                                  |
+| `tmdb:920` (_Cars_)           | "in library" + the `failed` restart attempt | `available`, "in library" + Watch (0 attempts on the fresh DB) |
+| `tmdb:77016` (_End of Watch_) | —                                           | `available`                                                    |
+| `tvdb:74413`                  | "in library", 45 of 55                      | `available`, "in library", 45 of 55                            |
+| Gallery                       | —                                           | 358 items, `addedAt` desc; facets 284 / 74                     |
+
+The un-owned download (checkpoint 4) was **not** observed; it is still pending. Both
+queues were empty at the final read.
