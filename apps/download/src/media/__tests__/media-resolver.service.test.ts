@@ -437,6 +437,130 @@ describe('MediaResolverService', () => {
     })
   })
 
+  describe('listLibrary', () => {
+    const movieAddedAt = '2026-03-01T10:00:00.000Z'
+    const showAddedAt = '2026-04-02T12:00:00.000Z'
+
+    function ids(entries: { media: Media }[]): string[] {
+      return entries.map(entry => entry.media.id).sort()
+    }
+
+    it('lists movies with a file and shows with episode files', async () => {
+      radarrService.getLibrary.mockResolvedValue([
+        buildMovie(1, { addedAt: movieAddedAt, filePath: '/movies/one.mkv' }),
+        buildMovie(2, { monitored: true, radarrId: 2 }),
+      ])
+      sonarrService.getLibrary.mockResolvedValue([
+        buildShow(10, {
+          addedAt: showAddedAt,
+          episodeFileCount: 3,
+          filePath: '/tv/ten',
+        }),
+        // In the library with a series folder but nothing on disk - its
+        // `filePath` must not count as a file.
+        buildShow(20, {
+          addedAt: showAddedAt,
+          episodeFileCount: 0,
+          filePath: '/tv/twenty',
+        }),
+        buildShow(30, { addedAt: showAddedAt, filePath: '/tv/thirty' }),
+      ])
+
+      const { degradedSources, entries } = await service.listLibrary()
+
+      expect(ids(entries)).toEqual(['tmdb:1', 'tvdb:10'])
+      expect(degradedSources).toEqual([])
+    })
+
+    it("sources addedAt from each title's own addedAt", async () => {
+      radarrService.getLibrary.mockResolvedValue([
+        buildMovie(1, { addedAt: movieAddedAt, filePath: '/movies/one.mkv' }),
+      ])
+      sonarrService.getLibrary.mockResolvedValue([
+        buildShow(10, { addedAt: showAddedAt, episodeFileCount: 1 }),
+      ])
+
+      const { entries } = await service.listLibrary()
+      const byId = new Map(entries.map(entry => [entry.media.id, entry]))
+
+      expect(byId.get('tmdb:1')?.addedAt).toEqual(new Date(movieAddedAt))
+      expect(byId.get('tvdb:10')?.addedAt).toEqual(new Date(showAddedAt))
+    })
+
+    it('leaves out a title with a file but no addedAt, rather than dating it now', async () => {
+      radarrService.getLibrary.mockResolvedValue([
+        buildMovie(1, { filePath: '/movies/one.mkv' }),
+      ])
+      sonarrService.getLibrary.mockResolvedValue([
+        buildShow(10, { addedAt: showAddedAt, episodeFileCount: 1 }),
+      ])
+
+      const { entries } = await service.listLibrary()
+
+      expect(ids(entries)).toEqual(['tvdb:10'])
+    })
+
+    it('returns the cached media unannotated', async () => {
+      radarrService.getLibrary.mockResolvedValue([
+        buildMovie(1, { addedAt: movieAddedAt, filePath: '/movies/one.mkv' }),
+      ])
+      sonarrService.getLibrary.mockResolvedValue([])
+      const annotateState = jest.spyOn(mediaStateService, 'annotate')
+
+      const { entries } = await service.listLibrary()
+
+      expect(entries[0]?.media).not.toHaveProperty('state')
+      expect(embyStatusService.annotate).not.toHaveBeenCalled()
+      expect(annotateState).not.toHaveBeenCalled()
+    })
+
+    it('reads through the same cache resolve() uses', async () => {
+      radarrService.getLibrary.mockResolvedValue([buildMovie(1)])
+      sonarrService.getLibrary.mockResolvedValue([])
+
+      await service.resolve([{ mediaId: 'tmdb:1', type: DownloadType.Movie }])
+      await service.listLibrary()
+
+      expect(radarrService.getLibrary).toHaveBeenCalledTimes(1)
+    })
+
+    it('omits a source that is down and reports it degraded, without throwing', async () => {
+      radarrService.getLibrary.mockRejectedValue(new Error('radarr down'))
+      sonarrService.getLibrary.mockResolvedValue([
+        buildShow(10, { addedAt: showAddedAt, episodeFileCount: 1 }),
+      ])
+
+      const { degradedSources, entries } = await service.listLibrary()
+
+      expect(ids(entries)).toEqual(['tvdb:10'])
+      expect(degradedSources).toEqual([DownloadType.Movie])
+    })
+
+    // Inside FAILURE_TTL_MS the read answers with an empty map instead of
+    // throwing - that is still an unreachable source, not an empty library.
+    it('keeps reporting a source degraded while its failure is cached', async () => {
+      radarrService.getLibrary.mockResolvedValue([])
+      sonarrService.getLibrary.mockRejectedValue(new Error('sonarr down'))
+
+      await service.listLibrary()
+      const { degradedSources } = await service.listLibrary()
+
+      expect(sonarrService.getLibrary).toHaveBeenCalledTimes(1)
+      expect(degradedSources).toEqual([DownloadType.Show])
+    })
+
+    it('does not report an empty library as degraded', async () => {
+      radarrService.getLibrary.mockResolvedValue([])
+      sonarrService.getLibrary.mockResolvedValue([])
+
+      await service.listLibrary()
+      const { degradedSources, entries } = await service.listLibrary()
+
+      expect(entries).toEqual([])
+      expect(degradedSources).toEqual([])
+    })
+  })
+
   it('resolves a mixed-type key list in one call', async () => {
     dbService.db
       .insert(videos)

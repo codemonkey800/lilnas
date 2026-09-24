@@ -28,9 +28,29 @@ export interface MediaResolverResult {
   media: Map<string, Media>
 }
 
+/**
+ * One title the library holds a file for, with when that file landed. The
+ * `media` is the library cache's own object - read it, never mutate it - and
+ * is **not** annotated for this read: it can still carry an Emby status or a
+ * state from an earlier `resolve()`, which are stale by definition. A caller
+ * that renders it resolves the page it needs first.
+ */
+export interface LibraryEntry {
+  addedAt: Date
+  media: Movie | Show
+}
+
+export interface LibraryListing {
+  /** Sources whose library couldn't be read; their titles are omitted. */
+  degradedSources: DownloadType[]
+  entries: LibraryEntry[]
+}
+
 interface LibraryCacheEntry<T> {
   entries: Map<number, T>
   expiresAtMs: number
+  /** A failed fetch's empty stand-in, cached for `FAILURE_TTL_MS`. */
+  failed: boolean
 }
 
 interface LibraryCache<T> {
@@ -368,6 +388,92 @@ export class MediaResolverService {
   }
 
   /**
+   * Every title the Radarr/Sonarr libraries hold a file for, from the same
+   * caches `resolve()` reads - so listing costs upstream nothing extra within
+   * the TTL. Unordered and unannotated (see `LibraryEntry`).
+   *
+   * The file signal is per type: a movie's `filePath`, and a show's
+   * `episodeFileCount > 0` - **never** a show's `filePath`, which is the
+   * series folder and is set for every library series, files or not.
+   * `addedAt` is what the mappers already put on each: the movie file's
+   * `dateAdded`, and the series' `added`.
+   *
+   * A source that can't be read is omitted and named in `degradedSources`,
+   * never thrown - a list endpoint degrades to the other type rather than
+   * 500ing, as with `resolve()`.
+   */
+  async listLibrary(): Promise<LibraryListing> {
+    const degradedSources: DownloadType[] = []
+    const [movies, shows] = await Promise.all([
+      this.listSource(DownloadType.Movie, this.movieLibrary, () =>
+        this.getMovieLibrary(),
+      ),
+      this.listSource(DownloadType.Show, this.showLibrary, () =>
+        this.getShowLibrary(),
+      ),
+    ])
+
+    const candidates: Array<Movie | Show> = []
+    if (movies) {
+      candidates.push(...movies.filter(movie => movie.filePath))
+    } else {
+      degradedSources.push(DownloadType.Movie)
+    }
+    if (shows) {
+      candidates.push(...shows.filter(show => (show.episodeFileCount ?? 0) > 0))
+    } else {
+      degradedSources.push(DownloadType.Show)
+    }
+
+    const entries: LibraryEntry[] = []
+    for (const media of candidates) {
+      // The mappers set `addedAt` wherever the file signal above holds (both
+      // come off the same `movieFile`, and every library series has an
+      // `added`), so a miss here is malformed upstream data. Skipped rather
+      // than dated "now" or the epoch - either would be an invented sort
+      // position - and logged, since it hides a title that has a file.
+      const addedAt = media.addedAt ? new Date(media.addedAt) : undefined
+      if (!addedAt || Number.isNaN(addedAt.getTime())) {
+        this.logger.warn(
+          { action: 'listLibrary', mediaId: media.id },
+          'Library title with a file has no addedAt - leaving it out',
+        )
+        continue
+      }
+      entries.push({ addedAt, media })
+    }
+
+    return { degradedSources, entries }
+  }
+
+  /**
+   * One library's titles for `listLibrary()`, or `undefined` when the source
+   * is degraded - on a failed fetch, and for the `FAILURE_TTL_MS` after one,
+   * when the read returns the failure's empty stand-in rather than throwing.
+   * That stand-in is told apart by identity, not emptiness, since an empty
+   * library is a real answer.
+   */
+  private async listSource<T>(
+    type: DownloadType,
+    cache: LibraryCache<T>,
+    read: () => Promise<Map<number, T>>,
+  ): Promise<T[] | undefined> {
+    try {
+      const entries = await read()
+      if (cache.current?.failed && cache.current.entries === entries) {
+        return undefined
+      }
+      return [...entries.values()]
+    } catch (err) {
+      this.logger.warn(
+        { action: 'listLibrary', error: getErrorMessage(err), type },
+        'Library read failed - omitting that source from the listing',
+      )
+      return undefined
+    }
+  }
+
+  /**
    * One library cache's read-through. A fetch stores its result only if no
    * `invalidate()` landed while it was in flight - otherwise a read that
    * started before the change would re-cache the copy the invalidation was
@@ -389,6 +495,7 @@ export class MediaResolverService {
         cache.current = {
           entries,
           expiresAtMs: now + MediaResolverService.TTL_MS,
+          failed: false,
         }
       }
       return entries
@@ -397,6 +504,7 @@ export class MediaResolverService {
         cache.current = {
           entries: new Map(),
           expiresAtMs: now + MediaResolverService.FAILURE_TTL_MS,
+          failed: true,
         }
       }
       throw err
