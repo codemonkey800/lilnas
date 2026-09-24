@@ -1,5 +1,9 @@
 import type { DownloadJob } from '@lilnas/utils/download/types'
-import { DownloadJobStatus, isManagedMedia } from '@lilnas/utils/download/types'
+import {
+  DownloadJobStatus,
+  DownloadType,
+  isManagedMedia,
+} from '@lilnas/utils/download/types'
 
 import { isInProgress } from 'src/lib/format'
 
@@ -197,4 +201,72 @@ export function jobProgress(job: DownloadJob): JobProgress | null {
     pct,
     timeLeft: snapshot?.timeLeft ?? null,
   }
+}
+
+/**
+ * The stretch between a full bar and a file in the library, when every byte is
+ * down but the title is not playable yet:
+ *
+ * - `finishing` - the queue still says `downloading` at 100%. The download
+ *   client is wrapping up (unpacking, verifying, moving the finished files)
+ *   and has not handed the release to Radarr/Sonarr yet.
+ * - `importing` - Radarr/Sonarr has the files and is moving them into the
+ *   library.
+ *
+ * Neither has a percentage or an estimate of its own - the queue's ETA reads
+ * `00:00:00` the whole way through - so a handoff draws a settling bar and a
+ * sentence instead of a countdown that has already run out.
+ */
+export type Handoff = 'finishing' | 'importing'
+
+/** The percentage a download has to reach before it is a `finishing` one. */
+export const FINISHED_PCT = 100
+
+/** See {@link Handoff}. `null` while the download is still transferring. */
+export function jobHandoff(
+  status: DownloadJobStatus,
+  pct: number | null | undefined,
+): Handoff | null {
+  if (status === DownloadJobStatus.Importing) {
+    return 'importing'
+  }
+
+  return status === DownloadJobStatus.Downloading &&
+    pct != null &&
+    pct >= FINISHED_PCT
+    ? 'finishing'
+    : null
+}
+
+/**
+ * The chip text for a handoff. `importing` is left to the status tables,
+ * which already name it; only a `downloading` that has nothing left to
+ * download needs a word of its own.
+ */
+export const FINISHING_LABEL = 'finishing up'
+
+/** Who takes the files into the library, by the media's type. */
+const IMPORTERS: Record<DownloadType, string | null> = {
+  [DownloadType.Movie]: 'Radarr',
+  [DownloadType.Show]: 'Sonarr',
+  [DownloadType.Video]: null,
+}
+
+/**
+ * The line under a settling bar: what is happening now, in place of the
+ * `~00:00:00 left` the queue keeps reporting. `null` for a video, which never
+ * draws a bar.
+ */
+export function handoffDetail(
+  handoff: Handoff,
+  type: DownloadType,
+): string | null {
+  const importer = IMPORTERS[type]
+  if (!importer) {
+    return null
+  }
+
+  return handoff === 'finishing'
+    ? `All downloaded. ${importer} imports it next.`
+    : `${importer} is moving it into the library.`
 }

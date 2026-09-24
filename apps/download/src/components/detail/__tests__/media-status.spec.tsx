@@ -221,6 +221,79 @@ describe('MediaStatus', () => {
       expect(progressBar()).not.toBeInTheDocument()
     })
 
+    it('settles a full download that has not reached the library yet', () => {
+      render(
+        <MediaStatus
+          media={{
+            ...MOVIE,
+            queueSnapshot: {
+              progress: 100,
+              status: 'downloading',
+              timeLeft: '00:00:00',
+            },
+            state: 'downloading',
+          }}
+        />,
+      )
+
+      // The chip and the bar's note both name the handoff.
+      expect(screen.getAllByText('finishing up')).toHaveLength(2)
+      expect(screen.queryByText('downloading')).not.toBeInTheDocument()
+      expect(
+        screen.getByText('All downloaded. Radarr imports it next.'),
+      ).toBeInTheDocument()
+      expect(screen.queryByText('~00:00:00 left')).not.toBeInTheDocument()
+      expect(progressBar()).toHaveAttribute(
+        'aria-valuetext',
+        '100%, finishing up',
+      )
+      expect(
+        progressBar()?.querySelector('[data-settling]'),
+      ).toBeInTheDocument()
+    })
+
+    it('says who is importing instead of a spent estimate', () => {
+      render(
+        <MediaStatus
+          media={{
+            ...SHOW,
+            queueSnapshot: {
+              progress: 100,
+              status: 'completed',
+              timeLeft: '00:00:00',
+            },
+            state: 'importing',
+          }}
+        />,
+      )
+
+      expect(screen.getAllByText('importing…')).toHaveLength(2)
+      expect(screen.queryByText('completed')).not.toBeInTheDocument()
+      expect(
+        screen.getByText('Sonarr is moving it into the library.'),
+      ).toBeInTheDocument()
+      expect(
+        progressBar()?.querySelector('[data-settling]'),
+      ).toBeInTheDocument()
+    })
+
+    it('keeps a download short of 100% transferring', () => {
+      render(
+        <MediaStatus
+          media={{
+            ...MOVIE,
+            queueSnapshot: { progress: 99.99, status: 'downloading' },
+            state: 'downloading',
+          }}
+        />,
+      )
+
+      expect(screen.getAllByText('downloading')).toHaveLength(2)
+      expect(
+        progressBar()?.querySelector('[data-settling]'),
+      ).not.toBeInTheDocument()
+    })
+
     it('draws no bar for a snapshot with no percentage', () => {
       render(
         <MediaStatus

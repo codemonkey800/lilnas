@@ -316,6 +316,44 @@ describe('AttemptList', () => {
       expect(screen.getByText('~00:12:00 left')).toBeInTheDocument()
     })
 
+    it('settles a downloading attempt with nothing left to download', () => {
+      const { container } = renderList([
+        job({
+          media: {
+            ...MOVIE,
+            queueSnapshot: {
+              progress: 100,
+              status: 'downloading',
+              timeLeft: '00:00:00',
+            },
+          },
+        }),
+      ])
+      const card = attempt(container, 'job_1')
+      const bar = within(card).getByRole('progressbar', {
+        name: 'Download progress',
+      })
+
+      expect(within(card).getByText('finishing up')).toBeInTheDocument()
+      expect(
+        within(card).getByText('All downloaded. Radarr imports it next.'),
+      ).toBeInTheDocument()
+      expect(within(card).queryByText('~00:00:00 left')).not.toBeInTheDocument()
+      expect(bar).toHaveAttribute('aria-valuetext', '100%, finishing up')
+      expect(bar.querySelector('[data-settling]')).toBeInTheDocument()
+    })
+
+    it('says who is importing, with or without a bar', () => {
+      const { container } = renderList([
+        job({ status: DownloadJobStatus.Importing }),
+      ])
+      const card = attempt(container, 'job_1')
+
+      expect(
+        within(card).getByText('Radarr is moving it into the library.'),
+      ).toBeInTheDocument()
+    })
+
     it('draws no bar when the attempt has no progress to prove', () => {
       renderList([job()])
 

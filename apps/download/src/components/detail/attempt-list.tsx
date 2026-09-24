@@ -23,7 +23,10 @@ import {
 } from 'src/components/detail/job-actions'
 import type { JobActionKey } from 'src/components/detail/job-state'
 import {
+  FINISHING_LABEL,
+  handoffDetail,
   jobActionState,
+  jobHandoff,
   jobProgress,
   jobStatusLabel,
 } from 'src/components/detail/job-state'
@@ -221,7 +224,8 @@ type AttemptCardProps = {
 
 /**
  * `attemptInFlight`: the attempt's status chip and percentage over a bar, a
- * note, the queue's time estimate, and whatever this status lets you do.
+ * note, the queue's time estimate (or, once the bytes are down, what happens
+ * next), and whatever this status lets you do.
  *
  * Its own component so each card owns its own transition — pausing one of two
  * in-flight attempts must not grey out the other's buttons.
@@ -239,6 +243,16 @@ function AttemptCard({
   // dot means.
   const live = tone === 'uv'
   const progress = jobProgress(job)
+  // Every byte down but not in the library yet: the chip says so, the bar
+  // settles, and the spent `~00:00:00 left` gives way to what happens next.
+  const handoff = jobHandoff(job.status, progress?.pct)
+  const label =
+    handoff === 'finishing' ? FINISHING_LABEL : jobStatusLabel(job.status)
+  const aside = handoff
+    ? handoffDetail(handoff, job.media.type)
+    : progress?.timeLeft
+      ? `~${progress.timeLeft} left`
+      : null
   const note = [attemptScopeLabel(job.scope), job.error]
     .filter(Boolean)
     .join(' — ')
@@ -311,7 +325,7 @@ function AttemptCard({
       <div className={cns('flex items-center justify-between gap-3')}>
         <Chip className={cns('w-fit')} tone={tone}>
           {live ? <Dot tone="live" /> : null}
-          {jobStatusLabel(job.status)}
+          {label}
         </Chip>
         {progress ? (
           <span
@@ -325,16 +339,20 @@ function AttemptCard({
       {progress ? (
         <Bar
           aria-label="Download progress"
+          aria-valuetext={
+            handoff ? `${Math.round(progress.pct)}%, ${label}` : undefined
+          }
           className={cns('mt-3')}
           pct={progress.pct}
+          settling={handoff !== null}
         />
       ) : null}
       {note ? <p className={cns('mt-3 text-sm text-ink-3')}>{note}</p> : null}
-      {progress?.timeLeft ? (
+      {aside ? (
         <p
           className={cns('mt-2 font-mono text-mono-sm tabular-nums text-ink-3')}
         >
-          {`~${progress.timeLeft} left`}
+          {aside}
         </p>
       ) : null}
       {controls.length > 0 ? (

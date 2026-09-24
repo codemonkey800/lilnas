@@ -8,6 +8,8 @@ export type ProgressBlockProps = {
   detail: ReactNode
   note: ReactNode
   pct: number
+  /** Passed to `Bar` - the bytes are down, the title is not in the library. */
+  settling?: boolean
 }
 
 /**
@@ -25,6 +27,9 @@ export type ProgressBlockProps = {
  * half. The alternative the primitive allows - `role="presentation"` on the
  * bar - would leave the bar unannounced *and* the number nameless.
  *
+ * While `settling`, the bar sweeps and announces `note` along with its
+ * value, so "100%" is never read out alone over work that is still going.
+ *
  * No directive: nothing here is interactive, so a server page can render it
  * through `MediaStatus` without dragging a client boundary along.
  */
@@ -32,6 +37,7 @@ export function ProgressBlock({
   detail,
   note,
   pct,
+  settling = false,
 }: ProgressBlockProps): JSX.Element {
   return (
     <Card className={cns('max-w-[480px] p-4 sm:p-5')}>
@@ -50,7 +56,16 @@ export function ProgressBlock({
               {`${Math.round(pct)}%`}
             </span>
           </div>
-          <Bar aria-label="Download progress" pct={pct} />
+          <Bar
+            aria-label="Download progress"
+            aria-valuetext={
+              settling && typeof note === 'string'
+                ? `${Math.round(pct)}%, ${note}`
+                : undefined
+            }
+            pct={pct}
+            settling={settling}
+          />
         </div>
         {detail ? (
           <p className={cns('font-mono text-mono-sm tabular-nums text-ink-3')}>

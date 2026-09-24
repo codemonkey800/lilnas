@@ -3,7 +3,9 @@ import type { Media, MediaState } from '@lilnas/utils/download/types'
 import { mediaState } from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX, ReactNode } from 'react'
 
+import { FINISHING_LABEL, handoffDetail } from 'src/components/detail/job-state'
 import {
+  mediaHandoff,
   mediaProgress,
   mediaStateIsLive,
   mediaStateLabel,
@@ -55,6 +57,11 @@ export type MediaStatusProps = Omit<
  * which is exactly the "Started from Radarr" frame: a grab from Radarr's own
  * UI shows a chip and a bar here and no attempt anywhere.
  *
+ * Once every byte is down (see `Handoff`), the chip and the bar's note say
+ * so - `finishing up`, then `importing…` - the bar settles instead of sitting
+ * frozen at 100%, and the queue's spent `~00:00:00 left` gives way to who is
+ * doing what now.
+ *
  * No directive and no hooks, so a server page can render it directly.
  */
 export function MediaStatus({
@@ -71,8 +78,21 @@ export function MediaStatus({
 
   const derived = mediaProgress(media)
   const pct = progressPct ?? derived?.pct ?? null
+  const handoff = mediaHandoff(state, pct)
+  const label =
+    handoff === 'finishing'
+      ? FINISHING_LABEL
+      : mediaStateLabel(state, media.type)
   const detail =
-    progressDetail ?? (derived?.timeLeft ? `~${derived.timeLeft} left` : null)
+    progressDetail ??
+    (handoff
+      ? handoffDetail(handoff, media.type)
+      : derived?.timeLeft
+        ? `~${derived.timeLeft} left`
+        : null)
+  // Radarr's own word reads `downloading` at 100% and `completed` while it
+  // imports; neither is what is happening, so a handoff names itself.
+  const progressNote = handoff ? label : (derived?.note ?? null)
 
   return (
     <div
@@ -83,7 +103,7 @@ export function MediaStatus({
       <div className={cns('flex flex-wrap items-center gap-2.5')}>
         <Chip className={cns('w-fit')} tone={mediaStateTone(state)}>
           {mediaStateIsLive(state) ? <Dot tone="live" /> : null}
-          {mediaStateLabel(state, media.type)}
+          {label}
         </Chip>
         {note ? (
           <span className={cns('min-w-0 flex-1 text-sm text-ink-3')}>
@@ -92,7 +112,12 @@ export function MediaStatus({
         ) : null}
       </div>
       {pct === null ? null : (
-        <ProgressBlock detail={detail} note={derived?.note ?? null} pct={pct} />
+        <ProgressBlock
+          detail={detail}
+          note={progressNote}
+          pct={pct}
+          settling={handoff !== null}
+        />
       )}
     </div>
   )

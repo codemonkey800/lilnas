@@ -1,7 +1,8 @@
 import type { Media, MediaState } from '@lilnas/utils/download/types'
 import { DownloadType, isManagedMedia } from '@lilnas/utils/download/types'
 
-import type { JobProgress } from 'src/components/detail/job-state'
+import type { Handoff, JobProgress } from 'src/components/detail/job-state'
+import { FINISHED_PCT } from 'src/components/detail/job-state'
 
 /**
  * Plan 021's media-state vocabulary — what the chip at the top of a movie,
@@ -100,4 +101,21 @@ export function mediaProgress(media: Media): JobProgress | null {
     pct,
     timeLeft: snapshot?.timeLeft ?? null,
   }
+}
+
+/**
+ * {@link Handoff}, read off a media state instead of a job's status - so a
+ * download this app did not start settles the same way one it did.
+ */
+export function mediaHandoff(
+  state: MediaState,
+  pct: number | null | undefined,
+): Handoff | null {
+  if (state === 'importing') {
+    return 'importing'
+  }
+
+  return state === 'downloading' && pct != null && pct >= FINISHED_PCT
+    ? 'finishing'
+    : null
 }

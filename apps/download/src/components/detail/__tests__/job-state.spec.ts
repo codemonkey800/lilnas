@@ -3,7 +3,9 @@ import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
 
 import type { JobActionKey } from 'src/components/detail/job-state'
 import {
+  handoffDetail,
   jobActionState,
+  jobHandoff,
   jobProgress,
   jobStatusLabel,
   latestJob,
@@ -226,5 +228,43 @@ describe('jobProgress', () => {
 
   it('answers null when there is no queue snapshot at all', () => {
     expect(jobProgress(job())).toBeNull()
+  })
+})
+
+describe('jobHandoff', () => {
+  it('calls a download with nothing left to download finishing', () => {
+    expect(jobHandoff(DownloadJobStatus.Downloading, 100)).toBe('finishing')
+  })
+
+  it('leaves a download short of 100% transferring', () => {
+    expect(jobHandoff(DownloadJobStatus.Downloading, 99.99)).toBeNull()
+    expect(jobHandoff(DownloadJobStatus.Downloading, null)).toBeNull()
+  })
+
+  it('calls an import importing, whatever its percentage', () => {
+    expect(jobHandoff(DownloadJobStatus.Importing, 100)).toBe('importing')
+    expect(jobHandoff(DownloadJobStatus.Importing, undefined)).toBe('importing')
+  })
+
+  it('leaves a full bar that is stopped alone', () => {
+    // A stuck import and a paused client are not moving - settling them would
+    // promise progress that is not coming.
+    expect(jobHandoff(DownloadJobStatus.NeedsAttention, 100)).toBeNull()
+    expect(jobHandoff(DownloadJobStatus.Paused, 100)).toBeNull()
+  })
+})
+
+describe('handoffDetail', () => {
+  it('names the importer for the media type', () => {
+    expect(handoffDetail('finishing', DownloadType.Movie)).toBe(
+      'All downloaded. Radarr imports it next.',
+    )
+    expect(handoffDetail('importing', DownloadType.Show)).toBe(
+      'Sonarr is moving it into the library.',
+    )
+  })
+
+  it('has nothing to say for a video, which never draws a bar', () => {
+    expect(handoffDetail('finishing', DownloadType.Video)).toBeNull()
   })
 })
