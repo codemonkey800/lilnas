@@ -121,7 +121,7 @@ export interface PollableCompletionData {
  * change just re-broadcasts the job (`DownloadStateService.touchJob()`) and
  * the hydrate that broadcast runs picks the new number up.
  *
- * Runs every 10s via @Cron (this codebase has no @Interval precedent - see
+ * Runs every 1s via @Cron (this codebase has no @Interval precedent - see
  * ytdlp-update.service.ts). A tick with work to do first asks upstream to
  * refresh its queue, which otherwise only moves once a minute. On error,
  * backs off exponentially from 10s up to a 2min cap; a success resets the
@@ -203,7 +203,7 @@ export class MediaPollerService {
     private readonly sonarrService: SonarrService,
   ) {}
 
-  @Cron('*/10 * * * * *')
+  @Cron('*/1 * * * * *')
   async poll(): Promise<void> {
     const action = 'poll'
 
