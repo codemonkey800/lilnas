@@ -54,6 +54,12 @@ const SOURCE_TYPE = {
   sonarr: DownloadType.Show,
 } as const satisfies Record<QueueSource, DownloadType>
 
+/** `SOURCE_TYPE`, inverted: the queue source a media type's items come from. */
+const SOURCE_OF = {
+  [DownloadType.Movie]: 'radarr',
+  [DownloadType.Show]: 'sonarr',
+} as const satisfies Record<DownloadType.Movie | DownloadType.Show, QueueSource>
+
 /** A tracked job paired with the upstream library id to poll it by. */
 export interface TrackedJob {
   record: DownloadJobRecord
@@ -123,6 +129,9 @@ export class MediaPollerService {
    * diff, with the upstream id (Radarr `movieId` / Sonarr `seriesId`) it was
    * queued under. What tells a media that just left the queue - and so owes
    * one last event - apart from one that was never in it.
+   *
+   * A job settling on a landed file puts its media back in here too (see
+   * `settleAbsentJobs`), so it owes that last event again.
    */
   private readonly queuedMedia: Record<QueueSource, Map<string, number>> = {
     radarr: new Map(),
@@ -304,7 +313,7 @@ export class MediaPollerService {
 
     const inputs = await this.completionInputs(type, jobs)
 
-    for (const { record: tracked } of jobs) {
+    for (const { record: tracked, upstreamId } of jobs) {
       const data = inputs.get(tracked.id)
       if (!data) continue
 
@@ -350,6 +359,16 @@ export class MediaPollerService {
       this.absentSince.delete(record.id)
       this.writeStatus(record, next, error)
       settled.add(record.id)
+
+      // The media's vanish event may already be out - sent the tick its item
+      // left, before Radarr/Sonarr listed the import - and after it nothing
+      // else would tell an open page the file landed. Owing the media one
+      // more event makes this tick's diff re-read it (invalidated, so with
+      // the file) and send it; when the vanish is this same tick, it is
+      // already owed and this changes nothing.
+      if (next === DownloadJobStatus.Completed) {
+        this.queuedMedia[SOURCE_OF[type]].set(record.mediaId, upstreamId)
+      }
     }
 
     return settled

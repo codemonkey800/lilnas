@@ -9,7 +9,7 @@ import { getErrorMessage } from '@lilnas/utils/error'
 import { Injectable, Logger } from '@nestjs/common'
 
 import { DbService } from 'src/db/db.service'
-import { mediaId, mediaIdSuffix } from 'src/db/media-id'
+import { mediaId, mediaIdSuffix, mediaTypeFromKey } from 'src/db/media-id'
 import type { VideoRow } from 'src/db/schema'
 import { getVideosByIds } from 'src/db/videos.repo'
 import { EmbyStatusService } from 'src/emby/emby-status.service'
@@ -31,6 +31,12 @@ export interface MediaResolverResult {
 interface LibraryCacheEntry<T> {
   entries: Map<number, T>
   expiresAtMs: number
+}
+
+interface LibraryCache<T> {
+  current?: LibraryCacheEntry<T>
+  /** Bumped by every `invalidate()`; see `readLibrary`. */
+  epoch: number
 }
 
 function hydrateVideo(row: VideoRow): Video {
@@ -80,8 +86,8 @@ export class MediaResolverService {
   private static readonly FAILURE_TTL_MS = 10_000
 
   private readonly logger = new Logger(MediaResolverService.name)
-  private movieLibraryCache?: LibraryCacheEntry<Movie>
-  private showLibraryCache?: LibraryCacheEntry<Show>
+  private readonly movieLibrary: LibraryCache<Movie> = { epoch: 0 }
+  private readonly showLibrary: LibraryCache<Show> = { epoch: 0 }
 
   constructor(
     private readonly dbService: DbService,
@@ -289,17 +295,35 @@ export class MediaResolverService {
   }
 
   /**
-   * Evicts one key from whichever library cache holds it, so the next read
-   * goes back upstream. Called after a mutation the app itself made (a
-   * delete), where waiting out the TTL would serve a copy the app already
-   * knows is wrong - normal staleness is still bounded by the TTL alone.
+   * Makes the next read of the library cache that holds `key` go back
+   * upstream for the **whole** library. Called after a change to that title
+   * which the app itself made or observed - a file deleted, replaced,
+   * imported, or a download settling on its file - where waiting out the TTL
+   * would serve a copy the app already knows is wrong. Normal staleness is
+   * still bounded by the TTL alone.
+   *
+   * The whole library, not just `key`'s entry: `resolve()` reads a key
+   * missing from a live cache as "not in the library" and answers it with the
+   * per-id *discover* lookup, which has no `radarrId`/`sonarrId`, no
+   * `monitored` and no file - so a title evicted on its own would resolve as
+   * `absent` until the TTL ran out, the opposite of a fresh read. Every
+   * caller changes a title that stays in the library, so one list read is
+   * what "fresh" costs. A read already in flight when this is called is
+   * returned to its own caller but not cached (see `readLibrary`), so it
+   * can't put the pre-change copy back.
    */
   invalidate(key: string): void {
-    const suffix = Number(mediaIdSuffix(key))
-    if (Number.isNaN(suffix)) return
+    const type = mediaTypeFromKey(key)
+    const cache =
+      type === DownloadType.Movie
+        ? this.movieLibrary
+        : type === DownloadType.Show
+          ? this.showLibrary
+          : undefined
+    if (!cache) return
 
-    this.movieLibraryCache?.entries.delete(suffix)
-    this.showLibraryCache?.entries.delete(suffix)
+    cache.current = undefined
+    cache.epoch += 1
   }
 
   /**
@@ -311,47 +335,51 @@ export class MediaResolverService {
    * fails, and returns an empty map for `FAILURE_TTL_MS` after that.
    */
   async getMovieLibrary(): Promise<Map<number, Movie>> {
-    const now = Date.now()
-    if (this.movieLibraryCache && this.movieLibraryCache.expiresAtMs > now) {
-      return this.movieLibraryCache.entries
-    }
-
-    try {
+    return this.readLibrary(this.movieLibrary, async () => {
       const movies = await this.radarrService.getLibrary()
-      const entries = new Map(movies.map(movie => [movie.tmdbId, movie]))
-      this.movieLibraryCache = {
-        entries,
-        expiresAtMs: now + MediaResolverService.TTL_MS,
-      }
-      return entries
-    } catch (err) {
-      this.movieLibraryCache = {
-        entries: new Map(),
-        expiresAtMs: now + MediaResolverService.FAILURE_TTL_MS,
-      }
-      throw err
-    }
+      return new Map(movies.map(movie => [movie.tmdbId, movie]))
+    })
   }
 
   /** `getMovieLibrary()`'s Sonarr twin, keyed by `tvdbId`. */
   async getShowLibrary(): Promise<Map<number, Show>> {
+    return this.readLibrary(this.showLibrary, async () => {
+      const series = await this.sonarrService.getLibrary()
+      return new Map(series.map(show => [show.tvdbId, show]))
+    })
+  }
+
+  /**
+   * One library cache's read-through. A fetch stores its result only if no
+   * `invalidate()` landed while it was in flight - otherwise a read that
+   * started before the change would re-cache the copy the invalidation was
+   * there to drop, for a whole TTL.
+   */
+  private async readLibrary<T>(
+    cache: LibraryCache<T>,
+    fetch: () => Promise<Map<number, T>>,
+  ): Promise<Map<number, T>> {
     const now = Date.now()
-    if (this.showLibraryCache && this.showLibraryCache.expiresAtMs > now) {
-      return this.showLibraryCache.entries
+    if (cache.current && cache.current.expiresAtMs > now) {
+      return cache.current.entries
     }
 
+    const epoch = cache.epoch
     try {
-      const series = await this.sonarrService.getLibrary()
-      const entries = new Map(series.map(show => [show.tvdbId, show]))
-      this.showLibraryCache = {
-        entries,
-        expiresAtMs: now + MediaResolverService.TTL_MS,
+      const entries = await fetch()
+      if (cache.epoch === epoch) {
+        cache.current = {
+          entries,
+          expiresAtMs: now + MediaResolverService.TTL_MS,
+        }
       }
       return entries
     } catch (err) {
-      this.showLibraryCache = {
-        entries: new Map(),
-        expiresAtMs: now + MediaResolverService.FAILURE_TTL_MS,
+      if (cache.epoch === epoch) {
+        cache.current = {
+          entries: new Map(),
+          expiresAtMs: now + MediaResolverService.FAILURE_TTL_MS,
+        }
       }
       throw err
     }

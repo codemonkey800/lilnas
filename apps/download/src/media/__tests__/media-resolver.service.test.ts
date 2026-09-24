@@ -296,6 +296,112 @@ describe('MediaResolverService', () => {
     })
   })
 
+  // invalidate() must mean "read it fresh", never "read it from the discover
+  // lookup" - that copy has no radarrId, no monitored and no file, so a title
+  // that just finished downloading would resolve as `absent`.
+  describe('invalidate', () => {
+    const movieKey = { mediaId: 'tmdb:1', type: DownloadType.Movie } as const
+
+    it('re-reads the library for an invalidated movie rather than looking it up', async () => {
+      radarrService.getLibrary.mockResolvedValueOnce([
+        buildMovie(1, { monitored: true, radarrId: 7 }),
+      ])
+      await service.resolve([movieKey])
+
+      radarrService.getLibrary.mockResolvedValueOnce([
+        buildMovie(1, {
+          filePath: '/movies/one.mkv',
+          monitored: true,
+          radarrId: 7,
+        }),
+      ])
+      service.invalidate('tmdb:1')
+      const { media } = await service.resolve([movieKey])
+
+      expect(radarrService.getLibrary).toHaveBeenCalledTimes(2)
+      expect(radarrService.lookupByTmdbId).not.toHaveBeenCalled()
+      expect(media.get('tmdb:1')).toMatchObject({
+        filePath: '/movies/one.mkv',
+        monitored: true,
+        radarrId: 7,
+        state: 'available',
+      })
+    })
+
+    it('caches the fresh read like any other', async () => {
+      radarrService.getLibrary.mockResolvedValue([buildMovie(1)])
+      await service.resolve([movieKey])
+
+      service.invalidate('tmdb:1')
+      await service.resolve([movieKey])
+      await service.resolve([movieKey])
+
+      expect(radarrService.getLibrary).toHaveBeenCalledTimes(2)
+    })
+
+    it('re-reads the show library for an invalidated show', async () => {
+      sonarrService.getLibrary.mockResolvedValue([buildShow(10)])
+      const showKey = { mediaId: 'tvdb:10', type: DownloadType.Show } as const
+      await service.resolve([showKey])
+
+      service.invalidate('tvdb:10')
+      await service.resolve([showKey])
+
+      expect(sonarrService.getLibrary).toHaveBeenCalledTimes(2)
+      expect(sonarrService.lookupByTvdbId).not.toHaveBeenCalled()
+    })
+
+    it("leaves the other source's cache alone", async () => {
+      radarrService.getLibrary.mockResolvedValue([buildMovie(10)])
+      sonarrService.getLibrary.mockResolvedValue([buildShow(10)])
+      const showKey = { mediaId: 'tvdb:10', type: DownloadType.Show } as const
+      await service.resolve([
+        { mediaId: 'tmdb:10', type: DownloadType.Movie },
+        showKey,
+      ])
+
+      service.invalidate('tmdb:10')
+      await service.resolve([showKey])
+
+      expect(sonarrService.getLibrary).toHaveBeenCalledTimes(1)
+    })
+
+    it('ignores a video key', async () => {
+      radarrService.getLibrary.mockResolvedValue([buildMovie(1)])
+      await service.resolve([movieKey])
+
+      service.invalidate('video:1')
+      await service.resolve([movieKey])
+
+      expect(radarrService.getLibrary).toHaveBeenCalledTimes(1)
+    })
+
+    // A read that started before the change answers its own caller, but
+    // caching it would put the pre-change copy back for a whole TTL.
+    it('does not cache a library read that was in flight when it landed', async () => {
+      let finishStaleRead!: (movies: Movie[]) => void
+      radarrService.getLibrary.mockImplementationOnce(
+        () =>
+          new Promise<Movie[]>(resolve => {
+            finishStaleRead = resolve
+          }),
+      )
+      const staleResolve = service.resolve([movieKey])
+
+      service.invalidate('tmdb:1')
+      finishStaleRead([buildMovie(1, { radarrId: 7 })])
+      await staleResolve
+
+      radarrService.getLibrary.mockResolvedValueOnce([
+        buildMovie(1, { filePath: '/movies/one.mkv', radarrId: 7 }),
+      ])
+      const { media } = await service.resolve([movieKey])
+
+      expect(radarrService.getLibrary).toHaveBeenCalledTimes(2)
+      expect(media.get('tmdb:1')).toMatchObject({ filePath: '/movies/one.mkv' })
+    })
+  })
+
   it('resolves a mixed-type key list in one call', async () => {
     dbService.db
       .insert(videos)
