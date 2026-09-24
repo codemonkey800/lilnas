@@ -1,0 +1,33 @@
+# Standalone -- deliberately NOT added to any root docker-compose *.yml
+# include: list. This is host-level dev tooling, started/stopped by hand:
+#
+#   docker compose -f apps/dev-idle-reaper/deploy.yml up -d --build
+#   docker compose -f apps/dev-idle-reaper/deploy.yml logs -f
+#   docker compose -f apps/dev-idle-reaper/deploy.yml down
+#
+# Stops+removes any container labeled lilnas.idle-reap.enabled=true once its
+# network I/O has been flat for lilnas.idle-reap.max-idle-hours (default 6,
+# see reaper.sh). Opt-in by label rather than a name/pattern match so it can
+# never reach a container that wasn't deliberately enrolled -- e.g. it will
+# never touch the production Traefik, a Postgres sidecar, or anything else
+# sharing this host.
+#
+# Needs read-write access to the Docker socket to stop/rm containers -- see
+# reaper.sh for exactly what it does with that access (inspect/stats/stop/rm
+# against opted-in containers only, nothing else).
+
+services:
+  dev-idle-reaper:
+    build: .
+    container_name: lilnas-dev-idle-reaper
+    restart: unless-stopped
+    environment:
+      - POLL_INTERVAL_SECONDS=300
+      - DEFAULT_MAX_IDLE_HOURS=6
+      - ACTIVITY_BYTES_THRESHOLD=1024
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - dev-idle-reaper-state:/var/lib/reaper
+
+volumes:
+  dev-idle-reaper-state:
