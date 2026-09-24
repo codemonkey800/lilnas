@@ -16,10 +16,7 @@ import type {
   ImportCandidatesResult,
   ImportFilesResult,
 } from 'src/app/actions/media-files'
-import {
-  formatBytes,
-  formatRejection,
-} from 'src/components/detail/release-picker'
+import { formatRejection } from 'src/components/detail/release-picker'
 import { episodeCode } from 'src/components/detail/show-state'
 import { Button } from 'src/components/ui/button'
 import type { ButtonSize, ButtonVariant } from 'src/components/ui/button-recipe'
@@ -29,7 +26,7 @@ import { Spinner } from 'src/components/ui/feedback'
 import { Icon } from 'src/components/ui/icon'
 import { MChip } from 'src/components/ui/mchip'
 import { DeleteButton, Modal } from 'src/components/ui/modal'
-import { UNKNOWN_VALUE } from 'src/lib/format'
+import { formatBytes, UNKNOWN_VALUE } from 'src/lib/format'
 
 /**
  * The trigger, beside the `needs your decision` chip. `movie-detail.pug:246`.

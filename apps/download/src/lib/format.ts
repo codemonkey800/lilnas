@@ -76,6 +76,81 @@ export function formatRuntime(
     : `${minutes}:${pad2(remainingSeconds)}`
 }
 
+/**
+ * Binary units, because that is what an indexer reports and what every other
+ * tool in this stack (Radarr, Sonarr, qBittorrent) shows. `2.1 GB` in the
+ * mockups is 2.1 GiB on the wire; relabelling it `GiB` would make this the only
+ * surface in the chain that disagrees with the rest.
+ */
+const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'] as const
+
+/**
+ * Bytes as the release rows and the delete dialog spell them — `2.1 GB`,
+ * `900 MB`, `5.8 GB`, matching `movie-detail.pug` exactly.
+ *
+ * Returns {@link UNKNOWN_VALUE} for anything not a positive finite number,
+ * matching `formatRuntime`'s contract: a release with no reported size renders
+ * an em dash, never `0 B`.
+ */
+export function formatBytes(bytes: number | null | undefined): string {
+  if (bytes == null || !Number.isFinite(bytes) || bytes <= 0) {
+    return UNKNOWN_VALUE
+  }
+
+  let value = bytes
+  let unit = 0
+
+  while (value >= 1024 && unit < BYTE_UNITS.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+
+  // One decimal below 10 and none above it, which is how every size in the
+  // mockups reads: `2.1 GB`, but `900 MB` rather than `900.0 MB`.
+  return `${value.toFixed(value < 10 && unit > 0 ? 1 : 0)} ${BYTE_UNITS[unit]}`
+}
+
+/**
+ * A transfer rate — `3.1 MB/s`.
+ *
+ * Built on {@link formatBytes} rather than beside it, so a progress line like
+ * `412 MB / 640 MB · 3.1 MB/s` shares one divisor (1024) and one decimal rule
+ * and can never disagree with itself.
+ *
+ * Returns {@link UNKNOWN_VALUE} for anything not a positive finite number — a
+ * stalled or not-yet-measured transfer reads as a gap, not as `0 B/s`.
+ */
+export function formatSpeed(bytesPerSecond: number | null | undefined): string {
+  const size = formatBytes(bytesPerSecond)
+  return size === UNKNOWN_VALUE ? UNKNOWN_VALUE : `${size}/s`
+}
+
+/**
+ * Time remaining on a transfer — `~2m left`, `~1h 04m left`, `<1m left`.
+ *
+ * The body is {@link formatRuntime}'s `'hours'` shape, so a remaining time
+ * reads like a runtime. The seconds are rounded to the nearest minute first:
+ * `formatRuntime` truncates, which suits a runtime (1h 59m 59s is not yet 2h)
+ * but under-promises on an estimate that is already approximate, hence the
+ * `~`. Anything under a minute collapses to `<1m left` rather than `~0m`.
+ *
+ * Returns `null` — not {@link UNKNOWN_VALUE} — for a missing, zero, negative
+ * or non-finite estimate, so a caller omits the segment entirely instead of
+ * rendering a dangling `· —`.
+ */
+export function formatEta(seconds: number | null | undefined): string | null {
+  if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) {
+    return null
+  }
+
+  if (seconds < SECONDS_PER_MINUTE) {
+    return '<1m left'
+  }
+
+  const minutes = Math.round(seconds / SECONDS_PER_MINUTE)
+  return `~${formatRuntime(minutes * SECONDS_PER_MINUTE, 'hours')} left`
+}
+
 const MINUTE_MS = 60_000
 const HOUR_MS = 3_600_000
 const DAY_MS = 86_400_000

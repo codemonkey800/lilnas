@@ -6,8 +6,11 @@ import {
 } from '@lilnas/utils/download/types'
 
 import {
+  formatBytes,
+  formatEta,
   formatRelative,
   formatRuntime,
+  formatSpeed,
   initials,
   isInProgress,
   MEDIA_STATE_TONES,
@@ -73,6 +76,95 @@ describe('formatRuntime', () => {
       expect(formatRuntime(178.6, 'clock')).toBe('2:59')
     })
   })
+})
+
+const KB = 1024
+const MB = 1024 ** 2
+const GB = 1024 ** 3
+
+const MISSING_OR_NONSENSICAL = [
+  ['undefined', undefined],
+  ['null', null],
+  ['zero', 0],
+  ['negative', -1],
+  ['NaN', Number.NaN],
+  ['Infinity', Number.POSITIVE_INFINITY],
+] as const satisfies readonly (readonly [string, number | null | undefined])[]
+
+describe('formatBytes', () => {
+  it.each([
+    [2.1 * GB, '2.1 GB'],
+    [5.8 * GB, '5.8 GB'],
+    [900 * MB, '900 MB'],
+    [1023, '1023 B'],
+    [KB, '1.0 KB'],
+  ])('renders %p as %p, exactly as the mockups spell it', (bytes, expected) => {
+    expect(formatBytes(bytes)).toBe(expected)
+  })
+
+  it.each(MISSING_OR_NONSENSICAL)(
+    'answers with the dash for %s rather than "0 B"',
+    (_label, value) => {
+      // Same contract `formatRuntime` keeps: absent is a dash, never a
+      // plausible-looking zero.
+      expect(formatBytes(value)).toBe(UNKNOWN_VALUE)
+    },
+  )
+})
+
+describe('formatSpeed', () => {
+  it('renders a transfer rate in the same binary units as formatBytes', () => {
+    // 3.25e6 / 1024² = 3.099… — the decimal megabyte would read 3.3.
+    expect(formatSpeed(3.25e6)).toBe('3.1 MB/s')
+  })
+
+  it.each([
+    [412 * MB, '412 MB/s'],
+    [1.5 * KB, '1.5 KB/s'],
+    [500, '500 B/s'],
+  ])('renders %p as %p', (bytesPerSecond, expected) => {
+    expect(formatSpeed(bytesPerSecond)).toBe(expected)
+  })
+
+  it('never disagrees with formatBytes on the same number', () => {
+    for (const bytes of [700, 9.99 * KB, 3.25e6, 2.1 * GB]) {
+      expect(formatSpeed(bytes)).toBe(`${formatBytes(bytes)}/s`)
+    }
+  })
+
+  it.each(MISSING_OR_NONSENSICAL)(
+    'answers with the dash for %s rather than "0 B/s"',
+    (_label, value) => {
+      expect(formatSpeed(value)).toBe(UNKNOWN_VALUE)
+    },
+  )
+})
+
+describe('formatEta', () => {
+  it.each([
+    [30, '<1m left'],
+    [59, '<1m left'],
+    [60, '~1m left'],
+    [125, '~2m left'],
+    [2520, '~42m left'],
+    [3840, '~1h 04m left'],
+  ])('renders %p seconds as %p', (seconds, expected) => {
+    expect(formatEta(seconds)).toBe(expected)
+  })
+
+  it('rounds to the nearest minute rather than truncating like a runtime', () => {
+    // 2m 50s is closer to 3m than 2m; `formatRuntime` alone would say 2m.
+    expect(formatEta(170)).toBe('~3m left')
+    // 59m 50s rounds up across the hour boundary.
+    expect(formatEta(3590)).toBe('~1h 00m left')
+  })
+
+  it.each(MISSING_OR_NONSENSICAL)(
+    'returns null for %s so the caller omits the segment',
+    (_label, value) => {
+      expect(formatEta(value)).toBeNull()
+    },
+  )
 })
 
 describe('formatRelative', () => {

@@ -6,7 +6,6 @@ import userEvent from '@testing-library/user-event'
 
 import {
   blockedReleaseReasons,
-  formatBytes,
   formatRejection,
   RELEASE_ALL_BLOCKED_NOTE,
   RELEASE_CURRENT_LABEL,
@@ -114,31 +113,6 @@ function row(release: Release): HTMLElement {
 
   return element
 }
-
-describe('formatBytes', () => {
-  it.each([
-    [2.1 * GB, '2.1 GB'],
-    [5.8 * GB, '5.8 GB'],
-    [900 * MB, '900 MB'],
-    [1023, '1023 B'],
-    [1024, '1.0 KB'],
-  ])('renders %p as %p, exactly as the mockups spell it', (bytes, expected) => {
-    expect(formatBytes(bytes)).toBe(expected)
-  })
-
-  it.each([
-    [null],
-    [undefined],
-    [0],
-    [-1],
-    [Number.NaN],
-    [Number.POSITIVE_INFINITY],
-  ])('answers with the em dash for %p rather than "0 B"', value => {
-    // Same contract `formatRuntime` keeps: absent is an em dash, never a
-    // plausible-looking zero.
-    expect(formatBytes(value)).toBe('—')
-  })
-})
 
 describe('formatRejection', () => {
   it('drops the empty custom-format list Radarr serializes literally', () => {

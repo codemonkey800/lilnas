@@ -24,47 +24,7 @@ import { Card, Note } from 'src/components/ui/card'
 import { Chip } from 'src/components/ui/chip'
 import { Skeleton } from 'src/components/ui/feedback'
 import { StateLineActions } from 'src/components/ui/state-line'
-import { UNKNOWN_VALUE } from 'src/lib/format'
-
-/**
- * Binary units, because that is what an indexer reports and what every other
- * tool in this stack (Radarr, Sonarr, qBittorrent) shows. `2.1 GB` in the
- * mockups is 2.1 GiB on the wire; relabelling it `GiB` would make this the only
- * surface in the chain that disagrees with the rest.
- */
-const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'] as const
-
-/**
- * Bytes as the release rows and the delete dialog spell them — `2.1 GB`,
- * `900 MB`, `5.8 GB`, matching `movie-detail.pug` exactly.
- *
- * ⚠️ This belongs in `src/lib/format.ts` beside `formatRuntime` and
- * `formatRelative`, and is here only because that module is closed to this
- * task. It is exported (and imported by `delete-confirm.tsx`) rather than
- * duplicated, so there is still exactly one of it — moving it later is a
- * re-export away.
- *
- * Returns {@link UNKNOWN_VALUE} for anything not a positive finite number,
- * matching `formatRuntime`'s contract: a release with no reported size renders
- * an em dash, never `0 B`.
- */
-export function formatBytes(bytes: number | null | undefined): string {
-  if (bytes == null || !Number.isFinite(bytes) || bytes <= 0) {
-    return UNKNOWN_VALUE
-  }
-
-  let value = bytes
-  let unit = 0
-
-  while (value >= 1024 && unit < BYTE_UNITS.length - 1) {
-    value /= 1024
-    unit += 1
-  }
-
-  // One decimal below 10 and none above it, which is how every size in the
-  // mockups reads: `2.1 GB`, but `900 MB` rather than `900.0 MB`.
-  return `${value.toFixed(value < 10 && unit > 0 ? 1 : 0)} ${BYTE_UNITS[unit]}`
-}
+import { formatBytes, UNKNOWN_VALUE } from 'src/lib/format'
 
 /** The section heading. `movie-detail.pug:71`. */
 export const RELEASE_SECTION_LABEL = 'Release'

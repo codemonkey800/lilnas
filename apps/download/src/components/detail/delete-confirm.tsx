@@ -7,12 +7,12 @@ import { useRef, useState, useTransition } from 'react'
 
 import type { DeleteMediaFilesResult } from 'src/app/actions/media-files'
 import type { DeleteVideoJobResult } from 'src/app/actions/video-job'
-import { formatBytes } from 'src/components/detail/release-picker'
 import type { DeleteCascade } from 'src/components/detail/show-state'
 import { Button } from 'src/components/ui/button'
 import type { ButtonSize, ButtonVariant } from 'src/components/ui/button-recipe'
 import { buttonRecipeClassName } from 'src/components/ui/button-recipe'
 import { DeleteButton, Modal } from 'src/components/ui/modal'
+import { formatBytes } from 'src/lib/format'
 
 /**
  * Exactly what a delete will remove.
