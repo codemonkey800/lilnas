@@ -1328,9 +1328,13 @@ describe('MediaPollerService', () => {
       )
     })
 
-    it('sends nothing more once the last event is out', async () => {
+    it('sends nothing more once the last event, carrying the file, is out', async () => {
       radarrService.getQueue.mockResolvedValue([UNOWNED_MOVIE_ITEM])
       await service.poll()
+      upstream.set('tmdb:500', {
+        ...(upstream.get('tmdb:500') as Movie),
+        filePath: '/movies/Unowned Movie (2020)/unowned.mkv',
+      })
       radarrService.getQueue.mockResolvedValue([])
       await service.poll()
       const resolveCalls = mediaResolverService.resolve.mock.calls.length
@@ -1339,6 +1343,143 @@ describe('MediaPollerService', () => {
 
       expect(mediaEvents()).toHaveLength(2)
       expect(mediaResolverService.resolve).toHaveBeenCalledTimes(resolveCalls)
+    })
+
+    // The import race, for a download no job owns: the item goes a tick
+    // before Radarr lists the file. The vanish frame is truthfully "no file",
+    // so the media stays watched - re-read fresh each tick - until the file
+    // lands, or for the grace period if it never does.
+    describe('after the item leaves with no file listed', () => {
+      const T0 = Date.parse('2026-08-20T13:00:00.000Z')
+
+      function at(ms: number): void {
+        jest.spyOn(Date, 'now').mockReturnValue(ms)
+      }
+
+      async function vanishWithoutFile(): Promise<void> {
+        at(T0)
+        radarrService.getQueue.mockResolvedValue([UNOWNED_MOVIE_ITEM])
+        await service.poll()
+
+        at(T0 + 10_000)
+        radarrService.getQueue.mockResolvedValue([])
+        await service.poll()
+      }
+
+      afterEach(() => {
+        jest.restoreAllMocks()
+      })
+
+      it('says wanted, then sends one more frame once the file is listed', async () => {
+        await vanishWithoutFile()
+
+        expect(mediaEvents().at(-1)?.media).toMatchObject({ state: 'wanted' })
+
+        upstream.set('tmdb:500', {
+          ...(upstream.get('tmdb:500') as Movie),
+          filePath: '/movies/Unowned Movie (2020)/unowned.mkv',
+        })
+        at(T0 + 20_000)
+        clearBackoff()
+        await service.poll()
+
+        const events = mediaEvents()
+        expect(events).toHaveLength(3)
+        expect(events[2]?.media).toMatchObject({
+          filePath: '/movies/Unowned Movie (2020)/unowned.mkv',
+          state: 'available',
+        })
+
+        // Landed: no longer watched.
+        const resolveCalls = mediaResolverService.resolve.mock.calls.length
+        at(T0 + 30_000)
+        await service.poll()
+        expect(mediaResolverService.resolve).toHaveBeenCalledTimes(resolveCalls)
+      })
+
+      it('re-reads it fresh every tick while watched, sending nothing unchanged', async () => {
+        await vanishWithoutFile()
+        mediaResolverService.invalidate.mockClear()
+
+        at(T0 + 20_000)
+        await service.poll()
+
+        expect(mediaResolverService.invalidate).toHaveBeenCalledWith('tmdb:500')
+        expect(mediaEvents()).toHaveLength(2)
+      })
+
+      it('stops watching once the grace period passes with no file', async () => {
+        await vanishWithoutFile()
+
+        at(T0 + 10_000 + 59_000)
+        await service.poll()
+        expect(mediaResolverService.resolve).toHaveBeenCalledTimes(3)
+
+        at(T0 + 10_000 + 60_000)
+        await service.poll()
+        const resolveCalls = mediaResolverService.resolve.mock.calls.length
+
+        at(T0 + 10_000 + 70_000)
+        await service.poll()
+
+        expect(mediaResolverService.resolve).toHaveBeenCalledTimes(resolveCalls)
+        expect(mediaEvents()).toHaveLength(2)
+      })
+
+      // A series that already had episodes is `available` before this grab
+      // even started, so the series state can't say the grab landed - the
+      // episodes it had queued can.
+      it('watches a series until the episodes it had queued have files', async () => {
+        const withFiles = (ids: readonly number[]): EpisodeResource[] =>
+          buildEpisodes(3).map(episode => ({
+            ...episode,
+            hasFile: ids.includes(episode.id as number),
+          }))
+        upstream.set('tvdb:300', {
+          ...(upstream.get('tvdb:300') as Show),
+          episodeFileCount: 1,
+        })
+        sonarrService.getEpisodes.mockResolvedValue(withFiles([1]))
+
+        at(T0)
+        sonarrService.getQueue.mockResolvedValue([
+          {
+            episodeId: 2,
+            seasonNumber: 1,
+            seriesId: 12,
+            status: 'downloading',
+          },
+        ])
+        await service.poll()
+
+        at(T0 + 10_000)
+        sonarrService.getQueue.mockResolvedValue([])
+        await service.poll()
+
+        expect(mediaEvents().at(-1)?.media).toMatchObject({
+          state: 'available',
+        })
+        expect(
+          mediaEvents()
+            .at(-1)
+            ?.episodes?.find(entry => entry.episodeId === 2),
+        ).toMatchObject({ state: 'wanted' })
+
+        sonarrService.getEpisodes.mockResolvedValue(withFiles([1, 2]))
+        at(T0 + 20_000)
+        await service.poll()
+
+        expect(
+          mediaEvents()
+            .at(-1)
+            ?.episodes?.find(entry => entry.episodeId === 2),
+        ).toMatchObject({ state: 'available' })
+
+        const episodeReads = sonarrService.getEpisodes.mock.calls.length
+        at(T0 + 30_000)
+        await service.poll()
+        expect(sonarrService.getEpisodes).toHaveBeenCalledTimes(episodeReads)
+      })
     })
 
     it('sends a series as one event carrying every episode, however many are queued', async () => {

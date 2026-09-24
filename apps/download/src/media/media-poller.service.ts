@@ -11,6 +11,7 @@ import {
   Media,
   MEDIA_EVENT_TYPE,
   type MediaEvent,
+  type MediaState,
   type Movie,
   type Show,
 } from '@lilnas/utils/download/types'
@@ -33,6 +34,7 @@ import {
   LEFT_QUEUE_WITHOUT_FILE_ERROR,
   matchesScope,
   PollableQueueItem,
+  QUEUE_ABSENCE_GRACE_MS,
   settleWithoutQueueItem,
   toQueueSnapshot,
 } from './queue-status.util'
@@ -104,7 +106,8 @@ export interface PollableCompletionData {
  *
  * Also broadcasts a `MediaEvent` for every movie/show whose state moved this
  * tick - owned by a job or not - so an open page follows a download it
- * never asked for. See `broadcastMediaChanges`.
+ * never asked for, through to the file it lands. See
+ * `broadcastSourceChanges`.
  *
  * Writes only `status`/`error` to the job. The queue snapshot is never
  * stored against the job at all: a job's `media.queueSnapshot` is the
@@ -125,10 +128,11 @@ export class MediaPollerService {
   private backoffMs = BASE_BACKOFF_MS
 
   /**
-   * Per source, every media id that had a queue item as of the last media
-   * diff, with the upstream id (Radarr `movieId` / Sonarr `seriesId`) it was
-   * queued under. What tells a media that just left the queue - and so owes
-   * one last event - apart from one that was never in it.
+   * Per source, every media id the media diff is watching, with the upstream
+   * id (Radarr `movieId` / Sonarr `seriesId`) it was queued under: each one
+   * with a queue item as of the last diff, plus each one that left the queue
+   * and hasn't landed its file yet (see `vanishedAt`). What tells a media
+   * that is - or just was - downloading apart from one that never was.
    *
    * A job settling on a landed file puts its media back in here too (see
    * `settleAbsentJobs`), so it owes that last event again.
@@ -140,6 +144,25 @@ export class MediaPollerService {
 
   /** Media id -> digest of the last media event broadcast for it. */
   private readonly lastDigest = new Map<string, string>()
+
+  /**
+   * Media id -> when (epoch ms, wall-clock) a watched media was first seen
+   * with no queue item. Radarr/Sonarr can drop the item a tick before they
+   * list the import, so a media stays watched - re-read fresh every tick -
+   * until its file lands or `QUEUE_ABSENCE_GRACE_MS` passes without one.
+   */
+  private readonly vanishedAt = new Map<string, number>()
+
+  /**
+   * Series media id -> the Sonarr episode ids it had queued the last tick it
+   * had any, or `null` when an item carried no episode id. How a series that
+   * already had files - `available` before the grab even started - tells
+   * that *this* download landed. See `hasLanded`.
+   */
+  private readonly queuedEpisodes = new Map<
+    string,
+    ReadonlySet<number> | null
+  >()
 
   /**
    * Job id -> when (epoch ms, wall-clock) a tracked job was first seen with
@@ -360,12 +383,12 @@ export class MediaPollerService {
       this.writeStatus(record, next, error)
       settled.add(record.id)
 
-      // The media's vanish event may already be out - sent the tick its item
-      // left, before Radarr/Sonarr listed the import - and after it nothing
-      // else would tell an open page the file landed. Owing the media one
-      // more event makes this tick's diff re-read it (invalidated, so with
-      // the file) and send it; when the vanish is this same tick, it is
-      // already owed and this changes nothing.
+      // The media may no longer be watched - its watch can end on a file
+      // that was already there (an upgrade) or on the grace period - and
+      // then nothing else would tell an open page this file landed. Owing
+      // the media one more event makes this tick's diff re-read it
+      // (invalidated, so with the file) and send it; while it is still
+      // watched this changes nothing.
       if (next === DownloadJobStatus.Completed) {
         this.queuedMedia[SOURCE_OF[type]].set(record.mediaId, upstreamId)
       }
@@ -475,16 +498,24 @@ export class MediaPollerService {
 
   /**
    * The media diff for one source. Covers every media id with a queue item
-   * this tick **or last**: the second half is what sends the event a
-   * finished download ends on - `available`, with the file path the import
-   * just produced - and the first is what makes a download started outside
-   * this app, with no job to track it, reach every open page at all.
+   * this tick, and every one that left the queue and is still watched: the
+   * second half is what sends the event a finished download ends on -
+   * `available`, with the file path the import just produced - and the
+   * first is what makes a download started outside this app, with no job to
+   * track it, reach every open page at all.
+   *
+   * A media that left the queue is re-read fresh (invalidated) every tick
+   * until its file lands, or for `QUEUE_ABSENCE_GRACE_MS` if it never does:
+   * the item can go a tick before Radarr/Sonarr list the import, and the
+   * frame sent then - truthfully "no file" - must not be the last one.
+   * Events still go out only when the digest moves.
    *
    * Costs one batched `resolve()` per tick while anything is queued (served
-   * from the resolver's library cache), plus one `getEpisodes` per series
-   * with activity - a series is one event however many episodes it has
-   * queued, carrying every episode's state. A source with nothing queued
-   * this tick or last costs nothing.
+   * from the resolver's library cache) - plus, while anything is watched
+   * after leaving the queue, one library read per tick for that source -
+   * and one `getEpisodes` per series with activity; a series is one event
+   * however many episodes it has queued, carrying every episode's state. A
+   * source with nothing queued or watched costs nothing.
    *
    * A media left the queue when its upstream id did, not when its media id
    * stopped resolving: a library read that fails or lags must not read as
@@ -501,6 +532,12 @@ export class MediaPollerService {
     const previous = this.queuedMedia[source]
     if (queuedIds.size === 0 && previous.size === 0) return
 
+    const now = Date.now()
+    const episodesBySeries =
+      source === 'sonarr'
+        ? queuedEpisodeIds(this.mediaStateService.getQueue(source))
+        : undefined
+
     // Media id -> upstream id. Anything seen last tick already knows its
     // media id; only an upstream id new this tick needs the library.
     const batch = new Map(previous)
@@ -511,7 +548,7 @@ export class MediaPollerService {
     }
     if (batch.size === 0) return
 
-    // Before resolve(), so a media that just left the queue is read fresh
+    // Before resolve(), so a media that has left the queue is read fresh
     // from upstream rather than as the cache last saw it - mid-download, no
     // file, no Emby link.
     for (const [mediaId, upstreamId] of batch) {
@@ -539,29 +576,46 @@ export class MediaPollerService {
 
     await Promise.all(
       Array.from(batch, async ([mediaId, upstreamId]) => {
-        const digest = await this.broadcastIfChanged(
+        const result = await this.broadcastIfChanged(
           type,
           mediaId,
           media.get(mediaId),
           upstreamId,
         )
 
-        // Unsent: kept, whether still queued or just gone, so the next tick
-        // tries it again.
-        if (digest === undefined) {
+        // Unsent: kept, whether still queued or gone, so the next tick tries
+        // it again.
+        if (result === undefined) {
           next.set(mediaId, upstreamId)
           return
         }
 
-        // Gone and its last event sent (or unneeded): forgotten, so it costs
-        // nothing until it is queued again.
-        if (!queuedIds.has(upstreamId)) {
-          this.lastDigest.delete(mediaId)
+        this.lastDigest.set(mediaId, result.digest)
+        next.set(mediaId, upstreamId)
+
+        if (queuedIds.has(upstreamId)) {
+          this.vanishedAt.delete(mediaId)
+          if (episodesBySeries) {
+            this.queuedEpisodes.set(
+              mediaId,
+              episodesBySeries.get(upstreamId) ?? null,
+            )
+          }
           return
         }
 
-        this.lastDigest.set(mediaId, digest)
-        next.set(mediaId, upstreamId)
+        // Gone: watched until its file lands, or for the grace period if it
+        // never does, then forgotten - so it costs nothing until it is
+        // queued again.
+        const since = this.vanishedAt.get(mediaId) ?? now
+        if (result.landed || now - since >= QUEUE_ABSENCE_GRACE_MS) {
+          next.delete(mediaId)
+          this.lastDigest.delete(mediaId)
+          this.vanishedAt.delete(mediaId)
+          this.queuedEpisodes.delete(mediaId)
+          return
+        }
+        this.vanishedAt.set(mediaId, since)
       }),
     )
 
@@ -609,7 +663,8 @@ export class MediaPollerService {
 
   /**
    * Broadcasts one media's event if its state moved since the last one sent,
-   * and returns the digest it was compared by - or `undefined` when no event
+   * and returns the digest it was compared by, with whether the download
+   * has landed its file (see `hasLanded`) - or `undefined` when no event
    * could be built, which the caller retries.
    *
    * The digest covers only what the poller moves - state, reason, snapshot,
@@ -622,7 +677,7 @@ export class MediaPollerService {
     mediaId: string,
     media: Media | undefined,
     upstreamId: number,
-  ): Promise<string | undefined> {
+  ): Promise<{ digest: string; landed: boolean } | undefined> {
     if (!media || !isManagedMedia(media)) return undefined
 
     // Read before the await below: `media` is the resolver's cached object,
@@ -655,12 +710,13 @@ export class MediaPollerService {
       queueSnapshot,
       episodes,
     })
-    if (digest === this.lastDigest.get(mediaId)) return digest
+    const landed = hasLanded(state, episodes, this.queuedEpisodes.get(mediaId))
+    if (digest === this.lastDigest.get(mediaId)) return { digest, landed }
 
     const event: MediaEvent = { media, ...(episodes ? { episodes } : {}) }
     this.downloadGateway.broadcast({ data: event, type: MEDIA_EVENT_TYPE })
 
-    return digest
+    return { digest, landed }
   }
 
   /**
@@ -870,6 +926,54 @@ export class MediaPollerService {
       status: newStatus,
     })
   }
+}
+
+/**
+ * Sonarr series id -> the episode ids its queue items name, or `null` for a
+ * series with an item that names none (an unparsed release), whose episodes
+ * then can't be told apart.
+ */
+function queuedEpisodeIds(
+  items: readonly PollableQueueItem[],
+): Map<number, ReadonlySet<number> | null> {
+  const bySeries = new Map<number, Set<number> | null>()
+
+  for (const item of items) {
+    if (item.seriesId == null) continue
+
+    const known = bySeries.get(item.seriesId)
+    if (known === null) continue
+    if (item.episodeId == null) {
+      bySeries.set(item.seriesId, null)
+      continue
+    }
+
+    bySeries.set(item.seriesId, (known ?? new Set()).add(item.episodeId))
+  }
+
+  return bySeries
+}
+
+/**
+ * Whether a media that left the queue has its file. A movie: it is
+ * `available`. A series is `available` as soon as it has *any* file, which
+ * a series with older episodes was before this grab started - so it has
+ * landed once every episode it last had queued reads `available`, and only
+ * falls back to the series state when those episodes aren't known.
+ */
+function hasLanded(
+  state: MediaState | undefined,
+  episodes: readonly EpisodeStateEntry[] | undefined,
+  queued: ReadonlySet<number> | null | undefined,
+): boolean {
+  if (!episodes || !queued || queued.size === 0) return state === 'available'
+
+  const available = new Set(
+    episodes
+      .filter(entry => entry.state === 'available')
+      .map(entry => entry.episodeId),
+  )
+  return Array.from(queued).every(id => available.has(id))
 }
 
 function upstreamLibraryId(media: Media | undefined): number | undefined {
