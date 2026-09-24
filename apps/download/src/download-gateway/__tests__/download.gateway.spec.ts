@@ -350,4 +350,70 @@ describe('DownloadGateway', () => {
       expect(() => gateway.broadcast({ type: 'ping' })).not.toThrow()
     })
   })
+
+  describe('handleWatchMedia', () => {
+    it('records the titles a client watches', () => {
+      const client = createMockClient()
+      gateway.handleConnection(client, buildRequest())
+
+      gateway.handleWatchMedia(client, { mediaIds: ['tmdb:1', 'tvdb:7'] })
+
+      expect(gateway.watchedMediaIds()).toEqual(new Set(['tmdb:1', 'tvdb:7']))
+    })
+
+    it('replaces the previous list and unions across clients', () => {
+      const first = createMockClient()
+      const second = createMockClient()
+      gateway.handleConnection(first, buildRequest())
+      gateway.handleConnection(second, buildRequest())
+
+      gateway.handleWatchMedia(first, { mediaIds: ['tmdb:1'] })
+      gateway.handleWatchMedia(first, { mediaIds: ['tmdb:2'] })
+      gateway.handleWatchMedia(second, { mediaIds: ['tmdb:2', 'tvdb:7'] })
+
+      expect(gateway.watchedMediaIds()).toEqual(new Set(['tmdb:2', 'tvdb:7']))
+    })
+
+    it('forgets the list of a client that disconnects', () => {
+      const client = createMockClient()
+      gateway.handleConnection(client, buildRequest())
+      gateway.handleWatchMedia(client, { mediaIds: ['tmdb:1'] })
+
+      gateway.handleDisconnect(client)
+
+      expect(gateway.watchedMediaIds().size).toBe(0)
+      expect(gateway.clientCount).toBe(0)
+    })
+
+    it('drops ids it cannot watch and keeps the rest', () => {
+      const client = createMockClient()
+      gateway.handleConnection(client, buildRequest())
+
+      gateway.handleWatchMedia(client, {
+        mediaIds: ['video:abc', 'tmdb:1', 'tmdb:x'],
+      })
+
+      expect(gateway.watchedMediaIds()).toEqual(new Set(['tmdb:1']))
+    })
+
+    it('ignores a malformed or oversized message and keeps the old list', () => {
+      const client = createMockClient()
+      gateway.handleConnection(client, buildRequest())
+      gateway.handleWatchMedia(client, { mediaIds: ['tmdb:1'] })
+
+      gateway.handleWatchMedia(client, { mediaIds: 'tmdb:2' })
+      gateway.handleWatchMedia(client, null)
+      gateway.handleWatchMedia(client, {
+        mediaIds: Array.from({ length: 21 }, (_, i) => `tmdb:${i}`),
+      })
+
+      expect(gateway.watchedMediaIds()).toEqual(new Set(['tmdb:1']))
+    })
+
+    it('ignores a message from a client it is not tracking', () => {
+      gateway.handleWatchMedia(createMockClient(), { mediaIds: ['tmdb:1'] })
+
+      expect(gateway.watchedMediaIds().size).toBe(0)
+    })
+  })
 })

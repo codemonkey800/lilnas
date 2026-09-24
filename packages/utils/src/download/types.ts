@@ -334,6 +334,30 @@ export const DOWNLOAD_JOB_EVENT_TYPE = 'download-job'
 export const MEDIA_EVENT_TYPE = 'media'
 
 /**
+ * The `event` of the one message a client sends the gateway, in the
+ * `{ event, data }` shape Nest's `WsAdapter` routes on: the movie/show ids the
+ * tab has a detail page open for, as a {@link WatchMediaMessage}. Each message
+ * replaces the tab's previous set, and an empty list clears it.
+ *
+ * The gateway re-reads those titles' library entries every second, so a file
+ * deleted or added in Radarr's/Sonarr's own UI reaches the open page as a
+ * {@link MediaEvent} without a reload. Titles no page is watching are still
+ * covered, just once a minute.
+ */
+export const WATCH_MEDIA_EVENT = 'watch-media'
+
+/**
+ * The most ids one {@link WatchMediaMessage} may carry. Each costs an
+ * upstream call a second, and a detail page watches one.
+ */
+export const MAX_WATCHED_MEDIA_IDS = 20
+
+export interface WatchMediaMessage {
+  data: { mediaIds: string[] }
+  event: typeof WATCH_MEDIA_EVENT
+}
+
+/**
  * Plan 021. Broadcast over the download WebSocket gateway as the `data` of a
  * `DownloadGatewayMessage` whenever a media's derived state changes. A media
  * snapshot carries no requester, so unlike a job event there is no

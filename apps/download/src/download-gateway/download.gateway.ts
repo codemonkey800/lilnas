@@ -1,21 +1,29 @@
-import type { DownloadGatewayMessage } from '@lilnas/utils/download/types'
+import {
+  type DownloadGatewayMessage,
+  MAX_WATCHED_MEDIA_IDS,
+  WATCH_MEDIA_EVENT,
+} from '@lilnas/utils/download/types'
 import { Logger } from '@nestjs/common'
 import {
+  ConnectedSocket,
+  MessageBody,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  SubscribeMessage,
   WebSocketGateway,
 } from '@nestjs/websockets'
 import type { IncomingMessage } from 'http'
 import { WebSocket } from 'ws'
+import { z } from 'zod'
 
 import { AdminCheckService } from 'src/auth/admin-check.service'
 import { resolveForwardedUser } from 'src/auth/forwarded-user'
 
 /**
  * The WS envelope every gateway frame is wrapped in - `type` discriminates
- * between payload kinds and `data` varies per kind; the one kind sent today
- * is `DOWNLOAD_JOB_EVENT_TYPE` carrying a `DownloadJobEvent` (see
- * `DownloadStateService.broadcastJobEvent`).
+ * between payload kinds and `data` varies per kind: `DOWNLOAD_JOB_EVENT_TYPE`
+ * carries a `DownloadJobEvent` (see `DownloadStateService.broadcastJobEvent`)
+ * and `MEDIA_EVENT_TYPE` a `MediaEvent`.
  *
  * Defined in `@lilnas/utils/download/types` so a frontend subscriber shares
  * it, and re-exported here so every existing import site keeps working.
@@ -29,7 +37,23 @@ interface ClientState {
   // so it shares AdminCheckService's TTL with the REST path instead of
   // drifting from it for the life of the connection.
   email: string | undefined
+  /** The movie/show ids this tab has a detail page open for. */
+  watching: ReadonlySet<string>
 }
+
+/**
+ * A `WATCH_MEDIA_EVENT` payload, capped since each id is an upstream call a
+ * second.
+ */
+const WatchMediaSchema = z.object({
+  mediaIds: z.array(z.string()).max(MAX_WATCHED_MEDIA_IDS),
+})
+
+/**
+ * The ids `LibraryWatchService` can re-read upstream: movies and shows. Any
+ * other id in a watch list is dropped rather than failing the whole list.
+ */
+const WATCHABLE_MEDIA_ID = /^(tmdb|tvdb):\d+$/
 
 @WebSocketGateway({ path: '/ws' })
 export class DownloadGateway
@@ -41,7 +65,10 @@ export class DownloadGateway
   constructor(private readonly adminCheckService: AdminCheckService) {}
 
   handleConnection(client: WebSocket, req: IncomingMessage): void {
-    this.clients.set(client, { email: resolveForwardedUser(req)?.email })
+    this.clients.set(client, {
+      email: resolveForwardedUser(req)?.email,
+      watching: new Set(),
+    })
     this.logger.log(
       { action: 'handleConnection', totalClients: this.clients.size },
       'WebSocket client connected',
@@ -54,6 +81,48 @@ export class DownloadGateway
       { action: 'handleDisconnect', totalClients: this.clients.size },
       'WebSocket client disconnected',
     )
+  }
+
+  /**
+   * Replaces the set of titles `client` has a detail page open for. A
+   * malformed payload is dropped and leaves the previous set alone - the
+   * client re-sends its whole set on every change, so the next good one
+   * corrects it.
+   */
+  @SubscribeMessage(WATCH_MEDIA_EVENT)
+  handleWatchMedia(
+    @ConnectedSocket() client: WebSocket,
+    @MessageBody() data: unknown,
+  ): void {
+    const state = this.clients.get(client)
+    if (!state) return
+
+    const parsed = WatchMediaSchema.safeParse(data)
+    if (!parsed.success) {
+      this.logger.warn(
+        { action: 'handleWatchMedia' },
+        'Malformed watch-media message - ignoring it',
+      )
+      return
+    }
+
+    state.watching = new Set(
+      parsed.data.mediaIds.filter(id => WATCHABLE_MEDIA_ID.test(id)),
+    )
+  }
+
+  /** How many clients are connected. */
+  get clientCount(): number {
+    return this.clients.size
+  }
+
+  /** Every title any connected client has a detail page open for. */
+  watchedMediaIds(): Set<string> {
+    const ids = new Set<string>()
+    for (const { watching } of this.clients.values()) {
+      for (const id of watching) ids.add(id)
+    }
+    return ids
   }
 
   /**

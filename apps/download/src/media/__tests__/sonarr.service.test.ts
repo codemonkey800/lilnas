@@ -249,6 +249,34 @@ describe('SonarrService', () => {
   // Plan 021: the upstream facts state derivation reads. `filePath` is the
   // series folder and is set for every library series, files or not - so
   // "has files" for a show is `episodeFileCount > 0`, never `filePath`.
+  describe('getLibraryShow', () => {
+    it('asks Sonarr for just that tvdbId and maps the entry', async () => {
+      mockGetApiV3Series.mockResolvedValue({
+        data: [
+          {
+            id: 3,
+            monitored: true,
+            statistics: { episodeCount: 45, episodeFileCount: 44 },
+            tvdbId: 74413,
+          },
+        ],
+      })
+
+      const result = await service.getLibraryShow(74413)
+
+      expect(mockGetApiV3Series).toHaveBeenCalledWith(
+        expect.objectContaining({ query: { tvdbId: 74413 } }),
+      )
+      expect(result).toMatchObject({ episodeFileCount: 44, sonarrId: 3 })
+    })
+
+    it('answers undefined when the library does not hold the series', async () => {
+      mockGetApiV3Series.mockResolvedValue({ data: [] })
+
+      await expect(service.getLibraryShow(74413)).resolves.toBeUndefined()
+    })
+  })
+
   describe('getLibrary', () => {
     it('carries monitored, added and the statistics counts for a library series', async () => {
       mockGetApiV3Series.mockResolvedValue({

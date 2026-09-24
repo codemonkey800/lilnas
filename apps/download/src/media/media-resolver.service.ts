@@ -57,6 +57,38 @@ interface LibraryCache<T> {
   current?: LibraryCacheEntry<T>
   /** Bumped by every `invalidate()`; see `readLibrary`. */
   epoch: number
+  /**
+   * Media id -> `libraryFingerprint()` of every title the last good read
+   * held, patched by `refreshTitles()`. What a new read is diffed against to
+   * tell which titles changed upstream (see `onLibraryChange`). Unset until
+   * the first good read, which has nothing to diff against.
+   */
+  known?: Map<string, string>
+}
+
+/** Called with the media ids whose library entry changed upstream. */
+export type LibraryChangeListener = (mediaIds: readonly string[]) => void
+
+/**
+ * The library fields a page's state is derived from - whether the title is
+ * in the library at all, its monitoring, and its file(s). A change in any of
+ * them is what `onLibraryChange` reports; metadata (title, poster, ratings)
+ * moving is not.
+ */
+function libraryFingerprint(media: Movie | Show): string {
+  return media.type === DownloadType.Movie
+    ? JSON.stringify([
+        media.radarrId,
+        media.monitored,
+        media.filePath,
+        media.addedAt,
+      ])
+    : JSON.stringify([
+        media.sonarrId,
+        media.monitored,
+        media.episodeCount,
+        media.episodeFileCount,
+      ])
 }
 
 function hydrateVideo(row: VideoRow): Video {
@@ -99,6 +131,10 @@ function hydrateVideo(row: VideoRow): Video {
  * media, placeholders included, is annotated with its live state
  * (`MediaStateService.annotate()`, plan 021), so nothing the API serves is
  * missing one.
+ *
+ * Every library read is also diffed against the last one, and the titles
+ * whose library state moved are reported to `onLibraryChange` - how a change
+ * made in Radarr's/Sonarr's own UI reaches open pages (`LibraryWatchService`).
  */
 @Injectable()
 export class MediaResolverService {
@@ -108,6 +144,7 @@ export class MediaResolverService {
   private readonly logger = new Logger(MediaResolverService.name)
   private readonly movieLibrary: LibraryCache<Movie> = { epoch: 0 }
   private readonly showLibrary: LibraryCache<Show> = { epoch: 0 }
+  private readonly changeListeners = new Set<LibraryChangeListener>()
 
   constructor(
     private readonly dbService: DbService,
@@ -379,18 +416,88 @@ export class MediaResolverService {
    * fails, and returns an empty map for `FAILURE_TTL_MS` after that.
    */
   async getMovieLibrary(): Promise<Map<number, Movie>> {
-    return this.readLibrary(this.movieLibrary, async () => {
-      const movies = await this.radarrService.getLibrary()
-      return new Map(movies.map(movie => [movie.tmdbId, movie]))
-    })
+    return this.readLibrary(this.movieLibrary, () => this.fetchMovieLibrary())
   }
 
   /** `getMovieLibrary()`'s Sonarr twin, keyed by `tvdbId`. */
   async getShowLibrary(): Promise<Map<number, Show>> {
-    return this.readLibrary(this.showLibrary, async () => {
-      const series = await this.sonarrService.getLibrary()
-      return new Map(series.map(show => [show.tvdbId, show]))
-    })
+    return this.readLibrary(this.showLibrary, () => this.fetchShowLibrary())
+  }
+
+  /**
+   * Re-reads one whole library from upstream whatever the cache's age, for
+   * `LibraryWatchService`'s background lane. Unlike `invalidateLibrary()`
+   * the current copy keeps serving while the read is in flight, so a page
+   * load never waits on it. Throws when the read fails.
+   */
+  async refreshLibrary(
+    type: DownloadType.Movie | DownloadType.Show,
+  ): Promise<void> {
+    if (type === DownloadType.Movie) {
+      await this.readLibrary(
+        this.movieLibrary,
+        () => this.fetchMovieLibrary(),
+        { force: true },
+      )
+    } else {
+      await this.readLibrary(this.showLibrary, () => this.fetchShowLibrary(), {
+        force: true,
+      })
+    }
+  }
+
+  /**
+   * Re-reads just these titles' library entries from upstream - one small
+   * call each, rather than the whole library - and patches any that changed
+   * into the cache, reporting them to `onLibraryChange`. For
+   * `LibraryWatchService`'s fast lane, which runs this every second for the
+   * titles open on a detail page.
+   *
+   * A title Radarr/Sonarr no longer holds is dropped from the cache, so it
+   * resolves through the discover lookup as `absent` - exactly what a full
+   * read would have made of it.
+   *
+   * Does nothing for a library with no good read yet (nothing to compare
+   * against; the first read sets that), and drops a batch that a full read
+   * or an `invalidate()` overtook while it was in flight - the newer read
+   * already carries anything this one would have found. A title whose read
+   * fails is left alone until the next call. Never throws.
+   */
+  async refreshTitles(mediaIds: readonly string[]): Promise<void> {
+    const movieIds = mediaIds.filter(
+      id => mediaTypeFromKey(id) === DownloadType.Movie,
+    )
+    const showIds = mediaIds.filter(
+      id => mediaTypeFromKey(id) === DownloadType.Show,
+    )
+
+    await Promise.all([
+      movieIds.length > 0
+        ? this.refreshEntries(this.movieLibrary, movieIds, tmdbId =>
+            this.radarrService.getLibraryMovie(tmdbId),
+          )
+        : undefined,
+      showIds.length > 0
+        ? this.refreshEntries(this.showLibrary, showIds, tvdbId =>
+            this.sonarrService.getLibraryShow(tvdbId),
+          )
+        : undefined,
+    ])
+  }
+
+  /**
+   * Registers `listener` for every title whose library entry changed
+   * upstream, as seen by any read: the per-TTL read-through, a re-read after
+   * `invalidate()`, `refreshLibrary()` or `refreshTitles()`. Each change is
+   * reported by the read that first saw it, so a page load's read-through
+   * can't swallow one before `LibraryWatchService` looks. Returns the
+   * unsubscribe.
+   */
+  onLibraryChange(listener: LibraryChangeListener): () => void {
+    this.changeListeners.add(listener)
+    return () => {
+      this.changeListeners.delete(listener)
+    }
   }
 
   /**
@@ -479,18 +586,30 @@ export class MediaResolverService {
     }
   }
 
+  private async fetchMovieLibrary(): Promise<Map<number, Movie>> {
+    const movies = await this.radarrService.getLibrary()
+    return new Map(movies.map(movie => [movie.tmdbId, movie]))
+  }
+
+  private async fetchShowLibrary(): Promise<Map<number, Show>> {
+    const series = await this.sonarrService.getLibrary()
+    return new Map(series.map(show => [show.tvdbId, show]))
+  }
+
   /**
    * One library cache's read-through. A fetch stores its result only if no
    * `invalidate()` landed while it was in flight - otherwise a read that
    * started before the change would re-cache the copy the invalidation was
-   * there to drop, for a whole TTL.
+   * there to drop, for a whole TTL. `force` skips the cache hit, for
+   * `refreshLibrary()`.
    */
-  private async readLibrary<T>(
+  private async readLibrary<T extends Movie | Show>(
     cache: LibraryCache<T>,
     fetch: () => Promise<Map<number, T>>,
+    { force = false }: { force?: boolean } = {},
   ): Promise<Map<number, T>> {
     const now = Date.now()
-    if (cache.current && cache.current.expiresAtMs > now) {
+    if (!force && cache.current && cache.current.expiresAtMs > now) {
       return cache.current.entries
     }
 
@@ -503,6 +622,7 @@ export class MediaResolverService {
           expiresAtMs: now + MediaResolverService.TTL_MS,
           failed: false,
         }
+        this.recordLibrary(cache, entries)
       }
       return entries
     } catch (err) {
@@ -514,6 +634,108 @@ export class MediaResolverService {
         }
       }
       throw err
+    }
+  }
+
+  /**
+   * Diffs a good read against the previous one (`known`) and reports every
+   * title that was added, removed or changed. The first read only sets the
+   * baseline - on a fresh boot every title would otherwise read as added.
+   */
+  private recordLibrary<T extends Movie | Show>(
+    cache: LibraryCache<T>,
+    entries: ReadonlyMap<number, T>,
+  ): void {
+    const next = new Map<string, string>()
+    for (const media of entries.values()) {
+      next.set(media.id, libraryFingerprint(media))
+    }
+
+    const previous = cache.known
+    cache.known = next
+    if (!previous) return
+
+    const changed: string[] = []
+    for (const [id, fingerprint] of next) {
+      if (previous.get(id) !== fingerprint) changed.push(id)
+    }
+    for (const id of previous.keys()) {
+      if (!next.has(id)) changed.push(id)
+    }
+    this.emitLibraryChange(changed)
+  }
+
+  /**
+   * `refreshTitles()` for one library. The patch is copy-on-write - a caller
+   * may be iterating the map `getMovieLibrary()` handed it - and bumps the
+   * epoch, so a whole-library read already in flight (started before these
+   * changes) can't cache the older copy over them.
+   */
+  private async refreshEntries<T extends Movie | Show>(
+    cache: LibraryCache<T>,
+    mediaIds: readonly string[],
+    fetch: (upstreamKey: number) => Promise<T | undefined>,
+  ): Promise<void> {
+    const known = cache.known
+    if (!known) return
+    const epoch = cache.epoch
+
+    const results = await Promise.all(
+      mediaIds.map(async mediaId => {
+        const upstreamKey = Number(mediaIdSuffix(mediaId))
+        try {
+          return { entry: await fetch(upstreamKey), mediaId, upstreamKey }
+        } catch (err) {
+          this.logger.warn(
+            { action: 'refreshTitles', error: getErrorMessage(err), mediaId },
+            'Library title read failed - retrying on the next refresh',
+          )
+          return undefined
+        }
+      }),
+    )
+
+    if (cache.epoch !== epoch || cache.known !== known) return
+
+    const changed = results.filter(
+      (result): result is NonNullable<typeof result> =>
+        result !== undefined &&
+        (result.entry ? libraryFingerprint(result.entry) : undefined) !==
+          known.get(result.mediaId),
+    )
+    if (changed.length === 0) return
+
+    const nextKnown = new Map(known)
+    const current = cache.current?.failed ? undefined : cache.current
+    const entries = current ? new Map(current.entries) : undefined
+    for (const { entry, mediaId, upstreamKey } of changed) {
+      if (entry) {
+        nextKnown.set(mediaId, libraryFingerprint(entry))
+        entries?.set(upstreamKey, entry)
+      } else {
+        nextKnown.delete(mediaId)
+        entries?.delete(upstreamKey)
+      }
+    }
+
+    cache.known = nextKnown
+    if (current && entries) cache.current = { ...current, entries }
+    cache.epoch += 1
+    this.emitLibraryChange(changed.map(({ mediaId }) => mediaId))
+  }
+
+  private emitLibraryChange(mediaIds: readonly string[]): void {
+    if (mediaIds.length === 0) return
+
+    for (const listener of this.changeListeners) {
+      try {
+        listener(mediaIds)
+      } catch (err) {
+        this.logger.warn(
+          { action: 'emitLibraryChange', error: getErrorMessage(err) },
+          'Library change listener threw',
+        )
+      }
     }
   }
 }

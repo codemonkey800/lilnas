@@ -380,6 +380,20 @@ export class SonarrService {
   }
 
   /**
+   * `RadarrService.getLibraryMovie()`'s Sonarr twin: one series' library
+   * entry by `tvdbId`, or `undefined` when Sonarr's library doesn't hold it.
+   */
+  async getLibraryShow(tvdbId: number): Promise<Show | undefined> {
+    const series = unwrapSdkResult(
+      await getApiV3Series({ client: this.client, query: { tvdbId } }),
+      'getSeries',
+    )
+
+    const show = series.find(entry => entry.tvdbId === tvdbId)
+    return show ? toShow(show) : undefined
+  }
+
+  /**
    * Per-id fallback for `MediaResolverService` when a tvdbId isn't in the
    * library cache - metadata-only, no `sonarrId`/`filePath` (this is the
    * *discover* lookup, not a library query, so a title requested but since

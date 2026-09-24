@@ -314,6 +314,39 @@ describe('RadarrService', () => {
 
   // Plan 021: the upstream facts state derivation reads - `monitored` tells
   // `wanted` from `absent`, and `addedAt` is when the *file* landed.
+  describe('getLibraryMovie', () => {
+    it('asks Radarr for just that tmdbId and maps the entry', async () => {
+      mockGetApiV3Movie.mockResolvedValue({
+        data: [
+          {
+            hasFile: true,
+            id: 3,
+            monitored: true,
+            movieFile: {
+              dateAdded: '2024-03-13T06:08:15Z',
+              id: 1,
+              path: '/m.mkv',
+            },
+            tmdbId: 50546,
+          },
+        ],
+      })
+
+      const result = await service.getLibraryMovie(50546)
+
+      expect(mockGetApiV3Movie).toHaveBeenCalledWith(
+        expect.objectContaining({ query: { tmdbId: 50546 } }),
+      )
+      expect(result).toMatchObject({ filePath: '/m.mkv', radarrId: 3 })
+    })
+
+    it('answers undefined when the library does not hold the title', async () => {
+      mockGetApiV3Movie.mockResolvedValue({ data: [] })
+
+      await expect(service.getLibraryMovie(50546)).resolves.toBeUndefined()
+    })
+  })
+
   describe('getLibrary', () => {
     it('carries monitored and the file dateAdded for a library movie with a file', async () => {
       mockGetApiV3Movie.mockResolvedValue({

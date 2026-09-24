@@ -7,6 +7,7 @@ import { EmbyModule } from 'src/emby/emby.module'
 import { radarrClientProvider, sonarrClientProvider } from './clients'
 import { CurrentReleaseService } from './current-release.service'
 import { DiscoveryService } from './discovery.service'
+import { LibraryWatchService } from './library-watch.service'
 import { ManualImportService } from './manual-import.service'
 import { MediaDownloadService } from './media-download.service'
 import { MediaFileService } from './media-file.service'
@@ -32,8 +33,9 @@ import { SonarrService } from './sonarr.service'
 // forwardRef() would only hide that fact from the next reader.
 //
 // DownloadGatewayModule is plain for the same reason: it imports only
-// AuthModule, so MediaPollerService can inject DownloadGateway to broadcast
-// media state changes without adding a second cycle.
+// AuthModule, so MediaPollerService and LibraryWatchService can inject
+// DownloadGateway to broadcast media state changes without adding a second
+// cycle.
 @Module({
   imports: [
     forwardRef(() => DownloadModule),
@@ -45,6 +47,7 @@ import { SonarrService } from './sonarr.service'
     sonarrClientProvider,
     CurrentReleaseService,
     DiscoveryService,
+    LibraryWatchService,
     RadarrService,
     SonarrService,
     ManualImportService,

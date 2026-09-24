@@ -262,6 +262,23 @@ export class RadarrService {
   }
 
   /**
+   * One title's library entry, or `undefined` when Radarr's library doesn't
+   * hold it. The same `getApiV3Movie` call as `getLibrary()`, filtered
+   * upstream by `tmdbId` - a few KB against the whole library's megabytes, so
+   * `MediaResolverService.refreshTitle()` can re-read an open page's title
+   * every second.
+   */
+  async getLibraryMovie(tmdbId: number): Promise<Movie | undefined> {
+    const movies = unwrapSdkResult(
+      await getApiV3Movie({ client: this.client, query: { tmdbId } }),
+      'getMovie',
+    )
+
+    const movie = movies.find(entry => entry.tmdbId === tmdbId)
+    return movie ? toMovie(movie) : undefined
+  }
+
+  /**
    * Per-id fallback for `MediaResolverService` when a tmdbId isn't in the
    * library cache - metadata-only, no `radarrId`/`filePath` (this is the
    * *discover* lookup, not a library query, so a title requested but since

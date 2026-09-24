@@ -70,10 +70,12 @@ describe('MediaResolverService', () => {
     dbService = createTestDbService()
     const mockRadarrService = {
       getLibrary: jest.fn(),
+      getLibraryMovie: jest.fn(),
       lookupByTmdbId: jest.fn(),
     }
     const mockSonarrService = {
       getLibrary: jest.fn(),
+      getLibraryShow: jest.fn(),
       lookupByTvdbId: jest.fn(),
     }
     const { annotate, calls } = captureAnnotateArgs()
@@ -890,6 +892,213 @@ describe('MediaResolverService', () => {
       ])
 
       expect(media.get('tmdb:1')?.state).toBe('wanted')
+    })
+  })
+
+  describe('library changes', () => {
+    const WITH_FILE = { filePath: '/movies/1.mkv', radarrId: 11 }
+
+    function listen(): string[][] {
+      const changes: string[][] = []
+      service.onLibraryChange(ids => changes.push([...ids]))
+      return changes
+    }
+
+    it('takes the first read as the baseline and reports nothing', async () => {
+      const changes = listen()
+      radarrService.getLibrary.mockResolvedValue([buildMovie(1, WITH_FILE)])
+
+      await service.getMovieLibrary()
+
+      expect(changes).toEqual([])
+    })
+
+    it('reports titles removed, added and changed between reads', async () => {
+      const changes = listen()
+      radarrService.getLibrary.mockResolvedValueOnce([
+        buildMovie(1, WITH_FILE),
+        buildMovie(2, { radarrId: 12 }),
+        buildMovie(3, { radarrId: 13 }),
+      ])
+      await service.getMovieLibrary()
+
+      radarrService.getLibrary.mockResolvedValueOnce([
+        // 1: file deleted; 2: gone from Radarr; 3: untouched; 4: added.
+        buildMovie(1, { radarrId: 11 }),
+        buildMovie(3, { radarrId: 13 }),
+        buildMovie(4, { radarrId: 14 }),
+      ])
+      await service.refreshLibrary(DownloadType.Movie)
+
+      expect(changes).toHaveLength(1)
+      expect([...(changes[0] ?? [])].sort()).toEqual([
+        'tmdb:1',
+        'tmdb:2',
+        'tmdb:4',
+      ])
+    })
+
+    it('ignores metadata that moved without the library state', async () => {
+      const changes = listen()
+      radarrService.getLibrary.mockResolvedValueOnce([buildMovie(1, WITH_FILE)])
+      await service.getMovieLibrary()
+
+      radarrService.getLibrary.mockResolvedValueOnce([
+        buildMovie(1, { ...WITH_FILE, title: 'Renamed' }),
+      ])
+      await service.refreshLibrary(DownloadType.Movie)
+
+      expect(changes).toEqual([])
+    })
+
+    it('reports a show whose episode files changed', async () => {
+      const changes = listen()
+      sonarrService.getLibrary.mockResolvedValueOnce([
+        buildShow(7, { episodeFileCount: 3, sonarrId: 70 }),
+      ])
+      await service.getShowLibrary()
+
+      sonarrService.getLibrary.mockResolvedValueOnce([
+        buildShow(7, { episodeFileCount: 2, sonarrId: 70 }),
+      ])
+      await service.refreshLibrary(DownloadType.Show)
+
+      expect(changes).toEqual([['tvdb:7']])
+    })
+
+    it('refreshLibrary re-reads upstream inside the TTL', async () => {
+      radarrService.getLibrary.mockResolvedValue([])
+
+      await service.getMovieLibrary()
+      await service.getMovieLibrary()
+      await service.refreshLibrary(DownloadType.Movie)
+
+      expect(radarrService.getLibrary).toHaveBeenCalledTimes(2)
+    })
+
+    it('keeps the last good baseline across a failed read', async () => {
+      const changes = listen()
+      radarrService.getLibrary.mockResolvedValueOnce([buildMovie(1, WITH_FILE)])
+      await service.getMovieLibrary()
+
+      radarrService.getLibrary.mockRejectedValueOnce(new Error('down'))
+      await expect(service.refreshLibrary(DownloadType.Movie)).rejects.toThrow()
+
+      radarrService.getLibrary.mockResolvedValueOnce([buildMovie(1, WITH_FILE)])
+      await service.refreshLibrary(DownloadType.Movie)
+
+      expect(changes).toEqual([])
+    })
+
+    describe('refreshTitles', () => {
+      it('does nothing before the library has been read once', async () => {
+        await service.refreshTitles(['tmdb:1'])
+
+        expect(radarrService.getLibraryMovie).not.toHaveBeenCalled()
+      })
+
+      it('patches a removed title out, so it resolves as not in the library', async () => {
+        const changes = listen()
+        radarrService.getLibrary.mockResolvedValue([buildMovie(1, WITH_FILE)])
+        await service.getMovieLibrary()
+        radarrService.getLibraryMovie.mockResolvedValue(undefined)
+        radarrService.lookupByTmdbId.mockResolvedValue(buildMovie(1))
+
+        await service.refreshTitles(['tmdb:1'])
+
+        expect(radarrService.getLibraryMovie).toHaveBeenCalledWith(1)
+        expect(changes).toEqual([['tmdb:1']])
+        const { media } = await service.resolve([
+          { mediaId: 'tmdb:1', type: DownloadType.Movie },
+        ])
+        expect(media.get('tmdb:1')).toMatchObject({ state: 'absent' })
+        // Served from the patched cache, not a fresh whole-library read.
+        expect(radarrService.getLibrary).toHaveBeenCalledTimes(1)
+      })
+
+      it('patches a changed title in', async () => {
+        const changes = listen()
+        radarrService.getLibrary.mockResolvedValue([buildMovie(1, WITH_FILE)])
+        await service.getMovieLibrary()
+        radarrService.getLibraryMovie.mockResolvedValue(
+          buildMovie(1, { radarrId: 11 }),
+        )
+
+        await service.refreshTitles(['tmdb:1'])
+
+        expect(changes).toEqual([['tmdb:1']])
+        const library = await service.getMovieLibrary()
+        expect(library.get(1)?.filePath).toBeUndefined()
+      })
+
+      it('reports nothing when the title is unchanged', async () => {
+        const changes = listen()
+        radarrService.getLibrary.mockResolvedValue([buildMovie(1, WITH_FILE)])
+        await service.getMovieLibrary()
+        radarrService.getLibraryMovie.mockResolvedValue(
+          buildMovie(1, WITH_FILE),
+        )
+
+        await service.refreshTitles(['tmdb:1'])
+
+        expect(changes).toEqual([])
+      })
+
+      it('does not report the same change again on the next full read', async () => {
+        const changes = listen()
+        radarrService.getLibrary.mockResolvedValueOnce([
+          buildMovie(1, WITH_FILE),
+        ])
+        await service.getMovieLibrary()
+        radarrService.getLibraryMovie.mockResolvedValue(undefined)
+        await service.refreshTitles(['tmdb:1'])
+
+        radarrService.getLibrary.mockResolvedValueOnce([])
+        await service.refreshLibrary(DownloadType.Movie)
+
+        expect(changes).toEqual([['tmdb:1']])
+      })
+
+      it('leaves a title whose read failed alone', async () => {
+        const changes = listen()
+        radarrService.getLibrary.mockResolvedValue([buildMovie(1, WITH_FILE)])
+        await service.getMovieLibrary()
+        radarrService.getLibraryMovie.mockRejectedValue(new Error('down'))
+
+        await expect(service.refreshTitles(['tmdb:1'])).resolves.toBeUndefined()
+
+        expect(changes).toEqual([])
+      })
+
+      it('drops a batch that an invalidate overtook', async () => {
+        const changes = listen()
+        radarrService.getLibrary.mockResolvedValue([buildMovie(1, WITH_FILE)])
+        await service.getMovieLibrary()
+        radarrService.getLibraryMovie.mockImplementation(async () => {
+          service.invalidateLibrary(DownloadType.Movie)
+          return undefined
+        })
+
+        await service.refreshTitles(['tmdb:1'])
+
+        expect(changes).toEqual([])
+      })
+
+      it('reads shows through Sonarr', async () => {
+        const changes = listen()
+        sonarrService.getLibrary.mockResolvedValue([
+          buildShow(7, { episodeFileCount: 1, sonarrId: 70 }),
+        ])
+        await service.getShowLibrary()
+        sonarrService.getLibraryShow.mockResolvedValue(
+          buildShow(7, { episodeFileCount: 0, sonarrId: 70 }),
+        )
+
+        await service.refreshTitles(['tvdb:7', 'video:abc'])
+
+        expect(sonarrService.getLibraryShow).toHaveBeenCalledWith(7)
+        expect(changes).toEqual([['tvdb:7']])
+      })
     })
   })
 })
