@@ -83,7 +83,9 @@ describe('MediaDownloadService - a first request for a title not yet in the libr
     getQueue: jest.Mock
     lookupByTmdbId: jest.Mock
     refreshMonitoredDownloads: jest.Mock
+    removeQueueItem: jest.Mock
     triggerSearch: jest.Mock
+    unmonitorIfMissing: jest.Mock
   }
   let dbService: DbService
 
@@ -105,7 +107,9 @@ describe('MediaDownloadService - a first request for a title not yet in the libr
       getQueue: jest.fn().mockResolvedValue([]),
       lookupByTmdbId: jest.fn().mockResolvedValue(discoverLookupMovie()),
       refreshMonitoredDownloads: jest.fn().mockResolvedValue(undefined),
+      removeQueueItem: jest.fn().mockResolvedValue(undefined),
       triggerSearch: jest.fn().mockResolvedValue(undefined),
+      unmonitorIfMissing: jest.fn().mockResolvedValue(true),
     }
 
     const module: TestingModule = await Test.createTestingModule({
@@ -176,5 +180,68 @@ describe('MediaDownloadService - a first request for a title not yet in the libr
     expect(downloadStateService.jobs.get(job.id)?.status).toBe(
       DownloadJobStatus.Downloading,
     )
+  })
+
+  // Cancel pressed while `ensureMovie` is still out: the title has no
+  // radarrId yet, so the press can only move the job - `request()` has to
+  // finish the cancel once `submit()` has put the title in the library.
+  describe('a cancel that lands while the request is out upstream', () => {
+    let finishEnsure: () => void
+
+    beforeEach(() => {
+      const ensure = radarrService.ensureMovie.getMockImplementation()
+      radarrService.ensureMovie.mockImplementation(
+        () =>
+          new Promise(resolve => {
+            finishEnsure = () => resolve(ensure?.())
+          }),
+      )
+    })
+
+    it('stays cancelling, and cleans up the search it dispatched', async () => {
+      const updateJob = jest.spyOn(downloadStateService, 'updateJob')
+      const requested = downloadService.requestMovie(77016)
+      await flushAsync()
+
+      const cancelled = await downloadService.cancelMovieJob('mock-id')
+      expect(cancelled.status).toBe(DownloadJobStatus.Cancelling)
+      expect(radarrService.getQueue).not.toHaveBeenCalled()
+
+      // The search `submit()` fires has already grabbed by the time the
+      // cleanup reads the queue.
+      radarrService.getQueue.mockResolvedValue([{ ...QUEUE_ITEM, id: 55 }])
+      finishEnsure()
+      const job = await requested
+
+      expect(radarrService.triggerSearch).toHaveBeenCalledWith(RADARR_ID)
+      expect(job.status).toBe(DownloadJobStatus.Cancelling)
+      expect(job.media).toMatchObject({ radarrId: RADARR_ID })
+      expect(radarrService.getQueue).toHaveBeenCalledWith([RADARR_ID])
+      expect(radarrService.removeQueueItem).toHaveBeenCalledWith(55)
+      expect(radarrService.unmonitorIfMissing).toHaveBeenCalledWith(RADARR_ID)
+      expect(updateJob).not.toHaveBeenCalledWith(
+        'mock-id',
+        expect.objectContaining({ status: DownloadJobStatus.Searching }),
+      )
+      expect(downloadStateService.jobs.get('mock-id')?.status).toBe(
+        DownloadJobStatus.Cancelling,
+      )
+    })
+
+    it('does not write failed when the request then fails upstream', async () => {
+      radarrService.triggerSearch.mockRejectedValue(new Error('Radarr is down'))
+      const requested = downloadService.requestMovie(77016)
+      await flushAsync()
+
+      await downloadService.cancelMovieJob('mock-id')
+      finishEnsure()
+      const job = await requested
+
+      expect(job.status).toBe(DownloadJobStatus.Cancelling)
+      expect(job.error).toBeUndefined()
+      expect(downloadStateService.jobs.get('mock-id')?.status).toBe(
+        DownloadJobStatus.Cancelling,
+      )
+    })
   })
 })

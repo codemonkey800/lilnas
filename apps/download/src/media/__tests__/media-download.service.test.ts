@@ -61,6 +61,17 @@ function buildRecord(
   }
 }
 
+/** A promise the test settles by hand, to hold `submit()` mid-flight. */
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, reject, resolve }
+}
+
 describe('MediaDownloadService', () => {
   let service: MediaDownloadService
   let downloadStateService: DownloadStateService
@@ -78,15 +89,18 @@ describe('MediaDownloadService', () => {
       getQueue: jest.fn(),
       getReleases: jest.fn(),
       grabRelease: jest.fn(),
+      removeQueueItem: jest.fn(),
       search: jest.fn(),
       triggerSearch: jest.fn(),
       unmonitorAndDelete: jest.fn(),
+      unmonitorIfMissing: jest.fn(),
     }
     const mockSonarrService = {
       ensureSeries: jest.fn().mockResolvedValue({ series: {}, sonarrId: 9 }),
       getQueue: jest.fn(),
       getReleases: jest.fn(),
       grabRelease: jest.fn(),
+      removeQueueItem: jest.fn(),
       // The real one is a no-op for a season-only/empty scope and fills in
       // the display fields for an episode scope - mirrored here so a test
       // that passes an episode id gets a realistically resolved scope back.
@@ -101,6 +115,7 @@ describe('MediaDownloadService', () => {
       triggerSeasonSearch: jest.fn(),
       triggerSearch: jest.fn(),
       unmonitorAndDelete: jest.fn(),
+      unmonitorScope: jest.fn(),
     }
     const mockDownloadGateway = {
       broadcast: jest.fn(),
@@ -840,6 +855,290 @@ describe('MediaDownloadService', () => {
     })
   })
 
+  describe('cancelMovieJob', () => {
+    function inLibrary(): void {
+      mediaResolver.fixtures.set('tmdb:1', {
+        id: 'tmdb:1',
+        radarrId: 42,
+        title: 'A Movie',
+        tmdbId: 1,
+        type: DownloadType.Movie,
+      })
+    }
+
+    function seedJob(overrides: Partial<DownloadJobRecord> = {}) {
+      const movieJob = buildRecord(DownloadType.Movie, 'tmdb:1', {
+        id: 'movie-1',
+        status: DownloadJobStatus.Downloading,
+        ...overrides,
+      })
+      downloadStateService.jobs.set(movieJob.id, movieJob)
+      return movieJob
+    }
+
+    beforeEach(() => {
+      radarrService.getQueue.mockResolvedValue([])
+      radarrService.removeQueueItem.mockResolvedValue(undefined)
+      radarrService.unmonitorIfMissing.mockResolvedValue(true)
+    })
+
+    it("removes the movie's queue items and moves the job to cancelling", async () => {
+      inLibrary()
+      seedJob()
+      radarrService.getQueue.mockResolvedValue([
+        { id: 101, movieId: 42 },
+        { id: 102, movieId: 42 },
+        // Another movie's row, which a filtered read shouldn't return but
+        // must never be touched if it does.
+        { id: 103, movieId: 7 },
+      ])
+
+      const result = await service.cancelMovieJob('movie-1')
+
+      expect(radarrService.getQueue).toHaveBeenCalledWith([42])
+      expect(radarrService.removeQueueItem).toHaveBeenCalledTimes(2)
+      expect(radarrService.removeQueueItem).toHaveBeenCalledWith(101)
+      expect(radarrService.removeQueueItem).toHaveBeenCalledWith(102)
+      expect(result.status).toBe(DownloadJobStatus.Cancelling)
+      expect(downloadStateService.jobs.get('movie-1')?.status).toBe(
+        DownloadJobStatus.Cancelling,
+      )
+    })
+
+    // Radarr decides what "has no file" means - a cancelled replacement
+    // keeps the copy on disk monitored.
+    it('delegates the unmonitor to unmonitorIfMissing, and never deletes a file', async () => {
+      inLibrary()
+      seedJob()
+      radarrService.getQueue.mockResolvedValue([{ id: 101, movieId: 42 }])
+      const deleteMovieFile = jest.fn()
+      Object.assign(radarrService, { deleteMovieFile })
+
+      await service.cancelMovieJob('movie-1')
+
+      expect(radarrService.unmonitorIfMissing).toHaveBeenCalledWith(42)
+      expect(radarrService.unmonitorAndDelete).not.toHaveBeenCalled()
+      expect(deleteMovieFile).not.toHaveBeenCalled()
+    })
+
+    it('clears the error a needs_attention job carried', async () => {
+      inLibrary()
+      seedJob({
+        error: 'Not an upgrade for existing movie file',
+        status: DownloadJobStatus.NeedsAttention,
+      })
+      const updateJob = jest.spyOn(downloadStateService, 'updateJob')
+
+      const result = await service.cancelMovieJob('movie-1')
+
+      expect(updateJob).toHaveBeenCalledWith('movie-1', {
+        error: undefined,
+        status: DownloadJobStatus.Cancelling,
+      })
+      expect(result.error).toBeUndefined()
+      // Persisted too, not just the in-memory copy.
+      expect(getJobById(dbService.db, 'movie-1')?.error).toBeNull()
+    })
+
+    it('cancels a paused job the same way', async () => {
+      inLibrary()
+      seedJob({ status: DownloadJobStatus.Paused })
+      radarrService.getQueue.mockResolvedValue([{ id: 101, movieId: 42 }])
+
+      const result = await service.cancelMovieJob('movie-1')
+
+      expect(radarrService.removeQueueItem).toHaveBeenCalledWith(101)
+      expect(result.status).toBe(DownloadJobStatus.Cancelling)
+    })
+
+    // The next read must see the post-cancel `monitored` flag.
+    it('invalidates the resolver before the status write', async () => {
+      inLibrary()
+      seedJob()
+      const updateJob = jest.spyOn(downloadStateService, 'updateJob')
+
+      await service.cancelMovieJob('movie-1')
+
+      expect(mediaResolver.invalidate).toHaveBeenCalledWith('tmdb:1')
+      expect(mediaResolver.invalidate.mock.invocationCallOrder[0]).toBeLessThan(
+        updateJob.mock.invocationCallOrder[0] as number,
+      )
+    })
+
+    it('returns a cancelling job as is, with no upstream call', async () => {
+      inLibrary()
+      seedJob({ status: DownloadJobStatus.Cancelling })
+      const updateJob = jest.spyOn(downloadStateService, 'updateJob')
+
+      const result = await service.cancelMovieJob('movie-1')
+
+      expect(result.status).toBe(DownloadJobStatus.Cancelling)
+      expect(radarrService.getQueue).not.toHaveBeenCalled()
+      expect(radarrService.unmonitorIfMissing).not.toHaveBeenCalled()
+      expect(updateJob).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      DownloadJobStatus.Completed,
+      DownloadJobStatus.Cancelled,
+      DownloadJobStatus.Failed,
+    ])('throws for a %s job, touching nothing', async status => {
+      inLibrary()
+      seedJob({ status })
+      const updateJob = jest.spyOn(downloadStateService, 'updateJob')
+
+      await expect(service.cancelMovieJob('movie-1')).rejects.toThrow(
+        "Job with ID 'movie-1'",
+      )
+      expect(radarrService.getQueue).not.toHaveBeenCalled()
+      expect(updateJob).not.toHaveBeenCalled()
+    })
+
+    it('throws for a show job', async () => {
+      downloadStateService.jobs.set(
+        'show-1',
+        buildRecord(DownloadType.Show, 'tvdb:1', {
+          id: 'show-1',
+          status: DownloadJobStatus.Downloading,
+        }),
+      )
+
+      await expect(service.cancelMovieJob('show-1')).rejects.toThrow(
+        "Expected a movie job but got a 'show' job",
+      )
+    })
+
+    // A first request whose `ensureMovie` hasn't returned yet: nothing is
+    // upstream to undo, and `request()` finishes the cancel once it is.
+    it('only moves a requested job with no radarrId to cancelling', async () => {
+      seedJob({ status: DownloadJobStatus.Requested })
+
+      const result = await service.cancelMovieJob('movie-1')
+
+      expect(radarrService.getQueue).not.toHaveBeenCalled()
+      expect(radarrService.removeQueueItem).not.toHaveBeenCalled()
+      expect(radarrService.unmonitorIfMissing).not.toHaveBeenCalled()
+      expect(result.status).toBe(DownloadJobStatus.Cancelling)
+    })
+
+    it('propagates a getQueue failure and leaves the job as it was', async () => {
+      inLibrary()
+      const movieJob = seedJob()
+      radarrService.getQueue.mockRejectedValue(new Error('Radarr is down'))
+
+      await expect(service.cancelMovieJob('movie-1')).rejects.toThrow(
+        'Radarr is down',
+      )
+      expect(downloadStateService.jobs.get('movie-1')).toEqual(movieJob)
+      expect(radarrService.unmonitorIfMissing).not.toHaveBeenCalled()
+    })
+
+    it('propagates an unmonitor failure and leaves the job as it was', async () => {
+      inLibrary()
+      const movieJob = seedJob()
+      radarrService.unmonitorIfMissing.mockRejectedValue(
+        new Error('Radarr is down'),
+      )
+
+      await expect(service.cancelMovieJob('movie-1')).rejects.toThrow(
+        'Radarr is down',
+      )
+      expect(downloadStateService.jobs.get('movie-1')).toEqual(movieJob)
+    })
+
+    // The poller retries whatever is left of a cancelling job's queue.
+    it('still cancels when one of two removals fails, and warns', async () => {
+      inLibrary()
+      seedJob()
+      radarrService.getQueue.mockResolvedValue([
+        { id: 101, movieId: 42 },
+        { id: 102, movieId: 42 },
+      ])
+      radarrService.removeQueueItem.mockImplementation(async queueId => {
+        if (queueId === 101) throw new Error('Client unreachable')
+      })
+
+      const result = await service.cancelMovieJob('movie-1')
+
+      expect(radarrService.removeQueueItem).toHaveBeenCalledWith(102)
+      expect(radarrService.unmonitorIfMissing).toHaveBeenCalledWith(42)
+      expect(result.status).toBe(DownloadJobStatus.Cancelling)
+      expect(Logger.prototype.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ error: 'Client unreachable', queueId: 101 }),
+        expect.any(String),
+      )
+    })
+
+    it('skips a queue item with no id', async () => {
+      inLibrary()
+      seedJob()
+      radarrService.getQueue.mockResolvedValue([
+        { movieId: 42 },
+        { id: 102, movieId: 42 },
+      ])
+
+      const result = await service.cancelMovieJob('movie-1')
+
+      expect(radarrService.removeQueueItem).toHaveBeenCalledTimes(1)
+      expect(radarrService.removeQueueItem).toHaveBeenCalledWith(102)
+      expect(result.status).toBe(DownloadJobStatus.Cancelling)
+    })
+
+    // The upstream calls take seconds; a file landing meanwhile is an
+    // outcome the cancel must not overwrite.
+    it('keeps an outcome the poller settled during the upstream calls', async () => {
+      inLibrary()
+      seedJob()
+      radarrService.unmonitorIfMissing.mockImplementation(async () => {
+        downloadStateService.updateJob('movie-1', {
+          status: DownloadJobStatus.Completed,
+        })
+        return false
+      })
+
+      const result = await service.cancelMovieJob('movie-1')
+
+      expect(result.status).toBe(DownloadJobStatus.Completed)
+      expect(downloadStateService.jobs.get('movie-1')?.status).toBe(
+        DownloadJobStatus.Completed,
+      )
+    })
+
+    describe('racing a request', () => {
+      // The title is already in the library, so the press does its upstream
+      // work - and `submit()` resolves (and moves the job to `Searching`)
+      // while that work is still out. The search it dispatched came after
+      // the press's queue read, so the press has to run it once more.
+      it('re-runs the upstream half when submit() resolved during it', async () => {
+        inLibrary()
+        const ensure = deferred<{ movie: object; radarrId: number }>()
+        radarrService.ensureMovie.mockReturnValue(
+          ensure.promise as ReturnType<RadarrService['ensureMovie']>,
+        )
+        const firstQueueRead = deferred<[]>()
+        radarrService.getQueue
+          .mockReturnValueOnce(firstQueueRead.promise)
+          .mockResolvedValue([{ id: 101, movieId: 42 }])
+
+        const requested = service.requestMovie(1)
+        await flushAsync()
+        const cancelled = service.cancelMovieJob('mock-id')
+        await flushAsync()
+
+        ensure.resolve({ movie: {}, radarrId: 42 })
+        expect((await requested).status).toBe(DownloadJobStatus.Searching)
+
+        firstQueueRead.resolve([])
+        const result = await cancelled
+
+        expect(result.status).toBe(DownloadJobStatus.Cancelling)
+        expect(radarrService.getQueue).toHaveBeenCalledTimes(2)
+        expect(radarrService.removeQueueItem).toHaveBeenCalledWith(101)
+        expect(radarrService.unmonitorIfMissing).toHaveBeenCalledTimes(2)
+      })
+    })
+  })
+
   describe('deleteShowJob', () => {
     it('unmonitors and deletes in Sonarr using the resolved sonarrId, then cancels the job', async () => {
       mediaResolver.fixtures.set('tvdb:1', {
@@ -898,6 +1197,261 @@ describe('MediaDownloadService', () => {
 
       expect(updateJob).not.toHaveBeenCalled()
       expect(result.status).toBe(DownloadJobStatus.Cancelled)
+    })
+  })
+
+  describe('cancelShowJob', () => {
+    function seedJob(overrides: Partial<DownloadJobRecord> = {}) {
+      mediaResolver.fixtures.set('tvdb:1', {
+        id: 'tvdb:1',
+        sonarrId: 9,
+        title: 'A Show',
+        tvdbId: 1,
+        type: DownloadType.Show,
+      })
+      const showJob = buildRecord(DownloadType.Show, 'tvdb:1', {
+        id: 'show-1',
+        status: DownloadJobStatus.Downloading,
+        ...overrides,
+      })
+      downloadStateService.jobs.set(showJob.id, showJob)
+      return showJob
+    }
+
+    // Two seasons, two episodes each, plus a row from another series.
+    const QUEUE = [
+      { episodeId: 301, id: 1, seasonNumber: 3, seriesId: 9 },
+      { episodeId: 302, id: 2, seasonNumber: 3, seriesId: 9 },
+      { episodeId: 401, id: 3, seasonNumber: 4, seriesId: 9 },
+      { episodeId: 402, id: 4, seasonNumber: 4, seriesId: 9 },
+      { episodeId: 999, id: 5, seasonNumber: 3, seriesId: 10 },
+    ]
+
+    function removedIds(): number[] {
+      return sonarrService.removeQueueItem.mock.calls
+        .map(([queueId]) => queueId)
+        .sort((a, b) => a - b)
+    }
+
+    beforeEach(() => {
+      sonarrService.getQueue.mockResolvedValue(QUEUE)
+      sonarrService.removeQueueItem.mockResolvedValue(undefined)
+      sonarrService.unmonitorScope.mockResolvedValue(1)
+    })
+
+    it("leaves a sibling episode's download alone for an episode job", async () => {
+      const scope = { episodeId: 301, episodeNumber: 1, seasonNumber: 3 }
+      seedJob({ scope })
+
+      const result = await service.cancelShowJob('show-1')
+
+      expect(sonarrService.getQueue).toHaveBeenCalledWith([9])
+      expect(removedIds()).toEqual([1])
+      expect(sonarrService.unmonitorScope).toHaveBeenCalledWith(9, scope, {
+        withoutFileOnly: true,
+      })
+      expect(result.status).toBe(DownloadJobStatus.Cancelling)
+    })
+
+    it("removes only its own season's items for a season job", async () => {
+      seedJob({ scope: { seasonNumber: 4 } })
+
+      await service.cancelShowJob('show-1')
+
+      expect(removedIds()).toEqual([3, 4])
+      expect(sonarrService.unmonitorScope).toHaveBeenCalledWith(
+        9,
+        { seasonNumber: 4 },
+        { withoutFileOnly: true },
+      )
+    })
+
+    it("removes every one of the series's items for a whole-series job", async () => {
+      seedJob()
+
+      await service.cancelShowJob('show-1')
+
+      expect(removedIds()).toEqual([1, 2, 3, 4])
+      // An unscoped job is the whole series - `{}` to `unmonitorScope`.
+      expect(sonarrService.unmonitorScope).toHaveBeenCalledWith(
+        9,
+        {},
+        { withoutFileOnly: true },
+      )
+    })
+
+    it('never deletes a file', async () => {
+      seedJob()
+      const deleteEpisodeFile = jest.fn()
+      Object.assign(sonarrService, { deleteEpisodeFile })
+
+      await service.cancelShowJob('show-1')
+
+      expect(sonarrService.unmonitorAndDelete).not.toHaveBeenCalled()
+      expect(deleteEpisodeFile).not.toHaveBeenCalled()
+    })
+
+    it('clears the error a needs_attention job carried', async () => {
+      seedJob({
+        error: 'Episode file already imported',
+        status: DownloadJobStatus.NeedsAttention,
+      })
+
+      const result = await service.cancelShowJob('show-1')
+
+      expect(result.status).toBe(DownloadJobStatus.Cancelling)
+      expect(result.error).toBeUndefined()
+    })
+
+    it('returns a cancelling job as is, with no upstream call', async () => {
+      seedJob({ status: DownloadJobStatus.Cancelling })
+
+      const result = await service.cancelShowJob('show-1')
+
+      expect(result.status).toBe(DownloadJobStatus.Cancelling)
+      expect(sonarrService.getQueue).not.toHaveBeenCalled()
+      expect(sonarrService.unmonitorScope).not.toHaveBeenCalled()
+    })
+
+    it('throws for a completed job', async () => {
+      seedJob({ status: DownloadJobStatus.Completed })
+
+      await expect(service.cancelShowJob('show-1')).rejects.toThrow(
+        "Job with ID 'show-1'",
+      )
+      expect(sonarrService.getQueue).not.toHaveBeenCalled()
+    })
+
+    it('propagates a getQueue failure and leaves the job as it was', async () => {
+      const showJob = seedJob()
+      sonarrService.getQueue.mockRejectedValue(new Error('Sonarr is down'))
+
+      await expect(service.cancelShowJob('show-1')).rejects.toThrow(
+        'Sonarr is down',
+      )
+      expect(downloadStateService.jobs.get('show-1')).toEqual(showJob)
+    })
+  })
+
+  // `request()` re-reads the job once `submit()` settles: a cancel that
+  // landed while it was out upstream must survive it.
+  describe('a cancel while request() is out upstream', () => {
+    const SCOPE = { episodeId: 301 }
+    const RESOLVED = { episodeId: 301, episodeNumber: 5, seasonNumber: 3 }
+    let ensure: ReturnType<
+      typeof deferred<{ series: object; sonarrId: number }>
+    >
+
+    beforeEach(() => {
+      ensure = deferred()
+      sonarrService.ensureSeries.mockReturnValue(
+        ensure.promise as ReturnType<SonarrService['ensureSeries']>,
+      )
+      sonarrService.getQueue.mockResolvedValue([
+        { episodeId: 301, id: 1, seasonNumber: 3, seriesId: 9 },
+        { episodeId: 302, id: 2, seasonNumber: 3, seriesId: 9 },
+      ])
+      sonarrService.removeQueueItem.mockResolvedValue(undefined)
+      sonarrService.unmonitorScope.mockResolvedValue(1)
+    })
+
+    /** Requests, then cancels while `ensureSeries` is still out. */
+    async function requestThenCancel() {
+      const requested = service.requestShow(1, null, SCOPE)
+      await flushAsync()
+
+      // A first request: the title has no sonarrId yet, so the press can
+      // only move the job.
+      const cancelled = await service.cancelShowJob('mock-id')
+      expect(cancelled.status).toBe(DownloadJobStatus.Cancelling)
+      expect(sonarrService.getQueue).not.toHaveBeenCalled()
+
+      // What `ensureSeries` leaves behind: the title in the library.
+      mediaResolver.fixtures.set('tvdb:1', {
+        id: 'tvdb:1',
+        sonarrId: 9,
+        title: 'A Show',
+        tvdbId: 1,
+        type: DownloadType.Show,
+      })
+
+      return requested
+    }
+
+    it('stays cancelling, writes the resolved scope, and cleans up upstream', async () => {
+      const updateJob = jest.spyOn(downloadStateService, 'updateJob')
+      const requested = requestThenCancel()
+      await flushAsync()
+
+      ensure.resolve({ series: {}, sonarrId: 9 })
+      const result = await requested
+
+      expect(result.status).toBe(DownloadJobStatus.Cancelling)
+      expect(result.scope).toEqual(RESOLVED)
+      expect(downloadStateService.jobs.get('mock-id')).toMatchObject({
+        scope: RESOLVED,
+        status: DownloadJobStatus.Cancelling,
+      })
+      expect(updateJob).not.toHaveBeenCalledWith(
+        'mock-id',
+        expect.objectContaining({ status: DownloadJobStatus.Searching }),
+      )
+      // The search `submit()` dispatched is cleaned up, in scope only.
+      expect(sonarrService.triggerEpisodeSearch).toHaveBeenCalledWith([301])
+      expect(sonarrService.getQueue).toHaveBeenCalledWith([9])
+      expect(sonarrService.removeQueueItem).toHaveBeenCalledTimes(1)
+      expect(sonarrService.removeQueueItem).toHaveBeenCalledWith(1)
+      expect(sonarrService.unmonitorScope).toHaveBeenCalledWith(9, RESOLVED, {
+        withoutFileOnly: true,
+      })
+    })
+
+    // The poller's cancelling path still removes a late grab, so a failed
+    // cleanup is logged rather than turning a cancel that took into an error.
+    it('stays cancelling when the upstream cleanup fails', async () => {
+      sonarrService.getQueue.mockRejectedValue(new Error('Sonarr is down'))
+      const requested = requestThenCancel()
+      await flushAsync()
+
+      ensure.resolve({ series: {}, sonarrId: 9 })
+      const result = await requested
+
+      expect(result.status).toBe(DownloadJobStatus.Cancelling)
+      expect(Logger.prototype.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ error: 'Sonarr is down', jobId: 'mock-id' }),
+        expect.any(String),
+      )
+    })
+
+    it('does not write failed when submit() rejects after the cancel', async () => {
+      const updateJob = jest.spyOn(downloadStateService, 'updateJob')
+      const requested = requestThenCancel()
+      await flushAsync()
+
+      ensure.reject(new Error('Sonarr is down'))
+      const result = await requested
+
+      expect(result.status).toBe(DownloadJobStatus.Cancelling)
+      expect(result.error).toBeUndefined()
+      expect(updateJob).not.toHaveBeenCalledWith(
+        'mock-id',
+        expect.objectContaining({ status: DownloadJobStatus.Failed }),
+      )
+    })
+
+    // The poller only moves a job it can see upstream - its status is
+    // fresher than the `Searching` `request()` would otherwise write.
+    it('leaves a status the poller wrote meanwhile', async () => {
+      const requested = service.requestShow(1, null, SCOPE)
+      await flushAsync()
+      downloadStateService.updateJob('mock-id', {
+        status: DownloadJobStatus.Downloading,
+      })
+
+      ensure.resolve({ series: {}, sonarrId: 9 })
+      const result = await requested
+
+      expect(result.status).toBe(DownloadJobStatus.Downloading)
     })
   })
 })

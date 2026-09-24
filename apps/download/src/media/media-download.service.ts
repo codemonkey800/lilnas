@@ -21,6 +21,7 @@ import { mediaId } from 'src/db/media-id'
 import { DownloadStateService } from 'src/download/download-state.service'
 
 import { MediaResolverService } from './media-resolver.service'
+import { matchesScope, type PollableQueueItem } from './queue-status.util'
 import { RadarrService } from './radarr.service'
 import { pickBestRelease } from './release-selection.util'
 import { SonarrService } from './sonarr.service'
@@ -314,6 +315,14 @@ export class MediaDownloadService {
     )
   }
 
+  async cancelMovieJob(id: string): Promise<DownloadJob> {
+    return this.cancelJob(id, DownloadType.Movie)
+  }
+
+  async cancelShowJob(id: string): Promise<DownloadJob> {
+    return this.cancelJob(id, DownloadType.Show)
+  }
+
   /**
    * The single job-creation choke point for movies and shows: mint a
    * `Requested` job, run `submit()`, then move it to `Searching` or `Failed`.
@@ -389,6 +398,28 @@ export class MediaDownloadService {
     try {
       const result = await submit()
 
+      // Re-read, because a cancel can land while `submit()` is out upstream
+      // and `updateJob` has no compare-and-set - writing `Searching` blind
+      // would un-cancel the job. No `await` between this read and the writes
+      // below, so nothing can slip in between them.
+      const current = this.downloadStateService.jobs.get(id)
+
+      if (current?.status === DownloadJobStatus.Cancelling) {
+        // The resolved scope still lands (the job's own display fields), but
+        // the status stays where the cancel put it.
+        const record = result?.scope
+          ? this.downloadStateService.updateJob(id, { scope: result.scope })
+          : current
+
+        return this.cancelAfterSubmit(record, action)
+      }
+
+      // The poller got there first (it only moves a job it can see
+      // upstream) - its status is fresher than ours.
+      if (current && current.status !== DownloadJobStatus.Requested) {
+        return this.downloadStateService.hydrateOne(current)
+      }
+
       return this.downloadStateService.hydrateOne(
         this.downloadStateService.updateJob(id, {
           // Folded into the same write that moves the job to Searching
@@ -400,6 +431,19 @@ export class MediaDownloadService {
       )
     } catch (err) {
       const error = getErrorMessage(err)
+      const current = this.downloadStateService.jobs.get(id)
+
+      // A cancelled request that then failed upstream is still a cancel - the
+      // user asked for it to stop, and it did. Writing `Failed` over it would
+      // report an error for an attempt nobody wants any more.
+      if (current?.status === DownloadJobStatus.Cancelling) {
+        this.logger.warn(
+          { action, jobId: id, upstreamId, error },
+          'Request failed after it was cancelled - leaving it cancelling',
+        )
+
+        return this.cancelAfterSubmit(current, action)
+      }
 
       this.logger.error(
         { action, jobId: id, upstreamId, error },
@@ -481,5 +525,223 @@ export class MediaDownloadService {
     return cancelled
       ? this.downloadStateService.hydrateOne(cancelled)
       : this.getJob(id, type)
+  }
+
+  /**
+   * Stops an attempt still in flight: pulls its downloads out of the client
+   * and unmonitors what it was fetching, then moves the job to `Cancelling` -
+   * never straight to `Cancelled`. A search command Radarr/Sonarr is already
+   * running can still grab a release after this returns, so the poller owns
+   * the last step: it removes a late grab for a `Cancelling` job, and settles
+   * it `Cancelled` (or `Completed`, if a file landed first) once nothing is
+   * left in the queue.
+   *
+   * Upstream first, status last, like `deleteJob`: if the upstream work
+   * throws, the job is left exactly as it was and the error propagates, so a
+   * second press simply tries again. A library file is never touched.
+   */
+  private async cancelJob(
+    id: string,
+    type: DownloadType,
+  ): Promise<DownloadJob> {
+    const action = 'cancelJob'
+    const job = await this.getJob(id, type)
+
+    if (isTerminalDownloadJobStatus(job.status)) {
+      throw new Error(`Job with ID '${id}' has already ${job.status}`)
+    }
+
+    // A second press (or a double-click) - the first one already did the
+    // upstream work, and the poller is finishing it.
+    if (job.status === DownloadJobStatus.Cancelling) {
+      return job
+    }
+
+    await this.cancelUpstream(job, action)
+
+    // The library cache still holds the pre-cancel `monitored` flag.
+    this.mediaResolverService.invalidate(job.media.id)
+
+    // Re-read, synchronously up to the write: the upstream calls above take
+    // seconds, and `updateJob` has no compare-and-set. A job the poller
+    // settled meanwhile (say, its file landed) keeps that outcome, and one a
+    // concurrent press already moved needs nothing more.
+    const current = this.downloadStateService.jobs.get(id)
+
+    if (
+      current &&
+      (isTerminalDownloadJobStatus(current.status) ||
+        current.status === DownloadJobStatus.Cancelling)
+    ) {
+      return this.downloadStateService.hydrateOne(current)
+    }
+
+    const cancelling = this.downloadStateService.updateJob(id, {
+      // A job cancelled out of `NeedsAttention` still carries upstream's
+      // import error, which says nothing true about a cancelled attempt.
+      error: undefined,
+      status: DownloadJobStatus.Cancelling,
+    })
+
+    // The press landed while `request()`'s `submit()` was out upstream, and
+    // `submit()` resolved during the upstream calls above - so `request()`
+    // saw a job still `Requested`, moved it on, and never knew to clean up.
+    // Its `ensure*` may have re-monitored what was just unmonitored, and its
+    // search came after the queue read, so run the upstream half once more.
+    if (
+      job.status === DownloadJobStatus.Requested &&
+      current?.status !== DownloadJobStatus.Requested
+    ) {
+      await this.cancelUpstreamQuietly(
+        await this.downloadStateService.hydrateOne(cancelling),
+        action,
+      )
+      this.mediaResolverService.invalidate(job.media.id)
+    }
+
+    return this.downloadStateService.hydrateOne(cancelling)
+  }
+
+  /**
+   * `request()`'s half of a cancel that landed while `submit()` was out
+   * upstream. The press itself could do nothing upstream for a title with no
+   * upstream id yet (a first request), and even for one that had it, the
+   * search `submit()` dispatched may have come after its queue read - so the
+   * upstream half runs again now that the title is certainly in the library.
+   *
+   * Best-effort: the job is already `Cancelling`, and a request that answers
+   * with an error for a cancel that did take would be a lie. The poller's
+   * `Cancelling` path still removes any late grab each tick.
+   */
+  private async cancelAfterSubmit(
+    record: DownloadJobRecord,
+    action: string,
+  ): Promise<DownloadJob> {
+    // Hydrated after `submit()`, whose `ensure*` already dropped any cached
+    // copy that predates the add - so the media carries the upstream id.
+    await this.cancelUpstreamQuietly(
+      await this.downloadStateService.hydrateOne(record),
+      action,
+    )
+    this.mediaResolverService.invalidate(record.mediaId)
+
+    return this.downloadStateService.hydrateOne(
+      this.downloadStateService.jobs.get(record.id) ?? record,
+    )
+  }
+
+  /** `cancelUpstream`, with a failure logged instead of thrown. */
+  private async cancelUpstreamQuietly(
+    job: DownloadJob,
+    action: string,
+  ): Promise<void> {
+    try {
+      await this.cancelUpstream(job, action)
+    } catch (err) {
+      this.logger.warn(
+        { action, error: getErrorMessage(err), jobId: job.id },
+        'Failed to clean up upstream after a cancel - the poller will remove any late grab',
+      )
+    }
+  }
+
+  /**
+   * The upstream half of a cancel: removes the job's queue items (the client
+   * drops its partial files; nothing is blocklisted and no re-search is
+   * started), then unmonitors only what has no file, so RSS doesn't grab it
+   * again and a cancelled *replacement* leaves the title monitored for the
+   * copy already on disk. Season and series flags are left alone.
+   *
+   * The queue is read fresh rather than from `MediaStateService`, whose copy
+   * is up to a tick old - exactly the window a just-grabbed release lives in.
+   * A show job only ever touches items inside its own scope, so cancelling
+   * one episode leaves a sibling episode's download running.
+   *
+   * No upstream id (a first request `submit()` hasn't added yet) means there
+   * is nothing upstream to undo.
+   */
+  private async cancelUpstream(
+    job: DownloadJob,
+    action: string,
+  ): Promise<void> {
+    if (!isManagedMedia(job.media)) return
+
+    if (job.media.type === DownloadType.Movie) {
+      const { radarrId } = job.media
+      if (radarrId == null) return
+
+      const queue = await this.radarrService.getQueue([radarrId])
+      await this.removeQueueItems(
+        job,
+        queue.filter(item => item.movieId === radarrId),
+        queueId => this.radarrService.removeQueueItem(queueId),
+        action,
+      )
+      await this.radarrService.unmonitorIfMissing(radarrId)
+      return
+    }
+
+    const { sonarrId } = job.media
+    if (sonarrId == null) return
+
+    const queue = await this.sonarrService.getQueue([sonarrId])
+    await this.removeQueueItems(
+      job,
+      queue.filter(
+        item => item.seriesId === sonarrId && matchesScope(item, job.scope),
+      ),
+      queueId => this.sonarrService.removeQueueItem(queueId),
+      action,
+    )
+    await this.sonarrService.unmonitorScope(sonarrId, job.scope ?? {}, {
+      withoutFileOnly: true,
+    })
+  }
+
+  /**
+   * Removes every item, best-effort. A partial failure is logged and
+   * swallowed rather than thrown: the job still moves to `Cancelling`, and
+   * the poller removes whatever is left of a `Cancelling` job's queue on its
+   * next tick.
+   */
+  private async removeQueueItems(
+    job: DownloadJob,
+    items: PollableQueueItem[],
+    remove: (queueId: number) => Promise<void>,
+    action: string,
+  ): Promise<void> {
+    const removable = items.filter(
+      (item): item is PollableQueueItem & { id: number } => item.id != null,
+    )
+
+    if (removable.length !== items.length) {
+      this.logger.log(
+        { action, jobId: job.id },
+        'Skipped a queue item with no id - there is no row to remove',
+      )
+    }
+
+    const removals = await Promise.allSettled(
+      removable.map(item => remove(item.id)),
+    )
+
+    for (const [index, result] of removals.entries()) {
+      if (result.status === 'fulfilled') continue
+
+      this.logger.warn(
+        {
+          action,
+          error: getErrorMessage(result.reason),
+          jobId: job.id,
+          queueId: removable[index]?.id,
+        },
+        'Failed to remove a cancelled queue item - the poller will retry',
+      )
+    }
+
+    this.logger.log(
+      { action, jobId: job.id, queueCount: removable.length },
+      'Removed the cancelled queue items',
+    )
   }
 }
