@@ -246,6 +246,12 @@ and hydrates each group's title through the resolver, rather than joining to
 a metadata table that no longer exists. Activity and history stay job-centric
 — they're event feeds by nature, unaffected by the split.
 
+> ⚠️ **Superseded by
+> [The gallery is the library (plan 021 · Phase 4)](#the-gallery-is-the-library-plan-021--phase-4)**:
+> the `GROUP BY` is gone. `GET /gallery` now lists the Radarr/Sonarr libraries
+> and finished videos, and joins the job log only for each card's download
+> summary.
+
 **The trade-off, stated plainly:** movie/show metadata is now
 read-through-dependent on Radarr/Sonarr. If Radarr is down, a movie card
 degrades to its bare key instead of 500ing (`degradedSources` names the
@@ -2228,7 +2234,9 @@ there is no WS subscriber to miss a broadcast.
 > [Jobs are attempts (plan 021 · Phase 3)](#jobs-are-attempts-plan-021--phase-3)**:
 > `RESTART_SURVIVING_STATUSES` is gone, the sweep fails video rows only, and
 > `adoptSurvivingJobs()` is now `adoptOpenJobs()`, which adopts every open
-> movie/show row plus `needs_attention` videos.
+> movie/show row plus `needs_attention` videos. And since
+> [Phase 4](#the-gallery-is-the-library-plan-021--phase-4) library sync is
+> gone, so the boot order is sweep → adopt.
 
 ### ⚠️ Accepted gaps
 
@@ -2841,6 +2849,8 @@ Left the queue without producing a file
   `RESTART_SURVIVING_STATUSES` is deleted.
 - **Boot order is unchanged**: sweep → adopt → library sync, all before
   `app.listen()`. The boot log reads `Re-adopted N open job(s)`.
+  _Superseded by [Phase 4](#the-gallery-is-the-library-plan-021--phase-4):
+  library sync is gone, so it is sweep → adopt._
 - **The poller settles an adopted row on its first tick** — from its queue
   item if it has one, otherwise from the files. A download that finished
   while the process was down completes; one that vanished fails after the
@@ -2865,7 +2875,9 @@ Left the queue without producing a file
   `removed_from_library`, the flag `ShowService.deleteFiles` already sets on
   a whole-title removal (plan 019). A re-request mints a fresh, unflagged
   job, which brings the card back. **Phase 4 moves the gallery onto media
-  state and removes the flag.**
+  state and removes the flag.** _Superseded by
+  [Phase 4](#the-gallery-is-the-library-plan-021--phase-4): the flag, its
+  writes and the column are gone; a card goes when its file does._
 - **`scripts/verify/mutate.ts` `MEDIA_TRANSITIONS`**: `completed → cancelled`
   on delete is gone. Newly legal: `requested`/`searching` → `completed`,
   `searching`/`downloading`/`importing` → `paused`, `paused` →
@@ -2904,13 +2916,212 @@ had no way back to a file.
 
 ### ⚠️ Known gaps
 
-- **`removed_from_library` is a stopgap** until Phase 4 (above).
+- **`removed_from_library` is a stopgap** until Phase 4 (above). **Closed by
+  [Phase 4](#the-gallery-is-the-library-plan-021--phase-4)**, which drops the
+  column in migration 0004.
 - **Not yet verified live.** The dev container's backend process predates
   every Phase 3 commit — its `nest start -w` watcher has exited, and its last
   boot log still reads `Re-adopted 0 restart-surviving job(s)`. Reads of
   `tmdb:50546` and `tmdb:920` (_Cars_) both return `available`, but that is
   Phase 1/2 behaviour. Re-check after the next restart: the boot line should
-  read `Re-adopted N open job(s)`.
+  read `Re-adopted N open job(s)`. **Checked 2026-09-24**: after the dev
+  container's restart the boot log reads `Re-adopted 0 open job(s)`.
+
+## The gallery is the library (plan 021 · Phase 4)
+
+**Status: Phase 4 done.** Commits, in order: `e9ecc01d` (`listLibrary` on the
+resolver), `941df833` (`GalleryItem` gains `addedAt`), `40057f70` (the gallery
+and its facets from the library), `571a9af6` (cards say "added"), `dbb59b6e`
+(a shared partial-migration test harness), `34f9e815` (migration 0004, the end
+of library-sync).
+
+Until now the gallery was a `GROUP BY type, media_id` over completed jobs. The
+job log is not the library, so it needed two workarounds:
+
+- **library-sync** backfilled a fake `completed` job at every boot for each
+  Radarr/Sonarr title that had a file but no job, so titles nobody requested
+  through this app still got a card.
+- **`removed_from_library`** flagged a title's jobs when its files were
+  deleted, so the card went away (Phase 3's stopgap).
+
+Phase 4 lists the library itself. A card exists because a file is on disk,
+and the job log only adds a download summary to it. Both workarounds are gone.
+
+### `listLibrary`
+
+`MediaResolverService.listLibrary(): Promise<LibraryListing>` returns
+`{ degradedSources, entries: { addedAt, media }[] }`. It reads the same 60 s
+library caches `resolve()` uses, so listing costs upstream nothing extra.
+
+| Source                                                 | In the library when          | `addedAt`                    |
+| ------------------------------------------------------ | ---------------------------- | ---------------------------- |
+| Radarr movie                                           | `filePath` is set            | the movie file's `dateAdded` |
+| Sonarr series                                          | `episodeFileCount > 0`       | `series.added`               |
+| `videos` row (`listVideosWithFiles`, not the resolver) | `download_urls` is non-empty | `updatedAt`                  |
+
+- **Never a show's `filePath`.** It is the series folder, set for every
+  library series whether it has files or not.
+- **A video's `addedAt` is a stand-in.** It is the same one `hydrateVideo()`
+  puts on `Video.addedAt`: the pipeline's last write is the one that sets
+  `download_urls`.
+- **A title with a file but no `addedAt` is skipped** and logged. Dating it
+  "now" or at the epoch would invent a sort position.
+- **Entries are unordered and unannotated.** They are the cache's own objects,
+  so they can carry stale annotations. Callers resolve the page they render.
+- **A down source is omitted and named in `degradedSources`**, never thrown.
+
+**The failure cache.** After a failed fetch, the resolver caches an empty map
+for 10 s (`FAILURE_TTL_MS`) and hands it back without throwing. `resolve()`
+copes, because it looks up each miss by id. A listing would have read it as
+an empty library, so Radarr being down would look like "no movies". Cache entries now carry
+`failed: boolean`. `listSource` spots the stand-in by identity
+(`cache.current.failed && cache.current.entries === entries`), not by
+emptiness, because an empty library is a real answer.
+
+### The pipeline
+
+`JobQueryService.listGallery`, in order:
+
+1. **Collect titles.** `listLibraryTitles(types)` calls `listLibrary()` only
+   when a movie or show is wanted, and `listVideosWithFiles(db)` only when a
+   video is.
+2. **Filter by type and date.** `from`/`to` apply to **`addedAt`**, inclusive.
+   The params keep their `createdFrom`/`createdTo` names.
+3. **Filter by requester.** `?requester=` keeps the titles that requester has a
+   **completed job** for, via `countCompletedJobsByMediaIds` (500 ids per
+   query; a title with no jobs is absent from the map).
+4. **Sort** by `addedAt` desc, then media id asc. It uses plain code-unit
+   comparison so `isAfterCursor` agrees with it exactly.
+5. **Page** from the cursor, `limit` titles.
+6. **Resolve only the page** with `resolve()`, which puts fresh Emby status
+   and `state` on the cards actually rendered.
+7. **Attach the summary**: `downloadCount`, `lastDownloadedAt` and the last
+   requester, from `resolveLastRequesters`, masked by `showTrueAttribution`.
+
+- **Paged in memory.** The library is a home NAS's, and a requester-scoped
+  page has to join all of it before `total` means anything.
+- **An unscoped page only counts jobs for its own ids.** A scoped page reuses
+  the counts it already computed in step 3.
+- **The cursor** is the same `encodeListCursor` codec: base64url of
+  `${addedAtMs}:${mediaId}:${filterKey}`. The filter key now covers
+  `addedFrom`/`addedTo` and `types`, so **a cursor minted before Phase 4
+  fails its filter-key check and gets the route's 400**. A client restarts
+  from page 1.
+- **A down source is left out** and logged as a warning. The gallery response
+  has never carried `degradedSources`, so its titles silently drop out of
+  `items` and `total` until the source recovers.
+
+**The hidden-video rule is unchanged.** A requester-scoped gallery run by a
+non-admin passes `excludeHiddenVideos` to the job join. That way a non-admin
+cannot confirm, through either the rows or `total`, that someone else has a
+hidden video. The unfiltered gallery still lists hidden videos, with
+attribution masked.
+
+**Facets count two different things on purpose.** `getGalleryFacets` is async
+now, because it reads the library.
+
+| Facet       | Counts                                                         | Date range on          |
+| ----------- | -------------------------------------------------------------- | ---------------------- |
+| `types`     | library titles, exactly what `listGallery` would list per type | the title's `addedAt`  |
+| `uploaders` | completed jobs, by `requester_email` (`countJobsByRequester`)  | the job's `created_at` |
+
+An uploader chip is a claim about people, and people live in `jobs`. The
+uploader count always gets `excludeHiddenVideos` for a non-admin. Otherwise the
+chip list itself would reveal who hid something.
+
+### `GalleryItem`
+
+| Field              | Before                          | Now                                                                       |
+| ------------------ | ------------------------------- | ------------------------------------------------------------------------- |
+| `addedAt`          | —                               | **required**: when the title landed in the library (the sort key)         |
+| `lastDownloadedAt` | required, the newest job's time | **nullable**: `completedAt`, or `updatedAt` on rows older than that stamp |
+| `downloadCount`    | ≥ 1                             | **may be 0**: a title nobody downloaded through this app                  |
+
+- **Cards date by `addedAt`.** The gallery and home cards render
+  `<time dateTime={addedAt}>` with a screen-reader-only "added" in front.
+- **The avatar is gated on `lastDownloadedAt !== null`**, not on the
+  requester fields. A masked upload also arrives with both requesters null, so
+  gating on them would lose the dashed "hidden" avatar. The backend fills all
+  three from the same lookup.
+
+### Migration 0004
+
+`0004_eminent_prodigy.sql`. drizzle-kit generated the `DROP COLUMN`; the
+`DELETE` was prepended by hand:
+
+```sql
+DELETE FROM `jobs` WHERE `origin` = 'service' AND `status` = 'completed'
+  AND `type` IN ('movie', 'show') AND `created_at` = `completed_at`;
+ALTER TABLE `jobs` DROP COLUMN `removed_from_library`;
+```
+
+**Why the predicate only hits library-sync's rows:**
+
+- **`created_at = completed_at` is the tell.** library-sync stamped both with
+  the title's `addedAt`. A real attempt is created when it is requested and
+  completes later, so it always has `created_at < completed_at`.
+- **Real service-origin jobs** (tdr-bot calls with no identity) were never a
+  movie or show on prod.
+- **Read-only counts on 2026-09-22**: dev had 357 matching rows (283 movie +
+  74 show). Prod has 21 service-origin completed rows, all videos, none with
+  `created_at = completed_at`. So the migration deletes 357 rows on dev and 0 on
+  prod.
+- **No `audit_log` row references any of them.**
+- **A plain `DROP COLUMN` is safe on SQLite.** No index or CHECK references
+  `removed_from_library` (added by 0003), so no table rebuild is needed.
+
+`migrate-0004.spec.ts` runs the migration on a prod-shaped DB (at 0002) and a
+dev-shaped DB (at 0003). The "migrate a real DB up to tag X, seed it, run the
+rest" harness moved out of `migrate-0002.spec.ts` into
+`db/__tests__/helpers/partial-migrations.ts` (`dbb59b6e`), so both specs share
+it.
+
+### What was removed
+
+- **`src/media/library-sync.ts`** (`syncDownloadedLibrary()`) and its boot call.
+  Boot order is now **sweep → adopt**, and the `Library sync: backfilled …` log
+  line is gone.
+- **The `removed_from_library` column**, `DownloadStateService.markRemovedFromLibrary`,
+  `markJobsRemovedFromLibrary` in `jobs.repo.ts`, and
+  `JobListFilter.excludeRemovedFromLibrary`. The delete paths no longer touch
+  a title's other jobs to take its card down, because the card goes when the
+  file does.
+- **`listMediaGroupsPage`** (the `GROUP BY`), along with its query-plan test in
+  `schema.spec.ts`.
+- **Kept: `DeleteMediaFilesResponse.removedFromLibrary`.** It means "removed
+  from Radarr/Sonarr" (plan 019), not the dropped column.
+
+### ⚠️ Known gaps
+
+- **A new season doesn't bubble a show up.** A series' `addedAt` is
+  `series.added`, when the series first entered Sonarr, not when its newest
+  episode file landed. Accepted: Sonarr's per-episode `dateAdded` costs one
+  call per series, and 74 calls a minute is not worth it.
+- **A title deleted outside this app lingers up to 60 s.** A delete through
+  `DELETE /download/media/:id/files` invalidates the resolver's library cache,
+  so its card goes at once. One removed in Radarr/Sonarr's own UI drops out
+  when the cache next refreshes.
+- **A down source empties its half of the gallery silently.** See the
+  pipeline above. The response has no field to say so.
+- **The requester filter is still email-only**, as before (plan 017 §E2's
+  scope cut, see `listGallery`'s doc comment).
+- **`getDownloadedMovies`/`getDownloadedSeries` are unused now.** Only their
+  comments were fixed. Phase 5 · A1 removes them.
+
+### Verified live (2026-09-24)
+
+The dev container restarted at 10:59 PDT. `nest start -w` last reloaded at
+11:01:34 after the Phase 4 edits, and the boot log reads
+`Re-adopted 0 open job(s)` with no `Library sync:` line. Read-only checks:
+
+| Check                                                         | Result                                                                                |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `__drizzle_migrations`                                        | 5 rows; the last hash matches `0004_eminent_prodigy.sql`                              |
+| `jobs` with `origin='service'` and `type IN ('movie','show')` | 0 (357 before)                                                                        |
+| `removed_from_library` in `pragma_table_info('jobs')`         | absent                                                                                |
+| `GET /download/gallery?limit=3`                               | `total: 358`; newest first by `addedAt`; `downloadCount: 0`, `lastDownloadedAt: null` |
+| `GET /download/gallery/facets`                                | `types`: 284 movie, 74 show; `uploaders`: `[]`                                        |
+| `GET /download/gallery?cursor=abc`                            | 400                                                                                   |
 
 ---
 

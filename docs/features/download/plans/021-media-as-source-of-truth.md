@@ -1626,7 +1626,7 @@ wasMonitored })`, called from `requestMovie`/`requestShow` and
 
 ### Phase 4 — Gallery and home read the library
 
-- [ ] **A1. Library index on the resolver.** The cached libraries, listable.
+- [x] **A1. Library index on the resolver.** `e9ecc01d` The cached libraries, listable.
 
   **Files:** edit `apps/download/src/media/media-resolver.service.ts` (uses
   `getMovieLibrary` :287 / `getShowLibrary` :310), tests.
@@ -1641,7 +1641,14 @@ wasMonitored })`, called from `requestMovie`/`requestShow` and
 
   **Tests:** filtering, `addedAt` sourcing per type, one source down.
 
-- [ ] **A2. `listGallery` and facets from the library.** The endpoint's contract is
+  > **Findings:** landed as `listLibrary(): Promise<LibraryListing>` with
+  > `LibraryListing = { degradedSources: DownloadType[]; entries: LibraryEntry[] }`. A title
+  > with no `addedAt` is skipped with a warning. The 10 s failure cache used to return an
+  > empty map that looked like an empty library; cache entries now carry a `failed` flag
+  > so a down source is reported degraded. Entries are the cache's own objects, unordered,
+  > and may carry stale annotations — callers re-resolve the page they render.
+
+- [x] **A2. `listGallery` and facets from the library.** `941df833` `40057f70` The endpoint's contract is
       kept; its source changes.
 
   **Files:** edit `packages/utils/src/download/schema.ts` (`GalleryItemSchema` :313 —
@@ -1669,7 +1676,23 @@ wasMonitored })`, called from `requestMovie`/`requestShow` and
   query is excluded; facets' `types` count the library while `uploaders` still count
   jobs.
 
-- [ ] **A3. Migration 0004 and the end of `library-sync`.**
+  > **Findings:**
+  >
+  > - **Degraded source.** The gallery response has never carried `degradedSources`. A
+  >   source that is down is left out and logged, so its titles drop out of `items` and
+  >   `total` until it recovers.
+  > - **Masking.** `projectJobForViewer` needs a full `DownloadJob`, so the gallery uses the
+  >   rule it calls, `showTrueAttribution`, with `resolveLastRequesters`. That function now
+  >   takes media ids and returns `downloadedAt`: `completedAt`, or `updatedAt` on old rows.
+  > - **`getGalleryFacets` is async now,** because it reads the library.
+  >   `createdFrom`/`createdTo` keep their names and apply to `addedAt`. A cursor issued
+  >   before this change now gets a 400.
+  > - **Other changes.** `countCompletedJobsByMediaIds` batches ids 500 at a time and
+  >   leaves titles with no jobs out of the map. The cards temporarily read
+  >   `lastDownloadedAt ?? addedAt` (B1 finishes the change). The now-orphaned
+  >   `schema.spec.ts` query-plan test went with `listMediaGroupsPage`.
+
+- [x] **A3. Migration 0004 and the end of `library-sync`.** `dbb59b6e` `34f9e815`
 
   **Files:** run `pnpm db:generate` from `apps/download` after removing
   `removedFromLibrary` from `src/db/schema.ts:191`, then hand-edit the generated
@@ -1699,7 +1722,23 @@ wasMonitored })`, called from `requestMovie`/`requestShow` and
   **Tests:** the seeded spec asserts exactly those four cases and the column's absence;
   `schema.spec.ts` no longer expects the column.
 
-- [ ] **B1. Cards say "added", and read `addedAt`.**
+  > **Findings:** the migration is `0004_eminent_prodigy.sql`. drizzle-kit generated a
+  > plain `DROP COLUMN` (no table rebuild), and the `DELETE` was prepended by hand. The
+  > "migrate a real DB up to tag X" setup moved out of `migrate-0002.spec.ts` into
+  > `db/__tests__/helpers/partial-migrations.ts` (`dbb59b6e`) so both specs share it.
+  > `migrate-0004.spec.ts` runs against a prod-shaped DB (at 0002) and a dev-shaped DB
+  > (at 0003). `getDownloadedMovies`/`getDownloadedSeries` are now unused. Only their
+  > comments were fixed; Phase 5 · A1 removes them. `bootstrap.ts` also lost its
+  > now-unused Radarr/Sonarr/Logger imports.
+  >
+  > Two interruptions during Phase 4: the session restarted mid-wave, and both A3 and B1
+  > were resumed from their uncommitted work. The other session working on plan 022 also
+  > committed into this branch meanwhile (`c4c74fab`, `6efdb6c5`). Its uncommitted
+  > `tailwind.css` (`bar-settling`) was blamed for the one red test,
+  > `src/__tests__/reduced-motion.spec.ts`; C1 found the cause was actually its committed
+  > `c4c74fab`.
+
+- [x] **B1. Cards say "added", and read `addedAt`.** `571a9af6`
 
   **Files:** edit `apps/download/src/components/gallery/gallery-item-card.tsx`
   (:132, :169-177), `home/recent-card.tsx` (:177), `home/recently-added.tsx` if its
@@ -1711,6 +1750,13 @@ wasMonitored })`, called from `requestMovie`/`requestShow` and
 
   **Tests:** a title with no jobs renders with no requester line; the time is
   `addedAt`'s.
+
+  > **Findings:** a masked upload also arrives with both requester fields null, so the
+  > avatar is gated on `lastDownloadedAt !== null` rather than on the requesters. That
+  > keeps the dashed "hidden" avatar, and the backend fills all three fields from the
+  > same lookup. The time is a `<time dateTime={addedAt}>` with a screen-reader-only
+  > "added" in front; it looks the same. `recently-added.tsx` needed no change, and
+  > `lib/gallery-filters.ts` got doc comments only.
 
 - [ ] **C1. Phase 4 verification + docs.** Full checks. Add a `backend.md` section
       titled "The gallery is the library (plan 021 · Phase 4)". Raise [human checkpoint
