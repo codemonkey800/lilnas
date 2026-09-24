@@ -39,6 +39,12 @@ const ATTEMPTS = [
     who: ['SR', 'Sam'],
   },
   {
+    label: 'cancelled',
+    tone: 'mute',
+    when: '5h ago',
+    who: ['JA', 'Jeremy'],
+  },
+  {
     label: 'failed',
     tone: 'bad',
     when: '1d ago',
@@ -47,12 +53,53 @@ const ATTEMPTS = [
   },
 ]
 
-// A queue item Sonarr is running that this app never started a job for —
-// grabbed from Sonarr's own UI. Same progress shape as an in-flight attempt,
-// but with nowhere to hang an attempt row.
+// Cancel pressed and acknowledged: the job reads `cancelling` until Sonarr
+// lets go. The queue row is already gone, so there's no bar and no
+// throughput — the chip, which part of the show it was for, and the Cancel
+// that stays, inert.
+const CANCELLING_ATTEMPT = {
+  inFlight: true,
+  cancelling: true,
+  note: 'Season 3, episode 6',
+}
+
+// Straight after a cancel, with the series back to `wanted`: the cancelled
+// attempt is the newest one overall — the only row that may carry Retry
+// (AttemptList's `sorted[0]` rule). On the primary frame above, the same
+// kind of row sits under an in-flight attempt, so it never offers Retry.
+const ATTEMPTS_AFTER_CANCEL = [
+  {
+    label: 'cancelled',
+    tone: 'mute',
+    when: '2m ago',
+    who: ['SR', 'Sam'],
+    retry: true,
+  },
+  {
+    label: 'failed',
+    tone: 'bad',
+    when: '1d ago',
+    who: ['JA', 'Jeremy'],
+    error: 'Indexer timed out after 3 retries',
+  },
+]
+
+// A download started in Sonarr's own UI, adopted as an ordinary attempt —
+// attributed to Sonarr rather than a person. Cancel, but no Pause.
+const ADOPTED_ATTEMPT = {
+  inFlight: true,
+  state: 'downloading',
+  progress: 35,
+  note: 'Season 3, episode 7',
+  throughput: '610 MB / 1.7 GB  ·  4.4 MB/s',
+  actions: [{ label: 'Cancel', variant: 'bad', icon: 'x' }],
+}
+
+// Sonarr upgrading an episode that's already on disk. Not adopted: it stays a
+// queue snapshot with a bar and a note, and nothing here can cancel it.
 const EXTERNAL_QUEUE = {
   progress: 35,
-  throughput: 'S3E7 · 610 MB / 1.7 GB  ·  4.4 MB/s',
+  throughput: 'S3E7 · 610 MB / 1.7 GB  ·  4.4 MB/s',
 }
 
 // The season strip: which season is open, and which are mid-grab or stuck —
@@ -79,6 +126,9 @@ export default {
 
   MEDIA_STATE,
   ATTEMPTS,
+  CANCELLING_ATTEMPT,
+  ATTEMPTS_AFTER_CANCEL,
+  ADOPTED_ATTEMPT,
   EXTERNAL_QUEUE,
   SEASONS,
 
@@ -97,6 +147,7 @@ export default {
     ['Primary', 'primary'],
     ['States & flows', 'states'],
     ['Started from Sonarr', 'started-from-sonarr'],
+    ['Sonarr upgrade', 'sonarr-upgrade'],
     ['Loading', 'loading'],
   ],
   EPISODES: [
@@ -128,6 +179,7 @@ export default {
       live: true,
       progress: 31,
       action: 'Cancel',
+      actionVariant: 'bad',
       actionIcon: 'x',
     },
     {

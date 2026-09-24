@@ -55,12 +55,51 @@ const ATTEMPTS = [
   },
 ]
 
-// A queue item Radarr is running that this app never started a job for —
-// grabbed from Radarr's own UI. Same progress shape as an in-flight attempt,
-// but with nowhere to hang an attempt row.
+// Cancel pressed and acknowledged: the job reads `cancelling` until Radarr
+// lets go. The queue row is already gone, so there's no bar and no
+// throughput — just the job-status chip and the Cancel that stays, inert.
+// Pause is not offered on a job that's winding down.
+const CANCELLING_ATTEMPT = {
+  inFlight: true,
+  cancelling: true,
+}
+
+// Straight after a cancel: the movie is back to `absent`, and the cancelled
+// attempt is the newest one overall — the only row that may carry Retry
+// (AttemptList's `sorted[0]` rule). On the primary frame above, the same
+// cancelled row sits under an in-flight attempt, so it never offers Retry.
+const ATTEMPTS_AFTER_CANCEL = [
+  {
+    label: 'cancelled',
+    tone: 'mute',
+    when: '2m ago',
+    who: ['JA', 'Jeremy'],
+    retry: true,
+  },
+  {
+    label: 'failed',
+    tone: 'bad',
+    when: '2h ago',
+    who: ['JA', 'Jeremy'],
+    error: 'Connection reset by peer',
+  },
+]
+
+// A download started in Radarr's own UI, adopted as an ordinary attempt —
+// attributed to Radarr rather than a person. Cancel, but no Pause.
+const ADOPTED_ATTEMPT = {
+  inFlight: true,
+  state: 'downloading',
+  progress: 72,
+  throughput: '1.9 GB / 2.6 GB  ·  6.1 MB/s',
+  actions: [{ label: 'Cancel', variant: 'bad', icon: 'x' }],
+}
+
+// Radarr upgrading a file that's already on disk. Not adopted: it stays a
+// queue snapshot with a bar and a note, and nothing here can cancel it.
 const EXTERNAL_QUEUE = {
   progress: 72,
-  throughput: '1.9 GB / 2.6 GB  ·  6.1 MB/s',
+  throughput: '1.9 GB / 2.6 GB  ·  6.1 MB/s',
 }
 
 export default {
@@ -90,6 +129,9 @@ export default {
 
   MEDIA_STATE,
   ATTEMPTS,
+  CANCELLING_ATTEMPT,
+  ATTEMPTS_AFTER_CANCEL,
+  ADOPTED_ATTEMPT,
   EXTERNAL_QUEUE,
 
   LEAD_CAST,
@@ -108,6 +150,7 @@ export default {
     ['States & flows', 'states'],
     ['Not downloaded', 'not-downloaded'],
     ['Started from Radarr', 'started-from-radarr'],
+    ['Radarr upgrade', 'radarr-upgrade'],
     ['Loading', 'loading'],
   ],
   SKELETON_RELEASES: [

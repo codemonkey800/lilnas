@@ -39,6 +39,9 @@ mixin mediaChip(state)
     Download stays outline weight, not the primary `uv` variant, on purpose —
     the release picker below is still the better path (the user picks), and
     this is a shortcut next to it, not competing advice.
+    attribution — `true` draws the person who asked (avatar, linked to their
+    profile); a string draws that name as a plain label instead, for an
+    attempt Radarr started itself (no avatar, no link — Radarr has no profile).
 mixin movieHeader(view, opts)
   - opts = opts || {}
   - const mobile = view === 'mobile'
@@ -59,8 +62,7 @@ mixin movieHeader(view, opts)
           +castPerson(person[0], person[1])
     if opts.attribution
       div(class='mb-4 flex items-center gap-2')
-        +avatar('JA', { href: 'profile.html' })(class='h-5 w-5 text-[9px]')
-        span(class='font-mono text-mono-sm text-ink-4') Jeremy · 12m ago
+        +attribution(opts.attribution)
     div(class='mb-7 flex flex-col gap-2')
       if downloaded
         +btn({ label: 'Watch', variant: 'uv', iconEnd: 'eye', full: true })
@@ -83,8 +85,7 @@ mixin movieHeader(view, opts)
               +castPerson(person[0], person[1])
         if opts.attribution
           div(class='flex items-center gap-2')
-            +avatar('JA', { href: 'profile.html' })(class='h-5 w-5 text-[9px]')
-            span(class='font-mono text-mono-sm text-ink-4') Jeremy · 12m ago
+            +attribution(opts.attribution)
         div(class='mt-1 flex items-center gap-2.5')
           if downloaded
             +btn({ label: 'Watch', variant: 'uv', iconEnd: 'eye' })
@@ -92,23 +93,46 @@ mixin movieHeader(view, opts)
           else
             +btn({ label: 'Download', variant: 'outline', iconEnd: 'download' })
 
+//- The header's "who asked, when" line — see `attribution` on +movieHeader.
+mixin attribution(by)
+  if typeof by === 'string'
+    span(class='font-mono text-mono-sm text-ink-4')= `${by} · 12m ago`
+  else
+    +avatar('JA', { href: 'profile.html' })(class='h-5 w-5 text-[9px]')
+    span(class='font-mono text-mono-sm text-ink-4') Jeremy · 12m ago
+
 //-
   Attempts — replaces the old lifecycle panel + "Earlier attempts" list.
   Newest first: an in-flight attempt is highlighted with its own progress and
   actions; terminal ones are StateLines (chip, relative time, requester,
   error). An empty list renders nothing — the chip above already says
   "not downloaded".
+
+  `cancelling` is the card after Cancel was pressed and taken: the chip is the
+  job's status (`cancelling…`, warn), not a media state, so it's a plain
+  +chip rather than +mediaChip. The queue row is already gone — no bar, no
+  throughput — and Cancel stays, inert, instead of vanishing. Pause isn't
+  offered on a job that's winding down.
 mixin attemptInFlight(a, mobile)
   +card()(class=['border-uv/35 bg-uv-ghost/30', mobile ? 'p-4' : 'p-5'])&attributes(attributes)
-    div(class='mb-3 flex items-center justify-between gap-3')
-      +mediaChip(a.state)
-      span(class='font-mono text-mono-sm tabular-nums text-uv-hi')= `${a.progress}%`
-    +bar(a.progress)(class='mb-2')
-    p(class='mb-3 font-mono text-mono-sm tabular-nums text-ink-3')= a.throughput
-    div(class=['flex items-center gap-2', mobile ? 'flex-col' : ''])
-      each act in a.actions
-        +btn({ label: act.label, variant: act.variant, iconEnd: act.icon, full: mobile })
+    if a.cancelling
+      +chip({ label: 'cancelling…', tone: 'warn' })(class='mb-3 w-fit')
+      div(class=['flex items-center gap-2', mobile ? 'flex-col' : ''])
+        +btn({ label: 'Cancel', variant: 'bad', iconEnd: 'x', full: mobile, disabled: true })
+    else
+      div(class='mb-3 flex items-center justify-between gap-3')
+        +mediaChip(a.state)
+        span(class='font-mono text-mono-sm tabular-nums text-uv-hi')= `${a.progress}%`
+      +bar(a.progress)(class='mb-2')
+      p(class='mb-3 font-mono text-mono-sm tabular-nums text-ink-3')= a.throughput
+      div(class=['flex items-center gap-2', mobile ? 'flex-col' : ''])
+        each act in a.actions
+          +btn({ label: act.label, variant: act.variant, iconEnd: act.icon, full: mobile })
 
+//-
+  A finished attempt. `a.retry` draws Retry at the end of the row — only ever
+  on the newest attempt overall, and only once nothing is in flight (the
+  app's `sorted[0]` rule), so a fixture sets it on one row at most.
 mixin attemptLine(a, mobile)
   +stline({ mobile: mobile })
     +chip({ label: a.label, tone: a.tone })(class=mobile ? '' : 'w-[108px] justify-center')
@@ -121,6 +145,12 @@ mixin attemptLine(a, mobile)
         span(class='font-mono text-mono-sm text-ink-3')= a.who[1]
       if a.error
         span(class='text-bad')= a.error
+    if a.retry
+      if mobile
+        +stlineActions
+          +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+      else
+        +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
 
 mixin attemptsList(view, items)
   - const mobile = view === 'mobile'
@@ -300,14 +330,35 @@ mixin notDownloadedFrame(view)
           +releaseList(view, {})
 
 //-
-  A queue item Radarr is running that this app never started a job for — the
-  gap plan 021 closes: progress comes from the queue snapshot alone, whether
-  or not a job exists, so there's a chip and a bar but no attempt row to hang
-  cancel/pause on.
+  A download started in Radarr's own UI — not an upgrade. The app adopts it as
+  an ordinary attempt: the same in-flight card as one this app started, with
+  Cancel and no Pause, attributed to Radarr as a plain label where a person's
+  name and avatar would be.
 mixin startedFromRadarrFrame(view)
   - const suffix = view === 'mobile' ? 'm' : 'd'
   +frameLabel()(class='mt-1' id='started-from-radarr-' + suffix)
     | Started from Radarr
+  +appFrame(view)
+    +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
+    +appBody(view)
+      if view === 'mobile'
+        +movieHeader(view, { state: 'downloading', attribution: 'Radarr' })
+        +attemptsList(view, [ADOPTED_ATTEMPT])
+      else
+        div(class='mx-auto max-w-[1080px]')
+          +libraryLink
+          +movieHeader(view, { state: 'downloading', attribution: 'Radarr' })
+          +attemptsList(view, [ADOPTED_ATTEMPT])
+
+//-
+  Radarr upgrading a file that's already on disk. That one isn't adopted —
+  it's not a download anybody asked this app for — so it stays a queue
+  snapshot: a bar, the throughput, and a note saying it can't be cancelled
+  from here.
+mixin radarrUpgradeFrame(view)
+  - const suffix = view === 'mobile' ? 'm' : 'd'
+  +frameLabel()(class='mt-1' id='radarr-upgrade-' + suffix)
+    | Radarr upgrading the file on disk
   +appFrame(view)
     +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
     +appBody(view)
@@ -320,7 +371,8 @@ mixin startedFromRadarrFrame(view)
           +bar(EXTERNAL_QUEUE.progress)(class='mb-3')
           p(class='mb-3 font-mono text-mono-sm tabular-nums text-ink-3')= EXTERNAL_QUEUE.throughput
           +note('alert')
-            p(class='text-sm text-ink-2') Grabbed from Radarr directly — no attempt to show, cancel or pause here.
+            p(class='text-sm text-ink-2')
+              | Radarr is upgrading the file already on disk — it can't be cancelled here.
       else
         div(class='mx-auto max-w-[1080px]')
           +libraryLink
@@ -332,7 +384,8 @@ mixin startedFromRadarrFrame(view)
             +bar(EXTERNAL_QUEUE.progress)(class='mb-3')
             p(class='mb-3 font-mono text-mono-sm tabular-nums text-ink-3')= EXTERNAL_QUEUE.throughput
             +note('alert')
-              p(class='text-sm text-ink-2') Grabbed from Radarr directly — no attempt to show, cancel or pause here.
+              p(class='text-sm text-ink-2')
+                | Radarr is upgrading the file already on disk — it can't be cancelled here.
 
 //- Everything below the fold on the primary frame: state legend, cast
     overflow, and the two flows as storyboards.
@@ -368,6 +421,24 @@ mixin appendix(view)
       else
         +btn({ label: 'Cancel', variant: 'bad', size: 'sm', iconEnd: 'x' })
     +stline({ mobile: mobile })
+      +chip({ label: 'cancelling…', tone: 'warn' })(class=mobile ? '' : 'w-[168px] justify-center')
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3'])
+        | Cancel pressed — Radarr is dropping the download. The button stays, inert, until it's gone.
+      if mobile
+        +stlineActions
+          +btn({ label: 'Cancel', variant: 'bad', size: 'sm', iconEnd: 'x', disabled: true })
+      else
+        +btn({ label: 'Cancel', variant: 'bad', size: 'sm', iconEnd: 'x', disabled: true })
+    +stline({ mobile: mobile })
+      +chip({ label: 'cancelled', tone: 'mute' })(class=mobile ? '' : 'w-[168px] justify-center')
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3'])
+        | The newest attempt was cancelled — back to not downloaded; Retry grabs it again.
+      if mobile
+        +stlineActions
+          +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+      else
+        +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+    +stline({ mobile: mobile })
       +chip({ tone: 'uv' })(class=mobile ? '' : 'w-[168px] justify-center')
         +dot('live')
         | importing…
@@ -391,6 +462,20 @@ mixin appendix(view)
     | the "not downloaded" chip above is the only signal.
   +card({ sunk: true })(class=[mobile ? 'px-[14px]' : 'px-4', 'py-[13px] text-center text-sm text-ink-4'])
     | (nothing renders here)
+
+  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Attempts — cancelling
+  p(class='mb-3 text-sm text-ink-3')
+    | Cancel was pressed and taken. The queue row is gone, so the card loses its bar; Pause goes, and Cancel
+    | stays put but inert until Radarr lets go.
+  div(class=mobile ? '' : 'max-w-[480px]')
+    +attemptInFlight(CANCELLING_ATTEMPT, mobile)
+
+  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Attempts — after a cancel
+  p(class='mb-3 text-sm text-ink-3')
+    | The cancelled attempt is the newest, nothing's in flight and the movie is back to "not downloaded" — so
+    | that row, and only that row, offers Retry.
+  div(class=mobile ? '' : 'max-w-[480px]')
+    +attemptsList(view, ATTEMPTS_AFTER_CANCEL)
 
   p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Cast — overflow
   if mobile
@@ -622,6 +707,7 @@ block content
 
         +notDownloadedFrame(view)
         +startedFromRadarrFrame(view)
+        +radarrUpgradeFrame(view)
 
         +modalFrame(view, 'Report a problem — as a modal')
           +reportModal(view)

@@ -34,7 +34,9 @@ mixin mediaChip(state)
   `opts.attribution` are omitted in the cropped modal frames, which only need
   enough of the page for the scrim to sit over something. `opts.state` drives
   the chip; `opts.episodeInfo` is the "N of M episodes" prose that used to be
-  a second chip.
+  a second chip. `opts.attribution` is `true` for the person who asked
+  (avatar), or a string drawn as a plain label instead — an attempt Sonarr
+  started itself (no avatar, no link).
 mixin showHeader(view, opts)
   - opts = opts || {}
   - const mobile = view === 'mobile'
@@ -57,8 +59,7 @@ mixin showHeader(view, opts)
           +castPerson(person[0], person[1])
     if opts.attribution
       div(class='mb-4 flex items-center gap-2')
-        +avatar('SR')(class='h-5 w-5 text-[9px]')
-        span(class='font-mono text-mono-sm text-ink-4') Sam · 1h ago
+        +attribution(opts.attribution)
     div(class='mb-7 flex flex-col gap-2')
       +btn({ label: 'Watch', variant: 'uv', iconEnd: 'eye', full: true })
       +btn({ label: 'Download series', variant: 'outline', iconEnd: 'download', full: true })
@@ -82,34 +83,57 @@ mixin showHeader(view, opts)
               +castPerson(person[0], person[1])
         if opts.attribution
           div(class='flex items-center gap-2')
-            +avatar('SR')(class='h-5 w-5 text-[9px]')
-            span(class='font-mono text-mono-sm text-ink-4') Sam · 1h ago
+            +attribution(opts.attribution)
         div(class='mt-1 flex items-center gap-2.5')
           +btn({ label: 'Watch', variant: 'uv', iconEnd: 'eye' })
           +btn({ label: 'Download series', variant: 'outline', iconEnd: 'download' })
           +btn({ label: 'Delete series', variant: 'bad', iconEnd: 'trash' })
+
+//- The header's "who asked, when" line — see `attribution` on +showHeader.
+mixin attribution(by)
+  if typeof by === 'string'
+    span(class='font-mono text-mono-sm text-ink-4')= `${by} · 1h ago`
+  else
+    +avatar('SR')(class='h-5 w-5 text-[9px]')
+    span(class='font-mono text-mono-sm text-ink-4') Sam · 1h ago
 
 //-
   Attempts — replaces the old lifecycle panel + "Earlier attempts" list, at
   series level. Newest first: an in-flight attempt is highlighted with its
   own progress/note and actions; terminal ones are StateLines (chip,
   relative time, requester, error). An empty list renders nothing.
+
+  `cancelling` is the card after Cancel was pressed and taken: the chip is the
+  job's status (`cancelling…`, warn), not a media state, so it's a plain
+  +chip rather than +mediaChip. The queue row is already gone — no bar, no
+  throughput — and Cancel stays, inert, instead of vanishing.
 mixin attemptInFlight(a, mobile)
   +card()(class=['border-uv/35 bg-uv-ghost/30', mobile ? 'p-4' : 'p-5'])&attributes(attributes)
-    div(class='mb-3 flex items-center justify-between gap-3')
-      +mediaChip(a.state)
+    if a.cancelling
+      +chip({ label: 'cancelling…', tone: 'warn' })(class='mb-3 w-fit')
+      if a.note
+        p(class='mb-3 text-sm text-ink-3')= a.note
+      div(class=['flex items-center gap-2', mobile ? 'flex-col' : ''])
+        +btn({ label: 'Cancel', variant: 'bad', iconEnd: 'x', full: mobile, disabled: true })
+    else
+      div(class='mb-3 flex items-center justify-between gap-3')
+        +mediaChip(a.state)
+        if a.progress !== undefined
+          span(class='font-mono text-mono-sm tabular-nums text-uv-hi')= `${a.progress}%`
       if a.progress !== undefined
-        span(class='font-mono text-mono-sm tabular-nums text-uv-hi')= `${a.progress}%`
-    if a.progress !== undefined
-      +bar(a.progress)(class='mb-2')
-    if a.note
-      p(class='mb-3 text-sm text-ink-3')= a.note
-    if a.throughput
-      p(class='mb-3 font-mono text-mono-sm tabular-nums text-ink-3')= a.throughput
-    div(class=['flex items-center gap-2', mobile ? 'flex-col' : ''])
-      each act in a.actions
-        +btn({ label: act.label, variant: act.variant, iconEnd: act.icon, full: mobile })
+        +bar(a.progress)(class='mb-2')
+      if a.note
+        p(class='mb-3 text-sm text-ink-3')= a.note
+      if a.throughput
+        p(class='mb-3 font-mono text-mono-sm tabular-nums text-ink-3')= a.throughput
+      div(class=['flex items-center gap-2', mobile ? 'flex-col' : ''])
+        each act in a.actions
+          +btn({ label: act.label, variant: act.variant, iconEnd: act.icon, full: mobile })
 
+//-
+  A finished attempt. `a.retry` draws Retry at the end of the row — only ever
+  on the newest attempt overall, and only once nothing is in flight (the
+  app's `sorted[0]` rule), so a fixture sets it on one row at most.
 mixin attemptLine(a, mobile)
   +stline({ mobile: mobile })
     +chip({ label: a.label, tone: a.tone })(class=mobile ? '' : 'w-[108px] justify-center')
@@ -122,6 +146,12 @@ mixin attemptLine(a, mobile)
         span(class='font-mono text-mono-sm text-ink-3')= a.who[1]
       if a.error
         span(class='text-bad')= a.error
+    if a.retry
+      if mobile
+        +stlineActions
+          +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+      else
+        +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
 
 mixin attemptsList(view, items)
   - const mobile = view === 'mobile'
@@ -188,7 +218,7 @@ mixin episode(ep, mobile)
         span(class='flex w-full items-center gap-2.5')
           +bar(ep.progress)(class='flex-1')
           span(class='font-mono text-mono-sm tabular-nums text-uv-hi')= `${ep.progress}%`
-          +btn({ label: ep.action, variant: 'outline', size: 'sm', iconEnd: ep.actionIcon })
+          +btn({ label: ep.action, variant: ep.actionVariant || 'outline', size: 'sm', iconEnd: ep.actionIcon })
     else
       span(class='w-[26px] shrink-0 font-mono text-mono-sm text-ink-4')= ep.num
       span(class=['flex-1 text-sm', ep.bad ? 'line-through opacity-60' : ''])= ep.title
@@ -272,14 +302,35 @@ mixin modalFrame(view, label)
     block
 
 //-
-  A queue item Sonarr is running that this app never started a job for — the
-  gap plan 021 closes: progress comes from the queue snapshot alone, whether
-  or not a job exists, so there's a chip and a bar but no attempt row to hang
-  cancel/pause on.
+  A download started in Sonarr's own UI — not an upgrade. The app adopts it as
+  an ordinary attempt: the same in-flight card as one this app started, with
+  Cancel and no Pause, attributed to Sonarr as a plain label where a person's
+  name and avatar would be.
 mixin startedFromSonarrFrame(view)
   - const suffix = view === 'mobile' ? 'm' : 'd'
   +frameLabel()(class='mt-1' id='started-from-sonarr-' + suffix)
     | Started from Sonarr
+  +appFrame(view)
+    +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
+    +appBody(view)
+      if view === 'mobile'
+        +showHeader(view, { state: 'downloading', attribution: 'Sonarr' })
+        +attemptsList(view, [ADOPTED_ATTEMPT])
+      else
+        div(class='mx-auto max-w-[1080px]')
+          +libraryLink
+          +showHeader(view, { state: 'downloading', attribution: 'Sonarr' })
+          +attemptsList(view, [ADOPTED_ATTEMPT])
+
+//-
+  Sonarr upgrading an episode that's already on disk. That one isn't adopted
+  — it's not a download anybody asked this app for — so it stays a queue
+  snapshot: a bar, the throughput, and a note saying it can't be cancelled
+  from here.
+mixin sonarrUpgradeFrame(view)
+  - const suffix = view === 'mobile' ? 'm' : 'd'
+  +frameLabel()(class='mt-1' id='sonarr-upgrade-' + suffix)
+    | Sonarr upgrading a file on disk
   +appFrame(view)
     +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
     +appBody(view)
@@ -292,7 +343,8 @@ mixin startedFromSonarrFrame(view)
           +bar(EXTERNAL_QUEUE.progress)(class='mb-3')
           p(class='mb-3 font-mono text-mono-sm tabular-nums text-ink-3')= EXTERNAL_QUEUE.throughput
           +note('alert')
-            p(class='text-sm text-ink-2') Grabbed from Sonarr directly — no attempt to show, cancel or pause here.
+            p(class='text-sm text-ink-2')
+              | Sonarr is upgrading an episode already on disk — it can't be cancelled here.
       else
         div(class='mx-auto max-w-[1080px]')
           +libraryLink
@@ -304,7 +356,8 @@ mixin startedFromSonarrFrame(view)
             +bar(EXTERNAL_QUEUE.progress)(class='mb-3')
             p(class='mb-3 font-mono text-mono-sm tabular-nums text-ink-3')= EXTERNAL_QUEUE.throughput
             +note('alert')
-              p(class='text-sm text-ink-2') Grabbed from Sonarr directly — no attempt to show, cancel or pause here.
+              p(class='text-sm text-ink-2')
+                | Sonarr is upgrading an episode already on disk — it can't be cancelled here.
 
 //- Everything below the fold on the primary frame: state legend, cast
     overflow, and the two flows as storyboards.
@@ -339,6 +392,24 @@ mixin appendix(view)
       else
         +btn({ label: 'Cancel', variant: 'bad', size: 'sm', iconEnd: 'x' })
     +stline({ mobile: mobile })
+      +chip({ label: 'cancelling…', tone: 'warn' })(class=mobile ? '' : 'w-[168px] justify-center')
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3'])
+        | Cancel pressed — Sonarr is dropping the download. The button stays, inert, until it's gone.
+      if mobile
+        +stlineActions
+          +btn({ label: 'Cancel', variant: 'bad', size: 'sm', iconEnd: 'x', disabled: true })
+      else
+        +btn({ label: 'Cancel', variant: 'bad', size: 'sm', iconEnd: 'x', disabled: true })
+    +stline({ mobile: mobile })
+      +chip({ label: 'cancelled', tone: 'mute' })(class=mobile ? '' : 'w-[168px] justify-center')
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3'])
+        | The newest attempt was cancelled — back to wanted; Retry grabs it again.
+      if mobile
+        +stlineActions
+          +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+      else
+        +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+    +stline({ mobile: mobile })
       +chip({ tone: 'uv' })(class=mobile ? '' : 'w-[168px] justify-center')
         +dot('live')
         | importing…
@@ -366,6 +437,20 @@ mixin appendix(view)
     | the "not downloaded" chip above is the only signal.
   +card({ sunk: true })(class=[mobile ? 'px-[14px]' : 'px-4', 'py-[13px] text-center text-sm text-ink-4'])
     | (nothing renders here)
+
+  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Attempts — cancelling
+  p(class='mb-3 text-sm text-ink-3')
+    | Cancel was pressed and taken. The queue row is gone, so the card loses its bar and throughput; Cancel
+    | stays put but inert until Sonarr lets go. Same card for a series, season or single-episode grab.
+  div(class=mobile ? '' : 'max-w-[480px]')
+    +attemptInFlight(CANCELLING_ATTEMPT, mobile)
+
+  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Attempts — after a cancel
+  p(class='mb-3 text-sm text-ink-3')
+    | The cancelled attempt is the newest, nothing's in flight and the series is back to "wanted" — so that
+    | row, and only that row, offers Retry.
+  div(class=mobile ? '' : 'max-w-[480px]')
+    +attemptsList(view, ATTEMPTS_AFTER_CANCEL)
 
   p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Cast — overflow
   if mobile
@@ -537,6 +622,7 @@ block content
           +appendix(view)
 
         +startedFromSonarrFrame(view)
+        +sonarrUpgradeFrame(view)
 
         +modalFrame(view, 'Report an episode — as a modal')
           +reportModal(view)
