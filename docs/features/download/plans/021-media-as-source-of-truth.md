@@ -1758,10 +1758,34 @@ wasMonitored })`, called from `requestMovie`/`requestShow` and
   > "added" in front; it looks the same. `recently-added.tsx` needed no change, and
   > `lib/gallery-filters.ts` got doc comments only.
 
-- [ ] **C1. Phase 4 verification + docs.** Full checks. Add a `backend.md` section
+- [x] **C1. Phase 4 verification + docs.** `3bead502` Full checks. Add a `backend.md` section
       titled "The gallery is the library (plan 021 · Phase 4)". Raise [human checkpoint
       3](#human-checkpoints) (dev container restart applies 0004 — record the row count
       it deletes from the boot log; expected 357 on dev).
+
+  > **Findings (2026-09-24):** all green except one test. App: 4526 passed + 9 skipped (192
+  > suites). Utils: 497 / 9. Root: type-check 12/12, lint 15/15. The one red test is
+  > `src/__tests__/reduced-motion.spec.ts`, not Phase 4's: plan 022's `c4c74fab` added the
+  > `bar-settling` animation (and its reduced-motion rule) but not the spec's expected
+  > list.
+  >
+  > Live (read-only): the dev container restarted at 10:59 PDT, after a frontend exit
+  > that nobody here caused. It is running Phase 4. The boot log has
+  > `Re-adopted 0 open job(s)` and no `Library sync:` line. Migrations 0000–0004 are
+  > applied and `removed_from_library` is gone. `GET /download/gallery` returns items
+  > carrying `addedAt`, newest first (End of Watch, Cars, …), `total` 358. Facets:
+  > 284 movies / 74 shows. A bad cursor gets a 400.
+  >
+  > ⚠️ **Checkpoint 3 was not really observed.** `lilnas-download-dev` mounts `/data` as
+  > **tmpfs** (`deploy.dev.yml:121`), so every container start begins with an empty DB.
+  > The "357 rows" came from the 09-23 boot's library-sync. The 10:59 restart wiped them,
+  > and also the real End of Watch attempt, so 0004 ran on an empty `jobs` table. That
+  > is why every gallery item reads `downloadCount: 0`, `lastDownloadedAt: null`, and
+  > `uploaders` is `[]`. A read-only check found 0 jobs, and the code path is correct
+  > (not viewer-scoped, joins on the raw `media_id`). What stays unverified live: the
+  > non-zero join (`downloadCount ≥ 1`, `lastRequester`), which needs a job to complete
+  > on dev with no restart before the read. The prod-side check (0 rows deleted, prod's
+  > DB is persistent) still stands for the next deploy.
 
 ### Phase 5 — Cleanup
 
