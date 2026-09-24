@@ -402,6 +402,41 @@ describe('MediaResolverService', () => {
     })
   })
 
+  describe('invalidateAfterEnsure', () => {
+    const movieKey = { mediaId: 'tmdb:1', type: DownloadType.Movie } as const
+
+    async function libraryReadsAfter(ensured: {
+      wasAdded: boolean
+      wasMonitored: boolean
+    }): Promise<number> {
+      radarrService.getLibrary.mockResolvedValue([buildMovie(1)])
+      await service.resolve([movieKey])
+
+      service.invalidateAfterEnsure('tmdb:1', ensured)
+      await service.resolve([movieKey])
+
+      return radarrService.getLibrary.mock.calls.length
+    }
+
+    it('re-reads the library after an ensure that added the title', async () => {
+      expect(
+        await libraryReadsAfter({ wasAdded: true, wasMonitored: false }),
+      ).toBe(2)
+    })
+
+    it('re-reads the library after an ensure that turned monitoring on', async () => {
+      expect(
+        await libraryReadsAfter({ wasAdded: false, wasMonitored: false }),
+      ).toBe(2)
+    })
+
+    it('keeps the cache after an ensure that changed nothing', async () => {
+      expect(
+        await libraryReadsAfter({ wasAdded: false, wasMonitored: true }),
+      ).toBe(1)
+    })
+  })
+
   it('resolves a mixed-type key list in one call', async () => {
     dbService.db
       .insert(videos)

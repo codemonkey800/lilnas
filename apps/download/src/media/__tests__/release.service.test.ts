@@ -125,6 +125,7 @@ describe('ReleaseService', () => {
 
     mediaResolverService = {
       invalidate: jest.fn(),
+      invalidateAfterEnsure: jest.fn(),
     } as unknown as jest.Mocked<MediaResolverService>
 
     // Defaults to "nothing resolved", which is what every pre-existing
@@ -292,6 +293,8 @@ describe('ReleaseService', () => {
       // ago has nothing on disk this call is entitled to delete.
       expect(radarrService.unmonitorAndDelete).toHaveBeenCalledWith(7, false)
       expect(radarrService.setMonitored).not.toHaveBeenCalled()
+      // Put back as it was, so the resolver's cached copy is still right.
+      expect(mediaResolverService.invalidateAfterEnsure).not.toHaveBeenCalled()
     })
 
     // A grab is an explicit choice: the user wants the title, so it stays.
@@ -729,6 +732,43 @@ describe('ReleaseService', () => {
       await service.grabRelease(MOVIE_ID, input, ALICE)
 
       expect(radarrService.setMonitored).not.toHaveBeenCalled()
+    })
+
+    // The grab keeps what the ensure changed, so the resolver's cached copy
+    // (missing a title this grab added) has to go.
+    it('hands a movie ensure result to the resolver', async () => {
+      const ensured = {
+        movie: {},
+        radarrId: 7,
+        wasAdded: true,
+        wasMonitored: false,
+      }
+      radarrService.ensureMovie.mockResolvedValue(ensured)
+
+      await service.grabRelease(MOVIE_ID, input, ALICE)
+
+      expect(mediaResolverService.invalidateAfterEnsure).toHaveBeenCalledWith(
+        MOVIE_ID,
+        ensured,
+      )
+    })
+
+    it('hands a show ensure result to the resolver', async () => {
+      const ensured = {
+        series: {},
+        sonarrId: 9,
+        turnedOnEpisodeIds: [],
+        wasAdded: true,
+        wasMonitored: false,
+      }
+      sonarrService.ensureSeries.mockResolvedValue(ensured)
+
+      await service.grabRelease(SHOW_ID, input, ALICE)
+
+      expect(mediaResolverService.invalidateAfterEnsure).toHaveBeenCalledWith(
+        SHOW_ID,
+        ensured,
+      )
     })
 
     it('leaves the target episodes monitored after a successful show grab', async () => {

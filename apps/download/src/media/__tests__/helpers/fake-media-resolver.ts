@@ -16,6 +16,7 @@ export function createFakeMediaResolver(
   return {
     fixtures,
     invalidate: jest.fn(),
+    invalidateAfterEnsure: jest.fn(),
     resolve: jest.fn((keys: readonly MediaKey[]) =>
       Promise.resolve({
         // Widened rather than inferred as `never[]` so a test that needs to

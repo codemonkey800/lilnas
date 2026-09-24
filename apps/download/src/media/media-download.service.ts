@@ -112,7 +112,9 @@ export class MediaDownloadService {
       // Ensure first, *then* decide - the upstream id doesn't exist until
       // the title is in the library, and both branches need it.
       submit: async () => {
-        const { radarrId } = await this.radarrService.ensureMovie(tmdbId)
+        const ensured = await this.radarrService.ensureMovie(tmdbId)
+        this.mediaResolverService.invalidateAfterEnsure(jobMediaId, ensured)
+        const { radarrId } = ensured
         const flagged = this.flaggedGuids(jobMediaId)
 
         if (flagged.size === 0) {
@@ -166,9 +168,11 @@ export class MediaDownloadService {
       submit: async () => {
         // Always an explicit scope now - `{}` is "the whole series", which
         // is what a bare request means. See `EnsureSeriesOptions`.
-        const { sonarrId } = await this.sonarrService.ensureSeries(tvdbId, {
+        const ensured = await this.sonarrService.ensureSeries(tvdbId, {
           monitorEpisodes: scope ?? {},
         })
+        this.mediaResolverService.invalidateAfterEnsure(jobMediaId, ensured)
+        const { sonarrId } = ensured
 
         // Season flags after episodes, never before: Sonarr's `PUT /series`
         // may cascade a changed season flag down to that season's episodes,

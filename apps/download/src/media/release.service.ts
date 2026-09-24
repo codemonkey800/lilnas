@@ -27,7 +27,7 @@ import {
   listBadFilesByMediaId,
 } from 'src/db/bad-files.repo'
 import { DbService } from 'src/db/db.service'
-import { mediaIdSuffix } from 'src/db/media-id'
+import { mediaId, mediaIdSuffix } from 'src/db/media-id'
 import type { BadFileRow, MediaFileReleaseRow } from 'src/db/schema'
 
 import { CurrentReleaseService } from './current-release.service'
@@ -703,8 +703,16 @@ export class ReleaseService {
     fn: (upstreamId: number) => Promise<T>,
   ): Promise<T> {
     if (target.type === DownloadType.Movie) {
-      const { radarrId, wasAdded, wasMonitored } =
-        await this.radarrService.ensureMovie(target.tmdbId)
+      const ensured = await this.radarrService.ensureMovie(target.tmdbId)
+      const { radarrId, wasAdded, wasMonitored } = ensured
+      // A borrow that is restored leaves the library as it found it, so the
+      // cached copy is still right; one that is kept changed it.
+      if (!opts.restore) {
+        this.mediaResolverService.invalidateAfterEnsure(
+          mediaId({ tmdbId: target.tmdbId, type: DownloadType.Movie }),
+          ensured,
+        )
+      }
 
       try {
         return await fn(radarrId)
@@ -721,13 +729,19 @@ export class ReleaseService {
       }
     }
 
-    const { sonarrId, turnedOnEpisodeIds, wasAdded, wasMonitored } =
-      await this.sonarrService.ensureSeries(target.tvdbId, {
-        monitorEpisodes: {
-          episodeId: opts.episodeId,
-          seasonNumber: opts.seasonNumber,
-        },
-      })
+    const ensured = await this.sonarrService.ensureSeries(target.tvdbId, {
+      monitorEpisodes: {
+        episodeId: opts.episodeId,
+        seasonNumber: opts.seasonNumber,
+      },
+    })
+    const { sonarrId, turnedOnEpisodeIds, wasAdded, wasMonitored } = ensured
+    if (!opts.restore) {
+      this.mediaResolverService.invalidateAfterEnsure(
+        mediaId({ tvdbId: target.tvdbId, type: DownloadType.Show }),
+        ensured,
+      )
+    }
 
     try {
       return await fn(sonarrId)

@@ -238,6 +238,31 @@ describe('MediaDownloadService', () => {
       expect(radarrService.grabRelease).not.toHaveBeenCalled()
     })
 
+    // A title added this request is missing from the resolver's cached
+    // library - without this the job's media has no radarrId and the poller
+    // can't track it until the cache expires.
+    it('hands the ensure result to the resolver before searching', async () => {
+      const ensured = {
+        movie: {},
+        radarrId: 42,
+        wasAdded: true,
+        wasMonitored: false,
+      }
+      radarrService.ensureMovie.mockResolvedValue(ensured as never)
+
+      await service.requestMovie(123)
+
+      expect(mediaResolver.invalidateAfterEnsure).toHaveBeenCalledWith(
+        'tmdb:123',
+        ensured,
+      )
+      expect(
+        mediaResolver.invalidateAfterEnsure.mock.invocationCallOrder[0],
+      ).toBeLessThan(
+        radarrService.triggerSearch.mock.invocationCallOrder[0] as number,
+      )
+    })
+
     it('moves the job to Failed when RadarrService throws', async () => {
       radarrService.ensureMovie.mockRejectedValue(new Error('radarr down'))
 
@@ -249,6 +274,24 @@ describe('MediaDownloadService', () => {
   })
 
   describe('requestShow', () => {
+    it('hands the ensure result to the resolver', async () => {
+      const ensured = {
+        series: {},
+        sonarrId: 9,
+        turnedOnEpisodeIds: [],
+        wasAdded: true,
+        wasMonitored: false,
+      }
+      sonarrService.ensureSeries.mockResolvedValue(ensured as never)
+
+      await service.requestShow(456)
+
+      expect(mediaResolver.invalidateAfterEnsure).toHaveBeenCalledWith(
+        'tvdb:456',
+        ensured,
+      )
+    })
+
     it('creates a Requested job, then moves it to Searching on success', async () => {
       const job = await service.requestShow(456)
 

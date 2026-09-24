@@ -327,6 +327,24 @@ export class MediaResolverService {
   }
 
   /**
+   * `invalidate(key)` after an `ensureMovie`/`ensureSeries` that changed the
+   * library entry - added the title, or turned its monitoring on - and that
+   * the caller keeps (a request or a grab, not a restored release listing).
+   *
+   * An added title is missing from a cache filled before the add, so until
+   * the TTL ran out it would resolve from the discover lookup: no
+   * `radarrId`/`sonarrId`, which leaves its job untrackable by the poller,
+   * and `absent` on its page. A monitoring flip is the same staleness in
+   * `monitored`. An ensure that changed nothing leaves the cache alone.
+   */
+  invalidateAfterEnsure(
+    key: string,
+    { wasAdded, wasMonitored }: { wasAdded: boolean; wasMonitored: boolean },
+  ): void {
+    if (wasAdded || !wasMonitored) this.invalidate(key)
+  }
+
+  /**
    * The cached Radarr library, keyed by `tmdbId`. Public for
    * `MediaPollerService`, which has only a queue item's Radarr `movieId` and
    * needs the media id it belongs to - read through this cache rather than
