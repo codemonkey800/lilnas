@@ -71,8 +71,8 @@ describe('VideoNotFound', () => {
   it('lands in the video route’s own column', () => {
     const { container } = render(<VideoNotFound />)
 
-    // `VideoDetailShell`, shared with the page, its skeleton and its error
-    // boundary, so nothing shifts as one replaces another.
+    // `VideoDetailShell`, shared with the page and its error boundary, so
+    // nothing shifts as one replaces another.
     expect(screen.getByRole('main')).toBeInTheDocument()
     expect(
       container.querySelector('.mx-auto.max-w-\\[1080px\\]'),

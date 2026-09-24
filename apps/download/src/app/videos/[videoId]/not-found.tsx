@@ -28,8 +28,8 @@ export const VIDEO_NOT_FOUND_DESCRIPTION =
  * ⚠️ **Kept, deliberately, now that `src/app/not-found.tsx` exists.** The test
  * for a segment-scoped boundary is whether it says something the root one
  * cannot, and this one does: see {@link VIDEO_NOT_FOUND_DESCRIPTION}. It also
- * lands in this route's own column (`VideoDetailShell`, shared with the page,
- * its skeleton and its error boundary) rather than replacing the document.
+ * lands in this route's own column (`VideoDetailShell`, shared with the page
+ * and its error boundary) rather than replacing the document.
  *
  * Everything below the copy is the root 404's — the same `NotFound` panel, the
  * same `search` icon, the same back link — so the two read as one state told at
@@ -37,10 +37,14 @@ export const VIDEO_NOT_FOUND_DESCRIPTION =
  * the latter: a left-aligned `Note` wearing `alert`, which is this system's
  * *error* register and the wrong reading entirely. Nothing here is broken.
  *
- * Two different failures arrive here and both get this answer. A segment that
- * is not a plain nanoid never reaches the backend at all (`mediaIdFromRoute`
- * rejects it), and a well-formed id with no row behind it is a 404 from
- * `GET /download/media/:id`.
+ * ⚠️ **Only one failure arrives here in practice:** a well-formed id with no
+ * row behind it, a 404 from `GET /download/media/:id`. A segment that is not
+ * a plain nanoid is refused by `src/middleware.ts` before this route runs and
+ * gets the root 404 instead; the page's own `mediaIdFromRoute` check would
+ * send it here, but it no longer gets the chance. This route deliberately has
+ * no `loading.tsx` (plan 013, H3): without a Suspense boundary above the page,
+ * its `notFound()` is thrown before any byte is committed, so the answer is a
+ * real `404` rather than this copy over a `200`.
  */
 export default function VideoNotFound(): JSX.Element {
   return (

@@ -6751,7 +6751,7 @@ are the two original copies and are still in the tree.
   | Full backend capture, as above                                                                    | a real feature, its own plan |
   | Frontend-only indeterminate indicator for videos — shows _activity_ without claiming a percentage | small, no backend change     |
 
-- [ ] **H3. `notFound()` returns HTTP 200 in production, not 404.**
+- [x] **H3. `notFound()` returns HTTP 200 in production, not 404.**
 
   **Why:** discovered and confirmed by G1 on 2026-09-19 (see
   [the finding under G1](#-new-finding-live-checkpoint-2026-09-19-notfound-returns-http-200-in-production))
@@ -6783,6 +6783,167 @@ are the two original copies and are still in the tree.
     already do.
   - Alternative: drop `loading.tsx` for these three routes, trading the instant
     skeleton for a correct status code with no code restructuring.
+
+  ##### ⚠️ Findings: H3 investigated, 2026-09-24 — the cheap fix does not work, and the real trade-off is not the one described above
+
+  Re-confirmed on `b82a1830` against a standalone production build (`next build`,
+  then `node .next/standalone/apps/download/server.js`, with a 20-line Node stub on
+  `:8081` standing in for the backend: `401` to `/auth/whoami`, `404` to everything
+  else — enough, because no not-found path needs a real payload). Then three more
+  builds covering five candidate fixes. **Nothing has changed since 2026-09-19:**
+  `/movies/abc`, `/shows/abc`, `/videos/tmdb%3A438631` and `/videos/<well-formed
+  unknown id>` all answer `200`; only `/no-such-route` answers `404`. Every probe
+  was run with three user agents — curl, Chrome, Twitterbot — because Next gates
+  metadata streaming on the UA, and every result below was identical for all three.
+
+  Three corrections to the text above, then what each option really does, then the
+  recommendation.
+
+  ⚠️ **Correction to "both pages' `generateMetadata` already re-derives the id":**
+  only `movies/[tmdbId]/page.tsx` has a `generateMetadata` (and the `cache()`-wrapped
+  `loadMovieDetail` behind it). `shows/[tvdbId]/page.tsx` and
+  `videos/[videoId]/page.tsx` export a static `metadata` object and have no `cache()`
+  wrapper at all — each page's own doc comment says why. So the "cheap" case was
+  only ever one route.
+
+  ⚠️ **Correction to "`generateMetadata` resolves before streaming starts":** not on
+  Next 15.5.20. Since 15.2, metadata from `generateMetadata` is _streamed_ into the
+  body for ordinary user agents rather than resolved ahead of the shell (Next docs,
+  `generate-metadata` → "Streaming metadata"). Built and measured: with `notFound()`
+  in the movie page's `generateMetadata`, `/movies/abc` still answered `200` for
+  curl, Chrome **and Twitterbot** — the UA class the docs say gets blocking
+  metadata. The only visible change was the tab title (`Not found · Download`
+  instead of `Movie · Download`). **This option is dead; do not spend time on it.**
+
+  ⚠️ **Correction to the SEO framing:** every streamed not-found body already
+  carries `<meta name="robots" content="noindex">` — Next inserts it for exactly this
+  case (docs, `loading.js` → "Status codes"), and the probe found it on all four
+  routes. Search engines are therefore not the exposure. What is left is anything
+  that reads the status line — uptime checks, curl, analytics, log-based alerting —
+  none of which currently probes these URLs. That lowers the urgency, not the
+  correctness.
+
+  **What each candidate actually does**, from the builds:
+
+  | Option                                                  | Status           | 404 body server-rendered?                       | Keeps `loading.tsx`? | Covers the unknown-video case?                                                      |
+  | ------------------------------------------------------- | ---------------- | ----------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------- |
+  | Today (streamed)                                        | `200` + noindex  | yes                                             | yes                  | n/a                                                                                 |
+  | `notFound()` in `generateMetadata`                      | `200`            | yes                                             | yes                  | no — and it does not work at all                                                    |
+  | Drop `loading.tsx` (013's alternative)                  | `404`            | **no — client-rendered**                        | no                   | yes                                                                                 |
+  | Segment `layout.tsx` doing the check                    | `404`            | **no — client-rendered**                        | yes                  | only if the layout also fetches, which blocks the shell on the page's own data      |
+  | `middleware.ts` slug check, rewrite to a non-route      | `404`            | **yes — the root not-found, as `/no-such-route`** | yes                  | no — data-dependent, and the docs say not to fetch in middleware                    |
+
+  ⚠️ **Finding: a `notFound()` thrown outside a Suspense boundary is served as a
+  _client-rendered_ 404.** Both the "drop `loading.tsx`" build and the
+  segment-`layout.tsx` build returned a `404` whose HTML body is an empty shell —
+  `<div hidden id="S:0"></div>` plus the RSC payload; no app bar, no panel, nothing
+  until JS runs. In a real browser (Playwright, with `.next/static` copied into the
+  standalone dir the way the Dockerfile does) the page then renders exactly today's
+  app bar + not-found panel, and the video route's own "No such video" copy
+  survives. So for a human it is indistinguishable; for an HTML-only client it is a
+  correct `404` with a blank body. Acceptable for a 404, but it is a regression from
+  today's server-rendered body that the "no code restructuring" framing above
+  missed. The middleware rewrite is the one option without this cost, because it
+  never throws — Next serves the not-found route directly, the same path
+  `/no-such-route` already takes. Two smaller things the layout build also settled:
+  a `notFound()` thrown from `shows/[tvdbId]/layout.tsx` **is** caught by a
+  `shows/not-found.tsx` one level up (verified with a marker), and it bypasses the
+  segment's own `not-found.tsx`, so the video copy would have to move up a level
+  under that option.
+
+  **Recommendation — two small changes; every movie/show skeleton stays:**
+
+  1. **Malformed ids on all three routes: add `apps/download/src/middleware.ts`.**
+     Matcher `['/movies/:id', '/shows/:id', '/videos/:id']`; validate the segment and
+     `NextResponse.rewrite()` a bad one to a path that matches no route (the
+     experiment used `/__not-found__`). Verified: `404`, full server-rendered root
+     not-found body, address bar unchanged, every `loading.tsx` untouched. It is also
+     what the Next docs recommend for precisely this situation. For the implementer:
+     - Reuse `mediaIdFromRoute` from `src/lib/media-route` rather than copying the
+       two regexes. Its import chain (`src/db/media-id` →
+       `@lilnas/utils/download/types` → zod) is plain JS and should bundle for the
+       edge runtime — check the middleware bundle size afterwards (the inline-regex
+       experiment built to 33.4 kB).
+     - Keep the page-level `mediaIdFromRoute` guards and their specs exactly as they
+       are. The middleware is the status-code fix; the page check remains the
+       security boundary the pages document, and it is what the unit tests exercise.
+     - `apps/download` has no middleware today, so this introduces the edge bundle
+       to the build. Three matchers; no other route pays anything.
+     - Next 16 renames `middleware.ts` to `proxy.ts` — same code, a rename on
+       upgrade.
+  2. **Unknown-but-well-formed video id: delete `videos/[videoId]/loading.tsx`.**
+     Verified: `404` for both `/videos/<unknown>` and `/videos/tmdb%3A…`, with the
+     segment's own `not-found.tsx` copy still rendering (client-rendered, per the
+     finding above). Cost: no skeleton on a full-document navigation to a video —
+     and every navigation into a detail page _is_ full-document, since nothing in
+     `src` imports `next/link` (the reason `b7083c83` had to scope the home
+     skeleton). This skeleton buys the least of the three: a video detail is
+     `getVideo` (memory) + SQLite rows + the batched Emby annotation behind a 60s
+     path-index TTL, against the show page's per-request Sonarr `listSeasons`. No
+     `loading.spec.tsx` exists for the video route, so the file is the only
+     deletion. The segment-layout alternative (a `cache()`-shared `getMedia` in
+     `videos/[videoId]/layout.tsx`, `not-found.tsx` moved up to
+     `videos/not-found.tsx`) was verified as a `404` too, but it blocks the shell on
+     the same fetch the page needs, so the skeleton would never paint anyway —
+     strictly more code for the same outcome.
+     - If losing the video skeleton is judged not worth it, the honest fallback is
+       to leave this half alone: the backend's own `GET /download/media/:id` already
+       answers `404`, the HTML answer is `200` + `noindex`, and no monitor probes
+       unknown video ids. That is a defensible "won't fix" for this case only.
+  3. **Do not touch `generateMetadata`** for this, and **do not use the
+     segment-`layout.tsx` approach on movies or shows** — it is a client-rendered
+     `404` where the middleware gives a server-rendered one, for the same amount of
+     code.
+  4. **The `isMovie` / `type !== DownloadType.Show` guards stay as they are.** Both
+     pages document them as unreachable (a `tmdb:`/`tvdb:` key always resolves), so
+     they are not a status-code problem in practice and are not worth a pre-check.
+
+  **Doc comments to update when this lands:** the "case 2" paragraph in
+  `src/app/not-found.tsx` ("the production-build behaviour is deliberately
+  unconfirmed here" — it is now confirmed, and the middleware changes which cases
+  reach that file), and the last paragraph of `videos/[videoId]/not-found.tsx` (the
+  malformed-segment case no longer reaches it once the middleware exists).
+
+  **To re-run the check:** `pnpm --filter @lilnas/utils --filter @lilnas/media run
+  build`, then `pnpm run build:frontend` in `apps/download`, then the standalone
+  server with `PORT=18080 HOSTNAME=127.0.0.1` and the stub above on `:8081`;
+  `curl -s -o /dev/null -w '%{http_code}'` against the five paths. Copy
+  `.next/static` into `.next/standalone/apps/download/.next/` before opening
+  anything in a browser, or every chunk 404s and the client-rendered 404 stays
+  blank.
+
+  ##### ✅ Findings: FIXED, 2026-09-24 — squash-merged from `jeremy/download-notfound-bug-investigation`
+
+  Both halves of the recommendation landed as written; `generateMetadata`, the
+  `isMovie` / `type !== DownloadType.Show` guards and every page-level
+  `mediaIdFromRoute` guard (and its spec) are untouched.
+
+  - **`src/middleware.ts`** — matcher `['/movies/:id', '/shows/:id', '/videos/:id']`,
+    reuses `mediaIdFromRoute`, rewrites a bad segment to `/__not-found__`. It
+    `decodeURIComponent`s the segment first (a sequence that will not decode is
+    refused), because the page sees its param decoded — without that,
+    `/movies/%31%32` would be refused here and accepted by the page. Spec:
+    `src/__tests__/middleware.spec.ts`.
+  - ⚠️ **The middleware bundle is 95.5 kB, not the experiment's 33.4 kB.** Reusing
+    `mediaIdFromRoute` pulls `@lilnas/utils/download/types` — and with it zod — into
+    the edge bundle for the `DownloadType` enum. It builds and runs fine, and only
+    the three detail routes pay it; if it ever matters, splitting the regexes out
+    of `media-route.ts` into a zod-free module is the fix.
+  - **`videos/[videoId]/loading.tsx` deleted.** The doc comments in
+    `src/app/not-found.tsx`, `videos/[videoId]/not-found.tsx` and
+    `VideoDetailShell` (which named the skeleton) are updated.
+
+  Re-checked exactly as above, on the standalone build of the fix:
+
+  | Path                     | Status | Body                                                     |
+  | ------------------------ | ------ | -------------------------------------------------------- |
+  | `/movies/abc`            | `404`  | root not-found, server-rendered, `Not found · Download`  |
+  | `/shows/abc`             | `404`  | root not-found, server-rendered, `Not found · Download`  |
+  | `/videos/tmdb%3A438631`  | `404`  | root not-found, server-rendered, `Not found · Download`  |
+  | `/videos/nosuchvideo000` | `404`  | "No such video" — client-rendered, as predicted above    |
+  | `/no-such-route`         | `404`  | root not-found, server-rendered                          |
+
+  A well-formed `/movies/438631` still passes through the middleware untouched.
 
 ---
 

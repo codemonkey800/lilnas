@@ -53,9 +53,10 @@ const VIDEO_DETAIL_SHELL = cns(
 export type VideoDetailShellProps = ComponentPropsWithoutRef<'main'>
 
 /**
- * The video route's page frame, shared by the page, its loading skeleton, its
- * error boundary and its not-found state so all four occupy exactly the same
- * column and nothing shifts as one replaces another.
+ * The video route's page frame, shared by the page, its error boundary and its
+ * not-found state so all three occupy exactly the same column and nothing
+ * shifts as one replaces another. (No loading skeleton, deliberately — see
+ * `src/app/videos/[videoId]/not-found.tsx`.)
  */
 export function VideoDetailShell({
   children,
