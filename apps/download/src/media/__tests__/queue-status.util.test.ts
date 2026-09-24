@@ -2,12 +2,14 @@ import { DownloadJobStatus } from '@lilnas/utils/download/types'
 
 import {
   aggregateQueueItems,
+  dequeuedOutcome,
   deriveStatusFromQueueItem,
   describeQueueItemError,
   isQueueSnapshotEqual,
   LEFT_QUEUE_WITHOUT_FILE_ERROR,
   matchesScope,
   QUEUE_ABSENCE_GRACE_MS,
+  QUEUE_REMOVAL_CONFIRM_MS,
   settleWithoutQueueItem,
   toQueueSnapshot,
 } from 'src/media/queue-status.util'
@@ -305,6 +307,129 @@ describe('settleWithoutQueueItem', () => {
     expect(LEFT_QUEUE_WITHOUT_FILE_ERROR).toBe(
       'Left the queue without producing a file',
     )
+  })
+})
+
+describe('settleWithoutQueueItem with a dequeued outcome', () => {
+  const CONFIRM = QUEUE_REMOVAL_CONFIRM_MS
+  const {
+    Cancelled,
+    Completed,
+    Downloading,
+    Failed,
+    Importing,
+    NeedsAttention,
+  } = DownloadJobStatus
+  const removed = { kind: 'removed' } as const
+  const failed = { kind: 'failed', reason: 'Repair failed' } as const
+  const imported = { kind: 'imported' } as const
+
+  it.each([
+    // Removed upstream: cancelled once two reads agree, not on the first.
+    [Downloading, removed, 0, undefined],
+    [Downloading, removed, CONFIRM - 1, undefined],
+    [Downloading, removed, CONFIRM, Cancelled],
+    [Importing, removed, CONFIRM, Cancelled],
+    // Someone gave up on a blocked import in Radarr's own UI.
+    [NeedsAttention, removed, CONFIRM, Cancelled],
+    // The client failed it: no need to wait out the grace period.
+    [Downloading, failed, CONFIRM, Failed],
+    [NeedsAttention, failed, CONFIRM, Failed],
+    // Imported: the file is coming, so the grace period still rules.
+    [Downloading, imported, CONFIRM, undefined],
+    [Downloading, imported, QUEUE_ABSENCE_GRACE_MS, Failed],
+    [NeedsAttention, imported, QUEUE_ABSENCE_GRACE_MS, undefined],
+  ] as const)(
+    '%s, %o, absent %d ms -> %s',
+    (current, outcome, absentForMs, expected) => {
+      expect(settleWithoutQueueItem(current, false, absentForMs, outcome)).toBe(
+        expected,
+      )
+    },
+  )
+
+  it('still completes a job whose file landed, whatever the history says', () => {
+    expect(settleWithoutQueueItem(Downloading, true, CONFIRM, removed)).toBe(
+      Completed,
+    )
+  })
+
+  it('leaves a terminal job alone', () => {
+    expect(
+      settleWithoutQueueItem(Cancelled, false, CONFIRM, removed),
+    ).toBeUndefined()
+  })
+})
+
+describe('dequeuedOutcome', () => {
+  const OWN = new Set(['abc'])
+  const grabbed = { downloadId: 'abc', eventType: 'grabbed' }
+
+  it('reads a download with nothing after its grab as removed', () => {
+    expect(dequeuedOutcome([grabbed], OWN)).toEqual({ kind: 'removed' })
+  })
+
+  it('reads a recorded import as imported', () => {
+    expect(
+      dequeuedOutcome(
+        [grabbed, { downloadId: 'abc', eventType: 'downloadFolderImported' }],
+        OWN,
+      ),
+    ).toEqual({ kind: 'imported' })
+  })
+
+  it("reads a client failure as failed, with the client's reason", () => {
+    expect(
+      dequeuedOutcome(
+        [
+          grabbed,
+          {
+            data: { message: 'Repair failed, not enough repair blocks' },
+            downloadId: 'abc',
+            eventType: 'downloadFailed',
+          },
+        ],
+        OWN,
+      ),
+    ).toEqual({
+      kind: 'failed',
+      reason: 'Repair failed, not enough repair blocks',
+    })
+  })
+
+  it('reads a blocklisted or ignored removal as removed', () => {
+    expect(
+      dequeuedOutcome(
+        [
+          grabbed,
+          {
+            data: { message: 'Manually marked as failed' },
+            downloadId: 'abc',
+            eventType: 'downloadFailed',
+          },
+        ],
+        OWN,
+      ),
+    ).toEqual({ kind: 'removed' })
+    expect(
+      dequeuedOutcome(
+        [grabbed, { downloadId: 'abc', eventType: 'downloadIgnored' }],
+        OWN,
+      ),
+    ).toEqual({ kind: 'removed' })
+  })
+
+  it("ignores every other download's records", () => {
+    expect(
+      dequeuedOutcome(
+        [
+          grabbed,
+          { downloadId: 'other', eventType: 'downloadFolderImported' },
+          { downloadId: null, eventType: 'downloadFailed' },
+        ],
+        OWN,
+      ),
+    ).toEqual({ kind: 'removed' })
   })
 })
 

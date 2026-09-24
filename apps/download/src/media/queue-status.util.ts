@@ -4,6 +4,9 @@ import type {
 } from '@lilnas/utils/download/types'
 import { DownloadJobStatus } from '@lilnas/utils/download/types'
 
+import type { QueueSource } from './media-state.service'
+import { type HistoryRecordLike, historyValue } from './release-history.util'
+
 /**
  * Structural subset of Radarr's and Sonarr's (nominally distinct, but
  * field-identical) generated `QueueResource` types - just the fields the
@@ -278,9 +281,70 @@ export function deriveStatusFromQueueItem(
  */
 export const QUEUE_ABSENCE_GRACE_MS = 60_000
 
+/**
+ * How long a job whose history says it was removed or failed (see
+ * `DequeuedOutcome`) must stay missing from the queue before that is taken
+ * as final: long enough that two separate queue reads agreed, so one read
+ * that briefly came back without it can't end a live download.
+ */
+export const QUEUE_REMOVAL_CONFIRM_MS = 5_000
+
 /** The error a job fails with when it left the queue and nothing landed. */
 export const LEFT_QUEUE_WITHOUT_FILE_ERROR =
   'Left the queue without producing a file'
+
+/** Why a job was cancelled when someone removed its download upstream. */
+export const REMOVED_FROM_QUEUE_ERROR = {
+  radarr: "Removed from Radarr's queue",
+  sonarr: "Removed from Sonarr's queue",
+} as const satisfies Record<QueueSource, string>
+
+/**
+ * What Radarr's/Sonarr's history says became of the downloads a job had
+ * queued, once they have left the queue:
+ *
+ * - `imported`: an import was recorded, so the file is on its way into the
+ *   library listing and the grace period still applies.
+ * - `failed`: the download client failed it, with its reason if it gave one.
+ * - `removed`: a person took it out of the queue in Radarr/Sonarr. A plain
+ *   removal writes no history at all, so "nothing after the grab" reads as
+ *   this, and so do blocklisting (a *manual* `downloadFailed`) and ignoring
+ *   (`downloadIgnored`).
+ */
+export type DequeuedOutcome =
+  | { kind: 'failed'; reason?: string }
+  | { kind: 'imported' }
+  | { kind: 'removed' }
+
+/** The `downloadFailed` message Radarr/Sonarr write for a blocklisted removal. */
+const MANUALLY_FAILED_MESSAGE = 'Manually marked as failed'
+
+/**
+ * Reads a `DequeuedOutcome` off a title's history, looking only at the
+ * records for `downloadIds` (the queue items the job had).
+ */
+export function dequeuedOutcome(
+  records: readonly HistoryRecordLike[],
+  downloadIds: ReadonlySet<string>,
+): DequeuedOutcome {
+  const own = records.filter(
+    record => record.downloadId != null && downloadIds.has(record.downloadId),
+  )
+
+  if (own.some(record => record.eventType === 'downloadFolderImported')) {
+    return { kind: 'imported' }
+  }
+
+  const failure = own.find(
+    record =>
+      record.eventType === 'downloadFailed' &&
+      historyValue(record, 'message') !== MANUALLY_FAILED_MESSAGE,
+  )
+
+  return failure
+    ? { kind: 'failed', reason: historyValue(failure, 'message') }
+    : { kind: 'removed' }
+}
 
 // Statuses that mean a release was grabbed: the job has been seen in the
 // queue, so leaving it is the end of the attempt one way or the other.
@@ -312,6 +376,11 @@ const WAITING_STATUSES = new Set<DownloadJobStatus>([
  * - A file landed: Completed, whatever the status. That includes a
  *   `searching` job whose whole download happened between two ticks, and a
  *   `needs_attention` job a human imported by hand.
+ * - No file, and `outcome` (the history of the job's own downloads, known
+ *   only for a job that was seen in the queue) says it was removed or
+ *   failed upstream: Cancelled or Failed once `QUEUE_REMOVAL_CONFIRM_MS`
+ *   has passed. That includes a needs_attention job someone gave up on in
+ *   Radarr's/Sonarr's own UI.
  * - Grabbed (downloading/importing/paused), no file: unchanged for
  *   `QUEUE_ABSENCE_GRACE_MS`, since the import may still be racing the file
  *   listing, then Failed.
@@ -324,12 +393,23 @@ export function settleWithoutQueueItem(
   current: DownloadJobStatus,
   fileLanded: boolean,
   absentForMs: number,
+  outcome?: DequeuedOutcome,
 ): DownloadJobStatus | undefined {
   const grabbed = GRABBED_STATUSES.has(current)
 
   if (!grabbed && !WAITING_STATUSES.has(current)) return undefined
 
   if (fileLanded) return DownloadJobStatus.Completed
+
+  if (
+    outcome &&
+    outcome.kind !== 'imported' &&
+    absentForMs >= QUEUE_REMOVAL_CONFIRM_MS
+  ) {
+    return outcome.kind === 'removed'
+      ? DownloadJobStatus.Cancelled
+      : DownloadJobStatus.Failed
+  }
 
   if (grabbed && absentForMs >= QUEUE_ABSENCE_GRACE_MS) {
     return DownloadJobStatus.Failed

@@ -28,6 +28,8 @@ import { MediaStateService, type QueueSource } from './media-state.service'
 import { toEpisodeStateEntries } from './media-state.util'
 import {
   aggregateQueueItems,
+  type DequeuedOutcome,
+  dequeuedOutcome,
   deriveStatusFromQueueItem,
   describeQueueItemError,
   isQueueSnapshotEqual,
@@ -35,10 +37,12 @@ import {
   matchesScope,
   PollableQueueItem,
   QUEUE_ABSENCE_GRACE_MS,
+  REMOVED_FROM_QUEUE_ERROR,
   settleWithoutQueueItem,
   toQueueSnapshot,
 } from './queue-status.util'
 import { RadarrService } from './radarr.service'
+import type { HistoryRecordLike } from './release-history.util'
 import { SonarrService } from './sonarr.service'
 
 const BASE_BACKOFF_MS = 10_000
@@ -100,9 +104,11 @@ export interface PollableCompletionData {
  *
  * A job's queue item says where it is; a job with **no** item is settled
  * from the library instead - `completed` only once a file for its scope
- * landed after it was created, `failed` once a grabbed job has been gone
- * from the queue for `QUEUE_ABSENCE_GRACE_MS` with nothing to show for it.
- * See `settleAbsentJobs`.
+ * landed after it was created, `cancelled`/`failed` as soon as the history
+ * of its own downloads says someone removed them or the client failed them,
+ * and otherwise `failed` once a grabbed job has been gone from the queue for
+ * `QUEUE_ABSENCE_GRACE_MS` with nothing to show for it. See
+ * `settleAbsentJobs`.
  *
  * Also broadcasts a `MediaEvent` for every movie/show whose state moved this
  * tick - owned by a job or not - so an open page follows a download it
@@ -179,6 +185,14 @@ export class MediaPollerService {
    * settles or is no longer tracked.
    */
   private readonly lastSnapshot = new Map<string, DownloadQueueSnapshot>()
+
+  /**
+   * Job id -> every download-client id its queue items have carried. What
+   * picks the job's own downloads out of the title's history once they leave
+   * the queue (see `dequeuedOutcomes`). In memory only: a job whose items
+   * left before a restart has none, and settles on the grace period.
+   */
+  private readonly downloadIds = new Map<string, Set<string>>()
 
   constructor(
     private readonly downloadGateway: DownloadGateway,
@@ -258,6 +272,7 @@ export class MediaPollerService {
       const item = queue.find(q => q.movieId === job.upstreamId)
       if (item) {
         this.absentSince.delete(job.record.id)
+        this.rememberDownloads(job.record.id, [item])
         this.applyUpdate(job.record, item)
       } else {
         absent.push(job)
@@ -297,6 +312,7 @@ export class MediaPollerService {
       const item = aggregateQueueItems(matches)
       if (item) {
         this.absentSince.delete(job.record.id)
+        this.rememberDownloads(job.record.id, matches)
         this.applyUpdate(job.record, item)
       } else {
         absent.push(job)
@@ -307,11 +323,26 @@ export class MediaPollerService {
     this.touchDequeuedJobs(absent, settled)
   }
 
+  /** Adds the download-client ids of a job's queue items to `downloadIds`. */
+  private rememberDownloads(
+    jobId: string,
+    items: readonly PollableQueueItem[],
+  ): void {
+    for (const { downloadId } of items) {
+      if (!downloadId) continue
+
+      const known = this.downloadIds.get(jobId)
+      if (known) known.add(downloadId)
+      else this.downloadIds.set(jobId, new Set([downloadId]))
+    }
+  }
+
   /**
    * Settles the tracked jobs that had no queue item this tick, from the
-   * files upstream holds for them. See `settleWithoutQueueItem` for the
-   * rule; this supplies its two inputs - `didJobComplete`'s verdict and how
-   * long the job has been missing from the queue.
+   * files upstream holds for them and the history of their downloads. See
+   * `settleWithoutQueueItem` for the rule; this supplies its inputs -
+   * `didJobComplete`'s verdict, how long the job has been missing from the
+   * queue, and its `DequeuedOutcome`.
    *
    * Never throws. A job whose files can't be read is left exactly as it is,
    * past the grace period or not: without the listing there is no telling a
@@ -335,35 +366,47 @@ export class MediaPollerService {
     }
 
     const inputs = await this.completionInputs(type, jobs)
+    const landed = new Map<string, boolean>()
+    for (const { record } of jobs) {
+      const data = inputs.get(record.id)
+      if (!data) continue
+
+      landed.set(
+        record.id,
+        didJobComplete({
+          createdAt: new Date(record.createdAt),
+          episodes: data.episodes,
+          files: data.files,
+          scope: record.scope,
+        }),
+      )
+    }
+    const outcomes = await this.dequeuedOutcomes(
+      type,
+      jobs.filter(({ record }) => landed.get(record.id) === false),
+    )
 
     for (const { record: tracked, upstreamId } of jobs) {
-      const data = inputs.get(tracked.id)
-      if (!data) continue
+      const fileLanded = landed.get(tracked.id)
+      if (fileLanded === undefined) continue
 
       // Re-read: the file listing was awaited, and a cancel may have landed
       // in the meantime. A job that settled elsewhere is not ours to move.
       const record = this.downloadStateService.jobs.get(tracked.id)
       if (!record || TERMINAL_STATUSES.has(record.status)) continue
 
-      const fileLanded = didJobComplete({
-        createdAt: new Date(record.createdAt),
-        episodes: data.episodes,
-        files: data.files,
-        scope: record.scope,
-      })
       const absentForMs = now - (this.absentSince.get(record.id) ?? now)
+      const outcome = outcomes.get(record.id)
 
       const next = settleWithoutQueueItem(
         record.status,
         fileLanded,
         absentForMs,
+        outcome,
       )
       if (next === undefined) continue
 
-      const error =
-        next === DownloadJobStatus.Failed
-          ? LEFT_QUEUE_WITHOUT_FILE_ERROR
-          : undefined
+      const error = settledError(next, outcome, SOURCE_OF[type])
 
       this.logger.log(
         {
@@ -421,7 +464,11 @@ export class MediaPollerService {
    * was down still goes.
    */
   private forgetUntrackedJobs(): void {
-    for (const byJob of [this.absentSince, this.lastSnapshot]) {
+    for (const byJob of [
+      this.absentSince,
+      this.downloadIds,
+      this.lastSnapshot,
+    ]) {
       for (const jobId of byJob.keys()) {
         const record = this.downloadStateService.jobs.get(jobId)
         if (!record || TERMINAL_STATUSES.has(record.status)) {
@@ -811,6 +858,60 @@ export class MediaPollerService {
     return byJobId
   }
 
+  /**
+   * The `DequeuedOutcome` of each of `jobs` whose downloads are known (see
+   * `downloadIds`), keyed by job id. Asked only about jobs with no queue item
+   * and no file, and fetches each title's history once however many of its
+   * jobs are asking.
+   *
+   * Never throws. A title whose history can't be read is logged and left
+   * out, so its jobs fall back to the grace period this tick.
+   */
+  private async dequeuedOutcomes(
+    type: DownloadType.Movie | DownloadType.Show,
+    jobs: readonly TrackedJob[],
+  ): Promise<Map<string, DequeuedOutcome>> {
+    const byJobId = new Map<string, DequeuedOutcome>()
+    const known = jobs.filter(({ record }) => this.downloadIds.has(record.id))
+    if (known.length === 0) return byJobId
+
+    const upstreamIds = Array.from(new Set(known.map(job => job.upstreamId)))
+    const histories = new Map<number, HistoryRecordLike[]>()
+
+    await Promise.all(
+      upstreamIds.map(async upstreamId => {
+        try {
+          histories.set(
+            upstreamId,
+            type === DownloadType.Movie
+              ? await this.radarrService.getMovieHistory(upstreamId)
+              : await this.sonarrService.getSeriesHistory(upstreamId),
+          )
+        } catch (err) {
+          this.logger.warn(
+            {
+              action: 'dequeuedOutcomes',
+              error: getErrorMessage(err),
+              type,
+              upstreamId,
+            },
+            'History read failed, leaving its jobs to the grace period',
+          )
+        }
+      }),
+    )
+
+    for (const { record, upstreamId } of known) {
+      const history = histories.get(upstreamId)
+      const downloadIds = this.downloadIds.get(record.id)
+      if (history && downloadIds) {
+        byJobId.set(record.id, dequeuedOutcome(history, downloadIds))
+      }
+    }
+
+    return byJobId
+  }
+
   private async fetchCompletionData(
     type: DownloadType.Movie | DownloadType.Show,
     upstreamId: number,
@@ -888,8 +989,9 @@ export class MediaPollerService {
   }
 
   /**
-   * Writes a status move to the job. `error` is the reason a Failed or
-   * NeedsAttention status carries, when there is one; any other status
+   * Writes a status move to the job. `error` is the reason a Cancelled,
+   * Failed or NeedsAttention status carries, when there is one; any other
+   * status
    * leaves `error` alone, except that leaving NeedsAttention clears it.
    */
   private writeStatus(
@@ -898,6 +1000,7 @@ export class MediaPollerService {
     error: string | undefined,
   ): void {
     const carriesReason =
+      newStatus === DownloadJobStatus.Cancelled ||
       newStatus === DownloadJobStatus.Failed ||
       newStatus === DownloadJobStatus.NeedsAttention
 
@@ -926,6 +1029,27 @@ export class MediaPollerService {
       status: newStatus,
     })
   }
+}
+
+/**
+ * The reason a job settled without a queue item carries: Radarr's/Sonarr's
+ * own failure message when there is one, which queue a cancelled job was
+ * removed from, and otherwise that it left the queue with nothing to show.
+ */
+function settledError(
+  status: DownloadJobStatus,
+  outcome: DequeuedOutcome | undefined,
+  source: QueueSource,
+): string | undefined {
+  if (status === DownloadJobStatus.Cancelled) {
+    return REMOVED_FROM_QUEUE_ERROR[source]
+  }
+
+  if (status !== DownloadJobStatus.Failed) return undefined
+
+  return outcome?.kind === 'failed' && outcome.reason
+    ? outcome.reason
+    : LEFT_QUEUE_WITHOUT_FILE_ERROR
 }
 
 /**

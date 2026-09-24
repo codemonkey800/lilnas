@@ -170,6 +170,7 @@ describe('MediaPollerService', () => {
     dbService = createTestDbService()
     const mockRadarrService = {
       getMovieFiles: jest.fn().mockResolvedValue([]),
+      getMovieHistory: jest.fn().mockResolvedValue([]),
       getQueue: jest.fn().mockResolvedValue([]),
       refreshMonitoredDownloads: jest.fn().mockResolvedValue(undefined),
     }
@@ -177,6 +178,7 @@ describe('MediaPollerService', () => {
       getEpisodeFiles: jest.fn().mockResolvedValue([]),
       getEpisodes: jest.fn().mockResolvedValue([]),
       getQueue: jest.fn().mockResolvedValue([]),
+      getSeriesHistory: jest.fn().mockResolvedValue([]),
       refreshMonitoredDownloads: jest.fn().mockResolvedValue(undefined),
     }
     const mockDownloadGateway = {
@@ -2095,6 +2097,169 @@ describe('MediaPollerService', () => {
         expect(downloadStateService.jobs.get(seasonJob.id)?.status).toBe(
           DownloadJobStatus.Downloading,
         )
+      })
+    })
+
+    // Removed from Radarr's/Sonarr's own queue: the history of the job's own
+    // download settles it, without waiting out the grace period.
+    describe('reading what became of a download that left the queue', () => {
+      const QUEUED_ITEM: QueueResource = {
+        ...DOWNLOADING_ITEM,
+        downloadId: 'dl-1',
+      }
+      const GRABBED = { downloadId: 'dl-1', eventType: 'grabbed' } as const
+
+      async function queuedThenGone(
+        status = DownloadJobStatus.Downloading,
+      ): Promise<DownloadJobRecord> {
+        const job = buildMovieJob({ status })
+        downloadStateService.jobs.set(job.id, job)
+
+        at(T0)
+        radarrService.getQueue.mockResolvedValue([
+          status === DownloadJobStatus.NeedsAttention
+            ? { ...QUEUED_ITEM, trackedDownloadState: 'importPending' }
+            : QUEUED_ITEM,
+        ])
+        await service.poll()
+
+        at(T0 + 10_000)
+        radarrService.getQueue.mockResolvedValue([])
+        await service.poll()
+        return job
+      }
+
+      it('cancels a job whose download was removed in Radarr, on the next read', async () => {
+        radarrService.getMovieHistory.mockResolvedValue([GRABBED])
+        const job = await queuedThenGone()
+
+        // One read without it is not enough to call it.
+        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+          DownloadJobStatus.Downloading,
+        )
+
+        at(T0 + 20_000)
+        await service.poll()
+
+        const updated = downloadStateService.jobs.get(job.id)
+        expect(radarrService.getMovieHistory).toHaveBeenCalledWith(42)
+        expect(updated?.status).toBe(DownloadJobStatus.Cancelled)
+        expect(updated?.error).toBe("Removed from Radarr's queue")
+        expect(getJobById(dbService.db, job.id)?.error).toBe(
+          "Removed from Radarr's queue",
+        )
+      })
+
+      it("fails a job the download client failed, with the client's reason", async () => {
+        radarrService.getMovieHistory.mockResolvedValue([
+          GRABBED,
+          {
+            data: { message: 'Repair failed, not enough repair blocks' },
+            downloadId: 'dl-1',
+            eventType: 'downloadFailed',
+          },
+        ])
+        const job = await queuedThenGone()
+
+        at(T0 + 20_000)
+        await service.poll()
+
+        const updated = downloadStateService.jobs.get(job.id)
+        expect(updated?.status).toBe(DownloadJobStatus.Failed)
+        expect(updated?.error).toBe('Repair failed, not enough repair blocks')
+      })
+
+      it('keeps waiting on a job whose import is recorded but not yet listed', async () => {
+        radarrService.getMovieHistory.mockResolvedValue([
+          GRABBED,
+          { downloadId: 'dl-1', eventType: 'downloadFolderImported' },
+        ])
+        const job = await queuedThenGone()
+
+        at(T0 + 20_000)
+        await service.poll()
+        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+          DownloadJobStatus.Downloading,
+        )
+
+        radarrService.getMovieFiles.mockResolvedValue([
+          { dateAdded: AFTER_ISO, id: 501, movieId: 42 },
+        ])
+        at(T0 + 30_000)
+        await service.poll()
+        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+          DownloadJobStatus.Completed,
+        )
+      })
+
+      it('cancels a needs-attention job someone gave up on in Radarr', async () => {
+        radarrService.getMovieHistory.mockResolvedValue([GRABBED])
+        const job = await queuedThenGone(DownloadJobStatus.NeedsAttention)
+
+        at(T0 + 20_000)
+        await service.poll()
+
+        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+          DownloadJobStatus.Cancelled,
+        )
+      })
+
+      it("cancels a show job from Sonarr's history", async () => {
+        const job = buildShowJob({ status: DownloadJobStatus.Downloading })
+        downloadStateService.jobs.set(job.id, job)
+        sonarrService.getSeriesHistory.mockResolvedValue([GRABBED])
+
+        at(T0)
+        sonarrService.getQueue.mockResolvedValue([
+          { downloadId: 'dl-1', seriesId: 9, status: 'downloading' },
+        ])
+        await service.poll()
+        sonarrService.getQueue.mockResolvedValue([])
+        at(T0 + 10_000)
+        await service.poll()
+        at(T0 + 20_000)
+        await service.poll()
+
+        const updated = downloadStateService.jobs.get(job.id)
+        expect(sonarrService.getSeriesHistory).toHaveBeenCalledWith(9)
+        expect(updated?.status).toBe(DownloadJobStatus.Cancelled)
+        expect(updated?.error).toBe("Removed from Sonarr's queue")
+      })
+
+      // No download id to look for: nothing in the history is the job's.
+      it('reads no history for a job whose downloads it never saw', async () => {
+        const job = buildMovieJob({ status: DownloadJobStatus.Downloading })
+        downloadStateService.jobs.set(job.id, job)
+        radarrService.getQueue.mockResolvedValue([])
+
+        at(T0)
+        await service.poll()
+        at(T0 + 20_000)
+        await service.poll()
+
+        expect(radarrService.getMovieHistory).not.toHaveBeenCalled()
+        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+          DownloadJobStatus.Downloading,
+        )
+      })
+
+      it('falls back to the grace period when the history cannot be read', async () => {
+        radarrService.getMovieHistory.mockRejectedValue(
+          new Error('radarr down'),
+        )
+        const job = await queuedThenGone()
+
+        at(T0 + 20_000)
+        await service.poll()
+        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+          DownloadJobStatus.Downloading,
+        )
+
+        at(T0 + 71_000)
+        await service.poll()
+        const updated = downloadStateService.jobs.get(job.id)
+        expect(updated?.status).toBe(DownloadJobStatus.Failed)
+        expect(updated?.error).toBe('Left the queue without producing a file')
       })
     })
 
