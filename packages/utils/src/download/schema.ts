@@ -391,13 +391,29 @@ export const DownloadJobSchema = z.object({
 })
 
 export const GalleryItemSchema = z.object({
+  /**
+   * Plan 021. When the title's file landed in the library - the gallery's
+   * sort key and what `from`/`to` filter on. Read off the media itself
+   * (Radarr's file `dateAdded`, Sonarr's series `added`, a video's last
+   * write), so a title nobody downloaded through this app still has one.
+   */
+  addedAt: z.iso.datetime(),
+  /**
+   * Completed download attempts for the title. `0` is an honest answer: the
+   * gallery lists the library, and a title can be in it without ever having
+   * been downloaded through this app.
+   */
   downloadCount: z.number().int(),
   /**
    * The Discord identity that submitted the last download, when it came in
    * over Discord; `null` otherwise. Masked alongside `lastRequester`.
    */
   lastDiscordRequester: DiscordRequesterSchema.nullable(),
-  lastDownloadedAt: z.iso.datetime(),
+  /**
+   * When the latest completed download attempt finished, or `null` when the
+   * title has none (see `downloadCount`).
+   */
+  lastDownloadedAt: z.iso.datetime().nullable(),
   /** Masked per the attribution-oracle rules — see `attribution.ts`. */
   lastRequester: JobRequesterSchema.nullable(),
   media: MediaSchema,

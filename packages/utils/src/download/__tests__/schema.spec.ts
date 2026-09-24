@@ -564,6 +564,7 @@ describe('DiscordRequesterSchema / DiscordIdentitySchema', () => {
 describe('GalleryItemSchema', () => {
   it('parses a valid gallery item', () => {
     const result = GalleryItemSchema.safeParse({
+      addedAt: '2026-08-19T08:00:00.000Z',
       downloadCount: 2,
       lastDiscordRequester: null,
       lastDownloadedAt: '2026-08-20T12:00:00.000Z',
@@ -576,6 +577,7 @@ describe('GalleryItemSchema', () => {
   it('rejects a non-integer downloadCount', () => {
     expect(
       GalleryItemSchema.safeParse({
+        addedAt: '2026-08-19T08:00:00.000Z',
         downloadCount: 1.5,
         lastDiscordRequester: null,
         lastDownloadedAt: '2026-08-20T12:00:00.000Z',
@@ -587,6 +589,7 @@ describe('GalleryItemSchema', () => {
 
   it('accepts a non-null lastDiscordRequester', () => {
     const result = GalleryItemSchema.parse({
+      addedAt: '2026-08-19T08:00:00.000Z',
       downloadCount: 2,
       lastDiscordRequester: {
         discordUserId: '123456789012345678',
@@ -603,9 +606,36 @@ describe('GalleryItemSchema', () => {
     })
   })
 
+  // Plan 021: the gallery lists the library, so a title nobody downloaded
+  // through this app is a card with no attempt behind it.
+  it('accepts a title with no download attempts', () => {
+    const result = GalleryItemSchema.safeParse({
+      addedAt: '2026-08-19T08:00:00.000Z',
+      downloadCount: 0,
+      lastDiscordRequester: null,
+      lastDownloadedAt: null,
+      lastRequester: null,
+      media: validMovie,
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects an item without addedAt', () => {
+    expect(
+      GalleryItemSchema.safeParse({
+        downloadCount: 2,
+        lastDiscordRequester: null,
+        lastDownloadedAt: '2026-08-20T12:00:00.000Z',
+        lastRequester: null,
+        media: validMovie,
+      }).success,
+    ).toBe(false)
+  })
+
   it('rejects an omitted (rather than null) lastDiscordRequester', () => {
     expect(
       GalleryItemSchema.safeParse({
+        addedAt: '2026-08-19T08:00:00.000Z',
         downloadCount: 2,
         lastDownloadedAt: '2026-08-20T12:00:00.000Z',
         lastRequester: null,

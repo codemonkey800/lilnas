@@ -272,11 +272,13 @@ export type DownloadJobRecord = Omit<DownloadJob, 'media'> & {
 }
 
 /**
- * One gallery card: a piece of media plus a summary of its download
- * attempts - how many there were, and who made the latest one and when.
- * Plan 021 treats each job as one attempt at getting the media, never as
- * the media's status; that comes from `media.state` (read it through
- * `mediaState()`).
+ * One gallery card: a title in the library, when it landed there
+ * (`addedAt`), plus a summary of its download attempts - how many there were,
+ * and who made the latest one and when. The gallery lists the library, not
+ * the job log (plan 021), so a title nobody downloaded through this app is a
+ * card too: `downloadCount: 0`, `lastDownloadedAt: null` and no requester.
+ * Each job is one attempt at getting the media, never the media's status;
+ * that comes from `media.state` (read it through `mediaState()`).
  */
 export type GalleryItem = z.infer<typeof GalleryItemSchema>
 
