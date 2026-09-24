@@ -28,6 +28,7 @@ import {
   JobInterruptKind,
 } from 'src/download/job-interrupted.error'
 import { DownloadStepOptions } from 'src/download/types'
+import { YTDLP_PROGRESS_ARGS } from 'src/download/ytdlp-progress'
 
 jest.mock('child_process')
 // Only `createWriteStream` is replaced: the rest of `fs` is left real so
@@ -96,6 +97,28 @@ const NOW_ISO = '2026-08-20T12:00:00.000Z'
 const VIDEO_URL = 'https://example.com/video'
 const VIDEO_INFO = { description: 'An overview', title: 'A title' }
 
+// Real yt-dlp output for a `160+139` grab: two files, the video stream then
+// the audio stream, each announced by its own first tick.
+const FORMAT_LINE = '[info] x: Downloading 1 format(s): 160+139'
+const VIDEO_TICK_START =
+  'LILNAS_PROGRESS {"status": "downloading", "downloaded_bytes": 1024, "total_bytes": 4323893, "tmpfilename": "test.f160.mp4.part", "filename": "test.f160.mp4", "eta": null, "speed": null}'
+const VIDEO_TICK_MID =
+  'LILNAS_PROGRESS {"status": "downloading", "downloaded_bytes": 2096128, "total_bytes": 4323893, "tmpfilename": "test.f160.mp4.part", "filename": "test.f160.mp4", "eta": 0, "speed": 42971715.11}'
+const VIDEO_TICK_DONE =
+  'LILNAS_PROGRESS {"downloaded_bytes": 4323893, "total_bytes": 4323893, "filename": "test.f160.mp4", "status": "finished", "speed": 22382070.50}'
+const AUDIO_TICK_START =
+  'LILNAS_PROGRESS {"status": "downloading", "downloaded_bytes": 1024, "total_bytes": 3871021, "tmpfilename": "test.f139.m4a.part", "filename": "test.f139.m4a", "eta": null, "speed": null}'
+
+/**
+ * The fixture as yt-dlp's pipe might deliver it: the second tick is split
+ * mid-prefix across two 'data' events, and the last chunk carries two lines.
+ */
+const PROGRESS_CHUNKS = [
+  `${FORMAT_LINE}\n${VIDEO_TICK_START}\nLILNAS_PRO`,
+  `${VIDEO_TICK_MID.slice('LILNAS_PRO'.length)}\n`,
+  `${VIDEO_TICK_DONE}\n${AUDIO_TICK_START}\n`,
+]
+
 function buildJob(overrides: Partial<DownloadJobRecord> = {}) {
   return {
     completedAt: null,
@@ -147,6 +170,11 @@ async function captureRejection(promise: Promise<unknown>): Promise<unknown> {
 describe('DownloadVideoService', () => {
   let service: DownloadVideoService
   let errorSpy: jest.SpyInstance
+  let warnSpy: jest.SpyInstance
+  let flushProgress: jest.Mock
+  let getInterruption: jest.Mock
+  let requireVideo: jest.Mock
+  let setProgress: jest.Mock
   let interruptions: Map<string, JobInterruptKind>
   let options: DownloadStepOptions
   /** Held so a test can reach the handle `download()` registered. */
@@ -156,12 +184,15 @@ describe('DownloadVideoService', () => {
    * Installs a `spawn()` fake. The `--dump-json` metadata probe that
    * `download()` runs first always succeeds - it's a non-critical
    * best-effort step, and letting it fail would only add noise - so
-   * `code`/`stderr` describe the *pipeline* process (yt-dlp or ffmpeg).
+   * `code`/`stderr`/`stdout` describe the *pipeline* process (yt-dlp or
+   * ffmpeg). Each `stdout` entry is its own 'data' event, emitted in order
+   * before 'close', so a test controls exactly where the chunks split.
    */
   function mockProcessExit({
     code = 0,
     stderr,
-  }: { code?: number; stderr?: string } = {}) {
+    stdout = [],
+  }: { code?: number; stderr?: string; stdout?: string[] } = {}) {
     mockSpawn.mockImplementation((...spawnArgs: unknown[]) => {
       const args = spawnArgs[1]
       const isInfoProbe = Array.isArray(args) && args.includes('--dump-json')
@@ -174,6 +205,10 @@ describe('DownloadVideoService', () => {
           return
         }
 
+        for (const chunk of stdout) {
+          proc.stdout.emit('data', Buffer.from(chunk))
+        }
+
         if (stderr) {
           proc.stderr.emit('data', Buffer.from(stderr))
         }
@@ -183,6 +218,23 @@ describe('DownloadVideoService', () => {
 
       return proc as unknown as ChildProcess
     })
+  }
+
+  /** The argv of every `spawn()` call so far, in order. */
+  function spawnedArgs(): string[][] {
+    return mockSpawn.mock.calls.map(call => {
+      const argv: unknown = call[1]
+
+      return Array.isArray(argv) ? argv.map(String) : []
+    })
+  }
+
+  /** The `download.log`-writing yt-dlp spawn, i.e. not the metadata probe. */
+  function downloadSpawnArgs(): string[] {
+    const args = spawnedArgs().find(argv => !argv.includes('--dump-json'))
+    if (!args) throw new Error('yt-dlp download was never spawned')
+
+    return args
   }
 
   /**
@@ -239,14 +291,20 @@ describe('DownloadVideoService', () => {
     options = { action: 'download', id: JOB_ID, job }
 
     const mockDownloadStateService = {
+      flushProgress: jest.fn(),
       getInterruption: jest.fn((id: string) => interruptions.get(id)),
       jobs: new Map<string, DownloadJobRecord>([[JOB_ID, job]]),
       requireVideo: jest.fn(() => buildVideoRow()),
       setProc: jest.fn(),
+      setProgress: jest.fn(),
       updateJob: jest.fn(),
       updateVideo: jest.fn(),
     }
+    flushProgress = mockDownloadStateService.flushProgress
+    getInterruption = mockDownloadStateService.getInterruption
+    requireVideo = mockDownloadStateService.requireVideo
     setProc = mockDownloadStateService.setProc
+    setProgress = mockDownloadStateService.setProgress
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -272,7 +330,7 @@ describe('DownloadVideoService', () => {
 
     jest.spyOn(Logger.prototype, 'log').mockImplementation()
     errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation()
-    jest.spyOn(Logger.prototype, 'warn').mockImplementation()
+    warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation()
     jest.spyOn(Logger.prototype, 'debug').mockImplementation()
   })
 
@@ -512,6 +570,201 @@ describe('DownloadVideoService', () => {
       expect(err).toBeInstanceOf(JobInterruptedError)
       expect(err).toMatchObject({ jobId: JOB_ID, kind: 'cancel' })
       expect(errorSpy).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('progress', () => {
+    it('passes the progress args before the URL', async () => {
+      await service.download(options)
+
+      const args = downloadSpawnArgs()
+      expect(args.slice(0, YTDLP_PROGRESS_ARGS.length)).toEqual(
+        YTDLP_PROGRESS_ARGS,
+      )
+      expect(args.at(-1)).toBe(VIDEO_URL)
+    })
+
+    it('keeps the clip args alongside the progress args', async () => {
+      requireVideo.mockReturnValue({
+        ...buildVideoRow(),
+        timeRange: { end: '00:00:20', start: '00:00:10' },
+      })
+
+      await service.download(options)
+
+      expect(downloadSpawnArgs()).toEqual([
+        ...YTDLP_PROGRESS_ARGS,
+        '--download-sections',
+        '*00:00:10-00:00:20',
+        '--force-keyframes-at-cuts',
+        VIDEO_URL,
+      ])
+    })
+
+    it('leaves the metadata probe without progress args', async () => {
+      await service.download(options)
+
+      const probe = spawnedArgs().find(argv => argv.includes('--dump-json'))
+      expect(probe).toEqual(['--dump-json', VIDEO_URL])
+    })
+
+    it('forwards one snapshot per tick, however the chunks split', async () => {
+      mockProcessExit({ stdout: PROGRESS_CHUNKS })
+
+      await service.download(options)
+
+      // Four ticks, four snapshots - the tick split across two 'data' events
+      // is one line, and the format line is not a tick at all.
+      expect(setProgress).toHaveBeenCalledTimes(4)
+      const calls = setProgress.mock.calls.map(([id, snapshot, opts]) => ({
+        flush: (opts as { flush: boolean }).flush,
+        id: id as string,
+        snapshot: snapshot as Record<string, unknown>,
+      }))
+
+      expect(calls.map(c => c.id)).toEqual([JOB_ID, JOB_ID, JOB_ID, JOB_ID])
+      expect(calls.map(c => c.snapshot.fileIndex)).toEqual([1, 1, 1, 2])
+      expect(calls.map(c => c.snapshot.fileCount)).toEqual([2, 2, 2, 2])
+      expect(calls.map(c => c.snapshot.percent)).toEqual([
+        0.02, 48.48, 100, 0.03,
+      ])
+      // A new file bypasses the throttle; mid-file ticks, and a finish that
+      // isn't the last file's, do not.
+      expect(calls.map(c => c.flush)).toEqual([true, false, false, true])
+    })
+
+    it('forwards a last line that has no trailing newline', async () => {
+      mockProcessExit({ stdout: [`${FORMAT_LINE}\n${VIDEO_TICK_START}`] })
+
+      await service.download(options)
+
+      expect(setProgress).toHaveBeenCalledTimes(1)
+      expect(setProgress).toHaveBeenCalledWith(
+        JOB_ID,
+        expect.objectContaining({ fileIndex: 1 }),
+        { flush: true },
+      )
+    })
+
+    it('flushes the held snapshot once the process exits', async () => {
+      mockProcessExit({ stdout: PROGRESS_CHUNKS })
+
+      await service.download(options)
+
+      expect(flushProgress).toHaveBeenCalledTimes(1)
+      expect(flushProgress).toHaveBeenCalledWith(JOB_ID)
+      const lastSet = Math.max(...setProgress.mock.invocationCallOrder)
+      expect(flushProgress.mock.invocationCallOrder[0]).toBeGreaterThan(lastSet)
+    })
+
+    // A clip goes through ffmpeg's downloader, which never prints a tick.
+    it('sets nothing but still flushes once for a run with no ticks', async () => {
+      requireVideo.mockReturnValue({
+        ...buildVideoRow(),
+        timeRange: { end: '00:00:20', start: '00:00:10' },
+      })
+      mockProcessExit({ stdout: ['[download] Destination: clip.mp4\n'] })
+
+      await service.download(options)
+
+      expect(setProgress).not.toHaveBeenCalled()
+      expect(flushProgress).toHaveBeenCalledTimes(1)
+    })
+
+    it('flushes before the interrupt check so a paused job keeps its last tick', async () => {
+      interruptions.set(JOB_ID, 'pause')
+      mockProcessExit({ code: 1, stdout: PROGRESS_CHUNKS })
+
+      const err = await captureRejection(service.download(options))
+
+      expect(err).toBeInstanceOf(JobInterruptedError)
+      expect(flushProgress).toHaveBeenCalledTimes(1)
+      // The last `getInterruption()` read is `assertNotInterrupted()`.
+      const interruptCheck = Math.max(
+        ...getInterruption.mock.invocationCallOrder,
+      )
+      expect(flushProgress.mock.invocationCallOrder[0]).toBeLessThan(
+        interruptCheck,
+      )
+    })
+
+    it('still flushes on a crash and on a spawn error', async () => {
+      mockProcessExit({ code: 1, stderr: 'ERROR: boom' })
+      await captureRejection(service.download(options))
+      expect(flushProgress).toHaveBeenCalledTimes(1)
+
+      mockProcessSpawnError(spawnError('EACCES'))
+      await captureRejection(service.download(options))
+      expect(flushProgress).toHaveBeenCalledTimes(2)
+    })
+
+    it('starts file numbering over on a resumed run', async () => {
+      mockProcessExit({ stdout: PROGRESS_CHUNKS })
+
+      await service.download(options)
+      setProgress.mockClear()
+      await service.download(options)
+
+      expect(setProgress.mock.calls[0]?.[1]).toMatchObject({ fileIndex: 1 })
+    })
+
+    it('does not fail the download when forwarding a snapshot throws', async () => {
+      setProgress.mockImplementation(() => {
+        throw new Error('broken progress')
+      })
+      mockProcessExit({ stdout: PROGRESS_CHUNKS })
+
+      await expect(service.download(options)).resolves.toBeUndefined()
+
+      // Every tick still reached the handler, and the throw was logged once.
+      expect(setProgress).toHaveBeenCalledTimes(4)
+      const warnings = warnSpy.mock.calls.filter(([data]) =>
+        String((data as { error?: unknown }).error).includes('broken progress'),
+      )
+      expect(warnings).toHaveLength(1)
+      expect(warnings[0]?.[0]).toMatchObject({
+        job: expect.objectContaining({ id: JOB_ID }),
+      })
+      expect(flushProgress).toHaveBeenCalledTimes(1)
+      expect(errorSpy).not.toHaveBeenCalled()
+    })
+
+    it('does not change the exit path when forwarding a snapshot throws', async () => {
+      setProgress.mockImplementation(() => {
+        throw new Error('broken progress')
+      })
+      mockProcessExit({
+        code: 1,
+        stderr: 'ERROR: unsupported URL',
+        stdout: PROGRESS_CHUNKS,
+      })
+
+      const err = await captureRejection(service.download(options))
+
+      expect(err).toMatchObject({ message: 'ERROR: unsupported URL' })
+    })
+
+    it('keeps piping stdout into the log file', async () => {
+      mockProcessExit({ stdout: PROGRESS_CHUNKS })
+
+      await service.download(options)
+
+      const registered = setProc.mock.calls.at(-1)?.[1] as MockChildProcess
+      expect(registered.stdout.pipe).toHaveBeenCalledWith(lastLogStream())
+    })
+
+    it('never reads progress from ffmpeg', async () => {
+      mockProcessExit({ stdout: PROGRESS_CHUNKS })
+
+      await service.convert(options)
+
+      expect(setProgress).not.toHaveBeenCalled()
+      expect(flushProgress).not.toHaveBeenCalled()
+      const [ffmpegArgs] = spawnedArgs()
+      expect(ffmpegArgs).not.toEqual(
+        expect.arrayContaining([...YTDLP_PROGRESS_ARGS]),
+      )
+      expect(ffmpegArgs).not.toContain('--progress-template')
     })
   })
 

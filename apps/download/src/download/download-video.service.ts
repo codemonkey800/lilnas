@@ -22,6 +22,17 @@ import { DownloadMetricsService } from './download-metrics.service'
 import { DownloadStateService } from './download-state.service'
 import { JobInterruptedError } from './job-interrupted.error'
 import { DownloadStepOptions } from './types'
+import {
+  createLineSplitter,
+  createProgressReducer,
+  YTDLP_PROGRESS_ARGS,
+} from './ytdlp-progress'
+
+type JobLogger = (
+  level: 'log' | 'error' | 'warn',
+  data: object,
+  message: string,
+) => void
 
 const VIDEO_DIR = '/download/videos'
 const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.webm']
@@ -219,6 +230,20 @@ export class DownloadVideoService {
     })
   }
 
+  /**
+   * Runs yt-dlp for a video job and reports its progress as it goes.
+   *
+   * `YTDLP_PROGRESS_ARGS` make yt-dlp print one JSON progress tick per line
+   * (at most one a second) behind a fixed prefix. Every stdout line still
+   * lands in `download.log` untouched; a per-run reducer additionally folds
+   * the ticks into `VideoProgress` snapshots and hands them to
+   * `DownloadStateService.setProgress()`, which throttles the re-broadcast.
+   *
+   * Progress is process-lifetime only: the state service holds the latest
+   * snapshot in memory and nothing persists it, so a restart simply shows no
+   * progress until the next tick. A resume re-enters this method and builds
+   * a fresh reducer, so file numbering starts over with the new run.
+   */
   async download(options: DownloadStepOptions) {
     const { job } = options
 
@@ -271,6 +296,7 @@ export class DownloadVideoService {
     }
 
     const args = [
+      ...YTDLP_PROGRESS_ARGS,
       ...(video.timeRange
         ? [
             '--download-sections',
@@ -281,12 +307,26 @@ export class DownloadVideoService {
       video.sourceUrl,
     ]
 
+    // Per run, never shared: a resume starts a new yt-dlp whose file
+    // numbering has nothing to do with the run that was paused.
+    const progressReducer = createProgressReducer()
+
     log('log', options, 'Started download')
     const downloadProcess = await this.runProcess({
       args,
       bin: '/usr/bin/yt-dlp',
       cwd: `${VIDEO_DIR}/${job.id}`,
+      log,
       logFile: `${job.id}/download.log`,
+      onStdoutLine: line => {
+        const next = progressReducer.next(line)
+
+        if (next) {
+          this.downloadStateService.setProgress(job.id, next.snapshot, {
+            flush: next.flush,
+          })
+        }
+      },
     })
 
     this.downloadStateService.setProc(job.id, downloadProcess.proc)
@@ -308,7 +348,13 @@ export class DownloadVideoService {
     }
 
     try {
-      const { code, stderrTail } = await downloadProcess.promise
+      // The throttle may be holding the last tick on a timer. Send it now,
+      // however the run ended - a clean exit, a crash, a pause's SIGTERM or a
+      // spawn error - so a job parking at Paused shows where it stopped. It
+      // runs before `assertNotInterrupted()` below, which throws on a pause.
+      const { code, stderrTail } = await downloadProcess.promise.finally(() =>
+        this.downloadStateService.flushProgress(job.id),
+      )
 
       // Deliberately *before* the exit-code check below: SIGTERM always
       // produces a non-zero code, so if the code check ran first every pause
@@ -511,24 +557,71 @@ export class DownloadVideoService {
     }
   }
 
-  private getJobLogger(jobId: string) {
-    return (level: 'log' | 'error' | 'warn', data: object, message: string) => {
+  private getJobLogger(jobId: string): JobLogger {
+    return (level, data, message) => {
       const job = this.downloadStateService.jobs.get(jobId)
 
       this.logger[level]({ ...data, job }, message)
     }
   }
 
+  /**
+   * Wraps a stdout line handler so it can never throw. It runs inside a
+   * stream 'data' listener (and the 'close' handler, for the last line),
+   * where a throw is an uncaught exception that also skips everything after
+   * it in that listener - including `resolve()`.
+   *
+   * Only the first failure per run is logged: a broken parser fails on every
+   * tick, and a long download would otherwise log the same warning once a
+   * second.
+   */
+  private guardLineHandler(
+    onLine: (line: string) => void,
+    context: { bin: string; log?: JobLogger; logFile: string },
+  ): (line: string) => void {
+    const { bin, log, logFile } = context
+    let failureLogged = false
+
+    return line => {
+      try {
+        onLine(line)
+      } catch (err) {
+        if (failureLogged) return
+        failureLogged = true
+
+        const data = { bin, error: getErrorMessage(err), logFile }
+        const message =
+          'stdout line handler threw; ignoring it and any further failures this run'
+
+        if (log) {
+          log('warn', data, message)
+        } else {
+          this.logger.warn(data, message)
+        }
+      }
+    }
+  }
+
+  /**
+   * `onStdoutLine`, when given, sees every complete stdout line on top of -
+   * never instead of - the pipe into the log file. A throw from it is logged
+   * (via `log` when given) and swallowed by `guardLineHandler()`: the
+   * process keeps running and its exit path is unchanged.
+   */
   private async runProcess({
     logFile,
     cwd,
     args,
     bin,
+    log,
+    onStdoutLine,
   }: {
     logFile: string
     cwd?: string
     args: string[]
     bin: string
+    log?: JobLogger
+    onStdoutLine?: (line: string) => void
   }) {
     // Append, not truncate: a resumed download re-runs this step against the
     // same job directory, and the first run's output is the only record of
@@ -564,10 +657,23 @@ export class DownloadVideoService {
       }
     })
 
+    const stdoutLines = onStdoutLine
+      ? createLineSplitter(
+          this.guardLineHandler(onStdoutLine, { bin, log, logFile }),
+        )
+      : undefined
+
+    if (stdoutLines) {
+      proc.stdout.on('data', (chunk: Buffer) => stdoutLines.push(chunk))
+    }
+
     const promise = new Promise<{
       code: number | null
       stderrTail: string
     }>((resolve, reject) => {
+      // The log file keeps the full stdout regardless of `onStdoutLine`: it is
+      // the only record of a run, and holds the proof a resume picked up
+      // where the paused run stopped.
       proc.stdout.pipe(logFileStream)
       proc.stderr.pipe(logFileStream)
 
@@ -583,11 +689,11 @@ export class DownloadVideoService {
         // That took `reject()` below with it, and node emits no 'close' after
         // a spawn its 'error' listener threw from, so the 'close' handler
         // never ran either. This promise then never settled at all, and
-        // `download()`'s `await` on it (:311) hung forever - which is the
-        // whole spawn-error wedge. The job kept the `Downloading` written
-        // before the spawn, the scheduler's catch was still suspended inside
-        // that await so it never wrote `Failed`, and the handle `setProc()`
-        // registered at :292 stayed registered on a child that never started,
+        // `download()`'s `await` on it hung forever - which is the whole
+        // spawn-error wedge. The job kept the `Downloading` written before
+        // the spawn, the scheduler's catch was still suspended inside that
+        // await so it never wrote `Failed`, and the handle `download()`
+        // passed to `setProc()` stayed registered on a child that never started,
         // so pause and cancel signalled a no-op corpse and parked at
         // Pausing/Cancelling with nothing left alive to move them.
         //
@@ -606,6 +712,8 @@ export class DownloadVideoService {
       })
 
       proc.on('close', code => {
+        // A last line with no trailing newline is still a line.
+        stdoutLines?.flush()
         logFileStream.close()
         resolve({ code, stderrTail: stderrBuffer.trim() })
       })
