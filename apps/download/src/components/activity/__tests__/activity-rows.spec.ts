@@ -1,4 +1,4 @@
-import type { DownloadJob } from '@lilnas/utils/download/types'
+import type { DownloadJob, VideoProgress } from '@lilnas/utils/download/types'
 import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
 
 import type { ActivityRow } from 'src/components/activity/activity-rows'
@@ -10,6 +10,14 @@ import {
 } from 'src/components/activity/activity-rows'
 
 const NO_EVICTIONS: ReadonlySet<string> = new Set()
+
+/** A yt-dlp snapshot part-way through the only file. */
+const moving: VideoProgress = {
+  downloadedBytes: 63_600_000,
+  fileIndex: 1,
+  percent: 63.6,
+  totalBytes: 100_000_000,
+}
 
 function video(overrides: Partial<DownloadJob> = {}): DownloadJob {
   return {
@@ -200,10 +208,40 @@ describe('jobProgressPct', () => {
     expect(jobProgressPct(movie())).toBe(64)
   })
 
-  // The API carries no progress for a yt-dlp download at all — `Video` does
-  // not extend `ManagedMediaBase`, so there is no queue snapshot to read.
-  it('has nothing to report for a video', () => {
+  // A video has no queue snapshot — its figure is the job's own yt-dlp one.
+  it("rounds a video's yt-dlp snapshot", () => {
+    expect(jobProgressPct(video({ progress: moving }))).toBe(64)
+  })
+
+  it('has nothing to report for a video with no yt-dlp snapshot', () => {
     expect(jobProgressPct(video())).toBeNull()
+  })
+
+  // yt-dlp leaves `percent` off when it does not know the total size.
+  it('has nothing to report for a video whose total is unknown', () => {
+    expect(
+      jobProgressPct(
+        video({ progress: { downloadedBytes: 1024, fileIndex: 1 } }),
+      ),
+    ).toBeNull()
+  })
+
+  it('still reports progress for a paused video', () => {
+    expect(
+      jobProgressPct(
+        video({ progress: moving, status: DownloadJobStatus.Paused }),
+      ),
+    ).toBe(64)
+  })
+
+  // Cannot happen — the server drops the snapshot with the process — but a
+  // terminal job has nothing to report however it arrives.
+  it('has nothing to report for a completed video carrying a stale snapshot', () => {
+    expect(
+      jobProgressPct(
+        video({ progress: moving, status: DownloadJobStatus.Completed }),
+      ),
+    ).toBeNull()
   })
 
   // The snapshot is the media's, shared by every attempt at the same title, so
@@ -245,6 +283,18 @@ describe('mobileStatusLabel', () => {
     expect(mobileStatusLabel(movie({ status: DownloadJobStatus.Paused }))).toBe(
       'paused · 64%',
     )
+  })
+
+  it("lets a moving video's percentage stand alone", () => {
+    expect(mobileStatusLabel(video({ progress: moving }))).toBe('64%')
+  })
+
+  it('names the state as well once a video has stopped moving', () => {
+    expect(
+      mobileStatusLabel(
+        video({ progress: moving, status: DownloadJobStatus.Paused }),
+      ),
+    ).toBe('paused · 64%')
   })
 
   it('falls back to the bare state when there is no progress', () => {

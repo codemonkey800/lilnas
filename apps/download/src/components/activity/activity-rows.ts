@@ -150,26 +150,33 @@ export function isMoving(job: DownloadJob): boolean {
  * The job's progress as a whole-number percentage, or `null` when there is
  * none to show.
  *
- * ⚠️ Only movies and shows ever have one. `DownloadJob` carries no progress
- * field at all; the number comes from `ManagedMediaBase.queueSnapshot`, which
- * the Radarr/Sonarr queue poller maintains — and `Video` does not extend
- * `ManagedMediaBase`, so a yt-dlp download reports none. That is a real gap in
- * the API rather than something to paper over with an invented figure, so a
- * video's progress cell renders the em dash the rest of the app uses for
- * "unknown".
+ * The figure comes from one of two places, depending on who is doing the
+ * downloading:
  *
- * ⚠️ Only an in-progress job has one either. The snapshot lives on the
- * *media*, not the job, so every job for the same title carries the same live
- * figure — without this guard a finished or failed attempt in a history table
- * would wear (and keep updating with) the percentage of whichever attempt is
- * downloading now.
+ * - **Movies and shows** — the *media's* `ManagedMediaBase.queueSnapshot`,
+ *   which the Radarr/Sonarr queue poller maintains.
+ * - **Videos** — the *job's* own `progress`, yt-dlp's snapshot of the current
+ *   file. It exists only while the yt-dlp process lives (and is kept while
+ *   paused), and its `percent` is absent whenever yt-dlp does not know the
+ *   total — in both cases the cell renders the em dash the rest of the app uses
+ *   for "unknown" rather than an invented figure.
+ *
+ * ⚠️ Only an in-progress job has one. For movies and shows the snapshot lives
+ * on the *media*, not the job, so every job for the same title carries the
+ * same live figure — without this guard a finished or failed attempt in a
+ * history table would wear (and keep updating with) the percentage of
+ * whichever attempt is downloading now. A video's snapshot is its own, but a
+ * terminal job has no business showing one either.
  */
 export function jobProgressPct(job: DownloadJob): number | null {
-  if (job.media.type === DownloadType.Video || !isInProgress(job.status)) {
+  if (!isInProgress(job.status)) {
     return null
   }
 
-  const progress = job.media.queueSnapshot?.progress
+  const progress =
+    job.media.type === DownloadType.Video
+      ? job.progress?.percent
+      : job.media.queueSnapshot?.progress
 
   return progress === undefined || !Number.isFinite(progress)
     ? null
