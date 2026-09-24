@@ -1,16 +1,21 @@
 'use client'
 
-import type {
-  DownloadJob,
-  Episode,
-  EpisodeStateEntry,
-  Media,
-  MediaEvent,
-  Season,
+import {
+  type DownloadJob,
+  DownloadType,
+  type Episode,
+  type EpisodeStateEntry,
+  type Media,
+  type MediaEvent,
+  type Season,
 } from '@lilnas/utils/download/types'
 import { useMemo } from 'react'
 
-import { useJobEvents, useMediaEvents } from 'src/lib/use-job-events'
+import {
+  useJobEvents,
+  useMediaEvents,
+  useServedMedia,
+} from 'src/lib/use-job-events'
 
 /** What a movie, show or video page server-rendered for {@link useLiveMedia}. */
 export interface LiveMediaInput<M extends Media> {
@@ -129,6 +134,12 @@ function mergeJobs(
  * landed job is shown as landed — the page's chip reads the media's state,
  * not the job's.
  *
+ * A movie or show is also watched closely (`MediaEventsFilter.watch`), so a
+ * file deleted or added in Radarr's/Sonarr's own UI reaches the page within
+ * about a second. And a new server copy of the media - a delete's
+ * `revalidatePath`, say - drops the frame that came before it
+ * (`useServedMedia`), so an older frame never outranks a fresher render.
+ *
  * Every output is memoized, and the whole result keeps its identity until a
  * frame for this media (or a `connected` flip) actually changes something.
  */
@@ -139,7 +150,11 @@ export function useLiveMedia<M extends Media>({
 }: LiveMediaInput<M>): LiveMedia<M> {
   const mediaIds = [media.id]
   const { connected, jobs: liveJobs } = useJobEvents({ mediaIds })
-  const { media: liveMedia } = useMediaEvents({ mediaIds })
+  const { media: liveMedia } = useMediaEvents({
+    mediaIds,
+    watch: media.type !== DownloadType.Video,
+  })
+  useServedMedia(media.id, media)
   const event = matchingEvent(media, liveMedia.get(media.id))
   const liveOrServedMedia = event?.media ?? media
 

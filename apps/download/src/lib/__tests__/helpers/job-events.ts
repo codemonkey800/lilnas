@@ -96,6 +96,8 @@ export class FakeWebSocket {
   onopen: (() => void) | null = null
 
   closeCount = 0
+  /** Every message the store sent, in order. */
+  sent: string[] = []
 
   constructor(readonly url: string) {}
 
@@ -114,6 +116,10 @@ export class FakeWebSocket {
 
   emitOpen(): void {
     this.onopen?.()
+  }
+
+  send(data: string): void {
+    this.sent.push(data)
   }
 }
 

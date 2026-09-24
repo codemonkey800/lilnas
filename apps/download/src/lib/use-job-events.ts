@@ -9,11 +9,18 @@ import {
   RECONNECT_JITTER_RATIO,
   reconnectDelayMs,
 } from '@lilnas/utils/download/job-events'
-import type { DownloadJob, MediaEvent } from '@lilnas/utils/download/types'
+import {
+  type DownloadJob,
+  MAX_WATCHED_MEDIA_IDS,
+  type MediaEvent,
+  WATCH_MEDIA_EVENT,
+  type WatchMediaMessage,
+} from '@lilnas/utils/download/types'
 import {
   createContext,
   useCallback,
   useContext,
+  useLayoutEffect,
   useMemo,
   useSyncExternalStore,
 } from 'react'
@@ -94,6 +101,13 @@ export interface JobEventsFilter {
 /** Which media a `useMediaEvents` subscriber cares about. Empty is "nothing". */
 export interface MediaEventsFilter {
   mediaIds: readonly string[]
+  /**
+   * Also asks the gateway to re-read these titles' library entries every
+   * second rather than every minute (see `WATCH_MEDIA_EVENT`) - for a detail
+   * page, where the title is the whole screen. A page listing many titles
+   * leaves it off: each watched id costs an upstream call a second.
+   */
+  watch?: boolean
 }
 
 /**
@@ -118,6 +132,11 @@ export interface JobEventsInterest {
   jobMediaIds?: ReadonlySet<string>
   /** Media frames kept by `media.id`. */
   mediaIds?: ReadonlySet<string>
+  /**
+   * Media ids the gateway is asked to watch closely - see
+   * {@link MediaEventsFilter.watch}. Admits no frames of its own.
+   */
+  watchMediaIds?: ReadonlySet<string>
 }
 
 export interface CreateJobEventsStoreOptions {
@@ -138,6 +157,11 @@ export interface JobEventsStore {
   /** Opens the socket and keeps it open; the returned function tears it down. */
   connect: () => () => void
   getSnapshot: () => JobEventsStoreSnapshot
+  /**
+   * Forgets the media frame held for `mediaId`, so a subscriber falls back to
+   * its served copy. See {@link useServedMedia}.
+   */
+  dropMedia: (mediaId: string) => void
   /**
    * The raw message sink. Public so a test can drive the store without
    * standing up a socket at all; production only ever reaches it through
@@ -213,7 +237,13 @@ export function createJobEventsStore({
   const jobIdCounts = new Map<string, number>()
   const jobMediaIdCounts = new Map<string, number>()
   const mediaIdCounts = new Map<string, number>()
+  const watchIdCounts = new Map<string, number>()
   let unfilteredCount = 0
+
+  // The open socket, and the watch list the gateway last heard from it, so a
+  // subscription change sends only when the list actually moved.
+  let openSocket: WebSocket | undefined
+  let sentWatchKey = '[]'
 
   let snapshot: JobEventsStoreSnapshot = {
     connected: false,
@@ -231,6 +261,37 @@ export function createJobEventsStore({
       jobIdCounts.has(job.id) ||
       jobMediaIdCounts.has(job.media.id)
     )
+  }
+
+  /**
+   * Tells the gateway which titles to watch closely, when that list changed
+   * since it last heard. A closed socket sends nothing: the gateway forgets a
+   * socket's list with it, and `onopen` re-sends the whole list.
+   */
+  function syncWatch(): void {
+    if (!openSocket) return
+
+    const mediaIds = [...watchIdCounts.keys()]
+      .sort()
+      .slice(0, MAX_WATCHED_MEDIA_IDS)
+    const key = JSON.stringify(mediaIds)
+    if (key === sentWatchKey) return
+
+    const message: WatchMediaMessage = {
+      data: { mediaIds },
+      event: WATCH_MEDIA_EVENT,
+    }
+    openSocket.send(JSON.stringify(message))
+    sentWatchKey = key
+  }
+
+  function dropMedia(mediaId: string): void {
+    if (!snapshot.media.has(mediaId)) return
+
+    const media = new Map(snapshot.media)
+    media.delete(mediaId)
+    snapshot = { ...snapshot, media }
+    emit()
   }
 
   function setConnected(connected: boolean): void {
@@ -271,6 +332,8 @@ export function createJobEventsStore({
     retain(jobIdCounts, interest.jobIds)
     retain(jobMediaIdCounts, interest.jobMediaIds)
     retain(mediaIdCounts, interest.mediaIds)
+    retain(watchIdCounts, interest.watchMediaIds)
+    syncWatch()
 
     return () => {
       listeners.delete(listener)
@@ -279,6 +342,8 @@ export function createJobEventsStore({
       release(jobIdCounts, interest.jobIds)
       release(jobMediaIdCounts, interest.jobMediaIds)
       release(mediaIdCounts, interest.mediaIds)
+      release(watchIdCounts, interest.watchMediaIds)
+      syncWatch()
     }
   }
 
@@ -314,6 +379,10 @@ export function createJobEventsStore({
       next.onopen = () => {
         if (disposed) return
         attempt = 0
+        // A new connection starts with an empty watch list on the gateway.
+        openSocket = next
+        sentWatchKey = '[]'
+        syncWatch()
         setConnected(true)
       }
 
@@ -328,6 +397,7 @@ export function createJobEventsStore({
       // reopens itself — once closed it stays closed forever unless
       // something explicitly builds a new one, which is this.
       next.onclose = () => {
+        if (openSocket === next) openSocket = undefined
         if (disposed) return
         setConnected(false)
         scheduleReconnect()
@@ -341,12 +411,14 @@ export function createJobEventsStore({
       if (reconnectTimer !== undefined) clearTimeout(reconnectTimer)
       socket?.close()
       socket = undefined
+      openSocket = undefined
       setConnected(false)
     }
   }
 
   return {
     connect,
+    dropMedia,
     getSnapshot: () => snapshot,
     ingest,
     subscribe,
@@ -523,6 +595,7 @@ function createMediaSelector(
 export function useMediaEvents(filter: MediaEventsFilter): MediaEventsSnapshot {
   const store = useJobEventsStore('useMediaEvents')
   const interestKey = JSON.stringify(idsKey(filter.mediaIds))
+  const watch = filter.watch ?? false
 
   const mediaIds = useMemo<ReadonlySet<string>>(
     () => new Set(JSON.parse(interestKey) as string[]),
@@ -530,8 +603,12 @@ export function useMediaEvents(filter: MediaEventsFilter): MediaEventsSnapshot {
   )
 
   const subscribe = useCallback(
-    (listener: () => void) => store.subscribe(listener, { mediaIds }),
-    [mediaIds, store],
+    (listener: () => void) =>
+      store.subscribe(listener, {
+        mediaIds,
+        ...(watch ? { watchMediaIds: mediaIds } : {}),
+      }),
+    [mediaIds, store, watch],
   )
 
   // Memoized per id set so the selector's cache survives re-renders; were
@@ -542,4 +619,23 @@ export function useMediaEvents(filter: MediaEventsFilter): MediaEventsSnapshot {
   )
 
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+}
+
+/**
+ * Drops the live frame held for `mediaId` whenever the server hands over a
+ * new copy of it (`served` changes identity - a `router.refresh()`, or a
+ * server action's `revalidatePath` after a delete). Without this the older
+ * frame keeps winning over the fresher server copy until the next frame
+ * lands: a page that just deleted its movie would still read "in library".
+ *
+ * A layout effect, so the drop - and the re-render back to `served` - lands
+ * before the browser paints the stale frame over the new copy. Nothing on the
+ * wire can arrive between the render and this effect.
+ */
+export function useServedMedia(mediaId: string, served: unknown): void {
+  const store = useJobEventsStore('useServedMedia')
+
+  useLayoutEffect(() => {
+    store.dropMedia(mediaId)
+  }, [mediaId, served, store])
 }

@@ -354,3 +354,71 @@ describe('useLiveMedia', () => {
     })
   })
 })
+
+describe('useLiveMedia watch and served copies', () => {
+  it('asks the gateway to watch a movie closely', () => {
+    const { recorder } = setup<Movie>({
+      jobs: [],
+      media: buildMovie({ id: MOVIE_ID }),
+    })
+
+    act(() => recorder.latest().emitOpen())
+
+    expect(recorder.latest().sent.map(m => JSON.parse(m))).toEqual([
+      { data: { mediaIds: [MOVIE_ID] }, event: 'watch-media' },
+    ])
+  })
+
+  it('does not ask the gateway to watch a video', () => {
+    const { recorder } = setup({
+      jobs: [],
+      media: {
+        id: 'video:1',
+        sourceUrl: 'https://example.invalid/1',
+        title: 'A clip',
+        type: DownloadType.Video,
+      },
+    })
+
+    act(() => recorder.latest().emitOpen())
+
+    expect(recorder.latest().sent).toEqual([])
+  })
+
+  it('lets a new server copy outrank an older frame', () => {
+    const { rerender, result, send } = setup<Movie>({
+      jobs: [],
+      media: buildMovie({ id: MOVIE_ID, state: 'downloading' }),
+    })
+    send(buildMediaFrame(buildMovie({ id: MOVIE_ID, state: 'available' })))
+    expect(result.current.media.state).toBe('available')
+
+    // A delete's revalidatePath hands the page a fresh copy.
+    const fresh = buildMovie({ id: MOVIE_ID, state: 'absent' })
+    rerender({ jobs: [], media: fresh })
+
+    expect(result.current.media).toBe(fresh)
+  })
+
+  it('still takes a frame that lands after the new server copy', () => {
+    const { rerender, result, send } = setup<Movie>({
+      jobs: [],
+      media: buildMovie({ id: MOVIE_ID }),
+    })
+    rerender({ jobs: [], media: buildMovie({ id: MOVIE_ID, state: 'absent' }) })
+
+    send(buildMediaFrame(buildMovie({ id: MOVIE_ID, state: 'available' })))
+
+    expect(result.current.media.state).toBe('available')
+  })
+
+  it('keeps a frame across a re-render with the same server copy', () => {
+    const media = buildMovie({ id: MOVIE_ID, state: 'downloading' })
+    const { rerender, result, send } = setup<Movie>({ jobs: [], media })
+    send(buildMediaFrame(buildMovie({ id: MOVIE_ID, state: 'available' })))
+
+    rerender({ jobs: [], media })
+
+    expect(result.current.media.state).toBe('available')
+  })
+})

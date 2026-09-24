@@ -1,8 +1,12 @@
-import type { DownloadJob } from '@lilnas/utils/download/types'
+import type {
+  DownloadJob,
+  WatchMediaMessage,
+} from '@lilnas/utils/download/types'
 import {
   DownloadJobEventType,
   DownloadJobStatus,
   DownloadType,
+  WATCH_MEDIA_EVENT,
 } from '@lilnas/utils/download/types'
 import { act, renderHook } from '@testing-library/react'
 import type { JSX, ReactNode } from 'react'
@@ -885,5 +889,112 @@ describe('useMediaEvents', () => {
     rerender({ mediaIds: ['tmdb:2', 'tmdb:1'] })
 
     expect(subscribe).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('watch list', () => {
+  function openStore() {
+    const recorder = createSocketRecorder()
+    const store = createJobEventsStore({
+      createSocket: recorder.createSocket,
+      getLocation: () => TEST_LOCATION,
+      random: NO_JITTER,
+    })
+    const dispose = store.connect()
+    const sent = () =>
+      recorder
+        .latest()
+        .sent.map(message => JSON.parse(message) as WatchMediaMessage)
+    return { dispose, recorder, sent, store }
+  }
+
+  it('sends nothing until a subscriber asks to watch', () => {
+    const { dispose, recorder, sent, store } = openStore()
+    recorder.latest().emitOpen()
+
+    store.subscribe(() => {}, { mediaIds: new Set(['tmdb:1']) })
+
+    expect(sent()).toEqual([])
+    dispose()
+  })
+
+  it('sends the watched ids once the socket opens', () => {
+    const { dispose, recorder, sent, store } = openStore()
+    store.subscribe(() => {}, {
+      mediaIds: new Set(['tmdb:1']),
+      watchMediaIds: new Set(['tmdb:1']),
+    })
+
+    expect(sent()).toEqual([])
+    recorder.latest().emitOpen()
+
+    expect(sent()).toEqual([
+      { data: { mediaIds: ['tmdb:1'] }, event: WATCH_MEDIA_EVENT },
+    ])
+    dispose()
+  })
+
+  it('re-sends when the list changes, and only then', () => {
+    const { dispose, recorder, sent, store } = openStore()
+    recorder.latest().emitOpen()
+
+    const first = store.subscribe(() => {}, {
+      watchMediaIds: new Set(['tmdb:1']),
+    })
+    // A second subscriber to the same id doesn't move the list.
+    const second = store.subscribe(() => {}, {
+      watchMediaIds: new Set(['tmdb:1']),
+    })
+    first()
+    second()
+
+    expect(sent().map(message => message.data.mediaIds)).toEqual([
+      ['tmdb:1'],
+      [],
+    ])
+    dispose()
+  })
+
+  it('re-sends the whole list on a reconnect', () => {
+    jest.useFakeTimers()
+    const { dispose, recorder, sent, store } = openStore()
+    store.subscribe(() => {}, { watchMediaIds: new Set(['tvdb:7']) })
+    recorder.latest().emitOpen()
+
+    recorder.latest().emitClose()
+    jest.runOnlyPendingTimers()
+    recorder.latest().emitOpen()
+
+    expect(recorder.sockets).toHaveLength(2)
+    expect(sent()).toEqual([
+      { data: { mediaIds: ['tvdb:7'] }, event: WATCH_MEDIA_EVENT },
+    ])
+    dispose()
+    jest.useRealTimers()
+  })
+})
+
+describe('dropMedia', () => {
+  it('forgets the frame for one media and notifies', () => {
+    const store = subscribedStore({ mediaIds: new Set(['tmdb:1', 'tmdb:2']) })
+    const listener = jest.fn()
+    store.subscribe(listener, {})
+    store.ingest(buildMediaFrame(buildMovie()))
+    store.ingest(buildMediaFrame(buildMovie({ id: 'tmdb:2', tmdbId: 2 })))
+    listener.mockClear()
+
+    store.dropMedia('tmdb:1')
+
+    expect([...store.getSnapshot().media.keys()]).toEqual(['tmdb:2'])
+    expect(listener).toHaveBeenCalledTimes(1)
+  })
+
+  it('does nothing for a media with no frame', () => {
+    const store = subscribedStore({ mediaIds: new Set(['tmdb:1']) })
+    const before = store.getSnapshot()
+
+    store.dropMedia('tmdb:1')
+
+    expect(store.getSnapshot()).toBe(before)
   })
 })
