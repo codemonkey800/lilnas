@@ -129,7 +129,10 @@ export function GalleryItemCard({
   // uploader asked to be hidden when they did not. `JobQueryService.listGallery`
   // nulls the two together, so this pair is the honest test.
   const masked = requester === null && discordRequester === null
-  const when = formatRelative(item.lastDownloadedAt, now)
+  // A library title nobody downloaded through this app has no download time;
+  // when it landed is the honest stand-in. (Plan 021 — interim until the card
+  // reads `addedAt` outright.)
+  const when = formatRelative(item.lastDownloadedAt ?? item.addedAt, now)
   const video = media.type === DownloadType.Video
 
   return (

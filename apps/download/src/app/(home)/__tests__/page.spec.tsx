@@ -43,6 +43,7 @@ const FACETS: DownloadGalleryFacets = {
 }
 
 const ITEM: GalleryItem = {
+  addedAt: '2026-09-15T19:48:00.000Z',
   downloadCount: 1,
   lastDiscordRequester: null,
   lastDownloadedAt: '2026-09-15T19:48:00.000Z',

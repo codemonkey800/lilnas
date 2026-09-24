@@ -45,7 +45,7 @@ describe('DownloadController - activity/gallery list endpoints', () => {
 
   beforeEach(async () => {
     const mockJobQueryService = {
-      getGalleryFacets: jest.fn().mockReturnValue(emptyFacets),
+      getGalleryFacets: jest.fn().mockResolvedValue(emptyFacets),
       listActivity: jest.fn().mockReturnValue(emptyPage),
       listGallery: jest.fn().mockReturnValue(emptyPage),
       listHistory: jest.fn().mockReturnValue(emptyPage),
@@ -230,7 +230,8 @@ describe('DownloadController - activity/gallery list endpoints', () => {
         types: [{ count: 3, type: 'movie' }],
         uploaders: [{ count: 1, email: 'alice@example.com' }],
       }
-      jobQueryService.getGalleryFacets.mockReturnValue(facets as never)
+      // Async since plan 021 - the type counts read the library.
+      jobQueryService.getGalleryFacets.mockResolvedValue(facets as never)
 
       const result = await controller.getGalleryFacets({}, undefined)
 

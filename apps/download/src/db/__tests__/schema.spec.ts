@@ -477,35 +477,6 @@ describe('schema + migrations', () => {
     }
   })
 
-  it("plans the gallery's `GROUP BY (type, media_id)` with a temp b-tree sort - `ORDER BY MAX(created_at) DESC` can't be answered from an index", () => {
-    const { sqlite, close } = createTestDb()
-    try {
-      // Mirrors listMediaGroupsPage()'s grouped query (jobs.repo.ts). Unlike
-      // every plan test above, this one deliberately asserts the *presence*
-      // of a temp b-tree rather than its absence: the sort key is an
-      // aggregate (MAX(created_at)) that only exists once a group's rows
-      // have all been scanned, so no index can pre-sort it. This is an
-      // accepted, documented cost at a home-NAS row count (plan §3.2), not
-      // an oversight to fix.
-      const plan = sqlite
-        .prepare(
-          `EXPLAIN QUERY PLAN
-           SELECT type, media_id, count(*), max(created_at)
-           FROM jobs
-           GROUP BY type, media_id
-           ORDER BY max(created_at) DESC, media_id DESC`,
-        )
-        .all()
-        .map(row => (row as { detail: string }).detail)
-        .join('\n')
-
-      expect(plan).toContain('jobs_type_media_id_idx')
-      expect(plan).toContain('TEMP B-TREE')
-    } finally {
-      close()
-    }
-  })
-
   it('plans both gallery-facet `GROUP BY`s (requester, type) as covering index scans, without a temp b-tree sort', () => {
     const { sqlite, close } = createTestDb()
     try {

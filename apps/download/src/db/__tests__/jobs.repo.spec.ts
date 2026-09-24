@@ -3,6 +3,7 @@ import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
 import type { Db } from 'src/db/db.service'
 import type { DailyJobCount, RequesterScope } from 'src/db/jobs.repo'
 import {
+  countCompletedJobsByMediaIds,
   countJobsByDay,
   countJobsByRequester,
   countJobsByStatus,
@@ -12,7 +13,6 @@ import {
   listJobsByStatus,
   listJobsPage,
   listLatestJobsForMediaIds,
-  listMediaGroupsPage,
   listOpenJobs,
 } from 'src/db/jobs.repo'
 import type { ListCursor } from 'src/db/list-cursor'
@@ -1195,17 +1195,19 @@ describe('isRequesterScoped', () => {
 })
 
 /**
- * The gallery's two-query pair: `listMediaGroupsPage` groups the job log into
- * one row per title, and `listLatestJobsForMediaIds` fetches the newest job
- * behind each of those rows under the *same* filter. Together they are where
- * `GalleryItem.lastRequester` and `GalleryItem.lastDiscordRequester` come
- * from, so the Discord pair has to survive both of them.
+ * The gallery's two job-log queries (plan 021): `countCompletedJobsByMediaIds`
+ * joins the library's titles onto the job log - the download count, and for a
+ * requester-scoped gallery the "titles this requester has" join - and
+ * `listLatestJobsForMediaIds` fetches the newest job behind each title under
+ * the *same* filter. Together they are where `GalleryItem.downloadCount`,
+ * `lastRequester` and `lastDiscordRequester` come from, so the Discord pair has
+ * to survive both of them.
  */
-describe('the gallery grouped selection', () => {
+describe('the gallery job-log join', () => {
   const SAM_SNOWFLAKE = '273145016936267776'
   const CLIP = 'video:clip'
 
-  it('groups a Discord submission into its title rather than dropping it', () => {
+  it('counts a Discord submission toward its title rather than dropping it', () => {
     const { db, close } = createTestDb()
     try {
       seedJob(db, {
@@ -1225,20 +1227,12 @@ describe('the gallery grouped selection', () => {
         origin: 'discord',
       })
 
-      const page = listMediaGroupsPage(db, { filter: {}, limit: 24 })
-
-      // One card for the title, counting both grabs. A Discord submission is
-      // a download like any other here - it is only the *facets* that stay
-      // email-keyed (plan 017 §E2's deliberate scope cut).
-      expect(page.groups).toEqual([
-        {
-          downloadCount: 2,
-          lastJobAtMs: T0 + 1_000,
-          mediaId: CLIP,
-          type: DownloadType.Video,
-        },
-      ])
-      expect(page.total).toBe(1)
+      // Both grabs count. A Discord submission is a download like any other
+      // here - it is only the *facets* that stay email-keyed (plan 017 §E2's
+      // deliberate scope cut).
+      expect(countCompletedJobsByMediaIds(db, {}, [CLIP])).toEqual(
+        new Map([[CLIP, 2]]),
+      )
     } finally {
       close()
     }
@@ -1337,23 +1331,18 @@ describe('the gallery grouped selection', () => {
       const filter = { requesterDiscordUserId: SAM_SNOWFLAKE }
       const newest = listLatestJobsForMediaIds(db, filter, [CLIP])[0]
 
-      // Same filter as the grouping query ran under, so "sam's titles" shows
-      // sam as the last requester even though somebody else grabbed it later.
-      expect(listMediaGroupsPage(db, { filter, limit: 24 }).groups).toEqual([
-        {
-          downloadCount: 1,
-          lastJobAtMs: T0,
-          mediaId: CLIP,
-          type: DownloadType.Video,
-        },
-      ])
+      // Same filter as the count ran under, so "sam's titles" shows sam as
+      // the last requester even though somebody else grabbed it later.
+      expect(countCompletedJobsByMediaIds(db, filter, [CLIP])).toEqual(
+        new Map([[CLIP, 1]]),
+      )
       expect(newest?.id).toBe('discord-grab')
     } finally {
       close()
     }
   })
 
-  it('keeps a hidden Discord video out of a requester-scoped gallery, groups and rows alike', () => {
+  it('keeps a hidden Discord video out of a requester-scoped gallery, join and rows alike', () => {
     const { db, close } = createTestDb()
     try {
       seedJob(db, {
@@ -1374,10 +1363,9 @@ describe('the gallery grouped selection', () => {
       // The attribution oracle: a requester-keyed gallery run by a non-admin
       // must not be able to confirm a hidden video exists for that requester -
       // through the cards, through `total`, or through the follow-up row.
-      const page = listMediaGroupsPage(db, { filter, limit: 24 })
-
-      expect(page.groups).toEqual([])
-      expect(page.total).toBe(0)
+      expect(countCompletedJobsByMediaIds(db, filter, [CLIP])).toEqual(
+        new Map(),
+      )
       expect(listLatestJobsForMediaIds(db, filter, [CLIP])).toEqual([])
     } finally {
       close()
@@ -1390,6 +1378,108 @@ describe('the gallery grouped selection', () => {
       seedJob(db, { createdAt: new Date(T0), id: 'web-grab', mediaId: CLIP })
 
       expect(listLatestJobsForMediaIds(db, {}, [])).toEqual([])
+      expect(countCompletedJobsByMediaIds(db, {}, [])).toEqual(new Map())
+    } finally {
+      close()
+    }
+  })
+})
+
+describe('countCompletedJobsByMediaIds', () => {
+  it('counts only completed jobs, whatever statuses the filter carries', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedJob(db, { id: 'done-1', mediaId: 'tmdb:1', type: 'movie' })
+      seedJob(db, { id: 'done-2', mediaId: 'tmdb:1', type: 'movie' })
+      seedJob(db, {
+        id: 'failed',
+        mediaId: 'tmdb:1',
+        status: 'failed',
+        type: 'movie',
+      })
+      seedJob(db, {
+        id: 'running',
+        mediaId: 'tmdb:2',
+        status: 'downloading',
+        type: 'movie',
+      })
+
+      const counts = countCompletedJobsByMediaIds(
+        db,
+        { statuses: [DownloadJobStatus.Failed] },
+        ['tmdb:1', 'tmdb:2'],
+      )
+
+      // `tmdb:2` has jobs, just no completed one - absent, not `0`, so the
+      // gallery's join can read `.has()`.
+      expect(counts).toEqual(new Map([['tmdb:1', 2]]))
+    } finally {
+      close()
+    }
+  })
+
+  it('never counts a title outside `mediaIds`', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedJob(db, { id: 'a', mediaId: 'tmdb:1', type: 'movie' })
+      seedJob(db, { id: 'b', mediaId: 'tmdb:2', type: 'movie' })
+
+      expect(countCompletedJobsByMediaIds(db, {}, ['tmdb:2'])).toEqual(
+        new Map([['tmdb:2', 1]]),
+      )
+    } finally {
+      close()
+    }
+  })
+
+  it('scopes to one requester, case-insensitively', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedJob(db, {
+        id: 'alice',
+        mediaId: 'tmdb:1',
+        origin: 'web',
+        requesterEmail: 'Alice@Example.com',
+        requesterUserId: 'u1',
+        type: 'movie',
+      })
+      seedJob(db, {
+        id: 'bob',
+        mediaId: 'tmdb:1',
+        origin: 'web',
+        requesterEmail: 'bob@example.com',
+        requesterUserId: 'u2',
+        type: 'movie',
+      })
+
+      expect(
+        countCompletedJobsByMediaIds(
+          db,
+          { requesterEmail: 'alice@example.com' },
+          ['tmdb:1'],
+        ),
+      ).toEqual(new Map([['tmdb:1', 1]]))
+    } finally {
+      close()
+    }
+  })
+
+  // A requester-scoped gallery asks about the whole library at once, which
+  // can outgrow one `IN (...)` list.
+  it('answers for more ids than fit in one IN list', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedJob(db, { id: 'first', mediaId: 'tmdb:1', type: 'movie' })
+      seedJob(db, { id: 'last', mediaId: 'tmdb:1200', type: 'movie' })
+
+      const ids = Array.from({ length: 1200 }, (_, i) => `tmdb:${i + 1}`)
+
+      expect(countCompletedJobsByMediaIds(db, {}, ids)).toEqual(
+        new Map([
+          ['tmdb:1', 1],
+          ['tmdb:1200', 1],
+        ]),
+      )
     } finally {
       close()
     }

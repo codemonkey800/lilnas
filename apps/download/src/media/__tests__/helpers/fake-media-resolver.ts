@@ -1,7 +1,7 @@
 import { DownloadType, Media } from '@lilnas/utils/download/types'
 
 import { mediaIdSuffix } from 'src/db/media-id'
-import type { MediaKey } from 'src/media/media-resolver.service'
+import type { LibraryListing, MediaKey } from 'src/media/media-resolver.service'
 
 /**
  * A stand-in for `MediaResolverService` that answers from a fixture map,
@@ -17,6 +17,11 @@ export function createFakeMediaResolver(
     fixtures,
     invalidate: jest.fn(),
     invalidateAfterEnsure: jest.fn(),
+    // An empty library by default; a gallery test seeds its own titles with
+    // `mockResolvedValue`.
+    listLibrary: jest.fn(() =>
+      Promise.resolve<LibraryListing>({ degradedSources: [], entries: [] }),
+    ),
     resolve: jest.fn((keys: readonly MediaKey[]) =>
       Promise.resolve({
         // Widened rather than inferred as `never[]` so a test that needs to

@@ -1,6 +1,7 @@
 import {
   getVideoById,
   getVideosByIds,
+  listVideosWithFiles,
   upsertVideoByNaturalKey,
 } from 'src/db/videos.repo'
 
@@ -92,6 +93,38 @@ describe('videos repo', () => {
 
       const rows = getVideosByIds(db, ['video-1', 'video-2', 'missing'])
       expect(rows.map(r => r.id).sort()).toEqual(['video-1', 'video-2'])
+    } finally {
+      close()
+    }
+  })
+
+  // Plan 021: the videos half of the gallery's library - a row only counts
+  // once the pipeline has written its file URLs.
+  it('listVideosWithFiles returns only rows with a non-empty download_urls', () => {
+    const { db, close } = createTestDb()
+    try {
+      upsertVideoByNaturalKey(db, {
+        downloadUrls: ['https://files.example.com/a.mp4'],
+        id: 'finished',
+        naturalKey: 'https://example.com/a#-',
+        sourceUrl: 'https://example.com/a',
+        title: 'A',
+      })
+      upsertVideoByNaturalKey(db, {
+        id: 'in-flight',
+        naturalKey: 'https://example.com/b#-',
+        sourceUrl: 'https://example.com/b',
+        title: 'B',
+      })
+      upsertVideoByNaturalKey(db, {
+        downloadUrls: [],
+        id: 'emptied',
+        naturalKey: 'https://example.com/c#-',
+        sourceUrl: 'https://example.com/c',
+        title: 'C',
+      })
+
+      expect(listVideosWithFiles(db).map(row => row.id)).toEqual(['finished'])
     } finally {
       close()
     }

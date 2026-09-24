@@ -1,5 +1,5 @@
 import {
-  type DownloadJobStatus,
+  DownloadJobStatus,
   type DownloadType,
   TERMINAL_DOWNLOAD_JOB_STATUSES,
 } from '@lilnas/utils/download/types'
@@ -330,120 +330,65 @@ export function markJobsRemovedFromLibrary(db: Db, mediaId: string): void {
     .run()
 }
 
-export interface MediaGroupRow {
-  downloadCount: number
-  lastJobAtMs: number
-  mediaId: string
-  type: DownloadType
-}
-
-export interface MediaGroupPageResult {
-  groups: MediaGroupRow[]
-  hasMore: boolean
-  total: number
-}
+/**
+ * How many ids go into one `IN (...)` list. A requester-scoped gallery asks
+ * about every title in the library at once, and the library is not bounded
+ * by anything this app controls - so the list is split well under SQLite's
+ * bound-parameter limit rather than trusted to fit.
+ */
+const MEDIA_ID_CHUNK_SIZE = 500
 
 /**
- * The media-centric gallery: one row per *title*, derived straight from the
- * job log rather than from a media table (plan §3.2). Because
- * `lastJobAt`/`downloadCount` are aggregates over the same `WHERE` the
- * filters apply to, `?requester=alice&from=2026-03-01` means "titles alice
- * downloaded in March" - the natural reading - and there is no denormalized
- * `last_job_at` column that can drift.
+ * Completed jobs per title, for the titles in `mediaIds` - the gallery's
+ * `downloadCount`, and (keys only) its "titles this requester has a completed
+ * job for" join (plan 021). A title with no matching job is absent from the
+ * map rather than present as `0`, so `.has()` is the join.
  *
- * `ORDER BY MAX(created_at) DESC` cannot be answered from an index, so
- * unlike `listJobsPage()` this one query gets a temp b-tree sort. That's an
- * accepted, documented cost at a home-NAS row count (see the plan test in
- * `schema.spec.ts`), not an oversight.
- *
- * The cursor is a descending row-value comparison on
- * `(lastJobAt, media_id)`, applied in `HAVING` rather than `WHERE` because
- * `lastJobAt` is an aggregate - a `WHERE` on it would filter the rows going
- * *into* each group instead of the groups coming out, silently splitting a
- * title's history across pages.
+ * `filter.statuses` is overridden to completed-only, whatever the caller set:
+ * a count of *downloads* has no other sensible status, and the name says so.
+ * Every other dimension (requester, `excludeHiddenVideos`, ...) goes through
+ * the shared `buildJobWhere()`, so the attribution-oracle guard applies here
+ * exactly as it does to every list query.
  */
-export function listMediaGroupsPage(
+export function countCompletedJobsByMediaIds(
   db: Db,
-  query: JobPageQuery,
-): MediaGroupPageResult {
-  const { cursor, filter, limit } = query
-  const whereClause = buildJobWhere(filter)
-  const lastJobAt = sql<number>`max(${jobs.createdAt})`
+  filter: JobListFilter,
+  mediaIds: readonly string[],
+): Map<string, number> {
+  const counts = new Map<string, number>()
+  const whereClause = buildJobWhere({
+    ...filter,
+    statuses: [DownloadJobStatus.Completed],
+  })
 
-  return db.transaction(() => {
-    const base = db
-      .select({
-        downloadCount: count(),
-        lastJobAtMs: lastJobAt,
-        mediaId: jobs.mediaId,
-        type: jobs.type,
-      })
+  for (let start = 0; start < mediaIds.length; start += MEDIA_ID_CHUNK_SIZE) {
+    const chunk = mediaIds.slice(start, start + MEDIA_ID_CHUNK_SIZE)
+    const rows = db
+      .select({ count: count(), mediaId: jobs.mediaId })
       .from(jobs)
-
-    const grouped = (whereClause ? base.where(whereClause) : base).groupBy(
-      jobs.type,
-      jobs.mediaId,
-    )
-
-    const fetched = (
-      cursor
-        ? grouped.having(
-            sql`(${lastJobAt}, ${jobs.mediaId}) < (${cursor.sortKeyMs}, ${cursor.id})`,
-          )
-        : grouped
-    )
-      .orderBy(desc(lastJobAt), desc(jobs.mediaId))
-      .limit(limit + 1)
+      .where(and(whereClause, inArray(jobs.mediaId, chunk)))
+      .groupBy(jobs.mediaId)
       .all()
 
-    // One extra row to detect a further page without a second round-trip -
-    // same technique as listJobsPage().
-    const hasMore = fetched.length > limit
-    const page = hasMore ? fetched.slice(0, limit) : fetched
-
-    // `total` is the number of *groups*, not of jobs - the gallery counts
-    // titles. A plain `count()` over the grouped select would count rows per
-    // group instead, hence the subquery.
-    const totalBase = db
-      .select({ one: sql<number>`1` })
-      .from(jobs)
-      .groupBy(jobs.type, jobs.mediaId)
-    const totalSubquery = (
-      whereClause ? totalBase.where(whereClause) : totalBase
-    ).as('groups')
-    const totalRow = db.select({ total: count() }).from(totalSubquery).get() as
-      | { total: number }
-      | undefined
-
-    return {
-      groups: page.flatMap(row =>
-        row.mediaId
-          ? [
-              {
-                downloadCount: row.downloadCount,
-                lastJobAtMs: Number(row.lastJobAtMs),
-                mediaId: row.mediaId,
-                type: row.type as DownloadType,
-              },
-            ]
-          : [],
-      ),
-      hasMore,
-      total: totalRow?.total ?? 0,
+    for (const row of rows) {
+      if (row.mediaId) counts.set(row.mediaId, row.count)
     }
-  })
+  }
+
+  return counts
 }
 
 /**
  * Every job matching `filter` whose `media_id` is in `mediaIds`, newest
- * first - the gallery's `lastRequester` follow-up query. One query for the
- * whole page (≤100 keys) rather than one per card; the caller takes the
- * first row it sees per `(type, media_id)`, which the ordering makes the
- * most recent.
+ * first - the gallery's `lastRequester`/`lastDownloadedAt` follow-up query.
+ * One query for the whole page (≤100 keys) rather than one per card; the
+ * caller takes the first row it sees per `(type, media_id)`, which the
+ * ordering makes the most recent.
  *
- * Runs under the *same* filter as the grouping query, so the requester
- * shown is the last one within the filtered window rather than the last one
- * overall - consistent with what `downloadCount` counts.
+ * The gallery runs it under the *same* filter as its
+ * `countCompletedJobsByMediaIds()` call, so the requester shown is the last
+ * one within that filter rather than the last one overall - consistent with
+ * what `downloadCount` counts.
  */
 export function listLatestJobsForMediaIds(
   db: Db,

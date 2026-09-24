@@ -274,7 +274,7 @@ export class DownloadController {
 
   /**
    * The gallery's equivalent. Masking for these rows happens inside
-   * `JobQueryService.listGallery` (they are grouped rows, not jobs, so there
+   * `JobQueryService.listGallery` (they are library titles, not jobs, so there
    * is no `projectJobForViewer` to sit in front of), which means resolution
    * necessarily runs *after* it here — and that is safe, because the mask
    * nulls `lastRequester` and `lastDiscordRequester` together and a row with
@@ -455,7 +455,7 @@ export class DownloadController {
     const startTime = Date.now()
 
     const isAdmin = await this.resolveIsAdmin(user)
-    const facets = this.jobQueryService.getGalleryFacets({
+    const facets = await this.jobQueryService.getGalleryFacets({
       createdFrom: query.from,
       createdTo: query.to,
       isAdmin,

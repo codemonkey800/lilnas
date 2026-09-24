@@ -1,5 +1,5 @@
 import type { TimeRange } from '@lilnas/utils/download/types'
-import { eq, inArray } from 'drizzle-orm'
+import { eq, inArray, sql } from 'drizzle-orm'
 
 import type { Db } from './db.service'
 import { type VideoRow, videos } from './schema'
@@ -17,6 +17,23 @@ export function getVideosByIds(db: Db, ids: readonly string[]): VideoRow[] {
     .select()
     .from(videos)
     .where(inArray(videos.id, [...ids]))
+    .all()
+}
+
+/**
+ * Every video with a finished file - a non-empty `download_urls`, which the
+ * pipeline writes last (see `updateVideoById`). The videos half of the
+ * gallery's library (plan 021): the Radarr/Sonarr half comes from
+ * `MediaResolverService.listLibrary()`. Unordered; the caller sorts.
+ *
+ * `json_array_length` rather than `IS NOT NULL` alone, because an empty
+ * array is a written value that still means "no file".
+ */
+export function listVideosWithFiles(db: Db): VideoRow[] {
+  return db
+    .select()
+    .from(videos)
+    .where(sql`json_array_length(${videos.downloadUrls}) > 0`)
     .all()
 }
 

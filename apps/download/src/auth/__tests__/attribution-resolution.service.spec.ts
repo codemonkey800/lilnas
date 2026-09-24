@@ -342,6 +342,7 @@ describe('AttributionResolutionService', () => {
 
   describe('resolveGalleryItems', () => {
     const galleryItem = (overrides: Partial<GalleryItem>): GalleryItem => ({
+      addedAt: '2026-08-20T12:00:00.000Z',
       downloadCount: 1,
       lastDiscordRequester: null,
       lastDownloadedAt: '2026-08-20T12:00:00.000Z',

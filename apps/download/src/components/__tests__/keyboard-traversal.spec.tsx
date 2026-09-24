@@ -74,6 +74,7 @@ function job(): DownloadJob {
 
 function item(): GalleryItem {
   return {
+    addedAt: '2026-09-15T11:48:00.000Z',
     downloadCount: 1,
     lastDiscordRequester: null,
     lastDownloadedAt: '2026-09-15T11:48:00.000Z',

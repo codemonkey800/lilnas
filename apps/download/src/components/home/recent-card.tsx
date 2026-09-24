@@ -110,7 +110,13 @@ export function RecentCard({
   viewer,
   ...props
 }: RecentCardProps): JSX.Element {
-  const { lastDiscordRequester, lastDownloadedAt, lastRequester, media } = item
+  const {
+    addedAt,
+    lastDiscordRequester,
+    lastDownloadedAt,
+    lastRequester,
+    media,
+  } = item
   const emby = embyStatusOf(media)
   const indexing = emby?.state === 'indexing'
   // `watchUrl` is populated only while the state is `indexed`; a title that is
@@ -174,7 +180,9 @@ export function RecentCard({
             viewer={viewer}
           />
           <span className="font-mono text-mono-sm text-ink-4">
-            {formatRelative(lastDownloadedAt, now)}
+            {/* No download time for a title nobody downloaded here — when it
+                landed stands in (plan 021, interim until this reads `addedAt`). */}
+            {formatRelative(lastDownloadedAt ?? addedAt, now)}
           </span>
         </GalleryCardAttrib>
         {watchUrl === undefined ? null : (

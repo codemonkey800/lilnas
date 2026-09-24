@@ -9,20 +9,18 @@ import {
   IN_PROGRESS_DOWNLOAD_JOB_STATUSES,
   JobRequester,
 } from '@lilnas/utils/download/types'
-import { BadRequestException, Injectable } from '@nestjs/common'
+import { BadRequestException, Injectable, Logger } from '@nestjs/common'
 
 import { DbService } from 'src/db/db.service'
 import { hydrateJobRow } from 'src/db/job-row'
 import {
+  countCompletedJobsByMediaIds,
   countJobsByRequester,
-  countJobsByType,
   isRequesterScoped,
   type JobListFilter,
   listJobsByMediaId,
   listJobsPage,
   listLatestJobsForMediaIds,
-  listMediaGroupsPage,
-  type MediaGroupRow,
 } from 'src/db/jobs.repo'
 import {
   computeFilterKey,
@@ -30,6 +28,8 @@ import {
   encodeListCursor,
   type ListCursor,
 } from 'src/db/list-cursor'
+import { mediaId } from 'src/db/media-id'
+import { listVideosWithFiles } from 'src/db/videos.repo'
 import { MediaResolverService } from 'src/media/media-resolver.service'
 
 import { showTrueAttribution } from './attribution'
@@ -46,7 +46,9 @@ export interface ListActivityParams extends PageParams {
 }
 
 export interface ListGalleryParams extends PageParams {
+  /** Inclusive lower bound on the title's `addedAt` (plan 021). */
   createdFrom?: Date
+  /** Inclusive upper bound on the title's `addedAt` (plan 021). */
   createdTo?: Date
   requesterEmail?: string
   types?: readonly DownloadType[]
@@ -81,9 +83,21 @@ export interface ListHistoryParams extends PageParams {
 }
 
 export interface GalleryFacetsParams {
+  /**
+   * The date range, inclusive - on a title's `addedAt` for the type counts
+   * and on a job's `created_at` for the uploader counts (see
+   * `getGalleryFacets`).
+   */
   createdFrom?: Date
   createdTo?: Date
   isAdmin: boolean
+}
+
+/** One title in the gallery's library, before it is resolved to a `Media`. */
+interface LibraryTitle {
+  addedAtMs: number
+  mediaId: string
+  type: DownloadType
 }
 
 interface LastRequester {
@@ -95,19 +109,47 @@ interface LastRequester {
    * the gallery mapping stays a straight field copy.
    */
   discordRequester: DiscordRequester | null
+  /** When the job behind this entry finished - `GalleryItem.lastDownloadedAt`. */
+  downloadedAt: string
   hiddenAttribution: boolean
   requester: JobRequester | null
 }
 
+function isWithinRange(addedAtMs: number, from?: Date, to?: Date): boolean {
+  return (
+    (!from || addedAtMs >= from.getTime()) && (!to || addedAtMs <= to.getTime())
+  )
+}
+
 /**
- * The read side of the `jobs` table for every list route. Activity and
- * history stay job-centric - they're event feeds by nature - while the
- * gallery is media-centric: one card per title, grouped out of the same job
- * log (plan §3.2). Owns cursor decode/encode end-to-end so every route
+ * The gallery's total order: newest `addedAt` first, ties broken by media id
+ * ascending. Plain code-unit comparison, not `localeCompare`, because
+ * {@link isAfterCursor} has to agree with it exactly.
+ */
+function compareGalleryOrder(a: LibraryTitle, b: LibraryTitle): number {
+  if (a.addedAtMs !== b.addedAtMs) return b.addedAtMs - a.addedAtMs
+  return a.mediaId < b.mediaId ? -1 : a.mediaId > b.mediaId ? 1 : 0
+}
+
+/** Whether `title` sorts strictly after `cursor` under {@link compareGalleryOrder}. */
+function isAfterCursor(title: LibraryTitle, cursor: ListCursor): boolean {
+  return (
+    title.addedAtMs < cursor.sortKeyMs ||
+    (title.addedAtMs === cursor.sortKeyMs && title.mediaId > cursor.id)
+  )
+}
+
+/**
+ * The read side of every list route. Activity and history stay job-centric -
+ * they're event feeds by nature - while the gallery is media-centric: one
+ * card per title in the library, with the job log joined on for its download
+ * summary (plan 021). Owns cursor decode/encode end-to-end so every route
  * shares one `BadRequestException` path for a malformed cursor.
  */
 @Injectable()
 export class JobQueryService {
+  private readonly logger = new Logger(JobQueryService.name)
+
   constructor(
     private readonly dbService: DbService,
     private readonly downloadStateService: DownloadStateService,
@@ -168,10 +210,24 @@ export class JobQueryService {
   }
 
   /**
-   * One item per *title*, newest download first. Filters apply directly to
-   * `jobs` with no join and no EXISTS subquery, so
-   * `?requester=alice&from=2026-03-01` groups only alice's March jobs -
-   * i.e. "titles alice downloaded in March", the natural reading.
+   * One item per *title in the library*, newest `addedAt` first (plan 021).
+   * The library is Radarr's movies with a file, Sonarr's series with at
+   * least one episode file (`MediaResolverService.listLibrary()`), and the
+   * videos with a finished file - so a title deleted upstream drops out when
+   * the resolver's cache next refreshes, and a title nobody downloaded
+   * through this app still gets a card (`downloadCount: 0`,
+   * `lastDownloadedAt: null`).
+   *
+   * `type` and `from`/`to` filter the library itself (`from`/`to` on
+   * `addedAt`). `?requester=` joins the job log: "titles this requester has a
+   * completed job for", and `downloadCount`/the last requester are then that
+   * requester's. Paged in memory - the library is a home NAS's, and the join
+   * has to see all of it before `total` means anything.
+   *
+   * A library source that can't be read is left out and logged rather than
+   * thrown, so the page degrades to the other sources - the same call
+   * `resolve()`'s placeholders make for this route, which has never carried
+   * `degradedSources` on its response.
    *
    * ⚠️ **Still email-only, unlike `listHistory` above** - a deliberate plan
    * 017 §E2 scope cut, not an oversight. `?requester=` here is driven by the
@@ -184,9 +240,10 @@ export class JobQueryService {
   async listGallery(
     params: ListGalleryParams,
   ): Promise<DownloadPage<GalleryItem>> {
-    const filter: JobListFilter = {
-      createdFrom: params.createdFrom,
-      createdTo: params.createdTo,
+    const requesterScoped = isRequesterScoped(params)
+    // The join onto the job log - both "which titles does this requester
+    // have" and each card's download summary run under it.
+    const jobFilter: JobListFilter = {
       // The attribution-oracle guard: a requester-keyed filter run by a
       // non-admin must not be able to confirm a hidden video exists for
       // that requester, via either the returned rows or `total`. The
@@ -195,44 +252,69 @@ export class JobQueryService {
       //
       // Asked as `isRequesterScoped(params)` rather than
       // `params.requesterEmail ? ...` so that the day the gallery grows a
-      // Discord arm of its own (plan 017 deferred it - see below), the guard
+      // Discord arm of its own (plan 017 deferred it - see above), the guard
       // already covers it instead of silently going `undefined`.
-      excludeHiddenVideos: isRequesterScoped(params)
-        ? !params.isAdmin
-        : undefined,
-      // A deleted title's jobs stay in `jobs` for history, but the gallery
-      // is "what's in the library right now" - see `removedFromLibrary`
-      // on the schema for why this is the only list route that sets it.
-      excludeRemovedFromLibrary: true,
+      excludeHiddenVideos: requesterScoped ? !params.isAdmin : undefined,
       requesterEmail: params.requesterEmail,
       statuses: [DownloadJobStatus.Completed],
-      types: params.types,
     }
 
-    const filterKey = computeFilterKey(filter)
+    const filterKey = computeFilterKey({
+      ...jobFilter,
+      addedFrom: params.createdFrom,
+      addedTo: params.createdTo,
+      types: params.types,
+    })
     const cursor = this.decodeCursor(params.cursor, filterKey)
 
-    const page = listMediaGroupsPage(this.dbService.db, {
-      cursor,
-      filter,
-      limit: params.limit,
-    })
-
-    const lastRequesters = this.resolveLastRequesters(filter, page.groups)
-    const { media } = await this.mediaResolverService.resolve(
-      page.groups.map(group => ({ mediaId: group.mediaId, type: group.type })),
+    let titles = (await this.listLibraryTitles(params.types)).filter(title =>
+      isWithinRange(title.addedAtMs, params.createdFrom, params.createdTo),
     )
 
-    const items = page.groups.map<GalleryItem>(group => {
-      const last = lastRequesters.get(group.mediaId)
+    // A requester-scoped gallery has to join the whole filtered library
+    // before it can page or count; the unscoped one only needs counts for
+    // the page it ends up rendering.
+    const joinedCounts = requesterScoped
+      ? countCompletedJobsByMediaIds(
+          this.dbService.db,
+          jobFilter,
+          titles.map(title => title.mediaId),
+        )
+      : undefined
+    if (joinedCounts) {
+      titles = titles.filter(title => joinedCounts.has(title.mediaId))
+    }
+
+    titles.sort(compareGalleryOrder)
+    const start = cursor
+      ? titles.findIndex(title => isAfterCursor(title, cursor))
+      : 0
+    const remaining = start === -1 ? [] : titles.slice(start)
+    const page = remaining.slice(0, params.limit)
+    const pageIds = page.map(title => title.mediaId)
+
+    const downloadCounts =
+      joinedCounts ??
+      countCompletedJobsByMediaIds(this.dbService.db, jobFilter, pageIds)
+    const lastRequesters = this.resolveLastRequesters(jobFilter, pageIds)
+    // Only the page is resolved - `listLibrary()`'s objects are unannotated
+    // (or stale-annotated), and this is what puts Emby status and `state`
+    // on the cards actually rendered.
+    const { media } = await this.mediaResolverService.resolve(
+      page.map(title => ({ mediaId: title.mediaId, type: title.type })),
+    )
+
+    const items = page.map<GalleryItem>(title => {
+      const last = lastRequesters.get(title.mediaId)
       const showRequester = showTrueAttribution(
-        group.type,
+        title.type,
         last?.hiddenAttribution ?? false,
         params.isAdmin,
       )
 
       return {
-        downloadCount: group.downloadCount,
+        addedAt: new Date(title.addedAtMs).toISOString(),
+        downloadCount: downloadCounts.get(title.mediaId) ?? 0,
         // Masked by the same `showRequester` decision as `lastRequester`:
         // the Discord handle identifies the uploader just as squarely as the
         // email does, so hiding one while showing the other would make
@@ -240,80 +322,145 @@ export class JobQueryService {
         lastDiscordRequester: showRequester
           ? (last?.discordRequester ?? null)
           : null,
-        lastDownloadedAt: new Date(group.lastJobAtMs).toISOString(),
+        lastDownloadedAt: last?.downloadedAt ?? null,
         lastRequester: showRequester ? (last?.requester ?? null) : null,
         // `resolve()` answers for every key it's given (a miss degrades to a
         // placeholder), so this fallback is unreachable - it's here to
         // satisfy `Map.get`'s type rather than to paper over a real gap.
-        media: media.get(group.mediaId) ?? {
-          id: group.mediaId,
+        media: media.get(title.mediaId) ?? {
+          id: title.mediaId,
           sourceUrl: '',
-          title: group.mediaId,
+          title: title.mediaId,
           type: DownloadType.Video,
         },
       }
     })
 
-    const lastGroup = page.groups.at(-1)
+    const lastTitle = page.at(-1)
     const nextCursor =
-      page.hasMore && lastGroup
+      remaining.length > page.length && lastTitle
         ? encodeListCursor({
             filterKey,
-            id: lastGroup.mediaId,
-            sortKeyMs: lastGroup.lastJobAtMs,
+            id: lastTitle.mediaId,
+            sortKeyMs: lastTitle.addedAtMs,
           })
         : null
 
-    return { items, nextCursor, total: page.total }
+    return { items, nextCursor, total: titles.length }
   }
 
   /**
    * The gallery's chip vocabulary, computed over only the date range - never
    * the currently-selected type/uploader - so narrowing by one facet can't
-   * make the others disappear (the classic faceting bug). The uploader
-   * aggregate gets `excludeHiddenVideos` unconditionally for a non-admin
-   * viewer, not only when a `requester` filter is present like
+   * make the others disappear (the classic faceting bug).
+   *
+   * The two halves count different things on purpose (plan 021). `types`
+   * counts the *library* - titles whose `addedAt` is in range, exactly what
+   * `listGallery()` would list for that type. `uploaders` still counts
+   * completed jobs by `created_at`: an uploader chip is a claim about
+   * people, and people live in `jobs`.
+   *
+   * The uploader aggregate gets `excludeHiddenVideos` unconditionally for a
+   * non-admin viewer, not only when a `requester` filter is present like
    * `listGallery()` above - otherwise the facet list itself would reveal
    * that a given uploader contributed something they hid. The type
    * aggregate gets no such guard: a type count leaks no per-uploader
    * identity, hidden or otherwise.
    */
-  getGalleryFacets(params: GalleryFacetsParams): DownloadGalleryFacets {
-    const dateFilter: JobListFilter = {
-      createdFrom: params.createdFrom,
-      createdTo: params.createdTo,
-      statuses: [DownloadJobStatus.Completed],
+  async getGalleryFacets(
+    params: GalleryFacetsParams,
+  ): Promise<DownloadGalleryFacets> {
+    const typeCounts = new Map<DownloadType, number>()
+    for (const title of await this.listLibraryTitles()) {
+      if (!isWithinRange(title.addedAtMs, params.createdFrom, params.createdTo))
+        continue
+      typeCounts.set(title.type, (typeCounts.get(title.type) ?? 0) + 1)
     }
 
     const uploaderFilter: JobListFilter = {
-      ...dateFilter,
+      createdFrom: params.createdFrom,
+      createdTo: params.createdTo,
       excludeHiddenVideos: !params.isAdmin,
+      statuses: [DownloadJobStatus.Completed],
     }
 
     return {
-      types: countJobsByType(this.dbService.db, dateFilter),
+      // Only types with a title, as the old `GROUP BY` had it - an empty
+      // type is absent rather than a `0` chip.
+      types: Object.values(DownloadType).flatMap(type => {
+        const count = typeCounts.get(type)
+        return count ? [{ count, type }] : []
+      }),
       uploaders: countJobsByRequester(this.dbService.db, uploaderFilter),
     }
   }
 
   /**
-   * The most recent job per group, under the *same* filter the grouping ran
-   * under - so the requester shown is the last one inside the filtered
-   * window, consistent with what `downloadCount` counts. One query for the
-   * whole page rather than one per card; the rows arrive newest-first, so
-   * the first one seen per key wins.
+   * Every title the gallery can list, narrowed to `types` when given (an
+   * omitted or empty `types` means all three). Radarr/Sonarr are only asked
+   * when a movie or show is wanted, and `videos` only when a video is, so a
+   * type-filtered page costs nothing from the sources it isn't showing.
+   */
+  private async listLibraryTitles(
+    types?: readonly DownloadType[],
+  ): Promise<LibraryTitle[]> {
+    const wanted = new Set<DownloadType>(
+      types?.length ? types : Object.values(DownloadType),
+    )
+    const titles: LibraryTitle[] = []
+
+    if (wanted.has(DownloadType.Movie) || wanted.has(DownloadType.Show)) {
+      const listing = await this.mediaResolverService.listLibrary()
+
+      for (const entry of listing.entries) {
+        if (!wanted.has(entry.media.type)) continue
+        titles.push({
+          addedAtMs: entry.addedAt.getTime(),
+          mediaId: entry.media.id,
+          type: entry.media.type,
+        })
+      }
+
+      const degradedSources = listing.degradedSources.filter(type =>
+        wanted.has(type),
+      )
+      if (degradedSources.length > 0) {
+        this.logger.warn(
+          { action: 'listLibraryTitles', degradedSources },
+          'Library source unreadable - listing the gallery without it',
+        )
+      }
+    }
+
+    if (wanted.has(DownloadType.Video)) {
+      for (const row of listVideosWithFiles(this.dbService.db)) {
+        titles.push({
+          // The same stand-in `hydrateVideo()` puts on `Video.addedAt`: the
+          // pipeline's last write is the one that sets `download_urls`.
+          addedAtMs: row.updatedAt.getTime(),
+          mediaId: mediaId({ id: row.id, type: DownloadType.Video }),
+          type: DownloadType.Video,
+        })
+      }
+    }
+
+    return titles
+  }
+
+  /**
+   * The most recent job per title, under the *same* filter the gallery's
+   * download counts ran under - so the requester shown is the last one
+   * inside that filter, consistent with what `downloadCount` counts. One
+   * query for the whole page rather than one per card; the rows arrive
+   * newest-first, so the first one seen per key wins.
    */
   private resolveLastRequesters(
     filter: JobListFilter,
-    groups: readonly MediaGroupRow[],
+    mediaIds: readonly string[],
   ): Map<string, LastRequester> {
     const latest = new Map<string, LastRequester>()
 
-    const rows = listLatestJobsForMediaIds(
-      this.dbService.db,
-      filter,
-      groups.map(group => group.mediaId),
-    )
+    const rows = listLatestJobsForMediaIds(this.dbService.db, filter, mediaIds)
 
     for (const row of rows) {
       if (!row.mediaId || latest.has(row.mediaId)) continue
@@ -321,6 +468,10 @@ export class JobQueryService {
       const record = hydrateJobRow(row)
       latest.set(row.mediaId, {
         discordRequester: record.discordRequester,
+        // Every completed job is stamped on its way into `completed`
+        // (`DownloadStateService.updateJob`); `updatedAt` covers a row
+        // written before that stamp existed, and is no earlier than it.
+        downloadedAt: record.completedAt ?? record.updatedAt,
         hiddenAttribution: record.hiddenAttribution,
         requester: record.requester,
       })
