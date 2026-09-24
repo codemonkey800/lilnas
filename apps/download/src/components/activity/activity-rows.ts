@@ -157,9 +157,15 @@ export function isMoving(job: DownloadJob): boolean {
  * the API rather than something to paper over with an invented figure, so a
  * video's progress cell renders the em dash the rest of the app uses for
  * "unknown".
+ *
+ * ⚠️ Only an in-progress job has one either. The snapshot lives on the
+ * *media*, not the job, so every job for the same title carries the same live
+ * figure — without this guard a finished or failed attempt in a history table
+ * would wear (and keep updating with) the percentage of whichever attempt is
+ * downloading now.
  */
 export function jobProgressPct(job: DownloadJob): number | null {
-  if (job.media.type === DownloadType.Video) {
+  if (job.media.type === DownloadType.Video || !isInProgress(job.status)) {
     return null
   }
 

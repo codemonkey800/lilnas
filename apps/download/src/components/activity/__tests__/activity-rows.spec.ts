@@ -206,6 +206,20 @@ describe('jobProgressPct', () => {
     expect(jobProgressPct(video())).toBeNull()
   })
 
+  // The snapshot is the media's, shared by every attempt at the same title, so
+  // a finished attempt would otherwise show the live attempt's percentage.
+  it.each([
+    DownloadJobStatus.Completed,
+    DownloadJobStatus.Failed,
+    DownloadJobStatus.Cancelled,
+  ])('has nothing to report once the job is %s', status => {
+    expect(jobProgressPct(movie({ status }))).toBeNull()
+  })
+
+  it('still reports progress for a paused job', () => {
+    expect(jobProgressPct(movie({ status: DownloadJobStatus.Paused }))).toBe(64)
+  })
+
   it('has nothing to report for a movie with no queue snapshot yet', () => {
     expect(
       jobProgressPct(
