@@ -1,8 +1,8 @@
 x-logging: &default-logging
   driver: json-file
   options:
-    max-size: "10m"
-    max-file: "3"
+    max-size: '10m'
+    max-file: '3'
 
 services:
   yacht:
@@ -34,6 +34,9 @@ services:
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - /storage/app-data/prometheus:/prometheus
+      - ./monitoring/secrets:/etc/prometheus/secrets:ro
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
     labels:
       - traefik.enable=true
       - traefik.http.routers.prometheus.rule=Host(`prometheus.lilnas.io`)
@@ -46,6 +49,8 @@ services:
     image: grafana/grafana:latest
     restart: unless-stopped
     logging: *default-logging
+    env_file:
+      - .env.monitoring
     environment:
       GF_AUTH_DISABLE_LOGIN_FORM: false
       GF_SECURITY_ALLOW_EMBEDDING: true
@@ -84,6 +89,11 @@ services:
       - ./monitoring/promtail.yml:/etc/promtail/promtail.yml:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # nexus-code daemon logs. If the host dir is deleted and recreated
+      # (`pnpm logs:clean` does `rm -rf /tmp/nexus-code`), this mount keeps
+      # the dead inode: recreate the container (`docker-compose up -d promtail`).
+      - /tmp/nexus-code:/host/tmp/nexus-code:ro
+      - /storage/app-data/promtail:/positions
 
   node-exporter:
     image: prom/node-exporter:latest
@@ -94,10 +104,13 @@ services:
       - --path.sysfs=/host/sys
       - --path.rootfs=/host/rootfs
       - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+      - --collector.textfile.directory=/textfile
     volumes:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /:/host/rootfs:ro
+      # Created by the nexus-code watchdog (0755); must exist before start, else Docker creates it root:root and the watchdog can't write.
+      - /home/jeremy/.local/share/nexus-server/daemon/metrics:/textfile:ro
     pid: host
 
   cadvisor:

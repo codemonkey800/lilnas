@@ -53,3 +53,12 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ['idkwiw:8080']
+
+  - job_name: nexus-code
+    metrics_path: /__nexus/metrics
+    scrape_timeout: 10s
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/secrets/nexus-metrics-token
+    static_configs:
+      - targets: ['host.docker.internal:8765']
