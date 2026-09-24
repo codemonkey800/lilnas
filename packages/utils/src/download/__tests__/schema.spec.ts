@@ -1835,7 +1835,7 @@ describe('AUDIT_ACTIONS additions', () => {
   // Append-only: rows already written keep whatever value they were written
   // with, so the existing members must never be reordered or removed.
   it('leaves the pre-existing actions in place, in order', () => {
-    expect(AUDIT_ACTIONS.slice(0, 16)).toEqual([
+    expect(AUDIT_ACTIONS.slice(0, 18)).toEqual([
       'video.create',
       'video.cancel',
       'video.pause',
@@ -1852,6 +1852,12 @@ describe('AUDIT_ACTIONS additions', () => {
       'file.flag_bad',
       'file.unflag_bad',
       'ytdlp.check_update',
+      'media.manual_import',
+      'media.discard_download',
     ])
+  })
+
+  it('appends the two media-cancel actions after the pinned prefix', () => {
+    expect(AUDIT_ACTIONS.slice(18, 20)).toEqual(['movie.cancel', 'show.cancel'])
   })
 })

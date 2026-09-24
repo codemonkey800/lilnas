@@ -1064,6 +1064,19 @@ describe('DownloadClient', () => {
       )
     })
 
+    it('cancelMovieJob issues a PATCH to /download/movies/:id/cancel', async () => {
+      const job = buildJob(MOVIE_MEDIA, {
+        status: DownloadJobStatus.Cancelling,
+      })
+      const fetchSpy = mockFetchJson(job)
+
+      await expect(client.cancelMovieJob('job-1')).resolves.toEqual(job)
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/download/movies/job-1/cancel',
+        { headers: JSON_HEADERS, method: 'PATCH' },
+      )
+    })
+
     it('searchShows issues a GET to /download/shows/search with an encoded query', async () => {
       const fetchSpy = mockFetchJson({ results: [] })
 
@@ -1109,6 +1122,19 @@ describe('DownloadClient', () => {
       expect(fetchSpy).toHaveBeenCalledWith(
         'http://localhost:8081/download/shows/job-1',
         { headers: JSON_HEADERS, method: 'DELETE' },
+      )
+    })
+
+    it('cancelShowJob issues a PATCH to /download/shows/:id/cancel', async () => {
+      const job = buildJob(MOVIE_MEDIA, {
+        status: DownloadJobStatus.Cancelling,
+      })
+      const fetchSpy = mockFetchJson(job)
+
+      await expect(client.cancelShowJob('job-1')).resolves.toEqual(job)
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/download/shows/job-1/cancel',
+        { headers: JSON_HEADERS, method: 'PATCH' },
       )
     })
   })

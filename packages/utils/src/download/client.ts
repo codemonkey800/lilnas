@@ -908,6 +908,19 @@ export class DownloadClient {
     return response.json()
   }
 
+  /**
+   * Cancels an in-progress movie download. `id` is the job id, the same one
+   * `getMovieJob`/`deleteMovieJob` take - not a media key, so it is not
+   * encoded here.
+   */
+  async cancelMovieJob(id: string): Promise<DownloadJob> {
+    const response = await this.request(`/download/movies/${id}/cancel`, {
+      method: 'PATCH',
+    })
+
+    return response.json()
+  }
+
   async searchShows(query: string): Promise<SearchMediaResponse> {
     const response = await this.request(
       `/download/shows/search?query=${encodeURIComponent(query)}`,
@@ -933,6 +946,19 @@ export class DownloadClient {
   async deleteShowJob(id: string): Promise<DownloadJob> {
     const response = await this.request(`/download/shows/${id}`, {
       method: 'DELETE',
+    })
+
+    return response.json()
+  }
+
+  /**
+   * Cancels an in-progress show download. `id` is the job id, the same one
+   * `getShowJob`/`deleteShowJob` take - not a media key, so it is not
+   * encoded here.
+   */
+  async cancelShowJob(id: string): Promise<DownloadJob> {
+    const response = await this.request(`/download/shows/${id}/cancel`, {
+      method: 'PATCH',
     })
 
     return response.json()

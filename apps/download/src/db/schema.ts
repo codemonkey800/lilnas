@@ -373,6 +373,8 @@ export const AUDIT_ACTIONS_LOCAL = [
   'ytdlp.check_update',
   'media.manual_import',
   'media.discard_download',
+  'movie.cancel',
+  'show.cancel',
 ] as const
 
 export const AUDIT_TARGET_TYPES_LOCAL = ['job', 'media'] as const

@@ -47,6 +47,8 @@ export const AUDIT_ACTION_LEVELS: Record<AuditAction, AuditLevel> = {
   'ytdlp.check_update': { label: 'UPDATE', tone: 'mute' },
   'media.manual_import': { label: 'IMPORT', tone: 'uv' },
   'media.discard_download': { label: 'DISCARD', tone: 'bad' },
+  'movie.cancel': { label: 'CANCEL', tone: 'warn' },
+  'show.cancel': { label: 'CANCEL', tone: 'warn' },
 }
 
 /** The level an audit row renders at. See {@link AUDIT_ACTION_LEVELS}. */
@@ -77,6 +79,8 @@ export const AUDIT_ACTION_PHRASES: Record<AuditAction, string> = {
   'ytdlp.check_update': 'checked for a yt-dlp update',
   'media.manual_import': 'manually imported files',
   'media.discard_download': 'discarded a stuck download',
+  'movie.cancel': 'cancelled a movie download',
+  'show.cancel': 'cancelled a show download',
 }
 
 /**

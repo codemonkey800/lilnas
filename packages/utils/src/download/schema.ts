@@ -891,6 +891,8 @@ export const AUDIT_ACTIONS = [
   'ytdlp.check_update',
   'media.manual_import',
   'media.discard_download',
+  'movie.cancel',
+  'show.cancel',
 ] as const
 
 /**
