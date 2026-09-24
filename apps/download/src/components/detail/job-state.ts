@@ -1,11 +1,17 @@
-import type { DownloadJob } from '@lilnas/utils/download/types'
+import type { DownloadJob, VideoProgress } from '@lilnas/utils/download/types'
 import {
   DownloadJobStatus,
   DownloadType,
   isManagedMedia,
 } from '@lilnas/utils/download/types'
 
-import { isInProgress } from 'src/lib/format'
+import {
+  formatBytes,
+  formatEta,
+  formatSpeed,
+  isInProgress,
+  UNKNOWN_VALUE,
+} from 'src/lib/format'
 
 /**
  * The per-job logic `AttemptList` renders, kept in a module of its own rather
@@ -159,34 +165,113 @@ export function latestJob(jobs: readonly DownloadJob[]): DownloadJob | null {
 /** Everything a progress block draws, or `null` when there is nothing to draw. */
 export type JobProgress = {
   /**
-   * Radarr's/Sonarr's own queue status word (`downloading`, `warning`,
-   * `delay`…), passed through verbatim. `null` when the queue did not report
-   * one.
+   * The counter for the note slot. For a video, yt-dlp's own counters —
+   * `file 1 of 2`, `fragment 4 of 123`, both joined by ` · ` — and for a movie
+   * or show, Radarr's/Sonarr's queue status word (`downloading`, `warning`,
+   * `delay`…) verbatim. `null` when there is nothing to count or say.
    */
   note: string | null
   /** 0-100, already rounded upstream to two decimals. */
   pct: number
-  /** Upstream's `hh:mm:ss` estimate, verbatim. `null` when it has none. */
+  /**
+   * `~2m left` for a video, already phrased (see `formatEta`); upstream's
+   * `hh:mm:ss` verbatim for a movie or show. `null` when there is no estimate.
+   */
   timeLeft: string | null
+  /**
+   * The mono line under the bar — `412 MB / ~640 MB · 3.1 MB/s` for a video.
+   * Always `null` for a movie or show: the queue carries no bytes.
+   */
+  detail: string | null
 }
 
 /**
- * The progress a job can actually prove, which is less than the mockups draw.
+ * The bytes-and-rate line for a video — `412 MB / ~640 MB · 3.1 MB/s`, or
+ * `412 MB · 3.1 MB/s` without a total. A segment that would only read `—` is
+ * dropped rather than drawn, and `null` comes back when nothing is left.
+ */
+function transferLine(progress: VideoProgress): string | null {
+  const downloaded = formatBytes(progress.downloadedBytes)
+  const total = formatBytes(progress.totalBytes)
+  const bytes =
+    total === UNKNOWN_VALUE
+      ? downloaded === UNKNOWN_VALUE
+        ? null
+        : downloaded
+      : `${downloaded} / ${progress.totalIsEstimate ? '~' : ''}${total}`
+
+  const speed =
+    progress.speedBps == null ? UNKNOWN_VALUE : formatSpeed(progress.speedBps)
+
+  const line = [bytes, speed === UNKNOWN_VALUE ? null : speed]
+    .filter(Boolean)
+    .join(' · ')
+
+  return line || null
+}
+
+/**
+ * yt-dlp's counters, in the order they nest: which file of the grab (a
+ * video+audio merge is two), then which fragment of that file (HLS/DASH).
  *
- * ⚠️ The only progress the wire carries is `ManagedMediaBase.queueSnapshot` -
- * a Radarr/Sonarr queue entry, so **movies and shows only**. A video job has
- * no progress field anywhere in `DownloadJob`, and no byte counter, transfer
- * rate or fragment counter exists for any type. `video-detail.pug`'s
- * `fragment 4 of 9` / `412 MB / 640 MB · 3.1 MB/s` line is mockup data with
- * nothing behind it; where a mockup and the API disagree about content, the
- * API wins.
+ * A file counter only when it says something — `file 1 of 1` is noise, and a
+ * lone `file 1` says less than nothing, but a lone `file 2` still tells the
+ * reader the first file is behind them. The numbers are yt-dlp's verbatim, so
+ * the fragment index stays 0-based the way the log prints it.
+ */
+function videoNote(progress: VideoProgress): string | null {
+  const { fileCount, fileIndex, fragmentCount, fragmentIndex } = progress
+
+  const file =
+    fileCount != null
+      ? fileCount > 1
+        ? `file ${fileIndex} of ${fileCount}`
+        : null
+      : fileIndex > 1
+        ? `file ${fileIndex}`
+        : null
+
+  const fragment =
+    fragmentIndex != null && fragmentCount != null
+      ? `fragment ${fragmentIndex} of ${fragmentCount}`
+      : null
+
+  const note = [file, fragment].filter(Boolean).join(' · ')
+  return note || null
+}
+
+/**
+ * The progress a job can actually prove.
+ *
+ * Two sources, one per kind of media:
+ *
+ * - A video reads `job.progress` — yt-dlp's own tick for the current file,
+ *   which the backend keeps only while the process lives (a paused job still
+ *   has one). Bytes, rate, ETA and counters all come from there.
+ * - A movie or show reads `ManagedMediaBase.queueSnapshot` — the
+ *   Radarr/Sonarr queue entry, which has a percentage, a status word and an
+ *   `hh:mm:ss` estimate but no bytes, so `detail` is always `null`.
  *
  * `null` means "draw no bar at all", which is the honest rendering of an
- * unknown percentage - a `0%` bar is a claim.
+ * unknown percentage - a `0%` bar is a claim. That includes a video whose
+ * total yt-dlp does not know yet: it has bytes and a rate but no percentage,
+ * and {@link jobTransferLine} carries its activity instead.
  */
 export function jobProgress(job: DownloadJob): JobProgress | null {
   if (!isManagedMedia(job.media)) {
-    return null
+    const progress = job.progress
+    const pct = progress?.percent
+
+    if (!progress || pct === undefined || !Number.isFinite(pct)) {
+      return null
+    }
+
+    return {
+      detail: transferLine(progress),
+      note: videoNote(progress),
+      pct,
+      timeLeft: formatEta(progress.etaSeconds),
+    }
   }
 
   const snapshot = job.media.queueSnapshot
@@ -197,10 +282,31 @@ export function jobProgress(job: DownloadJob): JobProgress | null {
   }
 
   return {
+    detail: null,
     note: snapshot?.status ?? null,
     pct,
     timeLeft: snapshot?.timeLeft ?? null,
   }
+}
+
+/**
+ * The transfer line alone, for a video that has bytes moving but no
+ * percentage to draw a bar with (yt-dlp does not know the total yet) — still
+ * activity worth showing, just not a bar. `null` for everything else: a video
+ * with a percentage (its line is {@link JobProgress.detail}), a movie or show
+ * (no bytes on the wire), or a job with no progress at all.
+ */
+export function jobTransferLine(job: DownloadJob): string | null {
+  if (isManagedMedia(job.media) || !job.progress) {
+    return null
+  }
+
+  const pct = job.progress.percent
+  if (pct !== undefined && Number.isFinite(pct)) {
+    return null
+  }
+
+  return transferLine(job.progress)
 }
 
 /**
@@ -212,15 +318,26 @@ export function jobProgress(job: DownloadJob): JobProgress | null {
  *   and has not handed the release to Radarr/Sonarr yet.
  * - `importing` - Radarr/Sonarr has the files and is moving them into the
  *   library.
+ * - `processing` - a video's bytes are down and this app is converting,
+ *   uploading or cleaning up after it. yt-dlp's progress ends with the
+ *   transfer, so there is nothing left to count.
  *
- * Neither has a percentage or an estimate of its own - the queue's ETA reads
- * `00:00:00` the whole way through - so a handoff draws a settling bar and a
- * sentence instead of a countdown that has already run out.
+ * None has a percentage or an estimate of its own - the queue's ETA reads
+ * `00:00:00` the whole way through, and a video's ETA is gone with its
+ * process - so a handoff draws a settling bar and a sentence instead of a
+ * countdown that has already run out.
  */
-export type Handoff = 'finishing' | 'importing'
+export type Handoff = 'finishing' | 'importing' | 'processing'
 
 /** The percentage a download has to reach before it is a `finishing` one. */
 export const FINISHED_PCT = 100
+
+/** A video's post-transfer work - see `processing` in {@link Handoff}. */
+const PROCESSING_STATUSES: ReadonlySet<DownloadJobStatus> = new Set([
+  DownloadJobStatus.Cleaning,
+  DownloadJobStatus.Converting,
+  DownloadJobStatus.Uploading,
+])
 
 /** See {@link Handoff}. `null` while the download is still transferring. */
 export function jobHandoff(
@@ -231,6 +348,12 @@ export function jobHandoff(
     return 'importing'
   }
 
+  // Past the transfer whatever the last tick said - the percentage is gone
+  // with the yt-dlp process, and a settling bar is still true.
+  if (PROCESSING_STATUSES.has(status)) {
+    return 'processing'
+  }
+
   return status === DownloadJobStatus.Downloading &&
     pct != null &&
     pct >= FINISHED_PCT
@@ -239,9 +362,10 @@ export function jobHandoff(
 }
 
 /**
- * The chip text for a handoff. `importing` is left to the status tables,
- * which already name it; only a `downloading` that has nothing left to
- * download needs a word of its own.
+ * The chip text for a handoff. `importing` and `processing` are left to the
+ * status tables, which already name them (`converting`, `uploading`,
+ * `cleaning up`); only a `downloading` that has nothing left to download
+ * needs a word of its own.
  */
 export const FINISHING_LABEL = 'finishing up'
 
@@ -254,15 +378,16 @@ const IMPORTERS: Record<DownloadType, string | null> = {
 
 /**
  * The line under a settling bar: what is happening now, in place of the
- * `~00:00:00 left` the queue keeps reporting. `null` for a video, which never
- * draws a bar.
+ * `~00:00:00 left` the queue keeps reporting. `null` for `processing` - the
+ * chip already names the step, and there is no importer to hand off to - and
+ * for a video generally, which Radarr/Sonarr never take.
  */
 export function handoffDetail(
   handoff: Handoff,
   type: DownloadType,
 ): string | null {
   const importer = IMPORTERS[type]
-  if (!importer) {
+  if (handoff === 'processing' || !importer) {
     return null
   }
 

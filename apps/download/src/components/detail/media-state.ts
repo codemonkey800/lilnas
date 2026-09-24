@@ -97,6 +97,8 @@ export function mediaProgress(media: Media): JobProgress | null {
   }
 
   return {
+    // The queue carries no bytes, so there is no transfer line to draw.
+    detail: null,
     note: snapshot?.status ?? null,
     pct,
     timeLeft: snapshot?.timeLeft ?? null,

@@ -1,4 +1,9 @@
-import type { DownloadJob, Movie } from '@lilnas/utils/download/types'
+import type {
+  DownloadJob,
+  Movie,
+  Video,
+  VideoProgress,
+} from '@lilnas/utils/download/types'
 import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
 
 import type { JobActionKey } from 'src/components/detail/job-state'
@@ -8,6 +13,7 @@ import {
   jobHandoff,
   jobProgress,
   jobStatusLabel,
+  jobTransferLine,
   latestJob,
 } from 'src/components/detail/job-state'
 
@@ -18,6 +24,20 @@ const MOVIE: Movie = {
   title: 'Following',
   tmdbId: 11660,
   type: DownloadType.Movie,
+}
+
+const VIDEO: Video = {
+  id: 'video:abc123',
+  sourceUrl: 'https://youtube.com/watch?v=abc',
+  title: 'Sourdough starter',
+  type: DownloadType.Video,
+}
+
+const MB = 1024 * 1024
+
+/** A video job carrying one yt-dlp tick. */
+function videoJob(progress?: VideoProgress): DownloadJob {
+  return job({ media: VIDEO, ...(progress ? { progress } : {}) })
 }
 
 function job(overrides: Partial<DownloadJob> = {}): DownloadJob {
@@ -196,26 +216,127 @@ describe('jobProgress', () => {
       }),
     )
 
+    // The queue carries no bytes, so a movie never has a transfer line.
     expect(progress).toEqual({
+      detail: null,
       note: 'downloading',
       pct: 47.25,
       timeLeft: '00:12:34',
     })
   })
 
-  it('answers null for a video, which carries no progress anywhere on the wire', () => {
-    const progress = jobProgress(
-      job({
-        media: {
-          id: 'video:abc123',
-          sourceUrl: 'https://youtube.com/watch?v=abc',
-          title: 'Sourdough starter',
-          type: DownloadType.Video,
-        },
-      }),
-    )
+  it('answers null for a video with no progress on it', () => {
+    expect(jobProgress(videoJob())).toBeNull()
+  })
 
-    expect(progress).toBeNull()
+  it('answers null for a video whose total yt-dlp does not know yet', () => {
+    const noTotal = videoJob({
+      downloadedBytes: 412 * MB,
+      fileIndex: 1,
+      speedBps: 3.25e6,
+    })
+
+    // A `0%` bar would be a claim - the activity goes on the transfer line.
+    expect(jobProgress(noTotal)).toBeNull()
+    expect(jobTransferLine(noTotal)).toBe('412 MB · 3.1 MB/s')
+  })
+
+  it('answers null for a video whose percentage is not a finite number', () => {
+    expect(
+      jobProgress(
+        videoJob({ downloadedBytes: MB, fileIndex: 1, percent: Number.NaN }),
+      ),
+    ).toBeNull()
+  })
+
+  it('reads a progressive video tick in full', () => {
+    expect(
+      jobProgress(
+        videoJob({
+          downloadedBytes: 412 * MB,
+          etaSeconds: 125,
+          fileCount: 2,
+          fileIndex: 1,
+          percent: 64,
+          speedBps: 3.25e6,
+          totalBytes: 640 * MB,
+        }),
+      ),
+    ).toEqual({
+      detail: '412 MB / 640 MB · 3.1 MB/s',
+      note: 'file 1 of 2',
+      pct: 64,
+      timeLeft: '~2m left',
+    })
+  })
+
+  it('reads an HLS tick, fragments and an estimated total included', () => {
+    expect(
+      jobProgress(
+        videoJob({
+          downloadedBytes: 412 * MB,
+          etaSeconds: 125,
+          fileCount: 2,
+          fileIndex: 1,
+          fragmentCount: 123,
+          fragmentIndex: 4,
+          percent: 3.25,
+          speedBps: 3.25e6,
+          totalBytes: 640 * MB,
+          totalIsEstimate: true,
+        }),
+      ),
+    ).toEqual({
+      detail: '412 MB / ~640 MB · 3.1 MB/s',
+      note: 'file 1 of 2 · fragment 4 of 123',
+      pct: 3.25,
+      timeLeft: '~2m left',
+    })
+  })
+
+  it('names a second file even when the count is unknown', () => {
+    expect(
+      jobProgress(
+        videoJob({
+          downloadedBytes: 412 * MB,
+          fileIndex: 2,
+          percent: 50,
+          totalBytes: 824 * MB,
+        }),
+      ),
+    ).toMatchObject({ note: 'file 2' })
+  })
+
+  it('leaves the file counter off a single-file grab', () => {
+    expect(
+      jobProgress(
+        videoJob({
+          downloadedBytes: 412 * MB,
+          fileCount: 1,
+          fileIndex: 1,
+          percent: 50,
+          totalBytes: 824 * MB,
+        }),
+      ),
+    ).toMatchObject({ note: null })
+  })
+
+  it('omits the rate and the estimate when yt-dlp has neither', () => {
+    expect(
+      jobProgress(
+        videoJob({
+          downloadedBytes: 412 * MB,
+          fileIndex: 1,
+          percent: 50,
+          totalBytes: 824 * MB,
+        }),
+      ),
+    ).toEqual({
+      detail: '412 MB / 824 MB',
+      note: null,
+      pct: 50,
+      timeLeft: null,
+    })
   })
 
   it('answers null when the queue reported no percentage', () => {
@@ -228,6 +349,40 @@ describe('jobProgress', () => {
 
   it('answers null when there is no queue snapshot at all', () => {
     expect(jobProgress(job())).toBeNull()
+  })
+})
+
+describe('jobTransferLine', () => {
+  it('answers null for a video that already draws a bar', () => {
+    expect(
+      jobTransferLine(
+        videoJob({
+          downloadedBytes: 412 * MB,
+          fileIndex: 1,
+          percent: 64,
+          speedBps: 3.25e6,
+          totalBytes: 640 * MB,
+        }),
+      ),
+    ).toBeNull()
+  })
+
+  it('answers null for a video with no progress on it', () => {
+    expect(jobTransferLine(videoJob())).toBeNull()
+  })
+
+  it('answers null for a movie, whose queue carries no bytes', () => {
+    expect(
+      jobTransferLine(
+        job({ media: { ...MOVIE, queueSnapshot: { status: 'delay' } } }),
+      ),
+    ).toBeNull()
+  })
+
+  it('drops a rate yt-dlp has not measured yet', () => {
+    expect(
+      jobTransferLine(videoJob({ downloadedBytes: 412 * MB, fileIndex: 1 })),
+    ).toBe('412 MB')
   })
 })
 
@@ -244,6 +399,17 @@ describe('jobHandoff', () => {
   it('calls an import importing, whatever its percentage', () => {
     expect(jobHandoff(DownloadJobStatus.Importing, 100)).toBe('importing')
     expect(jobHandoff(DownloadJobStatus.Importing, undefined)).toBe('importing')
+  })
+
+  it('calls a video past its transfer processing, whatever its percentage', () => {
+    for (const status of [
+      DownloadJobStatus.Converting,
+      DownloadJobStatus.Uploading,
+      DownloadJobStatus.Cleaning,
+    ]) {
+      expect(jobHandoff(status, 100)).toBe('processing')
+      expect(jobHandoff(status, undefined)).toBe('processing')
+    }
   })
 
   it('leaves a full bar that is stopped alone', () => {
@@ -266,5 +432,10 @@ describe('handoffDetail', () => {
 
   it('has nothing to say for a video, which never draws a bar', () => {
     expect(handoffDetail('finishing', DownloadType.Video)).toBeNull()
+  })
+
+  it('leaves processing to the chip, which already names the step', () => {
+    expect(handoffDetail('processing', DownloadType.Video)).toBeNull()
+    expect(handoffDetail('processing', DownloadType.Movie)).toBeNull()
   })
 })

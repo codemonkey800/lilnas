@@ -113,7 +113,12 @@ describe('mediaProgress', () => {
           timeLeft: '00:12:34',
         },
       }),
-    ).toEqual({ note: 'downloading', pct: 47.25, timeLeft: '00:12:34' })
+    ).toEqual({
+      detail: null,
+      note: 'downloading',
+      pct: 47.25,
+      timeLeft: '00:12:34',
+    })
   })
 
   it('reads a show from its queue snapshot', () => {
@@ -126,7 +131,7 @@ describe('mediaProgress', () => {
           timeLeft: '01:00:00',
         },
       }),
-    ).toEqual({ note: 'warning', pct: 12, timeLeft: '01:00:00' })
+    ).toEqual({ detail: null, note: 'warning', pct: 12, timeLeft: '01:00:00' })
   })
 
   it('answers null when there is no queue snapshot at all', () => {
@@ -148,6 +153,7 @@ describe('mediaProgress', () => {
 
   it('nulls the note and time left when the queue omitted them', () => {
     expect(mediaProgress({ ...SHOW, queueSnapshot: { progress: 0 } })).toEqual({
+      detail: null,
       note: null,
       pct: 0,
       timeLeft: null,
