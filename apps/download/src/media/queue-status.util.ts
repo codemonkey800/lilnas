@@ -282,6 +282,21 @@ export function deriveStatusFromQueueItem(
 export const QUEUE_ABSENCE_GRACE_MS = 60_000
 
 /**
+ * How long a `cancelling` job must stay missing from the queue, with no file
+ * and no removal or failure in its history, before the cancel is called done.
+ * Wall-clock, like `QUEUE_ABSENCE_GRACE_MS`.
+ *
+ * The wait exists only for a late grab: a Radarr/Sonarr search command
+ * already running when the cancel was pressed can still grab a release
+ * afterwards. Indexer requests time out at about 30 s, so a search that has
+ * not grabbed by then is very unlikely to. Reusing the 60 s absence grace
+ * would double the wait for no gain, and much below 20 s this would be two
+ * poll ticks - the same as `QUEUE_REMOVAL_CONFIRM_MS` - and no longer a grace
+ * window at all.
+ */
+export const CANCEL_GRACE_MS = 30_000
+
+/**
  * How long a job whose history says it was removed or failed (see
  * `DequeuedOutcome`) must stay missing from the queue before that is taken
  * as final: long enough that two separate queue reads agreed, so one read
@@ -373,6 +388,13 @@ const WAITING_STATUSES = new Set<DownloadJobStatus>([
  * `didJobComplete`'s verdict on whether a file for the job's scope was added
  * after the job was created.
  *
+ * - Cancelling (someone pressed cancel here, and the queue items were
+ *   removed), checked first: Completed if a file landed anyway - the cancel
+ *   came too late. Otherwise Cancelled once `QUEUE_REMOVAL_CONFIRM_MS` has
+ *   passed if `outcome` says the download was removed or failed, or once
+ *   `CANCEL_GRACE_MS` has passed with any other outcome or none (never
+ *   grabbed, an import on its way, or history lost to a restart), since a
+ *   search still running at the press may yet grab a release.
  * - A file landed: Completed, whatever the status. That includes a
  *   `searching` job whose whole download happened between two ticks, and a
  *   `needs_attention` job a human imported by hand.
@@ -395,6 +417,10 @@ export function settleWithoutQueueItem(
   absentForMs: number,
   outcome?: DequeuedOutcome,
 ): DownloadJobStatus | undefined {
+  if (current === DownloadJobStatus.Cancelling) {
+    return settleCancelling(fileLanded, absentForMs, outcome)
+  }
+
   const grabbed = GRABBED_STATUSES.has(current)
 
   if (!grabbed && !WAITING_STATUSES.has(current)) return undefined
@@ -416,6 +442,24 @@ export function settleWithoutQueueItem(
   }
 
   return undefined
+}
+
+// `settleWithoutQueueItem`'s answer for a `cancelling` job.
+function settleCancelling(
+  fileLanded: boolean,
+  absentForMs: number,
+  outcome: DequeuedOutcome | undefined,
+): DownloadJobStatus | undefined {
+  if (fileLanded) return DownloadJobStatus.Completed
+
+  const confirmed =
+    outcome != null &&
+    outcome.kind !== 'imported' &&
+    absentForMs >= QUEUE_REMOVAL_CONFIRM_MS
+
+  return confirmed || absentForMs >= CANCEL_GRACE_MS
+    ? DownloadJobStatus.Cancelled
+    : undefined
 }
 
 /**

@@ -2,6 +2,7 @@ import { DownloadJobStatus } from '@lilnas/utils/download/types'
 
 import {
   aggregateQueueItems,
+  CANCEL_GRACE_MS,
   dequeuedOutcome,
   deriveStatusFromQueueItem,
   describeQueueItemError,
@@ -268,8 +269,20 @@ describe('settleWithoutQueueItem', () => {
     [NeedsAttention, false, 0, undefined],
     [NeedsAttention, false, GRACE * 10, undefined],
 
+    // Cancelling with no history to go on (never grabbed, or after a
+    // restart): a file that landed anyway means the cancel came late;
+    // otherwise cancelled once a still-running search has had its chance to
+    // grab.
+    [Cancelling, true, 0, Completed],
+    [Cancelling, true, CANCEL_GRACE_MS, Completed],
+    [Cancelling, false, 0, undefined],
+    [Cancelling, false, QUEUE_REMOVAL_CONFIRM_MS, undefined],
+    [Cancelling, false, CANCEL_GRACE_MS - 1, undefined],
+    [Cancelling, false, CANCEL_GRACE_MS, Cancelled],
+    [Cancelling, false, GRACE, Cancelled],
+
     // Video-only statuses a movie/show job never holds: never moved.
-    ...[Cancelling, Cleaning, Converting, Pausing, Pending, Uploading].flatMap(
+    ...[Cleaning, Converting, Pausing, Pending, Uploading].flatMap(
       (status): Array<[DownloadJobStatus, boolean, number, undefined]> => [
         [status, true, GRACE, undefined],
         [status, false, GRACE, undefined],
@@ -308,12 +321,17 @@ describe('settleWithoutQueueItem', () => {
       'Left the queue without producing a file',
     )
   })
+
+  it('waits half a minute on a cancel', () => {
+    expect(CANCEL_GRACE_MS).toBe(30_000)
+  })
 })
 
 describe('settleWithoutQueueItem with a dequeued outcome', () => {
   const CONFIRM = QUEUE_REMOVAL_CONFIRM_MS
   const {
     Cancelled,
+    Cancelling,
     Completed,
     Downloading,
     Failed,
@@ -339,6 +357,18 @@ describe('settleWithoutQueueItem with a dequeued outcome', () => {
     [Downloading, imported, CONFIRM, undefined],
     [Downloading, imported, QUEUE_ABSENCE_GRACE_MS, Failed],
     [NeedsAttention, imported, QUEUE_ABSENCE_GRACE_MS, undefined],
+    // Cancelling, the download removed or failed: cancelled once two reads
+    // agree, the same confirmation as a removal made upstream.
+    [Cancelling, removed, 0, undefined],
+    [Cancelling, removed, CONFIRM - 1, undefined],
+    [Cancelling, removed, CONFIRM, Cancelled],
+    [Cancelling, failed, CONFIRM - 1, undefined],
+    [Cancelling, failed, CONFIRM, Cancelled],
+    // Cancelling, an import recorded: the file may yet land, so wait out the
+    // cancel grace rather than the removal confirmation.
+    [Cancelling, imported, CONFIRM, undefined],
+    [Cancelling, imported, CANCEL_GRACE_MS - 1, undefined],
+    [Cancelling, imported, CANCEL_GRACE_MS, Cancelled],
   ] as const)(
     '%s, %o, absent %d ms -> %s',
     (current, outcome, absentForMs, expected) => {
@@ -353,6 +383,15 @@ describe('settleWithoutQueueItem with a dequeued outcome', () => {
       Completed,
     )
   })
+
+  it.each([removed, failed, imported])(
+    'completes a cancelling job whose file landed anyway, %o',
+    outcome => {
+      expect(settleWithoutQueueItem(Cancelling, true, 0, outcome)).toBe(
+        Completed,
+      )
+    },
+  )
 
   it('leaves a terminal job alone', () => {
     expect(
