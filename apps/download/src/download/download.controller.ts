@@ -1793,6 +1793,32 @@ export class DownloadController {
     })
   }
 
+  /**
+   * Stops an in-flight movie download: removes its Radarr queue items,
+   * unmonitors the title if it has no file, and moves the job to
+   * `Cancelling`. The poller settles it from there - `Cancelled`, or
+   * `Completed` if a file lands anyway because the cancel came too late.
+   *
+   * `:id` is a job id, like `DELETE /movies/:id`. A finished job answers
+   * 404, as `PATCH /videos/:id/cancel` does, and a job already `Cancelling`
+   * is answered as it stands. Same gate as the delete - no admin check,
+   * `@OptionalCurrentUser()` for attribution only.
+   */
+  @Patch('/movies/:id/cancel')
+  async cancelMovieJob(
+    @Param('id') id: string,
+    @OptionalCurrentUser() user: ForwardedUser | undefined,
+  ): Promise<DownloadJob> {
+    return this.mediaJobRoute({
+      action: 'cancelMovieJob',
+      audit: { action: 'movie.cancel' },
+      id,
+      notFoundMessage: 'Failed to cancel movie job',
+      run: () => this.mediaDownloadService.cancelMovieJob(id),
+      user,
+    })
+  }
+
   @Get('/shows/search')
   async searchShows(
     @Query(new ZodValidationPipe(MediaSearchQueryDto))
@@ -1916,6 +1942,26 @@ export class DownloadController {
       id,
       notFoundMessage: 'Failed to delete show job',
       run: () => this.mediaDownloadService.deleteShowJob(id),
+      user,
+    })
+  }
+
+  /**
+   * The show counterpart of `PATCH /movies/:id/cancel`: removes the Sonarr
+   * queue items inside the job's scope, unmonitors what in that scope has no
+   * file, and moves the job to `Cancelling` for the poller to settle.
+   */
+  @Patch('/shows/:id/cancel')
+  async cancelShowJob(
+    @Param('id') id: string,
+    @OptionalCurrentUser() user: ForwardedUser | undefined,
+  ): Promise<DownloadJob> {
+    return this.mediaJobRoute({
+      action: 'cancelShowJob',
+      audit: { action: 'show.cancel' },
+      id,
+      notFoundMessage: 'Failed to cancel show job',
+      run: () => this.mediaDownloadService.cancelShowJob(id),
       user,
     })
   }
@@ -2170,16 +2216,16 @@ export class DownloadController {
   }
 
   /**
-   * The four movie/show job routes were byte-identical apart from their
-   * `action` string and which service method they called - now that all
-   * four return the same `DownloadJob`, that duplication has nothing left
-   * to justify it.
+   * The movie/show job routes (get, delete, cancel) were byte-identical
+   * apart from their `action` string and which service method they called -
+   * now that all of them return the same `DownloadJob`, that duplication has
+   * nothing left to justify it.
    *
    * `audit` is optional here, and on this helper alone, because this is the
    * only one of the three that serves reads as well as writes: the two GETs
-   * pass nothing and record nothing, while the two DELETEs pass their
-   * action. A read is not an event, and logging one would bury the deletes
-   * under thousands of rows nobody is looking for.
+   * pass nothing and record nothing, while the DELETEs and cancels pass
+   * their action. A read is not an event, and logging one would bury the
+   * writes under thousands of rows nobody is looking for.
    */
   private async mediaJobRoute({
     action,

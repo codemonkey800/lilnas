@@ -298,9 +298,13 @@ const TERMINAL_STATUSES: ReadonlySet<DownloadJobStatus> = new Set([
  *   grabbed job left the queue without producing a file. Movie and show
  *   rows survive a restart — their download lives in Radarr/Sonarr — and are
  *   re-adopted and settled by the next poll rather than failed.
- * - `Cancelled`/`Cancelling` — teardown, which this script issues itself. The
- *   delete routes cancel only an attempt still in flight; see
- *   {@link legalSuccessors} for a finished one.
+ * - `Cancelled`/`Cancelling` — teardown, which this script issues itself, or
+ *   a cancel pressed by someone else while it watches: `PATCH
+ *   /download/videos/:id/cancel`, and for movie/show jobs `PATCH
+ *   /download/movies/:id/cancel` and `PATCH /download/shows/:id/cancel`,
+ *   which move the job to `Cancelling` for the poller to settle. The delete
+ *   routes cancel only an attempt still in flight; see {@link legalSuccessors}
+ *   for a finished one.
  */
 const ALWAYS_REACHABLE: readonly DownloadJobStatus[] = [
   DownloadJobStatus.Cancelled,
@@ -353,6 +357,12 @@ const RESTING_STATUSES: ReadonlySet<DownloadJobStatus> = new Set([
  * any queued state (`Searching`/`Downloading`/`Importing`) can land on it,
  * and unpausing puts the job back on `Downloading`, or on `Importing` when
  * the transfer finished while it was held.
+ *
+ * `Cancelling` is what the movie/show cancel routes leave behind, and the
+ * poller settles it (`settleCancelling()` in `queue-status.util.ts`):
+ * `Cancelled` once the queue removal is confirmed or the grace period runs
+ * out, or `Completed` if a file lands anyway because the cancel came too
+ * late.
  */
 const MEDIA_TRANSITIONS: ReadonlyMap<
   DownloadJobStatus,
@@ -405,6 +415,10 @@ const MEDIA_TRANSITIONS: ReadonlyMap<
       DownloadJobStatus.Importing,
       DownloadJobStatus.Completed,
     ],
+  ],
+  [
+    DownloadJobStatus.Cancelling,
+    [DownloadJobStatus.Cancelled, DownloadJobStatus.Completed],
   ],
 ])
 

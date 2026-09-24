@@ -76,6 +76,8 @@ describe('DownloadController - media endpoints', () => {
       getShowJob: jest.fn(),
       deleteMovieJob: jest.fn(),
       deleteShowJob: jest.fn(),
+      cancelMovieJob: jest.fn(),
+      cancelShowJob: jest.fn(),
     }
     const mockAdminCheckService = { checkIsAdmin: jest.fn() }
     const mockReleaseService = {
@@ -289,6 +291,43 @@ describe('DownloadController - media endpoints', () => {
     })
   })
 
+  describe('cancelMovieJob', () => {
+    // The route answers with the job the service left in `cancelling`; the
+    // poller settles it from there.
+    it('returns the mapped job after cancelling', async () => {
+      mediaDownloadService.cancelMovieJob.mockResolvedValue({
+        ...movieJob,
+        status: DownloadJobStatus.Cancelling,
+      })
+
+      const response = await controller.cancelMovieJob('movie-1', undefined)
+
+      expect(mediaDownloadService.cancelMovieJob).toHaveBeenCalledWith(
+        'movie-1',
+      )
+      expect(response.status).toBe(DownloadJobStatus.Cancelling)
+    })
+
+    // A finished job (or a missing one) throws in the service - the same
+    // 404 body `PATCH /videos/:id/cancel` answers.
+    it('converts a MediaDownloadService error into a 404 HttpException', async () => {
+      mediaDownloadService.cancelMovieJob.mockRejectedValue(
+        new Error("Job 'movie-1' has already finished"),
+      )
+
+      const err = await controller
+        .cancelMovieJob('movie-1', undefined)
+        .catch((e: unknown) => e)
+
+      expect(err).toBeInstanceOf(HttpException)
+      expect((err as HttpException).getStatus()).toBe(404)
+      expect((err as HttpException).getResponse()).toEqual({
+        status: 404,
+        error: 'Job not found',
+      })
+    })
+  })
+
   describe('searchShows / requestShow / getShowJob / deleteShowJob', () => {
     it('mirror the movie endpoints for shows', async () => {
       mediaDownloadService.searchShows.mockResolvedValue([showMedia])
@@ -321,6 +360,30 @@ describe('DownloadController - media endpoints', () => {
       })
       const deleted = await controller.deleteShowJob('show-1', undefined)
       expect(deleted.status).toBe(DownloadJobStatus.Completed)
+    })
+  })
+
+  describe('cancelShowJob', () => {
+    it('returns the mapped job after cancelling', async () => {
+      mediaDownloadService.cancelShowJob.mockResolvedValue({
+        ...showJob,
+        status: DownloadJobStatus.Cancelling,
+      })
+
+      const response = await controller.cancelShowJob('show-1', undefined)
+
+      expect(mediaDownloadService.cancelShowJob).toHaveBeenCalledWith('show-1')
+      expect(response.status).toBe(DownloadJobStatus.Cancelling)
+    })
+
+    it('converts a MediaDownloadService error into a 404 HttpException', async () => {
+      mediaDownloadService.cancelShowJob.mockRejectedValue(
+        new Error('not found'),
+      )
+
+      await expect(
+        controller.cancelShowJob('missing', undefined),
+      ).rejects.toThrow(HttpException)
     })
   })
 
@@ -1106,13 +1169,17 @@ describe('DownloadController - media endpoints', () => {
       })
 
       it.each([
-        ['a movie', 'deleteMovieJob', 'movie.delete', 'movie-1'],
-        ['a show', 'deleteShowJob', 'show.delete', 'show-1'],
+        ['a movie delete', 'deleteMovieJob', 'movie.delete', 'movie-1'],
+        ['a show delete', 'deleteShowJob', 'show.delete', 'show-1'],
+        ['a movie cancel', 'cancelMovieJob', 'movie.cancel', 'movie-1'],
+        ['a show cancel', 'cancelShowJob', 'show.cancel', 'show-1'],
       ] as const)(
-        'records %s delete against the job id',
+        'records %s against the job id',
         async (_label, method, action, jobId) => {
           mediaDownloadService.deleteMovieJob.mockResolvedValue(movieJob)
           mediaDownloadService.deleteShowJob.mockResolvedValue(showJob)
+          mediaDownloadService.cancelMovieJob.mockResolvedValue(movieJob)
+          mediaDownloadService.cancelShowJob.mockResolvedValue(showJob)
 
           await controller[method](jobId, alice)
 
@@ -1170,6 +1237,18 @@ describe('DownloadController - media endpoints', () => {
         await expect(
           controller.deleteMovieJob('missing', alice),
         ).rejects.toThrow(HttpException)
+
+        expect(auditLogService.record).not.toHaveBeenCalled()
+      })
+
+      it('writes no row when the cancel throws', async () => {
+        mediaDownloadService.cancelShowJob.mockRejectedValue(
+          new Error('already finished'),
+        )
+
+        await expect(controller.cancelShowJob('show-1', alice)).rejects.toThrow(
+          HttpException,
+        )
 
         expect(auditLogService.record).not.toHaveBeenCalled()
       })
