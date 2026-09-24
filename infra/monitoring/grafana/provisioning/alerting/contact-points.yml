@@ -1,0 +1,23 @@
+# Grafana unified-alerting contact points.
+#
+# tdr-bot-alerts posts every notification to tdr-bot's POST /alerts/grafana,
+# which relays it to Discord. `tdr-bot` is the compose service name and only
+# resolves on lilnas_default, which Grafana is attached to.
+#
+# GRAFANA_WEBHOOK_TOKEN comes from infra/.env.monitoring (see
+# infra/.env.monitoring.example) and must match GRAFANA_WEBHOOK_TOKEN in
+# apps/tdr-bot/.env.prod. Grafana encrypts the credential at rest and shows it
+# as [REDACTED] in the UI and API.
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: tdr-bot-alerts
+    receivers:
+      - uid: tdr-bot-alerts
+        type: webhook
+        settings:
+          url: http://tdr-bot:8081/alerts/grafana
+          httpMethod: POST
+          authorization_scheme: Bearer
+          authorization_credentials: $GRAFANA_WEBHOOK_TOKEN

@@ -1,0 +1,445 @@
+# Grafana alert rules for the nexus-code daemon.
+#
+# Metrics come from two scrape paths:
+#   - job="nexus-code": the daemon's own /metrics (up, nexus_fswatch_*,
+#     nodejs_*, process_*).
+#   - job="node-exporter": the watchdog's textfile (nexus_watchdog_*), mounted
+#     at /textfile. Never filter these by job="nexus-code".
+#
+# Every rule is labelled job=nexus-code so a single silence covers them all.
+# Rules provisioned from this file are read-only in the Grafana UI; edit them
+# here instead.
+#
+# Silencing: before a planned `daemon:rebuild`, open Grafana -> Alerting ->
+# Silences and add a 15 minute silence with the matcher `job = nexus-code`.
+# A routine daemon restart (~15 s) needs no silence: every rule's `for`
+# outlasts it.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: nexus-code
+    folder: Nexus Code
+    interval: 1m
+    rules:
+      - uid: nexus-daemon-down
+        title: NexusDaemonDown
+        condition: C
+        for: 2m
+        labels:
+          severity: critical
+          job: nexus-code
+        annotations:
+          summary: 'nexus-code daemon is down or not answering scrapes'
+          description: |-
+            Prometheus could not scrape the daemon for 2 minutes. A frozen event
+            loop times the scrape out and reads as up=0; a missing target also
+            fires this rule.
+            Check the lilnas-nexus-code dashboard, the newest hang-*.txt in
+            ~/.local/share/nexus-server/daemon/logs/, and recent errors with
+            {job="nexus-code", level="error"}.
+          runbook_url: 'https://github.com/codemonkey800/nexus-code/blob/main/docs/context/parcel-watcher-eintr-hang.md#diagnosing-a-recurrence'
+          __dashboardUid__: lilnas-nexus-code
+          __panelId__: '2'
+        noDataState: Alerting
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: 'up{job="nexus-code"}'
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: lt
+                    params: [1]
+
+      - uid: nexus-watchdog-restart
+        title: NexusWatchdogRestarted
+        condition: C
+        for: 0m
+        labels:
+          severity: critical
+          job: nexus-code
+        annotations:
+          summary: 'nexus-code watchdog restarted a hung daemon'
+          description: |-
+            The watchdog restarted the daemon in the last 15 minutes, so a hang
+            happened. Read the newest hang-*.txt in
+            ~/.local/share/nexus-server/daemon/logs/ now, then check the
+            lilnas-nexus-code dashboard and {job="nexus-code", ns="fs-watch"}
+            around the restart.
+          runbook_url: 'https://github.com/codemonkey800/nexus-code/blob/main/docs/context/parcel-watcher-eintr-hang.md#diagnosing-a-recurrence'
+          __dashboardUid__: lilnas-nexus-code
+          __panelId__: '5'
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: 'increase(nexus_watchdog_restarts_total[15m])'
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+
+      - uid: nexus-watchdog-stale
+        title: NexusWatchdogStale
+        condition: C
+        for: 5m
+        labels:
+          severity: warning
+          job: nexus-code
+        annotations:
+          summary: 'nexus-code watchdog textfile has not been refreshed'
+          description: |-
+            nexus_watchdog.prom is over 3 minutes old; the watchdog timer fires
+            every 30 s. Either the systemd timer is dead or node-exporter lost
+            its /textfile mount. Check the watchdog panels on the
+            lilnas-nexus-code dashboard and the timer's status on the host.
+          runbook_url: 'https://github.com/codemonkey800/nexus-code/blob/main/docs/context/parcel-watcher-eintr-hang.md#diagnosing-a-recurrence'
+          __dashboardUid__: lilnas-nexus-code
+          __panelId__: '34'
+        noDataState: Alerting
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: 'time() - node_textfile_mtime_seconds{file="/textfile/nexus_watchdog.prom"}'
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [180]
+
+      - uid: nexus-native-watcher-error
+        title: NexusNativeWatcherError
+        condition: C
+        for: 0m
+        labels:
+          severity: warning
+          job: nexus-code
+        annotations:
+          summary: 'nexus-code native file watcher reported an error'
+          description: |-
+            The native watcher raised an error in the last 15 minutes. With the
+            patched binding this should be exactly zero, so this is a
+            regression or a new error class. Check {job="nexus-code",
+            ns="fs-watch"} and {job="nexus-code", level="error"}, and the
+            lilnas-nexus-code dashboard.
+          runbook_url: 'https://github.com/codemonkey800/nexus-code/blob/main/docs/context/parcel-watcher-eintr-hang.md#diagnosing-a-recurrence'
+          __dashboardUid__: lilnas-nexus-code
+          __panelId__: '12'
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: 'increase(nexus_fswatch_native_errors_total[15m])'
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+
+      - uid: nexus-unpatched-binding
+        title: NexusUnpatchedBinding
+        condition: C
+        for: 5m
+        labels:
+          severity: critical
+          job: nexus-code
+        annotations:
+          summary: 'nexus-code daemon loaded the stock (unpatched) watcher binding'
+          description: |-
+            Either the daemon's self-report or the watchdog's /proc view says
+            the patched @parcel/watcher binding is not loaded, usually after a
+            rebuild that skipped install. Confirm with {job="nexus-code"} | json
+            | msg="fs-watch.native-binding", check the lilnas-nexus-code
+            dashboard, and reinstall before the daemon hangs.
+          runbook_url: 'https://github.com/codemonkey800/nexus-code/blob/main/docs/context/parcel-watcher-eintr-hang.md#diagnosing-a-recurrence'
+          __dashboardUid__: lilnas-nexus-code
+          __panelId__: '3'
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              # `or` inside `min` unions both series (their `job` labels
+              # differ), so either source reporting 0 fires the rule.
+              expr: 'min(nexus_fswatch_patched_binding or nexus_watchdog_binding_patched)'
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: lt
+                    params: [1]
+
+      - uid: nexus-fswatch-degraded
+        title: NexusFsWatchDegraded
+        condition: C
+        for: 10m
+        labels:
+          severity: warning
+          job: nexus-code
+        annotations:
+          summary: 'nexus-code has degraded file-watch subscriptions'
+          description: |-
+            At least one watch subscription has been degraded for 10 minutes.
+            The retry schedule tops out at 60 s, so retries are failing. Check
+            {job="nexus-code", ns="fs-watch"} and the lilnas-nexus-code
+            dashboard.
+          runbook_url: 'https://github.com/codemonkey800/nexus-code/blob/main/docs/context/parcel-watcher-eintr-hang.md#diagnosing-a-recurrence'
+          __dashboardUid__: lilnas-nexus-code
+          __panelId__: '13'
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: 'nexus_fswatch_subscriptions_degraded'
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+
+      - uid: nexus-fswatch-lost-not-recovered
+        title: NexusFsWatchLostNotRecovered
+        condition: C
+        for: 10m
+        labels:
+          severity: warning
+          job: nexus-code
+        annotations:
+          summary: 'nexus-code lost file-watch subscriptions that were not recovered'
+          description: |-
+            More native subscriptions were lost than re-adopted over the last
+            30 minutes. Every lost subscription should recover within the retry
+            schedule. Check {job="nexus-code", ns="fs-watch"},
+            {job="nexus-code", level="error"} and the lilnas-nexus-code
+            dashboard.
+          runbook_url: 'https://github.com/codemonkey800/nexus-code/blob/main/docs/context/parcel-watcher-eintr-hang.md#diagnosing-a-recurrence'
+          __dashboardUid__: lilnas-nexus-code
+          __panelId__: '12'
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 1800
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: 'increase(nexus_fswatch_native_subscription_lost_total[30m]) - increase(nexus_fswatch_native_subscribe_recovered_total[30m])'
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+
+      - uid: nexus-eventloop-lag
+        title: NexusEventLoopLag
+        condition: C
+        for: 5m
+        labels:
+          severity: warning
+          job: nexus-code
+        annotations:
+          summary: 'nexus-code event loop p99 lag is above 500 ms'
+          description: |-
+            The daemon's p99 event-loop lag has stayed above half a second for
+            5 minutes, so it is barely serving and may be heading for a hang.
+            Check the lilnas-nexus-code dashboard, {job="nexus-code",
+            level="error"}, and any hang-*.txt in
+            ~/.local/share/nexus-server/daemon/logs/. Tune the threshold after
+            a week of data.
+          runbook_url: 'https://github.com/codemonkey800/nexus-code/blob/main/docs/context/parcel-watcher-eintr-hang.md#diagnosing-a-recurrence'
+          __dashboardUid__: lilnas-nexus-code
+          __panelId__: '21'
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: 'nodejs_eventloop_lag_p99_seconds{job="nexus-code"}'
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0.5]
+
+      - uid: nexus-inotify-fd-leak
+        title: NexusInotifyFdLeak
+        condition: C
+        for: 15m
+        labels:
+          severity: warning
+          job: nexus-code
+        annotations:
+          summary: 'nexus-code holds more than one inotify fd'
+          description: |-
+            The daemon shares one watcher backend, so it should hold exactly
+            one inotify fd. An extra fd is a dead backend that skipped close().
+            A transient 2 during backend replacement is expected, hence the
+            15 minute hold. Check {job="nexus-code", ns="fs-watch"} and the
+            lilnas-nexus-code dashboard.
+          runbook_url: 'https://github.com/codemonkey800/nexus-code/blob/main/docs/context/parcel-watcher-eintr-hang.md#diagnosing-a-recurrence'
+          __dashboardUid__: lilnas-nexus-code
+          __panelId__: '9'
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              # Same union-inside-aggregate shape as NexusUnpatchedBinding.
+              expr: 'max(nexus_fswatch_inotify_fds or nexus_watchdog_inotify_fds)'
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [1]
+
+      - uid: nexus-open-fds-high
+        title: NexusOpenFdsHigh
+        condition: C
+        for: 10m
+        labels:
+          severity: warning
+          job: nexus-code
+        annotations:
+          summary: 'nexus-code is using over 80% of its fd limit'
+          description: |-
+            The daemon has used more than 80% of its file-descriptor limit for
+            10 minutes. Check the fd panels on the lilnas-nexus-code dashboard,
+            {job="nexus-code", level="error"} for EMFILE, and
+            {job="nexus-code", ns="fs-watch"} for leaked watchers.
+          runbook_url: 'https://github.com/codemonkey800/nexus-code/blob/main/docs/context/parcel-watcher-eintr-hang.md#diagnosing-a-recurrence'
+          __dashboardUid__: lilnas-nexus-code
+          __panelId__: '8'
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: 'process_open_fds{job="nexus-code"} / process_max_fds{job="nexus-code"}'
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0.8]

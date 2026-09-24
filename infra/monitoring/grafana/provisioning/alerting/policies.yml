@@ -1,0 +1,17 @@
+# Grafana unified-alerting notification policy tree.
+#
+# Everything routes to tdr-bot. Critical alerts re-notify hourly while they
+# keep firing; everything else re-notifies every 4 hours.
+apiVersion: 1
+
+policies:
+  - orgId: 1
+    receiver: tdr-bot-alerts
+    group_by: [grafana_folder, alertname]
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
+    routes:
+      - receiver: tdr-bot-alerts
+        object_matchers: [[severity, =, critical]]
+        repeat_interval: 1h

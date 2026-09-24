@@ -4,7 +4,7 @@ server:
   log_level: warn
 
 positions:
-  filename: /tmp/positions.yaml
+  filename: /positions/positions.yaml
 
 clients:
   - url: http://loki:3100/loki/api/v1/push
@@ -35,3 +35,26 @@ scrape_configs:
       - labels:
           level:
           logger:
+
+  # nexus-code daemon (host process): NDJSON log. Tail only the live file,
+  # never a glob. Rotation renames it to .01-.05, and a glob would re-ingest
+  # each rotated file as a new stream.
+  - job_name: nexus-code
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: nexus-code
+          host: lilnas
+          __path__: /host/tmp/nexus-code/nexus-server.log
+    pipeline_stages:
+      - json:
+          expressions:
+            level: level
+            ns: ns
+            ts: ts
+      - timestamp:
+          source: ts
+          format: RFC3339Nano
+      - labels:
+          level:
+          ns:

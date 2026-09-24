@@ -9,6 +9,7 @@ import { NecordModule } from 'necord'
 import { NestMinioModule } from 'nestjs-minio'
 import { LoggerModule } from 'nestjs-pino'
 
+import { AlertsModule } from './alerts/alerts.module'
 import { ApiModule } from './api/api.module'
 import { AppEventsService } from './app-events.service'
 import { CommandsModule } from './commands/commands.module'
@@ -21,6 +22,7 @@ import { StateModule } from './state/state.module'
 
 @Module({
   imports: [
+    AlertsModule,
     ApiModule,
     CommandsModule,
     MediaModule,
