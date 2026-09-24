@@ -55,10 +55,22 @@ export function clampPct(pct: number): number {
 export type BarProps = Omit<ComponentPropsWithoutRef<'div'>, 'children'> & {
   /** Progress, 0-100. Values outside that range are clamped. */
   pct: number
+  /**
+   * The number is done but the work is not - a full download that has not
+   * reached the library yet. A band of light sweeps along the fill so the bar
+   * keeps moving after its percentage has stopped. Say what is happening in
+   * text beside it too: under reduced motion the sweep does not run.
+   */
+  settling?: boolean
 }
 
 /** Determinate progress bar. */
-export function Bar({ pct, className, ...props }: BarProps): JSX.Element {
+export function Bar({
+  pct,
+  className,
+  settling = false,
+  ...props
+}: BarProps): JSX.Element {
   const value = clampPct(pct)
 
   return (
@@ -77,7 +89,9 @@ export function Bar({ pct, className, ...props }: BarProps): JSX.Element {
         className={cns(
           'block h-full rounded-full bg-uv',
           'transition-[width] duration-[380ms] ease-uv',
+          settling && 'bar-settling',
         )}
+        data-settling={settling || undefined}
         style={{ width: `${value}%` }}
       />
     </div>

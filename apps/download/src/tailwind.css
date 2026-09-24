@@ -99,6 +99,9 @@
   --animate-rise: rise 380ms var(--ease-uv) forwards;
   --animate-breathe: breathe 2.4s var(--ease-uv) infinite;
   --animate-shimmer: shimmer 2.4s linear infinite;
+  /* Symmetric, unlike `--ease-uv`: that curve front-loads so hard the band
+     would cross the bar in under 200ms and read as a glitch. */
+  --animate-settle: settle 2.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 
   @keyframes rise {
     to {
@@ -117,6 +120,19 @@
     }
     100% {
       opacity: 0;
+    }
+  }
+  /* One pass left to right, then a rest: 2.4s like `breathe`, so a settling
+     bar and the live dot on the chip above it keep the same time. The band
+     starts and ends parked off the fill (see `bar-settling`), so the rest
+     reads as a plain full bar rather than a band stuck at the edge. */
+  @keyframes settle {
+    0% {
+      background-position: 100% 0;
+    }
+    65%,
+    100% {
+      background-position: 0% 0;
     }
   }
   @keyframes shimmer {
@@ -296,6 +312,22 @@
   }
 }
 
+/* A full progress bar whose work is not done yet — see `Bar`'s `settling`.
+   The fill keeps its `uv`; a pale band rides across it — `uv-hi` alone sits
+   too close to `uv` to see on a 5px bar, so it is lifted toward `ink`. The
+   gradient is three fills wide with the band in the middle third, so at
+   either end of `settle` the band sits entirely outside the visible fill. */
+@utility bar-settling {
+  background: linear-gradient(
+    90deg,
+    var(--color-uv) 42%,
+    color-mix(in oklch, var(--color-uv-hi), var(--color-ink) 55%) 50%,
+    var(--color-uv) 58%
+  );
+  background-size: 300% 100%;
+  animation: var(--animate-settle);
+}
+
 /* Loading placeholder: a moving gradient, which needs background-size and
    an animation together. */
 @utility skeleton {
@@ -380,5 +412,12 @@
   .dot-live::after {
     animation: none !important;
     opacity: 0 !important;
+  }
+  /* The clamp would freeze `settle` on its first frame, which parks the band
+     off the fill anyway — this just says so instead of relying on it. A plain
+     full bar; the words beside it carry the handoff. */
+  .bar-settling {
+    animation: none !important;
+    background: var(--color-uv) !important;
   }
 }
