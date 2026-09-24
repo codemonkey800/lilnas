@@ -1596,6 +1596,34 @@ terminal` (paused videos included, as today and for the documented reason); movi
   >
   > ⛔ **Stopped here for human checkpoint 5** (restart with an in-flight movie).
 
+  > **Unplanned fixes from the manual checks (2026-09-23).** The dev container was
+  > restarted at 16:57, so Phase 3 loaded (`Re-adopted 0 open job(s)`). The human then
+  > downloaded _End of Watch_ (`tmdb:77016`) from the app. The attempt settled
+  > `completed` from its file, but the page flipped to `not downloaded` live, and only a
+  > reload showed `in library`.
+  >
+  > - `5f3a73df` — **Root cause.** `MediaResolverService.invalidate()` deleted one key
+  >   from a library cache that was still valid. `resolve()` treated the missing key as
+  >   "not in the library" and rebuilt the movie from Radarr's lookup (no `id`, `hasFile`
+  >   or `monitored`), which reads `absent`. Both the job frame and the vanish `media`
+  >   event carried that. This hit every `invalidate()` caller: completion, file delete,
+  >   replace, manual import/discard. `invalidate()` now expires the whole source's cache
+  >   (an epoch guard stops an in-flight read from being cached). A job settling
+  >   `completed` now also triggers one more media event.
+  > - `d21ab325` — A title added upstream since the last cache fill resolved `absent` and
+  >   was untracked until the 60 s TTL ran out. New `invalidateAfterEnsure(key, { wasAdded,
+wasMonitored })`, called from `requestMovie`/`requestShow` and
+  >   `ReleaseService.withMonitoring` (grab/replace).
+  > - `493dff1c` — A download with no job that vanished before Radarr/Sonarr listed its
+  >   file got no follow-up frame. The poller now keeps re-resolving a vanished media for up
+  >   to `QUEUE_ABSENCE_GRACE_MS`, until it lands (movie `available`; series: every episode
+  >   it last had queued is `available`), and sends a frame only on a digest change.
+  >
+  > App tests after these fixes: 4448 passed + 9 skipped (191 suites); lint and
+  > type-check clean. The fixes need another dev-container restart to go live.
+  > Checkpoint 4 was **not** exercised: _End of Watch_ was started from the app, not
+  > from Radarr's UI.
+
 ### Phase 4 — Gallery and home read the library
 
 - [ ] **A1. Library index on the resolver.** The cached libraries, listable.
