@@ -177,20 +177,6 @@ export const jobs = sqliteTable(
       .$defaultFn(() => new Date())
       .notNull(),
     completedAt: integer('completed_at', { mode: 'timestamp_ms' }),
-
-    // Set on every job for a title the moment that title is fully removed
-    // from Radarr/Sonarr (`ShowService.deleteFiles`'s `removedFromLibrary`
-    // result) - a bulk `UPDATE ... WHERE media_id = ?`, not a per-job write,
-    // since a delete removes the *title*, not any one job. Excluded from the
-    // gallery (`JobQueryService.listGallery`'s `excludeRemovedFromLibrary`)
-    // so a deleted title's card stops rendering, while staying true in
-    // `jobs` for history/activity - those routes read this table unfiltered
-    // on this column, which is what keeps the row queryable as history
-    // rather than erasing it. A re-add and re-download starts a fresh job
-    // with this false, so the gallery picks the title back up on its own.
-    removedFromLibrary: integer('removed_from_library', { mode: 'boolean' })
-      .notNull()
-      .default(false),
   },
   t => [
     index('jobs_status_idx').on(t.status),

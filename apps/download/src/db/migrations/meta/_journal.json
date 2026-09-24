@@ -29,6 +29,13 @@
       "when": 1790103771636,
       "tag": "0003_lazy_supernaut",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1790272609751,
+      "tag": "0004_eminent_prodigy",
+      "breakpoints": true
     }
   ]
 }

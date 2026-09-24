@@ -263,9 +263,7 @@ export class RadarrService {
 
   /**
    * The subset of the library that actually has a file on disk, each paired
-   * with the date Radarr added it - the source `syncDownloadedLibrary()`
-   * (`library-sync.ts`) backfills a `completed` job from at boot, for every
-   * title Radarr already holds that this app never requested itself.
+   * with the date Radarr added it.
    *
    * `hasFile` (not "is in the library") is the filter: an unfinished
    * monitored request has no file yet and would otherwise show up as a

@@ -150,7 +150,6 @@ describe('migration 0002 (the jobs/audit_log table recreate)', () => {
           id: 'job-service',
           media_id: 'tvdb:121361',
           origin: 'service',
-          removed_from_library: 0,
           requester_email: null,
           requester_user_id: null,
           scope: JSON.stringify({
@@ -175,7 +174,6 @@ describe('migration 0002 (the jobs/audit_log table recreate)', () => {
           id: 'job-web',
           media_id: 'tmdb:438631',
           origin: 'web',
-          removed_from_library: 0,
           requester_email: 'alice@example.com',
           requester_user_id: 'user_1',
           scope: null,

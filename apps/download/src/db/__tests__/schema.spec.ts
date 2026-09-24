@@ -138,10 +138,8 @@ describe('schema + migrations', () => {
         'created_at',
         'updated_at',
         'completed_at',
-        // Migration 0003: a plain `ALTER TABLE ADD COLUMN`, not a recreate -
-        // so unlike the Phase 018 columns above, this one lands at the end
-        // rather than wherever it's declared in schema.ts.
-        'removed_from_library',
+        // No `removed_from_library`: 0003 added it and 0004 drops it again
+        // (plan 021 - the gallery is built from the library now).
       ])
     } finally {
       close()

@@ -381,9 +381,7 @@ export class SonarrService {
 
   /**
    * The subset of the library with at least one episode file on disk, each
-   * paired with the date Sonarr added the series - `syncDownloadedLibrary()`
-   * (`library-sync.ts`) backfills a `completed` job from this at boot, for
-   * every series Sonarr already holds that this app never requested itself.
+   * paired with the date Sonarr added the series.
    *
    * `episodeFileCount > 0` (not "is in the library") is the filter: a
    * monitored series with nothing downloaded yet would otherwise show up as

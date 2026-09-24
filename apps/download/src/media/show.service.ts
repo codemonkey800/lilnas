@@ -55,9 +55,8 @@ export interface DeleteFilesResult {
  * the title keep their history either way. A delete here **can** remove the
  * library entry: a movie delete always removes the movie from Radarr, and a
  * show delete that leaves nothing behind removes the series from Sonarr.
- * When that happens every job for the title is flagged
- * `removedFromLibrary` (`DownloadStateService.markRemovedFromLibrary`) so
- * the gallery stops rendering it while its history stays intact elsewhere.
+ * When that happens the gallery, built from the library, stops listing the
+ * title on its own, while its jobs stay intact as history.
  * The job-keyed `DELETE /download/shows/:jobId` is no longer the only way a
  * title leaves the library.
  */
@@ -247,7 +246,6 @@ export class ShowService {
     // jobs are still perfectly pollable and are left alone.
     if (result.removedFromLibrary) {
       this.cancelInFlightJobs(mediaId)
-      this.downloadStateService.markRemovedFromLibrary(mediaId)
     }
 
     return result

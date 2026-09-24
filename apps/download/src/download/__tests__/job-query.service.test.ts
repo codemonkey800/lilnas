@@ -251,8 +251,8 @@ describe('JobQueryService', () => {
       ])
     })
 
-    // No `removed_from_library` column involved: a title the library no
-    // longer has simply isn't listed, however many jobs it has.
+    // The gallery is the library: a title the library no longer has simply
+    // isn't listed, however many jobs it has.
     it('drops a title the library no longer holds, even with completed jobs', async () => {
       setLibrary([])
       seedJob({ id: 'grab', mediaId: 'tmdb:42', type: 'movie' })

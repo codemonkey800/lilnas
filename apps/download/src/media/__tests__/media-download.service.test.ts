@@ -813,9 +813,10 @@ describe('MediaDownloadService', () => {
         expect(result.completedAt).toBe(COMPLETED_AT)
       })
 
-      // The gallery is `Completed` jobs minus removed titles. A cancel used
-      // to be what took a deleted movie's card down; now the flag has to.
-      it('flags the title removed from the library, so the gallery drops it', async () => {
+      // The gallery is built from the library, so nothing about the delete
+      // needs writing to the title's other jobs - an older attempt keeps its
+      // outcome exactly as the one named here does.
+      it('leaves every other attempt at the title untouched', async () => {
         const movieJob = buildRecord(DownloadType.Movie, 'tmdb:1', {
           completedAt: COMPLETED_AT,
           id: 'movie-1',
@@ -829,32 +830,12 @@ describe('MediaDownloadService', () => {
         })
         downloadStateService.addJob(olderJob)
         downloadStateService.addJob(movieJob)
+        const before = getJobById(dbService.db, 'movie-0')
+        expect(before).toMatchObject({ status: DownloadJobStatus.Completed })
 
         await service.deleteMovieJob('movie-1')
 
-        expect(getJobById(dbService.db, 'movie-1')).toMatchObject({
-          removedFromLibrary: true,
-          status: DownloadJobStatus.Completed,
-        })
-        expect(getJobById(dbService.db, 'movie-0')).toMatchObject({
-          removedFromLibrary: true,
-          status: DownloadJobStatus.Completed,
-        })
-      })
-    })
-
-    it('flags an in-flight title removed from the library too', async () => {
-      const movieJob = buildRecord(DownloadType.Movie, 'tmdb:1', {
-        id: 'movie-1',
-        status: DownloadJobStatus.Downloading,
-      })
-      downloadStateService.addJob(movieJob)
-
-      await service.deleteMovieJob('movie-1')
-
-      expect(getJobById(dbService.db, 'movie-1')).toMatchObject({
-        removedFromLibrary: true,
-        status: DownloadJobStatus.Cancelled,
+        expect(getJobById(dbService.db, 'movie-0')).toEqual(before)
       })
     })
   })

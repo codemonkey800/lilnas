@@ -475,14 +475,6 @@ export class MediaDownloadService {
           status: DownloadJobStatus.Cancelled,
         })
 
-    // The gallery lists titles with a `Completed` job, so a completed attempt
-    // left completed would keep a deleted title's card up. The title is out
-    // of the library either way (removed just now, or already gone when no
-    // upstream id resolved), which is exactly what this flag records - the
-    // same one `ShowService.deleteFiles` sets. After the cancel, so every
-    // write about this title lands before the gallery can re-read it.
-    this.downloadStateService.markRemovedFromLibrary(job.media.id)
-
     // Re-read rather than `job` as-is so the media is the post-delete truth
     // the invalidate above made room for, not the copy the upstream id came
     // off.

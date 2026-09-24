@@ -1,5 +1,4 @@
 import { env } from '@lilnas/utils/env'
-import { Logger as NestLogger } from '@nestjs/common'
 import { NestFactory } from '@nestjs/core'
 import { WsAdapter } from '@nestjs/platform-ws'
 import { Logger } from 'nestjs-pino'
@@ -9,9 +8,6 @@ import { DbService } from './db/db.service'
 import { reconcileInterruptedJobs } from './db/reconcile-interrupted-jobs'
 import { DownloadStateService } from './download/download-state.service'
 import { EnvKeys } from './env'
-import { syncDownloadedLibrary } from './media/library-sync'
-import { RadarrService } from './media/radarr.service'
-import { SonarrService } from './media/sonarr.service'
 
 export async function bootstrap() {
   try {
@@ -37,24 +33,6 @@ export async function bootstrap() {
     reconcileInterruptedJobs(dbService.db)
     const adopted = app.get(DownloadStateService).adoptOpenJobs()
     console.log(`Re-adopted ${adopted} open job(s)`)
-
-    // Backfills a completed job for every Radarr/Sonarr title that's already
-    // downloaded but has no job of its own, so "Browse movies/shows" (built
-    // entirely from the job log, plan §3.2) reflects what's actually in the
-    // library rather than only what was requested through this app. Runs
-    // after the checks above but still before any traffic is served;
-    // best-effort internally, so a Radarr/Sonarr outage here never blocks
-    // boot.
-    const librarySyncResult = await syncDownloadedLibrary(
-      dbService.db,
-      app.get(RadarrService),
-      app.get(SonarrService),
-      new NestLogger('LibrarySync'),
-    )
-    console.log(
-      `Library sync: backfilled ${librarySyncResult.moviesAdded} movie(s), ` +
-        `${librarySyncResult.showsAdded} show(s)`,
-    )
 
     const port = +env(EnvKeys.BACKEND_PORT)
     await app.listen(port)

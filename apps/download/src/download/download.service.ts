@@ -644,13 +644,6 @@ export class DownloadService {
           status: DownloadJobStatus.Cancelled,
         })
 
-    // The gallery lists videos with a `Completed` job, so a completed attempt
-    // left completed would keep a card up with nothing behind it - and so
-    // would any older completed attempt at the same video. Flagging every
-    // job of the video takes it out; a re-download mints a fresh, unflagged
-    // job, which is what puts the card back.
-    this.downloadStateService.markRemovedFromLibrary(job.mediaId)
-
     this.logger.log(
       { ...logArgs, deletedObjects, status: deleted.status },
       'Video download deleted',

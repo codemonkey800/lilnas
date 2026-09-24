@@ -121,7 +121,6 @@ function createStateMock() {
     ),
     interruptions,
     jobs,
-    markRemovedFromLibrary: jest.fn(),
     procs,
     setInterruption: jest.fn((id: string, kind: JobInterruptKind) => {
       callOrder.push('setInterruption')
@@ -549,20 +548,6 @@ describe('DownloadService', () => {
       expect(state.updateVideo).toHaveBeenCalledWith(record.id, {
         downloadUrls: [],
       })
-    })
-
-    // The gallery is `Completed` jobs minus removed titles. A cancel used to
-    // be what took a deleted video's card down; now the flag has to - for
-    // every attempt at the video, not only the one named here.
-    it('flags the video removed from the library, so the gallery drops it', async () => {
-      const record = seed(
-        { status: DownloadJobStatus.Completed },
-        { withProc: false },
-      )
-
-      await service.deleteVideoDownloadJob(record.id)
-
-      expect(state.markRemovedFromLibrary).toHaveBeenCalledWith('video:v1')
     })
 
     // Plan 021: a job is one attempt. The file was downloaded, then deleted -
