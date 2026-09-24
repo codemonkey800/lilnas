@@ -74,7 +74,7 @@ export type GalleryItemCardProps = {
   /** One row of `GET /download/gallery`. */
   item: GalleryItem
   /**
-   * The instant `lastDownloadedAt` is measured against, pinned once by the
+   * The instant `addedAt` is measured against, pinned once by the
    * page. Required rather than defaulted to `Date.now()`: a grid of cards each
    * reading the clock for itself is a hydration mismatch on every stamp.
    */
@@ -123,16 +123,24 @@ export function GalleryItemCard({
   const indexing = managed?.embyStatus?.state === 'indexing'
   const requester = item.lastRequester
   const discordRequester = item.lastDiscordRequester
-  // Both identity slots null is the *masked* state, and only that. An
-  // unlinked Discord upload has no `lastRequester` either, but it is fully
-  // attributed — reading it as `hidden · …` would tell every viewer the
-  // uploader asked to be hidden when they did not. `JobQueryService.listGallery`
-  // nulls the two together, so this pair is the honest test.
-  const masked = requester === null && discordRequester === null
-  // A library title nobody downloaded through this app has no download time;
-  // when it landed is the honest stand-in. (Plan 021 — interim until the card
-  // reads `addedAt` outright.)
-  const when = formatRelative(item.lastDownloadedAt ?? item.addedAt, now)
+  // A title nobody downloaded through this app — straight from Radarr/Sonarr,
+  // or a job log that no longer reaches it — has no uploader to draw, so the
+  // card carries no attribution mark at all. `lastDownloadedAt` comes out of
+  // the same job lookup as the two identity slots, which makes it the one
+  // field that can tell "nobody" apart from "somebody, masked".
+  const downloadedHere = item.lastDownloadedAt !== null
+  // Both identity slots null on a title somebody *did* download is the
+  // *masked* state, and only that. An unlinked Discord upload has no
+  // `lastRequester` either, but it is fully attributed — reading it as
+  // `hidden · …` would tell every viewer the uploader asked to be hidden when
+  // they did not. `JobQueryService.listGallery` nulls the two together, so
+  // this pair is the honest test.
+  const masked =
+    downloadedHere && requester === null && discordRequester === null
+  const showUploader = masked || requester !== null || discordRequester !== null
+  // When the title landed in the library, not when anyone downloaded it —
+  // the gallery is the library, so its cards date what is in it.
+  const when = formatRelative(item.addedAt, now)
   const video = media.type === DownloadType.Video
 
   return (
@@ -169,15 +177,24 @@ export function GalleryItemCard({
             adds none of its own: a second trigger for one account would open
             two popovers saying the same thing.
           */}
-          <ActivityRequester
-            discordRequester={discordRequester}
-            nameless
-            requester={requester}
-            viewer={viewer}
-          />
-          <span className={cns(CARD_ANNOTATION, 'truncate text-ink-4')}>
-            {masked ? `hidden · ${when}` : when}
-          </span>
+          {showUploader ? (
+            <ActivityRequester
+              discordRequester={discordRequester}
+              nameless
+              requester={requester}
+              viewer={viewer}
+            />
+          ) : null}
+          {/* `added` for a screen reader only — the mockup draws a bare
+              `3h ago`, and without the verb it reads as a download time. */}
+          <time
+            className={cns(CARD_ANNOTATION, 'truncate text-ink-4')}
+            dateTime={item.addedAt}
+          >
+            {masked ? 'hidden · ' : null}
+            <span className="sr-only">added </span>
+            {when}
+          </time>
         </GalleryCardAttrib>
         {watchUrl ? (
           <ButtonLink

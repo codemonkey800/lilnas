@@ -31,9 +31,9 @@ export type GalleryFilters = {
    * replaces the first.
    */
   requester: string | null
-  /** Inclusive lower bound on `lastDownloadedAt`, as `YYYY-MM-DD`. */
+  /** Inclusive lower bound on `addedAt`, as `YYYY-MM-DD`. */
   from: string | null
-  /** Inclusive upper bound on `lastDownloadedAt`, as `YYYY-MM-DD`. */
+  /** Inclusive upper bound on `addedAt`, as `YYYY-MM-DD`. */
   to: string | null
 }
 

@@ -68,12 +68,16 @@ function discordTrigger(): HTMLElement {
   return screen.getByRole('button', { name: /Discord account details/ })
 }
 
+/**
+ * `lastDownloadedAt` sits three hours before `addedAt` on purpose: a stamp
+ * this spec reads can only have come from `addedAt`.
+ */
 function item(overrides: Partial<GalleryItem> = {}): GalleryItem {
   return {
     addedAt: '2026-09-15T19:48:00.000Z',
     downloadCount: 1,
     lastDiscordRequester: null,
-    lastDownloadedAt: '2026-09-15T19:48:00.000Z',
+    lastDownloadedAt: '2026-09-15T17:00:00.000Z',
     lastRequester: { email: VIEWER_EMAIL, userId: 'u_1' },
     media: MOVIE,
     ...overrides,
@@ -119,7 +123,7 @@ describe('RecentCard', () => {
   it('measures the timestamp against the instant it is handed', () => {
     render(
       <RecentCard
-        item={item({ lastDownloadedAt: '2026-09-15T18:00:00.000Z' })}
+        item={item({ addedAt: '2026-09-15T18:00:00.000Z' })}
         now={NOW}
         viewer={null}
       />,
@@ -128,7 +132,40 @@ describe('RecentCard', () => {
     expect(screen.getByText('2h ago')).toBeInTheDocument()
   })
 
+  it('dates the card by when the title was added, not when it was downloaded', () => {
+    const { container } = render(
+      <RecentCard item={item()} now={NOW} viewer={null} />,
+    )
+    const stamp = container.querySelector('time')
+
+    expect(stamp).toHaveAttribute('dateTime', '2026-09-15T19:48:00.000Z')
+    expect(stamp).toHaveTextContent('added 12m ago')
+    expect(screen.queryByText('3h ago')).not.toBeInTheDocument()
+  })
+
   describe('attribution', () => {
+    it('renders a title nobody downloaded here with no avatar at all', () => {
+      const { container } = render(
+        <RecentCard
+          item={item({
+            downloadCount: 0,
+            lastDiscordRequester: null,
+            lastDownloadedAt: null,
+            lastRequester: null,
+          })}
+          now={NOW}
+          viewer={ADMIN}
+        />,
+      )
+
+      // Not even the dashed circle — nobody asked to be hidden, there is
+      // simply nobody. The stamp stays.
+      expect(container.querySelector('.rounded-full')).toBeNull()
+      expect(screen.queryByText(MASKED_INITIALS)).not.toBeInTheDocument()
+      expect(screen.getByText('12m ago')).toBeInTheDocument()
+      expect(screen.getAllByRole('link')).toHaveLength(1)
+    })
+
     it('renders a masked requester as the dashed avatar, with no profile link', () => {
       const { container } = render(
         <RecentCard

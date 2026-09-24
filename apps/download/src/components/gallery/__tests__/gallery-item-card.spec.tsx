@@ -59,12 +59,16 @@ function discordTrigger(): HTMLElement {
   return screen.getByRole('button', { name: /Discord account details/ })
 }
 
+/**
+ * `lastDownloadedAt` sits three hours before `addedAt` on purpose: every stamp
+ * this spec reads (`12m ago`) can only have come from `addedAt`.
+ */
 function item(overrides: Partial<GalleryItem> = {}): GalleryItem {
   return {
     addedAt: '2026-09-15T11:48:00.000Z',
     downloadCount: 1,
     lastDiscordRequester: null,
-    lastDownloadedAt: '2026-09-15T11:48:00.000Z',
+    lastDownloadedAt: '2026-09-15T09:00:00.000Z',
     lastRequester: { email: 'jeremy.asuncion@lilnas.io', userId: 'u_1' },
     media: VIDEO,
     ...overrides,
@@ -113,6 +117,40 @@ describe('GalleryItemCard', () => {
     // 11:48 against a pinned noon. Reading `Date.now()` per card is what makes
     // a grid of these a hydration mismatch.
     expect(screen.getByText('12m ago')).toBeInTheDocument()
+  })
+
+  it('dates the card by when the title was added, not when it was downloaded', () => {
+    const { container } = render(
+      <GalleryItemCard item={item()} now={NOW} viewer={null} />,
+    )
+    const stamp = container.querySelector('time')
+
+    expect(stamp).toHaveAttribute('dateTime', '2026-09-15T11:48:00.000Z')
+    expect(stamp).toHaveTextContent('added 12m ago')
+    expect(screen.queryByText('3h ago')).not.toBeInTheDocument()
+  })
+
+  it('renders a title nobody downloaded here with no uploader at all', () => {
+    const { container } = render(
+      <GalleryItemCard
+        item={item({
+          downloadCount: 0,
+          lastDiscordRequester: null,
+          lastDownloadedAt: null,
+          lastRequester: null,
+        })}
+        now={NOW}
+        viewer={ADMIN}
+      />,
+    )
+
+    // No avatar — not even the dashed one — and no `hidden ·`: nobody asked
+    // to be hidden, there is simply nobody. The stamp stays.
+    expect(container.querySelector('.rounded-full')).toBeNull()
+    expect(screen.queryByText(MASKED_INITIALS)).not.toBeInTheDocument()
+    expect(screen.queryByText(/hidden/)).not.toBeInTheDocument()
+    expect(screen.getByText('12m ago')).toBeInTheDocument()
+    expect(screen.getAllByRole('link')).toHaveLength(1)
   })
 
   it('renders the uploader initials', () => {

@@ -117,6 +117,15 @@ export function RecentCard({
     lastRequester,
     media,
   } = item
+  // A title nobody downloaded through this app has no uploader to draw, so
+  // the card carries no avatar at all. `lastDownloadedAt` comes out of the
+  // same job lookup as the two identity slots, which makes it the one field
+  // that tells "nobody" apart from "somebody, masked" — the masked case still
+  // gets its dashed circle.
+  const showUploader =
+    lastDownloadedAt !== null ||
+    lastRequester !== null ||
+    lastDiscordRequester !== null
   const emby = embyStatusOf(media)
   const indexing = emby?.state === 'indexing'
   // `watchUrl` is populated only while the state is `indexed`; a title that is
@@ -172,18 +181,25 @@ export function RecentCard({
             `avatarClassName` rather than `size="xs"`: the two spell the same
             18px circle, and `ActivityRequester` sizes through the class.
           */}
-          <ActivityRequester
-            avatarClassName="h-[18px] w-[18px] text-[8.5px]"
-            discordRequester={lastDiscordRequester}
-            nameless
-            requester={lastRequester}
-            viewer={viewer}
-          />
-          <span className="font-mono text-mono-sm text-ink-4">
-            {/* No download time for a title nobody downloaded here — when it
-                landed stands in (plan 021, interim until this reads `addedAt`). */}
-            {formatRelative(lastDownloadedAt ?? addedAt, now)}
-          </span>
+          {showUploader ? (
+            <ActivityRequester
+              avatarClassName="h-[18px] w-[18px] text-[8.5px]"
+              discordRequester={lastDiscordRequester}
+              nameless
+              requester={lastRequester}
+              viewer={viewer}
+            />
+          ) : null}
+          {/* When the title landed in the library, not when anyone downloaded
+              it. `added` is for a screen reader only — the mockup draws a bare
+              `3h ago`, and without the verb it reads as a download time. */}
+          <time
+            className="font-mono text-mono-sm text-ink-4"
+            dateTime={addedAt}
+          >
+            <span className="sr-only">added </span>
+            {formatRelative(addedAt, now)}
+          </time>
         </GalleryCardAttrib>
         {watchUrl === undefined ? null : (
           <ButtonLink
