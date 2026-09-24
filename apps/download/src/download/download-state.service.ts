@@ -11,6 +11,7 @@ import {
   MEDIA_EVENT_TYPE,
   type MediaEvent,
   type TimeRange,
+  type VideoProgress,
 } from '@lilnas/utils/download/types'
 import { getErrorMessage } from '@lilnas/utils/error'
 import { Queue } from '@lilnas/utils/queue'
@@ -36,6 +37,12 @@ import { MediaStateService } from 'src/media/media-state.service'
 
 import { projectJobForViewer } from './attribution'
 import { JobInterruptKind } from './job-interrupted.error'
+
+/**
+ * The most often a video job's progress ticks are re-broadcast. yt-dlp
+ * reports several times a second; a page only needs to see the bar move.
+ */
+export const PROGRESS_BROADCAST_INTERVAL_MS = 1_000
 
 export interface EnsureVideoInput {
   downloadUrls?: string[]
@@ -69,6 +76,19 @@ export class DownloadStateService {
   // be a lie about a job the new process never started.
   interruptions = new Map<string, JobInterruptKind>()
   queue = new Queue<string>()
+
+  /**
+   * Process-lifetime, like `procs`: the latest yt-dlp tick per video job.
+   * Never persisted - `reconcileInterruptedJobs()` fails every open video row
+   * at boot, so a stored snapshot could only ever describe a dead download,
+   * and `updateJob()` upserts the row on every call, so a write per tick
+   * would be pure write amplification. `toJob()` attaches it on every read.
+   */
+  private readonly progress = new Map<string, VideoProgress>()
+  /** The trailing send armed for a tick that landed inside the window. */
+  private readonly progressTimers = new Map<string, NodeJS.Timeout>()
+  /** When each job's progress was last re-broadcast (`Date.now()`). */
+  private readonly progressSentAt = new Map<string, number>()
 
   constructor(
     private readonly attributionResolutionService: AttributionResolutionService,
@@ -121,6 +141,81 @@ export class DownloadStateService {
     if (record) {
       this.broadcastJobEvent(record, DownloadJobEventType.Updated)
     }
+  }
+
+  /**
+   * Stores a video job's latest progress snapshot and re-broadcasts the job,
+   * throttled to one frame per `PROGRESS_BROADCAST_INTERVAL_MS`. A tick
+   * inside the window only replaces the stored snapshot and arms (at most)
+   * one trailing send, which carries whatever snapshot is current when it
+   * fires - so a burst of ticks costs one frame, and the last tick is never
+   * lost. `flush` sends now regardless and restarts the window. Nothing is
+   * persisted (see `progress`). An id the Map doesn't hold is a no-op, same
+   * rule as `touchJob()`.
+   */
+  setProgress(
+    id: string,
+    snapshot: VideoProgress,
+    options?: { flush?: boolean },
+  ): void {
+    if (!this.jobs.has(id)) return
+
+    this.progress.set(id, snapshot)
+
+    const sentAt = this.progressSentAt.get(id)
+    const elapsed = sentAt === undefined ? Infinity : Date.now() - sentAt
+
+    if (options?.flush || elapsed >= PROGRESS_BROADCAST_INTERVAL_MS) {
+      this.sendProgress(id)
+      return
+    }
+
+    if (!this.progressTimers.has(id)) {
+      const timer = setTimeout(
+        () => this.sendProgress(id),
+        PROGRESS_BROADCAST_INTERVAL_MS - elapsed,
+      )
+      // A pending send must never keep the process (or a jest worker) alive.
+      timer.unref()
+      this.progressTimers.set(id, timer)
+    }
+  }
+
+  /**
+   * Sends any snapshot a trailing timer is holding, now - for the pipeline
+   * to call once the process closes, so the final tick doesn't wait out the
+   * window. A no-op when nothing is pending.
+   */
+  flushProgress(id: string): void {
+    if (this.progressTimers.has(id)) {
+      this.sendProgress(id)
+    }
+  }
+
+  getProgress(id: string): VideoProgress | undefined {
+    return this.progress.get(id)
+  }
+
+  /** Cancels any pending send, restarts the window and re-broadcasts. */
+  private sendProgress(id: string): void {
+    this.clearProgressTimer(id)
+    this.progressSentAt.set(id, Date.now())
+    this.touchJob(id)
+  }
+
+  private clearProgressTimer(id: string): void {
+    const timer = this.progressTimers.get(id)
+    if (timer) {
+      clearTimeout(timer)
+      this.progressTimers.delete(id)
+    }
+  }
+
+  /** Drops everything the progress throttle holds for `id`. */
+  private clearProgress(id: string): void {
+    this.clearProgressTimer(id)
+    this.progress.delete(id)
+    this.progressSentAt.delete(id)
   }
 
   /**
@@ -339,7 +434,12 @@ export class DownloadStateService {
           : { sourceUrl: '', type: DownloadType.Video }),
     }
 
-    return { ...jobFields, media }
+    // Absent rather than `undefined` when there's no snapshot, so a
+    // serialised frame (and a test fixture) for a job with no progress is
+    // unchanged. Only a live video job in this process ever has one.
+    const progress = this.progress.get(record.id)
+
+    return { ...jobFields, media, ...(progress ? { progress } : {}) }
   }
 
   updateJob(
@@ -384,10 +484,15 @@ export class DownloadStateService {
     // releases it without every call site having to remember to. The
     // interrupt intent goes with it: it only ever describes the *next* exit
     // of a live process, so once the job is terminal a leftover entry could
-    // only mislead a future read.
+    // only mislead a future read. So does the progress snapshot, along with
+    // any trailing send it armed - no frame from here on (this transition's
+    // own included) carries a bar for a download that is over. A
+    // non-terminal stop (Paused) keeps it on purpose: the bar stays where
+    // the download stopped.
     if (newStatus && isTerminalDownloadJobStatus(newStatus)) {
       this.clearProc(id)
       this.clearInterruption(id)
+      this.clearProgress(id)
     }
 
     this.jobs.set(id, updatedJob)

@@ -22,6 +22,7 @@ import {
   MEDIA_EVENT_TYPE,
   type MediaEvent,
   type MediaState,
+  type VideoProgress,
 } from '@lilnas/utils/download/types'
 import { Test, TestingModule } from '@nestjs/testing'
 import { ChildProcessWithoutNullStreams } from 'child_process'
@@ -32,7 +33,10 @@ import { createTestDbService } from 'src/db/__tests__/test-utils'
 import { DbService } from 'src/db/db.service'
 import { reconcileInterruptedJobs } from 'src/db/reconcile-interrupted-jobs'
 import { jobs, videos } from 'src/db/schema'
-import { DownloadStateService } from 'src/download/download-state.service'
+import {
+  DownloadStateService,
+  PROGRESS_BROADCAST_INTERVAL_MS,
+} from 'src/download/download-state.service'
 import { JobInterruptedError } from 'src/download/job-interrupted.error'
 import {
   DownloadGateway,
@@ -499,6 +503,289 @@ describe('DownloadStateService', () => {
 
       expect(await progressAfterTouch(500)).toBe(50)
       expect(await progressAfterTouch(250)).toBe(75)
+    })
+  })
+
+  /**
+   * Plan 015. A video job's yt-dlp ticks live in memory only and ride on the
+   * job, re-broadcast through `touchJob()` at most once per window.
+   */
+  describe('setProgress / flushProgress', () => {
+    const TICK_A: VideoProgress = { downloadedBytes: 100, fileIndex: 1 }
+    const TICK_B: VideoProgress = {
+      downloadedBytes: 200,
+      fileIndex: 1,
+      percent: 20,
+    }
+    const TICK_C: VideoProgress = {
+      downloadedBytes: 300,
+      etaSeconds: 5,
+      fileIndex: 1,
+      percent: 30,
+      speedBps: 1024,
+      totalBytes: 1000,
+    }
+
+    beforeEach(() => {
+      // Only the throttle's clock and timers are faked: `flushAsync()` rides
+      // on setImmediate, and the broadcast's hydrate on real promise ticks.
+      jest.useFakeTimers({
+        doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'],
+      })
+    })
+
+    afterEach(() => {
+      jest.useRealTimers()
+    })
+
+    /** The `progress` of every job frame sent so far, in order. */
+    function sentProgress(): (VideoProgress | undefined)[] {
+      return downloadGateway.broadcastPerViewer.mock.calls.map(
+        ([build]) => (build(true).data as DownloadJobEvent).job.progress,
+      )
+    }
+
+    async function seedLiveVideo(overrides: Partial<DownloadJobRecord> = {}) {
+      const record = seedVideoJob({
+        status: DownloadJobStatus.Downloading,
+        ...overrides,
+      })
+      service.addJob(record)
+      await flushAsync()
+      downloadGateway.broadcastPerViewer.mockClear()
+      return record
+    }
+
+    it('re-broadcasts the job carrying the snapshot, without writing its row', async () => {
+      const record = await seedLiveVideo()
+      const rowBefore = readRow(record.id)
+
+      service.setProgress(record.id, TICK_C)
+      await flushAsync()
+
+      expect(downloadGateway.broadcastPerViewer).toHaveBeenCalledTimes(1)
+      for (const isAdmin of [false, true]) {
+        expect(firstBroadcastBuild()(isAdmin)).toEqual({
+          data: {
+            job: expect.objectContaining({ id: record.id, progress: TICK_C }),
+            type: DownloadJobEventType.Updated,
+          },
+          type: DOWNLOAD_JOB_EVENT_TYPE,
+        })
+      }
+      expect(readRow(record.id)).toEqual(rowBefore)
+      expect(service.jobs.get(record.id)).toBe(record)
+      expect(service.jobs.get(record.id)).not.toHaveProperty('progress')
+      expect(service.getProgress(record.id)).toBe(TICK_C)
+      await expect(service.resolveJob(record.id)).resolves.toMatchObject({
+        progress: TICK_C,
+      })
+    })
+
+    it('collapses ticks inside the window into one trailing frame carrying the latest', async () => {
+      const record = await seedLiveVideo()
+
+      // Each send's hydrate reads the Map when it completes, so let A's
+      // frame land before B replaces it.
+      service.setProgress(record.id, TICK_A)
+      await flushAsync()
+      jest.advanceTimersByTime(200)
+      service.setProgress(record.id, TICK_B)
+      jest.advanceTimersByTime(200)
+      service.setProgress(record.id, TICK_C)
+      await flushAsync()
+
+      // Only the first tick has gone out; B and C are waiting on one timer.
+      expect(sentProgress()).toEqual([TICK_A])
+      expect(jest.getTimerCount()).toBe(1)
+      expect(service.getProgress(record.id)).toBe(TICK_C)
+
+      jest.advanceTimersByTime(PROGRESS_BROADCAST_INTERVAL_MS - 401)
+      await flushAsync()
+      expect(sentProgress()).toEqual([TICK_A])
+
+      jest.advanceTimersByTime(1)
+      await flushAsync()
+      expect(sentProgress()).toEqual([TICK_A, TICK_C])
+      expect(jest.getTimerCount()).toBe(0)
+    })
+
+    it('sends a tick immediately once a full window has passed since the last send', async () => {
+      const record = await seedLiveVideo()
+
+      service.setProgress(record.id, TICK_A)
+      await flushAsync()
+      jest.advanceTimersByTime(PROGRESS_BROADCAST_INTERVAL_MS)
+      service.setProgress(record.id, TICK_B)
+      await flushAsync()
+
+      expect(sentProgress()).toEqual([TICK_A, TICK_B])
+      expect(jest.getTimerCount()).toBe(0)
+    })
+
+    it('sends a flush tick inside the window immediately and restarts the window', async () => {
+      const record = await seedLiveVideo()
+
+      service.setProgress(record.id, TICK_A)
+      await flushAsync()
+      jest.advanceTimersByTime(100)
+      service.setProgress(record.id, TICK_B)
+      expect(jest.getTimerCount()).toBe(1)
+      service.setProgress(record.id, TICK_C, { flush: true })
+      await flushAsync()
+
+      // The flush sent C and cancelled the trailing timer B had armed.
+      expect(sentProgress()).toEqual([TICK_A, TICK_C])
+      expect(jest.getTimerCount()).toBe(0)
+
+      // The window now runs from the flush, not from A.
+      jest.advanceTimersByTime(PROGRESS_BROADCAST_INTERVAL_MS - 100)
+      service.setProgress(record.id, TICK_B)
+      await flushAsync()
+      expect(sentProgress()).toEqual([TICK_A, TICK_C])
+
+      jest.advanceTimersByTime(100)
+      await flushAsync()
+      expect(sentProgress()).toEqual([TICK_A, TICK_C, TICK_B])
+    })
+
+    it('flushProgress drains a pending tick now, and is a no-op with nothing pending', async () => {
+      const record = await seedLiveVideo()
+
+      service.flushProgress(record.id)
+      service.setProgress(record.id, TICK_A)
+      service.flushProgress(record.id)
+      await flushAsync()
+      expect(sentProgress()).toEqual([TICK_A])
+
+      service.setProgress(record.id, TICK_B)
+      service.flushProgress(record.id)
+      await flushAsync()
+      expect(sentProgress()).toEqual([TICK_A, TICK_B])
+      expect(jest.getTimerCount()).toBe(0)
+
+      jest.advanceTimersByTime(PROGRESS_BROADCAST_INTERVAL_MS * 2)
+      await flushAsync()
+      expect(sentProgress()).toEqual([TICK_A, TICK_B])
+    })
+
+    it.each([
+      DownloadJobStatus.Completed,
+      DownloadJobStatus.Failed,
+      DownloadJobStatus.Cancelled,
+    ])('drops the snapshot and cancels a pending send on %s', async status => {
+      const record = await seedLiveVideo()
+      service.setProgress(record.id, TICK_A)
+      service.setProgress(record.id, TICK_B)
+      expect(jest.getTimerCount()).toBe(1)
+
+      service.updateJob(record.id, { status })
+      await flushAsync()
+
+      expect(service.getProgress(record.id)).toBeUndefined()
+      expect(jest.getTimerCount()).toBe(0)
+      expect(downloadGateway.broadcastPerViewer).toHaveBeenCalledTimes(2)
+      const terminalBuild = downloadGateway.broadcastPerViewer.mock.calls[1]
+      const terminalJob = (terminalBuild?.[0](true).data as DownloadJobEvent)
+        .job
+      expect(terminalJob.status).toBe(status)
+      expect(terminalJob).not.toHaveProperty('progress')
+
+      jest.advanceTimersByTime(PROGRESS_BROADCAST_INTERVAL_MS * 2)
+      await flushAsync()
+      expect(downloadGateway.broadcastPerViewer).toHaveBeenCalledTimes(2)
+    })
+
+    it('restarts the window after a terminal clear, so a fresh tick sends at once', async () => {
+      const record = await seedLiveVideo()
+      service.setProgress(record.id, TICK_A)
+      service.updateJob(record.id, { status: DownloadJobStatus.Failed })
+      // A retry re-enters the pipeline under the same id.
+      service.updateJob(record.id, { status: DownloadJobStatus.Downloading })
+      await flushAsync()
+      downloadGateway.broadcastPerViewer.mockClear()
+
+      service.setProgress(record.id, TICK_B)
+      await flushAsync()
+
+      expect(sentProgress()).toEqual([TICK_B])
+    })
+
+    it.each([
+      DownloadJobStatus.Pausing,
+      DownloadJobStatus.Paused,
+      DownloadJobStatus.Converting,
+    ])('keeps the last snapshot across a move to %s', async status => {
+      const record = await seedLiveVideo()
+      service.setProgress(record.id, TICK_A)
+      await flushAsync()
+      downloadGateway.broadcastPerViewer.mockClear()
+
+      service.updateJob(record.id, { status })
+      await flushAsync()
+
+      expect(service.getProgress(record.id)).toBe(TICK_A)
+      expect(sentProgress()).toEqual([TICK_A])
+    })
+
+    it('omits the key entirely - not undefined - for a job with no snapshot', async () => {
+      const record = await seedLiveVideo()
+
+      service.touchJob(record.id)
+      await flushAsync()
+      const job = await service.hydrateOne(record)
+
+      expect(job).not.toHaveProperty('progress')
+      expect(
+        (firstBroadcastBuild()(true).data as DownloadJobEvent).job,
+      ).not.toHaveProperty('progress')
+    })
+
+    it('never attaches one to a movie job', async () => {
+      const record = buildMovieRecord()
+      service.addJob(record)
+      service.touchJob(record.id)
+      await flushAsync()
+
+      expect(sentProgress()).toEqual([undefined, undefined])
+      for (const [build] of downloadGateway.broadcastPerViewer.mock.calls) {
+        expect((build(true).data as DownloadJobEvent).job).not.toHaveProperty(
+          'progress',
+        )
+      }
+      expect(await service.hydrateOne(record)).not.toHaveProperty('progress')
+    })
+
+    it('never attaches one to a job resolved from its row alone (post-restart)', async () => {
+      const record = await seedLiveVideo()
+      service.jobs.delete(record.id)
+
+      const job = await service.resolveJob(record.id)
+
+      expect(job?.id).toBe(record.id)
+      expect(job).not.toHaveProperty('progress')
+    })
+
+    it('does nothing for a job the Map does not hold', async () => {
+      service.setProgress('nope', TICK_A)
+      service.setProgress('nope', TICK_B, { flush: true })
+      service.flushProgress('nope')
+      await flushAsync()
+
+      expect(downloadGateway.broadcastPerViewer).not.toHaveBeenCalled()
+      expect(service.getProgress('nope')).toBeUndefined()
+      expect(jest.getTimerCount()).toBe(0)
+    })
+
+    it('unrefs a pending send so it never holds the process open', async () => {
+      const record = await seedLiveVideo()
+      const setTimeoutSpy = jest.spyOn(global, 'setTimeout')
+
+      service.setProgress(record.id, TICK_A)
+      service.setProgress(record.id, TICK_B)
+
+      const timer = setTimeoutSpy.mock.results[0]?.value as NodeJS.Timeout
+      expect(timer.hasRef()).toBe(false)
     })
   })
 

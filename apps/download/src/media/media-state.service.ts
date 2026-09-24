@@ -122,7 +122,9 @@ export class MediaStateService {
         applyDerived(item, this.deriveShow(item))
       } else {
         // A video has no `queueSnapshot` field at all - its progress rides on
-        // the job, not the media - so there is none to set or clear here.
+        // the job - `DownloadJob.progress`, attached by
+        // `DownloadStateService.toJob()` - so there is none to set or clear
+        // here.
         item.state = deriveVideoState(
           (item.downloadUrls?.length ?? 0) > 0,
           this.videoActivity.get(item.id),
