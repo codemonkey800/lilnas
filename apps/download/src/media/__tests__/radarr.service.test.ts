@@ -698,6 +698,71 @@ describe('RadarrService', () => {
     })
   })
 
+  describe('unmonitorIfMissing', () => {
+    it('unmonitors a movie with no file, re-sending the whole resource', async () => {
+      mockGetApiV3MovieById.mockResolvedValue({
+        data: {
+          hasFile: false,
+          id: 7,
+          monitored: true,
+          qualityProfileId: 4,
+          rootFolderPath: '/movies',
+          tags: [1, 2],
+        },
+      })
+      mockPutApiV3MovieById.mockResolvedValue({ data: {} })
+
+      await expect(service.unmonitorIfMissing(7)).resolves.toBe(true)
+
+      expect(getApiV3MovieById).toHaveBeenCalledWith(
+        expect.objectContaining({ path: { id: 7 } }),
+      )
+      expect(putApiV3MovieById).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: {
+            hasFile: false,
+            id: 7,
+            monitored: false,
+            qualityProfileId: 4,
+            rootFolderPath: '/movies',
+            tags: [1, 2],
+          },
+          path: { id: '7' },
+        }),
+      )
+    })
+
+    // A cancelled replacement must leave the copy already on disk monitored.
+    it('leaves a movie that has a file monitored', async () => {
+      mockGetApiV3MovieById.mockResolvedValue({
+        data: { hasFile: true, id: 7, monitored: true },
+      })
+
+      await expect(service.unmonitorIfMissing(7)).resolves.toBe(false)
+      expect(putApiV3MovieById).not.toHaveBeenCalled()
+    })
+
+    it('writes nothing for a movie that is already unmonitored', async () => {
+      mockGetApiV3MovieById.mockResolvedValue({
+        data: { hasFile: false, id: 7, monitored: false },
+      })
+
+      await expect(service.unmonitorIfMissing(7)).resolves.toBe(false)
+      expect(putApiV3MovieById).not.toHaveBeenCalled()
+    })
+
+    it('throws a descriptive error when the write fails', async () => {
+      mockGetApiV3MovieById.mockResolvedValue({
+        data: { hasFile: false, id: 7, monitored: true },
+      })
+      mockPutApiV3MovieById.mockResolvedValue({ error: { message: 'boom' } })
+
+      await expect(service.unmonitorIfMissing(7)).rejects.toThrow(
+        'setMovieMonitored failed',
+      )
+    })
+  })
+
   describe('getReleases', () => {
     it('maps every kept field from a fully-populated release', async () => {
       mockGetApiV3Release.mockResolvedValue({

@@ -1366,6 +1366,60 @@ describe('SonarrService', () => {
 
       expect(putApiV3EpisodeMonitor).not.toHaveBeenCalled()
     })
+
+    describe('withoutFileOnly', () => {
+      const mixedEpisodes = [
+        { hasFile: true, id: 1, monitored: true, seasonNumber: 0 },
+        { hasFile: false, id: 2, monitored: true, seasonNumber: 0 },
+        { id: 3, monitored: true, seasonNumber: 0 },
+      ]
+
+      it('leaves episodes with a file monitored and uncounted', async () => {
+        mockGetApiV3Episode.mockResolvedValue({ data: mixedEpisodes })
+        mockPutApiV3EpisodeMonitor.mockResolvedValue({ data: {} })
+
+        await expect(
+          service.unmonitorScope(
+            9,
+            { seasonNumber: 0 },
+            { withoutFileOnly: true },
+          ),
+        ).resolves.toBe(2)
+
+        // Season 0 (specials) is a real season, not "no season".
+        expect(getApiV3Episode).toHaveBeenCalledWith(
+          expect.objectContaining({ query: { seasonNumber: 0, seriesId: 9 } }),
+        )
+        expect(mockPutApiV3EpisodeMonitor.mock.calls[0][0].body).toEqual({
+          episodeIds: [2, 3],
+          monitored: false,
+        })
+      })
+
+      it('is a no-op when the one scoped episode has a file', async () => {
+        mockGetApiV3Episode.mockResolvedValue({ data: mixedEpisodes })
+
+        await expect(
+          service.unmonitorScope(
+            9,
+            { episodeId: 1 },
+            { withoutFileOnly: true },
+          ),
+        ).resolves.toBe(0)
+        expect(putApiV3EpisodeMonitor).not.toHaveBeenCalled()
+      })
+
+      it('unmonitors episodes with files too when the option is off', async () => {
+        mockGetApiV3Episode.mockResolvedValue({ data: mixedEpisodes })
+        mockPutApiV3EpisodeMonitor.mockResolvedValue({ data: {} })
+
+        await expect(service.unmonitorScope(9, {})).resolves.toBe(3)
+        expect(mockPutApiV3EpisodeMonitor.mock.calls[0][0].body).toEqual({
+          episodeIds: [1, 2, 3],
+          monitored: false,
+        })
+      })
+    })
   })
 
   describe('getSeriesById', () => {

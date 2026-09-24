@@ -1032,8 +1032,16 @@ export class SonarrService {
    *
    * An empty scope means every episode of the series - the same widening
    * `monitorScopedEpisodes` uses on the way in.
+   *
+   * `withoutFileOnly` narrows it further to episodes with no file - what a
+   * cancelled download wants, since an episode that already has a file
+   * (the cancel was of a replacement) should stay monitored for that copy.
    */
-  async unmonitorScope(sonarrId: number, scope: ShowScope): Promise<number> {
+  async unmonitorScope(
+    sonarrId: number,
+    scope: ShowScope,
+    opts: { withoutFileOnly?: boolean } = {},
+  ): Promise<number> {
     const episodes = await this.getEpisodes(sonarrId, {
       seasonNumber: scope.seasonNumber,
     })
@@ -1048,6 +1056,7 @@ export class SonarrService {
     // call actually changed, not just what the scope covered.
     const episodeIds = inScope
       .filter(episode => episode.id != null && episode.monitored !== false)
+      .filter(episode => !opts.withoutFileOnly || episode.hasFile !== true)
       .map(episode => episode.id as number)
 
     // `setEpisodesMonitored` already no-ops on an empty list, so a scope

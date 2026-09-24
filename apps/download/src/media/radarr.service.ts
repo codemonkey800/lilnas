@@ -402,11 +402,47 @@ export class RadarrService {
    * quality profile, root folder and tags.
    */
   async setMonitored(radarrId: number, monitored: boolean): Promise<void> {
-    const movie = unwrapSdkResult(
+    const movie = await this.getMovieResource(radarrId)
+    await this.putMonitored(radarrId, movie, monitored)
+  }
+
+  /**
+   * Turns monitoring **off** for a movie only when it has no file, and
+   * reports whether it wrote anything.
+   *
+   * To Radarr a monitored movie with no file is a *missing* movie, so the
+   * next RSS sync would re-grab a download the user just cancelled. A movie
+   * that already has a file is left monitored - cancelling a replacement
+   * must not quietly stop Radarr looking after the copy already on disk.
+   *
+   * Reads the raw resource fresh rather than the app-level `Movie`, whose
+   * file signal (`filePath`) is derived; `hasFile` is Radarr's own answer.
+   * An already-unmonitored movie is skipped, so `true` means this call
+   * changed something.
+   */
+  async unmonitorIfMissing(radarrId: number): Promise<boolean> {
+    const movie = await this.getMovieResource(radarrId)
+
+    if (movie.hasFile || movie.monitored === false) {
+      return false
+    }
+
+    await this.putMonitored(radarrId, movie, false)
+    return true
+  }
+
+  private async getMovieResource(radarrId: number): Promise<MovieResource> {
+    return unwrapSdkResult(
       await getApiV3MovieById({ client: this.client, path: { id: radarrId } }),
       'getMovie',
     )
+  }
 
+  private async putMonitored(
+    radarrId: number,
+    movie: MovieResource,
+    monitored: boolean,
+  ): Promise<void> {
     checkSdkError(
       await putApiV3MovieById({
         client: this.client,
