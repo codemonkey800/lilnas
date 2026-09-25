@@ -2776,7 +2776,13 @@ A job with **no** item is settled from the library instead, by
 | --------------------------------------------- | ------------- | --------------- | --------------- |
 | `downloading` / `importing` / `paused`        | `completed`   | unchanged       | `failed`        |
 | `requested` / `searching` / `needs_attention` | `completed`   | unchanged       | unchanged       |
+| `cancelling` (plan 022)                       | `completed`   | see below       | `cancelled`     |
 | terminal, or a video-only status              | unchanged     | unchanged       | unchanged       |
+
+A `cancelling` job with no file settles `cancelled` after 30 s
+(`CANCEL_GRACE_MS`), or after 5 s if its downloads' history says they were
+removed or failed. See
+[Cancelling a movie or show attempt](#cancelling-a-movie-or-show-attempt-plan-022).
 
 - **The poller's path**: private `settleAbsentJobs` → private
   `completionInputs` (one file read per title: Radarr `getMovieFiles`, or
@@ -3125,6 +3131,336 @@ The dev container restarted at 10:59 PDT. `nest start -w` last reloaded at
 | `GET /download/gallery?limit=3`                               | `total: 358`; newest first by `addedAt`; `downloadCount: 0`, `lastDownloadedAt: null` |
 | `GET /download/gallery/facets`                                | `types`: 284 movie, 74 show; `uploaders`: `[]`                                        |
 | `GET /download/gallery?cursor=abc`                            | 400                                                                                   |
+
+## Cancelling a movie or show attempt (plan 022)
+
+**Status: done.** Commits, in order: `428f2824` (audit actions and
+`DownloadClient` methods), `45280738` (`CANCEL_GRACE_MS` and
+`settleWithoutQueueItem`'s `cancelling` branch), `3ed6c3b8` (unmonitor only
+what has no file), `b39cc720` (server actions), `996ee928` (mockups),
+`0cce024a` (the poller carries a `cancelling` job), `5aa85f3a`
+(`cancelMovieJob`/`cancelShowJob` and the `request()` guard), `1ab4f34f`
+(routes), `8edf4579` (the pages wire Cancel and Retry).
+
+Until now only a video attempt could be cancelled. A movie or show attempt
+ran to the end in Radarr/Sonarr, and the only way to stop it was their own UI.
+
+### The routes
+
+| Route                               | Service                                   | Audit action   |
+| ----------------------------------- | ----------------------------------------- | -------------- |
+| `PATCH /download/movies/:id/cancel` | `MediaDownloadService.cancelMovieJob(id)` | `movie.cancel` |
+| `PATCH /download/shows/:id/cancel`  | `MediaDownloadService.cancelShowJob(id)`  | `show.cancel`  |
+
+- **`:id` is a job id**, like `DELETE /download/movies/:id`. The frontend's
+  `JobAction` is `(jobId) => …`, and each attempt card calls it with its own
+  id. A media-keyed route would have to guess which of a show's several
+  in-flight attempts was meant.
+- **Through `mediaJobRoute`**, so every error is a 404 `Job not found`. A
+  finished job is a 404 too, as `PATCH /download/videos/:id/cancel` answers.
+- **Audited** as `movie.cancel`/`show.cancel` (`CANCEL`, tone `warn`), with
+  the caller as actor and the job as target. There is no Discord
+  attribution: unlike the video cancel, these routes read no Discord headers.
+- **Clients**: `DownloadClient.cancelMovieJob`/`cancelShowJob` in
+  `@lilnas/utils`, and the server actions `cancelMovieJob`/`cancelShowJob` in
+  `src/app/actions/media-job.ts`, which log and swallow a failure like
+  `video-job.ts` does.
+
+### What `cancelJob` does upstream
+
+Private `cancelJob(id, type)` does the upstream work first and writes the
+status last:
+
+1. **A finished job throws** (the route's 404). **A job already
+   `cancelling` is returned as is**, with no upstream calls: the first press
+   did the work.
+2. **`cancelUpstream`** reads the queue fresh with `getQueue([id])`, not
+   `MediaStateService`'s copy, which is up to a tick old. That tick is
+   exactly when a just-grabbed release lives.
+   - It keeps this title's items. A show job keeps only those that pass
+     `matchesScope(item, job.scope)`, so an episode job never touches a
+     sibling episode's download.
+   - Each item goes through `removeQueueItem` under `Promise.allSettled`,
+     with the Discard flags: `removeFromClient: true`, `blocklist: false`,
+     `skipRedownload: true`.
+   - It unmonitors only what has no file: `RadarrService.unmonitorIfMissing`,
+     or `SonarrService.unmonitorScope(…, { withoutFileOnly: true })`.
+3. **The resolver is invalidated**, because its library cache holds the
+   pre-cancel `monitored` flag.
+4. **The job is re-read and written `cancelling`**, with `error` cleared. A
+   job cancelled out of `needs_attention` would otherwise keep upstream's
+   import error.
+
+Why each rule:
+
+- **Unmonitor, but only what has no file.** To Radarr/Sonarr a monitored
+  title with no file is missing, and the next RSS sync would grab it again. A
+  title with a file stays monitored, so cancelling a replacement doesn't
+  stop Radarr looking after the copy already on disk.
+- **Season and series flags are untouched.** They decide what happens to
+  future episodes, not to this attempt.
+- **A library file is never deleted.** Cancel stops a download. Deleting
+  files is `DELETE /download/media/:id/files`.
+- **A thrown upstream call leaves the job as it was.** `getQueue` or the
+  unmonitor failing propagates, so the user can press again.
+- **A failed removal does not throw.** It is logged, the job still goes
+  `cancelling`, and the poller removes what is left on its next tick.
+- **No upstream id means nothing to undo.** A first request that `submit()`
+  hasn't added to Radarr/Sonarr yet skips the upstream half; `request()`
+  does it after `submit()` (below).
+
+### Why `cancelling`, not `cancelled`
+
+A search can outlive the cancel. An API-sent `MoviesSearch`/`SeriesSearch`
+runs as a user-invoked search, which ignores `monitored`, so a search already
+running at the press can grab after the unmonitor. The job therefore waits in
+`cancelling` and the poller makes the last move.
+
+### How the poller settles it
+
+| This tick                                         | Result                                        |
+| ------------------------------------------------- | --------------------------------------------- |
+| A queue item in the job's scope                   | removed by `removeLateGrab`; status unchanged |
+| No item, a file landed                            | `completed`: the cancel came too late         |
+| No item, history `removed`/`failed`, absent ≥ 5 s | `cancelled`                                   |
+| No item, absent ≥ `CANCEL_GRACE_MS` (30 s)        | `cancelled`                                   |
+| No item, otherwise                                | unchanged                                     |
+
+- **A late grab is removed, not followed.** Private `removeLateGrab` removes
+  the items (every row for a movie; for a show, only in-scope matches) and
+  never calls `applyUpdate`, which used to move the job back to
+  `downloading`. It never throws: an item with no id is logged and skipped,
+  and a refused removal is retried next tick.
+- **`absentSince` is left alone** while a late grab is removed, so the grace
+  doesn't restart with each one. It is timed from the first tick the job had
+  no item.
+- **The history path is the fast path.** Commit `433035cc` (before plan 022)
+  settles a job whose remembered download ids read `removed` or `failed` in
+  Radarr/Sonarr history, once it has been absent `QUEUE_REMOVAL_CONFIRM_MS`
+  (5 s). A cancelled job that had grabbed something takes that path: its
+  item was seen, so its id is remembered, and a removal writes no history,
+  which reads as `removed`.
+- **The 30 s grace only applies to a cancel pressed before anything was
+  grabbed**, since there are no ids to look up. After a restart the ids are
+  gone too (they live in memory), so such a job settles on the grace or on a
+  landed file.
+- **Why 30 s.** Indexer requests time out at about 30 s, so a search that
+  hasn't grabbed by then is very unlikely to. The 60 s absence grace would
+  double the wait. Much below 20 s it would be two poll ticks, the same as
+  the 5 s confirm, and no grace at all.
+- **No "Removed from Radarr's queue".** `settledError(…, previous)` gives a
+  job leaving `cancelling` no reason short of a failure. That sentence is for
+  a removal someone made in Radarr/Sonarr; this one was the user's own press.
+- **Leaving `cancelling` clears `error` explicitly** in `writeStatus`.
+  `updateJob` spreads the patch and never touches `error` by itself, so a
+  stale reason would otherwise stay on the record and the row.
+- **`scripts/verify/mutate.ts` `MEDIA_TRANSITIONS`**: `cancelling` →
+  `cancelled`/`completed`.
+
+### The `request()` guard
+
+`updateJob` has no compare-and-set, and a cancel can land while `request()`'s
+`submit()` is out upstream. Writing `searching` blind would un-cancel the
+job. After `await submit()`, `request()` re-reads the job with no `await`
+before its write:
+
+| Job after `submit()` | `request()` does                                                     |
+| -------------------- | -------------------------------------------------------------------- |
+| `requested`          | writes `searching` (and the resolved scope), as before               |
+| `cancelling`         | writes only the resolved scope, then runs the upstream cleanup again |
+| anything else        | leaves it alone: the poller got there first                          |
+
+- **The re-run cleanup is needed.** The title now certainly has an upstream
+  id, and the search `submit()` just dispatched may grab. It is logged, not
+  thrown: the cancel did take, and the job is already `cancelling`.
+- **The catch path never writes `failed` over `cancelling`.** It logs a
+  warning and runs the same cleanup.
+
+The same race has a second shape. A cancel on a `requested` job that already
+has an upstream id runs its upstream half first, and `submit()` can finish in
+the meantime and write `searching`. So `cancelJob` re-reads before its write:
+
+- **Terminal** (the poller settled it) or **already `cancelling`** (a
+  concurrent press): returned, not overwritten.
+- **Anything else**: written `cancelling` anyway. If the job was `requested`
+  at the press and isn't any more, the upstream half runs once more, quietly.
+  `submit()`'s `ensure*` may have re-monitored what was just unmonitored, and
+  its search came after the queue read.
+
+### `needs_attention` and `paused`
+
+Both cancel the same way, since `cancelJob` refuses only terminal jobs.
+Removing the queue row is exactly what the import dialog's **Discard** does
+(plan 020). Discard stays, and still moves the job straight to `cancelled`.
+
+### ⚠️ Accepted gaps
+
+- **A whole-series or season cancel removes every item in its scope**,
+  including one a narrower concurrent job (one episode, say) was waiting on.
+  That job then settles `cancelled` with "Removed from Sonarr's queue" through
+  the history path.
+- **A `cancelling` job whose queue item can't be removed stays `cancelling`**,
+  retrying the removal every tick.
+
+### Video, movie and show
+
+| Control                        | Video                                                  | Movie                                                                                                | Show                                                                                             |
+| ------------------------------ | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Cancel on an in-flight attempt | ✅                                                     | ✅                                                                                                   | ✅, and on an episode-scoped one's row                                                           |
+| `cancelling…`, inert           | ✅                                                     | ✅                                                                                                   | ✅                                                                                               |
+| Pause / Resume                 | ✅                                                     | —                                                                                                    | —                                                                                                |
+| Asking again after a cancel    | the page's Download; no Retry row (plan 021 · Phase 3) | Retry on the newest attempt if it failed or was cancelled (`retryMovieJob`), and the header Download | Retry re-requests that attempt's own scope (`retryShowJob`); season, episode and header Download |
+
+Retry shows only while the title is `absent` or `wanted`; a show's season
+lists go by the season's state instead. It is a fresh request, so it adds a
+new attempt row and the cancelled one keeps its outcome.
+
+## Downloads started in Radarr/Sonarr are adopted (plan 022)
+
+**Status: done.** Commits, in order: `7ee8b964` (`adoption.util.ts`),
+`122a896f` (the `upstream` origin and migration 0005), `f58c6b31` (the poller
+adopts), `7bfac749` (the UI credits Radarr/Sonarr).
+
+A grab made in Radarr's or Sonarr's own UI, by their RSS sync, or by a search
+this app didn't send had no job. Its title's page drew a progress bar off the
+queue snapshot with nothing under it to cancel. The poller now mints a job for
+each such download, and from then on it is an ordinary attempt.
+
+### How a download is adopted
+
+The poller runs private `adoptUnownedDownloads(type, queue)` at the end of each
+source's tick, after the tracked jobs are settled. The rules live in
+`src/media/adoption.util.ts` (`planAdoptions`, `isAdoptable`, both pure).
+
+1. **Group.** Queue items are grouped per title by `downloadId`, so a season
+   pack Sonarr queues as one item per episode is one candidate. An item with
+   no `downloadId` is its own group. An item with no `movieId`/`seriesId` is
+   ignored.
+2. **Drop owned groups.** See below.
+3. **Drop terminal groups.** A group whose aggregate status is terminal (a
+   `failed` item lingering in the queue) is skipped. Otherwise it would mint
+   a job that settles `failed` and gets adopted again next tick, forever.
+4. **Map to media ids** with `mediaIdsFor`, the helper the media diff uses. A
+   title the library can't map yet is skipped and asked about next tick.
+5. **Drop upgrades.** See below.
+6. **Mint the job** with `DownloadStateService.addJob`: `startedUpstream:
+true`, no requester, and the status the queue derives (never `requested`
+   or `searching`, since it's already grabbed). Its download ids go into
+   `rememberDownloads`, so its history can settle it later. It gets a log line
+   `Adopted a download started upstream` and no audit row: nobody here asked
+   for it.
+
+**Ownership.** A group is owned, and skipped, when any non-terminal job of
+the same type and title covers it. For a movie that's any such job; for a
+show, one whose scope passes `matchesScope` for every item in the group.
+
+- **`cancelling` counts**, so a late grab `removeLateGrab` is removing is
+  never adopted.
+- **Download ids remembered for an existing job count too**, via
+  `claimedDownloadIds()`.
+- **The check reads `downloadStateService.jobs`**, not `trackedJobs()`.
+  `trackedJobs()` drops a job whose title didn't resolve this tick, and
+  reading it would adopt a duplicate.
+- **A cheap pre-pass runs first.** `planAdoptions` with no open jobs and only
+  the claimed ids is pure and in memory. While every queued download is one a
+  tracked job just remembered, it returns nothing and the tick makes no reads.
+- **The check runs again right before `addJob`**, synchronously, with no
+  `await` in between. The 1 s cron has no overlap guard and `addJob` has no
+  compare-and-set, so a job minted meanwhile by an overlapping tick or a
+  request wins.
+
+**Scope.** The narrowest scope that covers the group:
+
+| Group                                                  | Job scope                                                                        |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| Movie                                                  | none                                                                             |
+| One episode                                            | `{ episodeId, seasonNumber, episodeNumber }`, `episodeNumber` from `getEpisodes` |
+| Several episodes, one season                           | `{ seasonNumber }`                                                               |
+| Episodes across seasons, or no item with an episode id | none (whole series)                                                              |
+
+One job per download means a season pack is one season-scoped attempt, not
+one per episode.
+
+**Never failing the poll.** Every read in here (the resolve, the library, the
+episodes) is caught and logged, and the download waits a tick. None of them
+trips `poll()`'s backoff.
+
+**Restart needs nothing new.** `addJob` persists the row, so the boot's
+`adoptOpenJobs` re-adopts it like any open movie/show job. The ownership
+check sees it, so its download isn't adopted a second time.
+
+### What is not adopted, and why
+
+- **Upgrades.** A movie whose resolved media has a `filePath` or an
+  `embyStatus`, or a show group where every episode already has a file.
+  Radarr/Sonarr grab cutoff-unmet upgrades on their own, and adopting them
+  would put an attempt nobody asked for on title after title. A show group
+  with any item Sonarr couldn't tie to an episode is adopted, since nothing
+  proves it's an upgrade. A degraded movie resolve adopts nothing that tick.
+  An upgrade keeps its bar, with the note "Radarr is upgrading the file
+  already on disk — it can't be cancelled here." (Sonarr: "Sonarr is
+  upgrading an episode already on disk — it can't be cancelled here."). The
+  same note can show for the one tick before a fresh grab is adopted.
+- **Terminal items**, as above.
+- **Titles the library can't map yet.** Tried again next tick.
+
+### The `upstream` origin
+
+An adopted job has no requester and no Discord requester, like a tdr-bot job
+(`service`). It needed its own value to tell the two apart.
+
+- **`DownloadJobSchema.startedUpstream`** is optional: `true` on an adopted
+  job, absent on every other. Existing fixtures, stored rows and
+  `apps/tdr-bot`'s parse stay valid.
+- **`JOB_ROW_ORIGINS = [...JOB_ORIGINS, 'upstream']`**, in `db/schema.ts`, is
+  `jobs.origin`'s tuple alone. `JOB_ORIGINS` stays three-valued because
+  `audit_log.origin` shares it and `AuditLogEntrySchema.origin` mirrors it.
+  An audit actor is never Radarr.
+- **`jobs_origin_matches_requester`** gains an `upstream` arm with the same
+  all-NULL shape as `service`.
+- **`buildJobRow`** writes `upstream` for `startedUpstream`, checked after
+  the requester and Discord fields, so a person's attribution always wins.
+  **`hydrateJobRow`** reads it back as `startedUpstream: true`.
+
+### Migration 0005
+
+`0005_remarkable_wallflower.sql`. SQLite can't `ALTER` a CHECK, so this is
+drizzle-kit's generated `__new_jobs` rebuild, unedited: create, copy all 15
+columns, drop, rename, then recreate all six `jobs_*` indexes. It is the second
+`jobs` rebuild after 0002.
+
+- **Tested on a copy of the prod DB**: rows byte-identical, indexes
+  recreated, integrity check ok.
+- **Prod was still on migration 0000** when it was written (73 jobs, no
+  Discord columns). Its next deploy runs 0001 through 0005 in one boot.
+  `migrate-0005.spec.ts` covers both starting shapes: prod at 0000 and dev at 0004.
+
+### UI
+
+`jobUpstreamSource(job)` (`components/activity/activity-requester.tsx`)
+returns `Radarr` for an adopted movie and `Sonarr` for an adopted show, and
+`undefined` for everything else, videos included. It's the only thing that
+tells an adopted job from a masked one, since both arrive with every identity
+field `null`. Before, every requester surface read that pair of nulls as
+`hidden`.
+
+The label is plain text (`Radarr · 12m ago` on the detail header), with no
+avatar and no profile link. It appears on the detail header, in the attempt
+history and on activity rows. A requester or Discord requester always wins
+over it.
+
+### ⚠️ Known gaps
+
+- **Gallery and home "recent" cards still show a masked `hidden` avatar** for
+  a title whose latest job was adopted. They read the grouped gallery row
+  (`lastRequester`/`lastDiscordRequester`), which has no `startedUpstream`.
+- **`/admin` history shows an adopted job as `service`.** `AdminActor` reads
+  a `null` requester as the service.
+- **A season pack adopted as one season-scoped job** unmonitors every
+  file-less episode of that season on cancel, including episodes the pack
+  didn't contain.
+- **A late grab after a cancel's grace window** is adopted as a new
+  attempt credited to Radarr/Sonarr.
 
 ---
 
