@@ -117,6 +117,18 @@ jest.mock('necord', () => ({
         void _descriptor
       },
   ),
+  Once: jest.fn(
+    () =>
+      (
+        _target: unknown,
+        _propertyKey: string,
+        _descriptor: PropertyDescriptor,
+      ) => {
+        void _target
+        void _propertyKey
+        void _descriptor
+      },
+  ),
   SlashCommand: jest.fn(
     () =>
       (
