@@ -113,6 +113,12 @@ interface LastRequester {
   downloadedAt: string
   hiddenAttribution: boolean
   requester: JobRequester | null
+  /**
+   * The job was adopted from Radarr's/Sonarr's own UI (plan 022) -
+   * `GalleryItem.lastStartedUpstream`. Absent rather than `false` otherwise,
+   * mirroring `DownloadJob.startedUpstream`.
+   */
+  startedUpstream?: true
 }
 
 function isWithinRange(addedAtMs: number, from?: Date, to?: Date): boolean {
@@ -324,6 +330,11 @@ export class JobQueryService {
           : null,
         lastDownloadedAt: last?.downloadedAt ?? null,
         lastRequester: showRequester ? (last?.requester ?? null) : null,
+        // Outside `showRequester` on purpose: it names nobody, and it is what
+        // keeps an adopted title's two `null` slots from reading as masked.
+        // Spread so every other row keeps the key off, as `hydrateJobRow`
+        // does for the job's own flag.
+        ...(last?.startedUpstream ? { lastStartedUpstream: true } : {}),
         // `resolve()` answers for every key it's given (a miss degrades to a
         // placeholder), so this fallback is unreachable - it's here to
         // satisfy `Map.get`'s type rather than to paper over a real gap.
@@ -474,6 +485,7 @@ export class JobQueryService {
         downloadedAt: record.completedAt ?? record.updatedAt,
         hiddenAttribution: record.hiddenAttribution,
         requester: record.requester,
+        ...(record.startedUpstream ? { startedUpstream: true } : {}),
       })
     }
 

@@ -644,6 +644,41 @@ describe('GalleryItemSchema', () => {
       }).success,
     ).toBe(false)
   })
+
+  // Plan 022 follow-up: the latest job was adopted from Radarr/Sonarr. Optional,
+  // so every row written before it (and tdr-bot's parse) stays valid.
+  it('carries lastStartedUpstream when present and leaves it off when absent', () => {
+    const base = {
+      addedAt: '2026-08-19T08:00:00.000Z',
+      downloadCount: 1,
+      lastDiscordRequester: null,
+      lastDownloadedAt: '2026-08-20T12:00:00.000Z',
+      lastRequester: null,
+      media: validMovie,
+    }
+
+    expect(
+      GalleryItemSchema.parse({ ...base, lastStartedUpstream: true })
+        .lastStartedUpstream,
+    ).toBe(true)
+    expect(GalleryItemSchema.parse(base)).not.toHaveProperty(
+      'lastStartedUpstream',
+    )
+  })
+
+  it('rejects a non-boolean lastStartedUpstream', () => {
+    expect(
+      GalleryItemSchema.safeParse({
+        addedAt: '2026-08-19T08:00:00.000Z',
+        downloadCount: 1,
+        lastDiscordRequester: null,
+        lastDownloadedAt: '2026-08-20T12:00:00.000Z',
+        lastRequester: null,
+        lastStartedUpstream: 'yes',
+        media: validMovie,
+      }).success,
+    ).toBe(false)
+  })
 })
 
 describe('Media / Movie / Show types stay in sync with their schemas', () => {

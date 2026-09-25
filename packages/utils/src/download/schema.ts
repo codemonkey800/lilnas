@@ -472,6 +472,15 @@ export const GalleryItemSchema = z.object({
   lastDownloadedAt: z.iso.datetime().nullable(),
   /** Masked per the attribution-oracle rules — see `attribution.ts`. */
   lastRequester: JobRequesterSchema.nullable(),
+  /**
+   * `DownloadJob.startedUpstream` of the same latest job the other `last*`
+   * fields describe - `true` when that job was adopted from a download
+   * someone started in Radarr's or Sonarr's own UI, which is what tells its
+   * pair of `null` identity slots apart from a masked pair. Names nobody, so
+   * it is never masked. Absent otherwise, so existing rows, fixtures and
+   * `apps/tdr-bot`'s parse stay valid unchanged.
+   */
+  lastStartedUpstream: z.boolean().optional(),
   media: MediaSchema,
 })
 

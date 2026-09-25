@@ -433,4 +433,78 @@ describe('GalleryItemCard', () => {
       ).not.toBeInTheDocument()
     })
   })
+
+  /**
+   * Plan 022 follow-up. A title whose latest download was adopted from
+   * Radarr's or Sonarr's own UI arrives with both identity slots `null`, like a
+   * masked one — `lastStartedUpstream` is what says nobody hid anything.
+   */
+  describe('upstream attribution', () => {
+    const SHOW: Media = {
+      id: 'tvdb:121361',
+      title: 'The Madison',
+      tvdbId: 121361,
+      type: DownloadType.Show,
+      year: 2025,
+    }
+
+    const adopted = (media: Media): GalleryItem =>
+      item({
+        lastDiscordRequester: null,
+        lastRequester: null,
+        lastStartedUpstream: true,
+        media,
+      })
+
+    it.each([
+      ['movie', MOVIE, 'Radarr'],
+      ['show', SHOW, 'Sonarr'],
+    ] as const)(
+      'credits an adopted %s to %s, with no avatar, no profile link and no `hidden`',
+      (_kind, media, source) => {
+        const { container } = render(
+          <GalleryItemCard item={adopted(media)} now={NOW} viewer={ADMIN} />,
+        )
+
+        expect(screen.getByText(source)).toBeInTheDocument()
+        expect(container.querySelector('.rounded-full')).toBeNull()
+        expect(screen.queryByText(MASKED_INITIALS)).not.toBeInTheDocument()
+        expect(screen.queryByText(/hidden/)).not.toBeInTheDocument()
+        expect(screen.getByText('12m ago')).toBeInTheDocument()
+        // The only link on the card is the poster's — a service has no
+        // profile to open.
+        expect(screen.getAllByRole('link')).toHaveLength(1)
+      },
+    )
+
+    it('still lets a requester win over the flag', () => {
+      render(
+        <GalleryItemCard
+          item={item({ lastStartedUpstream: true, media: MOVIE })}
+          now={NOW}
+          viewer={VIEWER}
+        />,
+      )
+
+      expect(screen.getByRole('link', { name: 'JA' })).toHaveAttribute(
+        'href',
+        PROFILE_HREF,
+      )
+      expect(screen.queryByText('Radarr')).not.toBeInTheDocument()
+    })
+
+    it('still reads a movie row without the flag as hidden', () => {
+      render(
+        <GalleryItemCard
+          item={item({ lastRequester: null, media: MOVIE })}
+          now={NOW}
+          viewer={null}
+        />,
+      )
+
+      expect(screen.getByText(MASKED_INITIALS)).toBeInTheDocument()
+      expect(screen.getByText('hidden · 12m ago')).toBeInTheDocument()
+      expect(screen.queryByText('Radarr')).not.toBeInTheDocument()
+    })
+  })
 })

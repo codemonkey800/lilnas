@@ -3,6 +3,7 @@ import type {
   DiscordIdentity,
   DiscordRequester,
   DownloadJob,
+  GalleryItem,
   JobRequester,
 } from '@lilnas/utils/download/types'
 import { DownloadType } from '@lilnas/utils/download/types'
@@ -53,6 +54,20 @@ export function jobUpstreamSource(
     default:
       return undefined
   }
+}
+
+/**
+ * {@link jobUpstreamSource} for a gallery row, whose latest job's flag rides
+ * as `lastStartedUpstream`. `undefined` when that job was not adopted — a
+ * requester on an *older* job never makes the title read as Radarr's.
+ */
+export function galleryUpstreamSource(
+  item: Pick<GalleryItem, 'lastStartedUpstream' | 'media'>,
+): UpstreamSource | undefined {
+  return jobUpstreamSource({
+    media: item.media,
+    startedUpstream: item.lastStartedUpstream,
+  })
 }
 
 /**

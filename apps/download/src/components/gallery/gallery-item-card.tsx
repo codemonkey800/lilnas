@@ -3,7 +3,10 @@ import type { GalleryItem, Media } from '@lilnas/utils/download/types'
 import { DownloadType, isManagedMedia } from '@lilnas/utils/download/types'
 import type { JSX } from 'react'
 
-import { ActivityRequester } from 'src/components/activity/activity-requester'
+import {
+  ActivityRequester,
+  galleryUpstreamSource,
+} from 'src/components/activity/activity-requester'
 import { ButtonLink } from 'src/components/ui/button-link'
 import { Chip } from 'src/components/ui/chip'
 import {
@@ -99,7 +102,8 @@ export type GalleryItemCardProps = {
  *
  * ⚠️ There is no `linkedDiscord` handle beside the email on this surface, and
  * not because it would not fit: `GalleryItemSchema` carries `lastRequester`
- * and `lastDiscordRequester` and no third field, so the reverse link lookup is
+ * and `lastDiscordRequester` and no third identity field, so the reverse link
+ * lookup is
  * never run for a gallery page (see `resolveGalleryItems`). A page of
  * web-origin cards therefore costs zero link lookups, which is the property
  * that keeps the grid cheap — adding the handle here would trade it away for a
@@ -123,6 +127,10 @@ export function GalleryItemCard({
   const indexing = managed?.embyStatus?.state === 'indexing'
   const requester = item.lastRequester
   const discordRequester = item.lastDiscordRequester
+  // A title whose latest download was adopted from Radarr's or Sonarr's own UI
+  // arrives with the same two `null` slots as a masked one; this is the flag
+  // that says nobody hid anything — see `jobUpstreamSource`.
+  const upstreamSource = galleryUpstreamSource(item)
   // A title nobody downloaded through this app — straight from Radarr/Sonarr,
   // or a job log that no longer reaches it — has no uploader to draw, so the
   // card carries no attribution mark at all. `lastDownloadedAt` comes out of
@@ -134,10 +142,17 @@ export function GalleryItemCard({
   // `lastRequester` either, but it is fully attributed — reading it as
   // `hidden · …` would tell every viewer the uploader asked to be hidden when
   // they did not. `JobQueryService.listGallery` nulls the two together, so
-  // this pair is the honest test.
+  // this pair is the honest test — once an adopted title is taken out of it.
   const masked =
-    downloadedHere && requester === null && discordRequester === null
-  const showUploader = masked || requester !== null || discordRequester !== null
+    downloadedHere &&
+    requester === null &&
+    discordRequester === null &&
+    upstreamSource === undefined
+  const showUploader =
+    masked ||
+    requester !== null ||
+    discordRequester !== null ||
+    upstreamSource !== undefined
   // When the title landed in the library, not when anyone downloaded it —
   // the gallery is the library, so its cards date what is in it.
   const when = formatRelative(item.addedAt, now)
@@ -182,6 +197,7 @@ export function GalleryItemCard({
               discordRequester={discordRequester}
               nameless
               requester={requester}
+              upstreamSource={upstreamSource}
               viewer={viewer}
             />
           ) : null}

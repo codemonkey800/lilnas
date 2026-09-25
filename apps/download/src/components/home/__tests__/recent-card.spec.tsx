@@ -353,6 +353,66 @@ describe('RecentCard', () => {
     })
   })
 
+  /**
+   * Plan 022 follow-up. A title whose latest download was adopted from
+   * Radarr's or Sonarr's own UI arrives with both identity slots `null`, like a
+   * masked one — `lastStartedUpstream` is what says nobody hid anything.
+   */
+  describe('upstream attribution', () => {
+    const adopted = (media: Movie | Show): GalleryItem =>
+      item({
+        lastDiscordRequester: null,
+        lastRequester: null,
+        lastStartedUpstream: true,
+        media,
+      })
+
+    it.each([
+      ['movie', MOVIE, 'Radarr'],
+      ['show', SHOW, 'Sonarr'],
+    ] as const)(
+      'credits an adopted %s to %s, with no avatar and no profile link',
+      (_kind, media, source) => {
+        const { container } = render(
+          <RecentCard item={adopted(media)} now={NOW} viewer={ADMIN} />,
+        )
+
+        expect(screen.getByText(source)).toBeInTheDocument()
+        expect(container.querySelector('.rounded-full')).toBeNull()
+        expect(screen.queryByText(MASKED_INITIALS)).not.toBeInTheDocument()
+        expect(screen.queryByText(/hidden/)).not.toBeInTheDocument()
+        // One link only — the card's own. A service has no profile to open.
+        expect(screen.getAllByRole('link')).toHaveLength(1)
+      },
+    )
+
+    it('still lets a requester win over the flag', () => {
+      render(
+        <RecentCard
+          item={item({ lastStartedUpstream: true })}
+          now={NOW}
+          viewer={VIEWER}
+        />,
+      )
+
+      expect(screen.getByText('JA')).toBeInTheDocument()
+      expect(screen.queryByText('Radarr')).not.toBeInTheDocument()
+    })
+
+    it('still masks a row without the flag', () => {
+      render(
+        <RecentCard
+          item={item({ lastRequester: null })}
+          now={NOW}
+          viewer={null}
+        />,
+      )
+
+      expect(screen.getByText(MASKED_INITIALS)).toBeInTheDocument()
+      expect(screen.queryByText('Radarr')).not.toBeInTheDocument()
+    })
+  })
+
   describe('Emby state', () => {
     it('offers Watch once the title is indexed', () => {
       render(

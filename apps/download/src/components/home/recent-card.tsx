@@ -7,7 +7,10 @@ import type {
 import { DownloadType, isManagedMedia } from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX } from 'react'
 
-import { ActivityRequester } from 'src/components/activity/activity-requester'
+import {
+  ActivityRequester,
+  galleryUpstreamSource,
+} from 'src/components/activity/activity-requester'
 import { ButtonLink } from 'src/components/ui/button-link'
 import { Chip } from 'src/components/ui/chip'
 import {
@@ -126,6 +129,9 @@ export function RecentCard({
     lastDownloadedAt !== null ||
     lastRequester !== null ||
     lastDiscordRequester !== null
+  // An adopted Radarr/Sonarr download: the same two `null` slots as a masked
+  // one, read as the service's name instead of the dashed circle.
+  const upstreamSource = galleryUpstreamSource(item)
   const emby = embyStatusOf(media)
   const indexing = emby?.state === 'indexing'
   // `watchUrl` is populated only while the state is `indexed`; a title that is
@@ -187,6 +193,7 @@ export function RecentCard({
               discordRequester={lastDiscordRequester}
               nameless
               requester={lastRequester}
+              upstreamSource={upstreamSource}
               viewer={viewer}
             />
           ) : null}

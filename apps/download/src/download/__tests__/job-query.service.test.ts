@@ -420,6 +420,91 @@ describe('JobQueryService', () => {
       })
     })
 
+    // Plan 022 follow-up. An adopted job has both identity slots null, just
+    // like a masked one - `lastStartedUpstream` is what tells the card which.
+    describe('lastStartedUpstream', () => {
+      it('is true, for admins and non-admins alike, when the latest completed job was adopted upstream', async () => {
+        setLibrary([libraryMovie(7, day(1)), libraryShow(8, day(2))])
+        seedJob({
+          id: 'm',
+          mediaId: 'tmdb:7',
+          origin: 'upstream',
+          type: 'movie',
+        })
+        seedJob({
+          id: 's',
+          mediaId: 'tvdb:8',
+          origin: 'upstream',
+          type: 'show',
+        })
+
+        for (const isAdmin of [false, true]) {
+          const page = await service.listGallery({ isAdmin, limit: 10 })
+
+          expect(page.items).toHaveLength(2)
+          for (const item of page.items) {
+            expect(item).toMatchObject({
+              lastDiscordRequester: null,
+              lastRequester: null,
+              lastStartedUpstream: true,
+            })
+          }
+        }
+      })
+
+      it('is absent when the latest completed job had a requester', async () => {
+        setLibrary([libraryMovie(7, day(1))])
+        seedJob({
+          id: 'm',
+          mediaId: 'tmdb:7',
+          origin: 'web',
+          requesterEmail: 'alice@example.com',
+          requesterUserId: 'u1',
+          type: 'movie',
+        })
+
+        const page = await service.listGallery({ isAdmin: false, limit: 10 })
+
+        expect(page.items[0]).not.toHaveProperty('lastStartedUpstream')
+      })
+
+      it('is absent when an older upstream job sits under a newer requested one', async () => {
+        setLibrary([libraryMovie(7, day(1))])
+        seedJob({
+          createdAt: day(1),
+          id: 'adopted',
+          mediaId: 'tmdb:7',
+          origin: 'upstream',
+          type: 'movie',
+        })
+        seedJob({
+          createdAt: day(2),
+          id: 'requested',
+          mediaId: 'tmdb:7',
+          origin: 'web',
+          requesterEmail: 'bob@example.com',
+          requesterUserId: 'u2',
+          type: 'movie',
+        })
+
+        const page = await service.listGallery({ isAdmin: false, limit: 10 })
+
+        expect(page.items[0]).not.toHaveProperty('lastStartedUpstream')
+        expect(page.items[0]?.lastRequester).toEqual({
+          email: 'bob@example.com',
+          userId: 'u2',
+        })
+      })
+
+      it('is absent on a title nobody downloaded through this app', async () => {
+        setLibrary([libraryMovie(7, day(1))])
+
+        const page = await service.listGallery({ isAdmin: false, limit: 10 })
+
+        expect(page.items[0]).not.toHaveProperty('lastStartedUpstream')
+      })
+    })
+
     it('narrows `?requester=` to the titles that requester has a completed job for, counting only theirs', async () => {
       setLibrary([
         libraryMovie(1, day(1)),

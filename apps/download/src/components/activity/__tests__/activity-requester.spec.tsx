@@ -13,6 +13,7 @@ import { render, screen } from '@testing-library/react'
 import {
   ActivityRequester,
   canViewRequesterProfile,
+  galleryUpstreamSource,
   jobUpstreamSource,
   MASKED_REQUESTER_LABEL,
 } from 'src/components/activity/activity-requester'
@@ -341,6 +342,25 @@ describe('jobUpstreamSource', () => {
   // Nothing adopts a video; a stray flag must not invent a service for one.
   it('has no source for a video, flag or not', () => {
     expect(jobUpstreamSource(adopted(VIDEO, true))).toBeUndefined()
+  })
+})
+
+// The gallery row carries the latest job's flag as `lastStartedUpstream`.
+describe('galleryUpstreamSource', () => {
+  it('reads the latest job’s flag off a gallery row', () => {
+    expect(
+      galleryUpstreamSource({ lastStartedUpstream: true, media: MOVIE }),
+    ).toBe('Radarr')
+    expect(
+      galleryUpstreamSource({ lastStartedUpstream: true, media: SHOW }),
+    ).toBe('Sonarr')
+  })
+
+  it('has no source when the flag is absent, or on a video', () => {
+    expect(galleryUpstreamSource({ media: MOVIE })).toBeUndefined()
+    expect(
+      galleryUpstreamSource({ lastStartedUpstream: true, media: VIDEO }),
+    ).toBeUndefined()
   })
 })
 
