@@ -1624,11 +1624,11 @@ plan (`c4c74fab`).
   `cancelling` job and an adopted download, plus the first boot of migration 0005 (4);
   production (5). Note for 5: **prod's DB is on migration 0000**, so the deploy runs
   0001–0005 in one boot (tested on a copy).
-- **Attribution gaps (G4):** gallery / home "recent" cards still show `hidden` for a
-  title whose latest job was adopted (needs `GalleryItem` + `listGallery` to carry
-  `startedUpstream`); `/admin` history shows adopted jobs as `service` (one-line
-  `serviceLabel` fix in `admin-history-cells.tsx`).
-- `reduced-motion.spec.ts` needs `'bar-settling'` in its pinned list (pre-existing).
+- ✅ **Fixed after the plan:** gallery / home "recent" cards now credit an adopted
+  title to `Radarr` / `Sonarr` (`GalleryItem.lastStartedUpstream`, from `jobs.origin`,
+  no migration) — `d4218497`; `/admin` history names it via `AdminActor`'s
+  `serviceLabel` — `3c9c1a4b`; `reduced-motion.spec.ts` expects `bar-settling` —
+  `75b66b4e`.
 - `backend.md`'s Phase 3 "Settling from files" rows predate commit `433035cc`'s history
   path (a `removed` / `failed` history settles after 5 s) and were not rewritten; F2
   explains that path only inside the new cancel section.
