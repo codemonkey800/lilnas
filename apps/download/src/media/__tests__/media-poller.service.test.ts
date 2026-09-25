@@ -29,6 +29,7 @@ import {
 } from '@lilnas/utils/download/types'
 import { Logger } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
+import { nanoid } from 'nanoid'
 
 import { fakeAttributionResolutionProvider } from 'src/auth/__tests__/helpers/attribution-resolution'
 import { createTestDbService } from 'src/db/__tests__/test-utils'
@@ -1183,6 +1184,19 @@ describe('MediaPollerService', () => {
     }
 
     beforeEach(() => {
+      // Every download here is one no job owns, which the poller would
+      // otherwise adopt - minting a job and reading the library and episodes
+      // to do it. This block covers the media diff on its own; adoption has
+      // its own block below.
+      jest
+        .spyOn(
+          service as unknown as {
+            adoptUnownedDownloads: () => Promise<void>
+          },
+          'adoptUnownedDownloads',
+        )
+        .mockResolvedValue(undefined)
+
       upstream = new Map<string, Movie | Show>([
         [
           'tmdb:500',
@@ -2618,6 +2632,407 @@ describe('MediaPollerService', () => {
       await service.poll()
 
       expect(absentSince().has(job.id)).toBe(false)
+    })
+  })
+
+  // A grab made in Radarr's/Sonarr's own UI, by their RSS sync, or by a
+  // search this app did not send: no job covers it until the poller mints
+  // one.
+  describe('adopting downloads started upstream', () => {
+    const T0 = Date.parse('2026-08-20T13:00:00.000Z')
+
+    const UPSTREAM_GRAB: QueueResource = {
+      downloadId: 'dl-up',
+      id: 7001,
+      movieId: 42,
+      size: 1000,
+      sizeleft: 500,
+      status: 'downloading',
+    }
+
+    /** Season 2 of Sonarr series 9, three episodes, none with a file yet. */
+    const SEASON_2: EpisodeResource[] = [21, 22, 23].map((id, index) => ({
+      episodeNumber: index + 1,
+      hasFile: false,
+      id,
+      monitored: true,
+      seasonNumber: 2,
+      seriesId: 9,
+    }))
+
+    function episodeItem(episodeId: number): SonarrQueueResource {
+      return {
+        downloadId: 'dl-pack',
+        episodeId,
+        id: 8000 + episodeId,
+        seasonNumber: 2,
+        seriesId: 9,
+        size: 1000,
+        sizeleft: 500,
+        status: 'downloading',
+      }
+    }
+
+    // What upstream's library holds, by media id: the same titles the
+    // default resolve maps to Radarr 42 / Sonarr 9, so an adopted job
+    // resolves - and is tracked - on the next tick.
+    let library: Map<string, Movie | Show>
+    let addJob: jest.SpyInstance
+
+    function at(ms: number): void {
+      jest.spyOn(Date, 'now').mockReturnValue(ms)
+    }
+
+    function adoptedJobs(): DownloadJobRecord[] {
+      return Array.from(downloadStateService.jobs.values()).filter(
+        record => record.startedUpstream,
+      )
+    }
+
+    beforeEach(() => {
+      // Distinct ids, so a second mint shows up as a second job rather than
+      // overwriting the first in the Map.
+      let minted = 0
+      jest.mocked(nanoid).mockImplementation(() => `adopted-${++minted}`)
+
+      library = new Map<string, Movie | Show>([
+        [
+          'tmdb:1',
+          {
+            id: 'tmdb:1',
+            monitored: true,
+            radarrId: 42,
+            title: 'A Movie',
+            tmdbId: 1,
+            type: DownloadType.Movie,
+          },
+        ],
+        [
+          'tvdb:1',
+          {
+            id: 'tvdb:1',
+            monitored: true,
+            sonarrId: 9,
+            title: 'A Show',
+            tvdbId: 1,
+            type: DownloadType.Show,
+          },
+        ],
+      ])
+
+      mediaResolverService.getMovieLibrary.mockImplementation(
+        async () =>
+          new Map(
+            Array.from(library.values())
+              .filter(isMovie)
+              .map(movie => [movie.tmdbId, movie]),
+          ),
+      )
+      mediaResolverService.getShowLibrary.mockImplementation(
+        async () =>
+          new Map(
+            Array.from(library.values())
+              .filter(isShow)
+              .map(show => [show.tvdbId, show]),
+          ),
+      )
+
+      // The library copy of a title that resolves at all, so a file on it
+      // reaches the adoption's upgrade check.
+      const byUpstreamIds = mediaResolverService.resolve.getMockImplementation()
+      mediaResolverService.resolve.mockImplementation(async keys => {
+        const result = await byUpstreamIds!(keys)
+        for (const { mediaId } of keys) {
+          const entry = library.get(mediaId)
+          if (entry && upstreamIds.has(mediaId)) {
+            result.media.set(mediaId, { ...entry })
+          }
+        }
+        mediaStateService.annotate(result.media.values())
+        return result
+      })
+
+      sonarrService.getEpisodes.mockResolvedValue(SEASON_2)
+      addJob = jest.spyOn(downloadStateService, 'addJob')
+    })
+
+    afterEach(() => {
+      jest.mocked(nanoid).mockImplementation(() => 'mock-id')
+    })
+
+    it('adopts a movie download no job covers, and tracks it from the next tick', async () => {
+      radarrService.getQueue.mockResolvedValue([UPSTREAM_GRAB])
+
+      await service.poll()
+
+      expect(addJob).toHaveBeenCalledTimes(1)
+      const [job] = adoptedJobs()
+      expect(job).toMatchObject({
+        discordRequester: null,
+        hiddenAttribution: false,
+        mediaId: 'tmdb:1',
+        requester: null,
+        startedUpstream: true,
+        status: DownloadJobStatus.Downloading,
+        type: DownloadType.Movie,
+      })
+      expect(job).not.toHaveProperty('scope')
+      expect(getJobById(dbService.db, job!.id)?.origin).toBe('upstream')
+      expect(Logger.prototype.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'adoptUnownedDownloads',
+          downloadId: 'dl-up',
+          jobId: job!.id,
+          mediaId: 'tmdb:1',
+          status: DownloadJobStatus.Downloading,
+        }),
+        'Adopted a download started upstream',
+      )
+      const [created] = await jobFrames()
+      expect(created).toMatchObject({
+        job: { id: job!.id },
+        type: DownloadJobEventType.Created,
+      })
+
+      radarrService.getQueue.mockResolvedValue([
+        { ...UPSTREAM_GRAB, sizeleft: 0, status: 'completed' },
+      ])
+      await service.poll()
+
+      expect(addJob).toHaveBeenCalledTimes(1)
+      expect(downloadStateService.jobs.get(job!.id)?.status).toBe(
+        DownloadJobStatus.Importing,
+      )
+    })
+
+    it('leaves an upgrade of a movie that has its file alone', async () => {
+      library.set('tmdb:1', {
+        ...(library.get('tmdb:1') as Movie),
+        filePath: '/movies/A Movie (2020)/a-movie.mkv',
+      })
+      radarrService.getQueue.mockResolvedValue([UPSTREAM_GRAB])
+
+      await service.poll()
+      await service.poll()
+
+      expect(addJob).not.toHaveBeenCalled()
+    })
+
+    it('leaves a download a request made here already covers', async () => {
+      const job = buildMovieJob({ status: DownloadJobStatus.Searching })
+      downloadStateService.jobs.set(job.id, job)
+      radarrService.getQueue.mockResolvedValue([UPSTREAM_GRAB])
+
+      await service.poll()
+
+      expect(addJob).not.toHaveBeenCalled()
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Downloading,
+      )
+    })
+
+    // `trackedJobs` drops it this tick, but it still owns its media id.
+    it('lets a job whose title did not resolve still own its download', async () => {
+      upstreamIds.delete('tmdb:1')
+      const job = buildMovieJob({ status: DownloadJobStatus.Searching })
+      downloadStateService.jobs.set(job.id, job)
+      radarrService.getQueue.mockResolvedValue([
+        { ...UPSTREAM_GRAB, downloadId: undefined },
+      ])
+
+      await service.poll()
+
+      expect(mediaResolverService.getMovieLibrary).toHaveBeenCalled()
+      expect(addJob).not.toHaveBeenCalled()
+    })
+
+    it("never adopts a cancelling job's late grab, but adopts one after it is cancelled", async () => {
+      const job = buildMovieJob({ status: DownloadJobStatus.Cancelling })
+      downloadStateService.jobs.set(job.id, job)
+      radarrService.getQueue.mockResolvedValue([UPSTREAM_GRAB])
+
+      await service.poll()
+
+      expect(radarrService.removeQueueItem).toHaveBeenCalledWith(7001)
+      expect(addJob).not.toHaveBeenCalled()
+
+      downloadStateService.jobs.set(job.id, {
+        ...job,
+        status: DownloadJobStatus.Cancelled,
+      })
+      radarrService.getQueue.mockResolvedValue([
+        { ...UPSTREAM_GRAB, downloadId: 'dl-later', id: 7002 },
+      ])
+      await service.poll()
+
+      expect(addJob).toHaveBeenCalledTimes(1)
+      expect(adoptedJobs()).toHaveLength(1)
+    })
+
+    it('adopts a Sonarr season pack as one season-scoped job', async () => {
+      sonarrService.getQueue.mockResolvedValue([
+        episodeItem(21),
+        episodeItem(22),
+        episodeItem(23),
+      ])
+
+      await service.poll()
+
+      expect(addJob).toHaveBeenCalledTimes(1)
+      expect(sonarrService.getEpisodes).toHaveBeenCalledWith(9)
+      const [job] = adoptedJobs()
+      expect(job).toMatchObject({
+        mediaId: 'tvdb:1',
+        scope: { seasonNumber: 2 },
+        startedUpstream: true,
+        status: DownloadJobStatus.Downloading,
+        type: DownloadType.Show,
+      })
+
+      await service.poll()
+      expect(addJob).toHaveBeenCalledTimes(1)
+    })
+
+    it('adopts one episode with its episode number filled in', async () => {
+      sonarrService.getQueue.mockResolvedValue([
+        { ...episodeItem(22), downloadId: 'dl-ep' },
+      ])
+
+      await service.poll()
+
+      expect(adoptedJobs()).toEqual([
+        expect.objectContaining({
+          scope: { episodeId: 22, episodeNumber: 2, seasonNumber: 2 },
+        }),
+      ])
+
+      await service.poll()
+      expect(addJob).toHaveBeenCalledTimes(1)
+    })
+
+    it('leaves a show download whose episodes all have their files alone', async () => {
+      sonarrService.getEpisodes.mockResolvedValue(
+        SEASON_2.map(episode => ({ ...episode, hasFile: true })),
+      )
+      sonarrService.getQueue.mockResolvedValue([
+        episodeItem(21),
+        episodeItem(22),
+      ])
+
+      await service.poll()
+
+      expect(addJob).not.toHaveBeenCalled()
+    })
+
+    // The cron has no overlap guard: the second tick starts while the first
+    // is still reading the library, and both plan the same download.
+    it('mints one job when two ticks overlap', async () => {
+      let release!: () => void
+      const gate = new Promise<void>(resolve => {
+        release = resolve
+      })
+      const readLibrary =
+        mediaResolverService.getMovieLibrary.getMockImplementation()!
+      mediaResolverService.getMovieLibrary.mockImplementation(async () => {
+        await gate
+        return readLibrary()
+      })
+      radarrService.getQueue.mockResolvedValue([UPSTREAM_GRAB])
+
+      const ticks = Promise.all([service.poll(), service.poll()])
+      await flushAsync()
+      expect(mediaResolverService.getMovieLibrary).toHaveBeenCalledTimes(2)
+      release()
+      await ticks
+
+      expect(addJob).toHaveBeenCalledTimes(1)
+      expect(adoptedJobs()).toHaveLength(1)
+    })
+
+    // Reloaded from its row at boot by `adoptOpenJobs`.
+    it('adopts nothing more for a download adopted before a restart', async () => {
+      const job = buildMovieJob({
+        id: 'adopted-before',
+        startedUpstream: true,
+        status: DownloadJobStatus.Downloading,
+      })
+      downloadStateService.jobs.set(job.id, job)
+      radarrService.getQueue.mockResolvedValue([UPSTREAM_GRAB])
+
+      await service.poll()
+      await service.poll()
+
+      expect(addJob).not.toHaveBeenCalled()
+      expect(downloadStateService.jobs.size).toBe(1)
+    })
+
+    it('never adopts a failed download, tick after tick', async () => {
+      radarrService.getQueue.mockResolvedValue([
+        { ...UPSTREAM_GRAB, status: 'failed' },
+      ])
+
+      await service.poll()
+      await service.poll()
+      await service.poll()
+
+      expect(addJob).not.toHaveBeenCalled()
+    })
+
+    it('waits a tick, without backing off, when the episodes cannot be read', async () => {
+      sonarrService.getEpisodes.mockRejectedValueOnce(new Error('sonarr down'))
+      sonarrService.getQueue.mockResolvedValue([episodeItem(21)])
+
+      await expect(service.poll()).resolves.toBeUndefined()
+
+      expect(addJob).not.toHaveBeenCalled()
+      expect(Logger.prototype.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'adoptableShows',
+          error: 'sonarr down',
+          seriesId: 9,
+        }),
+        expect.any(String),
+      )
+      expect(
+        (service as unknown as { nextAllowedRunAt: number }).nextAllowedRunAt,
+      ).toBe(0)
+
+      await service.poll()
+
+      expect(addJob).toHaveBeenCalledTimes(1)
+      expect(adoptedJobs()).toEqual([
+        expect.objectContaining({
+          scope: { episodeId: 21, episodeNumber: 1, seasonNumber: 2 },
+        }),
+      ])
+    })
+
+    // Nobody here pressed cancel, so it carries the upstream sentence.
+    it('settles an adopted job removed in Radarr like any other', async () => {
+      radarrService.getMovieHistory.mockResolvedValue([
+        { downloadId: 'dl-up', eventType: 'grabbed' },
+      ])
+
+      at(T0)
+      radarrService.getQueue.mockResolvedValue([UPSTREAM_GRAB])
+      await service.poll()
+      const [job] = adoptedJobs()
+
+      at(T0 + 10_000)
+      radarrService.getQueue.mockResolvedValue([])
+      await service.poll()
+      expect(downloadStateService.jobs.get(job!.id)?.status).toBe(
+        DownloadJobStatus.Downloading,
+      )
+
+      at(T0 + 20_000)
+      await service.poll()
+
+      const updated = downloadStateService.jobs.get(job!.id)
+      expect(radarrService.getMovieHistory).toHaveBeenCalledWith(42)
+      expect(updated?.status).toBe(DownloadJobStatus.Cancelled)
+      expect(updated?.error).toBe("Removed from Radarr's queue")
+      expect(addJob).toHaveBeenCalledTimes(1)
     })
   })
 })

@@ -14,14 +14,21 @@ import {
   type MediaState,
   type Movie,
   type Show,
+  type ShowScope,
 } from '@lilnas/utils/download/types'
 import { getErrorMessage } from '@lilnas/utils/error'
 import { Injectable, Logger } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
+import { nanoid } from 'nanoid'
 
 import { DownloadStateService } from 'src/download/download-state.service'
 import { DownloadGateway } from 'src/download-gateway/download.gateway'
 
+import {
+  type AdoptionCandidate,
+  isAdoptable,
+  planAdoptions,
+} from './adoption.util'
 import { didJobComplete } from './job-completion.util'
 import { MediaResolverService } from './media-resolver.service'
 import { MediaStateService, type QueueSource } from './media-state.service'
@@ -72,6 +79,13 @@ export interface TrackedJob {
   upstreamId: number
 }
 
+/** An adoption candidate the library mapped, with the scope to mint it at. */
+interface MappedCandidate {
+  candidate: AdoptionCandidate
+  mediaId: string
+  scope: ShowScope | undefined
+}
+
 /**
  * The upstream state one job's completion check reads: the files the target
  * currently holds and - for a show - the episodes that point at them.
@@ -115,6 +129,12 @@ export interface PollableCompletionData {
  * running at the press can grab a release seconds later) is removed rather
  * than followed, and once the queue has none it settles `cancelled`, or
  * `completed` if a file landed anyway. See `removeLateGrab`.
+ *
+ * Adopts every download no in-flight job covers - one grabbed in
+ * Radarr's/Sonarr's own UI, by their RSS sync, or by a search this app did
+ * not send - by minting a job for it, so it can be followed and cancelled
+ * like one requested here. Upgrades of a file already on disk are left
+ * alone. See `adoptUnownedDownloads`.
  *
  * Also broadcasts a `MediaEvent` for every movie/show whose state moved this
  * tick - owned by a job or not - so an open page follows a download it
@@ -307,6 +327,8 @@ export class MediaPollerService {
 
     const settled = await this.settleAbsentJobs(DownloadType.Movie, absent)
     this.touchDequeuedJobs(absent, settled)
+
+    await this.adoptUnownedDownloads(DownloadType.Movie, queue)
   }
 
   /**
@@ -352,6 +374,8 @@ export class MediaPollerService {
 
     const settled = await this.settleAbsentJobs(DownloadType.Show, absent)
     this.touchDequeuedJobs(absent, settled)
+
+    await this.adoptUnownedDownloads(DownloadType.Show, queue)
   }
 
   /** Adds the download-client ids of a job's queue items to `downloadIds`. */
@@ -437,6 +461,275 @@ export class MediaPollerService {
         'Failed to remove a queue item from a cancelling job, retrying next tick',
       )
     }
+  }
+
+  /**
+   * Mints a job for each download in this tick's `queue` that no in-flight
+   * job covers - see adoption.util.ts for which ones those are. From then on
+   * it is an ordinary tracked job: the next tick follows its queue item, and
+   * its download ids are remembered here so its history settles it once the
+   * item leaves. `addJob` persists the row, so a restart re-adopts the job
+   * through `DownloadStateService.adoptOpenJobs` rather than minting another.
+   *
+   * Ownership is checked three ways. A `cancelling` job counts, so a late
+   * grab `removeLateGrab` is removing is never adopted. A download id any job
+   * has carried is claimed. And a job whose title did not resolve this tick -
+   * which `trackedJobs` drops - still owns its media id, checked once the
+   * library maps the candidate.
+   *
+   * Nothing past the first, pure pass costs anything while every queued
+   * download is one a tracked job just remembered; a show's episodes are
+   * read only for a series with a candidate left.
+   *
+   * The ownership re-check and the write run with no `await` between them,
+   * so a job minted meanwhile - by an overlapping tick (the cron has no
+   * overlap guard) or by a request - wins.
+   *
+   * Never throws: a failed read is logged and the download waits a tick,
+   * rather than tripping `poll()`'s backoff.
+   */
+  private async adoptUnownedDownloads(
+    type: DownloadType.Movie | DownloadType.Show,
+    queue: readonly PollableQueueItem[],
+  ): Promise<void> {
+    const action = 'adoptUnownedDownloads'
+
+    try {
+      const claimed = this.claimedDownloadIds()
+      if (planAdoptions(type, queue, [], claimed).length === 0) return
+
+      const openJobs = (await this.resolveOpenJobs(type)).flatMap(
+        ({ record, upstreamId }) =>
+          upstreamId == null ? [] : [{ scope: record.scope, upstreamId }],
+      )
+      const planned = planAdoptions(type, queue, openJobs, claimed)
+      if (planned.length === 0) return
+
+      const mediaIds = await this.mediaIdsFor(
+        type,
+        Array.from(new Set(planned.map(candidate => candidate.upstreamId))),
+      )
+      const mediaIdOf = new Map(
+        Array.from(mediaIds, ([mediaId, upstreamId]) => [upstreamId, mediaId]),
+      )
+
+      // A title the library can't map yet is skipped - `mediaIdsFor` gives it
+      // an early re-read, and it is asked about again next tick.
+      const mapped = planned.flatMap(candidate => {
+        const mediaId = mediaIdOf.get(candidate.upstreamId)
+        return mediaId === undefined ||
+          this.isOwned(type, mediaId, candidate.items)
+          ? []
+          : [{ candidate, mediaId, scope: candidate.scope }]
+      })
+      if (mapped.length === 0) return
+
+      const adoptable =
+        type === DownloadType.Movie
+          ? await this.adoptableMovies(mapped)
+          : await this.adoptableShows(mapped)
+
+      for (const entry of adoptable) this.adopt(type, entry)
+    } catch (err) {
+      this.logger.warn(
+        { action, error: getErrorMessage(err), type },
+        'Adopting upstream downloads failed, retrying next tick',
+      )
+    }
+  }
+
+  /**
+   * The movie candidates that are not upgrades, by the resolved media's file
+   * signal - the frontend's `movieHasFile`: a `filePath`, or an Emby status,
+   * which is only ever looked up for a title with a file (the library cache
+   * can hold a movie without its expanded file). A degraded resolve hands
+   * back placeholders with neither, so nothing is adopted off one.
+   */
+  private async adoptableMovies(
+    mapped: readonly MappedCandidate[],
+  ): Promise<MappedCandidate[]> {
+    const { degradedSources, media } = await this.mediaResolverService.resolve(
+      mapped.map(({ mediaId }) => ({ mediaId, type: DownloadType.Movie })),
+    )
+    if (degradedSources.includes(DownloadType.Movie)) {
+      this.logger.warn(
+        { action: 'adoptableMovies' },
+        'Media resolve degraded, adopting no movie downloads this tick',
+      )
+      return []
+    }
+
+    return mapped.filter(entry => {
+      const movie = media.get(entry.mediaId)
+      if (!movie || !isManagedMedia(movie) || !isMovie(movie)) return false
+
+      return isAdoptable(
+        entry.candidate,
+        () => movie.filePath !== undefined || movie.embyStatus !== undefined,
+      )
+    })
+  }
+
+  /**
+   * The show candidates that are not upgrades, from one `getEpisodes` per
+   * series - which also supplies the `episodeNumber` an episode-scoped job
+   * is displayed by. A series whose episodes can't be read is logged and its
+   * candidates wait a tick.
+   */
+  private async adoptableShows(
+    mapped: readonly MappedCandidate[],
+  ): Promise<MappedCandidate[]> {
+    const seriesIds = Array.from(
+      new Set(mapped.map(({ candidate }) => candidate.upstreamId)),
+    )
+    const episodesBySeries = new Map<number, Map<number, EpisodeResource>>()
+
+    await Promise.all(
+      seriesIds.map(async seriesId => {
+        try {
+          const episodes = await this.sonarrService.getEpisodes(seriesId)
+          episodesBySeries.set(
+            seriesId,
+            new Map(
+              episodes.flatMap(episode =>
+                episode.id == null ? [] : [[episode.id, episode] as const],
+              ),
+            ),
+          )
+        } catch (err) {
+          this.logger.warn(
+            {
+              action: 'adoptableShows',
+              error: getErrorMessage(err),
+              seriesId,
+            },
+            'Episode read failed, adopting its downloads next tick',
+          )
+        }
+      }),
+    )
+
+    return mapped.flatMap(entry => {
+      const episodes = episodesBySeries.get(entry.candidate.upstreamId)
+      if (!episodes) return []
+
+      const adoptable = isAdoptable(entry.candidate, episodeId =>
+        episodeId == null ? false : episodes.get(episodeId)?.hasFile === true,
+      )
+      if (!adoptable) return []
+
+      const episodeId = entry.scope?.episodeId
+      const episode = episodeId == null ? undefined : episodes.get(episodeId)
+      if (!episode) return [entry]
+
+      return [
+        {
+          ...entry,
+          scope: {
+            ...entry.scope,
+            ...(episode.episodeNumber != null
+              ? { episodeNumber: episode.episodeNumber }
+              : {}),
+            ...(entry.scope?.seasonNumber == null &&
+            episode.seasonNumber != null
+              ? { seasonNumber: episode.seasonNumber }
+              : {}),
+          },
+        },
+      ]
+    })
+  }
+
+  /**
+   * Mints the job for one candidate - synchronously, so nothing can slip in
+   * between the ownership re-check and the write. Its status is the one the
+   * queue derives (it is already grabbed, so never `requested`/`searching`).
+   * No audit row: nobody here asked for it.
+   */
+  private adopt(
+    type: DownloadType.Movie | DownloadType.Show,
+    { candidate, mediaId, scope }: MappedCandidate,
+  ): void {
+    const action = 'adoptUnownedDownloads'
+    const { downloadId, items, status } = candidate
+
+    if (this.isOwned(type, mediaId, items)) return
+    if (downloadId != null && this.claimedDownloadIds().has(downloadId)) return
+
+    const id = nanoid()
+    const now = new Date().toISOString()
+    const record: DownloadJobRecord = {
+      completedAt: null,
+      createdAt: now,
+      discordRequester: null,
+      hiddenAttribution: false,
+      id,
+      linkedDiscord: null,
+      mediaId,
+      requester: null,
+      ...(type === DownloadType.Show && scope ? { scope } : {}),
+      startedUpstream: true,
+      status,
+      type,
+      updatedAt: now,
+    }
+
+    try {
+      this.downloadStateService.addJob(record)
+    } catch (err) {
+      this.logger.warn(
+        { action, downloadId, error: getErrorMessage(err), mediaId },
+        'Failed to store an adopted download, retrying next tick',
+      )
+      return
+    }
+    this.rememberDownloads(id, items)
+
+    this.logger.log(
+      { action, downloadId, jobId: id, mediaId, scope, status },
+      'Adopted a download started upstream',
+    )
+  }
+
+  /**
+   * Whether an in-flight job of `type` on `mediaId` covers every one of
+   * `items`: any job for a movie; for a show, one whose scope matches each.
+   * Read straight off the job Map, so it counts a job that did not resolve
+   * this tick, and one minted since the tick started.
+   */
+  private isOwned(
+    type: DownloadType.Movie | DownloadType.Show,
+    mediaId: string,
+    items: readonly PollableQueueItem[],
+  ): boolean {
+    for (const record of this.downloadStateService.jobs.values()) {
+      if (
+        record.type !== type ||
+        record.mediaId !== mediaId ||
+        TERMINAL_STATUSES.has(record.status)
+      ) {
+        continue
+      }
+
+      if (
+        type === DownloadType.Movie ||
+        items.every(item => matchesScope(item, record.scope))
+      ) {
+        return true
+      }
+    }
+
+    return false
+  }
+
+  /** Every download id remembered for a job the job Map still holds. */
+  private claimedDownloadIds(): Set<string> {
+    const claimed = new Set<string>()
+    for (const [jobId, ids] of this.downloadIds) {
+      if (!this.downloadStateService.jobs.has(jobId)) continue
+      for (const downloadId of ids) claimed.add(downloadId)
+    }
+    return claimed
   }
 
   /**
@@ -795,6 +1088,11 @@ export class MediaPollerService {
    * read again, once per missing id (see `refetchedFor`). An id still
    * missing after that, or a library that can't be read, gets another try
    * next tick.
+   *
+   * Two callers: the media diff (`broadcastSourceChanges`), and
+   * `adoptUnownedDownloads`, which runs earlier in the same tick - so a
+   * title the adoption re-read the library for is already in the cache when
+   * the diff asks, and is not re-read twice.
    */
   private async mediaIdsFor(
     type: DownloadType.Movie | DownloadType.Show,
@@ -900,6 +1198,22 @@ export class MediaPollerService {
    * (requested but not added) simply isn't pollable and is skipped.
    */
   private async trackedJobs(type: DownloadType): Promise<TrackedJob[]> {
+    return (await this.resolveOpenJobs(type)).flatMap(
+      ({ record, upstreamId }) =>
+        upstreamId == null ? [] : [{ record, upstreamId }],
+    )
+  }
+
+  /**
+   * Every in-flight job of one media type, with the upstream library id its
+   * title resolved to this tick - `undefined` for one that didn't. One
+   * batched `resolve()`, for `trackedJobs` and `adoptUnownedDownloads`.
+   */
+  private async resolveOpenJobs(
+    type: DownloadType,
+  ): Promise<
+    Array<{ record: DownloadJobRecord; upstreamId: number | undefined }>
+  > {
     const records = Array.from(this.downloadStateService.jobs.values()).filter(
       record => record.type === type && !TERMINAL_STATUSES.has(record.status),
     )
@@ -910,10 +1224,10 @@ export class MediaPollerService {
       records.map(record => ({ mediaId: record.mediaId, type: record.type })),
     )
 
-    return records.flatMap(record => {
-      const upstreamId = upstreamLibraryId(media.get(record.mediaId))
-      return upstreamId == null ? [] : [{ record, upstreamId }]
-    })
+    return records.map(record => ({
+      record,
+      upstreamId: upstreamLibraryId(media.get(record.mediaId)),
+    }))
   }
 
   /**
