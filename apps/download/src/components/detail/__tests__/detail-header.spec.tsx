@@ -281,4 +281,78 @@ describe('DetailAttribution', () => {
       expect(document.body).not.toHaveTextContent(LINKED_JEREMY.discordUsername)
     })
   })
+
+  /**
+   * Plan 022: a download started in Radarr's or Sonarr's own UI, adopted as a
+   * job. The same nulls as a masked job, and never read as one.
+   */
+  describe('an adopted download', () => {
+    it.each([
+      ['Radarr', '12m ago', '2026-09-15T11:48:00.000Z'],
+      ['Sonarr', '1h ago', '2026-09-15T11:00:00.000Z'],
+    ] as const)(
+      'reads %s as a plain label, with no avatar and no link',
+      (source, ago, timestamp) => {
+        const { container } = render(
+          <DetailAttribution
+            now={NOW}
+            requester={null}
+            timestamp={timestamp}
+            upstreamSource={source}
+          />,
+        )
+
+        expect(screen.getByText(`${source} · ${ago}`)).toBeInTheDocument()
+        expect(screen.queryByText(/hidden/)).not.toBeInTheDocument()
+        expect(screen.queryByText(MASKED_INITIALS)).not.toBeInTheDocument()
+        expect(container.querySelector('[title]')).toBeNull()
+        expect(container.querySelector('a')).toBeNull()
+      },
+    )
+
+    // The mockups write `Sonarr · 1h ago`, not `requested by Sonarr`: nobody
+    // requested it through this app.
+    it('drops the page’s prefix', () => {
+      render(
+        <DetailAttribution
+          now={NOW}
+          prefix="requested by "
+          requester={null}
+          timestamp="2026-09-15T11:00:00.000Z"
+          upstreamSource="Sonarr"
+        />,
+      )
+
+      expect(screen.getByText('Sonarr · 1h ago')).toBeInTheDocument()
+    })
+
+    // A job with both can't be stored (the `origin` CHECK), but an identity
+    // outranks a service if one ever arrives.
+    it('lets a requester or a Discord submitter win over the source', () => {
+      const { unmount } = render(
+        <DetailAttribution
+          now={NOW}
+          requester={{ email: 'jeremy.asuncion@lilnas.io', userId: 'u_1' }}
+          timestamp="2026-09-15T11:48:00.000Z"
+          upstreamSource="Radarr"
+        />,
+      )
+
+      expect(screen.getByText('jeremy.asuncion · 12m ago')).toBeInTheDocument()
+      unmount()
+
+      render(
+        <DetailAttribution
+          discordRequester={DISCORD_SAM}
+          now={NOW}
+          requester={null}
+          timestamp="2026-09-15T11:48:00.000Z"
+          upstreamSource="Radarr"
+        />,
+      )
+
+      expect(screen.getByText('sam.pham')).toBeInTheDocument()
+      expect(screen.queryByText(/Radarr/)).not.toBeInTheDocument()
+    })
+  })
 })

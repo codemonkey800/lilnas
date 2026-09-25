@@ -8,6 +8,7 @@ import type {
 import { DownloadType } from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX, ReactNode } from 'react'
 
+import type { UpstreamSource } from 'src/components/activity/activity-requester'
 import {
   discordAvatarTitle,
   LINKED_DISCORD_TITLE,
@@ -171,6 +172,12 @@ export type DetailAttributionProps = Omit<
   prefix?: string
   /** An ISO instant - the job's `createdAt` or `completedAt`. */
   timestamp: string
+  /**
+   * The service that started an adopted job - `jobUpstreamSource(job)`. Read
+   * only when `requester` and `discordRequester` are both `null`, so an
+   * identity always wins over it.
+   */
+  upstreamSource?: UpstreamSource
 }
 
 /**
@@ -197,6 +204,15 @@ export type DetailAttributionProps = Omit<
  * is `GalleryItemCard`'s own wording - the dashed circle alone is easy to miss
  * at 20px.
  *
+ * ## An adopted download
+ *
+ * A job adopted from Radarr's or Sonarr's own UI carries the same nulls as a
+ * masked one, and `upstreamSource` is what tells them apart: it reads
+ * `Radarr · 12m ago` / `Sonarr · 1h ago` as plain text - no avatar, since
+ * there is no person to draw, and no `prefix`, exactly as the mockups'
+ * "Started from Radarr/Sonarr" frames write it. `requested by Sonarr` would
+ * credit a service with a request nobody made through this app.
+ *
  * ## The Discord identities, in `ActivityRequester`'s order
  *
  * Masked first (and it renders *only* `hidden`: no handle, no snowflake, no
@@ -214,9 +230,21 @@ export function DetailAttribution({
   prefix = '',
   requester,
   timestamp,
+  upstreamSource,
   ...props
 }: DetailAttributionProps): JSX.Element {
   const when = formatRelative(timestamp, now)
+
+  if (requester === null && discordRequester === null && upstreamSource) {
+    return (
+      <div {...props} className={cns('flex items-center gap-2', className)}>
+        <span className={cns('font-mono text-mono-sm text-ink-4')}>
+          {`${upstreamSource} · ${when}`}
+        </span>
+      </div>
+    )
+  }
+
   const discord = requester === null ? discordRequester : null
   const who =
     requester !== null

@@ -303,4 +303,17 @@ describe('ActivityFeed', () => {
     expect(within(row).getByText('hidden')).toBeInTheDocument()
     expect(within(row).queryByRole('link', { name: /@/ })).toBeNull()
   })
+
+  // Plan 022: the same nulls, adopted from Radarr's own UI rather than masked.
+  it('credits an adopted download to Radarr on both layouts, never hidden', () => {
+    const { recorder } = renderFeed({ initialJobs: [] })
+
+    emit(recorder, movie({ startedUpstream: true }))
+
+    const row = within(table()).getAllByRole('row')[1] as HTMLElement
+    expect(within(row).getByText('Radarr')).toBeInTheDocument()
+    // The table and the stacked mobile list, both in the tree under jsdom.
+    expect(screen.getAllByText('Radarr')).toHaveLength(2)
+    expect(screen.queryByText('hidden')).not.toBeInTheDocument()
+  })
 })

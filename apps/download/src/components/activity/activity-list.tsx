@@ -5,7 +5,10 @@ import {
   ActivityArt,
   ActivityStatusChip,
 } from 'src/components/activity/activity-cells'
-import { ActivityRequester } from 'src/components/activity/activity-requester'
+import {
+  ActivityRequester,
+  jobUpstreamSource,
+} from 'src/components/activity/activity-requester'
 import type { ActivityRow } from 'src/components/activity/activity-rows'
 import { mobileStatusLabel } from 'src/components/activity/activity-rows'
 import {
@@ -83,6 +86,7 @@ export function ActivityList({
                   linkedDiscord={job.linkedDiscord}
                   nameless
                   requester={job.requester}
+                  upstreamSource={jobUpstreamSource(job)}
                   viewer={viewer}
                 />
                 <ActivityStatusChip

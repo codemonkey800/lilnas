@@ -12,6 +12,7 @@ import {
 } from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX, ReactNode } from 'react'
 
+import { jobUpstreamSource } from 'src/components/activity/activity-requester'
 import { AttemptList } from 'src/components/detail/attempt-list'
 import type {
   FlagBadFileAction,
@@ -67,13 +68,22 @@ export const MOVIE_INDEXING_LABEL = 'indexing…'
 export const MOVIE_EMBY_UNAVAILABLE_LABEL = 'emby unavailable'
 
 /**
- * The note beside a download's progress when no attempt of ours is behind it
- * — `movie-detail.pug`'s "Started from Radarr" frame. Progress comes off the
- * queue snapshot alone, so a grab from Radarr's own UI still draws a bar; this
- * says why there is nothing under it to cancel or pause.
+ * The note beside a download's progress when no attempt is behind it —
+ * `movie-detail.pug`'s "Radarr upgrading the file on disk" frame. Progress
+ * comes off the queue snapshot alone, so the bar still draws; this says why
+ * there is nothing under it to cancel.
+ *
+ * ⚠️ Worded for an **upgrade** because, since plan 022, that is almost the
+ * only time it shows. A download someone starts in Radarr's own UI is adopted
+ * by the poller as an ordinary attempt — Cancel and all, credited to `Radarr`
+ * — which clears the page's no-attempt-in-flight condition. What stays
+ * un-adopted is a grab for a movie that already has a file: nobody asked this
+ * app for it, so it remains a bare queue snapshot. The one other way here is
+ * the ≤ 1 poller tick between Radarr queueing a fresh grab and its adoption,
+ * where the sentence is briefly wrong and then gone.
  */
 export const MOVIE_EXTERNAL_QUEUE_NOTE =
-  'Grabbed from Radarr directly — no attempt to show, cancel or pause here.'
+  "Radarr is upgrading the file already on disk — it can't be cancelled here."
 
 /**
  * The marker under a moving download while the live feed is not connected.
@@ -342,10 +352,11 @@ export type MovieDetailProps = Omit<
  *   so the page wires neither `onPause` nor `onResume` and both are simply
  *   absent from the list. `needs_attention` goes through `imports`, which is
  *   what the list mounts `ImportDialog` from.
- * - **Attribution reads the newest attempt, if any.** `requester` arrives
- *   already masked by `projectJobForViewer`, so `null` means "not yours to
- *   see" and `DetailAttribution` draws the dashed avatar for it. A movie this
- *   app never fetched has no attempt and so no attribution.
+ * - **Attribution reads the newest attempt, if any.** A movie is never masked
+ *   (`showTrueAttribution`), so a `null` requester with no Discord pair is an
+ *   attempt adopted from Radarr's own UI, and `DetailAttribution` reads it as
+ *   `Radarr · 12m ago` through `jobUpstreamSource`. A movie this app never
+ *   fetched has no attempt and so no attribution.
  * - **`currentGuid` is the payload's, and is often absent.** `GET /media/:id`
  *   annotates a movie with `currentReleaseGuid` — the release whose grab
  *   produced the file on disk, recovered from Radarr's history — and
@@ -393,8 +404,10 @@ export function MovieDetail({
   const job = latestJob(jobs)
   const degraded = isMetadataUnavailable(media)
 
-  // "Started from Radarr": a bar with nothing of ours behind it. The server's
-  // own reason wins when there is one — it is the more specific sentence.
+  // A bar with no attempt behind it — Radarr upgrading the file on disk, or a
+  // fresh Radarr grab in the one poller tick before it is adopted as an
+  // attempt (see `MOVIE_EXTERNAL_QUEUE_NOTE`). The server's own reason wins
+  // when there is one — it is the more specific sentence.
   const externalQueue =
     mediaProgress(media) !== null && !attemptInFlight && !media.stateReason
 
@@ -515,6 +528,7 @@ export function MovieDetail({
               now={now}
               requester={job.requester}
               timestamp={job.completedAt ?? job.createdAt}
+              upstreamSource={jobUpstreamSource(job)}
             />
           ) : null
         }

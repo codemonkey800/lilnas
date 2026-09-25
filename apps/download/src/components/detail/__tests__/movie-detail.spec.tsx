@@ -78,11 +78,21 @@ const UNFETCHED: Movie = {
 const WANTED: Movie = { ...UNFETCHED, state: 'wanted' }
 
 /**
- * A queue item Radarr is running that this app never started a job for —
- * `movie-detail.pug`'s "Started from Radarr" frame.
+ * A queue item Radarr is running for a movie with nothing on disk — a grab
+ * from Radarr's own UI, which the poller adopts as an attempt within a tick.
  */
 const RADARR_GRAB: Movie = {
   ...UNFETCHED,
+  queueSnapshot: { progress: 47, status: 'downloading', timeLeft: '00:12:30' },
+  state: 'downloading',
+}
+
+/**
+ * Radarr replacing the file already on disk — `movie-detail.pug`'s "Radarr
+ * upgrading the file on disk" frame. Never adopted, so no attempt covers it.
+ */
+const RADARR_UPGRADE: Movie = {
+  ...MOVIE,
   queueSnapshot: { progress: 47, status: 'downloading', timeLeft: '00:12:30' },
   state: 'downloading',
 }
@@ -584,7 +594,7 @@ describe('MovieDetail — media state', () => {
     expect(downloadButton()).toBeInTheDocument()
   })
 
-  it('draws the queue’s progress with no attempt behind it — started from Radarr', () => {
+  it('draws the queue’s progress with no attempt behind it — the tick before adoption', () => {
     renderDetail({ jobs: [], media: RADARR_GRAB })
 
     // The chip, not the queue's own status note under the bar, which happens
@@ -673,6 +683,64 @@ describe('MovieDetail — media state', () => {
     ).not.toBeInTheDocument()
     expect(
       screen.queryByRole('link', { name: SAVE_LOCAL_LABEL }),
+    ).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * Plan 022. A download started in Radarr's own UI is adopted as an attempt;
+ * an upgrade of the file on disk is not, and keeps the bar and the note.
+ */
+describe('MovieDetail — downloads Radarr started', () => {
+  /** The poller's adoption of {@link RADARR_GRAB}: no requester, no Discord. */
+  const ADOPTED: DownloadJob = {
+    ...PENDING,
+    id: 'job-adopted',
+    media: RADARR_GRAB,
+    requester: null,
+    startedUpstream: true,
+    status: DownloadJobStatus.Downloading,
+  }
+
+  it('offers Cancel on an adopted attempt, credits it to Radarr, and drops the note', async () => {
+    const onCancel = jest.fn()
+    const user = userEvent.setup()
+    renderDetail({ jobs: [ADOPTED], media: RADARR_GRAB, onCancel })
+
+    expect(screen.getByText('Radarr · 5m ago')).toBeInTheDocument()
+    expect(screen.queryByText(/hidden/)).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(MOVIE_EXTERNAL_QUEUE_NOTE),
+    ).not.toBeInTheDocument()
+
+    const card = document.querySelector(`[data-job-id="${ADOPTED.id}"]`)
+    expect(card).toBeInstanceOf(HTMLElement)
+    // Cancel, and never Pause — the movie has no pause route.
+    expect(
+      within(card as HTMLElement).queryByRole('button', { name: /^pause$/i }),
+    ).not.toBeInTheDocument()
+
+    await user.click(
+      within(card as HTMLElement).getByRole('button', { name: /^cancel$/i }),
+    )
+
+    expect(onCancel).toHaveBeenCalledWith(ADOPTED.id)
+  })
+
+  it('keeps the bar and says why there is nothing to cancel for an upgrade', () => {
+    // The newest attempt finished long ago; Radarr is now replacing its file.
+    renderDetail({ jobs: [JOB], media: RADARR_UPGRADE, onCancel: jest.fn() })
+
+    expect(screen.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuenow',
+      '47',
+    )
+    expect(screen.getByText(MOVIE_EXTERNAL_QUEUE_NOTE)).toBeInTheDocument()
+    expect(MOVIE_EXTERNAL_QUEUE_NOTE).toBe(
+      "Radarr is upgrading the file already on disk — it can't be cancelled here.",
+    )
+    expect(
+      screen.queryByRole('button', { name: /^cancel$/i }),
     ).not.toBeInTheDocument()
   })
 })

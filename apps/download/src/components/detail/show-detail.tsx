@@ -11,6 +11,7 @@ import {
 } from '@lilnas/utils/download/types'
 import type { JSX, ReactNode } from 'react'
 
+import { jobUpstreamSource } from 'src/components/activity/activity-requester'
 import { AttemptList } from 'src/components/detail/attempt-list'
 import type {
   FlagBadFileAction,
@@ -60,12 +61,21 @@ export const EMBY_INDEXING_LABEL = 'indexing…'
 
 /**
  * The note beside the series chip when Sonarr's queue is moving and no
- * attempt of ours is behind it — `show-detail.pug`'s "Started from Sonarr"
- * frame. The bar comes off the queue snapshot alone; this says why there is
- * nothing under it to cancel or pause.
+ * attempt is behind it — `show-detail.pug`'s "Sonarr upgrading a file on
+ * disk" frame. The bar comes off the queue snapshot alone; this says why there
+ * is nothing under it to cancel.
+ *
+ * ⚠️ Worded for an **upgrade** because, since plan 022, that is almost the
+ * only time it shows. A download someone starts in Sonarr's own UI is adopted
+ * by the poller as an ordinary attempt — Cancel and all, credited to `Sonarr`
+ * — which clears the page's no-attempt-in-flight condition. What stays
+ * un-adopted is a grab for episodes that already have a file: nobody asked
+ * this app for it, so it remains a bare queue snapshot. The one other way here
+ * is the ≤ 1 poller tick between Sonarr queueing a fresh grab and its
+ * adoption, where the sentence is briefly wrong and then gone.
  */
 export const SHOW_EXTERNAL_QUEUE_NOTE =
-  'Grabbed from Sonarr directly — no attempt to show, cancel or pause here.'
+  "Sonarr is upgrading an episode already on disk — it can't be cancelled here."
 
 /**
  * The marker under a moving series while the live feed is not connected. The
@@ -181,8 +191,9 @@ export type ShowDetailProps = {
  * ⚠️ The chip reads `seriesState` — every non-special episode's own `state`,
  * rolled up — and never the newest job: a failed attempt over a series that
  * is on disk reads `in library`, with the failure listed under it. A queue
- * item Sonarr is running on its own ("Started from Sonarr") draws the chip and
- * the bar off the show's `queueSnapshot` with no attempt anywhere.
+ * item Sonarr is running on its own draws the chip and the bar off the show's
+ * `queueSnapshot` either way: once adopted it is an ordinary attempt credited
+ * to `Sonarr`, and an upgrade — never adopted — has no attempt anywhere.
  *
  * `AttemptList` then lists **every** attempt at this show, any scope — an
  * episode grab is an attempt on this show, and its card says which episode.
@@ -287,6 +298,7 @@ export function ShowDetail({
               prefix="requested by "
               requester={latest.requester}
               timestamp={latest.createdAt}
+              upstreamSource={jobUpstreamSource(latest)}
             />
           ) : null
         }
@@ -361,9 +373,9 @@ export function ShowDetail({
 /**
  * What sits beside the series chip. The server's `stateReason` wins when there
  * is one — `undefined` hands it back to `MediaStatus`, which reads it itself;
- * then "Started from Sonarr"; then, on a settled series, the count —
- * `show-detail.pug`'s "14 of 24 episodes" prose, which used to be a second
- * chip.
+ * then the upgrade note (`SHOW_EXTERNAL_QUEUE_NOTE`); then, on a settled
+ * series, the count — `show-detail.pug`'s "14 of 24 episodes" prose, which
+ * used to be a second chip.
  */
 function seriesNote({
   count,

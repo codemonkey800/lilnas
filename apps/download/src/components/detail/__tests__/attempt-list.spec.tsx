@@ -936,6 +936,33 @@ describe('AttemptList', () => {
       expect(line.querySelector('a')).not.toBeInTheDocument()
     })
 
+    // Plan 022: an attempt adopted from Radarr's/Sonarr's own UI has the same
+    // nulls as a masked one, and is credited to the service instead.
+    it.each([
+      ['Radarr', MOVIE],
+      ['Sonarr', SHOW],
+    ] as const)(
+      'credits an adopted attempt to %s — no avatar, no link, never hidden',
+      (source, media) => {
+        const { container } = renderList([
+          job({
+            media,
+            requester: null,
+            startedUpstream: true,
+            status: DownloadJobStatus.Cancelled,
+          }),
+        ])
+        const line = attempt(container, 'job_1')
+
+        expect(within(line).getByText(source)).toBeInTheDocument()
+        expect(within(line).queryByText('hidden')).not.toBeInTheDocument()
+        expect(
+          within(line).queryByTitle('Attribution hidden'),
+        ).not.toBeInTheDocument()
+        expect(line.querySelector('a')).not.toBeInTheDocument()
+      },
+    )
+
     it('renders an unlinked Discord requester by handle', () => {
       const { container } = renderList([
         job({

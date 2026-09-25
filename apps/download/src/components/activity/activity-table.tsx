@@ -7,7 +7,10 @@ import {
   ActivityStatusChip,
   ActivityTypeChip,
 } from 'src/components/activity/activity-cells'
-import { ActivityRequester } from 'src/components/activity/activity-requester'
+import {
+  ActivityRequester,
+  jobUpstreamSource,
+} from 'src/components/activity/activity-requester'
 import type { ActivityRow } from 'src/components/activity/activity-rows'
 import { Card } from 'src/components/ui/card'
 import { DataTable } from 'src/components/ui/data-table'
@@ -109,6 +112,7 @@ export function ActivityTable({
                   discordRequester={job.discordRequester}
                   linkedDiscord={job.linkedDiscord}
                   requester={job.requester}
+                  upstreamSource={jobUpstreamSource(job)}
                   viewer={viewer}
                 />
               </td>

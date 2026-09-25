@@ -11,6 +11,7 @@ import { useId, useTransition } from 'react'
 
 import {
   discordAvatarTitle,
+  jobUpstreamSource,
   LINKED_DISCORD_TITLE,
   linkedDiscordLabel,
   MASKED_REQUESTER_LABEL,
@@ -501,6 +502,11 @@ const REQUESTER_NAME = 'truncate font-mono text-mono-sm text-ink-3'
  * email's local part, then an unlinked `discordRequester` as its handle plus
  * the identity mark. The masking itself happened server-side; this only
  * renders the `null`s it left.
+ *
+ * An attempt adopted from Radarr's or Sonarr's own UI leaves the same `null`s
+ * and is no mask at all, so it reads `Radarr` / `Sonarr` as plain text in the
+ * masked branch's place — no avatar and no link, as `DetailAttribution` writes
+ * it.
  */
 function AttemptRequester({ job }: { job: DownloadJob }): JSX.Element {
   const { discordRequester, linkedDiscord, requester } = job
@@ -543,6 +549,16 @@ function AttemptRequester({ job }: { job: DownloadJob }): JSX.Element {
           discordUserId={discordRequester.discordUserId}
           discordUsername={discordRequester.discordUsername}
         />
+      </span>
+    )
+  }
+
+  const upstream = jobUpstreamSource(job)
+
+  if (upstream !== undefined) {
+    return (
+      <span className={cns('font-mono text-mono-sm text-ink-4')}>
+        {upstream}
       </span>
     )
   }

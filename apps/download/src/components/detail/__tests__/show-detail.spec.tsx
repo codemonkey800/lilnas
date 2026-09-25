@@ -350,7 +350,12 @@ describe('the series status reads the media, never a job', () => {
   })
 })
 
-describe('⚠️ Started from Sonarr — progress with no attempt behind it', () => {
+/**
+ * Sonarr's queue moving with no attempt behind it: since plan 022, an upgrade
+ * of an episode already on disk (never adopted), or a fresh grab from Sonarr's
+ * own UI in the one poller tick before it is adopted as an attempt.
+ */
+describe('⚠️ Sonarr running a download with no attempt behind it', () => {
   const grabbed = () => ({
     media: show({
       queueSnapshot: {
@@ -406,6 +411,52 @@ describe('⚠️ Started from Sonarr — progress with no attempt behind it', ()
     expect(
       screen.getByRole('progressbar', { name: 'S02E02 download progress' }),
     ).toHaveAttribute('aria-valuenow', '35')
+  })
+
+  it('says the upgrade can’t be cancelled here, in the mockup’s words', () => {
+    const { container } = renderDetail(grabbed())
+
+    expect(
+      within(seriesStatus(container)).getByText(
+        "Sonarr is upgrading an episode already on disk — it can't be cancelled here.",
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('credits an adopted attempt to Sonarr, offers Cancel and drops the note', async () => {
+    const onCancel = jest.fn()
+    const user = userEvent.setup()
+    const adopted = scopedJob(
+      { episodeId: 2441, episodeNumber: 2, seasonNumber: 2 },
+      {
+        createdAt: '2026-09-15T11:00:00.000Z',
+        id: 'job_adopted',
+        requester: null,
+        startedUpstream: true,
+        status: DownloadJobStatus.Downloading,
+      },
+    )
+    const { container } = render(
+      <ShowDetail
+        jobs={[adopted]}
+        now={NOW}
+        onCancel={onCancel}
+        {...grabbed()}
+      />,
+    )
+
+    // `show-detail.pug`'s "Started from Sonarr": a plain label, no prefix.
+    expect(screen.getByText('Sonarr · 1h ago')).toBeInTheDocument()
+    expect(screen.queryByText(/hidden/)).not.toBeInTheDocument()
+    expect(
+      within(seriesStatus(container)).queryByText(SHOW_EXTERNAL_QUEUE_NOTE),
+    ).not.toBeInTheDocument()
+
+    await user.click(
+      within(seriesAttempts()).getByRole('button', { name: 'Cancel' }),
+    )
+
+    expect(onCancel).toHaveBeenCalledWith('job_adopted')
   })
 
   it('drops the note once an attempt of ours is in flight', () => {

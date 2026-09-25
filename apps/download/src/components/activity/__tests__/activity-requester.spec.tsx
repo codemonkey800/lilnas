@@ -3,13 +3,17 @@ import '@testing-library/jest-dom'
 import type {
   DiscordIdentity,
   DiscordRequester,
+  DownloadJob,
   JobRequester,
+  Media,
 } from '@lilnas/utils/download/types'
+import { DownloadType } from '@lilnas/utils/download/types'
 import { render, screen } from '@testing-library/react'
 
 import {
   ActivityRequester,
   canViewRequesterProfile,
+  jobUpstreamSource,
   MASKED_REQUESTER_LABEL,
 } from 'src/components/activity/activity-requester'
 import { MASKED_INITIALS } from 'src/components/ui/avatar'
@@ -291,5 +295,137 @@ describe('ActivityRequester · Discord attribution', () => {
     ).not.toBeInTheDocument()
     expect(document.body).not.toHaveTextContent(LINKED_JEREMY.discordUserId)
     expect(document.body).not.toHaveTextContent(LINKED_JEREMY.discordUsername)
+  })
+})
+
+const MOVIE: Media = {
+  id: 'tmdb:438631',
+  title: 'Salt & Ceremony',
+  tmdbId: 438631,
+  type: DownloadType.Movie,
+}
+
+const SHOW: Media = {
+  id: 'tvdb:277165',
+  title: 'Silicon Valley',
+  tvdbId: 277165,
+  type: DownloadType.Show,
+}
+
+const VIDEO: Media = {
+  id: 'video:abc123',
+  sourceUrl: 'https://youtube.com/watch?v=abc',
+  title: 'Sourdough starter, day one to seven',
+  type: DownloadType.Video,
+}
+
+/** The two fields `jobUpstreamSource` reads, for a job adopted from `media`'s service. */
+function adopted(
+  media: Media,
+  startedUpstream?: boolean,
+): Pick<DownloadJob, 'media' | 'startedUpstream'> {
+  return { media, startedUpstream }
+}
+
+describe('jobUpstreamSource', () => {
+  it('credits an adopted movie to Radarr and an adopted show to Sonarr', () => {
+    expect(jobUpstreamSource(adopted(MOVIE, true))).toBe('Radarr')
+    expect(jobUpstreamSource(adopted(SHOW, true))).toBe('Sonarr')
+  })
+
+  it('has no source for a job this app started', () => {
+    expect(jobUpstreamSource(adopted(MOVIE))).toBeUndefined()
+    expect(jobUpstreamSource(adopted(SHOW, false))).toBeUndefined()
+  })
+
+  // Nothing adopts a video; a stray flag must not invent a service for one.
+  it('has no source for a video, flag or not', () => {
+    expect(jobUpstreamSource(adopted(VIDEO, true))).toBeUndefined()
+  })
+})
+
+/**
+ * Plan 022: a download started in Radarr's or Sonarr's own UI arrives with the
+ * same nulls as a masked one, and must never read `hidden`.
+ */
+describe('ActivityRequester · an adopted download', () => {
+  it.each([
+    ['Radarr', VIEWER],
+    ['Radarr', ADMIN],
+    ['Sonarr', VIEWER],
+    ['Sonarr', ADMIN],
+  ] as const)(
+    'reads %s as a plain label, with no avatar and no link',
+    (source, viewer) => {
+      const { container } = render(
+        <ActivityRequester
+          discordRequester={null}
+          linkedDiscord={null}
+          requester={null}
+          upstreamSource={source}
+          viewer={viewer}
+        />,
+      )
+
+      expect(screen.getByText(source)).toBeInTheDocument()
+      expect(screen.queryByText(MASKED_REQUESTER_LABEL)).not.toBeInTheDocument()
+      expect(screen.queryByText(MASKED_INITIALS)).not.toBeInTheDocument()
+      expect(container.querySelector('[title]')).toBeNull()
+      expect(links()).toHaveLength(0)
+    },
+  )
+
+  // With no avatar to fall back on, the name is the whole cell.
+  it('keeps the label on the nameless mobile row', () => {
+    render(
+      <ActivityRequester
+        nameless
+        requester={null}
+        upstreamSource="Sonarr"
+        viewer={VIEWER}
+      />,
+    )
+
+    expect(screen.getByText('Sonarr')).toBeInTheDocument()
+  })
+
+  it('still reads a masked requester as hidden when there is no source', () => {
+    render(
+      <ActivityRequester
+        requester={null}
+        upstreamSource={undefined}
+        viewer={VIEWER}
+      />,
+    )
+
+    expect(screen.getByText(MASKED_REQUESTER_LABEL)).toBeInTheDocument()
+  })
+
+  // A job with both can't be stored (the `origin` CHECK), but an identity
+  // outranks a service if one ever arrives.
+  it('lets a requester or a Discord submitter win over the source', () => {
+    const { unmount } = render(
+      <ActivityRequester
+        requester={SAM}
+        upstreamSource="Radarr"
+        viewer={VIEWER}
+      />,
+    )
+
+    expect(screen.getByText(SAM.email)).toBeInTheDocument()
+    expect(screen.queryByText('Radarr')).not.toBeInTheDocument()
+    unmount()
+
+    render(
+      <ActivityRequester
+        discordRequester={DISCORD_SAM}
+        requester={null}
+        upstreamSource="Radarr"
+        viewer={VIEWER}
+      />,
+    )
+
+    expect(screen.getByText(DISCORD_SAM.discordUsername)).toBeInTheDocument()
+    expect(screen.queryByText('Radarr')).not.toBeInTheDocument()
   })
 })

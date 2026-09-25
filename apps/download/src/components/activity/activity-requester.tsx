@@ -2,8 +2,10 @@ import { cns } from '@lilnas/utils/cns'
 import type {
   DiscordIdentity,
   DiscordRequester,
+  DownloadJob,
   JobRequester,
 } from '@lilnas/utils/download/types'
+import { DownloadType } from '@lilnas/utils/download/types'
 import type { JSX } from 'react'
 
 import { DiscordIdentityMark } from 'src/components/activity/discord-identity-mark'
@@ -16,12 +18,52 @@ import type { Viewer } from 'src/lib/viewer'
 export const MASKED_REQUESTER_LABEL = 'hidden'
 
 /**
+ * The service a download adopted from Radarr's or Sonarr's own UI is credited
+ * to, written where a person's name would be — `movie-detail.pug`'s "Started
+ * from Radarr" and `show-detail.pug`'s "Started from Sonarr" frames.
+ */
+export type UpstreamSource = 'Radarr' | 'Sonarr'
+
+/**
+ * Which service started `job`, or `undefined` for a job this app started.
+ *
+ * ⚠️ This is the one thing that tells an adopted job apart from a *masked*
+ * one. Both arrive with every identity field `null`, and reading the pair of
+ * nulls alone — as every requester surface did before plan 022 — puts
+ * `hidden` beside a download nobody hid: movies and shows are never masked
+ * (`showTrueAttribution`), and `projectJobForViewer` spreads the job, so
+ * `startedUpstream` reaches admins and regular viewers alike.
+ *
+ * Keyed on the media type rather than stored as a name, because Radarr only
+ * ever holds movies and Sonarr only ever holds shows. A video is never
+ * adopted, so it has no source even if the flag were somehow set.
+ */
+export function jobUpstreamSource(
+  job: Pick<DownloadJob, 'media' | 'startedUpstream'>,
+): UpstreamSource | undefined {
+  if (job.startedUpstream !== true) {
+    return undefined
+  }
+
+  switch (job.media.type) {
+    case DownloadType.Movie:
+      return 'Radarr'
+    case DownloadType.Show:
+      return 'Sonarr'
+    default:
+      return undefined
+  }
+}
+
+/**
  * Whether `viewer` is allowed through to `requester`'s profile.
  *
  * The rule, from §12's access model: **your own identity always, anyone else's
  * only for an admin** — and a masked requester never, for either of them. There
  * is no identity behind the mask to send a viewer to, and this feed is not the
- * place that unmasks one (that is the admin dashboard's job).
+ * place that unmasks one (that is the admin dashboard's job). An adopted
+ * Radarr/Sonarr job ({@link jobUpstreamSource}) is refused by the same `null`:
+ * a service is not a person, and has no profile to open.
  *
  * ⚠️ `requester` is already `null` when the viewer is not allowed the true
  * identity — `projectJobForViewer` masks it server-side and the gateway
@@ -129,6 +171,12 @@ export type ActivityRequesterProps = {
   nameless?: boolean
   /** Already masked per viewer, server-side. `null` means "not yours to see". */
   requester: JobRequester | null
+  /**
+   * The service that started an adopted job — {@link jobUpstreamSource}. Read
+   * only when both identity fields are `null`, where it turns what would
+   * otherwise be the masked branch into a plain `Radarr` / `Sonarr` label.
+   */
+  upstreamSource?: UpstreamSource
   viewer: Viewer | null
 }
 
@@ -148,6 +196,11 @@ export type ActivityRequesterProps = {
  * 1. **Masked** — every identity field `null` — renders `hidden`, and renders
  *    nothing else. Masking outranks disclosure, so no username, no snowflake
  *    and no {@link DiscordIdentityMark} exist in the DOM for such a job.
+ *    **Unless `upstreamSource` is set**: then the nulls are an adopted
+ *    Radarr/Sonarr download with nobody behind it, not a mask, and the cell
+ *    is the service's name as plain text — no avatar (there is no person to
+ *    draw) and no link (there is no profile to open). It is not a disclosure
+ *    either: an adopted job is a movie or a show, which are never masked.
  * 2. **`requester`** — the email. A *linked* Discord job lands here without
  *    this component knowing it was one: `AttributionResolutionService` fills
  *    `requester` from the link before the job is serialized, which is the whole
@@ -166,9 +219,17 @@ export function ActivityRequester({
   linkedDiscord = null,
   nameless = false,
   requester,
+  upstreamSource,
   viewer,
 }: ActivityRequesterProps): JSX.Element {
   if (requester === null) {
+    // An adopted job, not a masked one — see `jobUpstreamSource`. Rendered on
+    // the nameless row too: with no avatar to fall back on, the name is the
+    // whole cell, and six characters fit where an email does not.
+    if (discordRequester === null && upstreamSource !== undefined) {
+      return <span className={cns(NAME, 'text-ink-4')}>{upstreamSource}</span>
+    }
+
     // ⚠️ Masking outranks everything below, and it is spelled as one branch
     // rather than checked again further down. `projectJobForViewer` nulls all
     // three identity fields together, so a masked job reaches this branch with
