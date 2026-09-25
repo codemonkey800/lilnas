@@ -6,7 +6,7 @@ x-logging: &default-logging
 
 services:
   storage:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z-cpuv1
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
     restart: unless-stopped
     logging: *default-logging
     command: server --console-address ":9001" /data
@@ -34,7 +34,7 @@ services:
       - traefik.http.services.storage-admin.loadbalancer.server.port=9001
 
   storage-init:
-    image: minio/mc:latest
+    image: pgsty/mc:latest
     depends_on:
       storage:
         condition: service_healthy
