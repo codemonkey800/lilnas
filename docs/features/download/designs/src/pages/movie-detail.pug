@@ -1,0 +1,718 @@
+extends ../layout/page.pug
+
+block title
+  | Movie detail — download UI mockups · lilnas
+
+//-
+  The movie a card leads to. The screen is drawn several times per viewport —
+  primary, not-downloaded, started-from-Radarr, the three modals, and the
+  loading state — so everything that repeats between them (the header block,
+  the release list, the media-state chip, the Attempts list) is a mixin here
+  rather than hand-kept copies.
+
+//- Back-to-library breadcrumb inside the app body.
+mixin libraryLink
+  a(class='mb-[22px] flex items-center gap-1.5' href='#')
+    +icon('arrow')(class='h-[13px] w-[13px] -scale-x-100 text-ink-4')
+    span(class='text-sm text-ink-3') Library
+
+//-
+  The media-state chip — the seven-value vocabulary shared with the show and
+  video pages (plan 021), not a second "downloaded" boolean. `available` is
+  what the old "in library" chip already was; there's one rendering path now,
+  not two.
+mixin mediaChip(state)
+  - const s = MEDIA_STATE[state] || MEDIA_STATE.absent
+  +chip({ label: s.live ? null : s.label, tone: s.tone })&attributes(attributes)
+    if s.live
+      +dot('live')
+      = s.label
+
+//-
+  Poster + title + metadata + actions.
+    synopsis / attribution / cast — each omitted in the cropped modal frames,
+    which only need enough of the page for the scrim to sit over something.
+    state — the media state driving both the chip and which action row shows
+    (Watch/Delete once available, a plain Download shortcut otherwise).
+    Default 'available': every existing call site is a downloaded movie, so
+    this stays opt-in rather than needing a flag everywhere. The header's
+    Download stays outline weight, not the primary `uv` variant, on purpose —
+    the release picker below is still the better path (the user picks), and
+    this is a shortcut next to it, not competing advice.
+    attribution — `true` draws the person who asked (avatar, linked to their
+    profile); a string draws that name as a plain label instead, for an
+    attempt Radarr started itself (no avatar, no link — Radarr has no profile).
+mixin movieHeader(view, opts)
+  - opts = opts || {}
+  - const mobile = view === 'mobile'
+  - const state = opts.state || 'available'
+  - const downloaded = state === 'available'
+  if mobile
+    +poster({ shape: 'tall', v: 1, src: 'assets/emby/movie-1.jpg', label: TITLE })(
+      class='mx-auto mb-4 w-full max-w-[220px]'
+    )
+    p(class='mb-1.5 text-h1')= TITLE
+    p(class='mb-2 text-sm text-ink-3')= META
+    +mediaChip(state)(class='mb-4 flex w-fit')
+    if opts.synopsis
+      p(class='mb-4 text-sm text-ink-3')= SYNOPSIS
+    if opts.cast
+      div(class='mb-4 flex flex-wrap gap-4')
+        each person in LEAD_CAST
+          +castPerson(person[0], person[1])
+    if opts.attribution
+      div(class='mb-4 flex items-center gap-2')
+        +attribution(opts.attribution)
+    div(class='mb-7 flex flex-col gap-2')
+      if downloaded
+        +btn({ label: 'Watch', variant: 'uv', iconEnd: 'eye', full: true })
+        +btn({ label: 'Delete', variant: 'bad', iconEnd: 'trash', full: true })
+      else
+        +btn({ label: 'Download', variant: 'outline', iconEnd: 'download', full: true })
+  else
+    div(class='mb-7 flex items-start gap-6')
+      +poster({ shape: 'tall', v: 1, src: 'assets/emby/movie-1.jpg', label: TITLE })(class='w-[200px]')
+      div(class='flex flex-1 flex-col gap-[14px] pt-0.5')
+        div
+          p(class='mb-1.5 text-h1')= TITLE
+          p(class='mb-2 text-sm text-ink-3')= META
+          +mediaChip(state)(class='w-fit')
+        if opts.synopsis
+          p(class='max-w-[62ch] text-sm text-ink-3')= SYNOPSIS
+        if opts.cast
+          div(class='flex flex-wrap gap-4')
+            each person in LEAD_CAST
+              +castPerson(person[0], person[1])
+        if opts.attribution
+          div(class='flex items-center gap-2')
+            +attribution(opts.attribution)
+        div(class='mt-1 flex items-center gap-2.5')
+          if downloaded
+            +btn({ label: 'Watch', variant: 'uv', iconEnd: 'eye' })
+            +btn({ label: 'Delete', variant: 'bad', iconEnd: 'trash' })
+          else
+            +btn({ label: 'Download', variant: 'outline', iconEnd: 'download' })
+
+//- The header's "who asked, when" line — see `attribution` on +movieHeader.
+mixin attribution(by)
+  if typeof by === 'string'
+    span(class='font-mono text-mono-sm text-ink-4')= `${by} · 12m ago`
+  else
+    +avatar('JA', { href: 'profile.html' })(class='h-5 w-5 text-[9px]')
+    span(class='font-mono text-mono-sm text-ink-4') Jeremy · 12m ago
+
+//-
+  Attempts — replaces the old lifecycle panel + "Earlier attempts" list.
+  Newest first: an in-flight attempt is highlighted with its own progress and
+  actions; terminal ones are StateLines (chip, relative time, requester,
+  error). An empty list renders nothing — the chip above already says
+  "not downloaded".
+
+  `cancelling` is the card after Cancel was pressed and taken: the chip is the
+  job's status (`cancelling…`, warn), not a media state, so it's a plain
+  +chip rather than +mediaChip. The queue row is already gone — no bar, no
+  throughput — and Cancel stays, inert, instead of vanishing. Pause isn't
+  offered on a job that's winding down.
+mixin attemptInFlight(a, mobile)
+  +card()(class=['border-uv/35 bg-uv-ghost/30', mobile ? 'p-4' : 'p-5'])&attributes(attributes)
+    if a.cancelling
+      +chip({ label: 'cancelling…', tone: 'warn' })(class='mb-3 w-fit')
+      div(class=['flex items-center gap-2', mobile ? 'flex-col' : ''])
+        +btn({ label: 'Cancel', variant: 'bad', iconEnd: 'x', full: mobile, disabled: true })
+    else
+      div(class='mb-3 flex items-center justify-between gap-3')
+        +mediaChip(a.state)
+        span(class='font-mono text-mono-sm tabular-nums text-uv-hi')= `${a.progress}%`
+      +bar(a.progress)(class='mb-2')
+      p(class='mb-3 font-mono text-mono-sm tabular-nums text-ink-3')= a.throughput
+      div(class=['flex items-center gap-2', mobile ? 'flex-col' : ''])
+        each act in a.actions
+          +btn({ label: act.label, variant: act.variant, iconEnd: act.icon, full: mobile })
+
+//-
+  A finished attempt. `a.retry` draws Retry at the end of the row — only ever
+  on the newest attempt overall, and only once nothing is in flight (the
+  app's `sorted[0]` rule), so a fixture sets it on one row at most.
+mixin attemptLine(a, mobile)
+  +stline({ mobile: mobile })
+    +chip({ label: a.label, tone: a.tone })(class=mobile ? '' : 'w-[108px] justify-center')
+    span(
+      class=[mobile ? '' : 'min-w-0 flex-1', 'flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-ink-3']
+    )
+      span(class='font-mono text-mono-sm text-ink-4')= a.when
+      span(class='flex items-center gap-1.5')
+        +avatar(a.who[0])(class='h-5 w-5 text-[9px]')
+        span(class='font-mono text-mono-sm text-ink-3')= a.who[1]
+      if a.error
+        span(class='text-bad')= a.error
+    if a.retry
+      if mobile
+        +stlineActions
+          +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+      else
+        +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+
+mixin attemptsList(view, items)
+  - const mobile = view === 'mobile'
+  if items && items.length
+    p(class='mb-3 text-h2') Attempts
+    - const inFlight = items.find(a => a.inFlight)
+    - const terminal = items.filter(a => !a.inFlight)
+    if inFlight
+      +attemptInFlight(inFlight, mobile)(class='mb-3')
+    if terminal.length
+      +card({ sunk: true })(class=[mobile ? 'px-[14px] py-1' : 'px-4 py-1', mobile ? 'mb-7' : 'mb-8'])
+        each a in terminal
+          +attemptLine(a, mobile)
+
+//-
+  What Radarr found, rather than just what it auto-picked. `flagged` adds the
+  third, bad-file row — omitted in the cropped modal frames.
+mixin releaseList(view, opts)
+  - opts = opts || {}
+  - const mobile = view === 'mobile'
+  p(class='mb-3 text-h2') Release
+  +card({ sunk: true })(class=mobile ? 'px-[14px] py-1' : 'px-4 py-1')
+    if mobile
+      +release(true)
+        span(class='flex items-center gap-2')
+          span(class='font-mono text-mono-sm text-ink-3') 1080p WEB-DL · 2.1 GB
+          +chip({ label: 'current', tone: 'ok' })
+        span(class='font-mono text-mono-sm text-ink-4') yts-verified
+        +stlineActions
+          +btn({ label: 'Report a problem', variant: 'ghost', size: 'sm', iconEnd: 'flag' })
+      +release(true)
+        span(class='font-mono text-mono-sm text-ink-3') 2160p WEB-DL · 5.8 GB
+        span(class='font-mono text-mono-sm text-ink-4') nyaa-hd
+        +stlineActions
+          +btn({ label: 'Download this', variant: 'outline', size: 'sm', iconEnd: 'download' })
+      if opts.flagged
+        +release(true)
+          span(class='font-mono text-mono-sm text-ink-3 line-through') 720p HDTV · 900 MB
+          span(class='flex items-center gap-2')
+            span(class='font-mono text-mono-sm text-ink-4') low-seed-source
+            +chip({ label: 'bad file', tone: 'bad' })
+    else
+      +release
+        span(class='w-[200px] font-mono text-mono-sm text-ink-3') 1080p WEB-DL · 2.1 GB
+        span(class='flex-1 font-mono text-mono-sm text-ink-4') yts-verified
+        +chip({ label: 'current', tone: 'ok' })
+        +btn({ label: 'Report a problem', variant: 'ghost', size: 'sm', iconEnd: 'flag' })
+      +release
+        span(class='w-[200px] font-mono text-mono-sm text-ink-3') 2160p WEB-DL · 5.8 GB
+        span(class='flex-1 font-mono text-mono-sm text-ink-4') nyaa-hd
+        +btn({ label: 'Download this', variant: 'outline', size: 'sm', iconEnd: 'download' })
+      if opts.flagged
+        +release(false, true)
+          span(class='w-[200px] font-mono text-mono-sm text-ink-3 line-through') 720p HDTV · 900 MB
+          span(class='flex-1 font-mono text-mono-sm text-ink-4') low-seed-source
+          +chip({ label: 'bad file', tone: 'bad' })
+
+mixin release(mobile, dimmed)
+  div(
+    class=[
+      'flex px-1 py-[13px] [&+&]:border-t [&+&]:border-line-soft',
+      mobile ? 'flex-col items-start gap-[9px]' : 'items-center gap-[14px]',
+      dimmed ? 'opacity-55' : '',
+    ]
+  )
+    block
+
+//- The two dialogs this page can raise, over a cropped copy of the page.
+mixin reportModal(view)
+  +modalScrim
+    +modal
+      p(class='mb-2.5 text-h3') What's wrong with this file?
+      each label, i in REASONS
+        +reason(label, i === 0)
+      if view === 'mobile'
+        div(class='mt-4 flex flex-col gap-2')
+          +btn({ label: 'Submit report', variant: 'uv', size: 'sm', full: true })
+          +btn({ label: 'Cancel', variant: 'ghost', size: 'sm', full: true })
+      else
+        div(class='mt-4 flex justify-end gap-2')
+          +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
+          +btn({ label: 'Submit report', variant: 'uv', size: 'sm' })
+
+//-
+  Radarr's own manual-import picker, mirrored: the one file it found, what it
+  resolved, and the informational rejection that's blocking the auto-pick.
+  Discard sits opposite Import rather than in the page's own Delete flow —
+  this is "I don't want this download", not "remove the title from the
+  library".
+mixin importModal(view)
+  - const mobile = view === 'mobile'
+  +modalScrim
+    +modal
+      p(class='mb-1.5 text-h3')= `Import "${TITLE}"`
+      p(class='mb-3 text-sm text-ink-3')
+        | The bytes are already down — Radarr just couldn't match the file. Pick it and import, or discard.
+      div(
+        class="mb-3 flex items-start gap-2.5 rounded-md border border-uv/40 bg-uv-ghost px-3 py-[11px]"
+      )
+        span(
+          class="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border-[1.5px] border-uv after:h-2 after:w-2 after:rounded-full after:bg-uv after:content-['']"
+        )
+        div(class='flex min-w-0 flex-1 flex-col gap-1.5')
+          p(class='truncate font-mono text-mono-sm text-ink')= FILE.name
+          div(class='flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-mono-sm text-ink-3')
+            +mchip(null, FILE.size)
+            +mchip(null, FILE.quality)
+            +mchip(null, FILE.language)
+      +note('alert')(class='mb-3')
+        p(class='text-sm text-ink-2')= FILE.rejection
+        p(class='mt-1 text-xs text-ink-4') Informational only — a manual import ignores it.
+      if mobile
+        div(class='flex flex-col gap-2')
+          +btn({ label: 'Import', variant: 'uv', size: 'sm', iconEnd: 'check', full: true })
+          +btn({ label: 'Cancel', variant: 'ghost', size: 'sm', full: true })
+          +discardBtn(true)
+      else
+        div(class='flex items-center justify-between gap-2')
+          +discardBtn
+          div(class='flex gap-2')
+            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
+            +btn({ label: 'Import', variant: 'uv', size: 'sm', iconEnd: 'check' })
+
+//- The Discard button that lives inside +importModal, styled like +deleteBtn
+    but distinct: it means "give the download back", not "erase the title".
+mixin discardBtn(full)
+  +btn({ label: 'Discard', iconEnd: 'trash', size: 'sm', full: full })(class='border-bad/40 bg-bad-ghost text-bad')
+
+mixin deleteModal(view)
+  +modalScrim
+    +modal
+      p(class='mb-1.5 text-h3')= `Delete "${TITLE}"?`
+      p(class='mb-[18px] text-sm text-ink-3')= DELETE_WARNING
+      if view === 'mobile'
+        div(class='flex flex-col gap-2')
+          +deleteBtn(true)
+          +btn({ label: 'Cancel', variant: 'ghost', size: 'sm', full: true })
+      else
+        div(class='flex justify-end gap-2')
+          +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
+          +deleteBtn
+
+//- A cropped frame: enough of the page for a modal to sit over, faded off at
+    the bottom so it reads as "this continues".
+mixin modalFrame(view, label)
+  +modalPreview(view, label)
+    if view === 'mobile'
+      +movieHeader(view, {})
+      +releaseList(view, {})
+    else
+      div(class='mx-auto max-w-[1080px]')
+        +libraryLink
+        +movieHeader(view, { cast: true })
+        +releaseList(view, {})
+    block
+
+//-
+  The page before anything's been grabbed: no Watch, no Delete, just the
+  header's Download shortcut sitting above the same release picker the
+  downloaded frame has — the picker doesn't go away just because the
+  shortcut exists. No Attempts section either: nothing's been tried, and the
+  chip already says so.
+mixin notDownloadedFrame(view)
+  - const suffix = view === 'mobile' ? 'm' : 'd'
+  +frameLabel()(class='mt-1' id='not-downloaded-' + suffix)
+    | Not downloaded yet
+  +appFrame(view)
+    +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
+    +appBody(view)
+      if view === 'mobile'
+        +movieHeader(view, { state: 'absent' })
+        +releaseList(view, {})
+      else
+        div(class='mx-auto max-w-[1080px]')
+          +libraryLink
+          +movieHeader(view, { state: 'absent' })
+          +releaseList(view, {})
+
+//-
+  A download started in Radarr's own UI — not an upgrade. The app adopts it as
+  an ordinary attempt: the same in-flight card as one this app started, with
+  Cancel and no Pause, attributed to Radarr as a plain label where a person's
+  name and avatar would be.
+mixin startedFromRadarrFrame(view)
+  - const suffix = view === 'mobile' ? 'm' : 'd'
+  +frameLabel()(class='mt-1' id='started-from-radarr-' + suffix)
+    | Started from Radarr
+  +appFrame(view)
+    +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
+    +appBody(view)
+      if view === 'mobile'
+        +movieHeader(view, { state: 'downloading', attribution: 'Radarr' })
+        +attemptsList(view, [ADOPTED_ATTEMPT])
+      else
+        div(class='mx-auto max-w-[1080px]')
+          +libraryLink
+          +movieHeader(view, { state: 'downloading', attribution: 'Radarr' })
+          +attemptsList(view, [ADOPTED_ATTEMPT])
+
+//-
+  Radarr upgrading a file that's already on disk. That one isn't adopted —
+  it's not a download anybody asked this app for — so it stays a queue
+  snapshot: a bar, the throughput, and a note saying it can't be cancelled
+  from here.
+mixin radarrUpgradeFrame(view)
+  - const suffix = view === 'mobile' ? 'm' : 'd'
+  +frameLabel()(class='mt-1' id='radarr-upgrade-' + suffix)
+    | Radarr upgrading the file on disk
+  +appFrame(view)
+    +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
+    +appBody(view)
+      if view === 'mobile'
+        +movieHeader(view, { state: 'downloading' })
+        +card()(class='mb-7 p-4')
+          div(class='mb-2 flex items-center justify-between')
+            span(class='font-mono text-mono-sm text-ink-3') queue snapshot
+            span(class='font-mono text-mono-sm tabular-nums text-uv-hi')= `${EXTERNAL_QUEUE.progress}%`
+          +bar(EXTERNAL_QUEUE.progress)(class='mb-3')
+          p(class='mb-3 font-mono text-mono-sm tabular-nums text-ink-3')= EXTERNAL_QUEUE.throughput
+          +note('alert')
+            p(class='text-sm text-ink-2')
+              | Radarr is upgrading the file already on disk — it can't be cancelled here.
+      else
+        div(class='mx-auto max-w-[1080px]')
+          +libraryLink
+          +movieHeader(view, { state: 'downloading' })
+          +card()(class='mb-8 max-w-[480px] p-5')
+            div(class='mb-2 flex items-center justify-between')
+              span(class='font-mono text-mono-sm text-ink-3') queue snapshot
+              span(class='font-mono text-mono-sm tabular-nums text-uv-hi')= `${EXTERNAL_QUEUE.progress}%`
+            +bar(EXTERNAL_QUEUE.progress)(class='mb-3')
+            p(class='mb-3 font-mono text-mono-sm tabular-nums text-ink-3')= EXTERNAL_QUEUE.throughput
+            +note('alert')
+              p(class='text-sm text-ink-2')
+                | Radarr is upgrading the file already on disk — it can't be cancelled here.
+
+//- Everything below the fold on the primary frame: state legend, cast
+    overflow, and the two flows as storyboards.
+mixin appendix(view)
+  - const mobile = view === 'mobile'
+  +appendixRule(mobile ? 'Appendix' : 'Appendix — states & flows', mobile ? 'states-m' : 'states-d')
+
+  p(class='mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Other states on this page
+  +card({ sunk: true })(class=mobile ? 'px-[14px] py-1' : 'px-4 py-1')
+    +stline({ mobile: mobile })
+      +chip({ label: 'not downloaded', tone: 'mute' })(class=mobile ? '' : 'w-[168px] justify-center')
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3']) Nothing grabbed yet.
+      if mobile
+        +stlineActions
+          +btn({ label: 'Download', variant: 'outline', size: 'sm', iconEnd: 'download' })
+      else
+        +btn({ label: 'Download', variant: 'outline', size: 'sm', iconEnd: 'download' })
+    +stline({ mobile: mobile })
+      +chip({ label: 'wanted', tone: 'mute' })(class=mobile ? '' : 'w-[168px] justify-center')
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3']) Monitored — nothing queued yet.
+    +stline({ mobile: mobile })
+      +chip({ tone: 'uv' })(class=mobile ? '' : 'w-[168px] justify-center')
+        +dot('live')
+        | downloading
+      div(class=['flex items-center gap-2', mobile ? 'w-full' : 'w-[140px]'])
+        +bar(47)(class='flex-1')
+        span(class='font-mono text-mono-sm tabular-nums text-uv-hi') 47%
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'font-mono text-mono-sm tabular-nums text-ink-3'])
+        | 1.2&nbsp;GB / 2.6&nbsp;GB &nbsp;·&nbsp; 8.4&nbsp;MB/s
+      if mobile
+        +stlineActions
+          +btn({ label: 'Cancel', variant: 'bad', size: 'sm', iconEnd: 'x' })
+      else
+        +btn({ label: 'Cancel', variant: 'bad', size: 'sm', iconEnd: 'x' })
+    +stline({ mobile: mobile })
+      +chip({ label: 'cancelling…', tone: 'warn' })(class=mobile ? '' : 'w-[168px] justify-center')
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3'])
+        | Cancel pressed — Radarr is dropping the download. The button stays, inert, until it's gone.
+      if mobile
+        +stlineActions
+          +btn({ label: 'Cancel', variant: 'bad', size: 'sm', iconEnd: 'x', disabled: true })
+      else
+        +btn({ label: 'Cancel', variant: 'bad', size: 'sm', iconEnd: 'x', disabled: true })
+    +stline({ mobile: mobile })
+      +chip({ label: 'cancelled', tone: 'mute' })(class=mobile ? '' : 'w-[168px] justify-center')
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3'])
+        | The newest attempt was cancelled — back to not downloaded; Retry grabs it again.
+      if mobile
+        +stlineActions
+          +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+      else
+        +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+    +stline({ mobile: mobile })
+      +chip({ tone: 'uv' })(class=mobile ? '' : 'w-[168px] justify-center')
+        +dot('live')
+        | importing…
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3']) Bytes are down — Radarr's finishing the import.
+    +stline({ mobile: mobile })
+      +chip({ label: 'needs your decision', tone: 'warn' })(class=mobile ? '' : 'w-[168px] justify-center')
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3'])
+        | The file's on disk, but Radarr couldn't match it automatically — pick it yourself.
+      if mobile
+        +stlineActions
+          +btn({ label: 'Import', variant: 'outline', size: 'sm', iconEnd: 'check' })
+      else
+        +btn({ label: 'Import', variant: 'outline', size: 'sm', iconEnd: 'check' })
+    +stline({ mobile: mobile })
+      +chip({ label: 'in library', tone: 'ok' })(class=mobile ? '' : 'w-[168px] justify-center')
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3']) On disk and ready to watch.
+
+  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Attempts — empty state
+  p(class='mb-3 text-sm text-ink-3')
+    | No attempts yet: the Attempts heading, the in-flight card and the terminal list are all omitted —
+    | the "not downloaded" chip above is the only signal.
+  +card({ sunk: true })(class=[mobile ? 'px-[14px]' : 'px-4', 'py-[13px] text-center text-sm text-ink-4'])
+    | (nothing renders here)
+
+  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Attempts — cancelling
+  p(class='mb-3 text-sm text-ink-3')
+    | Cancel was pressed and taken. The queue row is gone, so the card loses its bar; Pause goes, and Cancel
+    | stays put but inert until Radarr lets go.
+  div(class=mobile ? '' : 'max-w-[480px]')
+    +attemptInFlight(CANCELLING_ATTEMPT, mobile)
+
+  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Attempts — after a cancel
+  p(class='mb-3 text-sm text-ink-3')
+    | The cancelled attempt is the newest, nothing's in flight and the movie is back to "not downloaded" — so
+    | that row, and only that row, offers Retry.
+  div(class=mobile ? '' : 'max-w-[480px]')
+    +attemptsList(view, ATTEMPTS_AFTER_CANCEL)
+
+  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Cast — overflow
+  if mobile
+    +card({ sunk: true })(class='py-4 pr-0 pl-[14px]')
+      p(class='mx-[14px] mb-[14px] text-sm text-ink-3')
+        | Scrolls sideways past the fold instead of wrapping into a wall of names.
+      div(
+        class!='-mx-[14px] flex flex-nowrap gap-4 overflow-x-auto px-[14px] py-0.5 [mask-image:linear-gradient(90deg,#000_calc(100%-28px),transparent)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
+      )
+        each person in FULL_CAST
+          +castPerson(person[0], person[1])
+  else
+    +card({ sunk: true })(class='px-4 py-[18px]')
+      p(class='mb-[14px] text-sm text-ink-3')
+        | Past the fourth credited actor, names collapse into a count — hover shows the rest.
+      div(class='flex flex-wrap gap-4')
+        each person in FULL_CAST.slice(0, 4)
+          +castPerson(person[0], person[1])
+        div(class='flex shrink-0 items-center gap-2')
+          +avatar('+6', { size: 'md' })(
+            class='text-[10px]'
+            title=OVERFLOW_CAST
+          )
+
+  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Report a problem — flow
+  +storyboard(mobile)
+    +storyboardStep('1 · Trigger')
+      +storyboardFrame(mobile ? 96 : 128)
+        +btn({ label: 'Report a problem', variant: 'ghost', size: 'sm', iconEnd: 'flag' })
+    +storyboardStep('2 · Pick a reason', !mobile)
+      div(class='rounded-lg border border-line bg-surface p-4')
+        p(class='mb-2.5 text-h3') What's wrong with this file?
+        each label, i in REASONS
+          +reason(label, i === 0)
+        if mobile
+          div(class='mt-[14px] flex flex-col gap-2')
+            +btn({ label: 'Submit report', variant: 'uv', size: 'sm', full: true })
+            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm', full: true })
+        else
+          div(class='mt-[14px] flex justify-end gap-2')
+            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
+            +btn({ label: 'Submit report', variant: 'uv', size: 'sm' })
+    +storyboardStep('3 · Confirmed')
+      +storyboardFrame(mobile ? 96 : 128)
+        +chip({ label: 'reported', tone: 'mute' })
+        p(class='text-cap text-ink-3') This release won't be auto-picked again.
+
+  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Import — flow
+  +storyboard(mobile)
+    +storyboardStep('1 · Trigger')
+      +storyboardFrame(mobile ? 96 : 128)
+        +chip({ label: 'needs your decision', tone: 'warn' })
+        +btn({ label: 'Import', variant: 'outline', size: 'sm', iconEnd: 'check' })
+    +storyboardStep('2 · Pick and import', !mobile)
+      div(class='rounded-lg border border-line bg-surface p-4')
+        p(class='mb-2.5 text-h3')= `Import "${TITLE}"`
+        div(
+          class="mb-3 flex items-start gap-2.5 rounded-md border border-uv/40 bg-uv-ghost px-3 py-[11px]"
+        )
+          span(
+            class="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border-[1.5px] border-uv after:h-2 after:w-2 after:rounded-full after:bg-uv after:content-['']"
+          )
+          div(class='flex min-w-0 flex-1 flex-col gap-1.5')
+            p(class='truncate font-mono text-mono-sm text-ink')= FILE.name
+            div(class='flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-mono-sm text-ink-3')
+              +mchip(null, FILE.size)
+              +mchip(null, FILE.quality)
+              +mchip(null, FILE.language)
+        if mobile
+          div(class='flex flex-col gap-2')
+            +btn({ label: 'Import', variant: 'uv', size: 'sm', iconEnd: 'check', full: true })
+            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm', full: true })
+        else
+          div(class='flex justify-end gap-2')
+            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
+            +btn({ label: 'Import', variant: 'uv', size: 'sm', iconEnd: 'check' })
+    +storyboardStep('3 · Importing')
+      +storyboardFrame(mobile ? 96 : 128)
+        +chip({ tone: 'uv' })
+          +dot('live')
+          | importing…
+        p(class='text-cap text-ink-3') Same job — the queue row is just gone now.
+
+  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Discard — flow
+  +storyboard(mobile)
+    +storyboardStep('1 · Trigger, inside the dialog')
+      +storyboardFrame(mobile ? 96 : 128)
+        +discardBtn
+    +storyboardStep('2 · Confirm inline', !mobile)
+      div(class='rounded-lg border border-line bg-surface p-[18px]')
+        p(class='mb-1.5 text-h3') Discard this download?
+        p(class='mb-4 text-sm text-ink-3')
+          | Removes it from the download client, files and all, and cancels the job. Nothing is blocklisted, so
+          | a Retry afterwards can grab the same release again.
+        if mobile
+          div(class='flex flex-col gap-2')
+            +discardBtn(true)
+            +btn({ label: 'Keep it', variant: 'ghost', size: 'sm', full: true })
+        else
+          div(class='flex justify-end gap-2')
+            +btn({ label: 'Keep it', variant: 'ghost', size: 'sm' })
+            +discardBtn
+    +storyboardStep('3 · Cancelled')
+      +storyboardFrame(mobile ? 96 : 128)
+        +chip({ label: 'cancelled', tone: 'mute' })(class='w-[118px] justify-center')
+
+  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Delete — confirm flow
+  +storyboard(mobile)
+    +storyboardStep('1 · Trigger')
+      +storyboardFrame(mobile ? 96 : 128)
+        +btn({ label: 'Delete', variant: 'bad', iconEnd: 'trash' })
+    +storyboardStep('2 · Confirm', !mobile)
+      div(class='rounded-lg border border-line bg-surface p-[18px]')
+        p(class='mb-1.5 text-h3')= `Delete "${TITLE}"?`
+        p(class='mb-4 text-sm text-ink-3')= DELETE_WARNING
+        if mobile
+          div(class='flex flex-col gap-2')
+            +deleteBtn(true)
+            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm', full: true })
+        else
+          div(class='flex justify-end gap-2')
+            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
+            +deleteBtn
+    +storyboardStep('3 · Removed')
+      +storyboardFrame(mobile ? 96 : 128)
+        +chip({ label: 'not downloaded', tone: 'mute' })(class='w-[118px] justify-center')
+
+//- Skeleton stand-in for the whole page, while Radarr is still answering.
+mixin loadingState(view)
+  - const mobile = view === 'mobile'
+  +frameLabel()(class='mt-1' id=mobile ? 'loading-m' : 'loading-d') Loading state
+  +appFrame(view)
+    +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
+    +appBody(view)
+      if mobile
+        +skeleton()(class='mx-auto mb-4 aspect-[2/3] w-full max-w-[220px] rounded-md')
+        +skeleton()(class='mx-auto mb-2 h-[23px] w-[70%]')
+        +skeleton()(class='mx-auto mb-4 h-[13px] w-[45%]')
+        div(class='mb-4 flex flex-col gap-[7px]')
+          +skeleton()(class='h-[13px] w-full')
+          +skeleton()(class='h-[13px] w-[82%]')
+        div(class='mb-4 flex items-center gap-4')
+          each n in [1, 2]
+            div(class='flex items-center gap-2')
+              +skeleton()(class='h-[30px] w-[30px] rounded-full')
+              +skeleton()(class='h-3 w-[60px]')
+        div(class='mb-7 flex flex-col gap-2')
+          +skeleton()(class='h-[38px] w-full rounded-md')
+          +skeleton()(class='h-[38px] w-full rounded-md')
+        +skeleton()(class='mb-2.5 h-[11px] w-[58px]')
+        +skeleton()(class='mb-7 aspect-video w-full rounded-md')
+        +skeleton()(class='mb-3 h-[15px] w-[74px]')
+        +card({ sunk: true })(class='p-4')
+          div(class='flex flex-col gap-4')
+            each w in SKELETON_RELEASES
+              div(class='flex flex-col gap-1.5')
+                +skeleton()(class='h-[13px]' style=`width: ${w[0]}`)
+                +skeleton()(class='h-[13px]' style=`width: ${w[1]}`)
+      else
+        div(class='mx-auto max-w-[1080px]')
+          +skeleton()(class='mb-[22px] h-3 w-16')
+          div(class='mb-7 flex items-start gap-6')
+            +skeleton()(class='aspect-[2/3] w-[200px] rounded-md')
+            div(class='flex flex-1 flex-col gap-[14px] pt-0.5')
+              +skeleton()(class='h-[23px] w-[55%]')
+              +skeleton()(class='h-[13px] w-[32%]')
+              div(class='flex flex-col gap-[7px]')
+                +skeleton()(class='h-[13px] w-full')
+                +skeleton()(class='h-[13px] w-[78%]')
+              div(class='flex items-center gap-4')
+                each n in [1, 2, 3]
+                  div(class='flex items-center gap-2')
+                    +skeleton()(class='h-[30px] w-[30px] rounded-full')
+                    +skeleton()(class='h-3 w-16')
+              div(class='mt-1 flex items-center gap-2.5')
+                +skeleton()(class='h-[38px] w-[108px] rounded-md')
+                +skeleton()(class='h-[38px] w-[100px] rounded-md')
+          +skeleton()(class='mb-2.5 h-[11px] w-[58px]')
+          +skeleton()(class='mb-8 aspect-video w-full max-w-[480px] rounded-md')
+          +skeleton()(class='mb-3 h-[15px] w-[74px]')
+          +card({ sunk: true })(class='p-4')
+            div(class='flex flex-col gap-4')
+              each n in [1, 2, 3]
+                div(class='flex items-center gap-[14px]')
+                  +skeleton()(class='h-[13px] w-[190px]')
+                  +skeleton()(class='h-[13px] flex-1')
+
+block content
+  +mockHead({ eyebrow: 'lilnas · download', title: 'Movie detail' })
+    p(class='max-w-[62ch] text-sm text-ink-3')
+      | Everything a movie card leads to: cast and metadata, the Emby handoff, the release picker, and — since
+      | plan 021 — a status chip driven by media state instead of the newest job, plus an Attempts list where the
+      | lifecycle panel used to be. Browse what Radarr found instead of being stuck with its auto-pick, with a
+      | bad-file flag that blocks a release from being auto-selected again. When Radarr grabs a file but can't
+      | match it, the chip reads "needs your decision" instead of pretending it's still importing — an Import
+      | dialog mirrors Radarr's own manual picker, with Discard as the way out that doesn't just re-grab the same
+      | file.
+
+  div(class='vp-scope')
+    +viewportToggle('viewport')(class='mb-8' role='radiogroup' aria-label='Viewport')
+
+    each view in VIEWS
+      - const suffix = view === 'mobile' ? 'm' : 'd'
+      +viewportPanel(view)
+        +jumpNav(JUMP, suffix)
+
+        +appFrame(view)(id='primary-' + suffix)
+          +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
+          +appBody(view)
+            if view === 'mobile'
+              +movieHeader(view, { synopsis: true, cast: true, attribution: true })
+              +attemptsList(view, ATTEMPTS)
+              p(class='mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Trailer
+              +poster({ shape: 'wide', v: 2, src: 'assets/video/video-2.jpg', play: true })(class='mb-7')
+              +releaseList(view, { flagged: true })
+            else
+              div(class='mx-auto max-w-[1080px]')
+                +libraryLink
+                +movieHeader(view, { synopsis: true, cast: true, attribution: true })
+                +attemptsList(view, ATTEMPTS)
+                p(class='mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Trailer
+                +poster({ shape: 'wide', v: 2, src: 'assets/video/video-2.jpg', play: true })(
+                  class='mb-8 w-full max-w-[480px]'
+                )
+                +releaseList(view, { flagged: true })
+
+        div(class=view === 'desktop' ? 'mx-auto max-w-[1080px]' : 'w-full max-w-[390px]')
+          +appendix(view)
+
+        +notDownloadedFrame(view)
+        +startedFromRadarrFrame(view)
+        +radarrUpgradeFrame(view)
+
+        +modalFrame(view, 'Report a problem — as a modal')
+          +reportModal(view)
+        +modalFrame(view, 'Import — as a modal')
+          +importModal(view)
+        +modalFrame(view, 'Delete — as a modal')
+          +deleteModal(view)
+        +loadingState(view)

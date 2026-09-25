@@ -1,0 +1,518 @@
+//-
+  Ultraviolet primitives.
+
+  One mixin per component that appears on more than one page, or that has
+  enough variants that spelling it out at each call site would drift. Anything
+  simpler than that is written as plain utilities at the call site — the old
+  `.row` / `.stack` / `.dim` / `.h2` helper classes are just
+  `flex items-center gap-2.5`, `flex flex-col`, `text-ink-3` and `text-h2` now,
+  and don't need to be hidden behind a name.
+
+  Convention: every mixin ends with `&attributes(attributes)` so a call site
+  can add layout classes (`+btn({label: 'Cancel'})(class='flex-1')`) without
+  the mixin needing a parameter for it. Pug merges `class` rather than
+  replacing it.
+
+mixin icon(name)
+  svg&attributes(attributes)
+    use(href='#i-' + name)
+
+//- The signature: pepe badge + subdomain in mono. Byte-identical in every
+    lilnas app — see docs/designs/README.md.
+mixin doorplate(name)
+  span(
+    class='inline-flex h-8 items-center gap-[9px] rounded-full border border-transparent bg-transparent py-0 pr-3 pl-1 transition-[border-color,background-color] duration-200 ease-uv hover:border-uv-dim hover:bg-surface-2'
+  )&attributes(attributes)
+    span(class='grid h-6 w-6 shrink-0 place-items-center')
+      svg(class='h-full w-full')
+        use(href='#pepe')
+    span(class='font-mono text-[12px] font-medium tracking-[-0.01em]')= name
+
+//-
+  Button.
+    variant  'uv' (primary) | 'outline' | 'ghost' | 'bad'   default: bare
+    size     'sm' | 'lg'                                     default: 38px tall
+    icon     icon name rendered before the label
+    iconEnd  icon name rendered after the label
+    full     stretch to the container width
+    disabled
+mixin btn(opts)
+  - opts = opts || {}
+  -
+    //- Each variant owns its border colour, and each size owns its padding.
+    //- Emitting a base `border-transparent`/`px-*` and letting a variant
+    //- override it would put two same-property utilities on one element, and
+    //- which one wins is then down to Tailwind's output order, not ours.
+    const variants = {
+      uv: 'border-transparent bg-uv text-uv-ink font-[620] hover:bg-uv-hi active:bg-uv-press',
+      outline: 'border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2',
+      ghost: 'border-transparent text-ink-3 hover:bg-surface-2 hover:text-ink',
+      bad: 'border-transparent text-bad hover:bg-bad-ghost',
+    }
+    const quiet = opts.variant === 'ghost' || opts.variant === 'bad'
+    const sizes = {
+      sm: 'h-[30px] px-[11px] text-[13px]',
+      lg: 'h-[46px] px-[22px] text-h3',
+    }
+  button(
+    type='button'
+    disabled=opts.disabled
+    class=[
+      'inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96',
+      'disabled:pointer-events-none disabled:opacity-38',
+      variants[opts.variant] || 'border-transparent',
+      sizes[opts.size] || (quiet ? 'h-[38px] px-[11px]' : 'h-[38px] px-[15px]'),
+      opts.full ? 'w-full' : '',
+    ]
+  )&attributes(attributes)
+    if opts.icon
+      +icon(opts.icon)(class='h-[15px] w-[15px] shrink-0')
+    if opts.label
+      = opts.label
+    if opts.iconEnd
+      +icon(opts.iconEnd)(class='h-[15px] w-[15px] shrink-0')
+    block
+
+//-
+  Status chip — mono, pill, tinted. `tone` is the whole point: any hue that
+  isn't 300 means status (DESIGN.md rule 1).
+    tone         'uv' | 'ok' | 'warn' | 'bad' | 'mute'
+    active       toggle-checked look, in the spirit of `toggleChip`'s
+                 checked state — overrides `tone` so a selected filter chip
+                 always reads as "applied", regardless of what it'd
+                 otherwise be tinted (used by profile.pug's by-type/
+                 by-status filter chips).
+    interactive  renders a real `<button>` instead of an inert `<span>`,
+                 with a hover/cursor cue and `aria-pressed` mirroring
+                 `active` — every other `chip` call site is a read-only
+                 status badge, so this stays opt-in rather than the
+                 default (avoids implying every chip in the app is
+                 clickable). Same conditional-tag idiom as `avatar`'s
+                 `opts.href`.
+mixin chip(opts)
+  - opts = opts || {}
+  -
+    const tones = {
+      uv: 'bg-uv-ghost text-uv-hi border-uv/30',
+      ok: 'bg-ok-ghost text-ok border-ok/30',
+      warn: 'bg-warn-ghost text-warn border-warn/30',
+      bad: 'bg-bad-ghost text-bad border-bad/32',
+      mute: 'bg-surface-2 text-ink-3 border-line',
+    }
+    const cls = [
+      'inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap',
+      opts.active ? 'border-uv/35 bg-uv-ghost text-uv-hi' : tones[opts.tone] || 'border-transparent',
+      opts.interactive
+        ? ['cursor-pointer transition-[border-color,background-color,color] duration-200 ease-uv', opts.active ? 'hover:border-uv/55' : 'hover:border-uv-dim hover:bg-surface-2']
+        : '',
+    ]
+  if opts.interactive
+    button(type='button' aria-pressed=(opts.active ? 'true' : 'false') class=cls)&attributes(attributes)
+      if opts.icon
+        +icon(opts.icon)(class='h-[11px] w-[11px]')
+      if opts.label
+        = opts.label
+      block
+  else
+    span(class=cls)&attributes(attributes)
+      if opts.icon
+        +icon(opts.icon)(class='h-[11px] w-[11px]')
+      if opts.label
+        = opts.label
+      block
+
+//- Status dot. `live` adds the breathing ring.
+mixin dot(tone)
+  -
+    const tones = { live: 'dot-live', ok: 'bg-ok', warn: 'bg-warn', bad: 'bg-bad' }
+  span(class=['h-[7px] w-[7px] shrink-0 rounded-full', tones[tone] || 'bg-ink-4'])&attributes(attributes)
+
+//-
+  Person marker. Initials, or a dashed outline when attribution is masked.
+    size    'xs' (18px) | 'md' (30px)   default: 24px
+    ring    the uv halo that marks "this is you"
+    hidden  masked attribution — dashed, no initials
+    href    renders an `<a>` instead of a `<span>` — a call site opts in per
+            the access rules (own identity always, another user's only for
+            an admin) rather than every avatar everywhere becoming a link.
+            Never pass this alongside `hidden`: a masked identity has no
+            profile to link to.
+mixin avatar(initials, opts)
+  - opts = opts || {}
+  -
+    const sizes = { xs: 'h-[18px] w-[18px] text-[8.5px]', md: 'h-[30px] w-[30px] text-[12px]' }
+    const cls = [
+      'flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2',
+      sizes[opts.size] || 'h-6 w-6 text-[10.5px]',
+      opts.ring ? 'shadow-[0_0_0_2px_var(--color-bg-sunk),0_0_0_4px_var(--color-uv)]' : '',
+      opts.hidden ? 'border-dashed text-ink-4' : '',
+      opts.href ? 'transition-[border-color,background-color] duration-200 ease-uv hover:border-uv-dim hover:bg-surface-2' : '',
+    ]
+  if opts.href
+    a(href=opts.href class=cls)&attributes(attributes)
+      = initials
+  else
+    span(class=cls)&attributes(attributes)
+      = initials
+
+//- The default raised thing. `sunk` inverts it into a well.
+mixin card(opts)
+  - opts = opts || {}
+  div(class=['rounded-lg border border-line p-5', opts.sunk ? 'bg-bg-sunk' : 'bg-surface'])&attributes(attributes)
+    block
+
+//- Progress. `pct` is a number 0-100.
+mixin bar(pct)
+  div(class='h-[5px] overflow-hidden rounded-full bg-surface-3')&attributes(attributes)
+    i(class='block h-full rounded-full bg-uv transition-[width] duration-[380ms] ease-uv' style=`width: ${pct}%`)
+
+//- An aside the interface is making to you. Icon defaults to a neutral hint.
+mixin note(icon)
+  div(
+    class='flex gap-2.5 rounded-md border border-line bg-surface px-[15px] py-[13px] text-sm text-ink-2'
+  )&attributes(attributes)
+    +icon(icon || 'alert')(class='mt-0.5 h-4 w-4 shrink-0 text-ink-3')
+    div
+      block
+
+//- Loading placeholder. Give it a size at the call site.
+mixin skeleton
+  div(class='skeleton')&attributes(attributes)
+
+//- Indeterminate spinner, for "we asked and haven't heard back".
+mixin spinner
+  div(
+    class='h-[15px] w-[15px] shrink-0 animate-spin rounded-full border-2 border-line border-t-uv'
+  )&attributes(attributes)
+
+//- Text input.
+mixin input(opts)
+  - opts = opts || {}
+  input(
+    type=opts.type || 'text'
+    value=opts.value
+    placeholder=opts.placeholder
+    class=[
+      'h-[38px] w-full rounded-md border border-line bg-bg-sunk px-3 text-[14px] transition-[border-color,box-shadow] duration-200 ease-uv',
+      'placeholder:text-ink-4 focus:border-uv focus:shadow-[0_0_0_3px_var(--color-uv-ghost)] focus:outline-none',
+      opts.mono ? 'font-mono text-mono' : '',
+    ]
+  )&attributes(attributes)
+
+//- Labelled field wrapper.
+mixin field(label)
+  div(class='flex flex-col gap-1.5')&attributes(attributes)
+    label(class='text-[13px] font-[560] text-ink-2')= label
+    block
+
+//- Tab strip. `+tab` marks the selected one with the accent underline.
+mixin tabs(opts)
+  - opts = opts || {}
+  div(
+    class=[
+      'border-b border-line',
+      opts.stretch ? 'grid grid-cols-3' : 'flex gap-[22px]',
+      opts.scroll ? 'overflow-x-auto' : '',
+    ]
+  )&attributes(attributes)
+    block
+
+mixin tab(label, selected)
+  button(
+    type='button'
+    role='tab'
+    aria-selected=selected ? 'true' : 'false'
+    class=[
+      'relative px-px py-[9px] text-[14px] font-[550] whitespace-nowrap transition-colors duration-200 ease-uv',
+      selected
+        ? "text-ink after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-sm after:bg-uv after:content-['']"
+        : 'text-ink-3 hover:text-ink-2',
+    ]
+  )&attributes(attributes)
+    = label
+    block
+
+//-
+  A row in a "here's how every other state reads" legend. Desktop lays it out
+  in one line; mobile stacks the label, the description, and the actions.
+mixin stline(opts)
+  - opts = opts || {}
+  div(
+    class=[
+      'flex px-0.5 py-[13px] [&+&]:border-t [&+&]:border-line-soft',
+      opts.mobile ? 'flex-col items-start gap-[9px]' : 'items-center gap-[14px]',
+    ]
+  )&attributes(attributes)
+    block
+
+//- The buttons at the end of a stacked (mobile) stline — full width, split evenly.
+mixin stlineActions
+  span(class!='flex w-full gap-2 [&>button]:flex-1')&attributes(attributes)
+    block
+
+//-
+  The patterns documented on patterns.html. They live here rather than there
+  so the detail pages and the catalogue can't drift apart — patterns.html is
+  the catalogue for these, not a second copy of them.
+
+//- Dimmed, blurred backdrop. Absolutely positioned, so its parent needs
+    `relative`.
+mixin modalScrim
+  div(class='absolute inset-0 flex items-center justify-center bg-scrim/62 p-6 backdrop-blur-[2px]')&attributes(attributes)
+    block
+
+//- The dialog itself. 380px here; foundations.md's modal width is 440px max.
+mixin modal
+  div(class='w-full max-w-[380px] rounded-lg border border-line-loud bg-surface p-[22px] shadow-lift')&attributes(attributes)
+    block
+
+//- A plain-language reason, as a row rather than a native radio.
+mixin reason(label, checked)
+  div(
+    class=[
+      'flex items-center gap-2.5 rounded-md border px-3 py-[11px] transition-[border-color,background-color] duration-200 ease-uv [&+&]:mt-2',
+      checked ? 'border-uv/40 bg-uv-ghost' : 'border-line',
+    ]
+  )&attributes(attributes)
+    span(
+      class=[
+        'grid h-4 w-4 shrink-0 place-items-center rounded-full border-[1.5px]',
+        checked
+          ? "border-uv after:h-2 after:w-2 after:rounded-full after:bg-uv after:content-['']"
+          : 'border-line-loud',
+      ]
+    )
+    span(class='text-sm')= label
+
+//- "Trigger → act → result" strip. Stacks vertically at narrow widths.
+mixin storyboard(mobile)
+  div(class=['flex items-stretch gap-[14px]', mobile ? 'flex-col' : ''])&attributes(attributes)
+    block
+
+//- One step of a storyboard. `wide` gives the middle step more room.
+mixin storyboardStep(caption, wide)
+  div(class=['flex flex-col gap-2', wide ? 'flex-[1.4]' : 'flex-1'])&attributes(attributes)
+    p(class='text-cap text-ink-3')= caption
+    block
+
+//- A storyboard step whose content is centred in a fixed-height card, for the
+    steps that hold a single button or chip rather than a whole panel.
+mixin storyboardFrame(minHeight)
+  div(
+    class='flex flex-1 flex-col items-center justify-center gap-2 rounded-lg border border-line bg-surface p-4 text-center'
+    style=`min-height: ${minHeight || 110}px`
+  )&attributes(attributes)
+    block
+
+//- The destructive confirm button: bad-tinted rather than solid, because the
+    dialog title already carries the weight.
+mixin deleteBtn(full)
+  +btn({ label: 'Delete', iconEnd: 'trash', size: 'sm', full: full })(class='border-bad/40 bg-bad-ghost text-bad')
+
+//- One credited name.
+mixin castPerson(initials, name)
+  div(class='flex shrink-0 items-center gap-2')&attributes(attributes)
+    +avatar(initials, { size: 'md' })
+    span(class='text-sm')= name
+
+//- ── filtering ──────────────────────────────────────────────────────────
+//- Shared by gallery.pug and search.pug, which filter the same way.
+
+//- The Filters button. Carries a count when filters are on, and rotates its
+    chevron when the panel is open.
+mixin filtersBtn(opts)
+  - opts = opts || {}
+  +btn({ label: 'Filters', variant: 'outline', size: opts.size })&attributes(attributes)
+    if opts.count
+      span(
+        class='inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-uv px-1 font-mono text-[10px] font-bold text-uv-ink'
+      )= opts.count
+    +icon('chevron')(class=['h-[13px] w-[13px] shrink-0 text-ink-3', opts.open ? 'rotate-180' : ''])
+
+//- An applied filter, with its own remove button. Accent-tinted, because it's
+    a thing you did rather than a thing the system reports.
+mixin afchip(label, removeLabel)
+  span(
+    class='inline-flex h-[27px] items-center gap-[7px] rounded-full border border-uv/30 bg-uv-ghost py-0 pr-2 pl-[11px] text-[12.5px] font-[550] text-uv-hi'
+  )&attributes(attributes)
+    = label
+    button(class='flex opacity-70 transition-opacity duration-200 ease-uv hover:opacity-100' type='button' aria-label=removeLabel)
+      +icon('x')(class='h-3 w-3')
+
+//-
+  The dropdown panel itself. `@container` so filterGrid can key its column
+  count off the panel's own width rather than the viewport — the same panel
+  markup renders inside a 340px mobile popover and a 480px desktop one.
+mixin filterPanel
+  div(class='@container rounded-lg border border-line bg-surface px-[22px] pt-5 pb-[18px] shadow-lift')&attributes(attributes)
+    block
+
+//-
+  Single column below 400px of panel width — two auto-fill columns at
+  190px min plus col-span-2 (filterGroup call sites) don't fit the ~296px
+  a mobile popover has left after its padding, and previously overflowed
+  the app frame instead of wrapping.
+mixin filterGrid
+  div(class='grid grid-cols-1 gap-x-7 gap-y-[22px] @min-[400px]:grid-cols-[repeat(auto-fill,minmax(190px,1fr))]')&attributes(attributes)
+    block
+
+mixin filterGroup(label)
+  div(class='flex flex-col gap-[9px]')&attributes(attributes)
+    span(class='font-mono text-label tracking-[0.11em] uppercase text-ink-4')= label
+    block
+
+mixin filterFoot
+  div(class='mt-5 flex items-center justify-between gap-[14px] border-t border-line-soft pt-4')&attributes(attributes)
+    block
+
+//-
+  Dims the whole app frame behind an open filter panel, so the panel reads as
+  a floating popup over the app rather than a bug that hides the first row of
+  a grid. A direct child of `appFrame` (mock.pug) — that element is already
+  `relative`, has no padding of its own, and clips to the frame's rounded
+  corners, so `inset-0` here reaches every edge for free.
+mixin filterScrim
+  div(class='absolute inset-0 z-10 bg-black/55')&attributes(attributes)
+
+//- A person you can filter by. Checked state is read from the input with
+    :has(), so it works without JS.
+mixin toggleChip(initials, name, checked)
+  label(
+    class=[
+      'inline-flex h-8 cursor-pointer items-center gap-2 rounded-full border py-0 pr-[13px] pl-[11px] text-[12.5px] transition-[border-color,background-color,color] duration-200 ease-uv select-none',
+      checked ? 'border-uv/35 bg-uv-ghost text-uv-hi' : 'border-line bg-surface text-ink-3',
+    ]
+  )&attributes(attributes)
+    input(
+      class="h-[14px] w-[14px] shrink-0 cursor-pointer appearance-none rounded-[3px] border-[1.5px] border-line-loud bg-bg-sunk transition-[background-color,border-color] duration-200 ease-uv checked:border-uv checked:bg-uv relative checked:after:absolute checked:after:top-[-0.5px] checked:after:left-[3px] checked:after:h-[7px] checked:after:w-1 checked:after:rotate-45 checked:after:border-uv-ink checked:after:border-r-[1.6px] checked:after:border-b-[1.6px] checked:after:content-['']"
+      type='checkbox'
+      checked=checked
+    )
+    block
+    = name
+
+//- A select, drawn as an input-shaped button.
+mixin menuTrigger(label, opts)
+  - opts = opts || {}
+  button(
+    type='button'
+    class=[
+      'flex h-[38px] w-full items-center justify-between rounded-md border bg-bg-sunk px-3 text-left text-[14px] transition-[border-color,box-shadow] duration-200 ease-uv',
+      opts.open ? 'border-uv shadow-[0_0_0_3px_var(--color-uv-ghost)]' : 'border-line',
+    ]
+  )&attributes(attributes)
+    = label
+    +icon('chevron')(class=['h-[13px] w-[13px] shrink-0 text-ink-3', opts.open ? 'rotate-180' : ''])
+
+mixin menu
+  div(class='flex flex-col gap-px rounded-lg border border-line-loud bg-surface-3 p-1 shadow-lift')&attributes(attributes)
+    block
+
+mixin menuItem(label, selected)
+  button(
+    type='button'
+    class=[
+      'flex h-8 w-full items-center justify-between rounded-xs px-2.5 text-left text-[14px] transition-colors duration-200 ease-uv hover:bg-surface-2',
+      selected ? 'bg-uv-ghost font-[550] text-uv-hi' : 'text-ink-2',
+    ]
+  )&attributes(attributes)
+    = label
+    if selected
+      +icon('check')(class='h-[14px] w-[14px] shrink-0 text-uv-hi')
+
+//-
+  Data table. The cell styling is applied from the <table> with descendant
+  variants rather than on every <th>/<td>, so a row stays readable as markup.
+  Headers are mono uppercase — a field name is the machine talking.
+mixin dataTable
+  table(
+    class!='w-full border-collapse [&_td]:border-b [&_td]:border-line-soft [&_td]:px-3 [&_td]:py-3 [&_td]:align-middle [&_td]:text-sm [&_tbody_tr]:transition-colors [&_tbody_tr]:duration-[120ms] [&_tbody_tr]:ease-uv [&_tbody_tr:hover]:bg-surface-2 [&_tbody_tr:last-child_td]:border-b-0 [&_th]:border-b [&_th]:border-line [&_th]:px-3 [&_th]:py-2.5 [&_th]:text-left [&_th]:font-mono [&_th]:text-label [&_th]:font-medium [&_th]:tracking-[0.11em] [&_th]:uppercase [&_th]:text-ink-4'
+  )&attributes(attributes)
+    block
+
+//- Icon + text run, for the type/duration/year metadata under a card.
+mixin mchip(icon, label)
+  span(class='inline-flex items-center gap-[5px]')&attributes(attributes)
+    if icon
+      +icon(icon)(class='h-[11px] w-[11px] shrink-0')
+    = label
+
+//-
+  Gallery card — poster, title, metadata, attribution. The whole card lifts on
+  hover; the top part is the link, the bottom row stays interactive.
+mixin gcard
+  div(
+    class='flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv'
+  )&attributes(attributes)
+    block
+
+//- The link half of a gallery card.
+mixin gcardLink(href)
+  a(class='flex flex-col gap-[9px]' href=href)&attributes(attributes)
+    block
+
+//- Card title — two lines, then ellipsis.
+mixin gcardTitle(text)
+  p(class='line-clamp-2 text-sm leading-[1.35] font-semibold')&attributes(attributes)= text
+
+//- A row of metadata inside a gallery card.
+mixin gcardRow
+  div(class='flex items-center justify-between gap-1.5 px-px')&attributes(attributes)
+    block
+
+//- Who added it, and when.
+mixin gcardAttrib
+  span(class='flex min-w-0 items-center gap-[5px] whitespace-nowrap')&attributes(attributes)
+    block
+
+//-
+  Quick-access tile — icon, heading, count. Column by default (desktop grid),
+  row when it's a full-width list item on mobile.
+mixin tile(opts)
+  - opts = opts || {}
+  a(
+    class=[
+      'group flex gap-2.5 rounded-md border border-line bg-surface p-[15px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv',
+      opts.row ? 'flex-row items-center' : 'flex-col',
+    ]
+    href=opts.href
+  )&attributes(attributes)
+    span(
+      class='grid h-[30px] w-[30px] shrink-0 place-items-center rounded-lg bg-surface-3 text-ink-2 transition-[background-color,color] duration-200 ease-uv group-hover:bg-uv-ghost group-hover:text-uv-hi'
+    )
+      +icon(opts.icon)(class='h-[15px] w-[15px]')
+    span(class=opts.row ? 'flex-1' : '')
+      span(class='block text-h3')= opts.title
+      span(class='flex items-center gap-1.5 font-mono text-mono-sm text-ink-3')
+        if opts.live
+          +dot('live')
+        span= opts.meta
+    block
+
+//-
+  Poster / thumbnail. The real art in assets/ is gitignored, so every poster
+  falls back to one of five gradient stand-ins; src/runtime.js removes the
+  <img> when the file isn't there and the label underneath reappears.
+    shape  'tall' (2:3 poster) | 'wide' (16:9 thumb)
+    v      1-5, which gradient stand-in
+    src    real art, relative to this file
+    label  the title, shown only when there's no art
+    play   overlay a play triangle
+mixin poster(opts)
+  - opts = opts || {}
+  div(
+    class=[
+      'group relative flex shrink-0 items-center justify-center overflow-hidden',
+      opts.radius || 'rounded-md',
+      opts.shape === 'wide' ? 'aspect-video' : 'aspect-[2/3]',
+      `poster-v${opts.v || 1}`,
+    ]
+  )&attributes(attributes)
+    if opts.label
+      span(class='p-2.5 text-center text-[12px]/[1.3] font-semibold text-ink-2 group-has-[img]:hidden')= opts.label
+    if opts.src
+      img(class='absolute inset-0 h-full w-full object-cover' src=opts.src alt='' data-poster)
+    if opts.play
+      span(class='absolute inset-0 flex items-center justify-center bg-linear-to-b from-transparent from-48% to-scrim/50')
+        +icon('play')(class=[opts.playSize || 'h-7 w-7', 'text-ink'])
+    block

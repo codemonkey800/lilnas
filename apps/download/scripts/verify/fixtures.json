@@ -1,0 +1,21 @@
+{
+  "adminEmail": "jeremyasuncion808@gmail.com",
+  "movie": {
+    "tmdbId": 11660,
+    "title": "Following",
+    "year": 1999
+  },
+  "show": {
+    "tvdbId": 276842,
+    "title": "Olive Kitteridge",
+    "seasonNumber": 1,
+    "expectedEpisodes": 4
+  },
+  "video": {
+    "url": "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+    "timeRange": {
+      "start": "00:00:00",
+      "end": "00:00:05"
+    }
+  }
+}

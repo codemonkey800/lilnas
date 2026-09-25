@@ -1,0 +1,151 @@
+extends ../layout/page.pug
+
+block title
+  | Home — download UI mockups · lilnas
+
+//-
+  The homepage. Note what isn't here: any input of its own. Pasting a link and
+  searching a title both happen in the nav-bar field, so this page is only
+  quick access plus recently added.
+
+  Poster labels here are hardcoded to whatever Emby actually returned as
+  most-recently-added when assets/fetch-assets.sh last ran — this is the one
+  page that presents itself as real library data. See assets/README.md.
+
+block content
+  -
+    const QUICK = [
+      { icon: 'film', title: 'Browse movies', meta: '318 in the library' },
+      { icon: 'tv', title: 'Browse shows', meta: '54 in the library' },
+      { icon: 'play', title: 'Video library', meta: '203 in the library' },
+      { icon: 'download', title: 'Downloads activity', meta: '2 running now', live: true },
+    ]
+
+  +mockHead({ eyebrow: 'lilnas · download', title: 'Home' })
+    p(class='max-w-[62ch] text-sm text-ink-3')
+      | The homepage carries no input of its own — pasting a link or searching a title both happen in the
+      | nav-bar field, present here and on every other page. See
+      | #[a(class='text-uv-hi underline' href='nav-search.html') nav-search.html] for that field's full state
+      | and flow reference. What's left on this page: a library overview, quick access, and recently added.
+
+  section(class='mt-14 border-t border-line-soft pt-[30px]' id='full-page')
+    h2(class='mb-1.5 text-[22px] leading-[1.25] font-[650] tracking-[-0.015em]') Full page, in context
+    p(class='mb-6 max-w-[62ch] text-sm text-ink-3')
+      | Quick access and recently added, with the same nav bar every other page has wrapping it.
+
+  div(class='vp-scope')
+    +viewportToggle('viewport')(class='mb-8' role='radiogroup' aria-label='Viewport')
+
+    //- ── desktop ────────────────────────────────────────────────────────
+    +viewportPanel('desktop')
+      +frameLabel()(class='mt-2') Full page
+      +appFrame('desktop')
+        +navBar('desktop', { placeholder: 'Search or paste a link…' })
+        +appBody('desktop')
+          div(class='mx-auto max-w-[1080px]')
+            div(class='mb-4 flex items-center justify-between')
+              span(class='text-h2') Quick access
+            div(class='flex flex-wrap gap-[14px] stagger')
+              each item in QUICK
+                +tile(item)(class='min-w-[220px] flex-1')
+
+            div(class='mt-10 mb-4 flex items-center justify-between')
+              span(class='text-h2') Recently added
+              +btn({ label: 'See full library', variant: 'ghost', size: 'sm', iconEnd: 'arrow' })
+
+            div(class='flex flex-wrap gap-4 stagger')
+              +recent('movie-detail.html', {
+                src: 'assets/emby/movie-4.jpg', v: 1, title: 'Scary Movie',
+                kind: 'movie', kindIcon: 'film', meta: '2026',
+                who: 'JA', when: '12m ago', watch: true,
+              })
+              +recent('show-detail.html', {
+                src: 'assets/emby/show-4.jpg', v: 3, title: 'Warrior',
+                kind: 'show', kindIcon: 'tv', meta: 's2',
+                who: 'SR', when: '1h ago', watch: true,
+              })
+              +recent('movie-detail.html', {
+                src: 'assets/emby/movie-1.jpg', v: 4, title: 'Jackass: Best and Last',
+                kind: 'movie', kindIcon: 'film', meta: '2026',
+                who: 'AC', when: '4h ago', watch: true,
+              })
+              +recent('show-detail.html', {
+                src: 'assets/emby/show-1.jpg', v: 5, title: 'The Madison',
+                kind: 'show', kindIcon: 'tv', indexing: true,
+                who: 'JA', when: '6h ago',
+              })
+              +recent('video-detail.html', {
+                src: 'assets/video/video-1.jpg', v: 2, video: true,
+                kind: 'video', kindIcon: 'play', meta: '2:58',
+                who: 'SR', when: '9h ago',
+              })
+              +recent('video-detail.html', {
+                src: 'assets/video/video-2.jpg', v: 3, video: true,
+                kind: 'video', kindIcon: 'play', meta: '0:19',
+                hiddenWho: true, when: '1d ago',
+              })
+
+    //- ── mobile ─────────────────────────────────────────────────────────
+    +viewportPanel('mobile')
+      +frameLabel()(class='mt-1') Full page
+      +appFrame('mobile')
+        +navBar('mobile')
+        +appBody('mobile')
+          p(class='mb-[14px] text-h2') Quick access
+          div(class='flex flex-col gap-2.5 stagger')
+            each item in QUICK
+              +tile({ ...item, row: true })
+
+          div(class='mt-[34px] mb-[14px] flex items-center justify-between')
+            span(class='text-h2') Recently added
+
+          div(class='flex flex-wrap gap-4 stagger')
+            +recent('movie-detail.html', {
+              src: 'assets/emby/movie-4.jpg', v: 1, title: 'Scary Movie',
+              kind: 'movie', kindIcon: 'film', meta: '2026',
+              who: 'JA', when: '12m ago', half: true,
+            })
+            +recent('show-detail.html', {
+              src: 'assets/emby/show-4.jpg', v: 3, title: 'Warrior',
+              kind: 'show', kindIcon: 'tv', meta: 's2',
+              who: 'SR', when: '1h ago', half: true,
+            })
+            +gcard()(class='w-full')
+              a(class='flex items-center gap-2.5' href='video-detail.html')
+                +poster({ shape: 'wide', v: 2, src: 'assets/video/video-1.jpg', play: true, playSize: 'h-5 w-5' })(
+                  class='w-[108px]'
+                )
+                div(class='flex min-w-0 flex-1 flex-col gap-[5px]')
+                  +gcardTitle('How To Kettlebell Swing (in 3 minutes)')
+                  span(class='font-mono text-mono-sm text-ink-4') 2:58 · 9h ago
+
+//-
+  One "recently added" card. Videos get a 2:3 crop here rather than their
+  native 16:9 so the grid stays a single rhythm of poster shapes.
+mixin recent(href, o)
+  +gcard()(class=o.half ? 'w-[calc(50%-8px)]' : 'w-[158px]')
+    +gcardLink(href)
+      //- Videos take the 2:3 poster crop here rather than their native 16:9,
+      //- so the grid stays one rhythm of shapes rather than two.
+      +poster({
+        shape: 'tall',
+        v: o.v,
+        src: o.src,
+        label: o.title,
+        play: o.video,
+        playSize: 'h-[22px] w-[22px]',
+      })
+      if o.title
+        +gcardTitle(o.title)
+      +gcardRow
+        +mchip(o.kindIcon, o.kind)(class='font-mono text-mono-sm text-ink-3')
+        if o.indexing
+          +chip({ label: 'indexing…', tone: 'warn' })(class='h-[19px] text-[10px]')
+        else
+          span(class='font-mono text-mono-sm text-ink-4')= o.meta
+    +gcardRow
+      +gcardAttrib
+        +avatar(o.hiddenWho ? '–' : o.who, { size: 'xs', hidden: o.hiddenWho })
+        span(class='font-mono text-mono-sm text-ink-4')= o.when
+      if o.watch
+        +btn({ label: 'Watch', variant: 'ghost' })(class='h-6 px-2 text-[11.5px]')

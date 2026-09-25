@@ -36,6 +36,7 @@ services:
       - ../../infra/valheim.yml:/repo/infra/valheim.yml:ro
       - ../../apps/auth/deploy.yml:/repo/apps/auth/deploy.yml:ro
       - ../../apps/dashcam/deploy.yml:/repo/apps/dashcam/deploy.yml:ro
+      - ../../apps/dev-idle-reaper/deploy.yml:/repo/apps/dev-idle-reaper/deploy.yml:ro
       - ../../apps/download/deploy.yml:/repo/apps/download/deploy.yml:ro
       - ../../apps/equations/deploy.yml:/repo/apps/equations/deploy.yml:ro
       - ../../apps/me-token-tracker/deploy.yml:/repo/apps/me-token-tracker/deploy.yml:ro

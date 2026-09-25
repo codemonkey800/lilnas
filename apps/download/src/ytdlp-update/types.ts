@@ -11,14 +11,6 @@ export interface GitHubAsset {
   size: number
 }
 
-export interface UpdateCheckResult {
-  currentVersion: string
-  latestVersion: string
-  updateAvailable: boolean
-  canUpdate: boolean
-  reason?: string
-}
-
 export interface UpdateResult {
   success: boolean
   previousVersion: string

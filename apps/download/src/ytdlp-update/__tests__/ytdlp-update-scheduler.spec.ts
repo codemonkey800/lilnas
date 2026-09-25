@@ -1,8 +1,18 @@
+// nanoid v5 ships ESM-only; this codebase's ts-jest transform doesn't cover
+// it, so any test that transitively imports code using nanoid (like
+// DownloadStateService, since Phase 5's ensureVideo()) must mock it first
+// (see media/__tests__/download.controller.media.test.ts for the same
+// pattern).
+jest.mock('nanoid', () => ({
+  nanoid: jest.fn(() => 'mock-id'),
+}))
+
 import { Test, TestingModule } from '@nestjs/testing'
 import axios from 'axios'
 import { ChildProcess, spawn } from 'child_process'
 import { EventEmitter } from 'events'
 
+import { DownloadMetricsService } from 'src/download/download-metrics.service'
 import { DownloadStateService } from 'src/download/download-state.service'
 import { YtdlpUpdateService } from 'src/ytdlp-update/ytdlp-update.service'
 
@@ -54,6 +64,13 @@ describe('YtdlpUpdateService - Scheduler', () => {
         {
           provide: DownloadStateService,
           useValue: mockDownloadStateService,
+        },
+        // YtdlpUpdateService reports every update attempt as a metric; the
+        // counters themselves are a prom-client global, so a stub is enough
+        // to satisfy DI without a second registry in the test process.
+        {
+          provide: DownloadMetricsService,
+          useValue: { ytdlpUpdate: jest.fn() },
         },
       ],
     }).compile()

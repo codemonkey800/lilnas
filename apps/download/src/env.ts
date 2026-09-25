@@ -1,7 +1,20 @@
 export const EnvKeys = {
   BACKEND_PORT: 'BACKEND_PORT',
+  DATABASE_PATH: 'DATABASE_PATH',
+  // Dev-only fallback identity — see forwarded-user.ts's
+  // resolveForwardedUser(). Never set in production (.env.prod on the
+  // deploy host has no reason to define these).
+  DEV_USER_EMAIL: 'DEV_USER_EMAIL',
+  DEV_USER_ID: 'DEV_USER_ID',
   DOWNLOAD_POLL_DURATION_MS: 'DOWNLOAD_POLL_DURATION_MS',
   DOWNLOAD_POLL_RETRIES: 'DOWNLOAD_POLL_RETRIES',
+  EMBY_API_KEY: 'EMBY_API_KEY',
+  // Public origin used to build watchUrl values handed to a browser
+  // (https://emby.lilnas.io). EMBY_URL is the container-to-container
+  // address used for API calls and is not reachable from a browser.
+  EMBY_EXTERNAL_URL: 'EMBY_EXTERNAL_URL',
+  EMBY_URL: 'EMBY_URL',
+  EMBY_USERNAME: 'EMBY_USERNAME',
   LOG_FILE_PATH: 'LOG_FILE_PATH',
   MAX_DOWNLOADS: 'MAX_DOWNLOADS',
   MINIO_ACCESS_KEY: 'MINIO_ACCESS_KEY',

@@ -1,0 +1,1629 @@
+<!doctype html>
+<!--
+  Standalone mockup — apps/auth's admin dashboard gaining Discord account
+  linking. Not part of the download app's Pug/Tailwind mockup pipeline
+  (docs/features/download/designs/src/): apps/auth is a separate app with its
+  own semantic-class design system (design-tokens.css), so this file inlines
+  that system verbatim rather than force-fitting it into the Ultraviolet
+  build. See docs/features/download/plans/017-discord-attribution-and-
+  account-linking.md, task B3 (Admin UI: the Discord links panel).
+
+  Self-contained: open directly in a browser, no build step. The CSS below is
+  copied near-verbatim from apps/auth/src/app/styles/design-tokens.css (only
+  the login/pending-page sections that this screen doesn't use are trimmed).
+  The People table + person-card markup mirrors
+  apps/auth/src/app/admin/admin-dashboard-client.tsx's real class names and
+  structure; the Edit Access modal mirrors edit-access-modal.tsx.
+
+  The "Discord links panel" itself (discord-links-panel.tsx) does not exist
+  in the app yet — task B3 hasn't been built — so its class names
+  (`.link-lists`, `.link-list`, `.link-row`, `.link-cta`, `.btn-ghost-danger`,
+  …) are a proposal this mockup introduces, gathered under a clearly marked
+  "new component classes" block below rather than mixed into the verbatim
+  copy of design-tokens.css. When B3 lands, whichever of these earn their
+  keep should move into the real stylesheet.
+
+  Rework note (2026-09-19): the previous version of this file had the admin
+  *type* a Discord snowflake + username into the Edit Access modal. That was
+  the original spec and it was rejected — a typed handle rots the moment
+  someone renames themselves on Discord, and a typo silently produces a link
+  that matches nothing. This version replaces that text input entirely with
+  a dedicated panel where an admin picks one row from each of two
+  *observed* lists — lilnas people (from Better Auth's `user` table) and
+  Discord accounts (from `discord_identity`, filled the first time someone
+  runs `/download`) — and links by snowflake alone. Nothing is ever typed.
+  The Edit Access modal keeps a Discord row, but it is now read-only.
+
+  Mockup-only liberties (don't exist in the real, still-unbuilt component):
+  every interaction state below (disabled Link button, enabled Link button,
+  both empty states) is drawn as its own static frame so they're all
+  reviewable at once, instead of one interactive panel. The mobile frame
+  pins the two-column grid to a single column via a fixed 390px width rather
+  than a real viewport resize. The mobile person-card list is shown
+  unconditionally instead of behind the real max-width:768px query (kept
+  below for reference). The Edit Access modal's footer puts `btn-sm` on
+  Cancel/Save access too, not just "Sign out everywhere" as the real
+  edit-access-modal.tsx does today — three same-height buttons at the
+  default 40px don't fit on one line inside the modal's 420px width without
+  wrapping, and `btn-sm` on all three was the fix that kept them aligned on
+  a single row. Worth carrying into the real component alongside B3.
+
+  Don't edit the real design-tokens.css from here — this is a one-way copy
+  for mockup purposes only.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Admin dashboard — Discord linking · auth mockup · lilnas</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;550;590;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+    />
+    <style>
+      /* ── copied from apps/auth/src/app/styles/design-tokens.css ── */
+      :root {
+        --bg: oklch(17% 0.007 262);
+        --surface: oklch(22% 0.009 262);
+        --fg: oklch(96% 0.003 262);
+        --muted: oklch(68% 0.02 262);
+        --border: oklch(32% 0.014 262);
+        --accent: oklch(62% 0.19 255);
+        --accent-fg: #ffffff;
+
+        --radius: 8px;
+        --radius-lg: 12px;
+        --grid: 8px;
+
+        --font:
+          'Inter', system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue',
+          Arial, sans-serif;
+        --mono:
+          'SF Mono', 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+        --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
+        --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
+
+        --ring: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: var(--font);
+        -webkit-font-smoothing: antialiased;
+      }
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+      button {
+        font-family: inherit;
+        cursor: pointer;
+      }
+      input,
+      select,
+      textarea {
+        font-family: inherit;
+      }
+      ul {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      /* ---------- typography ---------- */
+      .h1 {
+        font-size: clamp(24px, 3vw, 30px);
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        line-height: 1.2;
+      }
+      .h2 {
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        line-height: 1.25;
+      }
+      .h3 {
+        font-size: 15px;
+        font-weight: 550;
+        line-height: 1.4;
+      }
+      .body-text {
+        font-size: 15px;
+        line-height: 1.6;
+        color: var(--fg);
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .small {
+        font-size: 13px;
+        line-height: 1.5;
+        letter-spacing: 0.01em;
+      }
+      .caption {
+        font-size: 12px;
+        line-height: 1.5;
+        letter-spacing: 0.01em;
+        color: var(--muted);
+      }
+      .eyebrow {
+        font-size: 11px;
+        font-weight: 590;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .mono {
+        font-family: var(--mono);
+        font-size: 13px;
+      }
+
+      /* ---------- buttons ---------- */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        height: 40px;
+        padding: 0 16px;
+        border-radius: var(--radius);
+        border: 1px solid transparent;
+        font-size: 14px;
+        font-weight: 550;
+        letter-spacing: 0.01em;
+        transition:
+          background-color 0.15s ease,
+          border-color 0.15s ease,
+          color 0.15s ease,
+          transform 0.05s ease;
+        white-space: nowrap;
+      }
+      .btn:active {
+        transform: translateY(1px);
+      }
+      .btn:focus-visible {
+        outline: none;
+        box-shadow: var(--ring);
+      }
+      .btn svg {
+        width: 16px;
+        height: 16px;
+        flex-shrink: 0;
+      }
+      .btn-primary {
+        background: var(--accent);
+        color: var(--accent-fg);
+        border-color: var(--accent);
+      }
+      .btn-primary:hover {
+        background: color-mix(in srgb, var(--accent) 88%, black);
+        border-color: color-mix(in srgb, var(--accent) 88%, black);
+      }
+      .btn-outline {
+        background: var(--bg);
+        color: var(--fg);
+        border-color: var(--border);
+      }
+      .btn-outline:hover {
+        border-color: color-mix(in srgb, var(--fg) 40%, var(--border));
+        background: var(--surface);
+      }
+      .btn-ghost {
+        background: transparent;
+        color: var(--muted);
+        border-color: transparent;
+        padding: 0 10px;
+        height: 36px;
+      }
+      .btn-ghost:hover {
+        color: var(--fg);
+        background: var(--surface);
+      }
+      .btn-sm {
+        height: 32px;
+        padding: 0 12px;
+        font-size: 13px;
+      }
+      .btn[disabled] {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      /* ---------- surfaces / chips ---------- */
+      .card {
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+      }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 24px;
+        padding: 0 9px;
+        border-radius: 100px;
+        font-size: 12px;
+        font-weight: 550;
+        letter-spacing: 0.02em;
+      }
+      .chip svg {
+        width: 12px;
+        height: 12px;
+      }
+      .chip-granted {
+        background: var(--fg);
+        color: var(--bg);
+      }
+      .chip-neutral {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        color: var(--fg);
+      }
+      .chip-admin {
+        background: var(--accent);
+        color: var(--accent-fg);
+      }
+
+      /* ---------- inputs ---------- */
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .field label {
+        font-size: 13px;
+        font-weight: 550;
+        color: var(--fg);
+      }
+      .input {
+        height: 40px;
+        padding: 0 12px;
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+        background: var(--bg);
+        color: var(--fg);
+        font-size: 14px;
+        width: 100%;
+      }
+      .input:focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: var(--ring);
+      }
+      .input::placeholder {
+        color: var(--muted);
+      }
+      .field-hint {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      /* ---------- avatar ---------- */
+      .avatar {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        color: var(--fg);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 13px;
+        font-weight: 590;
+        flex-shrink: 0;
+      }
+
+      /* ---------- table ---------- */
+      .table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .table th {
+        text-align: left;
+        font-size: 11px;
+        font-weight: 590;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted);
+        padding: 14px 12px 10px;
+        border-bottom: 1px solid var(--border);
+      }
+      .table td {
+        padding: 12px;
+        border-bottom: 1px solid var(--border);
+        font-size: 14px;
+        vertical-align: middle;
+      }
+      .table tr:last-child td {
+        border-bottom: none;
+      }
+      .table-row-actions {
+        display: flex;
+        gap: 6px;
+        justify-content: flex-end;
+      }
+
+      /* ---------- empty state ---------- */
+      .empty-state {
+        padding: 48px 24px;
+        text-align: center;
+        color: var(--muted);
+      }
+      .empty-state svg {
+        width: 32px;
+        height: 32px;
+        margin: 0 auto 12px;
+        stroke: var(--muted);
+      }
+
+      /* ---------- panel head ---------- */
+      .panel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .search-input {
+        position: relative;
+        width: 100%;
+      }
+      .search-input svg {
+        position: absolute;
+        left: 11px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 15px;
+        height: 15px;
+        stroke: var(--muted);
+        pointer-events: none;
+      }
+      .search-input input {
+        padding-left: 34px;
+      }
+
+      /* ---------- modal ---------- */
+      .modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.55);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+        z-index: 50;
+      }
+      .modal-overlay.is-open {
+        display: flex;
+      }
+      .modal {
+        width: 100%;
+        max-width: 420px;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-lg);
+        padding: 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      /* ---------- utility ---------- */
+      .stack {
+        display: flex;
+        flex-direction: column;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+      }
+      .between {
+        justify-content: space-between;
+      }
+      .grow {
+        flex: 1;
+      }
+      .hr {
+        border-top: 1px solid var(--border);
+      }
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+      }
+
+      .row-user {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .row-user__text {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+      }
+      .row-user__name {
+        font-size: 13px;
+        font-weight: 590;
+      }
+      .row-user__email {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .people-card-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .person-card {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 14px 16px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--bg);
+      }
+      .person-card__top {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+      }
+      .person-card__text {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        min-width: 0;
+        flex: 1;
+      }
+      .person-card__name {
+        font-size: 14px;
+        font-weight: 590;
+      }
+      .person-card__row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px 8px;
+      }
+      .person-card__row-label {
+        font-size: 11px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        flex-shrink: 0;
+      }
+      .person-card__actions {
+        display: flex;
+        gap: 8px;
+        padding-top: 10px;
+        border-top: 1px solid var(--border);
+      }
+      .person-card__actions .btn {
+        flex: 1;
+      }
+
+      /* apps/auth's real breakpoint — kept for reference. This page pins
+         `.people-card-list` visible unconditionally above so both the
+         desktop table and the mobile card list are reviewable at once
+         without resizing the window. */
+      @media (max-width: 768px) {
+        .people-table-wrap-reference {
+          display: none;
+        }
+      }
+
+      /* ══════════════════════════════════════════════════════════════════
+         New component classes — proposed for discord-links-panel.tsx,
+         which doesn't exist in the app yet (task B3). Not a copy of
+         anything in design-tokens.css today; move whichever of these
+         survive review into that file when B3 is implemented.
+         ══════════════════════════════════════════════════════════════════ */
+      .link-lists {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        align-items: start;
+      }
+      @media (max-width: 720px) {
+        .link-lists {
+          grid-template-columns: 1fr;
+        }
+      }
+      .link-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .link-list__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .link-list__items {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        max-height: 300px;
+        overflow-y: auto;
+        padding-right: 2px;
+      }
+      .link-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--bg);
+        text-align: left;
+        transition:
+          border-color 0.15s ease,
+          background-color 0.15s ease,
+          box-shadow 0.15s ease;
+      }
+      .link-row:hover {
+        border-color: color-mix(in srgb, var(--fg) 30%, var(--border));
+      }
+      .link-row.is-selected {
+        border-color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 14%, var(--bg));
+        box-shadow: 0 0 0 1px var(--accent);
+      }
+      .link-row__text {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        min-width: 0;
+        flex: 1;
+      }
+      .link-row__primary {
+        font-size: 13px;
+        font-weight: 590;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .link-row__secondary {
+        font-size: 12px;
+        color: var(--muted);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .link-row__check {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        border: 1px solid var(--border);
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .link-row.is-selected .link-row__check {
+        border-color: var(--accent);
+        background: var(--accent);
+      }
+      .link-row.is-selected .link-row__check svg {
+        width: 11px;
+        height: 11px;
+        stroke: var(--accent-fg);
+      }
+      .link-cta {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 0 2px;
+        text-align: center;
+      }
+      .link-cta .btn {
+        min-width: 280px;
+      }
+      /* Mirrors the real component's Tailwind utility classes
+         (text-red-400 hover:bg-red-950/30 hover:text-red-300) used on the
+         dashboard's other destructive .btn-ghost actions (Block, Remove
+         access) — approximated here since this mockup has no Tailwind. */
+      .btn-ghost-danger {
+        color: #f87171;
+      }
+      .btn-ghost-danger:hover {
+        background: rgba(69, 10, 10, 0.3);
+        color: #fca5a5;
+      }
+
+      /* ── mockup-only scaffolding (not in design-tokens.css) ── */
+      .mock-shell {
+        max-width: 1040px;
+        margin: 0 auto;
+        padding: 40px 24px 96px;
+        display: flex;
+        flex-direction: column;
+        gap: 40px;
+      }
+      .mock-head {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        max-width: 74ch;
+      }
+      .mock-head a {
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .mock-head a:hover {
+        color: var(--fg);
+      }
+      .mock-section {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .mock-section-title {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+      }
+      .mock-frame-label {
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        text-align: center;
+      }
+      .mock-two-up {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+        gap: 20px;
+        align-items: start;
+      }
+      .mock-mobile-frame {
+        width: 390px;
+        max-width: 100%;
+        margin: 0 auto;
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 18px;
+        background: var(--bg);
+      }
+      /* The frame is narrow, but it's sitting inside a wide desktop
+         viewport, so `.link-lists`'s own max-width:720px media query never
+         fires here — force the single-column stack this frame exists to
+         preview. */
+      .mock-mobile-frame .link-lists {
+        grid-template-columns: 1fr;
+      }
+      .mock-modal-stage {
+        position: relative;
+        min-height: 380px;
+        border: 1px dashed var(--border);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+      }
+      code {
+        font-family: var(--mono);
+        font-size: 0.92em;
+        background: var(--surface);
+        border-radius: 4px;
+        padding: 1px 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="mock-shell">
+      <header class="mock-head">
+        <a href="index.html">← download UI mockups</a>
+        <p class="eyebrow">lilnas · auth · admin dashboard</p>
+        <h1 class="h1">Discord account linking</h1>
+        <p class="body-text muted">
+          Plan
+          <code>017-discord-attribution-and-account-linking.md</code>, task B3.
+          An admin links a lilnas person to a Discord snowflake so their tdr-bot
+          downloads unify with their web history — but never by typing a handle
+          or an ID.
+          <strong class="body-text"
+            >Both sides of the pairing are observed, not typed:</strong
+          >
+          lilnas people the first time they sign into the web app, Discord
+          accounts the first time someone runs
+          <code>/download</code>. Linking is a pick-one-from-each-list action,
+          keyed on the immutable snowflake, so a Discord rename never breaks an
+          existing link. This is <code>apps/auth</code>'s admin surface — a
+          separate app from <code>apps/download</code>, with its own design
+          system (<code>design-tokens.css</code>), which this file reproduces
+          rather than force-fitting into the download app's Tailwind mockup
+          pipeline.
+        </p>
+      </header>
+
+      <!-- ── Discord links panel ────────────────────────────────────────
+           discord-links-panel.tsx doesn't exist yet — this whole section is
+           new markup proposed by this mockup, mounted as a `card` panel
+           with a `panel-head` on admin-dashboard-client.tsx. ─────────────── -->
+      <section class="mock-section">
+        <div class="mock-section-title">
+          <h2 class="h2">Discord links panel</h2>
+          <span class="caption">discord-links-panel.tsx (new)</span>
+        </div>
+
+        <p class="mock-frame-label">
+          Desktop — populated, nothing selected (Link disabled)
+        </p>
+        <div class="card" style="padding: 20px 20px 24px">
+          <div class="stack" style="gap: 18px">
+            <div class="panel-head">
+              <h3 class="h3">Link a person to a Discord account</h3>
+            </div>
+
+            <div class="link-lists">
+              <div class="link-list">
+                <div class="link-list__head">
+                  <span class="small" style="font-weight: 590"
+                    >People without a Discord link</span
+                  >
+                  <span class="tab-count">5</span>
+                </div>
+                <!-- Filter shown only because this list is long enough to
+                     warrant one — see the accounts list beside it, which
+                     has none. -->
+                <div class="search-input">
+                  <svg
+                    viewBox="0 0 20 20"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.6"
+                  >
+                    <circle cx="9" cy="9" r="6" />
+                    <path d="m17 17-4-4" stroke-linecap="round" />
+                  </svg>
+                  <input
+                    class="input"
+                    type="text"
+                    placeholder="Filter people…"
+                    aria-label="Filter people without a Discord link"
+                  />
+                </div>
+                <div class="link-list__items">
+                  <button type="button" class="link-row">
+                    <span class="link-row__check"></span>
+                    <span class="link-row__text">
+                      <span class="link-row__primary">Priya Shah</span>
+                      <span class="link-row__secondary"
+                        >priya.shah@lilnas.io</span
+                      >
+                    </span>
+                  </button>
+                  <button type="button" class="link-row">
+                    <span class="link-row__check"></span>
+                    <span class="link-row__text">
+                      <span class="link-row__primary">Marcus Webb</span>
+                      <span class="link-row__secondary"
+                        >marcus.webb@lilnas.io</span
+                      >
+                    </span>
+                  </button>
+                  <button type="button" class="link-row">
+                    <span class="link-row__check"></span>
+                    <span class="link-row__text">
+                      <span class="link-row__primary">Dana Kim</span>
+                      <span class="link-row__secondary"
+                        >dana.kim@lilnas.io</span
+                      >
+                    </span>
+                  </button>
+                  <button type="button" class="link-row">
+                    <span class="link-row__check"></span>
+                    <span class="link-row__text">
+                      <span class="link-row__primary">Owen Petrov</span>
+                      <span class="link-row__secondary"
+                        >owen.petrov@lilnas.io</span
+                      >
+                    </span>
+                  </button>
+                  <button type="button" class="link-row">
+                    <span class="link-row__check"></span>
+                    <span class="link-row__text">
+                      <span class="link-row__primary">Yuki Tanaka</span>
+                      <span class="link-row__secondary"
+                        >yuki.tanaka@lilnas.io</span
+                      >
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="link-list">
+                <div class="link-list__head">
+                  <span class="small" style="font-weight: 590"
+                    >Discord accounts without a lilnas link</span
+                  >
+                  <span class="tab-count">2</span>
+                </div>
+                <!-- No filter here — two rows doesn't warrant one. -->
+                <div class="link-list__items">
+                  <button type="button" class="link-row">
+                    <span class="link-row__check"></span>
+                    <span class="link-row__text">
+                      <span class="link-row__primary">@alice_h</span>
+                      <span class="link-row__secondary"
+                        >Alice H. · last seen 2h ago</span
+                      >
+                    </span>
+                  </button>
+                  <button type="button" class="link-row">
+                    <span class="link-row__check"></span>
+                    <span class="link-row__text">
+                      <span class="link-row__primary">@nightowl99</span>
+                      <span class="link-row__secondary">last seen 6d ago</span>
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="link-cta">
+              <button type="button" class="btn btn-primary" disabled>
+                Link
+              </button>
+              <span class="caption"
+                >Select one person and one Discord account to link them.</span
+              >
+            </div>
+          </div>
+        </div>
+
+        <p class="mock-frame-label" style="margin-top: 8px">
+          Desktop — one row selected on each side (Link enabled)
+        </p>
+        <div class="card" style="padding: 20px 20px 24px">
+          <div class="stack" style="gap: 18px">
+            <div class="panel-head">
+              <h3 class="h3">Link a person to a Discord account</h3>
+            </div>
+
+            <div class="link-lists">
+              <div class="link-list">
+                <div class="link-list__head">
+                  <span class="small" style="font-weight: 590"
+                    >People without a Discord link</span
+                  >
+                  <span class="tab-count">5</span>
+                </div>
+                <div class="search-input">
+                  <svg
+                    viewBox="0 0 20 20"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.6"
+                  >
+                    <circle cx="9" cy="9" r="6" />
+                    <path d="m17 17-4-4" stroke-linecap="round" />
+                  </svg>
+                  <input
+                    class="input"
+                    type="text"
+                    placeholder="Filter people…"
+                    aria-label="Filter people without a Discord link"
+                    value="dana"
+                  />
+                </div>
+                <div class="link-list__items">
+                  <button type="button" class="link-row is-selected">
+                    <span class="link-row__check">
+                      <svg
+                        viewBox="0 0 20 20"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2.4"
+                      >
+                        <path
+                          d="m5 10 3.2 3.2L15 6.5"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                      </svg>
+                    </span>
+                    <span class="link-row__text">
+                      <span class="link-row__primary">Dana Kim</span>
+                      <span class="link-row__secondary"
+                        >dana.kim@lilnas.io</span
+                      >
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="link-list">
+                <div class="link-list__head">
+                  <span class="small" style="font-weight: 590"
+                    >Discord accounts without a lilnas link</span
+                  >
+                  <span class="tab-count">2</span>
+                </div>
+                <div class="link-list__items">
+                  <button type="button" class="link-row is-selected">
+                    <span class="link-row__check">
+                      <svg
+                        viewBox="0 0 20 20"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2.4"
+                      >
+                        <path
+                          d="m5 10 3.2 3.2L15 6.5"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                      </svg>
+                    </span>
+                    <span class="link-row__text">
+                      <span class="link-row__primary">@alice_h</span>
+                      <span class="link-row__secondary"
+                        >Alice H. · last seen 2h ago</span
+                      >
+                    </span>
+                  </button>
+                  <button type="button" class="link-row">
+                    <span class="link-row__check"></span>
+                    <span class="link-row__text">
+                      <span class="link-row__primary">@nightowl99</span>
+                      <span class="link-row__secondary">last seen 6d ago</span>
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="link-cta">
+              <button type="button" class="btn btn-primary">
+                Link dana.kim@lilnas.io ↔ @alice_h
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <p class="mock-frame-label" style="margin-top: 8px">
+          Empty states — accounts (day one) and people (fully linked)
+        </p>
+        <div class="mock-two-up">
+          <div class="card" style="padding: 20px 20px 24px">
+            <div class="stack" style="gap: 18px">
+              <div class="panel-head">
+                <h3 class="h3">Link a person to a Discord account</h3>
+              </div>
+              <div class="link-lists">
+                <div class="link-list">
+                  <div class="link-list__head">
+                    <span class="small" style="font-weight: 590"
+                      >People without a Discord link</span
+                    >
+                    <span class="tab-count">3</span>
+                  </div>
+                  <div class="link-list__items">
+                    <button type="button" class="link-row">
+                      <span class="link-row__check"></span>
+                      <span class="link-row__text">
+                        <span class="link-row__primary">Priya Shah</span>
+                        <span class="link-row__secondary"
+                          >priya.shah@lilnas.io</span
+                        >
+                      </span>
+                    </button>
+                    <button type="button" class="link-row">
+                      <span class="link-row__check"></span>
+                      <span class="link-row__text">
+                        <span class="link-row__primary">Marcus Webb</span>
+                        <span class="link-row__secondary"
+                          >marcus.webb@lilnas.io</span
+                        >
+                      </span>
+                    </button>
+                    <button type="button" class="link-row">
+                      <span class="link-row__check"></span>
+                      <span class="link-row__text">
+                        <span class="link-row__primary">Dana Kim</span>
+                        <span class="link-row__secondary"
+                          >dana.kim@lilnas.io</span
+                        >
+                      </span>
+                    </button>
+                  </div>
+                </div>
+                <div class="link-list">
+                  <div class="link-list__head">
+                    <span class="small" style="font-weight: 590"
+                      >Discord accounts without a lilnas link</span
+                    >
+                    <span class="tab-count">0</span>
+                  </div>
+                  <div class="empty-state" style="padding: 28px 16px">
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M12 3a5 5 0 0 0-5 5v1.1A6.98 6.98 0 0 0 4 15c0 3.9 3.6 6 8 6s8-2.1 8-6a6.98 6.98 0 0 0-3-5.9V8a5 5 0 0 0-5-5Z"
+                      />
+                    </svg>
+                    <p class="small">
+                      Discord accounts show up here the first time someone runs
+                      <code>/download</code>.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div class="link-cta">
+                <button type="button" class="btn btn-primary" disabled>
+                  Link
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card" style="padding: 20px 20px 24px">
+            <div class="stack" style="gap: 18px">
+              <div class="panel-head">
+                <h3 class="h3">Link a person to a Discord account</h3>
+              </div>
+              <div class="link-lists">
+                <div class="link-list">
+                  <div class="link-list__head">
+                    <span class="small" style="font-weight: 590"
+                      >People without a Discord link</span
+                    >
+                    <span class="tab-count">0</span>
+                  </div>
+                  <div class="empty-state" style="padding: 28px 16px">
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="m5 13 4 4L19 7"
+                      />
+                    </svg>
+                    <p class="small">
+                      Everyone who has signed in is already linked.
+                    </p>
+                  </div>
+                </div>
+                <div class="link-list">
+                  <div class="link-list__head">
+                    <span class="small" style="font-weight: 590"
+                      >Discord accounts without a lilnas link</span
+                    >
+                    <span class="tab-count">1</span>
+                  </div>
+                  <div class="link-list__items">
+                    <button type="button" class="link-row">
+                      <span class="link-row__check"></span>
+                      <span class="link-row__text">
+                        <span class="link-row__primary">@nightowl99</span>
+                        <span class="link-row__secondary"
+                          >last seen 6d ago</span
+                        >
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div class="link-cta">
+                <button type="button" class="btn btn-primary" disabled>
+                  Link
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <p class="mock-frame-label" style="margin-top: 8px">
+          Mobile — lists stack vertically
+        </p>
+        <div class="mock-mobile-frame">
+          <div class="stack" style="gap: 18px">
+            <h3 class="h3">Link a person to a Discord account</h3>
+            <div class="link-lists">
+              <div class="link-list">
+                <div class="link-list__head">
+                  <span class="small" style="font-weight: 590"
+                    >People without a Discord link</span
+                  >
+                  <span class="tab-count">5</span>
+                </div>
+                <div class="search-input">
+                  <svg
+                    viewBox="0 0 20 20"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.6"
+                  >
+                    <circle cx="9" cy="9" r="6" />
+                    <path d="m17 17-4-4" stroke-linecap="round" />
+                  </svg>
+                  <input
+                    class="input"
+                    type="text"
+                    placeholder="Filter people…"
+                    aria-label="Filter people without a Discord link"
+                  />
+                </div>
+                <div class="link-list__items">
+                  <button type="button" class="link-row is-selected">
+                    <span class="link-row__check">
+                      <svg
+                        viewBox="0 0 20 20"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2.4"
+                      >
+                        <path
+                          d="m5 10 3.2 3.2L15 6.5"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                      </svg>
+                    </span>
+                    <span class="link-row__text">
+                      <span class="link-row__primary">Dana Kim</span>
+                      <span class="link-row__secondary"
+                        >dana.kim@lilnas.io</span
+                      >
+                    </span>
+                  </button>
+                  <button type="button" class="link-row">
+                    <span class="link-row__check"></span>
+                    <span class="link-row__text">
+                      <span class="link-row__primary">Owen Petrov</span>
+                      <span class="link-row__secondary"
+                        >owen.petrov@lilnas.io</span
+                      >
+                    </span>
+                  </button>
+                </div>
+              </div>
+              <div class="link-list">
+                <div class="link-list__head">
+                  <span class="small" style="font-weight: 590"
+                    >Discord accounts without a lilnas link</span
+                  >
+                  <span class="tab-count">2</span>
+                </div>
+                <div class="link-list__items">
+                  <button type="button" class="link-row">
+                    <span class="link-row__check"></span>
+                    <span class="link-row__text">
+                      <span class="link-row__primary">@alice_h</span>
+                      <span class="link-row__secondary"
+                        >Alice H. · last seen 2h ago</span
+                      >
+                    </span>
+                  </button>
+                  <button type="button" class="link-row">
+                    <span class="link-row__check"></span>
+                    <span class="link-row__text">
+                      <span class="link-row__primary">@nightowl99</span>
+                      <span class="link-row__secondary">last seen 6d ago</span>
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="link-cta">
+              <button type="button" class="btn btn-primary">
+                Link dana.kim@lilnas.io ↔ @alice_h
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <p class="mock-frame-label" style="margin-top: 8px">Existing links</p>
+        <div class="card" style="overflow-x: auto">
+          <table class="table" style="min-width: 640px">
+            <thead>
+              <tr>
+                <th>Person</th>
+                <th>Discord</th>
+                <th>Linked</th>
+                <th><span class="visually-hidden">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>
+                  <div class="row-user">
+                    <span class="avatar">JA</span>
+                    <div class="row-user__text">
+                      <span class="row-user__name">Jeremy Asuncion</span>
+                      <span class="row-user__email"
+                        >jeremy.asuncion@gmail.com</span
+                      >
+                    </div>
+                  </div>
+                </td>
+                <td><span class="chip chip-neutral">@jeremy.a</span></td>
+                <td><span class="small muted">Aug 26, 2026</span></td>
+                <td>
+                  <div class="table-row-actions">
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-sm btn-ghost-danger"
+                    >
+                      Unlink
+                    </button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <div class="row-user">
+                    <span class="avatar">SP</span>
+                    <div class="row-user__text">
+                      <span class="row-user__name">Sam Pham</span>
+                      <span class="row-user__email">sam.pham@lilnas.io</span>
+                    </div>
+                  </div>
+                </td>
+                <td><span class="chip chip-neutral">@sam.p</span></td>
+                <td><span class="small muted">Sep 2, 2026</span></td>
+                <td>
+                  <div class="table-row-actions">
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-sm btn-ghost-danger"
+                    >
+                      Unlink
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ── People table (desktop) + person-card (mobile) ────────────── -->
+      <section class="mock-section">
+        <div class="mock-section-title">
+          <h2 class="h2">People</h2>
+          <span class="caption"
+            >admin-dashboard-client.tsx — desktop table + mobile
+            person-card</span
+          >
+        </div>
+        <p class="body-text muted" style="max-width: 62ch">
+          Unchanged from before, except the Discord chip now always shows a
+          handle when linked — it comes from the observed
+          <code>discord_identity</code> row, never a typed, optional label, so
+          there's no "linked but no username on file" fallback to a raw
+          snowflake anymore.
+        </p>
+
+        <p class="mock-frame-label">Desktop — people-table-wrap</p>
+        <div class="card" style="overflow-x: auto">
+          <table class="table" style="min-width: 640px">
+            <thead>
+              <tr>
+                <th>Person</th>
+                <th>Status</th>
+                <th>Discord</th>
+                <th><span class="visually-hidden">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>
+                  <div class="row-user">
+                    <span class="avatar">JA</span>
+                    <div class="row-user__text">
+                      <span class="row-user__name"
+                        >jeremy.asuncion@gmail.com</span
+                      >
+                    </div>
+                  </div>
+                </td>
+                <td><span class="chip chip-admin">admin</span></td>
+                <td>
+                  <span class="chip chip-neutral" title="Discord: @jeremy.a"
+                    >@jeremy.a</span
+                  >
+                </td>
+                <td>
+                  <div class="table-row-actions">
+                    <button type="button" class="btn btn-outline btn-sm">
+                      Edit access
+                    </button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <div class="row-user">
+                    <span class="avatar">SP</span>
+                    <div class="row-user__text">
+                      <span class="row-user__name">sam.pham@lilnas.io</span>
+                    </div>
+                  </div>
+                </td>
+                <td><span class="chip chip-granted">granted</span></td>
+                <td>
+                  <span class="chip chip-neutral" title="Discord: @sam.p"
+                    >@sam.p</span
+                  >
+                </td>
+                <td>
+                  <div class="table-row-actions">
+                    <button type="button" class="btn btn-outline btn-sm">
+                      Edit access
+                    </button>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <div class="row-user">
+                    <span class="avatar">AC</span>
+                    <div class="row-user__text">
+                      <span class="row-user__name">alex.chen@lilnas.io</span>
+                    </div>
+                  </div>
+                </td>
+                <td><span class="chip chip-granted">granted</span></td>
+                <td>
+                  <!-- no link at all — no chip, matching how ServiceChips
+                       renders nothing for an empty set. -->
+                  <span class="caption">—</span>
+                </td>
+                <td>
+                  <div class="table-row-actions">
+                    <button type="button" class="btn btn-outline btn-sm">
+                      Edit access
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p class="mock-frame-label" style="margin-top: 8px">
+          Mobile — person-card
+        </p>
+        <div class="mock-mobile-frame">
+          <div class="people-card-list">
+            <div class="person-card">
+              <div class="person-card__top">
+                <span class="avatar">JA</span>
+                <div class="person-card__text">
+                  <span class="person-card__name"
+                    >jeremy.asuncion@gmail.com</span
+                  >
+                </div>
+                <span class="chip chip-admin">admin</span>
+              </div>
+              <div class="person-card__row">
+                <span class="person-card__row-label">Discord</span>
+                <span class="chip chip-neutral">@jeremy.a</span>
+              </div>
+              <div class="person-card__actions">
+                <button type="button" class="btn btn-outline btn-sm">
+                  Edit access
+                </button>
+              </div>
+            </div>
+            <div class="person-card">
+              <div class="person-card__top">
+                <span class="avatar">AC</span>
+                <div class="person-card__text">
+                  <span class="person-card__name">alex.chen@lilnas.io</span>
+                </div>
+                <span class="chip chip-granted">granted</span>
+              </div>
+              <div class="person-card__row">
+                <span class="person-card__row-label">Discord</span>
+                <span class="caption">not linked</span>
+              </div>
+              <div class="person-card__actions">
+                <button type="button" class="btn btn-outline btn-sm">
+                  Edit access
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Edit Access modal ─────────────────────────────────────────── -->
+      <section class="mock-section">
+        <div class="mock-section-title">
+          <h2 class="h2">Edit access modal</h2>
+          <span class="caption">edit-access-modal.tsx</span>
+        </div>
+        <p class="body-text muted" style="max-width: 62ch">
+          The Discord row is now <strong class="body-text">read-only</strong> —
+          a linked handle plus an <code>Unlink</code> action, no inputs of any
+          kind. Linking itself only happens in the panel above; this modal can
+          only remove a link, never create or change one.
+        </p>
+
+        <div class="mock-two-up">
+          <div>
+            <p class="mock-frame-label" style="margin-bottom: 10px">Linked</p>
+            <div class="mock-modal-stage">
+              <div
+                class="modal-overlay is-open"
+                style="position: absolute; inset: 0"
+              >
+                <div class="modal">
+                  <div class="row between">
+                    <h2 class="h2">Edit access</h2>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-sm"
+                      aria-label="Close"
+                    >
+                      <svg
+                        viewBox="0 0 20 20"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.6"
+                      >
+                        <path d="M5 5l10 10M15 5 5 15" stroke-linecap="round" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div class="row-user">
+                    <span class="avatar">JA</span>
+                    <div class="row-user__text">
+                      <span class="row-user__name"
+                        >jeremy.asuncion@gmail.com</span
+                      >
+                    </div>
+                  </div>
+                  <div class="field">
+                    <label>Services</label>
+                    <div class="caption">— service checkboxes, unchanged —</div>
+                  </div>
+                  <div class="field">
+                    <label>Discord</label>
+                    <div class="row between" style="gap: 10px">
+                      <span class="chip chip-neutral">@jeremy.a</span>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-sm btn-ghost-danger"
+                      >
+                        Unlink
+                      </button>
+                    </div>
+                    <span class="field-hint"
+                      >Linking and re-linking happen from the Discord links
+                      panel, not here.</span
+                    >
+                  </div>
+                  <div class="row between" style="gap: 12px">
+                    <div class="row" style="gap: 8px">
+                      <button type="button" class="btn btn-outline btn-sm">
+                        Sign out everywhere
+                      </button>
+                    </div>
+                    <div class="row" style="gap: 10px">
+                      <button type="button" class="btn btn-outline btn-sm">
+                        Cancel
+                      </button>
+                      <button type="button" class="btn btn-primary btn-sm">
+                        Save access
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <p class="mock-frame-label" style="margin-bottom: 10px">
+              Not linked
+            </p>
+            <div class="mock-modal-stage">
+              <div
+                class="modal-overlay is-open"
+                style="position: absolute; inset: 0"
+              >
+                <div class="modal">
+                  <div class="row between">
+                    <h2 class="h2">Edit access</h2>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-sm"
+                      aria-label="Close"
+                    >
+                      <svg
+                        viewBox="0 0 20 20"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.6"
+                      >
+                        <path d="M5 5l10 10M15 5 5 15" stroke-linecap="round" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div class="row-user">
+                    <span class="avatar">AC</span>
+                    <div class="row-user__text">
+                      <span class="row-user__name">alex.chen@lilnas.io</span>
+                    </div>
+                  </div>
+                  <div class="field">
+                    <label>Services</label>
+                    <div class="caption">— service checkboxes, unchanged —</div>
+                  </div>
+                  <div class="field">
+                    <label>Discord</label>
+                    <span class="caption">Not linked</span>
+                    <span class="field-hint"
+                      >Link this person from the Discord links panel once
+                      they've run <code>/download</code> at least once.</span
+                    >
+                  </div>
+                  <div class="row between" style="gap: 12px">
+                    <div class="row" style="gap: 8px">
+                      <button type="button" class="btn btn-outline btn-sm">
+                        Sign out everywhere
+                      </button>
+                    </div>
+                    <div class="row" style="gap: 10px">
+                      <button type="button" class="btn btn-outline btn-sm">
+                        Cancel
+                      </button>
+                      <button type="button" class="btn btn-primary btn-sm">
+                        Save access
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>

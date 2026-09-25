@@ -24,14 +24,23 @@ function __lilnas_infra_services
     lilnas list --services 2>/dev/null
 end
 
+# Returns mockup project names. `mockups list` prints "name<tab>path", which is
+# already fish's "value<tab>description" completion format.
+function __lilnas_mockup_projects
+    lilnas mockups list 2>/dev/null
+end
+
 # True when no subcommand has been given yet
 function __lilnas_no_subcommand
     not __fish_seen_subcommand_from \
-        build dev down list ls logs ps redeploy up remote completions help
+        build dev down list ls logs ps redeploy up remote mockups completions help
 end
 
 # All remote subcommands
 set -l remote_subcommands build down logs ps redeploy up mounts
+
+# All mockups subcommands
+set -l mockups_subcommands build list ls new
 
 # True when we're completing a remote subcommand (i.e. "remote" was seen but no
 # remote subcommand has been seen yet)
@@ -45,6 +54,24 @@ end
 function __lilnas_in_remote_service_cmd
     __fish_seen_subcommand_from remote
     and __fish_seen_subcommand_from build down logs ps redeploy up
+end
+
+# True when we're completing a mockups subcommand
+function __lilnas_completing_mockups_sub
+    __fish_seen_subcommand_from mockups
+    and not __fish_seen_subcommand_from build list ls new
+end
+
+# True when inside `mockups build`
+function __lilnas_in_mockups_build
+    __fish_seen_subcommand_from mockups
+    and __fish_seen_subcommand_from build
+end
+
+# `build`, `list` and `ls` are shared with the top-level and remote commands, so
+# every guard below has to rule out both topics before claiming them.
+function __lilnas_no_topic
+    not __fish_seen_subcommand_from remote mockups
 end
 
 # ---------------------------------------------------------------------------
@@ -61,6 +88,7 @@ complete -c lilnas -n __lilnas_no_subcommand -a ps          -d "Show service sta
 complete -c lilnas -n __lilnas_no_subcommand -a redeploy    -d "Redeploy services (down then up)"
 complete -c lilnas -n __lilnas_no_subcommand -a up          -d "Bring up services"
 complete -c lilnas -n __lilnas_no_subcommand -a remote      -d "Run commands on the remote server"
+complete -c lilnas -n __lilnas_no_subcommand -a mockups     -d "Build the UI mockups under docs/features/*/designs"
 complete -c lilnas -n __lilnas_no_subcommand -a completions -d "Manage fish shell completions"
 complete -c lilnas -n __lilnas_no_subcommand -a help        -d "Show help"
 
@@ -77,16 +105,40 @@ complete -c lilnas -n __lilnas_completing_remote_sub -a up       -d "Bring up se
 complete -c lilnas -n __lilnas_completing_remote_sub -a mounts   -d "List or manage storage mounts on the remote server"
 
 # ---------------------------------------------------------------------------
+# mockups subcommands
+# ---------------------------------------------------------------------------
+
+complete -c lilnas -n __lilnas_completing_mockups_sub -a build -d "Build Pug + Tailwind sources into self-contained HTML"
+complete -c lilnas -n __lilnas_completing_mockups_sub -a list  -d "List the mockup projects in the monorepo"
+complete -c lilnas -n __lilnas_completing_mockups_sub -a ls    -d "List the mockup projects (alias for list)"
+complete -c lilnas -n __lilnas_completing_mockups_sub -a new   -d "Scaffold a new mockup project"
+
+# ---------------------------------------------------------------------------
+# Flags: mockups build
+# ---------------------------------------------------------------------------
+
+complete -c lilnas -n __lilnas_in_mockups_build \
+    -l all -s a -d "Build every project, ignoring the current directory"
+complete -c lilnas -n __lilnas_in_mockups_build \
+    -l watch -s w -d "Rebuild whenever a source file changes"
+complete -c lilnas -n __lilnas_in_mockups_build -a "(__lilnas_mockup_projects)"
+
+# `mockups new` takes a brand-new feature name, so there is nothing to complete
+# — only its flag.
+complete -c lilnas -n "__fish_seen_subcommand_from mockups; and __fish_seen_subcommand_from new" \
+    -l no-build -d "Skip the first build"
+
+# ---------------------------------------------------------------------------
 # Flags: service commands (build, down, logs, ps, redeploy, up)
 # ---------------------------------------------------------------------------
 
 set -l service_cmds build down logs ps redeploy up
 
-complete -c lilnas -n "__fish_seen_subcommand_from $service_cmds; and not __fish_seen_subcommand_from remote" \
+complete -c lilnas -n "__fish_seen_subcommand_from $service_cmds; and __lilnas_no_topic" \
     -l apps -d "Target only app services (apps/*/deploy.yml)"
-complete -c lilnas -n "__fish_seen_subcommand_from $service_cmds; and not __fish_seen_subcommand_from remote" \
+complete -c lilnas -n "__fish_seen_subcommand_from $service_cmds; and __lilnas_no_topic" \
     -l services -d "Target only infrastructure services (infra/*.yml)"
-complete -c lilnas -n "__fish_seen_subcommand_from $service_cmds; and not __fish_seen_subcommand_from remote" \
+complete -c lilnas -n "__fish_seen_subcommand_from $service_cmds; and __lilnas_no_topic" \
     -l dry-run -d "Print the command without executing it"
 
 # ---------------------------------------------------------------------------
@@ -115,9 +167,9 @@ complete -c lilnas -n "__fish_seen_subcommand_from remote; and __fish_seen_subco
 # Flags: list / ls
 # ---------------------------------------------------------------------------
 
-complete -c lilnas -n "__fish_seen_subcommand_from list ls; and not __fish_seen_subcommand_from remote" \
+complete -c lilnas -n "__fish_seen_subcommand_from list ls; and __lilnas_no_topic" \
     -l apps -d "List only app services"
-complete -c lilnas -n "__fish_seen_subcommand_from list ls; and not __fish_seen_subcommand_from remote" \
+complete -c lilnas -n "__fish_seen_subcommand_from list ls; and __lilnas_no_topic" \
     -l services -d "List only infrastructure services"
 
 # ---------------------------------------------------------------------------
@@ -135,7 +187,7 @@ complete -c lilnas -n "__fish_seen_subcommand_from completions" \
 
 # Local service commands: complete positional args with service names
 complete -c lilnas \
-    -n "__fish_seen_subcommand_from $service_cmds; and not __fish_seen_subcommand_from remote" \
+    -n "__fish_seen_subcommand_from $service_cmds; and __lilnas_no_topic" \
     -a "(__lilnas_services)"
 
 # Remote service commands: complete positional args with service names

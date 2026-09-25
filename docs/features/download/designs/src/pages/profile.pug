@@ -1,0 +1,239 @@
+extends ../layout/page.pug
+
+block title
+  | User profile — download UI mockups · lilnas
+
+//-
+  Per spec.md §12: a computed view over the `jobs` table, not a stored
+  entity. There's no per-user template to diverge from, so every state below
+  — self, an admin viewing someone else, an empty profile, and the
+  aggregate-chip filter states (§12's last four bullets / user stories
+  75–79) — renders through the same markup, fed different PROFILES entries
+  (profile.mjs).
+
+  The chips themselves are real, hoverable/focusable `<button>`s (`chip`'s
+  `interactive` opt) — that part of the affordance is live CSS/HTML, same
+  as everywhere else a hover state exists in this pipeline. What isn't
+  live is the *result* of clicking one: there's no client-side JS to
+  re-filter the table in place, so the filtered flow (start → one chip →
+  a second chip and a status → the applied-filters row above the table →
+  the no-match state) is demonstrated as a sequence of separate static
+  frames, matching every other multi-state page here (gallery's
+  filters-open/closed frames, downloads-activity's regular/admin frames).
+
+//- The app bar as this page's viewer would see it: an `admin` chip when
+    they're viewing someone else's or an empty profile, since only an admin
+    can open either. "Your account" always points at your own profile, same
+    as everywhere else.
+mixin topBar(view, admin)
+  - const mobile = view === 'mobile'
+  +appBar(view)
+    if mobile
+      +doorplate('Download')(href='https://lilnas.io')
+      span(class='flex shrink-0 items-center gap-1.5')
+        if admin
+          +chip({ label: 'admin', tone: 'uv' })
+        +btn({ variant: 'ghost', icon: 'search' })(class='h-[30px] w-[30px] p-0' aria-label='Search')
+        +accountLink('JA')
+    else
+      div(class='flex min-w-0 flex-1 items-center gap-[14px]')
+        +doorplate('Download')(href='https://lilnas.io')
+        +navsearch({ placeholder: 'Search or paste a link…' })
+      span(class='flex shrink-0 items-center gap-2.5')
+        if admin
+          +chip({ label: 'admin', tone: 'uv' })
+        +avatar('JA', { ring: true, href: 'profile.html' })(class='h-[30px] w-[30px] text-[11.5px]' title='Jeremy · you')
+
+//- Avatar + email + first/last download, or "no downloads yet" for an empty
+    profile. `p.you` gets the "you" chip — the same fact the app bar's ring
+    marks everywhere else.
+mixin profileHeader(p)
+  div(class='mb-6 flex items-center gap-4')
+    +avatar(p.initials, { ring: p.you, hidden: p.empty })(class='h-[52px] w-[52px] text-[18px]')
+    div
+      p(class='mb-1 flex items-center gap-2 text-h1')
+        = p.email
+        if p.you
+          +chip({ label: 'you', tone: 'uv' })(class='h-5 text-[10px]')
+      p(class='font-mono text-mono-sm text-ink-4')
+        if p.firstDownloadAt
+          = `First download ${p.firstDownloadAt} · last ${p.lastDownloadAt}`
+        else
+          = 'No downloads yet'
+
+//- Headline number, styled like admin-dashboard's statTile — a single tile
+    rather than the whole mixin, since a profile only ever needs the one.
+mixin lifetimeTile(total)
+  div(
+    class='mb-6 flex w-fit min-w-[168px] flex-col gap-[7px] rounded-lg border border-line bg-surface px-5 pt-[18px] pb-5'
+  )
+    span(class='font-mono text-label tracking-[0.11em] uppercase text-ink-4') lifetime downloads
+    span(class='font-mono text-[32px] leading-[1.1] font-semibold tracking-[-0.02em] tabular-nums')= total
+
+//- Totals by type / by status. Sparse, per `ProfileResponse` — a type or
+    status that never occurred gets no chip rather than a zero one. Each
+    chip's own count always stays the lifetime total (spec §12) — `active`
+    only changes the chip's look, never the label — so `activeKeys` (the
+    filters currently applied, if any) only picks which chips render
+    selected; it never touches `items`.
+mixin totalsGroup(label, items, activeKeys)
+  - activeKeys = activeKeys || []
+  div(class='flex flex-col gap-2')
+    span(class='font-mono text-label tracking-[0.11em] uppercase text-ink-4')= label
+    if items.length
+      div(class='flex flex-wrap gap-2')
+        each item in items
+          +chip({ label: `${item.name} · ${item.count}`, tone: item.tone || 'mute', active: activeKeys.includes(item.name), interactive: true })
+    else
+      span(class='text-sm text-ink-4') —
+
+//- Downloads-per-day trend. `days` is pre-filled with the gaps `jobsPerDay`
+    would otherwise omit (see profile.mjs) — a zero day still gets a tick, at
+    a fixed minimum height, so it reads as "nothing happened" rather than a
+    hole in the chart.
+mixin trend(days)
+  if days.length
+    - const max = Math.max(...days.map(d => d.count), 1)
+    div(class='flex h-16 items-end gap-[3px]')
+      each d in days
+        div(
+          class=['flex-1 rounded-t-xs transition-[height] duration-200 ease-uv', d.count ? 'bg-uv/70' : 'bg-surface-3']
+          style=`height: ${d.count ? 15 + (d.count / max) * 85 : 6}%`
+          title=`${d.label} · ${d.count} download${d.count === 1 ? '' : 's'}`
+        )
+  else
+    +note('activity')
+      | No activity in the selected window.
+
+//- One history row's art, same treatment as downloads-activity/
+    admin-dashboard's `rowArt`.
+mixin historyArt(row)
+  +poster({ shape: 'tall', v: row.v, src: row.art, radius: 'rounded-xs' })(class='w-[34px]')
+    if row.icon === 'play'
+      +icon('play')(class='relative z-1 h-[14px] w-[14px] text-ink-3')
+
+//- The embedded history table — `GET /history?requester=` in the real app,
+    same row treatment as downloads-activity/admin-dashboard minus the
+    requester column: the page is already scoped to one person, so
+    attribution is page context, not a per-row fact. A job hidden from
+    everyone else still shows the eye-slash marker rather than going
+    anonymous — on your own profile (or an admin's view of someone else's)
+    there's no oracle to defend, the row's owner is already known.
+
+    `filtersActive` picks which empty state renders when `rows` is empty:
+    zero rows because the applied type/status chips matched nothing reads
+    differently from zero rows because this person has never downloaded
+    anything (spec §12, user story 79) — the two must not share copy.
+mixin history(rows, filtersActive)
+  if rows.length
+    +card()(class='px-1.5 pt-1 pb-1.5')
+      +dataTable
+        thead
+          tr
+            th(class='w-[46%]') item
+            th type
+            th status
+            th progress
+            th(class='text-right!') started
+        tbody(class='stagger')
+          each row in rows
+            tr
+              td
+                div(class='flex items-center gap-2.5')
+                  +historyArt(row)
+                  span(class='text-sm')= row.title
+                  if row.hiddenFromOthers
+                    span(class='inline-flex shrink-0 text-ink-4' title='Hidden from other users')
+                      +icon('eye-slash')(class='h-3 w-3')
+              td
+                +mchip(row.icon, row.kind)(class='font-mono text-mono-sm text-ink-3')
+              td
+                +chip({ label: row.live ? null : row.state, tone: row.tone })
+                  if row.live
+                    +dot('live')
+                    = row.state
+              td
+                if row.progress
+                  div(class='flex w-[120px] items-center gap-2')
+                    +bar(row.progress)(class='flex-1')
+                    span(
+                      class=['font-mono text-mono-sm tabular-nums', row.quietProgress ? 'text-ink-3' : 'text-uv-hi']
+                    )= `${row.progress}%`
+                else
+                  span(class='font-mono text-mono-sm text-ink-4') —
+              td(class='text-right! font-mono text-mono-sm tabular-nums text-ink-3')= row.started
+  else if filtersActive
+    +note('filter')
+      b(class='text-ink') No downloads match these filters.
+      |  Try clearing or changing the type/status chips above.
+  else
+    +note('activity')
+      b(class='text-ink') No downloads yet.
+      |  This person's downloads will show up here once they start one.
+
+//- The applied-filters readout — same `afchip` + "Clear all" idiom as
+    gallery's active-filters row, so the flow of clicking a chip above
+    reads the same way it does everywhere else in this pipeline: what you
+    selected shows up here as a removable pill, right above the table it
+    scopes. Absent entirely when no filter is active — this row is the
+    tell that something is scoping the table below it.
+mixin activeFilterBar(types, statuses)
+  - types = types || []
+  - statuses = statuses || []
+  if types.length || statuses.length
+    div(class='mb-3 flex flex-wrap items-center gap-2' aria-label='Active filters')
+      each t in types
+        +afchip(t, `Remove ${t} filter`)
+      each s in statuses
+        +afchip(s, `Remove ${s} filter`)
+      +btn({ label: 'Clear all', variant: 'ghost', size: 'sm' })(class='h-[27px] px-2.5 text-[12px]')
+
+//- One profile, fully rendered, at one viewport.
+mixin screen(view, p)
+  - const mobile = view === 'mobile'
+  +appFrame(view)
+    +topBar(view, p.admin)
+    +appBody(view)
+      div(class=mobile ? '' : 'mx-auto max-w-[1080px]')
+        p(
+          class=[mobile ? 'mb-4 text-[20px]' : 'mb-5 text-[22px]', 'leading-[1.25] font-[650] tracking-[-0.015em]']
+        ) User profile
+        +profileHeader(p)
+        +lifetimeTile(p.total)
+        div(class=['mb-7 grid gap-5', mobile ? 'grid-cols-1' : 'grid-cols-2'])
+          +totalsGroup('by type', p.totalsByType, p.activeTypes)
+          +totalsGroup('by status', p.totalsByStatus, p.activeStatuses)
+        div(class='mb-7 flex flex-col gap-2')
+          span(class='font-mono text-label tracking-[0.11em] uppercase text-ink-4')= `downloads per day · last ${p.windowDays}`
+          +trend(p.trend)
+        p(class='mb-3 text-h2') Download history
+        +activeFilterBar(p.activeTypes, p.activeStatuses)
+        - const filtersActive = Boolean((p.activeTypes || []).length || (p.activeStatuses || []).length)
+        +history(p.history, filtersActive)
+
+block content
+  +mockHead({ eyebrow: 'lilnas · download', title: 'User profile' })
+    p(class='max-w-[62ch] text-sm text-ink-3')
+      | A computed view over the jobs table, not a stored entity — every "who" fact in the system is derived at
+      | query time, so a profile with zero jobs is an empty state, never a 404. States below: your own (self,
+      | always available, deliberately sparse trend to show the chart handles gaps), an admin viewing someone
+      | else's (another requester needs admin, else 403 — true attribution, no masking), an empty profile for an
+      | email that's never downloaded anything, and the by-type/by-status aggregate chips as history filters,
+      | walked as a flow — no filter, one chip clicked, a second chip and a status added (multi-select, AND
+      | across groups, with the applied filters shown as removable pills above the table), and the distinct
+      | "no downloads match these filters" empty state.
+
+  div(class='vp-scope')
+    +viewportToggle('viewport')(class='mb-8' role='radiogroup' aria-label='Viewport')
+
+    //- ── desktop ────────────────────────────────────────────────────────
+    +viewportPanel('desktop')
+      each p, i in PROFILES
+        +frameLabel()(class=i ? 'mt-3' : '')= p.label
+        +screen('desktop', p)
+
+    //- ── mobile ─────────────────────────────────────────────────────────
+    +viewportPanel('mobile')
+      each p, i in PROFILES
+        +frameLabel()(class=i ? 'mt-3' : '')= p.label
+        +screen('mobile', p)
