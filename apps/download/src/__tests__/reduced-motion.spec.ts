@@ -138,6 +138,7 @@ describe('every animated utility is named in the reduced-motion block', () => {
     // declare their animation, this fails loudly rather than silently finding
     // nothing and declaring perfect coverage below.
     expect(animatedUtilities()).toEqual([
+      'bar-settling',
       'dot-live',
       'reveal',
       'skeleton',
