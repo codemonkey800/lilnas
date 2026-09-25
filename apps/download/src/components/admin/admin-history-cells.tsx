@@ -1,6 +1,7 @@
 import type { DownloadJob } from '@lilnas/utils/download/types'
 import type { JSX } from 'react'
 
+import { jobUpstreamSource } from 'src/components/activity/activity-requester'
 import { AdminActor } from 'src/components/admin/admin-actor'
 import { Icon } from 'src/components/ui/icon'
 import type { AdminFilters } from 'src/lib/admin-filters'
@@ -63,6 +64,9 @@ export function AdminHistoryRequester({
         without it an unlinked Discord download would render as a machine
         action. `/admin` never masks, so both Discord fields always arrive
         populated when they exist.
+
+        A download adopted from Radarr or Sonarr is the service too, just a
+        named one — `serviceLabel` says which, and falls back to `service`.
       */}
       <AdminActor
         actor={job.requester}
@@ -71,6 +75,7 @@ export function AdminHistoryRequester({
         href={href}
         linkedDiscord={job.linkedDiscord}
         nameless={nameless}
+        serviceLabel={jobUpstreamSource(job)}
         viewer={viewer}
       />
       {job.hiddenAttribution ? (

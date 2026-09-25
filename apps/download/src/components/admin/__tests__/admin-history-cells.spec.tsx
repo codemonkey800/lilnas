@@ -129,6 +129,41 @@ describe('AdminHistoryRequester', () => {
 
       expect(screen.queryByRole('link')).not.toBeInTheDocument()
     })
+
+    // A download the poller adopted from Radarr or Sonarr is the service too,
+    // but a named one — `service` would hide which of them started it.
+    it.each([
+      [
+        'Radarr',
+        {
+          id: 'tmdb:438631',
+          title: 'Salt & Ceremony',
+          tmdbId: 438631,
+          type: DownloadType.Movie,
+        },
+      ],
+      [
+        'Sonarr',
+        {
+          id: 'tvdb:81189',
+          title: 'Tidewater',
+          tvdbId: 81189,
+          type: DownloadType.Show,
+        },
+      ],
+    ] as const)('names an adopted download after %s', (label, media) => {
+      render(
+        <AdminHistoryRequester
+          filters={EMPTY_ADMIN_FILTERS}
+          job={job({ media, requester: null, startedUpstream: true })}
+          viewer={ADMIN}
+        />,
+      )
+
+      expect(screen.getByText(label)).toBeInTheDocument()
+      expect(screen.queryByText(AUDIT_SERVICE_LABEL)).not.toBeInTheDocument()
+      expect(screen.queryByRole('link')).not.toBeInTheDocument()
+    })
   })
 
   describe('the hidden-attribution marker', () => {
