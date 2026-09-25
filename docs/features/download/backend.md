@@ -3449,13 +3449,17 @@ avatar and no profile link. It appears on the detail header, in the attempt
 history and on activity rows. A requester or Discord requester always wins
 over it.
 
+The gallery and home "recent" cards read the grouped gallery row, not a job,
+so `GalleryItem` carries `lastStartedUpstream` (`d4218497`): set in
+`JobQueryService.resolveLastRequesters` from the latest job's
+`origin = 'upstream'`, outside the `showRequester` mask because it names
+nobody, and turned into the label by `galleryUpstreamSource(item)`. `/admin`
+history, where a `null` requester means the service, passes
+`jobUpstreamSource(job)` as `AdminActor`'s `serviceLabel`, so the chip reads
+`Radarr`/`Sonarr` instead of `service` (`3c9c1a4b`).
+
 ### ⚠️ Known gaps
 
-- **Gallery and home "recent" cards still show a masked `hidden` avatar** for
-  a title whose latest job was adopted. They read the grouped gallery row
-  (`lastRequester`/`lastDiscordRequester`), which has no `startedUpstream`.
-- **`/admin` history shows an adopted job as `service`.** `AdminActor` reads
-  a `null` requester as the service.
 - **A season pack adopted as one season-scoped job** unmonitors every
   file-less episode of that season on cancel, including episodes the pack
   didn't contain.
