@@ -5,11 +5,16 @@ import { LoggerModule } from 'nestjs-pino'
 
 import { AdminController } from './admin/admin.controller'
 import { AdminGuard } from './admin/admin.guard'
+import { AdminCheckController } from './admin/admin-check.controller'
 import { UsersService } from './admin/users.service'
 import { AuthModule } from './auth/auth.module'
 import { DatabaseModule } from './db/database.module'
 import { EnvKeys } from './env'
 import { HealthController } from './health/health.controller'
+import {
+  DiscordIdentityController,
+  DiscordLinkLookupController,
+} from './internal/discord-internal.controller'
 import { MeController } from './me/me.controller'
 import { RequestsController } from './requests/requests.controller'
 import { RequestsService } from './requests/requests.service'
@@ -105,7 +110,10 @@ const isProduction = env(EnvKeys.NODE_ENV, 'development') === 'production'
     VerifyController,
     RequestsController,
     AdminController,
+    AdminCheckController,
     MeController,
+    DiscordLinkLookupController,
+    DiscordIdentityController,
   ],
   providers: [
     VerifyService,

@@ -1,3 +1,4 @@
+import type { UpdateCheckResult } from '@lilnas/utils/download/types'
 import { env } from '@lilnas/utils/env'
 import { getErrorMessage } from '@lilnas/utils/error'
 import { Injectable, Logger } from '@nestjs/common'
@@ -12,9 +13,12 @@ import { DownloadMetricsService } from 'src/download/download-metrics.service'
 import { DownloadStateService } from 'src/download/download-state.service'
 import { EnvKeys } from 'src/env'
 
-import { GitHubRelease, UpdateCheckResult, UpdateResult } from './types'
+import { GitHubRelease, UpdateResult } from './types'
 
-const YTDLP_BINARY_PATH = '/usr/bin/yt-dlp'
+// The real file. /usr/bin/yt-dlp is a symlink to this path (see the
+// Dockerfile) - node has no write permission on /usr/bin itself, so the
+// updater must replace the binary here rather than through the symlink.
+const YTDLP_BINARY_PATH = '/opt/yt-dlp/yt-dlp'
 const YTDLP_BACKUP_PATH = '/tmp/yt-dlp-backup'
 const YTDLP_TEMP_PATH = '/tmp/yt-dlp-new'
 const GITHUB_API_URL =

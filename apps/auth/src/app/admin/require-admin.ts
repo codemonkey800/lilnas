@@ -4,6 +4,9 @@ import { redirect } from 'next/navigation'
 
 import type {
   AdminUserEntry,
+  DiscordLinkEntry as AdminDiscordLinkEntry,
+  DiscordUnlinkedAccount as AdminDiscordUnlinkedAccount,
+  DiscordUnlinkedPerson as AdminDiscordUnlinkedPerson,
   QueueEntry as AdminQueueEntry,
 } from 'src/admin/admin.controller'
 import { EnvKeys } from 'src/env'
@@ -21,7 +24,30 @@ import type { ServiceRegistryEntry as AdminServiceEntry } from 'src/services/ser
 // could (rename a field on the Nest side and `tsc` stays green while this
 // file's copy quietly goes stale). admin.controller.ts already does the
 // same thing in reverse for ServiceRegistryEntry.
-export type { AdminQueueEntry, AdminServiceEntry, AdminUserEntry }
+export type {
+  AdminDiscordLinkEntry,
+  AdminDiscordUnlinkedAccount,
+  AdminDiscordUnlinkedPerson,
+  AdminQueueEntry,
+  AdminServiceEntry,
+  AdminUserEntry,
+}
+
+// The one shape on this file's side of the boundary that ISN'T imported:
+// AdminController.discordUnlinked() declares its envelope as an inline
+// object literal rather than a named exported type, so there is nothing to
+// `import type` for the wrapper itself. The drift risk the comment above
+// worries about is still almost entirely absent here — both ARRAY ELEMENT
+// types are the genuine imported originals, so a renamed/retyped field on
+// either entry still breaks `tsc` immediately; only the two key names
+// (`people`/`accounts`) are restated, and those are the wire contract of
+// GET /admin/discord/unlinked, not an internal detail. Both arrays are
+// always present (`[]` when empty), never undefined, so neither key is
+// optional.
+export type AdminDiscordUnlinked = {
+  people: AdminDiscordUnlinkedPerson[]
+  accounts: AdminDiscordUnlinkedAccount[]
+}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // U7 (R17, AE5): turns AdminGuard's 401/403 into the user-facing navigation
@@ -91,4 +117,31 @@ export async function fetchAdminServices(): Promise<AdminServiceEntry[]> {
 // too.
 export async function fetchAdminUsers(): Promise<AdminUserEntry[]> {
   return fetchFromAdminApi<AdminUserEntry[]>('/admin/users')
+}
+
+// D2 (plan 017): the two halves of the Discord link panel's data. Same
+// "always called alongside requireAdminQueue()" note as the two fetches
+// above — both go through the shared fetchFromAdminApi() helper, so both
+// are independently correct (401/403 → redirect('/login')) if a future page
+// ever calls them on their own.
+//
+// Both return the backend's ordering UNTOUCHED and deliberately do not
+// re-sort: `people` is email-ascending, `accounts` is lastSeenAt
+// DESCENDING (an admin linking an account has almost always just watched it
+// run a Discord command, so the row they want is first — see
+// DiscordUnlinkedAccount's own comment in admin.controller.ts), and
+// `links` is email-ascending. Those three orders are genuinely different
+// from one another, which is exactly why the choice belongs to the query
+// that knows what each list is FOR rather than to a display-side sort that
+// would have to re-derive it.
+export async function fetchDiscordUnlinked(): Promise<AdminDiscordUnlinked> {
+  return fetchFromAdminApi<AdminDiscordUnlinked>('/admin/discord/unlinked')
+}
+
+// Note the asymmetry with fetchDiscordUnlinked() above: this route returns
+// a BARE ARRAY, not an envelope. The unlinked route needs one because it
+// carries two independent lists (the left and right columns of the link
+// UI); this one carries a single list and so has nothing to wrap.
+export async function fetchDiscordLinks(): Promise<AdminDiscordLinkEntry[]> {
+  return fetchFromAdminApi<AdminDiscordLinkEntry[]>('/admin/discord/links')
 }

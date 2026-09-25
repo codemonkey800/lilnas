@@ -18,6 +18,14 @@
     "dev": {
       "cache": false,
       "persistent": true
+    },
+    "//#mockups": {
+      "dependsOn": ["@lilnas/cli#build"],
+      "inputs": ["docs/features/*/designs/src/**"],
+      "outputs": ["docs/features/*/designs/*.html"]
+    },
+    "//#mockups:lint": {
+      "inputs": ["docs/features/*/designs/src/**"]
     }
   }
 }

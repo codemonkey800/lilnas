@@ -1,0 +1,631 @@
+extends ../layout/page.pug
+
+block title
+  | Show detail — download UI mockups · lilnas
+
+//-
+  Three levels of "download this" — series, season, episode — and an episode
+  list where each level's state is legible without opening anything. The
+  screen is drawn several times per viewport — primary, started-from-Sonarr,
+  two modals, and the loading state — so everything that repeats between
+  them (the header block, the season strip, the episode list, the Attempts
+  list) is a mixin here rather than hand-kept copies.
+
+//- Back-to-library breadcrumb inside the app body.
+mixin libraryLink
+  a(class='mb-[22px] flex items-center gap-1.5' href='#')
+    +icon('arrow')(class='h-[13px] w-[13px] -scale-x-100 text-ink-4')
+    span(class='text-sm text-ink-3') Library
+
+//-
+  The media-state chip — the same seven-value vocabulary as the movie and
+  video pages (plan 021), used at series, season-tab and episode level alike.
+  `available` is what the old "in library" / "N of M episodes" chips already
+  were; there's one rendering path now, the count is just prose next to it.
+mixin mediaChip(state)
+  - const s = MEDIA_STATE[state] || MEDIA_STATE.absent
+  +chip({ label: s.live ? null : s.label, tone: s.tone })&attributes(attributes)
+    if s.live
+      +dot('live')
+      = s.label
+
+//-
+  Poster + title + metadata + cast + actions. `opts.cast`/`opts.synopsis`/
+  `opts.attribution` are omitted in the cropped modal frames, which only need
+  enough of the page for the scrim to sit over something. `opts.state` drives
+  the chip; `opts.episodeInfo` is the "N of M episodes" prose that used to be
+  a second chip. `opts.attribution` is `true` for the person who asked
+  (avatar), or a string drawn as a plain label instead — an attempt Sonarr
+  started itself (no avatar, no link).
+mixin showHeader(view, opts)
+  - opts = opts || {}
+  - const mobile = view === 'mobile'
+  - const state = opts.state || 'available'
+  if mobile
+    +poster({ shape: 'tall', v: 3, src: 'assets/emby/show-1.jpg', label: TITLE })(
+      class='mx-auto mb-4 w-full max-w-[220px]'
+    )
+    p(class='mb-1.5 text-h1')= TITLE
+    p(class='mb-2 text-sm text-ink-3')= META
+    div(class='mb-4 flex flex-wrap items-center gap-2')
+      +mediaChip(state)
+      if opts.episodeInfo
+        span(class='font-mono text-mono-sm text-ink-3')= opts.episodeInfo
+    if opts.synopsis
+      p(class='mb-4 text-sm text-ink-3')= SYNOPSIS
+    if opts.cast
+      div(class='mb-4 flex flex-wrap gap-4')
+        each person in LEAD_CAST
+          +castPerson(person[0], person[1])
+    if opts.attribution
+      div(class='mb-4 flex items-center gap-2')
+        +attribution(opts.attribution)
+    div(class='mb-7 flex flex-col gap-2')
+      +btn({ label: 'Watch', variant: 'uv', iconEnd: 'eye', full: true })
+      +btn({ label: 'Download series', variant: 'outline', iconEnd: 'download', full: true })
+      +btn({ label: 'Delete series', variant: 'bad', iconEnd: 'trash', full: true })
+  else
+    div(class='mb-8 flex items-start gap-6')
+      +poster({ shape: 'tall', v: 3, src: 'assets/emby/show-1.jpg', label: TITLE })(class='w-[200px]')
+      div(class='flex flex-1 flex-col gap-[14px] pt-0.5')
+        div
+          p(class='mb-1.5 text-h1')= TITLE
+          p(class='mb-2 text-sm text-ink-3')= META
+          div(class='flex items-center gap-2')
+            +mediaChip(state)
+            if opts.episodeInfo
+              span(class='font-mono text-mono-sm text-ink-3')= opts.episodeInfo
+        if opts.synopsis
+          p(class='max-w-[62ch] text-sm text-ink-3')= SYNOPSIS
+        if opts.cast
+          div(class='flex flex-wrap gap-4')
+            each person in LEAD_CAST
+              +castPerson(person[0], person[1])
+        if opts.attribution
+          div(class='flex items-center gap-2')
+            +attribution(opts.attribution)
+        div(class='mt-1 flex items-center gap-2.5')
+          +btn({ label: 'Watch', variant: 'uv', iconEnd: 'eye' })
+          +btn({ label: 'Download series', variant: 'outline', iconEnd: 'download' })
+          +btn({ label: 'Delete series', variant: 'bad', iconEnd: 'trash' })
+
+//- The header's "who asked, when" line — see `attribution` on +showHeader.
+mixin attribution(by)
+  if typeof by === 'string'
+    span(class='font-mono text-mono-sm text-ink-4')= `${by} · 1h ago`
+  else
+    +avatar('SR')(class='h-5 w-5 text-[9px]')
+    span(class='font-mono text-mono-sm text-ink-4') Sam · 1h ago
+
+//-
+  Attempts — replaces the old lifecycle panel + "Earlier attempts" list, at
+  series level. Newest first: an in-flight attempt is highlighted with its
+  own progress/note and actions; terminal ones are StateLines (chip,
+  relative time, requester, error). An empty list renders nothing.
+
+  `cancelling` is the card after Cancel was pressed and taken: the chip is the
+  job's status (`cancelling…`, warn), not a media state, so it's a plain
+  +chip rather than +mediaChip. The queue row is already gone — no bar, no
+  throughput — and Cancel stays, inert, instead of vanishing.
+mixin attemptInFlight(a, mobile)
+  +card()(class=['border-uv/35 bg-uv-ghost/30', mobile ? 'p-4' : 'p-5'])&attributes(attributes)
+    if a.cancelling
+      +chip({ label: 'cancelling…', tone: 'warn' })(class='mb-3 w-fit')
+      if a.note
+        p(class='mb-3 text-sm text-ink-3')= a.note
+      div(class=['flex items-center gap-2', mobile ? 'flex-col' : ''])
+        +btn({ label: 'Cancel', variant: 'bad', iconEnd: 'x', full: mobile, disabled: true })
+    else
+      div(class='mb-3 flex items-center justify-between gap-3')
+        +mediaChip(a.state)
+        if a.progress !== undefined
+          span(class='font-mono text-mono-sm tabular-nums text-uv-hi')= `${a.progress}%`
+      if a.progress !== undefined
+        +bar(a.progress)(class='mb-2')
+      if a.note
+        p(class='mb-3 text-sm text-ink-3')= a.note
+      if a.throughput
+        p(class='mb-3 font-mono text-mono-sm tabular-nums text-ink-3')= a.throughput
+      div(class=['flex items-center gap-2', mobile ? 'flex-col' : ''])
+        each act in a.actions
+          +btn({ label: act.label, variant: act.variant, iconEnd: act.icon, full: mobile })
+
+//-
+  A finished attempt. `a.retry` draws Retry at the end of the row — only ever
+  on the newest attempt overall, and only once nothing is in flight (the
+  app's `sorted[0]` rule), so a fixture sets it on one row at most.
+mixin attemptLine(a, mobile)
+  +stline({ mobile: mobile })
+    +chip({ label: a.label, tone: a.tone })(class=mobile ? '' : 'w-[108px] justify-center')
+    span(
+      class=[mobile ? '' : 'min-w-0 flex-1', 'flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-ink-3']
+    )
+      span(class='font-mono text-mono-sm text-ink-4')= a.when
+      span(class='flex items-center gap-1.5')
+        +avatar(a.who[0])(class='h-5 w-5 text-[9px]')
+        span(class='font-mono text-mono-sm text-ink-3')= a.who[1]
+      if a.error
+        span(class='text-bad')= a.error
+    if a.retry
+      if mobile
+        +stlineActions
+          +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+      else
+        +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+
+mixin attemptsList(view, items)
+  - const mobile = view === 'mobile'
+  if items && items.length
+    p(class='mb-3 text-h2') Attempts
+    - const inFlight = items.find(a => a.inFlight)
+    - const terminal = items.filter(a => !a.inFlight)
+    if inFlight
+      +attemptInFlight(inFlight, mobile)(class='mb-3')
+    if terminal.length
+      +card({ sunk: true })(class=[mobile ? 'px-[14px] py-1' : 'px-4 py-1', mobile ? 'mb-7' : 'mb-8'])
+        each a in terminal
+          +attemptLine(a, mobile)
+
+//- The season strip: which season is open, and the rollup dot for whichever
+    others aren't just `available` — live-green for downloading/importing,
+    warn-amber for needs_attention, generalised rather than hardcoded to
+    "the one season that's downloading".
+mixin seasonTabs(view)
+  - const mobile = view === 'mobile'
+  if mobile
+    +tabs({ scroll: true })(class='mb-4')
+      each s in SEASONS
+        +tab(s.dot ? '' : s.short, !!s.selected)
+          if s.dot
+            span(class='inline-flex items-center gap-[5px]')
+              = s.short
+              +dot(s.dot)
+              if s.pct
+                span(class='font-mono text-mono-sm tabular-nums text-uv-hi')= `${s.pct}%`
+  else
+    +tabs()(class='mb-5')
+      each s in SEASONS
+        +tab(s.dot ? '' : s.label, !!s.selected)
+          if s.dot
+            span(class='inline-flex items-center gap-1.5')
+              = s.label
+              +dot(s.dot)
+              if s.pct
+                span(class='font-mono text-mono-sm tabular-nums text-uv-hi')= `${s.pct}%`
+
+//- One episode row. Desktop puts everything on one line; mobile stacks the
+    number and title, then the metadata, then any progress row.
+mixin episode(ep, mobile)
+  div(
+    class=[
+      'flex px-1 py-3 [&+&]:border-t [&+&]:border-line-soft',
+      mobile ? 'flex-col items-start gap-2' : 'items-center gap-[14px]',
+    ]
+  )
+    if mobile
+      span(class='flex items-center gap-2')
+        span(class='w-[26px] shrink-0 font-mono text-mono-sm text-ink-4')= ep.num
+        span(class=['text-sm', ep.bad ? 'line-through opacity-60' : ''])= ep.title
+      span(class='flex items-center gap-2.5')
+        span(class='font-mono text-mono-sm text-ink-4')= ep.runtime
+        +chip({ label: ep.live ? null : ep.state, tone: ep.tone })
+          if ep.live
+            +dot('live')
+            = ep.state
+        if ep.action && !ep.progress
+          +btn({ label: ep.action, variant: ep.actionVariant || 'outline', size: 'sm', iconEnd: ep.actionIcon })
+      if ep.progress
+        span(class='flex w-full items-center gap-2.5')
+          +bar(ep.progress)(class='flex-1')
+          span(class='font-mono text-mono-sm tabular-nums text-uv-hi')= `${ep.progress}%`
+          +btn({ label: ep.action, variant: ep.actionVariant || 'outline', size: 'sm', iconEnd: ep.actionIcon })
+    else
+      span(class='w-[26px] shrink-0 font-mono text-mono-sm text-ink-4')= ep.num
+      span(class=['flex-1 text-sm', ep.bad ? 'line-through opacity-60' : ''])= ep.title
+      span(class='font-mono text-mono-sm text-ink-4')= ep.runtime
+      +chip({ label: ep.live ? null : ep.state, tone: ep.tone })
+        if ep.live
+          +dot('live')
+          = ep.state
+      if ep.progress
+        div(class='flex w-[120px] items-center gap-2')
+          +bar(ep.progress)(class='flex-1')
+          span(class='font-mono text-mono-sm tabular-nums text-uv-hi')= `${ep.progress}%`
+      if ep.action
+        +btn({ label: ep.action, variant: ep.actionVariant || 'outline', size: 'sm', iconEnd: ep.actionIcon })
+
+//- Season heading, its own download/delete actions, and the episode table.
+mixin episodeList(view)
+  - const mobile = view === 'mobile'
+  if mobile
+    p(class='mb-2.5 text-h2') Season 2 · 7 episodes
+    div(class='mb-4 flex flex-col gap-2')
+      +btn({ label: 'Download season', variant: 'outline', size: 'sm', iconEnd: 'download', full: true })
+      +btn({ label: 'Delete season', variant: 'bad', size: 'sm', iconEnd: 'trash', full: true })
+    +card({ sunk: true })(class='px-[14px] py-1')
+      each ep in EPISODES
+        +episode(ep, true)
+  else
+    div(class='mb-[14px] flex items-center justify-between')
+      span(class='text-h2') Season 2 · 7 episodes
+      div(class='flex items-center gap-2')
+        +btn({ label: 'Download season', variant: 'outline', size: 'sm', iconEnd: 'download' })
+        +btn({ label: 'Delete season', variant: 'bad', size: 'sm', iconEnd: 'trash' })
+    +card({ sunk: true })(class='px-4 py-1')
+      each ep in EPISODES
+        +episode(ep)
+
+//- The two dialogs this page can raise, over a cropped copy of the page.
+mixin reportModal(view)
+  +modalScrim
+    +modal
+      p(class='mb-2.5 text-h3') What's wrong with this episode?
+      each label, i in REASONS
+        +reason(label, i === 0)
+      if view === 'mobile'
+        div(class='mt-4 flex flex-col gap-2')
+          +btn({ label: 'Submit report', variant: 'uv', size: 'sm', full: true })
+          +btn({ label: 'Cancel', variant: 'ghost', size: 'sm', full: true })
+      else
+        div(class='mt-4 flex justify-end gap-2')
+          +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
+          +btn({ label: 'Submit report', variant: 'uv', size: 'sm' })
+
+mixin deleteModal(view)
+  +modalScrim
+    +modal
+      p(class='mb-1.5 text-h3')= `Delete "${TITLE}"?`
+      p(class='mb-[18px] text-sm text-ink-3')= DELETE_WARNING
+      if view === 'mobile'
+        div(class='flex flex-col gap-2')
+          +deleteBtn(true)
+          +btn({ label: 'Cancel', variant: 'ghost', size: 'sm', full: true })
+      else
+        div(class='flex justify-end gap-2')
+          +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
+          +deleteBtn
+
+//- A cropped frame: enough of the page for a modal to sit over, faded off at
+    the bottom so it reads as "this continues".
+mixin modalFrame(view, label)
+  +modalPreview(view, label)
+    if view === 'mobile'
+      +showHeader(view, {})
+      +seasonTabs(view)
+      +episodeList(view)
+    else
+      div(class='mx-auto max-w-[1080px]')
+        +libraryLink
+        +showHeader(view, { cast: true })
+        +seasonTabs(view)
+        +episodeList(view)
+    block
+
+//-
+  A download started in Sonarr's own UI — not an upgrade. The app adopts it as
+  an ordinary attempt: the same in-flight card as one this app started, with
+  Cancel and no Pause, attributed to Sonarr as a plain label where a person's
+  name and avatar would be.
+mixin startedFromSonarrFrame(view)
+  - const suffix = view === 'mobile' ? 'm' : 'd'
+  +frameLabel()(class='mt-1' id='started-from-sonarr-' + suffix)
+    | Started from Sonarr
+  +appFrame(view)
+    +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
+    +appBody(view)
+      if view === 'mobile'
+        +showHeader(view, { state: 'downloading', attribution: 'Sonarr' })
+        +attemptsList(view, [ADOPTED_ATTEMPT])
+      else
+        div(class='mx-auto max-w-[1080px]')
+          +libraryLink
+          +showHeader(view, { state: 'downloading', attribution: 'Sonarr' })
+          +attemptsList(view, [ADOPTED_ATTEMPT])
+
+//-
+  Sonarr upgrading an episode that's already on disk. That one isn't adopted
+  — it's not a download anybody asked this app for — so it stays a queue
+  snapshot: a bar, the throughput, and a note saying it can't be cancelled
+  from here.
+mixin sonarrUpgradeFrame(view)
+  - const suffix = view === 'mobile' ? 'm' : 'd'
+  +frameLabel()(class='mt-1' id='sonarr-upgrade-' + suffix)
+    | Sonarr upgrading a file on disk
+  +appFrame(view)
+    +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
+    +appBody(view)
+      if view === 'mobile'
+        +showHeader(view, { state: 'downloading' })
+        +card()(class='mb-7 p-4')
+          div(class='mb-2 flex items-center justify-between')
+            span(class='font-mono text-mono-sm text-ink-3') queue snapshot
+            span(class='font-mono text-mono-sm tabular-nums text-uv-hi')= `${EXTERNAL_QUEUE.progress}%`
+          +bar(EXTERNAL_QUEUE.progress)(class='mb-3')
+          p(class='mb-3 font-mono text-mono-sm tabular-nums text-ink-3')= EXTERNAL_QUEUE.throughput
+          +note('alert')
+            p(class='text-sm text-ink-2')
+              | Sonarr is upgrading an episode already on disk — it can't be cancelled here.
+      else
+        div(class='mx-auto max-w-[1080px]')
+          +libraryLink
+          +showHeader(view, { state: 'downloading' })
+          +card()(class='mb-8 max-w-[480px] p-5')
+            div(class='mb-2 flex items-center justify-between')
+              span(class='font-mono text-mono-sm text-ink-3') queue snapshot
+              span(class='font-mono text-mono-sm tabular-nums text-uv-hi')= `${EXTERNAL_QUEUE.progress}%`
+            +bar(EXTERNAL_QUEUE.progress)(class='mb-3')
+            p(class='mb-3 font-mono text-mono-sm tabular-nums text-ink-3')= EXTERNAL_QUEUE.throughput
+            +note('alert')
+              p(class='text-sm text-ink-2')
+                | Sonarr is upgrading an episode already on disk — it can't be cancelled here.
+
+//- Everything below the fold on the primary frame: state legend, cast
+    overflow, and the two flows as storyboards.
+mixin appendix(view)
+  - const mobile = view === 'mobile'
+  +appendixRule(mobile ? 'Appendix' : 'Appendix — states & flows', mobile ? 'states-m' : 'states-d')
+
+  p(class='mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Other states on this page
+  +card({ sunk: true })(class=mobile ? 'px-[14px] py-1' : 'px-4 py-1')
+    +stline({ mobile: mobile })
+      +chip({ label: 'not downloaded', tone: 'mute' })(class=mobile ? '' : 'w-[168px] justify-center')
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3']) Nothing grabbed yet — 0 of 24 episodes.
+      if mobile
+        +stlineActions
+          +btn({ label: 'Download series', variant: 'outline', size: 'sm', iconEnd: 'download' })
+      else
+        +btn({ label: 'Download series', variant: 'outline', size: 'sm', iconEnd: 'download' })
+    +stline({ mobile: mobile })
+      +chip({ label: 'wanted', tone: 'mute' })(class=mobile ? '' : 'w-[168px] justify-center')
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3']) Monitored — nothing queued yet.
+    +stline({ mobile: mobile })
+      +chip({ tone: 'uv' })(class=mobile ? '' : 'w-[168px] justify-center')
+        +dot('live')
+        | downloading
+      div(class=['flex items-center gap-2', mobile ? 'w-full' : 'w-[140px]'])
+        +bar(58)(class='flex-1')
+        span(class='font-mono text-mono-sm tabular-nums text-uv-hi') 58%
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'font-mono text-mono-sm tabular-nums text-ink-3']) 14 of 24 episodes
+      if mobile
+        +stlineActions
+          +btn({ label: 'Cancel', variant: 'bad', size: 'sm', iconEnd: 'x' })
+      else
+        +btn({ label: 'Cancel', variant: 'bad', size: 'sm', iconEnd: 'x' })
+    +stline({ mobile: mobile })
+      +chip({ label: 'cancelling…', tone: 'warn' })(class=mobile ? '' : 'w-[168px] justify-center')
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3'])
+        | Cancel pressed — Sonarr is dropping the download. The button stays, inert, until it's gone.
+      if mobile
+        +stlineActions
+          +btn({ label: 'Cancel', variant: 'bad', size: 'sm', iconEnd: 'x', disabled: true })
+      else
+        +btn({ label: 'Cancel', variant: 'bad', size: 'sm', iconEnd: 'x', disabled: true })
+    +stline({ mobile: mobile })
+      +chip({ label: 'cancelled', tone: 'mute' })(class=mobile ? '' : 'w-[168px] justify-center')
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3'])
+        | The newest attempt was cancelled — back to wanted; Retry grabs it again.
+      if mobile
+        +stlineActions
+          +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+      else
+        +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+    +stline({ mobile: mobile })
+      +chip({ tone: 'uv' })(class=mobile ? '' : 'w-[168px] justify-center')
+        +dot('live')
+        | importing…
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3']) Season 3, episode 6 is finishing its import.
+    +stline({ mobile: mobile })
+      +chip({ label: 'needs your decision', tone: 'warn' })(class=mobile ? '' : 'w-[168px] justify-center')
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3']) Season 3 stopped after 4 of 7 episodes.
+      if mobile
+        +stlineActions
+          +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+      else
+        +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+    +stline({ mobile: mobile })
+      +chip({ label: 'in library', tone: 'ok' })(class=mobile ? '' : 'w-[168px] justify-center')
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3']) Season 1 · all 8 episodes downloaded.
+      if mobile
+        +stlineActions
+          +btn({ label: 'Delete season', variant: 'bad', size: 'sm', iconEnd: 'trash' })
+      else
+        +btn({ label: 'Delete season', variant: 'bad', size: 'sm', iconEnd: 'trash' })
+
+  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Attempts — empty state
+  p(class='mb-3 text-sm text-ink-3')
+    | No attempts yet: the Attempts heading, the in-flight card and the terminal list are all omitted —
+    | the "not downloaded" chip above is the only signal.
+  +card({ sunk: true })(class=[mobile ? 'px-[14px]' : 'px-4', 'py-[13px] text-center text-sm text-ink-4'])
+    | (nothing renders here)
+
+  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Attempts — cancelling
+  p(class='mb-3 text-sm text-ink-3')
+    | Cancel was pressed and taken. The queue row is gone, so the card loses its bar and throughput; Cancel
+    | stays put but inert until Sonarr lets go. Same card for a series, season or single-episode grab.
+  div(class=mobile ? '' : 'max-w-[480px]')
+    +attemptInFlight(CANCELLING_ATTEMPT, mobile)
+
+  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Attempts — after a cancel
+  p(class='mb-3 text-sm text-ink-3')
+    | The cancelled attempt is the newest, nothing's in flight and the series is back to "wanted" — so that
+    | row, and only that row, offers Retry.
+  div(class=mobile ? '' : 'max-w-[480px]')
+    +attemptsList(view, ATTEMPTS_AFTER_CANCEL)
+
+  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Cast — overflow
+  if mobile
+    +card({ sunk: true })(class='py-4 pr-0 pl-[14px]')
+      p(class='mx-[14px] mb-[14px] text-sm text-ink-3')
+        | Scrolls sideways past the fold instead of wrapping into a wall of names.
+      div(
+        class!='-mx-[14px] flex flex-nowrap gap-4 overflow-x-auto px-[14px] py-0.5 [mask-image:linear-gradient(90deg,#000_calc(100%-28px),transparent)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
+      )
+        each person in FULL_CAST
+          +castPerson(person[0], person[1])
+  else
+    +card({ sunk: true })(class='px-4 py-[18px]')
+      p(class='mb-[14px] text-sm text-ink-3')
+        | Past the fourth credited actor, names collapse into a count — hover shows the rest.
+      div(class='flex flex-wrap gap-4')
+        each person in FULL_CAST.slice(0, 4)
+          +castPerson(person[0], person[1])
+        div(class='flex shrink-0 items-center gap-2')
+          +avatar('+2', { size: 'md' })(
+            class='text-[10px]'
+            title=OVERFLOW_CAST
+          )
+
+  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Report an episode — flow
+  +storyboard(mobile)
+    +storyboardStep('1 · Trigger')
+      +storyboardFrame(mobile ? 96 : 128)
+        +btn({ label: 'Report a problem', variant: 'ghost', size: 'sm', iconEnd: 'flag' })
+    +storyboardStep('2 · Pick a reason', !mobile)
+      div(class='rounded-lg border border-line bg-surface p-4')
+        p(class='mb-2.5 text-h3') What's wrong with this episode?
+        each label, i in REASONS
+          +reason(label, i === 0)
+        if mobile
+          div(class='mt-[14px] flex flex-col gap-2')
+            +btn({ label: 'Submit report', variant: 'uv', size: 'sm', full: true })
+            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm', full: true })
+        else
+          div(class='mt-[14px] flex justify-end gap-2')
+            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
+            +btn({ label: 'Submit report', variant: 'uv', size: 'sm' })
+    +storyboardStep('3 · Confirmed')
+      +storyboardFrame(mobile ? 96 : 128)
+        +chip({ label: 'reported', tone: 'mute' })
+        p(class='text-cap text-ink-3') This episode's file won't be auto-picked again.
+
+  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Delete series — confirm flow
+  +storyboard(mobile)
+    +storyboardStep('1 · Trigger')
+      +storyboardFrame(mobile ? 96 : 128)
+        +btn({ label: 'Delete series', variant: 'bad', iconEnd: 'trash' })
+    +storyboardStep('2 · Confirm', !mobile)
+      div(class='rounded-lg border border-line bg-surface p-[18px]')
+        p(class='mb-1.5 text-h3')= `Delete "${TITLE}"?`
+        p(class='mb-4 text-sm text-ink-3')= DELETE_WARNING
+        if mobile
+          div(class='flex flex-col gap-2')
+            +deleteBtn(true)
+            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm', full: true })
+        else
+          div(class='flex justify-end gap-2')
+            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
+            +deleteBtn
+    +storyboardStep('3 · Removed')
+      +storyboardFrame(mobile ? 96 : 128)
+        +chip({ label: 'removed', tone: 'mute' })
+        p(class='text-cap text-ink-3') Gone from your library — Emby loses it too.
+
+//- Skeleton stand-in for the whole page, while Sonarr is still answering.
+mixin loadingState(view)
+  - const mobile = view === 'mobile'
+  +frameLabel()(class='mt-1' id=mobile ? 'loading-m' : 'loading-d') Loading state
+  +appFrame(view)
+    +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
+    +appBody(view)
+      if mobile
+        +skeleton()(class='mx-auto mb-4 aspect-[2/3] w-full max-w-[220px] rounded-md')
+        +skeleton()(class='mx-auto mb-2 h-[23px] w-[65%]')
+        +skeleton()(class='mx-auto mb-4 h-[13px] w-[40%]')
+        div(class='mb-7 flex flex-col gap-2')
+          +skeleton()(class='h-[38px] w-full rounded-md')
+          +skeleton()(class='h-[38px] w-full rounded-md')
+          +skeleton()(class='h-[38px] w-full rounded-md')
+        div(class='mb-4 flex gap-2')
+          each n in [1, 2, 3]
+            +skeleton()(class='h-7 w-10')
+        +skeleton()(class='mb-2.5 h-[15px] w-[130px]')
+        div(class='mb-4 flex flex-col gap-2')
+          +skeleton()(class='h-[30px] w-full rounded-md')
+          +skeleton()(class='h-[30px] w-full rounded-md')
+        +card({ sunk: true })(class='p-4')
+          div(class='flex flex-col gap-4')
+            each w in SKELETON_EPISODES
+              div(class='flex flex-col gap-1.5')
+                +skeleton()(class='h-[13px]' style=`width: ${w[0]}`)
+                +skeleton()(class='h-[13px]' style=`width: ${w[1]}`)
+      else
+        div(class='mx-auto max-w-[1080px]')
+          +skeleton()(class='mb-[22px] h-3 w-16')
+          div(class='mb-8 flex items-start gap-6')
+            +skeleton()(class='aspect-[2/3] w-[200px] rounded-md')
+            div(class='flex flex-1 flex-col gap-[14px] pt-0.5')
+              +skeleton()(class='h-[23px] w-[50%]')
+              +skeleton()(class='h-[13px] w-[30%]')
+              div(class='flex flex-wrap gap-4')
+                each n in [1, 2]
+                  div(class='flex items-center gap-2')
+                    +skeleton()(class='h-[30px] w-[30px] rounded-full')
+                    +skeleton()(class='h-3 w-20')
+              div(class='mt-1 flex items-center gap-2.5')
+                +skeleton()(class='h-[38px] w-[100px] rounded-md')
+                +skeleton()(class='h-[38px] w-[148px] rounded-md')
+                +skeleton()(class='h-[38px] w-[128px] rounded-md')
+          div(class='mb-5 flex gap-[22px] border-b border-line pb-[9px]')
+            each n in [1, 2, 3]
+              +skeleton()(class='h-3 w-16')
+          div(class='mb-[14px] flex items-center justify-between')
+            +skeleton()(class='h-[15px] w-[150px]')
+            div(class='flex items-center gap-2')
+              +skeleton()(class='h-[30px] w-[150px] rounded-md')
+              +skeleton()(class='h-[30px] w-[130px] rounded-md')
+          +card({ sunk: true })(class='p-4')
+            div(class='flex flex-col gap-4')
+              each n in [1, 2, 3]
+                div(class='flex items-center gap-[14px]')
+                  +skeleton()(class='h-[13px] w-[190px]')
+                  +skeleton()(class='h-[13px] flex-1')
+
+block content
+  +mockHead({ eyebrow: 'lilnas · download', title: 'Show detail' })
+    p(class='max-w-[62ch] text-sm text-ink-3')
+      | Three levels of "download this": the whole series, one season, or a single episode — since plan 021,
+      | every level reads the same media-state chip instead of the newest job, the season strip carries a
+      | rollup dot for whichever season isn't just downloaded, and an Attempts list at series level replaces the
+      | lifecycle panel and "Earlier attempts". A compact legend below covers the series- and season-level
+      | states that aren't already on screen, plus the delete and report-a-problem flows.
+
+  div(class='vp-scope')
+    +viewportToggle('viewport')(class='mb-8' role='radiogroup' aria-label='Viewport')
+
+    each view in VIEWS
+      - const suffix = view === 'mobile' ? 'm' : 'd'
+      +viewportPanel(view)
+        +jumpNav(JUMP, suffix)
+
+        +appFrame(view)(id='primary-' + suffix)
+          +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
+          +appBody(view)
+            if view === 'mobile'
+              +showHeader(view, { synopsis: true, cast: true, attribution: true, episodeInfo: '14 of 24 episodes' })
+              +attemptsList(view, ATTEMPTS)
+              +seasonTabs(view)
+              +episodeList(view)
+            else
+              div(class='mx-auto max-w-[1080px]')
+                +libraryLink
+                +showHeader(view, {
+                  synopsis: true,
+                  cast: true,
+                  attribution: true,
+                  episodeInfo: '14 of 24 episodes',
+                })
+                +attemptsList(view, ATTEMPTS)
+                +seasonTabs(view)
+                +episodeList(view)
+
+        div(class=view === 'desktop' ? 'mx-auto max-w-[1080px]' : 'w-full max-w-[390px]')
+          +appendix(view)
+
+        +startedFromSonarrFrame(view)
+        +sonarrUpgradeFrame(view)
+
+        +modalFrame(view, 'Report an episode — as a modal')
+          +reportModal(view)
+        +modalFrame(view, 'Delete series — as a modal')
+          +deleteModal(view)
+        +loadingState(view)

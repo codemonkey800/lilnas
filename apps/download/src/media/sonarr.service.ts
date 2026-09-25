@@ -1,27 +1,60 @@
 import type {
   CommandResourceWritable,
+  EpisodeFileResource,
+  EpisodeResource,
+  HistoryResource,
+  IndexerResource,
+  Language,
+  ManualImportResource,
+  QualityModel,
   QueueResource,
+  ReleaseResource,
+  ReleaseType,
+  SeasonResource,
   SeriesResource,
   SeriesResourceWritable,
 } from '@lilnas/media/sonarr'
 import {
+  deleteApiV3EpisodefileById,
   deleteApiV3QueueById,
   deleteApiV3SeriesById,
+  getApiV3Episode,
+  getApiV3EpisodeById,
+  getApiV3Episodefile,
+  getApiV3HistorySeries,
+  getApiV3Indexer,
+  getApiV3Manualimport,
   getApiV3Qualityprofile,
   getApiV3Queue,
+  getApiV3Release,
   getApiV3Rootfolder,
   getApiV3Series,
+  getApiV3SeriesById,
   getApiV3SeriesLookup,
   postApiV3Command,
+  postApiV3Release,
   postApiV3Series,
+  putApiV3EpisodeMonitor,
+  putApiV3SeriesById,
 } from '@lilnas/media/sonarr'
-import type { ShowSearchResult } from '@lilnas/utils/download/types'
+import {
+  DownloadType,
+  type Episode,
+  type Release,
+  type Season,
+  type Show,
+  type ShowScope,
+} from '@lilnas/utils/download/types'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 
+import { mediaId } from 'src/db/media-id'
 import type { SonarrMediaClient } from 'src/media/clients'
 import { SONARR_CLIENT } from 'src/media/clients'
+import { mapCatalogueEntries } from 'src/media/map-media.util'
+import { toCommonRelease } from 'src/media/release-mapper.util'
 import { checkSdkError, unwrapSdkResult } from 'src/media/sdk-result.util'
 import { generateTitleSlug } from 'src/media/title-slug.util'
+import { toUpstreamIsoDateTime } from 'src/media/upstream-date.util'
 
 /**
  * Sonarr's SeriesSearch command accepts seriesId but the generated SDK type
@@ -31,21 +64,272 @@ import { generateTitleSlug } from 'src/media/title-slug.util'
  */
 type SeriesSearchCommand = CommandResourceWritable & { seriesId?: number }
 
+/**
+ * The two narrower search commands, extended the same way as
+ * `SeriesSearchCommand` above.
+ *
+ * TODO(phase-4-verify): both command names are well-documented Sonarr
+ * commands but are **not** in the generated SDK (`CommandResourceWritable.name`
+ * is a bare string), so nothing here type-checks the literal itself.
+ *
+ * A wrong `name` is the *loud* failure: Sonarr resolves the command type by
+ * name and rejects an unknown one, which `checkSdkError` surfaces onto the
+ * job with Sonarr's own message. The silent failure is a wrong **body field**
+ * name - accepted, ignored, nothing searched. `POST /api/v3/command` echoes
+ * the parsed command back in `body`, which is what makes that checkable; see
+ * the Phase 4 manual-verification block in
+ * `docs/features/download/backend.md`.
+ */
+type EpisodeSearchCommand = CommandResourceWritable & { episodeIds?: number[] }
+type SeasonSearchCommand = CommandResourceWritable & {
+  seasonNumber?: number
+  seriesId?: number
+}
+
+/**
+ * One file in a ManualImport command body - what Sonarr's own manual-import
+ * dialog sends per row once the user has confirmed it.
+ *
+ * `path`, `seriesId` and `episodeIds` are the required trio: the path is the
+ * file on disk Sonarr refused to import automatically, and the two ids say
+ * which series and which episodes it belongs to. Everything else is carried
+ * over from the `ManualImportResource` candidate so Sonarr keeps the quality,
+ * languages and release group it already parsed instead of re-deriving them
+ * from the filename - `downloadId` in particular is what lets Sonarr tie the
+ * import back to the queue item that produced it.
+ *
+ * Built by the caller from `getManualImportCandidates()` output; exported
+ * because the mapping from candidate to file lives outside this service.
+ */
+export type SonarrManualImportFile = {
+  downloadId?: string | null
+  episodeFileId?: number | null
+  episodeIds: number[]
+  folderName?: string | null
+  indexerFlags?: number
+  languages?: Language[] | null
+  path: string
+  quality?: QualityModel
+  releaseGroup?: string | null
+  releaseType?: ReleaseType
+  seriesId: number
+}
+
+/**
+ * The ManualImport command body. Neither SDK types command-specific fields -
+ * `CommandResourceWritable` carries only `name` - so this is the same
+ * locally-typed intersection trick `SeriesSearchCommand` above uses, posted
+ * through `postApiV3Command`.
+ */
+type ManualImportCommand = CommandResourceWritable & {
+  files: SonarrManualImportFile[]
+  importMode: 'auto' | 'copy' | 'move'
+}
+
 export interface RequestShowResult {
+  overview?: string
   posterUrl?: string
   sonarrId: number
   title: string
 }
 
-function toShowSearchResult(series: SeriesResource): ShowSearchResult {
-  const posterUrl = series.images?.find(img => img.coverType === 'poster')?.url
+/** Scopes `getReleases`/`getEpisodes` to part of a series. */
+export interface SeriesScope {
+  episodeId?: number
+  seasonNumber?: number
+}
+
+export interface EnsureSeriesOptions {
+  /**
+   * When present, `ensureSeries` also walks the episodes this scope names
+   * and monitors any that are off - an empty object means the whole series.
+   *
+   * `ensureSeries` never widens the scope on its own: the request path
+   * decides what a request covers (a bare `POST /download/shows` is an
+   * explicit whole-series request and monitors everything), and the
+   * release-listing borrow (`ReleaseService.withMonitoring`) passes exactly
+   * the scope it was asked for and nothing more.
+   */
+  monitorEpisodes?: SeriesScope
+}
+
+/**
+ * What `ensureSeries()` hands back - `EnsureMovieResult` plus the episode
+ * granularity Sonarr forces on us.
+ *
+ * Series-level `monitored` is **not enough** for Sonarr: a series added with
+ * `monitor: 'none'` has a monitored series row and unmonitored episodes, and
+ * Sonarr won't grab a release for an unmonitored episode. So the capture
+ * carries `turnedOnEpisodeIds` - the episodes this call switched on, and
+ * *only* those. A restore that unmonitored every episode in the season would
+ * clobber ones the user had deliberately monitored themselves.
+ */
+export interface EnsureSeriesResult {
+  series: SeriesResource
+  sonarrId: number
+  /** Episodes this call turned monitoring on for - the restore set. */
+  turnedOnEpisodeIds: number[]
+  /**
+   * `true` when this call *added* the series to Sonarr - see
+   * `EnsureMovieResult.wasAdded` for why `wasMonitored: false` can't stand
+   * in for it.
+   */
+  wasAdded: boolean
+  wasMonitored: boolean
+}
+
+/**
+ * Sonarr's half of the shared `Release` mapper - the common fields plus the
+ * three Sonarr-only ones. Note `imdbId` is a *string* here where Radarr types
+ * it as a number, which is one of the reasons the two generated
+ * `ReleaseResource` types can't simply be unioned; the DTO reads neither.
+ */
+export function toRelease(resource: ReleaseResource): Release {
+  return {
+    ...toCommonRelease(resource),
+    episodeNumbers: resource.episodeNumbers ?? undefined,
+    fullSeason: resource.fullSeason,
+    seasonNumber: resource.seasonNumber,
+  }
+}
+
+/**
+ * The single Sonarr -> `Media` mapper (plan §4.1/§4.2) - see
+ * `radarr.service.ts`'s `toMovie()` for the shape of the collapse.
+ * `SeriesResource.path` is the series folder (not a per-episode file,
+ * unlike Radarr's `movieFile.path`) - Phase 4's episode work will need
+ * `episodeFile` separately. Unlike Radarr's per-provider Ratings breakdown,
+ * Sonarr's is already a single flat `{ votes, value }` pair.
+ *
+ * Throws on a missing `tvdbId` for the reason `toMovie()` throws on a
+ * missing `tmdbId` - see that function. List call sites go through
+ * `mapCatalogueEntries()`.
+ */
+export function toShow(series: SeriesResource): Show {
+  const posterUrl = series.images?.find(
+    img => img.coverType === 'poster',
+  )?.remoteUrl
+  const releaseDate = series.firstAired ?? undefined
+  const tvdbId = series.tvdbId
+
+  if (tvdbId == null || !Number.isInteger(tvdbId) || tvdbId <= 0) {
+    throw new Error(
+      `Sonarr returned a series without a usable tvdbId ` +
+        `(tvdbId=${tvdbId}, title=${series.title ?? 'unknown'})`,
+    )
+  }
+
+  // Falsy-guarded rather than nullish-guarded: Sonarr returns `id: 0` for
+  // a lookup result that isn't in the library (see toMovie()).
+  const sonarrId = series.id || undefined
 
   return {
+    // A non-library lookup hit's `added` is .NET's `DateTime.MinValue`,
+    // which `toUpstreamIsoDateTime()` drops - gated on the library id too so
+    // the intent doesn't rest on that sentinel alone.
+    addedAt: sonarrId ? toUpstreamIsoDateTime(series.added) : undefined,
+    certification: series.certification ?? undefined,
+    // `statistics` is Sonarr's own count - the one that says whether the
+    // series has anything on disk (`episodeFileCount > 0`), since
+    // `filePath` below is set for every library series, files or not.
+    episodeCount: sonarrId ? series.statistics?.episodeCount : undefined,
+    episodeFileCount: sonarrId
+      ? series.statistics?.episodeFileCount
+      : undefined,
+    filePath: series.path ?? undefined,
+    genres: series.genres ?? [],
+    id: mediaId({ tvdbId, type: DownloadType.Show }),
+    // A non-library lookup hit comes back `monitored: true` (Sonarr's
+    // default for the add form), which says nothing about this title.
+    monitored: sonarrId ? series.monitored : undefined,
     overview: series.overview ?? undefined,
     posterUrl: posterUrl ?? undefined,
+    ratingValue: series.ratings?.value,
+    releaseDate,
+    // Sonarr reports minutes; `Media.runtime` is seconds (see MediaBaseSchema).
+    runtime: series.runtime != null ? series.runtime * 60 : undefined,
+    sonarrId,
     title: series.title ?? 'Unknown title',
-    tvdbId: series.tvdbId ?? 0,
+    tvdbId,
+    type: DownloadType.Show,
     year: series.year,
+  }
+}
+
+/**
+ * `toShow()` for a `/series/lookup` hit. Sonarr's lookup zeroes `statistics`
+ * even for a series that is in the library - a fully downloaded series comes
+ * back `episodeFileCount: 0` - so the counts are dropped rather than
+ * reported as "nothing on disk". Everything else on a lookup hit is sound.
+ */
+export function toLookupShow(series: SeriesResource): Show {
+  return toShow({ ...series, statistics: undefined })
+}
+
+/**
+ * One `EpisodeResource` -> the `Episode` wire type.
+ *
+ * Every field on the generated type is optional, but `id`, `seasonNumber`
+ * and `episodeNumber` are structural - Sonarr has no way to represent an
+ * episode without them, and an episode missing one couldn't be searched,
+ * grabbed or rendered. So those three throw rather than being defaulted,
+ * where `monitored`/`hasFile` (genuinely boolean state) default to `false`.
+ */
+export function toEpisode(resource: EpisodeResource): Episode {
+  if (
+    resource.id == null ||
+    resource.seasonNumber == null ||
+    resource.episodeNumber == null
+  ) {
+    throw new Error(
+      `Sonarr returned an episode without an id/seasonNumber/episodeNumber ` +
+        `(id=${resource.id}, season=${resource.seasonNumber}, ` +
+        `episode=${resource.episodeNumber})`,
+    )
+  }
+
+  return {
+    airDate: resource.airDateUtc ?? undefined,
+    // `episodeFileId: 0` is Sonarr's "no file" - truthiness, not a null
+    // guard, and the key is omitted rather than carrying a meaningless 0.
+    episodeFileId: resource.episodeFileId || undefined,
+    episodeNumber: resource.episodeNumber,
+    hasFile: resource.hasFile ?? false,
+    id: resource.id,
+    monitored: resource.monitored ?? false,
+    overview: resource.overview ?? undefined,
+    // Sonarr reports minutes; `Episode.runtime` is seconds, matching
+    // `MediaBaseSchema.runtime`'s convention (see `toShow()` above).
+    runtime: resource.runtime != null ? resource.runtime * 60 : undefined,
+    seasonNumber: resource.seasonNumber,
+    title: resource.title ?? undefined,
+  }
+}
+
+/**
+ * One `SeasonResource` plus its already-mapped episodes -> the `Season` wire
+ * type.
+ *
+ * The counts come from Sonarr's own `statistics` rather than from
+ * `episodes.length`: the two can legitimately disagree (statistics counts
+ * episodes Sonarr knows are coming), and Sonarr's number is the honest one.
+ * They fall back to the episode list only when Sonarr sent no statistics at
+ * all, which is what a freshly-added series looks like.
+ */
+export function toSeason(
+  resource: SeasonResource,
+  episodes: Episode[],
+): Season {
+  const statistics = resource.statistics
+
+  return {
+    episodeCount: statistics?.episodeCount ?? episodes.length,
+    episodeFileCount:
+      statistics?.episodeFileCount ?? episodes.filter(e => e.hasFile).length,
+    episodes,
+    monitored: resource.monitored ?? false,
+    seasonNumber: resource.seasonNumber ?? 0,
+    sizeOnDisk: statistics?.sizeOnDisk,
   }
 }
 
@@ -57,7 +341,12 @@ export class SonarrService {
     @Inject(SONARR_CLIENT) private readonly client: SonarrMediaClient,
   ) {}
 
-  async search(query: string): Promise<ShowSearchResult[]> {
+  /**
+   * Sonarr's lookup, mapped to `Media` - backs both `/shows/search` and
+   * `/discover`. See `RadarrService.search()` for why those were ever two
+   * methods.
+   */
+  async search(query: string): Promise<Show[]> {
     const series = unwrapSdkResult(
       await getApiV3SeriesLookup({
         client: this.client,
@@ -66,91 +355,737 @@ export class SonarrService {
       'searchShows',
     )
 
-    return series.map(toShowSearchResult)
+    return mapCatalogueEntries(series, toLookupShow, {
+      action: 'searchShows',
+      logger: this.logger,
+    })
+  }
+
+  /**
+   * The whole Sonarr library, mapped to `Media` - `MediaResolverService`'s
+   * library cache is built from this (one call per TTL window rather than
+   * one per job). Same underlying call as `requestShow()`'s existing
+   * library-first lookup (`getApiV3Series`).
+   */
+  async getLibrary(): Promise<Show[]> {
+    const series = unwrapSdkResult(
+      await getApiV3Series({ client: this.client }),
+      'getSeries',
+    )
+
+    return mapCatalogueEntries(series, toShow, {
+      action: 'getSeries',
+      logger: this.logger,
+    })
+  }
+
+  /**
+   * `RadarrService.getLibraryMovie()`'s Sonarr twin: one series' library
+   * entry by `tvdbId`, or `undefined` when Sonarr's library doesn't hold it.
+   */
+  async getLibraryShow(tvdbId: number): Promise<Show | undefined> {
+    const series = unwrapSdkResult(
+      await getApiV3Series({ client: this.client, query: { tvdbId } }),
+      'getSeries',
+    )
+
+    const show = series.find(entry => entry.tvdbId === tvdbId)
+    return show ? toShow(show) : undefined
+  }
+
+  /**
+   * Per-id fallback for `MediaResolverService` when a tvdbId isn't in the
+   * library cache - metadata-only, no `sonarrId`/`filePath` (this is the
+   * *discover* lookup, not a library query, so a title requested but since
+   * removed from Sonarr still resolves).
+   */
+  async lookupByTvdbId(tvdbId: number): Promise<Show> {
+    const searchResults = unwrapSdkResult(
+      await getApiV3SeriesLookup({
+        client: this.client,
+        query: { term: `tvdb:${tvdbId}` },
+      }),
+      'lookupSeriesByTvdbId',
+    )
+
+    const lookup = searchResults.find(s => s.tvdbId === tvdbId)
+    if (!lookup) {
+      throw new Error(`Series with TVDB ID ${tvdbId} not found`)
+    }
+
+    return toLookupShow(lookup)
+  }
+
+  /**
+   * Gets the series into a state where Sonarr will actually surface and grab
+   * releases for it - the Sonarr counterpart to `RadarrService.ensureMovie()`,
+   * with one extra layer.
+   *
+   * Sonarr needs the *episodes* monitored, not just the series: a series
+   * added with `monitor: 'none'` has `monitored: true` at the series level
+   * and every episode off. So when `opts.monitorEpisodes` is given this also
+   * walks the episodes that scope names, turns on the ones that are off, and
+   * reports exactly those back as `turnedOnEpisodeIds` for the caller to
+   * restore.
+   *
+   * A fresh add needs no episode pass at all - `addOptions.monitor: 'all'`
+   * already monitors everything, so `turnedOnEpisodeIds` is empty and it is
+   * `wasAdded` that tells the caller what to undo: a series this call put in
+   * the library gets removed again, not unmonitored (see
+   * `ReleaseService.withMonitoring()`).
+   */
+  async ensureSeries(
+    tvdbId: number,
+    opts: EnsureSeriesOptions = {},
+  ): Promise<EnsureSeriesResult> {
+    const existingSeries = unwrapSdkResult(
+      await getApiV3Series({ client: this.client }),
+      'getSeries',
+    )
+
+    const existing = existingSeries.find(s => s.tvdbId === tvdbId)
+
+    if (existing) {
+      if (existing.id == null) {
+        throw new Error(
+          `Sonarr did not return an id for series tvdbId=${tvdbId}`,
+        )
+      }
+
+      const wasMonitored = existing.monitored === true
+      if (!wasMonitored) {
+        await this.setSeriesMonitored(existing.id, true)
+      }
+
+      // Only reached by a caller passing no `monitorEpisodes` at all - no
+      // caller in this app does today. It covers a series a human
+      // unmonitored in Sonarr's own UI (a whole-series delete here removes
+      // the series outright, so it never produces this state): re-monitoring
+      // the row alone would leave every episode off and `SeriesSearch` with
+      // nothing to grab. Treat it the same as an explicit whole-series
+      // scope; a partially-monitored series (some seasons on, some off)
+      // never trips this because it stays series-level-monitored the whole
+      // time.
+      const turnedOnEpisodeIds = opts.monitorEpisodes
+        ? await this.monitorScopedEpisodes(existing.id, opts.monitorEpisodes)
+        : wasMonitored
+          ? []
+          : await this.monitorScopedEpisodes(existing.id, {})
+
+      return {
+        series: existing,
+        sonarrId: existing.id,
+        turnedOnEpisodeIds,
+        wasAdded: false,
+        wasMonitored,
+      }
+    }
+
+    const searchResults = unwrapSdkResult(
+      await getApiV3SeriesLookup({
+        client: this.client,
+        query: { term: `tvdb:${tvdbId}` },
+      }),
+      'lookupSeriesByTvdbId',
+    )
+
+    const lookup = searchResults.find(s => s.tvdbId === tvdbId)
+    if (!lookup) {
+      throw new Error(`Series with TVDB ID ${tvdbId} not found`)
+    }
+
+    const { qualityProfileId, rootFolderPath } =
+      await this.getDefaultConfiguration()
+
+    const title = lookup.title ?? `Show ${tvdbId}`
+
+    const added = unwrapSdkResult(
+      await postApiV3Series({
+        client: this.client,
+        // Domain fields line up 1:1 with SeriesResourceWritable; addOptions
+        // is the only nested writable-only shape, so a targeted cast
+        // covers it.
+        body: {
+          tvdbId,
+          title,
+          titleSlug: lookup.titleSlug ?? generateTitleSlug(title),
+          qualityProfileId,
+          rootFolderPath,
+          monitored: true,
+          seasonFolder: true,
+          useSceneNumbering: false,
+          seriesType: 'standard',
+          addOptions: {
+            monitor: 'all',
+            // Both `false`, where the pre-extraction `requestShow` set them
+            // `true`. The search moved to the explicit `SeriesSearch`
+            // command `requestShow` was *already* sending afterwards, so a
+            // request still searches exactly once - but `ReleaseService`,
+            // which adds a series only so it can list its releases, no
+            // longer kicks off a series-wide grab as a side effect of
+            // browsing. Mirrors Radarr's `searchForMovie: false` + command.
+            searchForMissingEpisodes: false,
+            searchForCutoffUnmetEpisodes: false,
+          },
+        } as unknown as SeriesResourceWritable,
+      }),
+      'addSeries',
+    )
+
+    if (added.id == null) {
+      throw new Error(`Sonarr did not return an id for series tvdbId=${tvdbId}`)
+    }
+
+    return {
+      series: added,
+      sonarrId: added.id,
+      // `monitor: 'all'` already covered every episode, so this call turned
+      // nothing on individually and there is nothing episode-level to undo.
+      turnedOnEpisodeIds: [],
+      wasAdded: true,
+      wasMonitored: false,
+    }
+  }
+
+  /**
+   * Monitors whichever episodes the scope names and aren't already on,
+   * returning just the ids this call changed. An unscoped call (no season,
+   * no episode) covers the whole series, matching what a season-agnostic
+   * release listing actually searches.
+   */
+  private async monitorScopedEpisodes(
+    sonarrId: number,
+    scope: SeriesScope,
+  ): Promise<number[]> {
+    const episodes = await this.getEpisodes(sonarrId, {
+      seasonNumber: scope.seasonNumber,
+    })
+
+    const inScope =
+      scope.episodeId != null
+        ? episodes.filter(episode => episode.id === scope.episodeId)
+        : episodes
+
+    const toTurnOn = inScope
+      .filter(episode => episode.id != null && episode.monitored !== true)
+      .map(episode => episode.id as number)
+
+    if (toTurnOn.length > 0) {
+      await this.setEpisodesMonitored(toTurnOn, true)
+    }
+
+    return toTurnOn
+  }
+
+  /**
+   * One series by its Sonarr id - the only call site of
+   * `getApiV3SeriesById`, shared by `setSeriesMonitored` (which needs the
+   * whole resource to PUT back) and `listSeasons` (which needs
+   * `seasons[]`).
+   */
+  async getSeriesById(sonarrId: number): Promise<SeriesResource> {
+    return unwrapSdkResult(
+      await getApiV3SeriesById({ client: this.client, path: { id: sonarrId } }),
+      'getSeries',
+    )
+  }
+
+  /**
+   * Every season of a series with its episodes, for
+   * `GET /download/media/:id/seasons`.
+   *
+   * Exactly **two** upstream calls, never one per season: the series (for
+   * the season list, its `monitored` flags and its per-season statistics)
+   * and one unscoped episode listing, grouped by `seasonNumber` here. A
+   * 10-season show is 2 requests, not 11.
+   */
+  async listSeasons(sonarrId: number): Promise<Season[]> {
+    const [series, episodeResources] = await Promise.all([
+      this.getSeriesById(sonarrId),
+      this.getEpisodes(sonarrId),
+    ])
+
+    const bySeason = new Map<number, Episode[]>()
+    for (const resource of episodeResources) {
+      const episode = toEpisode(resource)
+      const existing = bySeason.get(episode.seasonNumber)
+      if (existing) {
+        existing.push(episode)
+      } else {
+        bySeason.set(episode.seasonNumber, [episode])
+      }
+    }
+
+    const seasons = new Map<number, SeasonResource>()
+    for (const resource of series.seasons ?? []) {
+      seasons.set(resource.seasonNumber ?? 0, resource)
+    }
+
+    // An episode whose season isn't in `series.seasons[]` still has to land
+    // somewhere - Sonarr shouldn't produce one, but dropping it silently
+    // would hide episodes rather than report the inconsistency. A
+    // synthesized season carries no `monitored`/`statistics` of its own, so
+    // `toSeason` falls back to counting the episodes it was handed.
+    for (const seasonNumber of bySeason.keys()) {
+      if (!seasons.has(seasonNumber)) {
+        seasons.set(seasonNumber, { seasonNumber })
+      }
+    }
+
+    return [...seasons.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([seasonNumber, resource]) =>
+        toSeason(
+          resource,
+          // A season Sonarr lists but has no episodes for yet (announced,
+          // not aired) is a real season with `episodes: []`, not an omitted
+          // one.
+          (bySeason.get(seasonNumber) ?? []).sort(
+            (a, b) => a.episodeNumber - b.episodeNumber,
+          ),
+        ),
+      )
+  }
+
+  /**
+   * Flips a series' `monitored` flag. Like Radarr's, Sonarr's
+   * `PUT /series/{id}` replaces the whole resource, so the current one is
+   * read back first and re-sent with the single field changed.
+   */
+  async setSeriesMonitored(
+    sonarrId: number,
+    monitored: boolean,
+  ): Promise<void> {
+    const series = await this.getSeriesById(sonarrId)
+
+    checkSdkError(
+      await putApiV3SeriesById({
+        client: this.client,
+        // String path param on the PUT, number on the GET - an inconsistency
+        // in Sonarr's spec, not a choice on this side.
+        path: { id: String(sonarrId) },
+        body: { ...series, monitored } as unknown as SeriesResourceWritable,
+      }),
+      'setSeriesMonitored',
+    )
+  }
+
+  /**
+   * Flips `seasons[].monitored` for the named seasons (or every season) and
+   * returns the season numbers that actually changed. One GET + at most one
+   * PUT - the PUT is skipped when nothing would change.
+   *
+   * Season `0` (specials) is a season like any other, so `'all'` includes
+   * it. A season number Sonarr doesn't list is warned about and skipped
+   * rather than thrown on - the delete side may name a season Sonarr has
+   * since dropped. A season already at the target value is left alone and
+   * not reported.
+   *
+   * Sonarr's `PUT /series` may itself cascade a season flag change down to
+   * that season's episodes. Callers that need to know or set episode state
+   * must read/write the episodes BEFORE calling this, not after.
+   */
+  async setSeasonsMonitored(
+    sonarrId: number,
+    seasons: readonly number[] | 'all',
+    monitored: boolean,
+  ): Promise<number[]> {
+    if (seasons !== 'all' && seasons.length === 0) {
+      return []
+    }
+
+    const series = await this.getSeriesById(sonarrId)
+    const existing = series.seasons ?? []
+
+    // `?? 0` matches `listSeasons`: Sonarr always sends `seasonNumber`, the
+    // generated type just can't promise it.
+    if (seasons !== 'all') {
+      const known = new Set(existing.map(season => season.seasonNumber ?? 0))
+      for (const seasonNumber of seasons) {
+        if (!known.has(seasonNumber)) {
+          this.logger.warn(
+            { seasonNumber, sonarrId },
+            'Season not present in Sonarr series; skipping monitored change',
+          )
+        }
+      }
+    }
+
+    const wanted = seasons === 'all' ? null : new Set(seasons)
+    const changed: number[] = []
+
+    const patchedSeasons = existing.map(season => {
+      const seasonNumber = season.seasonNumber ?? 0
+      const inScope = wanted === null || wanted.has(seasonNumber)
+      if (!inScope || season.monitored === monitored) {
+        return season
+      }
+
+      changed.push(seasonNumber)
+      return { ...season, monitored }
+    })
+
+    if (changed.length === 0) {
+      return []
+    }
+
+    checkSdkError(
+      await putApiV3SeriesById({
+        client: this.client,
+        path: { id: String(sonarrId) },
+        body: {
+          ...series,
+          seasons: patchedSeasons,
+        } as unknown as SeriesResourceWritable,
+      }),
+      'setSeasonsMonitored',
+    )
+
+    return changed
+  }
+
+  /** A series' episodes, optionally narrowed to one season. */
+  async getEpisodes(
+    sonarrId: number,
+    opts: { seasonNumber?: number } = {},
+  ): Promise<EpisodeResource[]> {
+    return unwrapSdkResult(
+      await getApiV3Episode({
+        client: this.client,
+        query: {
+          seriesId: sonarrId,
+          ...(opts.seasonNumber != null
+            ? { seasonNumber: opts.seasonNumber }
+            : {}),
+        },
+      }),
+      'getEpisodes',
+    )
+  }
+
+  /**
+   * Bulk-sets `monitored` across episodes. A no-op for an empty id list -
+   * Sonarr would accept the call, but the round trip buys nothing and the
+   * restore path hits this with an empty list whenever it had nothing to
+   * turn on.
+   */
+  async setEpisodesMonitored(
+    episodeIds: number[],
+    monitored: boolean,
+  ): Promise<void> {
+    if (episodeIds.length === 0) {
+      return
+    }
+
+    checkSdkError(
+      await putApiV3EpisodeMonitor({
+        client: this.client,
+        body: { episodeIds, monitored },
+      }),
+      'setEpisodesMonitored',
+    )
+  }
+
+  /**
+   * Sonarr's interactive indexer search, mapped to the shared `Release` DTO.
+   * Unlike Radarr's, this endpoint natively supports scoping to a season or a
+   * single episode, so Phase 3 just passes those through rather than
+   * filtering client-side.
+   *
+   * The series must be in the library with the target episodes monitored
+   * first (see `ensureSeries()`), otherwise Sonarr has nothing to search for.
+   */
+  async getReleases(
+    sonarrId: number,
+    scope: SeriesScope = {},
+  ): Promise<Release[]> {
+    const releases = unwrapSdkResult(
+      await getApiV3Release({
+        client: this.client,
+        query: {
+          seriesId: sonarrId,
+          ...(scope.episodeId != null ? { episodeId: scope.episodeId } : {}),
+          ...(scope.seasonNumber != null
+            ? { seasonNumber: scope.seasonNumber }
+            : {}),
+        },
+      }),
+      'getReleases',
+    )
+
+    return releases.map(toRelease)
+  }
+
+  /**
+   * Hands one specific release to Sonarr to download. As with Radarr,
+   * `{ guid, indexerId }` is all it needs to re-find and grab it.
+   */
+  async grabRelease(guid: string, indexerId: number): Promise<void> {
+    checkSdkError(
+      await postApiV3Release({
+        client: this.client,
+        body: { guid, indexerId },
+      }),
+      'grabRelease',
+    )
+  }
+
+  /**
+   * Every episode file Sonarr currently holds for a series. Sonarr's endpoint
+   * has no season filter, so the replace path narrows by `seasonNumber`
+   * itself off each file's own field.
+   */
+  async getEpisodeFiles(sonarrId: number): Promise<EpisodeFileResource[]> {
+    return unwrapSdkResult(
+      await getApiV3Episodefile({
+        client: this.client,
+        query: { seriesId: sonarrId },
+      }),
+      'getEpisodeFiles',
+    )
+  }
+
+  /**
+   * Deletes one episode file, leaving the series in the library and
+   * **monitored**. Deliberately not `unmonitorAndDelete`, which removes the
+   * whole series - a replace has to keep the title so the replacement
+   * release has somewhere to import to.
+   */
+  async deleteEpisodeFile(fileId: number): Promise<void> {
+    checkSdkError(
+      await deleteApiV3EpisodefileById({
+        client: this.client,
+        path: { id: fileId },
+      }),
+      'deleteEpisodeFile',
+    )
+  }
+
+  /**
+   * A whole series' history in one unpaged call - the raw material
+   * `mapFilesToReleases()` joins back into a `fileId -> release` map.
+   *
+   * Scoped to the series and nothing narrower on purpose. A 45-file show
+   * comes back as ~90 records in 0.03s, so a per-season (let alone
+   * per-episode) filter would cost the same per call and turn one request
+   * into ten.
+   *
+   * Deliberately **no `eventType` filter** either. The SDK's `eventType`
+   * string union is not positional with the numeric values this query param
+   * takes on the wire - `downloadFolderImported` is `3`, not `2` - so passing
+   * one silently fetches the wrong event type. Everything is fetched and the
+   * caller filters on the string `eventType` off each record instead.
+   */
+  async getSeriesHistory(sonarrId: number): Promise<HistoryResource[]> {
+    return unwrapSdkResult(
+      await getApiV3HistorySeries({
+        client: this.client,
+        query: { seriesId: sonarrId },
+      }),
+      'getSeriesHistory',
+    )
+  }
+
+  /**
+   * Every indexer Sonarr has configured, raw.
+   *
+   * Sonarr's `grabbed` history carries **no `indexerId`** - only
+   * `data.indexer`, the display name (`'AltHub'`, `'NzbGeek'`) - where
+   * Radarr's carries both. Resolving that name back to the id a re-grab needs
+   * means matching it against `IndexerResource.name`, which is what this list
+   * exists for; building (and caching) the name -> id map is the caller's job.
+   */
+  async getIndexers(): Promise<IndexerResource[]> {
+    return unwrapSdkResult(
+      await getApiV3Indexer({ client: this.client }),
+      'getIndexers',
+    )
   }
 
   /**
    * Adds (if needed) and triggers a search for a series by TVDB ID.
    * Simplified relative to tdr-bot's monitorAndDownloadSeries: no
    * retry/circuit-breaker wrapper and no granular per-season/episode
-   * selection - the whole series is monitored and searched via addOptions.
+   * selection - the whole series is monitored and searched.
+   *
+   * Now literally `ensureSeries()` + the search command, the same shape
+   * `requestMovie` has.
    */
   async requestShow(tvdbId: number): Promise<RequestShowResult> {
-    const existingSeries = unwrapSdkResult(
-      await getApiV3Series({ client: this.client }),
-      'getSeries',
-    )
+    const { series, sonarrId } = await this.ensureSeries(tvdbId)
 
-    let series = existingSeries.find(s => s.tvdbId === tvdbId)
-
-    if (!series) {
-      const searchResults = unwrapSdkResult(
-        await getApiV3SeriesLookup({
-          client: this.client,
-          query: { term: `tvdb:${tvdbId}` },
-        }),
-        'lookupSeriesByTvdbId',
-      )
-
-      const lookup = searchResults.find(s => s.tvdbId === tvdbId)
-      if (!lookup) {
-        throw new Error(`Series with TVDB ID ${tvdbId} not found`)
-      }
-
-      const { qualityProfileId, rootFolderPath } =
-        await this.getDefaultConfiguration()
-
-      const title = lookup.title ?? `Show ${tvdbId}`
-
-      series = unwrapSdkResult(
-        await postApiV3Series({
-          client: this.client,
-          // Domain fields line up 1:1 with SeriesResourceWritable; addOptions
-          // is the only nested writable-only shape, so a targeted cast
-          // covers it.
-          body: {
-            tvdbId,
-            title,
-            titleSlug: lookup.titleSlug ?? generateTitleSlug(title),
-            qualityProfileId,
-            rootFolderPath,
-            monitored: true,
-            seasonFolder: true,
-            useSceneNumbering: false,
-            seriesType: 'standard',
-            addOptions: {
-              monitor: 'all',
-              searchForMissingEpisodes: true,
-              searchForCutoffUnmetEpisodes: true,
-            },
-          } as unknown as SeriesResourceWritable,
-        }),
-        'addSeries',
-      )
-    }
-
-    if (series.id == null) {
-      throw new Error(`Sonarr did not return an id for series tvdbId=${tvdbId}`)
-    }
-
-    const command: SeriesSearchCommand = {
-      name: 'SeriesSearch',
-      seriesId: series.id,
-    }
-    checkSdkError(
-      await postApiV3Command({ client: this.client, body: command }),
-      'triggerSeriesSearch',
-    )
+    await this.triggerSearch(sonarrId)
 
     const posterUrl = series.images?.find(
       img => img.coverType === 'poster',
     )?.remoteUrl
 
     return {
+      overview: series.overview ?? undefined,
       posterUrl: posterUrl ?? undefined,
-      sonarrId: series.id,
+      sonarrId,
       title: series.title ?? `Show ${tvdbId}`,
     }
+  }
+
+  /**
+   * Sonarr's generic "go find something for this series" command - the
+   * unflagged auto-select path. When a title *does* have flagged releases,
+   * `MediaDownloadService` fetches and picks itself instead, because this
+   * command gives the app no say in what Sonarr grabs.
+   */
+  async triggerSearch(sonarrId: number): Promise<void> {
+    const command: SeriesSearchCommand = {
+      name: 'SeriesSearch',
+      seriesId: sonarrId,
+    }
+
+    checkSdkError(
+      await postApiV3Command({ client: this.client, body: command }),
+      'triggerSeriesSearch',
+    )
+  }
+
+  /**
+   * Searches for specific episodes - the narrowest of the three commands,
+   * and the one a per-episode request uses. See `EpisodeSearchCommand` for
+   * the caveat on the command name.
+   */
+  async triggerEpisodeSearch(episodeIds: number[]): Promise<void> {
+    const command: EpisodeSearchCommand = {
+      episodeIds,
+      name: 'EpisodeSearch',
+    }
+
+    checkSdkError(
+      await postApiV3Command({ client: this.client, body: command }),
+      'triggerEpisodeSearch',
+    )
+  }
+
+  /**
+   * Searches for one season of a series. See `SeasonSearchCommand` for the
+   * caveat on the command name.
+   */
+  async triggerSeasonSearch(
+    sonarrId: number,
+    seasonNumber: number,
+  ): Promise<void> {
+    const command: SeasonSearchCommand = {
+      name: 'SeasonSearch',
+      seasonNumber,
+      seriesId: sonarrId,
+    }
+
+    checkSdkError(
+      await postApiV3Command({ client: this.client, body: command }),
+      'triggerSeasonSearch',
+    )
+  }
+
+  /**
+   * Fills in a scope's display fields from the one field a caller actually
+   * has: given `{ episodeId }`, one lookup returns the season and episode
+   * numbers to store alongside it.
+   *
+   * A scope with no `episodeId` (season-only, or empty) is returned as-is
+   * with **no round trip** - there is nothing to resolve, and the common
+   * unscoped request must not pay for a call it doesn't need.
+   *
+   * An episode id Sonarr doesn't know throws rather than yielding a
+   * half-filled scope: a job whose scope names an episode that doesn't
+   * exist would search for nothing and never explain why.
+   */
+  async resolveScope(scope: ShowScope): Promise<ShowScope> {
+    if (scope.episodeId == null) {
+      return scope
+    }
+
+    const episode = unwrapSdkResult(
+      await getApiV3EpisodeById({
+        client: this.client,
+        path: { id: scope.episodeId },
+      }),
+      'getEpisodeById',
+    )
+
+    if (episode.seasonNumber == null || episode.episodeNumber == null) {
+      throw new Error(
+        `Sonarr returned no season/episode number for episode ${scope.episodeId}`,
+      )
+    }
+
+    return {
+      episodeId: scope.episodeId,
+      episodeNumber: episode.episodeNumber,
+      seasonNumber: episode.seasonNumber,
+    }
+  }
+
+  /**
+   * Turns monitoring **off** for exactly the episodes a scope names, and
+   * reports how many it switched off.
+   *
+   * This is what makes a delete stick: to Sonarr a monitored episode with no
+   * file is a *missing* episode, so the next RSS sync or missing-episode
+   * search would re-download precisely what the user just removed.
+   *
+   * An empty scope means every episode of the series - the same widening
+   * `monitorScopedEpisodes` uses on the way in.
+   *
+   * `withoutFileOnly` narrows it further to episodes with no file - what a
+   * cancelled download wants, since an episode that already has a file
+   * (the cancel was of a replacement) should stay monitored for that copy.
+   */
+  async unmonitorScope(
+    sonarrId: number,
+    scope: ShowScope,
+    opts: { withoutFileOnly?: boolean } = {},
+  ): Promise<number> {
+    const episodes = await this.getEpisodes(sonarrId, {
+      seasonNumber: scope.seasonNumber,
+    })
+
+    const inScope =
+      scope.episodeId != null
+        ? episodes.filter(episode => episode.id === scope.episodeId)
+        : episodes
+
+    // `!== false`, mirroring `monitorScopedEpisodes`'s `!== true`: already
+    // unmonitored episodes are skipped so the returned count is what this
+    // call actually changed, not just what the scope covered.
+    const episodeIds = inScope
+      .filter(episode => episode.id != null && episode.monitored !== false)
+      .filter(episode => !opts.withoutFileOnly || episode.hasFile !== true)
+      .map(episode => episode.id as number)
+
+    // `setEpisodesMonitored` already no-ops on an empty list, so a scope
+    // that matched nothing costs no round trip.
+    await this.setEpisodesMonitored(episodeIds, false)
+
+    return episodeIds.length
+  }
+
+  /**
+   * Asks Sonarr to re-read its download client now rather than on its own
+   * once-a-minute schedule. Its queue endpoint serves a cache that only that
+   * task updates, so without this the poller reads the same stale snapshot
+   * for up to a minute however often it asks.
+   *
+   * Queued, not awaited: Sonarr runs it in the background (~20ms of work,
+   * done well inside a poll tick), so the refresh lands in time for the next
+   * read. Sonarr de-duplicates an identical queued command, so a slow run
+   * never piles them up.
+   */
+  async refreshMonitoredDownloads(): Promise<void> {
+    const command: CommandResourceWritable = {
+      name: 'RefreshMonitoredDownloads',
+    }
+
+    checkSdkError(
+      await postApiV3Command({ client: this.client, body: command }),
+      'refreshMonitoredDownloads',
+    )
   }
 
   /**
@@ -215,6 +1150,107 @@ export class SonarrService {
         query: { deleteFiles, addImportListExclusion: false },
       }),
       'deleteSeries',
+    )
+  }
+
+  /**
+   * The candidates Sonarr would offer in its own manual-import dialog for a
+   * finished download it refused to import: the files it found in the
+   * download folder, each with whatever series, episodes and quality it
+   * managed to parse, plus the rejections it recorded.
+   *
+   * Scoped by `downloadId` **and** `seriesId` so the answer covers only the
+   * job that asked. `seasonNumber` narrows it further and is forwarded only
+   * when the caller supplied one - season 0 is specials, a real season, so
+   * the test is `!= null` and never truthiness.
+   *
+   * `filterExistingFiles: true` is what Sonarr's own UI sends: files already
+   * in the library are dropped rather than offered for a second import.
+   *
+   * Resources come back raw and unmapped, and nothing here filters them: an
+   * empty `episodes` (a season pack Sonarr could not parse) is not an error
+   * at this layer, and a rejection is informational - manual import builds a
+   * fresh decision with no rejections per file, so even a `permanent` one
+   * does not block the import. The caller decides what an empty list, an
+   * empty `episodes` or a rejection means.
+   */
+  async getManualImportCandidates(
+    downloadId: string,
+    sonarrId: number,
+    seasonNumber?: number,
+  ): Promise<ManualImportResource[]> {
+    return unwrapSdkResult(
+      await getApiV3Manualimport({
+        client: this.client,
+        query: {
+          downloadId,
+          filterExistingFiles: true,
+          seriesId: sonarrId,
+          ...(seasonNumber != null ? { seasonNumber } : {}),
+        },
+      }),
+      'getManualImportCandidates',
+    )
+  }
+
+  /**
+   * Imports the chosen files - the button at the bottom of Sonarr's
+   * manual-import dialog.
+   *
+   * The import is a **command**, not a call to the manualimport endpoint:
+   * `postApiV3Manualimport` is the *reprocess* endpoint, which re-evaluates
+   * candidates after the user edits a field and imports nothing at all, so it
+   * is deliberately not used here.
+   *
+   * `importMode: 'auto'` lets Sonarr choose move-vs-copy from the download
+   * client's own settings, which is what its UI sends.
+   *
+   * An empty list throws before anything reaches Sonarr: a ManualImport
+   * command with no files would be accepted and quietly do nothing, so it is
+   * a caller bug worth failing loudly on.
+   */
+  async commitManualImport(files: SonarrManualImportFile[]): Promise<void> {
+    if (files.length === 0) {
+      throw new Error('commitManualImport requires at least one file')
+    }
+
+    const command: ManualImportCommand = {
+      files,
+      importMode: 'auto',
+      name: 'ManualImport',
+    }
+
+    checkSdkError(
+      await postApiV3Command({ client: this.client, body: command }),
+      'commitManualImport',
+    )
+  }
+
+  /**
+   * Drops a single queue row when the user *discards* a stuck download
+   * instead of importing it - handing the download back rather than keeping
+   * it. Not the tail of an import: Sonarr clears the row itself once a
+   * ManualImport command succeeds.
+   *
+   * `removeFromClient: true` because giving the download back means the
+   * download client drops its copy too. `blocklist: false` because the
+   * release itself was fine - the folder name was the problem - and
+   * blocklisting it would stop Sonarr picking the same release next time.
+   * `skipRedownload: true` keeps Sonarr from immediately searching again on
+   * the user's behalf.
+   */
+  async removeQueueItem(queueId: number): Promise<void> {
+    checkSdkError(
+      await deleteApiV3QueueById({
+        client: this.client,
+        path: { id: queueId },
+        query: {
+          blocklist: false,
+          removeFromClient: true,
+          skipRedownload: true,
+        },
+      }),
+      'removeQueueItem',
     )
   }
 

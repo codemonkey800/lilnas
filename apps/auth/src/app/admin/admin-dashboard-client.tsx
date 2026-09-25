@@ -12,10 +12,14 @@ import {
   removeUser,
   revokeSessions,
   unblockUser,
+  unlinkDiscordAccount,
 } from 'src/app/admin/actions'
 import { AddPersonModal } from 'src/app/admin/add-person-modal'
+import { DiscordLinksPanel } from 'src/app/admin/discord-links-panel'
 import { EditAccessModal } from 'src/app/admin/edit-access-modal'
 import type {
+  AdminDiscordLinkEntry,
+  AdminDiscordUnlinked,
   AdminQueueEntry,
   AdminServiceEntry,
   AdminUserEntry,
@@ -32,6 +36,30 @@ export type AdminDashboardClientProps = {
   initialQueue: AdminQueueEntry[]
   initialUsers: AdminUserEntry[]
   services: AdminServiceEntry[]
+  // D2/D3 (plan 017): the Discord link panel's data, fetched alongside
+  // everything else by page.tsx. D2 landed these OPTIONAL as a temporary
+  // measure — the panel that consumes them didn't exist yet, so the only
+  // thing required-ness could have bought was 23 empty
+  // `discordUnlinked={{ people: [], accounts: [] }}` props in a spec about
+  // the queue and the People/Blocked split. D3 (this change) tightened both
+  // to REQUIRED now that DiscordLinksPanel below actually renders them:
+  // `discordUnlinked` being absent would silently render a panel with two
+  // permanently-empty lists and no way to link anyone, which is exactly the
+  // kind of failure a type should catch rather than a bug report.
+  discordUnlinked: AdminDiscordUnlinked
+  discordLinks: AdminDiscordLinkEntry[]
+}
+
+// D3 (plan 017): the linked Discord handle, shown on a People row so an
+// admin can see at a glance who is already attributed without opening
+// anything. `discordUsername` is the HANDLE, not a display name — the
+// People row carries no display name at all (the Discord links panel's own
+// picker is where a display name appears, to help tell two similar handles
+// apart). `discordUserId`/`discordUsername` are always both null or both
+// non-null, so this one check covers the pair.
+function DiscordChip({ user }: { user: AdminUserEntry }) {
+  if (!user.discordUsername) return null
+  return <span className="chip chip-neutral">@{user.discordUsername}</span>
 }
 
 function ServiceChips({ hosts }: { hosts: string[] }) {
@@ -190,6 +218,8 @@ export function AdminDashboardClient({
   initialQueue,
   initialUsers,
   services,
+  discordUnlinked,
+  discordLinks,
 }: AdminDashboardClientProps) {
   const router = useRouter()
   // M3: no local copy — see this component's own header comment for why
@@ -421,6 +451,34 @@ export function AdminDashboardClient({
     })
   }
 
+  // D3 (plan 017): the Edit-access modal's Unlink action. The modal shows a
+  // person's current Discord link READ-ONLY — linking itself happens only in
+  // the Discord links panel, where both sides are picked from observed lists
+  // (see discord-links-panel.tsx's header comment for why that constraint is
+  // the whole design) — but unlinking needs no picker, so it is available
+  // wherever the link is visible. Confirmed like the modal's other
+  // destructive actions, and handled HERE rather than inside the modal for
+  // the same reason onRemove/onSignOutEverywhere are: the modal delegates
+  // anything that outlives it (this one closes nothing, but its error and
+  // toast belong to the dashboard, which stays mounted).
+  //
+  // A 404 from this call is a genuine error, not an idempotent success — see
+  // actions.ts's unlinkDiscordAccount() comment. runAction surfaces it in the
+  // page-level notice and the SSE refresh corrects the stale view.
+  function handleUnlinkDiscord(user: AdminUserEntry) {
+    if (
+      !window.confirm(
+        `Unlink ${user.email} from @${user.discordUsername}? Their future Discord downloads will no longer be attributed to them until they are linked again.`,
+      )
+    ) {
+      return
+    }
+    runAction(async () => {
+      await unlinkDiscordAccount(user.id)
+      showToast('Discord account unlinked')
+    })
+  }
+
   // ── Modals ────────────────────────────────────────────────────────────
 
   function openAddModal() {
@@ -614,6 +672,12 @@ export function AdminDashboardClient({
                                 {user.email}
                               </span>
                             </div>
+                            {/* Sibling of row-user__text, not a child of it:
+                                .row-user is the flex ROW (align-items:
+                                center), while .row-user__text is a column
+                                whose default stretch would blow the chip out
+                                to the cell's full width. */}
+                            <DiscordChip user={user} />
                           </div>
                         </td>
                         <td>
@@ -663,6 +727,17 @@ export function AdminDashboardClient({
                       <span className="person-card__row-label">Access</span>
                       <ServiceChips hosts={user.services} />
                     </div>
+                    {/* The mobile twin of the desktop table's DiscordChip —
+                        rendered as its own labelled row rather than crammed
+                        into person-card__top beside the status chip, which
+                        would push the (more decision-relevant) status chip
+                        off a narrow screen. */}
+                    {user.discordUsername ? (
+                      <div className="person-card__row">
+                        <span className="person-card__row-label">Discord</span>
+                        <DiscordChip user={user} />
+                      </div>
+                    ) : null}
                     <div className="person-card__actions">
                       {user.isAdmin ? null : (
                         <button
@@ -688,6 +763,20 @@ export function AdminDashboardClient({
             </>
           )}
         </div>
+
+        {/* D3 (plan 017). Sits directly under People, above Blocked: it is
+            read as a continuation of the People list (who is this person on
+            Discord?), and the two lists it owns are populated by observation,
+            so an admin arriving to link someone has almost always just been
+            looking at People. Blocked is a rarely-visited tail panel and stays
+            below it. */}
+        <DiscordLinksPanel
+          unlinked={discordUnlinked}
+          links={discordLinks}
+          isPending={isPending}
+          startTransition={startTransition}
+          showToast={showToast}
+        />
 
         <div className="stack gap-3.5">
           <div className="panel-head">
@@ -821,6 +910,7 @@ export function AdminDashboardClient({
         showToast={showToast}
         onRemove={handleRemove}
         onSignOutEverywhere={handleSignOutEverywhere}
+        onUnlinkDiscord={handleUnlinkDiscord}
       />
 
       <Toast message={message} />

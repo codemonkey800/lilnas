@@ -6,6 +6,10 @@ import { PrometheusModule } from '@willsoto/nestjs-prometheus'
 import { NestMinioModule } from 'nestjs-minio'
 import { LoggerModule } from 'nestjs-pino'
 
+import { AdminModule } from './admin/admin.module'
+import { AuditModule } from './audit/audit.module'
+import { AuthModule } from './auth/auth.module'
+import { DbModule } from './db/db.module'
 import { DownloadModule } from './download/download.module'
 import { DownloadGatewayModule } from './download-gateway/download-gateway.module'
 import { EnvKeys } from './env'
@@ -13,6 +17,10 @@ import { YtdlpUpdateModule } from './ytdlp-update/ytdlp-update.module'
 
 @Module({
   imports: [
+    AdminModule,
+    AuditModule,
+    AuthModule,
+    DbModule,
     DownloadModule,
     DownloadGatewayModule,
     YtdlpUpdateModule,

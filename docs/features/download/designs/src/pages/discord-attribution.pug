@@ -1,0 +1,303 @@
+extends ../layout/page.pug
+
+block title
+  | Discord attribution — download UI mockups · lilnas
+
+//-
+  Plan 017 (docs/features/download/plans/017-discord-attribution-and-account-
+  linking.md): tdr-bot's /download command now sends the asking Discord
+  identity, apps/download stores it raw, and apps/auth's admin dashboard lets
+  an admin link a snowflake to a lilnas account. Resolution happens at READ
+  time in apps/download, so a linked job renders identical to a web job —
+  there is no separate "linked Discord" look, only "did resolution find a
+  match." Four states recur everywhere a requester or actor is drawn: `web`
+  (unchanged), `linked` (resolved, indistinguishable from `web`), `discord`
+  (unlinked — raw username plus a Discord mark), `hidden` (masked,
+  unchanged).
+
+//-
+  The identity cell every list/table row uses. `size` sizes the avatar only
+  (via `&attributes`, exactly like `requesterCell`'s own convention) — the
+  text stays a fixed `text-mono-sm` regardless of row density, so a call
+  site's sizing classes never leak onto layout it doesn't own (that leak is
+  what broke this page's first pass: sizing classes landed on the whole row
+  instead of the avatar, collapsing it into a fixed box and overflowing
+  into neighbouring cells).
+
+  The Discord mark next to an unlinked username is a real `<button>`
+  (`discordMark`), not a decorative icon — clicking or tapping it opens
+  `discordPopover`, a small panel naming the account's Discord ID (the raw
+  snowflake) and current handle. Three passes got here: a hand-drawn
+  stand-in glyph carrying its meaning through a `title` tooltip alone
+  (unrecognisable at 12–16px, and hover-only besides — invisible at a
+  glance, unreachable on touch); the real icon plus a text label that
+  became redundant once the icon was legible; then this — once the mark
+  needed to disclose real data (ID + handle), a hover-only mechanism was a
+  dead end regardless of the icon, since most of this app's traffic is
+  touch. `discordMark` copies `admin-actor.tsx`'s `PROFILE_LINK` technique
+  verbatim: `relative` plus `before:-inset-1.5` grows the tap target to
+  ~24×24 (WCAG 2.5.8) without the visible 12px glyph changing size. The
+  open/close mechanism itself matches `apps/download/src/components/ui/
+  filters.tsx`'s `FilterPanel`/`FiltersButton` — click/tap-triggered,
+  `aria-haspopup`/`aria-expanded`, dismiss on outside click or Escape, no
+  focus trap — which already works identically on desktop and mobile for
+  exactly this reason: it was never hover-dependent to begin with. No new
+  mobile-specific behaviour is needed; the popover's content (two short
+  mono lines) is narrow enough to need no mobile-specific width either,
+  unlike the filter panel's 340px/480px split. `opts.open` renders the
+  demo section below with the popover already visible, since this mockup
+  runs no JS.
+mixin discordMark(discordUserId, opts)
+  - opts = opts || {}
+  button(
+    type='button'
+    class='relative inline-flex shrink-0 items-center text-ink-4 transition-colors duration-200 ease-uv before:absolute before:-inset-1.5 hover:text-ink-2'
+    aria-haspopup='dialog'
+    aria-expanded=opts.open ? 'true' : 'false'
+    aria-label='Discord account details'
+  )&attributes(attributes)
+    +icon('discord')(class='h-3 w-3 shrink-0')
+
+//- The popover `discordMark` opens. Two facts only: the handle (what a
+    person recognises) and the raw ID (what an admin would paste into the
+    Edit Access modal's Discord account field to link it).
+mixin discordPopover(discordUserId, discordUsername)
+  div(
+    class='flex w-fit flex-col gap-1 rounded-lg border border-line-loud bg-surface-3 px-3 py-2.5 shadow-lift'
+    role='dialog'
+    aria-label='Discord account details'
+  )&attributes(attributes)
+    p(class='font-mono text-mono-sm font-semibold text-ink-2')= `@${discordUsername}`
+    p(class='font-mono text-mono-sm text-ink-4')= `ID ${discordUserId}`
+
+mixin discordIdentity(requester, opts)
+  - opts = opts || {}
+  case requester.kind
+    when 'hidden'
+      span(class='flex min-w-0 items-center gap-1.5')
+        +avatar('–', { hidden: true, size: opts.size })&attributes(attributes)
+        if !opts.nameless
+          span(class='font-mono text-mono-sm text-ink-4') hidden
+    when 'discord'
+      span(class='flex min-w-0 items-center gap-1.5')
+        +avatar(requester.initials, { size: opts.size })&attributes(attributes)
+        if !opts.nameless
+          span(class='flex min-w-0 items-center gap-1')
+            span(class='truncate font-mono text-mono-sm text-ink-3')= requester.username
+            +discordMark(requester.discordUserId)
+    default
+      //- 'web' and 'linked' share one branch on purpose — a linked Discord
+      //- job is resolved to the same JobRequester shape a web job carries,
+      //- and rendering them identically is the feature, not an oversight.
+      span(class='flex min-w-0 items-center gap-1.5')
+        +avatar(requester.initials, { href: 'profile.html', size: opts.size })&attributes(attributes)
+        if !opts.nameless
+          a(class='truncate font-mono text-mono-sm text-ink-3 hover:text-ink hover:underline' href='profile.html')= requester.email
+
+//- The audit-log actor cell. `service` is untouched — its own chip, never
+    confused with a masked person (there is no masking on this page at all).
+mixin auditActor(actor)
+  if actor.kind === 'service'
+    span(class='inline-flex items-center gap-1.5 font-mono text-mono-sm text-ink-3')
+      +icon('layers')(class='h-3 w-3 text-ink-4')
+      | service
+  else
+    +discordIdentity(actor)
+
+mixin rowStatus(row, label)
+  +chip({ label: row.live ? null : label || row.state, tone: row.tone })&attributes(attributes)
+    if row.live
+      +dot('live')
+      = label || row.state
+
+mixin rowArt(row)
+  +poster({ shape: 'tall', v: row.v, src: row.art, radius: 'rounded-xs' })(class='w-[34px]')
+    if row.icon === 'play'
+      +icon('play')(class='relative z-1 h-[14px] w-[14px] text-ink-3')
+
+block content
+  -
+    const STATE_LABELS = {
+      web: 'Web-attributed',
+      linked: 'Linked Discord (resolved)',
+      discord: 'Unlinked Discord',
+      hidden: 'Masked',
+    }
+
+  +mockHead({ eyebrow: 'lilnas · download', title: 'Discord attribution' })
+    p(class='max-w-[62ch] text-sm text-ink-3')
+      | Every download job now carries a Discord identity when it came from tdr-bot's #[+code('/download')] command.
+      | An admin-linked snowflake resolves to the same lilnas identity a web job carries — indistinguishable from
+      | it, everywhere — so unification is invisible when it works. An unlinked one shows the raw Discord username
+      | with a small Discord mark beside it — click or tap it for the account's ID and handle (see
+      | #[+code('discordPopover')] below). Four states recur below: web, linked Discord, unlinked Discord, and
+      | masked.
+
+  //- ── activity table row set ──────────────────────────────────────────
+  +appendixRule('Activity table — one row per state', 'activity')
+  div(class='vp-scope')
+    +viewportToggle('viewport')(class='mb-8' role='radiogroup' aria-label='Viewport')
+
+    +viewportPanel('desktop')
+      +appFrame('desktop')
+        +navBar('desktop', { placeholder: 'Search or paste a link…' })
+        +appBody('desktop')
+          div(class='mx-auto max-w-[1080px]')
+            p(class='mb-5 text-[22px] leading-[1.25] font-[650] tracking-[-0.015em]') Downloads activity
+            +card()(class='px-1.5 pt-1 pb-1.5')
+              +dataTable
+                thead
+                  tr
+                    th(class='w-[38%]') item
+                    th type
+                    th requester
+                    th status
+                    th progress
+                    th(class='text-right!') started
+                tbody(class='stagger')
+                  each row in ACTIVITY_ROWS
+                    tr
+                      td
+                        div(class='flex items-center gap-2.5')
+                          +rowArt(row)
+                          span(class='text-sm')= row.title
+                      td
+                        +mchip(row.icon, row.kind)(class='font-mono text-mono-sm text-ink-3')
+                      td
+                        +discordIdentity(row.requester)(class='h-[22px] w-[22px] text-[9px]')
+                      td
+                        +rowStatus(row)
+                      td
+                        if row.progress
+                          div(class='flex w-[140px] items-center gap-2')
+                            +bar(row.progress)(class='flex-1')
+                            span(
+                              class=['font-mono text-mono-sm tabular-nums', row.quietProgress ? 'text-ink-3' : 'text-uv-hi']
+                            )= `${row.progress}%`
+                        else
+                          span(class='font-mono text-mono-sm text-ink-4') —
+                      td(class='text-right! font-mono text-mono-sm tabular-nums text-ink-3')= row.started
+
+    +viewportPanel('mobile')
+      +appFrame('mobile')
+        +appBar('mobile')
+          +doorplate('Download')(href='https://lilnas.io')
+          span(class='flex shrink-0 items-center gap-1.5')
+            +chip({ tone: 'ok' })
+              +dot('live')
+              | 2
+            +btn({ variant: 'ghost', icon: 'search' })(class='h-[30px] w-[30px] p-0' aria-label='Search')
+            +accountLink('JA')
+        +appBody('mobile')
+          p(class='mb-4 text-[20px] leading-[1.25] font-[650] tracking-[-0.015em]') Downloads activity
+          +card()(class='px-3 py-1')
+            div(class='flex flex-col stagger')
+              each row in ACTIVITY_ROWS
+                div(class!='flex items-center gap-3 py-[13px] [&+&]:border-t [&+&]:border-line-soft')
+                  +rowArt(row)
+                  div(class='flex min-w-0 flex-1 flex-col gap-[7px]')
+                    span(class='flex items-center justify-between gap-2')
+                      span(class='flex-1 truncate text-sm')= row.short || row.title
+                      span(class='shrink-0 font-mono text-mono-sm tabular-nums text-ink-4')= row.started
+                    span(class='flex items-center justify-between gap-2')
+                      +discordIdentity(row.requester, { size: 'xs' })(class='h-[18px] w-[18px] text-[8px]')
+                      +rowStatus(row, row.mobileState || (row.live ? `${row.progress}%` : row.state))(class='h-5 shrink-0')
+
+  p(class='mt-4 flex flex-wrap gap-2')
+    each row in ACTIVITY_ROWS
+      +chip({ label: STATE_LABELS[row.requester.kind], tone: 'mute' })
+
+  //- ── detail-page header ──────────────────────────────────────────────
+  +appendixRule('Detail-page header — attribution line', 'detail')
+  div(class='mx-auto max-w-[560px]')
+    +card()(class='flex flex-col gap-4 px-5 py-4')
+      each row in DETAIL_HEADERS
+        div(class='flex items-center justify-between gap-4 py-2 [&+&]:border-t [&+&]:border-line-soft')
+          div(class='flex min-w-0 items-center gap-2')
+            case row.requester.kind
+              when 'hidden'
+                +avatar('–', { hidden: true })(class='h-5 w-5 shrink-0 text-[9px]')
+                span(class='truncate font-mono text-mono-sm text-ink-4')= `hidden · ${row.when}`
+              when 'discord'
+                +avatar(row.requester.initials)(class='h-5 w-5 shrink-0 text-[9px]')
+                span(class='flex min-w-0 items-center gap-1 font-mono text-mono-sm text-ink-4')
+                  span(class='truncate')= row.requester.username
+                  +discordMark(row.requester.discordUserId)
+                  span(class='shrink-0')= ` · ${row.when}`
+              default
+                +avatar(row.requester.initials, { href: 'profile.html' })(class='h-5 w-5 shrink-0 text-[9px]')
+                span(class='truncate font-mono text-mono-sm text-ink-4')= `downloaded by ${row.requester.email} · ${row.when}`
+          span(class='shrink-0 text-right text-[12px] text-ink-3')= row.label
+
+  //- ── admin audit-log actor cell ──────────────────────────────────────
+  +appendixRule('Admin audit log — actor cell', 'audit')
+  div(class='mx-auto max-w-[720px]')
+    p(class='mb-[14px] text-sm text-ink-3')
+      | The admin dashboard's audit log never masks — a #[+code('null')] actor there means #[strong service]
+      | (no forwarded identity at all), not a hidden person. A #[+code('service')] actor keeps its existing
+      | chip #[strong unchanged]; only actors carrying a Discord identity get the new treatment.
+    +card({ sunk: true })(class='px-2.5 py-1')
+      div(class='flex flex-col stagger')
+        each line in AUDIT_ACTORS
+          div(
+            class='flex items-center gap-3 rounded-xs px-2.5 py-[9px] font-mono text-mono-sm transition-colors duration-[120ms] ease-uv hover:bg-surface-2'
+          )
+            span(class=['w-[72px] shrink-0 text-[10px] font-semibold tracking-[0.08em]', line.tone])= line.level
+            //-
+              The actor's own width varies by state (a bare `service` chip vs.
+              an avatar+email vs. an avatar+username+mark), so this is a flex
+              item sized to its content rather than a fixed grid column —
+              the fixed-width column this replaced is what clipped a longer
+              actor into the "what" text next to it.
+            span(class='shrink-0')
+              +auditActor(line.actor)
+            span(class='min-w-0 flex-1 truncate text-ink-3')= line.what
+
+  //- ── gallery / recent card (optional, droppable per plan E4) ─────────
+  +appendixRule('Gallery card — unlinked Discord last-requester (optional, E4)', 'gallery')
+  div(class='mx-auto w-[158px]')
+    - const entry = GALLERY_CARD
+    +gcard()(class='flex flex-col')
+      +gcardLink(entry.href)
+        +poster({ shape: 'tall', v: entry.v, src: entry.art, play: entry.video })
+        +gcardRow
+          +gcardTitle(entry.title)(class='min-h-[2.7em] flex-1')
+        +gcardRow
+          +mchip(entry.icon, `${entry.kind} · ${entry.meta}`)(class='font-mono text-mono-sm text-ink-3')
+      +gcardRow()(class='mt-auto')
+        +gcardAttrib
+          +discordIdentity(entry.requester, { nameless: true })
+          span(class='font-mono text-mono-sm text-ink-4')= entry.when
+          +discordMark(entry.requester.discordUserId)
+
+  //- ── discord identity popover — click/tap to reveal ───────────────────
+  +appendixRule('Discord identity popover — click or tap to reveal', 'popover')
+  p(class='mx-auto mb-6 max-w-[62ch] text-sm text-ink-3')
+    | The mark opens the same way on both breakpoints — click or tap, never hover — because most of this app's
+    | real traffic is touch, and a #[+code('title')] tooltip cannot reach a finger. Both frames below show the
+    | popover already open, since this mockup runs no JS; for real, the trigger is #[+code('discordMark')] and
+    | the open/close mechanism is
+    | #[+code('apps/download/src/components/ui/filters.tsx')]'s existing click/tap-driven, non-modal popover
+    | (#[+code('aria-haspopup')]/#[+code('aria-expanded')], dismiss on outside click or Escape, no focus trap) —
+    | the same one #[+code('FilterPanel')] already uses, not a new mechanism invented for this mark.
+
+  div(class='mx-auto flex max-w-[720px] flex-wrap items-start justify-center gap-10')
+    div
+      +frameLabel()(class='mb-3') Desktop
+      +demoFrame()(class='w-[280px]')
+        div(class='absolute top-5 left-5 flex items-center gap-2')
+          +avatar('SP')(class='h-6 w-6 text-[11px]')
+          span(class='font-mono text-mono-sm text-ink-3') sam.pham
+          +discordMark('583920174659201024', { open: true })
+        div(class='absolute top-16 left-5')
+          +discordPopover('583920174659201024', 'sam.pham')
+
+    div
+      +frameLabel()(class='mb-3') Mobile — same button, same popover
+      +demoFrame()(class='w-[220px]')
+        div(class='absolute top-5 left-5 flex items-center gap-1.5')
+          +avatar('SP')(class='h-5 w-5 text-[9px]')
+          span(class='font-mono text-mono-sm text-ink-3') sam.pham
+          +discordMark('583920174659201024', { open: true })
+        div(class='absolute top-14 left-5')
+          +discordPopover('583920174659201024', 'sam.pham')

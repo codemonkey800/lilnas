@@ -8,6 +8,7 @@ import {
 
 import { AdminDashboardClient } from 'src/app/admin/admin-dashboard-client'
 import type {
+  AdminDiscordUnlinked,
   AdminServiceEntry,
   AdminUserEntry,
 } from 'src/app/admin/require-admin'
@@ -21,17 +22,22 @@ const mockRemoveUser = jest.fn()
 const mockRevokeSessions = jest.fn()
 const mockSetUserServices = jest.fn()
 const mockUnblockUser = jest.fn()
+const mockLinkDiscordAccount = jest.fn()
+const mockUnlinkDiscordAccount = jest.fn()
 
 jest.mock('src/app/admin/actions', () => ({
   approveRequest: (...args: unknown[]) => mockApproveRequest(...args),
   blockUser: (...args: unknown[]) => mockBlockUser(...args),
   bulkRejectRequests: (...args: unknown[]) => mockBulkRejectRequests(...args),
+  linkDiscordAccount: (...args: unknown[]) => mockLinkDiscordAccount(...args),
   preAuthorizeUsers: (...args: unknown[]) => mockPreAuthorizeUsers(...args),
   rejectRequest: (...args: unknown[]) => mockRejectRequest(...args),
   removeUser: (...args: unknown[]) => mockRemoveUser(...args),
   revokeSessions: (...args: unknown[]) => mockRevokeSessions(...args),
   setUserServices: (...args: unknown[]) => mockSetUserServices(...args),
   unblockUser: (...args: unknown[]) => mockUnblockUser(...args),
+  unlinkDiscordAccount: (...args: unknown[]) =>
+    mockUnlinkDiscordAccount(...args),
 }))
 
 const mockRefresh = jest.fn()
@@ -71,6 +77,15 @@ const SERVICES: AdminServiceEntry[] = [
   { host: 'swole.lilnas.io', gatedBy: 'forward-auth' },
 ]
 
+// D3 (plan 017): the shape every test below that has nothing to say about
+// Discord passes. `discordUnlinked`/`discordLinks` are REQUIRED props now
+// (D2 landed them optional as a stopgap — see AdminDashboardClientProps's
+// own comment), and "both lists empty, nothing linked" is the neutral state
+// for a test about the queue or the People/Blocked split: it renders the
+// panel's two empty states and nothing else. Tests that ARE about Discord
+// pass their own fixtures instead.
+const NO_DISCORD: AdminDiscordUnlinked = { people: [], accounts: [] }
+
 const TWO_SERVICES: AdminServiceEntry[] = [
   { host: 'swole.lilnas.io', gatedBy: 'forward-auth' },
   { host: 'tdr.lilnas.io', gatedBy: 'lilnas-auth' },
@@ -83,6 +98,8 @@ function buildUser(overrides: Partial<AdminUserEntry>): AdminUserEntry {
     blockedAt: null,
     services: [],
     isAdmin: false,
+    discordUserId: null,
+    discordUsername: null,
     ...overrides,
   }
 }
@@ -136,6 +153,8 @@ describe('AdminDashboardClient — People/Blocked split', () => {
         initialQueue={[]}
         initialUsers={[active]}
         services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
       />,
     )
 
@@ -154,6 +173,8 @@ describe('AdminDashboardClient — People/Blocked split', () => {
         initialQueue={[]}
         initialUsers={[blocked]}
         services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
       />,
     )
 
@@ -178,6 +199,8 @@ describe('AdminDashboardClient — People/Blocked split', () => {
         initialQueue={[]}
         initialUsers={[blockedAdmin]}
         services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
       />,
     )
 
@@ -203,6 +226,8 @@ describe('AdminDashboardClient — People/Blocked split', () => {
         initialQueue={[]}
         initialUsers={[blocked]}
         services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
       />,
     )
 
@@ -238,6 +263,8 @@ describe('AdminDashboardClient — Remove access', () => {
         initialQueue={[]}
         initialUsers={[active]}
         services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
       />,
     )
 
@@ -274,6 +301,8 @@ describe('AdminDashboardClient — Remove access', () => {
         initialQueue={[]}
         initialUsers={[active]}
         services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
       />,
     )
 
@@ -305,6 +334,8 @@ describe('AdminDashboardClient — Remove access', () => {
         initialQueue={[]}
         initialUsers={[blocked]}
         services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
       />,
     )
 
@@ -338,6 +369,8 @@ describe('AdminDashboardClient — Remove access', () => {
         initialQueue={[]}
         initialUsers={[admin]}
         services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
       />,
     )
 
@@ -367,6 +400,8 @@ describe('AdminDashboardClient — blocking an admin (S2a)', () => {
         initialQueue={[]}
         initialUsers={[admin]}
         services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
       />,
     )
 
@@ -391,6 +426,8 @@ describe('AdminDashboardClient — blocking an admin (S2a)', () => {
         initialQueue={[]}
         initialUsers={[admin]}
         services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
       />,
     )
 
@@ -412,6 +449,8 @@ describe('AdminDashboardClient — blocking an admin (S2a)', () => {
         initialQueue={[]}
         initialUsers={[active]}
         services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
       />,
     )
 
@@ -439,6 +478,8 @@ describe('AdminDashboardClient — Sign out everywhere (S2b)', () => {
         initialQueue={[]}
         initialUsers={[active]}
         services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
       />,
     )
 
@@ -471,6 +512,8 @@ describe('AdminDashboardClient — Sign out everywhere (S2b)', () => {
         initialQueue={[]}
         initialUsers={[active]}
         services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
       />,
     )
 
@@ -500,6 +543,8 @@ describe('AdminDashboardClient — Sign out everywhere (S2b)', () => {
         initialQueue={[]}
         initialUsers={[blocked]}
         services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
       />,
     )
 
@@ -545,6 +590,8 @@ describe('AdminDashboardClient — Add person modal (M2/M3)', () => {
         initialQueue={[]}
         initialUsers={[]}
         services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
       />,
     )
 
@@ -582,6 +629,8 @@ describe('AdminDashboardClient — Add person modal (M2/M3)', () => {
         initialQueue={[]}
         initialUsers={[]}
         services={TWO_SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
       />,
     )
 
@@ -616,6 +665,8 @@ describe('AdminDashboardClient — Add person modal (M2/M3)', () => {
         initialQueue={[]}
         initialUsers={[]}
         services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
       />,
     )
 
@@ -639,6 +690,8 @@ describe('AdminDashboardClient — Add person modal (M2/M3)', () => {
         initialQueue={[]}
         initialUsers={[]}
         services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
       />,
     )
 
@@ -675,6 +728,8 @@ describe('AdminDashboardClient — Edit access modal checkbox diffing (M2/M3)', 
         initialQueue={[]}
         initialUsers={[user]}
         services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
       />,
     )
 
@@ -705,6 +760,8 @@ describe('AdminDashboardClient — Edit access modal checkbox diffing (M2/M3)', 
         initialQueue={[]}
         initialUsers={[user]}
         services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
       />,
     )
 
@@ -738,6 +795,8 @@ describe('AdminDashboardClient — Edit access modal checkbox diffing (M2/M3)', 
         initialQueue={[]}
         initialUsers={[user]}
         services={TWO_SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
       />,
     )
 
@@ -779,6 +838,8 @@ describe('AdminDashboardClient — Edit access modal checkbox diffing (M2/M3)', 
         initialQueue={[]}
         initialUsers={[user]}
         services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
       />,
     )
 
@@ -813,6 +874,8 @@ describe('AdminDashboardClient — Edit access modal checkbox diffing (M2/M3)', 
         initialQueue={[]}
         initialUsers={[userA, userB]}
         services={TWO_SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
       />,
     )
 
@@ -835,5 +898,187 @@ describe('AdminDashboardClient — Edit access modal checkbox diffing (M2/M3)', 
       within(modal).getByRole('checkbox', { name: /swole/i }),
     ).not.toBeChecked()
     expect(within(modal).getByRole('checkbox', { name: /tdr/i })).toBeChecked()
+  })
+})
+
+// ──────────────────────────────────────────────────────────────────────────────
+// D3 (plan 017): what the dashboard ITSELF gained from the Discord feature —
+// the handle chip on a People row, and the Edit-access modal's read-only view
+// of an existing link. The link/unlink panel's own behavior is tested
+// separately in discord-links-panel.spec.tsx.
+// ──────────────────────────────────────────────────────────────────────────────
+describe('AdminDashboardClient — Discord handle on People rows', () => {
+  it('renders the linked handle as a chip in BOTH the desktop row and the mobile card', () => {
+    const linked = buildUser({
+      id: 'user_linked',
+      email: 'alice@example.com',
+      services: ['swole.lilnas.io'],
+      // Snowflakes stay string literals — a 19-digit numeric literal is past
+      // Number.MAX_SAFE_INTEGER and would silently lose digits.
+      discordUserId: '111111111111111111',
+      discordUsername: 'alice_h',
+    })
+    render(
+      <AdminDashboardClient
+        initialQueue={[]}
+        initialUsers={[linked]}
+        services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
+      />,
+    )
+
+    // Both responsive renderings are always in the DOM (CSS decides which is
+    // visible), so the chip must appear twice — asserting on only one would
+    // pass with the mobile card silently missing it.
+    const chips = screen.getAllByText('@alice_h')
+    expect(chips).toHaveLength(2)
+    expect(chips[0]!).toHaveClass('chip', 'chip-neutral')
+    expect(chips[0]!.closest('tr')).not.toBeNull()
+    expect(chips[1]!.closest('.person-card')).not.toBeNull()
+  })
+
+  it('renders no handle chip for a person with no link', () => {
+    const unlinkedUser = buildUser({
+      id: 'user_plain',
+      email: 'plain@example.com',
+    })
+    render(
+      <AdminDashboardClient
+        initialQueue={[]}
+        initialUsers={[unlinkedUser]}
+        services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
+      />,
+    )
+
+    expect(screen.queryByText(/^@/)).not.toBeInTheDocument()
+  })
+})
+
+describe('AdminDashboardClient — Edit access modal, Discord section', () => {
+  it('shows the current link read-only, with no way to type a handle', () => {
+    const linked = buildUser({
+      id: 'user_linked',
+      email: 'alice@example.com',
+      discordUserId: '111111111111111111',
+      discordUsername: 'alice_h',
+    })
+    render(
+      <AdminDashboardClient
+        initialQueue={[]}
+        initialUsers={[linked]}
+        services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
+      />,
+    )
+
+    fireEvent.click(editAccessButtonFor('alice@example.com'))
+    const modal = screen
+      .getByRole('heading', { name: /^edit access$/i })
+      .closest('.modal') as HTMLElement
+
+    expect(within(modal).getByText('@alice_h')).toBeInTheDocument()
+    expect(
+      within(modal).getByRole('button', { name: /^unlink$/i }),
+    ).toBeInTheDocument()
+    // The whole design constraint, asserted: the only text input this modal
+    // has ever had is the (Add-person) email field, which lives in a
+    // different modal — there is no handle/snowflake box here to type into.
+    expect(within(modal).queryByRole('textbox')).not.toBeInTheDocument()
+  })
+
+  it('unlinking from the modal confirms first, then calls unlinkDiscordAccount with the user id', async () => {
+    mockUnlinkDiscordAccount.mockResolvedValue(undefined)
+    const confirmSpy = jest
+      .spyOn(window, 'confirm')
+      .mockImplementation(() => true)
+    const linked = buildUser({
+      id: 'user_linked',
+      email: 'alice@example.com',
+      discordUserId: '111111111111111111',
+      discordUsername: 'alice_h',
+    })
+    render(
+      <AdminDashboardClient
+        initialQueue={[]}
+        initialUsers={[linked]}
+        services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
+      />,
+    )
+
+    fireEvent.click(editAccessButtonFor('alice@example.com'))
+    const modal = screen
+      .getByRole('heading', { name: /^edit access$/i })
+      .closest('.modal') as HTMLElement
+    fireEvent.click(within(modal).getByRole('button', { name: /^unlink$/i }))
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(confirmSpy.mock.calls[0]![0]).toContain('alice@example.com')
+    expect(confirmSpy.mock.calls[0]![0]).toContain('@alice_h')
+    await waitFor(() => {
+      expect(mockUnlinkDiscordAccount).toHaveBeenCalledWith('user_linked')
+    })
+    confirmSpy.mockRestore()
+  })
+
+  it('declining the unlink confirmation calls nothing', () => {
+    const confirmSpy = jest
+      .spyOn(window, 'confirm')
+      .mockImplementation(() => false)
+    const linked = buildUser({
+      id: 'user_linked',
+      email: 'alice@example.com',
+      discordUserId: '111111111111111111',
+      discordUsername: 'alice_h',
+    })
+    render(
+      <AdminDashboardClient
+        initialQueue={[]}
+        initialUsers={[linked]}
+        services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
+      />,
+    )
+
+    fireEvent.click(editAccessButtonFor('alice@example.com'))
+    const modal = screen
+      .getByRole('heading', { name: /^edit access$/i })
+      .closest('.modal') as HTMLElement
+    fireEvent.click(within(modal).getByRole('button', { name: /^unlink$/i }))
+
+    expect(mockUnlinkDiscordAccount).not.toHaveBeenCalled()
+    confirmSpy.mockRestore()
+  })
+
+  it('offers no Unlink action for a person with no link', () => {
+    const unlinkedUser = buildUser({
+      id: 'user_plain',
+      email: 'plain@example.com',
+    })
+    render(
+      <AdminDashboardClient
+        initialQueue={[]}
+        initialUsers={[unlinkedUser]}
+        services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
+      />,
+    )
+
+    fireEvent.click(editAccessButtonFor('plain@example.com'))
+    const modal = screen
+      .getByRole('heading', { name: /^edit access$/i })
+      .closest('.modal') as HTMLElement
+
+    expect(
+      within(modal).queryByRole('button', { name: /^unlink$/i }),
+    ).not.toBeInTheDocument()
+    expect(within(modal).getByText(/not linked/i)).toBeInTheDocument()
   })
 })

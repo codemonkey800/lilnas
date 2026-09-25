@@ -1,0 +1,241 @@
+// nanoid v5 ships ESM-only; this codebase's ts-jest transform doesn't cover
+// it, so any test that transitively imports code using nanoid (like
+// DownloadController -> DownloadService) must mock it first (see
+// media/__tests__/download.controller.media.test.ts for the same pattern).
+jest.mock('nanoid', () => ({
+  nanoid: jest.fn(() => 'mock-id'),
+}))
+
+import { DownloadType } from '@lilnas/utils/download/types'
+import { BadRequestException } from '@nestjs/common'
+import { Test, TestingModule } from '@nestjs/testing'
+
+import { AuditLogService } from 'src/audit/audit-log.service'
+import { fakeAttributionResolutionProvider } from 'src/auth/__tests__/helpers/attribution-resolution'
+import { AdminCheckService } from 'src/auth/admin-check.service'
+import { DiscordLinkService } from 'src/auth/discord-link.service'
+import type { ForwardedUser } from 'src/auth/forwarded-user'
+import { DownloadController } from 'src/download/download.controller'
+import { DownloadService } from 'src/download/download.service'
+import { DownloadMetricsService } from 'src/download/download-metrics.service'
+import { DownloadStateService } from 'src/download/download-state.service'
+import { JobQueryService } from 'src/download/job-query.service'
+import { ProfileService } from 'src/download/profile.service'
+import { CurrentReleaseService } from 'src/media/current-release.service'
+import { DiscoveryService } from 'src/media/discovery.service'
+import { ManualImportService } from 'src/media/manual-import.service'
+import { MediaDownloadService } from 'src/media/media-download.service'
+import { MediaFileService } from 'src/media/media-file.service'
+import { MediaResolverService } from 'src/media/media-resolver.service'
+import { ReleaseService } from 'src/media/release.service'
+import { ShowService } from 'src/media/show.service'
+
+import { buildJob, buildVideo } from './helpers/job-fixtures'
+
+describe('DownloadController - activity/gallery list endpoints', () => {
+  let controller: DownloadController
+  let jobQueryService: jest.Mocked<JobQueryService>
+  let adminCheckService: jest.Mocked<AdminCheckService>
+
+  const admin: ForwardedUser = { email: 'admin@example.com', userId: 'a1' }
+  const nonAdmin: ForwardedUser = { email: 'bob@example.com', userId: 'u2' }
+
+  const emptyPage = { items: [], nextCursor: null, total: 0 }
+  const emptyFacets = { types: [], uploaders: [] }
+
+  beforeEach(async () => {
+    const mockJobQueryService = {
+      getGalleryFacets: jest.fn().mockResolvedValue(emptyFacets),
+      listActivity: jest.fn().mockReturnValue(emptyPage),
+      listGallery: jest.fn().mockReturnValue(emptyPage),
+      listHistory: jest.fn().mockReturnValue(emptyPage),
+    }
+    const mockAdminCheckService = { checkIsAdmin: jest.fn() }
+
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [DownloadController],
+      providers: [
+        fakeAttributionResolutionProvider(),
+        { provide: AdminCheckService, useValue: mockAdminCheckService },
+        { provide: AuditLogService, useValue: { record: jest.fn() } },
+        { provide: CurrentReleaseService, useValue: {} },
+        {
+          provide: DiscordLinkService,
+          useValue: { registerObservedIdentity: jest.fn() },
+        },
+        { provide: DiscoveryService, useValue: {} },
+        { provide: DownloadMetricsService, useValue: {} },
+        { provide: DownloadService, useValue: {} },
+        { provide: DownloadStateService, useValue: { jobs: new Map() } },
+        { provide: JobQueryService, useValue: mockJobQueryService },
+        { provide: ManualImportService, useValue: {} },
+        { provide: MediaDownloadService, useValue: {} },
+        { provide: MediaFileService, useValue: {} },
+        { provide: MediaResolverService, useValue: { resolve: jest.fn() } },
+        { provide: ProfileService, useValue: {} },
+        // Phase 3/4: DownloadController injects ReleaseService for the
+        // release and bad-file routes and ShowService for the seasons and
+        // file-delete routes. Unused by this file's routes, but DI still has
+        // to satisfy the constructor.
+        { provide: ReleaseService, useValue: {} },
+        { provide: ShowService, useValue: {} },
+      ],
+    }).compile()
+
+    controller = module.get(DownloadController)
+    jobQueryService = module.get(JobQueryService)
+    adminCheckService = module.get(AdminCheckService)
+    adminCheckService.checkIsAdmin.mockResolvedValue(false)
+  })
+
+  describe('getActivity', () => {
+    it('builds the filter from the query and forwards isAdmin', async () => {
+      adminCheckService.checkIsAdmin.mockResolvedValue(true)
+
+      await controller.getActivity(
+        { cursor: 'abc', limit: 10, type: [DownloadType.Movie] },
+        admin,
+      )
+
+      expect(jobQueryService.listActivity).toHaveBeenCalledWith({
+        cursor: 'abc',
+        isAdmin: true,
+        limit: 10,
+        types: [DownloadType.Movie],
+      })
+    })
+
+    it('resolves isAdmin: false and passes no requester param for a service caller', async () => {
+      await controller.getActivity({ limit: 24 }, undefined)
+
+      expect(adminCheckService.checkIsAdmin).not.toHaveBeenCalled()
+      expect(jobQueryService.listActivity).toHaveBeenCalledWith(
+        expect.objectContaining({ isAdmin: false }),
+      )
+    })
+
+    // Activity/history are per-job feeds, so the controller applies the
+    // attribution mask over the page - the envelope passes through, the
+    // items do not.
+    it('returns the { items, nextCursor, total } envelope, with each item attribution-masked', async () => {
+      const hiddenJob = buildJob(buildVideo(), {
+        hiddenAttribution: true,
+        id: 'x',
+        requester: { email: 'alice@example.com', userId: 'u1' },
+      })
+      jobQueryService.listActivity.mockResolvedValue({
+        items: [hiddenJob],
+        nextCursor: 'next-cursor',
+        total: 5,
+      } as never)
+
+      const result = await controller.getActivity({ limit: 24 }, undefined)
+
+      expect(result).toEqual({
+        items: [{ ...hiddenJob, requester: null }],
+        nextCursor: 'next-cursor',
+        total: 5,
+      })
+    })
+
+    it('propagates a BadRequestException from a bad cursor as-is', async () => {
+      jobQueryService.listActivity.mockRejectedValue(
+        new BadRequestException('bad cursor'),
+      )
+
+      await expect(
+        controller.getActivity({ cursor: 'bogus', limit: 24 }, undefined),
+      ).rejects.toThrow(BadRequestException)
+    })
+  })
+
+  describe('getGallery', () => {
+    it('builds the filter from the query, including the date range and requester', async () => {
+      const from = new Date('2026-01-01T00:00:00.000Z')
+      const to = new Date('2026-01-31T23:59:59.999Z')
+
+      await controller.getGallery(
+        {
+          cursor: undefined,
+          from,
+          limit: 24,
+          requester: 'alice@example.com',
+          to,
+        },
+        nonAdmin,
+      )
+
+      expect(jobQueryService.listGallery).toHaveBeenCalledWith({
+        createdFrom: from,
+        createdTo: to,
+        cursor: undefined,
+        isAdmin: false,
+        limit: 24,
+        requesterEmail: 'alice@example.com',
+        types: undefined,
+      })
+    })
+
+    it("does not compute excludeHiddenVideos itself - that is JobQueryService.listGallery's responsibility", async () => {
+      await controller.getGallery(
+        { limit: 24, requester: 'alice@example.com' },
+        nonAdmin,
+      )
+
+      const call = jobQueryService.listGallery.mock.calls[0]?.[0]
+      expect(call).not.toHaveProperty('excludeHiddenVideos')
+    })
+
+    // `toEqual`, not `toBe`: the gallery page now passes through
+    // AttributionResolutionService.resolveGalleryItems() on the way out, so
+    // the envelope is rebuilt around a resolved `items` array. The contract
+    // being asserted is that nothing *else* is reshaped.
+    it('returns the { items, nextCursor, total } shape unreshaped', async () => {
+      const page = { items: [{ id: 'y' }], nextCursor: null, total: 1 }
+      jobQueryService.listGallery.mockResolvedValue(page as never)
+
+      const result = await controller.getGallery({ limit: 24 }, undefined)
+
+      expect(result).toEqual(page)
+    })
+
+    it('propagates a BadRequestException from a bad cursor as-is', async () => {
+      jobQueryService.listGallery.mockRejectedValue(
+        new BadRequestException('bad cursor'),
+      )
+
+      await expect(
+        controller.getGallery({ cursor: 'bogus', limit: 24 }, undefined),
+      ).rejects.toThrow(BadRequestException)
+    })
+  })
+
+  describe('getGalleryFacets', () => {
+    it('builds the params from the query and forwards isAdmin', async () => {
+      adminCheckService.checkIsAdmin.mockResolvedValue(true)
+      const from = new Date('2026-01-01T00:00:00.000Z')
+      const to = new Date('2026-01-31T23:59:59.999Z')
+
+      await controller.getGalleryFacets({ from, to }, admin)
+
+      expect(jobQueryService.getGalleryFacets).toHaveBeenCalledWith({
+        createdFrom: from,
+        createdTo: to,
+        isAdmin: true,
+      })
+    })
+
+    it('returns the facets shape verbatim', async () => {
+      const facets = {
+        types: [{ count: 3, type: 'movie' }],
+        uploaders: [{ count: 1, email: 'alice@example.com' }],
+      }
+      // Async since plan 021 - the type counts read the library.
+      jobQueryService.getGalleryFacets.mockResolvedValue(facets as never)
+
+      const result = await controller.getGalleryFacets({}, undefined)
+
+      expect(result).toBe(facets)
+    })
+  })
+})

@@ -1,3 +1,4 @@
+import type { DownloadType } from '@lilnas/utils/download/types'
 import { Injectable } from '@nestjs/common'
 import { Counter, Gauge, Histogram, register } from 'prom-client'
 
@@ -25,6 +26,40 @@ const jobsCompletedTotal = new Counter({
   name: 'download_jobs_completed_total',
   help: 'Total number of download jobs that reached a terminal state',
   labelNames: ['status'],
+  registers: [register],
+})
+
+// Deliberately *not* a `download_jobs_completed_total{status="paused"}`
+// label: a pause is not a terminal state (see DownloadJobStatus.Paused), and
+// folding it into the completed counter would make
+// `sum(download_jobs_completed_total)` stop meaning "jobs that finished".
+// Paused/resumed as their own pair also makes the obvious dashboard query -
+// paused minus resumed - the count of jobs currently parked.
+const jobsPausedTotal = new Counter({
+  name: 'download_jobs_paused_total',
+  help: 'Total number of download jobs paused by a user',
+  registers: [register],
+})
+
+const jobsResumedTotal = new Counter({
+  name: 'download_jobs_resumed_total',
+  help: 'Total number of paused download jobs put back on the queue',
+  registers: [register],
+})
+
+// Saving a file to a device is not a download *job* - nothing is queued and
+// no row is written - so it gets its own counter rather than another
+// `download_jobs_*` label. `type` is `DownloadType`'s own values ('movie' /
+// 'show' / 'video'), which keeps this joinable against
+// `download_jobs_created_total` without a translation table.
+//
+// Counted at stream *start*, not completion: the bytes leave over minutes
+// and the client can abandon the transfer at any point, so "saves started"
+// is the only figure a single request can honestly report.
+const mediaFileSavesTotal = new Counter({
+  name: 'download_media_file_saves_total',
+  help: 'Total number of media files streamed to a client to save locally',
+  labelNames: ['type'],
   registers: [register],
 })
 
@@ -72,6 +107,18 @@ export class DownloadMetricsService {
 
   jobCompleted(status: JobCompletedStatus): void {
     jobsCompletedTotal.inc({ status })
+  }
+
+  jobPaused(): void {
+    jobsPausedTotal.inc()
+  }
+
+  jobResumed(): void {
+    jobsResumedTotal.inc()
+  }
+
+  fileSaved(type: DownloadType): void {
+    mediaFileSavesTotal.inc({ type })
   }
 
   setInProgress(count: number): void {

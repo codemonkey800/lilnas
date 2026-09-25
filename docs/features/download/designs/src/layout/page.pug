@@ -1,0 +1,44 @@
+//-
+  The shell every mockup extends. Holds the things that used to be
+  copy-pasted into all eleven files: the head, the font link, the icon
+  sprite, and the page frame.
+
+  The builder inlines the compiled Tailwind and src/runtime.js just before
+  </head>, so nothing here links out except the fonts.
+
+  Type: Figtree + IBM Plex Mono only. Bricolage Grotesque (the display face)
+  is deliberately NOT loaded — foundations.md's type table lists `download`
+  as one of the two apps that skip it.
+
+  Blocks a page fills in:
+    title    the full <title>
+    head     anything extra in <head> (rare)
+    content  the page body, inside a centred 1328px column
+
+  A page that wants a different column width overrides `block page` instead
+  and calls +mockPage itself — patterns.pug is the only one that does.
+
+include ../mixins/mock.pug
+
+//- The centred column every mockup page sits in.
+mixin mockPage(width)
+  div(class=['mx-auto px-6 pt-14 pb-35', width || 'max-w-[1328px]'])&attributes(attributes)
+    block
+
+doctype html
+html(lang='en')
+  head
+    meta(charset='utf-8')
+    meta(name='viewport' content='width=device-width, initial-scale=1')
+    title
+      block title
+    link(rel='preconnect' href='https://fonts.googleapis.com')
+    link(rel='preconnect' href='https://fonts.gstatic.com' crossorigin)
+    link(rel='stylesheet' href='https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,300..900;1,300..900&family=IBM+Plex+Mono:wght@400;500;600&display=swap')
+    block head
+  body
+    include sprite.html
+
+    block page
+      +mockPage()
+        block content

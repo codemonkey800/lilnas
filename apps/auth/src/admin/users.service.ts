@@ -1,13 +1,26 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common'
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 
 import { revokeSessionsForUser } from 'src/db/auth-session.repo'
 import { DB, type Db } from 'src/db/database.module'
 import {
+  deleteLinkForUser,
+  findIdentity,
+  findLinkByDiscordUserId,
+  findLinkByUserId,
+  insertLink,
+} from 'src/db/discord-link.repo'
+import {
   deleteGrant,
   deletePreAuthorizedGrant,
   findPreAuthorizedGrantsByEmail,
   findUserByEmail,
+  findUserById,
   grantExists,
   insertGrant,
   insertPreAuthorizedGrant,
@@ -341,6 +354,143 @@ export class UsersService {
       throw new NotFoundException(`user ${userId} not found`)
     }
     this.accessCache.unblockUser(userId)
+    this.notifyBus.publishAdminChange()
+  }
+
+  // ── Discord link management ────────────────────────────────────────────
+  //
+  // Neither method below touches AccessCacheService. That is deliberate,
+  // not an omission: a Discord link decides ATTRIBUTION (which lilnas
+  // person a /download job belongs to), never ACCESS — nothing in
+  // VerifyService's decision path reads discord_link, so there is no
+  // in-memory access state that could go stale. The only cache downstream
+  // of these writes lives in a different app (apps/download's Discord-link
+  // TTL cache), reached over HTTP and self-healing by construction; this
+  // service has no handle on it and deliberately does not grow one. Same
+  // shape of reasoning as revokeSessions()'s own "deliberately does NOT
+  // publish" comment above, applied to the other collaborator.
+
+  /**
+   * Links a lilnas user to a Discord account, both halves chosen from a
+   * list the admin was shown (GET /admin/discord/unlinked) — never typed.
+   *
+   * discord-link.repo.ts's insertLink() is deliberately NOT
+   * onConflictDoNothing(), and its two foreign keys are real, so every one
+   * of the four ways this can legitimately fail would otherwise surface as
+   * a raw SQLITE_CONSTRAINT error with no useful message. All four are
+   * pre-checked here and converted into an exception that tells the admin
+   * what to do next. Every one of those reads happens INSIDE the same
+   * BEGIN IMMEDIATE transaction as the insert (per
+   * docs/archive/solutions/conventions/begin-immediate-for-read-then-write-mutations-2026-05-27.md):
+   * checking outside it would leave a window where a concurrent link — the
+   * second tab of an admin who double-clicked, or the same admin on two
+   * devices — lands between the check and the insert, and the pre-check
+   * would have bought nothing over just catching the constraint error.
+   *
+   * The identical-pair case is a NO-OP SUCCESS rather than an error: a
+   * double-submit of the same link is not a mistake worth an error page,
+   * and the end state the admin asked for already holds. It notifies
+   * nothing (see the `linked` gate below) — same "only publish on a genuine
+   * change" rule as removeUser()/setUserServices() above.
+   *
+   * The two genuine conflicts are BadRequestException rather than a silent
+   * replace, which is the one design decision here worth stating outright:
+   * both sides of this form came from a picker, so a conflict means the
+   * admin's list was stale — someone else linked that account, or this
+   * person, since the page loaded. Silently re-pointing a link in that
+   * situation would re-attribute every FUTURE Discord job for one of the
+   * two accounts to a different human, with nothing in the UI having said
+   * so. Making the admin unlink first turns that into an explicit,
+   * two-step act.
+   */
+  linkDiscord(userId: string, discordUserId: string): void {
+    const linked = this.db.transaction(
+      tx => {
+        // Both existence checks first, so a typo'd id reports "no such
+        // user"/"never seen" rather than the foreign-key violation it
+        // would otherwise become. The identity check is the one that
+        // enforces the schema's central rule at the API boundary: a
+        // snowflake with no discord_identity row was never OBSERVED, which
+        // in practice means it was typed or pasted from somewhere, and
+        // that is precisely what this system refuses to record.
+        if (!findUserById(tx, userId)) {
+          throw new NotFoundException(`user ${userId} not found`)
+        }
+        if (!findIdentity(tx, discordUserId)) {
+          throw new NotFoundException(
+            `Discord account ${discordUserId} has never been seen by this system — it can only be linked after it has actually used a Discord command`,
+          )
+        }
+
+        const existingForUser = findLinkByUserId(tx, userId)
+        if (existingForUser?.discordUserId === discordUserId) {
+          // Already exactly this pair. Nothing to write, nothing to
+          // announce.
+          return false
+        }
+
+        // Checked BEFORE the same-user conflict below so that when both
+        // are true, the admin hears about the other PERSON (naming them,
+        // which is the actionable half) rather than about their own
+        // subject's existing link. Either message would be true; this one
+        // is more useful.
+        const existingForAccount = findLinkByDiscordUserId(tx, discordUserId)
+        if (existingForAccount) {
+          throw new BadRequestException(
+            `Discord account already linked to ${existingForAccount.email}`,
+          )
+        }
+
+        if (existingForUser) {
+          throw new BadRequestException(
+            `That person is already linked to a different Discord account — unlink them first, then link the new one`,
+          )
+        }
+
+        insertLink(tx, { userId, discordUserId }, new Date())
+        return true
+      },
+      { behavior: 'immediate' },
+    )
+
+    if (linked) {
+      this.notifyBus.publishAdminChange()
+    }
+  }
+
+  /**
+   * Unlinks whatever Discord account this user is linked to. Keyed by the
+   * person alone because the link is one-to-one both ways — see
+   * UnlinkDiscordBodySchema's own comment.
+   *
+   * A zero-row delete throws NotFoundException rather than reporting an
+   * idempotent success. Two reasons, and this is the deliberate call
+   * discord-link.repo.ts's deleteLinkForUser() comment asks the caller to
+   * make:
+   *
+   * - It matches this file's established rule for exactly this shape —
+   *   blockUser()/unblockUser() both turn setBlockedAt()'s zero-row return
+   *   into a NotFoundException (S6) rather than pretending to have done
+   *   something.
+   * - Unlike a double-clicked "Remove," there is no benign path to this
+   *   branch: the Unlink button only renders on a row of the LINKED list,
+   *   so reaching it with nothing to delete means the admin's view no
+   *   longer matches the database. A silent success would leave them
+   *   believing they'd undone a link that someone else had already changed.
+   *
+   * Note what survives: the discord_identity row. The roster is an
+   * observation log, so unlinking asserts "this account is not that
+   * person," never "this account was never seen" — the account reappears in
+   * the unlinked-accounts column, available to be linked to whoever it
+   * actually belongs to.
+   */
+  unlinkDiscord(userId: string): void {
+    const changed = this.db.transaction(tx => deleteLinkForUser(tx, userId), {
+      behavior: 'immediate',
+    })
+    if (changed === 0) {
+      throw new NotFoundException(`user ${userId} has no Discord link`)
+    }
     this.notifyBus.publishAdminChange()
   }
 }

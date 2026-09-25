@@ -39,6 +39,12 @@ export type EditAccessModalProps = {
   showToast: (message: string) => void
   onRemove: (userId: string) => void
   onSignOutEverywhere: (userId: string) => void
+  // D3 (plan 017): takes the whole user, not just an id — the parent's
+  // confirmation prompt names both sides of the link it is about to break
+  // ("Unlink alice@example.com from @alice_h?"), and the handle lives on the
+  // user row. Only ever called for a user that HAS a link, since the button
+  // renders only then.
+  onUnlinkDiscord: (user: AdminUserEntry) => void
 }
 
 // M2: split out of admin-dashboard-client.tsx, which owned this modal's
@@ -72,6 +78,7 @@ export function EditAccessModal({
   showToast,
   onRemove,
   onSignOutEverywhere,
+  onUnlinkDiscord,
 }: EditAccessModalProps) {
   const [accessSelected, setAccessSelected] = useState<Set<string>>(
     () => new Set(user?.services ?? []),
@@ -135,6 +142,44 @@ export function EditAccessModal({
             <div className="row-user__text">
               <span className="row-user__name">{user.email}</span>
             </div>
+          </div>
+        ) : null}
+        {/* D3 (plan 017): READ-ONLY. This modal can break a Discord link but
+            never create one — creating one requires picking BOTH sides from
+            lists of accounts this system has actually observed (see
+            discord-links-panel.tsx's header comment for why a typed handle is
+            unacceptable), and a per-person modal has only one of those two
+            halves. Anyone who lands here wanting to link someone is pointed
+            at the panel that can do it safely. */}
+        {user ? (
+          <div className="field">
+            <label>Discord</label>
+            {user.discordUsername ? (
+              <>
+                <div className="row between gap-2">
+                  <span className="chip chip-neutral">
+                    @{user.discordUsername}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm text-red-400 hover:bg-red-950/30 hover:text-red-300"
+                    onClick={() => onUnlinkDiscord(user)}
+                    disabled={isPending}
+                  >
+                    Unlink
+                  </button>
+                </div>
+                <span className="field-hint">
+                  Linking is done from the Discord links panel, where both sides
+                  are picked from accounts this system has seen.
+                </span>
+              </>
+            ) : (
+              <span className="field-hint">
+                Not linked. Pair this person with a Discord account from the
+                Discord links panel.
+              </span>
+            )}
           </div>
         ) : null}
         <div className="field">

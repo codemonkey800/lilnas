@@ -1,0 +1,146 @@
+extends ../layout/page.pug
+
+block title
+  | Downloads activity — download UI mockups · lilnas
+
+//-
+  Every download in flight, across every user. Desktop gets a table — this is
+  machine output being scanned, and columns are what scanning wants. Mobile
+  can't hold six columns, so each row folds into a two-line card carrying the
+  same facts in the same order.
+
+//- Thumbnail for a feed row: tiny, fixed-width, and squarer-cornered than a
+    poster elsewhere, because at this size a 10px radius reads as a blob.
+    Always the tall (2/3) shape so video/show/movie rows sit at the same
+    size in the column — a wide video thumbnail here made the feed's row
+    heights saw-tooth against the poster rows.
+mixin rowArt(row)
+  +poster({ shape: 'tall', v: row.v, src: row.art, radius: 'rounded-xs' })(class='w-[34px]')
+    if row.icon === 'play'
+      +icon('play')(class='relative z-1 h-[14px] w-[14px] text-ink-3')
+
+//- The status chip, which carries the live dot when something is moving.
+mixin rowStatus(row, label)
+  +chip({ label: row.live ? null : label || row.state, tone: row.tone })&attributes(attributes)
+    if row.live
+      +dot('live')
+      = label || row.state
+
+//-
+  Who asked for it, per §12's access model: an admin can open any visible
+  requester's profile; a regular user can only ever open their own. Either
+  way, a masked ("hidden") requester never links — there's no identity to
+  send either viewer to, and this feed never unmasks one (that's the admin
+  dashboard's job, not this page's).
+mixin requesterCell(row, admin)
+  - const linkable = !!row.who && (admin || row.who[0] === 'JA')
+  +avatar(row.who ? row.who[0] : '–', { hidden: !row.who, href: linkable ? 'profile.html' : undefined })&attributes(attributes)
+  if linkable
+    a(class='font-mono text-mono-sm text-ink-3 hover:text-ink hover:underline' href='profile.html')= row.who[1]
+  else
+    span(class=['font-mono text-mono-sm', row.who ? 'text-ink-3' : 'text-ink-4'])= row.who ? row.who[1] : 'hidden'
+
+block content
+  -
+    const VIEWERS = [
+      { admin: false, label: 'Viewed by a regular user' },
+      { admin: true, label: 'Viewed by an admin' },
+    ]
+
+  +mockHead({ eyebrow: 'lilnas · download', title: 'Downloads activity' })
+    p(class='max-w-[62ch] text-sm text-ink-3')
+      | Everything in flight, across every user, live — visible to anyone. A video with attribution hidden
+      | shows the same dashed "hidden" avatar here as everywhere else in the app; the enriched version that
+      | unmasks it lives only in the admin dashboard. Two viewers below: a regular user can only open their own
+      | requester as a profile; an admin can open any of them (the hidden one stays masked for both — this feed
+      | never unmasks it).
+
+  div(class='vp-scope')
+    +viewportToggle('viewport')(class='mb-8' role='radiogroup' aria-label='Viewport')
+
+    //- ── desktop ────────────────────────────────────────────────────────
+    +viewportPanel('desktop')
+      each viewer, i in VIEWERS
+        +frameLabel()(class=i ? 'mt-3' : '')= viewer.label
+        +appFrame('desktop')
+          +appBar('desktop')
+            div(class='flex min-w-0 flex-1 items-center gap-[14px]')
+              +doorplate('Download')(href='https://lilnas.io')
+              +navsearch({ placeholder: 'Search or paste a link…' })
+            span(class='flex shrink-0 items-center gap-2.5')
+              if viewer.admin
+                +chip({ label: 'admin', tone: 'uv' })
+              +chip({ tone: 'ok' })
+                +dot('live')
+                | 2 running
+              +avatar('JA', { ring: true, href: 'profile.html' })(class='h-[30px] w-[30px] text-[11.5px]' title='Jeremy · you')
+          +appBody('desktop')
+            div(class='mx-auto max-w-[1080px]')
+              p(class='mb-5 text-[22px] leading-[1.25] font-[650] tracking-[-0.015em]') Downloads activity
+              +card()(class='px-1.5 pt-1 pb-1.5')
+                +dataTable
+                  thead
+                    tr
+                      th(class='w-[42%]') item
+                      th type
+                      th requester
+                      th status
+                      th progress
+                      th(class='text-right!') started
+                  tbody(class='stagger')
+                    each row in ROWS
+                      tr
+                        td
+                          div(class='flex items-center gap-2.5')
+                            +rowArt(row)
+                            span(class='text-sm')= row.title
+                        td
+                          +mchip(row.icon, row.kind)(class='font-mono text-mono-sm text-ink-3')
+                        td
+                          span(class='flex items-center gap-1.5')
+                            +requesterCell(row, viewer.admin)(class='h-[22px] w-[22px] text-[9px]')
+                        td
+                          +rowStatus(row)
+                        td
+                          if row.progress
+                            div(class='flex w-[140px] items-center gap-2')
+                              +bar(row.progress)(class='flex-1')
+                              span(
+                                class=['font-mono text-mono-sm tabular-nums', row.quietProgress ? 'text-ink-3' : 'text-uv-hi']
+                              )= `${row.progress}%`
+                          else
+                            span(class='font-mono text-mono-sm text-ink-4') —
+                        td(class='text-right! font-mono text-mono-sm tabular-nums text-ink-3')= row.started
+
+    //- ── mobile ─────────────────────────────────────────────────────────
+    +viewportPanel('mobile')
+      each viewer, i in VIEWERS
+        +frameLabel()(class=i ? 'mt-3' : '')= viewer.label
+        +appFrame('mobile')
+          +appBar('mobile')
+            +doorplate('Download')(href='https://lilnas.io')
+            span(class='flex shrink-0 items-center gap-1.5')
+              if viewer.admin
+                +chip({ label: 'admin', tone: 'uv' })
+              +chip({ tone: 'ok' })
+                +dot('live')
+                | 2
+              +btn({ variant: 'ghost', icon: 'search' })(class='h-[30px] w-[30px] p-0' aria-label='Search')
+              +accountLink('JA')
+          +appBody('mobile')
+            p(class='mb-4 text-[20px] leading-[1.25] font-[650] tracking-[-0.015em]') Downloads activity
+            +card()(class='px-3 py-1')
+              div(class='flex flex-col stagger')
+                each row in ROWS
+                  div(class!='flex items-center gap-3 py-[13px] [&+&]:border-t [&+&]:border-line-soft')
+                    +rowArt(row)
+                    div(class='flex min-w-0 flex-1 flex-col gap-[5px]')
+                      span(class='flex items-center justify-between gap-2')
+                        span(class='flex-1 text-sm')= row.short || row.title
+                        span(class='font-mono text-mono-sm tabular-nums text-ink-4')= row.started
+                      span(class='flex items-center justify-between gap-2')
+                        - const linkable = !!row.who && (viewer.admin || row.who[0] === 'JA')
+                        +avatar(row.who ? row.who[0] : '–', { hidden: !row.who, href: linkable ? 'profile.html' : undefined })(
+                          class='h-[18px] w-[18px] text-[8px]'
+                        )
+                        +rowStatus(row, row.mobileState || (row.live ? `${row.progress}%` : row.state))(class='h-5 shrink-0')

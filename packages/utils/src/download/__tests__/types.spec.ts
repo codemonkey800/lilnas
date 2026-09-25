@@ -2,48 +2,65 @@ import {
   DownloadJob,
   DownloadJobStatus,
   DownloadType,
-  GetDownloadJobResponse,
-  isMovieDownloadJob,
-  isShowDownloadJob,
-  isVideoDownloadJob,
-  MovieDownloadJob,
-  ShowDownloadJob,
-  VideoDownloadJob,
+  EmbyStatus,
+  Episode,
+  IN_PROGRESS_DOWNLOAD_JOB_STATUSES,
+  isInProgressDownloadJobStatus,
+  isManagedMedia,
+  isMovie,
+  isShow,
+  isTerminalDownloadJobStatus,
+  isVideo,
+  Media,
+  Movie,
+  Show,
+  TERMINAL_DOWNLOAD_JOB_STATUSES,
+  Video,
 } from 'src/download/types'
 
-function buildVideoJob(
-  overrides: Partial<VideoDownloadJob> = {},
-): VideoDownloadJob {
+function buildVideo(overrides: Partial<Video> = {}): Video {
   return {
-    ...overrides,
-    id: overrides.id ?? 'video-1',
-    status: overrides.status ?? DownloadJobStatus.Pending,
+    id: overrides.id ?? 'video:1',
+    sourceUrl: overrides.sourceUrl ?? 'https://example.com/video',
+    title: overrides.title ?? 'A video',
     type: DownloadType.Video,
-    url: overrides.url ?? 'https://example.com/video',
+    ...overrides,
   }
 }
 
-function buildMovieJob(
-  overrides: Partial<MovieDownloadJob> = {},
-): MovieDownloadJob {
+function buildMovie(overrides: Partial<Movie> = {}): Movie {
   return {
-    ...overrides,
-    id: overrides.id ?? 'movie-1',
-    status: overrides.status ?? DownloadJobStatus.Requested,
+    id: overrides.id ?? 'tmdb:1',
+    title: overrides.title ?? 'Dune',
+    tmdbId: overrides.tmdbId ?? 1,
     type: DownloadType.Movie,
-    url: overrides.url ?? 'https://example.com/movie',
+    ...overrides,
   }
 }
 
-function buildShowJob(
-  overrides: Partial<ShowDownloadJob> = {},
-): ShowDownloadJob {
+function buildShow(overrides: Partial<Show> = {}): Show {
   return {
-    ...overrides,
-    id: overrides.id ?? 'show-1',
-    status: overrides.status ?? DownloadJobStatus.Requested,
+    id: overrides.id ?? 'tvdb:1',
+    title: overrides.title ?? 'Some Show',
+    tvdbId: overrides.tvdbId ?? 1,
     type: DownloadType.Show,
-    url: overrides.url ?? 'https://example.com/show',
+    ...overrides,
+  }
+}
+
+function buildJob(overrides: Partial<DownloadJob> = {}): DownloadJob {
+  return {
+    completedAt: overrides.completedAt ?? null,
+    createdAt: overrides.createdAt ?? '2026-08-20T12:00:00.000Z',
+    discordRequester: overrides.discordRequester ?? null,
+    hiddenAttribution: overrides.hiddenAttribution ?? false,
+    id: overrides.id ?? 'job-1',
+    linkedDiscord: overrides.linkedDiscord ?? null,
+    media: overrides.media ?? buildVideo(),
+    requester: overrides.requester ?? null,
+    status: overrides.status ?? DownloadJobStatus.Requested,
+    updatedAt: overrides.updatedAt ?? '2026-08-20T12:00:00.000Z',
+    ...overrides,
   }
 }
 
@@ -73,129 +90,253 @@ describe('DownloadJobStatus', () => {
     expect(DownloadJobStatus.Searching).toBe('searching')
     expect(DownloadJobStatus.Importing).toBe('importing')
   })
-})
 
-describe('DownloadJob discriminated union', () => {
-  const videoJob: DownloadJob = buildVideoJob({
-    downloadUrls: ['https://example.com/file.mp4'],
-    timeRange: { start: '00:00:00', end: '00:01:00' },
-  })
-  const movieJob: DownloadJob = buildMovieJob({
-    mediaTitle: 'Some Movie',
-    radarrId: 42,
-  })
-  const showJob: DownloadJob = buildShowJob({
-    mediaTitle: 'Some Show',
-    sonarrId: 7,
-  })
-  const jobs = [videoJob, movieJob, showJob]
-
-  describe('isVideoDownloadJob', () => {
-    it('matches only video jobs', () => {
-      expect(jobs.filter(isVideoDownloadJob)).toEqual([videoJob])
-    })
-
-    it('narrows to VideoDownloadJob-only fields', () => {
-      if (!isVideoDownloadJob(videoJob)) {
-        throw new Error('expected videoJob to be narrowed to VideoDownloadJob')
-      }
-
-      expect(videoJob.downloadUrls).toEqual(['https://example.com/file.mp4'])
-      expect(videoJob.timeRange).toEqual({
-        start: '00:00:00',
-        end: '00:01:00',
-      })
-    })
+  it('adds the Phase 5 pause members', () => {
+    expect(DownloadJobStatus.Paused).toBe('paused')
+    expect(DownloadJobStatus.Pausing).toBe('pausing')
   })
 
-  describe('isMovieDownloadJob', () => {
-    it('matches only movie jobs', () => {
-      expect(jobs.filter(isMovieDownloadJob)).toEqual([movieJob])
-    })
-
-    it('narrows to MovieDownloadJob-only fields', () => {
-      if (!isMovieDownloadJob(movieJob)) {
-        throw new Error('expected movieJob to be narrowed to MovieDownloadJob')
-      }
-
-      expect(movieJob.radarrId).toBe(42)
-      expect(movieJob.mediaTitle).toBe('Some Movie')
-    })
-  })
-
-  describe('isShowDownloadJob', () => {
-    it('matches only show jobs', () => {
-      expect(jobs.filter(isShowDownloadJob)).toEqual([showJob])
-    })
-
-    it('narrows to ShowDownloadJob-only fields', () => {
-      if (!isShowDownloadJob(showJob)) {
-        throw new Error('expected showJob to be narrowed to ShowDownloadJob')
-      }
-
-      expect(showJob.sonarrId).toBe(7)
-      expect(showJob.mediaTitle).toBe('Some Show')
-    })
-  })
-
-  it('every job carries the fields shared across all job types', () => {
-    for (const job of jobs) {
-      expect(typeof job.id).toBe('string')
-      expect(typeof job.status).toBe('string')
-      expect(typeof job.url).toBe('string')
-    }
+  it('adds the plan 020 needs-attention member', () => {
+    expect(DownloadJobStatus.NeedsAttention).toBe('needs_attention')
   })
 })
 
-describe('GetDownloadJobResponse', () => {
-  it('accepts exactly the picked video-job fields', () => {
-    const response: GetDownloadJobResponse = {
-      description: 'a video',
-      downloadUrls: ['https://example.com/a.mp4'],
-      error: undefined,
-      id: 'video-1',
-      status: DownloadJobStatus.Completed,
-      timeRange: undefined,
-      title: 'A video',
-      type: DownloadType.Video,
-      url: 'https://example.com/video',
-    }
+describe('TERMINAL_DOWNLOAD_JOB_STATUSES / IN_PROGRESS_DOWNLOAD_JOB_STATUSES', () => {
+  const allStatuses = Object.values(DownloadJobStatus)
 
-    expect(response.type).toBe(DownloadType.Video)
-    expect(Object.keys(response).sort()).toEqual(
-      [
-        'description',
-        'downloadUrls',
-        'error',
-        'id',
-        'status',
-        'timeRange',
-        'title',
-        'type',
-        'url',
-      ].sort(),
+  it('partition all status members exactly - no overlap, no gaps', () => {
+    const terminal = new Set<DownloadJobStatus>(TERMINAL_DOWNLOAD_JOB_STATUSES)
+    const inProgress = new Set<DownloadJobStatus>(
+      IN_PROGRESS_DOWNLOAD_JOB_STATUSES,
     )
+
+    expect(terminal.size + inProgress.size).toBe(allStatuses.length)
+    for (const status of allStatuses) {
+      expect(terminal.has(status) !== inProgress.has(status)).toBe(true)
+    }
   })
 
-  it('is satisfied by a full VideoDownloadJob (minus file/proc)', () => {
-    const videoJob = buildVideoJob({
-      description: 'a video',
-      downloadUrls: ['https://example.com/a.mp4'],
-      title: 'A video',
-    })
+  it('marks cancelled/completed/failed as terminal', () => {
+    expect(TERMINAL_DOWNLOAD_JOB_STATUSES).toEqual(
+      expect.arrayContaining([
+        DownloadJobStatus.Cancelled,
+        DownloadJobStatus.Completed,
+        DownloadJobStatus.Failed,
+      ]),
+    )
+    expect(TERMINAL_DOWNLOAD_JOB_STATUSES).toHaveLength(3)
+  })
 
-    const response: GetDownloadJobResponse = {
-      description: videoJob.description,
-      downloadUrls: videoJob.downloadUrls,
-      error: videoJob.error,
-      id: videoJob.id,
-      status: videoJob.status,
-      timeRange: videoJob.timeRange,
-      title: videoJob.title,
-      type: videoJob.type,
-      url: videoJob.url,
+  // Phase 5. `paused`/`pausing` land in "in progress" purely by being absent
+  // from the terminal list - which is the whole point of deriving the
+  // in-progress set by complement. Two consequences ride on it: a paused job
+  // keeps its slot on the Activity feed, and `reconcileInterruptedJobs()`
+  // (apps/download/src/db/reconcile-interrupted-jobs.ts) sweeps a paused
+  // video to `failed` on the next boot. Both are intended, not fallout.
+  it('treats paused/pausing as in-progress, never terminal', () => {
+    for (const status of [
+      DownloadJobStatus.Paused,
+      DownloadJobStatus.Pausing,
+    ]) {
+      expect(isTerminalDownloadJobStatus(status)).toBe(false)
+      expect(isInProgressDownloadJobStatus(status)).toBe(true)
+      expect(IN_PROGRESS_DOWNLOAD_JOB_STATUSES).toContain(status)
+      expect(TERMINAL_DOWNLOAD_JOB_STATUSES).not.toContain(status)
     }
 
-    expect(response.downloadUrls).toEqual(videoJob.downloadUrls)
+    // Pinned: adding a status must not grow the terminal list.
+    expect(TERMINAL_DOWNLOAD_JOB_STATUSES).toHaveLength(3)
+  })
+
+  // Plan 020. `needs_attention` is a finished-but-unimported job: the bytes
+  // are on disk and a human still has to act, so it is neither `failed` (a
+  // Retry would re-grab a file we already have) nor terminal. It reaches the
+  // in-progress set the same way `paused` does - by being absent from the
+  // terminal list - which keeps it on the Activity feed. Unlike a paused
+  // video it is meant to survive a restart whatever its type, so
+  // `reconcileInterruptedJobs()`
+  // (apps/download/src/db/reconcile-interrupted-jobs.ts) has to exempt it
+  // rather than sweep it to `failed`.
+  it('treats needs_attention as in-progress, never terminal', () => {
+    const status = DownloadJobStatus.NeedsAttention
+
+    expect(isTerminalDownloadJobStatus(status)).toBe(false)
+    expect(isInProgressDownloadJobStatus(status)).toBe(true)
+    expect(IN_PROGRESS_DOWNLOAD_JOB_STATUSES).toContain(status)
+    expect(TERMINAL_DOWNLOAD_JOB_STATUSES).not.toContain(status)
+
+    // Pinned: adding a status must not grow the terminal list.
+    expect(TERMINAL_DOWNLOAD_JOB_STATUSES).toHaveLength(3)
+  })
+
+  it('isTerminalDownloadJobStatus agrees with the two sets', () => {
+    for (const status of allStatuses) {
+      expect(isTerminalDownloadJobStatus(status)).toBe(
+        (
+          TERMINAL_DOWNLOAD_JOB_STATUSES as readonly DownloadJobStatus[]
+        ).includes(status),
+      )
+    }
+  })
+})
+
+describe('isInProgressDownloadJobStatus', () => {
+  it('agrees with the IN_PROGRESS_DOWNLOAD_JOB_STATUSES set', () => {
+    for (const status of Object.values(DownloadJobStatus)) {
+      expect(isInProgressDownloadJobStatus(status)).toBe(
+        (
+          IN_PROGRESS_DOWNLOAD_JOB_STATUSES as readonly DownloadJobStatus[]
+        ).includes(status),
+      )
+    }
+  })
+
+  it('is the negation of isTerminalDownloadJobStatus', () => {
+    for (const status of Object.values(DownloadJobStatus)) {
+      expect(isInProgressDownloadJobStatus(status)).toBe(
+        !isTerminalDownloadJobStatus(status),
+      )
+    }
+  })
+})
+
+describe('Media guards', () => {
+  const video: Media = buildVideo()
+  const movie: Media = buildMovie()
+  const show: Media = buildShow()
+  const media = [video, movie, show]
+
+  describe('isVideo', () => {
+    it('matches only the video arm', () => {
+      expect(media.filter(isVideo)).toEqual([video])
+    })
+
+    it('narrows to Video-only fields', () => {
+      if (!isVideo(video)) {
+        throw new Error('expected video to narrow to Video')
+      }
+      expect(video.sourceUrl).toBe('https://example.com/video')
+    })
+  })
+
+  describe('isMovie', () => {
+    it('matches only the movie arm', () => {
+      expect(media.filter(isMovie)).toEqual([movie])
+    })
+
+    it('narrows to Movie-only fields', () => {
+      if (!isMovie(movie)) {
+        throw new Error('expected movie to narrow to Movie')
+      }
+      expect(movie.tmdbId).toBe(1)
+    })
+  })
+
+  describe('isShow', () => {
+    it('matches only the show arm', () => {
+      expect(media.filter(isShow)).toEqual([show])
+    })
+
+    it('narrows to Show-only fields', () => {
+      if (!isShow(show)) {
+        throw new Error('expected show to narrow to Show')
+      }
+      expect(show.tvdbId).toBe(1)
+    })
+  })
+
+  describe('isManagedMedia', () => {
+    it('matches movie and show but not video', () => {
+      expect(media.filter(isManagedMedia)).toEqual([movie, show])
+    })
+  })
+})
+
+describe('DownloadJob', () => {
+  it('nests a Media object at .media and carries the shared job facts', () => {
+    const job = buildJob({ media: buildMovie({ radarrId: 42 }) })
+
+    expect(job.media.type).toBe(DownloadType.Movie)
+    if (!isMovie(job.media)) {
+      throw new Error('expected job.media to narrow to Movie')
+    }
+    expect(job.media.radarrId).toBe(42)
+    expect(job.status).toBe(DownloadJobStatus.Requested)
+    expect(job.completedAt).toBeNull()
+  })
+
+  it('accepts each media arm without a discriminant on DownloadJob itself', () => {
+    const jobs = [
+      buildJob({ media: buildVideo() }),
+      buildJob({ media: buildMovie() }),
+      buildJob({ media: buildShow() }),
+    ]
+
+    expect(jobs.map(job => job.media.type)).toEqual([
+      DownloadType.Video,
+      DownloadType.Movie,
+      DownloadType.Show,
+    ])
+  })
+})
+
+describe('EmbyStatus', () => {
+  const embyStatus: EmbyStatus = {
+    itemId: 'a1b2c3',
+    state: 'indexed',
+    watchUrl: 'https://emby.lilnas.io/web/index.html#!/item?id=a1b2c3',
+  }
+
+  it('is assignable to a Movie and a Show', () => {
+    expect(buildMovie({ embyStatus }).embyStatus).toEqual(embyStatus)
+    expect(buildShow({ embyStatus }).embyStatus).toEqual(embyStatus)
+  })
+
+  it('needs only state - itemId/watchUrl are for the indexed case', () => {
+    const indexing: EmbyStatus = { state: 'indexing' }
+    expect(buildShow({ embyStatus: indexing }).embyStatus).toEqual(indexing)
+  })
+
+  // Video extends MediaBase, not ManagedMediaBase - the compile-time half of
+  // schema.spec.ts's "stripped from a video rather than rejected".
+  it('is not a field on Video', () => {
+    // @ts-expect-error - `embyStatus` must never reach the video arm.
+    const video: Video = buildVideo({ embyStatus })
+
+    expect(isVideo(video)).toBe(true)
+  })
+})
+
+describe('currentReleaseGuid', () => {
+  const currentReleaseGuid = 'indexer://f00ba7'
+
+  it('is assignable to a Movie and to an Episode', () => {
+    expect(buildMovie({ currentReleaseGuid }).currentReleaseGuid).toBe(
+      currentReleaseGuid,
+    )
+
+    const episode: Episode = {
+      currentReleaseGuid,
+      episodeNumber: 5,
+      hasFile: true,
+      id: 4412,
+      monitored: true,
+      seasonNumber: 3,
+    }
+    expect(episode.currentReleaseGuid).toBe(currentReleaseGuid)
+  })
+
+  it('stays optional on both - absence is the normal case', () => {
+    expect(buildMovie().currentReleaseGuid).toBeUndefined()
+  })
+
+  // A series has no single current release - the guid is per-episode - so
+  // Show never gained the field. The compile-time half of schema.spec.ts's
+  // "is stripped from a show rather than carried".
+  it('is not a field on Show', () => {
+    // @ts-expect-error - `currentReleaseGuid` must never reach the show arm.
+    const show: Show = buildShow({ currentReleaseGuid })
+
+    expect(isShow(show)).toBe(true)
   })
 })

@@ -31,6 +31,14 @@ import {
 //     the table definition below for the load-bearing judgment call on how
 //     absorbing pending state and per-pair history coexist under one
 //     schema.
+//
+//   discord_identity · discord_link — the admin-made bridge between a lilnas
+//     user and a Discord account. `discord_identity` is a roster of every
+//     Discord account this system has ever OBSERVED (never typed);
+//     `discord_link` is the pure join between that roster and `user`. See
+//     their own header comment below for why the link is a separate table
+//     from the identity, and why neither the link nor the UI ever accepts a
+//     hand-typed Discord handle.
 // ──────────────────────────────────────────────────────────────────────────────
 
 export const user = sqliteTable('user', {
@@ -295,3 +303,111 @@ export const accessRequest = sqliteTable(
 )
 
 export type AccessRequestRow = typeof accessRequest.$inferSelect
+
+// ──────────────────────────────────────────────────────────────────────────────
+// discord_identity + discord_link — attributing a job to a lilnas person
+//
+// apps/tdr-bot's Discord `/download` command creates jobs in apps/download
+// that are otherwise anonymous. Attribution needs two halves, and this app
+// owns the half that says "this Discord account IS this lilnas user."
+//
+// WHY THIS IS NOT BETTER AUTH `account`. The obvious shape would be a second
+// linked social provider (Better Auth's own `account` row with providerId =
+// 'discord'). It isn't available: this app's better-auth instance is
+// Google-only by design (see auth.ts — "no second linkable provider"), there
+// is no Discord OAuth app, and there is deliberately no self-serve linking
+// flow. The link is made by an ADMIN, through the admin API, so it lives in
+// a plain table this app fully owns rather than in Better Auth's surface.
+//
+// WHY TWO TABLES, NOT ONE. `discord_identity` is a roster, `discord_link` is
+// an assertion, and they are populated by different actors at different
+// times. The roster fills itself in by OBSERVATION — a Discord account
+// appears here the first time it runs `/download`, whether or not anyone
+// ever links it. The link is written by an admin later (or never). Folding
+// them together would force a choice between a link row with a null userId
+// (an "identity" pretending to be a link) and losing the roster entirely.
+//
+// WHY EVERYTHING IS OBSERVED AND NOTHING IS TYPED. The admin UI is two
+// pick-from-a-list columns — lilnas users on one side, seen Discord accounts
+// on the other — precisely because a typed handle is a snapshot that rots.
+// Discord usernames are changeable, so a handle captured at link time stops
+// naming the person it named; a typo produces a link that silently matches
+// nobody and looks correct. Both sides of that UI are already free: the
+// lilnas side is the existing `user` table (Better Auth writes a row on
+// first Google sign-in, so "people with no Discord link" is a LEFT JOIN over
+// it — no table needed for that half), and the Discord side is this roster.
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const discordIdentity = sqliteTable('discord_identity', {
+  // Discord snowflake. TEXT, not INTEGER: snowflakes are 64-bit and exceed
+  // Number.MAX_SAFE_INTEGER, so any numeric round-trip through JS silently
+  // corrupts the low bits of a real id. Validated as /^\d{17,20}$/ at the
+  // API boundary, never coerced to a number anywhere. This is also the
+  // PRIMARY KEY because the snowflake is the only immutable thing Discord
+  // gives us — every other field on this row is a mutable label.
+  discordUserId: text('discord_user_id').primaryKey(),
+  // Current Discord handle (post-2023 form: 2–32 chars of a-z0-9._).
+  // Deliberately a CACHE, not an identity: refreshed on every observation
+  // so the admin list shows what the account is called *today*. Nothing
+  // keys off it, so a rename is a non-event — it updates this column and
+  // changes nothing else in the system.
+  username: text('username').notNull(),
+  // Discord's globalName (or server display name) — nullable because
+  // Discord's own API returns null for accounts that never set one. Same
+  // cache-not-identity status as `username`.
+  displayName: text('display_name'),
+  // First/last observation. `firstSeenAt` is written once at insert and
+  // never touched again; `lastSeenAt` is bumped on every subsequent
+  // observation, which is what lets the admin list sort by recency and lets
+  // a stale roster entry be recognised as stale. Same
+  // integer(timestamp_ms) convention as every other timestamp in this file.
+  firstSeenAt: integer('first_seen_at', { mode: 'timestamp_ms' }).notNull(),
+  lastSeenAt: integer('last_seen_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+export type DiscordIdentityRow = typeof discordIdentity.$inferSelect
+
+export const discordLink = sqliteTable(
+  'discord_link',
+  {
+    // Surrogate integer PK, matching `grant`/`access_request`'s bare
+    // integer().primaryKey() precedent above. Neither natural key is used
+    // as the PK because BOTH sides are unique (see the indexes below) —
+    // picking one would arbitrarily privilege a direction.
+    id: integer().primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    // FK to the roster, not a free-floating snowflake. This is the
+    // DB-level expression of the pick-from-a-list UI: you may only link a
+    // Discord account that has actually been SEEN. A hand-typed or
+    // mistyped snowflake has no `discord_identity` row, so the insert
+    // fails loudly here instead of creating a link that silently matches
+    // nobody forever.
+    discordUserId: text('discord_user_id')
+      .notNull()
+      .references(() => discordIdentity.discordUserId, {
+        onDelete: 'cascade',
+      }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  t => [
+    // A PURE JOIN — note what is NOT here: no username, no display name, no
+    // copy of any label from either side. Names live on `discord_identity`
+    // (refreshed on every observation) and on `user`; denormalising either
+    // one into the link would reintroduce exactly the rotting snapshot this
+    // design exists to avoid. Render a link by joining.
+    //
+    // Two unique indexes, one per direction, because the relationship is
+    // one-to-one BOTH ways: a lilnas user has at most one Discord account,
+    // and a Discord account belongs to at most one lilnas user. Enforced by
+    // construction rather than by application discipline, for the same
+    // reason `grant`'s unique index is — a duplicate here would make
+    // "whose job is this?" ambiguous, and a re-link that deletes one row
+    // would silently leave the other attributing jobs to the wrong person.
+    uniqueIndex('discord_link_user_id_unique_idx').on(t.userId),
+    uniqueIndex('discord_link_discord_user_id_unique_idx').on(t.discordUserId),
+  ],
+)
+
+export type DiscordLinkRow = typeof discordLink.$inferSelect

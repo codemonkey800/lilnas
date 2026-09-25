@@ -1,0 +1,473 @@
+extends ../layout/page.pug
+
+block title
+  | Video detail — download UI mockups · lilnas
+
+//-
+  A video's permalink. The download lifecycle lives right here rather than on
+  a separate status page — the media-state chip under the title, an Attempts
+  list under that (progress inline for whichever attempt is in flight), and a
+  legend further down showing how every other state reads on this same page.
+
+//-
+  The media-state chip. The seven-value vocabulary (plan 021), shared with
+  the movie and show pages — same labels and tones, except `importing` reads
+  "processing…" here (yt-dlp convert/upload/clean, not a Radarr/Sonarr
+  import) and `available` reads "downloaded" rather than "in library" — a
+  video isn't shelved the way a movie or series is, it's just done. (Pug
+  can't hold top-level code in a template that extends another, so the map
+  lives inside the mixin rather than beside it.)
+mixin mediaChip(state)
+  -
+    const MEDIA_STATE = {
+      absent: { label: 'not downloaded', tone: 'mute' },
+      wanted: { label: 'wanted', tone: 'mute' },
+      downloading: { label: 'downloading', tone: 'uv', live: true },
+      importing: { label: 'processing…', tone: 'uv', live: true },
+      needs_attention: { label: 'needs your decision', tone: 'warn' },
+      paused: { label: 'paused', tone: 'warn' },
+      available: { label: 'downloaded', tone: 'ok' },
+    }
+    const s = MEDIA_STATE[state] || MEDIA_STATE.absent
+  +chip({ label: s.live ? null : s.label, tone: s.tone })&attributes(attributes)
+    if s.live
+      +dot('live')
+      = s.label
+
+//- Progress block: fragment counter, percentage, bar, throughput line.
+mixin progress
+  div(class='flex flex-col gap-4')&attributes(attributes)
+    div
+      div(class='mb-2 flex items-center justify-between')
+        span(class='font-mono text-mono-sm text-ink-3') fragment 4 of 9
+        span(class='font-mono text-mono-sm tabular-nums text-uv-hi') 64%
+      +bar(64)
+    p(class='font-mono text-mono-sm tabular-nums text-ink-3')
+      | 412&nbsp;MB / 640&nbsp;MB &nbsp;·&nbsp; 3.1&nbsp;MB/s &nbsp;·&nbsp; ~2m left
+    block
+
+//-
+  Attempts — replaces this page's old single inline progress card. Newest
+  first: an in-flight attempt is highlighted with its own progress and
+  actions; terminal ones are StateLines (chip, relative time, requester,
+  error). An empty list renders nothing — the chip above already says
+  "not downloaded".
+
+  `a.cancelling` is the card after Cancel was pressed and taken: the chip is
+  the job's status (`cancelling…`, warn), not a media state, so it's a plain
+  +chip rather than +mediaChip. yt-dlp is being stopped, so there's no
+  progress block; Pause goes, and Cancel stays, inert, instead of vanishing.
+mixin attemptInFlight(mobile, a)
+  - a = a || {}
+  +card()(class=['border-uv/35 bg-uv-ghost/30', mobile ? 'p-4' : 'p-5'])&attributes(attributes)
+    if a.cancelling
+      +chip({ label: 'cancelling…', tone: 'warn' })(class='mb-3 w-fit')
+      div(class=['flex items-center gap-2.5', mobile ? 'flex-col' : ''])
+        +btn({ label: 'Cancel', variant: 'bad', iconEnd: 'x', full: mobile, disabled: true })
+    else
+      +mediaChip('downloading')(class='mb-3 w-fit')
+      +progress
+        div(class=['flex items-center gap-2.5', mobile ? 'flex-col' : ''])
+          +btn({ label: 'Pause', variant: 'outline', iconEnd: 'pause', full: mobile })
+          +btn({ label: 'Cancel', variant: 'bad', iconEnd: 'x', full: mobile })
+
+mixin attemptLine(a, mobile)
+  +stline({ mobile: mobile })
+    +chip({ label: a.label, tone: a.tone })(class=mobile ? '' : 'w-[108px] justify-center')
+    span(
+      class=[mobile ? '' : 'min-w-0 flex-1', 'flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-ink-3']
+    )
+      span(class='font-mono text-mono-sm text-ink-4')= a.when
+      span(class='flex items-center gap-1.5')
+        +avatar(a.who[0])(class='h-5 w-5 text-[9px]')
+        span(class='font-mono text-mono-sm text-ink-3')= a.who[1]
+      if a.error
+        span(class='text-bad')= a.error
+
+mixin attemptsList(view, items)
+  - const mobile = view === 'mobile'
+  if items && items.length
+    p(class='mb-2.5 text-h2') Attempts
+    - const inFlight = items.find(a => a.inFlight)
+    - const terminal = items.filter(a => !a.inFlight)
+    if inFlight
+      +attemptInFlight(mobile, inFlight)(class='mb-3')
+    if terminal.length
+      +card({ sunk: true })(class=mobile ? 'px-[14px] py-1' : 'px-4 py-1')
+        each a in terminal
+          +attemptLine(a, mobile)
+
+//- One row of this page's state legend: a fixed-width status chip, then the
+//- explanation and whatever action that state offers.
+mixin stateLine(tone, label, mobile)
+  +stline({ mobile: mobile })&attributes(attributes)
+    +chip({ label: label, tone: tone })(class=mobile ? '' : 'w-[130px] justify-center')
+    block
+
+//- Seek bar: a filled track plus a handle, sized for a hit target rather than
+//- the hairline +bar uses for a download's own progress.
+mixin scrubber(pct)
+  div(
+    class='relative flex h-3 w-full items-center'
+    role='slider'
+    aria-label='Seek'
+    aria-valuenow=pct
+    aria-valuemin='0'
+    aria-valuemax='100'
+  )&attributes(attributes)
+    div(class='h-[3px] w-full overflow-hidden rounded-full bg-ink/25')
+      i(class='block h-full rounded-full bg-uv' style=`width: ${pct}%`)
+    span(
+      class='absolute top-1/2 h-[11px] w-[11px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-uv shadow-[0_0_0_2px_var(--color-scrim)]'
+      style=`left: ${pct}%`
+    )
+
+//- The in-app player's control bar — seek, transport, time, volume,
+//- fullscreen — scrimmed over the bottom of the video itself rather than
+//- living below it, so the frame stays exactly the poster's aspect ratio.
+mixin playerControls(pct, time)
+  div(
+    class='absolute inset-x-0 bottom-0 flex flex-col gap-2 bg-linear-to-t from-scrim/85 from-0% to-transparent to-80% px-3 pt-9 pb-2.5'
+  )&attributes(attributes)
+    +scrubber(pct)
+    div(class='flex items-center justify-between')
+      div(class='flex items-center gap-2.5')
+        button(
+          type='button'
+          class='flex text-ink/90 transition-colors duration-150 ease-uv hover:text-ink'
+          aria-label='Pause'
+        )
+          +icon('pause')(class='h-[15px] w-[15px]')
+        span(class='font-mono text-[11px] tabular-nums text-ink-2')= time
+      div(class='flex items-center gap-3')
+        button(
+          type='button'
+          class='flex text-ink/90 transition-colors duration-150 ease-uv hover:text-ink'
+          aria-label='Volume'
+        )
+          +icon('volume')(class='h-[15px] w-[15px]')
+        button(
+          type='button'
+          class='flex text-ink/90 transition-colors duration-150 ease-uv hover:text-ink'
+          aria-label='Fullscreen'
+        )
+          +icon('expand')(class='h-[14px] w-[14px]')
+
+//-
+  Straight after a cancel: the video is back to "not downloaded" and the
+  cancelled attempt heads the history. Deliberately no Retry on that row —
+  this page has one verb for "get it again", the Download in the media-actions
+  slot under the attempts (where Save and Delete sit once there's a file).
+mixin cancelledFrame(view, items)
+  - const mobile = view === 'mobile'
+  +appFrame(view)
+    +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
+    +appBody(view)
+      if mobile
+        +poster({ shape: 'wide', v: 2, src: 'assets/video/video-3.jpg' })(class='mb-4')
+        p(class='mb-1.5 text-h1') Sourdough starter, day one to seven
+        p(class='mb-3 font-mono text-mono-sm text-ink-3') @slowferment · 14:02
+        a(class='mb-[14px] flex items-center gap-1.5' href='#')
+          +icon('external')(class='h-3 w-3 text-ink-4')
+          span(class='text-sm') View original post
+        +mediaChip('absent')(class='mb-4 flex w-fit')
+        +attemptsList('mobile', items)
+        div(class='mt-[14px] flex flex-col gap-2')
+          +btn({ label: 'Download', variant: 'outline', iconEnd: 'download', full: true })
+      else
+        div(class='mx-auto max-w-[1080px]')
+          a(class='mb-[22px] flex items-center gap-1.5' href='#')
+            +icon('arrow')(class='h-[13px] w-[13px] -scale-x-100 text-ink-4')
+            span(class='text-sm text-ink-3') Library
+          div(class='flex items-start gap-6')
+            +poster({ shape: 'wide', v: 2, src: 'assets/video/video-3.jpg' })(class='w-[340px]')
+            div(class='flex flex-1 flex-col gap-[14px] pt-0.5')
+              div
+                p(class='mb-1.5 text-h1') Sourdough starter, day one to seven
+                p(class='font-mono text-mono-sm text-ink-3') @slowferment · 14:02
+              a(class='flex items-center gap-1.5' href='#')
+                +icon('external')(class='h-3 w-3 text-ink-4')
+                span(class='text-sm') View original post
+              +mediaChip('absent')(class='w-fit')
+              div(class='mt-1.5 max-w-[480px]')
+                +attemptsList('desktop', items)
+              div(class='mt-1 flex items-center gap-2.5')
+                +btn({ label: 'Download', variant: 'outline', iconEnd: 'download' })
+
+block content
+  -
+    const JUMP = [
+      ['Primary', 'primary'],
+      ['Playing', 'playing'],
+      ['Cancelled', 'cancelled'],
+      ['Other states', 'states'],
+    ]
+    // A downloading attempt in progress, plus one terminal try before it —
+    // shown in the "Attempts" section of the downloading frame.
+    const ATTEMPTS_DOWNLOADING = [
+      { inFlight: true },
+      { label: 'failed', tone: 'bad', when: '1h ago', who: ['JA', 'Jeremy'], error: 'HTTP 403 from source' },
+    ]
+    // The completed frame's own history — just the one successful attempt.
+    const ATTEMPTS_COMPLETED = [
+      { label: 'completed', tone: 'ok', when: '12m ago', who: ['JA', 'Jeremy'] },
+    ]
+    // Straight after a cancel — the cancelled attempt is newest, with no
+    // Retry on its row (see +cancelledFrame).
+    const ATTEMPTS_CANCELLED = [
+      { label: 'cancelled', tone: 'mute', when: '2m ago', who: ['JA', 'Jeremy'] },
+      { label: 'failed', tone: 'bad', when: '1h ago', who: ['JA', 'Jeremy'], error: 'HTTP 403 from source' },
+    ]
+    // The card after Cancel was pressed and taken.
+    const CANCELLING_ATTEMPT = { inFlight: true, cancelling: true }
+
+  +mockHead({ eyebrow: 'lilnas · download', title: 'Video detail' })
+    p(class='max-w-[62ch] text-sm text-ink-3')
+      | The permalink for a video someone shared, distinct from its own author's post: a self-contained page
+      | with the source, who grabbed it internally, and a media-state chip (plan 021) instead of a job status —
+      | an Attempts list under it carries progress for whichever attempt is in flight and its own actions, with
+      | earlier tries as a compact history, and a legend further down showing how every other state reads.
+
+  div(class='vp-scope')
+    +viewportToggle('viewport')(class='mb-8' role='radiogroup' aria-label='Viewport')
+
+    //- ── desktop ────────────────────────────────────────────────────────
+    +viewportPanel('desktop')
+      +jumpNav(JUMP, 'd')
+
+      +appFrame('desktop')(id='primary-d')
+        +navBar('desktop', { back: true, placeholder: 'Search or paste a link…' })
+        +appBody('desktop')
+          div(class='mx-auto max-w-[1080px]')
+            a(class='mb-[22px] flex items-center gap-1.5' href='#')
+              +icon('arrow')(class='h-[13px] w-[13px] -scale-x-100 text-ink-4')
+              span(class='text-sm text-ink-3') Library
+
+            div(class='flex items-start gap-6')
+              +poster({ shape: 'wide', v: 2, src: 'assets/video/video-3.jpg', play: true, playSize: 'h-[30px] w-[30px]' })(
+                class='w-[340px]'
+              )
+              div(class='flex flex-1 flex-col gap-[14px] pt-0.5')
+                div
+                  p(class='mb-1.5 text-h1') Sourdough starter, day one to seven
+                  p(class='font-mono text-mono-sm text-ink-3') @slowferment · 14:02
+                a(class='flex items-center gap-1.5' href='#')
+                  +icon('external')(class='h-3 w-3 text-ink-4')
+                  span(class='text-sm') View original post
+                div(class='flex items-center gap-2')
+                  +avatar('JA', { href: 'profile.html' })(class='h-5 w-5 text-[9px]')
+                  span(class='font-mono text-mono-sm text-ink-4') downloaded by Jeremy · 12m ago
+                +mediaChip('downloading')(class='w-fit')
+
+                div(class='mt-1.5 max-w-[480px]')
+                  +attemptsList('desktop', ATTEMPTS_DOWNLOADING)
+
+      div(class='mx-auto mt-8 max-w-[1080px]')
+        +frameLabel()(id='playing-d') Completed — playing in-app
+
+      +appFrame('desktop')
+        +navBar('desktop', { back: true, placeholder: 'Search or paste a link…' })
+        +appBody('desktop')
+          div(class='mx-auto max-w-[1080px]')
+            a(class='mb-[22px] flex items-center gap-1.5' href='#')
+              +icon('arrow')(class='h-[13px] w-[13px] -scale-x-100 text-ink-4')
+              span(class='text-sm text-ink-3') Library
+
+            div(class='flex items-start gap-6')
+              +poster({ shape: 'wide', v: 2, src: 'assets/video/video-3.jpg' })(class='w-[340px]')
+                +playerControls(38, '5:20 / 14:02')
+              div(class='flex flex-1 flex-col gap-[14px] pt-0.5')
+                div
+                  p(class='mb-1.5 text-h1') Sourdough starter, day one to seven
+                  p(class='font-mono text-mono-sm text-ink-3') @slowferment · 14:02
+                a(class='flex items-center gap-1.5' href='#')
+                  +icon('external')(class='h-3 w-3 text-ink-4')
+                  span(class='text-sm') View original post
+                div(class='flex items-center gap-2')
+                  +avatar('JA', { href: 'profile.html' })(class='h-5 w-5 text-[9px]')
+                  span(class='font-mono text-mono-sm text-ink-4') downloaded by Jeremy · 12m ago
+                +mediaChip('available')(class='w-fit')
+
+                div(class='mt-1.5 max-w-[480px]')
+                  +attemptsList('desktop', ATTEMPTS_COMPLETED)
+
+                div(class='mt-1 flex items-center gap-2.5')
+                  +btn({ label: 'Save to device', variant: 'outline', iconEnd: 'device' })
+                  +btn({ label: 'Delete', variant: 'bad', iconEnd: 'trash' })
+
+      div(class='mx-auto mt-8 max-w-[1080px]')
+        +frameLabel()(id='cancelled-d') Cancelled — back to not downloaded
+
+      +cancelledFrame('desktop', ATTEMPTS_CANCELLED)
+
+      div(class='mx-auto max-w-[1080px]')
+        +appendixRule('Appendix — other states', 'states-d')
+        p(class='mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Other states on this page
+        +card({ sunk: true })(class='px-4 py-1')
+          +stateLine('mute', 'not downloaded')
+            span(class='min-w-0 flex-1 text-sm text-ink-3') Ready to grab whenever.
+            +btn({ label: 'Download', variant: 'outline', size: 'sm', iconEnd: 'download' })
+          +stateLine('mute', 'wanted')
+            span(class='min-w-0 flex-1 text-sm text-ink-3') Queued — waiting for a slot, usually seconds.
+          +stline
+            +chip({ tone: 'uv' })(class='w-[130px] justify-center')
+              +dot('live')
+              | downloading
+            span(class='min-w-0 flex-1 text-sm text-ink-3') Bytes are moving — see the Attempts card above.
+          +stateLine('warn', 'cancelling…')
+            span(class='min-w-0 flex-1 text-sm text-ink-3')
+              | Cancel pressed — yt-dlp is being stopped. The button stays, inert, until it has.
+            +btn({ label: 'Cancel', variant: 'bad', size: 'sm', iconEnd: 'x', disabled: true })
+          +stateLine('mute', 'cancelled')
+            span(class='min-w-0 flex-1 text-sm text-ink-3')
+              | Stopped on request. No Retry on the row — the Download under the attempts is the way back.
+          +stline
+            +chip({ tone: 'uv' })(class='w-[130px] justify-center')
+              +dot('live')
+              | processing…
+            span(class='min-w-0 flex-1 text-sm text-ink-3') Down, and yt-dlp is converting/uploading/cleaning up.
+          +stateLine('warn', 'needs your decision')
+            span(class='min-w-0 flex-1 text-sm text-ink-3')
+              | yt-dlp got stuck partway through — pick retry or discard.
+            +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+          +stateLine('warn', 'paused')
+            span(class='min-w-0 flex-1 text-sm text-ink-3') 64% — resume anytime, nothing's lost.
+            +btn({ label: 'Resume', variant: 'uv', size: 'sm' })
+          +stateLine('ok', 'downloaded')
+            span(class='min-w-0 flex-1 text-sm text-ink-3') Ready to watch.
+            +btn({ label: 'Watch', variant: 'outline', size: 'sm', iconEnd: 'eye' })
+            +btn({ label: 'Save to device', variant: 'ghost', size: 'sm', iconEnd: 'device' })
+
+        p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4')
+          | Not a media state — the link itself didn't resolve
+        +card({ sunk: true })(class='px-4 py-1')
+          +stateLine('bad', 'not recognized')
+            span(class='min-w-0 flex-1 text-sm text-ink-3')
+              | That link isn't one yt-dlp recognises — try a different link from the nav bar. Nothing was ever
+              | created, so there's no media state to show — this is a submission error, not a row in the
+              | seven-value vocabulary above.
+
+        p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Attempts — empty state
+        p(class='mb-3 text-sm text-ink-3')
+          | No attempts yet: the Attempts heading, the in-flight card and the terminal list are all omitted —
+          | the "not downloaded" chip above is the only signal.
+        +card({ sunk: true })(class='px-4 py-[13px] text-center text-sm text-ink-4')
+          | (nothing renders here)
+
+        p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Attempts — cancelling
+        p(class='mb-3 text-sm text-ink-3')
+          | Cancel was pressed and taken. The progress block goes, Pause goes, and Cancel stays put but inert
+          | until yt-dlp has stopped.
+        div(class='max-w-[480px]')
+          +attemptInFlight(false, CANCELLING_ATTEMPT)
+
+    //- ── mobile ─────────────────────────────────────────────────────────
+    +viewportPanel('mobile')
+      +jumpNav(JUMP, 'm')
+
+      +appFrame('mobile')(id='primary-m')
+        +navBar('mobile', { back: true, placeholder: 'Search or paste a link…' })
+        +appBody('mobile')
+          +poster({ shape: 'wide', v: 2, src: 'assets/video/video-3.jpg', play: true, playSize: 'h-[30px] w-[30px]' })(
+            class='mb-4'
+          )
+          p(class='mb-1.5 text-h1') Sourdough starter, day one to seven
+          p(class='mb-3 font-mono text-mono-sm text-ink-3') @slowferment · 14:02
+          a(class='mb-[14px] flex items-center gap-1.5' href='#')
+            +icon('external')(class='h-3 w-3 text-ink-4')
+            span(class='text-sm') View original post
+          div(class='mb-[14px] flex items-center gap-2')
+            +avatar('JA', { href: 'profile.html' })(class='h-5 w-5 text-[9px]')
+            span(class='font-mono text-mono-sm text-ink-4') downloaded by Jeremy · 12m ago
+          +mediaChip('downloading')(class='mb-4 flex w-fit')
+
+          +attemptsList('mobile', ATTEMPTS_DOWNLOADING)
+
+      div(class='w-full max-w-[390px]')
+        +frameLabel()(class='mt-4 mb-4' id='playing-m') Completed — playing in-app
+
+      +appFrame('mobile')
+        +navBar('mobile', { back: true, placeholder: 'Search or paste a link…' })
+        +appBody('mobile')
+          +poster({ shape: 'wide', v: 2, src: 'assets/video/video-3.jpg' })(class='mb-4')
+            +playerControls(38, '5:20 / 14:02')
+          p(class='mb-1.5 text-h1') Sourdough starter, day one to seven
+          p(class='mb-3 font-mono text-mono-sm text-ink-3') @slowferment · 14:02
+          a(class='mb-[14px] flex items-center gap-1.5' href='#')
+            +icon('external')(class='h-3 w-3 text-ink-4')
+            span(class='text-sm') View original post
+          div(class='mb-[14px] flex items-center gap-2')
+            +avatar('JA', { href: 'profile.html' })(class='h-5 w-5 text-[9px]')
+            span(class='font-mono text-mono-sm text-ink-4') downloaded by Jeremy · 12m ago
+          +mediaChip('available')(class='mb-4 w-fit')
+
+          +attemptsList('mobile', ATTEMPTS_COMPLETED)
+
+          div(class='mt-[14px] flex flex-col gap-2')
+            +btn({ label: 'Save to device', variant: 'outline', iconEnd: 'device', full: true })
+            +btn({ label: 'Delete', variant: 'bad', iconEnd: 'trash', full: true })
+
+      div(class='w-full max-w-[390px]')
+        +frameLabel()(class='mt-4 mb-4' id='cancelled-m') Cancelled — back to not downloaded
+
+      +cancelledFrame('mobile', ATTEMPTS_CANCELLED)
+
+      div(class='w-full max-w-[390px]')
+        +appendixRule('Appendix', 'states-m')
+        p(class='mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Other states on this page
+        +card({ sunk: true })(class='px-[14px] py-1')
+          +stateLine('mute', 'not downloaded', true)
+            span(class='text-sm text-ink-3') Ready to grab whenever.
+            +stlineActions
+              +btn({ label: 'Download', variant: 'outline', size: 'sm', iconEnd: 'download' })
+          +stateLine('mute', 'wanted', true)
+            span(class='text-sm text-ink-3') Queued — waiting for a slot, usually seconds.
+          +stline({ mobile: true })
+            +chip({ tone: 'uv' })
+              +dot('live')
+              | downloading
+            span(class='text-sm text-ink-3') Bytes are moving — see the Attempts card above.
+          +stateLine('warn', 'cancelling…', true)
+            span(class='text-sm text-ink-3') Cancel pressed — yt-dlp is being stopped. The button stays, inert, until it has.
+            +stlineActions
+              +btn({ label: 'Cancel', variant: 'bad', size: 'sm', iconEnd: 'x', disabled: true })
+          +stateLine('mute', 'cancelled', true)
+            span(class='text-sm text-ink-3')
+              | Stopped on request. No Retry on the row — the Download under the attempts is the way back.
+          +stline({ mobile: true })
+            +chip({ tone: 'uv' })
+              +dot('live')
+              | processing…
+            span(class='text-sm text-ink-3') Down, and yt-dlp is converting/uploading/cleaning up.
+          +stateLine('warn', 'needs your decision', true)
+            span(class='text-sm text-ink-3') yt-dlp got stuck partway through — pick retry or discard.
+            +stlineActions
+              +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+          +stateLine('warn', 'paused', true)
+            span(class='text-sm text-ink-3') 64% — resume anytime, nothing's lost.
+            +stlineActions
+              +btn({ label: 'Resume', variant: 'uv', size: 'sm' })
+          +stateLine('ok', 'downloaded', true)
+            span(class='text-sm text-ink-3') Ready to watch.
+            +stlineActions
+              +btn({ label: 'Watch', variant: 'outline', size: 'sm', iconEnd: 'eye' })
+              +btn({ label: 'Save to device', variant: 'ghost', size: 'sm', iconEnd: 'device' })
+
+        p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4')
+          | Not a media state — the link itself didn't resolve
+        +card({ sunk: true })(class='px-[14px] py-1')
+          +stateLine('bad', 'not recognized', true)
+            span(class='text-sm text-ink-3')
+              | That link isn't one yt-dlp recognises — try a different link from the nav bar. No media was ever
+              | created here.
+
+        p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Attempts — empty state
+        p(class='mb-3 text-sm text-ink-3')
+          | No attempts yet: the Attempts heading, the in-flight card and the terminal list are all omitted.
+        +card({ sunk: true })(class='px-[14px] py-[13px] text-center text-sm text-ink-4')
+          | (nothing renders here)
+
+        p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Attempts — cancelling
+        p(class='mb-3 text-sm text-ink-3')
+          | Cancel was pressed and taken: no progress, no Pause, and an inert Cancel until yt-dlp has stopped.
+        +attemptInFlight(true, CANCELLING_ATTEMPT)

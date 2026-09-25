@@ -1,0 +1,109 @@
+extends ../layout/page.pug
+
+block title
+  | download — UI mockups · lilnas
+
+block content
+  -
+    const screens = [
+      {
+        href: 'home.html',
+        icon: 'download',
+        title: 'Home',
+        desc: 'Library overview, quick access, and recently added.',
+      },
+      {
+        href: 'nav-search.html',
+        icon: 'search',
+        title: 'Nav-bar search',
+        desc: 'The entry-point field on every page — every state, and the full flow to a download or a search.',
+      },
+      {
+        href: 'search.html',
+        icon: 'search',
+        title: 'Search',
+        desc: "Movie and show discovery's dedicated home — title, year, cast, or genre, with filters.",
+      },
+      {
+        href: 'gallery.html',
+        icon: 'grid',
+        title: 'Unified gallery',
+        desc: 'Videos, movies and shows in one filterable grid.',
+      },
+      {
+        href: 'movie-detail.html',
+        icon: 'film',
+        title: 'Movie detail',
+        desc: 'Trailer, cast, and cover art — plus every download state, queued to failed.',
+      },
+      {
+        href: 'show-detail.html',
+        icon: 'tv',
+        title: 'Show detail',
+        desc: 'Seasons and episodes — download, delete, replace, or track progress live.',
+      },
+      {
+        href: 'video-detail.html',
+        icon: 'play',
+        title: 'Video detail',
+        desc: "Cover art, source link, and the download's progress, right on the page.",
+      },
+      {
+        href: 'downloads-activity.html',
+        icon: 'activity',
+        title: 'Downloads activity',
+        desc: 'Every download in flight, across every user, live.',
+      },
+      {
+        href: 'admin-dashboard.html',
+        icon: 'shield',
+        title: 'Admin dashboard',
+        desc: 'System metrics, unmasked attribution, top downloaders, and the audit log.',
+      },
+      {
+        href: 'profile.html',
+        icon: 'activity',
+        title: 'User profile',
+        desc: 'Identity, lifetime aggregates, and download history for one person — self, admin, or empty.',
+      },
+      {
+        href: 'discord-attribution.html',
+        icon: 'download',
+        title: 'Discord attribution',
+        desc: 'The four requester states — web, linked Discord, unlinked Discord, masked — across the activity table, a detail header, and the admin audit log.',
+      },
+      {
+        href: 'patterns.html',
+        icon: 'layers',
+        title: 'Shared patterns',
+        desc: 'Modal, flow storyboard, reason picker, skeleton loading, cast overflow — defined once for reuse.',
+      },
+    ]
+
+  header(class='mb-12 max-w-[74ch] reveal')
+    +doorplate('Download')(class='mb-6')
+    p(class='mt-[22px] mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-uv') lilnas · download
+    h1(class='mb-3 text-[30px] leading-[1.25] font-[650] tracking-[-0.015em]') UI mockups — round 1
+    p(class='text-sm text-ink-3')
+      | Nine screens against the Ultraviolet system, most with their own desktop/mobile switch (the nav-bar
+      | field's reference doesn't need one — it renders identically everywhere): the homepage's quick access
+      | and recently added, that nav-bar field's full state and flow reference, a dedicated search page for
+      | movies and shows, movie and show detail pages, the unified gallery, a video's own detail page, the
+      | downloads-activity feed, and the admin dashboard. The video, movie, and show detail pages each carry
+      | their own download lifecycle — progress, pause/cancel, queued, failed — inline, with no separate status
+      | page to navigate to. A tenth page, shared patterns, documents the cross-cutting components (modal,
+      | flow storyboard, reason picker, skeleton loading, cast overflow) once, for the detail pages to reuse.
+
+  div(class='grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-[14px] stagger')
+    each screen in screens
+      a(
+        class='group flex flex-col gap-3 rounded-md border border-line bg-surface p-5 transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv'
+        href=screen.href
+      )
+        span(
+          class='grid h-9 w-9 shrink-0 place-items-center rounded-md bg-surface-3 text-ink-2 transition-[background-color,color] duration-200 ease-uv group-hover:bg-uv-ghost group-hover:text-uv-hi'
+        )
+          +icon(screen.icon)(class='h-[17px] w-[17px]')
+        span
+          span(class='mb-1 block text-h3')= screen.title
+          span(class='text-sm text-ink-3')= screen.desc

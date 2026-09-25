@@ -36,6 +36,8 @@ describe('schema + migrations', () => {
         [
           'access_request',
           'account',
+          'discord_identity',
+          'discord_link',
           'grant',
           'pre_authorized_grant',
           'session',
@@ -319,6 +321,199 @@ describe('access_request table', () => {
           })
           .run(),
       ).toThrow()
+    } finally {
+      close()
+    }
+  })
+})
+
+describe('discord_identity + discord_link tables', () => {
+  function seedUser(db: ReturnType<typeof createTestDb>['db'], id: string) {
+    const now = new Date()
+    db.insert(schema.user)
+      .values({
+        id,
+        name: 'Test User',
+        email: `${id}@example.com`,
+        emailVerified: false,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run()
+  }
+
+  function seedIdentity(
+    db: ReturnType<typeof createTestDb>['db'],
+    discordUserId: string,
+  ) {
+    const now = new Date()
+    db.insert(schema.discordIdentity)
+      .values({
+        discordUserId,
+        username: `user.${discordUserId}`,
+        displayName: null,
+        firstSeenAt: now,
+        lastSeenAt: now,
+      })
+      .run()
+  }
+
+  function seedLink(
+    db: ReturnType<typeof createTestDb>['db'],
+    userId: string,
+    discordUserId: string,
+  ) {
+    db.insert(schema.discordLink)
+      .values({ userId, discordUserId, createdAt: new Date() })
+      .run()
+  }
+
+  it('round-trips a discord_identity row, keeping the snowflake a string (it exceeds MAX_SAFE_INTEGER)', () => {
+    const { db, close } = createTestDb()
+    try {
+      const firstSeen = new Date(1_700_000_000_000)
+      const lastSeen = new Date(1_700_000_999_000)
+      // Deliberately larger than Number.MAX_SAFE_INTEGER — a numeric
+      // round-trip would corrupt the low digits.
+      const snowflake = '1234567890123456789'
+      expect(Number(snowflake)).toBeGreaterThan(Number.MAX_SAFE_INTEGER)
+
+      db.insert(schema.discordIdentity)
+        .values({
+          discordUserId: snowflake,
+          username: 'somebody',
+          displayName: 'Some Body',
+          firstSeenAt: firstSeen,
+          lastSeenAt: lastSeen,
+        })
+        .run()
+
+      const rows = db.select().from(schema.discordIdentity).all()
+      expect(rows).toHaveLength(1)
+      expect(rows[0]!.discordUserId).toBe(snowflake)
+      expect(rows[0]!.username).toBe('somebody')
+      expect(rows[0]!.displayName).toBe('Some Body')
+      expect(rows[0]!.firstSeenAt).toEqual(firstSeen)
+      expect(rows[0]!.lastSeenAt).toEqual(lastSeen)
+    } finally {
+      close()
+    }
+  })
+
+  it('allows a null display_name (Discord returns null globalName for accounts that never set one)', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedIdentity(db, '111111111111111111')
+      const rows = db.select().from(schema.discordIdentity).all()
+      expect(rows[0]!.displayName).toBeNull()
+    } finally {
+      close()
+    }
+  })
+
+  it('rejects a link to a snowflake that was never observed — the DB-level expression of the pick-from-a-list UI', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedUser(db, 'user_1')
+
+      expect(() => seedLink(db, 'user_1', '999999999999999999')).toThrow()
+      expect(db.select().from(schema.discordLink).all()).toHaveLength(0)
+    } finally {
+      close()
+    }
+  })
+
+  it('rejects a link to a user that does not exist', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedIdentity(db, '111111111111111111')
+
+      expect(() => seedLink(db, 'no-such-user', '111111111111111111')).toThrow()
+      expect(db.select().from(schema.discordLink).all()).toHaveLength(0)
+    } finally {
+      close()
+    }
+  })
+
+  it('rejects a second link row for a user that already has one (one Discord account per lilnas user)', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedUser(db, 'user_1')
+      seedIdentity(db, '111111111111111111')
+      seedIdentity(db, '222222222222222222')
+      seedLink(db, 'user_1', '111111111111111111')
+
+      expect(() => seedLink(db, 'user_1', '222222222222222222')).toThrow()
+      expect(db.select().from(schema.discordLink).all()).toHaveLength(1)
+    } finally {
+      close()
+    }
+  })
+
+  it('rejects a second link row for a Discord account that already has one (one lilnas user per Discord account)', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedUser(db, 'user_1')
+      seedUser(db, 'user_2')
+      seedIdentity(db, '111111111111111111')
+      seedLink(db, 'user_1', '111111111111111111')
+
+      expect(() => seedLink(db, 'user_2', '111111111111111111')).toThrow()
+      expect(db.select().from(schema.discordLink).all()).toHaveLength(1)
+    } finally {
+      close()
+    }
+  })
+
+  it('allows two distinct pairs to coexist — proves neither unique index is broader than one column', () => {
+    const { db, close } = createTestDb()
+    try {
+      seedUser(db, 'user_1')
+      seedUser(db, 'user_2')
+      seedIdentity(db, '111111111111111111')
+      seedIdentity(db, '222222222222222222')
+
+      seedLink(db, 'user_1', '111111111111111111')
+      expect(() => seedLink(db, 'user_2', '222222222222222222')).not.toThrow()
+      expect(db.select().from(schema.discordLink).all()).toHaveLength(2)
+    } finally {
+      close()
+    }
+  })
+
+  it('cascades the link away when the user is deleted, leaving the observed identity behind', () => {
+    const { db, sqlite, close } = createTestDb()
+    try {
+      seedUser(db, 'user_1')
+      seedIdentity(db, '111111111111111111')
+      seedLink(db, 'user_1', '111111111111111111')
+
+      sqlite.prepare(`DELETE FROM user WHERE id = 'user_1'`).run()
+
+      expect(db.select().from(schema.discordLink).all()).toHaveLength(0)
+      // The roster is an observation log, not a consequence of the link —
+      // deleting the lilnas user must not un-see the Discord account.
+      expect(db.select().from(schema.discordIdentity).all()).toHaveLength(1)
+    } finally {
+      close()
+    }
+  })
+
+  it('cascades the link away when the discord_identity is deleted, leaving the user behind', () => {
+    const { db, sqlite, close } = createTestDb()
+    try {
+      seedUser(db, 'user_1')
+      seedIdentity(db, '111111111111111111')
+      seedLink(db, 'user_1', '111111111111111111')
+
+      sqlite
+        .prepare(
+          `DELETE FROM discord_identity WHERE discord_user_id = '111111111111111111'`,
+        )
+        .run()
+
+      expect(db.select().from(schema.discordLink).all()).toHaveLength(0)
+      expect(db.select().from(schema.user).all()).toHaveLength(1)
     } finally {
       close()
     }
