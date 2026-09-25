@@ -846,6 +846,8 @@ Addenda:
   - Pre-existing, not changed: the movie header shows Download beside a live download
     (video hides it); the in-flight card's chip is the media state, not the job status
     the app draws (labels agree for `downloading`).
+  - ✅ **Checkpoint 1 cleared 2026-09-24** — the human approved the mockups as drawn, no
+    changes requested.
 
   **Files:** edit `docs/features/download/designs/src/pages/movie-detail.pug`,
   `show-detail.pug`, `video-detail.pug`, `src/data/movie-detail.mjs`,
@@ -1154,9 +1156,14 @@ previous)` returns `undefined` when `previous === Cancelling`, whatever `next` i
   the right request input from the fetched job (series / season / episode scope);
   revalidation on success; swallow-and-log on failure; re-throw of a `digest` error.
 
-- [ ] **E2. Wire the pages and retire the three comments.** Cancel and Retry reach the
+- [x] **E2. Wire the pages and retire the three comments.** Cancel and Retry reach the
       movie and show pages; the three "no movie/show cancel route" comments describe
-      what is now true.
+      what is now true. `8edf4579`
+
+  **Findings:** a fourth stale paragraph in `show-detail.tsx` ("Import is the one
+  control the attempts do wire") was rewritten too. Page specs assert the wiring by
+  clicking the control and checking the mocked action got the job id. The movie page
+  spec's inline job became a `JOB` fixture (`noUncheckedIndexedAccess`).
 
   **Files:** edit `apps/download/src/app/movies/[tmdbId]/page.tsx` (:228-249 —
   `onCancel={cancelMovieJob} onRetry={retryMovieJob}`),
@@ -1354,8 +1361,27 @@ download started upstream')`.
   duplicate; a `failed` queue item → no job, tick after tick; an adopted job whose
   item leaves with history `removed` settles `cancelled` like any other.
 
-- [ ] **G4. Pages show who started it.** An adopted attempt reads `Radarr` / `Sonarr`
-      where a requester would, and the external note is only for upgrades.
+- [x] **G4. Pages show who started it.** An adopted attempt reads `Radarr` / `Sonarr`
+      where a requester would, and the external note is only for upgrades. `7bfac749`
+
+  **Findings:**
+  - New exports in `activity-requester.tsx`: `type UpstreamSource = 'Radarr' | 'Sonarr'`
+    and `jobUpstreamSource(job)`; `upstreamSource?` props on `ActivityRequester` and
+    `DetailAttribution`. `AttemptRequester` (attempt history rows) and the activity
+    table/list callers got the same branch. `DetailAttribution` drops its `prefix`
+    for an upstream source (`Sonarr · 1h ago`, per the mockup).
+  - Notes now read "Radarr is upgrading the file already on disk — it can't be
+    cancelled here." / "Sonarr is upgrading an episode already on disk — it can't be
+    cancelled here."
+  - ⚠️ **Not covered, deferred:** `GalleryItemCard` and `RecentCard` read the grouped
+    gallery row (`lastRequester` / `lastDiscordRequester`), which has no
+    `startedUpstream`, so a title whose latest job was adopted still shows the masked
+    `hidden` avatar there — fixing it needs `GalleryItem` + `JobQueryService.listGallery`
+    to carry the flag. `/admin` history shows adopted jobs as `service`
+    (`AdminActor`'s null-actor chip); a one-line `serviceLabel={jobUpstreamSource(job)}`
+    in `admin-history-cells.tsx` would fix it.
+  - Confirmed no change needed: `projectJobForViewer` passes `startedUpstream` through;
+    `canViewRequesterProfile` already says no for a null requester.
 
   **Files:** edit `apps/download/src/components/detail/detail-header.tsx`
   (`DetailAttribution` — takes the job's `startedUpstream` plus the media type, or a
@@ -1380,12 +1406,30 @@ download started upstream')`.
 
 ### Group F — Verification & docs
 
-- [ ] **F1. Full-repo verification.** (run by the orchestrator's sub-agent, no commit)
+- [x] **F1. Full-repo verification.** (run by the orchestrator's sub-agent, no commit)
       From `apps/download` and `packages/utils`: `pnpm test`, `pnpm lint`,
       `pnpm type-check` (utils built first). From the root: `pnpm mockups` and
       `pnpm lint`. Report the counts. ❌ No `pnpm build` in the app or at the root.
 
-- [ ] **F2. Docs + status.** Add a top-level section to
+  **Result (at `7bfac749`, run sequentially, jest `--maxWorkers=4`):**
+
+  | Check                               | Result                                                                         |
+  | ----------------------------------- | ------------------------------------------------------------------------------ |
+  | `packages/utils` jest               | 9/9 suites, 527/527 tests                                                      |
+  | `packages/utils` lint, type-check   | clean                                                                          |
+  | `apps/download` jest                | 196 passed, 1 failed, 1 skipped suites; 4934 passed, 1 failed, 9 skipped tests |
+  | `apps/download` lint, type-check    | clean                                                                          |
+  | `pnpm mockups`, `pnpm mockups:lint` | 13 pages built, prettier clean, committed html matches a fresh build           |
+  | `apps/tdr-bot` type-check           | clean                                                                          |
+
+  **Findings:** root `pnpm lint` was swapped for `pnpm mockups:lint` plus the two
+  packages' own lint (turbo lint of every package was unnecessary). The one failure is
+  **pre-existing and unrelated**: `src/__tests__/reduced-motion.spec.ts:140` pins the
+  list of animated utilities and lacks `bar-settling`, added by `c4c74fab` before this
+  plan; no plan-022 commit touches `tailwind.css` or that spec. Reproduced alone, not a
+  flake. Fix is one array entry — left for a follow-up.
+
+- [x] **F2. Docs + status.** `8708c8f1` Add a top-level section to
       `docs/features/download/backend.md` after `## Jobs are attempts (plan 021 ·
 Phase 3)`: `## Cancelling a movie or show attempt (plan 022)` — the routes, what
       `cancelJob` does and does not touch upstream, the `cancelling` settle table with
@@ -1529,24 +1573,72 @@ When the last box is checked, the executor reports — and stops:
 
 ### 1. Per-task outcome
 
-Task by task, with commit hashes, and any ⚠️ PARTIAL / ⏭️ DROPPED with its reason.
+All 15 tasks done; none partial or dropped.
+
+| Task | Commit     | Outcome                                                                 |
+| ---- | ---------- | ----------------------------------------------------------------------- |
+| A1   | `428f2824` | audit actions + `DownloadClient.cancelMovieJob` / `cancelShowJob`       |
+| B1   | `996ee928` | mockups; checkpoint 1 approved 2026-09-24                               |
+| C1   | `45280738` | `CANCEL_GRACE_MS`, `cancelling` settle branch                           |
+| C2   | `0cce024a` | poller removes late grabs, no error on a user's own cancel              |
+| D1   | `3ed6c3b8` | `unmonitorIfMissing`, `unmonitorScope(…, { withoutFileOnly })`          |
+| D2   | `5aa85f3a` | `cancelMovieJob` / `cancelShowJob`, `request()` guard (+ a second race) |
+| D3   | `1ab4f34f` | `PATCH …/cancel` routes, audit rows, verify map                         |
+| E1   | `b39cc720` | `media-job.ts` server actions                                           |
+| E2   | `8edf4579` | pages wire `onCancel` / `onRetry`; stale comments rewritten             |
+| G1   | `122a896f` | `startedUpstream`, `'upstream'` origin, migration 0005                  |
+| G2   | `7ee8b964` | `planAdoptions`, `isAdoptable`                                          |
+| G3   | `f58c6b31` | poller `adoptUnownedDownloads`                                          |
+| G4   | `7bfac749` | `Radarr` / `Sonarr` attribution, reworded upgrade notes                 |
+| F1   | —          | verification (no commit)                                                |
+| F2   | `8708c8f1` | `backend.md` sections                                                   |
 
 ### 2. Test results
 
-Per package (`apps/download`, `packages/utils`) and root (`pnpm mockups`, `pnpm lint`):
-suites, tests, lint, type-check.
+See [F1](#group-f--verification--docs): `packages/utils` 527/527 tests, lint and
+type-check clean; `apps/download` 4934 passed / 1 failed / 9 skipped, lint and
+type-check clean; mockups build and prettier clean; `apps/tdr-bot` type-check clean.
+The one failure (`reduced-motion.spec.ts:140`, missing `bar-settling`) predates this
+plan (`c4c74fab`).
 
 ### 3. Deviations
 
-Where the code disagreed with this plan and what was done instead, with the Findings
-notes that record it.
+- **D2** handles a second `request()` race the plan missed (cancel's upstream half
+  overlapping `submit()` finishing) and re-reads before writing so it never overwrites
+  a job the poller settled.
+- **C2** clears `error` on every move out of `Cancelling` (not only via
+  `settledError`), and removes every queue row for a movie, not just the first.
+- **D3**: the `[Cancelling, []]` entry the plan pointed at is in `VIDEO_TRANSITIONS`;
+  the media entry was added fresh.
+- **G2** added a `type` field to `AdoptionCandidate` and exported `AdoptionOpenJob`.
+- **B1** draws `Radarr` / `Sonarr` on the header attribution line (the app's
+  `AttemptCard` shows no requester); video's cancelled row has no Retry by design.
+- **F1** used `pnpm mockups:lint` + per-package lint instead of root `pnpm lint`.
+- Sub-agents ran only their own specs with `--maxWorkers=2`; the full suite ran once,
+  alone, capped at 4 workers (plan 015's near-OOM on this host).
 
 ### 4. Deferred
 
-Every human checkpoint still outstanding, and anything pushed to a later plan
-(the overlapping-show-jobs gap, a 409 for a finished job, a Discord cancel, adopting
-upgrades).
+- **Human checkpoints 2–5 are all outstanding:** restart `lilnas-download-dev` and
+  probe the route (2); the live cancel and adoption walkthrough (3); restart with a
+  `cancelling` job and an adopted download, plus the first boot of migration 0005 (4);
+  production (5). Note for 5: **prod's DB is on migration 0000**, so the deploy runs
+  0001–0005 in one boot (tested on a copy).
+- **Attribution gaps (G4):** gallery / home "recent" cards still show `hidden` for a
+  title whose latest job was adopted (needs `GalleryItem` + `listGallery` to carry
+  `startedUpstream`); `/admin` history shows adopted jobs as `service` (one-line
+  `serviceLabel` fix in `admin-history-cells.tsx`).
+- `reduced-motion.spec.ts` needs `'bar-settling'` in its pinned list (pre-existing).
+- `backend.md`'s Phase 3 "Settling from files" rows predate commit `433035cc`'s history
+  path (a `removed` / `failed` history settles after 5 s) and were not rewritten; F2
+  explains that path only inside the new cancel section.
+- Carried from the plan: the overlapping-show-jobs gap, a 409 for a finished job, a
+  Discord cancel, adopting upgrades.
 
 ### 5. Open questions
 
-Anything discovered during implementation that this plan did not decide.
+- The movie header still offers Download beside a live download (video hides it) —
+  pre-existing, noticed in B1; should it hide once an adopted or requested attempt is
+  in flight?
+- Should the in-flight attempt card show who started it (so an adopted attempt reads
+  `Radarr` on the card, not only in the header)?
