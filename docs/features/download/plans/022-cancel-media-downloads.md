@@ -797,8 +797,8 @@ Addenda:
 
 ### Group A — Contracts (`packages/utils` + the app's audit tables)
 
-- [ ] **A1. Audit actions and client methods.** `movie.cancel` / `show.cancel` exist
-      end to end, and `DownloadClient` can call the two new routes.
+- [x] **A1. Audit actions and client methods.** `movie.cancel` / `show.cancel` exist
+      end to end, and `DownloadClient` can call the two new routes. `428f2824`
 
   **Files:** edit `packages/utils/src/download/schema.ts` (append `'movie.cancel'`,
   `'show.cancel'` to `AUDIT_ACTIONS` :812-831 — append-only, after
@@ -828,9 +828,24 @@ Addenda:
 
 ### Group B — Mockups
 
-- [ ] **B1. Check and update the three detail mockups.** They show the Cancel control on
+- [x] **B1. Check and update the three detail mockups.** They show the Cancel control on
       in-flight movie and show attempt cards (per-episode rows included), the inert
-      `cancelling…` state, and a cancelled attempt in history with Retry.
+      `cancelling…` state, and a cancelled attempt in history with Retry. `996ee928`
+
+  **Findings:**
+  - Video deliberately draws its `cancelled` row **without Retry**; the re-request is the
+    Download in the media-actions row under the attempts (where `VideoDetail` puts it),
+    per plan 021 · Phase 3.
+  - Movie's existing `cancelled` row stays without Retry (it sits under an in-flight
+    attempt, so `sorted[0]` is not it). Cancelled-with-Retry is drawn in a new "Attempts
+    — after a cancel" list; show's new `cancelled` row in `ATTEMPTS` likewise has none.
+  - The app's `AttemptCard` shows no requester, so `Radarr` / `Sonarr` is drawn on the
+    header attribution line (`Radarr · 12m ago`); `movieHeader`'s `attribution` takes
+    `true` or a string. Upgrade frames are new (`radarrUpgradeFrame`,
+    `sonarrUpgradeFrame`).
+  - Pre-existing, not changed: the movie header shows Download beside a live download
+    (video hides it); the in-flight card's chip is the media state, not the job status
+    the app draws (labels agree for `downloading`).
 
   **Files:** edit `docs/features/download/designs/src/pages/movie-detail.pug`,
   `show-detail.pug`, `video-detail.pug`, `src/data/movie-detail.mjs`,
@@ -892,9 +907,14 @@ Addenda:
 
 ### Group C — Settle rules and the poller
 
-- [ ] **C1. `settleWithoutQueueItem` learns `cancelling`.** A `cancelling` job with no
+- [x] **C1. `settleWithoutQueueItem` learns `cancelling`.** A `cancelling` job with no
       queue item settles by the table in
-      [How `cancelling` settles](#how-cancelling-settles).
+      [How `cancelling` settles](#how-cancelling-settles). `45280738`
+
+  **Findings:** the existing test table listed `Cancelling` among the "video-only
+  statuses a movie/show job never holds" (expecting `undefined`); those two rows moved
+  to their own `cancelling` rows. `DequeuedOutcome` has only `failed` / `imported` /
+  `removed`, so "any other outcome" is just `imported`.
 
   **Files:** edit `apps/download/src/media/queue-status.util.ts` (a
   `CANCEL_GRACE_MS = 30_000` constant beside `QUEUE_ABSENCE_GRACE_MS` :282, doc
@@ -920,9 +940,15 @@ Addenda:
   outcome at `QUEUE_REMOVAL_CONFIRM_MS` → unchanged, at `CANCEL_GRACE_MS` →
   `Cancelled`; every pre-existing case still passes.
 
-- [ ] **C2. The poller carries the cleanup.** A `cancelling` job with a matching queue
+- [x] **C2. The poller carries the cleanup.** A `cancelling` job with a matching queue
       item gets the item removed and no status update; a `cancelling` → `cancelled`
-      settle carries no `error`.
+      settle carries no `error`. `0cce024a`
+
+  **Findings:** `writeStatus` keeps a stale `error` when the new status carries a
+  reason but has none, so leaving `Cancelling` now writes `error: undefined`
+  explicitly (memory and row). The movie cancelling path removes **every** queue row
+  for the movie, not just the first `find()` match. A row Radarr/Sonarr still lists a
+  tick after deletion is re-deleted (a harmless repeated `warn`).
 
   **Files:** edit `apps/download/src/media/media-poller.service.ts` (`pollMovies`
   :257 and `pollShows` :296 — before `applyUpdate`, branch on
@@ -959,7 +985,11 @@ previous)` returns `undefined` when `previous === Cancelling`, whatever `next` i
 
 ### Group D — Upstream helpers, service, routes
 
-- [ ] **D1. Unmonitor only what has no file.** Two small upstream helpers.
+- [x] **D1. Unmonitor only what has no file.** Two small upstream helpers. `3ed6c3b8`
+
+  **Findings:** `setMonitored`'s read and write were split into private
+  `getMovieResource` / `putMonitored` so `unmonitorIfMissing` reads once. An episode
+  with no `hasFile` field counts as file-less under `withoutFileOnly`.
 
   **Files:** edit `apps/download/src/media/radarr.service.ts` (`unmonitorIfMissing`
   beside `setMonitored` :415), `apps/download/src/media/sonarr.service.ts`
@@ -990,9 +1020,22 @@ previous)` returns `undefined` when `previous === Cancelling`, whatever `next` i
   scope is left monitored and not counted; without it, behaviour is byte-identical to
   today's tests.
 
-- [ ] **D2. `MediaDownloadService.cancelJob`, and the `request()` guard.** The service
+- [x] **D2. `MediaDownloadService.cancelJob`, and the `request()` guard.** The service
       half of [What cancel does upstream](#what-cancel-does-upstream) and
-      [The `request()` race](#the-request-race).
+      [The `request()` race](#the-request-race). `5aa85f3a`
+
+  **Findings:**
+  - A second race the plan missed: a `requested` title that already has an upstream id
+    runs `cancelJob`'s upstream half first, and `submit()` can finish meanwhile and write
+    `searching` (the guard never sees `cancelling`). `cancelJob` re-reads before its
+    write, sees the status moved off `requested`, writes `cancelling` anyway and re-runs
+    the upstream cleanup (logged, not thrown). Tested.
+  - The same re-read returns a job the poller settled meanwhile (e.g. `completed`) or
+    that a second press already made `cancelling`, rather than overwriting it.
+  - Queue items are also filtered by `movieId` / `seriesId` (as
+    `ManualImportService.queueItems` does), on top of `getQueue([id])`'s server filter.
+  - Cleanup failures inside the `request()` guard are logged, not thrown — the job is
+    already `cancelling` and the poller removes late grabs.
 
   **Files:** edit `apps/download/src/media/media-download.service.ts` (`cancelMovieJob`,
   `cancelShowJob`, private `cancelJob`, private `cancelUpstream`; the guard in
@@ -1043,7 +1086,13 @@ previous)` returns `undefined` when `previous === Cancelling`, whatever `next` i
   `cancelUpstream` runs once the id exists; a `submit()` that throws after a cancel
   does not write `failed`.
 
-- [ ] **D3. The routes, their audit rows, and the verify map.**
+- [x] **D3. The routes, their audit rows, and the verify map.** `1ab4f34f`
+
+  **Findings:** the `[Cancelling, []]` entry at `mutate.ts:444` is in
+  `VIDEO_TRANSITIONS`, not `MEDIA_TRANSITIONS` — left alone; `MEDIA_TRANSITIONS` had no
+  `Cancelling` entry, so `[Cancelling, [Cancelled, Completed]]` was added there
+  (`Cancelled` is redundant with `ALWAYS_REACHABLE` but kept explicit).
+  `mediaJobRoute`'s doc comment ("four routes", "two DELETEs") now covers cancel.
 
   **Files:** edit `apps/download/src/download/download.controller.ts` (two handlers
   beside `deleteMovieJob` :1781 and `deleteShowJob` :1908); extend
@@ -1072,8 +1121,12 @@ previous)` returns `undefined` when `previous === Cancelling`, whatever `next` i
 
 ### Group E — Frontend
 
-- [ ] **E1. Server actions for movie and show jobs.** `cancelMovieJob`,
-      `cancelShowJob`, `retryMovieJob`, `retryShowJob`.
+- [x] **E1. Server actions for movie and show jobs.** `cancelMovieJob`,
+      `cancelShowJob`, `retryMovieJob`, `retryShowJob`. `b39cc720`
+
+  **Findings:** `retryShowJob` also refuses a non-show job (mirroring
+  `retryMovieJob`). The helpers stay duplicated; a shared plain module
+  (`src/lib/job-action.ts`) was suggested and not taken.
 
   **Files:** create `apps/download/src/app/actions/media-job.ts` (`'use server'`; its
   own module-private copies of `isFrameworkSignal`, `revalidateJobDetail` and
@@ -1131,9 +1184,23 @@ previous)` returns `undefined` when `previous === Cancelling`, whatever `next` i
 
 ### Group G — Adopt downloads started in Radarr/Sonarr
 
-- [ ] **G1. The `'upstream'` origin, end to end.** A job can say Radarr/Sonarr started
+- [x] **G1. The `'upstream'` origin, end to end.** A job can say Radarr/Sonarr started
       it, on the wire, in memory and in the row. Design:
-      [Attribution and origin](#attribution-and-origin).
+      [Attribution and origin](#attribution-and-origin). `122a896f`
+
+  **Findings:**
+  - Migration `0005_remarkable_wallflower.sql` is drizzle-generated (no hand edit): a
+    `__new_jobs` rebuild copying all 15 columns, all 6 `jobs_*` indexes recreated.
+    Replayed on a copy of the **prod** DB: row counts unchanged, `jobs` dump
+    byte-identical, `integrity_check` ok.
+  - **Prod is on migration 0000**, not 0002 (container from 2026-09-11) — the next
+    deploy runs 0001–0005 in one boot; `migrate-0005.spec.ts` covers both the 0000 and
+    0004 starting points.
+  - `lilnas-download-dev` hot-reloaded on `db:generate` and applied 0005 to its tmpfs dev
+    DB by itself (no container restart by the agent).
+  - `db/__tests__/schema.spec.ts` gained its own `AuditOrigin` type (it had reused
+    `JobOrigin`). `projectJobForViewer` spreads the job, so `startedUpstream` reaches
+    non-admins unchanged.
 
   **Files:** edit `packages/utils/src/download/schema.ts` (`DownloadJobSchema` :369 —
   `startedUpstream: z.boolean().optional()` with a doc comment) and its
@@ -1175,10 +1242,16 @@ previous)` returns `undefined` when `previous === Cancelling`, whatever `next` i
   like `migrate-0002.spec.ts` proving existing rows, `scope` JSON and indexes survive
   the rebuild; `DownloadJobSchema` parses with and without the field.
 
-- [ ] **G2. `planAdoptions` — the pure part.** Which un-owned queue items become which
+- [x] **G2. `planAdoptions` — the pure part.** Which un-owned queue items become which
       jobs. Design: [Adopting downloads started upstream](#adopting-downloads-started-upstream),
       [What an adopted job looks like](#what-an-adopted-job-looks-like),
-      [What is not adopted](#what-is-not-adopted).
+      [What is not adopted](#what-is-not-adopted). `7ee8b964`
+
+  **Findings:** `AdoptionCandidate` gained a `type` field (filled by `planAdoptions`)
+  so `isAdoptable` need not guess movie vs show; the open-job shape is exported as
+  `AdoptionOpenJob`. A show candidate with any item lacking `episodeId` is adoptable
+  (nothing proves an upgrade). A group containing a `failed` item is dropped whole
+  (`aggregateQueueItems` ranks failed highest).
 
   **Files:** create `apps/download/src/media/adoption.util.ts` and
   `src/media/__tests__/adoption.util.test.ts` (node project; `it.each` tables like
@@ -1226,7 +1299,21 @@ previous)` returns `undefined` when `previous === Cancelling`, whatever `next` i
   season; a `downloadId` in `claimedDownloadIds` → none; `isAdoptable` for a movie
   with a file, and a show group with one of three episodes missing a file (adoptable).
 
-- [ ] **G3. The poller adopts.** Wire `planAdoptions` into both sources.
+- [x] **G3. The poller adopts.** Wire `planAdoptions` into both sources. `f58c6b31`
+
+  **Findings:**
+  - A movie "has a file" when the resolved media has `filePath` **or** `embyStatus`
+    (the frontend `movieHasFile` test).
+  - A pure `planAdoptions(type, queue, [], claimed)` pre-pass skips all resolve /
+    library / episode reads in the steady state (every queued download claimed).
+  - `addJob` persists first and can throw; `adopt` wraps it (warn and skip).
+  - The existing `media events` test block now stubs `adoptUnownedDownloads` — its
+    un-owned downloads would otherwise be adopted — so it still tests only media
+    broadcasts.
+  - Adoption can spend a title's one early library re-read in `mediaIdsFor` before the
+    media broadcast does in the same tick; "one re-read per title" still holds.
+  - `trackedJobs`' body moved to `resolveOpenJobs(type)` (returns
+    `upstreamId | undefined`), shared with adoption.
 
   **Files:** edit `apps/download/src/media/media-poller.service.ts` (a private
   `adoptUnownedDownloads(type, queue)` called at the end of `pollMovies` / `pollShows`,
