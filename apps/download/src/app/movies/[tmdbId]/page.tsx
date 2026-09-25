@@ -18,6 +18,7 @@ import {
   searchReleases,
   unflagBadFile,
 } from 'src/app/actions/media-files'
+import { cancelMovieJob, retryMovieJob } from 'src/app/actions/media-job'
 import { LibraryLink } from 'src/components/detail/library-link'
 import { MovieDetailLive } from 'src/components/detail/movie-detail-live'
 import type { MovieRequestResult } from 'src/components/detail/movie-request-button'
@@ -239,11 +240,13 @@ export default async function MoviePage({
             jobs={detail.jobs}
             media={detail.media}
             now={now}
+            onCancel={cancelMovieJob}
             onDelete={deleteMediaFiles}
             onFlag={flagBadFile}
             onGrab={grabRelease}
             onReplace={replaceRelease}
             onRequest={requestMovie}
+            onRetry={retryMovieJob}
             onSearch={searchReleases}
             onUnflag={unflagBadFile}
           />

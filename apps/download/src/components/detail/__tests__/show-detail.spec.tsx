@@ -204,7 +204,7 @@ describe('the series-scoped controls', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('⚠️ offers no pause, resume, cancel or retry the page did not wire', () => {
+  it('offers no pause, resume, cancel or retry when none is passed', () => {
     renderDetail({
       jobs: [scopedJob(undefined, { status: DownloadJobStatus.Downloading })],
     })
@@ -214,6 +214,34 @@ describe('the series-scoped controls', () => {
         screen.queryByRole('button', { name: label }),
       ).not.toBeInTheDocument()
     }
+  })
+
+  it('threads onCancel down to the episode row an in-flight attempt is scoped to', async () => {
+    const onCancel = jest.fn()
+    const user = userEvent.setup()
+    render(
+      <ShowDetail
+        jobs={[
+          scopedJob(
+            { episodeId: 2430, seasonNumber: 1 },
+            { id: 'job_e1', status: DownloadJobStatus.Downloading },
+          ),
+        ]}
+        media={show()}
+        now={NOW}
+        seasons={[S1]}
+        onCancel={onCancel}
+      />,
+    )
+
+    const row = document.querySelector('[data-episode-id="2430"]')
+    expect(row).toBeInstanceOf(HTMLElement)
+
+    await user.click(
+      within(row as HTMLElement).getByRole('button', { name: 'Cancel' }),
+    )
+
+    expect(onCancel).toHaveBeenCalledWith('job_e1')
   })
 })
 

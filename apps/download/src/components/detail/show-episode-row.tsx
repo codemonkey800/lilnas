@@ -134,8 +134,8 @@ export type ShowEpisodeRowProps = {
   /** Whether the actions drawer is open. Owned by the season panel. */
   open: boolean
   /**
-   * Cancels this episode's in-flight attempt. Omitted renders no Cancel — the
-   * page wires none for a show today (see {@link ShowEpisodeRow}).
+   * Cancels this episode's in-flight attempt. Omitted renders no Cancel; the
+   * page wires the show's own cancel route (see {@link ShowEpisodeRow}).
    */
   onCancel?: JobAction
   onDelete?: DeleteMediaFilesAction
@@ -184,9 +184,9 @@ export type ShowEpisodeRowProps = {
  * - **Import** - the episode is `needs_attention`. The importer is addressed
  *   by media key and scope, never by job, so it needs no attempt behind it.
  * - **Cancel** - this episode's own in-flight attempt, and only when the page
- *   wired `onCancel`. It does not today: `cancelJob`/`pauseJob`/`resumeJob`
- *   are `/download/videos/:id` routes, and nothing reaches a show's
- *   `DELETE /download/shows/:id` from the UI yet.
+ *   wired `onCancel` — which it does, to the show's own
+ *   `PATCH /download/shows/:id/cancel`. There is no per-row Pause or Resume:
+ *   those are `/download/videos/:id` routes with no show equivalent.
  *
  * ## One control the mockup draws that is not here
  *

@@ -1,12 +1,14 @@
 import '@testing-library/jest-dom'
 
 import type {
+  DownloadJob,
   ListBadFilesResponse,
   MediaDetailResponse,
   Movie,
 } from '@lilnas/utils/download/types'
 import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { notFound } from 'next/navigation'
 
 import {
@@ -17,6 +19,7 @@ import {
   searchReleases,
   unflagBadFile,
 } from 'src/app/actions/media-files'
+import { cancelMovieJob, retryMovieJob } from 'src/app/actions/media-job'
 import MoviePage, { generateMetadata } from 'src/app/movies/[tmdbId]/page'
 import { MOVIE_WATCH_LABEL } from 'src/components/detail/movie-detail'
 import { RELEASE_SEARCH_LABEL } from 'src/components/detail/release-picker'
@@ -35,6 +38,12 @@ jest.mock('src/app/actions/media-files', () => ({
   replaceRelease: jest.fn(),
   searchReleases: jest.fn(),
   unflagBadFile: jest.fn(),
+}))
+
+// `'use server'` too, and each one a LIVE `PATCH`/request against the backend.
+jest.mock('src/app/actions/media-job', () => ({
+  cancelMovieJob: jest.fn(),
+  retryMovieJob: jest.fn(),
 }))
 
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn() }))
@@ -65,23 +74,20 @@ const MOVIE: Movie = {
   year: 2024,
 }
 
-const DETAIL: MediaDetailResponse = {
-  jobs: [
-    {
-      completedAt: '2026-09-15T11:48:00.000Z',
-      createdAt: '2026-09-15T11:20:00.000Z',
-      discordRequester: null,
-      hiddenAttribution: false,
-      id: 'job-1',
-      linkedDiscord: null,
-      media: MOVIE,
-      requester: { email: 'jeremy.asuncion@lilnas.io', userId: 'u_jeremy' },
-      status: DownloadJobStatus.Completed,
-      updatedAt: '2026-09-15T11:48:00.000Z',
-    },
-  ],
+const JOB: DownloadJob = {
+  completedAt: '2026-09-15T11:48:00.000Z',
+  createdAt: '2026-09-15T11:20:00.000Z',
+  discordRequester: null,
+  hiddenAttribution: false,
+  id: 'job-1',
+  linkedDiscord: null,
   media: MOVIE,
+  requester: { email: 'jeremy.asuncion@lilnas.io', userId: 'u_jeremy' },
+  status: DownloadJobStatus.Completed,
+  updatedAt: '2026-09-15T11:48:00.000Z',
 }
+
+const DETAIL: MediaDetailResponse = { jobs: [JOB], media: MOVIE }
 
 const BAD_FILES: ListBadFilesResponse = { badFiles: [] }
 
@@ -201,14 +207,68 @@ describe('MoviePage — what it renders', () => {
     await renderPage()
 
     for (const action of [
+      cancelMovieJob,
       deleteMediaFiles,
       flagBadFile,
       grabRelease,
       replaceRelease,
+      retryMovieJob,
       unflagBadFile,
     ]) {
       expect(action).not.toHaveBeenCalled()
     }
+  })
+})
+
+describe('MoviePage — the lifecycle actions it wires', () => {
+  /** Monitored in Radarr and not on disk — what makes a retry offerable. */
+  const WANTED: Movie = {
+    ...MOVIE,
+    embyStatus: undefined,
+    filePath: undefined,
+    state: 'wanted',
+  }
+
+  it('wires Cancel on an in-flight attempt to the movie cancel action', async () => {
+    getMedia.mockResolvedValue({
+      jobs: [
+        {
+          ...JOB,
+          completedAt: null,
+          id: 'job-pending',
+          status: DownloadJobStatus.Pending,
+        },
+      ],
+      media: WANTED,
+    })
+    await renderPage()
+
+    const card = document.querySelector('[data-job-id="job-pending"]')
+    expect(card).toBeInstanceOf(HTMLElement)
+    await userEvent.click(
+      within(card as HTMLElement).getByRole('button', { name: /^cancel$/i }),
+    )
+
+    expect(cancelMovieJob).toHaveBeenCalledWith('job-pending')
+  })
+
+  it('wires Retry on a failed newest attempt to the movie retry action', async () => {
+    getMedia.mockResolvedValue({
+      jobs: [
+        {
+          ...JOB,
+          error: 'Stopped responding partway through.',
+          id: 'job-failed',
+          status: DownloadJobStatus.Failed,
+        },
+      ],
+      media: WANTED,
+    })
+    await renderPage()
+
+    await userEvent.click(screen.getByRole('button', { name: /^retry$/i }))
+
+    expect(retryMovieJob).toHaveBeenCalledWith('job-failed')
   })
 })
 

@@ -113,8 +113,8 @@ export type ShowDetailProps = {
   seasons: readonly Season[]
   /**
    * Cancels an in-flight attempt, at any scope — its card in the Attempts
-   * lists and its episode row's Cancel. Omitted offers none; see
-   * {@link ShowDetail} for why the page wires none today.
+   * lists and its episode row's Cancel. Omitted offers none; the page wires
+   * the show's own cancel route (see {@link ShowDetail}).
    */
   onCancel?: JobAction
   onDelete?: DeleteMediaFilesAction
@@ -170,10 +170,11 @@ export type ShowDetailProps = {
  * - **Profile links.** `/profile` exists as a route constant but the page does
  *   not ship until a later task, and `DetailAttribution` deliberately does not
  *   anchor - the same call D2 made for the gallery avatars.
- * - **Pause / resume / cancel.** Those three routes are `/download/videos/:id`
- *   only, and nothing reaches a show's `DELETE /download/shows/:id` from the
- *   UI yet. `onCancel`/`onRetry` are threaded to every scope so wiring one is
- *   a page-level change, but until then no attempt offers them.
+ * - **Pause / resume.** Those two routes are `/download/videos/:id` only, and
+ *   a show has no equivalent, so no attempt offers them. Cancel and Retry are
+ *   not absent: the page wires `onCancel` to the show's own
+ *   `PATCH /download/shows/:id/cancel` and `onRetry` to a fresh request at the
+ *   attempt's own scope, and both are threaded to every scope.
  *
  * ## State from the media, attempts from the jobs
  *
@@ -188,11 +189,12 @@ export type ShowDetailProps = {
  * Each season's panel lists the ones scoped to it again, so a stuck season
  * pack is resolved from the season it belongs to as well.
  *
- * **Import** is the one control the attempts do wire: a Sonarr download that
- * finished and then refused to import sits in `needs_attention` until a human
- * picks the files or discards them. `imports` carries the three server actions
- * to every Attempts list and every episode row; none of them assembles a
- * scope here — each reads it off the attempt or the episode it renders.
+ * **Import** is the attempts' one control beyond Cancel and Retry: a Sonarr
+ * download that finished and then refused to import sits in `needs_attention`
+ * until a human picks the files or discards them. `imports` carries the three
+ * server actions to every Attempts list and every episode row; none of them
+ * assembles a scope here — each reads it off the attempt or the episode it
+ * renders.
  */
 export function ShowDetail({
   badFiles,

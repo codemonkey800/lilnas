@@ -1,12 +1,15 @@
 import '@testing-library/jest-dom'
 
-import { DownloadType } from '@lilnas/utils/download/types'
-import { render, screen } from '@testing-library/react'
+import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
+import { render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { notFound } from 'next/navigation'
 
+import { cancelShowJob, retryShowJob } from 'src/app/actions/media-job'
 import ShowPage from 'src/app/shows/[tvdbId]/page'
 import {
   episode,
+  scopedJob,
   season,
   show,
   SHOW_ID,
@@ -32,6 +35,12 @@ jest.mock('src/app/actions/media-files', () => ({
   replaceRelease: jest.fn(),
   searchReleases: jest.fn(),
   unflagBadFile: jest.fn(),
+}))
+
+// The same, for the job lifecycle: each is a LIVE `PATCH` or request.
+jest.mock('src/app/actions/media-job', () => ({
+  cancelShowJob: jest.fn(),
+  retryShowJob: jest.fn(),
 }))
 
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn() }))
@@ -202,5 +211,50 @@ describe('the rendered page', () => {
     })
 
     await expect(renderPage()).rejects.toThrow('NEXT_NOT_FOUND')
+  })
+})
+
+describe('the lifecycle actions it wires', () => {
+  it('wires an episode row’s Cancel to the show cancel action', async () => {
+    client({
+      getMedia: jest.fn().mockResolvedValue({
+        jobs: [
+          scopedJob(
+            { episodeId: 2431, seasonNumber: 1 },
+            { id: 'job_e2', status: DownloadJobStatus.Downloading },
+          ),
+        ],
+        media: show(),
+      }),
+    })
+    await renderPage()
+
+    const row = document.querySelector('[data-episode-id="2431"]')
+    expect(row).toBeInstanceOf(HTMLElement)
+    await userEvent.click(
+      within(row as HTMLElement).getByRole('button', { name: 'Cancel' }),
+    )
+
+    expect(cancelShowJob).toHaveBeenCalledWith('job_e2')
+  })
+
+  it('wires Retry on a failed newest attempt to the show retry action', async () => {
+    client({
+      getMedia: jest.fn().mockResolvedValue({
+        jobs: [
+          scopedJob(undefined, {
+            id: 'job_s',
+            status: DownloadJobStatus.Failed,
+          }),
+        ],
+        media: show({ state: 'wanted' }),
+      }),
+      listSeasons: jest.fn().mockResolvedValue({ seasons: [] }),
+    })
+    await renderPage()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+    expect(retryShowJob).toHaveBeenCalledWith('job_s')
   })
 })

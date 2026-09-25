@@ -268,7 +268,7 @@ export type MovieDetailProps = Omit<
   now: number
   /**
    * An in-flight attempt's controls, handed to the attempts list. Omitted
-   * renders none — see {@link MovieDetail} for why the page passes none today.
+   * renders none — see {@link MovieDetail} for which ones the page passes.
    */
   onCancel?: JobAction
   onDelete?: DeleteMediaFilesAction
@@ -333,13 +333,15 @@ export type MovieDetailProps = Omit<
  *   shortcut, not the recommended path: the release picker below stays
  *   visible the whole time, and `MovieRequestButton` is `outline`, not
  *   Watch's `uv`, so it never reads as competing advice.
- * - **The attempts list offers Import, and the page passes no other control.**
- *   Pause, resume, cancel and retry are `/download/videos/:id/…` —
- *   *video-only* routes with no movie equivalent — so the page wires none of
- *   `onCancel`/`onPause`/`onResume`/`onRetry` and each is simply absent from
- *   the list. They are props here so the day a movie route exists it is a
- *   page change, not a component one. `needs_attention` is the exception
- *   that already works: `imports` is what the list mounts `ImportDialog` from.
+ * - **The attempts list offers Cancel, Retry and Import — never Pause or
+ *   Resume.** The page wires `onCancel` and `onRetry` to the movie's own
+ *   `PATCH /download/movies/:id/cancel` and a fresh request, so an in-flight
+ *   attempt carries Cancel and the newest failed or cancelled one carries
+ *   Retry while the movie is `absent` or `wanted`. Pause and resume are still
+ *   `/download/videos/:id/…` — *video-only* routes with no movie equivalent —
+ *   so the page wires neither `onPause` nor `onResume` and both are simply
+ *   absent from the list. `needs_attention` goes through `imports`, which is
+ *   what the list mounts `ImportDialog` from.
  * - **Attribution reads the newest attempt, if any.** `requester` arrives
  *   already masked by `projectJobForViewer`, so `null` means "not yours to
  *   see" and `DetailAttribution` draws the dashed avatar for it. A movie this

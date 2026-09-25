@@ -16,6 +16,7 @@ import {
   searchReleases,
   unflagBadFile,
 } from 'src/app/actions/media-files'
+import { cancelShowJob, retryShowJob } from 'src/app/actions/media-job'
 import { ShowDetailLive } from 'src/components/detail/show-detail-live'
 import { ShowPageShell } from 'src/components/detail/show-page-shell'
 import type {
@@ -239,11 +240,13 @@ export default async function ShowPage({
           media={detail.media}
           now={getRequestInstant()}
           seasons={seasons}
+          onCancel={cancelShowJob}
           onDelete={deleteMediaFiles}
           onFlag={flagBadFile}
           onGrab={grabRelease}
           onReplace={replaceRelease}
           onRequest={requestShowScope}
+          onRetry={retryShowJob}
           onSearch={searchReleases}
           onUnflag={unflagBadFile}
         />
