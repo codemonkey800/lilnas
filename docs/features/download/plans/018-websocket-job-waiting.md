@@ -803,8 +803,8 @@ exit gracefully"` warning; `Unknown option "testTimeout"` jest warnings. ❌ **D
   task cancellation once a sibling task fails, not genuine failures — confirmed by
   clean standalone reruns of each.
 
-- [ ] 🚧 **C2. Live verification — HUMAN CHECKPOINT.** Not an agent task. See
-      [Human checkpoints](#human-checkpoints).
+- [x] 🚧 **C2. Live verification — HUMAN CHECKPOINT.** Not an agent task. See
+      [Human checkpoints](#human-checkpoints). Confirmed done by Jeremy, 2026-09-24.
 
 ---
 
@@ -890,6 +890,10 @@ restart download` mid-way, confirm tdr-bot reconnects (a second `connected` line
 ---
 
 ## Final report
+
+**Status: complete.** All tasks (A1–C1) landed, and C2 live verification was confirmed
+done by Jeremy on 2026-09-24. HC1/HC2 (env var + deploy) are standard deploy steps, not
+tracked here as blockers.
 
 When the last box is checked, the executor reports — and stops:
 
