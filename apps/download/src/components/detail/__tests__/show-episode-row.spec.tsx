@@ -30,6 +30,7 @@ import { SAVE_LOCAL_LABEL } from 'src/components/detail/save-local'
 import {
   EPISODE_ACTIONS_HIDE_LABEL,
   EPISODE_ACTIONS_LABEL,
+  EPISODE_FINALE_LABELS,
   ShowEpisodeRow,
 } from 'src/components/detail/show-episode-row'
 import type { DeleteCascade } from 'src/components/detail/show-state'
@@ -715,5 +716,42 @@ describe('the import control', () => {
     expect(
       screen.queryByRole('button', { name: 'Download' }),
     ).not.toBeInTheDocument()
+  })
+})
+
+describe('what the row says about the episode', () => {
+  it('shows the broadcast day beside the runtime', () => {
+    renderRow({ episode: episode({ airDate: '2014-04-06' }) })
+
+    expect(screen.getByText('Apr 6, 2014')).toBeInTheDocument()
+  })
+
+  it('marks a finale', () => {
+    renderRow({ episode: episode({ finaleType: 'season' }) })
+
+    expect(screen.getByText(EPISODE_FINALE_LABELS.season)).toBeInTheDocument()
+  })
+
+  it('keeps the synopsis and absolute number in the drawer', () => {
+    const withSynopsis = episode({
+      absoluteEpisodeNumber: 47,
+      overview: 'Richard pitches.',
+    })
+    const { rerender } = renderRow({ episode: withSynopsis })
+
+    expect(screen.queryByText('Richard pitches.')).not.toBeInTheDocument()
+
+    rerender(
+      <ShowEpisodeRow
+        episode={withSynopsis}
+        jobs={[]}
+        media={show()}
+        open
+        onToggle={jest.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Richard pitches.')).toBeInTheDocument()
+    expect(screen.getByText('#47 overall')).toBeInTheDocument()
   })
 })

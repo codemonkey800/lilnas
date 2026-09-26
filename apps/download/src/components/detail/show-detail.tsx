@@ -34,6 +34,7 @@ import type {
   ReleaseAction,
   ReleaseSearchAction,
 } from 'src/components/detail/release-picker'
+import { ShowFacts, ShowLinks } from 'src/components/detail/show-facts'
 import type { ShowRequestAction } from 'src/components/detail/show-request-button'
 import { ShowRequestButton } from 'src/components/detail/show-request-button'
 import { ShowSeasons } from 'src/components/detail/show-seasons'
@@ -154,7 +155,8 @@ export type ShowDetailProps = {
  *
  * Ports `show-detail.pug`'s `libraryLink` + `showHeader` + `seasonTabs` +
  * `episodeList`, reconciling the mockup's two side-by-side viewport frames into
- * one document that responds.
+ * one document that responds, with the movie page's external links and
+ * `Details` card (`ShowFacts`) between the header and the attempts.
  *
  * ## Three scopes, one media key
  *
@@ -226,6 +228,7 @@ export function ShowDetail({
   stale = false,
 }: ShowDetailProps): JSX.Element {
   const state = seriesState(media, seasons)
+  const degraded = isMetadataMissing(media)
   const progress = seriesProgress(seasons)
   const inFlight = isMediaInFlight(state)
   const hasFiles =
@@ -256,7 +259,7 @@ export function ShowDetail({
   return (
     <>
       <LibraryLink />
-      {isMetadataMissing(media) ? (
+      {degraded ? (
         <Note className={cns('mb-[22px]', ALARM_NOTE)} icon="alert">
           {METADATA_MISSING_NOTE}
         </Note>
@@ -332,9 +335,17 @@ export function ShowDetail({
             ) : null}
           </div>
         }
+        links={degraded ? null : <ShowLinks media={media} />}
         media={media}
         meta={showMetaLine(media, seasons)}
         synopsis={media.overview}
+      />
+
+      <ShowFacts
+        className={cns('mb-7 sm:mb-8')}
+        media={media}
+        now={now}
+        seasons={seasons}
       />
 
       <AttemptList

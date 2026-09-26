@@ -451,12 +451,37 @@ export function seasonByTabValue(
 const UNKNOWN_RUNTIME = formatRuntime(0, 'hours')
 
 /**
- * The one metadata line under the title - `2014 · 6 seasons · 29m · TV-MA`.
+ * The years a series ran - `2022–` while it is still on, `2005–2014` once it
+ * has ended, and the bare year for anything else (an ended one-year series, an
+ * upcoming one, or a status Sonarr did not send).
+ */
+export function showYears(media: Show): string | null {
+  if (media.year === undefined) {
+    return null
+  }
+
+  if (media.status === 'continuing') {
+    return `${media.year}–`
+  }
+
+  const last = media.lastAired ? new Date(media.lastAired) : null
+  const lastYear =
+    last && !Number.isNaN(last.getTime()) ? last.getUTCFullYear() : null
+
+  return media.status === 'ended' && lastYear !== null && lastYear > media.year
+    ? `${media.year}–${lastYear}`
+    : String(media.year)
+}
+
+/**
+ * The one metadata line under the title - `2014– · 6 seasons · 29m · TV-MA ·
+ * 8.5/10 · Comedy, Drama`, the movie page's order with the season count after
+ * the years.
  *
  * `show-detail.mjs` writes `2022– · 3 seasons · Drama`; the season count comes
  * from the seasons payload rather than from `Show`, because **`ShowSchema`
- * carries no season or episode summary at all** - `listSeasons` is the only
- * source. Specials are not a season for counting purposes, matching Sonarr.
+ * carries no season summary at all** - `listSeasons` is the only source.
+ * Specials are not a season for counting purposes, matching Sonarr.
  *
  * ⚠️ `runtime` is **seconds** (the Radarr/Sonarr mappers already multiplied
  * minutes by 60) and `formatRuntime` answers {@link UNKNOWN_VALUE} for a zero
@@ -468,14 +493,19 @@ export function showMetaLine(media: Show, seasons: readonly Season[]): string {
     season => season.seasonNumber !== SPECIALS_SEASON_NUMBER,
   ).length
   const runtime = formatRuntime(media.runtime, 'hours')
+  const rating = media.ratingValue
 
   return [
-    media.year === undefined ? null : String(media.year),
+    showYears(media),
     seasonCount === 0
       ? null
       : `${seasonCount} ${seasonCount === 1 ? 'season' : 'seasons'}`,
     runtime === UNKNOWN_RUNTIME ? null : runtime,
     media.certification ?? null,
+    rating !== undefined && Number.isFinite(rating) && rating > 0
+      ? `${rating.toFixed(1)}/10`
+      : null,
+    media.genres && media.genres.length > 0 ? media.genres.join(', ') : null,
   ]
     .filter((part): part is string => part !== null)
     .join(' · ')

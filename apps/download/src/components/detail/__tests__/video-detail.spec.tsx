@@ -26,6 +26,7 @@ import {
 import { VIDEO_DOWNLOAD_LABEL } from 'src/components/detail/video-detail-download'
 import type { VideoDetailLiveProps } from 'src/components/detail/video-detail-live'
 import { VideoDetailLive } from 'src/components/detail/video-detail-live'
+import { VIDEO_DETAILS_HEADING } from 'src/components/detail/video-facts'
 import { VIDEO_PLAYER_LABEL } from 'src/components/detail/video-player'
 import { JobEventsProvider } from 'src/components/live/job-events'
 import {
@@ -219,8 +220,13 @@ describe('videoMetaLabel', () => {
     expect(videoMetaLabel(video())).toBe('youtube.com · 14:02')
   })
 
-  // `videos.runtime` is a column nothing currently writes, so this is the
-  // common case rather than an edge one.
+  it('leads with the channel and names the platform over the host', () => {
+    expect(
+      videoMetaLabel(video({ channel: 'slowferment', platform: 'YouTube' })),
+    ).toBe('slowferment · YouTube · 14:02')
+  })
+
+  // Every video fetched before yt-dlp's duration was recorded.
   it('drops the duration rather than dashing it when it is unknown', () => {
     expect(videoMetaLabel(video({ runtime: undefined }))).toBe('youtube.com')
   })
@@ -233,6 +239,30 @@ describe('videoMetaLabel', () => {
     expect(videoMetaLabel(video({ runtime: undefined, sourceUrl: '' }))).toBe(
       UNKNOWN_VALUE,
     )
+  })
+})
+
+describe('the reference cards', () => {
+  it('draws the Details card under the header once there is metadata', () => {
+    render(
+      <VideoDetail
+        jobs={[]}
+        media={video({ channel: 'slowferment' })}
+        now={NOW}
+      />,
+    )
+
+    expect(
+      screen.getByRole('region', { name: VIDEO_DETAILS_HEADING }),
+    ).toHaveTextContent('slowferment')
+  })
+
+  it('draws neither card for a video fetched before metadata was kept', () => {
+    render(<VideoDetail jobs={[]} media={video()} now={NOW} />)
+
+    expect(
+      screen.queryByRole('region', { name: VIDEO_DETAILS_HEADING }),
+    ).not.toBeInTheDocument()
   })
 })
 

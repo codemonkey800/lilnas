@@ -18,6 +18,7 @@ import {
   DetailAttribution,
   DetailHeader,
 } from 'src/components/detail/detail-header'
+import { httpHref } from 'src/components/detail/fact-section'
 import type { JobAction } from 'src/components/detail/job-actions'
 import { ACTION_BUTTON, ActionRow } from 'src/components/detail/job-actions'
 import { latestJob } from 'src/components/detail/job-state'
@@ -28,6 +29,7 @@ import {
   SaveLocal,
 } from 'src/components/detail/save-local'
 import { VideoDownloadButton } from 'src/components/detail/video-detail-download'
+import { VideoFacts } from 'src/components/detail/video-facts'
 import { VideoPlayer } from 'src/components/detail/video-player'
 import { ButtonLink } from 'src/components/ui/button-link'
 import { Note } from 'src/components/ui/card'
@@ -158,42 +160,27 @@ export function isUnrecognizedLink(job: DownloadJob): boolean {
  * deliberately **not** URL-validated there (`MediaResolverService` emits a
  * degraded placeholder carrying `''`), so this is the boundary that has to
  * cope. Anything unparseable yields `null` and the link is simply not drawn.
- *
- * The protocol check is the security half rather than a tidiness one: a
- * `javascript:` or `data:` value in an `href` is script the user runs by
- * clicking a link that says "View original post", and the request boundary
- * (`CreateDownloadJobInputSchema.url`) is the only thing that ever validated
- * this string.
+ * The request boundary (`CreateDownloadJobInputSchema.url`) is the only thing
+ * that ever validated this string - see `httpHref` for why the protocol is
+ * checked too.
  */
 export function sourcePostHref(sourceUrl: string): string | null {
-  let url: URL
-
-  try {
-    url = new URL(sourceUrl)
-  } catch {
-    return null
-  }
-
-  return url.protocol === 'http:' || url.protocol === 'https:'
-    ? url.toString()
-    : null
+  return httpHref(sourceUrl)
 }
 
 /**
- * The one metadata line under the title — `youtube.com · 14:02`.
+ * The one metadata line under the title — `MKBHD · YouTube · 14:02`, the
+ * mockup's `@slowferment · 14:02` with the platform between.
  *
- * ⚠️ The mockup writes `@slowferment · 14:02`, and **there is no author
- * anywhere on the wire**: `MediaBase` carries title, overview, poster,
- * runtime, year and ratings, the `videos` table adds only `sourceUrl` and
- * `timeRange`, and nothing parses yt-dlp's uploader out of its metadata. The
- * host is what is actually known about where a video came from, so that is
- * what is rendered; inventing a handle would be a guess wearing a fact's
- * clothes.
+ * The channel and platform are what yt-dlp reported when the video was
+ * fetched. A video fetched before those were recorded - or from a site whose
+ * extractor names neither - falls back to the source's host, which is always
+ * known: `youtube.com · 14:02`.
  *
  * A missing part is dropped rather than dashed, exactly as
  * `GalleryItemCard.metaLabel` does it: `youtube.com · —` announces an absence
  * nobody asked about, where `youtube.com` is the true and complete thing that
- * is known. Both missing yields the em dash, because the line still has to say
+ * is known. All missing yields the em dash, because the line still has to say
  * something.
  */
 export function videoMetaLabel(media: Video): string {
@@ -202,9 +189,11 @@ export function videoMetaLabel(media: Video): string {
     href === null ? null : new URL(href).hostname.replace(/^www\./, '')
   const runtime = formatRuntime(media.runtime, 'clock')
 
-  const parts = [host, runtime === UNKNOWN_VALUE ? null : runtime].filter(
-    (part): part is string => part !== null,
-  )
+  const parts = [
+    media.channel ?? null,
+    media.platform ?? host,
+    runtime === UNKNOWN_VALUE ? null : runtime,
+  ].filter((part): part is string => part !== null)
 
   return parts.length > 0 ? parts.join(' · ') : UNKNOWN_VALUE
 }
@@ -569,6 +558,7 @@ export function VideoDetail({
         }
         posterShape="wide"
       />
+      <VideoFacts className={cns('mt-7 sm:mt-8')} media={media} />
     </div>
   )
 }
