@@ -2,7 +2,7 @@
 # https://download.dev.lilnas.io through the PRODUCTION Traefik (see
 # docs/lilnas-expose.md — this is the standard lilnas-expose pattern, not a
 # one-off). Included in the root docker-compose.dev.yml, so
-# `docker-compose -f docker-compose.dev.yml up -d download` brings this up.
+# `docker-compose -f docker-compose.dev.yml up -d download-dev` brings this up.
 #
 # Runs BOTH halves in one container via `pnpm --filter=download dev`
 # (nest start -w on 8081, next dev on 8080), with the repo bind-mounted so hot
@@ -22,9 +22,16 @@
 #   - A `download` router name would collide with the router production's
 #     deploy.yml already registers on the SAME (production) Traefik. Traefik
 #     does not warn on router-name collisions.
+#
+# Why the service is `download-dev`, not `download`: this container joins
+# lilnas_default, and Compose registers every service name as a DNS alias on
+# each network the service joins. As `download` it answered alongside
+# production's download service, so production tdr-bot's /download (which
+# calls http://download:8081) and Prometheus's download scrape landed on this
+# dev container for most lookups.
 
 services:
-  download:
+  download-dev:
     image: lilnas-dev
     container_name: lilnas-download-dev
     # The node_modules volumes start empty, so the install has to happen inside

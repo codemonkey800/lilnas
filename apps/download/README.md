@@ -8,7 +8,7 @@ Frontend build-out: `docs/features/download/plans/013-frontend-rewrite.md`.
 
 ```bash
 # From the repo root
-docker-compose -f docker-compose.dev.yml up -d download
+docker-compose -f docker-compose.dev.yml up -d download-dev
 
 # Or natively, from this directory
 pnpm run dev              # backend (NestJS, :8081) + frontend (Next.js, :8080)

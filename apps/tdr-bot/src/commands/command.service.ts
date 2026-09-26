@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common'
+import { existsSync } from 'fs'
 import _ from 'lodash'
 import {
   BooleanOption,
@@ -9,6 +10,7 @@ import {
   type SlashCommandContext,
 } from 'necord'
 import { Docker } from 'node-docker-api'
+import { hostname } from 'os'
 
 import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
 import { getWeeklyCookiesMessages } from 'src/utils/crumbl'
@@ -29,9 +31,7 @@ class SidesDto {
   sides!: number | null
 }
 
-interface ContainerData {
-  Names: string[]
-}
+const DOCKER_SOCKET_PATH = '/var/run/docker.sock'
 
 @Injectable()
 export class CommandsService {
@@ -119,16 +119,18 @@ export class CommandsService {
     )
     this.metrics.commandExecuted('restart')
 
-    const docker = new Docker({ socketPath: '/var/run/docker.sock' })
-    const containers = await docker.container.list()
-    const tdrBotContainer = containers.find(container => {
-      const data = container.data as ContainerData
-      return data.Names.some(name => name.includes('tdr-bot'))
-    })
-
-    if (tdrBotContainer) {
-      await interaction.reply('Restarting TDR bot <:Sadge:781403152258826281>')
-      await tdrBotContainer.restart()
+    // deploy.dev.yml deliberately doesn't mount the socket, so a dev instance
+    // can never restart anything on the host.
+    if (!existsSync(DOCKER_SOCKET_PATH)) {
+      await interaction.reply('Restart is unavailable in this environment')
+      return
     }
+
+    // Docker sets a container's hostname to its short ID, so this targets the
+    // bot's own container. Matching by name (the old approach) could restart
+    // the Postgres sidecar or a dev instance running on the same host.
+    const docker = new Docker({ socketPath: DOCKER_SOCKET_PATH })
+    await interaction.reply('Restarting TDR bot <:Sadge:781403152258826281>')
+    await docker.container.get(hostname()).restart()
   }
 }

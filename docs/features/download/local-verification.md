@@ -43,7 +43,7 @@ production Traefik.**
 One more standing rule: `deploy.dev.yml` must **never** be added to the
 production `docker-compose.yml` `include:` list — only `docker-compose.dev.yml`'s.
 It already is, deliberately (see [Why this shape](#why-this-shape)) — running
-`docker-compose -f docker-compose.dev.yml up -d download` from the repo root
+`docker-compose -f docker-compose.dev.yml up -d download-dev` from the repo root
 brings this container up exposed at `download.dev.lilnas.io`, same as starting
 it directly with `-f apps/download/deploy.dev.yml`.
 
@@ -95,7 +95,7 @@ routine dev startup never auto-published a container to the internet. That
 tradeoff was revisited: `download.localhost` via the dev Traefik never worked on
 this host anyway (see the header comment in `deploy.dev.yml` for why), so there
 was no working "plain local" mode to protect by keeping this file separate. The
-standard `docker-compose -f docker-compose.dev.yml up -d download` now brings
+standard `docker-compose -f docker-compose.dev.yml up -d download-dev` now brings
 this shape up directly.
 
 ---
@@ -157,8 +157,8 @@ docker compose -f apps/download/deploy.dev.yml up -d
 docker compose -f apps/download/deploy.dev.yml logs -f
 
 # equivalently, from the repo root:
-docker-compose -f docker-compose.dev.yml up -d download
-docker-compose -f docker-compose.dev.yml logs -f download
+docker-compose -f docker-compose.dev.yml up -d download-dev
+docker-compose -f docker-compose.dev.yml logs -f download-dev
 ```
 
 First boot runs `pnpm install --frozen-lockfile` inside the container and takes

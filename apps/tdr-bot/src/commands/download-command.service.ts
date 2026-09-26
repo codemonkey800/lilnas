@@ -25,10 +25,13 @@ import { MINIO_CONNECTION } from 'nestjs-minio'
 
 import { EnvKeys } from 'src/env'
 
-const DOWNLOAD_URL =
-  process.env.NODE_ENV === 'production'
-    ? 'https://download.lilnas.io'
-    : 'http://download.localhost'
+// Production's download service. Point it at a dev instance (e.g.
+// http://lilnas-download-dev:8081) to test against unmerged download changes.
+const DOWNLOAD_API_URL = env(EnvKeys.DOWNLOAD_API_URL, 'http://download:8081')
+
+// Where users follow a job. Defaults to production, which is where
+// DOWNLOAD_API_URL points unless overridden.
+const DOWNLOAD_URL = env(EnvKeys.DOWNLOAD_URL, 'https://download.lilnas.io')
 
 const MAX_ERROR_LENGTH = 1000
 
@@ -68,7 +71,7 @@ class DownloadDto {
 @Injectable()
 export class DownloadCommandService {
   private readonly logger = new Logger(DownloadCommandService.name)
-  private client = DownloadClient.dockerInstance
+  private client = new DownloadClient(DOWNLOAD_API_URL)
 
   constructor(@Inject(MINIO_CONNECTION) private readonly minioClient: Client) {}
 

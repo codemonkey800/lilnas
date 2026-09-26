@@ -63,6 +63,26 @@ Production routers default to priority 0 in Traefik unless explicitly set; Traef
 
 ---
 
+## Service-Name Safety on `lilnas_default`
+
+A dev service that also joins `lilnas_default` (to reach production services such as `storage`, `equations` or `sonarr` by name) must **not reuse a production compose service name**. Compose registers every service name as a DNS alias on each network the service joins. A dev service named `download` answers to `download` alongside production's, and Docker's DNS returns either one, so production callers randomly reach the dev container.
+
+```yaml
+# Good — suffixed, production's `download` alias stays unambiguous
+services:
+  download-dev:
+    networks: [default, lilnas-proxy, lilnas_default]
+
+# Bad — production callers of http://download:8081 now hit this container too
+services:
+  download:
+    networks: [default, lilnas-proxy, lilnas_default]
+```
+
+`container_name` doesn't help: the alias comes from the service name.
+
+---
+
 ## DNS Note
 
 `*.dev.lilnas.io` resolves to the NAS public IP via the existing `*.lilnas.io` wildcard DNS record — **no DNS change is needed**.
