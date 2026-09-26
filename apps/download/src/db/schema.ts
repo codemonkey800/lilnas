@@ -25,6 +25,8 @@ import type {
   DownloadType,
   ShowScope,
   TimeRange,
+  VideoFile,
+  VideoSourceInfo,
 } from '@lilnas/utils/download/types'
 import { sql } from 'drizzle-orm'
 import {
@@ -288,6 +290,14 @@ export const videos = sqliteTable(
     posterUrl: text('poster_url'),
     runtime: integer('runtime'),
     downloadUrls: text('download_urls', { mode: 'json' }).$type<string[]>(),
+    // What yt-dlp said about the post when it was fetched - channel, counts,
+    // tags (`toVideoMetadata()`). NULL for anything fetched before this
+    // column, or whose metadata step failed; nothing backfills it.
+    sourceInfo: text('source_info', { mode: 'json' }).$type<VideoSourceInfo>(),
+    // Resolution and frame rate from the same yt-dlp call, then the rendered
+    // size merged in by the upload step. Read only while `download_urls` is
+    // non-empty, so a delete needn't clear it.
+    fileInfo: text('file_info', { mode: 'json' }).$type<VideoFile>(),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .$defaultFn(() => new Date())
       .notNull(),

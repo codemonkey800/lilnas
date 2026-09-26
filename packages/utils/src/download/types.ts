@@ -20,6 +20,7 @@ import {
   DownloadQueueSnapshotSchema,
   DownloadType,
   EmbyStatusSchema,
+  EPISODE_FINALE_TYPES,
   EpisodeSchema,
   EpisodeStateEntrySchema,
   FlagBadFileInputSchema,
@@ -54,13 +55,17 @@ import {
   RequestMovieInputSchema,
   RequestShowInputSchema,
   SeasonSchema,
+  SHOW_SERIES_TYPES,
+  SHOW_STATUSES,
   ShowSchema,
   ShowScopeSchema,
   TimeRangeSchema,
   UpdateCheckResultSchema,
+  VideoFileSchema,
   VideoInfoSchema,
   VideoProgressSchema,
   VideoSchema,
+  VideoSourceInfoSchema,
 } from './schema'
 
 export {
@@ -68,7 +73,10 @@ export {
   AUDIT_TARGET_TYPES,
   DownloadJobStatus,
   DownloadType,
+  EPISODE_FINALE_TYPES,
   MEDIA_STATES,
+  SHOW_SERIES_TYPES,
+  SHOW_STATUSES,
 }
 
 // Terminal = a status that will never change again on its own (see
@@ -164,6 +172,8 @@ export type EmbyStatus = z.infer<typeof EmbyStatusSchema>
 
 export type MediaBase = z.infer<typeof MediaBaseSchema>
 export type Video = z.infer<typeof VideoSchema>
+export type VideoFile = z.infer<typeof VideoFileSchema>
+export type VideoSourceInfo = z.infer<typeof VideoSourceInfoSchema>
 export type ManagedMediaBase = z.infer<typeof ManagedMediaBaseSchema>
 export type Movie = z.infer<typeof MovieSchema>
 export type MovieFile = z.infer<typeof MovieFileSchema>
@@ -173,6 +183,8 @@ export type MovieCollection = z.infer<typeof MovieCollectionSchema>
 export type CastCredit = z.infer<typeof CastCreditSchema>
 export type MediaCredits = z.infer<typeof MediaCreditsSchema>
 export type Show = z.infer<typeof ShowSchema>
+export type ShowStatus = (typeof SHOW_STATUSES)[number]
+export type ShowSeriesType = (typeof SHOW_SERIES_TYPES)[number]
 export type Media = z.infer<typeof MediaSchema>
 
 export function isVideo(media: Media): media is Video {
@@ -547,6 +559,7 @@ export type ShowScope = z.infer<typeof ShowScopeSchema>
  * that gets rendered.
  */
 export type Episode = z.infer<typeof EpisodeSchema>
+export type EpisodeFinaleType = (typeof EPISODE_FINALE_TYPES)[number]
 
 /** One season plus its episodes, as `GET /media/:id/seasons` reports it. */
 export type Season = z.infer<typeof SeasonSchema>

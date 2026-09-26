@@ -16,7 +16,7 @@ import { Test, TestingModule } from '@nestjs/testing'
 import { ChildProcess, spawn } from 'child_process'
 import { EventEmitter } from 'events'
 import { createWriteStream } from 'fs'
-import { ensureDir, readdir } from 'fs-extra'
+import { ensureDir, readdir, stat } from 'fs-extra'
 import { MINIO_CONNECTION } from 'nestjs-minio'
 
 import { type VideoRow } from 'src/db/schema'
@@ -43,12 +43,14 @@ jest.mock('fs-extra', () => ({
   ensureDir: jest.fn(),
   readdir: jest.fn(),
   remove: jest.fn(),
+  stat: jest.fn(),
 }))
 
 const mockSpawn = spawn as jest.MockedFunction<typeof spawn>
 const mockCreateWriteStream = createWriteStream as unknown as jest.Mock
 const mockEnsureDir = ensureDir as unknown as jest.Mock
 const mockReaddir = readdir as unknown as jest.Mock
+const mockStat = stat as unknown as jest.Mock
 
 // `runProcess()` pipes both child streams into the log file, and node's
 // `EventEmitter` has no `pipe()`, so the fakes need one. It's never asserted
@@ -95,7 +97,18 @@ function createMockLogStream() {
 const JOB_ID = 'job-1'
 const NOW_ISO = '2026-08-20T12:00:00.000Z'
 const VIDEO_URL = 'https://example.com/video'
-const VIDEO_INFO = { description: 'An overview', title: 'A title' }
+const VIDEO_INFO = {
+  channel: 'A channel',
+  description: 'An overview',
+  duration: 61.4,
+  extractor_key: 'Youtube',
+  fps: 30,
+  height: 1080,
+  title: 'A title',
+  upload_date: '20250304',
+  view_count: 1234,
+  width: 1920,
+}
 
 // Real yt-dlp output for a `160+139` grab: two files, the video stream then
 // the audio stream, each announced by its own first tick.
@@ -140,11 +153,13 @@ function buildVideoRow(): VideoRow {
   return {
     createdAt: new Date(NOW_ISO),
     downloadUrls: null,
+    fileInfo: null,
     id: 'v1',
     naturalKey: VIDEO_URL,
     overview: null,
     posterUrl: null,
     runtime: null,
+    sourceInfo: null,
     sourceUrl: VIDEO_URL,
     timeRange: null,
     title: VIDEO_URL,
@@ -179,6 +194,7 @@ describe('DownloadVideoService', () => {
   let options: DownloadStepOptions
   /** Held so a test can reach the handle `download()` registered. */
   let setProc: jest.Mock
+  let updateVideo: jest.Mock
 
   /**
    * Installs a `spawn()` fake. The `--dump-json` metadata probe that
@@ -305,6 +321,7 @@ describe('DownloadVideoService', () => {
     requireVideo = mockDownloadStateService.requireVideo
     setProc = mockDownloadStateService.setProc
     setProgress = mockDownloadStateService.setProgress
+    updateVideo = mockDownloadStateService.updateVideo
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -539,6 +556,63 @@ describe('DownloadVideoService', () => {
 
       expect(err).toBe(error)
       expect(lastLogStream().close).toHaveBeenCalled()
+    })
+  })
+
+  describe('metadata', () => {
+    it('records what yt-dlp said about the post on the videos row', async () => {
+      await service.download(options)
+
+      expect(updateVideo).toHaveBeenCalledWith(JOB_ID, {
+        fileInfo: { fps: 30, resolution: '1920x1080' },
+        overview: 'An overview',
+        runtime: 61,
+        sourceInfo: {
+          channel: 'A channel',
+          platform: 'YouTube',
+          publishedAt: '2025-03-04',
+          viewCount: 1234,
+        },
+        title: 'A title',
+      })
+    })
+
+    it('times a clip by its range rather than the source', async () => {
+      requireVideo.mockReturnValue({
+        ...buildVideoRow(),
+        timeRange: { end: '00:01:30', start: '00:00:10' },
+      })
+
+      await service.download(options)
+
+      expect(updateVideo).toHaveBeenCalledWith(
+        JOB_ID,
+        expect.objectContaining({ runtime: 80 }),
+      )
+    })
+
+    it('merges the rendered size into the recorded file info on upload', async () => {
+      process.env.MINIO_PUBLIC_URL = 'https://storage.example.com'
+      mockReaddir.mockResolvedValue(['part0.mp4', 'part1.mp4'])
+      mockStat.mockResolvedValue({ size: 1000 })
+      requireVideo.mockReturnValue({
+        ...buildVideoRow(),
+        fileInfo: { fps: 30, resolution: '1920x1080' },
+      })
+
+      try {
+        await service.upload(options)
+      } finally {
+        delete process.env.MINIO_PUBLIC_URL
+      }
+
+      expect(updateVideo).toHaveBeenCalledWith(JOB_ID, {
+        downloadUrls: [
+          `https://storage.example.com/videos/${JOB_ID}/part0.mp4`,
+          `https://storage.example.com/videos/${JOB_ID}/part1.mp4`,
+        ],
+        fileInfo: { fps: 30, resolution: '1920x1080', size: 2000 },
+      })
     })
   })
 
