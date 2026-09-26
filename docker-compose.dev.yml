@@ -1,3 +1,9 @@
+# Explicit project name: without it Compose derives `lilnas` from the
+# directory -- the same project as production's docker-compose.yml, whose
+# service names (traefik, auth, download, ...) this file reuses. `up`/`down`
+# here would then recreate or remove the production containers.
+name: lilnas-dev
+
 include:
   # Infrastructure services
   - ./infra/proxy.dev.yml
