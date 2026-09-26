@@ -2,6 +2,7 @@ import { cns } from '@lilnas/utils/cns'
 import type {
   BadFile,
   DownloadJob,
+  MediaCredits,
   MediaState,
   Movie,
 } from '@lilnas/utils/download/types'
@@ -34,6 +35,7 @@ import type { JobAction } from 'src/components/detail/job-actions'
 import { latestJob } from 'src/components/detail/job-state'
 import { mediaProgress } from 'src/components/detail/media-state'
 import { MediaStatus } from 'src/components/detail/media-status'
+import { MovieFacts, MovieLinks } from 'src/components/detail/movie-facts'
 import type { MovieRequestAction } from 'src/components/detail/movie-request-button'
 import { MovieRequestButton } from 'src/components/detail/movie-request-button'
 import type {
@@ -126,13 +128,18 @@ const DOWNLOADABLE_STATES: ReadonlySet<MediaState> = new Set<MediaState>([
 const MOVIE_SCOPE: DeleteScope = { kind: 'movie' }
 
 /**
- * ⚠️ Nothing on the wire populates a cast. `MediaBase` carries
- * `certification`, `genres`, `overview`, `posterUrl`, `ratingValue`,
- * `releaseDate`, `runtime`, `title` and `year` — and no cast field on any
- * media type. `CastRow` renders `null` for an empty list, so the slot is
- * wired up and draws nothing until one lands.
+ * `MediaDetailResponse.credits.cast` as `CastRow`'s people. Credits ride on
+ * the detail response rather than on the movie, so a live media frame never
+ * clears them; absent credits (a movie outside Radarr's library, or a failed
+ * lookup) are an empty row, which `CastRow` draws as nothing.
  */
-const NO_CAST: readonly CastMember[] = []
+export function movieCast(credits: MediaCredits | undefined): CastMember[] {
+  return (credits?.cast ?? []).map(credit => ({
+    character: credit.character,
+    imageUrl: credit.imageUrl,
+    name: credit.name,
+  }))
+}
 
 /** What the header's Watch slot can be. */
 export type MovieWatchState = 'indexed' | 'indexing' | 'none' | 'unknown'
@@ -266,6 +273,8 @@ export type MovieDetailProps = Omit<
 > & {
   /** `client.listBadFiles(movie.id)` — passed through to the release list. */
   badFiles?: readonly BadFile[]
+  /** `MediaDetailResponse.credits` — the cast row and the details card. */
+  credits?: MediaCredits
   /**
    * The three importer server actions, handed to the attempts list. Omitted
    * renders no Import control — see {@link MovieDetail}.
@@ -309,8 +318,8 @@ export type MovieDetailProps = Omit<
 /**
  * `/movies/<tmdbId>` — everything a movie card leads to.
  *
- * Composes the header, the media status, the attempts list, the release
- * picker, the delete confirm and the local save. It owns no state and no
+ * Composes the header, the media status, the file and details cards, the
+ * attempts list, the release picker, the delete confirm and the local save. It owns no state and no
  * `'use client'` directive: every interactive part below it is already a
  * client component of its own, and `MovieDetailLive` is what keeps its props
  * current off the socket.
@@ -370,6 +379,7 @@ export type MovieDetailProps = Omit<
 export function MovieDetail({
   badFiles,
   className,
+  credits,
   imports,
   jobs,
   media,
@@ -532,7 +542,7 @@ export function MovieDetail({
             />
           ) : null
         }
-        cast={<CastRow people={NO_CAST} />}
+        cast={<CastRow people={movieCast(credits)} />}
         lifecycle={
           <div className={cns('flex flex-col gap-[14px]')}>
             <MediaStatus
@@ -549,10 +559,12 @@ export function MovieDetail({
             ) : null}
           </div>
         }
+        links={degraded ? null : <MovieLinks movie={media} />}
         media={media}
         meta={movieMetaLine(media)}
         synopsis={media.overview}
       />
+      <MovieFacts className={cns(SECTION)} credits={credits} movie={media} />
       <AttemptList
         className={cns(SECTION)}
         imports={imports}

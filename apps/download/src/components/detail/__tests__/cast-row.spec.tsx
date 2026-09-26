@@ -86,6 +86,26 @@ describe('CastRow', () => {
     expect(screen.getByText('XX')).toBeInTheDocument()
   })
 
+  it('passes each headshot and character through to the person', () => {
+    const { container } = render(
+      <CastRow
+        people={[
+          {
+            character: 'Brian Taylor',
+            imageUrl: 'https://image.tmdb.org/t/p/w185/jake.jpg',
+            name: 'Jake Gyllenhaal',
+          },
+        ]}
+      />,
+    )
+
+    expect(screen.getByText('Brian Taylor')).toBeInTheDocument()
+    expect(container.querySelector('img')).toHaveAttribute(
+      'src',
+      'https://image.tmdb.org/t/p/w185/jake.jpg',
+    )
+  })
+
   it('wraps rather than scrolling sideways', () => {
     const { container } = render(<CastRow people={CAST} />)
 

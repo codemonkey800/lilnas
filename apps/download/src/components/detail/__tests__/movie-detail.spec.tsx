@@ -31,6 +31,11 @@ import {
   movieMetaLine,
   movieWatchState,
 } from 'src/components/detail/movie-detail'
+import {
+  MOVIE_DETAILS_HEADING,
+  MOVIE_FILE_HEADING,
+  MOVIE_TMDB_LABEL,
+} from 'src/components/detail/movie-facts'
 import { MOVIE_REQUEST_LABEL } from 'src/components/detail/movie-request-button'
 import {
   RELEASE_CURRENT_LABEL,
@@ -477,10 +482,50 @@ describe('MovieDetail — metadata', () => {
     expect(screen.getByText(MOVIE.overview ?? '')).toBeInTheDocument()
   })
 
-  it('draws no cast row, because nothing on the wire carries one', () => {
+  it('draws no cast row when the response carries no credits', () => {
     const { container } = renderDetail()
 
     expect(container.textContent).not.toContain('more')
+  })
+
+  it('draws the cast from the credits, with the part each one plays', () => {
+    renderDetail({
+      credits: {
+        cast: [
+          { character: 'Brian Taylor', name: 'Jake Gyllenhaal' },
+          { character: 'Mike Zavala', name: 'Michael Peña' },
+        ],
+        directors: ['David Ayer'],
+        writers: [],
+      },
+    })
+
+    expect(screen.getByText('Jake Gyllenhaal')).toBeInTheDocument()
+    expect(screen.getByText('Brian Taylor')).toBeInTheDocument()
+    expect(
+      screen.getByRole('region', { name: MOVIE_DETAILS_HEADING }),
+    ).toHaveTextContent('David Ayer')
+  })
+
+  it('links the movie out to TMDb', () => {
+    renderDetail()
+
+    expect(
+      screen.getByRole('link', { name: MOVIE_TMDB_LABEL }),
+    ).toHaveAttribute('href', 'https://www.themoviedb.org/movie/438631')
+  })
+
+  it('draws the file card for a movie with a file', () => {
+    renderDetail({
+      media: {
+        ...MOVIE,
+        file: { quality: 'Remux-1080p', size: 2_000_000_000 },
+      },
+    })
+
+    expect(
+      screen.getByRole('region', { name: MOVIE_FILE_HEADING }),
+    ).toHaveTextContent('Remux-1080p')
   })
 
   it('explains a Radarr outage instead of pretending the movie is missing', () => {
@@ -495,6 +540,11 @@ describe('MovieDetail — metadata', () => {
     })
 
     expect(screen.getByText(MOVIE_METADATA_NOTE)).toBeInTheDocument()
+    // Links to a movie whose title is its own key would be links to nowhere
+    // anyone asked for.
+    expect(
+      screen.queryByRole('link', { name: MOVIE_TMDB_LABEL }),
+    ).not.toBeInTheDocument()
   })
 
   it('says nothing about metadata when Radarr answered', () => {

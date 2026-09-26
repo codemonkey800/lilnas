@@ -130,7 +130,16 @@ export type CastPersonProps = Omit<
   'children'
 > &
   Pick<AvatarIdentifiedProps, 'initials'> & {
+    /**
+     * A headshot drawn over the initials. The initials stay underneath rather
+     * than being swapped out, so a headshot that fails to load (an `<img>`
+     * with an empty `alt` paints nothing) leaves them showing without any
+     * client-side error handling.
+     */
+    imageUrl?: string
     name: string
+    /** A second, quieter line under the name - the character played. */
+    role?: string
   }
 
 /**
@@ -142,8 +151,10 @@ export type CastPersonProps = Omit<
  */
 export function CastPerson({
   className,
+  imageUrl,
   initials,
   name,
+  role,
   ...props
 }: CastPersonProps): JSX.Element {
   return (
@@ -151,8 +162,30 @@ export function CastPerson({
       className={cns('flex shrink-0 items-center gap-2', className)}
       {...props}
     >
-      <Avatar initials={initials} size="md" />
-      <span className={cns('text-sm')}>{name}</span>
+      <span className={cns('relative flex shrink-0')}>
+        <Avatar initials={initials} size="md" />
+        {imageUrl ? (
+          // A bare `<img>`, not `next/image`, for `Poster`'s reason: the
+          // source is a remote TMDb host `next/image` would have to be told
+          // about, and nothing here needs resizing.
+          <img
+            alt=""
+            className={cns(
+              'absolute inset-0 h-full w-full rounded-full border border-line object-cover',
+            )}
+            loading="lazy"
+            src={imageUrl}
+          />
+        ) : null}
+      </span>
+      {role ? (
+        <span className={cns('flex min-w-0 flex-col')}>
+          <span className={cns('text-sm')}>{name}</span>
+          <span className={cns('text-cap text-ink-4')}>{role}</span>
+        </span>
+      ) : (
+        <span className={cns('text-sm')}>{name}</span>
+      )}
     </div>
   )
 }
