@@ -6,18 +6,19 @@ import { Avatar, CastPerson } from 'src/components/ui/avatar'
 /**
  * One credited name.
  *
- * ⚠️ **Nothing on the wire populates this yet.** `MediaBase` carries
- * `certification`, `genres`, `overview`, `posterUrl`, `ratingValue`,
- * `releaseDate`, `runtime`, `title` and `year` - and no cast at all, on any of
- * the three media types. The mockups draw a cast row on the movie and show
- * pages, so the component exists and is the one place that row is spelled; a
- * page passes `[]` until a cast field lands, and `CastRow` renders nothing.
+ * The movie page fills this from `MediaDetailResponse.credits.cast` - Radarr's
+ * credit list, detail route only. Shows still pass `[]`: nothing on the wire
+ * carries a series' cast yet, and `CastRow` renders nothing for an empty list.
  *
- * `initials` is optional because the only thing a page will ever have is a
- * name - see {@link castInitials}. It stays overridable for a name whose
- * initials are not the first letters of its first two words.
+ * `initials` is optional because a page always has a name to derive them from
+ * - see {@link castInitials}. It stays overridable for a name whose initials
+ * are not the first letters of its first two words.
  */
 export type CastMember = {
+  /** The part played, drawn under the name. */
+  character?: string
+  /** A headshot, drawn over the initials. */
+  imageUrl?: string
   initials?: string
   name: string
 }
@@ -84,7 +85,7 @@ export type CastRowProps = Omit<ComponentPropsWithoutRef<'div'>, 'children'> & {
  *
  * Returns `null` for an empty cast rather than an empty flex row, so a page
  * can render it unconditionally without leaving a gap where a title has no
- * cast (which, today, is every title - see {@link CastMember}).
+ * cast (which, today, is every show - see {@link CastMember}).
  */
 export function CastRow({
   className,
@@ -106,9 +107,11 @@ export function CastRow({
     >
       {shown.map(person => (
         <CastPerson
+          imageUrl={person.imageUrl}
           initials={person.initials ?? castInitials(person.name)}
           key={person.name}
           name={person.name}
+          role={person.character}
         />
       ))}
       {overflow.length > 0 ? (

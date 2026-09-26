@@ -228,6 +228,7 @@ export default async function MoviePage({
         <JobEventsProvider>
           <MovieDetailLive
             badFiles={badFiles}
+            credits={detail.credits}
             // The three unbound server actions `ImportDialog` calls, handed
             // through the detail component to the attempts list. Unbound on
             // purpose: the dialog supplies the media key and the scope, so this

@@ -189,10 +189,39 @@ describe('CastPerson', () => {
     expect(root).toHaveClass('flex', 'shrink-0', 'items-center', 'gap-2')
     expect(root).toHaveTextContent('Mara Lin')
 
-    const avatar = root.firstElementChild
+    // The avatar sits in a positioning wrapper a headshot can cover.
+    const avatar = root.firstElementChild?.firstElementChild
 
     expect(avatar).toHaveClass('h-[30px]', 'w-[30px]', 'text-[12px]')
     expect(avatar).toHaveTextContent('ML')
+    expect(root.querySelector('img')).toBeNull()
+  })
+
+  it('draws a headshot over the initials, which stay underneath', () => {
+    const { container } = render(
+      <CastPerson
+        imageUrl="https://image.tmdb.org/t/p/w185/ml.jpg"
+        initials="ML"
+        name="Mara Lin"
+      />,
+    )
+    const root = requireRoot(container)
+    const img = root.querySelector('img')
+
+    expect(img).toHaveAttribute('src', 'https://image.tmdb.org/t/p/w185/ml.jpg')
+    // Decorative: the name beside it is the accessible label.
+    expect(img).toHaveAttribute('alt', '')
+    expect(root).toHaveTextContent('ML')
+  })
+
+  it('puts the role on a second line under the name', () => {
+    render(<CastPerson initials="ML" name="Mara Lin" role="Captain Ives" />)
+
+    expect(screen.getByText('Mara Lin')).toHaveClass('text-sm')
+    expect(screen.getByText('Captain Ives')).toHaveClass(
+      'text-cap',
+      'text-ink-4',
+    )
   })
 
   it('renders the name at the theme text-sm scale', () => {
