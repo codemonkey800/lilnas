@@ -182,10 +182,34 @@ export const CreateDownloadJobInputSchema = z.object({
   url: z.string().url(),
 })
 
+/**
+ * The slice of yt-dlp's `--dump-json` this app reads. Everything past the
+ * first three is extractor-dependent - a TikTok has no `channel_url`, a tweet
+ * no `categories` - so each one `.catch()`es to `null`: one field an extractor
+ * spells differently must not throw away the title and description with it.
+ */
 export const VideoInfoSchema = z.object({
+  channel: z.string().nullish().catch(null),
+  channel_url: z.string().nullish().catch(null),
+  comment_count: z.number().nullish().catch(null),
   description: z.string().nullish().optional(),
+  /** Seconds, of the whole source - not of a requested clip. */
+  duration: z.number().nullish().catch(null),
+  /** `Youtube`, `TikTok`, `Instagram` - yt-dlp's extractor, not a display name. */
+  extractor_key: z.string().nullish().catch(null),
+  fps: z.number().nullish().catch(null),
+  height: z.number().nullish().catch(null),
+  like_count: z.number().nullish().catch(null),
   playlist: z.string().nullish().optional(),
+  tags: z.array(z.string()).nullish().catch(null),
   title: z.string().nullish().optional(),
+  /** `YYYYMMDD`. */
+  upload_date: z.string().nullish().catch(null),
+  uploader: z.string().nullish().catch(null),
+  uploader_url: z.string().nullish().catch(null),
+  view_count: z.number().nullish().catch(null),
+  was_live: z.boolean().nullish().catch(null),
+  width: z.number().nullish().catch(null),
 })
 
 export const MediaSearchQuerySchema = z.object({
@@ -301,8 +325,48 @@ export const MediaBaseSchema = z.object({
   year: z.number().int().optional(),
 })
 
+/**
+ * The rendered file. Resolution and frame rate are yt-dlp's for the format
+ * it picked; the size is measured on the converted output, which is always
+ * H.264/AAC - so no codec is carried, since it would say the same thing on
+ * every video.
+ */
+export const VideoFileSchema = z.object({
+  fps: z.number().positive().optional(),
+  /** `1920x1080`, spelled like `MovieFileSchema.video.resolution`. */
+  resolution: z.string().optional(),
+  /** Bytes, summed across every part. */
+  size: z.number().int().positive().optional(),
+})
+
+/**
+ * What yt-dlp said about the post when it was downloaded. Every field is
+ * optional: extractors report different subsets, and a video downloaded
+ * before this existed has none of them.
+ */
+export const VideoSourceInfoSchema = z.object({
+  /** The uploader's display name. */
+  channel: z.string().optional(),
+  /** Their page on the platform. Unvalidated - check it before an `href`. */
+  channelUrl: z.string().optional(),
+  /** A snapshot from download time, like the other two counts. */
+  commentCount: z.number().int().min(0).optional(),
+  likeCount: z.number().int().min(0).optional(),
+  /** `YouTube`, `TikTok` - a display name, fixed up from yt-dlp's extractor. */
+  platform: z.string().optional(),
+  /** `2025-03-04` - the platform's upload day, no time or zone. */
+  publishedAt: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  viewCount: z.number().int().min(0).optional(),
+  /** `true` for the recording of a livestream. */
+  wasLive: z.boolean().optional(),
+})
+
 export const VideoSchema = MediaBaseSchema.extend({
+  ...VideoSourceInfoSchema.shape,
   downloadUrls: z.array(z.string()).optional(),
+  /** Absent until the file exists - gated on `downloadUrls` like `addedAt`. */
+  file: VideoFileSchema.optional(),
   /**
    * Plain `z.string()`, not `.url()` — URL *validation* belongs on the
    * request boundary (`CreateDownloadJobInputSchema.url`, which does have
@@ -470,7 +534,18 @@ export const MediaCreditsSchema = z.object({
   writers: z.array(z.string()),
 })
 
+/**
+ * Sonarr's `status`, minus its `deleted` - a series TVDB has pulled, which
+ * says nothing a reader can act on.
+ */
+export const SHOW_STATUSES = ['continuing', 'ended', 'upcoming'] as const
+
+/** Sonarr's `seriesType`, minus `standard` - what every other series is. */
+export const SHOW_SERIES_TYPES = ['anime', 'daily'] as const
+
 export const ShowSchema = ManagedMediaBaseSchema.extend({
+  /** Other names the series goes by - distinct, never its own title. */
+  alternateTitles: z.array(z.string()).optional(),
   /**
    * Plan 021. Straight from Sonarr's series `statistics`, like
    * `SeasonSchema`'s per-season counts - Sonarr's number is the honest one.
@@ -483,7 +558,25 @@ export const ShowSchema = ManagedMediaBaseSchema.extend({
    * how much of it is.
    */
   episodeFileCount: z.number().int().min(0).optional(),
+  /** `tt0373732`. */
+  imdbId: z.string().optional(),
+  /** Sonarr's `lastAired` - midnight UTC on the newest episode's air day. */
+  lastAired: z.string().optional(),
+  /** `HBO`, `Adult Swim`. */
+  network: z.string().optional(),
+  /** A display name (`Japanese`), like `MovieSchema.originalLanguage`. */
+  originalLanguage: z.string().optional(),
+  /** Absent for a standard series - see {@link SHOW_SERIES_TYPES}. */
+  seriesType: z.enum(SHOW_SERIES_TYPES).optional(),
+  /**
+   * Bytes, from Sonarr's series `statistics` - library series only, for the
+   * reason `episodeCount` is.
+   */
+  sizeOnDisk: z.number().int().positive().optional(),
   sonarrId: z.number().int().positive().optional(),
+  status: z.enum(SHOW_STATUSES).optional(),
+  tmdbId: z.number().int().positive().optional(),
+  tvMazeId: z.number().int().positive().optional(),
   tvdbId: z.number().int().positive(),
   type: z.literal(DownloadType.Show),
 })
@@ -886,8 +979,21 @@ export const BadFileSchema = z.object({
  * key every scoped operation (search, grab, delete, unmonitor) is expressed
  * in, while `episodeNumber` is what gets rendered.
  */
+/** Sonarr's `finaleType` - which kind of last episode this is, if any. */
+export const EPISODE_FINALE_TYPES = ['series', 'season', 'midseason'] as const
+
 export const EpisodeSchema = z.object({
-  /** Sonarr's `airDateUtc`. */
+  /**
+   * The anime-style running number across every season (`1047`). Sonarr
+   * fills it for anime; elsewhere it is usually absent.
+   */
+  absoluteEpisodeNumber: z.number().int().positive().optional(),
+  /**
+   * Sonarr's `airDate` - `2026-05-17`, the day it aired **where it was
+   * broadcast**, with no time or zone. Deliberately not `airDateUtc`: an
+   * evening US premiere is already tomorrow in UTC, and printing that would
+   * put every such episode a day late.
+   */
   airDate: z.string().optional(),
   /**
    * The guid of the indexer release that produced the file currently on
@@ -905,6 +1011,7 @@ export const EpisodeSchema = z.object({
    */
   episodeFileId: z.number().int().positive().optional(),
   episodeNumber: z.number().int().min(0),
+  finaleType: z.enum(EPISODE_FINALE_TYPES).optional(),
   hasFile: z.boolean(),
   /** Sonarr's episode id - the search/grab/delete key. */
   id: z.number().int().positive(),

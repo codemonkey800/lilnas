@@ -10,7 +10,7 @@ import { isJson } from '@lilnas/utils/json'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { spawn } from 'child_process'
 import { createWriteStream } from 'fs'
-import { ensureDir, readdir, remove } from 'fs-extra'
+import { ensureDir, readdir, remove, stat } from 'fs-extra'
 import * as mime from 'mime-types'
 import { Client } from 'minio'
 import { MINIO_CONNECTION } from 'nestjs-minio'
@@ -22,6 +22,7 @@ import { DownloadMetricsService } from './download-metrics.service'
 import { DownloadStateService } from './download-state.service'
 import { JobInterruptedError } from './job-interrupted.error'
 import { DownloadStepOptions } from './types'
+import { toVideoMetadata } from './video-metadata.util'
 import {
   createLineSplitter,
   createProgressReducer,
@@ -191,9 +192,17 @@ export class DownloadVideoService {
             const firstLine = result.split('\n')[0] ?? ''
             const info = VideoInfoSchema.parse(JSON.parse(firstLine))
 
+            // The first item's channel and counts are the post's, but its
+            // duration and resolution are that one item's - so those are not
+            // claimed for the whole download.
             parsedInfo = {
+              ...info,
+              duration: null,
+              fps: null,
+              height: null,
               title: info.playlist || info.title,
               description: info.description ?? '',
+              width: null,
             }
           }
 
@@ -270,6 +279,7 @@ export class DownloadVideoService {
       // Overwrites the placeholder title `ensureVideo()` seeded from the
       // source URL, on the `videos` row rather than the job.
       this.downloadStateService.updateVideo(job.id, {
+        ...toVideoMetadata(videoInfo, video.timeRange),
         overview: videoInfo.description ?? undefined,
         title: videoInfo.title ?? undefined,
       })
@@ -511,10 +521,20 @@ export class DownloadVideoService {
     const downloadUrls = files.map(
       file => `${env(EnvKeys.MINIO_PUBLIC_URL)}/videos/${getFileKey(file)}`,
     )
+    const sizes = await Promise.all(
+      files.map(async file => (await stat(file)).size),
+    )
+    const size = sizes.reduce((total, part) => total + part, 0)
+    // Merged into what the metadata step recorded, since the patch replaces
+    // the whole column.
+    const { fileInfo } = this.downloadStateService.requireVideo(job.mediaId)
 
     log('log', { ...options, downloadUrls }, 'Updating job with download URLs')
 
-    this.downloadStateService.updateVideo(job.id, { downloadUrls })
+    this.downloadStateService.updateVideo(job.id, {
+      downloadUrls,
+      fileInfo: { ...fileInfo, ...(size > 0 ? { size } : {}) },
+    })
   }
 
   async clean(options: DownloadStepOptions) {

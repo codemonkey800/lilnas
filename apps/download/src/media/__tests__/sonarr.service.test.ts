@@ -26,6 +26,7 @@ jest.mock('@lilnas/media/sonarr', () => ({
   putApiV3SeriesById: jest.fn(),
 }))
 
+import type { EpisodeResource, SeriesResource } from '@lilnas/media/sonarr'
 import {
   deleteApiV3EpisodefileById,
   deleteApiV3QueueById,
@@ -54,6 +55,9 @@ import { SONARR_CLIENT } from 'src/media/clients'
 import {
   type SonarrManualImportFile,
   SonarrService,
+  toEpisode,
+  toLookupShow,
+  toShow,
 } from 'src/media/sonarr.service'
 
 const mockGetApiV3SeriesLookup = getApiV3SeriesLookup as jest.Mock
@@ -995,9 +999,12 @@ describe('SonarrService', () => {
         ],
         [
           {
+            absoluteEpisodeNumber: 12,
+            airDate: '2004-12-18',
             airDateUtc: '2004-12-19T02:00:00Z',
             episodeFileId: 991,
             episodeNumber: 1,
+            finaleType: 'season',
             hasFile: true,
             id: 4400,
             monitored: true,
@@ -1017,9 +1024,12 @@ describe('SonarrService', () => {
           episodeFileCount: 1,
           episodes: [
             {
-              airDate: '2004-12-19T02:00:00Z',
+              absoluteEpisodeNumber: 12,
+              // The broadcast-local day, not `airDateUtc`'s next one.
+              airDate: '2004-12-18',
               episodeFileId: 991,
               episodeNumber: 1,
+              finaleType: 'season',
               hasFile: true,
               id: 4400,
               monitored: true,
@@ -1880,5 +1890,99 @@ describe('SonarrService', () => {
         'removeQueueItem failed',
       )
     })
+  })
+})
+
+describe('toShow', () => {
+  const series: SeriesResource = {
+    alternateTitles: [
+      { seasonNumber: -1, title: 'Shingeki no Kyojin' },
+      { seasonNumber: 1, title: 'shingeki no kyojin' },
+      { title: 'Attack on Titan' },
+      { title: '  ' },
+    ],
+    id: 9,
+    imdbId: 'tt2560140',
+    lastAired: '2023-11-05T00:00:00Z',
+    network: 'NHK',
+    originalLanguage: { id: 8, name: 'Japanese' },
+    seriesType: 'anime',
+    statistics: { sizeOnDisk: 67_477_969_060 },
+    status: 'ended',
+    title: 'Attack on Titan',
+    tmdbId: 1429,
+    tvMazeId: 919,
+    tvdbId: 267440,
+  }
+
+  it('maps the series details', () => {
+    expect(toShow(series)).toMatchObject({
+      alternateTitles: ['Shingeki no Kyojin'],
+      imdbId: 'tt2560140',
+      lastAired: '2023-11-05T00:00:00Z',
+      network: 'NHK',
+      originalLanguage: 'Japanese',
+      seriesType: 'anime',
+      sizeOnDisk: 67_477_969_060,
+      status: 'ended',
+      tmdbId: 1429,
+      tvMazeId: 919,
+    })
+  })
+
+  it('leaves out what only restates the default or the unknown', () => {
+    const show = toShow({
+      ...series,
+      alternateTitles: [],
+      imdbId: '',
+      network: null,
+      originalLanguage: { id: 0, name: 'Unknown' },
+      seriesType: 'standard',
+      status: 'deleted',
+      tmdbId: 0,
+      tvMazeId: 0,
+    })
+
+    expect(show.alternateTitles).toBeUndefined()
+    expect(show.imdbId).toBeUndefined()
+    expect(show.network).toBeUndefined()
+    expect(show.originalLanguage).toBeUndefined()
+    expect(show.seriesType).toBeUndefined()
+    expect(show.status).toBeUndefined()
+    expect(show.tmdbId).toBeUndefined()
+    expect(show.tvMazeId).toBeUndefined()
+  })
+
+  // Sonarr zeroes a lookup hit's statistics, and a series outside the
+  // library has no folder to measure.
+  it('reports a size for a library series only', () => {
+    expect(toShow({ ...series, id: 0 }).sizeOnDisk).toBeUndefined()
+    expect(toLookupShow(series).sizeOnDisk).toBeUndefined()
+  })
+})
+
+describe('toEpisode', () => {
+  const episode: EpisodeResource = {
+    episodeNumber: 1,
+    id: 1,
+    seasonNumber: 1,
+  }
+
+  it('drops a finale type it does not know', () => {
+    expect(toEpisode({ ...episode, finaleType: 'weird' }).finaleType).toBe(
+      undefined,
+    )
+  })
+
+  it('treats a zero absolute number as none', () => {
+    expect(
+      toEpisode({ ...episode, absoluteEpisodeNumber: 0 }).absoluteEpisodeNumber,
+    ).toBeUndefined()
+  })
+
+  it('never falls back to the UTC air date', () => {
+    expect(
+      toEpisode({ ...episode, airDateUtc: '2026-05-18T00:00:00Z' }).airDate,
+    ).toBeUndefined()
   })
 })

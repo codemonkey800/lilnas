@@ -40,10 +40,15 @@ import {
 import {
   DownloadType,
   type Episode,
+  EPISODE_FINALE_TYPES,
   type Release,
   type Season,
   type Show,
+  SHOW_SERIES_TYPES,
+  SHOW_STATUSES,
   type ShowScope,
+  type ShowSeriesType,
+  type ShowStatus,
 } from '@lilnas/utils/download/types'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 
@@ -51,6 +56,7 @@ import { mediaId } from 'src/db/media-id'
 import type { SonarrMediaClient } from 'src/media/clients'
 import { SONARR_CLIENT } from 'src/media/clients'
 import { mapCatalogueEntries } from 'src/media/map-media.util'
+import { originalLanguageName } from 'src/media/movie-metadata.util'
 import { toCommonRelease } from 'src/media/release-mapper.util'
 import { checkSdkError, unwrapSdkResult } from 'src/media/sdk-result.util'
 import { generateTitleSlug } from 'src/media/title-slug.util'
@@ -205,6 +211,53 @@ export function toRelease(resource: ReleaseResource): Release {
  * missing `tmdbId` - see that function. List call sites go through
  * `mapCatalogueEntries()`.
  */
+/** `''`, `null` and whitespace all mean "Sonarr did not say". */
+function text(value: string | null | undefined): string | undefined {
+  const trimmed = value?.trim()
+  return trimmed ? trimmed : undefined
+}
+
+/** Sonarr sends `0` for an id - or a size - it does not have. */
+function positiveInt(value: number | null | undefined): number | undefined {
+  return value != null && Number.isInteger(value) && value > 0
+    ? value
+    : undefined
+}
+
+/** See {@link SHOW_STATUSES} for why `deleted` maps to nothing. */
+function toShowStatus(
+  status: SeriesResource['status'],
+): ShowStatus | undefined {
+  return SHOW_STATUSES.find(known => known === status)
+}
+
+/** See {@link SHOW_SERIES_TYPES} for why `standard` maps to nothing. */
+function toShowSeriesType(
+  seriesType: SeriesResource['seriesType'],
+): ShowSeriesType | undefined {
+  return SHOW_SERIES_TYPES.find(known => known === seriesType)
+}
+
+/**
+ * Sonarr's alternate titles are per scene release and per season, so one
+ * name recurs; the series' own title is in the list too. Both go.
+ */
+function toAlternateTitles(series: SeriesResource): string[] | undefined {
+  const own = series.title?.trim().toLowerCase()
+  const titles = new Map<string, string>()
+
+  for (const alternate of series.alternateTitles ?? []) {
+    const title = text(alternate.title)
+    const key = title?.toLowerCase()
+
+    if (title && key && key !== own && !titles.has(key)) {
+      titles.set(key, title)
+    }
+  }
+
+  return titles.size > 0 ? [...titles.values()] : undefined
+}
+
 export function toShow(series: SeriesResource): Show {
   const posterUrl = series.images?.find(
     img => img.coverType === 'poster',
@@ -224,6 +277,7 @@ export function toShow(series: SeriesResource): Show {
   const sonarrId = series.id || undefined
 
   return {
+    alternateTitles: toAlternateTitles(series),
     // A non-library lookup hit's `added` is .NET's `DateTime.MinValue`,
     // which `toUpstreamIsoDateTime()` drops - gated on the library id too so
     // the intent doesn't rest on that sentinel alone.
@@ -239,17 +293,30 @@ export function toShow(series: SeriesResource): Show {
     filePath: series.path ?? undefined,
     genres: series.genres ?? [],
     id: mediaId({ tvdbId, type: DownloadType.Show }),
+    imdbId: text(series.imdbId),
+    lastAired: text(series.lastAired),
     // A non-library lookup hit comes back `monitored: true` (Sonarr's
     // default for the add form), which says nothing about this title.
     monitored: sonarrId ? series.monitored : undefined,
+    network: text(series.network),
+    originalLanguage: originalLanguageName(series.originalLanguage),
     overview: series.overview ?? undefined,
     posterUrl: posterUrl ?? undefined,
     ratingValue: series.ratings?.value,
     releaseDate,
     // Sonarr reports minutes; `Media.runtime` is seconds (see MediaBaseSchema).
     runtime: series.runtime != null ? series.runtime * 60 : undefined,
+    seriesType: toShowSeriesType(series.seriesType),
+    // Library series only, like the counts above - and `0` is an empty
+    // series folder, not a size worth printing.
+    sizeOnDisk: sonarrId
+      ? positiveInt(series.statistics?.sizeOnDisk)
+      : undefined,
     sonarrId,
+    status: toShowStatus(series.status),
     title: series.title ?? 'Unknown title',
+    tmdbId: positiveInt(series.tmdbId),
+    tvMazeId: positiveInt(series.tvMazeId),
     tvdbId,
     type: DownloadType.Show,
     year: series.year,
@@ -289,11 +356,17 @@ export function toEpisode(resource: EpisodeResource): Episode {
   }
 
   return {
-    airDate: resource.airDateUtc ?? undefined,
+    absoluteEpisodeNumber: positiveInt(resource.absoluteEpisodeNumber),
+    // The broadcast-local day - see `EpisodeSchema.airDate` for why not
+    // `airDateUtc`.
+    airDate: text(resource.airDate),
     // `episodeFileId: 0` is Sonarr's "no file" - truthiness, not a null
     // guard, and the key is omitted rather than carrying a meaningless 0.
     episodeFileId: resource.episodeFileId || undefined,
     episodeNumber: resource.episodeNumber,
+    finaleType: EPISODE_FINALE_TYPES.find(
+      known => known === resource.finaleType,
+    ),
     hasFile: resource.hasFile ?? false,
     id: resource.id,
     monitored: resource.monitored ?? false,

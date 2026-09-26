@@ -1,4 +1,8 @@
-import type { TimeRange } from '@lilnas/utils/download/types'
+import type {
+  TimeRange,
+  VideoFile,
+  VideoSourceInfo,
+} from '@lilnas/utils/download/types'
 import { eq, inArray, sql } from 'drizzle-orm'
 
 import type { Db } from './db.service'
@@ -39,18 +43,21 @@ export function listVideosWithFiles(db: Db): VideoRow[] {
 
 export interface UpdateVideoPatch {
   downloadUrls?: string[]
+  /** Replaces the whole column - merge with the row's own first. */
+  fileInfo?: VideoFile
   overview?: string
   posterUrl?: string
   runtime?: number
+  sourceInfo?: VideoSourceInfo
   title?: string
 }
 
 /**
  * Patches the fields the download pipeline learns as it goes - yt-dlp
- * reports the real title/description partway through, MinIO hands back the
- * download URLs at the end (plan §2.1). Only keys actually present in
- * `patch` are written, so a later step can't blank out an earlier one's
- * value by simply not knowing it.
+ * reports the real title/description and the post's metadata partway
+ * through, MinIO hands back the download URLs at the end (plan §2.1). Only
+ * keys actually present in `patch` are written, so a later step can't blank
+ * out an earlier one's value by simply not knowing it.
  *
  * Returns the updated row, or `undefined` if no such video exists.
  */
@@ -62,9 +69,11 @@ export function updateVideoById(
   const set: Partial<typeof videos.$inferInsert> = { updatedAt: new Date() }
 
   if (patch.downloadUrls !== undefined) set.downloadUrls = patch.downloadUrls
+  if (patch.fileInfo !== undefined) set.fileInfo = patch.fileInfo
   if (patch.overview !== undefined) set.overview = patch.overview
   if (patch.posterUrl !== undefined) set.posterUrl = patch.posterUrl
   if (patch.runtime !== undefined) set.runtime = patch.runtime
+  if (patch.sourceInfo !== undefined) set.sourceInfo = patch.sourceInfo
   if (patch.title !== undefined) set.title = patch.title
 
   return db.update(videos).set(set).where(eq(videos.id, id)).returning().get()

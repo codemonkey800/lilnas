@@ -161,6 +161,40 @@ describe('MediaResolverService', () => {
       })
     })
 
+    it('spreads the source info and, once there is a file, the file info', async () => {
+      const row = {
+        fileInfo: { fps: 30, resolution: '1920x1080', size: 2000 },
+        id: 'vid-1',
+        naturalKey: 'https://example.com/a#-',
+        sourceInfo: { channel: 'A channel', platform: 'YouTube' },
+        sourceUrl: 'https://example.com/a',
+        title: 'A Video',
+      }
+      dbService.db
+        .insert(videos)
+        .values([
+          { ...row, downloadUrls: ['https://files.example.com/a.mp4'] },
+          // Deleted: the file info outlives the file on the row.
+          { ...row, downloadUrls: [], id: 'vid-2', naturalKey: 'b' },
+        ])
+        .run()
+
+      const { media } = await service.resolve([
+        { mediaId: 'video:vid-1', type: DownloadType.Video },
+        { mediaId: 'video:vid-2', type: DownloadType.Video },
+      ])
+
+      expect(media.get('video:vid-1')).toMatchObject({
+        channel: 'A channel',
+        file: { fps: 30, resolution: '1920x1080', size: 2000 },
+        platform: 'YouTube',
+      })
+      expect(media.get('video:vid-2')).toMatchObject({ channel: 'A channel' })
+      expect(media.get('video:vid-2')).toEqual(
+        expect.not.objectContaining({ file: expect.anything() }),
+      )
+    })
+
     it.each([
       ['no download URLs yet', undefined],
       ['an empty download URL list', []],
