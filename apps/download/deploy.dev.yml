@@ -162,10 +162,6 @@ services:
       # anonymous caller an admin identity.
       - traefik.http.routers.dev-download.middlewares=lilnas-auth
       - traefik.http.services.dev-download.loadbalancer.server.port=8080
-      # Opts this container into apps/dev-idle-reaper: stopped+removed once
-      # its network I/O has been flat for lilnas.idle-reap.max-idle-hours
-      # (unset here, so it takes the reaper's own 6h default).
-      - lilnas.idle-reap.enabled=true
 
 networks:
   lilnas-proxy:

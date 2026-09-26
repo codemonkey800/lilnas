@@ -1,20 +1,22 @@
-# Standalone -- deliberately NOT added to any root docker-compose *.yml
-# include: list. This is host-level dev tooling, started/stopped by hand:
+# Host-level dev tooling, deployed like everything else from the root
+# docker-compose.yml:
 #
-#   docker compose -f apps/dev-idle-reaper/deploy.yml up -d --build
-#   docker compose -f apps/dev-idle-reaper/deploy.yml logs -f
-#   docker compose -f apps/dev-idle-reaper/deploy.yml down
+#   docker-compose up -d --build dev-idle-reaper
+#   docker-compose logs -f dev-idle-reaper
 #
-# Stops+removes any container labeled lilnas.idle-reap.enabled=true once its
-# network I/O has been flat for lilnas.idle-reap.max-idle-hours (default 6,
-# see reaper.sh). Opt-in by label rather than a name/pattern match so it can
-# never reach a container that wasn't deliberately enrolled -- e.g. it will
-# never touch the production Traefik, a Postgres sidecar, or anything else
-# sharing this host.
+# Stops+removes idle dev containers -- see reaper.sh for the full rules:
+#   - Enrolled automatically if a Traefik router rule targets *.dev.lilnas.io,
+#     or explicitly with lilnas.idle-reap.enabled=true.
+#   - Opt out with lilnas.idle-reap.enabled=false (on any container in the
+#     project, for whole-project units).
+#   - Idle limit per container: lilnas.idle-reap.max-idle-hours (default 6).
+#   - Compose projects under DEV_PROJECTS_ROOT are reaped whole (sidecars
+#     too); everything else, including this repo, one container at a time.
+#   - Never touches lilnas-traefik / lilnas-auth, whatever their labels say.
 #
 # Needs read-write access to the Docker socket to stop/rm containers -- see
 # reaper.sh for exactly what it does with that access (inspect/stats/stop/rm
-# against opted-in containers only, nothing else).
+# against enrolled containers and their project siblings, nothing else).
 
 services:
   dev-idle-reaper:
@@ -25,6 +27,7 @@ services:
       - POLL_INTERVAL_SECONDS=300
       - DEFAULT_MAX_IDLE_HOURS=6
       - ACTIVITY_BYTES_THRESHOLD=1024
+      - DEV_PROJECTS_ROOT=/home/jeremy/dev
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - dev-idle-reaper-state:/var/lib/reaper
