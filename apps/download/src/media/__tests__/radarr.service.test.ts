@@ -6,6 +6,7 @@ jest.mock('@lilnas/media/radarr', () => ({
   deleteApiV3MovieById: jest.fn(),
   deleteApiV3MoviefileById: jest.fn(),
   deleteApiV3QueueById: jest.fn(),
+  getApiV3Credit: jest.fn(),
   getApiV3HistoryMovie: jest.fn(),
   getApiV3Manualimport: jest.fn(),
   getApiV3Movie: jest.fn(),
@@ -27,6 +28,7 @@ import {
   deleteApiV3MovieById,
   deleteApiV3MoviefileById,
   deleteApiV3QueueById,
+  getApiV3Credit,
   getApiV3HistoryMovie,
   getApiV3Manualimport,
   getApiV3Movie,
@@ -66,6 +68,7 @@ const mockDeleteApiV3MoviefileById = deleteApiV3MoviefileById as jest.Mock
 const mockPutApiV3MovieById = putApiV3MovieById as jest.Mock
 const mockGetApiV3HistoryMovie = getApiV3HistoryMovie as jest.Mock
 const mockGetApiV3Manualimport = getApiV3Manualimport as jest.Mock
+const mockGetApiV3Credit = getApiV3Credit as jest.Mock
 
 describe('RadarrService', () => {
   let service: RadarrService
@@ -120,14 +123,18 @@ describe('RadarrService', () => {
         {
           addedAt: undefined,
           certification: 'PG-13',
+          digitalRelease: '2020-02-01',
           filePath: undefined,
           genres: ['Action', 'Comedy'],
           id: 'tmdb:123',
+          inCinemas: '2020-01-15',
           monitored: undefined,
           overview: 'A movie',
+          physicalRelease: '2020-03-01',
           posterUrl: 'poster.jpg',
           radarrId: undefined,
           ratingValue: 8.1,
+          ratings: { imdb: { value: 7.5 }, tmdb: { value: 8.1 } },
           releaseDate: '2020-01-01',
           // Radarr reports minutes; Media.runtime is seconds.
           runtime: 7200,
@@ -233,6 +240,78 @@ describe('RadarrService', () => {
       expect(result?.filePath).toBeUndefined()
     })
 
+    it('maps the file on disk, gated on hasFile like filePath', async () => {
+      const movieFile = {
+        mediaInfo: { audioCodec: 'EAC3', videoCodec: 'HEVC' },
+        path: '/movies/a.mkv',
+        quality: { quality: { name: 'WEBDL-2160p' } },
+        size: 12_000_000_000,
+      }
+      mockGetApiV3MovieLookup.mockResolvedValue({
+        data: [
+          { hasFile: true, id: 7, movieFile, tmdbId: 5 },
+          { hasFile: false, id: 8, movieFile, tmdbId: 6 },
+        ],
+      })
+
+      const [withFile, withoutFile] = await service.search('x')
+
+      expect(withFile?.file).toEqual({
+        audio: { codec: 'EAC3' },
+        quality: 'WEBDL-2160p',
+        size: 12_000_000_000,
+        video: { codec: 'HEVC', dynamicRange: 'SDR' },
+      })
+      expect(withoutFile?.file).toBeUndefined()
+    })
+
+    it('maps the movie-level metadata Radarr carries beside the file', async () => {
+      mockGetApiV3MovieLookup.mockResolvedValue({
+        data: [
+          {
+            collection: { title: 'Some Collection', tmdbId: 0 },
+            imdbId: 'tt1855199',
+            originalLanguage: { id: 1, name: 'English' },
+            originalTitle: 'End of Watch',
+            studio: '5150 Action',
+            title: 'End of Watch',
+            tmdbId: 77016,
+            youTubeTrailerId: 'TYGXe5ggBx0',
+          },
+          {
+            imdbId: '',
+            originalLanguage: { id: 0, name: 'Unknown' },
+            originalTitle: 'Le Samouraï',
+            studio: '',
+            title: 'The Samurai',
+            tmdbId: 5511,
+            youTubeTrailerId: '',
+          },
+        ],
+      })
+
+      const [english, french] = await service.search('x')
+
+      expect(english).toMatchObject({
+        // `tmdbId: 0` is Radarr's "none", like `id: 0`.
+        collection: { title: 'Some Collection', tmdbId: undefined },
+        imdbId: 'tt1855199',
+        originalLanguage: 'English',
+        // The same as the title, so not worth saying twice.
+        originalTitle: undefined,
+        studio: '5150 Action',
+        trailerYouTubeId: 'TYGXe5ggBx0',
+      })
+      expect(french).toMatchObject({
+        collection: undefined,
+        imdbId: undefined,
+        originalLanguage: undefined,
+        originalTitle: 'Le Samouraï',
+        studio: undefined,
+        trailerYouTubeId: undefined,
+      })
+    })
+
     it('prefers releaseDate over inCinemas, digitalRelease, and physicalRelease', () => {
       return expectReleaseDate(
         {
@@ -314,6 +393,51 @@ describe('RadarrService', () => {
 
   // Plan 021: the upstream facts state derivation reads - `monitored` tells
   // `wanted` from `absent`, and `addedAt` is when the *file* landed.
+  describe('getCredits', () => {
+    it("asks Radarr for the movie's credits by Radarr id and splits them", async () => {
+      mockGetApiV3Credit.mockResolvedValue({
+        data: [
+          { character: 'Brian', order: 0, personName: 'Jake', type: 'cast' },
+          {
+            department: 'Directing',
+            job: 'Director',
+            personName: 'David',
+            type: 'crew',
+          },
+        ],
+      })
+
+      const credits = await service.getCredits(42)
+
+      expect(getApiV3Credit).toHaveBeenCalledWith(
+        expect.objectContaining({ query: { movieId: 42 } }),
+      )
+      expect(credits).toEqual({
+        cast: [{ character: 'Brian', name: 'Jake' }],
+        directors: ['David'],
+        writers: [],
+      })
+    })
+
+    // The generated SDK types this response as `unknown`.
+    it('rejects a body that is not a list', async () => {
+      mockGetApiV3Credit.mockResolvedValue({ data: { message: 'nope' } })
+
+      await expect(service.getCredits(42)).rejects.toThrow(
+        'getCredits returned a non-array body',
+      )
+    })
+
+    it('surfaces an upstream error', async () => {
+      mockGetApiV3Credit.mockResolvedValue({
+        error: { message: 'boom' },
+        response: { status: 500 },
+      })
+
+      await expect(service.getCredits(42)).rejects.toThrow()
+    })
+  })
+
   describe('getLibraryMovie', () => {
     it('asks Radarr for just that tmdbId and maps the entry', async () => {
       mockGetApiV3Movie.mockResolvedValue({

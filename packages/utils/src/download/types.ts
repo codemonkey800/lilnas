@@ -8,6 +8,7 @@ import {
   AuditLogEntrySchema,
   AuditLogQuerySchema,
   BadFileSchema,
+  CastCreditSchema,
   CreateDownloadJobInputSchema,
   DeleteMediaFilesQuerySchema,
   DiscardImportQuerySchema,
@@ -36,9 +37,14 @@ import {
   ManualImportCandidateSchema,
   MEDIA_STATES,
   MediaBaseSchema,
+  MediaCreditsSchema,
   MediaSchema,
   MediaSearchQuerySchema,
   MediaStateSchema,
+  MovieCollectionSchema,
+  MovieFileSchema,
+  MovieRatingSchema,
+  MovieRatingsSchema,
   MovieSchema,
   ProfileQuerySchema,
   ReleaseProtocolSchema,
@@ -160,6 +166,12 @@ export type MediaBase = z.infer<typeof MediaBaseSchema>
 export type Video = z.infer<typeof VideoSchema>
 export type ManagedMediaBase = z.infer<typeof ManagedMediaBaseSchema>
 export type Movie = z.infer<typeof MovieSchema>
+export type MovieFile = z.infer<typeof MovieFileSchema>
+export type MovieRating = z.infer<typeof MovieRatingSchema>
+export type MovieRatings = z.infer<typeof MovieRatingsSchema>
+export type MovieCollection = z.infer<typeof MovieCollectionSchema>
+export type CastCredit = z.infer<typeof CastCreditSchema>
+export type MediaCredits = z.infer<typeof MediaCreditsSchema>
 export type Show = z.infer<typeof ShowSchema>
 export type Media = z.infer<typeof MediaSchema>
 
@@ -302,6 +314,11 @@ export interface MediaDetailResponse {
    */
   jobs: DownloadJob[]
   media: Media
+  /**
+   * Movies only, and only for a title in Radarr's library - absent when the
+   * title is not in it, or when Radarr's credit lookup failed.
+   */
+  credits?: MediaCredits
 }
 
 /**

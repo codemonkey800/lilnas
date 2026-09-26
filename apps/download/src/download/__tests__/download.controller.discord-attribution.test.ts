@@ -139,6 +139,7 @@ describe('DownloadController - Discord attribution', () => {
         MediaStateService,
         { provide: ProfileService, useValue: {} },
         { provide: RadarrService, useValue: radarrService },
+        { provide: RadarrService, useValue: {} },
         { provide: ReleaseService, useValue: {} },
         { provide: ShowService, useValue: {} },
         { provide: SonarrService, useValue: sonarrService },

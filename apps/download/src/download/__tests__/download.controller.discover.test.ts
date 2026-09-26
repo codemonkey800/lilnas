@@ -25,6 +25,7 @@ import { ManualImportService } from 'src/media/manual-import.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import { MediaFileService } from 'src/media/media-file.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
+import { RadarrService } from 'src/media/radarr.service'
 import { ReleaseService } from 'src/media/release.service'
 import { ShowService } from 'src/media/show.service'
 
@@ -70,6 +71,7 @@ describe('DownloadController - discover', () => {
         // release and bad-file routes and ShowService for the seasons and
         // file-delete routes. Unused by this file's routes, but DI still has
         // to satisfy the constructor.
+        { provide: RadarrService, useValue: {} },
         { provide: ReleaseService, useValue: {} },
         { provide: ShowService, useValue: {} },
       ],

@@ -37,6 +37,7 @@ import type {
   ListReleasesResponse,
   ListSeasonsResponse,
   Media,
+  MediaCredits,
   MediaDetailResponse,
   ProfileResponse,
   SearchMediaResponse,
@@ -91,6 +92,7 @@ import {
   type MediaFileSource,
 } from 'src/media/media-file.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
+import { RadarrService } from 'src/media/radarr.service'
 import { ReleaseService } from 'src/media/release.service'
 import { ShowService } from 'src/media/show.service'
 
@@ -168,6 +170,7 @@ export class DownloadController {
     private mediaFileService: MediaFileService,
     private mediaResolverService: MediaResolverService,
     private profileService: ProfileService,
+    private radarrService: RadarrService,
     private releaseService: ReleaseService,
     private showService: ShowService,
   ) {}
@@ -721,9 +724,10 @@ export class DownloadController {
       throw new NotFoundException('Media not found')
     }
 
-    const [jobs, annotated] = await Promise.all([
+    const [jobs, annotated, credits] = await Promise.all([
       this.jobQueryService.listJobsForMedia(id),
       this.withCurrentRelease(resolved),
+      this.creditsFor(resolved),
     ])
 
     this.logger.log(
@@ -738,8 +742,39 @@ export class DownloadController {
     )
 
     return {
+      ...(credits ? { credits } : {}),
       jobs: await this.serveJobs(jobs, isAdmin),
       media: annotated,
+    }
+  }
+
+  /**
+   * A library movie's cast and crew, for the detail page's cast row and
+   * details list.
+   *
+   * Detail route only, for the same reason as {@link withCurrentRelease}: a
+   * Radarr call per title. A show, a video, or a movie outside Radarr's
+   * library (no `radarrId`) has none, and a failed lookup degrades to none
+   * rather than failing the page - credits are never worth the detail view.
+   */
+  private async creditsFor(resolved: Media): Promise<MediaCredits | undefined> {
+    if (!isMovie(resolved) || resolved.radarrId == null) {
+      return undefined
+    }
+
+    try {
+      return await this.radarrService.getCredits(resolved.radarrId)
+    } catch (err) {
+      this.logger.warn(
+        {
+          action: 'getMediaDetail',
+          error: getErrorMessage(err),
+          mediaId: resolved.id,
+        },
+        'GET /media/:id - credits lookup failed',
+      )
+
+      return undefined
     }
   }
 

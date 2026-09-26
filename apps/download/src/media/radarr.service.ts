@@ -1,5 +1,6 @@
 import type {
   CommandResourceWritable,
+  CreditResource,
   HistoryResource,
   Language,
   ManualImportResource,
@@ -13,6 +14,7 @@ import {
   deleteApiV3MovieById,
   deleteApiV3MoviefileById,
   deleteApiV3QueueById,
+  getApiV3Credit,
   getApiV3HistoryMovie,
   getApiV3Manualimport,
   getApiV3Movie,
@@ -31,6 +33,7 @@ import {
 } from '@lilnas/media/radarr'
 import {
   DownloadType,
+  type MediaCredits,
   type Movie,
   type Release,
 } from '@lilnas/utils/download/types'
@@ -40,6 +43,12 @@ import { mediaId } from 'src/db/media-id'
 import type { RadarrMediaClient } from 'src/media/clients'
 import { RADARR_CLIENT } from 'src/media/clients'
 import { mapCatalogueEntries } from 'src/media/map-media.util'
+import {
+  originalLanguageName,
+  toMediaCredits,
+  toMovieFile,
+  toMovieRatings,
+} from 'src/media/movie-metadata.util'
 import { toCommonRelease } from 'src/media/release-mapper.util'
 import { checkSdkError, unwrapSdkResult } from 'src/media/sdk-result.util'
 import { generateTitleSlug } from 'src/media/title-slug.util'
@@ -192,22 +201,44 @@ export function toMovie(movie: MovieResource): Movie {
       ? toUpstreamIsoDateTime(movie.movieFile?.dateAdded)
       : undefined,
     certification: movie.certification ?? undefined,
+    collection: movie.collection?.title
+      ? {
+          title: movie.collection.title,
+          tmdbId: movie.collection.tmdbId || undefined,
+        }
+      : undefined,
+    digitalRelease: movie.digitalRelease ?? undefined,
+    // Gated on `hasFile` like `filePath`: a file Radarr has since lost
+    // can linger as a stale `movieFile` on the resource.
+    file: movie.hasFile ? toMovieFile(movie.movieFile) : undefined,
     filePath: movie.hasFile ? (movie.movieFile?.path ?? undefined) : undefined,
     genres: movie.genres ?? [],
     id: mediaId({ tmdbId, type: DownloadType.Movie }),
+    imdbId: movie.imdbId || undefined,
+    inCinemas: movie.inCinemas ?? undefined,
     // A lookup hit outside the library still carries `monitored` (Radarr's
     // default for the add form), which says nothing about this title - so
     // only a library movie reports one.
     monitored: radarrId ? movie.monitored : undefined,
+    originalLanguage: originalLanguageName(movie.originalLanguage),
+    // Only when it differs - an English title's original title is itself.
+    originalTitle:
+      movie.originalTitle && movie.originalTitle !== movie.title
+        ? movie.originalTitle
+        : undefined,
     overview: movie.overview ?? undefined,
+    physicalRelease: movie.physicalRelease ?? undefined,
     posterUrl: posterUrl ?? undefined,
     radarrId,
     ratingValue: movie.ratings?.tmdb?.value ?? movie.ratings?.imdb?.value,
+    ratings: toMovieRatings(movie.ratings),
     releaseDate,
     // Radarr reports minutes; `Media.runtime` is seconds (see MediaBaseSchema).
     runtime: movie.runtime != null ? movie.runtime * 60 : undefined,
+    studio: movie.studio || undefined,
     title: movie.title ?? 'Unknown title',
     tmdbId,
+    trailerYouTubeId: movie.youTubeTrailerId || undefined,
     type: DownloadType.Movie,
     year: movie.year,
   }
@@ -259,6 +290,29 @@ export class RadarrService {
       action: 'getMovies',
       logger: this.logger,
     })
+  }
+
+  /**
+   * Who made a library movie - Radarr's `/api/v3/credit`, keyed on Radarr's
+   * own id. A movie outside the library has no Radarr id and so no credits
+   * here; the caller skips the call rather than passing one in.
+   */
+  async getCredits(radarrId: number): Promise<MediaCredits> {
+    const credits: unknown = unwrapSdkResult(
+      await getApiV3Credit({
+        client: this.client,
+        query: { movieId: radarrId },
+      }),
+      'getCredits',
+    )
+
+    // Radarr's OpenAPI document leaves this response untyped, so the SDK
+    // hands back `unknown`; the shape is checked rather than asserted.
+    if (!Array.isArray(credits)) {
+      throw new Error('getCredits returned a non-array body')
+    }
+
+    return toMediaCredits(credits as CreditResource[])
   }
 
   /**

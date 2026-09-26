@@ -340,7 +340,83 @@ export const ManagedMediaBaseSchema = MediaBaseSchema.extend({
   queueSnapshot: DownloadQueueSnapshotSchema.optional(),
 })
 
+/**
+ * One outside score. `value` is on the source's own scale - `/10` for IMDb,
+ * TMDb and Trakt, `/100` for Rotten Tomatoes and Metacritic - so a reader
+ * formats it per source rather than normalizing it here.
+ */
+export const MovieRatingSchema = z.object({
+  value: z.number(),
+  /** Absent when upstream reports `0`, which it does for RT and Metacritic. */
+  votes: z.number().int().positive().optional(),
+})
+
+/**
+ * Radarr's `ratings`, one entry per source that actually scored the movie.
+ * A source upstream reports as `0` is omitted rather than carried as a zero.
+ */
+export const MovieRatingsSchema = z.object({
+  imdb: MovieRatingSchema.optional(),
+  metacritic: MovieRatingSchema.optional(),
+  rottenTomatoes: MovieRatingSchema.optional(),
+  tmdb: MovieRatingSchema.optional(),
+  trakt: MovieRatingSchema.optional(),
+})
+
+/**
+ * The file on disk, flattened from Radarr's `movieFile` and its
+ * `mediaInfo`. Every field is optional because `mediaInfo` is only filled
+ * after Radarr has probed the file, and a manual import can arrive without a
+ * release group or scene name.
+ *
+ * Languages are display names (`English`), not the ISO 639-2 codes
+ * (`eng/eng`) `mediaInfo` reports - `toMovieFile()` resolves them once on
+ * the server so the page never depends on the browser's `Intl` data.
+ */
+export const MovieFileSchema = z.object({
+  audio: z
+    .object({
+      /** `5.1`, `2`, `7.1` - Radarr's own float. */
+      channels: z.number().positive().optional(),
+      codec: z.string().optional(),
+      /** Distinct track languages, in stream order. */
+      languages: z.array(z.string()).optional(),
+      streamCount: z.number().int().positive().optional(),
+    })
+    .optional(),
+  /** Names of the custom formats the file matched. */
+  customFormats: z.array(z.string()).optional(),
+  edition: z.string().optional(),
+  /** Radarr's quality name - `Remux-1080p`, `WEBDL-2160p`. */
+  quality: z.string().optional(),
+  /** `true` when the quality profile would still take an upgrade. */
+  qualityCutoffNotMet: z.boolean().optional(),
+  releaseGroup: z.string().optional(),
+  sceneName: z.string().optional(),
+  /** Bytes. */
+  size: z.number().int().positive().optional(),
+  /** Distinct subtitle languages, in stream order. */
+  subtitles: z.array(z.string()).optional(),
+  video: z
+    .object({
+      bitDepth: z.number().int().positive().optional(),
+      codec: z.string().optional(),
+      /** `SDR`, `HDR10`, `DV HDR10`… */
+      dynamicRange: z.string().optional(),
+      fps: z.number().positive().optional(),
+      /** `1920x1080`, as `mediaInfo` spells it. */
+      resolution: z.string().optional(),
+    })
+    .optional(),
+})
+
+export const MovieCollectionSchema = z.object({
+  title: z.string(),
+  tmdbId: z.number().int().positive().optional(),
+})
+
 export const MovieSchema = ManagedMediaBaseSchema.extend({
+  collection: MovieCollectionSchema.optional(),
   /**
    * The guid of the indexer release that produced the file currently on
    * disk, when this app can recover it. Absent means it could not be -
@@ -348,9 +424,50 @@ export const MovieSchema = ManagedMediaBaseSchema.extend({
    * and the UI degrades to no `current` chip and no report control.
    */
   currentReleaseGuid: z.string().optional(),
+  digitalRelease: z.string().optional(),
+  /**
+   * The file on disk. Gated on Radarr's `hasFile` exactly like `filePath`,
+   * so it is absent for anything not downloaded.
+   */
+  file: MovieFileSchema.optional(),
+  /** `tt1855199`. */
+  imdbId: z.string().optional(),
+  inCinemas: z.string().optional(),
+  /** A display name (`English`), not Radarr's language object. */
+  originalLanguage: z.string().optional(),
+  originalTitle: z.string().optional(),
+  physicalRelease: z.string().optional(),
   radarrId: z.number().int().positive().optional(),
+  /**
+   * Every source's score. `MediaBase.ratingValue` stays the one headline
+   * number (TMDb, falling back to IMDb); this is the full set beside it.
+   */
+  ratings: MovieRatingsSchema.optional(),
+  studio: z.string().optional(),
   tmdbId: z.number().int().positive(),
+  /** A YouTube video id - not a URL. */
+  trailerYouTubeId: z.string().optional(),
   type: z.literal(DownloadType.Movie),
+})
+
+/** One credited actor, in billing order. */
+export const CastCreditSchema = z.object({
+  character: z.string().optional(),
+  /** A TMDb headshot, already sized down from Radarr's `original`. */
+  imageUrl: z.string().optional(),
+  name: z.string(),
+})
+
+/**
+ * Who made a title - Radarr's `/api/v3/credit`, split into the three lists
+ * the detail page draws. Detail route only: it costs a Radarr call per title,
+ * so it rides on `MediaDetailResponse` rather than on `Movie`, which every
+ * list route and live frame carries.
+ */
+export const MediaCreditsSchema = z.object({
+  cast: z.array(CastCreditSchema),
+  directors: z.array(z.string()),
+  writers: z.array(z.string()),
 })
 
 export const ShowSchema = ManagedMediaBaseSchema.extend({

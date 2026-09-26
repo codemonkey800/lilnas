@@ -42,6 +42,7 @@ import {
   type MediaFileSource,
 } from 'src/media/media-file.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
+import { RadarrService } from 'src/media/radarr.service'
 import { ReleaseService } from 'src/media/release.service'
 import { ShowService } from 'src/media/show.service'
 
@@ -186,6 +187,7 @@ describe('DownloadController - GET /media/:id/file', () => {
         },
         { provide: MediaResolverService, useValue: { resolve: jest.fn() } },
         { provide: ProfileService, useValue: {} },
+        { provide: RadarrService, useValue: {} },
         { provide: ReleaseService, useValue: {} },
         { provide: ShowService, useValue: {} },
       ],
