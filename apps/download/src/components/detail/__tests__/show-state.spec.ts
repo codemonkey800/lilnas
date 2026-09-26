@@ -33,6 +33,7 @@ import {
   seriesProgress,
   seriesState,
   showMetaLine,
+  showYears,
   SPECIALS_SEASON_NUMBER,
 } from 'src/components/detail/show-state'
 
@@ -629,6 +630,14 @@ describe('showMetaLine', () => {
     )
   })
 
+  it('appends the rating and genres, as the movie line does', () => {
+    expect(
+      showMetaLine(show({ genres: ['Comedy', 'Drama'], ratingValue: 8.54 }), [
+        season(),
+      ]),
+    ).toBe('2014 · 1 season · 29m · TV-MA · 8.5/10 · Comedy, Drama')
+  })
+
   it('drops every part it does not have', () => {
     expect(
       showMetaLine(
@@ -636,6 +645,33 @@ describe('showMetaLine', () => {
         [],
       ),
     ).toBe('')
+  })
+})
+
+describe('showYears', () => {
+  it('leaves a running series open-ended', () => {
+    expect(showYears(show({ status: 'continuing' }))).toBe('2014–')
+  })
+
+  it('spans an ended series to its last air year', () => {
+    expect(
+      showYears(show({ lastAired: '2019-12-08T00:00:00Z', status: 'ended' })),
+    ).toBe('2014–2019')
+  })
+
+  it.each([
+    [
+      'ended the year it began',
+      { lastAired: '2014-12-01T00:00:00Z', status: 'ended' as const },
+    ],
+    ['upcoming', { status: 'upcoming' as const }],
+    ['with no status', {}],
+  ])('reads the bare year for a series %s', (_label, overrides) => {
+    expect(showYears(show(overrides))).toBe('2014')
+  })
+
+  it('reads nothing without a year', () => {
+    expect(showYears(show({ year: undefined }))).toBeNull()
   })
 })
 

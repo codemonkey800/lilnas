@@ -5,6 +5,7 @@ import type {
   BadFile,
   DownloadJob,
   Episode,
+  EpisodeFinaleType,
   Show,
 } from '@lilnas/utils/download/types'
 import { isTerminalDownloadJobStatus } from '@lilnas/utils/download/types'
@@ -21,6 +22,7 @@ import {
 } from 'src/components/detail/bad-file-flag'
 import type { DeleteMediaFilesAction } from 'src/components/detail/delete-confirm'
 import { DeleteConfirm } from 'src/components/detail/delete-confirm'
+import { formatDay } from 'src/components/detail/fact-section'
 import type { ImportDialogActions } from 'src/components/detail/import-dialog'
 import { ImportDialog } from 'src/components/detail/import-dialog'
 import type { JobAction } from 'src/components/detail/job-actions'
@@ -51,6 +53,13 @@ import { formatRuntime, UNKNOWN_VALUE } from 'src/lib/format'
 /** The disclosure's two labels, and the eyebrow over what it reveals. */
 export const EPISODE_ACTIONS_LABEL = 'Manage'
 export const EPISODE_ACTIONS_HIDE_LABEL = 'Close'
+
+/** The chip beside a last episode - Sonarr's `finaleType`, in words. */
+export const EPISODE_FINALE_LABELS: Record<EpisodeFinaleType, string> = {
+  midseason: 'midseason finale',
+  season: 'season finale',
+  series: 'series finale',
+}
 
 /**
  * `show-detail.pug`'s `episode` mixin, reconciled into one responsive row:
@@ -84,7 +93,7 @@ function episodeQueuePct(episode: Episode): number | null {
 
   return pct !== undefined && Number.isFinite(pct) ? pct : null
 }
-const EPISODE_RUNTIME = 'font-mono text-mono-sm text-ink-4'
+const EPISODE_META = 'font-mono text-mono-sm text-ink-4'
 
 /**
  * A row action: splits the stacked row on a phone, natural width from `sm`.
@@ -225,6 +234,7 @@ export function ShowEpisodeRow({
   const cancel = attempt ? jobActionState(attempt.status, 'cancel') : 'none'
   const pct = episodeQueuePct(episode)
   const runtime = formatRuntime(episode.runtime, 'hours')
+  const airDay = formatDay(episode.airDate)
   const code = episodeCode(episode.seasonNumber, episode.episodeNumber)
 
   function runCancel(action: JobAction, jobId: string): void {
@@ -247,7 +257,14 @@ export function ShowEpisodeRow({
         <span
           className={cns('flex flex-wrap items-center gap-2.5 sm:shrink-0')}
         >
-          <span className={cns(EPISODE_RUNTIME)}>{runtime}</span>
+          {airDay ? <span className={cns(EPISODE_META)}>{airDay}</span> : null}
+          <span className={cns(EPISODE_META)}>{runtime}</span>
+          {episode.finaleType ? (
+            <Chip
+              label={EPISODE_FINALE_LABELS[episode.finaleType]}
+              tone="mute"
+            />
+          ) : null}
           <Chip tone={state.tone}>
             {state.live ? <Dot tone="live" /> : null}
             {state.label}
@@ -332,6 +349,7 @@ export function ShowEpisodeRow({
       </div>
       {open ? (
         <div className={cns('flex flex-col gap-3 px-1 pt-1 pb-[13px]')}>
+          <EpisodeSynopsis episode={episode} />
           <ReleasePicker
             badFiles={badFiles}
             // ⚠️ Absent whenever the file on disk cannot be traced back to a
@@ -386,6 +404,34 @@ export function ShowEpisodeRow({
             </StateLineActions>
           ) : null}
         </div>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * What the drawer says about the episode before the controls - its synopsis,
+ * and the running number an anime is usually counted by. Nothing at all for
+ * an episode with neither, so the drawer opens straight onto the picker.
+ */
+function EpisodeSynopsis({
+  episode,
+}: {
+  episode: Episode
+}): JSX.Element | null {
+  const absolute = episode.absoluteEpisodeNumber
+
+  if (!episode.overview && absolute === undefined) {
+    return null
+  }
+
+  return (
+    <div className={cns('flex max-w-[640px] flex-col gap-1')}>
+      {absolute === undefined ? null : (
+        <span className={cns(EPISODE_META)}>{`#${absolute} overall`}</span>
+      )}
+      {episode.overview ? (
+        <p className={cns('text-sm text-ink-2')}>{episode.overview}</p>
       ) : null}
     </div>
   )

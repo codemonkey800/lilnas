@@ -25,6 +25,11 @@ import {
   ShowDetail,
   WATCH_LABEL,
 } from 'src/components/detail/show-detail'
+import {
+  SHOW_DETAILS_HEADING,
+  SHOW_TMDB_LABEL,
+  SHOW_TVDB_LABEL,
+} from 'src/components/detail/show-facts'
 
 const WATCH_URL = 'https://emby.lilnas.io/web/index.html#!/item?id=673'
 
@@ -109,6 +114,26 @@ describe('the page body', () => {
     expect(
       screen.getByText('2014 · 2 seasons · 29m · TV-MA'),
     ).toBeInTheDocument()
+  })
+
+  it('draws the Details card and the external links', () => {
+    renderDetail({ media: show({ network: 'HBO', tmdbId: 60573 }) })
+
+    expect(
+      screen.getByRole('region', { name: SHOW_DETAILS_HEADING }),
+    ).toHaveTextContent('HBO')
+    expect(screen.getByRole('link', { name: SHOW_TMDB_LABEL })).toHaveAttribute(
+      'href',
+      'https://www.themoviedb.org/tv/60573',
+    )
+  })
+
+  it('draws no external links over the metadata placeholder', () => {
+    renderDetail({ media: show({ title: SHOW_ID }) })
+
+    expect(
+      screen.queryByRole('link', { name: SHOW_TVDB_LABEL }),
+    ).not.toBeInTheDocument()
   })
 
   it('renders no cast row, because nothing on the wire carries one', () => {
