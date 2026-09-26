@@ -82,6 +82,7 @@ The route goes live within ~1 second. `docker compose down` removes it.
 - `<name>` must be a valid RFC 1123 DNS label: lowercase alphanumeric + hyphens, no leading/trailing hyphen, ≤63 chars.
 - **Reserved names** (will shadow production routes — do not use): `traefik`, `auth`, `portal`, `equations`, `me-token-tracker`, `download`, `yoink`, `dashcam`, `macros`, `tdr-bot`, `prometheus`, `grafana`.
 - Use the `dev-<name>` prefix on router names (as shown above) to avoid silent conflicts with production router names.
+- If the service also joins `lilnas_default` (to reach production services by name), its **compose service name** must not match any production service (`download`, `tdr-bot`, `storage`, ...). Compose registers every service name as a DNS alias on each network the service joins, so a dev `download` answers alongside production's and production callers randomly reach the dev container. Suffix it instead: `download-dev`, `tdr-dev`.
 
 Traefik does not warn on `Host()` conflicts — a careless `<name>` silently shadows a production route. **No runtime enforcement is provided in the manual path; the operator owns these rules.**
 

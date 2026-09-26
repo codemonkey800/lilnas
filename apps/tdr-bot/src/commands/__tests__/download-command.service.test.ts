@@ -1,4 +1,3 @@
-import { DownloadClient } from '@lilnas/utils/download/client'
 import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
 import { Client } from 'minio'
 
@@ -71,19 +70,19 @@ jest.mock('fs-extra', () => ({
   remove: jest.fn().mockResolvedValue(undefined),
 }))
 
+const mockClient = {
+  cancelJob: jest.fn(),
+  createJob: jest.fn(),
+  getJob: jest.fn(),
+  waitForJob: jest.fn(),
+  // Returns a *derived* client in production; the derived client is wired
+  // up in `beforeEach` so each test can assert which of the two a call
+  // went through.
+  withDiscordIdentity: jest.fn(),
+}
+
 jest.mock('@lilnas/utils/download/client', () => ({
-  DownloadClient: {
-    dockerInstance: {
-      cancelJob: jest.fn(),
-      createJob: jest.fn(),
-      getJob: jest.fn(),
-      waitForJob: jest.fn(),
-      // Returns a *derived* client in production; the derived client is wired
-      // up in `beforeEach` so each test can assert which of the two a call
-      // went through.
-      withDiscordIdentity: jest.fn(),
-    },
-  },
+  DownloadClient: jest.fn(() => mockClient),
 }))
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -121,14 +120,6 @@ type PrivateAwaitJob = {
 }
 
 describe('DownloadCommandService', () => {
-  const mockClient = DownloadClient.dockerInstance as unknown as {
-    cancelJob: jest.Mock
-    createJob: jest.Mock
-    getJob: jest.Mock
-    waitForJob: jest.Mock
-    withDiscordIdentity: jest.Mock
-  }
-
   // Stands in for the per-interaction client `withDiscordIdentity` hands back.
   // It deliberately only carries `createJob`: nothing else is supposed to be
   // called on the identity-scoped client, so a stray call fails loudly.

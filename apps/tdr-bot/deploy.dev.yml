@@ -1,36 +1,136 @@
+# Full-stack dev container for @lilnas/tdr-bot, published at
+# https://tdr.dev.lilnas.io through the PRODUCTION Traefik (the standard
+# lilnas-expose pattern, see docs/lilnas-expose.md). Modeled on
+# apps/download/deploy.dev.yml.
+#
+#   docker compose -f apps/tdr-bot/deploy.dev.yml up -d
+#   docker compose -f apps/tdr-bot/deploy.dev.yml logs -f tdr-dev
+#   docker compose -f apps/tdr-bot/deploy.dev.yml down
+#
+# ⚠️ Every name here is deliberately different from production's deploy.yml,
+# which runs on this same host and Traefik:
+#   - Services `tdr-dev`/`tdr-dev-db`, not `tdr-bot`/`tdr-bot-db`. tdr-dev joins
+#     lilnas_default, and Compose registers every service name as a DNS alias
+#     on each network the service joins. A dev `tdr-bot` would answer
+#     alongside production's, and a dev DB named `tdr-bot-db` would be
+#     ambiguous from tdr-dev itself.
+#   - Container names leave out `tdr-bot` because production's older /restart
+#     restarted the first container whose name contained it.
+#   - Router `dev-tdr`, because production already owns the `tdr` router.
+#
+# Environment layering (later wins):
+#   1. .env.prod: production services and keys (MinIO, equations, Sonarr,
+#      Radarr, Emby, OpenAI, ...), shared by default.
+#   2. .env: the dev Discord bot, plus optional overrides that point any
+#      service at a dev instance instead. See .env.example.
+#   3. `environment:` below: NODE_ENV and the dev database, always pinned.
+# scripts/dev-container.sh refuses to boot if the Discord credentials fall
+# through to production's.
+
 x-logging: &default-logging
   driver: json-file
   options:
-    max-size: "10m"
-    max-file: "3"
+    max-size: '10m'
+    max-file: '3'
+
+# Dev-only credentials. The database is reachable only on this compose
+# project's private network, so they don't need to be secret.
+x-dev-db-env: &dev-db-env
+  POSTGRES_DB: tdr_bot
+  POSTGRES_USER: tdr_bot
+  POSTGRES_PASSWORD: tdr_bot_dev
 
 services:
-  tdr-bot:
+  tdr-dev:
     image: lilnas-dev
-    command: -c "pnpm --filter=tdr-bot dev"
+    container_name: lilnas-tdr-dev
+    command: /source/apps/tdr-bot/scripts/dev-container.sh
     restart: unless-stopped
     logging: *default-logging
-    environment:
-      POSTGRES_HOST: tdr-bot-db
+
+    # Caps a runaway `next dev` to this container's cgroup instead of letting
+    # the host OOM-killer pick a production victim.
+    mem_limit: 6g
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'node -e "require(''http'').get(''http://localhost:8080/'',r=>process.exit(0)).on(''error'',()=>process.exit(1))"',
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+
+    # Matches the host user so .next/, .turbo/ and logs/ written into the bind
+    # mount stay owned by jeremy rather than root.
+    user: '1000:1001'
+
     env_file:
-      - .env
+      - path: .env.prod
+        required: true
+      - path: .env
+        required: true
+
+    environment:
+      <<: *dev-db-env
+      NODE_ENV: development
+      HOME: /home/node
+      POSTGRES_HOST: tdr-dev-db
+      POSTGRES_PORT: '5432'
+      DATABASE_URL: postgresql://tdr_bot:tdr_bot_dev@tdr-dev-db:5432/tdr_bot
+
     depends_on:
-      tdr-bot-db:
+      tdr-dev-db:
         condition: service_healthy
+
+    networks:
+      # The dev database lives here.
+      - default
+      # Traefik reaches the container here...
+      - lilnas-proxy
+      # ...and it reaches the shared production services (storage, equations,
+      # download) by service name here.
+      - lilnas_default
+
+    ports:
+      # Loopback-only escape hatch for curl and headless-browser checks, which
+      # can't follow the OAuth redirect on the public hostname. 8090 is taken
+      # by the download dev container.
+      - '127.0.0.1:8091:8080'
+
+    # No /var/run/docker.sock: /restart reports itself unavailable here, so a
+    # dev instance can never restart containers on the production host.
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ../../:/source
+      - ../..:/source
+      # The host's node_modules are built for node 24 and this image runs
+      # node 25, so the workspace root gets a container-owned tree. See
+      # infra/base-images/lilnas-dev.Dockerfile.
+      - tdr-dev-root-modules:/source/node_modules
+      - tdr-dev-pnpm-store:/home/node/.local/share/pnpm
+
     labels:
       - traefik.enable=true
-      - traefik.http.routers.tdr.rule=Host(`tdr.localhost`)
-      - traefik.http.services.tdr.loadbalancer.server.port=8080
+      - traefik.docker.network=lilnas-proxy
+      - traefik.http.routers.dev-tdr.rule=Host(`tdr.dev.lilnas.io`)
+      - traefik.http.routers.dev-tdr.entrypoints=websecure
+      # tls=true reuses the shared *.dev.lilnas.io wildcard cert. Don't use
+      # certresolver=le: it requests a per-host cert and burns Let's Encrypt
+      # quota.
+      - traefik.http.routers.dev-tdr.tls=true
+      - traefik.http.routers.dev-tdr.middlewares=lilnas-auth
+      - traefik.http.services.dev-tdr.loadbalancer.server.port=8080
+      # No lilnas.idle-reap label needed: apps/dev-idle-reaper auto-enrolls
+      # *.dev.lilnas.io routes and reaps them one container at a time, so the
+      # database sidecar (no route) keeps running.
 
-  tdr-bot-db:
+  tdr-dev-db:
     image: postgres:17-alpine
-    env_file:
-      - .env
+    container_name: lilnas-tdr-dev-db
+    environment:
+      <<: *dev-db-env
     volumes:
-      - ./data/tdr-bot-db:/var/lib/postgresql/data
+      - tdr-dev-db-data:/var/lib/postgresql/data
     healthcheck:
       test: pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
       interval: 10s
@@ -39,3 +139,14 @@ services:
       start_period: 30s
     restart: unless-stopped
     logging: *default-logging
+
+networks:
+  lilnas-proxy:
+    external: true
+  lilnas_default:
+    external: true
+
+volumes:
+  tdr-dev-root-modules:
+  tdr-dev-pnpm-store:
+  tdr-dev-db-data:
