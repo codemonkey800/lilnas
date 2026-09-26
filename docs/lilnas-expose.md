@@ -106,6 +106,7 @@ A `traefik/whoami` fixture is bundled at `plugins/lilnas/skills/expose/examples/
 - **Same-host only.** The external project must run on the NAS Docker host.
 - **Container must bind `0.0.0.0`.** Traefik cannot reach a service bound only to `localhost`.
 - **Shared wildcard TLS cert.** All `*.dev.lilnas.io` routes share one wildcard cert (DNS-01 via the `le` resolver, Namecheap provider), managed by the production Traefik — no per-host cert is issued. Router labels must use `tls=true`, not `tls.certresolver=le`; setting `certresolver` requests a wasteful per-host cert instead of reusing the wildcard and eats into the ~50 new certs/week Let's Encrypt rate limit.
+- **Idle reaping.** `apps/dev-idle-reaper` auto-enrolls every `*.dev.lilnas.io` route and stops+removes it (the whole project, for projects under `~/dev`) after 6 hours without network I/O. Tune with `lilnas.idle-reap.max-idle-hours=<n>`; opt out with `lilnas.idle-reap.enabled=false`.
 - **DNS interaction.** `*.dev.lilnas.io` resolves via the existing `*.lilnas.io` wildcard. If any explicit DNS record is added under `dev`, the wildcard stops covering `*.dev.lilnas.io`.
 
 See `plugins/lilnas/skills/expose/reference/caveats.md` for the full list.

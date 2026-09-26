@@ -19,6 +19,7 @@ include:
   # App services
   - ./apps/portal/deploy.yml
   - ./apps/dashcam/deploy.yml
+  - ./apps/dev-idle-reaper/deploy.yml
   - ./apps/download/deploy.yml
   - ./apps/equations/deploy.yml
   - ./apps/auth/deploy.yml
