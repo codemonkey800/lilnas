@@ -5,11 +5,20 @@ import type {
   MovieFile,
   MovieRatings,
 } from '@lilnas/utils/download/types'
-import type { ComponentPropsWithoutRef, JSX, ReactNode } from 'react'
-import { useId } from 'react'
+import type { ComponentPropsWithoutRef, JSX } from 'react'
 
-import { ButtonLink } from 'src/components/ui/button-link'
-import { Card } from 'src/components/ui/card'
+import type { ExternalLink, Fact } from 'src/components/detail/fact-section'
+import {
+  ExternalLinks,
+  fact,
+  FactCards,
+  FactRun,
+  facts,
+  formatDay,
+  IMDB_LABEL,
+  imdbLink,
+  joinFacts,
+} from 'src/components/detail/fact-section'
 import { Chip } from 'src/components/ui/chip'
 import { formatBytes, UNKNOWN_VALUE } from 'src/lib/format'
 
@@ -22,35 +31,12 @@ export const MOVIE_DETAILS_HEADING = 'Details'
  */
 export const MOVIE_UPGRADE_LABEL = 'upgrade wanted'
 
-export const MOVIE_IMDB_LABEL = 'IMDb'
+export const MOVIE_IMDB_LABEL = IMDB_LABEL
 export const MOVIE_TMDB_LABEL = 'TMDb'
 export const MOVIE_TRAILER_LABEL = 'Trailer'
 
-/** `tt` and digits - anything else is not an IMDb title id. */
-const IMDB_ID = /^tt\d+$/
-
 /** YouTube's id alphabet. Checked because it lands in an `href`. */
 const YOUTUBE_ID = /^[\w-]{6,20}$/
-
-const SEPARATOR = ' · '
-
-/**
- * Upstream dates are midnight UTC (`2012-09-20T00:00:00Z`), so they are read
- * in UTC - in a timezone behind it, local time would print the day before.
- * The locale is pinned for the same reason the zone is: this renders on the
- * server and again in the browser, and the two have to agree.
- */
-const DAY_FORMAT = new Intl.DateTimeFormat('en-US', {
-  day: 'numeric',
-  month: 'short',
-  timeZone: 'UTC',
-  year: 'numeric',
-})
-
-function joined(parts: readonly (string | null | undefined)[]): string | null {
-  const present = parts.filter((part): part is string => Boolean(part))
-  return present.length > 0 ? present.join(SEPARATOR) : null
-}
 
 /** `5.1` stays `5.1`; a whole `2` reads as the conventional `2.0`. */
 export function formatChannels(channels: number): string {
@@ -65,16 +51,6 @@ function formatFps(fps: number): string {
   return `${Number(fps.toFixed(3))}\u00a0fps`
 }
 
-/** `2012-09-20T00:00:00Z` -> `Sep 20, 2012`, or `null` for anything unparseable. */
-export function formatReleaseDay(value: string | undefined): string | null {
-  if (!value) {
-    return null
-  }
-
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? null : DAY_FORMAT.format(date)
-}
-
 /** `AVC · 1920×1080 · 8-bit · SDR · 23.976 fps`. */
 export function fileVideoLine(file: MovieFile): string | null {
   const video = file.video
@@ -83,7 +59,7 @@ export function fileVideoLine(file: MovieFile): string | null {
     return null
   }
 
-  return joined([
+  return joinFacts([
     video.codec,
     video.resolution?.replace('x', '×'),
     video.bitDepth ? `${video.bitDepth}-bit` : null,
@@ -105,7 +81,7 @@ export function fileAudioLine(file: MovieFile): string | null {
     audio.channels ? formatChannels(audio.channels) : undefined,
   )
 
-  return joined([
+  return joinFacts([
     codec,
     audio.languages?.join(', '),
     audio.streamCount && audio.streamCount > 1
@@ -146,25 +122,7 @@ export function ratingParts(ratings: MovieRatings | undefined): string[] {
 
 /** {@link ratingParts} as one line - `IMDb 7.6 · Rotten Tomatoes 85%`. */
 export function ratingsLine(ratings: MovieRatings | undefined): string | null {
-  return joined(ratingParts(ratings))
-}
-
-/**
- * The ratings as a wrapping run in which no single score splits across lines -
- * `Trakt` at the end of one line and `7.6` at the start of the next reads as
- * two facts.
- */
-function Ratings({ parts }: { parts: readonly string[] }): JSX.Element {
-  return (
-    <>
-      {parts.map((part, index) => (
-        <span key={part}>
-          {index > 0 ? SEPARATOR : null}
-          <span className={cns('whitespace-nowrap')}>{part}</span>
-        </span>
-      ))}
-    </>
-  )
+  return joinFacts(ratingParts(ratings))
 }
 
 /**
@@ -190,19 +148,6 @@ function ReleaseName({ name }: { name: string }): JSX.Element {
       ))}
     </span>
   )
-}
-
-/** One `<dt>`/`<dd>` pair. A row with nothing to say is not drawn. */
-type Fact = { label: string; value: ReactNode }
-
-function facts(rows: readonly (Fact | null)[]): Fact[] {
-  return rows.filter((row): row is Fact => row !== null)
-}
-
-function fact(label: string, value: ReactNode | null | undefined): Fact | null {
-  return value === null || value === undefined || value === ''
-    ? null
-    : { label, value }
 }
 
 /** The `File` card's rows, in the order someone checking a file reads them. */
@@ -249,63 +194,11 @@ export function movieInfoFacts(
     fact('Original title', movie.originalTitle),
     fact('Language', movie.originalLanguage),
     fact('Collection', movie.collection?.title),
-    fact('In cinemas', formatReleaseDay(movie.inCinemas)),
-    fact('Digital', formatReleaseDay(movie.digitalRelease)),
-    fact('Physical', formatReleaseDay(movie.physicalRelease)),
-    fact('Ratings', ratings.length > 0 ? <Ratings parts={ratings} /> : null),
+    fact('In cinemas', formatDay(movie.inCinemas)),
+    fact('Digital', formatDay(movie.digitalRelease)),
+    fact('Physical', formatDay(movie.physicalRelease)),
+    fact('Ratings', ratings.length > 0 ? <FactRun parts={ratings} /> : null),
   ])
-}
-
-type FactSectionProps = Omit<
-  ComponentPropsWithoutRef<'section'>,
-  'children'
-> & {
-  facts: readonly Fact[]
-  heading: string
-}
-
-/**
- * A heading over a sunk card of label/value rows - the same heading weight and
- * card the attempts and release sections use, so the page reads as one set.
- * The label column is sized to its longest label and the value column takes
- * the rest, at every width: a release name is the only long value, and it
- * wraps between its fields rather than pushing the card wider than the phone.
- */
-function FactSection({
-  className,
-  facts: rows,
-  heading,
-  ...props
-}: FactSectionProps): JSX.Element {
-  const headingId = useId()
-
-  return (
-    <section
-      {...props}
-      aria-labelledby={headingId}
-      className={cns('flex min-w-0 flex-col gap-3', className)}
-    >
-      <h2 className={cns('text-h2')} id={headingId}>
-        {heading}
-      </h2>
-      <Card className={cns('px-[14px] py-3.5 sm:px-4')} sunk>
-        <dl
-          className={cns(
-            'grid grid-cols-[max-content_minmax(0,1fr)] gap-x-5 gap-y-2.5 text-sm',
-          )}
-        >
-          {rows.map(row => (
-            <div className={cns('contents')} key={row.label}>
-              <dt className={cns('text-ink-3')}>{row.label}</dt>
-              <dd className={cns('min-w-0 break-words text-ink')}>
-                {row.value}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      </Card>
-    </section>
-  )
 }
 
 export type MovieFactsProps = Omit<
@@ -327,55 +220,38 @@ export type MovieFactsProps = Omit<
  * it. `null` when neither has anything to say, so the page adds no gap.
  */
 export function MovieFacts({
-  className,
   credits,
   movie,
   ...props
 }: MovieFactsProps): JSX.Element | null {
-  const fileRows = movie.file ? movieFileFacts(movie.file) : []
-  const infoRows = movieInfoFacts(movie, credits)
-
-  if (fileRows.length === 0 && infoRows.length === 0) {
-    return null
-  }
-
-  const both = fileRows.length > 0 && infoRows.length > 0
-
   return (
-    <div
+    <FactCards
       {...props}
-      className={cns(
-        'grid items-start gap-7 sm:gap-8',
-        both && 'lg:grid-cols-2',
-        className,
-      )}
-    >
-      {fileRows.length > 0 ? (
-        <FactSection facts={fileRows} heading={MOVIE_FILE_HEADING} />
-      ) : null}
-      {infoRows.length > 0 ? (
-        <FactSection facts={infoRows} heading={MOVIE_DETAILS_HEADING} />
-      ) : null}
-    </div>
+      sections={[
+        {
+          facts: movie.file ? movieFileFacts(movie.file) : [],
+          heading: MOVIE_FILE_HEADING,
+        },
+        {
+          facts: movieInfoFacts(movie, credits),
+          heading: MOVIE_DETAILS_HEADING,
+        },
+      ]}
+    />
   )
 }
-
-/** An external link, or `null` when the id upstream sent is not one. */
-type MovieLink = { href: string; label: string }
 
 /**
  * The movie's pages elsewhere - IMDb, TMDb, and its trailer on YouTube. Each
  * id is checked against its own alphabet before it is put in an `href`: they
  * come from Radarr, which got them from TMDb, and neither is this app.
  */
-export function movieLinks(movie: Movie): MovieLink[] {
-  const links: MovieLink[] = []
+export function movieLinks(movie: Movie): ExternalLink[] {
+  const links: ExternalLink[] = []
+  const imdb = imdbLink(movie.imdbId)
 
-  if (movie.imdbId && IMDB_ID.test(movie.imdbId)) {
-    links.push({
-      href: `https://www.imdb.com/title/${movie.imdbId}/`,
-      label: MOVIE_IMDB_LABEL,
-    })
+  if (imdb) {
+    links.push(imdb)
   }
 
   links.push({
@@ -400,35 +276,10 @@ export type MovieLinksProps = Omit<
   movie: Movie
 }
 
-/**
- * {@link movieLinks} as a row of quiet external links for the header's `links`
- * slot - the video page's "View original post" treatment, several abreast.
- * The negative margin cancels the first link's padding so its label lines up
- * with the synopsis above it.
- */
+/** {@link movieLinks} as the header's row of external links. */
 export function MovieLinks({
-  className,
   movie,
   ...props
-}: MovieLinksProps): JSX.Element {
-  return (
-    <div
-      {...props}
-      className={cns('-ml-[11px] flex flex-wrap items-center gap-1', className)}
-    >
-      {movieLinks(movie).map(link => (
-        <ButtonLink
-          href={link.href}
-          icon="external"
-          key={link.label}
-          rel="noreferrer"
-          size="sm"
-          target="_blank"
-          variant="ghost"
-        >
-          {link.label}
-        </ButtonLink>
-      ))}
-    </div>
-  )
+}: MovieLinksProps): JSX.Element | null {
+  return <ExternalLinks {...props} links={movieLinks(movie)} />
 }
