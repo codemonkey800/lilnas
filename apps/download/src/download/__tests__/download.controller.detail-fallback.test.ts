@@ -93,6 +93,7 @@ describe('DownloadController - detail-route restart fallback', () => {
         // release and bad-file routes and ShowService for the seasons and
         // file-delete routes. Unused by this file's routes, but DI still has
         // to satisfy the constructor.
+        { provide: RadarrService, useValue: {} },
         { provide: ReleaseService, useValue: {} },
         { provide: ShowService, useValue: {} },
       ],

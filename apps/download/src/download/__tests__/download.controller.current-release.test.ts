@@ -27,6 +27,7 @@ import { ManualImportService } from 'src/media/manual-import.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import { MediaFileService } from 'src/media/media-file.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
+import { RadarrService } from 'src/media/radarr.service'
 import { ReleaseService } from 'src/media/release.service'
 import { ShowService } from 'src/media/show.service'
 
@@ -104,6 +105,7 @@ describe('DownloadController - current release on the detail route', () => {
         { provide: MediaFileService, useValue: {} },
         { provide: MediaResolverService, useValue: mediaResolver },
         { provide: ProfileService, useValue: {} },
+        { provide: RadarrService, useValue: {} },
         { provide: ReleaseService, useValue: {} },
         { provide: ShowService, useValue: {} },
       ],

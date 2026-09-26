@@ -44,6 +44,7 @@ import { ManualImportService } from 'src/media/manual-import.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import { MediaFileService } from 'src/media/media-file.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
+import { RadarrService } from 'src/media/radarr.service'
 import { ReleaseService } from 'src/media/release.service'
 import { ShowService } from 'src/media/show.service'
 
@@ -61,6 +62,7 @@ describe('DownloadController - media endpoints', () => {
   let adminCheckService: jest.Mocked<AdminCheckService>
   let mediaResolver: ReturnType<typeof createFakeMediaResolver>
   let jobQueryService: { listJobsForMedia: jest.Mock }
+  let radarrService: { getCredits: jest.Mock }
   let manualImportService: jest.Mocked<ManualImportService>
   let releaseService: jest.Mocked<ReleaseService>
   let showService: jest.Mocked<ShowService>
@@ -99,6 +101,7 @@ describe('DownloadController - media endpoints', () => {
     }
     mediaResolver = createFakeMediaResolver()
     jobQueryService = { listJobsForMedia: jest.fn().mockResolvedValue([]) }
+    radarrService = { getCredits: jest.fn() }
     videosById = new Map()
     auditLogService = { record: jest.fn() }
 
@@ -129,6 +132,7 @@ describe('DownloadController - media endpoints', () => {
         { provide: MediaFileService, useValue: {} },
         { provide: MediaResolverService, useValue: mediaResolver },
         { provide: ProfileService, useValue: {} },
+        { provide: RadarrService, useValue: radarrService },
         { provide: ReleaseService, useValue: mockReleaseService },
         { provide: ShowService, useValue: mockShowService },
       ],
@@ -488,6 +492,59 @@ describe('DownloadController - media endpoints', () => {
     // With Radarr down the resolver degrades to a placeholder rather than
     // throwing, so the page still renders its jobs with correct status and
     // attribution - the title is what degrades, not the request.
+    it("attaches a library movie's credits, looked up by its Radarr id", async () => {
+      const credits = {
+        cast: [{ character: 'Brian Taylor', name: 'Jake Gyllenhaal' }],
+        directors: ['David Ayer'],
+        writers: ['David Ayer'],
+      }
+      mediaResolver.fixtures.set('tmdb:77016', {
+        id: 'tmdb:77016',
+        radarrId: 531,
+        title: 'End of Watch',
+        tmdbId: 77016,
+        type: DownloadType.Movie,
+      })
+      radarrService.getCredits.mockResolvedValue(credits)
+
+      const response = await controller.getMediaDetail('tmdb:77016', undefined)
+
+      expect(radarrService.getCredits).toHaveBeenCalledWith(531)
+      expect(response.credits).toEqual(credits)
+    })
+
+    // Radarr's credit endpoint is keyed on its own id, which a movie outside
+    // the library does not have.
+    it('skips credits for a movie outside the library', async () => {
+      mediaResolver.fixtures.set('tmdb:438631', {
+        id: 'tmdb:438631',
+        title: 'Dune',
+        tmdbId: 438631,
+        type: DownloadType.Movie,
+      })
+
+      const response = await controller.getMediaDetail('tmdb:438631', undefined)
+
+      expect(radarrService.getCredits).not.toHaveBeenCalled()
+      expect(response).not.toHaveProperty('credits')
+    })
+
+    it('still returns the page when the credits lookup fails', async () => {
+      mediaResolver.fixtures.set('tmdb:77016', {
+        id: 'tmdb:77016',
+        radarrId: 531,
+        title: 'End of Watch',
+        tmdbId: 77016,
+        type: DownloadType.Movie,
+      })
+      radarrService.getCredits.mockRejectedValue(new Error('radarr down'))
+
+      const response = await controller.getMediaDetail('tmdb:77016', undefined)
+
+      expect(response.media.title).toBe('End of Watch')
+      expect(response).not.toHaveProperty('credits')
+    })
+
     it('still returns a page when the upstream lookup is degraded', async () => {
       mediaResolver.fixtures.set('tmdb:5', {
         id: 'tmdb:5',

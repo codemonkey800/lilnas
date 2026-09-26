@@ -32,6 +32,7 @@ import { MediaDownloadService } from 'src/media/media-download.service'
 import { MediaFileService } from 'src/media/media-file.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
 import { MediaStateService } from 'src/media/media-state.service'
+import { RadarrService } from 'src/media/radarr.service'
 import { ReleaseService } from 'src/media/release.service'
 import { ShowService } from 'src/media/show.service'
 
@@ -121,6 +122,7 @@ describe('DownloadController - read-time link resolution', () => {
         { provide: MediaResolverService, useValue: createFakeMediaResolver() },
         MediaStateService,
         { provide: ProfileService, useValue: {} },
+        { provide: RadarrService, useValue: {} },
         { provide: ReleaseService, useValue: {} },
         { provide: ShowService, useValue: {} },
       ],
