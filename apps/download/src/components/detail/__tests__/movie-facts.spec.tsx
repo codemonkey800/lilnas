@@ -4,11 +4,11 @@ import type { MediaCredits, Movie } from '@lilnas/utils/download/types'
 import { DownloadType } from '@lilnas/utils/download/types'
 import { render, screen, within } from '@testing-library/react'
 
+import { formatDay } from 'src/components/detail/fact-section'
 import {
   fileAudioLine,
   fileVideoLine,
   formatChannels,
-  formatReleaseDay,
   MOVIE_DETAILS_HEADING,
   MOVIE_FILE_HEADING,
   MOVIE_IMDB_LABEL,
@@ -84,9 +84,9 @@ describe('formatters', () => {
   })
 
   it('reads a release date in UTC so it never slips a day', () => {
-    expect(formatReleaseDay('2012-09-20T00:00:00Z')).toBe('Sep 20, 2012')
-    expect(formatReleaseDay('not a date')).toBeNull()
-    expect(formatReleaseDay(undefined)).toBeNull()
+    expect(formatDay('2012-09-20T00:00:00Z')).toBe('Sep 20, 2012')
+    expect(formatDay('not a date')).toBeNull()
+    expect(formatDay(undefined)).toBeNull()
   })
 
   it('spells the video and audio lines', () => {
