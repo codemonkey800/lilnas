@@ -1,4 +1,5 @@
 import { cns } from '@lilnas/utils/cns'
+import { ACTIVITY_HREF } from '@lilnas/utils/download/media-route'
 import type { DownloadGalleryFacets } from '@lilnas/utils/download/types'
 import { DownloadType } from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX } from 'react'
@@ -7,7 +8,7 @@ import type { IconName } from 'src/components/ui/icon'
 import { Tile } from 'src/components/ui/tile'
 
 /** The activity feed — every job currently in flight, plus what just finished. */
-export const ACTIVITY_HREF = '/activity'
+export { ACTIVITY_HREF }
 
 /** The full library. */
 export const GALLERY_HREF = '/gallery'
