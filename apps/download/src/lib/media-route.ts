@@ -1,32 +1,18 @@
-import { DownloadType, type Media } from '@lilnas/utils/download/types'
+import type { MediaRouteKind } from '@lilnas/utils/download/media-route'
+import { DownloadType } from '@lilnas/utils/download/types'
 
-import { mediaIdSuffix } from 'src/db/media-id'
-
-/**
- * The first path segment of a media detail route - one per
- * {@link DownloadType}, and the thing that tells the router which of the
- * three detail layouts to render.
- *
- * Routes are `/movies/<tmdbId>`, `/shows/<tvdbId>`, `/videos/<videoId>`: the
- * `tmdb:`/`tvdb:`/`video:` prefix a `mediaId()` key carries is *dropped* on
- * the way out and reattached server-side on the way in. A colon in a path
- * segment would otherwise have to be percent-encoded in every `<Link>`, and
- * the encoded form leaks into the address bar.
- */
-export type MediaRouteKind = 'movies' | 'shows' | 'videos'
+// The outbound half (`DownloadType` -> href) lives in `@lilnas/utils` so the
+// Discord bot links to the same paths this app routes; re-exported so pages
+// keep importing from one place.
+export {
+  mediaHref,
+  type MediaRouteKind,
+  routeKindFromType,
+} from '@lilnas/utils/download/media-route'
 
 /**
- * The single source of truth for the `DownloadType` <-> route-segment
- * mapping, in the one direction; {@link ROUTE_KIND_TO_TYPE} inverts it. A
- * `Record<DownloadType, …>` rather than a `switch`, so adding a fourth
- * `DownloadType` is a compile error here instead of a 404 at runtime.
+ * The inbound half of the kind map in `@lilnas/utils/download/media-route`.
  */
-const TYPE_TO_ROUTE_KIND: Record<DownloadType, MediaRouteKind> = {
-  [DownloadType.Movie]: 'movies',
-  [DownloadType.Show]: 'shows',
-  [DownloadType.Video]: 'videos',
-}
-
 const ROUTE_KIND_TO_TYPE: Record<MediaRouteKind, DownloadType> = {
   movies: DownloadType.Movie,
   shows: DownloadType.Show,
@@ -66,20 +52,7 @@ function isValidSegment(kind: MediaRouteKind, segment: string): boolean {
 }
 
 /**
- * The detail-page href for a piece of media - `tmdb:438631` becomes
- * `/movies/438631`.
- *
- * Derived from `media.type` (the union discriminant, which is always
- * trustworthy) plus `mediaIdSuffix(media.id)` (the documented inverse of
- * `mediaId()`), so there is no second place that knows how a key is spelled.
- */
-export function mediaHref(media: Media): string {
-  const kind = TYPE_TO_ROUTE_KIND[media.type]
-  return `/${kind}/${encodeURIComponent(mediaIdSuffix(media.id))}`
-}
-
-/**
- * The inverse of {@link mediaHref}: reattaches the prefix a route segment
+ * The inverse of `mediaHref`: reattaches the prefix a route segment
  * dropped, yielding the `mediaId()` key every backend endpoint is addressed
  * by.
  *
@@ -104,11 +77,6 @@ export function mediaIdFromRoute(
 /** The {@link DownloadType} a route kind names. Total, so it cannot fail. */
 export function mediaTypeFromRoute(kind: MediaRouteKind): DownloadType {
   return ROUTE_KIND_TO_TYPE[kind]
-}
-
-/** The route kind a {@link DownloadType} maps to. Total, so it cannot fail. */
-export function routeKindFromType(type: DownloadType): MediaRouteKind {
-  return TYPE_TO_ROUTE_KIND[type]
 }
 
 /**
