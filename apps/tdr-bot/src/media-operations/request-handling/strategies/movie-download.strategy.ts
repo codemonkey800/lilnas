@@ -1,4 +1,6 @@
 import { HumanMessage } from '@langchain/core/messages'
+import { mediaId } from '@lilnas/utils/download/media-id'
+import { DownloadType } from '@lilnas/utils/download/types'
 import { getErrorMessage } from '@lilnas/utils/error'
 import { Injectable, Logger } from '@nestjs/common'
 
@@ -13,6 +15,7 @@ import { SelectionUtilities } from 'src/media-operations/request-handling/utils/
 import { ContextManagementService } from 'src/message-handler/context/context-management.service'
 import { PromptGenerationService } from 'src/message-handler/services/prompts/prompt-generation.service'
 import { StateService } from 'src/state/state.service'
+import { withDownloadLinks } from 'src/utils/download-links'
 
 import { BaseMediaStrategy } from './base/base-media-strategy'
 import { MAX_SEARCH_RESULTS } from './base/strategy.constants'
@@ -197,7 +200,9 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
 
           return {
             images: [],
-            messages: messages.concat(response),
+            messages: messages.concat(
+              this.withMovieLinks(response, selectedMovie),
+            ),
           }
         } else {
           this.logger.warn(
@@ -414,7 +419,9 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
 
         return {
           images: [],
-          messages: messages.concat(successResponse),
+          messages: messages.concat(
+            this.withMovieLinks(successResponse, movie),
+          ),
         }
       } else {
         const errorResponse = await this.promptService.generateMoviePrompt(
@@ -453,5 +460,20 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
         messages: messages.concat(errorResponse),
       }
     }
+  }
+
+  /** Appends links to the activity page and the movie's download page. */
+  private withMovieLinks(
+    response: HumanMessage,
+    movie: MovieSearchResult,
+  ): HumanMessage {
+    return withDownloadLinks(
+      response,
+      {
+        id: mediaId({ type: DownloadType.Movie, tmdbId: movie.tmdbId }),
+        type: DownloadType.Movie,
+      },
+      movie.title,
+    )
   }
 }

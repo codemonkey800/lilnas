@@ -24,14 +24,13 @@ import {
 import { MINIO_CONNECTION } from 'nestjs-minio'
 
 import { EnvKeys } from 'src/env'
+import { downloadLinks } from 'src/utils/download-links'
 
 // Production's download service. Point it at a dev instance (e.g.
 // http://lilnas-download-dev:8081) to test against unmerged download changes.
+// Set DOWNLOAD_URL alongside it so the links in the reply name the same
+// instance (see `downloadLinks`).
 const DOWNLOAD_API_URL = env(EnvKeys.DOWNLOAD_API_URL, 'http://download:8081')
-
-// Where users follow a job. Defaults to production, which is where
-// DOWNLOAD_API_URL points unless overridden.
-const DOWNLOAD_URL = env(EnvKeys.DOWNLOAD_URL, 'https://download.lilnas.io')
 
 const MAX_ERROR_LENGTH = 1000
 
@@ -131,8 +130,9 @@ export class DownloadCommandService {
     })
     this.logger.log({ id, job }, 'created job')
 
+    const links = downloadLinks(job.media)
     await interaction.editReply(
-      `download @ <${DOWNLOAD_URL}/downloads/${job.id}>`,
+      `download started — follow along on the [activity page](<${links.activity}>), or open [the video](<${links.media}>)`,
     )
 
     void this.awaitJob({
@@ -468,7 +468,7 @@ export class DownloadCommandService {
             'Files too large for Discord, sending direct download links',
           )
 
-          const downloadLinks = urls
+          const fileLinks = urls
             .map((url: string, index: number) => `[Video ${index + 1}](${url})`)
             .join(' • ')
 
@@ -477,7 +477,7 @@ export class DownloadCommandService {
               media.title ? `[**${media.title}**](<${media.sourceUrl}>)\n` : '',
               author ? `sent by <@${author}>\n` : '',
               description ? `${description}\n\n` : '',
-              downloadLinks,
+              fileLinks,
             ]
               .filter(Boolean)
               .join(''),

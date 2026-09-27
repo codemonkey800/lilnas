@@ -1,4 +1,6 @@
 import { BaseMessage, HumanMessage } from '@langchain/core/messages'
+import { mediaId } from '@lilnas/utils/download/media-id'
+import { DownloadType } from '@lilnas/utils/download/types'
 import { getErrorMessage } from '@lilnas/utils/error'
 import { Injectable, Logger } from '@nestjs/common'
 
@@ -14,6 +16,7 @@ import { ContextManagementService } from 'src/message-handler/context/context-ma
 import { PromptGenerationService } from 'src/message-handler/services/prompts/prompt-generation.service'
 import type { TvShowSelection } from 'src/schemas/tv-show'
 import { StateService } from 'src/state/state.service'
+import { withDownloadLinks } from 'src/utils/download-links'
 
 import { BaseMediaStrategy } from './base/base-media-strategy'
 import { MAX_SEARCH_RESULTS } from './base/strategy.constants'
@@ -204,7 +207,9 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
 
           return {
             images: [],
-            messages: messages.concat(response),
+            messages: messages.concat(
+              this.withShowLinks(response, selectedShow),
+            ),
           }
         } else {
           this.logger.warn(
@@ -327,7 +332,9 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
 
           return {
             images: [],
-            messages: messages.concat(response),
+            messages: messages.concat(
+              this.withShowLinks(response, searchResults[0]),
+            ),
           }
         }
 
@@ -641,7 +648,7 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
 
         return {
           images: [],
-          messages: messages.concat(successResponse),
+          messages: messages.concat(this.withShowLinks(successResponse, show)),
         }
       } else {
         const errorResponse =
@@ -679,5 +686,20 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
         messages: messages.concat(errorResponse),
       }
     }
+  }
+
+  /** Appends links to the activity page and the show's download page. */
+  private withShowLinks(
+    response: HumanMessage,
+    show: SeriesSearchResult,
+  ): HumanMessage {
+    return withDownloadLinks(
+      response,
+      {
+        id: mediaId({ type: DownloadType.Show, tvdbId: show.tvdbId }),
+        type: DownloadType.Show,
+      },
+      show.title,
+    )
   }
 }

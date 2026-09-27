@@ -275,6 +275,9 @@ describe('MovieDownloadStrategy', () => {
 
       expect(contextService.setContext).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
+      expect(result.messages[0].content).toBe(
+        'Here is your movie response...\n\nFollow along on the [activity page](<https://download.lilnas.io/activity>), or open [The Matrix](<https://download.lilnas.io/movies/603>).',
+      )
     })
 
     it('should store context and show list when multiple results found without selection', async () => {
@@ -548,6 +551,8 @@ describe('MovieDownloadStrategy', () => {
       const result = await strategy.handleRequest(params)
 
       expect(result.messages).toHaveLength(1)
+      // Nothing was added, so there is nothing to link to.
+      expect(result.messages[0]).toBe(mockChatResponse)
     })
   })
 
