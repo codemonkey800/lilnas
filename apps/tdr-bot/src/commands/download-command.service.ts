@@ -143,9 +143,17 @@ export class DownloadCommandService {
         description && isVideo(job.media) ? job.media.overview : undefined,
       jobId: job.id,
       url,
-    }).catch((error: unknown) =>
-      this.logger.error({ error, id, jobId: job.id }, 'awaitJob threw'),
-    )
+    }).catch(async (error: unknown) => {
+      this.logger.error({ error, id, jobId: job.id }, 'awaitJob threw')
+
+      // Without this the user is left on "download started" forever.
+      await this.sendEphemeralNotice({
+        content: `download failed for <${url}>: something went wrong on our end`,
+        id,
+        interaction,
+        jobId: job.id,
+      })
+    })
   }
 
   private async hasInvalidInput({
@@ -240,7 +248,7 @@ export class DownloadCommandService {
     jobId: string
     url: string
   }): Promise<void> {
-    const timeoutMs = Number(env(EnvKeys.DOWNLOAD_JOB_TIMEOUT_MS))
+    const timeoutMs = Number(env(EnvKeys.DOWNLOAD_JOB_TIMEOUT_MS, '100000'))
     const signal = AbortSignal.timeout(timeoutMs)
 
     let job: DownloadJob
