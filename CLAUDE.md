@@ -336,19 +336,24 @@ The project uses a layered Docker base image system for consistent environments:
 # - Making significant changes to the build process
 ```
 
-**Important: Docker Cache and Source Code Updates**
+**Important: Deploys Ship the Working Tree**
 
-The `lilnas-monorepo-builder` base image contains a snapshot of the source code. When you make changes to your code and redeploy, the changes might not be reflected because the base image is cached. To ensure fresh source code is deployed:
+The base images hold no source code — each app's Dockerfile copies the source from the build context (`COPY . .`), so a plain rebuild picks up code changes without rebuilding base images:
 
 ```bash
-# Option 1: Rebuild base images first (recommended)
-./infra/base-images/build-base-images.sh
 docker-compose up -d --build <service>
-
-# Option 2: Remove all images to force complete rebuild
-docker-compose down --rmi all
-docker-compose up -d <service>
 ```
+
+The build context is the repo checkout as it sits on disk, so **uncommitted changes (including another session's in-progress work) ship too**. To deploy only committed code, build from a clean worktree and then recreate the service without `--build`:
+
+```bash
+git worktree add --detach /tmp/lilnas-deploy HEAD
+docker build -f /tmp/lilnas-deploy/apps/<app>/Dockerfile -t lilnas-<service> /tmp/lilnas-deploy
+docker-compose up -d <service>
+git worktree remove /tmp/lilnas-deploy
+```
+
+Changes to a service's `env_file` (e.g. `apps/<app>/.env.prod`) only need `docker-compose up -d <service>` — Compose recreates the container when the env file changes, no rebuild required.
 
 ### Build Process
 
