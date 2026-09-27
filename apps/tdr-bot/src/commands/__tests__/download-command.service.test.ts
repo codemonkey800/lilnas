@@ -419,6 +419,33 @@ describe('DownloadCommandService', () => {
       expect(options.signal).toBeInstanceOf(AbortSignal)
     })
 
+    it('still waits on the job when DOWNLOAD_JOB_TIMEOUT_MS is unset', async () => {
+      delete process.env.DOWNLOAD_JOB_TIMEOUT_MS
+      const interaction = createMockInteraction()
+      stubCreatedJob()
+
+      await service.download([interaction] as never, createValidDto() as never)
+
+      expect(mockClient.waitForJob).toHaveBeenCalledTimes(1)
+    })
+
+    it('tells the user when waiting on the job throws unexpectedly', async () => {
+      const interaction = createMockInteraction()
+      stubCreatedJob()
+      // A job with no media makes awaitJob throw outside its own try/catch.
+      mockClient.waitForJob.mockResolvedValue({ id: 'job-1' })
+
+      await service.download([interaction] as never, createValidDto() as never)
+      await new Promise(resolve => setImmediate(resolve))
+
+      expect(interaction.followUp).toHaveBeenCalledTimes(1)
+      const [{ content, flags }] = interaction.followUp.mock.calls[0] as [
+        { content: string; flags: number[] },
+      ]
+      expect(flags).toEqual([64])
+      expect(content).toContain('download failed')
+    })
+
     it('creates the job through a client carrying the discord identity', async () => {
       const interaction = createMockInteraction({ globalName: 'Test Er' })
       stubCreatedJob()
