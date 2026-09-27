@@ -396,6 +396,7 @@ describe('DownloadCommandService', () => {
       mockDiscordScopedClient.createJob.mockResolvedValue({
         id: 'job-1',
         media: {
+          id: 'video:vid-1',
           type: DownloadType.Video,
           sourceUrl: 'https://example.com/video',
         },
@@ -403,6 +404,36 @@ describe('DownloadCommandService', () => {
       // Never resolves - we only care about how it was called.
       mockClient.waitForJob.mockImplementation(() => new Promise(() => {}))
     }
+
+    it("replies with links to the activity page and the video's page", async () => {
+      const interaction = createMockInteraction()
+      stubCreatedJob()
+
+      await service.download([interaction] as never, createValidDto() as never)
+
+      expect(interaction.editReply).toHaveBeenCalledWith(
+        'download started — follow along on the [activity page](<https://download.lilnas.io/activity>), or open [the video](<https://download.lilnas.io/videos/vid-1>)',
+      )
+    })
+
+    it('links to the DOWNLOAD_URL site when set', async () => {
+      process.env.DOWNLOAD_URL = 'https://download.dev.lilnas.io'
+      const interaction = createMockInteraction()
+      stubCreatedJob()
+
+      try {
+        await service.download(
+          [interaction] as never,
+          createValidDto() as never,
+        )
+      } finally {
+        delete process.env.DOWNLOAD_URL
+      }
+
+      const [reply] = interaction.editReply.mock.calls[0] as [string]
+      expect(reply).toContain('<https://download.dev.lilnas.io/activity>')
+      expect(reply).toContain('<https://download.dev.lilnas.io/videos/vid-1>')
+    })
 
     it('passes waitForJob an AbortSignal and the created job id', async () => {
       const interaction = createMockInteraction()

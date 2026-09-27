@@ -443,6 +443,9 @@ describe('TvDownloadStrategy', () => {
 
       expect(contextService.setContext).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
+      expect(result.messages[0].content).toContain(
+        `[${mockShow2.title}](<https://download.lilnas.io/shows/${mockShow2.tvdbId}>)`,
+      )
     })
 
     it('should fall back to list when auto-selection fails with invalid ordinal', async () => {
@@ -1264,6 +1267,9 @@ describe('TvDownloadStrategy', () => {
 
       expect(result.messages).toHaveLength(1)
       expect(result.images).toEqual([])
+      expect(result.messages[0].content).toContain(
+        'Follow along on the [activity page](<https://download.lilnas.io/activity>), or open [Breaking Bad](<https://download.lilnas.io/shows/12345>).',
+      )
     })
 
     it('should return error response when series download fails', async () => {
@@ -1294,6 +1300,8 @@ describe('TvDownloadStrategy', () => {
       const result = await strategy.handleRequest(params)
 
       expect(result.messages).toHaveLength(1)
+      // Nothing was added, so there is nothing to link to.
+      expect(result.messages[0]).toBe(mockChatResponse)
     })
 
     it('should handle errors gracefully when service throws exception during download', async () => {
