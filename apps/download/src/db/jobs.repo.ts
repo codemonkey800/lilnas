@@ -302,6 +302,27 @@ export function listOpenJobs(
 }
 
 /**
+ * Every job that is still open or was written at or after `since`, newest
+ * write first, capped at `limit` - a reconnecting socket's catch-up (see
+ * `SYNC_JOBS_EVENT`). Unindexed on `updated_at`, which is fine at this
+ * table's size and runs once per socket open.
+ */
+export function listJobsForSync(db: Db, since: Date, limit: number): JobRow[] {
+  return db
+    .select()
+    .from(jobs)
+    .where(
+      or(
+        gte(jobs.updatedAt, since),
+        notInArray(jobs.status, [...TERMINAL_DOWNLOAD_JOB_STATUSES]),
+      ),
+    )
+    .orderBy(desc(jobs.updatedAt), desc(jobs.id))
+    .limit(limit)
+    .all()
+}
+
+/**
  * How many ids go into one `IN (...)` list. A requester-scoped gallery asks
  * about every title in the library at once, and the library is not bounded
  * by anything this app controls - so the list is split well under SQLite's

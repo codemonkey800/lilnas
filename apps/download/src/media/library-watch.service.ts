@@ -15,7 +15,10 @@ import {
 import { Cron } from '@nestjs/schedule'
 
 import { mediaTypeFromKey } from 'src/db/media-id'
-import { DownloadGateway } from 'src/download-gateway/download.gateway'
+import {
+  DownloadGateway,
+  type DownloadGatewayMessage,
+} from 'src/download-gateway/download.gateway'
 
 import { type MediaKey, MediaResolverService } from './media-resolver.service'
 import { MediaStateService } from './media-state.service'
@@ -63,6 +66,9 @@ export class LibraryWatchService implements OnModuleInit, OnModuleDestroy {
     this.unsubscribe = this.mediaResolverService.onLibraryChange(mediaIds => {
       void this.broadcastChanges(mediaIds)
     })
+    this.downloadGateway.setMediaSyncSource((mediaIds, watching) =>
+      this.syncFrames(mediaIds, watching),
+    )
   }
 
   onModuleDestroy(): void {
@@ -127,44 +133,97 @@ export class LibraryWatchService implements OnModuleInit, OnModuleDestroy {
   private async broadcastChanges(mediaIds: readonly string[]): Promise<void> {
     if (this.downloadGateway.clientCount === 0) return
 
-    const keys = mediaIds.flatMap((mediaId): MediaKey[] => {
-      const type = mediaTypeFromKey(mediaId)
-      return type === DownloadType.Movie || type === DownloadType.Show
-        ? [{ mediaId, type }]
-        : []
-    })
-
     try {
-      const { degradedSources, media } =
-        await this.mediaResolverService.resolve(keys)
-
-      await Promise.all(
-        keys.map(async ({ mediaId, type }) => {
-          const item = media.get(mediaId)
-          if (!item || degradedSources.includes(type)) return
-
-          let episodes: EpisodeStateEntry[] | undefined
-          if (isShow(item) && item.sonarrId != null) {
-            episodes = await this.episodesFor(mediaId, item.sonarrId)
-            if (!episodes) return
-          }
-
-          const event: MediaEvent = {
-            media: item,
-            ...(episodes ? { episodes } : {}),
-          }
-          this.downloadGateway.broadcast({
-            data: event,
-            type: MEDIA_EVENT_TYPE,
-          })
+      const events = await this.mediaEventsFor(
+        mediaIds.flatMap((mediaId): MediaKey[] => {
+          const type = mediaTypeFromKey(mediaId)
+          return type === DownloadType.Movie || type === DownloadType.Show
+            ? [{ mediaId, type }]
+            : []
         }),
+        () => true,
       )
+
+      for (const event of events) {
+        this.downloadGateway.broadcast({ data: event, type: MEDIA_EVENT_TYPE })
+      }
     } catch (err) {
       this.logger.warn(
         { action: 'broadcastChanges', error: getErrorMessage(err), mediaIds },
         'Library change broadcast failed',
       )
     }
+  }
+
+  /**
+   * The media half of a reconnecting socket's catch-up (`SYNC_JOBS_EVENT`):
+   * the current state of every movie, show and video the tab is showing -
+   * nothing above re-sends a title that did not change *again*, so one that
+   * changed while the tab had no socket would otherwise stay stale.
+   *
+   * A title open on a detail page (`watching`) is re-read upstream first, as
+   * the watched lane would a second later, and a show among them carries its
+   * episodes. A gallery card gets the cached copy and no episodes - it reads
+   * neither. Never throws.
+   */
+  async syncFrames(
+    mediaIds: readonly string[],
+    watching: ReadonlySet<string>,
+  ): Promise<DownloadGatewayMessage[]> {
+    try {
+      await this.mediaResolverService.refreshTitles(
+        mediaIds.filter(mediaId => watching.has(mediaId)),
+      )
+
+      const events = await this.mediaEventsFor(
+        mediaIds.flatMap((mediaId): MediaKey[] => {
+          const type = mediaTypeFromKey(mediaId)
+          return type ? [{ mediaId, type }] : []
+        }),
+        mediaId => watching.has(mediaId),
+      )
+
+      return events.map(event => ({ data: event, type: MEDIA_EVENT_TYPE }))
+    } catch (err) {
+      this.logger.warn(
+        { action: 'syncFrames', error: getErrorMessage(err), mediaIds },
+        'Media catch-up failed',
+      )
+      return []
+    }
+  }
+
+  /**
+   * The current `MediaEvent` for each key, from one batched resolve. A
+   * degraded source is left out - its placeholder would replace a page's real
+   * copy with a bare id - and so is a show `withEpisodes` asks episodes for
+   * but whose episodes can't be read, whose page would otherwise keep the old
+   * per-episode states under the new series state.
+   */
+  private async mediaEventsFor(
+    keys: readonly MediaKey[],
+    withEpisodes: (mediaId: string) => boolean,
+  ): Promise<MediaEvent[]> {
+    if (keys.length === 0) return []
+
+    const { degradedSources, media } =
+      await this.mediaResolverService.resolve(keys)
+
+    const events = await Promise.all(
+      keys.map(async ({ mediaId, type }): Promise<MediaEvent | undefined> => {
+        const item = media.get(mediaId)
+        if (!item || degradedSources.includes(type)) return undefined
+
+        if (!isShow(item) || item.sonarrId == null || !withEpisodes(mediaId)) {
+          return { media: item }
+        }
+
+        const episodes = await this.episodesFor(mediaId, item.sonarrId)
+        return episodes ? { episodes, media: item } : undefined
+      }),
+    )
+
+    return events.filter(event => event !== undefined)
   }
 
   private async episodesFor(

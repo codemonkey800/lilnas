@@ -45,6 +45,7 @@ describe('LibraryWatchService', () => {
   let gateway: {
     broadcast: jest.Mock
     clientCount: number
+    setMediaSyncSource: jest.Mock
     watchedMediaIds: jest.Mock
   }
   let resolver: {
@@ -70,6 +71,7 @@ describe('LibraryWatchService', () => {
     gateway = {
       broadcast: jest.fn(),
       clientCount: 1,
+      setMediaSyncSource: jest.fn(),
       watchedMediaIds: jest.fn(() => new Set<string>()),
     }
     resolver = {
@@ -240,6 +242,103 @@ describe('LibraryWatchService', () => {
       await flush()
 
       expect(gateway.broadcast).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('syncFrames (reconnect catch-up)', () => {
+    const VIDEO: Media = {
+      id: 'video:v1',
+      sourceUrl: 'https://example.com/v',
+      state: 'available',
+      title: 'A clip',
+      type: DownloadType.Video,
+    }
+    const EPISODE = {
+      episodeFileId: 0,
+      episodeNumber: 1,
+      hasFile: false,
+      id: 101,
+      monitored: true,
+      seasonNumber: 1,
+    } satisfies EpisodeResource
+
+    it('registers itself with the gateway at init', () => {
+      expect(gateway.setMediaSyncSource).toHaveBeenCalledTimes(1)
+    })
+
+    it('sends a frame for every media type: movie, show and video', async () => {
+      resolvesTo([MOVIE, SHOW, VIDEO])
+      sonarrService.getEpisodes.mockResolvedValue([EPISODE])
+
+      const frames = await service.syncFrames(
+        ['tmdb:1', 'tvdb:7', 'video:v1'],
+        new Set(['tvdb:7']),
+      )
+
+      expect(resolver.resolve).toHaveBeenCalledWith([
+        { mediaId: 'tmdb:1', type: DownloadType.Movie },
+        { mediaId: 'tvdb:7', type: DownloadType.Show },
+        { mediaId: 'video:v1', type: DownloadType.Video },
+      ])
+      expect(frames).toEqual([
+        { data: { media: MOVIE }, type: MEDIA_EVENT_TYPE },
+        {
+          data: {
+            episodes: [expect.objectContaining({ episodeId: 101 })],
+            media: SHOW,
+          },
+          type: MEDIA_EVENT_TYPE,
+        },
+        { data: { media: VIDEO }, type: MEDIA_EVENT_TYPE },
+      ])
+    })
+
+    it('re-reads upstream only the titles open on a detail page', async () => {
+      resolvesTo([MOVIE, SHOW])
+
+      await service.syncFrames(['tmdb:1', 'tvdb:7'], new Set(['tmdb:1']))
+
+      expect(resolver.refreshTitles).toHaveBeenCalledWith(['tmdb:1'])
+    })
+
+    it('sends a gallery show without reading its episodes', async () => {
+      resolvesTo([SHOW])
+
+      const frames = await service.syncFrames(['tvdb:7'], new Set())
+
+      expect(sonarrService.getEpisodes).not.toHaveBeenCalled()
+      expect(frames).toEqual([
+        { data: { media: SHOW }, type: MEDIA_EVENT_TYPE },
+      ])
+    })
+
+    it('leaves out a degraded source and a show whose episodes fail', async () => {
+      resolvesTo([MOVIE, SHOW], [DownloadType.Movie])
+      sonarrService.getEpisodes.mockRejectedValue(new Error('down'))
+
+      const frames = await service.syncFrames(
+        ['tmdb:1', 'tvdb:7'],
+        new Set(['tvdb:7']),
+      )
+
+      expect(frames).toEqual([])
+    })
+
+    it('resolves to nothing rather than rejecting on a resolve failure', async () => {
+      resolver.resolve.mockRejectedValue(new Error('boom'))
+
+      await expect(service.syncFrames(['tmdb:1'], new Set())).resolves.toEqual(
+        [],
+      )
+    })
+
+    it('sends even while the gateway counts no other clients', async () => {
+      gateway.clientCount = 0
+      resolvesTo([MOVIE])
+
+      const frames = await service.syncFrames(['tmdb:1'], new Set())
+
+      expect(frames).toHaveLength(1)
     })
   })
 })

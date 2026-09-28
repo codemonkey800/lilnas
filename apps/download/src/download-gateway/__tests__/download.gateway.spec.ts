@@ -416,4 +416,126 @@ describe('DownloadGateway', () => {
       expect(gateway.watchedMediaIds().size).toBe(0)
     })
   })
+
+  describe('handleSyncJobs', () => {
+    const ALICE = buildRequest({
+      'x-forwarded-user': 'alice@example.com',
+      'x-forwarded-user-id': 'user_1',
+    })
+
+    function sentFrames(client: jest.Mocked<WebSocket>): unknown[] {
+      return client.send.mock.calls.map(([frame]) =>
+        JSON.parse(frame as string),
+      )
+    }
+
+    it('replies to the asking client only, masked for its viewer, then ends with the server time', async () => {
+      jest.useFakeTimers({ now: new Date('2026-08-20T12:00:00.000Z') })
+      const asking = createMockClient()
+      const other = createMockClient()
+      adminCheckService.checkIsAdmin.mockResolvedValue(true)
+      const source = jest.fn(async () => (isAdmin: boolean) => [
+        { data: { isAdmin }, type: 'download-job' },
+      ])
+      gateway.setSyncSource(source)
+      gateway.handleConnection(asking, ALICE)
+      gateway.handleConnection(other, buildRequest())
+
+      await gateway.handleSyncJobs(asking, {
+        since: '2026-08-20T11:00:00.000Z',
+      })
+
+      expect(source).toHaveBeenCalledWith(new Date('2026-08-20T11:00:00.000Z'))
+      expect(sentFrames(asking)).toEqual([
+        { data: { isAdmin: true }, type: 'download-job' },
+        {
+          data: { serverTime: '2026-08-20T12:00:00.000Z' },
+          type: 'jobs-synced',
+        },
+      ])
+      expect(other.send).not.toHaveBeenCalled()
+      jest.useRealTimers()
+    })
+
+    it('asks for open jobs only when no since is given', async () => {
+      const client = createMockClient()
+      const source = jest.fn(async () => () => [])
+      gateway.setSyncSource(source)
+      gateway.handleConnection(client, buildRequest())
+
+      await gateway.handleSyncJobs(client, undefined)
+
+      expect(source).toHaveBeenCalledWith(undefined)
+      expect(adminCheckService.checkIsAdmin).not.toHaveBeenCalled()
+    })
+
+    it('ignores a malformed since', async () => {
+      const client = createMockClient()
+      const source = jest.fn(async () => () => [])
+      gateway.setSyncSource(source)
+      gateway.handleConnection(client, buildRequest())
+
+      await gateway.handleSyncJobs(client, { since: 'yesterday' })
+
+      expect(source).not.toHaveBeenCalled()
+      expect(client.send).not.toHaveBeenCalled()
+    })
+
+    it('sends nothing to a client that closed mid-sync', async () => {
+      const client = createMockClient()
+      gateway.setSyncSource(async () => {
+        Object.assign(client, { readyState: WebSocket.CLOSED })
+        return () => [{ type: 'download-job' }]
+      })
+      gateway.handleConnection(client, buildRequest())
+
+      await gateway.handleSyncJobs(client, {})
+
+      expect(client.send).not.toHaveBeenCalled()
+    })
+
+    it('swallows a failing source rather than rejecting', async () => {
+      const client = createMockClient()
+      gateway.setSyncSource(async () => {
+        throw new Error('db down')
+      })
+      gateway.handleConnection(client, buildRequest())
+
+      await expect(gateway.handleSyncJobs(client, {})).resolves.toBeUndefined()
+      expect(client.send).not.toHaveBeenCalled()
+    })
+
+    it('sends the media frames for the ids asked about ahead of the job frames, with the watch list', async () => {
+      const client = createMockClient()
+      const mediaSource = jest.fn(async () => [{ type: 'media' }])
+      gateway.setSyncSource(async () => () => [{ type: 'download-job' }])
+      gateway.setMediaSyncSource(mediaSource)
+      gateway.handleConnection(client, buildRequest())
+      gateway.handleWatchMedia(client, { mediaIds: ['tvdb:7'] })
+
+      await gateway.handleSyncJobs(client, {
+        mediaIds: ['tmdb:1', 'tvdb:7', 'video:v1'],
+      })
+
+      expect(mediaSource).toHaveBeenCalledWith(
+        ['tmdb:1', 'tvdb:7', 'video:v1'],
+        new Set(['tvdb:7']),
+      )
+      expect(
+        sentFrames(client).map(frame => (frame as { type: string }).type),
+      ).toEqual(['media', 'download-job', 'jobs-synced'])
+    })
+
+    it('does not build media frames when no media ids are asked about', async () => {
+      const client = createMockClient()
+      const mediaSource = jest.fn(async () => [])
+      gateway.setSyncSource(async () => () => [])
+      gateway.setMediaSyncSource(mediaSource)
+      gateway.handleConnection(client, buildRequest())
+
+      await gateway.handleSyncJobs(client, {})
+
+      expect(mediaSource).not.toHaveBeenCalled()
+    })
+  })
 })
