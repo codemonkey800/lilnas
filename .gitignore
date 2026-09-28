@@ -16,8 +16,6 @@ data/
 dist/
 apps/tdr-code/server.js
 infra/dev.yml
-infra/monitoring/secrets/*
-!infra/monitoring/secrets/README.md
 apps/tdr-bot/logs/
 node_modules/
 REVIEW.md
