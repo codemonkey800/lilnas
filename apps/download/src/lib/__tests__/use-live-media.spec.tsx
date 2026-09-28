@@ -355,6 +355,13 @@ describe('useLiveMedia', () => {
   })
 })
 
+/** The watch messages sent - every open also sends a catch-up request. */
+function watchMessages(sent: readonly string[]): unknown[] {
+  return sent
+    .map(message => JSON.parse(message) as { event: string })
+    .filter(message => message.event === 'watch-media')
+}
+
 describe('useLiveMedia watch and served copies', () => {
   it('asks the gateway to watch a movie closely', () => {
     const { recorder } = setup<Movie>({
@@ -364,7 +371,7 @@ describe('useLiveMedia watch and served copies', () => {
 
     act(() => recorder.latest().emitOpen())
 
-    expect(recorder.latest().sent.map(m => JSON.parse(m))).toEqual([
+    expect(watchMessages(recorder.latest().sent)).toEqual([
       { data: { mediaIds: [MOVIE_ID] }, event: 'watch-media' },
     ])
   })
@@ -382,7 +389,7 @@ describe('useLiveMedia watch and served copies', () => {
 
     act(() => recorder.latest().emitOpen())
 
-    expect(recorder.latest().sent).toEqual([])
+    expect(watchMessages(recorder.latest().sent)).toEqual([])
   })
 
   it('lets a new server copy outrank an older frame', () => {

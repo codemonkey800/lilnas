@@ -374,7 +374,7 @@ export const DOWNLOAD_JOB_EVENT_TYPE = 'download-job'
 export const MEDIA_EVENT_TYPE = 'media'
 
 /**
- * The `event` of the one message a client sends the gateway, in the
+ * The `event` of a message a client sends the gateway, in the
  * `{ event, data }` shape Nest's `WsAdapter` routes on: the movie/show ids the
  * tab has a detail page open for, as a {@link WatchMediaMessage}. Each message
  * replaces the tab's previous set, and an empty list clears it.
@@ -395,6 +395,45 @@ export const MAX_WATCHED_MEDIA_IDS = 20
 export interface WatchMediaMessage {
   data: { mediaIds: string[] }
   event: typeof WATCH_MEDIA_EVENT
+}
+
+/**
+ * The `event` a client sends the gateway every time a socket opens, as a
+ * {@link SyncJobsMessage}, to catch up on what it missed while it had none.
+ *
+ * The gateway only ever pushes *changes*, so a job that finished while a
+ * phone was locked (and its socket dead) would otherwise never reach the
+ * page: the reconnect brings the next change, not the last one. The reply is
+ * a {@link MEDIA_EVENT_TYPE} frame per id in `mediaIds` (the media the tab is
+ * showing - a movie, show or video page, the gallery's cards), a
+ * `DOWNLOAD_JOB_EVENT_TYPE` frame per job that is still open or was updated
+ * at or after `since` (plus a media frame per video among them), then one
+ * {@link JOBS_SYNCED_TYPE} frame whose `serverTime` is the `since` to send
+ * next time. `since` is omitted on a tab's first connect, which catches up on
+ * open jobs only.
+ */
+export const SYNC_JOBS_EVENT = 'sync-jobs'
+
+/**
+ * The most media ids one {@link SyncJobsMessage} may carry - a gallery page's
+ * worth of cards.
+ */
+export const MAX_SYNC_MEDIA_IDS = 100
+
+export interface SyncJobsMessage {
+  data: { mediaIds?: string[]; since?: string }
+  event: typeof SYNC_JOBS_EVENT
+}
+
+/**
+ * The `type` of the frame that ends a {@link SYNC_JOBS_EVENT} reply. Its
+ * `serverTime` is taken before the gateway reads anything, so every change
+ * after it is either in this reply or on its way as a live frame.
+ */
+export const JOBS_SYNCED_TYPE = 'jobs-synced'
+
+export interface JobsSyncedEvent {
+  serverTime: string
 }
 
 /**

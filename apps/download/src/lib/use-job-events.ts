@@ -5,14 +5,18 @@ import {
   isDownloadGatewayMessage,
   jobEventsSocketUrl,
   parseJobEventFrame,
+  parseJobsSyncedFrame,
   parseMediaEventFrame,
   RECONNECT_JITTER_RATIO,
   reconnectDelayMs,
 } from '@lilnas/utils/download/job-events'
 import {
   type DownloadJob,
+  MAX_SYNC_MEDIA_IDS,
   MAX_WATCHED_MEDIA_IDS,
   type MediaEvent,
+  SYNC_JOBS_EVENT,
+  type SyncJobsMessage,
   WATCH_MEDIA_EVENT,
   type WatchMediaMessage,
 } from '@lilnas/utils/download/types'
@@ -139,6 +143,21 @@ export interface JobEventsInterest {
   watchMediaIds?: ReadonlySet<string>
 }
 
+/**
+ * How long a tab must have been hidden before coming back opens a fresh
+ * socket. A phone that locks, or a browser that backgrounds the tab, can
+ * leave the old socket dead without ever firing `close` - still OPEN as far
+ * as this tab knows, with nothing arriving on it. A quick tab switch keeps
+ * its socket; anything longer is not worth trusting.
+ */
+export const RESUME_RECONNECT_AFTER_MS = 5_000
+
+/** The slice of `document` the store watches for a tab coming back. */
+export type VisibilitySource = Pick<
+  Document,
+  'addEventListener' | 'removeEventListener' | 'visibilityState'
+>
+
 export interface CreateJobEventsStoreOptions {
   /**
    * Opens the underlying socket. Overridden in tests with an in-memory fake;
@@ -151,6 +170,13 @@ export interface CreateJobEventsStoreOptions {
   getLocation?: () => Pick<Location, 'host' | 'protocol'>
   /** Jitter source. Injected so a test gets a deterministic schedule. */
   random?: () => number
+  /** Clock for {@link RESUME_RECONNECT_AFTER_MS}. Defaults to `Date.now`. */
+  now?: () => number
+  /**
+   * Where visibility changes come from. Defaults to `document`; `undefined`
+   * outside a browser.
+   */
+  getVisibilitySource?: () => VisibilitySource | undefined
 }
 
 export interface JobEventsStore {
@@ -224,6 +250,9 @@ function release(counts: Map<string, number>, ids?: ReadonlySet<string>): void {
 export function createJobEventsStore({
   createSocket = url => new WebSocket(url),
   getLocation = () => window.location,
+  getVisibilitySource = () =>
+    typeof document === 'undefined' ? undefined : document,
+  now = Date.now,
   random = Math.random,
   reconnectDelaysMs = DEFAULT_RECONNECT_DELAYS_MS,
 }: CreateJobEventsStoreOptions = {}): JobEventsStore {
@@ -244,6 +273,11 @@ export function createJobEventsStore({
   // subscription change sends only when the list actually moved.
   let openSocket: WebSocket | undefined
   let sentWatchKey = '[]'
+
+  // The gateway's clock as of the last completed catch-up (see
+  // `SYNC_JOBS_EVENT`), sent back on the next open so the reply covers
+  // exactly the gap. Undefined until the first one lands.
+  let syncCursor: string | undefined
 
   let snapshot: JobEventsStoreSnapshot = {
     connected: false,
@@ -300,15 +334,55 @@ export function createJobEventsStore({
     emit()
   }
 
+  /**
+   * Asks the gateway for everything this tab missed while it had no socket:
+   * the jobs, and the current state of every media a subscriber is showing
+   * (a movie/show only re-sends on its *next* change, like a job). Sent on
+   * every open, the first included: the page was rendered before the socket
+   * existed, and anything since is otherwise only ever pushed as its next
+   * change.
+   */
+  function requestSync(socket: WebSocket): void {
+    const mediaIds = [...mediaIdCounts.keys()]
+      .sort()
+      .slice(0, MAX_SYNC_MEDIA_IDS)
+    const message: SyncJobsMessage = {
+      data: {
+        ...(mediaIds.length > 0 ? { mediaIds } : {}),
+        ...(syncCursor === undefined ? {} : { since: syncCursor }),
+      },
+      event: SYNC_JOBS_EVENT,
+    }
+    socket.send(JSON.stringify(message))
+  }
+
   function ingest(rawData: unknown): void {
     const jobEvent = parseJobEventFrame(rawData)
     if (jobEvent) {
       if (!isJobInteresting(jobEvent.job)) return
 
+      // A catch-up snapshot read before a live frame that beat it here must
+      // not roll the job back - a finished download would read as running
+      // again until its next change, which may never come. Equal is newer:
+      // a progress tick re-sends the job without touching `updatedAt`.
+      const current = snapshot.jobs.get(jobEvent.job.id)
+      if (
+        current &&
+        Date.parse(jobEvent.job.updatedAt) < Date.parse(current.updatedAt)
+      ) {
+        return
+      }
+
       const jobs = new Map(snapshot.jobs)
       jobs.set(jobEvent.job.id, jobEvent.job)
       snapshot = { ...snapshot, jobs }
       emit()
+      return
+    }
+
+    const synced = parseJobsSyncedFrame(rawData)
+    if (synced) {
+      syncCursor = synced.serverTime
       return
     }
 
@@ -383,6 +457,7 @@ export function createJobEventsStore({
         openSocket = next
         sentWatchKey = '[]'
         syncWatch()
+        requestSync(next)
         setConnected(true)
       }
 
@@ -404,10 +479,53 @@ export function createJobEventsStore({
       }
     }
 
+    /**
+     * Drops the current socket - without its `close` scheduling a backoff -
+     * and opens a new one now, skipping any backoff already pending.
+     */
+    function reopen(): void {
+      if (disposed) return
+      if (reconnectTimer !== undefined) clearTimeout(reconnectTimer)
+      reconnectTimer = undefined
+
+      const stale = socket
+      socket = undefined
+      if (stale) {
+        if (openSocket === stale) openSocket = undefined
+        stale.onopen = null
+        stale.onmessage = null
+        stale.onclose = null
+        stale.close()
+      }
+
+      attempt = 0
+      open()
+    }
+
+    const visibility = getVisibilitySource()
+    let hiddenAt: number | undefined
+
+    function handleVisibilityChange(): void {
+      if (!visibility) return
+      if (visibility.visibilityState === 'hidden') {
+        hiddenAt = now()
+        return
+      }
+
+      const away = hiddenAt === undefined ? 0 : now() - hiddenAt
+      hiddenAt = undefined
+      if (away >= RESUME_RECONNECT_AFTER_MS) reopen()
+    }
+
+    visibility?.addEventListener('visibilitychange', handleVisibilityChange)
     open()
 
     return () => {
       disposed = true
+      visibility?.removeEventListener(
+        'visibilitychange',
+        handleVisibilityChange,
+      )
       if (reconnectTimer !== undefined) clearTimeout(reconnectTimer)
       socket?.close()
       socket = undefined

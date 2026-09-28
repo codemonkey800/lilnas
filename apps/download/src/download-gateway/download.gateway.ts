@@ -1,8 +1,13 @@
 import {
   type DownloadGatewayMessage,
+  JOBS_SYNCED_TYPE,
+  type JobsSyncedEvent,
+  MAX_SYNC_MEDIA_IDS,
   MAX_WATCHED_MEDIA_IDS,
+  SYNC_JOBS_EVENT,
   WATCH_MEDIA_EVENT,
 } from '@lilnas/utils/download/types'
+import { getErrorMessage } from '@lilnas/utils/error'
 import { Logger } from '@nestjs/common'
 import {
   ConnectedSocket,
@@ -49,6 +54,32 @@ const WatchMediaSchema = z.object({
   mediaIds: z.array(z.string()).max(MAX_WATCHED_MEDIA_IDS),
 })
 
+/** A `SYNC_JOBS_EVENT` payload. */
+const SyncJobsSchema = z.object({
+  mediaIds: z.array(z.string()).max(MAX_SYNC_MEDIA_IDS).optional(),
+  since: z.iso.datetime().optional(),
+})
+
+/**
+ * Builds a reconnecting socket's catch-up frames - see `SYNC_JOBS_EVENT`.
+ * Resolves to a per-viewer builder, like `broadcastPerViewer()`'s, so the
+ * gateway can mask attribution for the one client asking without knowing how.
+ */
+export type JobSyncSource = (
+  since: Date | undefined,
+) => Promise<(isAdmin: boolean) => DownloadGatewayMessage[]>
+
+/**
+ * Builds the media half of a catch-up: a frame per id in `mediaIds` with its
+ * current state. `watching` is the asking client's watch list - the titles
+ * open on a detail page, which get a fresh upstream read and their episodes.
+ * Never rejects; a title it cannot build is left out.
+ */
+export type MediaSyncSource = (
+  mediaIds: readonly string[],
+  watching: ReadonlySet<string>,
+) => Promise<DownloadGatewayMessage[]>
+
 /**
  * The ids `LibraryWatchService` can re-read upstream: movies and shows. Any
  * other id in a watch list is dropped rather than failing the whole list.
@@ -61,6 +92,8 @@ export class DownloadGateway
 {
   private readonly logger = new Logger(DownloadGateway.name)
   private readonly clients = new Map<WebSocket, ClientState>()
+  private syncSource: JobSyncSource | undefined
+  private mediaSyncSource: MediaSyncSource | undefined
 
   constructor(private readonly adminCheckService: AdminCheckService) {}
 
@@ -109,6 +142,79 @@ export class DownloadGateway
     state.watching = new Set(
       parsed.data.mediaIds.filter(id => WATCHABLE_MEDIA_ID.test(id)),
     )
+  }
+
+  /**
+   * Registers what answers `SYNC_JOBS_EVENT`. A setter rather than an
+   * injection: the source lives in `DownloadModule`, which already depends on
+   * this module.
+   */
+  setSyncSource(source: JobSyncSource): void {
+    this.syncSource = source
+  }
+
+  /**
+   * Registers what builds a catch-up's media frames. A setter for the same
+   * reason as {@link setSyncSource}: the source lives in `MediaModule`.
+   */
+  setMediaSyncSource(source: MediaSyncSource): void {
+    this.mediaSyncSource = source
+  }
+
+  /**
+   * Replies to one client with the current state of every media it is
+   * showing and every job it may have missed while it had no socket, then a
+   * `JOBS_SYNCED_TYPE` frame. The client's watch list is read here, after
+   * the `WATCH_MEDIA_EVENT` it sends ahead of this on every open. `serverTime` is read before the
+   * source is, so a change that lands mid-sync is in the reply, on its way
+   * as a live frame, or both - never neither.
+   */
+  @SubscribeMessage(SYNC_JOBS_EVENT)
+  async handleSyncJobs(
+    @ConnectedSocket() client: WebSocket,
+    @MessageBody() data: unknown,
+  ): Promise<void> {
+    const state = this.clients.get(client)
+    if (!state || !this.syncSource) return
+
+    const parsed = SyncJobsSchema.safeParse(data ?? {})
+    if (!parsed.success) {
+      this.logger.warn(
+        { action: 'handleSyncJobs' },
+        'Malformed sync-jobs message - ignoring it',
+      )
+      return
+    }
+
+    const serverTime = new Date().toISOString()
+    const since = parsed.data.since ? new Date(parsed.data.since) : undefined
+    const mediaIds = parsed.data.mediaIds ?? []
+
+    try {
+      const [build, mediaFrames] = await Promise.all([
+        this.syncSource(since),
+        mediaIds.length > 0 && this.mediaSyncSource
+          ? this.mediaSyncSource(mediaIds, state.watching)
+          : [],
+      ])
+      const isAdmin = state.email
+        ? await this.adminCheckService.checkIsAdmin(state.email)
+        : false
+
+      if (client.readyState !== WebSocket.OPEN) return
+
+      for (const message of [...mediaFrames, ...build(isAdmin)]) {
+        client.send(JSON.stringify(message))
+      }
+
+      const synced: JobsSyncedEvent = { serverTime }
+      client.send(JSON.stringify({ data: synced, type: JOBS_SYNCED_TYPE }))
+    } catch (err) {
+      this.logger.error(
+        { action: 'handleSyncJobs', error: getErrorMessage(err) },
+        'Failed to sync jobs for a client',
+      )
+    }
   }
 
   /** How many clients are connected. */

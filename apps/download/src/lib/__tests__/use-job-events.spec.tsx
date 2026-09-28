@@ -6,6 +6,8 @@ import {
   DownloadJobEventType,
   DownloadJobStatus,
   DownloadType,
+  JOBS_SYNCED_TYPE,
+  SYNC_JOBS_EVENT,
   WATCH_MEDIA_EVENT,
 } from '@lilnas/utils/download/types'
 import { act, renderHook } from '@testing-library/react'
@@ -19,14 +21,20 @@ import {
   buildVideoJob,
   createSocketRecorder,
   NO_JITTER,
+  NOW_ISO,
   TEST_LOCATION,
 } from 'src/lib/__tests__/helpers/job-events'
-import type { JobEventsInterest, JobEventsStore } from 'src/lib/use-job-events'
+import type {
+  JobEventsInterest,
+  JobEventsStore,
+  VisibilitySource,
+} from 'src/lib/use-job-events'
 import {
   createJobEventsStore,
   DEFAULT_RECONNECT_DELAYS_MS,
   getJobEventsSocketUrl,
   JobEventsContext,
+  RESUME_RECONNECT_AFTER_MS,
   useJobEvents,
   useMediaEvents,
 } from 'src/lib/use-job-events'
@@ -901,10 +909,12 @@ describe('watch list', () => {
       random: NO_JITTER,
     })
     const dispose = store.connect()
+    // The watch messages only - every open also sends a catch-up request.
     const sent = () =>
       recorder
         .latest()
         .sent.map(message => JSON.parse(message) as WatchMediaMessage)
+        .filter(message => message.event === WATCH_MEDIA_EVENT)
     return { dispose, recorder, sent, store }
   }
 
@@ -996,5 +1006,183 @@ describe('dropMedia', () => {
     store.dropMedia('tmdb:1')
 
     expect(store.getSnapshot()).toBe(before)
+  })
+})
+
+describe('catch-up after a reconnect', () => {
+  function openStore() {
+    const recorder = createSocketRecorder()
+    const store = createJobEventsStore({
+      createSocket: recorder.createSocket,
+      getLocation: () => TEST_LOCATION,
+      getVisibilitySource: () => undefined,
+      random: NO_JITTER,
+    })
+    const dispose = store.connect()
+    const syncs = () =>
+      recorder
+        .latest()
+        .sent.map(message => JSON.parse(message) as { event: string })
+        .filter(message => message.event === SYNC_JOBS_EVENT)
+    return { dispose, recorder, store, syncs }
+  }
+
+  it('asks for open jobs on the first open', () => {
+    const { dispose, recorder, syncs } = openStore()
+    recorder.latest().emitOpen()
+
+    expect(syncs()).toEqual([{ data: {}, event: SYNC_JOBS_EVENT }])
+    dispose()
+  })
+
+  it('asks for everything since the last catch-up on a reconnect', () => {
+    jest.useFakeTimers()
+    const { dispose, recorder, syncs } = openStore()
+    recorder.latest().emitOpen()
+    recorder
+      .latest()
+      .emitMessage(buildFrame({ serverTime: NOW_ISO }, JOBS_SYNCED_TYPE))
+
+    recorder.latest().emitClose()
+    jest.runOnlyPendingTimers()
+    recorder.latest().emitOpen()
+
+    expect(syncs()).toEqual([
+      { data: { since: NOW_ISO }, event: SYNC_JOBS_EVENT },
+    ])
+    dispose()
+    jest.useRealTimers()
+  })
+
+  it('lands a job that finished while the socket was down', () => {
+    const { dispose, recorder, store } = openStore()
+    store.subscribe(() => {}, { allJobs: true })
+    recorder.latest().emitOpen()
+    recorder
+      .latest()
+      .emitMessage(
+        buildJobFrame(buildVideoJob({ status: DownloadJobStatus.Completed })),
+      )
+
+    expect(store.getSnapshot().jobs.get('video-1')?.status).toBe(
+      DownloadJobStatus.Completed,
+    )
+    dispose()
+  })
+
+  it('never rolls a job back to an older snapshot', () => {
+    const store = subscribedStore({ allJobs: true })
+    store.ingest(
+      buildJobFrame(
+        buildVideoJob({
+          status: DownloadJobStatus.Completed,
+          updatedAt: '2026-08-20T12:05:00.000Z',
+        }),
+      ),
+    )
+
+    store.ingest(
+      buildJobFrame(buildVideoJob({ status: DownloadJobStatus.Downloading })),
+    )
+
+    expect(store.getSnapshot().jobs.get('video-1')?.status).toBe(
+      DownloadJobStatus.Completed,
+    )
+  })
+})
+
+describe('coming back to a hidden tab', () => {
+  function openStore() {
+    let visibilityState: DocumentVisibilityState = 'visible'
+    let listener: (() => void) | undefined
+    const visibility = {
+      addEventListener: (_type: string, handler: () => void) => {
+        listener = handler
+      },
+      removeEventListener: () => {
+        listener = undefined
+      },
+      get visibilityState() {
+        return visibilityState
+      },
+    } as unknown as VisibilitySource
+
+    let clock = 0
+    const recorder = createSocketRecorder()
+    const store = createJobEventsStore({
+      createSocket: recorder.createSocket,
+      getLocation: () => TEST_LOCATION,
+      getVisibilitySource: () => visibility,
+      now: () => clock,
+      random: NO_JITTER,
+    })
+    const dispose = store.connect()
+
+    function hideFor(ms: number): void {
+      visibilityState = 'hidden'
+      listener?.()
+      clock += ms
+      visibilityState = 'visible'
+      listener?.()
+    }
+
+    return {
+      dispose,
+      hasListener: () => listener !== undefined,
+      hideFor,
+      recorder,
+      store,
+    }
+  }
+
+  it('opens a fresh socket after a long absence', () => {
+    const { dispose, hideFor, recorder, store } = openStore()
+    const first = recorder.latest()
+    first.emitOpen()
+
+    hideFor(RESUME_RECONNECT_AFTER_MS)
+
+    expect(recorder.sockets).toHaveLength(2)
+    expect(first.closeCount).toBe(1)
+    // The old socket's close was detached: no backoff, still connected
+    // until the new one says otherwise.
+    expect(store.getSnapshot().connected).toBe(true)
+
+    recorder.latest().emitOpen()
+    expect(store.getSnapshot().connected).toBe(true)
+    dispose()
+  })
+
+  it('keeps the socket across a quick tab switch', () => {
+    const { dispose, hideFor, recorder } = openStore()
+    recorder.latest().emitOpen()
+
+    hideFor(RESUME_RECONNECT_AFTER_MS - 1)
+
+    expect(recorder.sockets).toHaveLength(1)
+    dispose()
+  })
+
+  it('skips a pending backoff when the tab comes back', () => {
+    jest.useFakeTimers()
+    const { dispose, hideFor, recorder } = openStore()
+    recorder.latest().emitOpen()
+    recorder.latest().emitClose()
+
+    hideFor(RESUME_RECONNECT_AFTER_MS)
+    expect(recorder.sockets).toHaveLength(2)
+
+    // The backoff it replaced never fires.
+    jest.runOnlyPendingTimers()
+    expect(recorder.sockets).toHaveLength(2)
+    dispose()
+    jest.useRealTimers()
+  })
+
+  it('stops listening once disposed', () => {
+    const { dispose, hasListener } = openStore()
+    dispose()
+
+    expect(hasListener()).toBe(false)
   })
 })

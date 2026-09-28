@@ -8,11 +8,13 @@ import {
 import type {
   DownloadGatewayMessage,
   DownloadJobEvent,
+  JobsSyncedEvent,
   MediaEvent,
 } from './types'
 import {
   DOWNLOAD_JOB_EVENT_TYPE,
   DownloadJobEventType,
+  JOBS_SYNCED_TYPE,
   MEDIA_EVENT_TYPE,
 } from './types'
 
@@ -149,6 +151,30 @@ export function parseMediaEventFrame(rawData: unknown): MediaEvent | undefined {
   return episodes.success
     ? { episodes: episodes.data, media: media.data }
     : { media: media.data }
+}
+
+/**
+ * Parses one raw frame into the `serverTime` of a `JOBS_SYNCED_TYPE` frame,
+ * or `undefined` for anything else. Silent on rejection, like
+ * {@link parseJobEventFrame}.
+ */
+export function parseJobsSyncedFrame(
+  rawData: unknown,
+): JobsSyncedEvent | undefined {
+  if (typeof rawData !== 'string') return undefined
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(rawData)
+  } catch {
+    return undefined
+  }
+
+  if (!isDownloadGatewayMessage(parsed)) return undefined
+  if (parsed.type !== JOBS_SYNCED_TYPE) return undefined
+
+  const data = z.object({ serverTime: z.iso.datetime() }).safeParse(parsed.data)
+  return data.success ? data.data : undefined
 }
 
 /**

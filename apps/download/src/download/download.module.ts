@@ -12,6 +12,7 @@ import { DownloadSchedulerService } from './download-scheduler.service'
 import { DownloadStateService } from './download-state.service'
 import { DownloadVideoService } from './download-video.service'
 import { JobQueryService } from './job-query.service'
+import { JobSyncService } from './job-sync.service'
 import { ProfileService } from './profile.service'
 
 // MediaModule needs DownloadStateService (for MediaPollerService and
@@ -39,6 +40,7 @@ import { ProfileService } from './profile.service'
     DownloadStateService,
     DownloadVideoService,
     JobQueryService,
+    JobSyncService,
     ProfileService,
   ],
   controllers: [DownloadController],
