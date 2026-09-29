@@ -1,28 +1,19 @@
 import type {
-  CommandResource,
-  CommandResourceWritable,
   EpisodeResource as SdkEpisodeResource,
-  QualityProfileResource,
   QueueResource,
   QueueResourcePagingResource,
-  RootFolderResource,
   SeriesResource,
   SeriesResourceWritable,
 } from '@lilnas/media/sonarr'
 import {
   deleteApiV3EpisodefileById,
-  deleteApiV3QueueById,
+  deleteApiV3QueueBulk,
   deleteApiV3SeriesById,
   getApiV3Episode,
-  getApiV3EpisodeById,
-  getApiV3Qualityprofile,
   getApiV3Queue,
-  getApiV3Rootfolder,
   getApiV3Series,
   getApiV3SeriesById,
   getApiV3SeriesLookup,
-  postApiV3Command,
-  postApiV3Series,
   putApiV3EpisodeMonitor,
   putApiV3SeriesById,
 } from '@lilnas/media/sonarr'
@@ -30,59 +21,58 @@ import { Inject, Injectable, Logger } from '@nestjs/common'
 import { nanoid } from 'nanoid'
 import { performance } from 'perf_hooks'
 
-/**
- * Sonarr's SeriesSearch command accepts seriesId but the generated SDK type
- * omits command-specific body parameters. We extend it locally so TypeScript
- * validates the extra field rather than silently ignoring it via a raw `as`.
- */
-type SeriesSearchCommand = CommandResourceWritable & { seriesId?: number }
-
-/**
- * Polling config for checkIfSeriesShouldBeDeleted.
- * After unmonitoring episodes Sonarr's state is eventually consistent, so we
- * poll with exponential backoff until the expected state is observed.
- */
-const CONSISTENCY_POLL_MAX_ATTEMPTS = 3
-const CONSISTENCY_POLL_BASE_DELAY_MS = 1000
-
 import { RetryConfigService } from 'src/config/retry.config'
 import type { SonarrMediaClient } from 'src/media/clients'
 import { SONARR_CLIENT } from 'src/media/clients'
 import { MediaApiError } from 'src/media/errors/media-api.error'
 import {
-  MonitorSeriesOptionsInput,
   SonarrInputSchemas,
   SonarrOutputSchemas,
   UnmonitorSeriesOptionsInput,
 } from 'src/media/schemas/sonarr.schemas'
 import { BaseMediaService } from 'src/media/services/base-media.service'
 import {
-  AddSeriesRequest,
   DownloadingSeries,
   EpisodeResource,
+  KeptPackDownload,
   LibrarySearchResult,
-  MonitorAndDownloadSeriesResult,
-  MonitoringChange,
-  MonitorSeriesOptions,
   SeriesSearchResult,
   SonarrSeries,
-  SonarrSeriesType,
+  SonarrSeriesUpdate,
   UnmonitorAndDeleteSeriesResult,
   UnmonitoringChange,
   UnmonitorSeriesOptions,
 } from 'src/media/types/sonarr.types'
 import { errorMessage, numericIdAsString } from 'src/media/utils/media.utils'
 import {
-  determineMonitoringStrategy,
+  applySeriesUpdate,
+  describeKeptPack,
+  groupQueueByDownload,
+  isPathLikeLookupTerm,
   toDownloadingSeries,
-  toEpisodeResource,
   toEpisodeResourceArray,
+  toKeptPackDownload,
   toSonarrSeries,
   toSonarrSeriesArray,
   toSonarrSeriesResourceArray,
   transformToSearchResults,
 } from 'src/media/utils/sonarr.utils'
 import { RetryConfig, RetryService } from 'src/utils/retry.service'
+
+/**
+ * Outcome of canceling the queue downloads that cover a set of episodes.
+ * `commandIds` are the queue ids sent to Sonarr's bulk delete (one per
+ * download).
+ */
+interface CancelDownloadsResult {
+  canceled: number
+  commandIds: number[]
+  keptPacks: KeptPackDownload[]
+}
+
+const noDownloadsCanceled = (
+  keptPacks: KeptPackDownload[] = [],
+): CancelDownloadsResult => ({ canceled: 0, commandIds: [], keptPacks })
 
 @Injectable()
 export class SonarrService extends BaseMediaService {
@@ -102,6 +92,11 @@ export class SonarrService extends BaseMediaService {
 
   /**
    * Search for TV series by title - Main public API method
+   *
+   * Sonarr v5 answers a path-like term (see `isPathLikeLookupTerm`) with a 400
+   * instead of an empty list. No series can match such a term, so it comes
+   * back as no results without the round trip - and without logging the term,
+   * which is user input.
    */
   async searchShows(query: string): Promise<SeriesSearchResult[]> {
     const id = nanoid()
@@ -111,6 +106,14 @@ export class SonarrService extends BaseMediaService {
       SonarrInputSchemas.searchQuery,
     )
     const normalizedQuery = validatedInput.query
+
+    if (isPathLikeLookupTerm(normalizedQuery)) {
+      this.logger.log(
+        { id },
+        'Search term reads as a path - returning no results',
+      )
+      return []
+    }
 
     this.logger.log({ id, query: normalizedQuery }, 'Starting series search')
 
@@ -174,8 +177,10 @@ export class SonarrService extends BaseMediaService {
         )
       })
 
-      const downloadingEpisodes = downloadingItems.map(item =>
-        toDownloadingSeries(item),
+      // One entry per download: a season pack is N queue rows (one per
+      // episode) that each carry the whole pack's size.
+      const downloadingEpisodes = groupQueueByDownload(downloadingItems).map(
+        group => toDownloadingSeries(group),
       )
 
       const duration = performance.now() - start
@@ -187,6 +192,7 @@ export class SonarrService extends BaseMediaService {
         {
           id,
           totalQueueItems: allQueueItems.length,
+          downloadingRows: downloadingItems.length,
           downloadingCount: validatedDownloads.length,
           duration,
         },
@@ -200,115 +206,6 @@ export class SonarrService extends BaseMediaService {
         'Failed to get downloading episodes from Sonarr',
       )
       throw error
-    }
-  }
-
-  /**
-   * Monitor and download a series with granular control over seasons/episodes
-   */
-  async monitorAndDownloadSeries(
-    tvdbId: number,
-    options: MonitorSeriesOptions = {},
-  ): Promise<MonitorAndDownloadSeriesResult> {
-    const id = nanoid()
-
-    try {
-      const validatedOptions = this.validateMonitorSeriesOptions(options)
-
-      this.logger.log(
-        { id, tvdbId, options: validatedOptions },
-        'Starting monitor and download series operation',
-      )
-
-      const start = performance.now()
-
-      const existingSeries = await this.getSeriesByTvdbId(tvdbId, id)
-
-      let result: MonitorAndDownloadSeriesResult
-
-      if (existingSeries) {
-        this.logger.log(
-          { id, seriesId: existingSeries.id },
-          'Series already exists, updating monitoring',
-        )
-        result = await this.updateExistingSeriesMonitoring(
-          existingSeries,
-          validatedOptions,
-          id,
-        )
-      } else {
-        let series: SeriesSearchResult
-        try {
-          const searchResults = await this.searchShows(tvdbId.toString())
-          const exactMatch = searchResults.find(r => r.tvdbId === tvdbId)
-
-          if (!exactMatch) {
-            this.logger.error(
-              { id, tvdbId },
-              'Series not found in search results',
-            )
-            return {
-              success: false,
-              seriesAdded: false,
-              seriesUpdated: false,
-              searchTriggered: false,
-              changes: [],
-              error: `Series with TVDB ID ${tvdbId} not found`,
-            }
-          }
-
-          series = exactMatch
-          this.logger.log(
-            { id, tvdbId, title: series.title },
-            'Found series in search results, adding to Sonarr',
-          )
-        } catch (searchError) {
-          this.logger.error(
-            { id, tvdbId, error: searchError },
-            'Failed to search for series',
-          )
-          return {
-            success: false,
-            seriesAdded: false,
-            seriesUpdated: false,
-            searchTriggered: false,
-            changes: [],
-            error: `Failed to search for series: ${searchError instanceof Error ? searchError.message : 'Unknown error'}`,
-          }
-        }
-
-        result = await this.addNewSeries(series, validatedOptions, id)
-      }
-
-      const duration = performance.now() - start
-      this.logger.log(
-        {
-          id,
-          tvdbId,
-          seriesAdded: result.seriesAdded,
-          seriesUpdated: result.seriesUpdated,
-          searchTriggered: result.searchTriggered,
-          changeCount: result.changes.length,
-          duration,
-        },
-        'Monitor and download series operation completed',
-      )
-
-      return result
-    } catch (error) {
-      this.logger.error(
-        { id, tvdbId, error: errorMessage(error) },
-        'Failed to monitor and download series',
-      )
-
-      return {
-        success: false,
-        seriesAdded: false,
-        seriesUpdated: false,
-        searchTriggered: false,
-        changes: [],
-        error: errorMessage(error),
-      }
     }
   }
 
@@ -426,7 +323,7 @@ export class SonarrService extends BaseMediaService {
       const duration = performance.now() - start
 
       const results = transformToSearchResults(
-        toSonarrSeriesResourceArray(rawSeries),
+        toSonarrSeriesResourceArray(rawSeries, this.logger),
       )
       const validatedResults =
         SonarrOutputSchemas.seriesSearchResultArray.parse(results)
@@ -444,6 +341,18 @@ export class SonarrService extends BaseMediaService {
       return validatedResults
     } catch (error) {
       const duration = performance.now() - start
+
+      // A lookup 400 is a term Sonarr rejected (v5's
+      // `InvalidSearchTermException`) that the path guard in `searchShows()`
+      // doesn't know about - no series matches it either. The term stays out
+      // of this log line
+      if (error instanceof MediaApiError && error.response.status === 400) {
+        this.logger.warn(
+          { id: operationId, status: error.response.status, duration },
+          'Sonarr rejected the lookup term - returning no results',
+        )
+        return []
+      }
 
       this.logger.error(
         { id: operationId, query, duration, error: errorMessage(error) },
@@ -470,6 +379,7 @@ export class SonarrService extends BaseMediaService {
           () => getApiV3Series({ client: this.client }),
           `${this.serviceName}-getLibrarySeries-${operationId}`,
         ),
+        this.logger,
       )
 
       let filteredSeries = allSeries
@@ -525,6 +435,7 @@ export class SonarrService extends BaseMediaService {
         () => getApiV3Series({ client: this.client }),
         `${this.serviceName}-getSeriesByTvdbId-${operationId}`,
       ),
+      this.logger,
     )
 
     return allSeries.find(s => s.tvdbId === tvdbId) ?? null
@@ -553,23 +464,33 @@ export class SonarrService extends BaseMediaService {
     }
   }
 
+  /**
+   * Round-trips the raw SDK series: GET it, change only the requested fields,
+   * PUT it back. Sonarr's PUT replaces the whole series, so sending the bot's
+   * parsed `SonarrSeries` would drop every field its schema doesn't model
+   * (e.g. `monitorNewItems`) and silently reset them to Sonarr's defaults.
+   */
   private async updateSeries(
     seriesId: number,
-    updates: Partial<SonarrSeries>,
+    updates: SonarrSeriesUpdate,
     operationId: string,
   ): Promise<SonarrSeries> {
-    const existing = toSonarrSeries(
-      await this.executeWithRetry<SeriesResource>(
-        () =>
-          getApiV3SeriesById({
-            client: this.client,
-            path: { id: seriesId },
-          }),
-        `${this.serviceName}-getSeriesForUpdate-${operationId}`,
-      ),
+    const raw = await this.executeWithRetry<SeriesResource | undefined>(
+      () =>
+        getApiV3SeriesById({
+          client: this.client,
+          path: { id: seriesId },
+        }),
+      `${this.serviceName}-getSeriesForUpdate-${operationId}`,
     )
+    if (raw == null) {
+      throw new Error(`Sonarr returned no series ${seriesId} to update`)
+    }
 
-    const merged = { ...existing, ...updates, id: seriesId }
+    const body: SeriesResourceWritable = {
+      ...applySeriesUpdate(raw, updates),
+      id: seriesId,
+    }
 
     return toSonarrSeries(
       await this.executeWithRetry<SeriesResource>(
@@ -577,9 +498,7 @@ export class SonarrService extends BaseMediaService {
           putApiV3SeriesById({
             client: this.client,
             path: { id: numericIdAsString(seriesId) },
-            // Domain SonarrRatings uses a local type; SDK expects Ratings.
-            // The shapes are compatible at runtime – only the type names differ.
-            body: merged as unknown as SeriesResourceWritable,
+            body,
           }),
         `${this.serviceName}-updateSeries-${operationId}`,
       ),
@@ -603,30 +522,8 @@ export class SonarrService extends BaseMediaService {
           }),
         `${this.serviceName}-getEpisodes-${operationId}`,
       ),
+      this.logger,
     )
-  }
-
-  private async getEpisodeById(
-    episodeId: number,
-    operationId: string,
-  ): Promise<EpisodeResource | null> {
-    try {
-      const data = await this.executeWithRetry<SdkEpisodeResource | null>(
-        () =>
-          getApiV3EpisodeById({
-            client: this.client,
-            path: { id: episodeId },
-          }),
-        `${this.serviceName}-getEpisodeById-${operationId}`,
-      )
-      if (data == null) return null
-      return toEpisodeResource(data)
-    } catch (error) {
-      if (error instanceof MediaApiError && error.response.status === 404) {
-        return null
-      }
-      throw error
-    }
   }
 
   private async updateEpisodesMonitoring(
@@ -646,42 +543,36 @@ export class SonarrService extends BaseMediaService {
     )
   }
 
-  private async triggerSeriesSearch(
-    seriesId: number,
-    operationId: string,
-  ): Promise<CommandResource> {
-    const command: SeriesSearchCommand = { name: 'SeriesSearch', seriesId }
-    return this.executeWithRetry<CommandResource>(
-      () =>
-        postApiV3Command({
-          client: this.client,
-          body: command,
-        }),
-      `${this.serviceName}-triggerSeriesSearch-${operationId}`,
-    )
-  }
-
   private async getQueue(operationId: string): Promise<QueueResource[]> {
     const response = await this.executeWithRetry<QueueResourcePagingResource>(
-      () => getApiV3Queue({ client: this.client, query: { pageSize: 1000 } }),
+      () =>
+        getApiV3Queue({
+          client: this.client,
+          // Episode numbers label kept packs ("S01E01–E10")
+          query: { pageSize: 1000, includeEpisode: true },
+        }),
       `${this.serviceName}-getQueue-${operationId}`,
     )
 
     return response.records ?? []
   }
 
-  private async removeQueueItem(
-    queueId: number,
+  /**
+   * Removes queue items in one bulk call. Pass one queue id per download:
+   * Sonarr removes the whole tracked download for any of its rows.
+   */
+  private async removeQueueItems(
+    queueIds: number[],
     operationId: string,
   ): Promise<void> {
     await this.executeWithRetry(
       () =>
-        deleteApiV3QueueById({
+        deleteApiV3QueueBulk({
           client: this.client,
-          path: { id: queueId },
-          query: { removeFromClient: true },
+          body: { ids: queueIds },
+          query: { removeFromClient: true, blocklist: false },
         }),
-      `${this.serviceName}-removeQueueItem-${queueId}-${operationId}`,
+      `${this.serviceName}-removeQueueItems-${operationId}`,
     )
   }
 
@@ -716,320 +607,6 @@ export class SonarrService extends BaseMediaService {
         }),
       `${this.serviceName}-deleteEpisodeFile-${episodeFileId}-${operationId}`,
     )
-  }
-
-  private async getSeriesConfiguration(operationId: string): Promise<{
-    qualityProfileId: number
-    rootFolderPath: string
-  }> {
-    const [profiles, folders] = await Promise.all([
-      this.executeWithRetry<QualityProfileResource[]>(
-        () => getApiV3Qualityprofile({ client: this.client }),
-        `${this.serviceName}-getQualityProfiles-${operationId}`,
-      ),
-      this.executeWithRetry<RootFolderResource[]>(
-        () => getApiV3Rootfolder({ client: this.client }),
-        `${this.serviceName}-getRootFolders-${operationId}`,
-      ),
-    ])
-
-    if (profiles.length === 0) {
-      throw new Error('No quality profiles found in Sonarr')
-    }
-
-    if (folders.length === 0) {
-      throw new Error('No root folders found in Sonarr')
-    }
-
-    const folderPath = folders[0].path
-    if (folderPath == null) {
-      throw new Error('Root folder returned from Sonarr has no path')
-    }
-
-    const anyProfile = profiles.find(p =>
-      (p.name ?? '').toLowerCase().includes('any'),
-    )
-
-    if (anyProfile) {
-      if (anyProfile.id == null) {
-        throw new Error('"Any" quality profile returned from Sonarr has no ID')
-      }
-      return { qualityProfileId: anyProfile.id, rootFolderPath: folderPath }
-    }
-
-    const firstProfile = profiles[0]
-    if (firstProfile.id == null) {
-      throw new Error('Quality profile returned from Sonarr has no ID')
-    }
-
-    this.logger.warn(
-      { availableProfiles: profiles.map(p => p.name) },
-      'No "Any" quality profile found, using first available profile',
-    )
-
-    return { qualityProfileId: firstProfile.id, rootFolderPath: folderPath }
-  }
-
-  private async addNewSeries(
-    series: SeriesSearchResult,
-    options: MonitorSeriesOptions,
-    operationId: string,
-  ): Promise<MonitorAndDownloadSeriesResult> {
-    this.logger.log(
-      { id: operationId, tvdbId: series.tvdbId },
-      'Getting series configuration',
-    )
-
-    const config = await this.getSeriesConfiguration(operationId)
-
-    this.logger.log(
-      { id: operationId, config },
-      'Determining monitoring strategy',
-    )
-
-    const { monitorType, seasons } = determineMonitoringStrategy(
-      series.seasons,
-      options,
-    )
-
-    const addRequest: AddSeriesRequest = {
-      tvdbId: series.tvdbId,
-      title: series.title,
-      titleSlug: series.titleSlug,
-      qualityProfileId: config.qualityProfileId,
-      rootFolderPath: config.rootFolderPath,
-      monitored: true,
-      monitor: monitorType,
-      seasonFolder: true,
-      useSceneNumbering: false,
-      seriesType: series.seriesType || SonarrSeriesType.STANDARD,
-      searchForMissingEpisodes: true,
-      searchForCutoffUnmetEpisodes: true,
-      seasons,
-      year: series.year,
-      firstAired: series.firstAired,
-      overview: series.overview,
-      network: series.network,
-      certification: series.certification,
-      genres: series.genres,
-    }
-
-    const addedSeries = toSonarrSeries(
-      await this.executeWithRetry<SeriesResource>(
-        () =>
-          postApiV3Series({
-            client: this.client,
-            // Domain AddSeriesRequest uses local enum types; SDK expects SDK types.
-            // The shapes are compatible at runtime – only the enum types differ.
-            body: addRequest as unknown as SeriesResourceWritable,
-          }),
-        `${this.serviceName}-addSeries-${operationId}`,
-      ),
-    )
-
-    const changes: MonitoringChange[] = []
-    if (options.selection) {
-      const episodeChanges = await this.applyEpisodeMonitoring(
-        addedSeries,
-        options.selection,
-        operationId,
-      )
-      changes.push(...episodeChanges)
-    } else {
-      const episodeChanges = await this.monitorAllEpisodesInMonitoredSeasons(
-        addedSeries,
-        operationId,
-      )
-      changes.push(...episodeChanges)
-    }
-
-    const command = await this.triggerSeriesSearch(addedSeries.id, operationId)
-
-    return {
-      success: true,
-      seriesAdded: true,
-      seriesUpdated: false,
-      searchTriggered: true,
-      changes,
-      series: addedSeries,
-      commandId: command.id,
-    }
-  }
-
-  private async updateExistingSeriesMonitoring(
-    existingSeries: SonarrSeries,
-    options: MonitorSeriesOptions,
-    operationId: string,
-  ): Promise<MonitorAndDownloadSeriesResult> {
-    this.logger.log(
-      { id: operationId, seriesId: existingSeries.id },
-      'Updating existing series monitoring',
-    )
-
-    const changes: MonitoringChange[] = []
-    let searchTriggered = false
-    let commandId: number | undefined
-
-    if (!options.selection) {
-      this.logger.log(
-        { id: operationId, seriesId: existingSeries.id },
-        'Monitoring entire series',
-      )
-
-      const updatedSeasons = existingSeries.seasons.map(season => ({
-        ...season,
-        monitored: true,
-      }))
-
-      const updatedSeries = await this.updateSeries(
-        existingSeries.id,
-        { seasons: updatedSeasons, monitored: true },
-        operationId,
-      )
-
-      for (const season of existingSeries.seasons) {
-        if (!season.monitored && season.seasonNumber > 0) {
-          changes.push({ season: season.seasonNumber, action: 'monitored' })
-        }
-      }
-
-      const episodeChanges = await this.monitorAllEpisodesInMonitoredSeasons(
-        updatedSeries,
-        operationId,
-      )
-      changes.push(...episodeChanges)
-
-      if (changes.length > 0) {
-        const command = await this.triggerSeriesSearch(
-          existingSeries.id,
-          operationId,
-        )
-        searchTriggered = true
-        commandId = command.id
-      }
-
-      return {
-        success: true,
-        seriesAdded: false,
-        seriesUpdated: true,
-        searchTriggered,
-        changes,
-        series: updatedSeries,
-        commandId,
-      }
-    }
-
-    const episodeChanges = await this.applyEpisodeMonitoring(
-      existingSeries,
-      options.selection,
-      operationId,
-    )
-    changes.push(...episodeChanges)
-
-    if (changes.length > 0) {
-      const command = await this.triggerSeriesSearch(
-        existingSeries.id,
-        operationId,
-      )
-      searchTriggered = true
-      commandId = command.id
-    }
-
-    return {
-      success: true,
-      seriesAdded: false,
-      seriesUpdated: true,
-      searchTriggered,
-      changes,
-      series: existingSeries,
-      commandId,
-    }
-  }
-
-  private async applyEpisodeMonitoring(
-    series: SonarrSeries,
-    selection: Array<{ season: number; episodes?: number[] }>,
-    operationId: string,
-  ): Promise<MonitoringChange[]> {
-    const changes: MonitoringChange[] = []
-
-    for (const sel of selection) {
-      const episodes = await this.getEpisodesWithRetry(
-        series.id,
-        sel.season,
-        operationId,
-      )
-      this.logger.log(
-        { id: operationId, season: sel.season, episodeCount: episodes.length },
-        'Processing episode monitoring for season',
-      )
-
-      if (!sel.episodes || sel.episodes.length === 0) {
-        this.logger.log(
-          { id: operationId, season: sel.season },
-          'Monitoring entire season',
-        )
-
-        const allEpisodeIds = episodes.map(ep => ep.id)
-        if (allEpisodeIds.length > 0) {
-          await this.updateEpisodesMonitoring(
-            { episodeIds: allEpisodeIds, monitored: true },
-            operationId,
-          )
-          changes.push({ season: sel.season, action: 'monitored' })
-        }
-      } else {
-        this.logger.log(
-          {
-            id: operationId,
-            season: sel.season,
-            selectedEpisodes: sel.episodes,
-          },
-          'Monitoring specific episodes in season',
-        )
-
-        const selectedEpisodeIds = episodes
-          .filter(ep => sel.episodes!.includes(ep.episodeNumber))
-          .map(ep => ep.id)
-
-        const unselectedEpisodeIds = episodes
-          .filter(ep => !sel.episodes!.includes(ep.episodeNumber))
-          .map(ep => ep.id)
-
-        if (selectedEpisodeIds.length > 0) {
-          await this.updateEpisodesMonitoring(
-            { episodeIds: selectedEpisodeIds, monitored: true },
-            operationId,
-          )
-          changes.push({
-            season: sel.season,
-            episodes: sel.episodes,
-            action: 'monitored',
-          })
-        }
-
-        if (unselectedEpisodeIds.length > 0) {
-          await this.updateEpisodesMonitoring(
-            { episodeIds: unselectedEpisodeIds, monitored: false },
-            operationId,
-          )
-
-          const unmonitoredEpisodeNumbers = episodes
-            .filter(ep => !sel.episodes!.includes(ep.episodeNumber))
-            .map(ep => ep.episodeNumber)
-
-          if (unmonitoredEpisodeNumbers.length > 0) {
-            changes.push({
-              season: sel.season,
-              episodes: unmonitoredEpisodeNumbers,
-              action: 'unmonitored',
-            })
-          }
-        }
-      }
-    }
-
-    return changes
   }
 
   private async getEpisodesWithRetry(
@@ -1074,241 +651,120 @@ export class SonarrService extends BaseMediaService {
     return []
   }
 
-  private async monitorAllEpisodesInMonitoredSeasons(
-    series: SonarrSeries,
-    operationId: string,
-  ): Promise<MonitoringChange[]> {
-    const changes: MonitoringChange[] = []
-
-    const monitoredSeasons = series.seasons.filter(
-      season => season.monitored && season.seasonNumber > 0,
-    )
-
-    if (monitoredSeasons.length === 0) {
-      this.logger.log(
-        { id: operationId, seriesId: series.id },
-        'No monitored seasons found, skipping episode monitoring',
-      )
-      return changes
-    }
-
-    this.logger.log(
-      {
-        id: operationId,
-        seriesId: series.id,
-        monitoredSeasons: monitoredSeasons.map(s => s.seasonNumber),
-      },
-      'Monitoring all episodes in monitored seasons',
-    )
-
-    for (const season of monitoredSeasons) {
-      try {
-        const episodes = await this.getEpisodesWithRetry(
-          series.id,
-          season.seasonNumber,
-          operationId,
-        )
-
-        if (episodes.length === 0) {
-          this.logger.warn(
-            {
-              id: operationId,
-              seriesId: series.id,
-              seasonNumber: season.seasonNumber,
-            },
-            'No episodes found for season, skipping',
-          )
-          continue
-        }
-
-        const episodeIds = episodes.map(ep => ep.id)
-
-        await this.updateEpisodesMonitoring(
-          { episodeIds, monitored: true },
-          operationId,
-        )
-
-        this.logger.log(
-          {
-            id: operationId,
-            seriesId: series.id,
-            seasonNumber: season.seasonNumber,
-            episodeCount: episodeIds.length,
-          },
-          'Successfully monitored all episodes in season',
-        )
-
-        changes.push({ season: season.seasonNumber, action: 'monitored' })
-      } catch (error) {
-        this.logger.error(
-          {
-            id: operationId,
-            seriesId: series.id,
-            seasonNumber: season.seasonNumber,
-            error: errorMessage(error),
-          },
-          'Failed to monitor episodes in season',
-        )
-      }
-    }
-
-    return changes
-  }
-
   private async cancelDownloadsForSeries(
     seriesId: number,
     operationId: string,
-  ): Promise<{ canceled: number; commandIds: number[] }> {
-    this.logger.log(
-      { id: operationId, seriesId },
-      'Canceling downloads for series',
+  ): Promise<CancelDownloadsResult> {
+    return this.cancelQueueDownloads(
+      row => row.seriesId === seriesId,
+      operationId,
+      { seriesId },
     )
-
-    try {
-      const queue = await this.getQueue(operationId)
-      const seriesDownloads = queue.filter(item => item.seriesId === seriesId)
-
-      if (seriesDownloads.length === 0) {
-        this.logger.log(
-          { id: operationId, seriesId },
-          'No downloads found for series',
-        )
-        return { canceled: 0, commandIds: [] }
-      }
-
-      this.logger.log(
-        { id: operationId, seriesId, downloadCount: seriesDownloads.length },
-        'Found downloads to cancel for series',
-      )
-
-      const commandIds: number[] = []
-      let canceled = 0
-
-      for (const download of seriesDownloads) {
-        if (download.id == null) continue
-        try {
-          await this.removeQueueItem(download.id, operationId)
-          commandIds.push(download.id)
-          canceled++
-
-          this.logger.log(
-            {
-              id: operationId,
-              seriesId,
-              downloadId: download.id,
-              title: download.title,
-            },
-            'Download canceled successfully',
-          )
-        } catch (error) {
-          this.logger.warn(
-            {
-              id: operationId,
-              seriesId,
-              downloadId: download.id,
-              error: errorMessage(error),
-            },
-            'Failed to cancel download, continuing with others',
-          )
-        }
-      }
-
-      this.logger.log(
-        { id: operationId, seriesId, canceled, total: seriesDownloads.length },
-        'Finished canceling downloads for series',
-      )
-
-      return { canceled, commandIds }
-    } catch (error) {
-      this.logger.error(
-        { id: operationId, seriesId, error: errorMessage(error) },
-        'Failed to get queue for series download cancellation',
-      )
-      return { canceled: 0, commandIds: [] }
-    }
   }
 
   private async cancelDownloadsForEpisodes(
     episodeIds: number[],
     operationId: string,
-  ): Promise<{ canceled: number; commandIds: number[] }> {
-    this.logger.log(
-      { id: operationId, episodeCount: episodeIds.length },
-      'Canceling downloads for episodes',
+  ): Promise<CancelDownloadsResult> {
+    const requested = new Set(episodeIds)
+    return this.cancelQueueDownloads(
+      row => row.episodeId != null && requested.has(row.episodeId),
+      operationId,
+      { episodeCount: episodeIds.length },
     )
+  }
 
+  /**
+   * Cancels the downloads whose queue rows are all being removed.
+   *
+   * Sonarr lists one queue row per episode, and deleting any row removes the
+   * whole tracked download from the client. So rows are grouped by
+   * `downloadId`, a download is canceled only when every episode it covers is
+   * requested, and a pack that also covers other episodes is kept and
+   * reported. Rows without a `downloadId` (pending releases) stand alone.
+   */
+  private async cancelQueueDownloads(
+    isRequested: (row: QueueResource) => boolean,
+    operationId: string,
+    logContext: Record<string, unknown>,
+  ): Promise<CancelDownloadsResult> {
+    this.logger.log({ id: operationId, ...logContext }, 'Canceling downloads')
+
+    let queue: QueueResource[]
     try {
-      const queue = await this.getQueue(operationId)
-      const episodeDownloads = queue.filter(
-        item => item.episodeId != null && episodeIds.includes(item.episodeId),
-      )
-
-      if (episodeDownloads.length === 0) {
-        this.logger.log(
-          { id: operationId, episodeCount: episodeIds.length },
-          'No downloads found for episodes',
-        )
-        return { canceled: 0, commandIds: [] }
-      }
-
-      this.logger.log(
-        {
-          id: operationId,
-          episodeCount: episodeIds.length,
-          downloadCount: episodeDownloads.length,
-        },
-        'Found downloads to cancel for episodes',
-      )
-
-      const commandIds: number[] = []
-      let canceled = 0
-
-      for (const download of episodeDownloads) {
-        if (download.id == null) continue
-        try {
-          await this.removeQueueItem(download.id, operationId)
-          commandIds.push(download.id)
-          canceled++
-
-          this.logger.log(
-            {
-              id: operationId,
-              downloadId: download.id,
-              episodeId: download.episodeId,
-              title: download.title,
-            },
-            'Episode download canceled successfully',
-          )
-        } catch (error) {
-          this.logger.warn(
-            {
-              id: operationId,
-              downloadId: download.id,
-              episodeId: download.episodeId,
-              error: errorMessage(error),
-            },
-            'Failed to cancel episode download, continuing with others',
-          )
-        }
-      }
-
-      this.logger.log(
-        { id: operationId, canceled, total: episodeDownloads.length },
-        'Finished canceling downloads for episodes',
-      )
-
-      return { canceled, commandIds }
+      queue = await this.getQueue(operationId)
     } catch (error) {
       this.logger.error(
+        { id: operationId, ...logContext, error: errorMessage(error) },
+        'Failed to get queue for download cancellation',
+      )
+      return noDownloadsCanceled()
+    }
+
+    const touched = groupQueueByDownload(queue).filter(group =>
+      group.rows.some(isRequested),
+    )
+
+    if (touched.length === 0) {
+      this.logger.log({ id: operationId, ...logContext }, 'No downloads found')
+      return noDownloadsCanceled()
+    }
+
+    const queueIds: number[] = []
+    const keptPacks: KeptPackDownload[] = []
+
+    for (const group of touched) {
+      if (group.rows.every(isRequested)) {
+        const queueId = group.rows.find(row => row.id != null)?.id
+        if (queueId != null) queueIds.push(queueId)
+      } else if (group.downloadId != null) {
+        keptPacks.push(
+          toKeptPackDownload(
+            { ...group, downloadId: group.downloadId },
+            isRequested,
+          ),
+        )
+      }
+    }
+
+    if (keptPacks.length > 0) {
+      this.logger.log(
+        { id: operationId, ...logContext, keptPacks },
+        'Keeping pack downloads that also cover episodes not being removed',
+      )
+    }
+
+    if (queueIds.length === 0) {
+      return noDownloadsCanceled(keptPacks)
+    }
+
+    try {
+      await this.removeQueueItems(queueIds, operationId)
+    } catch (error) {
+      this.logger.warn(
         {
           id: operationId,
-          episodeCount: episodeIds.length,
+          ...logContext,
+          queueIds,
           error: errorMessage(error),
         },
-        'Failed to get queue for episode download cancellation',
+        'Failed to cancel downloads',
       )
-      return { canceled: 0, commandIds: [] }
+      return noDownloadsCanceled(keptPacks)
     }
+
+    this.logger.log(
+      {
+        id: operationId,
+        ...logContext,
+        canceled: queueIds.length,
+        queueIds,
+        kept: keptPacks.length,
+      },
+      'Finished canceling downloads',
+    )
+
+    return { canceled: queueIds.length, commandIds: queueIds, keptPacks }
   }
 
   private async deleteEntireSeries(
@@ -1354,6 +810,7 @@ export class SonarrService extends BaseMediaService {
         canceledDownloads: downloadResult.canceled,
         changes,
         commandIds: downloadResult.commandIds,
+        ...keptPacksFields(downloadResult.keptPacks),
       }
     } catch (error) {
       this.logger.error(
@@ -1391,6 +848,8 @@ export class SonarrService extends BaseMediaService {
     const changes: UnmonitoringChange[] = []
     let totalCanceledDownloads = 0
     const allCommandIds: number[] = []
+    let allKeptPacks: KeptPackDownload[] = []
+    const allRequestedEpisodeIds: number[] = []
     let currentSeries = series
 
     try {
@@ -1403,10 +862,26 @@ export class SonarrService extends BaseMediaService {
         changes.push(...episodeChanges.changes)
         totalCanceledDownloads += episodeChanges.canceledDownloads
         allCommandIds.push(...episodeChanges.commandIds)
+        allKeptPacks.push(...episodeChanges.keptPacks)
+        allRequestedEpisodeIds.push(...episodeChanges.requestedEpisodeIds)
 
         if (episodeChanges.updatedSeries) {
           currentSeries = episodeChanges.updatedSeries
         }
+      }
+
+      // Each selection judged packs on its own episodes. A pack spanning
+      // several selections (an S01–S02 pack for "seasons 1 and 2") is only
+      // fully requested across all of them, so judge kept packs once more
+      // against the whole request.
+      if (allKeptPacks.length > 0 && options.selection!.length > 1) {
+        const recheck = await this.cancelDownloadsForEpisodes(
+          allRequestedEpisodeIds,
+          operationId,
+        )
+        totalCanceledDownloads += recheck.canceled
+        allCommandIds.push(...recheck.commandIds)
+        allKeptPacks = recheck.keptPacks
       }
 
       const shouldDeleteSeries = await this.checkIfSeriesShouldBeDeleted(
@@ -1420,6 +895,16 @@ export class SonarrService extends BaseMediaService {
           { id: operationId, seriesId: series.id },
           'No monitored episodes remain, deleting series',
         )
+
+        // The series is going away, so every episode is now being removed:
+        // cancel what is left, including packs kept above.
+        const remaining = await this.cancelDownloadsForSeries(
+          series.id,
+          operationId,
+        )
+        totalCanceledDownloads += remaining.canceled
+        allCommandIds.push(...remaining.commandIds)
+        allKeptPacks = remaining.keptPacks
 
         await this.deleteSeries(
           series.id,
@@ -1454,6 +939,7 @@ export class SonarrService extends BaseMediaService {
         changes,
         series: seriesDeleted ? undefined : currentSeries,
         commandIds: allCommandIds,
+        ...keptPacksFields(allKeptPacks),
       }
     } catch (error) {
       this.logger.error(
@@ -1481,11 +967,15 @@ export class SonarrService extends BaseMediaService {
     changes: UnmonitoringChange[]
     canceledDownloads: number
     commandIds: number[]
+    keptPacks: KeptPackDownload[]
+    requestedEpisodeIds: number[]
     updatedSeries?: SonarrSeries
   }> {
     const changes: UnmonitoringChange[] = []
     let canceledDownloads = 0
     const commandIds: number[] = []
+    const keptPacks: KeptPackDownload[] = []
+    const requestedEpisodeIds: number[] = []
     let currentSeries = series
 
     this.logger.log(
@@ -1505,7 +995,13 @@ export class SonarrService extends BaseMediaService {
           { id: operationId, seriesId: series.id, season: selection.season },
           'No episodes found for season, skipping unmonitoring',
         )
-        return { changes, canceledDownloads, commandIds }
+        return {
+          changes,
+          canceledDownloads,
+          commandIds,
+          keptPacks,
+          requestedEpisodeIds,
+        }
       }
 
       if (!selection.episodes || selection.episodes.length === 0) {
@@ -1515,6 +1011,7 @@ export class SonarrService extends BaseMediaService {
         )
 
         const allEpisodeIds = episodes.map(ep => ep.id)
+        requestedEpisodeIds.push(...allEpisodeIds)
         if (allEpisodeIds.length > 0) {
           const downloadResult = await this.cancelDownloadsForEpisodes(
             allEpisodeIds,
@@ -1522,6 +1019,7 @@ export class SonarrService extends BaseMediaService {
           )
           canceledDownloads += downloadResult.canceled
           commandIds.push(...downloadResult.commandIds)
+          keptPacks.push(...downloadResult.keptPacks)
 
           const deletionResult = await this.deleteEpisodeFilesForEpisodes(
             episodes,
@@ -1570,6 +1068,7 @@ export class SonarrService extends BaseMediaService {
           .filter(ep => selection.episodes!.includes(ep.episodeNumber))
           .map(ep => ep.id)
 
+        requestedEpisodeIds.push(...selectedEpisodeIds)
         if (selectedEpisodeIds.length > 0) {
           const downloadResult = await this.cancelDownloadsForEpisodes(
             selectedEpisodeIds,
@@ -1577,6 +1076,7 @@ export class SonarrService extends BaseMediaService {
           )
           canceledDownloads += downloadResult.canceled
           commandIds.push(...downloadResult.commandIds)
+          keptPacks.push(...downloadResult.keptPacks)
 
           const selectedEpisodes = episodes.filter(ep =>
             selection.episodes!.includes(ep.episodeNumber),
@@ -1625,6 +1125,8 @@ export class SonarrService extends BaseMediaService {
         changes,
         canceledDownloads,
         commandIds,
+        keptPacks,
+        requestedEpisodeIds,
         updatedSeries: currentSeries,
       }
     } catch (error) {
@@ -1721,102 +1223,73 @@ export class SonarrService extends BaseMediaService {
   }
 
   /**
-   * Polls Sonarr until its episode-monitoring state has settled after a bulk
-   * unmonitor operation, then decides whether the series should be deleted.
+   * Decides whether the series should be deleted after a bulk unmonitor: true
+   * when no non-special episode is still monitored.
    *
-   * Sonarr's state is eventually consistent: a `putApiV3EpisodeMonitor` call
-   * may not be reflected immediately in subsequent `getApiV3Episode` responses.
-   * Instead of a fixed 5s sleep, we retry with exponential backoff
-   * (CONSISTENCY_POLL_BASE_DELAY_MS, 2×, 4×, …) up to
-   * CONSISTENCY_POLL_MAX_ATTEMPTS times. As soon as all non-specials report
-   * zero monitored episodes we return `true`; if monitored episodes persist
-   * after all attempts we return `false` (conservative).
+   * No waiting is needed: `PUT /episode/monitor` updates the episodes before
+   * it responds, so this read already sees the change. Errors are
+   * conservative — any failure to read the state means "don't delete".
    */
   private async checkIfSeriesShouldBeDeleted(
     seriesId: number,
     operationId: string,
   ): Promise<boolean> {
-    for (let attempt = 1; attempt <= CONSISTENCY_POLL_MAX_ATTEMPTS; attempt++) {
-      await new Promise(resolve =>
-        setTimeout(
-          resolve,
-          CONSISTENCY_POLL_BASE_DELAY_MS * Math.pow(2, attempt - 1),
-        ),
-      )
-
-      try {
-        const series = await this.getSeriesById(seriesId, operationId)
-        if (!series) {
-          this.logger.warn(
-            { id: operationId, seriesId, attempt },
-            'Series not found during deletion check',
-          )
-          return false
-        }
-
-        let totalMonitoredEpisodes = 0
-
-        for (const season of series.seasons) {
-          if (season.seasonNumber === 0) continue
-
-          try {
-            const episodes = await this.getEpisodesWithRetry(
-              seriesId,
-              season.seasonNumber,
-              operationId,
-              2,
-            )
-            totalMonitoredEpisodes += episodes.filter(ep => ep.monitored).length
-          } catch (error) {
-            this.logger.warn(
-              {
-                id: operationId,
-                seriesId,
-                season: season.seasonNumber,
-                attempt,
-                error: errorMessage(error),
-              },
-              'Failed to check episodes in season, assuming monitored (conservative approach)',
-            )
-            return false
-          }
-        }
-
-        if (totalMonitoredEpisodes === 0) {
-          this.logger.log(
-            { id: operationId, seriesId, attempt },
-            'No monitored episodes remain — series will be deleted',
-          )
-          return true
-        }
-
-        if (attempt < CONSISTENCY_POLL_MAX_ATTEMPTS) {
-          this.logger.log(
-            {
-              id: operationId,
-              seriesId,
-              totalMonitoredEpisodes,
-              attempt,
-              maxAttempts: CONSISTENCY_POLL_MAX_ATTEMPTS,
-            },
-            'Monitored episodes still present, retrying consistency check',
-          )
-        } else {
-          this.logger.log(
-            { id: operationId, seriesId, totalMonitoredEpisodes },
-            'Monitored episodes remain after all attempts — series will not be deleted',
-          )
-        }
-      } catch (error) {
-        this.logger.error(
-          { id: operationId, seriesId, attempt, error: errorMessage(error) },
-          'Failed to check if series should be deleted, assuming should not delete',
+    try {
+      const series = await this.getSeriesById(seriesId, operationId)
+      if (!series) {
+        this.logger.warn(
+          { id: operationId, seriesId },
+          'Series not found during deletion check',
         )
         return false
       }
-    }
 
-    return false
+      let totalMonitoredEpisodes = 0
+
+      for (const season of series.seasons) {
+        if (season.seasonNumber === 0) continue
+
+        try {
+          const episodes = await this.getEpisodes(
+            seriesId,
+            season.seasonNumber,
+            operationId,
+          )
+          totalMonitoredEpisodes += episodes.filter(ep => ep.monitored).length
+        } catch (error) {
+          this.logger.warn(
+            {
+              id: operationId,
+              seriesId,
+              season: season.seasonNumber,
+              error: errorMessage(error),
+            },
+            'Failed to check episodes in season, assuming monitored (conservative approach)',
+          )
+          return false
+        }
+      }
+
+      if (totalMonitoredEpisodes === 0) {
+        this.logger.log(
+          { id: operationId, seriesId },
+          'No monitored episodes remain — series will be deleted',
+        )
+        return true
+      }
+
+      this.logger.log(
+        { id: operationId, seriesId, totalMonitoredEpisodes },
+        'Monitored episodes remain — series will not be deleted',
+      )
+      return false
+    } catch (error) {
+      this.logger.error(
+        { id: operationId, seriesId, error: errorMessage(error) },
+        'Failed to check if series should be deleted, assuming should not delete',
+      )
+      return false
+    }
   }
 
   private async deleteEpisodeFilesForEpisodes(
@@ -1942,7 +1415,7 @@ export class SonarrService extends BaseMediaService {
       seriesType: s.seriesType,
       seasons: s.seasons,
       genres: s.genres,
-      rating: s.ratings.imdb?.value,
+      rating: s.ratings.votes ? s.ratings.value : undefined,
       posterPath: s.images.find(img => img.coverType === 'poster')?.remoteUrl,
       backdropPath: s.images.find(img => img.coverType === 'fanart')?.remoteUrl,
       certification: s.certification,
@@ -1953,22 +1426,6 @@ export class SonarrService extends BaseMediaService {
       statistics: s.statistics,
       added: s.added,
     }))
-  }
-
-  private validateMonitorSeriesOptions(
-    options: MonitorSeriesOptions,
-  ): MonitorSeriesOptionsInput {
-    try {
-      return SonarrInputSchemas.monitorSeriesOptions.parse(options)
-    } catch (error) {
-      this.logger.error(
-        { options, error: errorMessage(error) },
-        'Invalid monitor series options input',
-      )
-      throw new Error(
-        `Invalid monitor series options: ${error instanceof Error ? error.message : 'Unknown validation error'}`,
-      )
-    }
   }
 
   private validateUnmonitorSeriesOptions(
@@ -1986,4 +1443,15 @@ export class SonarrService extends BaseMediaService {
       )
     }
   }
+}
+
+/**
+ * Result fields reporting packs kept during a partial cancel; empty when none
+ * were kept so the result shape is unchanged for the common case.
+ */
+function keptPacksFields(
+  keptPacks: KeptPackDownload[],
+): Pick<UnmonitorAndDeleteSeriesResult, 'keptPacks' | 'warnings'> {
+  if (keptPacks.length === 0) return {}
+  return { keptPacks, warnings: keptPacks.map(describeKeptPack) }
 }

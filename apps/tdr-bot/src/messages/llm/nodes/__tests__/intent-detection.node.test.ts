@@ -51,6 +51,7 @@ function buildState(userInput = 'hello', userId = 'user-1') {
   return {
     userInput,
     userId,
+    discord: { userId, username: 'testuser' },
     guildId: 'guild-1',
     messages: [],
     images: [],

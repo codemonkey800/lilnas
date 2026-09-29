@@ -50,6 +50,13 @@
       "when": 1790421735762,
       "tag": "0006_careful_quasar",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1790649297660,
+      "tag": "0007_greedy_thunderbolts",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,5 @@
 import {
+  DEFAULT_QUALITY_TIER,
   DownloadJob,
   DownloadJobStatus,
   DownloadType,
@@ -13,6 +14,9 @@ import {
   isVideo,
   Media,
   Movie,
+  QUALITY_TIER_LABELS,
+  QUALITY_TIERS,
+  QualityTier,
   Show,
   TERMINAL_DOWNLOAD_JOB_STATUSES,
   Video,
@@ -99,6 +103,51 @@ describe('DownloadJobStatus', () => {
   it('adds the plan 020 needs-attention member', () => {
     expect(DownloadJobStatus.NeedsAttention).toBe('needs_attention')
   })
+
+  it('adds the plan 024 not-found member', () => {
+    expect(DownloadJobStatus.NotFound).toBe('not_found')
+  })
+})
+
+describe('QualityTier', () => {
+  // Wire values: the server persists and maps these, so they never change.
+  it('pins the wire value of every member', () => {
+    expect(QualityTier.UpTo4k).toBe('up_to_4k')
+    expect(QualityTier.Hd).toBe('hd')
+    expect(QualityTier.UpTo720p).toBe('up_to_720p')
+  })
+
+  it('QUALITY_TIERS lists every member exactly once, best first', () => {
+    expect(QUALITY_TIERS).toEqual([
+      QualityTier.UpTo4k,
+      QualityTier.Hd,
+      QualityTier.UpTo720p,
+    ])
+    expect([...QUALITY_TIERS].sort()).toEqual(Object.values(QualityTier).sort())
+  })
+
+  it('QUALITY_TIER_LABELS labels every member', () => {
+    for (const tier of Object.values(QualityTier)) {
+      expect(QUALITY_TIER_LABELS[tier]).toEqual(expect.any(String))
+      expect(QUALITY_TIER_LABELS[tier]).not.toBe('')
+    }
+    expect(Object.keys(QUALITY_TIER_LABELS).sort()).toEqual(
+      Object.values(QualityTier).sort(),
+    )
+  })
+
+  // A UI iterating the map renders it in insertion order.
+  it('QUALITY_TIER_LABELS iterates best first', () => {
+    expect(Object.entries(QUALITY_TIER_LABELS)).toEqual([
+      [QualityTier.UpTo4k, 'Up to 4K'],
+      [QualityTier.Hd, 'HD (up to 1080p)'],
+      [QualityTier.UpTo720p, 'Up to 720p'],
+    ])
+  })
+
+  it('defaults to HD', () => {
+    expect(DEFAULT_QUALITY_TIER).toBe(QualityTier.Hd)
+  })
 })
 
 describe('TERMINAL_DOWNLOAD_JOB_STATUSES / IN_PROGRESS_DOWNLOAD_JOB_STATUSES', () => {
@@ -116,15 +165,27 @@ describe('TERMINAL_DOWNLOAD_JOB_STATUSES / IN_PROGRESS_DOWNLOAD_JOB_STATUSES', (
     }
   })
 
-  it('marks cancelled/completed/failed as terminal', () => {
+  it('marks cancelled/completed/failed/not_found as terminal', () => {
     expect(TERMINAL_DOWNLOAD_JOB_STATUSES).toEqual(
       expect.arrayContaining([
         DownloadJobStatus.Cancelled,
         DownloadJobStatus.Completed,
         DownloadJobStatus.Failed,
+        DownloadJobStatus.NotFound,
       ]),
     )
-    expect(TERMINAL_DOWNLOAD_JOB_STATUSES).toHaveLength(3)
+    expect(TERMINAL_DOWNLOAD_JOB_STATUSES).toHaveLength(4)
+  })
+
+  // Plan 024. A search that finds nothing is over - without a terminal
+  // `not_found` the job would sit in `searching` forever, and
+  // `DownloadClient.waitForJob()` would never resolve for it.
+  it('treats not_found as terminal, never in-progress', () => {
+    const status = DownloadJobStatus.NotFound
+
+    expect(isTerminalDownloadJobStatus(status)).toBe(true)
+    expect(isInProgressDownloadJobStatus(status)).toBe(false)
+    expect(IN_PROGRESS_DOWNLOAD_JOB_STATUSES).not.toContain(status)
   })
 
   // Phase 5. `paused`/`pausing` land in "in progress" purely by being absent
@@ -145,7 +206,7 @@ describe('TERMINAL_DOWNLOAD_JOB_STATUSES / IN_PROGRESS_DOWNLOAD_JOB_STATUSES', (
     }
 
     // Pinned: adding a status must not grow the terminal list.
-    expect(TERMINAL_DOWNLOAD_JOB_STATUSES).toHaveLength(3)
+    expect(TERMINAL_DOWNLOAD_JOB_STATUSES).toHaveLength(4)
   })
 
   // Plan 020. `needs_attention` is a finished-but-unimported job: the bytes
@@ -166,7 +227,7 @@ describe('TERMINAL_DOWNLOAD_JOB_STATUSES / IN_PROGRESS_DOWNLOAD_JOB_STATUSES', (
     expect(TERMINAL_DOWNLOAD_JOB_STATUSES).not.toContain(status)
 
     // Pinned: adding a status must not grow the terminal list.
-    expect(TERMINAL_DOWNLOAD_JOB_STATUSES).toHaveLength(3)
+    expect(TERMINAL_DOWNLOAD_JOB_STATUSES).toHaveLength(4)
   })
 
   it('isTerminalDownloadJobStatus agrees with the two sets', () => {

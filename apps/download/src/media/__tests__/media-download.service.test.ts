@@ -14,6 +14,7 @@ import {
   DownloadJobStatus,
   DownloadType,
   Media,
+  QualityTier,
   type Release,
   type ShowScope,
 } from '@lilnas/utils/download/types'
@@ -24,14 +25,18 @@ import { fakeAttributionResolutionProvider } from 'src/auth/__tests__/helpers/at
 import { createTestDbService } from 'src/db/__tests__/test-utils'
 import { insertBadFile } from 'src/db/bad-files.repo'
 import { DbService } from 'src/db/db.service'
+import { linkDownload, listForJob } from 'src/db/job-downloads.repo'
 import { getJobById } from 'src/db/jobs.repo'
 import { DownloadStateService } from 'src/download/download-state.service'
 import { DownloadGateway } from 'src/download-gateway/download.gateway'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
 import { MediaStateService } from 'src/media/media-state.service'
+import { defaultQualityTier } from 'src/media/quality-tier-default'
+import { KEPT_PACK_NOTE } from 'src/media/queue-cancel.util'
 import { RadarrService } from 'src/media/radarr.service'
 import { SonarrService } from 'src/media/sonarr.service'
+import { NO_USABLE_RELEASE_NOTE } from 'src/media/start-search'
 
 import {
   createFakeMediaResolver,
@@ -39,6 +44,17 @@ import {
 } from './helpers/fake-media-resolver'
 
 const NOW_ISO = '2026-08-20T12:00:00.000Z'
+
+// - The tier profile ids the Radarr/Sonarr mocks serve; hd is the default
+const HD_MOVIE_PROFILE_ID = 11
+const UHD_MOVIE_PROFILE_ID = 12
+const HD_SHOW_PROFILE_ID = 21
+const SD_SHOW_PROFILE_ID = 23
+
+/** The command a search/refresh mock hands back. */
+function commandRef(id: number, name: string) {
+  return { id, name, queuedAt: NOW_ISO }
+}
 
 function buildRecord(
   type: DownloadType,
@@ -85,21 +101,44 @@ describe('MediaDownloadService', () => {
     dbService = createTestDbService()
     mediaResolver = createFakeMediaResolver()
     const mockRadarrService = {
-      ensureMovie: jest.fn().mockResolvedValue({ movie: {}, radarrId: 42 }),
+      // - Already on the default tier's profile, so no re-profile by default
+      editMovies: jest.fn(),
+      ensureMovie: jest.fn().mockResolvedValue({
+        movie: { qualityProfileId: HD_MOVIE_PROFILE_ID },
+        radarrId: 42,
+      }),
       getQueue: jest.fn(),
       getReleases: jest.fn(),
       grabRelease: jest.fn(),
+      // - No refresh in flight, so a library title is searched at once
+      listCommands: jest.fn().mockResolvedValue([]),
       removeQueueItem: jest.fn(),
       search: jest.fn(),
-      triggerSearch: jest.fn(),
+      refreshMovie: jest.fn().mockResolvedValue(commandRef(31, 'RefreshMovie')),
+      tierProfileId: jest.fn(async (tier: QualityTier) =>
+        tier === QualityTier.Hd ? HD_MOVIE_PROFILE_ID : UHD_MOVIE_PROFILE_ID,
+      ),
+      triggerSearch: jest
+        .fn()
+        .mockResolvedValue(commandRef(32, 'MoviesSearch')),
       unmonitorAndDelete: jest.fn(),
       unmonitorIfMissing: jest.fn(),
     }
     const mockSonarrService = {
-      ensureSeries: jest.fn().mockResolvedValue({ series: {}, sonarrId: 9 }),
+      editSeries: jest.fn(),
+      ensureSeries: jest.fn().mockResolvedValue({
+        series: { qualityProfileId: HD_SHOW_PROFILE_ID },
+        sonarrId: 9,
+      }),
+      getEpisodes: jest.fn().mockResolvedValue([]),
       getQueue: jest.fn(),
       getReleases: jest.fn(),
       grabRelease: jest.fn(),
+      listCommands: jest.fn().mockResolvedValue([]),
+      monitorScope: jest.fn(),
+      refreshSeries: jest
+        .fn()
+        .mockResolvedValue(commandRef(41, 'RefreshSeries')),
       removeQueueItem: jest.fn(),
       // The real one is a no-op for a season-only/empty scope and fills in
       // the display fields for an episode scope - mirrored here so a test
@@ -111,9 +150,18 @@ describe('MediaDownloadService', () => {
       ),
       search: jest.fn(),
       setSeasonsMonitored: jest.fn().mockResolvedValue([]),
-      triggerEpisodeSearch: jest.fn(),
-      triggerSeasonSearch: jest.fn(),
-      triggerSearch: jest.fn(),
+      tierProfileId: jest.fn(async (tier: QualityTier) =>
+        tier === QualityTier.Hd ? HD_SHOW_PROFILE_ID : SD_SHOW_PROFILE_ID,
+      ),
+      triggerEpisodeSearch: jest
+        .fn()
+        .mockResolvedValue(commandRef(42, 'EpisodeSearch')),
+      triggerSeasonSearch: jest
+        .fn()
+        .mockResolvedValue(commandRef(43, 'SeasonSearch')),
+      triggerSearch: jest
+        .fn()
+        .mockResolvedValue(commandRef(44, 'SeriesSearch')),
       unmonitorAndDelete: jest.fn(),
       unmonitorScope: jest.fn(),
     }
@@ -203,6 +251,10 @@ describe('MediaDownloadService', () => {
         status: DownloadJobStatus.Searching,
         type: DownloadType.Movie,
         updatedAt: expect.any(String),
+        // The search the request started, for the poller to follow.
+        upstreamCommandAt: NOW_ISO,
+        upstreamCommandId: 32,
+        upstreamCommandKind: 'search',
       })
     })
 
@@ -247,7 +299,10 @@ describe('MediaDownloadService', () => {
     it('triggers the generic search command when the title has no flagged releases', async () => {
       await service.requestMovie(123)
 
-      expect(radarrService.ensureMovie).toHaveBeenCalledWith(123)
+      expect(radarrService.ensureMovie).toHaveBeenCalledWith(123, {
+        monitored: true,
+        qualityProfileId: HD_MOVIE_PROFILE_ID,
+      })
       expect(radarrService.triggerSearch).toHaveBeenCalledWith(42)
       expect(radarrService.getReleases).not.toHaveBeenCalled()
       expect(radarrService.grabRelease).not.toHaveBeenCalled()
@@ -256,7 +311,7 @@ describe('MediaDownloadService', () => {
     // A title added this request is missing from the resolver's cached
     // library - without this the job's media has no radarrId and the poller
     // can't track it until the cache expires.
-    it('hands the ensure result to the resolver before searching', async () => {
+    it('hands the ensure result to the resolver before waiting on the refresh', async () => {
       const ensured = {
         movie: {},
         radarrId: 42,
@@ -274,7 +329,7 @@ describe('MediaDownloadService', () => {
       expect(
         mediaResolver.invalidateAfterEnsure.mock.invocationCallOrder[0],
       ).toBeLessThan(
-        radarrService.triggerSearch.mock.invocationCallOrder[0] as number,
+        radarrService.refreshMovie.mock.invocationCallOrder[0] as number,
       )
     })
 
@@ -286,6 +341,110 @@ describe('MediaDownloadService', () => {
       expect(job.status).toBe(DownloadJobStatus.Failed)
       expect(job.error).toBe('radarr down')
     })
+
+    describe('quality tier', () => {
+      it("adds with the requested tier's profile", async () => {
+        await service.requestMovie(123, null, null, QualityTier.UpTo4k)
+
+        expect(radarrService.tierProfileId).toHaveBeenCalledWith(
+          QualityTier.UpTo4k,
+        )
+        expect(radarrService.ensureMovie).toHaveBeenCalledWith(123, {
+          monitored: true,
+          qualityProfileId: UHD_MOVIE_PROFILE_ID,
+        })
+      })
+
+      it('uses the default tier when the request names none', async () => {
+        await service.requestMovie(123)
+
+        expect(radarrService.tierProfileId).toHaveBeenCalledWith(
+          defaultQualityTier(),
+        )
+        expect(radarrService.ensureMovie).toHaveBeenCalledWith(
+          123,
+          expect.objectContaining({ qualityProfileId: HD_MOVIE_PROFILE_ID }),
+        )
+      })
+
+      it('moves a library movie on another profile onto the tier, and drops the cached entry', async () => {
+        radarrService.ensureMovie.mockResolvedValue({
+          movie: { qualityProfileId: HD_MOVIE_PROFILE_ID },
+          radarrId: 42,
+          wasAdded: false,
+          wasMonitored: true,
+        } as never)
+
+        const job = await service.requestMovie(
+          123,
+          null,
+          null,
+          QualityTier.UpTo4k,
+        )
+
+        expect(job.status).toBe(DownloadJobStatus.Searching)
+        expect(radarrService.editMovies).toHaveBeenCalledWith([42], {
+          qualityProfileId: UHD_MOVIE_PROFILE_ID,
+        })
+        // Before the search, so the search runs on the new profile.
+        expect(
+          radarrService.editMovies.mock.invocationCallOrder[0],
+        ).toBeLessThan(
+          radarrService.triggerSearch.mock.invocationCallOrder[0] as number,
+        )
+        expect(mediaResolver.invalidate).toHaveBeenCalledWith('tmdb:123')
+      })
+
+      it('leaves a library movie already on the tier alone', async () => {
+        radarrService.ensureMovie.mockResolvedValue({
+          movie: { qualityProfileId: UHD_MOVIE_PROFILE_ID },
+          radarrId: 42,
+          wasAdded: false,
+          wasMonitored: true,
+        } as never)
+
+        await service.requestMovie(123, null, null, QualityTier.UpTo4k)
+
+        expect(radarrService.editMovies).not.toHaveBeenCalled()
+        expect(mediaResolver.invalidate).not.toHaveBeenCalled()
+      })
+
+      it('does not re-profile a movie the request just added', async () => {
+        radarrService.ensureMovie.mockResolvedValue({
+          movie: {},
+          radarrId: 42,
+          wasAdded: true,
+          wasMonitored: false,
+        } as never)
+
+        await service.requestMovie(123, null, null, QualityTier.UpTo4k)
+
+        expect(radarrService.editMovies).not.toHaveBeenCalled()
+      })
+
+      // Never quietly lands on "Any" or whatever Radarr lists first.
+      it('fails the job, writing nothing, when the tier profile cannot be had', async () => {
+        radarrService.tierProfileId.mockRejectedValue(
+          new Error(
+            'Could not set up Radarr\'s "lilnas · Up to 4K" quality profile: ECONNREFUSED',
+          ),
+        )
+
+        const job = await service.requestMovie(
+          123,
+          null,
+          null,
+          QualityTier.UpTo4k,
+        )
+
+        expect(job.status).toBe(DownloadJobStatus.Failed)
+        expect(job.error).toBe(
+          'Could not set up Radarr\'s "lilnas · Up to 4K" quality profile: ECONNREFUSED',
+        )
+        expect(radarrService.ensureMovie).not.toHaveBeenCalled()
+        expect(radarrService.triggerSearch).not.toHaveBeenCalled()
+      })
+    })
   })
 
   describe('requestShow', () => {
@@ -293,7 +452,6 @@ describe('MediaDownloadService', () => {
       const ensured = {
         series: {},
         sonarrId: 9,
-        turnedOnEpisodeIds: [],
         wasAdded: true,
         wasMonitored: false,
       }
@@ -319,7 +477,9 @@ describe('MediaDownloadService', () => {
       await service.requestShow(456)
 
       expect(sonarrService.ensureSeries).toHaveBeenCalledWith(456, {
+        monitored: true,
         monitorEpisodes: {},
+        qualityProfileId: HD_SHOW_PROFILE_ID,
       })
       expect(sonarrService.triggerSearch).toHaveBeenCalledWith(9)
       expect(sonarrService.getReleases).not.toHaveBeenCalled()
@@ -334,44 +494,133 @@ describe('MediaDownloadService', () => {
       expect(job.error).toBe('sonarr down')
     })
 
+    describe('quality tier', () => {
+      it("adds with the requested tier's profile", async () => {
+        await service.requestShow(
+          456,
+          null,
+          undefined,
+          null,
+          QualityTier.UpTo720p,
+        )
+
+        expect(sonarrService.tierProfileId).toHaveBeenCalledWith(
+          QualityTier.UpTo720p,
+        )
+        expect(sonarrService.ensureSeries).toHaveBeenCalledWith(
+          456,
+          expect.objectContaining({ qualityProfileId: SD_SHOW_PROFILE_ID }),
+        )
+      })
+
+      it('uses the default tier when the request names none', async () => {
+        await service.requestShow(456)
+
+        expect(sonarrService.tierProfileId).toHaveBeenCalledWith(
+          defaultQualityTier(),
+        )
+      })
+
+      // The profile is a series setting: a one-season request moves the
+      // whole series.
+      it('moves a library series on another profile onto the tier, whatever the scope', async () => {
+        sonarrService.ensureSeries.mockResolvedValue({
+          series: { qualityProfileId: HD_SHOW_PROFILE_ID },
+          sonarrId: 9,
+          wasAdded: false,
+          wasMonitored: true,
+        } as never)
+
+        await service.requestShow(
+          456,
+          null,
+          { seasonNumber: 2 },
+          null,
+          QualityTier.UpTo720p,
+        )
+
+        expect(sonarrService.editSeries).toHaveBeenCalledWith([9], {
+          qualityProfileId: SD_SHOW_PROFILE_ID,
+        })
+        expect(
+          sonarrService.editSeries.mock.invocationCallOrder[0],
+        ).toBeLessThan(
+          sonarrService.triggerSeasonSearch.mock
+            .invocationCallOrder[0] as number,
+        )
+        expect(mediaResolver.invalidate).toHaveBeenCalledWith('tvdb:456')
+      })
+
+      it('leaves a library series already on the tier alone', async () => {
+        sonarrService.ensureSeries.mockResolvedValue({
+          series: { qualityProfileId: HD_SHOW_PROFILE_ID },
+          sonarrId: 9,
+          wasAdded: false,
+          wasMonitored: true,
+        } as never)
+
+        await service.requestShow(456, null, undefined, null, QualityTier.Hd)
+
+        expect(sonarrService.editSeries).not.toHaveBeenCalled()
+      })
+
+      it('fails the job, writing nothing, when the tier profile cannot be had', async () => {
+        sonarrService.tierProfileId.mockRejectedValue(
+          new Error(
+            'Could not set up Sonarr\'s "lilnas · HD (up to 1080p)" quality profile: ECONNREFUSED',
+          ),
+        )
+
+        const job = await service.requestShow(456)
+
+        expect(job.status).toBe(DownloadJobStatus.Failed)
+        expect(job.error).toMatch(
+          /Could not set up Sonarr's .* quality profile/,
+        )
+        expect(sonarrService.ensureSeries).not.toHaveBeenCalled()
+        expect(sonarrService.setSeasonsMonitored).not.toHaveBeenCalled()
+      })
+    })
+
     // A bare request is an *explicit* whole-series request: an empty scope
-    // (not "no options"), every season flag on, the generic command, no
-    // resolution round trip and no scope on the job.
+    // (not "no options"), every regular season flag on (`'all'`, which -
+    // like Sonarr's own `MonitorTypes.All` - skips the specials), the
+    // generic command, no resolution round trip and no scope on the job.
     it('monitors the whole series for an unscoped request', async () => {
       const job = await service.requestShow(456)
 
       expect(sonarrService.ensureSeries).toHaveBeenCalledWith(456, {
+        monitored: true,
         monitorEpisodes: {},
+        qualityProfileId: HD_SHOW_PROFILE_ID,
       })
-      expect(sonarrService.setSeasonsMonitored).toHaveBeenCalledWith(
-        9,
-        'all',
-        true,
-      )
+      // `startSearch` monitors it: `{}` is every regular season.
+      expect(sonarrService.monitorScope).toHaveBeenCalledWith(9, {})
       expect(sonarrService.resolveScope).not.toHaveBeenCalled()
       expect(sonarrService.triggerEpisodeSearch).not.toHaveBeenCalled()
       expect(sonarrService.triggerSeasonSearch).not.toHaveBeenCalled()
       expect(job.scope).toBeUndefined()
     })
 
-    // Sonarr's `PUT /series` may cascade a season flag down to that
-    // season's episodes, so every episode read/write has to be done before
-    // the season write - otherwise a cascade could change what gets
-    // reported back as the restore set.
-    it('writes the season flags after ensureSeries, never before', async () => {
+    // The series flag first (`ensureSeries`), the scope after it - and
+    // the search after that.
+    it('monitors the scope after ensureSeries, then searches', async () => {
       await service.requestShow(456)
 
       const ensureOrder =
         sonarrService.ensureSeries.mock.invocationCallOrder[0] ?? 0
-      const seasonOrder =
-        sonarrService.setSeasonsMonitored.mock.invocationCallOrder[0] ?? 0
+      const monitorOrder =
+        sonarrService.monitorScope.mock.invocationCallOrder[0] ?? 0
+      const searchOrder =
+        sonarrService.triggerSearch.mock.invocationCallOrder[0] ?? 0
 
       expect(ensureOrder).toBeGreaterThan(0)
-      expect(seasonOrder).toBeGreaterThan(ensureOrder)
+      expect(monitorOrder).toBeGreaterThan(ensureOrder)
+      expect(searchOrder).toBeGreaterThan(monitorOrder)
     })
 
-    it('fails the job when the season-flag write throws', async () => {
-      sonarrService.setSeasonsMonitored.mockRejectedValue(
+    it('fails the job when the monitor write throws', async () => {
+      sonarrService.monitorScope.mockRejectedValue(
         new Error('sonarr rejected the season write'),
       )
 
@@ -429,47 +678,52 @@ describe('MediaDownloadService', () => {
       await service.requestShow(456, null, scope)
 
       expect(sonarrService.ensureSeries).toHaveBeenCalledWith(456, {
+        monitored: true,
         monitorEpisodes: scope,
+        qualityProfileId: HD_SHOW_PROFILE_ID,
       })
     })
 
-    // The season flag is Sonarr's third, independent `monitored` switch:
-    // without this write, Sonarr's own UI and its RSS/missing jobs still
-    // see an unmonitored season even though the episodes are on.
-    it('monitors the scoped season flag', async () => {
+    // `monitorScope` owns the season flag - Sonarr's third, independent
+    // `monitored` switch - for a season or the whole series.
+    it('monitors the scoped season', async () => {
       await service.requestShow(456, null, { seasonNumber: 3 })
 
-      expect(sonarrService.setSeasonsMonitored).toHaveBeenCalledWith(
-        9,
-        [3],
-        true,
-      )
+      expect(sonarrService.monitorScope).toHaveBeenCalledWith(9, {
+        seasonNumber: 3,
+      })
     })
 
     // Season 0 is specials - a truthiness check would widen this to every
-    // season's flag.
-    it('monitors the season 0 flag rather than every season', async () => {
+    // season.
+    it('monitors season 0 rather than every season', async () => {
       await service.requestShow(456, null, { seasonNumber: 0 })
 
-      expect(sonarrService.setSeasonsMonitored).toHaveBeenCalledWith(
-        9,
-        [0],
-        true,
-      )
+      expect(sonarrService.monitorScope).toHaveBeenCalledWith(9, {
+        seasonNumber: 0,
+      })
     })
 
-    it('leaves the season flag alone for an episode request', async () => {
+    // Resolved first, so the monitor write names the one episode by id.
+    it('monitors the resolved episode for an episode request', async () => {
       await service.requestShow(456, null, { episodeId: 4412 })
 
-      expect(sonarrService.setSeasonsMonitored).not.toHaveBeenCalled()
+      expect(sonarrService.monitorScope).toHaveBeenCalledWith(9, {
+        episodeId: 4412,
+        episodeNumber: 5,
+        seasonNumber: 3,
+      })
     })
 
-    // Narrowest wins here too: a scope naming both is an episode request,
-    // so the season flag stays untouched.
-    it('leaves the season flag alone when the scope names both', async () => {
-      await service.requestShow(456, null, { episodeId: 4412, seasonNumber: 3 })
+    it('stores the search it started on the job', async () => {
+      const job = await service.requestShow(456, null, { seasonNumber: 3 })
 
-      expect(sonarrService.setSeasonsMonitored).not.toHaveBeenCalled()
+      expect(downloadStateService.jobs.get(job.id)).toMatchObject({
+        status: DownloadJobStatus.Searching,
+        upstreamCommandAt: NOW_ISO,
+        upstreamCommandId: 43,
+        upstreamCommandKind: 'search',
+      })
     })
 
     it('mints the job with the requested scope before submit resolves it', async () => {
@@ -559,7 +813,9 @@ describe('MediaDownloadService', () => {
       expect(radarrService.grabRelease).toHaveBeenCalledWith('indexer://ok', 1)
     })
 
-    it('fails the job with a descriptive error when nothing survives the filter', async () => {
+    // Not a failure: the chip reads "no release found" and the note says
+    // why - the mockups never draw it red.
+    it('ends the job not_found, with the note, when nothing survives the filter', async () => {
       flag('tmdb:123', 'indexer://bad')
       radarrService.getReleases.mockResolvedValue([
         release({ guid: 'indexer://bad' }),
@@ -567,19 +823,41 @@ describe('MediaDownloadService', () => {
 
       const job = await service.requestMovie(123)
 
-      expect(job.status).toBe(DownloadJobStatus.Failed)
-      expect(job.error).toContain('No usable release for tmdb:123')
+      expect(job.status).toBe(DownloadJobStatus.NotFound)
+      expect(job.statusNote).toBe(NO_USABLE_RELEASE_NOTE)
+      expect(job.error).toBeUndefined()
       expect(radarrService.grabRelease).not.toHaveBeenCalled()
+      expect(getJobById(dbService.db, job.id)).toMatchObject({
+        status: DownloadJobStatus.NotFound,
+        statusNote: NO_USABLE_RELEASE_NOTE,
+      })
     })
 
-    it('fails the job when the indexer returned nothing at all', async () => {
+    it('ends the job not_found when the indexer returned nothing at all', async () => {
       flag('tmdb:123', 'indexer://bad')
       radarrService.getReleases.mockResolvedValue([])
 
       const job = await service.requestMovie(123)
 
-      expect(job.status).toBe(DownloadJobStatus.Failed)
-      expect(job.error).toContain('all 0 release(s)')
+      expect(job.status).toBe(DownloadJobStatus.NotFound)
+      expect(job.statusNote).toBe(NO_USABLE_RELEASE_NOTE)
+    })
+
+    // No command to follow - the poller claims the grab from history, and
+    // the grab time ranks this job first for it.
+    it('records when it grabbed, with no command to follow', async () => {
+      flag('tmdb:123', 'indexer://bad')
+      radarrService.getReleases.mockResolvedValue([
+        release({ guid: 'indexer://ok' }),
+      ])
+
+      const job = await service.requestMovie(123)
+
+      const record = downloadStateService.jobs.get(job.id)
+      expect(record?.upstreamCommandAt).toEqual(expect.any(String))
+      expect(record?.upstreamCommandId).toBeUndefined()
+      expect(record?.upstreamCommandKind).toBeUndefined()
+      expect(listForJob(dbService.db, job.id)).toEqual([])
     })
 
     // Flags are scoped to one title - another movie's flags must not push
@@ -593,19 +871,6 @@ describe('MediaDownloadService', () => {
       expect(radarrService.getReleases).not.toHaveBeenCalled()
     })
 
-    it('applies the same branch to shows', async () => {
-      flag('tvdb:456', 'indexer://bad')
-      sonarrService.getReleases.mockResolvedValue([
-        release({ guid: 'indexer://bad' }),
-        release({ guid: 'indexer://ok', seeders: 50 }),
-      ])
-
-      await service.requestShow(456)
-
-      expect(sonarrService.triggerSearch).not.toHaveBeenCalled()
-      expect(sonarrService.grabRelease).toHaveBeenCalledWith('indexer://ok', 1)
-    })
-
     // The flagged branch was already scope-capable - `getReleases` has
     // taken a scope since Phase 3, so only the argument changed.
     it('narrows the release fetch to the scope on a flagged, scoped request', async () => {
@@ -616,9 +881,9 @@ describe('MediaDownloadService', () => {
 
       const job = await service.requestShow(456, null, { episodeId: 4412 })
 
+      // Only the search keys - `episodeNumber` is display-only.
       expect(sonarrService.getReleases).toHaveBeenCalledWith(9, {
         episodeId: 4412,
-        episodeNumber: 5,
         seasonNumber: 3,
       })
       expect(sonarrService.triggerEpisodeSearch).not.toHaveBeenCalled()
@@ -631,16 +896,273 @@ describe('MediaDownloadService', () => {
       })
     })
 
-    // The unscoped flagged path keeps calling getReleases with one arg.
-    it('leaves the unscoped flagged fetch unscoped', async () => {
-      flag('tvdb:456', 'indexer://bad')
-      sonarrService.getReleases.mockResolvedValue([
-        release({ guid: 'indexer://ok' }),
+    // Sonarr's unscoped `GET /release` is its RSS feed, not a search - so a
+    // whole-series request is searched and picked one season at a time.
+    describe('an unscoped show request', () => {
+      function episode(
+        seasonNumber: number,
+        episodeNumber: number,
+        overrides: { hasFile?: boolean; monitored?: boolean } = {},
+      ) {
+        return {
+          episodeNumber,
+          hasFile: false,
+          monitored: true,
+          seasonNumber,
+          ...overrides,
+        }
+      }
+
+      beforeEach(() => {
+        Object.assign(sonarrService, {
+          getEpisodes: jest.fn().mockResolvedValue([
+            // Missing specials - a whole-show request never covers them.
+            episode(0, 1),
+            episode(1, 1),
+            episode(1, 2, { hasFile: true }),
+            episode(2, 1),
+            episode(2, 2),
+            // Nothing missing in season 3: a file, and an unmonitored gap.
+            episode(3, 1, { hasFile: true }),
+            episode(3, 2, { monitored: false }),
+          ]),
+        })
+        sonarrService.getReleases.mockImplementation(
+          async (_sonarrId: number, scope: { seasonNumber?: number }) =>
+            scope.seasonNumber === 1
+              ? [
+                  release({ episodeNumbers: [1], guid: 'indexer://bad' }),
+                  release({ episodeNumbers: [1], guid: 'indexer://s01e01' }),
+                ]
+              : [
+                  release({ fullSeason: true, guid: 'indexer://bad' }),
+                  release({ fullSeason: true, guid: 'indexer://s02-pack' }),
+                ],
+        )
+      })
+
+      it('searches each season with missing episodes and grabs every pick', async () => {
+        flag('tvdb:456', 'indexer://bad')
+
+        const job = await service.requestShow(456)
+
+        expect(sonarrService.triggerSearch).not.toHaveBeenCalled()
+        expect(sonarrService.getEpisodes).toHaveBeenCalledWith(9)
+        // Seasons 1 and 2 only - never season 0, never season 3, never
+        // unscoped.
+        expect(sonarrService.getReleases.mock.calls).toEqual([
+          [9, { seasonNumber: 1 }],
+          [9, { seasonNumber: 2 }],
+        ])
+        expect(sonarrService.grabRelease.mock.calls).toEqual([
+          ['indexer://s01e01', 1],
+          ['indexer://s02-pack', 1],
+        ])
+        expect(job.status).toBe(DownloadJobStatus.Searching)
+        expect(job.scope).toBeUndefined()
+      })
+
+      it('treats an empty scope as the whole series', async () => {
+        flag('tvdb:456', 'indexer://bad')
+
+        await service.requestShow(456, null, {})
+
+        expect(sonarrService.getReleases.mock.calls).toEqual([
+          [9, { seasonNumber: 1 }],
+          [9, { seasonNumber: 2 }],
+        ])
+      })
+
+      it('carries on past a season whose search fails', async () => {
+        flag('tvdb:456', 'indexer://bad')
+        sonarrService.getReleases.mockRejectedValueOnce(
+          new Error('indexer down'),
+        )
+
+        const job = await service.requestShow(456)
+
+        expect(sonarrService.getReleases).toHaveBeenCalledTimes(2)
+        expect(sonarrService.grabRelease.mock.calls).toEqual([
+          ['indexer://s02-pack', 1],
+        ])
+        expect(job.status).toBe(DownloadJobStatus.Searching)
+      })
+
+      it('ends the job not_found, with the note, when no season yields a grab', async () => {
+        flag('tvdb:456', 'indexer://bad')
+        sonarrService.getReleases
+          .mockReset()
+          .mockRejectedValueOnce(new Error('indexer down'))
+          .mockResolvedValueOnce([release({ guid: 'indexer://bad' })])
+
+        const job = await service.requestShow(456)
+
+        expect(job.status).toBe(DownloadJobStatus.NotFound)
+        expect(job.statusNote).toBe(NO_USABLE_RELEASE_NOTE)
+        expect(sonarrService.grabRelease).not.toHaveBeenCalled()
+      })
+
+      it('fails the job when every season search fails', async () => {
+        flag('tvdb:456', 'indexer://bad')
+        sonarrService.getReleases
+          .mockReset()
+          .mockRejectedValue(new Error('indexer down'))
+
+        const job = await service.requestShow(456)
+
+        expect(job.status).toBe(DownloadJobStatus.Failed)
+        expect(job.error).toContain('season 1: indexer down')
+      })
+
+      it('ends the job not_found, with no note, when no season has anything missing', async () => {
+        flag('tvdb:456', 'indexer://bad')
+        Object.assign(sonarrService, {
+          getEpisodes: jest
+            .fn()
+            .mockResolvedValue([
+              episode(0, 1),
+              episode(1, 1, { hasFile: true }),
+            ]),
+        })
+
+        const job = await service.requestShow(456)
+
+        expect(job.status).toBe(DownloadJobStatus.NotFound)
+        expect(job.statusNote).toBeUndefined()
+        expect(sonarrService.getReleases).not.toHaveBeenCalled()
+      })
+    })
+
+    // Upstream already ranked these; the app no longer re-sorts by seeders.
+    it('grabs the first eligible release in upstream order', async () => {
+      flag('tmdb:123', 'indexer://bad')
+      radarrService.getReleases.mockResolvedValue([
+        release({ guid: 'indexer://bad' }),
+        release({ downloadAllowed: false, guid: 'indexer://blocked' }),
+        release({ guid: 'indexer://nzb', protocol: 'usenet' }),
+        release({ guid: 'indexer://seeded', seeders: 900 }),
       ])
 
-      await service.requestShow(456)
+      await service.requestMovie(123)
 
-      expect(sonarrService.getReleases).toHaveBeenCalledWith(9)
+      expect(radarrService.grabRelease).toHaveBeenCalledTimes(1)
+      expect(radarrService.grabRelease).toHaveBeenCalledWith('indexer://nzb', 1)
+    })
+
+    describe('a season scope', () => {
+      function episode(
+        episodeNumber: number,
+        overrides: { hasFile?: boolean; monitored?: boolean } = {},
+      ) {
+        return { episodeNumber, hasFile: false, monitored: true, ...overrides }
+      }
+
+      beforeEach(() => {
+        // Not in the shared mock - only the season-scoped pick reads it.
+        Object.assign(sonarrService, {
+          getEpisodes: jest
+            .fn()
+            .mockResolvedValue([
+              episode(1),
+              episode(2),
+              episode(3, { hasFile: true }),
+              episode(4, { monitored: false }),
+            ]),
+        })
+      })
+
+      it('grabs every release the season pick returns', async () => {
+        flag('tvdb:456', 'indexer://bad')
+        sonarrService.getReleases.mockResolvedValue([
+          release({ episodeNumbers: [1], guid: 'indexer://bad' }),
+          release({ episodeNumbers: [3], guid: 'indexer://has-file' }),
+          release({ episodeNumbers: [1], guid: 'indexer://e01', indexerId: 7 }),
+          release({ episodeNumbers: [1], guid: 'indexer://e01-again' }),
+          // Sonarr's mapping wins over what it parsed from the title.
+          {
+            ...release({ episodeNumbers: [9], guid: 'indexer://e02' }),
+            mappedEpisodeNumbers: [2],
+          },
+        ])
+
+        const job = await service.requestShow(456, null, { seasonNumber: 2 })
+
+        expect(sonarrService.getReleases).toHaveBeenCalledWith(9, {
+          seasonNumber: 2,
+        })
+        expect(sonarrService.getEpisodes).toHaveBeenCalledWith(9, {
+          seasonNumber: 2,
+        })
+        expect(sonarrService.triggerSeasonSearch).not.toHaveBeenCalled()
+        expect(sonarrService.grabRelease.mock.calls).toEqual([
+          ['indexer://e01', 7],
+          ['indexer://e02', 1],
+        ])
+        expect(job.status).toBe(DownloadJobStatus.Searching)
+      })
+
+      it('grabs only a full-season pack when one is eligible', async () => {
+        flag('tvdb:456', 'indexer://bad')
+        sonarrService.getReleases.mockResolvedValue([
+          release({ episodeNumbers: [1], guid: 'indexer://e01' }),
+          release({ fullSeason: true, guid: 'indexer://pack' }),
+        ])
+
+        await service.requestShow(456, null, { seasonNumber: 2 })
+
+        expect(sonarrService.grabRelease).toHaveBeenCalledTimes(1)
+        expect(sonarrService.grabRelease).toHaveBeenCalledWith(
+          'indexer://pack',
+          1,
+        )
+      })
+
+      // Season 0 is Sonarr's specials - a truthiness check would drop it to
+      // the single-release path.
+      it('treats season 0 as a season scope', async () => {
+        flag('tvdb:456', 'indexer://bad')
+        sonarrService.getReleases.mockResolvedValue([
+          release({ episodeNumbers: [1], guid: 'indexer://s00e01' }),
+          release({ episodeNumbers: [2], guid: 'indexer://s00e02' }),
+        ])
+
+        await service.requestShow(456, null, { seasonNumber: 0 })
+
+        expect(sonarrService.getEpisodes).toHaveBeenCalledWith(9, {
+          seasonNumber: 0,
+        })
+        expect(sonarrService.grabRelease).toHaveBeenCalledTimes(2)
+      })
+
+      it('ends the job not_found when no release covers a missing episode', async () => {
+        flag('tvdb:456', 'indexer://bad')
+        sonarrService.getReleases.mockResolvedValue([
+          release({ episodeNumbers: [1], guid: 'indexer://bad' }),
+          release({ episodeNumbers: [3], guid: 'indexer://has-file' }),
+        ])
+
+        const job = await service.requestShow(456, null, { seasonNumber: 2 })
+
+        expect(job.status).toBe(DownloadJobStatus.NotFound)
+        expect(job.statusNote).toBe(NO_USABLE_RELEASE_NOTE)
+        expect(sonarrService.grabRelease).not.toHaveBeenCalled()
+      })
+
+      // An episode scope carries a season number too, but it's one release
+      // for one episode - not a season pick.
+      it('keeps an episode scope on the single-release pick', async () => {
+        flag('tvdb:456', 'indexer://bad')
+        sonarrService.getReleases.mockResolvedValue([
+          release({ guid: 'indexer://a' }),
+          release({ guid: 'indexer://b' }),
+        ])
+
+        await service.requestShow(456, null, { episodeId: 4412 })
+
+        expect(sonarrService.getEpisodes).not.toHaveBeenCalled()
+        expect(sonarrService.grabRelease).toHaveBeenCalledTimes(1)
+        expect(sonarrService.grabRelease).toHaveBeenCalledWith('indexer://a', 1)
+      })
     })
   })
 
@@ -1069,6 +1591,38 @@ describe('MediaDownloadService', () => {
       )
     })
 
+    // Radarr could not tie the release to a movie, so the row has no
+    // movieId - and only the unfiltered read returns it at all.
+    it('removes an unknown-movie row by a download the job is linked to', async () => {
+      inLibrary()
+      downloadStateService.addJob(
+        buildRecord(DownloadType.Movie, 'tmdb:1', {
+          id: 'movie-1',
+          status: DownloadJobStatus.Downloading,
+        }),
+      )
+      linkDownload(dbService.db, {
+        app: 'radarr',
+        downloadId: 'dl-unknown',
+        grabbedAt: null,
+        jobId: 'movie-1',
+      })
+      radarrService.getQueue.mockResolvedValue([
+        { downloadId: 'dl-own', id: 101, movieId: 42 },
+        { downloadId: 'dl-unknown', id: 102 },
+        // Unknown too, but not this job's.
+        { downloadId: 'dl-stranger', id: 103 },
+      ])
+
+      const result = await service.cancelMovieJob('movie-1')
+
+      expect(radarrService.getQueue).toHaveBeenCalledWith(undefined)
+      expect(
+        radarrService.removeQueueItem.mock.calls.map(([id]) => id).sort(),
+      ).toEqual([101, 102])
+      expect(result.status).toBe(DownloadJobStatus.Cancelling)
+    })
+
     it('skips a queue item with no id', async () => {
       inLibrary()
       seedJob()
@@ -1330,6 +1884,76 @@ describe('MediaDownloadService', () => {
         'Sonarr is down',
       )
       expect(downloadStateService.jobs.get('show-1')).toEqual(showJob)
+    })
+
+    // Sonarr queues a season pack as one row per episode, all sharing one
+    // downloadId - and deleting any row removes the whole download.
+    describe('a season pack', () => {
+      const PACK = [
+        { downloadId: 'dl-pack', episodeId: 301, id: 1, seasonNumber: 3 },
+        { downloadId: 'dl-pack', episodeId: 302, id: 2, seasonNumber: 3 },
+        { downloadId: 'dl-pack', episodeId: 303, id: 3, seasonNumber: 3 },
+      ].map(item => ({ ...item, seriesId: 9 }))
+
+      it('keeps the pack for an episode in it, and cancels the job with a note', async () => {
+        const scope = { episodeId: 301, episodeNumber: 1, seasonNumber: 3 }
+        seedJob({
+          error: 'Episode file already imported',
+          scope,
+          status: DownloadJobStatus.NeedsAttention,
+        })
+        sonarrService.getQueue.mockResolvedValue(PACK)
+
+        const result = await service.cancelShowJob('show-1')
+
+        expect(sonarrService.removeQueueItem).not.toHaveBeenCalled()
+        expect(sonarrService.unmonitorScope).toHaveBeenCalledWith(9, scope, {
+          withoutFileOnly: true,
+        })
+        expect(result.status).toBe(DownloadJobStatus.Cancelled)
+        expect(result.statusNote).toBe(KEPT_PACK_NOTE)
+        expect(result.error).toBeUndefined()
+        expect(getJobById(dbService.db, 'show-1')).toMatchObject({
+          error: null,
+          status: DownloadJobStatus.Cancelled,
+          statusNote: KEPT_PACK_NOTE,
+        })
+        // What keeps adoption from picking the pack back up.
+        expect(
+          listForJob(dbService.db, 'show-1').map(link => link.downloadId),
+        ).toEqual(['dl-pack'])
+      })
+
+      it('removes a pack a season job owns whole with one DELETE', async () => {
+        seedJob({ scope: { seasonNumber: 3 } })
+        sonarrService.getQueue.mockResolvedValue(PACK)
+
+        const result = await service.cancelShowJob('show-1')
+
+        expect(removedIds()).toEqual([1])
+        expect(result.status).toBe(DownloadJobStatus.Cancelling)
+        expect(result.statusNote).toBeUndefined()
+      })
+
+      // The poller settles it with the note once only the pack is left.
+      it('goes through cancelling when it also removed a download of its own', async () => {
+        seedJob({ scope: { episodeId: 301, seasonNumber: 3 } })
+        sonarrService.getQueue.mockResolvedValue([
+          ...PACK,
+          {
+            downloadId: 'dl-own',
+            episodeId: 301,
+            id: 9,
+            seasonNumber: 3,
+            seriesId: 9,
+          },
+        ])
+
+        const result = await service.cancelShowJob('show-1')
+
+        expect(removedIds()).toEqual([9])
+        expect(result.status).toBe(DownloadJobStatus.Cancelling)
+      })
     })
   })
 

@@ -1,16 +1,34 @@
 import { HumanMessage } from '@langchain/core/messages'
+import { DownloadApiError } from '@lilnas/utils/download/client'
+import { mediaId } from '@lilnas/utils/download/media-id'
+import {
+  type DownloadJob,
+  DownloadJobStatus,
+  DownloadType,
+  QualityTier,
+  type RequestShowInput,
+} from '@lilnas/utils/download/types'
 import { Test, TestingModule } from '@nestjs/testing'
 
 import { SonarrService } from 'src/media/services/sonarr.service'
 import {
-  MonitorAndDownloadSeriesResult,
   SeriesSearchResult,
   SonarrSeriesStatus,
   SonarrSeriesType,
 } from 'src/media/types/sonarr.types'
+import { createMockShowJob } from 'src/media-operations/request-handling/__test-fixtures__/media-fixtures'
+import {
+  createMockDiscordIdentity,
+  createMockDownloadClientFactory,
+} from 'src/media-operations/request-handling/__test-helpers__/mock-services'
 import { testStrategyEdgeCases } from 'src/media-operations/request-handling/__test-helpers__/strategy-edge-cases-suite'
 import { testStrategyRouting } from 'src/media-operations/request-handling/__test-helpers__/strategy-routing-suite'
-import { TvDownloadStrategy } from 'src/media-operations/request-handling/strategies/tv-download.strategy'
+import { DownloadClientFactory } from 'src/media-operations/request-handling/download-client.factory'
+import {
+  NOT_A_TITLE_REPLY,
+  toShowRequestUnits,
+  TvDownloadStrategy,
+} from 'src/media-operations/request-handling/strategies/tv-download.strategy'
 import { StrategyRequestParams } from 'src/media-operations/request-handling/types/request-context.type'
 import { ParsingUtilities } from 'src/media-operations/request-handling/utils/parsing.utils'
 import { SelectionUtilities } from 'src/media-operations/request-handling/utils/selection.utils'
@@ -22,6 +40,12 @@ import { StateService } from 'src/state/state.service'
 describe('TvDownloadStrategy', () => {
   let strategy: TvDownloadStrategy
   let sonarrService: jest.Mocked<SonarrService>
+  let downloadClientFactory: ReturnType<
+    typeof createMockDownloadClientFactory
+  >['factory']
+  let downloadClient: ReturnType<
+    typeof createMockDownloadClientFactory
+  >['client']
   let promptService: jest.Mocked<PromptGenerationService>
   let parsingUtilities: jest.Mocked<ParsingUtilities>
   let selectionUtilities: jest.Mocked<SelectionUtilities>
@@ -127,28 +151,42 @@ describe('TvDownloadStrategy', () => {
     selection: [{ season: 1 }, { season: 2 }],
   }
 
-  // Mock download results
-  const mockSuccessResult: MonitorAndDownloadSeriesResult = {
-    success: true,
-    seriesAdded: true,
-    seriesUpdated: false,
-    searchTriggered: true,
-    changes: [],
-  }
+  /**
+   * The job the download app answers a request for `show` with - by default
+   * still searching.
+   */
+  const showJob = (
+    show: SeriesSearchResult,
+    overrides: Partial<DownloadJob> = {},
+  ): DownloadJob =>
+    createMockShowJob({
+      id: `job-${show.tvdbId}`,
+      media: {
+        id: mediaId({ type: DownloadType.Show, tvdbId: show.tvdbId }),
+        title: show.title,
+        tvdbId: show.tvdbId,
+        type: DownloadType.Show,
+        year: show.year,
+      },
+      ...overrides,
+    })
 
-  const mockFailureResult: MonitorAndDownloadSeriesResult = {
-    success: false,
-    seriesAdded: false,
-    seriesUpdated: false,
-    searchTriggered: false,
-    changes: [],
-    error: 'Failed to add series to Sonarr',
-  }
+  const mockRequestedJob = showJob(mockShow1)
+
+  const mockFailedJob = showJob(mockShow1, {
+    status: DownloadJobStatus.Failed,
+    error: 'Sonarr has no "HD (up to 1080p)" quality profile',
+  })
+
+  const breakingBadLinks =
+    'Follow along on the [activity page](<https://download.lilnas.io/activity>), or open [Breaking Bad](<https://download.lilnas.io/shows/12345>).'
 
   // Mock state object (passed in params, not DI) - context methods removed, now in ContextManagementService
   const mockState = {}
 
   beforeEach(async () => {
+    const mockDownload = createMockDownloadClientFactory()
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TvDownloadStrategy,
@@ -156,8 +194,11 @@ describe('TvDownloadStrategy', () => {
           provide: SonarrService,
           useValue: {
             searchShows: jest.fn(),
-            monitorAndDownloadSeries: jest.fn(),
           },
+        },
+        {
+          provide: DownloadClientFactory,
+          useValue: mockDownload.factory,
         },
         {
           provide: PromptGenerationService,
@@ -203,6 +244,8 @@ describe('TvDownloadStrategy', () => {
 
     strategy = module.get<TvDownloadStrategy>(TvDownloadStrategy)
     sonarrService = module.get(SonarrService)
+    downloadClientFactory = module.get(DownloadClientFactory)
+    downloadClient = mockDownload.client
     promptService = module.get(PromptGenerationService)
     parsingUtilities = module.get(ParsingUtilities)
     selectionUtilities = module.get(SelectionUtilities)
@@ -226,7 +269,7 @@ describe('TvDownloadStrategy', () => {
       },
       mediaService: {
         searchOrLibraryMethod: () => sonarrService.searchShows,
-        operationMethod: () => sonarrService.monitorAndDownloadSeries,
+        operationMethod: () => downloadClient.requestShow,
       },
       promptService: {
         generatePromptMethod: () => promptService.generateTvShowChatResponse,
@@ -241,7 +284,7 @@ describe('TvDownloadStrategy', () => {
         timestamp: Date.now(),
       },
       mediaItems: [mockShow1, mockShow2, mockShow3],
-      operationResult: mockSuccessResult,
+      operationResult: mockRequestedJob,
       chatResponse: mockChatResponse,
     },
     config: {
@@ -255,11 +298,15 @@ describe('TvDownloadStrategy', () => {
   })
 
   describe('New TV Show Search - Basic Flows', () => {
-    it('should return clarification when search query is empty', async () => {
+    it('asks for a title when the search query is empty', async () => {
       const params: StrategyRequestParams = {
-        message: new HumanMessage({ id: '1', content: 'download a tv show' }),
+        message: new HumanMessage({
+          id: '1',
+          content: 'download some comedy shows',
+        }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -275,6 +322,10 @@ describe('TvDownloadStrategy', () => {
       const result = await strategy.handleRequest(params)
 
       expect(sonarrService.searchShows).not.toHaveBeenCalled()
+      expect(promptService.generateTvShowChatResponse).toHaveBeenCalledWith(
+        [],
+        'TV_SHOW_CLARIFICATION',
+      )
       expect(result.messages).toHaveLength(1)
       expect(result.messages[0]).toBe(mockChatResponse)
       expect(result.images).toEqual([])
@@ -288,6 +339,7 @@ describe('TvDownloadStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -307,6 +359,31 @@ describe('TvDownloadStrategy', () => {
       expect(result.images).toEqual([])
     })
 
+    it('says a path-like term is not a title, without searching', async () => {
+      const params: StrategyRequestParams = {
+        message: new HumanMessage({ id: '1', content: 'download /mnt/tv' }),
+        messages: [],
+        userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
+        state: mockState,
+      }
+
+      parsingUtilities.parseInitialSelection.mockResolvedValue({
+        searchQuery: '/mnt/tv',
+        selection: null,
+        tvSelection: null,
+      })
+
+      const result = await strategy.handleRequest(params)
+
+      expect(sonarrService.searchShows).not.toHaveBeenCalled()
+      expect(promptService.generateTvShowChatResponse).not.toHaveBeenCalled()
+      expect(contextService.setContext).not.toHaveBeenCalled()
+      expect(result.messages).toHaveLength(1)
+      expect(result.messages[0].content).toBe(NOT_A_TITLE_REPLY)
+      expect(result.images).toEqual([])
+    })
+
     it('should store single show in context and ask for granular selection when no TV selection provided', async () => {
       const params: StrategyRequestParams = {
         message: new HumanMessage({
@@ -315,6 +392,7 @@ describe('TvDownloadStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -339,7 +417,7 @@ describe('TvDownloadStrategy', () => {
         originalSearchSelection: undefined,
         originalTvSelection: undefined,
       })
-      expect(sonarrService.monitorAndDownloadSeries).not.toHaveBeenCalled()
+      expect(downloadClient.requestShow).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
 
@@ -348,6 +426,7 @@ describe('TvDownloadStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'download breaking' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -376,7 +455,7 @@ describe('TvDownloadStrategy', () => {
         originalSearchSelection: undefined,
         originalTvSelection: undefined,
       })
-      expect(sonarrService.monitorAndDownloadSeries).not.toHaveBeenCalled()
+      expect(downloadClient.requestShow).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
 
@@ -388,6 +467,7 @@ describe('TvDownloadStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -418,6 +498,7 @@ describe('TvDownloadStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -432,9 +513,7 @@ describe('TvDownloadStrategy', () => {
         mockShow3,
       ])
       selectionUtilities.findSelectedShow.mockReturnValue(mockShow2)
-      sonarrService.monitorAndDownloadSeries.mockResolvedValue(
-        mockSuccessResult,
-      )
+      downloadClient.requestShow.mockResolvedValue(showJob(mockShow2))
       promptService.generateTvShowChatResponse.mockResolvedValue(
         mockChatResponse,
       )
@@ -442,6 +521,10 @@ describe('TvDownloadStrategy', () => {
       const result = await strategy.handleRequest(params)
 
       expect(contextService.setContext).not.toHaveBeenCalled()
+      expect(downloadClient.requestShow).toHaveBeenCalledWith({
+        tvdbId: mockShow2.tvdbId,
+        seasonNumber: 1,
+      })
       expect(result.messages).toHaveLength(1)
       expect(result.messages[0].content).toContain(
         `[${mockShow2.title}](<https://download.lilnas.io/shows/${mockShow2.tvdbId}>)`,
@@ -456,6 +539,7 @@ describe('TvDownloadStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -472,7 +556,7 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(sonarrService.monitorAndDownloadSeries).not.toHaveBeenCalled()
+      expect(downloadClient.requestShow).not.toHaveBeenCalled()
       expect(contextService.setContext).toHaveBeenCalledWith('user123', 'tv', {
         type: 'tvShow',
         searchResults: [mockShow1, mockShow2],
@@ -493,6 +577,7 @@ describe('TvDownloadStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -503,9 +588,7 @@ describe('TvDownloadStrategy', () => {
       })
       sonarrService.searchShows.mockResolvedValue([mockShow1])
       selectionUtilities.findSelectedShow.mockReturnValue(mockShow1)
-      sonarrService.monitorAndDownloadSeries.mockResolvedValue(
-        mockFailureResult,
-      )
+      downloadClient.requestShow.mockResolvedValue(mockFailedJob)
       promptService.generateTvShowChatResponse.mockResolvedValue(
         mockChatResponse,
       )
@@ -523,6 +606,7 @@ describe('TvDownloadStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -533,9 +617,7 @@ describe('TvDownloadStrategy', () => {
       })
       sonarrService.searchShows.mockResolvedValue([mockShow1, mockShow2])
       selectionUtilities.findSelectedShow.mockReturnValue(mockShow1)
-      sonarrService.monitorAndDownloadSeries.mockResolvedValue(
-        mockSuccessResult,
-      )
+      downloadClient.requestShow.mockResolvedValue(mockRequestedJob)
       promptService.generateTvShowChatResponse.mockResolvedValue(
         mockChatResponse,
       )
@@ -556,6 +638,7 @@ describe('TvDownloadStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -570,9 +653,7 @@ describe('TvDownloadStrategy', () => {
         mockShow3,
       ])
       selectionUtilities.findSelectedShow.mockReturnValue(mockShow1)
-      sonarrService.monitorAndDownloadSeries.mockResolvedValue(
-        mockSuccessResult,
-      )
+      downloadClient.requestShow.mockResolvedValue(mockRequestedJob)
       promptService.generateTvShowChatResponse.mockResolvedValue(
         mockChatResponse,
       )
@@ -590,6 +671,7 @@ describe('TvDownloadStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -606,7 +688,7 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(sonarrService.monitorAndDownloadSeries).not.toHaveBeenCalled()
+      expect(downloadClient.requestShow).not.toHaveBeenCalled()
       expect(contextService.setContext).toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
@@ -619,6 +701,7 @@ describe('TvDownloadStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -629,9 +712,7 @@ describe('TvDownloadStrategy', () => {
       })
       sonarrService.searchShows.mockResolvedValue([mockShow1])
       selectionUtilities.findSelectedShow.mockReturnValue(mockShow1)
-      sonarrService.monitorAndDownloadSeries.mockResolvedValue(
-        mockFailureResult,
-      )
+      downloadClient.requestShow.mockResolvedValue(mockFailedJob)
       promptService.generateTvShowChatResponse.mockResolvedValue(
         mockChatResponse,
       )
@@ -651,6 +732,7 @@ describe('TvDownloadStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -687,6 +769,7 @@ describe('TvDownloadStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -723,6 +806,7 @@ describe('TvDownloadStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -761,6 +845,7 @@ describe('TvDownloadStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -770,9 +855,7 @@ describe('TvDownloadStrategy', () => {
         tvSelection: mockSeasonSelection,
       })
       sonarrService.searchShows.mockResolvedValue([mockShow1])
-      sonarrService.monitorAndDownloadSeries.mockResolvedValue(
-        mockSuccessResult,
-      )
+      downloadClient.requestShow.mockResolvedValue(mockRequestedJob)
       promptService.generateTvShowChatResponse.mockResolvedValue(
         mockChatResponse,
       )
@@ -791,6 +874,7 @@ describe('TvDownloadStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -806,7 +890,7 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(sonarrService.monitorAndDownloadSeries).not.toHaveBeenCalled()
+      expect(downloadClient.requestShow).not.toHaveBeenCalled()
       expect(contextService.setContext).toHaveBeenCalledWith('user123', 'tv', {
         type: 'tvShow',
         searchResults: [mockShow1],
@@ -827,6 +911,7 @@ describe('TvDownloadStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -836,9 +921,7 @@ describe('TvDownloadStrategy', () => {
         tvSelection: mockEntireSeriesSelection,
       })
       sonarrService.searchShows.mockResolvedValue([mockShow1])
-      sonarrService.monitorAndDownloadSeries.mockResolvedValue(
-        mockFailureResult,
-      )
+      downloadClient.requestShow.mockResolvedValue(mockFailedJob)
       promptService.generateTvShowChatResponse.mockResolvedValue(
         mockChatResponse,
       )
@@ -855,6 +938,7 @@ describe('TvDownloadStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'the first one' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: {
           type: 'tvShow',
           isActive: true,
@@ -891,6 +975,7 @@ describe('TvDownloadStrategy', () => {
         message: new HumanMessage({ id: '1', content: '2015' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: {
           type: 'tvShow',
           isActive: true,
@@ -927,6 +1012,7 @@ describe('TvDownloadStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'the second one' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: {
           type: 'tvShow',
           isActive: true,
@@ -943,9 +1029,7 @@ describe('TvDownloadStrategy', () => {
         value: '2',
       })
       selectionUtilities.findSelectedShow.mockReturnValue(mockShow2)
-      sonarrService.monitorAndDownloadSeries.mockResolvedValue(
-        mockSuccessResult,
-      )
+      downloadClient.requestShow.mockResolvedValue(mockRequestedJob)
       promptService.generateTvShowChatResponse.mockResolvedValue(
         mockChatResponse,
       )
@@ -961,6 +1045,7 @@ describe('TvDownloadStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'something random' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: {
           type: 'tvShow',
           isActive: true,
@@ -981,7 +1066,7 @@ describe('TvDownloadStrategy', () => {
       const result = await strategy.handleRequest(params)
 
       expect(selectionUtilities.findSelectedShow).not.toHaveBeenCalled()
-      expect(sonarrService.monitorAndDownloadSeries).not.toHaveBeenCalled()
+      expect(downloadClient.requestShow).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
 
@@ -990,6 +1075,7 @@ describe('TvDownloadStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'the fifth one' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: {
           type: 'tvShow',
           isActive: true,
@@ -1011,7 +1097,7 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(sonarrService.monitorAndDownloadSeries).not.toHaveBeenCalled()
+      expect(downloadClient.requestShow).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
 
@@ -1020,6 +1106,7 @@ describe('TvDownloadStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'the first one' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: {
           type: 'tvShow',
           isActive: true,
@@ -1036,9 +1123,7 @@ describe('TvDownloadStrategy', () => {
         value: '1',
       })
       selectionUtilities.findSelectedShow.mockReturnValue(mockShow1)
-      sonarrService.monitorAndDownloadSeries.mockResolvedValue(
-        mockSuccessResult,
-      )
+      downloadClient.requestShow.mockResolvedValue(mockRequestedJob)
       promptService.generateTvShowChatResponse.mockResolvedValue(
         mockChatResponse,
       )
@@ -1055,6 +1140,7 @@ describe('TvDownloadStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'all episodes' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: {
           type: 'tvShow',
           isActive: true,
@@ -1068,9 +1154,7 @@ describe('TvDownloadStrategy', () => {
       parsingUtilities.parseTvShowSelection.mockResolvedValue(
         mockEntireSeriesSelection,
       )
-      sonarrService.monitorAndDownloadSeries.mockResolvedValue(
-        mockSuccessResult,
-      )
+      downloadClient.requestShow.mockResolvedValue(mockRequestedJob)
       promptService.generateTvShowChatResponse.mockResolvedValue(
         mockChatResponse,
       )
@@ -1086,6 +1170,7 @@ describe('TvDownloadStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'everything' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: {
           type: 'tvShow',
           isActive: true,
@@ -1099,9 +1184,7 @@ describe('TvDownloadStrategy', () => {
       parsingUtilities.parseTvShowSelection.mockResolvedValue(
         mockEntireSeriesSelectionEmptyArray,
       )
-      sonarrService.monitorAndDownloadSeries.mockResolvedValue(
-        mockSuccessResult,
-      )
+      downloadClient.requestShow.mockResolvedValue(mockRequestedJob)
       promptService.generateTvShowChatResponse.mockResolvedValue(
         mockChatResponse,
       )
@@ -1117,6 +1200,7 @@ describe('TvDownloadStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'season 1' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: {
           type: 'tvShow',
           isActive: true,
@@ -1130,9 +1214,7 @@ describe('TvDownloadStrategy', () => {
       parsingUtilities.parseTvShowSelection.mockResolvedValue(
         mockSeasonSelection,
       )
-      sonarrService.monitorAndDownloadSeries.mockResolvedValue(
-        mockSuccessResult,
-      )
+      downloadClient.requestShow.mockResolvedValue(mockRequestedJob)
       promptService.generateTvShowChatResponse.mockResolvedValue(
         mockChatResponse,
       )
@@ -1151,6 +1233,7 @@ describe('TvDownloadStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: {
           type: 'tvShow',
           isActive: true,
@@ -1164,9 +1247,7 @@ describe('TvDownloadStrategy', () => {
       parsingUtilities.parseTvShowSelection.mockResolvedValue(
         mockEpisodeSelection,
       )
-      sonarrService.monitorAndDownloadSeries.mockResolvedValue(
-        mockSuccessResult,
-      )
+      downloadClient.requestShow.mockResolvedValue(mockRequestedJob)
       promptService.generateTvShowChatResponse.mockResolvedValue(
         mockChatResponse,
       )
@@ -1182,6 +1263,7 @@ describe('TvDownloadStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'random text' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: {
           type: 'tvShow',
           isActive: true,
@@ -1201,7 +1283,7 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(sonarrService.monitorAndDownloadSeries).not.toHaveBeenCalled()
+      expect(downloadClient.requestShow).not.toHaveBeenCalled()
       expect(contextService.clearContext).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
@@ -1211,6 +1293,7 @@ describe('TvDownloadStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'season 1' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: {
           type: 'tvShow',
           isActive: true,
@@ -1224,9 +1307,7 @@ describe('TvDownloadStrategy', () => {
       parsingUtilities.parseTvShowSelection.mockResolvedValue(
         mockSeasonSelection,
       )
-      sonarrService.monitorAndDownloadSeries.mockResolvedValue(
-        mockSuccessResult,
-      )
+      downloadClient.requestShow.mockResolvedValue(mockRequestedJob)
       promptService.generateTvShowChatResponse.mockResolvedValue(
         mockChatResponse,
       )
@@ -1243,6 +1324,7 @@ describe('TvDownloadStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'all episodes' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: {
           type: 'tvShow',
           isActive: true,
@@ -1256,9 +1338,7 @@ describe('TvDownloadStrategy', () => {
       parsingUtilities.parseTvShowSelection.mockResolvedValue(
         mockEntireSeriesSelection,
       )
-      sonarrService.monitorAndDownloadSeries.mockResolvedValue(
-        mockSuccessResult,
-      )
+      downloadClient.requestShow.mockResolvedValue(mockRequestedJob)
       promptService.generateTvShowChatResponse.mockResolvedValue(
         mockChatResponse,
       )
@@ -1277,6 +1357,7 @@ describe('TvDownloadStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'season 1' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: {
           type: 'tvShow',
           isActive: true,
@@ -1290,18 +1371,27 @@ describe('TvDownloadStrategy', () => {
       parsingUtilities.parseTvShowSelection.mockResolvedValue(
         mockSeasonSelection,
       )
-      sonarrService.monitorAndDownloadSeries.mockResolvedValue(
-        mockFailureResult,
-      )
+      downloadClient.requestShow.mockResolvedValue(mockFailedJob)
       promptService.generateTvShowChatResponse.mockResolvedValue(
         mockChatResponse,
       )
 
       const result = await strategy.handleRequest(params)
 
+      expect(promptService.generateTvShowChatResponse).toHaveBeenCalledWith(
+        [],
+        'TV_SHOW_ERROR',
+        {
+          selectedShow: mockShow1,
+          errorMessage:
+            'Requested "Breaking Bad", but nothing was queued: season 1: the request failed - Sonarr has no "HD (up to 1080p)" quality profile.',
+        },
+      )
       expect(result.messages).toHaveLength(1)
-      // Nothing was added, so there is nothing to link to.
-      expect(result.messages[0]).toBe(mockChatResponse)
+      // The job page offers Retry, so the links still help
+      expect(result.messages[0].content).toBe(
+        `Here is your TV show response...\n\n${breakingBadLinks}`,
+      )
     })
 
     it('should handle errors gracefully when service throws exception during download', async () => {
@@ -1309,6 +1399,7 @@ describe('TvDownloadStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'all episodes' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: {
           type: 'tvShow',
           isActive: true,
@@ -1322,9 +1413,7 @@ describe('TvDownloadStrategy', () => {
       parsingUtilities.parseTvShowSelection.mockResolvedValue(
         mockEntireSeriesSelection,
       )
-      sonarrService.monitorAndDownloadSeries.mockRejectedValue(
-        new Error('Network error'),
-      )
+      downloadClient.requestShow.mockRejectedValue(new Error('Network error'))
       promptService.generateTvShowChatResponse.mockResolvedValue(
         mockChatResponse,
       )
@@ -1334,11 +1423,12 @@ describe('TvDownloadStrategy', () => {
       expect(result.messages).toHaveLength(1)
     })
 
-    it('should pass correct parameters to SonarrService.monitorAndDownloadSeries when downloading', async () => {
+    it('should request each selected season from the download app', async () => {
       const params: StrategyRequestParams = {
         message: new HumanMessage({ id: '1', content: 'seasons 1 and 2' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: {
           type: 'tvShow',
           isActive: true,
@@ -1352,16 +1442,548 @@ describe('TvDownloadStrategy', () => {
       parsingUtilities.parseTvShowSelection.mockResolvedValue(
         mockMultiSeasonSelection,
       )
-      sonarrService.monitorAndDownloadSeries.mockResolvedValue(
-        mockSuccessResult,
-      )
+      downloadClient.requestShow.mockResolvedValue(mockRequestedJob)
       promptService.generateTvShowChatResponse.mockResolvedValue(
         mockChatResponse,
       )
 
       const result = await strategy.handleRequest(params)
 
-      expect(result.messages).toBeDefined()
+      expect(downloadClient.requestShow.mock.calls).toEqual([
+        [{ tvdbId: 12345, seasonNumber: 1 }],
+        [{ tvdbId: 12345, seasonNumber: 2 }],
+      ])
+      expect(result.messages).toHaveLength(1)
+    })
+  })
+
+  describe('toShowRequestUnits', () => {
+    it('makes one whole-series request when nothing is selected', () => {
+      expect(toShowRequestUnits(12345, undefined)).toEqual([{ tvdbId: 12345 }])
+      expect(toShowRequestUnits(12345, null)).toEqual([{ tvdbId: 12345 }])
+      expect(toShowRequestUnits(12345, mockEntireSeriesSelection)).toEqual([
+        { tvdbId: 12345 },
+      ])
+      expect(
+        toShowRequestUnits(12345, mockEntireSeriesSelectionEmptyArray),
+      ).toEqual([{ tvdbId: 12345 }])
+    })
+
+    it('makes one request per selected season', () => {
+      expect(
+        toShowRequestUnits(12345, {
+          selection: [{ season: 2 }, { season: 1, episodes: [] }],
+        }),
+      ).toEqual([
+        { tvdbId: 12345, seasonNumber: 2 },
+        { tvdbId: 12345, seasonNumber: 1 },
+      ])
+    })
+
+    it('makes one request per selected episode, by season and number', () => {
+      expect(toShowRequestUnits(12345, mockEpisodeSelection)).toEqual([
+        { tvdbId: 12345, seasonNumber: 1, episodeNumber: 1 },
+        { tvdbId: 12345, seasonNumber: 1, episodeNumber: 2 },
+        { tvdbId: 12345, seasonNumber: 1, episodeNumber: 3 },
+      ])
+    })
+
+    it('expands a mixed selection in the order it was given', () => {
+      expect(
+        toShowRequestUnits(12345, {
+          selection: [
+            { season: 1, episodes: [5, 6] },
+            { season: 3 },
+            { season: 2, episodes: [1] },
+          ],
+        }),
+      ).toEqual([
+        { tvdbId: 12345, seasonNumber: 1, episodeNumber: 5 },
+        { tvdbId: 12345, seasonNumber: 1, episodeNumber: 6 },
+        { tvdbId: 12345, seasonNumber: 3 },
+        { tvdbId: 12345, seasonNumber: 2, episodeNumber: 1 },
+      ])
+    })
+
+    it('keeps season 0 and episode 0 rather than treating them as unset', () => {
+      expect(
+        toShowRequestUnits(12345, {
+          selection: [{ season: 0 }, { season: 0, episodes: [0] }],
+        }),
+      ).toEqual([
+        { tvdbId: 12345, seasonNumber: 0 },
+        { tvdbId: 12345, seasonNumber: 0, episodeNumber: 0 },
+      ])
+    })
+
+    it('drops an exact repeat of an earlier unit', () => {
+      expect(
+        toShowRequestUnits(12345, {
+          selection: [
+            { season: 1 },
+            { season: 1 },
+            { season: 2, episodes: [3, 3] },
+          ],
+        }),
+      ).toEqual([
+        { tvdbId: 12345, seasonNumber: 1 },
+        { tvdbId: 12345, seasonNumber: 2, episodeNumber: 3 },
+      ])
+    })
+
+    it('puts the quality tier on every unit, and leaves it off when absent', () => {
+      expect(
+        toShowRequestUnits(12345, mockMultiSeasonSelection, QualityTier.Hd),
+      ).toEqual([
+        { tvdbId: 12345, seasonNumber: 1, qualityTier: QualityTier.Hd },
+        { tvdbId: 12345, seasonNumber: 2, qualityTier: QualityTier.Hd },
+      ])
+      for (const unit of toShowRequestUnits(12345, mockMultiSeasonSelection)) {
+        expect(unit).not.toHaveProperty('qualityTier')
+      }
+    })
+  })
+
+  describe('Requesting via the download app', () => {
+    /** A granular pick for Breaking Bad, the one show in the context. */
+    const pickParams = (
+      overrides: Partial<StrategyRequestParams> = {},
+    ): StrategyRequestParams => ({
+      message: new HumanMessage({ id: '1', content: 'season 1' }),
+      messages: [],
+      userId: 'user123',
+      discord: createMockDiscordIdentity('user123'),
+      context: {
+        type: 'tvShow',
+        isActive: true,
+        searchResults: [mockShow1],
+        query: 'breaking bad',
+        timestamp: Date.now(),
+      },
+      state: mockState,
+      ...overrides,
+    })
+
+    const scopedJob = (
+      unit: RequestShowInput,
+      overrides: Partial<DownloadJob> = {},
+    ): DownloadJob =>
+      showJob(mockShow1, {
+        id: `job-${unit.seasonNumber ?? 'all'}-${unit.episodeNumber ?? 'all'}`,
+        scope: {
+          ...(unit.seasonNumber != null
+            ? { seasonNumber: unit.seasonNumber }
+            : {}),
+          ...(unit.episodeNumber != null
+            ? { episodeNumber: unit.episodeNumber }
+            : {}),
+        },
+        ...overrides,
+      })
+
+    const promptCall = () =>
+      promptService.generateTvShowChatResponse.mock.calls[0]
+
+    beforeEach(() => {
+      promptService.generateTvShowChatResponse.mockResolvedValue(
+        mockChatResponse,
+      )
+      downloadClient.requestShow.mockImplementation(async unit =>
+        scopedJob(unit),
+      )
+    })
+
+    it("requests the whole series as the sender, leaving the tier to the server's default", async () => {
+      parsingUtilities.parseTvShowSelection.mockResolvedValue(
+        mockEntireSeriesSelection,
+      )
+
+      await strategy.handleRequest(pickParams())
+
+      expect(downloadClientFactory.forDiscord).toHaveBeenCalledTimes(1)
+      expect(downloadClientFactory.forDiscord).toHaveBeenCalledWith({
+        userId: 'user123',
+        username: 'testuser',
+        displayName: 'Test User',
+      })
+      // Omitted outright, not sent as `qualityTier: undefined`
+      expect(downloadClient.requestShow.mock.calls).toEqual([
+        [{ tvdbId: 12345 }],
+      ])
+      expect(downloadClient.requestShow.mock.calls[0][0]).not.toHaveProperty(
+        'qualityTier',
+      )
+    })
+
+    it('passes the asked-for quality tier on every unit', async () => {
+      parsingUtilities.parseTvShowSelection.mockResolvedValue({
+        selection: [{ season: 1 }, { season: 2, episodes: [4] }],
+      })
+
+      await strategy.handleRequest(
+        pickParams({ qualityTier: QualityTier.UpTo4k }),
+      )
+
+      expect(downloadClient.requestShow.mock.calls).toEqual([
+        [{ tvdbId: 12345, seasonNumber: 1, qualityTier: QualityTier.UpTo4k }],
+        [
+          {
+            tvdbId: 12345,
+            seasonNumber: 2,
+            episodeNumber: 4,
+            qualityTier: QualityTier.UpTo4k,
+          },
+        ],
+      ])
+    })
+
+    it('sends the units one at a time, in selection order', async () => {
+      parsingUtilities.parseTvShowSelection.mockResolvedValue({
+        selection: [{ season: 2 }, { season: 1, episodes: [3, 4] }],
+      })
+
+      const events: string[] = []
+      let inFlight = 0
+      let maxInFlight = 0
+      downloadClient.requestShow.mockImplementation(async unit => {
+        const label = `${unit.seasonNumber}:${unit.episodeNumber ?? '*'}`
+        inFlight++
+        maxInFlight = Math.max(maxInFlight, inFlight)
+        events.push(`start ${label}`)
+        await new Promise(resolve => setImmediate(resolve))
+        events.push(`end ${label}`)
+        inFlight--
+        return scopedJob(unit)
+      })
+
+      await strategy.handleRequest(pickParams())
+
+      expect(maxInFlight).toBe(1)
+      expect(events).toEqual([
+        'start 2:*',
+        'end 2:*',
+        'start 1:3',
+        'end 1:3',
+        'start 1:4',
+        'end 1:4',
+      ])
+    })
+
+    it('replies once, saying the parts were queued, with the links once', async () => {
+      parsingUtilities.parseTvShowSelection.mockResolvedValue(
+        mockMultiSeasonSelection,
+      )
+      downloadClient.requestShow.mockImplementation(async unit =>
+        scopedJob(unit, {
+          statusNote:
+            unit.seasonNumber === 1
+              ? 'Waiting for Sonarr to finish adding the show'
+              : undefined,
+        }),
+      )
+
+      const result = await strategy.handleRequest(pickParams())
+
+      expect(promptService.generateTvShowChatResponse).toHaveBeenCalledTimes(1)
+      expect(promptCall()).toEqual([
+        [],
+        'TV_SHOW_SUCCESS',
+        {
+          selectedShow: mockShow1,
+          requestResults: [
+            'season 1: requested and queued (Waiting for Sonarr to finish adding the show)',
+            'season 2: requested and queued',
+          ],
+          autoApplied: false,
+          selectionCriteria: undefined,
+        },
+      ])
+      expect(result.messages).toHaveLength(1)
+      expect(result.messages[0].content).toBe(
+        `Here is your TV show response...\n\n${breakingBadLinks}`,
+      )
+    })
+
+    it('reports a failed unit alongside the ones that were queued', async () => {
+      parsingUtilities.parseTvShowSelection.mockResolvedValue({
+        selection: [{ season: 1, episodes: [1, 2, 3] }],
+      })
+      downloadClient.requestShow.mockImplementation(async unit => {
+        if (unit.episodeNumber === 2) {
+          throw new DownloadApiError(400, 'Bad Request', {
+            statusCode: 400,
+            message: 'S01E02 is already being downloaded',
+            error: 'Bad Request',
+          })
+        }
+        if (unit.episodeNumber === 3) {
+          return scopedJob(unit, {
+            status: DownloadJobStatus.Failed,
+            error: "S01E03 isn't in Sonarr",
+          })
+        }
+        return scopedJob(unit)
+      })
+
+      const result = await strategy.handleRequest(pickParams())
+
+      // A failure doesn't stop the units after it
+      expect(downloadClient.requestShow).toHaveBeenCalledTimes(3)
+      expect(promptCall()).toEqual([
+        [],
+        'TV_SHOW_SUCCESS',
+        expect.objectContaining({
+          requestResults: [
+            'S01E01: requested and queued',
+            "S01E02: couldn't be requested - S01E02 is already being downloaded",
+            "S01E03: the request failed - S01E03 isn't in Sonarr",
+          ],
+        }),
+      ])
+      expect(result.messages[0].content).toBe(
+        `Here is your TV show response...\n\n${breakingBadLinks}`,
+      )
+    })
+
+    it('says everything is already downloaded when every job comes back completed', async () => {
+      parsingUtilities.parseTvShowSelection.mockResolvedValue(
+        mockMultiSeasonSelection,
+      )
+      downloadClient.requestShow.mockImplementation(async unit =>
+        scopedJob(unit, {
+          status: DownloadJobStatus.Completed,
+          completedAt: '2026-01-01T00:00:00.000Z',
+        }),
+      )
+
+      const result = await strategy.handleRequest(pickParams())
+
+      expect(promptCall()).toEqual([
+        [],
+        'TV_SHOW_ALREADY_DOWNLOADED',
+        {
+          selectedShow: mockShow1,
+          requestResults: [
+            'season 1: already downloaded',
+            'season 2: already downloaded',
+          ],
+        },
+      ])
+      expect(result.messages[0].content).toBe(
+        `Here is your TV show response...\n\n${breakingBadLinks}`,
+      )
+    })
+
+    it('goes to the error prompt when no unit was queued, still linking the show', async () => {
+      parsingUtilities.parseTvShowSelection.mockResolvedValue({
+        selection: [{ season: 0 }, { season: 1 }, { season: 2 }],
+      })
+      downloadClient.requestShow.mockImplementation(async unit =>
+        scopedJob(unit, {
+          status:
+            unit.seasonNumber === 0
+              ? DownloadJobStatus.NotFound
+              : unit.seasonNumber === 1
+                ? DownloadJobStatus.Completed
+                : DownloadJobStatus.Cancelled,
+          statusNote:
+            unit.seasonNumber === 0 ? 'No release matched' : undefined,
+        }),
+      )
+
+      const result = await strategy.handleRequest(pickParams())
+
+      expect(promptCall()).toEqual([
+        [],
+        'TV_SHOW_ERROR',
+        {
+          selectedShow: mockShow1,
+          errorMessage:
+            'Requested "Breaking Bad", but nothing was queued: the specials: no release was found (No release matched); season 1: already downloaded; season 2: cancelled before it got anywhere.',
+        },
+      ])
+      expect(result.messages[0].content).toBe(
+        `Here is your TV show response...\n\n${breakingBadLinks}`,
+      )
+    })
+
+    it("hands the download app's error message to the error prompt, with no links", async () => {
+      parsingUtilities.parseTvShowSelection.mockResolvedValue(
+        mockEntireSeriesSelection,
+      )
+      downloadClient.requestShow.mockRejectedValue(
+        new DownloadApiError(400, 'Bad Request', {
+          statusCode: 400,
+          message: 'Sonarr has no "Up to 4K" quality profile',
+          error: 'Bad Request',
+        }),
+      )
+
+      const result = await strategy.handleRequest(
+        pickParams({ qualityTier: QualityTier.UpTo4k }),
+      )
+
+      expect(promptCall()).toEqual([
+        [],
+        'TV_SHOW_ERROR',
+        {
+          selectedShow: mockShow1,
+          errorMessage:
+            'Couldn\'t request "Breaking Bad": Sonarr has no "Up to 4K" quality profile',
+        },
+      ])
+      // Nothing was created, so there is nothing to link to
+      expect(result.messages).toHaveLength(1)
+      expect(result.messages[0]).toBe(mockChatResponse)
+    })
+
+    it('stops calling once the download app cannot be reached, reporting every unit', async () => {
+      parsingUtilities.parseTvShowSelection.mockResolvedValue(
+        mockMultiSeasonSelection,
+      )
+      downloadClient.requestShow.mockRejectedValue(
+        new TypeError('fetch failed'),
+      )
+
+      const result = await strategy.handleRequest(pickParams())
+
+      expect(downloadClient.requestShow).toHaveBeenCalledTimes(1)
+      expect(promptCall()).toEqual([
+        [],
+        'TV_SHOW_ERROR',
+        {
+          selectedShow: mockShow1,
+          errorMessage:
+            "Couldn't request any of \"Breaking Bad\": season 1: couldn't be requested - the download app might be unavailable (fetch failed); season 2: couldn't be requested - the download app might be unavailable (fetch failed).",
+        },
+      ])
+      expect(result.messages[0]).toBe(mockChatResponse)
+    })
+
+    it('requests an auto-applied pick, noting how it was picked', async () => {
+      parsingUtilities.parseInitialSelection.mockResolvedValue({
+        searchQuery: 'breaking',
+        selection: { selectionType: 'year', value: '2008' },
+        tvSelection: mockSeasonSelection,
+      })
+      sonarrService.searchShows.mockResolvedValue([mockShow1, mockShow2])
+      selectionUtilities.findSelectedShow.mockReturnValue(mockShow1)
+
+      const result = await strategy.handleRequest(
+        pickParams({
+          message: new HumanMessage({
+            id: '1',
+            content: 'breaking 2008 season 1 in hd',
+          }),
+          context: undefined,
+          qualityTier: QualityTier.Hd,
+        }),
+      )
+
+      expect(downloadClient.requestShow.mock.calls).toEqual([
+        [{ tvdbId: 12345, seasonNumber: 1, qualityTier: QualityTier.Hd }],
+      ])
+      expect(promptService.generateTvShowChatResponse).toHaveBeenCalledTimes(1)
+      expect(promptCall()).toEqual([
+        [],
+        'TV_SHOW_SUCCESS',
+        expect.objectContaining({
+          autoApplied: true,
+          selectionCriteria: 'year: 2008',
+        }),
+      ])
+      expect(result.messages[0].content).toBe(
+        `Here is your TV show response...\n\n${breakingBadLinks}`,
+      )
+    })
+
+    it('keeps the tier asked for with the search through the show and season picks', async () => {
+      parsingUtilities.parseInitialSelection.mockResolvedValue({
+        searchQuery: 'breaking',
+        selection: null,
+        tvSelection: null,
+      })
+      sonarrService.searchShows.mockResolvedValue([mockShow1, mockShow2])
+
+      await strategy.handleRequest(
+        pickParams({
+          message: new HumanMessage({ id: '1', content: 'breaking in 720p' }),
+          context: undefined,
+          qualityTier: QualityTier.UpTo720p,
+        }),
+      )
+
+      expect(contextService.setContext).toHaveBeenLastCalledWith(
+        'user123',
+        'tv',
+        expect.objectContaining({ qualityTier: QualityTier.UpTo720p }),
+      )
+      const listContext = contextService.setContext.mock.calls[0][2]
+
+      // Show pick - no tier named, so the stored one carries on
+      parsingUtilities.parseSearchSelection.mockResolvedValue({
+        selectionType: 'ordinal',
+        value: '1',
+      })
+      selectionUtilities.findSelectedShow.mockReturnValue(mockShow1)
+      await strategy.handleRequest(
+        pickParams({
+          message: new HumanMessage({ id: '2', content: 'the first one' }),
+          context: listContext,
+        }),
+      )
+
+      expect(contextService.setContext).toHaveBeenLastCalledWith(
+        'user123',
+        'tv',
+        expect.objectContaining({
+          searchResults: [mockShow1],
+          qualityTier: QualityTier.UpTo720p,
+        }),
+      )
+      const showContext = contextService.setContext.mock.calls[1][2]
+
+      // Season pick
+      parsingUtilities.parseTvShowSelection.mockResolvedValue(
+        mockSeasonSelection,
+      )
+      await strategy.handleRequest(
+        pickParams({
+          message: new HumanMessage({ id: '3', content: 'season 1' }),
+          context: showContext,
+        }),
+      )
+
+      expect(downloadClient.requestShow.mock.calls).toEqual([
+        [{ tvdbId: 12345, seasonNumber: 1, qualityTier: QualityTier.UpTo720p }],
+      ])
+    })
+
+    it('lets a tier named in the pick override the one from the search', async () => {
+      parsingUtilities.parseTvShowSelection.mockResolvedValue(
+        mockSeasonSelection,
+      )
+
+      await strategy.handleRequest(
+        pickParams({
+          message: new HumanMessage({ id: '2', content: 'season 1 in 4k' }),
+          qualityTier: QualityTier.UpTo4k,
+          context: {
+            type: 'tvShow',
+            isActive: true,
+            searchResults: [mockShow1],
+            query: 'breaking bad',
+            timestamp: Date.now(),
+            qualityTier: QualityTier.UpTo720p,
+          },
+        }),
+      )
+
+      expect(downloadClient.requestShow).toHaveBeenCalledWith({
+        tvdbId: 12345,
+        seasonNumber: 1,
+        qualityTier: QualityTier.UpTo4k,
+      })
     })
   })
 
@@ -1380,7 +2002,7 @@ describe('TvDownloadStrategy', () => {
       },
       mediaService: {
         searchMethod: () => sonarrService.searchShows,
-        operationMethod: () => sonarrService.monitorAndDownloadSeries,
+        operationMethod: () => downloadClient.requestShow,
       },
       promptService: {
         generatePromptMethod: () => promptService.generateTvShowChatResponse,
@@ -1392,15 +2014,15 @@ describe('TvDownloadStrategy', () => {
     },
     fixtures: {
       mediaItems: [mockShow1, mockShow2, mockShow3],
-      operationResult: mockSuccessResult,
+      operationResult: mockRequestedJob,
       chatResponse: mockChatResponse,
     },
     config: {
       mediaType: 'tv show',
       contextType: 'tvShow',
-      serviceName: 'SonarrService',
+      serviceName: 'DownloadClient',
       searchMethodName: 'searchShows',
-      operationMethodName: 'monitorAndDownloadSeries',
+      operationMethodName: 'requestShow',
       errorPromptType: 'TV_SHOW_ERROR',
       processingErrorPromptType: 'TV_SHOW_PROCESSING_ERROR',
     },

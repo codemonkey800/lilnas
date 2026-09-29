@@ -1,4 +1,5 @@
 import type { MovieResource, QueueResource } from '@lilnas/media/radarr'
+import type { LoggerService } from '@nestjs/common'
 
 import {
   DownloadingMovieSchema,
@@ -11,7 +12,10 @@ import type {
   RadarrMovie,
   RadarrMovieResource,
 } from 'src/media/types/radarr.types'
-import { stripNulls } from 'src/media/utils/media.utils'
+import {
+  parseEachSkippingInvalid,
+  stripNulls,
+} from 'src/media/utils/media.utils'
 
 /**
  * Helper function to filter out empty URLs
@@ -50,12 +54,19 @@ export function toRadarrMovieResource(r: MovieResource): RadarrMovieResource {
 }
 
 /**
- * Validates an array of SDK MovieResource objects as RadarrMovieResources.
+ * Validates an array of SDK MovieResource objects as RadarrMovieResources,
+ * skipping (and logging) any that fail validation.
  */
 export function toRadarrMovieResourceArray(
   rs: MovieResource[],
+  logger: Pick<LoggerService, 'warn'>,
 ): RadarrMovieResource[] {
-  return rs.map(toRadarrMovieResource)
+  return parseEachSkippingInvalid(
+    rs,
+    toRadarrMovieResource,
+    logger,
+    'movie resource',
+  )
 }
 
 /**
@@ -71,10 +82,14 @@ export function toRadarrMovie(r: MovieResource): RadarrMovie {
 }
 
 /**
- * Validates an array of SDK MovieResource objects as RadarrMovies.
+ * Validates an array of SDK MovieResource objects as RadarrMovies, skipping
+ * (and logging) any that fail validation.
  */
-export function toRadarrMovieArray(rs: MovieResource[]): RadarrMovie[] {
-  return rs.map(toRadarrMovie)
+export function toRadarrMovieArray(
+  rs: MovieResource[],
+  logger: Pick<LoggerService, 'warn'>,
+): RadarrMovie[] {
+  return parseEachSkippingInvalid(rs, toRadarrMovie, logger, 'movie')
 }
 
 /**

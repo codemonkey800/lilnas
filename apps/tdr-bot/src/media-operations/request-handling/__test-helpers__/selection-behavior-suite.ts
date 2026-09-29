@@ -1,5 +1,6 @@
 import { HumanMessage } from '@langchain/core/messages'
 
+import { createMockDiscordIdentity } from 'src/media-operations/request-handling/__test-helpers__/mock-services'
 import { MediaOperationStrategy } from 'src/media-operations/request-handling/strategies/base/media-operation-strategy.interface'
 import { StrategyRequestParams } from 'src/media-operations/request-handling/types/request-context.type'
 
@@ -79,7 +80,7 @@ export interface SelectionBehaviorConfig<TMediaItem, TOperationResult> {
  *     },
  *     mediaService: {
  *       searchOrLibraryMethod: () => radarrService.searchMovies,
- *       operationMethod: () => radarrService.monitorAndDownloadMovie,
+ *       operationMethod: () => downloadClient.requestMovie,
  *     },
  *     promptService: {
  *       generatePromptMethod: () => promptService.generateMoviePrompt,
@@ -91,7 +92,7 @@ export interface SelectionBehaviorConfig<TMediaItem, TOperationResult> {
  *   },
  *   fixtures: {
  *     mediaItems: [mockMovie1, mockMovie2, mockMovie3],
- *     operationResult: mockSuccessResult,
+ *     operationResult: createMockMovieJob(),
  *     chatResponse: mockChatResponse,
  *   },
  *   config: {
@@ -190,6 +191,7 @@ export function testSelectionBehavior<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           state: mockState,
         }
 
@@ -225,6 +227,7 @@ export function testSelectionBehavior<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           state: mockState,
         }
 
@@ -269,6 +272,7 @@ export function testSelectionBehavior<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           state: mockState,
         }
 
@@ -304,6 +308,7 @@ export function testSelectionBehavior<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           state: mockState,
         }
 

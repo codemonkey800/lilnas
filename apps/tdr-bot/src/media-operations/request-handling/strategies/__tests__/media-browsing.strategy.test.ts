@@ -1,6 +1,7 @@
 import { HumanMessage } from '@langchain/core/messages'
 import { Test, TestingModule } from '@nestjs/testing'
 
+import { createMockDiscordIdentity } from 'src/media-operations/request-handling/__test-helpers__/mock-services'
 import { MediaBrowsingStrategy } from 'src/media-operations/request-handling/strategies/media-browsing.strategy'
 import { StrategyRequestParams } from 'src/media-operations/request-handling/types/request-context.type'
 import { DataFetchingUtilities } from 'src/media-operations/request-handling/utils/data-fetching.utils'
@@ -77,6 +78,7 @@ describe('MediaBrowsingStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'show me matrix' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: mediaRequest,
       }
 
@@ -109,6 +111,7 @@ describe('MediaBrowsingStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'show me nonexistent' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: mediaRequest,
       }
 
@@ -140,6 +143,7 @@ describe('MediaBrowsingStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'search for matrix' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: mediaRequest,
       }
 
@@ -168,6 +172,7 @@ describe('MediaBrowsingStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'search movies' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: mediaRequest,
       }
 
@@ -196,6 +201,7 @@ describe('MediaBrowsingStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'find matrix' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: mediaRequest,
       }
 
@@ -228,6 +234,7 @@ describe('MediaBrowsingStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'find breaking' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: mediaRequest,
       }
 
@@ -272,6 +279,7 @@ describe('MediaBrowsingStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'show me matrix' }),
         messages: [previousMessage],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: mediaRequest,
       }
 
@@ -296,6 +304,7 @@ describe('MediaBrowsingStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'show me test movies' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: mediaRequest,
       }
 
@@ -325,6 +334,7 @@ describe('MediaBrowsingStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'show me matrix' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: mediaRequest,
       }
 
@@ -352,6 +362,7 @@ describe('MediaBrowsingStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'show me matrix' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: mediaRequest,
       }
 
@@ -382,6 +393,7 @@ describe('MediaBrowsingStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'show me matrix' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: mediaRequest,
       }
 
@@ -424,6 +436,7 @@ describe('MediaBrowsingStrategy', () => {
           }),
           messages: [],
           userId: `user${i}`,
+          discord: createMockDiscordIdentity(`user${i}`),
           context: {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Library,
@@ -462,6 +475,7 @@ describe('MediaBrowsingStrategy', () => {
           }),
           messages: [],
           userId: 'user1',
+          discord: createMockDiscordIdentity('user1'),
           context: {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Library,
@@ -476,6 +490,7 @@ describe('MediaBrowsingStrategy', () => {
           }),
           messages: [],
           userId: 'user2',
+          discord: createMockDiscordIdentity('user2'),
           context: {
             mediaType: MediaRequestType.Shows,
             searchIntent: SearchIntent.External,
@@ -511,6 +526,7 @@ describe('MediaBrowsingStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'search movies' }),
           messages: [],
           userId: 'user1',
+          discord: createMockDiscordIdentity('user1'),
           context: {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Library,
@@ -525,6 +541,7 @@ describe('MediaBrowsingStrategy', () => {
           }),
           messages: [],
           userId: 'user2',
+          discord: createMockDiscordIdentity('user2'),
           context: {
             mediaType: MediaRequestType.Shows,
             searchIntent: SearchIntent.Library,
@@ -564,6 +581,7 @@ describe('MediaBrowsingStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'search movies' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           context: {
             searchIntent: SearchIntent.Library,
             searchTerms: 'matrix',
@@ -584,6 +602,7 @@ describe('MediaBrowsingStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'search movies' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           context: {
             mediaType: MediaRequestType.Movies,
             searchTerms: 'matrix',
@@ -608,6 +627,7 @@ describe('MediaBrowsingStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'search movies' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           context: {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Library,
@@ -629,6 +649,7 @@ describe('MediaBrowsingStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'show all movies' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           context: {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Library,
@@ -656,6 +677,7 @@ describe('MediaBrowsingStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'search movies' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           context: null as never,
         }
 
@@ -673,6 +695,7 @@ describe('MediaBrowsingStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'search movies' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           context: undefined as never,
         }
 
@@ -692,6 +715,7 @@ describe('MediaBrowsingStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'show movies' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           context: {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Library,
@@ -717,6 +741,7 @@ describe('MediaBrowsingStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'search matrix' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           context: {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.External,
@@ -742,6 +767,7 @@ describe('MediaBrowsingStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'find matrix' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           context: {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Both,
@@ -770,6 +796,7 @@ describe('MediaBrowsingStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'show movies' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           context: {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Library,
@@ -796,6 +823,7 @@ describe('MediaBrowsingStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'show movies' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           context: {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Library,
@@ -824,6 +852,7 @@ describe('MediaBrowsingStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'search movies' }),
           messages: [],
           userId: undefined as never,
+          discord: createMockDiscordIdentity(undefined as never),
           context: {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Library,
@@ -845,6 +874,7 @@ describe('MediaBrowsingStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'search movies' }),
           messages: [],
           userId: '',
+          discord: createMockDiscordIdentity(''),
           context: {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Library,
@@ -866,6 +896,7 @@ describe('MediaBrowsingStrategy', () => {
           message: new HumanMessage({ id: '1', content: '' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           context: {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Library,
@@ -889,6 +920,7 @@ describe('MediaBrowsingStrategy', () => {
           message: null as never,
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           context: {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Library,
@@ -910,6 +942,7 @@ describe('MediaBrowsingStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'search movies' }),
           messages: undefined as never,
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           context: {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Library,
@@ -934,6 +967,7 @@ describe('MediaBrowsingStrategy', () => {
           }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           context: {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Library,

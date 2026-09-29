@@ -779,4 +779,25 @@ describe('⚠️ the dialog warns about the delete cascade before the press', ()
       /Sonarr|unmonitored/,
     )
   })
+
+  // `S01E01E02.mkv` — both episodes point at one file, so E1's delete takes
+  // E2 too: the dialog names it, and E2 no longer holds the season open.
+  it('names the episode a multi-episode file also holds, and sees the season empty', async () => {
+    const shared = season({
+      ...S1_FULL,
+      episodeFileCount: 1,
+      episodes: S1_FULL.episodes.map(entry => ({
+        ...entry,
+        episodeFileId: 77,
+      })),
+    })
+    const { user } = renderSeasons({ seasons: [shared, S2] })
+
+    const dialog = await openEpisodeDelete(user)
+
+    expect(dialog).toHaveTextContent(
+      'This file also holds S01E02 — it will be removed too.',
+    )
+    expect(dialog).toHaveTextContent('the season is unmonitored too')
+  })
 })

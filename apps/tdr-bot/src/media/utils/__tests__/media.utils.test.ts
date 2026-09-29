@@ -1,4 +1,8 @@
-import { errorMessage, generateTitleSlug } from 'src/media/utils/media.utils'
+import {
+  errorMessage,
+  generateTitleSlug,
+  parseEachSkippingInvalid,
+} from 'src/media/utils/media.utils'
 
 describe('media.utils', () => {
   describe('errorMessage', () => {
@@ -102,6 +106,44 @@ describe('media.utils', () => {
 
     it('should lowercase the entire slug', () => {
       expect(generateTitleSlug('BREAKING BAD')).toBe('breaking-bad')
+    })
+  })
+
+  describe('parseEachSkippingInvalid', () => {
+    const parse = (item: { id?: number; title?: string | null }) => {
+      if (item.id === undefined) throw new Error('id is required')
+      return item.id
+    }
+
+    it('should keep valid items and skip the ones that fail to parse', () => {
+      const logger = { warn: jest.fn() }
+
+      const result = parseEachSkippingInvalid(
+        [{ id: 1 }, { title: 'Broken' }, { id: 3 }],
+        parse,
+        logger,
+        'movie',
+      )
+
+      expect(result).toEqual([1, 3])
+      expect(logger.warn).toHaveBeenCalledTimes(1)
+      expect(logger.warn).toHaveBeenCalledWith(
+        {
+          itemKind: 'movie',
+          index: 1,
+          itemId: undefined,
+          title: 'Broken',
+          error: 'id is required',
+        },
+        'Skipping invalid movie from upstream list',
+      )
+    })
+
+    it('should return an empty list without logging for an empty input', () => {
+      const logger = { warn: jest.fn() }
+
+      expect(parseEachSkippingInvalid([], parse, logger, 'series')).toEqual([])
+      expect(logger.warn).not.toHaveBeenCalled()
     })
   })
 })

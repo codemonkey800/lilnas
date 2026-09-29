@@ -153,6 +153,11 @@ function compact<T extends Record<string, unknown>>(value: T): T | undefined {
  * Audio languages come from `mediaInfo` (what the streams actually are) and
  * fall back to the file's own `languages` (what Radarr parsed from the release
  * name) only when the file has not been probed.
+ *
+ * `customFormats` is deliberately not read here: `GET /movie` never computes
+ * them for the embedded `movieFile` (Radarr's `MovieController` maps the file
+ * without its custom formats), so it is always empty. The detail route reads
+ * them from `GET /moviefile` instead - see {@link movieFileCustomFormats}.
  */
 export function toMovieFile(
   file: MovieFileResource | null | undefined,
@@ -171,13 +176,6 @@ export function toMovieFile(
         languageList(info.audioLanguages) ?? radarrLanguageList(file.languages),
       streamCount: positive(info.audioStreamCount),
     }),
-    customFormats: nonEmpty(
-      unique(
-        (file.customFormats ?? [])
-          .map(format => text(format.name))
-          .filter((name): name is string => name !== undefined),
-      ),
-    ),
     edition: text(file.edition),
     quality: text(file.quality?.quality?.name),
     qualityCutoffNotMet: file.qualityCutoffNotMet ?? undefined,
@@ -193,6 +191,30 @@ export function toMovieFile(
       resolution: text(info.resolution),
     }),
   })
+}
+
+/**
+ * The custom formats Radarr matched on a movie's file, as distinct names, from
+ * `GET /moviefile?movieId=` - the one endpoint that computes them. `undefined`
+ * when the file matched none.
+ *
+ * Radarr models a movie as one file, but the endpoint is a list, so the first
+ * file with an id is the one the library is serving (the same pick as
+ * `CurrentReleaseService.forMovie()`). Radarr's JSON omits null keys, so a
+ * missing `customFormats` reads as none.
+ */
+export function movieFileCustomFormats(
+  files: readonly MovieFileResource[],
+): string[] | undefined {
+  const file = files.find(entry => entry.id != null)
+
+  return nonEmpty(
+    unique(
+      (file?.customFormats ?? [])
+        .map(format => text(format.name))
+        .filter((name): name is string => name !== undefined),
+    ),
+  )
 }
 
 function toRating(rating: RatingChild | undefined): MovieRating | undefined {

@@ -83,14 +83,17 @@ mixin frameLabel
     view  'desktop' (1280px) | 'mobile' (390px)
     crop  fade the bottom off at a fixed height, for screens that are only
           being shown from the top
+    tall  with `crop`, a taller crop — for a modal too long for the default
+          height to show whole
 mixin appFrame(view, opts)
   - opts = opts || {}
   - const mobile = view === 'mobile'
+  - const cropHeight = opts.tall ? (mobile ? 'h-[900px]' : 'h-[720px]') : mobile ? 'h-[460px]' : 'h-[440px]'
   div(
     class=[
       'relative max-w-full overflow-hidden rounded-xl border border-line bg-bg',
       mobile ? 'w-[390px]' : 'w-[1280px]',
-      opts.crop ? (mobile ? 'flex h-[460px] flex-col' : 'flex h-[440px] flex-col') : '',
+      opts.crop ? ['flex flex-col', cropHeight] : '',
     ]
   )&attributes(attributes)
     block
@@ -106,7 +109,9 @@ mixin appBar(view)
   )&attributes(attributes)
     block
 
-//- The app's content area.
+//- The app's content area. `crop` fades its bottom off; `tall` (see
+    +appFrame) starts that fade later, so a long modal centred in it stays
+    clear of the fade.
 mixin appBody(view, opts)
   - opts = opts || {}
   - const mobile = view === 'mobile'
@@ -114,7 +119,12 @@ mixin appBody(view, opts)
     class=[
       mobile ? 'px-6 pt-[18px] pb-[30px]' : 'px-8 pt-[30px] pb-11',
       opts.crop
-        ? 'relative flex-1 overflow-hidden [mask-image:linear-gradient(180deg,#000_78%,transparent)]'
+        ? [
+            'relative flex-1 overflow-hidden',
+            opts.tall
+              ? '[mask-image:linear-gradient(180deg,#000_90%,transparent)]'
+              : '[mask-image:linear-gradient(180deg,#000_78%,transparent)]',
+          ]
         : '',
     ]
   )&attributes(attributes)
@@ -219,11 +229,12 @@ mixin jumpNav(items, suffix)
   the scrim to sit over something, captioned above it. A page's own
   `modalFrame(view, label)` wraps this with its real background content
   (header, list, whatever), then passes the modal itself as this mixin's
-  block.
-mixin modalPreview(view, label)
-  +frameLabel()(class='mt-1')
+  block. `id`, when given, anchors the caption for a jump link; `tall` gives
+  a long modal a taller crop (see +appFrame).
+mixin modalPreview(view, label, id, tall)
+  +frameLabel()(class='mt-1' id=id)
     = label
-  +appFrame(view, { crop: true })
+  +appFrame(view, { crop: true, tall: tall })
     +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
-    +appBody(view, { crop: true })
+    +appBody(view, { crop: true, tall: tall })
       block

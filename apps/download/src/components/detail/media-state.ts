@@ -80,6 +80,11 @@ export function mediaStateIsLive(state: MediaState): boolean {
  * still draws a bar. The same rules as `jobProgress` in `job-state.ts`, which
  * read the snapshot through a job instead.
  *
+ * SABnzbd's `stage` and `stageDetail` pass through so the header names its
+ * post-processing the way the attempt card does, and `post_processing` pins
+ * the bar to 100% for the same reason `jobProgress` does. Its bytes and rate
+ * do not: the header draws no throughput line.
+ *
  * `null` means "draw no bar at all": a video (nothing on the wire carries its
  * progress), no queue item, or a queue item with no finite percentage — a
  * `0%` bar is a claim.
@@ -90,17 +95,20 @@ export function mediaProgress(media: Media): JobProgress | null {
   }
 
   const snapshot = media.queueSnapshot
-  const pct = snapshot?.progress
+  const stage = snapshot?.stage
+  const pct = stage === 'post_processing' ? FINISHED_PCT : snapshot?.progress
 
   if (pct === undefined || !Number.isFinite(pct)) {
     return null
   }
 
   return {
-    // The queue carries no bytes, so there is no transfer line to draw.
+    // The header draws no transfer line — that is the attempt card's.
     detail: null,
     note: snapshot?.status ?? null,
     pct,
+    stage,
+    stageDetail: snapshot?.stageDetail,
     timeLeft: snapshot?.timeLeft ?? null,
   }
 }

@@ -2,6 +2,7 @@ import '@testing-library/jest-dom'
 
 import type {
   DownloadJob,
+  DownloadQueueSnapshot,
   Movie,
   Show,
   Video,
@@ -52,6 +53,7 @@ const VIDEO: Video = {
 }
 
 const MB = 1024 * 1024
+const GB = 1024 * MB
 
 /** yt-dlp's tick two files into a merge: 64% of 640 MB at 3.1 MB/s. */
 function tick(overrides: Partial<VideoProgress> = {}): VideoProgress {
@@ -159,6 +161,7 @@ const TONE_MARKERS: Record<DownloadJobStatus, string> = {
   [DownloadJobStatus.Failed]: 'text-bad',
   [DownloadJobStatus.Importing]: 'text-uv-hi',
   [DownloadJobStatus.NeedsAttention]: 'text-warn',
+  [DownloadJobStatus.NotFound]: 'text-warn',
   [DownloadJobStatus.Paused]: 'text-warn',
   [DownloadJobStatus.Pausing]: 'text-warn',
   [DownloadJobStatus.Pending]: 'text-ink-3',
@@ -177,6 +180,7 @@ const EXPECTED_ACTIONS: Record<DownloadJobStatus, string[]> = {
   [DownloadJobStatus.Failed]: [],
   [DownloadJobStatus.Importing]: ['Cancel'],
   [DownloadJobStatus.NeedsAttention]: [IMPORT_TRIGGER_LABEL, 'Cancel'],
+  [DownloadJobStatus.NotFound]: [],
   [DownloadJobStatus.Paused]: ['Resume', 'Cancel'],
   [DownloadJobStatus.Pausing]: ['Pause', 'Cancel'],
   [DownloadJobStatus.Pending]: ['Cancel'],
@@ -366,7 +370,9 @@ describe('AttemptList', () => {
 
       expect(within(card).getByText('finishing up')).toBeInTheDocument()
       expect(
-        within(card).getByText('All downloaded. Radarr imports it next.'),
+        within(card).getByText(
+          'All downloaded. SABnzbd is checking and unpacking it; Radarr imports it after.',
+        ),
       ).toBeInTheDocument()
       expect(within(card).queryByText('~00:00:00 left')).not.toBeInTheDocument()
       expect(bar).toHaveAttribute('aria-valuetext', '100%, finishing up')
@@ -527,6 +533,185 @@ describe('AttemptList', () => {
 
       expect(within(card).queryByText('warning')).not.toBeInTheDocument()
       expect(within(card).getByText('~00:12:00 left')).toBeInTheDocument()
+    })
+
+    // Plan 025: SABnzbd's own readings on a movie's or show's card.
+    describe('with SABnzbd read directly', () => {
+      /** 47% of 2.6 GB at 8.4 MB/s, about three minutes out. */
+      const DOWNLOADING: DownloadQueueSnapshot = {
+        downloadedBytes: 1.2 * GB,
+        etaSeconds: 170,
+        progress: 47,
+        speedBps: 8.4 * MB,
+        stage: 'downloading',
+        status: 'downloading',
+        timeLeft: '00:03:00',
+        totalBytes: 2.6 * GB,
+      }
+
+      function renderSnapshot(
+        queueSnapshot: DownloadQueueSnapshot,
+        status: DownloadJobStatus = DownloadJobStatus.Downloading,
+      ): HTMLElement {
+        const { container } = renderList([
+          job({ media: { ...MOVIE, queueSnapshot }, status }),
+        ])
+        return attempt(container, 'job_1')
+      }
+
+      it('draws the bytes, the rate and SABnzbd’s estimate under the bar', () => {
+        const card = renderSnapshot(DOWNLOADING)
+        const line = within(card).getByText(
+          '1.2 GB / 2.6 GB · 8.4 MB/s · ~3m left',
+        )
+
+        // Under the bar, the mockup's `throughput` slot.
+        expect(line.previousElementSibling).toBe(
+          within(card).getByRole('progressbar', { name: 'Download progress' }),
+        )
+        expect(within(card).getByText('47%')).toBeInTheDocument()
+        expect(within(card).queryByText(/00:03:00/)).not.toBeInTheDocument()
+      })
+
+      it('keeps Radarr’s bare estimate without SABnzbd’s readings', () => {
+        const card = renderSnapshot({ progress: 47, timeLeft: '00:03:00' })
+
+        expect(within(card).getByText('~00:03:00 left')).toBeInTheDocument()
+        expect(within(card).queryByText(/GB/)).not.toBeInTheDocument()
+      })
+
+      it('drops a zero rate rather than drawing 0 B/s', () => {
+        const card = renderSnapshot({ ...DOWNLOADING, speedBps: 0 })
+
+        expect(
+          within(card).getByText('1.2 GB / 2.6 GB · ~3m left'),
+        ).toBeInTheDocument()
+        expect(card.textContent).not.toContain('B/s')
+      })
+
+      it('keeps just the bytes while paused — no rate, no estimate', () => {
+        const card = renderSnapshot(
+          { ...DOWNLOADING, stage: 'paused' },
+          DownloadJobStatus.Paused,
+        )
+
+        expect(within(card).getByText('paused')).toBeInTheDocument()
+        expect(within(card).getByText('1.2 GB / 2.6 GB')).toBeInTheDocument()
+        expect(card.textContent).not.toContain('B/s')
+        expect(card.textContent).not.toContain('left')
+      })
+
+      it('names SABnzbd’s post-processing and quotes its step', () => {
+        const card = renderSnapshot({
+          progress: 100,
+          stage: 'post_processing',
+          stageDetail: 'Repairing: 45%',
+          status: 'downloading',
+          timeLeft: '00:00:00',
+        })
+        const bar = within(card).getByRole('progressbar', {
+          name: 'Download progress',
+        })
+
+        expect(within(card).getByText('unpacking')).toBeInTheDocument()
+        expect(card.querySelector('.dot-live')).toBeInTheDocument()
+        expect(within(card).getByText('100%')).toBeInTheDocument()
+        expect(
+          within(card).getByText(
+            'SABnzbd is unpacking it · Repairing: 45%. Radarr imports it after.',
+          ),
+        ).toBeInTheDocument()
+        expect(bar).toHaveAttribute('aria-valuenow', '100')
+        expect(bar).toHaveAttribute('aria-valuetext', '100%, unpacking')
+        expect(bar.querySelector('[data-settling]')).toBeInTheDocument()
+        expect(within(card).queryByText(/left$/)).not.toBeInTheDocument()
+      })
+
+      it('drops the step when SABnzbd sent none', () => {
+        const card = renderSnapshot({ progress: 100, stage: 'post_processing' })
+
+        expect(
+          within(card).getByText(
+            'SABnzbd is unpacking it. Radarr imports it after.',
+          ),
+        ).toBeInTheDocument()
+      })
+
+      // SABnzbd's whole queue paused — disk full, a quota, or its own UI.
+      describe('paused in SABnzbd', () => {
+        const SAB_PAUSED: DownloadQueueSnapshot = {
+          ...DOWNLOADING,
+          clientPaused: true,
+          etaSeconds: undefined,
+          speedBps: undefined,
+          stage: 'paused',
+          status: 'paused',
+        }
+
+        it('says so under the chip, keeps just the bytes and offers Cancel alone', () => {
+          const card = renderSnapshot(SAB_PAUSED, DownloadJobStatus.Paused)
+          const note = within(card).getByText('Paused in SABnzbd')
+
+          expect(within(card).getByText('paused')).toBeInTheDocument()
+          // The mockup's `statusNote` slot, right under the chip row.
+          expect(note.previousElementSibling).toContainElement(
+            within(card).getByText('paused'),
+          )
+          expect(within(card).getByText('1.2 GB / 2.6 GB')).toBeInTheDocument()
+          expect(card.textContent).not.toContain('B/s')
+          expect(card.textContent).not.toContain('left')
+          expect(controlLabels(card)).toEqual(['Cancel'])
+        })
+
+        it('says the disk is the likely reason when it is almost full', () => {
+          const card = renderSnapshot(
+            { ...SAB_PAUSED, clientDiskLow: true },
+            DownloadJobStatus.Paused,
+          )
+
+          expect(
+            within(card).getByText(
+              'Paused in SABnzbd — the download disk is almost full',
+            ),
+          ).toBeInTheDocument()
+          expect(controlLabels(card)).toEqual(['Cancel'])
+        })
+
+        it('takes the status note’s place while it holds', () => {
+          const { container } = renderList([
+            job({
+              media: { ...MOVIE, queueSnapshot: SAB_PAUSED },
+              status: DownloadJobStatus.Paused,
+              statusNote: 'Delayed by Radarr until 21:40',
+            }),
+          ])
+          const card = attempt(container, 'job_1')
+
+          expect(
+            within(card).getByText('Paused in SABnzbd'),
+          ).toBeInTheDocument()
+          expect(
+            within(card).queryByText('Delayed by Radarr until 21:40'),
+          ).not.toBeInTheDocument()
+        })
+
+        it('offers no Pause while Radarr still says downloading', () => {
+          const card = renderSnapshot(SAB_PAUSED)
+
+          expect(controlLabels(card)).toEqual(['Cancel'])
+        })
+
+        it('leaves a pause made here as it was, Resume and all', () => {
+          const card = renderSnapshot(
+            { ...SAB_PAUSED, clientPaused: undefined },
+            DownloadJobStatus.Paused,
+          )
+
+          expect(within(card).getByText('paused')).toBeInTheDocument()
+          expect(card.textContent).not.toContain('SABnzbd')
+          expect(controlLabels(card)).toEqual(['Resume', 'Cancel'])
+        })
+      })
     })
 
     it('leaves a stuck import undotted, because nothing is happening to it', () => {
@@ -808,14 +993,15 @@ describe('AttemptList', () => {
       expect(controlLabels(container)).toEqual([])
     })
 
-    it.each([DownloadJobStatus.Failed, DownloadJobStatus.Cancelled])(
-      'offers Retry on a %s newest attempt',
-      status => {
-        const { container } = renderRetryable([job({ status })], true)
+    it.each([
+      DownloadJobStatus.Failed,
+      DownloadJobStatus.NotFound,
+      DownloadJobStatus.Cancelled,
+    ])('offers Retry on a %s newest attempt', status => {
+      const { container } = renderRetryable([job({ status })], true)
 
-        expect(controlLabels(attempt(container, 'job_1'))).toEqual(['Retry'])
-      },
-    )
+      expect(controlLabels(attempt(container, 'job_1'))).toEqual(['Retry'])
+    })
 
     it('offers it on the newest row only, never an older failure', () => {
       const { container } = renderRetryable([olderFailed, failed], true)
@@ -1005,6 +1191,166 @@ describe('AttemptList', () => {
       ])
 
       expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+    })
+
+    it('keeps the chip column wide enough for “no release found”', () => {
+      const { container } = renderList([
+        job({ status: DownloadJobStatus.NotFound }),
+      ])
+      const chip = within(attempt(container, 'job_1')).getByText(
+        'no release found',
+      )
+
+      expect(chip.getAttribute('class')).toContain('sm:w-[132px]')
+    })
+  })
+
+  // Plan 024: a search that finished without grabbing anything.
+  describe('a search that found nothing', () => {
+    const notFound = job({
+      completedAt: '2026-09-15T11:54:00.000Z',
+      status: DownloadJobStatus.NotFound,
+    })
+
+    it('ends as a history row, not an in-flight card', () => {
+      const { container } = renderList([notFound])
+      const line = attempt(container, 'job_1')
+
+      expect(line.getAttribute('class')).not.toContain('border-uv/35')
+      expect(within(line).getByText('6m ago')).toBeInTheDocument()
+    })
+
+    it('chips it warn, not red', () => {
+      const { container } = renderList([notFound])
+      const chip = within(attempt(container, 'job_1')).getByText(
+        'no release found',
+      )
+
+      expect(chip.getAttribute('class')).toContain('text-warn')
+      expect(chip.getAttribute('class')).not.toContain('text-bad')
+    })
+
+    it('offers Retry when the page says the title is retryable', async () => {
+      const user = userEvent.setup()
+      const wired = handlers()
+
+      render(<AttemptList jobs={[notFound]} now={NOW} retryable {...wired} />)
+      await user.click(screen.getByRole('button', { name: 'Retry' }))
+
+      expect(wired.onRetry).toHaveBeenCalledWith('job_1')
+    })
+  })
+
+  describe('status notes', () => {
+    const NOTE_CLASSES = ['text-cap', 'text-ink-3']
+
+    it.each([
+      'Last download failed: Aborted, cannot be completed. Radarr is trying another release.',
+      'Waiting for Radarr to finish adding the movie',
+      'Delayed by Radarr until 21:40',
+    ])('puts “%s” under an in-flight attempt’s status', statusNote => {
+      const { container } = renderList([
+        job({ status: DownloadJobStatus.Searching, statusNote }),
+      ])
+      const card = attempt(container, 'job_1')
+      const note = within(card).getByText(statusNote)
+
+      expect(note.getAttribute('class')).toContain('mt-2')
+      for (const token of NOTE_CLASSES) {
+        expect(note.getAttribute('class')).toContain(token)
+      }
+      expect(note.getAttribute('class')).not.toContain('text-bad')
+      // Right under the status: the row the chip sits in comes first.
+      expect(note.previousElementSibling).toContainElement(
+        within(card).getByText(jobStatusLabel(DownloadJobStatus.Searching)),
+      )
+    })
+
+    it('puts a note on its own grey line under a cancelled attempt', () => {
+      const statusNote =
+        'Part of a season download that is still running — this episode may still import'
+      const { container } = renderList([
+        job({
+          media: SHOW,
+          scope: { episodeId: 41, episodeNumber: 4, seasonNumber: 3 },
+          status: DownloadJobStatus.Cancelled,
+          statusNote,
+        }),
+      ])
+      const note = within(attempt(container, 'job_1')).getByText(statusNote)
+
+      expect(note.getAttribute('class')).toContain('basis-full')
+      for (const token of NOTE_CLASSES) {
+        expect(note.getAttribute('class')).toContain(token)
+      }
+      expect(note.getAttribute('class')).not.toContain('text-bad')
+    })
+
+    it('keeps a note grey while an error beside it stays red', () => {
+      const { container } = renderList([
+        job({
+          error: 'Indexer timed out after 3 retries',
+          status: DownloadJobStatus.NotFound,
+          statusNote: 'No usable release — every result is flagged or rejected',
+        }),
+      ])
+      const line = attempt(container, 'job_1')
+
+      expect(
+        within(line)
+          .getByText('Indexer timed out after 3 retries')
+          .getAttribute('class'),
+      ).toContain('text-bad')
+      expect(
+        within(line)
+          .getByText('No usable release — every result is flagged or rejected')
+          .getAttribute('class'),
+      ).not.toContain('text-bad')
+    })
+
+    it('draws nothing extra when there is no note', () => {
+      const { container } = renderList([
+        job({ status: DownloadJobStatus.Searching }),
+        job({
+          createdAt: '2026-09-15T10:00:00.000Z',
+          id: 'job_2',
+          status: DownloadJobStatus.Cancelled,
+        }),
+      ])
+
+      expect(container.querySelector('.text-cap')).not.toBeInTheDocument()
+    })
+  })
+
+  // Plan 024: on a show, a finished row says which part of it it was for.
+  describe('the scope of a finished attempt', () => {
+    it.each([
+      [
+        { episodeId: 41, episodeNumber: 4, seasonNumber: 3 },
+        'Season 3, episode 4',
+      ],
+      [{ seasonNumber: 2 }, 'Season 2'],
+    ])('names %j as “%s”', (scope, label) => {
+      const { container } = renderList([
+        job({ media: SHOW, scope, status: DownloadJobStatus.NotFound }),
+      ])
+
+      expect(within(attempt(container, 'job_1')).getByText(label)).toHaveClass(
+        'text-ink-2',
+      )
+    })
+
+    it('names nothing for a series-wide grab or a movie', () => {
+      const { container } = renderList([
+        job({ media: SHOW, status: DownloadJobStatus.Completed }),
+        job({
+          createdAt: '2026-09-15T10:00:00.000Z',
+          id: 'job_2',
+          status: DownloadJobStatus.Completed,
+        }),
+      ])
+
+      expect(within(container).queryByText(/^Season/)).not.toBeInTheDocument()
     })
   })
 })

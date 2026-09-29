@@ -1,5 +1,6 @@
 import { HumanMessage } from '@langchain/core/messages'
 
+import { createMockDiscordIdentity } from 'src/media-operations/request-handling/__test-helpers__/mock-services'
 import { MediaOperationStrategy } from 'src/media-operations/request-handling/strategies/base/media-operation-strategy.interface'
 import { StrategyRequestParams } from 'src/media-operations/request-handling/types/request-context.type'
 
@@ -73,7 +74,7 @@ export interface StrategyRoutingConfig<TMediaItem, TOperationResult> {
  *     },
  *     mediaService: {
  *       searchOrLibraryMethod: () => radarrService.searchMovies,
- *       operationMethod: () => radarrService.monitorAndDownloadMovie,
+ *       operationMethod: () => downloadClient.requestMovie,
  *     },
  *     promptService: {
  *       generatePromptMethod: () => promptService.generateMoviePrompt,
@@ -82,7 +83,7 @@ export interface StrategyRoutingConfig<TMediaItem, TOperationResult> {
  *   fixtures: {
  *     validContext: movieContext,
  *     mediaItems: [mockMovie1, mockMovie2],
- *     operationResult: mockSuccessResult,
+ *     operationResult: createMockMovieJob(),
  *     chatResponse: mockChatResponse,
  *   },
  *   config: {
@@ -187,6 +188,7 @@ export function testStrategyRouting<TMediaItem, TOperationResult>(
           message: new HumanMessage({ id: '1', content: exampleMessage }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           context,
           state: mockState,
         }
@@ -212,6 +214,7 @@ export function testStrategyRouting<TMediaItem, TOperationResult>(
         message: new HumanMessage({ id: '1', content: 'first one' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: validContext,
         state: mockState,
       }

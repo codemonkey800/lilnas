@@ -234,6 +234,7 @@ export class LibraryWatchService implements OnModuleInit, OnModuleDestroy {
       return toEpisodeStateEntries(
         await this.sonarrService.getEpisodes(sonarrId),
         this.mediaStateService.queueItemsFor(DownloadType.Show, sonarrId),
+        downloadId => this.mediaStateService.clientReading(downloadId),
       )
     } catch (err) {
       this.logger.warn(

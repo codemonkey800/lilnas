@@ -20,6 +20,7 @@ import {
   episodeProgressLabel,
   episodeScopedJobs,
   episodeState,
+  fileSiblings,
   isDownloadableState,
   isMetadataMissing,
   seasonByTabValue,
@@ -78,8 +79,9 @@ describe('episodeCode / episodeKey', () => {
 })
 
 describe('seasonEpisodeTotal', () => {
-  it("takes Sonarr's statistic when it is ahead of the listed episodes", () => {
-    // A season still airing: Sonarr knows about ten, has listed three.
+  it('never undercounts when the statistic runs ahead of the listed episodes', () => {
+    // Not a shape real Sonarr sends — `episodeCount` is a subset of the
+    // listed episodes — but the heading must still not undercount.
     expect(
       seasonEpisodeTotal(
         season({
@@ -90,8 +92,9 @@ describe('seasonEpisodeTotal', () => {
     ).toBe(10)
   })
 
-  it('⚠️ takes the listed episodes when the statistic excludes them (season 0)', () => {
-    // Real payload: `episodeCount: 0` over five listed specials. A heading
+  it('⚠️ takes the listed episodes, because `episodeCount` is not a total (season 0)', () => {
+    // Real payload: `episodeCount: 0` over five listed specials — Sonarr only
+    // counts an episode that is monitored-and-aired or has a file. A heading
     // reading "Specials · 0 episodes" over five rows would simply be wrong.
     expect(seasonEpisodeTotal(specials())).toBe(2)
   })
@@ -155,7 +158,7 @@ describe('seriesProgress', () => {
     ).toEqual({ files: 14, pct: (14 / 24) * 100, total: 24 })
   })
 
-  it('⚠️ excludes specials, exactly as Sonarr excludes them from its own series statistics', () => {
+  it('⚠️ excludes specials, which Sonarr’s own series statistics do not', () => {
     const seasons = [
       specials({ episodeCount: 0, episodeFileCount: 0 }),
       season({ episodeCount: 8, episodeFileCount: 8, seasonNumber: 1 }),
@@ -510,6 +513,67 @@ describe('deleteCascade', () => {
     })
   })
 
+  describe('a multi-episode file', () => {
+    /**
+     * `withEpisodes`, with the first `shared` episodes pointing at one file —
+     * an `S01E01E02.mkv` — and every other file its own.
+     */
+    function withSharedFile(
+      seasonNumber: number,
+      entries: readonly (boolean | MediaState)[],
+      shared: number,
+    ): Season {
+      const base = withEpisodes(seasonNumber, entries)
+
+      return {
+        ...base,
+        episodes: base.episodes.map((entry, index) =>
+          entry.hasFile
+            ? { ...entry, episodeFileId: index < shared ? 900 : entry.id }
+            : entry,
+        ),
+      }
+    }
+
+    // E02's footage is in the file being deleted, so it cannot hold the
+    // season open — the season is empty once the file goes.
+    it('sees the season emptied when the file held everything left in it', () => {
+      expect(
+        deleteCascade(
+          [withSharedFile(1, [true, true, false], 2), withEpisodes(2, [true])],
+          { episodeId: 101, seasonNumber: 1 },
+        ),
+      ).toBe('season')
+    })
+
+    it('removes the series when that season was the last one left', () => {
+      expect(
+        deleteCascade(
+          [withSharedFile(1, [true, true], 2), withEpisodes(2, [false])],
+          { episodeId: 102, seasonNumber: 1 },
+        ),
+      ).toBe('series')
+    })
+
+    it('stops at the episode while another file remains in the season', () => {
+      expect(
+        deleteCascade([withSharedFile(1, [true, true, true], 2)], {
+          episodeId: 101,
+          seasonNumber: 1,
+        }),
+      ).toBe('none')
+    })
+
+    it('empties season 0 the same way', () => {
+      expect(
+        deleteCascade(
+          [withSharedFile(0, [true, true], 2), withEpisodes(1, [true])],
+          { episodeId: 1, seasonNumber: 0 },
+        ),
+      ).toBe('season')
+    })
+  })
+
   describe('⚠️ specials are a season on both sides of the rule', () => {
     it('lets season 0’s files keep another season’s delete from cascading', () => {
       // `0` is falsy. A rule written on truthiness would remove the series and
@@ -546,6 +610,40 @@ describe('deleteCascade', () => {
         }),
       ).toBe('season')
     })
+  })
+})
+
+describe('fileSiblings', () => {
+  const e1 = episode({ episodeFileId: 900, hasFile: true, id: 101 })
+  const e2 = episode({
+    episodeFileId: 900,
+    episodeNumber: 2,
+    hasFile: true,
+    id: 102,
+  })
+  const e3 = episode({
+    episodeFileId: 903,
+    episodeNumber: 3,
+    hasFile: true,
+    id: 103,
+  })
+
+  it('lists the other episodes sharing this episode’s file', () => {
+    expect(fileSiblings(season({ episodes: [e1, e2, e3] }), e1)).toEqual([e2])
+    expect(fileSiblings(season({ episodes: [e1, e2, e3] }), e2)).toEqual([e1])
+  })
+
+  it('is empty for a file that holds only this episode', () => {
+    expect(fileSiblings(season({ episodes: [e1, e2, e3] }), e3)).toEqual([])
+  })
+
+  // The wire omits `episodeFileId` for "no file" — two file-less episodes
+  // share nothing.
+  it('is empty for an episode with no file', () => {
+    const a = episode({ id: 201 })
+    const b = episode({ episodeNumber: 2, id: 202 })
+
+    expect(fileSiblings(season({ episodes: [a, b] }), a)).toEqual([])
   })
 })
 

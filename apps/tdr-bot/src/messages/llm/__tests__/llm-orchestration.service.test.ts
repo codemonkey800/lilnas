@@ -168,6 +168,44 @@ describe('LLMOrchestrationService', () => {
       )
     })
 
+    it("threads the sender's Discord identity into the graph", async () => {
+      compiledGraph.invoke.mockResolvedValue({
+        messages: [makeAI('ok')],
+        images: [],
+      })
+      const discord = {
+        userId: 'u4',
+        username: 'erin.codes',
+        displayName: 'Erin',
+      }
+
+      await service.sendMessage({
+        message: 'download inception',
+        user: 'Erin',
+        userId: 'u4',
+        discord,
+      })
+
+      expect(compiledGraph.invoke).toHaveBeenCalledWith(
+        expect.objectContaining({ discord }),
+      )
+    })
+
+    it('builds a Discord identity from userId/user when none is given', async () => {
+      compiledGraph.invoke.mockResolvedValue({
+        messages: [makeAI('ok')],
+        images: [],
+      })
+
+      await service.sendMessage({ message: 'hi', user: 'Frank', userId: 'u5' })
+
+      expect(compiledGraph.invoke).toHaveBeenCalledWith(
+        expect.objectContaining({
+          discord: { userId: 'u5', username: 'Frank' },
+        }),
+      )
+    })
+
     it('passes last graphHistory messages to the graph', async () => {
       const prev = [makeHuman('old msg'), makeAI('old reply')]
       stateService.getState.mockReturnValue({

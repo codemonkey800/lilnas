@@ -1,3 +1,4 @@
+import { QualityTier } from '@lilnas/utils/download/types'
 import { Logger } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 
@@ -6,8 +7,14 @@ jest.mock('@lilnas/media/radarr', () => ({
   deleteApiV3MovieById: jest.fn(),
   deleteApiV3MoviefileById: jest.fn(),
   deleteApiV3QueueById: jest.fn(),
+  getApiV3Command: jest.fn(),
+  getApiV3CommandById: jest.fn(),
+  getApiV3ConfigDownloadclient: jest.fn(),
   getApiV3Credit: jest.fn(),
+  getApiV3Health: jest.fn(),
+  getApiV3History: jest.fn(),
   getApiV3HistoryMovie: jest.fn(),
+  getApiV3HistorySince: jest.fn(),
   getApiV3Manualimport: jest.fn(),
   getApiV3Movie: jest.fn(),
   getApiV3MovieById: jest.fn(),
@@ -21,15 +28,21 @@ jest.mock('@lilnas/media/radarr', () => ({
   postApiV3Command: jest.fn(),
   postApiV3Movie: jest.fn(),
   postApiV3Release: jest.fn(),
-  putApiV3MovieById: jest.fn(),
+  putApiV3MovieEditor: jest.fn(),
 }))
 
 import {
   deleteApiV3MovieById,
   deleteApiV3MoviefileById,
   deleteApiV3QueueById,
+  getApiV3Command,
+  getApiV3CommandById,
+  getApiV3ConfigDownloadclient,
   getApiV3Credit,
+  getApiV3Health,
+  getApiV3History,
   getApiV3HistoryMovie,
+  getApiV3HistorySince,
   getApiV3Manualimport,
   getApiV3Movie,
   getApiV3MovieById,
@@ -43,16 +56,16 @@ import {
   postApiV3Command,
   postApiV3Movie,
   postApiV3Release,
-  putApiV3MovieById,
+  putApiV3MovieEditor,
 } from '@lilnas/media/radarr'
 
 import { RADARR_CLIENT } from 'src/media/clients'
+import { defaultQualityTier } from 'src/media/quality-tier-default'
 import type { RadarrManualImportFile } from 'src/media/radarr.service'
 import { RadarrService } from 'src/media/radarr.service'
 
 const mockGetApiV3MovieLookup = getApiV3MovieLookup as jest.Mock
 const mockGetApiV3MovieLookupTmdb = getApiV3MovieLookupTmdb as jest.Mock
-const mockGetApiV3Qualityprofile = getApiV3Qualityprofile as jest.Mock
 const mockGetApiV3Rootfolder = getApiV3Rootfolder as jest.Mock
 const mockPostApiV3Movie = postApiV3Movie as jest.Mock
 const mockPostApiV3Command = postApiV3Command as jest.Mock
@@ -65,10 +78,17 @@ const mockGetApiV3Release = getApiV3Release as jest.Mock
 const mockPostApiV3Release = postApiV3Release as jest.Mock
 const mockGetApiV3Moviefile = getApiV3Moviefile as jest.Mock
 const mockDeleteApiV3MoviefileById = deleteApiV3MoviefileById as jest.Mock
-const mockPutApiV3MovieById = putApiV3MovieById as jest.Mock
+const mockPutApiV3MovieEditor = putApiV3MovieEditor as jest.Mock
 const mockGetApiV3HistoryMovie = getApiV3HistoryMovie as jest.Mock
 const mockGetApiV3Manualimport = getApiV3Manualimport as jest.Mock
 const mockGetApiV3Credit = getApiV3Credit as jest.Mock
+const mockGetApiV3Command = getApiV3Command as jest.Mock
+const mockGetApiV3CommandById = getApiV3CommandById as jest.Mock
+const mockGetApiV3ConfigDownloadclient =
+  getApiV3ConfigDownloadclient as jest.Mock
+const mockGetApiV3Health = getApiV3Health as jest.Mock
+const mockGetApiV3History = getApiV3History as jest.Mock
+const mockGetApiV3HistorySince = getApiV3HistorySince as jest.Mock
 
 describe('RadarrService', () => {
   let service: RadarrService
@@ -132,6 +152,8 @@ describe('RadarrService', () => {
           overview: 'A movie',
           physicalRelease: '2020-03-01',
           posterUrl: 'poster.jpg',
+          // Not in the library - no tier of its own.
+          qualityTier: null,
           radarrId: undefined,
           ratingValue: 8.1,
           ratings: { imdb: { value: 7.5 }, tmdb: { value: 8.1 } },
@@ -161,6 +183,8 @@ describe('RadarrService', () => {
           monitored: undefined,
           overview: undefined,
           posterUrl: undefined,
+          // Not in the library - no tier of its own.
+          qualityTier: null,
           radarrId: undefined,
           ratingValue: undefined,
           releaseDate: undefined,
@@ -471,6 +495,76 @@ describe('RadarrService', () => {
     })
   })
 
+  describe('qualityTier on library movies', () => {
+    beforeEach(() => {
+      jest.spyOn(service, 'ensureTierProfiles').mockResolvedValue()
+      jest
+        .spyOn(service, 'tierForProfileId')
+        .mockImplementation(id => (id === 11 ? QualityTier.Hd : null))
+    })
+
+    it("reports the tier of one of the app's profiles, and null for any other", async () => {
+      mockGetApiV3Movie.mockResolvedValue({
+        data: [
+          { id: 3, qualityProfileId: 11, tmdbId: 5 },
+          { id: 4, qualityProfileId: 1, tmdbId: 6 },
+        ],
+      })
+
+      const [ours, foreign] = await service.getLibrary()
+
+      expect(ours?.qualityTier).toBe(QualityTier.Hd)
+      expect(foreign?.qualityTier).toBeNull()
+    })
+
+    it('reports the tier on the one-title read the detail page refreshes from', async () => {
+      mockGetApiV3Movie.mockResolvedValue({
+        data: [{ id: 3, qualityProfileId: 11, tmdbId: 5 }],
+      })
+
+      const movie = await service.getLibraryMovie(5)
+
+      expect(movie?.qualityTier).toBe(QualityTier.Hd)
+    })
+
+    it('reports null for a movie outside the library', async () => {
+      mockGetApiV3MovieLookupTmdb.mockResolvedValue({
+        data: { id: 0, qualityProfileId: 11, tmdbId: 5 },
+      })
+
+      const movie = await service.lookupByTmdbId(5)
+
+      expect(movie.qualityTier).toBeNull()
+    })
+
+    // The cache is filled at boot; a library read only tops it up, once.
+    it('warms a cold tier cache once, and never again from a read', async () => {
+      mockGetApiV3Movie.mockResolvedValue({ data: [] })
+
+      await service.getLibrary()
+      await service.getLibraryMovie(5)
+      await service.getLibrary()
+
+      expect(service.ensureTierProfiles).toHaveBeenCalledTimes(1)
+    })
+
+    it('still serves the library when the warm fails, with no tiers', async () => {
+      jest
+        .spyOn(service, 'ensureTierProfiles')
+        .mockRejectedValue(new Error('unreachable'))
+      jest.spyOn(service, 'tierForProfileId').mockReturnValue(null)
+      mockGetApiV3Movie.mockResolvedValue({
+        data: [{ id: 3, qualityProfileId: 11, tmdbId: 5 }],
+      })
+
+      const [movie] = await service.getLibrary()
+      await service.getLibrary()
+
+      expect(movie?.qualityTier).toBeNull()
+      expect(service.ensureTierProfiles).toHaveBeenCalledTimes(1)
+    })
+  })
+
   describe('getLibrary', () => {
     it('carries monitored and the file dateAdded for a library movie with a file', async () => {
       mockGetApiV3Movie.mockResolvedValue({
@@ -561,269 +655,393 @@ describe('RadarrService', () => {
 
       expect(result?.monitored).toBeUndefined()
     })
-  })
 
-  describe('requestMovie', () => {
-    it('triggers a search directly when the movie is already in the library', async () => {
+    it("carries Radarr's isAvailable, and leaves it undefined when omitted", async () => {
       mockGetApiV3Movie.mockResolvedValue({
         data: [
-          {
-            id: 7,
-            images: [],
-            monitored: true,
-            title: 'Existing Movie',
-            tmdbId: 123,
-          },
+          { id: 7, isAvailable: false, monitored: true, tmdbId: 5 },
+          { id: 8, isAvailable: true, monitored: true, tmdbId: 6 },
+          { id: 9, monitored: true, tmdbId: 7 },
         ],
       })
-      mockPostApiV3Command.mockResolvedValue({ data: { id: 1 } })
 
-      const result = await service.requestMovie(123)
+      const [notYet, out, unknown] = await service.getLibrary()
 
-      expect(postApiV3Movie).not.toHaveBeenCalled()
-      // An already-monitored title is left strictly alone - no PUT at all.
-      expect(putApiV3MovieById).not.toHaveBeenCalled()
-      expect(postApiV3Command).toHaveBeenCalledWith(
-        expect.objectContaining({
-          body: { name: 'MoviesSearch', movieIds: [7] },
-        }),
-      )
-      expect(result).toEqual({
-        posterUrl: undefined,
-        radarrId: 7,
-        title: 'Existing Movie',
-      })
-    })
-
-    it('looks up, adds, and triggers a search for a new movie', async () => {
-      mockGetApiV3Movie.mockResolvedValue({ data: [] })
-      mockGetApiV3MovieLookupTmdb.mockResolvedValue({
-        data: { tmdbId: 123, title: 'New Movie', year: 2024 },
-      })
-      mockGetApiV3Qualityprofile.mockResolvedValue({
-        data: [{ id: 1, name: 'HD-1080p' }],
-      })
-      mockGetApiV3Rootfolder.mockResolvedValue({
-        data: [{ id: 1, path: '/movies', accessible: true }],
-      })
-      mockPostApiV3Movie.mockResolvedValue({
-        data: {
-          id: 42,
-          tmdbId: 123,
-          title: 'New Movie',
-          images: [{ coverType: 'poster', remoteUrl: 'remote-poster.jpg' }],
-        },
-      })
-      mockPostApiV3Command.mockResolvedValue({ data: { id: 1 } })
-
-      const result = await service.requestMovie(123)
-
-      expect(postApiV3Movie).toHaveBeenCalledWith(
-        expect.objectContaining({
-          body: expect.objectContaining({
-            tmdbId: 123,
-            title: 'New Movie',
-            titleSlug: 'new-movie',
-            qualityProfileId: 1,
-            rootFolderPath: '/movies',
-            monitored: true,
-            minimumAvailability: 'released',
-          }),
-        }),
-      )
-      expect(postApiV3Command).toHaveBeenCalledWith(
-        expect.objectContaining({
-          body: { name: 'MoviesSearch', movieIds: [42] },
-        }),
-      )
-      expect(result).toEqual({
-        posterUrl: 'remote-poster.jpg',
-        radarrId: 42,
-        title: 'New Movie',
-      })
-    })
-
-    it('throws when no quality profiles are available', async () => {
-      mockGetApiV3Movie.mockResolvedValue({ data: [] })
-      mockGetApiV3MovieLookupTmdb.mockResolvedValue({
-        data: { tmdbId: 123, title: 'New Movie' },
-      })
-      mockGetApiV3Qualityprofile.mockResolvedValue({ data: [] })
-      mockGetApiV3Rootfolder.mockResolvedValue({
-        data: [{ id: 1, path: '/movies', accessible: true }],
-      })
-
-      await expect(service.requestMovie(123)).rejects.toThrow(
-        'No quality profiles available in Radarr',
-      )
-      expect(postApiV3Movie).not.toHaveBeenCalled()
-    })
-
-    it('throws when no accessible root folders are available', async () => {
-      mockGetApiV3Movie.mockResolvedValue({ data: [] })
-      mockGetApiV3MovieLookupTmdb.mockResolvedValue({
-        data: { tmdbId: 123, title: 'New Movie' },
-      })
-      mockGetApiV3Qualityprofile.mockResolvedValue({
-        data: [{ id: 1, name: 'HD-1080p' }],
-      })
-      mockGetApiV3Rootfolder.mockResolvedValue({
-        data: [{ id: 1, path: '/movies', accessible: false }],
-      })
-
-      await expect(service.requestMovie(123)).rejects.toThrow(
-        'No accessible root folders available in Radarr',
-      )
+      expect(notYet?.isAvailable).toBe(false)
+      expect(out?.isAvailable).toBe(true)
+      expect(unknown?.isAvailable).toBeUndefined()
     })
   })
 
   describe('ensureMovie', () => {
+    /** The default tier's profile id, as `tierProfileId()` serves it. */
+    const DEFAULT_TIER_PROFILE_ID = 11
+
+    /**
+     * The lookup + root-folder reads an add needs, and the tier profile
+     * cache already warm - the profile sync itself is covered in
+     * `arr-tier-profiles.test.ts`.
+     */
+    function stubAddPrerequisites() {
+      mockGetApiV3MovieLookupTmdb.mockResolvedValue({
+        data: { title: 'New Movie', tmdbId: 123, year: 2024 },
+      })
+      mockGetApiV3Rootfolder.mockResolvedValue({
+        data: [{ accessible: true, id: 1, path: '/movies' }],
+      })
+      return jest
+        .spyOn(service, 'tierProfileId')
+        .mockResolvedValue(DEFAULT_TIER_PROFILE_ID)
+    }
+
+    /** Radarr's 400 for an add that lost the race to another add. */
+    function alreadyAdded() {
+      return {
+        error: [
+          {
+            errorCode: 'MovieExistsValidator',
+            errorMessage: 'This movie has already been added',
+            propertyName: 'TmdbId',
+          },
+        ],
+        response: new Response(null, { status: 400 }),
+      }
+    }
+
+    it('reads the library filtered to the one tmdbId', async () => {
+      mockGetApiV3Movie.mockResolvedValue({
+        data: [{ id: 7, monitored: true, tmdbId: 123 }],
+      })
+
+      await service.ensureMovie(123, { monitored: true })
+
+      expect(getApiV3Movie).toHaveBeenCalledWith(
+        expect.objectContaining({ query: { tmdbId: 123 } }),
+      )
+    })
+
     it('touches nothing when the movie is already in the library and monitored', async () => {
       mockGetApiV3Movie.mockResolvedValue({
         data: [{ id: 7, monitored: true, tmdbId: 123 }],
       })
 
-      const result = await service.ensureMovie(123)
+      const result = await service.ensureMovie(123, { monitored: true })
 
-      expect(result).toMatchObject({ radarrId: 7, wasMonitored: true })
+      expect(result).toMatchObject({
+        radarrId: 7,
+        wasAdded: false,
+        wasMonitored: true,
+      })
       expect(postApiV3Movie).not.toHaveBeenCalled()
-      expect(putApiV3MovieById).not.toHaveBeenCalled()
+      expect(putApiV3MovieEditor).not.toHaveBeenCalled()
       expect(postApiV3Command).not.toHaveBeenCalled()
     })
 
-    it('flips monitoring on for a library movie that is unmonitored', async () => {
+    it('flips monitoring on for an unmonitored library movie when asked to monitor', async () => {
       mockGetApiV3Movie.mockResolvedValue({
         data: [{ id: 7, monitored: false, tmdbId: 123 }],
       })
-      mockGetApiV3MovieById.mockResolvedValue({
-        data: { id: 7, monitored: false, qualityProfileId: 4, tmdbId: 123 },
-      })
-      mockPutApiV3MovieById.mockResolvedValue({ data: {} })
+      mockPutApiV3MovieEditor.mockResolvedValue({ data: {} })
 
-      const result = await service.ensureMovie(123)
+      const result = await service.ensureMovie(123, { monitored: true })
 
-      // `false` - the state *before* this call, which is what a caller
-      // restoring borrowed monitoring needs.
+      // `false` - the state *before* this call.
       expect(result).toMatchObject({ radarrId: 7, wasMonitored: false })
-      expect(putApiV3MovieById).toHaveBeenCalledWith(
+      expect(putApiV3MovieEditor).toHaveBeenCalledWith(
         expect.objectContaining({
-          body: expect.objectContaining({ monitored: true }),
-          path: { id: '7' },
+          body: { monitored: true, movieIds: [7] },
         }),
       )
       expect(postApiV3Movie).not.toHaveBeenCalled()
     })
 
-    it('adds an absent movie monitored, without searching for it', async () => {
+    // Browsing: a library title is never written, monitored or not.
+    it.each([true, false])(
+      'writes nothing to a library movie (monitored=%s) when not asked to monitor',
+      async monitored => {
+        mockGetApiV3Movie.mockResolvedValue({
+          data: [{ id: 7, monitored, tmdbId: 123 }],
+        })
+
+        const result = await service.ensureMovie(123, { monitored: false })
+
+        expect(result).toMatchObject({
+          radarrId: 7,
+          wasAdded: false,
+          wasMonitored: monitored,
+        })
+        expect(putApiV3MovieEditor).not.toHaveBeenCalled()
+        expect(postApiV3Movie).not.toHaveBeenCalled()
+        expect(postApiV3Command).not.toHaveBeenCalled()
+      },
+    )
+
+    it('adds an absent movie monitored for a request, without searching for it', async () => {
       mockGetApiV3Movie.mockResolvedValue({ data: [] })
-      mockGetApiV3MovieLookupTmdb.mockResolvedValue({
-        data: { title: 'New Movie', tmdbId: 123, year: 2024 },
-      })
-      mockGetApiV3Qualityprofile.mockResolvedValue({
-        data: [{ id: 1, name: 'HD-1080p' }],
-      })
-      mockGetApiV3Rootfolder.mockResolvedValue({
-        data: [{ accessible: true, id: 1, path: '/movies' }],
-      })
+      stubAddPrerequisites()
       mockPostApiV3Movie.mockResolvedValue({
         data: { id: 42, monitored: true, tmdbId: 123, title: 'New Movie' },
       })
 
-      const result = await service.ensureMovie(123)
+      const result = await service.ensureMovie(123, { monitored: true })
 
-      expect(result).toMatchObject({ radarrId: 42, wasMonitored: false })
+      expect(result).toMatchObject({
+        radarrId: 42,
+        wasAdded: true,
+        wasMonitored: false,
+      })
       expect(postApiV3Movie).toHaveBeenCalledWith(
         expect.objectContaining({
           body: expect.objectContaining({
             addOptions: { searchForMovie: false },
             monitored: true,
+            qualityProfileId: DEFAULT_TIER_PROFILE_ID,
+            rootFolderPath: '/movies',
           }),
         }),
       )
-      // The add is the whole job - ensureMovie never searches. requestMovie
-      // is what layers the command on top.
+      // The add is the whole job - ensureMovie never searches; the caller
+      // layers the command on top.
       expect(postApiV3Command).not.toHaveBeenCalled()
+    })
+
+    it("adds with the caller's quality profile when given one", async () => {
+      mockGetApiV3Movie.mockResolvedValue({ data: [] })
+      const tierProfileId = stubAddPrerequisites()
+      mockPostApiV3Movie.mockResolvedValue({
+        data: { id: 42, monitored: true, tmdbId: 123, title: 'New Movie' },
+      })
+
+      await service.ensureMovie(123, { monitored: true, qualityProfileId: 13 })
+
+      expect(postApiV3Movie).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: expect.objectContaining({ qualityProfileId: 13 }),
+        }),
+      )
+      expect(tierProfileId).not.toHaveBeenCalled()
+    })
+
+    // A browse add names no profile: it gets the default tier's, never
+    // whatever Radarr happens to list first.
+    it("adds with the default tier's profile when given none", async () => {
+      mockGetApiV3Movie.mockResolvedValue({ data: [] })
+      const tierProfileId = stubAddPrerequisites()
+      mockPostApiV3Movie.mockResolvedValue({
+        data: { id: 42, monitored: false, tmdbId: 123, title: 'New Movie' },
+      })
+
+      await service.ensureMovie(123, { monitored: false })
+
+      expect(tierProfileId).toHaveBeenCalledWith(defaultQualityTier())
+      expect(postApiV3Movie).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: expect.objectContaining({
+            qualityProfileId: DEFAULT_TIER_PROFILE_ID,
+          }),
+        }),
+      )
+      // The default configuration is the root folder alone now.
+      expect(getApiV3Qualityprofile).not.toHaveBeenCalled()
+    })
+
+    it('fails the add, writing nothing, when the tier profile cannot be had', async () => {
+      mockGetApiV3Movie.mockResolvedValue({ data: [] })
+      stubAddPrerequisites().mockRejectedValue(
+        new Error('Could not set up Radarr\'s "lilnas · HD" quality profile'),
+      )
+
+      await expect(
+        service.ensureMovie(123, { monitored: false }),
+      ).rejects.toThrow('quality profile')
+      expect(postApiV3Movie).not.toHaveBeenCalled()
+    })
+
+    // Re-profiling a library movie is the request path's call, not ensure's.
+    it('leaves a library movie on its own profile', async () => {
+      mockGetApiV3Movie.mockResolvedValue({
+        data: [{ id: 7, monitored: true, qualityProfileId: 1, tmdbId: 123 }],
+      })
+      const tierProfileId = jest.spyOn(service, 'tierProfileId')
+
+      await service.ensureMovie(123, { monitored: true, qualityProfileId: 13 })
+
+      expect(putApiV3MovieEditor).not.toHaveBeenCalled()
+      expect(tierProfileId).not.toHaveBeenCalled()
+    })
+
+    it('adds an absent movie unmonitored for a browse', async () => {
+      mockGetApiV3Movie.mockResolvedValue({ data: [] })
+      stubAddPrerequisites()
+      mockPostApiV3Movie.mockResolvedValue({
+        data: { id: 42, monitored: false, tmdbId: 123, title: 'New Movie' },
+      })
+
+      const result = await service.ensureMovie(123, { monitored: false })
+
+      expect(result).toMatchObject({ radarrId: 42, wasAdded: true })
+      expect(postApiV3Movie).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: expect.objectContaining({
+            addOptions: { searchForMovie: false },
+            monitored: false,
+          }),
+        }),
+      )
+      expect(putApiV3MovieEditor).not.toHaveBeenCalled()
+      expect(postApiV3Command).not.toHaveBeenCalled()
+    })
+
+    // Two adds raced: the loser re-reads and carries on as "exists".
+    it('treats a 400 "already been added" as the movie existing', async () => {
+      mockGetApiV3Movie
+        .mockResolvedValueOnce({ data: [] })
+        .mockResolvedValueOnce({
+          data: [{ id: 9, monitored: false, tmdbId: 123 }],
+        })
+      stubAddPrerequisites()
+      mockPostApiV3Movie.mockResolvedValue(alreadyAdded())
+
+      const result = await service.ensureMovie(123, { monitored: false })
+
+      expect(result).toMatchObject({
+        radarrId: 9,
+        wasAdded: false,
+        wasMonitored: false,
+      })
+      expect(getApiV3Movie).toHaveBeenCalledTimes(2)
+      expect(putApiV3MovieEditor).not.toHaveBeenCalled()
+    })
+
+    it('still monitors a raced movie when the caller asked to monitor', async () => {
+      mockGetApiV3Movie
+        .mockResolvedValueOnce({ data: [] })
+        .mockResolvedValueOnce({
+          data: [{ id: 9, monitored: false, tmdbId: 123 }],
+        })
+      stubAddPrerequisites()
+      mockPostApiV3Movie.mockResolvedValue(alreadyAdded())
+      mockPutApiV3MovieEditor.mockResolvedValue({ data: {} })
+
+      await service.ensureMovie(123, { monitored: true })
+
+      expect(putApiV3MovieEditor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: { monitored: true, movieIds: [9] },
+        }),
+      )
+    })
+
+    it('rethrows an "already added" 400 when the re-read still cannot find the movie', async () => {
+      mockGetApiV3Movie.mockResolvedValue({ data: [] })
+      stubAddPrerequisites()
+      mockPostApiV3Movie.mockResolvedValue(alreadyAdded())
+
+      await expect(
+        service.ensureMovie(123, { monitored: false }),
+      ).rejects.toThrow('already been added')
+    })
+
+    it('rethrows any other add failure without re-reading', async () => {
+      mockGetApiV3Movie.mockResolvedValue({ data: [] })
+      stubAddPrerequisites()
+      mockPostApiV3Movie.mockResolvedValue({
+        error: [{ errorMessage: 'Root folder does not exist' }],
+        response: new Response(null, { status: 400 }),
+      })
+
+      await expect(
+        service.ensureMovie(123, { monitored: false }),
+      ).rejects.toThrow('Root folder does not exist')
+      expect(getApiV3Movie).toHaveBeenCalledTimes(1)
     })
 
     it('throws when Radarr returns a library movie with no id', async () => {
       mockGetApiV3Movie.mockResolvedValue({ data: [{ tmdbId: 123 }] })
 
-      await expect(service.ensureMovie(123)).rejects.toThrow(
-        'Radarr did not return an id for movie tmdbId=123',
-      )
+      await expect(
+        service.ensureMovie(123, { monitored: true }),
+      ).rejects.toThrow('Radarr did not return an id for movie tmdbId=123')
     })
 
     it('throws when Radarr returns no id for the movie it just added', async () => {
       mockGetApiV3Movie.mockResolvedValue({ data: [] })
-      mockGetApiV3MovieLookupTmdb.mockResolvedValue({
-        data: { title: 'New Movie', tmdbId: 123 },
-      })
-      mockGetApiV3Qualityprofile.mockResolvedValue({ data: [{ id: 1 }] })
-      mockGetApiV3Rootfolder.mockResolvedValue({
-        data: [{ accessible: true, path: '/movies' }],
-      })
+      stubAddPrerequisites()
       mockPostApiV3Movie.mockResolvedValue({ data: { tmdbId: 123 } })
 
-      await expect(service.ensureMovie(123)).rejects.toThrow(
-        'Radarr did not return an id for movie tmdbId=123',
-      )
+      await expect(
+        service.ensureMovie(123, { monitored: true }),
+      ).rejects.toThrow('Radarr did not return an id for movie tmdbId=123')
     })
   })
 
   describe('setMonitored', () => {
-    it('re-sends the whole resource with only `monitored` changed', async () => {
-      mockGetApiV3MovieById.mockResolvedValue({
-        data: {
-          id: 7,
-          monitored: true,
-          qualityProfileId: 4,
-          rootFolderPath: '/movies',
-          tags: [1, 2],
-        },
-      })
-      mockPutApiV3MovieById.mockResolvedValue({ data: {} })
+    it('flips only `monitored`, through the bulk editor', async () => {
+      mockPutApiV3MovieEditor.mockResolvedValue({ data: {} })
 
       await service.setMonitored(7, false)
 
-      // A PUT carrying only `{ monitored }` would blank out the profile,
-      // root folder and tags - Radarr replaces the whole resource.
-      expect(putApiV3MovieById).toHaveBeenCalledWith(
+      // No read-back and no full-resource PUT - the editor changes only the
+      // fields it is sent.
+      expect(getApiV3MovieById).not.toHaveBeenCalled()
+      expect(putApiV3MovieEditor).toHaveBeenCalledWith(
         expect.objectContaining({
-          body: {
-            id: 7,
-            monitored: false,
-            qualityProfileId: 4,
-            rootFolderPath: '/movies',
-            tags: [1, 2],
-          },
-          path: { id: '7' },
+          body: { monitored: false, movieIds: [7] },
         }),
       )
     })
 
-    it('throws a descriptive error when the read-back fails', async () => {
-      mockGetApiV3MovieById.mockResolvedValue({
-        error: { message: 'not found' },
-      })
-
-      await expect(service.setMonitored(7, true)).rejects.toThrow(
-        'getMovie failed',
-      )
-      expect(putApiV3MovieById).not.toHaveBeenCalled()
-    })
-
     it('throws a descriptive error when the write fails', async () => {
-      mockGetApiV3MovieById.mockResolvedValue({ data: { id: 7 } })
-      mockPutApiV3MovieById.mockResolvedValue({ error: { message: 'boom' } })
+      mockPutApiV3MovieEditor.mockResolvedValue({ error: { message: 'boom' } })
 
       await expect(service.setMonitored(7, true)).rejects.toThrow(
-        'setMovieMonitored failed',
+        'editMovies failed',
       )
     })
   })
 
+  describe('editMovies', () => {
+    it('sends the ids and only the changes that were given', async () => {
+      mockPutApiV3MovieEditor.mockResolvedValue({ data: {} })
+
+      await service.editMovies([7, 8], { qualityProfileId: 4 })
+
+      // `monitored` absent, not `undefined`/`null` - an absent key is what
+      // tells Radarr to leave the field alone.
+      const call = mockPutApiV3MovieEditor.mock.calls[0][0]
+      expect(call.body).toEqual({ movieIds: [7, 8], qualityProfileId: 4 })
+      expect(call.body).not.toHaveProperty('monitored')
+    })
+
+    it('sends both changes together', async () => {
+      mockPutApiV3MovieEditor.mockResolvedValue({ data: {} })
+
+      await service.editMovies([7], { monitored: true, qualityProfileId: 4 })
+
+      expect(putApiV3MovieEditor).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: { monitored: true, movieIds: [7], qualityProfileId: 4 },
+        }),
+      )
+    })
+
+    it('makes no request for an empty id list', async () => {
+      await service.editMovies([], { monitored: false })
+
+      expect(putApiV3MovieEditor).not.toHaveBeenCalled()
+    })
+
+    it('throws a descriptive error when Radarr rejects the edit', async () => {
+      mockPutApiV3MovieEditor.mockResolvedValue({ error: { message: 'boom' } })
+
+      await expect(
+        service.editMovies([7], { monitored: false }),
+      ).rejects.toThrow('editMovies failed: {"message":"boom"}')
+    })
+  })
+
   describe('unmonitorIfMissing', () => {
-    it('unmonitors a movie with no file, re-sending the whole resource', async () => {
+    it('unmonitors a movie with no file, through the bulk editor', async () => {
       mockGetApiV3MovieById.mockResolvedValue({
         data: {
           hasFile: false,
@@ -834,24 +1052,16 @@ describe('RadarrService', () => {
           tags: [1, 2],
         },
       })
-      mockPutApiV3MovieById.mockResolvedValue({ data: {} })
+      mockPutApiV3MovieEditor.mockResolvedValue({ data: {} })
 
       await expect(service.unmonitorIfMissing(7)).resolves.toBe(true)
 
       expect(getApiV3MovieById).toHaveBeenCalledWith(
         expect.objectContaining({ path: { id: 7 } }),
       )
-      expect(putApiV3MovieById).toHaveBeenCalledWith(
+      expect(putApiV3MovieEditor).toHaveBeenCalledWith(
         expect.objectContaining({
-          body: {
-            hasFile: false,
-            id: 7,
-            monitored: false,
-            qualityProfileId: 4,
-            rootFolderPath: '/movies',
-            tags: [1, 2],
-          },
-          path: { id: '7' },
+          body: { monitored: false, movieIds: [7] },
         }),
       )
     })
@@ -863,7 +1073,7 @@ describe('RadarrService', () => {
       })
 
       await expect(service.unmonitorIfMissing(7)).resolves.toBe(false)
-      expect(putApiV3MovieById).not.toHaveBeenCalled()
+      expect(putApiV3MovieEditor).not.toHaveBeenCalled()
     })
 
     it('writes nothing for a movie that is already unmonitored', async () => {
@@ -872,17 +1082,17 @@ describe('RadarrService', () => {
       })
 
       await expect(service.unmonitorIfMissing(7)).resolves.toBe(false)
-      expect(putApiV3MovieById).not.toHaveBeenCalled()
+      expect(putApiV3MovieEditor).not.toHaveBeenCalled()
     })
 
     it('throws a descriptive error when the write fails', async () => {
       mockGetApiV3MovieById.mockResolvedValue({
         data: { hasFile: false, id: 7, monitored: true },
       })
-      mockPutApiV3MovieById.mockResolvedValue({ error: { message: 'boom' } })
+      mockPutApiV3MovieEditor.mockResolvedValue({ error: { message: 'boom' } })
 
       await expect(service.unmonitorIfMissing(7)).rejects.toThrow(
-        'setMovieMonitored failed',
+        'editMovies failed',
       )
     })
   })
@@ -1148,13 +1358,108 @@ describe('RadarrService', () => {
       expect(result).toEqual([{ id: 1, movieId: 7, status: 'downloading' }])
     })
 
-    it('omits the movieIds filter when none are provided', async () => {
+    // A filtered read must not pull in unknown items: unmonitorAndDelete
+    // cancels every row it gets back.
+    it('does not ask for unknown items on a filtered read', async () => {
+      mockGetApiV3Queue.mockResolvedValue({ data: { records: [] } })
+
+      await service.getQueue([7])
+
+      const call = mockGetApiV3Queue.mock.calls[0][0]
+      expect(call.query).not.toHaveProperty('includeUnknownMovieItems')
+    })
+
+    it('omits the movieIds filter and includes unknown items when unfiltered', async () => {
       mockGetApiV3Queue.mockResolvedValue({ data: { records: [] } })
 
       await service.getQueue()
 
       const call = mockGetApiV3Queue.mock.calls[0][0]
       expect(call.query).not.toHaveProperty('movieIds')
+      expect(call.query).toMatchObject({
+        includeMovie: false,
+        includeUnknownMovieItems: true,
+        page: 1,
+        pageSize: 1000,
+      })
+    })
+
+    it('reads every page until totalRecords is covered', async () => {
+      mockGetApiV3Queue
+        .mockResolvedValueOnce({
+          data: {
+            page: 1,
+            pageSize: 1000,
+            records: [{ id: 1, movieId: 7 }],
+            totalRecords: 2500,
+          },
+        })
+        .mockResolvedValueOnce({
+          data: {
+            page: 2,
+            pageSize: 1000,
+            records: [{ id: 2, movieId: 8 }],
+            totalRecords: 2500,
+          },
+        })
+        .mockResolvedValueOnce({
+          data: {
+            page: 3,
+            pageSize: 1000,
+            records: [{ id: 3, movieId: 9 }],
+            totalRecords: 2500,
+          },
+        })
+
+      const result = await service.getQueue()
+
+      expect(result.map(item => item.id)).toEqual([1, 2, 3])
+      expect(getApiV3Queue).toHaveBeenCalledTimes(3)
+      expect(
+        mockGetApiV3Queue.mock.calls.map(([call]) => call.query.page),
+      ).toEqual([1, 2, 3])
+      for (const [call] of mockGetApiV3Queue.mock.calls) {
+        expect(call.query.includeUnknownMovieItems).toBe(true)
+      }
+    })
+
+    it('keeps pending and unknown rows, errorMessage included', async () => {
+      const records = [
+        // A pending release: no downloadId until it is actually sent.
+        { id: 1, movieId: 7, status: 'delay' },
+        // An unknown item: nothing in the library it maps to.
+        { downloadId: 'SAB_1', id: 2, status: 'completed' },
+        {
+          downloadId: 'SAB_2',
+          errorMessage: 'Unpacking failed',
+          id: 3,
+          movieId: 8,
+          status: 'failed',
+        },
+      ]
+      mockGetApiV3Queue.mockResolvedValue({
+        data: { page: 1, pageSize: 1000, records, totalRecords: 3 },
+      })
+
+      await expect(service.getQueue()).resolves.toEqual(records)
+    })
+
+    it('stops on an empty page even if totalRecords claims more', async () => {
+      mockGetApiV3Queue
+        .mockResolvedValueOnce({
+          data: {
+            page: 1,
+            pageSize: 1000,
+            records: [{ id: 1 }],
+            totalRecords: 5000,
+          },
+        })
+        .mockResolvedValueOnce({
+          data: { page: 2, pageSize: 1000, records: [], totalRecords: 5000 },
+        })
+
+      await expect(service.getQueue()).resolves.toEqual([{ id: 1 }])
+      expect(getApiV3Queue).toHaveBeenCalledTimes(2)
     })
 
     it('returns an empty array when the queue has no records', async () => {
@@ -1163,6 +1468,372 @@ describe('RadarrService', () => {
       const result = await service.getQueue()
 
       expect(result).toEqual([])
+    })
+
+    it('throws a descriptive error when a page fails', async () => {
+      mockGetApiV3Queue
+        .mockResolvedValueOnce({
+          data: {
+            page: 1,
+            pageSize: 1000,
+            records: [{ id: 1 }],
+            totalRecords: 2000,
+          },
+        })
+        .mockResolvedValueOnce({ error: { message: 'boom' } })
+
+      await expect(service.getQueue()).rejects.toThrow('getQueue failed')
+    })
+  })
+
+  describe('triggerSearch', () => {
+    it('posts MoviesSearch and returns a reference to the queued command', async () => {
+      mockPostApiV3Command.mockResolvedValue({
+        data: {
+          id: 91,
+          name: 'MoviesSearch',
+          queued: '2026-09-28T10:00:00Z',
+          status: 'queued',
+        },
+      })
+
+      await expect(service.triggerSearch(7)).resolves.toEqual({
+        id: 91,
+        name: 'MoviesSearch',
+        queuedAt: '2026-09-28T10:00:00Z',
+      })
+      expect(postApiV3Command).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: { movieIds: [7], name: 'MoviesSearch' },
+        }),
+      )
+    })
+
+    it('throws a descriptive error when Radarr rejects the command', async () => {
+      mockPostApiV3Command.mockResolvedValue({ error: { message: 'boom' } })
+
+      await expect(service.triggerSearch(7)).rejects.toThrow(
+        'triggerMovieSearch failed',
+      )
+    })
+
+    it('throws when the command comes back without an id', async () => {
+      mockPostApiV3Command.mockResolvedValue({ data: { name: 'MoviesSearch' } })
+
+      await expect(service.triggerSearch(7)).rejects.toThrow(
+        'triggerMovieSearch returned a command without an id',
+      )
+    })
+  })
+
+  describe('refreshMovie', () => {
+    beforeEach(() => {
+      mockPostApiV3Command.mockResolvedValue({
+        data: { id: 12, name: 'RefreshMovie', queued: '2026-09-28T10:00:00Z' },
+      })
+    })
+
+    it('omits isNewMovie by default', async () => {
+      await expect(service.refreshMovie(7)).resolves.toEqual({
+        id: 12,
+        name: 'RefreshMovie',
+        queuedAt: '2026-09-28T10:00:00Z',
+      })
+
+      const call = mockPostApiV3Command.mock.calls[0][0]
+      expect(call.body).toEqual({ movieIds: [7], name: 'RefreshMovie' })
+    })
+
+    // Must match the add-time refresh's body exactly, so Radarr de-dupes to
+    // (and hands back the id of) the command it already queued.
+    it('sends isNewMovie: true when isNew is set', async () => {
+      await service.refreshMovie(7, { isNew: true })
+
+      const call = mockPostApiV3Command.mock.calls[0][0]
+      expect(call.body).toEqual({
+        isNewMovie: true,
+        movieIds: [7],
+        name: 'RefreshMovie',
+      })
+    })
+
+    it('omits isNewMovie when isNew is false', async () => {
+      await service.refreshMovie(7, { isNew: false })
+
+      const call = mockPostApiV3Command.mock.calls[0][0]
+      expect(call.body).not.toHaveProperty('isNewMovie')
+    })
+  })
+
+  describe('getCommand', () => {
+    it('maps a command, leaving omitted fields undefined', async () => {
+      mockGetApiV3CommandById.mockResolvedValue({
+        data: {
+          body: { isNewMovie: true, movieIds: [7] },
+          commandName: 'Refresh Movie',
+          ended: '2026-09-28T10:00:02Z',
+          id: 12,
+          name: 'RefreshMovie',
+          priority: 'normal',
+          queued: '2026-09-28T10:00:00Z',
+          result: 'unknown',
+          started: '2026-09-28T10:00:01Z',
+          status: 'completed',
+          trigger: 'manual',
+        },
+      })
+
+      await expect(service.getCommand(12)).resolves.toEqual({
+        body: { isNewMovie: true, movieIds: [7] },
+        ended: '2026-09-28T10:00:02Z',
+        id: 12,
+        message: undefined,
+        name: 'RefreshMovie',
+        queued: '2026-09-28T10:00:00Z',
+        result: 'unknown',
+        started: '2026-09-28T10:00:01Z',
+        status: 'completed',
+        trigger: 'manual',
+      })
+      expect(getApiV3CommandById).toHaveBeenCalledWith(
+        expect.objectContaining({ path: { id: 12 } }),
+      )
+    })
+
+    it('returns null when Radarr has no such command', async () => {
+      mockGetApiV3CommandById.mockResolvedValue({
+        error: { message: 'NotFound' },
+        response: { status: 404 },
+      })
+
+      await expect(service.getCommand(999)).resolves.toBeNull()
+    })
+
+    it('throws on any other failure', async () => {
+      mockGetApiV3CommandById.mockResolvedValue({
+        error: { message: 'boom' },
+        response: { status: 500 },
+      })
+
+      await expect(service.getCommand(12)).rejects.toThrow('getCommand failed')
+    })
+
+    it('throws on a command missing its status', async () => {
+      mockGetApiV3CommandById.mockResolvedValue({
+        data: { id: 12, name: 'RefreshMovie' },
+      })
+
+      await expect(service.getCommand(12)).rejects.toThrow(
+        'getCommand returned a malformed command (id=12)',
+      )
+    })
+  })
+
+  describe('listCommands', () => {
+    it('maps every command and skips malformed ones', async () => {
+      mockGetApiV3Command.mockResolvedValue({
+        data: [
+          {
+            body: { movieIds: [7] },
+            id: 1,
+            message: 'Completed',
+            name: 'MoviesSearch',
+            result: 'successful',
+            status: 'completed',
+          },
+          { id: 2, name: 'RefreshMovie', status: 'started' },
+          { name: 'Broken' },
+        ],
+      })
+
+      const result = await service.listCommands()
+
+      expect(result).toEqual([
+        expect.objectContaining({
+          body: { movieIds: [7] },
+          id: 1,
+          message: 'Completed',
+          result: 'successful',
+          status: 'completed',
+        }),
+        expect.objectContaining({ body: {}, id: 2, status: 'started' }),
+      ])
+      expect(Logger.prototype.warn).toHaveBeenCalledTimes(1)
+    })
+
+    it('throws a descriptive error when the call fails', async () => {
+      mockGetApiV3Command.mockResolvedValue({ error: { message: 'boom' } })
+
+      await expect(service.listCommands()).rejects.toThrow(
+        'listCommands failed',
+      )
+    })
+  })
+
+  describe('getHistorySince', () => {
+    it('sends the date as ISO and returns the list as-is', async () => {
+      const records = [
+        { eventType: 'grabbed', id: 1 },
+        { eventType: 'downloadFolderImported', id: 2 },
+      ]
+      mockGetApiV3HistorySince.mockResolvedValue({ data: records })
+
+      const result = await service.getHistorySince(
+        new Date('2026-09-28T10:00:00Z'),
+      )
+
+      expect(result).toEqual(records)
+      const call = mockGetApiV3HistorySince.mock.calls[0][0]
+      // Exactly `date` - no includeMovie, no eventType.
+      expect(call.query).toEqual({ date: '2026-09-28T10:00:00.000Z' })
+    })
+
+    it('throws a descriptive error when the call fails', async () => {
+      mockGetApiV3HistorySince.mockResolvedValue({ error: { message: 'boom' } })
+
+      await expect(service.getHistorySince(new Date())).rejects.toThrow(
+        'getHistorySince failed',
+      )
+    })
+  })
+
+  describe('getHistoryByDownloadId', () => {
+    it('reads every page for the download', async () => {
+      mockGetApiV3History
+        .mockResolvedValueOnce({
+          data: {
+            page: 1,
+            pageSize: 100,
+            records: [{ eventType: 'downloadFailed', id: 3 }],
+            totalRecords: 150,
+          },
+        })
+        .mockResolvedValueOnce({
+          data: {
+            page: 2,
+            pageSize: 100,
+            records: [{ eventType: 'grabbed', id: 1 }],
+            totalRecords: 150,
+          },
+        })
+
+      const result = await service.getHistoryByDownloadId('SAB_1')
+
+      expect(result.map(record => record.id)).toEqual([3, 1])
+      expect(
+        mockGetApiV3History.mock.calls.map(([call]) => call.query),
+      ).toEqual([
+        { downloadId: 'SAB_1', page: 1, pageSize: 100 },
+        { downloadId: 'SAB_1', page: 2, pageSize: 100 },
+      ])
+    })
+
+    it('stops after one page when it holds everything', async () => {
+      mockGetApiV3History.mockResolvedValue({
+        data: { page: 1, pageSize: 100, records: [{ id: 1 }], totalRecords: 1 },
+      })
+
+      await expect(service.getHistoryByDownloadId('SAB_1')).resolves.toEqual([
+        { id: 1 },
+      ])
+      expect(getApiV3History).toHaveBeenCalledTimes(1)
+    })
+
+    it('throws a descriptive error when the call fails', async () => {
+      mockGetApiV3History.mockResolvedValue({ error: { message: 'boom' } })
+
+      await expect(service.getHistoryByDownloadId('SAB_1')).rejects.toThrow(
+        'getHistoryByDownloadId failed',
+      )
+    })
+  })
+
+  describe('isDownloadClientHealthy', () => {
+    it('is healthy with no health entries at all', async () => {
+      mockGetApiV3Health.mockResolvedValue({ data: [] })
+
+      await expect(service.isDownloadClientHealthy()).resolves.toBe(true)
+    })
+
+    it.each([
+      ['DownloadClientCheck', 'warning'],
+      ['DownloadClientCheck', 'error'],
+      ['DownloadClientStatusCheck', 'warning'],
+      ['DownloadClientStatusCheck', 'error'],
+    ])('is unhealthy on a %s %s', async (source, type) => {
+      mockGetApiV3Health.mockResolvedValue({
+        data: [{ message: 'Unable to communicate', source, type }],
+      })
+
+      await expect(service.isDownloadClientHealthy()).resolves.toBe(false)
+    })
+
+    it.each([
+      ['DownloadClientCheck', 'ok'],
+      ['DownloadClientStatusCheck', 'notice'],
+    ])('stays healthy on a %s %s', async (source, type) => {
+      mockGetApiV3Health.mockResolvedValue({ data: [{ source, type }] })
+
+      await expect(service.isDownloadClientHealthy()).resolves.toBe(true)
+    })
+
+    it('ignores unrelated sources, however bad', async () => {
+      mockGetApiV3Health.mockResolvedValue({
+        data: [
+          { source: 'IndexerStatusCheck', type: 'error' },
+          { source: 'RootFolderCheck', type: 'warning' },
+          { type: 'error' },
+        ],
+      })
+
+      await expect(service.isDownloadClientHealthy()).resolves.toBe(true)
+    })
+
+    it('throws a descriptive error when the call fails', async () => {
+      mockGetApiV3Health.mockResolvedValue({ error: { message: 'boom' } })
+
+      await expect(service.isDownloadClientHealthy()).rejects.toThrow(
+        'getHealth failed',
+      )
+    })
+  })
+
+  describe('getFailedDownloadConfig', () => {
+    it('maps both redownload settings', async () => {
+      mockGetApiV3ConfigDownloadclient.mockResolvedValue({
+        data: {
+          autoRedownloadFailed: true,
+          autoRedownloadFailedFromInteractiveSearch: false,
+          enableCompletedDownloadHandling: true,
+          id: 1,
+        },
+      })
+
+      await expect(service.getFailedDownloadConfig()).resolves.toEqual({
+        autoRedownloadFailed: true,
+        fromInteractive: false,
+      })
+    })
+
+    it("falls back to Radarr's default (true) for a missing key", async () => {
+      mockGetApiV3ConfigDownloadclient.mockResolvedValue({
+        data: { autoRedownloadFailed: false, id: 1 },
+      })
+
+      await expect(service.getFailedDownloadConfig()).resolves.toEqual({
+        autoRedownloadFailed: false,
+        fromInteractive: true,
+      })
+    })
+
+    it('throws a descriptive error when the call fails', async () => {
+      mockGetApiV3ConfigDownloadclient.mockResolvedValue({
+        error: { message: 'boom' },
+      })
+
+      await expect(service.getFailedDownloadConfig()).rejects.toThrow(
+        'getDownloadClientConfig failed',
+      )
     })
   })
 

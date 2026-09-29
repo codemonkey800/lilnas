@@ -4,7 +4,10 @@ import { drizzle } from 'drizzle-orm/better-sqlite3'
 import { checkIntegrity } from 'src/db/migrate'
 import * as schema from 'src/db/schema'
 
-import { openPartiallyMigratedDb } from './helpers/partial-migrations'
+import {
+  JOB_COLUMNS_ADDED_LATER,
+  openPartiallyMigratedDb,
+} from './helpers/partial-migrations'
 
 /**
  * Migration 0002 is the first one in this package that **recreates** a table
@@ -160,6 +163,7 @@ describe('migration 0002 (the jobs/audit_log table recreate)', () => {
           status: 'downloading',
           type: 'show',
           updated_at: UPDATED_AT,
+          ...JOB_COLUMNS_ADDED_LATER,
         },
         {
           completed_at: COMPLETED_AT,
@@ -180,6 +184,7 @@ describe('migration 0002 (the jobs/audit_log table recreate)', () => {
           status: 'completed',
           type: 'movie',
           updated_at: UPDATED_AT,
+          ...JOB_COLUMNS_ADDED_LATER,
         },
       ])
     } finally {
@@ -241,8 +246,10 @@ describe('migration 0002 (the jobs/audit_log table recreate)', () => {
         .sort()
 
       expect(tableNames).toEqual([
+        'arr_history_cursors',
         'audit_log',
         'bad_files',
+        'job_downloads',
         'jobs',
         'media_file_releases',
         'videos',

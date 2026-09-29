@@ -1,5 +1,5 @@
 import type { DownloadType } from '@lilnas/utils/download/types'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, ne } from 'drizzle-orm'
 
 import type { Db } from './db.service'
 import { type MediaFileReleaseRow, mediaFileReleases } from './schema'
@@ -145,4 +145,35 @@ export function listMediaFileReleasesByFileIds(
       ),
     )
     .all()
+}
+
+/**
+ * The title of a release this title has on disk, found by guid - `undefined`
+ * when no file came from it or history never recorded a title. What a flag
+ * falls back to when the client sent only the guid, so the flag still has a
+ * title to mirror into Radarr's/Sonarr's release profile.
+ *
+ * A season pack is one release behind several episode files; they share a
+ * title, and the newest resolve wins either way.
+ */
+export function getReleaseTitleByGuid(
+  db: Db,
+  mediaId: string,
+  releaseGuid: string,
+): string | undefined {
+  const row = db
+    .select({ releaseTitle: mediaFileReleases.releaseTitle })
+    .from(mediaFileReleases)
+    .where(
+      and(
+        eq(mediaFileReleases.mediaId, mediaId),
+        eq(mediaFileReleases.releaseGuid, releaseGuid),
+        isNotNull(mediaFileReleases.releaseTitle),
+        ne(mediaFileReleases.releaseTitle, ''),
+      ),
+    )
+    .orderBy(desc(mediaFileReleases.resolvedAt))
+    .get()
+
+  return row?.releaseTitle ?? undefined
 }

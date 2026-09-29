@@ -1,4 +1,8 @@
-import type { DownloadJob, VideoProgress } from '@lilnas/utils/download/types'
+import type {
+  DownloadJob,
+  DownloadQueueStage,
+  VideoProgress,
+} from '@lilnas/utils/download/types'
 import {
   DownloadJobStatus,
   DownloadType,
@@ -97,8 +101,9 @@ export function jobActionState(
       return status === DownloadJobStatus.Paused ? 'offered' : 'none'
 
     case 'retry':
-      // Everything terminal except success: a failed job and a cancelled one
-      // are both "this did not produce a file, ask again".
+      // Everything terminal except success: a failed job, a cancelled one and
+      // one whose search found nothing (`not_found`) are all "this did not
+      // produce a file, ask again".
       return !isInProgress(status) && status !== DownloadJobStatus.Completed
         ? 'offered'
         : 'none'
@@ -121,7 +126,9 @@ export function jobActionState(
  * that is what the mockups call the wait for a slot and what it means to
  * somebody who did not write the queue. `needs_attention` reads `needs your
  * decision` for the same reason: the wire word names the condition, the chip
- * has to name what the reader is supposed to do about it.
+ * has to name what the reader is supposed to do about it. `not_found` reads
+ * `no release found` - the plan 024 mockups' chip - because the wire word
+ * alone could be mistaken for the title not existing.
  */
 const JOB_STATUS_LABELS: Record<DownloadJobStatus, string> = {
   [DownloadJobStatus.Cancelled]: 'cancelled',
@@ -133,6 +140,7 @@ const JOB_STATUS_LABELS: Record<DownloadJobStatus, string> = {
   [DownloadJobStatus.Failed]: 'failed',
   [DownloadJobStatus.Importing]: 'importing',
   [DownloadJobStatus.NeedsAttention]: 'needs your decision',
+  [DownloadJobStatus.NotFound]: 'no release found',
   [DownloadJobStatus.Paused]: 'paused',
   [DownloadJobStatus.Pausing]: 'pausing…',
   [DownloadJobStatus.Pending]: 'queued',
@@ -175,22 +183,56 @@ export type JobProgress = {
   pct: number
   /**
    * `~2m left` for a video, already phrased (see `formatEta`); upstream's
-   * `hh:mm:ss` verbatim for a movie or show. `null` when there is no estimate.
+   * `hh:mm:ss` verbatim for a movie or show — {@link queueTimeLeft} phrases
+   * it, preferring SABnzbd's `etaSeconds`. `null` when there is no estimate.
    */
   timeLeft: string | null
   /**
-   * The mono line under the bar — `412 MB / ~640 MB · 3.1 MB/s` for a video.
-   * Always `null` for a movie or show: the queue carries no bytes.
+   * The mono line under the bar — `412 MB / ~640 MB · 3.1 MB/s` for a video,
+   * `1.2 GB / 2.6 GB · 8.4 MB/s` for a movie or show while SABnzbd is read
+   * directly. `null` when there are no bytes to show — a movie or show whose
+   * SABnzbd read is off.
    */
   detail: string | null
+  // SABnzbd's live readings, passed through verbatim from the queue snapshot —
+  // a movie or show only, and only while SABnzbd is readable. Always absent
+  // for a video, whose bytes are already in `detail`.
+  /** Bytes SABnzbd has downloaded so far. */
+  downloadedBytes?: number
+  /** The download's total size in bytes, per SABnzbd. */
+  totalBytes?: number
+  /** Bytes per second — absent unless SABnzbd is actively downloading. */
+  speedBps?: number
+  /** SABnzbd's own estimate, in seconds — preferred over `timeLeft`. */
+  etaSeconds?: number
+  /** Where the download sits in SABnzbd. */
+  stage?: DownloadQueueStage
+  /** SABnzbd's plain-text action line, e.g. `Repairing: 45%`. */
+  stageDetail?: string
+  /**
+   * SABnzbd's own queue pause is holding this download — disk full, a quota,
+   * or a pause in SABnzbd's UI — not a pause this app made.
+   */
+  clientPaused?: boolean
+  /** Paused in SABnzbd, with under 5 GB free on its download disk. */
+  clientDiskLow?: boolean
+}
+
+/** The byte counts and rate a transfer line is drawn from. */
+type Transfer = {
+  downloadedBytes?: number
+  speedBps?: number
+  totalBytes?: number
+  totalIsEstimate?: boolean
 }
 
 /**
- * The bytes-and-rate line for a video — `412 MB / ~640 MB · 3.1 MB/s`, or
+ * The bytes-and-rate line — `412 MB / ~640 MB · 3.1 MB/s`, or
  * `412 MB · 3.1 MB/s` without a total. A segment that would only read `—` is
- * dropped rather than drawn, and `null` comes back when nothing is left.
+ * dropped rather than drawn (a `0` rate included — never `0 B/s`), and `null`
+ * comes back when nothing is left.
  */
-function transferLine(progress: VideoProgress): string | null {
+function transferLine(progress: Transfer): string | null {
   const downloaded = formatBytes(progress.downloadedBytes)
   const total = formatBytes(progress.totalBytes)
   const bytes =
@@ -249,8 +291,17 @@ function videoNote(progress: VideoProgress): string | null {
  *   which the backend keeps only while the process lives (a paused job still
  *   has one). Bytes, rate, ETA and counters all come from there.
  * - A movie or show reads `ManagedMediaBase.queueSnapshot` — the
- *   Radarr/Sonarr queue entry, which has a percentage, a status word and an
- *   `hh:mm:ss` estimate but no bytes, so `detail` is always `null`.
+ *   Radarr/Sonarr queue entry (a percentage, a status word and an `hh:mm:ss`
+ *   estimate), plus SABnzbd's live readings while SABnzbd is readable. Those
+ *   pass through as they are, and draw `detail` when there are bytes.
+ *
+ * Two SABnzbd stages bend the numbers:
+ *
+ * - `post_processing` pins the bar to 100% — every byte is down, and SABnzbd
+ *   is verifying, repairing or unpacking — which makes it a `finishing`
+ *   {@link Handoff}.
+ * - `paused` — or SABnzbd's whole queue paused (`clientPaused`) — drops the
+ *   rate from `detail`: nothing is moving, so the line keeps just the bytes.
  *
  * `null` means "draw no bar at all", which is the honest rendering of an
  * unknown percentage - a `0%` bar is a claim. That includes a video whose
@@ -275,18 +326,105 @@ export function jobProgress(job: DownloadJob): JobProgress | null {
   }
 
   const snapshot = job.media.queueSnapshot
-  const pct = snapshot?.progress
+  if (!snapshot) {
+    return null
+  }
+
+  const {
+    clientDiskLow,
+    clientPaused,
+    downloadedBytes,
+    etaSeconds,
+    speedBps,
+    stage,
+    stageDetail,
+    totalBytes,
+  } = snapshot
+  const pct = stage === 'post_processing' ? FINISHED_PCT : snapshot.progress
 
   if (pct === undefined || !Number.isFinite(pct)) {
     return null
   }
 
   return {
-    detail: null,
-    note: snapshot?.status ?? null,
+    clientDiskLow,
+    clientPaused,
+    detail: transferLine({
+      downloadedBytes,
+      speedBps: isHeld({ clientPaused, stage }) ? undefined : speedBps,
+      totalBytes,
+    }),
+    downloadedBytes,
+    etaSeconds,
+    note: snapshot.status ?? null,
     pct,
-    timeLeft: snapshot?.timeLeft ?? null,
+    speedBps,
+    stage,
+    stageDetail,
+    timeLeft: snapshot.timeLeft ?? null,
+    totalBytes,
   }
+}
+
+/**
+ * Whether SABnzbd has the download stopped — its own `paused` stage, or its
+ * whole queue paused — so a rate or an estimate would be a claim about
+ * nothing moving.
+ */
+function isHeld({
+  clientPaused,
+  stage,
+}: Pick<JobProgress, 'clientPaused' | 'stage'>): boolean {
+  return stage === 'paused' || clientPaused === true
+}
+
+/** The note under a card's chip while SABnzbd's queue pause holds a download. */
+export const CLIENT_PAUSED_NOTE = 'Paused in SABnzbd'
+
+/**
+ * {@link CLIENT_PAUSED_NOTE}, when SABnzbd also reports under 5 GB free — the
+ * likely reason it stopped.
+ */
+export const CLIENT_DISK_LOW_NOTE =
+  'Paused in SABnzbd — the download disk is almost full'
+
+/**
+ * What an attempt card says under its chip when SABnzbd's own queue pause is
+ * holding a movie's or show's download, or `null` when it is not — a pause
+ * this app made, a video, or SABnzbd not read. Read from the queue snapshot
+ * rather than {@link JobProgress}, so it holds even with no bar to draw.
+ *
+ * A card showing it offers neither Pause nor Resume: this app did not make
+ * the pause, so it does not offer to undo it.
+ */
+export function clientPauseNote(job: DownloadJob): string | null {
+  if (!isManagedMedia(job.media) || !job.media.queueSnapshot?.clientPaused) {
+    return null
+  }
+
+  return job.media.queueSnapshot.clientDiskLow
+    ? CLIENT_DISK_LOW_NOTE
+    : CLIENT_PAUSED_NOTE
+}
+
+/**
+ * The estimate on a movie's or show's in-flight card, phrased: SABnzbd's
+ * seconds through `formatEta` when it has them, else Radarr's/Sonarr's
+ * `hh:mm:ss` wrapped as `~00:12:00 left`. `null` while SABnzbd has the
+ * download paused, on its own or with its whole queue — nothing is moving, so
+ * there is nothing to estimate.
+ *
+ * Not for a video, whose {@link JobProgress.timeLeft} is already phrased.
+ */
+export function queueTimeLeft(progress: JobProgress): string | null {
+  if (isHeld(progress)) {
+    return null
+  }
+
+  return (
+    formatEta(progress.etaSeconds) ??
+    (progress.timeLeft ? `~${progress.timeLeft} left` : null)
+  )
 }
 
 /**
@@ -294,7 +432,8 @@ export function jobProgress(job: DownloadJob): JobProgress | null {
  * percentage to draw a bar with (yt-dlp does not know the total yet) — still
  * activity worth showing, just not a bar. `null` for everything else: a video
  * with a percentage (its line is {@link JobProgress.detail}), a movie or show
- * (no bytes on the wire), or a job with no progress at all.
+ * (its bytes, when SABnzbd has any, ride on `detail` too), or a job with no
+ * progress at all.
  */
 export function jobTransferLine(job: DownloadJob): string | null {
   if (isManagedMedia(job.media) || !job.progress) {
@@ -315,7 +454,10 @@ export function jobTransferLine(job: DownloadJob): string | null {
  *
  * - `finishing` - the queue still says `downloading` at 100%. The download
  *   client is wrapping up (unpacking, verifying, moving the finished files)
- *   and has not handed the release to Radarr/Sonarr yet.
+ *   and has not handed the release to Radarr/Sonarr yet. With SABnzbd read
+ *   directly, its `post_processing` stage is this handoff too — a label and a
+ *   line of its own ({@link jobChipLabel}, {@link handoffDetail}), never a job
+ *   status.
  * - `importing` - Radarr/Sonarr has the files and is moving them into the
  *   library.
  * - `processing` - a video's bytes are down and this app is converting,
@@ -369,6 +511,37 @@ export function jobHandoff(
  */
 export const FINISHING_LABEL = 'finishing up'
 
+/**
+ * {@link FINISHING_LABEL}'s stand-in while SABnzbd reports its
+ * `post_processing` stage — the one part of finishing up it can name.
+ */
+export const UNPACKING_LABEL = 'unpacking'
+
+/**
+ * The chip text for a `finishing` handoff — `unpacking` while SABnzbd says it
+ * is post-processing, `finishing up` otherwise. Shared by an attempt card
+ * ({@link jobChipLabel}) and the page header's `MediaStatus`, so the two can
+ * never name the same moment differently.
+ */
+export function finishingLabel(stage?: DownloadQueueStage): string {
+  return stage === 'post_processing' ? UNPACKING_LABEL : FINISHING_LABEL
+}
+
+/**
+ * What an in-flight attempt's chip reads: {@link finishingLabel} while a
+ * `downloading` job has nothing left to download, and the status's label
+ * ({@link jobStatusLabel}) the rest of the time.
+ */
+export function jobChipLabel(
+  status: DownloadJobStatus,
+  handoff: Handoff | null,
+  stage?: DownloadQueueStage,
+): string {
+  return handoff === 'finishing'
+    ? finishingLabel(stage)
+    : jobStatusLabel(status)
+}
+
 /** Who takes the files into the library, by the media's type. */
 const IMPORTERS: Record<DownloadType, string | null> = {
   [DownloadType.Movie]: 'Radarr',
@@ -376,22 +549,40 @@ const IMPORTERS: Record<DownloadType, string | null> = {
   [DownloadType.Video]: null,
 }
 
+/** The SABnzbd readings {@link handoffDetail} words a `finishing` line from. */
+export type HandoffStage = Pick<JobProgress, 'stage' | 'stageDetail'>
+
 /**
  * The line under a settling bar: what is happening now, in place of the
  * `~00:00:00 left` the queue keeps reporting. `null` for `processing` - the
  * chip already names the step, and there is no importer to hand off to - and
  * for a video generally, which Radarr/Sonarr never take.
+ *
+ * A `finishing` line quotes SABnzbd when it is read directly and
+ * post-processing — `SABnzbd is unpacking it · Repairing: 45%. Radarr imports
+ * it after.`, the `· …` dropped when SABnzbd sent no detail. Without that
+ * stage — SABnzbd not read — it still says SABnzbd has work left: at 100%
+ * Radarr/Sonarr keep reporting `downloading` while SABnzbd checks and unpacks,
+ * so the import is not next yet.
  */
 export function handoffDetail(
   handoff: Handoff,
   type: DownloadType,
+  sab?: HandoffStage | null,
 ): string | null {
   const importer = IMPORTERS[type]
   if (handoff === 'processing' || !importer) {
     return null
   }
 
-  return handoff === 'finishing'
-    ? `All downloaded. ${importer} imports it next.`
-    : `${importer} is moving it into the library.`
+  if (handoff === 'importing') {
+    return `${importer} is moving it into the library.`
+  }
+
+  if (sab?.stage === 'post_processing') {
+    const detail = sab.stageDetail?.trim()
+    return `SABnzbd is unpacking it${detail ? ` · ${detail}` : ''}. ${importer} imports it after.`
+  }
+
+  return `All downloaded. SABnzbd is checking and unpacking it; ${importer} imports it after.`
 }

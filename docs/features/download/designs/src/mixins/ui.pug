@@ -421,6 +421,39 @@ mixin menuItem(label, selected)
       +icon('check')(class='h-[14px] w-[14px] shrink-0 text-uv-hi')
 
 //-
+  Quality tier picker — the select beside a movie's Download or a show's
+  Download series (plan 024). An input-shaped trigger naming the chosen tier,
+  with the listbox drawn under it when `open`. Shared by the movie and show
+  pages, which pass their own copy of the tier list.
+    tiers     [[key, label], …], best first
+    selected  the chosen tier's key — the title's own tier, else the default
+    open      draw the listbox under the trigger
+    hint      a caption under the trigger (the show's "whole show" note)
+    full      stretch to the container width
+mixin tierSelect(opts)
+  - opts = opts || {}
+  - const chosen = opts.tiers.find(t => t[0] === opts.selected) || opts.tiers[0]
+  div(class=['flex flex-col gap-1.5', opts.full ? 'w-full' : 'w-[236px]'])&attributes(attributes)
+    button(
+      type='button'
+      aria-haspopup='listbox'
+      aria-expanded=opts.open ? 'true' : 'false'
+      class=[
+        'flex h-[38px] w-full items-center gap-2 rounded-md border bg-bg-sunk px-3 text-left text-[14px] transition-[border-color,box-shadow] duration-200 ease-uv',
+        opts.open ? 'border-uv shadow-[0_0_0_3px_var(--color-uv-ghost)]' : 'border-line hover:border-uv-dim',
+      ]
+    )
+      span(class='font-mono text-label tracking-[0.11em] uppercase text-ink-4') Quality
+      span(class='min-w-0 flex-1 truncate')= chosen[1]
+      +icon('chevron')(class=['h-[13px] w-[13px] shrink-0 text-ink-3', opts.open ? 'rotate-180' : ''])
+    if opts.open
+      +menu()(role='listbox' aria-label='Quality')
+        each t in opts.tiers
+          +menuItem(t[1], t[0] === chosen[0])(role='option' aria-selected=t[0] === chosen[0] ? 'true' : 'false')
+    if opts.hint
+      p(class='text-cap text-ink-4')= opts.hint
+
+//-
   Data table. The cell styling is applied from the <table> with descendant
   variants rather than on every <th>/<td>, so a row stays readable as markup.
   Headers are mono uppercase — a field name is the machine talking.

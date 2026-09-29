@@ -7,6 +7,7 @@ import {
   SonarrSeriesType,
   UnmonitorAndDeleteSeriesResult,
 } from 'src/media/types/sonarr.types'
+import { createMockDiscordIdentity } from 'src/media-operations/request-handling/__test-helpers__/mock-services'
 import { testStrategyEdgeCases } from 'src/media-operations/request-handling/__test-helpers__/strategy-edge-cases-suite'
 import { testStrategyRouting } from 'src/media-operations/request-handling/__test-helpers__/strategy-routing-suite'
 import { TvDeleteStrategy } from 'src/media-operations/request-handling/strategies/tv-delete.strategy'
@@ -286,6 +287,7 @@ describe('TvDeleteStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'delete a show' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -310,6 +312,7 @@ describe('TvDeleteStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -337,6 +340,7 @@ describe('TvDeleteStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -374,6 +378,7 @@ describe('TvDeleteStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -398,6 +403,58 @@ describe('TvDeleteStrategy', () => {
       expect(result.messages).toHaveLength(1)
     })
 
+    it('should pass kept season packs through to the reply', async () => {
+      const params: StrategyRequestParams = {
+        message: new HumanMessage({
+          id: '1',
+          content: 'delete breaking bad season 1 episode 3',
+        }),
+        messages: [],
+        userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
+        state: mockState,
+      }
+      const partialResult: UnmonitorAndDeleteSeriesResult = {
+        success: true,
+        seriesDeleted: false,
+        episodesUnmonitored: true,
+        downloadsCancel: false,
+        canceledDownloads: 0,
+        changes: [{ season: 1, episodes: [3], action: 'unmonitored' }],
+        keptPacks: [
+          {
+            downloadId: 'pack',
+            coveredEpisodes: 'S01E01–E10',
+            unmonitoredEpisodes: 'S01E03',
+          },
+        ],
+        warnings: ['S01E01–E10 pack still downloading; S01E03 unmonitored'],
+      }
+
+      parsingUtilities.extractTvDeleteQueryWithLLM.mockResolvedValue(
+        'breaking bad',
+      )
+      parsingUtilities.parseSearchSelection.mockResolvedValue(null as never)
+      parsingUtilities.parseTvShowSelection.mockResolvedValue({
+        selection: [{ season: 1, episodes: [3] }],
+      })
+      sonarrService.getLibrarySeries.mockResolvedValue([mockLibraryShow1])
+      sonarrService.unmonitorAndDeleteSeries.mockResolvedValue(partialResult)
+      promptService.generateTvShowDeleteChatResponse.mockResolvedValue(
+        mockChatResponse,
+      )
+
+      await strategy.handleRequest(params)
+
+      expect(
+        promptService.generateTvShowDeleteChatResponse,
+      ).toHaveBeenCalledWith(
+        expect.anything(),
+        'TV_SHOW_DELETE_SUCCESS',
+        expect.objectContaining({ deleteResult: partialResult }),
+      )
+    })
+
     it('should auto-delete when single result found with entire series selection as empty object', async () => {
       const params: StrategyRequestParams = {
         message: new HumanMessage({
@@ -406,6 +463,7 @@ describe('TvDeleteStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -433,6 +491,7 @@ describe('TvDeleteStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'delete breaking' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -471,6 +530,7 @@ describe('TvDeleteStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -501,6 +561,7 @@ describe('TvDeleteStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -541,6 +602,7 @@ describe('TvDeleteStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -579,6 +641,7 @@ describe('TvDeleteStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -625,6 +688,7 @@ describe('TvDeleteStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -669,6 +733,7 @@ describe('TvDeleteStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -711,6 +776,7 @@ describe('TvDeleteStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'first one, season 1' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: tvShowDeleteContext,
         state: mockState,
       }
@@ -746,6 +812,7 @@ describe('TvDeleteStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: tvShowDeleteContext,
         state: mockState,
       }
@@ -778,6 +845,7 @@ describe('TvDeleteStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'that one' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: tvShowDeleteContext,
         state: mockState,
       }
@@ -803,6 +871,7 @@ describe('TvDeleteStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'tenth one' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: tvShowDeleteContext,
         state: mockState,
       }
@@ -831,6 +900,7 @@ describe('TvDeleteStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'first one' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: tvShowDeleteContext,
         state: mockState,
       }
@@ -871,6 +941,7 @@ describe('TvDeleteStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'entire series' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: singleResultContext,
         state: mockState,
       }
@@ -905,6 +976,7 @@ describe('TvDeleteStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: tvShowDeleteContext,
         state: mockState,
       }
@@ -947,6 +1019,7 @@ describe('TvDeleteStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -978,6 +1051,7 @@ describe('TvDeleteStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 

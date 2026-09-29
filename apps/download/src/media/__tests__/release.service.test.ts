@@ -13,18 +13,30 @@ import {
   type ShowScope,
 } from '@lilnas/utils/download/types'
 import { getErrorMessage } from '@lilnas/utils/error'
-import { ConflictException, Logger, NotFoundException } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 
 import { createTestDbService } from 'src/db/__tests__/test-utils'
 import { insertBadFile } from 'src/db/bad-files.repo'
 import { DbService } from 'src/db/db.service'
+import { upsertMediaFileRelease } from 'src/db/media-file-releases.repo'
 import type { MediaFileReleaseRow } from 'src/db/schema'
+import type { CommandSnapshot } from 'src/media/arr-command.types'
 import { CurrentReleaseService } from 'src/media/current-release.service'
 import { MediaDownloadService } from 'src/media/media-download.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
 import { RadarrService } from 'src/media/radarr.service'
-import { ReleaseService } from 'src/media/release.service'
+import {
+  BROWSE_REFRESH_WAIT_MS,
+  PICK_A_SCOPE_MESSAGE,
+  ReleaseService,
+} from 'src/media/release.service'
+import { SdkHttpError } from 'src/media/sdk-result.util'
 import { SonarrService } from 'src/media/sonarr.service'
 
 const MOVIE_ID = 'tmdb:27205'
@@ -68,6 +80,25 @@ function currentRow(
   }
 }
 
+/** A command snapshot in the given state, as `getCommand` returns one. */
+function refreshCommand(status: CommandSnapshot['status']): CommandSnapshot {
+  return { body: {}, id: 55, name: 'RefreshMovie', status }
+}
+
+/** A promise plus the handle to settle it from the test. */
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(r => {
+    resolve = r
+  })
+  return { promise, resolve }
+}
+
+/** Lets every already-settled promise chain run to its next real wait. */
+function flushPromises(): Promise<void> {
+  return new Promise(resolve => setImmediate(resolve))
+}
+
 /** The arguments the last `MediaDownloadService.request()` call received. */
 interface CapturedRequest {
   action: string
@@ -96,19 +127,31 @@ describe('ReleaseService', () => {
 
     radarrService = {
       deleteMovieFile: jest.fn(),
+      editMovies: jest.fn(),
       ensureMovie: jest.fn(),
+      // The add's own refresh, already finished by the first read.
+      getCommand: jest.fn(async () => refreshCommand('completed')),
       getMovieFiles: jest.fn(),
       getReleases: jest.fn(),
       grabRelease: jest.fn(),
+      refreshMovie: jest.fn(async () => ({
+        id: 55,
+        name: 'RefreshMovie',
+        queuedAt: '2026-01-01T00:00:00.000Z',
+      })),
       setMonitored: jest.fn(),
       unmonitorAndDelete: jest.fn(),
     } as unknown as jest.Mocked<RadarrService>
 
     sonarrService = {
       deleteEpisodeFile: jest.fn(),
+      editSeries: jest.fn(),
       ensureSeries: jest.fn(),
+      getCommand: jest.fn(async () => refreshCommand('completed')),
       getEpisodeFiles: jest.fn(),
-      getEpisodes: jest.fn(),
+      // A season/series scope's file resolution joins the files back to
+      // their episodes, so the replace path reads these too.
+      getEpisodes: jest.fn().mockResolvedValue([]),
       getReleases: jest.fn(),
       grabRelease: jest.fn(),
       // Mirrors the real one: a no-op for a season-only scope, and the
@@ -118,6 +161,11 @@ describe('ReleaseService', () => {
           ? { episodeId: scope.episodeId, episodeNumber: 5, seasonNumber: 3 }
           : scope,
       ),
+      refreshSeries: jest.fn(async () => ({
+        id: 56,
+        name: 'RefreshSeries',
+        queuedAt: '2026-01-01T00:00:00.000Z',
+      })),
       setEpisodesMonitored: jest.fn(),
       setSeriesMonitored: jest.fn(),
       unmonitorAndDelete: jest.fn(),
@@ -209,7 +257,35 @@ describe('ReleaseService', () => {
   })
 
   describe('listReleases - movies', () => {
-    it('ensures the movie, lists its releases, and restores monitoring', async () => {
+    /** Asserts the listing wrote nothing about monitoring, anywhere. */
+    function expectNoMonitoringWrites() {
+      expect(radarrService.editMovies).not.toHaveBeenCalled()
+      expect(radarrService.setMonitored).not.toHaveBeenCalled()
+      expect(radarrService.unmonitorAndDelete).not.toHaveBeenCalled()
+    }
+
+    it('ensures the movie unmonitored and lists its releases', async () => {
+      radarrService.ensureMovie.mockResolvedValue({
+        movie: {},
+        radarrId: 7,
+        wasAdded: false,
+        wasMonitored: true,
+      })
+      radarrService.getReleases.mockResolvedValue([release()])
+
+      const result = await service.listReleases(MOVIE_ID)
+
+      expect(radarrService.ensureMovie).toHaveBeenCalledWith(27205, {
+        monitored: false,
+      })
+      expect(radarrService.getReleases).toHaveBeenCalledWith(7)
+      expect(result).toEqual([release()])
+      expectNoMonitoringWrites()
+    })
+
+    // Radarr's interactive search never checks `monitored`, so there is
+    // nothing to flip on the way in and nothing to put back on the way out.
+    it('writes nothing for an unmonitored title already in the library', async () => {
       radarrService.ensureMovie.mockResolvedValue({
         movie: {},
         radarrId: 7,
@@ -218,37 +294,37 @@ describe('ReleaseService', () => {
       })
       radarrService.getReleases.mockResolvedValue([release()])
 
-      const result = await service.listReleases(MOVIE_ID)
-
-      expect(radarrService.ensureMovie).toHaveBeenCalledWith(27205)
-      expect(radarrService.getReleases).toHaveBeenCalledWith(7)
-      // Borrowed, so it must be put back.
-      expect(radarrService.setMonitored).toHaveBeenCalledWith(7, false)
-      expect(result).toEqual([release()])
-    })
-
-    // The load-bearing rule: a title with a pending requestMovie is monitored
-    // on purpose, and unmonitoring it after a release listing would silently
-    // kill that request.
-    it('leaves an already-monitored movie strictly alone', async () => {
-      radarrService.ensureMovie.mockResolvedValue({
-        movie: {},
-        radarrId: 7,
-        wasAdded: false,
-        wasMonitored: true,
-      })
-      radarrService.getReleases.mockResolvedValue([])
-
       await service.listReleases(MOVIE_ID)
 
-      expect(radarrService.setMonitored).not.toHaveBeenCalled()
+      expectNoMonitoringWrites()
+      // Only a fresh add has a refresh to wait for.
+      expect(radarrService.refreshMovie).not.toHaveBeenCalled()
+      expect(mediaResolverService.invalidate).not.toHaveBeenCalled()
     })
 
-    it('still restores monitoring when the release fetch throws', async () => {
+    // The old borrow deleted a title it had added - and a grab picked from
+    // that listing then landed on a movie id that no longer existed.
+    it('adds an absent title unmonitored and leaves it in the library', async () => {
       radarrService.ensureMovie.mockResolvedValue({
         movie: {},
         radarrId: 7,
-        wasAdded: false,
+        wasAdded: true,
+        wasMonitored: false,
+      })
+      radarrService.getReleases.mockResolvedValue([release()])
+
+      await expect(service.listReleases(MOVIE_ID)).resolves.toEqual([release()])
+
+      expectNoMonitoringWrites()
+      // Added, so the cached library (which lacks it) has to go.
+      expect(mediaResolverService.invalidate).toHaveBeenCalledWith(MOVIE_ID)
+    })
+
+    it('never deletes or unmonitors when the release fetch throws', async () => {
+      radarrService.ensureMovie.mockResolvedValue({
+        movie: {},
+        radarrId: 7,
+        wasAdded: true,
         wasMonitored: false,
       })
       radarrService.getReleases.mockRejectedValue(new Error('indexer down'))
@@ -256,78 +332,172 @@ describe('ReleaseService', () => {
       await expect(service.listReleases(MOVIE_ID)).rejects.toThrow(
         'indexer down',
       )
-      expect(radarrService.setMonitored).toHaveBeenCalledWith(7, false)
+      expectNoMonitoringWrites()
     })
 
-    // The caller asked for releases; failing their request because the
-    // cleanup didn't take would be the wrong trade.
-    it('swallows a failed restore and still returns the releases', async () => {
-      radarrService.ensureMovie.mockResolvedValue({
-        movie: {},
-        radarrId: 7,
-        wasAdded: false,
-        wasMonitored: false,
-      })
-      radarrService.getReleases.mockResolvedValue([release()])
-      radarrService.setMonitored.mockRejectedValue(new Error('radarr down'))
-
-      await expect(service.listReleases(MOVIE_ID)).resolves.toHaveLength(1)
-    })
-
-    // The bug this replaced: on a `tmdb:` key Radarr does not hold,
-    // `ensureMovie` *adds* the movie, and unmonitoring is not an undo for
-    // that - a read sweep over the catalogue silently imported it. A title
-    // this call put in the library gets taken back out.
-    it('removes a movie it had to add, rather than only unmonitoring it', async () => {
-      radarrService.ensureMovie.mockResolvedValue({
-        movie: {},
-        radarrId: 7,
-        wasAdded: true,
-        wasMonitored: false,
-      })
-      radarrService.getReleases.mockResolvedValue([release()])
-
-      await service.listReleases(MOVIE_ID)
-
-      // `deleteFiles: false` - a title that wasn't in the library a moment
-      // ago has nothing on disk this call is entitled to delete.
-      expect(radarrService.unmonitorAndDelete).toHaveBeenCalledWith(7, false)
-      expect(radarrService.setMonitored).not.toHaveBeenCalled()
-      // Put back as it was, so the resolver's cached copy is still right.
-      expect(mediaResolverService.invalidateAfterEnsure).not.toHaveBeenCalled()
-    })
-
-    // A grab is an explicit choice: the user wants the title, so it stays.
-    it('keeps a movie it added when the borrow is not restored', async () => {
-      radarrService.ensureMovie.mockResolvedValue({
-        movie: {},
-        radarrId: 7,
-        wasAdded: true,
-        wasMonitored: false,
-      })
-
-      await service.grabRelease(MOVIE_ID, { guid: 'g', indexerId: 3 })
-
-      expect(radarrService.unmonitorAndDelete).not.toHaveBeenCalled()
-    })
-
-    it('surfaces an ensureMovie failure without attempting a restore', async () => {
+    it('surfaces an ensureMovie failure without listing', async () => {
       radarrService.ensureMovie.mockRejectedValue(new Error('radarr down'))
 
       await expect(service.listReleases(MOVIE_ID)).rejects.toThrow(
         'radarr down',
       )
       expect(radarrService.getReleases).not.toHaveBeenCalled()
-      expect(radarrService.setMonitored).not.toHaveBeenCalled()
+      expectNoMonitoringWrites()
+    })
+  })
+
+  describe('listReleases - refresh wait after an add', () => {
+    beforeEach(() => {
+      radarrService.ensureMovie.mockResolvedValue({
+        movie: {},
+        radarrId: 7,
+        wasAdded: true,
+        wasMonitored: false,
+      })
+      radarrService.getReleases.mockResolvedValue([release()])
+    })
+
+    afterEach(() => {
+      jest.useRealTimers()
+    })
+
+    // `isNew: true` re-sends the body of the refresh Radarr queued on the
+    // add, which the de-dupe turns into that same command's id.
+    it("waits on the add's own refresh before searching", async () => {
+      jest.useFakeTimers()
+      radarrService.getCommand
+        .mockResolvedValueOnce(refreshCommand('queued'))
+        .mockResolvedValueOnce(refreshCommand('started'))
+        .mockResolvedValueOnce(refreshCommand('completed'))
+
+      const pending = service.listReleases(MOVIE_ID)
+
+      await jest.advanceTimersByTimeAsync(0)
+      expect(radarrService.refreshMovie).toHaveBeenCalledWith(7, {
+        isNew: true,
+      })
+      expect(radarrService.getCommand).toHaveBeenCalledWith(55)
+      expect(radarrService.getReleases).not.toHaveBeenCalled()
+
+      await jest.advanceTimersByTimeAsync(1000)
+      expect(radarrService.getReleases).not.toHaveBeenCalled()
+
+      await jest.advanceTimersByTimeAsync(1000)
+      await expect(pending).resolves.toEqual([release()])
+      expect(radarrService.getCommand).toHaveBeenCalledTimes(3)
+    })
+
+    it(`lists anyway once the refresh is still running after ${BROWSE_REFRESH_WAIT_MS}ms`, async () => {
+      jest.useFakeTimers()
+      radarrService.getCommand.mockResolvedValue(refreshCommand('started'))
+
+      const pending = service.listReleases(MOVIE_ID)
+
+      await jest.advanceTimersByTimeAsync(BROWSE_REFRESH_WAIT_MS - 1000)
+      expect(radarrService.getReleases).not.toHaveBeenCalled()
+
+      await jest.advanceTimersByTimeAsync(1000)
+      await expect(pending).resolves.toEqual([release()])
+      expect(Logger.prototype.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ commandId: 55, mediaId: MOVIE_ID }),
+        expect.stringContaining('still running'),
+      )
+    })
+
+    it('lists anyway when the refresh ended badly', async () => {
+      radarrService.getCommand.mockResolvedValue(refreshCommand('failed'))
+
+      await expect(service.listReleases(MOVIE_ID)).resolves.toEqual([release()])
+      expect(Logger.prototype.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'failed' }),
+        expect.stringContaining('did not complete'),
+      )
+    })
+
+    it('lists anyway when the refresh cannot be queued or read', async () => {
+      radarrService.refreshMovie.mockRejectedValue(new Error('radarr down'))
+
+      await expect(service.listReleases(MOVIE_ID)).resolves.toEqual([release()])
+      expect(radarrService.getCommand).not.toHaveBeenCalled()
+    })
+
+    it('waits on the series refresh for a show it added', async () => {
+      sonarrService.ensureSeries.mockResolvedValue({
+        series: {},
+        sonarrId: 9,
+        wasAdded: true,
+        wasMonitored: false,
+      })
+      sonarrService.getReleases.mockResolvedValue([])
+
+      await service.listReleases(SHOW_ID, { seasonNumber: 1 })
+
+      expect(sonarrService.refreshSeries).toHaveBeenCalledWith(9, {
+        isNew: true,
+      })
+      expect(sonarrService.getCommand).toHaveBeenCalledWith(56)
+      expect(
+        sonarrService.getCommand.mock.invocationCallOrder[0] ?? Infinity,
+      ).toBeLessThan(sonarrService.getReleases.mock.invocationCallOrder[0] ?? 0)
+    })
+  })
+
+  describe('listReleases - concurrency', () => {
+    // Two browses of one title: the second queues behind the first's add
+    // *and* its refresh wait, then finds the title already there.
+    it('adds a title once when two browses race', async () => {
+      let inLibrary = false
+      radarrService.ensureMovie.mockImplementation(async () => {
+        const wasAdded = !inLibrary
+        inLibrary = true
+        return { movie: {}, radarrId: 7, wasAdded, wasMonitored: false }
+      })
+      const refresh = deferred<CommandSnapshot>()
+      radarrService.getCommand.mockReturnValue(refresh.promise)
+      radarrService.getReleases.mockResolvedValue([release()])
+
+      const first = service.listReleases(MOVIE_ID)
+      const second = service.listReleases(MOVIE_ID)
+      await flushPromises()
+
+      // The first is parked in its refresh wait, still holding the lock.
+      expect(radarrService.ensureMovie).toHaveBeenCalledTimes(1)
+
+      refresh.resolve(refreshCommand('completed'))
+      await Promise.all([first, second])
+
+      expect(radarrService.ensureMovie).toHaveBeenCalledTimes(2)
+      const results = await Promise.all(
+        radarrService.ensureMovie.mock.results.map(r => r.value),
+      )
+      expect(results.filter(r => r.wasAdded)).toHaveLength(1)
+      expect(radarrService.refreshMovie).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not make a different title wait', async () => {
+      radarrService.ensureMovie.mockImplementation(async tmdbId => ({
+        movie: {},
+        radarrId: tmdbId,
+        wasAdded: tmdbId === 27205,
+        wasMonitored: false,
+      }))
+      const refresh = deferred<CommandSnapshot>()
+      radarrService.getCommand.mockReturnValue(refresh.promise)
+      radarrService.getReleases.mockResolvedValue([])
+
+      const held = service.listReleases(MOVIE_ID)
+      await expect(service.listReleases('tmdb:438631')).resolves.toEqual([])
+
+      refresh.resolve(refreshCommand('completed'))
+      await held
     })
   })
 
   describe('listReleases - shows', () => {
-    it('passes the season/episode scope to both ensureSeries and getReleases', async () => {
+    it('ensures the series unmonitored and passes the scope only to getReleases', async () => {
       sonarrService.ensureSeries.mockResolvedValue({
         series: {},
         sonarrId: 9,
-        turnedOnEpisodeIds: [],
         wasAdded: false,
         wasMonitored: true,
       })
@@ -336,7 +506,7 @@ describe('ReleaseService', () => {
       await service.listReleases(SHOW_ID, { episodeId: 4412, seasonNumber: 2 })
 
       expect(sonarrService.ensureSeries).toHaveBeenCalledWith(81189, {
-        monitorEpisodes: { episodeId: 4412, seasonNumber: 2 },
+        monitored: false,
       })
       expect(sonarrService.getReleases).toHaveBeenCalledWith(9, {
         episodeId: 4412,
@@ -344,11 +514,10 @@ describe('ReleaseService', () => {
       })
     })
 
-    it('unmonitors only the episodes it turned on, then the series', async () => {
+    it('writes nothing for an unmonitored series already in the library', async () => {
       sonarrService.ensureSeries.mockResolvedValue({
         series: {},
         sonarrId: 9,
-        turnedOnEpisodeIds: [101, 102],
         wasAdded: false,
         wasMonitored: false,
       })
@@ -356,72 +525,65 @@ describe('ReleaseService', () => {
 
       await service.listReleases(SHOW_ID, { seasonNumber: 2 })
 
-      expect(sonarrService.setEpisodesMonitored).toHaveBeenCalledWith(
-        [101, 102],
-        false,
-      )
-      expect(sonarrService.setSeriesMonitored).toHaveBeenCalledWith(9, false)
-    })
-
-    // Series-level and episode-level monitoring are restored independently:
-    // a series that was already monitored keeps its flag even though this
-    // call had to switch some of its episodes on.
-    it('restores episodes but not the series when the series was already monitored', async () => {
-      sonarrService.ensureSeries.mockResolvedValue({
-        series: {},
-        sonarrId: 9,
-        turnedOnEpisodeIds: [101],
-        wasAdded: false,
-        wasMonitored: true,
-      })
-      sonarrService.getReleases.mockResolvedValue([])
-
-      await service.listReleases(SHOW_ID, { seasonNumber: 2 })
-
-      expect(sonarrService.setEpisodesMonitored).toHaveBeenCalledWith(
-        [101],
-        false,
-      )
-      expect(sonarrService.setSeriesMonitored).not.toHaveBeenCalled()
-    })
-
-    // Sonarr's half of the same fix - and no episode restore, because the
-    // series row itself is going.
-    it('removes a series it had to add, rather than only unmonitoring it', async () => {
-      sonarrService.ensureSeries.mockResolvedValue({
-        series: {},
-        sonarrId: 9,
-        turnedOnEpisodeIds: [],
-        wasAdded: true,
-        wasMonitored: false,
-      })
-      sonarrService.getReleases.mockResolvedValue([])
-
-      await service.listReleases(SHOW_ID)
-
-      expect(sonarrService.unmonitorAndDelete).toHaveBeenCalledWith(9, false)
-      expect(sonarrService.setSeriesMonitored).not.toHaveBeenCalled()
       expect(sonarrService.setEpisodesMonitored).not.toHaveBeenCalled()
+      expect(sonarrService.setSeriesMonitored).not.toHaveBeenCalled()
+      expect(sonarrService.editSeries).not.toHaveBeenCalled()
+      expect(sonarrService.refreshSeries).not.toHaveBeenCalled()
     })
 
-    it('still restores when the show release fetch throws', async () => {
+    it('adds an absent series unmonitored and never deletes it', async () => {
       sonarrService.ensureSeries.mockResolvedValue({
         series: {},
         sonarrId: 9,
-        turnedOnEpisodeIds: [101],
-        wasAdded: false,
+        wasAdded: true,
         wasMonitored: false,
       })
       sonarrService.getReleases.mockRejectedValue(new Error('indexer down'))
 
-      await expect(service.listReleases(SHOW_ID)).rejects.toThrow(
-        'indexer down',
-      )
-      expect(sonarrService.setEpisodesMonitored).toHaveBeenCalledWith(
-        [101],
-        false,
-      )
-      expect(sonarrService.setSeriesMonitored).toHaveBeenCalledWith(9, false)
+      await expect(
+        service.listReleases(SHOW_ID, { episodeId: 4412 }),
+      ).rejects.toThrow('indexer down')
+
+      expect(sonarrService.unmonitorAndDelete).not.toHaveBeenCalled()
+      expect(sonarrService.setEpisodesMonitored).not.toHaveBeenCalled()
+      expect(sonarrService.editSeries).not.toHaveBeenCalled()
+    })
+
+    // Sonarr's unscoped `GET /release` is its RSS feed, not a search - so it
+    // is refused before the series is even added.
+    it.each([
+      ['no scope', undefined],
+      ['an empty scope', {}],
+      [
+        'an all-undefined scope',
+        { episodeId: undefined, seasonNumber: undefined },
+      ],
+    ])('rejects a show listing with %s as a 400', async (_label, scope) => {
+      const listing = service.listReleases(SHOW_ID, scope)
+
+      await expect(listing).rejects.toThrow(BadRequestException)
+      await expect(listing).rejects.toThrow(PICK_A_SCOPE_MESSAGE)
+      expect(sonarrService.ensureSeries).not.toHaveBeenCalled()
+      expect(sonarrService.getReleases).not.toHaveBeenCalled()
+    })
+
+    // Season 0 is the specials - a real scope, not a missing one.
+    it('lists season 0', async () => {
+      sonarrService.ensureSeries.mockResolvedValue({
+        series: {},
+        sonarrId: 9,
+        wasAdded: false,
+        wasMonitored: false,
+      })
+      sonarrService.getReleases.mockResolvedValue([])
+
+      await expect(
+        service.listReleases(SHOW_ID, { seasonNumber: 0 }),
+      ).resolves.toEqual([])
+
+      expect(sonarrService.getReleases).toHaveBeenCalledWith(9, {
+        seasonNumber: 0,
+      })
     })
   })
 
@@ -498,7 +660,6 @@ describe('ReleaseService', () => {
       sonarrService.ensureSeries.mockResolvedValue({
         series: {},
         sonarrId: 9,
-        turnedOnEpisodeIds: [],
         wasAdded: false,
         wasMonitored: true,
       })
@@ -719,79 +880,187 @@ describe('ReleaseService', () => {
       expect(job.requester).toBeNull()
     })
 
-    // The one place the restore is skipped: the user picked this release, so
-    // the title stays monitored and Radarr manages the import and upgrades.
-    it('leaves a freshly-added movie monitored after a successful grab', async () => {
+    it('ensures unmonitored, grabs, then turns monitoring on - in that order', async () => {
+      const order: string[] = []
+      radarrService.ensureMovie.mockImplementation(async () => {
+        order.push('ensure')
+        return { movie: {}, radarrId: 7, wasAdded: false, wasMonitored: false }
+      })
+      radarrService.grabRelease.mockImplementation(async () => {
+        order.push('grab')
+      })
+      radarrService.editMovies.mockImplementation(async () => {
+        order.push('monitor')
+      })
+
+      await service.grabRelease(MOVIE_ID, input, ALICE)
+
+      expect(radarrService.ensureMovie).toHaveBeenCalledWith(27205, {
+        monitored: false,
+      })
+      expect(order).toEqual(['ensure', 'grab', 'monitor'])
+      expect(radarrService.editMovies).toHaveBeenCalledWith([7], {
+        monitored: true,
+      })
+      // No refresh wait on the grab path.
+      expect(radarrService.refreshMovie).not.toHaveBeenCalled()
+    })
+
+    it('leaves monitoring as it was when the grab fails', async () => {
       radarrService.ensureMovie.mockResolvedValue({
         movie: {},
         radarrId: 7,
         wasAdded: false,
         wasMonitored: false,
       })
+      radarrService.grabRelease.mockRejectedValue(new Error('Not in cache'))
 
-      await service.grabRelease(MOVIE_ID, input, ALICE)
+      const job = await service.grabRelease(MOVIE_ID, input, ALICE)
 
+      expect(job.status).toBe(DownloadJobStatus.Failed)
+      expect(radarrService.editMovies).not.toHaveBeenCalled()
       expect(radarrService.setMonitored).not.toHaveBeenCalled()
     })
 
-    // The grab keeps what the ensure changed, so the resolver's cached copy
-    // (missing a title this grab added) has to go.
-    it('hands a movie ensure result to the resolver', async () => {
-      const ensured = {
+    // The release is already with the download client; failing the job
+    // would report an error for a download that is going ahead.
+    it('keeps a successful grab when turning monitoring on fails', async () => {
+      radarrService.ensureMovie.mockResolvedValue({
+        movie: {},
+        radarrId: 7,
+        wasAdded: false,
+        wasMonitored: false,
+      })
+      radarrService.editMovies.mockRejectedValue(new Error('radarr down'))
+
+      const job = await service.grabRelease(MOVIE_ID, input, ALICE)
+
+      expect(job.status).toBe(DownloadJobStatus.Searching)
+      expect(Logger.prototype.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ error: 'radarr down', mediaId: MOVIE_ID }),
+        expect.stringContaining('could not turn monitoring on'),
+      )
+    })
+
+    // Monitoring changed, and an add changed the library - either way the
+    // resolver's cached copy is stale.
+    it('invalidates the resolver after adding and after monitoring', async () => {
+      const order: string[] = []
+      radarrService.ensureMovie.mockResolvedValue({
         movie: {},
         radarrId: 7,
         wasAdded: true,
         wasMonitored: false,
-      }
-      radarrService.ensureMovie.mockResolvedValue(ensured)
+      })
+      mediaResolverService.invalidate.mockImplementation(() => {
+        order.push('invalidate')
+      })
+      radarrService.grabRelease.mockImplementation(async () => {
+        order.push('grab')
+      })
 
       await service.grabRelease(MOVIE_ID, input, ALICE)
 
-      expect(mediaResolverService.invalidateAfterEnsure).toHaveBeenCalledWith(
-        MOVIE_ID,
-        ensured,
-      )
+      expect(order).toEqual(['invalidate', 'grab', 'invalidate'])
+      expect(mediaResolverService.invalidate).toHaveBeenCalledWith(MOVIE_ID)
     })
 
-    it('hands a show ensure result to the resolver', async () => {
-      const ensured = {
-        series: {},
-        sonarrId: 9,
-        turnedOnEpisodeIds: [],
-        wasAdded: true,
-        wasMonitored: false,
-      }
-      sonarrService.ensureSeries.mockResolvedValue(ensured)
-
-      await service.grabRelease(SHOW_ID, input, ALICE)
-
-      expect(mediaResolverService.invalidateAfterEnsure).toHaveBeenCalledWith(
-        SHOW_ID,
-        ensured,
-      )
-    })
-
-    it('leaves the target episodes monitored after a successful show grab', async () => {
-      sonarrService.ensureSeries.mockResolvedValue({
-        series: {},
-        sonarrId: 9,
-        turnedOnEpisodeIds: [101],
-        wasAdded: false,
-        wasMonitored: false,
+    describe('shows', () => {
+      beforeEach(() => {
+        sonarrService.ensureSeries.mockResolvedValue({
+          series: {},
+          sonarrId: 9,
+          wasAdded: false,
+          wasMonitored: false,
+        })
       })
 
-      await service.grabRelease(
-        SHOW_ID,
-        { ...input, episodeId: 4412, seasonNumber: 2 },
-        ALICE,
-      )
+      it('monitors the grabbed episode and then the series, after the grab', async () => {
+        sonarrService.getEpisodes.mockResolvedValue([
+          { id: 4411, monitored: false, seasonNumber: 2 },
+          { id: 4412, monitored: false, seasonNumber: 2 },
+        ])
 
-      expect(sonarrService.ensureSeries).toHaveBeenCalledWith(81189, {
-        monitorEpisodes: { episodeId: 4412, seasonNumber: 2 },
+        await service.grabRelease(
+          SHOW_ID,
+          { ...input, episodeId: 4412, seasonNumber: 2 },
+          ALICE,
+        )
+
+        expect(sonarrService.ensureSeries).toHaveBeenCalledWith(81189, {
+          monitored: false,
+        })
+        expect(sonarrService.getEpisodes).toHaveBeenCalledWith(9, {
+          seasonNumber: 2,
+        })
+        expect(sonarrService.setEpisodesMonitored).toHaveBeenCalledWith(
+          [4412],
+          true,
+        )
+        expect(sonarrService.editSeries).toHaveBeenCalledWith([9], {
+          monitored: true,
+        })
+
+        const grab = sonarrService.grabRelease.mock.invocationCallOrder[0] ?? 0
+        const episodes =
+          sonarrService.setEpisodesMonitored.mock.invocationCallOrder[0] ?? 0
+        const series = sonarrService.editSeries.mock.invocationCallOrder[0] ?? 0
+        expect(grab).toBeLessThan(episodes)
+        expect(episodes).toBeLessThan(series)
       })
-      expect(sonarrService.grabRelease).toHaveBeenCalledWith('indexer://abc', 3)
-      expect(sonarrService.setEpisodesMonitored).not.toHaveBeenCalled()
-      expect(sonarrService.setSeriesMonitored).not.toHaveBeenCalled()
+
+      // Season 0 is specials - a truthiness check would widen this to an
+      // unscoped grab and skip exactly the season that was picked.
+      it("monitors a season-0 grab's episodes, skipping ones already on", async () => {
+        sonarrService.getEpisodes.mockResolvedValue([
+          { id: 1, monitored: false, seasonNumber: 0 },
+          { id: 2, monitored: true, seasonNumber: 0 },
+        ])
+
+        await service.grabRelease(SHOW_ID, { ...input, seasonNumber: 0 }, ALICE)
+
+        expect(sonarrService.getEpisodes).toHaveBeenCalledWith(9, {
+          seasonNumber: 0,
+        })
+        expect(sonarrService.setEpisodesMonitored).toHaveBeenCalledWith(
+          [1],
+          true,
+        )
+      })
+
+      it('monitors every season but the specials for an unscoped grab', async () => {
+        sonarrService.getEpisodes.mockResolvedValue([
+          { id: 1, monitored: false, seasonNumber: 0 },
+          { id: 2, monitored: false, seasonNumber: 1 },
+          { id: 3, monitored: true, seasonNumber: 1 },
+          { id: 4, monitored: false, seasonNumber: 2 },
+        ])
+
+        await service.grabRelease(SHOW_ID, input, ALICE)
+
+        expect(sonarrService.setEpisodesMonitored).toHaveBeenCalledWith(
+          [2, 4],
+          true,
+        )
+        expect(sonarrService.editSeries).toHaveBeenCalledWith([9], {
+          monitored: true,
+        })
+      })
+
+      it('monitors nothing when the show grab fails', async () => {
+        sonarrService.grabRelease.mockRejectedValue(new Error('Not in cache'))
+
+        const job = await service.grabRelease(
+          SHOW_ID,
+          { ...input, seasonNumber: 2 },
+          ALICE,
+        )
+
+        expect(job.status).toBe(DownloadJobStatus.Failed)
+        expect(sonarrService.setEpisodesMonitored).not.toHaveBeenCalled()
+        expect(sonarrService.editSeries).not.toHaveBeenCalled()
+        expect(sonarrService.setSeriesMonitored).not.toHaveBeenCalled()
+      })
     })
 
     it('refuses a flagged guid with a 409, before any job exists', async () => {
@@ -867,15 +1136,221 @@ describe('ReleaseService', () => {
     })
   })
 
+  // Radarr/Sonarr cache interactive-search decisions for 30 minutes; a pick
+  // made after that (or after an *arr restart) 404s on `POST /release`.
+  describe('grabRelease - release cache miss', () => {
+    const input = { guid: 'indexer://abc', indexerId: 3 }
+    const GONE = 'That release is no longer available — search again'
+
+    function cacheMiss() {
+      return new SdkHttpError(
+        'grabRelease failed: {"message":"Couldn\'t find requested release in cache"}',
+        404,
+        { message: "Couldn't find requested release in cache" },
+      )
+    }
+
+    beforeEach(() => {
+      radarrService.ensureMovie.mockResolvedValue({
+        movie: {},
+        radarrId: 7,
+        wasAdded: false,
+        wasMonitored: false,
+      })
+      sonarrService.ensureSeries.mockResolvedValue({
+        series: {},
+        sonarrId: 9,
+        wasAdded: false,
+        wasMonitored: false,
+      })
+    })
+
+    it('searches again and grabs the release when it is still listed', async () => {
+      radarrService.grabRelease
+        .mockRejectedValueOnce(cacheMiss())
+        .mockResolvedValueOnce(undefined)
+      radarrService.getReleases.mockResolvedValue([
+        release({ guid: 'indexer://other' }),
+        release(),
+      ])
+
+      const job = await service.grabRelease(MOVIE_ID, input, ALICE)
+
+      expect(job.status).toBe(DownloadJobStatus.Searching)
+      expect(radarrService.getReleases).toHaveBeenCalledTimes(1)
+      expect(radarrService.getReleases).toHaveBeenCalledWith(7)
+      expect(radarrService.grabRelease).toHaveBeenCalledTimes(2)
+      expect(radarrService.grabRelease).toHaveBeenLastCalledWith(
+        'indexer://abc',
+        3,
+      )
+      expect(radarrService.editMovies).toHaveBeenCalledWith([7], {
+        monitored: true,
+      })
+
+      const relist = radarrService.getReleases.mock.invocationCallOrder[0] ?? 0
+      const retry = radarrService.grabRelease.mock.invocationCallOrder[1] ?? 0
+      expect(relist).toBeLessThan(retry)
+    })
+
+    it('relists a show with the same scope the pick came from', async () => {
+      sonarrService.grabRelease
+        .mockRejectedValueOnce(cacheMiss())
+        .mockResolvedValueOnce(undefined)
+      sonarrService.getReleases.mockResolvedValue([release()])
+
+      const job = await service.grabRelease(
+        SHOW_ID,
+        { ...input, episodeId: 4412, seasonNumber: 3 },
+        ALICE,
+      )
+
+      expect(job.status).toBe(DownloadJobStatus.Searching)
+      expect(sonarrService.getReleases).toHaveBeenCalledWith(9, {
+        episodeId: 4412,
+        seasonNumber: 3,
+      })
+      expect(sonarrService.grabRelease).toHaveBeenCalledTimes(2)
+    })
+
+    // There is no scoped listing to repeat, and the unscoped one is the RSS
+    // feed - so it reads as gone rather than relisting unscoped.
+    it('does not relist an unscoped show grab', async () => {
+      sonarrService.grabRelease.mockRejectedValue(cacheMiss())
+
+      const job = await service.grabRelease(SHOW_ID, input, ALICE)
+
+      expect(job.error).toBe(GONE)
+      expect(sonarrService.getReleases).not.toHaveBeenCalled()
+      expect(sonarrService.grabRelease).toHaveBeenCalledTimes(1)
+    })
+
+    it('fails with a clear message when the release is gone', async () => {
+      radarrService.grabRelease.mockRejectedValue(cacheMiss())
+      // Same guid from a different indexer is a different release.
+      radarrService.getReleases.mockResolvedValue([
+        release({ guid: 'indexer://other' }),
+        release({ indexerId: 4 }),
+      ])
+
+      const job = await service.grabRelease(MOVIE_ID, input, ALICE)
+
+      expect(job.status).toBe(DownloadJobStatus.Failed)
+      expect(job.error).toBe(GONE)
+      expect(radarrService.grabRelease).toHaveBeenCalledTimes(1)
+      expect(radarrService.editMovies).not.toHaveBeenCalled()
+    })
+
+    // The on-disk row `listReleases` synthesizes isn't in the *arr's cache,
+    // so it must not count as the release still being listed.
+    it('does not count the synthesized current release as still listed', async () => {
+      radarrService.grabRelease.mockRejectedValue(cacheMiss())
+      radarrService.getReleases.mockResolvedValue([])
+      currentReleaseService.forMovie.mockResolvedValue(
+        currentRow({ indexerId: 3, releaseGuid: 'indexer://abc' }),
+      )
+
+      const job = await service.grabRelease(MOVIE_ID, input, ALICE)
+
+      expect(job.error).toBe(GONE)
+      expect(radarrService.grabRelease).toHaveBeenCalledTimes(1)
+    })
+
+    it('fails with the same message when the search again fails', async () => {
+      radarrService.grabRelease.mockRejectedValue(cacheMiss())
+      radarrService.getReleases.mockRejectedValue(new Error('radarr down'))
+
+      const job = await service.grabRelease(MOVIE_ID, input, ALICE)
+
+      expect(job.error).toBe(GONE)
+      expect(radarrService.grabRelease).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not loop when the retried grab 404s too', async () => {
+      radarrService.grabRelease.mockRejectedValue(cacheMiss())
+      radarrService.getReleases.mockResolvedValue([release()])
+
+      const job = await service.grabRelease(MOVIE_ID, input, ALICE)
+
+      expect(job.status).toBe(DownloadJobStatus.Failed)
+      expect(job.error).toContain('Couldn')
+      expect(radarrService.getReleases).toHaveBeenCalledTimes(1)
+      expect(radarrService.grabRelease).toHaveBeenCalledTimes(2)
+      expect(radarrService.editMovies).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      [
+        'a 409 indexer failure',
+        new SdkHttpError('grabRelease failed: indexer down', 409, {}),
+      ],
+      ['a 500', new SdkHttpError('grabRelease failed: boom', 500, {})],
+      [
+        'a network error',
+        new SdkHttpError(
+          'grabRelease failed: fetch failed',
+          undefined,
+          undefined,
+        ),
+      ],
+      ['a plain error', new Error('grabRelease failed: 404 in the text only')],
+    ])(
+      "keeps today's failure for %s, without searching again",
+      async (_label, error) => {
+        radarrService.grabRelease.mockRejectedValue(error)
+
+        const job = await service.grabRelease(MOVIE_ID, input, ALICE)
+
+        expect(job.status).toBe(DownloadJobStatus.Failed)
+        expect(job.error).toBe(error.message)
+        expect(radarrService.getReleases).not.toHaveBeenCalled()
+        expect(radarrService.grabRelease).toHaveBeenCalledTimes(1)
+      },
+    )
+
+    it('applies to replaceRelease, deleting only after the retried grab', async () => {
+      radarrService.getMovieFiles.mockResolvedValue([{ id: 11 }])
+      radarrService.grabRelease
+        .mockRejectedValueOnce(cacheMiss())
+        .mockResolvedValueOnce(undefined)
+      radarrService.getReleases.mockResolvedValue([release()])
+
+      const job = await service.replaceRelease(MOVIE_ID, input, ALICE)
+
+      expect(job.status).toBe(DownloadJobStatus.Searching)
+      expect(radarrService.deleteMovieFile).toHaveBeenCalledTimes(1)
+      expect(radarrService.grabRelease).toHaveBeenCalledTimes(2)
+
+      const relist = radarrService.getReleases.mock.invocationCallOrder[0] ?? 0
+      const retry = radarrService.grabRelease.mock.invocationCallOrder[1] ?? 0
+      const del = radarrService.deleteMovieFile.mock.invocationCallOrder[0] ?? 0
+      const monitor = radarrService.editMovies.mock.invocationCallOrder[0] ?? 0
+      expect(relist).toBeLessThan(retry)
+      expect(retry).toBeLessThan(del)
+      expect(del).toBeLessThan(monitor)
+    })
+
+    it('keeps the existing files when a replace finds the release gone', async () => {
+      radarrService.getMovieFiles.mockResolvedValue([{ id: 11 }])
+      radarrService.grabRelease.mockRejectedValue(cacheMiss())
+      radarrService.getReleases.mockResolvedValue([])
+
+      const job = await service.replaceRelease(MOVIE_ID, input, ALICE)
+
+      expect(job.status).toBe(DownloadJobStatus.Failed)
+      expect(job.error).toBe(GONE)
+      expect(radarrService.getMovieFiles).not.toHaveBeenCalled()
+      expect(radarrService.deleteMovieFile).not.toHaveBeenCalled()
+    })
+  })
+
   // `GrabReleaseInput` has carried episodeId/seasonNumber since Phase 3 -
-  // they scoped the monitoring borrow but never reached the job. Phase 4
-  // closes that.
+  // they scope the post-grab monitoring, and since Phase 4 the job too.
   describe('grabRelease - scope on the job', () => {
     beforeEach(() => {
       sonarrService.ensureSeries.mockResolvedValue({
         series: {},
         sonarrId: 9,
-        turnedOnEpisodeIds: [],
         wasAdded: false,
         wasMonitored: true,
       })
@@ -1002,13 +1477,12 @@ describe('ReleaseService', () => {
       sonarrService.ensureSeries.mockResolvedValue({
         series: {},
         sonarrId: 9,
-        turnedOnEpisodeIds: [],
         wasAdded: false,
         wasMonitored: true,
       })
     })
 
-    it('deletes every existing movie file, invalidates, then grabs - in that order', async () => {
+    it('grabs, then deletes every existing movie file, then re-monitors - in that order', async () => {
       const order: string[] = []
       radarrService.getMovieFiles.mockResolvedValue([{ id: 11 }, { id: 12 }])
       radarrService.deleteMovieFile.mockImplementation(async id => {
@@ -1020,10 +1494,20 @@ describe('ReleaseService', () => {
       radarrService.grabRelease.mockImplementation(async () => {
         order.push('grab')
       })
+      radarrService.editMovies.mockImplementation(async () => {
+        order.push('monitor')
+      })
 
       const job = await service.replaceRelease(MOVIE_ID, input, ALICE)
 
-      expect(order).toEqual(['delete:11', 'delete:12', 'invalidate', 'grab'])
+      expect(order).toEqual([
+        'grab',
+        'delete:11',
+        'delete:12',
+        'invalidate',
+        'monitor',
+        'invalidate',
+      ])
       expect(mediaResolverService.invalidate).toHaveBeenCalledWith(MOVIE_ID)
       expect(job.status).toBe(DownloadJobStatus.Searching)
       expect(captured?.action).toBe('replaceRelease')
@@ -1037,9 +1521,7 @@ describe('ReleaseService', () => {
       await service.replaceRelease(MOVIE_ID, input, ALICE)
 
       expect(radarrService.deleteMovieFile).toHaveBeenCalledWith(11)
-      // `unmonitorAndDelete` is now a real method on the mock (the read
-      // path's add-undo uses it), so this asserts it is never *called* here
-      // rather than that it doesn't exist.
+      // Asserted as never *called*, not merely absent from the mock.
       expect(radarrService.unmonitorAndDelete).not.toHaveBeenCalled()
     })
 
@@ -1062,28 +1544,56 @@ describe('ReleaseService', () => {
       expect(radarrService.deleteMovieFile).toHaveBeenCalledWith(12)
     })
 
-    // The grab is what the user asked for; if it fails after the delete
-    // landed, the job says so rather than the API pretending it worked.
-    it('surfaces a grab failure on the job even though the delete succeeded', async () => {
+    // A failed grab must leave the user with what they had, not nothing.
+    it('keeps the existing files when the grab fails', async () => {
       radarrService.getMovieFiles.mockResolvedValue([{ id: 11 }])
       radarrService.grabRelease.mockRejectedValue(new Error('Indexer refused'))
 
       const job = await service.replaceRelease(MOVIE_ID, input, ALICE)
 
-      expect(radarrService.deleteMovieFile).toHaveBeenCalledWith(11)
+      expect(radarrService.getMovieFiles).not.toHaveBeenCalled()
+      expect(radarrService.deleteMovieFile).not.toHaveBeenCalled()
+      expect(radarrService.editMovies).not.toHaveBeenCalled()
       expect(job.status).toBe(DownloadJobStatus.Failed)
       expect(job.error).toContain('Indexer refused')
     })
 
-    it('does not grab when the delete itself fails', async () => {
-      radarrService.getMovieFiles.mockResolvedValue([{ id: 11 }])
+    // The replacement is already downloading; failing the job would report
+    // an error for a download that is going ahead anyway.
+    it('keeps the job running with a warning when the delete fails', async () => {
+      radarrService.getMovieFiles.mockResolvedValue([{ id: 11 }, { id: 12 }])
       radarrService.deleteMovieFile.mockRejectedValue(new Error('locked'))
 
       const job = await service.replaceRelease(MOVIE_ID, input, ALICE)
 
-      expect(radarrService.grabRelease).not.toHaveBeenCalled()
-      expect(job.status).toBe(DownloadJobStatus.Failed)
-      expect(job.error).toContain('locked')
+      expect(radarrService.grabRelease).toHaveBeenCalledWith('indexer://new', 3)
+      // Sequential - the first failure stops the batch.
+      expect(radarrService.deleteMovieFile).toHaveBeenCalledTimes(1)
+      expect(job.status).toBe(DownloadJobStatus.Searching)
+      expect(job.error).toBeUndefined()
+      expect(Logger.prototype.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'replaceRelease',
+          error: 'locked',
+          mediaId: MOVIE_ID,
+        }),
+        expect.stringContaining('could not delete the existing files'),
+      )
+      // Still re-monitored, and the cache still dropped.
+      expect(radarrService.editMovies).toHaveBeenCalledWith([7], {
+        monitored: true,
+      })
+      expect(mediaResolverService.invalidate).toHaveBeenCalledWith(MOVIE_ID)
+    })
+
+    it('keeps the job running when listing the files to delete fails', async () => {
+      radarrService.getMovieFiles.mockRejectedValue(new Error('radarr down'))
+
+      const job = await service.replaceRelease(MOVIE_ID, input, ALICE)
+
+      expect(radarrService.grabRelease).toHaveBeenCalled()
+      expect(job.status).toBe(DownloadJobStatus.Searching)
+      expect(radarrService.editMovies).toHaveBeenCalled()
     })
 
     it('refuses a flagged replacement guid with a 409, deleting nothing', async () => {
@@ -1102,9 +1612,9 @@ describe('ReleaseService', () => {
       expect(radarrService.deleteMovieFile).not.toHaveBeenCalled()
     })
 
-    // A downloaded-then-manually-unmonitored title would otherwise fail the
-    // grab, which is why replace still goes through withMonitoring.
-    it('re-monitors an unmonitored movie and does not restore it afterwards', async () => {
+    // A downloaded-then-manually-unmonitored title comes out of a replace
+    // monitored - once the replacement is grabbed, not before.
+    it('monitors an unmonitored movie once the replacement is grabbed', async () => {
       radarrService.ensureMovie.mockResolvedValue({
         movie: {},
         radarrId: 7,
@@ -1115,7 +1625,15 @@ describe('ReleaseService', () => {
 
       await service.replaceRelease(MOVIE_ID, input, ALICE)
 
-      expect(radarrService.setMonitored).not.toHaveBeenCalled()
+      expect(radarrService.ensureMovie).toHaveBeenCalledWith(27205, {
+        monitored: false,
+      })
+      expect(radarrService.editMovies).toHaveBeenCalledWith([7], {
+        monitored: true,
+      })
+      expect(
+        radarrService.grabRelease.mock.invocationCallOrder[0] ?? Infinity,
+      ).toBeLessThan(radarrService.editMovies.mock.invocationCallOrder[0] ?? 0)
     })
 
     describe('shows', () => {
@@ -1203,10 +1721,213 @@ describe('ReleaseService', () => {
 
         expect(sonarrService.deleteEpisodeFile).not.toHaveBeenCalled()
       })
+
+      it('grabs, then deletes, then re-monitors the episodes and the series', async () => {
+        sonarrService.getEpisodes.mockResolvedValue([
+          { episodeFileId: 32, id: 4412, monitored: true, seasonNumber: 2 },
+        ])
+
+        const job = await service.replaceRelease(
+          SHOW_ID,
+          { ...input, episodeId: 4412, seasonNumber: 2 },
+          ALICE,
+        )
+
+        expect(job.status).toBe(DownloadJobStatus.Searching)
+        const grab = sonarrService.grabRelease.mock.invocationCallOrder[0] ?? 0
+        const del = sonarrService.deleteEpisodeFile.mock.invocationCallOrder[0]
+        const episodes =
+          sonarrService.setEpisodesMonitored.mock.invocationCallOrder[0]
+        const series = sonarrService.editSeries.mock.invocationCallOrder[0]
+        expect(grab).toBeGreaterThan(0)
+        expect(del).toBeGreaterThan(grab)
+        expect(episodes).toBeGreaterThan(del ?? Infinity)
+        expect(series).toBeGreaterThan(episodes ?? Infinity)
+        expect(sonarrService.editSeries).toHaveBeenCalledWith([9], {
+          monitored: true,
+        })
+      })
+
+      // Sonarr's "unmonitor deleted episodes" setting can flip an episode off
+      // as its file goes - the monitor step reads after the delete and turns
+      // it back on.
+      it('re-monitors an episode the delete unmonitored', async () => {
+        sonarrService.getEpisodes
+          // The delete's file resolution - still monitored.
+          .mockResolvedValueOnce([
+            { episodeFileId: 32, id: 4412, monitored: true, seasonNumber: 2 },
+          ])
+          // The monitor step, after Sonarr unmonitored it on delete.
+          .mockResolvedValueOnce([
+            { episodeFileId: 0, id: 4412, monitored: false, seasonNumber: 2 },
+          ])
+
+        await service.replaceRelease(
+          SHOW_ID,
+          { ...input, episodeId: 4412, seasonNumber: 2 },
+          ALICE,
+        )
+
+        expect(sonarrService.deleteEpisodeFile).toHaveBeenCalledWith(32)
+        expect(sonarrService.setEpisodesMonitored).toHaveBeenCalledWith(
+          [4412],
+          true,
+        )
+      })
+
+      it('keeps the episode files when the show grab fails', async () => {
+        sonarrService.getEpisodeFiles.mockResolvedValue([
+          { id: 21, seasonNumber: 1 },
+        ])
+        sonarrService.grabRelease.mockRejectedValue(new Error('indexer down'))
+
+        const job = await service.replaceRelease(
+          SHOW_ID,
+          { ...input, seasonNumber: 1 },
+          ALICE,
+        )
+
+        expect(job.status).toBe(DownloadJobStatus.Failed)
+        expect(sonarrService.getEpisodeFiles).not.toHaveBeenCalled()
+        expect(sonarrService.deleteEpisodeFile).not.toHaveBeenCalled()
+        expect(sonarrService.setEpisodesMonitored).not.toHaveBeenCalled()
+      })
+
+      // E01E02 in one file: replacing E01 deletes that file once, not once
+      // per episode it backs.
+      it('deletes a multi-episode file once for an episode scope', async () => {
+        sonarrService.getEpisodes.mockResolvedValue([
+          { episodeFileId: 31, id: 4411, seasonNumber: 1 },
+          { episodeFileId: 31, id: 4412, seasonNumber: 1 },
+        ])
+
+        await service.replaceRelease(
+          SHOW_ID,
+          { ...input, episodeId: 4411, seasonNumber: 1 },
+          ALICE,
+        )
+
+        expect(sonarrService.deleteEpisodeFile).toHaveBeenCalledTimes(1)
+        expect(sonarrService.deleteEpisodeFile).toHaveBeenCalledWith(31)
+      })
+
+      it('deletes a multi-episode file once for a season scope', async () => {
+        sonarrService.getEpisodeFiles.mockResolvedValue([
+          { id: 31, seasonNumber: 1 },
+        ])
+        sonarrService.getEpisodes.mockResolvedValue([
+          { episodeFileId: 31, id: 4411, seasonNumber: 1 },
+          { episodeFileId: 31, id: 4412, seasonNumber: 1 },
+        ])
+
+        await service.replaceRelease(
+          SHOW_ID,
+          { ...input, seasonNumber: 1 },
+          ALICE,
+        )
+
+        expect(sonarrService.deleteEpisodeFile.mock.calls.flat()).toEqual([31])
+      })
+
+      // Replacing E01 of E01E02 took E02's footage too - if Sonarr unmonitored
+      // both on delete, E02 must come back on or it is stranded with neither
+      // a file nor monitoring.
+      it('re-monitors every episode a deleted multi-episode file backed', async () => {
+        sonarrService.getEpisodes
+          .mockResolvedValueOnce([
+            { episodeFileId: 31, id: 4411, monitored: true, seasonNumber: 1 },
+            { episodeFileId: 31, id: 4412, monitored: true, seasonNumber: 1 },
+            { episodeFileId: 33, id: 4413, monitored: false, seasonNumber: 1 },
+          ])
+          .mockResolvedValueOnce([
+            { episodeFileId: 0, id: 4411, monitored: false, seasonNumber: 1 },
+            { episodeFileId: 0, id: 4412, monitored: false, seasonNumber: 1 },
+            { episodeFileId: 33, id: 4413, monitored: false, seasonNumber: 1 },
+          ])
+
+        await service.replaceRelease(
+          SHOW_ID,
+          { ...input, episodeId: 4411, seasonNumber: 1 },
+          ALICE,
+        )
+
+        // E03 has its own file and was never touched - it stays off.
+        expect(sonarrService.setEpisodesMonitored).toHaveBeenCalledWith(
+          [4411, 4412],
+          true,
+        )
+      })
+
+      it('keeps the job running and still re-monitors when an episode delete fails', async () => {
+        sonarrService.getEpisodes
+          .mockResolvedValueOnce([
+            { episodeFileId: 31, id: 4411, monitored: true, seasonNumber: 1 },
+            { episodeFileId: 31, id: 4412, monitored: true, seasonNumber: 1 },
+          ])
+          .mockResolvedValueOnce([
+            { episodeFileId: 31, id: 4411, monitored: true, seasonNumber: 1 },
+            { episodeFileId: 31, id: 4412, monitored: false, seasonNumber: 1 },
+          ])
+        sonarrService.deleteEpisodeFile.mockRejectedValue(new Error('locked'))
+
+        const job = await service.replaceRelease(
+          SHOW_ID,
+          { ...input, episodeId: 4411, seasonNumber: 1 },
+          ALICE,
+        )
+
+        expect(job.status).toBe(DownloadJobStatus.Searching)
+        expect(job.error).toBeUndefined()
+        expect(Logger.prototype.warn).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: 'replaceRelease',
+            error: 'locked',
+          }),
+          expect.stringContaining('could not delete the existing files'),
+        )
+        expect(sonarrService.setEpisodesMonitored).toHaveBeenCalledWith(
+          [4412],
+          true,
+        )
+        expect(sonarrService.editSeries).toHaveBeenCalledWith([9], {
+          monitored: true,
+        })
+      })
+
+      // A plain grab deletes nothing, so it has no siblings to bring along.
+      it('monitors only the grabbed episode on a plain grab', async () => {
+        sonarrService.getEpisodes.mockResolvedValue([
+          { episodeFileId: 31, id: 4411, monitored: false, seasonNumber: 1 },
+          { episodeFileId: 31, id: 4412, monitored: false, seasonNumber: 1 },
+        ])
+
+        await service.grabRelease(
+          SHOW_ID,
+          { ...input, episodeId: 4411, seasonNumber: 1 },
+          ALICE,
+        )
+
+        expect(sonarrService.setEpisodesMonitored).toHaveBeenCalledWith(
+          [4411],
+          true,
+        )
+      })
     })
   })
 
+  /** Gives both apps a working flagged-profile sync for the flag tests. */
+  function stubFlaggedProfileSync(): void {
+    radarrService.syncFlaggedReleaseProfile = jest
+      .fn()
+      .mockResolvedValue(undefined)
+    sonarrService.syncFlaggedReleaseProfile = jest
+      .fn()
+      .mockResolvedValue(undefined)
+  }
+
   describe('flagBadFile / listBadFiles', () => {
+    beforeEach(stubFlaggedProfileSync)
+
     it('records the flag with the flagger identity and the display fields', () => {
       const flag = service.flagBadFile(
         MOVIE_ID,
@@ -1314,6 +2035,8 @@ describe('ReleaseService', () => {
   })
 
   describe('unflagBadFile', () => {
+    beforeEach(stubFlaggedProfileSync)
+
     it('removes the flag and returns the removed row', () => {
       const flagged = service.flagBadFile(MOVIE_ID, { guid: 'g' }, ALICE)
 
@@ -1354,6 +2077,176 @@ describe('ReleaseService', () => {
       expect(() => service.unflagBadFile('video:V1StGXR8_Z5', 1)).toThrow(
         NotFoundException,
       )
+    })
+  })
+
+  describe('flagBadFile / unflagBadFile - mirroring into Radarr/Sonarr', () => {
+    beforeEach(stubFlaggedProfileSync)
+
+    it('syncs Radarr with every flagged movie title after a flag', async () => {
+      service.flagBadFile(
+        'tmdb:438631',
+        { guid: 'other', title: 'Other.Movie.2021' },
+        ALICE,
+      )
+      service.flagBadFile(MOVIE_ID, { guid: 'g', title: 'Some.Movie' }, ALICE)
+      await flushPromises()
+
+      expect(radarrService.syncFlaggedReleaseProfile).toHaveBeenCalledTimes(2)
+      const [titles] = radarrService.syncFlaggedReleaseProfile.mock.calls[1]!
+      expect([...titles].sort()).toEqual(['Other.Movie.2021', 'Some.Movie'])
+      expect(sonarrService.syncFlaggedReleaseProfile).not.toHaveBeenCalled()
+    })
+
+    it('syncs Sonarr, not Radarr, for a show flag', async () => {
+      service.flagBadFile(SHOW_ID, { guid: 'g', title: 'Show.S01' }, ALICE)
+      await flushPromises()
+
+      expect(sonarrService.syncFlaggedReleaseProfile).toHaveBeenCalledWith([
+        'Show.S01',
+      ])
+      expect(radarrService.syncFlaggedReleaseProfile).not.toHaveBeenCalled()
+    })
+
+    it('syncs the remaining titles after an unflag', async () => {
+      const keep = service.flagBadFile(
+        MOVIE_ID,
+        { guid: 'keep', title: 'Keep.Me' },
+        ALICE,
+      )
+      const drop = service.flagBadFile(
+        MOVIE_ID,
+        { guid: 'drop', title: 'Drop.Me' },
+        ALICE,
+      )
+      await flushPromises()
+      radarrService.syncFlaggedReleaseProfile.mockClear()
+
+      service.unflagBadFile(MOVIE_ID, drop.id)
+      await flushPromises()
+
+      expect(radarrService.syncFlaggedReleaseProfile).toHaveBeenCalledTimes(1)
+      expect(radarrService.syncFlaggedReleaseProfile).toHaveBeenCalledWith([
+        'Keep.Me',
+      ])
+      expect(service.listBadFiles(MOVIE_ID)).toEqual([keep])
+    })
+
+    it('syncs an empty list once the last flag is gone', async () => {
+      const flagged = service.flagBadFile(
+        SHOW_ID,
+        { guid: 'g', title: 'Show.S01' },
+        ALICE,
+      )
+      service.unflagBadFile(SHOW_ID, flagged.id)
+      await flushPromises()
+
+      expect(sonarrService.syncFlaggedReleaseProfile).toHaveBeenLastCalledWith(
+        [],
+      )
+    })
+
+    it('does not sync for an unflag that 404s', async () => {
+      expect(() => service.unflagBadFile(MOVIE_ID, 99999)).toThrow(
+        NotFoundException,
+      )
+      await flushPromises()
+
+      expect(radarrService.syncFlaggedReleaseProfile).not.toHaveBeenCalled()
+    })
+
+    it('still records the flag and only warns when the sync fails', async () => {
+      radarrService.syncFlaggedReleaseProfile.mockRejectedValue(
+        new Error('radarr down'),
+      )
+
+      const flag = service.flagBadFile(
+        MOVIE_ID,
+        { guid: 'g', title: 'Some.Movie' },
+        ALICE,
+      )
+      await flushPromises()
+
+      expect(flag.releaseGuid).toBe('g')
+      expect(service.listBadFiles(MOVIE_ID)).toHaveLength(1)
+      expect(Logger.prototype.warn).toHaveBeenCalledWith(
+        expect.stringMatching(/Radarr.*radarr down/),
+      )
+    })
+
+    it('still removes the flag when the sync fails', async () => {
+      const flagged = service.flagBadFile(
+        MOVIE_ID,
+        { guid: 'g', title: 'Some.Movie' },
+        ALICE,
+      )
+      await flushPromises()
+      radarrService.syncFlaggedReleaseProfile.mockRejectedValue(
+        new Error('radarr down'),
+      )
+
+      expect(service.unflagBadFile(MOVIE_ID, flagged.id)).toEqual(flagged)
+      await flushPromises()
+
+      expect(service.listBadFiles(MOVIE_ID)).toEqual([])
+    })
+
+    describe('title backfill', () => {
+      beforeEach(() => {
+        upsertMediaFileRelease(dbService.db, {
+          mediaId: MOVIE_ID,
+          mediaType: DownloadType.Movie,
+          releaseGuid: 'indexer://current',
+          releaseTitle: 'Some.Movie.2020.2160p',
+          upstreamFileId: 501,
+        })
+      })
+
+      it('takes the title of the file on disk when the flag sent none', async () => {
+        const flag = service.flagBadFile(
+          MOVIE_ID,
+          { guid: 'indexer://current' },
+          ALICE,
+        )
+        await flushPromises()
+
+        expect(flag.releaseTitle).toBe('Some.Movie.2020.2160p')
+        expect(radarrService.syncFlaggedReleaseProfile).toHaveBeenCalledWith([
+          'Some.Movie.2020.2160p',
+        ])
+      })
+
+      // The picker renders the guid in place of a missing title, so a flag
+      // raised from that row sends the guid back as `title`.
+      it('takes it too when the flag sent the guid as its title', () => {
+        const flag = service.flagBadFile(
+          MOVIE_ID,
+          { guid: 'indexer://current', title: 'indexer://current' },
+          ALICE,
+        )
+
+        expect(flag.releaseTitle).toBe('Some.Movie.2020.2160p')
+      })
+
+      it('keeps a real title the flag sent', () => {
+        const flag = service.flagBadFile(
+          MOVIE_ID,
+          { guid: 'indexer://current', title: 'As.Shown.In.Picker' },
+          ALICE,
+        )
+
+        expect(flag.releaseTitle).toBe('As.Shown.In.Picker')
+      })
+
+      it('leaves the title empty when no file came from that release', () => {
+        const flag = service.flagBadFile(
+          MOVIE_ID,
+          { guid: 'indexer://elsewhere' },
+          ALICE,
+        )
+
+        expect(flag.releaseTitle).toBeNull()
+      })
     })
   })
 })

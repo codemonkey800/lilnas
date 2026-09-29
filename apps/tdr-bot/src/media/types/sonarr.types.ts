@@ -20,23 +20,11 @@ export enum SonarrSeriesType {
 }
 
 /**
- * Sonarr monitor types enum
- */
-export enum SonarrMonitorType {
-  ALL = 'all',
-  FUTURE = 'future',
-  MISSING = 'missing',
-  EXISTING = 'existing',
-  FIRST_SEASON = 'firstSeason',
-  LATEST_SEASON = 'latestSeason',
-  NONE = 'none',
-}
-
-/**
  * Sonarr image information
  */
 export interface SonarrImage extends ImageInfo {
-  coverType: SonarrImageType
+  /** Usually a SonarrImageType value; Sonarr may send others (e.g. 'unknown') */
+  coverType: string
   url?: string
   remoteUrl?: string
 }
@@ -45,6 +33,7 @@ export interface SonarrImage extends ImageInfo {
  * Sonarr image type enum
  */
 export enum SonarrImageType {
+  UNKNOWN = 'unknown',
   POSTER = 'poster',
   BANNER = 'banner',
   FANART = 'fanart',
@@ -54,29 +43,11 @@ export enum SonarrImageType {
 }
 
 /**
- * Sonarr ratings information
+ * Sonarr ratings information (Sonarr v4 `Ratings`: a single aggregate rating)
  */
 export interface SonarrRatings {
-  imdb?: {
-    votes: number
-    value: number
-    type: string
-  }
-  theMovieDb?: {
-    votes: number
-    value: number
-    type: string
-  }
-  rottenTomatoes?: {
-    votes: number
-    value: number
-    type: string
-  }
-  tvdb?: {
-    votes: number
-    value: number
-    type: string
-  }
+  votes: number
+  value: number
 }
 
 /**
@@ -172,6 +143,15 @@ export interface SonarrSeries extends BaseMediaItem {
   ratings: SonarrRatings
   statistics?: SonarrSeriesStatistics
 }
+
+/**
+ * The fields the bot changes when it updates a series. Of `seasons`, only each
+ * season's `monitored` flag is applied (matched by `seasonNumber`); everything
+ * else on the series goes back to Sonarr exactly as it was read.
+ */
+export type SonarrSeriesUpdate = Partial<
+  Pick<SonarrSeries, 'monitored' | 'seasons'>
+>
 
 /**
  * Sonarr series lookup response (for search)
@@ -342,35 +322,6 @@ export interface SonarrSystemStatus {
 }
 
 /**
- * Add series request payload
- */
-export interface AddSeriesRequest {
-  tvdbId: number
-  title: string
-  titleSlug: string
-  qualityProfileId: number
-  languageProfileId?: number
-  rootFolderPath: string
-  monitored: boolean
-  monitor: SonarrMonitorType
-  seasonFolder: boolean
-  useSceneNumbering: boolean
-  seriesType: SonarrSeriesType
-  searchForMissingEpisodes: boolean
-  searchForCutoffUnmetEpisodes: boolean
-  images?: SonarrImage[]
-  seasons?: SonarrSeason[]
-  year?: number
-  firstAired?: string
-  overview?: string
-  network?: string
-  airTime?: string
-  certification?: string
-  genres?: string[]
-  tags?: number[]
-}
-
-/**
  * Episode resource from Sonarr API
  */
 export interface EpisodeResource {
@@ -389,27 +340,11 @@ export interface EpisodeResource {
 }
 
 /**
- * Options for monitoring and downloading series
- */
-export interface MonitorSeriesOptions {
-  selection?: Array<{ season: number; episodes?: number[] }> // If omitted, monitor entire series
-}
-
-/**
  * Options for unmonitoring and deleting series
  */
 export interface UnmonitorSeriesOptions {
   selection?: Array<{ season: number; episodes?: number[] }> // If omitted, unmonitor entire series (delete)
   deleteFiles?: boolean // Whether to delete files (default: false for granular, true for full series)
-}
-
-/**
- * Monitoring change information
- */
-export interface MonitoringChange {
-  season: number
-  episodes?: number[] // undefined means entire season
-  action: 'monitored' | 'unmonitored'
 }
 
 /**
@@ -427,21 +362,6 @@ export interface UnmonitoringChange {
 }
 
 /**
- * Result of monitoring and downloading series operation
- */
-export interface MonitorAndDownloadSeriesResult {
-  success: boolean
-  seriesAdded: boolean
-  seriesUpdated: boolean
-  searchTriggered: boolean
-  changes: MonitoringChange[]
-  series?: SonarrSeries
-  commandId?: number
-  warnings?: string[]
-  error?: string
-}
-
-/**
  * Result of unmonitoring and deleting series operation
  */
 export interface UnmonitorAndDeleteSeriesResult {
@@ -453,8 +373,24 @@ export interface UnmonitorAndDeleteSeriesResult {
   changes: UnmonitoringChange[]
   series?: SonarrSeries // series state after operation (null if deleted)
   commandIds?: number[] // command IDs for cancel operations
+  keptPacks?: KeptPackDownload[] // pack downloads left running (see below)
   warnings?: string[]
   error?: string
+}
+
+/**
+ * A multi-episode download (season pack) that was deliberately NOT canceled.
+ *
+ * Sonarr's queue has one row per episode, and removing any row removes the
+ * whole tracked download from the client. A pack is only canceled when every
+ * episode it covers is being removed; otherwise it keeps downloading and is
+ * reported here so the reply can say so.
+ */
+export interface KeptPackDownload {
+  downloadId: string
+  title?: string // release title
+  coveredEpisodes: string // every episode in the pack, e.g. "S01E01–E10"
+  unmonitoredEpisodes: string // the requested subset, e.g. "S01E03"
 }
 
 /**
@@ -503,13 +439,16 @@ export interface EpisodeFileResource {
  * Simplified downloading series information for status queries
  */
 export interface DownloadingSeries {
-  id: number
+  id: number // queue id of the first row of the download
+  downloadId?: string // shared by every row of a pack; absent while pending
   seriesId?: number
-  episodeId?: number
+  episodeId?: number // only for single-episode downloads
   seriesTitle?: string
-  episodeTitle?: string
-  seasonNumber?: number
-  episodeNumber?: number
+  episodeTitle?: string // only for single-episode downloads
+  seasonNumber?: number // set when every covered episode is in one season
+  episodeNumber?: number // only for single-episode downloads
+  episodeCount: number // episodes covered by this download (1 unless a pack)
+  episodeLabel: string // e.g. "S01E03" or "S01E01–E10"
   size: number
   sizeleft: number
   status: string

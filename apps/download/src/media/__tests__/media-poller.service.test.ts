@@ -7,10 +7,15 @@ jest.mock('nanoid', () => ({
   nanoid: jest.fn(() => 'mock-id'),
 }))
 
-import type { MovieFileResource, QueueResource } from '@lilnas/media/radarr'
+import type {
+  HistoryResource,
+  MovieFileResource,
+  QueueResource,
+} from '@lilnas/media/radarr'
 import type {
   EpisodeFileResource,
   EpisodeResource,
+  HistoryResource as SonarrHistoryResource,
   QueueResource as SonarrQueueResource,
 } from '@lilnas/media/sonarr'
 import {
@@ -25,6 +30,7 @@ import {
   MEDIA_EVENT_TYPE,
   type MediaEvent,
   type Movie,
+  type Release,
   type Show,
 } from '@lilnas/utils/download/types'
 import { Logger } from '@nestjs/common'
@@ -32,25 +38,49 @@ import { Test, TestingModule } from '@nestjs/testing'
 import { nanoid } from 'nanoid'
 
 import { fakeAttributionResolutionProvider } from 'src/auth/__tests__/helpers/attribution-resolution'
+import { AttributionResolutionService } from 'src/auth/attribution-resolution.service'
 import { createTestDbService } from 'src/db/__tests__/test-utils'
+import { insertBadFile } from 'src/db/bad-files.repo'
 import { DbService } from 'src/db/db.service'
+import { getCursor, setCursor } from 'src/db/history-cursors.repo'
+import { linkDownload, listForJob, markFailed } from 'src/db/job-downloads.repo'
 import { getJobById } from 'src/db/jobs.repo'
+import { arrHistoryCursors } from 'src/db/schema'
 import { DownloadStateService } from 'src/download/download-state.service'
 import { DownloadGateway } from 'src/download-gateway/download.gateway'
 import { flushAsync } from 'src/media/__tests__/helpers/fake-media-resolver'
+import { REOPEN_WINDOW_MS } from 'src/media/adoption.util'
+import type { CommandSnapshot } from 'src/media/arr-command.types'
+import { DISK_SPACE_ERROR } from 'src/media/client-failure.util'
 import {
+  COMMAND_POLL_MS,
+  EVENT_REFRESH_MIN_MS,
+  HISTORY_FIRST_READ_MS,
+  HISTORY_MAX_CATCH_UP_MS,
   MediaPollerService,
   type PollableCompletionData,
+  QUEUE_REFRESH_MS,
+  REFRESH_WAIT_TIMEOUT_MS,
+  RETRY_SEARCH_TIMEOUT_MS,
   type TrackedJob,
+  WATCHED_QUEUE_REFRESH_MS,
 } from 'src/media/media-poller.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
-import { MediaStateService } from 'src/media/media-state.service'
 import {
+  MediaStateService,
+  type SabClientHealth,
+} from 'src/media/media-state.service'
+import { KEPT_PACK_NOTE } from 'src/media/queue-cancel.util'
+import {
+  ABSENT_REMOVED_MS,
+  ATTENTION_DELAY_MS,
   CANCEL_GRACE_MS,
-  QUEUE_REMOVAL_CONFIRM_MS,
+  REMOVED_FROM_CLIENT_ERROR,
+  STALL_MS,
 } from 'src/media/queue-status.util'
 import { RadarrService } from 'src/media/radarr.service'
 import { SonarrService } from 'src/media/sonarr.service'
+import type { SabPhase, SabReading } from 'src/sabnzbd/sab-readings.util'
 
 const NOW_ISO = '2026-08-20T12:00:00.000Z'
 /** A file imported after every job built here was created. */
@@ -91,6 +121,9 @@ const BLOCKED_IMPORT_ITEM: QueueResource = {
   trackedDownloadStatus: 'warning',
 }
 
+/** Radarr's/Sonarr's defaults: a failed download is retried either way. */
+const RETRY_ON = { autoRedownloadFailed: true, fromInteractive: true }
+
 const BLOCKED_IMPORT_REASON =
   'Movie [Game Night (2018)][tt2704998, 445571] was not found in the grabbed release: Game.Night.2018.1080p.BluRay.x265'
 
@@ -111,6 +144,23 @@ function buildRecord(
     status: DownloadJobStatus.Searching,
     type,
     updatedAt: NOW_ISO,
+    ...overrides,
+  }
+}
+
+/**
+ * A Radarr/Sonarr command as `getCommand` / `listCommands` read it - by
+ * default a search someone started by hand, still running.
+ */
+function buildCommand(
+  overrides: Partial<CommandSnapshot> & { id: number },
+): CommandSnapshot {
+  return {
+    body: {},
+    name: 'MoviesSearch',
+    queued: NOW_ISO,
+    status: 'started',
+    trigger: 'manual',
     ...overrides,
   }
 }
@@ -148,6 +198,7 @@ describe('MediaPollerService', () => {
   let radarrService: jest.Mocked<RadarrService>
   let sonarrService: jest.Mocked<SonarrService>
   let dbService: DbService
+  let testingModule: TestingModule
 
   /**
    * Every job event broadcast so far, as an admin sees it. Job events are
@@ -167,6 +218,59 @@ describe('MediaPollerService', () => {
     return media && isManagedMedia(media) ? media.queueSnapshot : undefined
   }
 
+  /** Every test that moves the clock starts it here. */
+  const T0 = Date.parse('2026-08-20T13:00:00.000Z')
+
+  // Wall-clock, like the poller's own timers: every tick after this reads
+  // the clock it sets.
+  function at(ms: number): void {
+    jest.spyOn(Date, 'now').mockReturnValue(ms)
+  }
+
+  // The poll gate is a backoff concern most tests don't exercise.
+  function clearBackoff(): void {
+    ;(service as unknown as { nextAllowedRunAt: number }).nextAllowedRunAt = 0
+  }
+
+  /**
+   * Stores a job the way a request does - with its row, which a download
+   * link needs - and forgets the Created frame that sends.
+   */
+  async function seed(record: DownloadJobRecord): Promise<DownloadJobRecord> {
+    downloadStateService.addJob(record)
+    await flushAsync()
+    downloadGateway.broadcastPerViewer.mockClear()
+    return record
+  }
+
+  /** The downloads a job is linked to, as stored. */
+  function linksOf(jobId: string) {
+    return listForJob(dbService.db, jobId)
+  }
+
+  /**
+   * A process restart: the job Map reloaded from its rows at boot, and a
+   * poller with nothing in memory - on the same database.
+   */
+  function restart(): void {
+    downloadStateService = new DownloadStateService(
+      testingModule.get(AttributionResolutionService),
+      dbService,
+      downloadGateway,
+      mediaResolverService,
+      mediaStateService,
+    )
+    downloadStateService.adoptOpenJobs()
+    service = new MediaPollerService(
+      downloadGateway,
+      downloadStateService,
+      mediaResolverService,
+      mediaStateService,
+      radarrService,
+      sonarrService,
+    )
+  }
+
   beforeEach(async () => {
     upstreamIds = new Map([
       ['tmdb:1', 42],
@@ -174,23 +278,55 @@ describe('MediaPollerService', () => {
     ])
     dbService = createTestDbService()
     const mockRadarrService = {
+      // A command still running, whatever the id - no job settles on it.
+      getCommand: jest.fn((id: number) =>
+        Promise.resolve(buildCommand({ id })),
+      ),
+      getFailedDownloadConfig: jest.fn().mockResolvedValue(RETRY_ON),
+      getHistoryByDownloadId: jest.fn().mockResolvedValue([]),
+      getHistorySince: jest.fn().mockResolvedValue([]),
+      getLibraryMovie: jest.fn().mockResolvedValue(undefined),
       getMovieFiles: jest.fn().mockResolvedValue([]),
       getMovieHistory: jest.fn().mockResolvedValue([]),
       getQueue: jest.fn().mockResolvedValue([]),
+      getReleases: jest.fn().mockResolvedValue([]),
+      grabRelease: jest.fn().mockResolvedValue(undefined),
+      isDownloadClientHealthy: jest.fn().mockResolvedValue(true),
+      listCommands: jest.fn().mockResolvedValue([]),
       refreshMonitoredDownloads: jest.fn().mockResolvedValue(undefined),
       removeQueueItem: jest.fn().mockResolvedValue(undefined),
+      triggerSearch: jest.fn(),
     }
     const mockSonarrService = {
+      getCommand: jest.fn((id: number) =>
+        Promise.resolve(buildCommand({ id })),
+      ),
       getEpisodeFiles: jest.fn().mockResolvedValue([]),
       getEpisodes: jest.fn().mockResolvedValue([]),
+      getFailedDownloadConfig: jest.fn().mockResolvedValue(RETRY_ON),
+      getHistoryByDownloadId: jest.fn().mockResolvedValue([]),
+      getHistorySince: jest.fn().mockResolvedValue([]),
+      getLibraryShow: jest.fn().mockResolvedValue(undefined),
       getQueue: jest.fn().mockResolvedValue([]),
+      getReleases: jest.fn().mockResolvedValue([]),
       getSeriesHistory: jest.fn().mockResolvedValue([]),
+      grabRelease: jest.fn().mockResolvedValue(undefined),
+      isDownloadClientHealthy: jest.fn().mockResolvedValue(true),
+      listCommands: jest.fn().mockResolvedValue([]),
+      monitorScope: jest.fn().mockResolvedValue(undefined),
       refreshMonitoredDownloads: jest.fn().mockResolvedValue(undefined),
       removeQueueItem: jest.fn().mockResolvedValue(undefined),
+      resolveScope: jest.fn(),
+      triggerEpisodeSearch: jest.fn(),
+      triggerSearch: jest.fn(),
+      triggerSeasonSearch: jest.fn(),
+      unmonitorScope: jest.fn().mockResolvedValue(0),
     }
     const mockDownloadGateway = {
       broadcast: jest.fn(),
       broadcastPerViewer: jest.fn(),
+      // No detail page open unless a test opens one.
+      watchedMediaIds: jest.fn(() => new Set<string>()),
     }
     // `radarrId`/`sonarrId` are no longer persisted on the job - the poller
     // reads them off the resolved media, so the resolver is what supplies
@@ -232,7 +368,7 @@ describe('MediaPollerService', () => {
       ),
     }
 
-    const module: TestingModule = await Test.createTestingModule({
+    testingModule = await Test.createTestingModule({
       providers: [
         fakeAttributionResolutionProvider(),
         MediaPollerService,
@@ -248,13 +384,13 @@ describe('MediaPollerService', () => {
       ],
     }).compile()
 
-    service = module.get(MediaPollerService)
-    downloadGateway = module.get(DownloadGateway)
-    downloadStateService = module.get(DownloadStateService)
-    radarrService = module.get(RadarrService)
-    sonarrService = module.get(SonarrService)
-    mediaResolverService = module.get(MediaResolverService)
-    mediaStateService = module.get(MediaStateService)
+    service = testingModule.get(MediaPollerService)
+    downloadGateway = testingModule.get(DownloadGateway)
+    downloadStateService = testingModule.get(DownloadStateService)
+    radarrService = testingModule.get(RadarrService)
+    sonarrService = testingModule.get(SonarrService)
+    mediaResolverService = testingModule.get(MediaResolverService)
+    mediaStateService = testingModule.get(MediaStateService)
 
     jest.spyOn(Logger.prototype, 'log').mockImplementation()
     jest.spyOn(Logger.prototype, 'error').mockImplementation()
@@ -292,9 +428,49 @@ describe('MediaPollerService', () => {
   })
 
   describe('queue refresh', () => {
-    it('asks Radarr to refresh its queue before reading it', async () => {
-      const job = buildMovieJob()
-      downloadStateService.jobs.set(job.id, job)
+    const MOVING: QueueResource = {
+      downloadId: 'dl-refresh',
+      id: 1,
+      movieId: 42,
+      size: 1000,
+      sizeleft: 500,
+      status: 'downloading',
+    }
+    const MOVING_EPISODE: SonarrQueueResource = {
+      downloadId: 'dl-refresh-episode',
+      episodeId: 5,
+      id: 2,
+      seriesId: 9,
+      size: 1000,
+      sizeleft: 500,
+      status: 'downloading',
+    }
+
+    // The gate reads the previous tick's queue, so each test seeds that and
+    // has every read after it return the same.
+    function queueRadarr(...items: QueueResource[]): void {
+      mediaStateService.setQueue('radarr', items)
+      radarrService.getQueue.mockResolvedValue(items)
+    }
+
+    function queueSonarr(...items: SonarrQueueResource[]): void {
+      mediaStateService.setQueue('sonarr', items)
+      sonarrService.getQueue.mockResolvedValue(items)
+    }
+
+    async function pollAt(ms: number): Promise<void> {
+      at(ms)
+      clearBackoff()
+      await service.poll()
+    }
+
+    const radarrRefreshes = () =>
+      radarrService.refreshMonitoredDownloads.mock.calls.length
+    const sonarrRefreshes = () =>
+      sonarrService.refreshMonitoredDownloads.mock.calls.length
+
+    it('asks Radarr to refresh before reading a queue with a download moving', async () => {
+      queueRadarr(MOVING)
 
       await service.poll()
 
@@ -304,14 +480,12 @@ describe('MediaPollerService', () => {
       ).toBeLessThan(
         radarrService.getQueue.mock.invocationCallOrder[0] as number,
       )
-      // Nothing tracked and nothing queued on the Sonarr side, so nothing
-      // sent there.
+      // Nothing queued on the Sonarr side, so nothing sent there.
       expect(sonarrService.refreshMonitoredDownloads).not.toHaveBeenCalled()
     })
 
-    it('asks Sonarr the same way for a show job', async () => {
-      const job = buildShowJob()
-      downloadStateService.jobs.set(job.id, job)
+    it('asks Sonarr the same way', async () => {
+      queueSonarr(MOVING_EPISODE)
 
       await service.poll()
 
@@ -319,24 +493,274 @@ describe('MediaPollerService', () => {
       expect(radarrService.refreshMonitoredDownloads).not.toHaveBeenCalled()
     })
 
-    it('reads the queue anyway, without backing off, when the refresh is refused', async () => {
-      const job = buildMovieJob({ status: DownloadJobStatus.Searching })
-      downloadStateService.jobs.set(job.id, job)
-      radarrService.refreshMonitoredDownloads.mockRejectedValueOnce(
-        new Error('radarr said no'),
-      )
-      radarrService.getQueue.mockResolvedValue([
-        { movieId: 42, status: 'downloading', size: 1000, sizeleft: 500 },
-      ])
+    // Radarr/Sonarr refresh on their own a few seconds after a grab, and
+    // history settles the job - a search has nothing to watch move.
+    it('sends nothing for a tracked job with nothing in the queue', async () => {
+      await seed(buildMovieJob({ status: DownloadJobStatus.Searching }))
 
       await service.poll()
 
+      expect(radarrService.refreshMonitoredDownloads).not.toHaveBeenCalled()
+    })
+
+    it.each<[string, QueueResource]>([
+      [
+        'blocked from import',
+        {
+          ...MOVING,
+          sizeleft: 0,
+          status: 'completed',
+          trackedDownloadState: 'importBlocked',
+          trackedDownloadStatus: 'warning',
+        },
+      ],
+      [
+        'failed at the client',
+        { ...MOVING, status: 'failed', trackedDownloadStatus: 'error' },
+      ],
+      ['held by a delay profile', { ...MOVING, status: 'delay' }],
+      ['paused', { ...MOVING, status: 'paused' }],
+    ])('sends nothing for an item %s', async (_, item) => {
+      queueRadarr(item)
+
+      await service.poll()
+
+      expect(radarrService.refreshMonitoredDownloads).not.toHaveBeenCalled()
+    })
+
+    it('refreshes at most every QUEUE_REFRESH_MS', async () => {
+      queueRadarr(MOVING)
+
+      await pollAt(T0)
+      await pollAt(T0 + 1_000)
+      await pollAt(T0 + 4_000)
+      expect(radarrRefreshes()).toBe(1)
+
+      await pollAt(T0 + QUEUE_REFRESH_MS)
+      expect(radarrRefreshes()).toBe(2)
+    })
+
+    it('refreshes every tick for a title a detail page is open on, per source', async () => {
+      queueRadarr(MOVING)
+      queueSonarr(MOVING_EPISODE)
+      ;(
+        service as unknown as {
+          queuedMedia: Record<'radarr' | 'sonarr', Map<string, number>>
+        }
+      ).queuedMedia.radarr.set('tmdb:1', 42)
+      downloadGateway.watchedMediaIds.mockReturnValue(new Set(['tmdb:1']))
+
+      await pollAt(T0)
+      await pollAt(T0 + WATCHED_QUEUE_REFRESH_MS)
+      await pollAt(T0 + 2 * WATCHED_QUEUE_REFRESH_MS)
+
+      expect(radarrRefreshes()).toBe(3)
+      // Nobody is watching the show: Sonarr keeps its own 5 s pace.
+      expect(sonarrRefreshes()).toBe(1)
+    })
+
+    it('stops once an item has read the same for STALL_MS, and starts again when it moves', async () => {
+      queueRadarr(MOVING)
+
+      await pollAt(T0)
+      await pollAt(T0 + 30_000)
+      expect(radarrRefreshes()).toBe(2)
+
+      // This tick still gates on the stalled reading; the one after sees
+      // the new `sizeleft`.
+      radarrService.getQueue.mockResolvedValue([{ ...MOVING, sizeleft: 400 }])
+      await pollAt(T0 + STALL_MS + 1_000)
+      expect(radarrRefreshes()).toBe(2)
+
+      await pollAt(T0 + STALL_MS + 2_000)
+      expect(radarrRefreshes()).toBe(3)
+    })
+
+    it('keeps refreshing an import that is running, however long it takes', async () => {
+      queueRadarr({
+        ...MOVING,
+        sizeleft: 0,
+        status: 'completed',
+        trackedDownloadState: 'importing',
+      })
+
+      await pollAt(T0)
+      await pollAt(T0 + 2 * STALL_MS)
+
+      expect(radarrRefreshes()).toBe(2)
+    })
+
+    it('reads the queue anyway, without backing off, when the refresh is refused', async () => {
+      const job = await seed(
+        buildMovieJob({ status: DownloadJobStatus.Searching }),
+      )
+      queueRadarr(MOVING)
+      radarrService.refreshMonitoredDownloads.mockRejectedValueOnce(
+        new Error('radarr said no'),
+      )
+
+      await service.poll()
+
+      expect(radarrService.refreshMonitoredDownloads).toHaveBeenCalledTimes(1)
       expect(downloadStateService.jobs.get(job.id)?.status).toBe(
         DownloadJobStatus.Downloading,
       )
       expect(
         (service as unknown as { nextAllowedRunAt: number }).nextAllowedRunAt,
       ).toBe(0)
+    })
+
+    it.each<SabClientHealth>(['unhealthy', 'off'])(
+      'keeps the timed gate with SABnzbd %s',
+      async health => {
+        mediaStateService.setClientReadings(new Map(), health)
+        queueRadarr(MOVING)
+
+        await pollAt(T0)
+        await pollAt(T0 + 1_000)
+        await pollAt(T0 + QUEUE_REFRESH_MS)
+
+        expect(radarrRefreshes()).toBe(2)
+      },
+    )
+
+    describe('with SABnzbd healthy', () => {
+      beforeEach(() => {
+        mediaStateService.setClientReadings(new Map(), 'ok')
+      })
+
+      /** A SAB phase change of one download, as the monitor pushes it. */
+      function phaseChange(nzoId: string, to: SabPhase = 'completed'): void {
+        mediaStateService.pushClientTransitions([
+          { from: 'downloading', nzoId, to },
+        ])
+      }
+
+      // The live progress comes from SABnzbd, so a moving item alone buys
+      // nothing a refresh would.
+      it('sends nothing for a moving item with no phase change', async () => {
+        queueRadarr(MOVING)
+        queueSonarr(MOVING_EPISODE)
+
+        await pollAt(T0)
+        await pollAt(T0 + QUEUE_REFRESH_MS)
+
+        expect(radarrRefreshes()).toBe(0)
+        expect(sonarrRefreshes()).toBe(0)
+      })
+
+      it('refreshes only the app whose download changed phase', async () => {
+        queueRadarr(MOVING)
+        queueSonarr(MOVING_EPISODE)
+        phaseChange(MOVING.downloadId as string)
+
+        await pollAt(T0)
+
+        expect(radarrRefreshes()).toBe(1)
+        expect(sonarrRefreshes()).toBe(0)
+        // Spent, not sent again.
+        await pollAt(T0 + EVENT_REFRESH_MIN_MS)
+        expect(radarrRefreshes()).toBe(1)
+        expect(mediaStateService.takeClientTransitions()).toEqual([])
+      })
+
+      it('refreshes each app for its own changes in the same tick', async () => {
+        queueRadarr(MOVING)
+        queueSonarr(MOVING_EPISODE)
+        phaseChange(MOVING.downloadId as string)
+        phaseChange(MOVING_EPISODE.downloadId as string)
+
+        await pollAt(T0)
+
+        expect(radarrRefreshes()).toBe(1)
+        expect(sonarrRefreshes()).toBe(1)
+      })
+
+      it('collapses changes inside EVENT_REFRESH_MIN_MS into the next refresh allowed', async () => {
+        queueRadarr(MOVING)
+
+        // Two at once: one refresh.
+        phaseChange(MOVING.downloadId as string, 'post_processing')
+        phaseChange(MOVING.downloadId as string, 'completed')
+        await pollAt(T0)
+        expect(radarrRefreshes()).toBe(1)
+
+        // One inside the limit waits for it.
+        phaseChange(MOVING.downloadId as string, 'gone')
+        await pollAt(T0 + 1_000)
+        expect(radarrRefreshes()).toBe(1)
+
+        await pollAt(T0 + EVENT_REFRESH_MIN_MS)
+        expect(radarrRefreshes()).toBe(2)
+
+        await pollAt(T0 + EVENT_REFRESH_MIN_MS + 1_000)
+        expect(radarrRefreshes()).toBe(2)
+      })
+
+      it('drops a change for a download neither queue lists', async () => {
+        queueRadarr(MOVING)
+        queueSonarr(MOVING_EPISODE)
+        phaseChange('SABnzbd_nzo_untracked')
+
+        await pollAt(T0)
+
+        expect(radarrRefreshes()).toBe(0)
+        expect(sonarrRefreshes()).toBe(0)
+        expect(mediaStateService.takeClientTransitions()).toEqual([])
+      })
+
+      it("keeps the other app's changes through this app's pass", async () => {
+        queueRadarr(MOVING)
+        queueSonarr(MOVING_EPISODE)
+
+        phaseChange(MOVING_EPISODE.downloadId as string, 'post_processing')
+        await pollAt(T0)
+        expect(sonarrRefreshes()).toBe(1)
+
+        // Sonarr's change waits out its limit while Radarr's pass takes every
+        // pending change and spends its own.
+        phaseChange(MOVING.downloadId as string)
+        phaseChange(MOVING_EPISODE.downloadId as string, 'completed')
+        await pollAt(T0 + 1_000)
+        expect(radarrRefreshes()).toBe(1)
+        expect(sonarrRefreshes()).toBe(1)
+
+        await pollAt(T0 + EVENT_REFRESH_MIN_MS)
+        expect(sonarrRefreshes()).toBe(2)
+        expect(radarrRefreshes()).toBe(1)
+        expect(mediaStateService.takeClientTransitions()).toEqual([])
+      })
+
+      it('logs a refused refresh without backing off or sending it again', async () => {
+        queueRadarr(MOVING)
+        radarrService.refreshMonitoredDownloads.mockRejectedValueOnce(
+          new Error('radarr said no'),
+        )
+        phaseChange(MOVING.downloadId as string)
+
+        await pollAt(T0)
+
+        expect(radarrRefreshes()).toBe(1)
+        expect(Logger.prototype.warn).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: 'requestQueueRefresh',
+            error: 'radarr said no',
+            source: 'radarr',
+          }),
+          expect.any(String),
+        )
+        expect(
+          (service as unknown as { nextAllowedRunAt: number }).nextAllowedRunAt,
+        ).toBe(0)
+
+        // The change was spent on the refused refresh, and it still counts
+        // against the limit.
+        phaseChange(MOVING.downloadId as string, 'gone')
+        await pollAt(T0 + 1_000)
+        expect(radarrRefreshes()).toBe(1)
+        await pollAt(T0 + EVENT_REFRESH_MIN_MS)
+        expect(radarrRefreshes()).toBe(2)
+      })
     })
   })
 
@@ -500,6 +924,11 @@ describe('MediaPollerService', () => {
         id: 'done',
         status: DownloadJobStatus.Completed,
       })
+      // Plan 024: a search that found nothing is just as finished.
+      const notFoundJob = buildMovieJob({
+        id: 'nothing-found',
+        status: DownloadJobStatus.NotFound,
+      })
       // A title that has been requested but isn't in Radarr's library yet
       // resolves without a radarrId, so there is nothing to poll it by.
       const notInLibraryJob = buildMovieJob({
@@ -508,6 +937,7 @@ describe('MediaPollerService', () => {
       })
       downloadStateService.jobs.set(trackedJob.id, trackedJob)
       downloadStateService.jobs.set(completedJob.id, completedJob)
+      downloadStateService.jobs.set(notFoundJob.id, notFoundJob)
       downloadStateService.jobs.set(notInLibraryJob.id, notInLibraryJob)
       const updateJobSpy = jest.spyOn(downloadStateService, 'updateJob')
 
@@ -518,8 +948,8 @@ describe('MediaPollerService', () => {
       await service.poll()
 
       expect(radarrService.getQueue).toHaveBeenCalledWith()
-      // Only the tracked job moved; the completed one and the one with no
-      // library id were never matched against the queue.
+      // Only the tracked job moved; the completed and not-found ones and the
+      // one with no library id were never matched against the queue.
       expect(updateJobSpy).not.toHaveBeenCalled()
       // The tracked job's progress still went out, as a bare re-broadcast.
       expect((await jobFrames()).map(frame => frame.job.id)).toEqual([
@@ -621,7 +1051,10 @@ describe('MediaPollerService', () => {
       expect(mediaResolverService.invalidate).not.toHaveBeenCalled()
     })
 
-    it('captures an error message when the queue reports a failure', async () => {
+    // A failed item is not a failed job: history's `failed` event says
+    // whether Radarr retries. Only an item still failed two minutes on - no
+    // event is coming - is put in front of a person.
+    it('holds a failed queue item, then asks for attention once it lingers', async () => {
       const job = buildMovieJob({ status: DownloadJobStatus.Downloading })
       downloadStateService.jobs.set(job.id, job)
 
@@ -633,11 +1066,54 @@ describe('MediaPollerService', () => {
         },
       ])
 
+      at(T0)
+      await service.poll()
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Downloading,
+      )
+
+      at(T0 + ATTENTION_DELAY_MS)
       await service.poll()
 
       const updated = downloadStateService.jobs.get(job.id)
-      expect(updated?.status).toBe(DownloadJobStatus.Failed)
+      expect(updated?.status).toBe(DownloadJobStatus.NeedsAttention)
       expect(updated?.error).toBe('no seeds found')
+    })
+
+    it("carries Radarr's delay as a note on a searching job", async () => {
+      const job = buildMovieJob({ status: DownloadJobStatus.Searching })
+      downloadStateService.jobs.set(job.id, job)
+      const until = new Date(T0 + 3_600_000)
+      radarrService.getQueue.mockResolvedValue([
+        {
+          estimatedCompletionTime: until.toISOString(),
+          movieId: 42,
+          status: 'delay',
+        },
+      ])
+
+      await service.poll()
+
+      const hh = String(until.getHours()).padStart(2, '0')
+      const mm = String(until.getMinutes()).padStart(2, '0')
+      const updated = downloadStateService.jobs.get(job.id)
+      expect(updated?.status).toBe(DownloadJobStatus.Searching)
+      expect(updated?.statusNote).toBe(`Delayed by Radarr until ${hh}:${mm}`)
+      expect(getJobById(dbService.db, job.id)?.statusNote).toBe(
+        `Delayed by Radarr until ${hh}:${mm}`,
+      )
+
+      // Grabbed for real: the note goes with the status it described.
+      radarrService.getQueue.mockResolvedValue([
+        { movieId: 42, size: 1000, sizeleft: 500, status: 'downloading' },
+      ])
+      await service.poll()
+
+      expect(downloadStateService.jobs.get(job.id)).toMatchObject({
+        status: DownloadJobStatus.Downloading,
+        statusNote: undefined,
+      })
+      expect(getJobById(dbService.db, job.id)?.statusNote).toBeNull()
     })
   })
 
@@ -736,6 +1212,54 @@ describe('MediaPollerService', () => {
       expect(touchSpy).not.toHaveBeenCalled()
       expect(frames).toHaveLength(1)
       expect(frames[0]?.job.status).toBe(DownloadJobStatus.Completed)
+    })
+
+    // Radarr's own numbers only move when it re-reads SABnzbd; the job's
+    // snapshot follows SAB's live reading of the same download every tick.
+    it("sends a frame with SAB's bytes each tick while Radarr's numbers stand still", async () => {
+      const job = buildMovieJob({ status: DownloadJobStatus.Downloading })
+      downloadStateService.jobs.set(job.id, job)
+      radarrService.getQueue.mockResolvedValue([
+        { ...downloading(500), downloadId: 'SABnzbd_nzo_movie' },
+      ])
+      const reading = (downloadedBytes: number): SabReading => ({
+        diskFreeGb: 500,
+        downloadedBytes,
+        etaSeconds: 30,
+        failMessage: null,
+        globallyPaused: false,
+        nzoId: 'SABnzbd_nzo_movie',
+        phase: 'downloading',
+        seenAt: 0,
+        speedBps: 100,
+        stage: null,
+        stageDetail: null,
+        totalBytes: 1000,
+      })
+      const readSab = (downloadedBytes: number) =>
+        mediaStateService.setClientReadings(
+          new Map([['SABnzbd_nzo_movie', reading(downloadedBytes)]]),
+          'ok',
+        )
+
+      readSab(600)
+      const first = await pollOnce()
+      readSab(700)
+      const second = await pollOnce()
+
+      expect(first).toHaveLength(1)
+      expect(snapshotOf(first[0])).toMatchObject({
+        downloadedBytes: 600,
+        progress: 60,
+        stage: 'downloading',
+      })
+      expect(second).toHaveLength(1)
+      expect(snapshotOf(second[0])).toMatchObject({
+        downloadedBytes: 700,
+        progress: 70,
+      })
+      // The same reading again: nothing new to say.
+      expect(await pollOnce()).toEqual([])
     })
   })
 
@@ -910,7 +1434,7 @@ describe('MediaPollerService', () => {
       await service.poll()
 
       // No match at all, so the job is settled from its files - and with
-      // none landed, inside the grace period, it is left where it was.
+      // none landed and no download linked, it is left where it was.
       expect(downloadStateService.jobs.get(job.id)?.status).toBe(
         DownloadJobStatus.Downloading,
       )
@@ -957,12 +1481,13 @@ describe('MediaPollerService', () => {
       expect(sonarrService.getEpisodeFiles).toHaveBeenCalledWith(9)
     })
 
-    it('surfaces every failure message across a scope', async () => {
+    it('surfaces every failure message across a scope once it lingers', async () => {
       const job = buildShowJob({
         scope: { seasonNumber: 3 },
         status: DownloadJobStatus.Downloading,
       })
       downloadStateService.jobs.set(job.id, job)
+      at(T0)
 
       sonarrService.getQueue.mockResolvedValue([
         {
@@ -970,7 +1495,7 @@ describe('MediaPollerService', () => {
           seasonNumber: 3,
           seriesId: 9,
           status: 'failed',
-          statusMessages: [{ messages: ['disk full'], title: 'a' }],
+          statusMessages: [{ messages: ['repair failed'], title: 'a' }],
         },
         {
           episodeId: 2,
@@ -982,10 +1507,16 @@ describe('MediaPollerService', () => {
       ])
 
       await service.poll()
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Downloading,
+      )
+
+      at(T0 + ATTENTION_DELAY_MS)
+      await service.poll()
 
       const updated = downloadStateService.jobs.get(job.id)
-      expect(updated?.status).toBe(DownloadJobStatus.Failed)
-      expect(updated?.error).toBe('disk full; unpack failed')
+      expect(updated?.status).toBe(DownloadJobStatus.NeedsAttention)
+      expect(updated?.error).toBe('repair failed; unpack failed')
     })
   })
 
@@ -1002,11 +1533,31 @@ describe('MediaPollerService', () => {
       return job
     }
 
-    it("carries upstream's own sentence onto the job when an import is blocked", async () => {
+    /**
+     * Polls the blocked import until it has lingered long enough to be put
+     * in front of a person: Radarr retries a pending import by itself every
+     * minute, so the first two minutes read as Importing.
+     */
+    async function pollUntilBlocked(): Promise<void> {
+      radarrService.getQueue.mockResolvedValue([BLOCKED_IMPORT_ITEM])
+      at(T0)
+      await service.poll()
+      at(T0 + ATTENTION_DELAY_MS)
+      await service.poll()
+    }
+
+    it("carries upstream's own sentence onto the job once an import stays blocked", async () => {
       const job = seedBlockedMovieJob()
 
       radarrService.getQueue.mockResolvedValue([BLOCKED_IMPORT_ITEM])
+      at(T0)
+      await service.poll()
 
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Importing,
+      )
+
+      at(T0 + ATTENTION_DELAY_MS)
       await service.poll()
 
       const updated = downloadStateService.jobs.get(job.id)
@@ -1022,18 +1573,26 @@ describe('MediaPollerService', () => {
     it('drops the reason from the record and the row once the job completes', async () => {
       const job = seedBlockedMovieJob()
 
-      radarrService.getQueue.mockResolvedValue([BLOCKED_IMPORT_ITEM])
-      await service.poll()
+      await pollUntilBlocked()
 
       expect(getJobById(dbService.db, job.id)?.error).toBe(
         BLOCKED_IMPORT_REASON,
       )
 
       // A human worked the manual-import dialog, so Radarr imported the file
-      // and dropped the row.
+      // from the job's own download and dropped the row.
       radarrService.getQueue.mockResolvedValue([])
       radarrService.getMovieFiles.mockResolvedValue([
         { dateAdded: AFTER_ISO, id: 501, movieId: 434 },
+      ])
+      radarrService.getMovieHistory.mockResolvedValue([
+        {
+          data: { fileId: '501' },
+          date: AFTER_ISO,
+          downloadId: BLOCKED_IMPORT_ITEM.downloadId,
+          eventType: 'downloadFolderImported',
+          movieId: 434,
+        },
       ])
       await service.poll()
 
@@ -1048,8 +1607,7 @@ describe('MediaPollerService', () => {
     it('re-writes the reason when upstream re-parses while still blocked', async () => {
       const job = seedBlockedMovieJob()
 
-      radarrService.getQueue.mockResolvedValue([BLOCKED_IMPORT_ITEM])
-      await service.poll()
+      await pollUntilBlocked()
 
       const reparsed =
         'Found matching movie via grab history, but release was matched to movie by ID. Automatic import is not possible.'
@@ -1068,11 +1626,10 @@ describe('MediaPollerService', () => {
       expect(updated?.error).toBe(reparsed)
     })
 
-    it('replaces the block reason with the failure message on a later failure', async () => {
+    it('replaces the block reason with the failure message once a later failure lingers', async () => {
       const job = seedBlockedMovieJob()
 
-      radarrService.getQueue.mockResolvedValue([BLOCKED_IMPORT_ITEM])
-      await service.poll()
+      await pollUntilBlocked()
 
       radarrService.getQueue.mockResolvedValue([
         {
@@ -1087,10 +1644,21 @@ describe('MediaPollerService', () => {
           trackedDownloadState: 'failedPending',
         },
       ])
+      at(T0 + ATTENTION_DELAY_MS + 1_000)
+      await service.poll()
+
+      // A new state restarts the clock: until history says what became of
+      // the failure, the job stays where it was.
+      expect(downloadStateService.jobs.get(job.id)).toMatchObject({
+        error: BLOCKED_IMPORT_REASON,
+        status: DownloadJobStatus.NeedsAttention,
+      })
+
+      at(T0 + 2 * ATTENTION_DELAY_MS + 1_000)
       await service.poll()
 
       const updated = downloadStateService.jobs.get(job.id)
-      expect(updated?.status).toBe(DownloadJobStatus.Failed)
+      expect(updated?.status).toBe(DownloadJobStatus.NeedsAttention)
       expect(updated?.error).toBe('Download client reported an error')
     })
 
@@ -1165,11 +1733,6 @@ describe('MediaPollerService', () => {
         expect(message.type).toBe(MEDIA_EVENT_TYPE)
         return message.data as MediaEvent
       })
-    }
-
-    // The poll gate is a backoff concern the tests below don't exercise.
-    function clearBackoff(): void {
-      ;(service as unknown as { nextAllowedRunAt: number }).nextAllowedRunAt = 0
     }
 
     function buildEpisodes(count: number): EpisodeResource[] {
@@ -1437,12 +2000,6 @@ describe('MediaPollerService', () => {
     // so the media stays watched - re-read fresh each tick - until the file
     // lands, or for the grace period if it never does.
     describe('after the item leaves with no file listed', () => {
-      const T0 = Date.parse('2026-08-20T13:00:00.000Z')
-
-      function at(ms: number): void {
-        jest.spyOn(Date, 'now').mockReturnValue(ms)
-      }
-
       async function vanishWithoutFile(): Promise<void> {
         at(T0)
         radarrService.getQueue.mockResolvedValue([UNOWNED_MOVIE_ITEM])
@@ -1829,18 +2386,6 @@ describe('MediaPollerService', () => {
   })
 
   describe('settling a job with no queue item', () => {
-    const T0 = Date.parse('2026-08-20T13:00:00.000Z')
-
-    // Wall-clock, like the poller's own timer: every tick below reads the
-    // clock this controls.
-    function at(ms: number): void {
-      jest.spyOn(Date, 'now').mockReturnValue(ms)
-    }
-
-    function clearBackoff(): void {
-      ;(service as unknown as { nextAllowedRunAt: number }).nextAllowedRunAt = 0
-    }
-
     function absentSince(): Map<string, number> {
       return (service as unknown as { absentSince: Map<string, number> })
         .absentSince
@@ -1851,6 +2396,12 @@ describe('MediaPollerService', () => {
       size: 1000,
       sizeleft: 500,
       status: 'downloading',
+    }
+
+    /** The same download, carrying the id the job is linked by. */
+    const LINKED_ITEM: QueueResource = {
+      ...DOWNLOADING_ITEM,
+      downloadId: 'dl-1',
     }
 
     it('reads no files while every job has a queue item', async () => {
@@ -1893,114 +2444,135 @@ describe('MediaPollerService', () => {
       expect(absentSince().has(job.id)).toBe(false)
     })
 
-    it('fails a job whose item left over a minute ago with no file', async () => {
+    // No link, no evidence: an empty queue alone never ends a job, however
+    // long it lasts. The old minute's grace failed live downloads whenever
+    // SABnzbd blinked.
+    it('leaves a job with no download link alone however long it is gone', async () => {
       const job = buildMovieJob({ status: DownloadJobStatus.Downloading })
       downloadStateService.jobs.set(job.id, job)
       radarrService.getQueue.mockResolvedValue([])
 
       at(T0)
       await service.poll()
-      at(T0 + 59_000)
+      at(T0 + 61_000)
+      await service.poll()
+      at(T0 + ABSENT_REMOVED_MS + 61_000)
       await service.poll()
 
       expect(downloadStateService.jobs.get(job.id)?.status).toBe(
         DownloadJobStatus.Downloading,
-      )
-
-      at(T0 + 61_000)
-      await service.poll()
-
-      const updated = downloadStateService.jobs.get(job.id)
-      expect(updated?.status).toBe(DownloadJobStatus.Failed)
-      expect(updated?.error).toBe('Left the queue without producing a file')
-      expect(getJobById(dbService.db, job.id)?.error).toBe(
-        'Left the queue without producing a file',
       )
       expect(mediaResolverService.invalidate).not.toHaveBeenCalled()
-      expect(absentSince().has(job.id)).toBe(false)
     })
 
-    it('fails an importing show job the same way', async () => {
-      const job = buildShowJob({
-        scope: { seasonNumber: 3 },
-        status: DownloadJobStatus.Importing,
-      })
-      downloadStateService.jobs.set(job.id, job)
-      sonarrService.getQueue.mockResolvedValue([])
+    it('cancels a linked show job gone ten minutes from a healthy client', async () => {
+      const job = await seed(
+        buildShowJob({
+          scope: { seasonNumber: 3 },
+          status: DownloadJobStatus.Importing,
+        }),
+      )
 
       at(T0)
+      sonarrService.getQueue.mockResolvedValue([
+        {
+          downloadId: 'dl-show',
+          episodeId: 1,
+          seasonNumber: 3,
+          seriesId: 9,
+          status: 'completed',
+        },
+      ])
       await service.poll()
-      at(T0 + 61_000)
+      expect(linksOf(job.id).map(link => link.downloadId)).toEqual(['dl-show'])
+
+      at(T0 + 10_000)
+      sonarrService.getQueue.mockResolvedValue([])
+      await service.poll()
+      at(T0 + 10_000 + ABSENT_REMOVED_MS)
       await service.poll()
 
       const updated = downloadStateService.jobs.get(job.id)
-      expect(updated?.status).toBe(DownloadJobStatus.Failed)
-      expect(updated?.error).toBe('Left the queue without producing a file')
+      expect(updated?.status).toBe(DownloadJobStatus.Cancelled)
+      expect(updated?.error).toBe(REMOVED_FROM_CLIENT_ERROR)
     })
 
-    it('restarts the grace period when the item comes back', async () => {
-      const job = buildMovieJob({ status: DownloadJobStatus.Downloading })
-      downloadStateService.jobs.set(job.id, job)
+    it('restarts the absence when the item comes back', async () => {
+      const job = await seed(
+        buildMovieJob({ status: DownloadJobStatus.Downloading }),
+      )
 
       at(T0)
+      radarrService.getQueue.mockResolvedValue([LINKED_ITEM])
+      await service.poll()
+
+      at(T0 + 10_000)
       radarrService.getQueue.mockResolvedValue([])
       await service.poll()
-      expect(absentSince().get(job.id)).toBe(T0)
+      expect(absentSince().get(job.id)).toBe(T0 + 10_000)
 
-      at(T0 + 30_000)
-      radarrService.getQueue.mockResolvedValue([DOWNLOADING_ITEM])
+      at(T0 + 300_000)
+      radarrService.getQueue.mockResolvedValue([LINKED_ITEM])
       await service.poll()
       expect(absentSince().has(job.id)).toBe(false)
 
-      at(T0 + 50_000)
+      at(T0 + 360_000)
       radarrService.getQueue.mockResolvedValue([])
       await service.poll()
 
-      // 70s after it first went, but only 20s since it last went.
-      at(T0 + 70_000)
+      // Ten minutes after it first went, but only four since it last went.
+      at(T0 + 10_000 + ABSENT_REMOVED_MS)
       await service.poll()
 
       expect(downloadStateService.jobs.get(job.id)?.status).toBe(
         DownloadJobStatus.Downloading,
       )
-      expect(absentSince().get(job.id)).toBe(T0 + 50_000)
+      expect(absentSince().get(job.id)).toBe(T0 + 360_000)
     })
 
     // Wall-clock, not tick-count: polls that fail in between still count.
-    it('keeps the grace timer running through a failed poll', async () => {
-      const job = buildMovieJob({ status: DownloadJobStatus.Downloading })
-      downloadStateService.jobs.set(job.id, job)
-      radarrService.getQueue.mockResolvedValue([])
+    it('keeps the absence timer running through a failed poll', async () => {
+      const job = await seed(
+        buildMovieJob({ status: DownloadJobStatus.Downloading }),
+      )
 
       at(T0)
+      radarrService.getQueue.mockResolvedValue([LINKED_ITEM])
+      await service.poll()
+      at(T0 + 10_000)
+      radarrService.getQueue.mockResolvedValue([])
       await service.poll()
 
-      at(T0 + 20_000)
+      at(T0 + 300_000)
       radarrService.getQueue.mockRejectedValueOnce(new Error('radarr down'))
       await service.poll()
-      expect(absentSince().get(job.id)).toBe(T0)
+      expect(absentSince().get(job.id)).toBe(T0 + 10_000)
 
       clearBackoff()
-      at(T0 + 61_000)
+      at(T0 + 10_000 + ABSENT_REMOVED_MS)
       await service.poll()
 
       expect(downloadStateService.jobs.get(job.id)?.status).toBe(
-        DownloadJobStatus.Failed,
+        DownloadJobStatus.Cancelled,
       )
     })
 
     // Without the listing there is no telling a finished import from a
     // dropped download, so a failed read decides nothing - even past the
-    // grace period - and never backs the poll off.
+    // removal window - and never backs the poll off.
     it('leaves a job unchanged when its files cannot be read', async () => {
-      const job = buildMovieJob({ status: DownloadJobStatus.Downloading })
-      downloadStateService.jobs.set(job.id, job)
-      radarrService.getQueue.mockResolvedValue([])
+      const job = await seed(
+        buildMovieJob({ status: DownloadJobStatus.Downloading }),
+      )
 
       at(T0)
+      radarrService.getQueue.mockResolvedValue([LINKED_ITEM])
+      await service.poll()
+      at(T0 + 10_000)
+      radarrService.getQueue.mockResolvedValue([])
       await service.poll()
 
-      at(T0 + 61_000)
+      at(T0 + 10_000 + ABSENT_REMOVED_MS)
       radarrService.getMovieFiles.mockRejectedValueOnce(
         new Error('radarr down'),
       )
@@ -2013,12 +2585,12 @@ describe('MediaPollerService', () => {
         (service as unknown as { nextAllowedRunAt: number }).nextAllowedRunAt,
       ).toBe(0)
 
-      // Readable again, and still nothing landed: now it fails.
-      at(T0 + 71_000)
+      // Readable again, and still nothing landed: now it is called removed.
+      at(T0 + 20_000 + ABSENT_REMOVED_MS)
       await service.poll()
 
       expect(downloadStateService.jobs.get(job.id)?.status).toBe(
-        DownloadJobStatus.Failed,
+        DownloadJobStatus.Cancelled,
       )
     })
 
@@ -2185,169 +2757,6 @@ describe('MediaPollerService', () => {
       })
     })
 
-    // Removed from Radarr's/Sonarr's own queue: the history of the job's own
-    // download settles it, without waiting out the grace period.
-    describe('reading what became of a download that left the queue', () => {
-      const QUEUED_ITEM: QueueResource = {
-        ...DOWNLOADING_ITEM,
-        downloadId: 'dl-1',
-      }
-      const GRABBED = { downloadId: 'dl-1', eventType: 'grabbed' } as const
-
-      async function queuedThenGone(
-        status = DownloadJobStatus.Downloading,
-      ): Promise<DownloadJobRecord> {
-        const job = buildMovieJob({ status })
-        downloadStateService.jobs.set(job.id, job)
-
-        at(T0)
-        radarrService.getQueue.mockResolvedValue([
-          status === DownloadJobStatus.NeedsAttention
-            ? { ...QUEUED_ITEM, trackedDownloadState: 'importPending' }
-            : QUEUED_ITEM,
-        ])
-        await service.poll()
-
-        at(T0 + 10_000)
-        radarrService.getQueue.mockResolvedValue([])
-        await service.poll()
-        return job
-      }
-
-      it('cancels a job whose download was removed in Radarr, on the next read', async () => {
-        radarrService.getMovieHistory.mockResolvedValue([GRABBED])
-        const job = await queuedThenGone()
-
-        // One read without it is not enough to call it.
-        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
-          DownloadJobStatus.Downloading,
-        )
-
-        at(T0 + 20_000)
-        await service.poll()
-
-        const updated = downloadStateService.jobs.get(job.id)
-        expect(radarrService.getMovieHistory).toHaveBeenCalledWith(42)
-        expect(updated?.status).toBe(DownloadJobStatus.Cancelled)
-        expect(updated?.error).toBe("Removed from Radarr's queue")
-        expect(getJobById(dbService.db, job.id)?.error).toBe(
-          "Removed from Radarr's queue",
-        )
-      })
-
-      it("fails a job the download client failed, with the client's reason", async () => {
-        radarrService.getMovieHistory.mockResolvedValue([
-          GRABBED,
-          {
-            data: { message: 'Repair failed, not enough repair blocks' },
-            downloadId: 'dl-1',
-            eventType: 'downloadFailed',
-          },
-        ])
-        const job = await queuedThenGone()
-
-        at(T0 + 20_000)
-        await service.poll()
-
-        const updated = downloadStateService.jobs.get(job.id)
-        expect(updated?.status).toBe(DownloadJobStatus.Failed)
-        expect(updated?.error).toBe('Repair failed, not enough repair blocks')
-      })
-
-      it('keeps waiting on a job whose import is recorded but not yet listed', async () => {
-        radarrService.getMovieHistory.mockResolvedValue([
-          GRABBED,
-          { downloadId: 'dl-1', eventType: 'downloadFolderImported' },
-        ])
-        const job = await queuedThenGone()
-
-        at(T0 + 20_000)
-        await service.poll()
-        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
-          DownloadJobStatus.Downloading,
-        )
-
-        radarrService.getMovieFiles.mockResolvedValue([
-          { dateAdded: AFTER_ISO, id: 501, movieId: 42 },
-        ])
-        at(T0 + 30_000)
-        await service.poll()
-        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
-          DownloadJobStatus.Completed,
-        )
-      })
-
-      it('cancels a needs-attention job someone gave up on in Radarr', async () => {
-        radarrService.getMovieHistory.mockResolvedValue([GRABBED])
-        const job = await queuedThenGone(DownloadJobStatus.NeedsAttention)
-
-        at(T0 + 20_000)
-        await service.poll()
-
-        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
-          DownloadJobStatus.Cancelled,
-        )
-      })
-
-      it("cancels a show job from Sonarr's history", async () => {
-        const job = buildShowJob({ status: DownloadJobStatus.Downloading })
-        downloadStateService.jobs.set(job.id, job)
-        sonarrService.getSeriesHistory.mockResolvedValue([GRABBED])
-
-        at(T0)
-        sonarrService.getQueue.mockResolvedValue([
-          { downloadId: 'dl-1', seriesId: 9, status: 'downloading' },
-        ])
-        await service.poll()
-        sonarrService.getQueue.mockResolvedValue([])
-        at(T0 + 10_000)
-        await service.poll()
-        at(T0 + 20_000)
-        await service.poll()
-
-        const updated = downloadStateService.jobs.get(job.id)
-        expect(sonarrService.getSeriesHistory).toHaveBeenCalledWith(9)
-        expect(updated?.status).toBe(DownloadJobStatus.Cancelled)
-        expect(updated?.error).toBe("Removed from Sonarr's queue")
-      })
-
-      // No download id to look for: nothing in the history is the job's.
-      it('reads no history for a job whose downloads it never saw', async () => {
-        const job = buildMovieJob({ status: DownloadJobStatus.Downloading })
-        downloadStateService.jobs.set(job.id, job)
-        radarrService.getQueue.mockResolvedValue([])
-
-        at(T0)
-        await service.poll()
-        at(T0 + 20_000)
-        await service.poll()
-
-        expect(radarrService.getMovieHistory).not.toHaveBeenCalled()
-        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
-          DownloadJobStatus.Downloading,
-        )
-      })
-
-      it('falls back to the grace period when the history cannot be read', async () => {
-        radarrService.getMovieHistory.mockRejectedValue(
-          new Error('radarr down'),
-        )
-        const job = await queuedThenGone()
-
-        at(T0 + 20_000)
-        await service.poll()
-        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
-          DownloadJobStatus.Downloading,
-        )
-
-        at(T0 + 71_000)
-        await service.poll()
-        const updated = downloadStateService.jobs.get(job.id)
-        expect(updated?.status).toBe(DownloadJobStatus.Failed)
-        expect(updated?.error).toBe('Left the queue without producing a file')
-      })
-    })
-
     // Cancel pressed here: the action removed the queue items and wrote
     // `cancelling`, and the poller carries the job the rest of the way.
     describe('carrying a cancelling job to its end', () => {
@@ -2420,6 +2829,100 @@ describe('MediaPollerService', () => {
         )
       })
 
+      // Sonarr queues a season pack as one row per episode sharing one
+      // downloadId, and deleting any row removes the whole download.
+      describe('a late grab that is a season pack', () => {
+        function packRow(episodeId: number): SonarrQueueResource {
+          return {
+            downloadId: 'dl-pack',
+            episodeId,
+            id: 8000 + episodeId,
+            seasonNumber: 3,
+            seriesId: 9,
+            status: 'downloading',
+          }
+        }
+        const PACK = [packRow(1), packRow(2), packRow(3)]
+
+        it('keeps it for an episode job, and cancels the job with a note', async () => {
+          const scope = { episodeId: 2, seasonNumber: 3 }
+          const job = await seed(
+            buildShowJob({ scope, status: DownloadJobStatus.Cancelling }),
+          )
+          sonarrService.getQueue.mockResolvedValue(PACK)
+
+          await service.poll()
+
+          expect(sonarrService.removeQueueItem).not.toHaveBeenCalled()
+          expect(sonarrService.unmonitorScope).toHaveBeenCalledWith(9, scope, {
+            withoutFileOnly: true,
+          })
+          const updated = downloadStateService.jobs.get(job.id)
+          expect(updated?.status).toBe(DownloadJobStatus.Cancelled)
+          expect(updated?.statusNote).toBe(KEPT_PACK_NOTE)
+          expect(updated?.error).toBeUndefined()
+          expect(getJobById(dbService.db, job.id)).toMatchObject({
+            error: null,
+            status: DownloadJobStatus.Cancelled,
+            statusNote: KEPT_PACK_NOTE,
+          })
+          expect(linksOf(job.id).map(link => link.downloadId)).toEqual([
+            'dl-pack',
+          ])
+
+          // Settled, so the next tick leaves it - and the pack - alone.
+          await service.poll()
+          expect(sonarrService.removeQueueItem).not.toHaveBeenCalled()
+          expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+            DownloadJobStatus.Cancelled,
+          )
+        })
+
+        it('removes it with one DELETE for a season job that owns it whole', async () => {
+          const job = await seed(
+            buildShowJob({
+              scope: { seasonNumber: 3 },
+              status: DownloadJobStatus.Cancelling,
+            }),
+          )
+          sonarrService.getQueue.mockResolvedValue(PACK)
+
+          await service.poll()
+
+          expect(sonarrService.removeQueueItem).toHaveBeenCalledTimes(1)
+          expect(sonarrService.removeQueueItem).toHaveBeenCalledWith(8001)
+          expect(sonarrService.unmonitorScope).not.toHaveBeenCalled()
+          expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+            DownloadJobStatus.Cancelling,
+          )
+        })
+
+        it('stays cancelling, and tries again, when the unmonitor fails', async () => {
+          const job = await seed(
+            buildShowJob({
+              scope: { episodeId: 2, seasonNumber: 3 },
+              status: DownloadJobStatus.Cancelling,
+            }),
+          )
+          sonarrService.getQueue.mockResolvedValue(PACK)
+          sonarrService.unmonitorScope.mockRejectedValueOnce(
+            new Error('sonarr down'),
+          )
+
+          await expect(service.poll()).resolves.toBeUndefined()
+          expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+            DownloadJobStatus.Cancelling,
+          )
+
+          await service.poll()
+          expect(sonarrService.unmonitorScope).toHaveBeenCalledTimes(2)
+          expect(sonarrService.removeQueueItem).not.toHaveBeenCalled()
+          expect(downloadStateService.jobs.get(job.id)?.statusNote).toBe(
+            KEPT_PACK_NOTE,
+          )
+        })
+      })
+
       it('logs a refused removal and finishes the tick without backing off', async () => {
         const job = cancellingMovie()
         radarrService.removeQueueItem.mockRejectedValue(
@@ -2465,32 +2968,50 @@ describe('MediaPollerService', () => {
       })
 
       // The cancel was the user's own press, so the job carries none of
-      // "Removed from Radarr's queue" - nor whatever it said before.
-      it('cancels with no error once the history confirms the removal', async () => {
-        const job = cancellingMovie({ error: BLOCKED_IMPORT_REASON })
-        radarrService.getMovieHistory.mockResolvedValue([
-          { downloadId: 'dl-late', eventType: 'grabbed' },
-        ])
+      // "Removed and blocklisted in Radarr" - nor whatever it said before.
+      it('cancels with no error once history confirms the removal', async () => {
+        const job = await seed(
+          buildMovieJob({
+            error: BLOCKED_IMPORT_REASON,
+            status: DownloadJobStatus.Cancelling,
+          }),
+        )
 
         at(T0)
         radarrService.getQueue.mockResolvedValue([LATE_GRAB])
         await service.poll()
+        expect(radarrService.removeQueueItem).toHaveBeenCalledWith(7001)
+        expect(linksOf(job.id).map(link => link.downloadId)).toEqual([
+          'dl-late',
+        ])
 
-        at(T0 + 1_000)
+        // The removal, blocklisted, as Radarr records it.
+        radarrService.getHistorySince.mockResolvedValue([
+          {
+            data: { message: 'Manually marked as failed' },
+            date: new Date(T0 + 2_000).toISOString(),
+            downloadId: 'dl-late',
+            eventType: 'downloadFailed',
+            id: 1,
+            movieId: 42,
+          },
+        ])
+        at(T0 + 5_000)
         radarrService.getQueue.mockResolvedValue([])
         await service.poll()
-        at(T0 + 1_000 + QUEUE_REMOVAL_CONFIRM_MS - 1)
+        // Recorded, but the cancel settles itself - two reads must agree.
+        expect(linksOf(job.id)[0]?.failedAt).not.toBeNull()
+        at(T0 + 5_000 + 4_999)
         await service.poll()
 
         expect(downloadStateService.jobs.get(job.id)?.status).toBe(
           DownloadJobStatus.Cancelling,
         )
 
-        at(T0 + 1_000 + QUEUE_REMOVAL_CONFIRM_MS)
+        at(T0 + 10_000)
         await service.poll()
 
         const updated = downloadStateService.jobs.get(job.id)
-        expect(radarrService.getMovieHistory).toHaveBeenCalledWith(42)
         expect(updated?.status).toBe(DownloadJobStatus.Cancelled)
         expect(updated?.error).toBeUndefined()
         expect(getJobById(dbService.db, job.id)?.status).toBe(
@@ -2499,12 +3020,10 @@ describe('MediaPollerService', () => {
         expect(getJobById(dbService.db, job.id)?.error).toBeNull()
       })
 
-      it('cancels a show job with no error once the history confirms the removal', async () => {
-        const job = buildShowJob({ status: DownloadJobStatus.Cancelling })
-        downloadStateService.jobs.set(job.id, job)
-        sonarrService.getSeriesHistory.mockResolvedValue([
-          { downloadId: 'dl-1', eventType: 'grabbed' },
-        ])
+      it('cancels a show job with no error once history confirms the removal', async () => {
+        const job = await seed(
+          buildShowJob({ status: DownloadJobStatus.Cancelling }),
+        )
 
         at(T0)
         sonarrService.getQueue.mockResolvedValue([
@@ -2513,10 +3032,20 @@ describe('MediaPollerService', () => {
         await service.poll()
         expect(sonarrService.removeQueueItem).toHaveBeenCalledWith(8001)
 
+        sonarrService.getHistorySince.mockResolvedValue([
+          {
+            data: { message: 'Manually marked as failed' },
+            date: new Date(T0 + 2_000).toISOString(),
+            downloadId: 'dl-1',
+            eventType: 'downloadFailed',
+            id: 1,
+            seriesId: 9,
+          },
+        ])
         sonarrService.getQueue.mockResolvedValue([])
-        at(T0 + 10_000)
+        at(T0 + 5_000)
         await service.poll()
-        at(T0 + 20_000)
+        at(T0 + 10_000)
         await service.poll()
 
         const updated = downloadStateService.jobs.get(job.id)
@@ -2542,7 +3071,6 @@ describe('MediaPollerService', () => {
         await service.poll()
 
         const updated = downloadStateService.jobs.get(job.id)
-        expect(radarrService.getMovieHistory).not.toHaveBeenCalled()
         expect(updated?.status).toBe(DownloadJobStatus.Cancelled)
         expect(updated?.error).toBeUndefined()
         expect(getJobById(dbService.db, job.id)?.error).toBeNull()
@@ -2639,8 +3167,6 @@ describe('MediaPollerService', () => {
   // search this app did not send: no job covers it until the poller mints
   // one.
   describe('adopting downloads started upstream', () => {
-    const T0 = Date.parse('2026-08-20T13:00:00.000Z')
-
     const UPSTREAM_GRAB: QueueResource = {
       downloadId: 'dl-up',
       id: 7001,
@@ -2678,10 +3204,6 @@ describe('MediaPollerService', () => {
     // resolves - and is tracked - on the next tick.
     let library: Map<string, Movie | Show>
     let addJob: jest.SpyInstance
-
-    function at(ms: number): void {
-      jest.spyOn(Date, 'now').mockReturnValue(ms)
-    }
 
     function adoptedJobs(): DownloadJobRecord[] {
       return Array.from(downloadStateService.jobs.values()).filter(
@@ -3007,16 +3529,13 @@ describe('MediaPollerService', () => {
       ])
     })
 
-    // Nobody here pressed cancel, so it carries the upstream sentence.
-    it('settles an adopted job removed in Radarr like any other', async () => {
-      radarrService.getMovieHistory.mockResolvedValue([
-        { downloadId: 'dl-up', eventType: 'grabbed' },
-      ])
-
+    // Nobody here pressed cancel, so it carries why it ended.
+    it('links an adopted download, and settles the job like any other', async () => {
       at(T0)
       radarrService.getQueue.mockResolvedValue([UPSTREAM_GRAB])
       await service.poll()
       const [job] = adoptedJobs()
+      expect(linksOf(job!.id).map(link => link.downloadId)).toEqual(['dl-up'])
 
       at(T0 + 10_000)
       radarrService.getQueue.mockResolvedValue([])
@@ -3025,14 +3544,2194 @@ describe('MediaPollerService', () => {
         DownloadJobStatus.Downloading,
       )
 
-      at(T0 + 20_000)
+      at(T0 + 10_000 + ABSENT_REMOVED_MS)
       await service.poll()
 
       const updated = downloadStateService.jobs.get(job!.id)
-      expect(radarrService.getMovieHistory).toHaveBeenCalledWith(42)
       expect(updated?.status).toBe(DownloadJobStatus.Cancelled)
-      expect(updated?.error).toBe("Removed from Radarr's queue")
+      expect(updated?.error).toBe(REMOVED_FROM_CLIENT_ERROR)
       expect(addJob).toHaveBeenCalledTimes(1)
+    })
+
+    // SABnzbd came back, or a cancel raced a grab: the download is the
+    // ended job's, so it goes back to that job - requester and all - rather
+    // than to a new `upstream` one.
+    describe('a download coming back to the job it was linked to', () => {
+      const ENDED_AT = '2026-08-20T12:30:00.000Z'
+      const ENDED = Date.parse(ENDED_AT)
+      const REQUESTER = { email: 'ada@example.com', userId: 'user-ada' }
+
+      /** A job of `mediaId`'s type that ended at `ENDED_AT`, linked. */
+      async function seedEnded(
+        overrides: Partial<DownloadJobRecord> = {},
+        downloadId = 'dl-up',
+      ): Promise<DownloadJobRecord> {
+        const job = await seed(
+          buildMovieJob({
+            error: REMOVED_FROM_CLIENT_ERROR,
+            id: 'ended',
+            requester: REQUESTER,
+            status: DownloadJobStatus.Cancelled,
+            updatedAt: ENDED_AT,
+            ...overrides,
+          }),
+        )
+        linkDownload(dbService.db, {
+          app: job.type === DownloadType.Movie ? 'radarr' : 'sonarr',
+          downloadId,
+          grabbedAt: ENDED_AT,
+          jobId: job.id,
+        })
+        return job
+      }
+
+      function jobOf(id: string): DownloadJobRecord | undefined {
+        return downloadStateService.jobs.get(id)
+      }
+
+      it('reopens a job cancelled within the window, and tracks it from the next tick', async () => {
+        await seedEnded()
+        at(ENDED + 10 * 60_000)
+        radarrService.getQueue.mockResolvedValue([UPSTREAM_GRAB])
+
+        await service.poll()
+
+        expect(adoptedJobs()).toEqual([])
+        expect(addJob).toHaveBeenCalledTimes(1)
+        expect(downloadStateService.jobs.size).toBe(1)
+        const reopened = jobOf('ended')
+        expect(reopened).toMatchObject({
+          requester: REQUESTER,
+          status: DownloadJobStatus.Downloading,
+          statusNote: 'The download came back in Radarr',
+        })
+        expect(reopened?.error).toBeUndefined()
+        expect(reopened?.startedUpstream).toBeUndefined()
+        const row = getJobById(dbService.db, 'ended')
+        expect(row).toMatchObject({
+          error: null,
+          origin: 'web',
+          status: DownloadJobStatus.Downloading,
+          statusNote: 'The download came back in Radarr',
+        })
+        expect(Logger.prototype.log).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: 'reopenEndedJob',
+            downloadId: 'dl-up',
+            jobId: 'ended',
+            oldStatus: DownloadJobStatus.Cancelled,
+            status: DownloadJobStatus.Downloading,
+          }),
+          'Reopened a job whose download came back',
+        )
+        const frames = await jobFrames()
+        expect(frames).toEqual([
+          expect.objectContaining({
+            job: expect.objectContaining({
+              id: 'ended',
+              status: DownloadJobStatus.Downloading,
+            }),
+            type: DownloadJobEventType.Updated,
+          }),
+        ])
+
+        // Tracked like any open job: progress keeps the note, and the next
+        // status move drops it.
+        radarrService.getQueue.mockResolvedValue([
+          { ...UPSTREAM_GRAB, sizeleft: 100 },
+        ])
+        await service.poll()
+        expect(jobOf('ended')).toMatchObject({
+          status: DownloadJobStatus.Downloading,
+          statusNote: 'The download came back in Radarr',
+        })
+
+        radarrService.getQueue.mockResolvedValue([
+          { ...UPSTREAM_GRAB, sizeleft: 0, status: 'completed' },
+        ])
+        await service.poll()
+        expect(jobOf('ended')?.status).toBe(DownloadJobStatus.Importing)
+        expect(jobOf('ended')?.statusNote).toBeUndefined()
+        expect(adoptedJobs()).toEqual([])
+      })
+
+      // A restart leaves an ended job out of the Map; its row still counts.
+      it('reopens a failed job the Map no longer holds', async () => {
+        await seedEnded({
+          error: 'Download failed in Radarr',
+          status: DownloadJobStatus.Failed,
+          upstreamCommandAt: ENDED_AT,
+          upstreamCommandId: 77,
+          upstreamCommandKind: 'search',
+        })
+        restart()
+        expect(downloadStateService.jobs.has('ended')).toBe(false)
+        at(ENDED + 10 * 60_000)
+        radarrService.getQueue.mockResolvedValue([UPSTREAM_GRAB])
+
+        await service.poll()
+
+        const reopened = downloadStateService.jobs.get('ended')
+        expect(reopened).toMatchObject({
+          requester: REQUESTER,
+          status: DownloadJobStatus.Downloading,
+          statusNote: 'The download came back in Radarr',
+        })
+        expect(reopened?.error).toBeUndefined()
+        expect(reopened?.upstreamCommandId).toBeUndefined()
+        expect(reopened?.upstreamCommandKind).toBeUndefined()
+        expect(reopened?.upstreamCommandAt).toBeUndefined()
+        expect(
+          Array.from(downloadStateService.jobs.values()).filter(
+            record => record.startedUpstream,
+          ),
+        ).toEqual([])
+      })
+
+      it('reopens a show job with its own scope, noted for Sonarr', async () => {
+        await seedEnded(
+          {
+            id: 'ended',
+            mediaId: 'tvdb:1',
+            scope: { seasonNumber: 2 },
+            type: DownloadType.Show,
+          },
+          'dl-pack',
+        )
+        at(ENDED + 10 * 60_000)
+        sonarrService.getQueue.mockResolvedValue([
+          episodeItem(21),
+          episodeItem(22),
+          episodeItem(23),
+        ])
+
+        await service.poll()
+
+        expect(adoptedJobs()).toEqual([])
+        expect(jobOf('ended')).toMatchObject({
+          scope: { seasonNumber: 2 },
+          status: DownloadJobStatus.Downloading,
+          statusNote: 'The download came back in Sonarr',
+        })
+      })
+
+      it('adopts the download once the window has passed', async () => {
+        await seedEnded()
+        at(ENDED + REOPEN_WINDOW_MS + 1)
+        radarrService.getQueue.mockResolvedValue([UPSTREAM_GRAB])
+
+        await service.poll()
+
+        expect(jobOf('ended')?.status).toBe(DownloadJobStatus.Cancelled)
+        expect(adoptedJobs()).toEqual([
+          expect.objectContaining({
+            mediaId: 'tmdb:1',
+            requester: null,
+            status: DownloadJobStatus.Downloading,
+          }),
+        ])
+      })
+
+      it('never reopens a completed job, and adopts its download as before', async () => {
+        await seedEnded({
+          completedAt: ENDED_AT,
+          error: undefined,
+          status: DownloadJobStatus.Completed,
+        })
+        at(ENDED + 10 * 60_000)
+        radarrService.getQueue.mockResolvedValue([UPSTREAM_GRAB])
+
+        await service.poll()
+
+        expect(jobOf('ended')?.status).toBe(DownloadJobStatus.Completed)
+        expect(adoptedJobs()).toHaveLength(1)
+      })
+
+      it('reopens only the newest of several jobs it was linked to', async () => {
+        await seedEnded({ id: 'older' })
+        await seedEnded({
+          createdAt: '2026-08-20T12:10:00.000Z',
+          id: 'newer',
+          status: DownloadJobStatus.Failed,
+        })
+        at(ENDED + 10 * 60_000)
+        radarrService.getQueue.mockResolvedValue([UPSTREAM_GRAB])
+
+        await service.poll()
+        await service.poll()
+
+        expect(jobOf('newer')?.status).toBe(DownloadJobStatus.Downloading)
+        expect(jobOf('older')?.status).toBe(DownloadJobStatus.Cancelled)
+        expect(adoptedJobs()).toEqual([])
+      })
+
+      it('mints no job, and reopens none, for a download an open job is linked to', async () => {
+        await seedEnded()
+        // Another title's job, so only the link - not the title - owns it.
+        const open = await seed(
+          buildMovieJob({
+            id: 'open',
+            mediaId: 'tmdb:2',
+            status: DownloadJobStatus.Downloading,
+          }),
+        )
+        linkDownload(dbService.db, {
+          app: 'radarr',
+          downloadId: 'dl-up',
+          grabbedAt: null,
+          jobId: open.id,
+        })
+        at(ENDED + 10 * 60_000)
+        radarrService.getQueue.mockResolvedValue([UPSTREAM_GRAB])
+
+        await service.poll()
+        await service.poll()
+
+        expect(addJob).toHaveBeenCalledTimes(2)
+        expect(adoptedJobs()).toEqual([])
+        expect(jobOf('ended')?.status).toBe(DownloadJobStatus.Cancelled)
+      })
+
+      it('neither reopens nor adopts a download whose queue item failed', async () => {
+        await seedEnded()
+        at(ENDED + 10 * 60_000)
+        radarrService.getQueue.mockResolvedValue([
+          { ...UPSTREAM_GRAB, status: 'failed' },
+        ])
+
+        await service.poll()
+        await service.poll()
+
+        expect(jobOf('ended')?.status).toBe(DownloadJobStatus.Cancelled)
+        expect(adoptedJobs()).toEqual([])
+      })
+
+      // A cancel that left the pack running on purpose: the pack is still
+      // that job's, not a download that came back to it.
+      it('neither adopts nor reopens a season pack a cancel kept', async () => {
+        await seedEnded(
+          {
+            error: undefined,
+            mediaId: 'tvdb:1',
+            scope: { episodeId: 22, episodeNumber: 2, seasonNumber: 2 },
+            status: DownloadJobStatus.Cancelled,
+            statusNote: KEPT_PACK_NOTE,
+            type: DownloadType.Show,
+          },
+          'dl-pack',
+        )
+        at(ENDED + 10 * 60_000)
+        sonarrService.getQueue.mockResolvedValue([
+          episodeItem(21),
+          episodeItem(22),
+          episodeItem(23),
+        ])
+
+        await service.poll()
+        await service.poll()
+
+        expect(adoptedJobs()).toEqual([])
+        expect(addJob).toHaveBeenCalledTimes(1)
+        expect(jobOf('ended')).toMatchObject({
+          status: DownloadJobStatus.Cancelled,
+          statusNote: KEPT_PACK_NOTE,
+        })
+      })
+
+      it('neither adopts nor reopens a pack a cancelling job just kept', async () => {
+        await seed(
+          buildShowJob({
+            id: 'cancelling',
+            scope: { episodeId: 22, seasonNumber: 2 },
+            status: DownloadJobStatus.Cancelling,
+          }),
+        )
+        sonarrService.getQueue.mockResolvedValue([
+          episodeItem(21),
+          episodeItem(22),
+          episodeItem(23),
+        ])
+
+        await service.poll()
+        await service.poll()
+
+        expect(sonarrService.removeQueueItem).not.toHaveBeenCalled()
+        expect(adoptedJobs()).toEqual([])
+        expect(jobOf('cancelling')).toMatchObject({
+          status: DownloadJobStatus.Cancelled,
+          statusNote: KEPT_PACK_NOTE,
+        })
+      })
+
+      // The job would never read that download again (`matchJobItems`).
+      it('adopts, rather than reopens, a download that already failed for the job', async () => {
+        await seedEnded({ status: DownloadJobStatus.Failed })
+        markFailed(dbService.db, 'radarr', 'dl-up', ENDED_AT, 'bad release')
+        at(ENDED + 10 * 60_000)
+        radarrService.getQueue.mockResolvedValue([UPSTREAM_GRAB])
+
+        await service.poll()
+
+        expect(jobOf('ended')?.status).toBe(DownloadJobStatus.Failed)
+        expect(adoptedJobs()).toHaveLength(1)
+      })
+    })
+  })
+
+  // Radarr's/Sonarr's history decides what became of a download: a grab
+  // links it to its job, and an import, a failure or a removal settles it.
+  describe('history', () => {
+    type EventType =
+      | 'downloadFailed'
+      | 'downloadFolderImported'
+      | 'downloadIgnored'
+      | 'grabbed'
+
+    const iso = (ms: number): string => new Date(ms).toISOString()
+
+    /** A Radarr history record for movie 42 - the default job's title. */
+    function movieEvent(
+      id: number,
+      eventType: EventType,
+      downloadId: string,
+      ms: number,
+      data: Record<string, string> = {},
+    ): HistoryResource {
+      return { data, date: iso(ms), downloadId, eventType, id, movieId: 42 }
+    }
+
+    /** A Sonarr history record for series 9, with its episode. */
+    function showEvent(
+      id: number,
+      eventType: EventType,
+      downloadId: string,
+      ms: number,
+      episode: { episodeId: number; episodeNumber: number; season: number },
+      data: Record<string, string> = {},
+    ): SonarrHistoryResource {
+      return {
+        data,
+        date: iso(ms),
+        downloadId,
+        episode: {
+          episodeNumber: episode.episodeNumber,
+          seasonNumber: episode.season,
+        },
+        episodeId: episode.episodeId,
+        eventType,
+        id,
+        seriesId: 9,
+      }
+    }
+
+    const SAB_ABORTED =
+      'Aborted, cannot be completed - https://sabnzbd.org/not-complete'
+
+    const downloading = (downloadId: string): QueueResource => ({
+      downloadId,
+      id: 7001,
+      movieId: 42,
+      size: 1000,
+      sizeleft: 500,
+      status: 'downloading',
+    })
+
+    /** Radarr's history reads so far, as the date each one started from. */
+    function radarrReadsFrom(): number[] {
+      return radarrService.getHistorySince.mock.calls.map(([since]) =>
+        since.getTime(),
+      )
+    }
+
+    it('reads a day back on first boot, then resumes from its cursor after a restart', async () => {
+      const job = await seed(
+        buildMovieJob({ status: DownloadJobStatus.Searching }),
+      )
+      const grab = movieEvent(1, 'grabbed', 'dl-1', T0 - 10_000)
+      radarrService.getHistorySince.mockResolvedValue([grab])
+
+      at(T0)
+      await service.poll()
+
+      expect(radarrReadsFrom()).toEqual([T0 - HISTORY_FIRST_READ_MS])
+      expect(linksOf(job.id)).toEqual([
+        expect.objectContaining({
+          app: 'radarr',
+          downloadId: 'dl-1',
+          grabbedAt: iso(T0 - 10_000),
+        }),
+      ])
+      expect(getCursor(dbService.db, 'radarr')).toEqual({
+        date: iso(T0 - 10_000),
+        ids: [1],
+      })
+
+      restart()
+      radarrService.getHistorySince.mockClear()
+      // Inclusive: the grab at the cursor comes back and is skipped by id.
+      radarrService.getHistorySince.mockResolvedValue([
+        grab,
+        movieEvent(2, 'downloadFolderImported', 'dl-1', T0 + 30_000),
+      ])
+      at(T0 + 60_000)
+      await service.poll()
+
+      expect(radarrReadsFrom()).toEqual([T0 - 10_000])
+      expect(linksOf(job.id)).toEqual([
+        expect.objectContaining({
+          downloadId: 'dl-1',
+          importedAt: iso(T0 + 30_000),
+        }),
+      ])
+      expect(getCursor(dbService.db, 'radarr')).toEqual({
+        date: iso(T0 + 30_000),
+        ids: [2],
+      })
+    })
+
+    it('stores where a first read started even when it found nothing', async () => {
+      at(T0)
+      await service.poll()
+
+      expect(getCursor(dbService.db, 'sonarr')).toEqual({
+        date: iso(T0 - HISTORY_FIRST_READ_MS),
+        ids: [],
+      })
+    })
+
+    it('catches up at most a week after a long downtime', async () => {
+      setCursor(dbService.db, 'radarr', iso(T0 - 30 * 86_400_000), [5])
+
+      at(T0)
+      await service.poll()
+
+      expect(radarrReadsFrom()).toEqual([T0 - HISTORY_MAX_CATCH_UP_MS])
+    })
+
+    it('keeps its cursor through a failed read and tries again next interval', async () => {
+      at(T0)
+      radarrService.getHistorySince.mockRejectedValueOnce(
+        new Error('radarr down'),
+      )
+      await service.poll()
+
+      expect(getCursor(dbService.db, 'radarr')).toBeUndefined()
+      expect(
+        (service as unknown as { nextAllowedRunAt: number }).nextAllowedRunAt,
+      ).toBe(0)
+
+      // Too soon for another read.
+      at(T0 + 4_999)
+      await service.poll()
+      expect(radarrService.getHistorySince).toHaveBeenCalledTimes(1)
+
+      at(T0 + 5_000)
+      await service.poll()
+      expect(radarrService.getHistorySince).toHaveBeenCalledTimes(2)
+    })
+
+    // Two overlapping ticks never read at once, and an event read twice -
+    // here with the cursor lost, the worst case - changes nothing the
+    // second time.
+    it('applies an overlapping or replayed event once', async () => {
+      const job = await seed(
+        buildMovieJob({ status: DownloadJobStatus.Downloading }),
+      )
+      radarrService.getHistorySince.mockResolvedValue([
+        movieEvent(1, 'grabbed', 'dl-1', T0 - 60_000),
+        movieEvent(2, 'downloadFailed', 'dl-1', T0 - 30_000, {
+          message: SAB_ABORTED,
+        }),
+      ])
+      const updateJob = jest.spyOn(downloadStateService, 'updateJob')
+
+      at(T0)
+      await Promise.all([service.poll(), service.poll()])
+
+      expect(radarrService.getHistorySince).toHaveBeenCalledTimes(1)
+      expect(linksOf(job.id)).toHaveLength(1)
+      expect(updateJob).toHaveBeenCalledTimes(1)
+      const retried = downloadStateService.jobs.get(job.id)
+      expect(retried?.status).toBe(DownloadJobStatus.Searching)
+
+      dbService.db.delete(arrHistoryCursors).run()
+      at(T0 + 5_000)
+      await service.poll()
+
+      expect(radarrService.getHistorySince).toHaveBeenCalledTimes(2)
+      expect(linksOf(job.id)).toHaveLength(1)
+      expect(updateJob).toHaveBeenCalledTimes(1)
+      expect(downloadStateService.jobs.get(job.id)).toEqual(retried)
+    })
+
+    it('follows a grab through its import to completed', async () => {
+      const job = await seed(
+        buildMovieJob({ status: DownloadJobStatus.Searching }),
+      )
+      const events = [movieEvent(1, 'grabbed', 'dl-1', T0 - 2_000)]
+      radarrService.getHistorySince.mockResolvedValue(events)
+
+      at(T0)
+      radarrService.getQueue.mockResolvedValue([downloading('dl-1')])
+      await service.poll()
+
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Downloading,
+      )
+      expect(linksOf(job.id)[0]).toMatchObject({
+        downloadId: 'dl-1',
+        grabbedAt: iso(T0 - 2_000),
+        importedAt: null,
+      })
+
+      // Imported and gone from the queue, before the file listing shows it:
+      // the recorded import is enough.
+      events.push(movieEvent(2, 'downloadFolderImported', 'dl-1', T0 + 3_000))
+      at(T0 + 5_000)
+      radarrService.getQueue.mockResolvedValue([])
+      await service.poll()
+
+      const updated = downloadStateService.jobs.get(job.id)
+      expect(updated?.status).toBe(DownloadJobStatus.Completed)
+      expect(updated?.error).toBeUndefined()
+      expect(linksOf(job.id)[0]?.importedAt).toBe(iso(T0 + 3_000))
+      expect(mediaResolverService.invalidate).toHaveBeenCalledWith(job.mediaId)
+    })
+
+    it('goes back to searching with a note while Radarr retries, and completes on the next grab', async () => {
+      const job = await seed(
+        buildMovieJob({
+          status: DownloadJobStatus.Searching,
+          upstreamCommandAt: NOW_ISO,
+          upstreamCommandId: 7,
+          upstreamCommandKind: 'search',
+        }),
+      )
+      const events = [movieEvent(1, 'grabbed', 'dl-1', T0 - 60_000)]
+      radarrService.getHistorySince.mockResolvedValue(events)
+
+      at(T0)
+      radarrService.getQueue.mockResolvedValue([downloading('dl-1')])
+      await service.poll()
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Downloading,
+      )
+
+      // SABnzbd gives up; Radarr records it and searches again. The dead
+      // item lingers in the queue meanwhile.
+      events.push(
+        movieEvent(2, 'downloadFailed', 'dl-1', T0 + 2_000, {
+          message: SAB_ABORTED,
+        }),
+      )
+      at(T0 + 5_000)
+      radarrService.getQueue.mockResolvedValue([
+        {
+          ...downloading('dl-1'),
+          status: 'failed',
+          trackedDownloadState: 'failedPending',
+          trackedDownloadStatus: 'error',
+        },
+      ])
+      await service.poll()
+
+      const note = `Last download failed: ${SAB_ABORTED}. Radarr is trying another release.`
+      const retrying = downloadStateService.jobs.get(job.id)
+      expect(retrying?.error).toBeUndefined()
+      expect(retrying).toMatchObject({
+        status: DownloadJobStatus.Searching,
+        statusNote: note,
+        upstreamCommandId: undefined,
+        upstreamCommandKind: undefined,
+      })
+      expect(getJobById(dbService.db, job.id)).toMatchObject({
+        status: DownloadJobStatus.Searching,
+        statusNote: note,
+        upstreamCommandKind: null,
+      })
+      expect(linksOf(job.id)[0]).toMatchObject({
+        failReason: SAB_ABORTED,
+        failedAt: iso(T0 + 2_000),
+      })
+
+      // Still searching on the next tick: the failed item is history's,
+      // and a failed link alone settles nothing.
+      at(T0 + 6_000)
+      await service.poll()
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Searching,
+      )
+
+      // The retry grabs another release.
+      events.push(movieEvent(3, 'grabbed', 'dl-2', T0 + 8_000))
+      at(T0 + 10_000)
+      radarrService.getQueue.mockResolvedValue([downloading('dl-2')])
+      await service.poll()
+
+      expect(downloadStateService.jobs.get(job.id)).toMatchObject({
+        status: DownloadJobStatus.Downloading,
+        statusNote: undefined,
+      })
+      expect(linksOf(job.id).map(link => link.downloadId)).toEqual([
+        'dl-1',
+        'dl-2',
+      ])
+
+      events.push(movieEvent(4, 'downloadFolderImported', 'dl-2', T0 + 12_000))
+      at(T0 + 15_000)
+      radarrService.getQueue.mockResolvedValue([])
+      await service.poll()
+
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Completed,
+      )
+      expect(radarrService.getFailedDownloadConfig).toHaveBeenCalledTimes(1)
+    })
+
+    it('fails the job for good when Radarr will not retry', async () => {
+      radarrService.getFailedDownloadConfig.mockResolvedValue({
+        autoRedownloadFailed: false,
+        fromInteractive: true,
+      })
+      const job = await seed(
+        buildMovieJob({ status: DownloadJobStatus.Downloading }),
+      )
+      radarrService.getHistorySince.mockResolvedValue([
+        movieEvent(1, 'grabbed', 'dl-1', T0 - 60_000),
+        movieEvent(2, 'downloadFailed', 'dl-1', T0 - 1_000, {
+          message: SAB_ABORTED,
+        }),
+      ])
+
+      at(T0)
+      await service.poll()
+
+      const updated = downloadStateService.jobs.get(job.id)
+      expect(updated?.status).toBe(DownloadJobStatus.Failed)
+      expect(updated?.error).toBe(SAB_ABORTED)
+      expect(updated?.statusNote).toBeUndefined()
+      expect(getJobById(dbService.db, job.id)?.error).toBe(SAB_ABORTED)
+    })
+
+    // - SABnzbd's unrar disk-full text carries unrar's output, so it isn't
+    //   the exact string Radarr/Sonarr map to a warning: the download fails,
+    //   Radarr blocklists a good release, and the next one lands on the same
+    //   full disk.
+    describe('a disk-full failure', () => {
+      const SAB_DISK_FULL =
+        'Unpacking failed, write error or disk is full?  in the file /downloads/incomplete/Game.Night.2018/Game.Night.2018.mkv'
+
+      function failWithDiskFull(): void {
+        radarrService.getHistorySince.mockResolvedValue([
+          movieEvent(1, 'grabbed', 'dl-1', T0 - 60_000),
+          movieEvent(2, 'downloadFailed', 'dl-1', T0 - 1_000, {
+            message: SAB_DISK_FULL,
+          }),
+        ])
+      }
+
+      it('notes that the retry fails the same way until space is freed', async () => {
+        const job = await seed(
+          buildMovieJob({ status: DownloadJobStatus.Downloading }),
+        )
+        failWithDiskFull()
+
+        at(T0)
+        await service.poll()
+
+        const note =
+          'Last download failed: the NAS ran out of disk space. Radarr is trying another release, which will fail the same way until space is freed.'
+        const updated = downloadStateService.jobs.get(job.id)
+        expect(updated?.error).toBeUndefined()
+        expect(updated).toMatchObject({
+          status: DownloadJobStatus.Searching,
+          statusNote: note,
+        })
+        expect(getJobById(dbService.db, job.id)?.statusNote).toBe(note)
+        // The link keeps SABnzbd's own text.
+        expect(linksOf(job.id)[0]?.failReason).toBe(SAB_DISK_FULL)
+      })
+
+      it('fails the job saying the NAS ran out of space when Radarr will not retry', async () => {
+        radarrService.getFailedDownloadConfig.mockResolvedValue({
+          autoRedownloadFailed: false,
+          fromInteractive: true,
+        })
+        const job = await seed(
+          buildMovieJob({ status: DownloadJobStatus.Downloading }),
+        )
+        failWithDiskFull()
+
+        at(T0)
+        await service.poll()
+
+        const error = `${DISK_SPACE_ERROR} (Unpacking failed, write error or disk is full?)`
+        const updated = downloadStateService.jobs.get(job.id)
+        expect(updated?.status).toBe(DownloadJobStatus.Failed)
+        expect(updated?.error).toBe(error)
+        expect(updated?.statusNote).toBeUndefined()
+        expect(getJobById(dbService.db, job.id)?.error).toBe(error)
+      })
+    })
+
+    it('reads the grab off its own history to tell whether a hand-picked release retries', async () => {
+      radarrService.getFailedDownloadConfig.mockResolvedValue({
+        autoRedownloadFailed: true,
+        fromInteractive: false,
+      })
+      const job = await seed(
+        buildMovieJob({ status: DownloadJobStatus.Downloading }),
+      )
+      // Linked off the queue, so the link can't say who picked it.
+      at(T0)
+      radarrService.getQueue.mockResolvedValue([downloading('dl-1')])
+      await service.poll()
+      expect(linksOf(job.id)[0]?.interactive).toBeNull()
+
+      radarrService.getHistoryByDownloadId.mockResolvedValue([
+        movieEvent(1, 'grabbed', 'dl-1', T0 - 60_000, {
+          releaseSource: 'InteractiveSearch',
+        }),
+      ])
+      radarrService.getHistorySince.mockResolvedValue([
+        movieEvent(2, 'downloadFailed', 'dl-1', T0 + 1_000, {
+          message: SAB_ABORTED,
+        }),
+      ])
+      at(T0 + 5_000)
+      radarrService.getQueue.mockResolvedValue([])
+      await service.poll()
+
+      expect(radarrService.getHistoryByDownloadId).toHaveBeenCalledWith('dl-1')
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Failed,
+      )
+    })
+
+    it('retries an automatic grab even when hand-picked ones do not', async () => {
+      radarrService.getFailedDownloadConfig.mockResolvedValue({
+        autoRedownloadFailed: true,
+        fromInteractive: false,
+      })
+      const job = await seed(
+        buildMovieJob({ status: DownloadJobStatus.Downloading }),
+      )
+      radarrService.getHistorySince.mockResolvedValue([
+        movieEvent(1, 'grabbed', 'dl-1', T0 - 60_000, {
+          releaseSource: 'Search',
+        }),
+        movieEvent(2, 'downloadFailed', 'dl-1', T0 - 1_000, {
+          message: SAB_ABORTED,
+        }),
+      ])
+
+      at(T0)
+      await service.poll()
+
+      expect(linksOf(job.id)[0]?.interactive).toBe(false)
+      expect(radarrService.getHistoryByDownloadId).not.toHaveBeenCalled()
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Searching,
+      )
+    })
+
+    it('retries the failure next interval when the settings cannot be read', async () => {
+      radarrService.getFailedDownloadConfig.mockRejectedValueOnce(
+        new Error('radarr down'),
+      )
+      const job = await seed(
+        buildMovieJob({ status: DownloadJobStatus.Downloading }),
+      )
+      radarrService.getHistorySince.mockResolvedValue([
+        movieEvent(1, 'grabbed', 'dl-1', T0 - 60_000),
+        movieEvent(2, 'downloadFailed', 'dl-1', T0 - 1_000, {
+          message: SAB_ABORTED,
+        }),
+      ])
+
+      at(T0)
+      await service.poll()
+
+      // The grab went in; the failure waits, with the cursor before it.
+      expect(linksOf(job.id)[0]?.failedAt).toBeNull()
+      expect(getCursor(dbService.db, 'radarr')).toEqual({
+        date: iso(T0 - 60_000),
+        ids: [1],
+      })
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Downloading,
+      )
+
+      at(T0 + 5_000)
+      await service.poll()
+
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Searching,
+      )
+    })
+
+    it('cancels a download removed and blocklisted in Radarr', async () => {
+      const job = await seed(
+        buildMovieJob({ status: DownloadJobStatus.Downloading }),
+      )
+      radarrService.getHistorySince.mockResolvedValue([
+        movieEvent(1, 'grabbed', 'dl-1', T0 - 60_000),
+        movieEvent(2, 'downloadFailed', 'dl-1', T0 - 1_000, {
+          message: 'Manually marked as failed',
+        }),
+      ])
+
+      at(T0)
+      await service.poll()
+
+      const updated = downloadStateService.jobs.get(job.id)
+      expect(updated?.status).toBe(DownloadJobStatus.Cancelled)
+      expect(updated?.error).toBe('Removed and blocklisted in Radarr')
+      expect(radarrService.getFailedDownloadConfig).not.toHaveBeenCalled()
+    })
+
+    // Someone gave up on a blocked import in Sonarr's own UI.
+    it('cancels a download ignored in Sonarr', async () => {
+      const job = await seed(
+        buildShowJob({ status: DownloadJobStatus.NeedsAttention }),
+      )
+      at(T0)
+      sonarrService.getQueue.mockResolvedValue([
+        {
+          downloadId: 'dl-1',
+          episodeId: 21,
+          seasonNumber: 2,
+          seriesId: 9,
+          status: 'completed',
+          trackedDownloadState: 'importBlocked',
+        },
+      ])
+      await service.poll()
+      expect(linksOf(job.id)).toHaveLength(1)
+
+      sonarrService.getHistorySince.mockResolvedValue([
+        showEvent(
+          1,
+          'downloadIgnored',
+          'dl-1',
+          T0 + 1_000,
+          { episodeId: 21, episodeNumber: 1, season: 2 },
+          { message: 'Manually ignored' },
+        ),
+      ])
+      sonarrService.getQueue.mockResolvedValue([])
+      at(T0 + 5_000)
+      await service.poll()
+
+      const updated = downloadStateService.jobs.get(job.id)
+      expect(updated?.status).toBe(DownloadJobStatus.Cancelled)
+      expect(updated?.error).toBe('Ignored in Sonarr')
+      expect(linksOf(job.id)[0]?.failReason).toBe('Manually ignored')
+    })
+
+    it('links every episode grab of a season pack once, to the season job', async () => {
+      const seasonJob = await seed(
+        buildShowJob({
+          id: 'show-season-2',
+          scope: { seasonNumber: 2 },
+          status: DownloadJobStatus.Searching,
+        }),
+      )
+      const otherSeason = await seed(
+        buildShowJob({
+          id: 'show-season-3',
+          scope: { seasonNumber: 3 },
+          status: DownloadJobStatus.Searching,
+        }),
+      )
+      // One grab per episode, one download, one second.
+      sonarrService.getHistorySince.mockResolvedValue(
+        [21, 22, 23].map((episodeId, index) =>
+          showEvent(10 + index, 'grabbed', 'dl-pack', T0 - 1_000, {
+            episodeId,
+            episodeNumber: index + 1,
+            season: 2,
+          }),
+        ),
+      )
+
+      at(T0)
+      await service.poll()
+
+      expect(linksOf(seasonJob.id)).toEqual([
+        expect.objectContaining({ app: 'sonarr', downloadId: 'dl-pack' }),
+      ])
+      expect(linksOf(otherSeason.id)).toEqual([])
+      expect(getCursor(dbService.db, 'sonarr')).toEqual({
+        date: iso(T0 - 1_000),
+        ids: [10, 11, 12],
+      })
+    })
+
+    it('leaves a grab no job asked for to adoption', async () => {
+      radarrService.getHistorySince.mockResolvedValue([
+        movieEvent(1, 'grabbed', 'dl-rss', T0 - 1_000),
+      ])
+
+      at(T0)
+      await service.poll()
+
+      expect(downloadStateService.jobs.size).toBe(0)
+      expect(getCursor(dbService.db, 'radarr')?.ids).toEqual([1])
+    })
+  })
+
+  // `/queue` drops items whenever SABnzbd is briefly unreachable and after
+  // any Radarr/Sonarr restart, so a missing download is only called removed
+  // once it has been gone ten minutes with the download client healthy.
+  describe('a download missing from the queue', () => {
+    async function linkedThenGone(): Promise<DownloadJobRecord> {
+      const job = await seed(
+        buildMovieJob({ status: DownloadJobStatus.Downloading }),
+      )
+      at(T0)
+      radarrService.getQueue.mockResolvedValue([
+        { downloadId: 'dl-1', movieId: 42, status: 'downloading' },
+      ])
+      await service.poll()
+      expect(linksOf(job.id)).toHaveLength(1)
+
+      radarrService.getQueue.mockResolvedValue([])
+      return job
+    }
+
+    it('cancels nothing through a twenty-minute download client outage', async () => {
+      const job = await linkedThenGone()
+      radarrService.isDownloadClientHealthy.mockResolvedValue(false)
+
+      for (let ms = 30_000; ms <= 1_200_000; ms += 30_000) {
+        at(T0 + ms)
+        await service.poll()
+      }
+
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Downloading,
+      )
+    })
+
+    it('treats a health check that fails as unhealthy', async () => {
+      const job = await linkedThenGone()
+      radarrService.isDownloadClientHealthy.mockRejectedValue(
+        new Error('radarr down'),
+      )
+
+      at(T0 + 30_000)
+      await service.poll()
+      at(T0 + 30_000 + ABSENT_REMOVED_MS)
+      await service.poll()
+
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Downloading,
+      )
+    })
+
+    it('cancels a download gone ten minutes from a healthy client', async () => {
+      const job = await linkedThenGone()
+
+      at(T0 + 10_000)
+      await service.poll()
+      at(T0 + 10_000 + ABSENT_REMOVED_MS - 1)
+      await service.poll()
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Downloading,
+      )
+
+      at(T0 + 10_000 + ABSENT_REMOVED_MS)
+      await service.poll()
+
+      const updated = downloadStateService.jobs.get(job.id)
+      expect(updated?.status).toBe(DownloadJobStatus.Cancelled)
+      expect(updated?.error).toBe(REMOVED_FROM_CLIENT_ERROR)
+      expect(getJobById(dbService.db, job.id)?.error).toBe(
+        REMOVED_FROM_CLIENT_ERROR,
+      )
+    })
+
+    it('counts the absence only from when the client was seen healthy again', async () => {
+      const job = await linkedThenGone()
+      radarrService.isDownloadClientHealthy.mockResolvedValue(false)
+      at(T0 + 30_000)
+      await service.poll()
+
+      // Back after twenty minutes.
+      radarrService.isDownloadClientHealthy.mockResolvedValue(true)
+      const back = T0 + 1_200_000
+      at(back)
+      await service.poll()
+      at(back + ABSENT_REMOVED_MS - 1)
+      await service.poll()
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Downloading,
+      )
+
+      at(back + ABSENT_REMOVED_MS)
+      await service.poll()
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Cancelled,
+      )
+    })
+
+    // The links live in `job_downloads`, so a restart forgets none of them
+    // and nothing settles on a grace period meant for the in-memory kind.
+    it('keeps its links across a restart', async () => {
+      const job = await linkedThenGone()
+
+      restart()
+      at(T0 + 61_000)
+      await service.poll()
+      at(T0 + 121_000)
+      await service.poll()
+
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Downloading,
+      )
+      expect(linksOf(job.id)).toHaveLength(1)
+
+      at(T0 + 61_000 + ABSENT_REMOVED_MS)
+      await service.poll()
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Cancelled,
+      )
+    })
+  })
+
+  // A job grabbed before its links were recorded - here, one that predates
+  // `job_downloads` - is linked from its title's own history once per boot.
+  describe('boot backfill', () => {
+    it('links a grabbed job from its title history, once per boot', async () => {
+      const job = await seed(
+        buildMovieJob({ status: DownloadJobStatus.NeedsAttention }),
+      )
+      const created = Date.parse(NOW_ISO)
+      radarrService.getMovieHistory.mockResolvedValue([
+        // Before the job: an earlier attempt's, not this one's.
+        {
+          date: new Date(created - 3_600_000).toISOString(),
+          downloadId: 'dl-old',
+          eventType: 'grabbed',
+          id: 1,
+          movieId: 42,
+        },
+        {
+          data: { releaseSource: 'InteractiveSearch' },
+          date: new Date(created + 60_000).toISOString(),
+          downloadId: 'dl-7',
+          eventType: 'grabbed',
+          id: 2,
+          movieId: 42,
+        },
+      ])
+
+      at(T0)
+      await service.poll()
+      at(T0 + 5_000)
+      await service.poll()
+
+      expect(radarrService.getMovieHistory).toHaveBeenCalledTimes(1)
+      expect(radarrService.getMovieHistory).toHaveBeenCalledWith(42)
+      expect(linksOf(job.id)).toEqual([
+        expect.objectContaining({
+          downloadId: 'dl-7',
+          grabbedAt: new Date(created + 60_000).toISOString(),
+          interactive: true,
+        }),
+      ])
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.NeedsAttention,
+      )
+    })
+
+    it("fills in a show's season from its episodes and records what became of the grab", async () => {
+      const job = await seed(
+        buildShowJob({
+          scope: { seasonNumber: 2 },
+          status: DownloadJobStatus.Downloading,
+        }),
+      )
+      const created = Date.parse(NOW_ISO)
+      sonarrService.getEpisodes.mockResolvedValue([
+        { episodeNumber: 1, id: 21, seasonNumber: 2, seriesId: 9 },
+      ])
+      // Per-series history carries no episode, only its id.
+      sonarrService.getSeriesHistory.mockResolvedValue([
+        {
+          date: new Date(created + 60_000).toISOString(),
+          downloadId: 'dl-s2',
+          episodeId: 21,
+          eventType: 'grabbed',
+          id: 1,
+          seriesId: 9,
+        },
+        {
+          date: new Date(created + 120_000).toISOString(),
+          downloadId: 'dl-s2',
+          episodeId: 21,
+          eventType: 'downloadFolderImported',
+          id: 2,
+          seriesId: 9,
+        },
+      ])
+
+      at(T0)
+      await service.poll()
+
+      expect(linksOf(job.id)).toEqual([
+        expect.objectContaining({
+          downloadId: 'dl-s2',
+          importedAt: new Date(created + 120_000).toISOString(),
+        }),
+      ])
+      // Every link imported and nothing queued: done.
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Completed,
+      )
+    })
+
+    it('tries a title again next interval when its history cannot be read', async () => {
+      const job = await seed(
+        buildMovieJob({ status: DownloadJobStatus.Downloading }),
+      )
+      radarrService.getMovieHistory.mockRejectedValueOnce(
+        new Error('radarr down'),
+      )
+
+      at(T0)
+      await service.poll()
+      expect(linksOf(job.id)).toEqual([])
+
+      radarrService.getMovieHistory.mockResolvedValue([
+        {
+          date: new Date(Date.parse(NOW_ISO) + 60_000).toISOString(),
+          downloadId: 'dl-7',
+          eventType: 'grabbed',
+          id: 2,
+          movieId: 42,
+        },
+      ])
+      at(T0 + 5_000)
+      await service.poll()
+
+      expect(linksOf(job.id).map(link => link.downloadId)).toEqual(['dl-7'])
+    })
+  })
+
+  describe('command tracking', () => {
+    const iso = (ms: number): string => new Date(ms).toISOString()
+
+    /** A Radarr grab of movie 42 - the default movie job's title. */
+    function movieGrab(
+      id: number,
+      downloadId: string,
+      ms: number,
+    ): HistoryResource {
+      return {
+        date: iso(ms),
+        downloadId,
+        eventType: 'grabbed',
+        id,
+        movieId: 42,
+      }
+    }
+
+    /** A movie job waiting on search command 21, sent a minute before T0. */
+    function searchingMovie(
+      overrides: Partial<DownloadJobRecord> = {},
+    ): Promise<DownloadJobRecord> {
+      return seed(
+        buildMovieJob({
+          status: DownloadJobStatus.Searching,
+          upstreamCommandAt: iso(T0 - 60_000),
+          upstreamCommandId: 21,
+          upstreamCommandKind: 'search',
+          ...overrides,
+        }),
+      )
+    }
+
+    function completedSearch(
+      overrides: Partial<CommandSnapshot> = {},
+    ): CommandSnapshot {
+      return buildCommand({
+        ended: iso(T0 - 3_000),
+        id: 21,
+        message: 'Completed. 0 reports downloaded.',
+        started: iso(T0 - 50_000),
+        status: 'completed',
+        ...overrides,
+      })
+    }
+
+    describe('the add-time refresh', () => {
+      it('starts the search once the refresh completes, and waits on that instead', async () => {
+        const job = await seed(
+          buildMovieJob({
+            status: DownloadJobStatus.Searching,
+            statusNote: 'Waiting for Radarr to finish adding the movie',
+            upstreamCommandAt: iso(T0 - 30_000),
+            upstreamCommandId: 11,
+            upstreamCommandKind: 'refresh',
+          }),
+        )
+        radarrService.getCommand.mockResolvedValue(
+          buildCommand({ id: 11, name: 'RefreshMovie', status: 'completed' }),
+        )
+        radarrService.triggerSearch.mockResolvedValue({
+          id: 12,
+          name: 'MoviesSearch',
+          queuedAt: iso(T0 + 100),
+        })
+
+        at(T0)
+        await service.poll()
+
+        expect(radarrService.getCommand).toHaveBeenCalledWith(11)
+        // By the id the poller resolved, not a library read.
+        expect(radarrService.triggerSearch).toHaveBeenCalledWith(42)
+        expect(radarrService.getLibraryMovie).not.toHaveBeenCalled()
+        const updated = downloadStateService.jobs.get(job.id)
+        expect(updated).toMatchObject({
+          status: DownloadJobStatus.Searching,
+          statusNote: undefined,
+          upstreamCommandAt: iso(T0 + 100),
+          upstreamCommandId: 12,
+          upstreamCommandKind: 'search',
+        })
+        expect(getJobById(dbService.db, job.id)).toMatchObject({
+          statusNote: null,
+          upstreamCommandId: 12,
+          upstreamCommandKind: 'search',
+        })
+
+        // The search is followed from then on, and sent only once.
+        at(T0 + COMMAND_POLL_MS)
+        await service.poll()
+        expect(radarrService.getCommand).toHaveBeenLastCalledWith(12)
+        expect(radarrService.triggerSearch).toHaveBeenCalledTimes(1)
+      })
+
+      it("sends the scope's own search for a show - season 0 included", async () => {
+        const job = await seed(
+          buildShowJob({
+            scope: { seasonNumber: 0 },
+            status: DownloadJobStatus.Searching,
+            upstreamCommandAt: iso(T0 - 30_000),
+            upstreamCommandId: 11,
+            upstreamCommandKind: 'refresh',
+          }),
+        )
+        sonarrService.getCommand.mockResolvedValue(
+          buildCommand({ id: 11, name: 'RefreshSeries', status: 'completed' }),
+        )
+        sonarrService.triggerSeasonSearch.mockResolvedValue({
+          id: 12,
+          name: 'SeasonSearch',
+          queuedAt: iso(T0),
+        })
+
+        at(T0)
+        await service.poll()
+
+        expect(sonarrService.triggerSeasonSearch).toHaveBeenCalledWith(9, 0)
+        expect(downloadStateService.jobs.get(job.id)).toMatchObject({
+          upstreamCommandId: 12,
+          upstreamCommandKind: 'search',
+        })
+      })
+
+      // Only now, with the refresh done: a flag written during it is undone.
+      it("monitors the show's scope before its search", async () => {
+        await seed(
+          buildShowJob({
+            scope: { seasonNumber: 2 },
+            status: DownloadJobStatus.Searching,
+            upstreamCommandAt: iso(T0 - 30_000),
+            upstreamCommandId: 11,
+            upstreamCommandKind: 'refresh',
+          }),
+        )
+        sonarrService.getCommand.mockResolvedValue(
+          buildCommand({ id: 11, name: 'RefreshSeries', status: 'completed' }),
+        )
+        sonarrService.triggerSeasonSearch.mockResolvedValue({
+          id: 12,
+          name: 'SeasonSearch',
+          queuedAt: iso(T0),
+        })
+
+        at(T0)
+        await service.poll()
+
+        expect(sonarrService.monitorScope).toHaveBeenCalledWith(9, {
+          seasonNumber: 2,
+        })
+        expect(
+          sonarrService.monitorScope.mock.invocationCallOrder[0],
+        ).toBeLessThan(
+          sonarrService.triggerSeasonSearch.mock.invocationCallOrder[0] ?? 0,
+        )
+      })
+
+      describe('an episode asked for by number', () => {
+        async function seedByNumber(): Promise<DownloadJobRecord> {
+          const job = await seed(
+            buildShowJob({
+              scope: { episodeNumber: 5, seasonNumber: 2 },
+              status: DownloadJobStatus.Searching,
+              statusNote: 'Waiting for Sonarr to finish adding the show',
+              upstreamCommandAt: iso(T0 - 30_000),
+              upstreamCommandId: 11,
+              upstreamCommandKind: 'refresh',
+            }),
+          )
+          sonarrService.getCommand.mockResolvedValue(
+            buildCommand({
+              id: 11,
+              name: 'RefreshSeries',
+              status: 'completed',
+            }),
+          )
+          sonarrService.triggerEpisodeSearch.mockResolvedValue({
+            id: 12,
+            name: 'EpisodeSearch',
+            queuedAt: iso(T0),
+          })
+          return job
+        }
+
+        it('resolves it, writes the resolved scope and waits on its search', async () => {
+          const job = await seedByNumber()
+          sonarrService.getEpisodes.mockResolvedValue([
+            { episodeNumber: 5, id: 805, seasonNumber: 2, seriesId: 9 },
+          ])
+
+          at(T0)
+          await service.poll()
+
+          const resolved = { episodeId: 805, episodeNumber: 5, seasonNumber: 2 }
+          expect(sonarrService.triggerEpisodeSearch).toHaveBeenCalledWith([805])
+          expect(downloadStateService.jobs.get(job.id)).toMatchObject({
+            scope: resolved,
+            status: DownloadJobStatus.Searching,
+            statusNote: undefined,
+            upstreamCommandId: 12,
+            upstreamCommandKind: 'search',
+          })
+          expect(getJobById(dbService.db, job.id)?.scope).toEqual(resolved)
+        })
+
+        it("fails the job when Sonarr doesn't have it", async () => {
+          const job = await seedByNumber()
+          sonarrService.getEpisodes.mockResolvedValue([])
+
+          at(T0)
+          await service.poll()
+
+          expect(downloadStateService.jobs.get(job.id)).toMatchObject({
+            error: "S02E05 isn't in Sonarr",
+            status: DownloadJobStatus.Failed,
+            statusNote: undefined,
+            upstreamCommandId: undefined,
+            upstreamCommandKind: undefined,
+          })
+          expect(sonarrService.triggerEpisodeSearch).not.toHaveBeenCalled()
+        })
+      })
+
+      describe('a title with flagged releases', () => {
+        function flagMovie(): void {
+          insertBadFile(dbService.db, {
+            flaggedByEmail: 'alice@example.com',
+            flaggedByUserId: 'user_1',
+            mediaId: 'tmdb:1',
+            mediaType: DownloadType.Movie,
+            releaseGuid: 'indexer://bad',
+          })
+        }
+
+        function releaseOf(guid: string): Release {
+          return {
+            downloadAllowed: true,
+            flaggedBad: false,
+            guid,
+            indexerId: 1,
+            rejected: false,
+            title: guid,
+          }
+        }
+
+        async function seedRefreshedMovie(): Promise<DownloadJobRecord> {
+          flagMovie()
+          const job = await seed(
+            buildMovieJob({
+              status: DownloadJobStatus.Searching,
+              statusNote: 'Waiting for Radarr to finish adding the movie',
+              upstreamCommandAt: iso(T0 - 30_000),
+              upstreamCommandId: 11,
+              upstreamCommandKind: 'refresh',
+            }),
+          )
+          radarrService.getCommand.mockResolvedValue(
+            buildCommand({ id: 11, name: 'RefreshMovie', status: 'completed' }),
+          )
+          return job
+        }
+
+        // The grab is claimed from history like any other; the job only
+        // keeps when it was sent, which ranks it first for that grab.
+        it('grabs, and waits on no command', async () => {
+          const job = await seedRefreshedMovie()
+          radarrService.getReleases.mockResolvedValue([
+            releaseOf('indexer://bad'),
+            releaseOf('indexer://ok'),
+          ])
+
+          at(T0)
+          await service.poll()
+
+          expect(radarrService.grabRelease).toHaveBeenCalledWith(
+            'indexer://ok',
+            1,
+          )
+          expect(radarrService.triggerSearch).not.toHaveBeenCalled()
+          expect(downloadStateService.jobs.get(job.id)).toMatchObject({
+            status: DownloadJobStatus.Searching,
+            statusNote: undefined,
+            upstreamCommandAt: iso(T0),
+            upstreamCommandId: undefined,
+            upstreamCommandKind: undefined,
+          })
+          expect(linksOf(job.id)).toEqual([])
+        })
+
+        it('ends not_found, with the note, when every release is flagged', async () => {
+          const job = await seedRefreshedMovie()
+          radarrService.getReleases.mockResolvedValue([
+            releaseOf('indexer://bad'),
+          ])
+
+          at(T0)
+          await service.poll()
+
+          expect(downloadStateService.jobs.get(job.id)?.error).toBeUndefined()
+          expect(downloadStateService.jobs.get(job.id)).toMatchObject({
+            status: DownloadJobStatus.NotFound,
+            statusNote:
+              'No usable release — every result is flagged or rejected',
+            upstreamCommandId: undefined,
+            upstreamCommandKind: undefined,
+          })
+          expect(radarrService.grabRelease).not.toHaveBeenCalled()
+        })
+      })
+
+      it('starts the search when upstream has lost the refresh', async () => {
+        const job = await seed(
+          buildMovieJob({
+            status: DownloadJobStatus.Searching,
+            upstreamCommandAt: iso(T0 - 30_000),
+            upstreamCommandId: 11,
+            upstreamCommandKind: 'refresh',
+          }),
+        )
+        radarrService.getCommand.mockResolvedValue(null)
+        radarrService.triggerSearch.mockResolvedValue({
+          id: 12,
+          name: 'MoviesSearch',
+          queuedAt: iso(T0),
+        })
+
+        at(T0)
+        await service.poll()
+
+        expect(radarrService.triggerSearch).toHaveBeenCalledWith(42)
+        expect(downloadStateService.jobs.get(job.id)).toMatchObject({
+          status: DownloadJobStatus.Searching,
+          upstreamCommandId: 12,
+          upstreamCommandKind: 'search',
+        })
+      })
+
+      it.each([
+        ['radarr', 'Radarr never finished adding the movie'],
+        ['sonarr', 'Sonarr never finished adding the show'],
+      ] as const)(
+        'fails a %s job whose refresh is still running after the wait',
+        async (source, reason) => {
+          const queuedAt = T0 - REFRESH_WAIT_TIMEOUT_MS + 1_000
+          const overrides: Partial<DownloadJobRecord> = {
+            status: DownloadJobStatus.Searching,
+            statusNote: 'Waiting to finish adding',
+            upstreamCommandAt: iso(queuedAt),
+            upstreamCommandId: 11,
+            upstreamCommandKind: 'refresh',
+          }
+          const job = await seed(
+            source === 'radarr'
+              ? buildMovieJob(overrides)
+              : buildShowJob(overrides),
+          )
+          const app = source === 'radarr' ? radarrService : sonarrService
+          app.getCommand.mockResolvedValue(
+            buildCommand({ id: 11, name: 'RefreshMovie', status: 'started' }),
+          )
+
+          at(T0)
+          await service.poll()
+          expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+            DownloadJobStatus.Searching,
+          )
+
+          at(T0 + COMMAND_POLL_MS)
+          await service.poll()
+
+          const updated = downloadStateService.jobs.get(job.id)
+          expect(updated).toMatchObject({
+            error: reason,
+            status: DownloadJobStatus.Failed,
+            statusNote: undefined,
+            upstreamCommandId: undefined,
+            upstreamCommandKind: undefined,
+          })
+          expect(getJobById(dbService.db, job.id)).toMatchObject({
+            error: reason,
+            status: DownloadJobStatus.Failed,
+          })
+          expect(radarrService.triggerSearch).not.toHaveBeenCalled()
+          expect(sonarrService.triggerSearch).not.toHaveBeenCalled()
+        },
+      )
+    })
+
+    describe('a search', () => {
+      it('lets the job go on when it grabbed something, keeping when it was sent', async () => {
+        const job = await searchingMovie()
+        // Dated to the whole second before the command's start: history cuts
+        // dates to seconds, so it still counts.
+        radarrService.getHistorySince.mockResolvedValue([
+          movieGrab(1, 'dl-1', T0 - 3_000),
+        ])
+        radarrService.getCommand.mockResolvedValue(
+          completedSearch({
+            ended: iso(T0 - 1_000),
+            message: 'Completed. 1 reports downloaded.',
+            started: iso(T0 - 2_600),
+          }),
+        )
+        radarrService.getQueue.mockResolvedValue([
+          {
+            downloadId: 'dl-1',
+            id: 7001,
+            movieId: 42,
+            size: 1000,
+            sizeleft: 500,
+            status: 'downloading',
+          },
+        ])
+
+        at(T0)
+        await service.poll()
+
+        expect(downloadStateService.jobs.get(job.id)).toMatchObject({
+          status: DownloadJobStatus.Downloading,
+          upstreamCommandAt: iso(T0 - 60_000),
+          upstreamCommandId: undefined,
+          upstreamCommandKind: undefined,
+        })
+        expect(getJobById(dbService.db, job.id)).toMatchObject({
+          upstreamCommandAt: iso(T0 - 60_000),
+          upstreamCommandId: null,
+        })
+
+        // Nothing left to follow.
+        at(T0 + COMMAND_POLL_MS)
+        await service.poll()
+        expect(radarrService.getCommand).toHaveBeenCalledTimes(1)
+      })
+
+      it('ends the job not_found when nothing was grabbed and history is read past its end', async () => {
+        const job = await searchingMovie()
+        // A grab from before the command started is an earlier attempt's.
+        radarrService.getHistorySince.mockResolvedValue([
+          movieGrab(1, 'dl-old', T0 - 120_000),
+        ])
+        radarrService.getCommand.mockResolvedValue(completedSearch())
+
+        at(T0)
+        await service.poll()
+
+        // The chip already says "no release found": no note repeats it, and
+        // nothing reads as an error.
+        const updated = downloadStateService.jobs.get(job.id)
+        expect(updated?.statusNote).toBeUndefined()
+        expect(updated?.error).toBeUndefined()
+        expect(updated).toMatchObject({
+          status: DownloadJobStatus.NotFound,
+          upstreamCommandId: undefined,
+          upstreamCommandKind: undefined,
+        })
+        expect(getJobById(dbService.db, job.id)).toMatchObject({
+          error: null,
+          status: DownloadJobStatus.NotFound,
+          statusNote: null,
+        })
+        expect(Logger.prototype.log).toHaveBeenCalledWith(
+          expect.objectContaining({
+            commandMessage: 'Completed. 0 reports downloaded.',
+            jobId: job.id,
+          }),
+          'Search command finished without a grab',
+        )
+      })
+
+      it('decides nothing until a history read started after the search ended', async () => {
+        const job = await searchingMovie()
+        // Ended just after this tick's history read started, its grab
+        // written a moment before - a read the next interval catches.
+        radarrService.getCommand.mockResolvedValue(
+          completedSearch({ ended: iso(T0 + 500) }),
+        )
+
+        at(T0)
+        await service.poll()
+        at(T0 + COMMAND_POLL_MS)
+        await service.poll()
+
+        expect(downloadStateService.jobs.get(job.id)).toMatchObject({
+          status: DownloadJobStatus.Searching,
+          upstreamCommandId: 21,
+        })
+        expect(radarrService.getCommand).toHaveBeenCalledTimes(2)
+
+        radarrService.getHistorySince.mockResolvedValue([
+          movieGrab(1, 'dl-1', T0 + 400),
+        ])
+        at(T0 + 5_000)
+        await service.poll()
+
+        expect(downloadStateService.jobs.get(job.id)).toMatchObject({
+          status: DownloadJobStatus.Searching,
+          upstreamCommandId: undefined,
+        })
+        expect(linksOf(job.id).map(link => link.downloadId)).toEqual(['dl-1'])
+      })
+
+      it('ends not_found at the first history read past its end when no grab shows up', async () => {
+        const job = await searchingMovie()
+        radarrService.getCommand.mockResolvedValue(
+          completedSearch({ ended: iso(T0 + 500) }),
+        )
+
+        at(T0)
+        await service.poll()
+        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+          DownloadJobStatus.Searching,
+        )
+
+        // The next read fails: still nothing decided.
+        radarrService.getHistorySince.mockRejectedValueOnce(new Error('down'))
+        at(T0 + 5_000)
+        await service.poll()
+        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+          DownloadJobStatus.Searching,
+        )
+
+        at(T0 + 10_000)
+        await service.poll()
+        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+          DownloadJobStatus.NotFound,
+        )
+      })
+
+      it('judges a search upstream has lost by the grabs since the job sent it', async () => {
+        const lost = await searchingMovie()
+        const found = await seed(
+          buildShowJob({
+            status: DownloadJobStatus.Searching,
+            upstreamCommandAt: iso(T0 - 60_000),
+            upstreamCommandId: 22,
+            upstreamCommandKind: 'search',
+          }),
+        )
+        radarrService.getCommand.mockResolvedValue(null)
+        sonarrService.getCommand.mockResolvedValue(null)
+        sonarrService.getHistorySince.mockResolvedValue([
+          {
+            date: iso(T0 - 30_000),
+            downloadId: 'dl-s',
+            eventType: 'grabbed',
+            id: 1,
+            seriesId: 9,
+          },
+        ])
+
+        at(T0)
+        await service.poll()
+
+        expect(downloadStateService.jobs.get(found.id)).toMatchObject({
+          status: DownloadJobStatus.Searching,
+          upstreamCommandId: undefined,
+        })
+        // Gone as of now: only a history read started after that can say
+        // nothing was grabbed - and the next read of the command must not
+        // push that later.
+        at(T0 + COMMAND_POLL_MS)
+        await service.poll()
+        expect(downloadStateService.jobs.get(lost.id)?.status).toBe(
+          DownloadJobStatus.Searching,
+        )
+
+        at(T0 + 5_000)
+        await service.poll()
+        expect(downloadStateService.jobs.get(lost.id)?.status).toBe(
+          DownloadJobStatus.NotFound,
+        )
+      })
+
+      it.each([
+        ['failed', 'Indexer query failed', 'Indexer query failed'],
+        ['aborted', undefined, 'Radarr search aborted'],
+        ['orphaned', undefined, 'Radarr search orphaned'],
+      ] as const)(
+        'fails the job when the command %s',
+        async (status, message, reason) => {
+          const job = await searchingMovie()
+          radarrService.getCommand.mockResolvedValue(
+            completedSearch({ message, status }),
+          )
+
+          at(T0)
+          await service.poll()
+
+          expect(downloadStateService.jobs.get(job.id)).toMatchObject({
+            error: reason,
+            status: DownloadJobStatus.Failed,
+            upstreamCommandId: undefined,
+            upstreamCommandKind: undefined,
+          })
+        },
+      )
+
+      it('leaves a cancelling job to its cancel', async () => {
+        const job = await searchingMovie({
+          status: DownloadJobStatus.Cancelling,
+        })
+        radarrService.getCommand.mockResolvedValue(completedSearch())
+
+        at(T0)
+        await service.poll()
+
+        expect(radarrService.getCommand).not.toHaveBeenCalled()
+        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+          DownloadJobStatus.Cancelling,
+        )
+      })
+
+      it(`reads a job's command at most every ${COMMAND_POLL_MS} ms`, async () => {
+        await searchingMovie()
+
+        for (const offset of [0, 1_000, 1_999, 2_000, 3_000, 4_000]) {
+          at(T0 + offset)
+          await service.poll()
+        }
+
+        expect(radarrService.getCommand).toHaveBeenCalledTimes(3)
+      })
+
+      it('keeps the job waiting through a failed command read', async () => {
+        const job = await searchingMovie()
+        radarrService.getCommand.mockRejectedValueOnce(new Error('timeout'))
+
+        at(T0)
+        await service.poll()
+
+        expect(downloadStateService.jobs.get(job.id)).toMatchObject({
+          status: DownloadJobStatus.Searching,
+          upstreamCommandId: 21,
+        })
+        expect(
+          (service as unknown as { nextAllowedRunAt: number }).nextAllowedRunAt,
+        ).toBe(0)
+      })
+    })
+
+    describe('the search upstream queues after a failed download', () => {
+      const FAILED_AT = T0 - 2_000
+
+      /** A movie job whose download failed at FAILED_AT, Radarr retrying. */
+      async function retryingMovie(): Promise<DownloadJobRecord> {
+        const job = await seed(
+          buildMovieJob({ status: DownloadJobStatus.Downloading }),
+        )
+        radarrService.getHistorySince.mockResolvedValue([
+          movieGrab(1, 'dl-1', T0 - 60_000),
+          {
+            data: { message: 'Aborted' },
+            date: iso(FAILED_AT),
+            downloadId: 'dl-1',
+            eventType: 'downloadFailed',
+            id: 2,
+            movieId: 42,
+          },
+        ])
+        return job
+      }
+
+      function retrySearch(
+        overrides: Partial<CommandSnapshot> & { id: number },
+      ): CommandSnapshot {
+        return buildCommand({
+          body: { movieIds: [42] },
+          queued: iso(FAILED_AT + 300),
+          trigger: 'unspecified',
+          ...overrides,
+        })
+      }
+
+      it("follows Radarr's retry and ends not_found when it grabs nothing", async () => {
+        const job = await retryingMovie()
+        radarrService.listCommands.mockResolvedValue([
+          // Someone else's movie, one started by hand, one from before the
+          // failure: none of them is this job's retry.
+          retrySearch({ body: { movieIds: [43] }, id: 30 }),
+          retrySearch({ id: 31, trigger: 'manual' }),
+          retrySearch({ id: 32, queued: iso(FAILED_AT - 60_000) }),
+          retrySearch({ id: 33 }),
+        ])
+
+        at(T0)
+        await service.poll()
+
+        expect(downloadStateService.jobs.get(job.id)).toMatchObject({
+          status: DownloadJobStatus.Searching,
+          statusNote:
+            'Last download failed: Aborted. Radarr is trying another release.',
+          upstreamCommandAt: iso(FAILED_AT + 300),
+          upstreamCommandId: 33,
+          upstreamCommandKind: 'search',
+        })
+
+        radarrService.getCommand.mockResolvedValue(
+          retrySearch({
+            ended: iso(T0 + 1_000),
+            id: 33,
+            started: iso(FAILED_AT + 400),
+            status: 'completed',
+          }),
+        )
+        at(T0 + COMMAND_POLL_MS)
+        await service.poll()
+        expect(radarrService.getCommand).toHaveBeenCalledWith(33)
+        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+          DownloadJobStatus.Searching,
+        )
+
+        at(T0 + 5_000)
+        await service.poll()
+
+        const updated = downloadStateService.jobs.get(job.id)
+        expect(updated?.error).toBeUndefined()
+        expect(updated).toMatchObject({
+          status: DownloadJobStatus.NotFound,
+          statusNote: "Radarr's retry found no other release",
+          upstreamCommandId: undefined,
+        })
+        expect(getJobById(dbService.db, job.id)).toMatchObject({
+          error: null,
+          statusNote: "Radarr's retry found no other release",
+        })
+      })
+
+      it("ends not_found when Radarr's retry is never seen", async () => {
+        const job = await retryingMovie()
+
+        at(T0)
+        await service.poll()
+        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+          DownloadJobStatus.Searching,
+        )
+
+        at(FAILED_AT + RETRY_SEARCH_TIMEOUT_MS - 1_000)
+        await service.poll()
+        expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+          DownloadJobStatus.Searching,
+        )
+
+        at(FAILED_AT + RETRY_SEARCH_TIMEOUT_MS + 5_000)
+        await service.poll()
+
+        expect(radarrService.listCommands).toHaveBeenCalledTimes(3)
+        const updated = downloadStateService.jobs.get(job.id)
+        expect(updated?.error).toBeUndefined()
+        expect(updated).toMatchObject({
+          status: DownloadJobStatus.NotFound,
+          statusNote: "Radarr's retry found no other release",
+        })
+      })
+
+      it("matches Sonarr's episode retry to a season job by the season's episodes", async () => {
+        const job = await seed(
+          buildShowJob({
+            scope: { seasonNumber: 0 },
+            status: DownloadJobStatus.Downloading,
+          }),
+        )
+        const episode = {
+          episodeId: 501,
+          episodeNumber: 1,
+          season: 0,
+        }
+        sonarrService.getHistorySince.mockResolvedValue([
+          {
+            date: iso(T0 - 60_000),
+            downloadId: 'dl-1',
+            episode: { episodeNumber: 1, seasonNumber: 0 },
+            episodeId: episode.episodeId,
+            eventType: 'grabbed',
+            id: 1,
+            seriesId: 9,
+          },
+          {
+            data: { message: 'Aborted' },
+            date: iso(FAILED_AT),
+            downloadId: 'dl-1',
+            episode: { episodeNumber: 1, seasonNumber: 0 },
+            episodeId: episode.episodeId,
+            eventType: 'downloadFailed',
+            id: 2,
+            seriesId: 9,
+          },
+        ])
+        sonarrService.getEpisodes.mockResolvedValue([
+          { id: 501, seasonNumber: 0 },
+          { id: 601, seasonNumber: 1 },
+        ])
+        sonarrService.listCommands.mockResolvedValue([
+          buildCommand({
+            body: { episodeIds: [601] },
+            id: 40,
+            name: 'EpisodeSearch',
+            queued: iso(FAILED_AT + 100),
+            trigger: 'unspecified',
+          }),
+          buildCommand({
+            body: { episodeIds: [501] },
+            id: 41,
+            name: 'EpisodeSearch',
+            queued: iso(FAILED_AT + 200),
+            trigger: 'unspecified',
+          }),
+        ])
+
+        at(T0)
+        await service.poll()
+
+        expect(downloadStateService.jobs.get(job.id)).toMatchObject({
+          status: DownloadJobStatus.Searching,
+          upstreamCommandId: 41,
+          upstreamCommandKind: 'search',
+        })
+      })
+    })
+  })
+
+  describe("completion credits only the job's own downloads", () => {
+    /** Episode 1 of season 1, and episode 2 of season 2. */
+    function library(files: { 1?: boolean; 2?: boolean }): void {
+      sonarrService.getEpisodes.mockResolvedValue([
+        { episodeFileId: files[1] ? 901 : 0, id: 1, seasonNumber: 1 },
+        { episodeFileId: files[2] ? 902 : 0, id: 2, seasonNumber: 2 },
+      ])
+      sonarrService.getEpisodeFiles.mockResolvedValue([
+        ...(files[1]
+          ? [{ dateAdded: AFTER_ISO, id: 901, seasonNumber: 1, seriesId: 9 }]
+          : []),
+        ...(files[2]
+          ? [{ dateAdded: AFTER_ISO, id: 902, seasonNumber: 2, seriesId: 9 }]
+          : []),
+      ])
+    }
+
+    function importOf(
+      downloadId: string,
+      episodeId: number,
+      fileId: number,
+    ): SonarrHistoryResource {
+      return {
+        data: { fileId: String(fileId) },
+        date: AFTER_ISO,
+        downloadId,
+        episodeId,
+        eventType: 'downloadFolderImported',
+        seriesId: 9,
+      }
+    }
+
+    // A series job stuck on its own download while an RSS grab of another
+    // season lands: the old any-new-file rule completed it.
+    it('does not complete a stuck series job on an unrelated import', async () => {
+      const job = await seed(
+        buildShowJob({ status: DownloadJobStatus.Downloading }),
+      )
+
+      at(T0)
+      sonarrService.getQueue.mockResolvedValue([
+        {
+          downloadId: 'dl-own',
+          episodeId: 1,
+          seasonNumber: 1,
+          seriesId: 9,
+          status: 'downloading',
+        },
+      ])
+      await service.poll()
+      expect(linksOf(job.id).map(link => link.downloadId)).toEqual(['dl-own'])
+
+      at(T0 + 10_000)
+      sonarrService.getQueue.mockResolvedValue([])
+      library({ 2: true })
+      sonarrService.getSeriesHistory.mockResolvedValue([
+        importOf('dl-rss', 2, 902),
+      ])
+      await service.poll()
+
+      expect(sonarrService.getSeriesHistory).toHaveBeenCalledWith(9)
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Downloading,
+      )
+
+      at(T0 + 20_000)
+      library({ 1: true, 2: true })
+      sonarrService.getSeriesHistory.mockResolvedValue([
+        importOf('dl-rss', 2, 902),
+        importOf('dl-own', 1, 901),
+      ])
+      await service.poll()
+
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Completed,
+      )
+    })
+
+    // Nothing to credit, nothing to read: history is only fetched once a
+    // file newer than a linked job is listed.
+    it('reads no history for a linked job with no new file', async () => {
+      const job = await seed(
+        buildShowJob({ status: DownloadJobStatus.Downloading }),
+      )
+
+      at(T0)
+      sonarrService.getQueue.mockResolvedValue([
+        {
+          downloadId: 'dl-own',
+          episodeId: 1,
+          seasonNumber: 1,
+          seriesId: 9,
+          status: 'downloading',
+        },
+      ])
+      await service.poll()
+      sonarrService.getSeriesHistory.mockClear()
+
+      at(T0 + 10_000)
+      sonarrService.getQueue.mockResolvedValue([])
+      library({})
+      await service.poll()
+
+      expect(sonarrService.getEpisodeFiles).toHaveBeenCalledWith(9)
+      expect(sonarrService.getSeriesHistory).not.toHaveBeenCalled()
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Downloading,
+      )
+    })
+
+    /** A pack's rows: episode 1 imported, episode 2 blocked. */
+    const PACK: SonarrQueueResource[] = [
+      {
+        downloadId: 'dl-pack',
+        episodeHasFile: true,
+        episodeId: 1,
+        seasonNumber: 1,
+        seriesId: 9,
+        status: 'completed',
+        trackedDownloadState: 'importPending',
+      },
+      {
+        downloadId: 'dl-pack',
+        episodeHasFile: false,
+        episodeId: 3,
+        seasonNumber: 1,
+        seriesId: 9,
+        status: 'completed',
+        trackedDownloadState: 'importPending',
+      },
+    ]
+
+    it('completes an episode job whose episode landed while its row stays', async () => {
+      const job = await seed(
+        buildShowJob({
+          scope: { episodeId: 1, seasonNumber: 1 },
+          status: DownloadJobStatus.Downloading,
+        }),
+      )
+
+      at(T0)
+      sonarrService.getQueue.mockResolvedValue(PACK)
+      library({ 1: true })
+      await service.poll()
+
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Completed,
+      )
+    })
+
+    // An upgrade in flight: the episode has its old file the whole time.
+    it('leaves an episode job whose episode file predates it', async () => {
+      const job = await seed(
+        buildShowJob({
+          scope: { episodeId: 1, seasonNumber: 1 },
+          status: DownloadJobStatus.Downloading,
+        }),
+      )
+
+      at(T0)
+      sonarrService.getQueue.mockResolvedValue(PACK)
+      sonarrService.getEpisodes.mockResolvedValue([
+        { episodeFileId: 901, id: 1, seasonNumber: 1 },
+      ])
+      sonarrService.getEpisodeFiles.mockResolvedValue([
+        { dateAdded: BEFORE_ISO, id: 901, seasonNumber: 1, seriesId: 9 },
+      ])
+      await service.poll()
+
+      expect(downloadStateService.jobs.get(job.id)?.status).not.toBe(
+        DownloadJobStatus.Completed,
+      )
+    })
+
+    it('does not complete a season job while its rows stay', async () => {
+      const job = await seed(
+        buildShowJob({
+          scope: { seasonNumber: 1 },
+          status: DownloadJobStatus.Downloading,
+        }),
+      )
+
+      at(T0)
+      sonarrService.getQueue.mockResolvedValue(
+        PACK.map(item => ({ ...item, episodeHasFile: true })),
+      )
+      library({ 1: true })
+      await service.poll()
+
+      expect(sonarrService.getEpisodeFiles).not.toHaveBeenCalled()
+      expect(downloadStateService.jobs.get(job.id)?.status).not.toBe(
+        DownloadJobStatus.Completed,
+      )
     })
   })
 })

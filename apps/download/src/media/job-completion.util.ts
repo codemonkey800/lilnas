@@ -1,5 +1,7 @@
 import type { ShowScope } from '@lilnas/utils/download/types'
 
+import { type HistoryRecordLike, historyValue } from './release-history.util'
+
 /**
  * A file as this decision needs it - an id to be pointed at, the timestamp
  * the import happened, and (for a show) the season it belongs to.
@@ -37,6 +39,30 @@ export interface CompletionEpisode {
   episodeFileId?: number
 }
 
+/**
+ * One `downloadFolderImported` record of the title's history, reduced to
+ * what ties a file on disk back to the download that wrote it - see
+ * `completionImports`.
+ */
+export interface CompletionImport {
+  /** The download client's id for the download the import came from. */
+  downloadId: string
+  /** When the import happened, as the wire sent it. */
+  date?: string
+  /** Sonarr only: the episode the import filled. */
+  episodeId?: number
+  /**
+   * `data.fileId` - the movie or episode file the import wrote. Absent on a
+   * record that doesn't name it.
+   */
+  fileId?: number
+}
+
+/** One of the job's own downloads, as `job_downloads` links it. */
+export interface CompletionLink {
+  downloadId: string
+}
+
 export interface CompletionInput {
   /** When the job was created - the "since" of "did a file appear since". */
   createdAt: Date
@@ -46,6 +72,58 @@ export interface CompletionInput {
   files: readonly CompletionFile[]
   /** Shows only: the episodes the scope is measured against. */
   episodes?: readonly CompletionEpisode[]
+  /**
+   * The job's own downloads. Absent or empty for a job with none - one from
+   * before links were recorded, or a file someone imported by hand - and
+   * then a file's date alone decides.
+   */
+  links?: readonly CompletionLink[]
+  /**
+   * The title's import history (`completionImports`), read to tie each new
+   * file to the download that wrote it. Only consulted when `links` has
+   * any: absent there, no file can be credited to the job.
+   */
+  imports?: readonly CompletionImport[]
+  /**
+   * The job's queue item this tick, aggregated - present only while the
+   * job still has one. See `didJobComplete` for the one case that reads it.
+   */
+  queueItem?: { episodeHasFile?: boolean }
+}
+
+/** The history event type an import is recorded under, matched as a string. */
+const IMPORTED = 'downloadFolderImported'
+
+/**
+ * The `downloadFolderImported` records of a title's history, as
+ * `didJobComplete` reads them. A record with no `downloadId` is dropped -
+ * nothing could tie it to a job - and so is every other event type.
+ *
+ * Only `data.fileId` is read out of `data`: the bag carries the grab's
+ * indexer URL, API key included, so none of the rest is kept.
+ */
+export function completionImports(
+  records: readonly HistoryRecordLike[],
+): CompletionImport[] {
+  const imports: CompletionImport[] = []
+
+  for (const record of records) {
+    const downloadId = record.downloadId
+    if (record.eventType !== IMPORTED || !downloadId) continue
+
+    const rawFileId = historyValue(record, 'fileId')
+    const fileId =
+      rawFileId === undefined ? Number.NaN : Number.parseInt(rawFileId, 10)
+
+    imports.push({
+      downloadId,
+      ...(record.date ? { date: record.date } : {}),
+      ...(record.episodeId != null ? { episodeId: record.episodeId } : {}),
+      ...(Number.isNaN(fileId) ? {} : { fileId }),
+    })
+  }
+
+  return imports
 }
 
 /**
@@ -67,13 +145,32 @@ function isAddedAfter(
   file: CompletionFile | undefined,
   createdAtMs: number,
 ): boolean {
-  const raw = file?.dateAdded
+  return isAfter(file?.dateAdded, createdAtMs)
+}
 
+/** `isAddedAfter` on a bare timestamp - see there for the parsing rules. */
+function isAfter(raw: string | undefined, sinceMs: number): boolean {
   if (typeof raw !== 'string' || raw.trim() === '') return false
 
   const addedMs = Date.parse(raw)
 
-  return !Number.isNaN(addedMs) && addedMs > createdAtMs
+  return !Number.isNaN(addedMs) && addedMs > sinceMs
+}
+
+/**
+ * Whether any of `files` was added after `since` - the cheap question that
+ * decides whether a title's import history is worth reading at all: with no
+ * new file there is nothing to credit to a job.
+ */
+export function hasFileAddedAfter(
+  files: readonly CompletionFile[],
+  since: Date,
+): boolean {
+  const sinceMs = since.getTime()
+
+  return (
+    !Number.isNaN(sinceMs) && files.some(file => isAddedAfter(file, sinceMs))
+  )
 }
 
 /** Files keyed by id, skipping any the upstream returned without one. */
@@ -89,6 +186,47 @@ function indexFilesById(
   }
 
   return byId
+}
+
+/**
+ * Which files the job's own downloads wrote, or `undefined` for a job with
+ * no links - which the caller reads as "credit any new file".
+ *
+ * An import is the job's when its `downloadId` is one of the links. It
+ * credits the file it names (`fileId`); failing that, the file its episode
+ * points at now; failing both - a record naming neither, which only Radarr
+ * writes, where the title is one file - every file, provided the import
+ * itself came after the job.
+ */
+function ownFiles(
+  input: CompletionInput,
+  createdAtMs: number,
+): { any: boolean; ids: Set<number> } | undefined {
+  const { episodes, imports, links } = input
+
+  if (!links || links.length === 0) return undefined
+
+  const linked = new Set(links.map(link => link.downloadId))
+  const own = { any: false, ids: new Set<number>() }
+
+  for (const record of imports ?? []) {
+    if (!linked.has(record.downloadId)) continue
+
+    if (record.fileId != null) {
+      own.ids.add(record.fileId)
+    } else if (record.episodeId != null) {
+      const fileId = episodes?.find(
+        episode => episode.id === record.episodeId,
+      )?.episodeFileId
+
+      // `0` is Sonarr's "no file".
+      if (fileId) own.ids.add(fileId)
+    } else if (isAfter(record.date, createdAtMs)) {
+      own.any = true
+    }
+  }
+
+  return own
 }
 
 /**
@@ -134,6 +272,20 @@ function hasNewFile(
  *   was added after `createdAt`, which is the movie rule on the series' file
  *   list.
  *
+ * For a movie, a season and a whole series, a job with `links` credits only
+ * a file one of its own downloads imported (`imports`) - otherwise an RSS
+ * grab of another episode, or an upgrade of another season, would complete
+ * a job that is still stuck. The date alone decides only for a job with no
+ * links: one from before links were recorded, or a manual import. An
+ * episode scope names its one file, so whatever filled it is the answer.
+ *
+ * While the job still has a queue item (`queueItem`) only an episode scope
+ * can complete, and only when Sonarr says the episode has a file
+ * (`episodeHasFile`) and that file is newer than the job: a season pack
+ * held up on another episode, or a row Sonarr keeps after a partial manual
+ * import, stays in the queue long after this episode landed. A season or a
+ * series still has more of its download to come, so it waits for the queue.
+ *
  * A season or series needs one new file, not every episode filled, because
  * a job is the record of one attempt, not a measure of the title: episodes
  * already on disk before the job, unaired ones and ones no indexer had never
@@ -144,8 +296,8 @@ function hasNewFile(
  * download vanished without a file still reads as not finished.
  *
  * Only this function says what landed; the caller decides what a `false`
- * means (the poller waits, then fails a grabbed job - see
- * `settleWithoutQueueItem`).
+ * means (the poller waits on the job's download links - see
+ * `settleAbsentJob`).
  *
  * Pure and total: no I/O, no clock reads, and no input - malformed,
  * inconsistent or empty - makes it throw. Everything it cannot positively
@@ -153,7 +305,7 @@ function hasNewFile(
  * while a false positive marks an absent download `Completed`.
  */
 export function didJobComplete(input: CompletionInput): boolean {
-  const { createdAt, episodes, files, scope } = input
+  const { createdAt, episodes, files, queueItem, scope } = input
 
   const createdAtMs = createdAt.getTime()
 
@@ -163,18 +315,19 @@ export function didJobComplete(input: CompletionInput): boolean {
 
   if (files.length === 0) return false
 
-  // A movie is one file and one target, and a whole series is every file
-  // the series has, so neither has an episode indirection to walk - any
-  // newly added file is this job's file. `== null` rather than falsiness:
-  // Sonarr numbers specials as season 0, which is a season, not the series.
-  if (scope?.episodeId == null && scope?.seasonNumber == null) {
-    return files.some(file => isAddedAfter(file, createdAtMs))
+  // Still queued: only an episode Sonarr says has a file can be done - the
+  // file's date is checked below like any other episode job's.
+  if (
+    queueItem &&
+    (scope?.episodeId == null || queueItem.episodeHasFile !== true)
+  ) {
+    return false
   }
 
   const filesById = indexFilesById(files)
   const scopeEpisodes = episodes ?? []
 
-  if (scope.episodeId != null) {
+  if (scope?.episodeId != null) {
     // `e.id != null` first, so an id-less episode can never be matched by
     // an `episodeId` scope - `undefined === undefined` is unreachable here
     // (this branch is guarded on `scope.episodeId != null`), but stating it
@@ -188,12 +341,25 @@ export function didJobComplete(input: CompletionInput): boolean {
     return episode ? hasNewFile(episode, filesById, createdAtMs) : false
   }
 
+  const own = ownFiles(input, createdAtMs)
+  const isOwn = (fileId: number | undefined) =>
+    !own || own.any || (fileId != null && own.ids.has(fileId))
+
+  // A movie is one file and one target, and a whole series is every file
+  // the series has, so neither has an episode indirection to walk - any
+  // newly added file of the job's own is its file. `== null` rather than
+  // falsiness: Sonarr numbers specials as season 0, a season, not the series.
+  if (scope?.seasonNumber == null) {
+    return files.some(file => isAddedAfter(file, createdAtMs) && isOwn(file.id))
+  }
+
   // Episode-first rather than by the file's own `seasonNumber`, so the
   // episode list stays the one source of truth for what a scope covers - an
   // empty or unresolved list is no evidence, same as for an episode scope.
   return scopeEpisodes.some(
     episode =>
       episode.seasonNumber === scope.seasonNumber &&
-      hasNewFile(episode, filesById, createdAtMs),
+      hasNewFile(episode, filesById, createdAtMs) &&
+      isOwn(episode.episodeFileId),
   )
 }

@@ -17,14 +17,9 @@ jest.mock('@lilnas/media/radarr', () => ({
   getApiV3Movie: jest.fn(),
   getApiV3MovieById: jest.fn(),
   getApiV3MovieLookup: jest.fn(),
-  getApiV3MovieLookupTmdb: jest.fn(),
-  getApiV3Qualityprofile: jest.fn(),
   getApiV3Queue: jest.fn(),
   getApiV3QueueDetails: jest.fn(),
-  getApiV3Rootfolder: jest.fn(),
   getApiV3SystemStatus: jest.fn(),
-  postApiV3Command: jest.fn(),
-  postApiV3Movie: jest.fn(),
 }))
 
 import {
@@ -33,13 +28,8 @@ import {
   getApiV3Movie,
   getApiV3MovieById,
   getApiV3MovieLookup,
-  getApiV3MovieLookupTmdb,
-  getApiV3Qualityprofile,
   getApiV3Queue,
   getApiV3QueueDetails,
-  getApiV3Rootfolder,
-  postApiV3Command,
-  postApiV3Movie,
 } from '@lilnas/media/radarr'
 
 import { RetryConfigService } from 'src/config/retry.config'
@@ -65,12 +55,7 @@ jest.mock('perf_hooks', () => ({
 
 // Shorthands
 const mockGetApiV3MovieLookup = getApiV3MovieLookup as jest.Mock
-const mockGetApiV3MovieLookupTmdb = getApiV3MovieLookupTmdb as jest.Mock
-const mockGetApiV3Qualityprofile = getApiV3Qualityprofile as jest.Mock
-const mockGetApiV3Rootfolder = getApiV3Rootfolder as jest.Mock
-const mockPostApiV3Movie = postApiV3Movie as jest.Mock
 const mockGetApiV3MovieById = getApiV3MovieById as jest.Mock
-const mockPostApiV3Command = postApiV3Command as jest.Mock
 const mockGetApiV3Movie = getApiV3Movie as jest.Mock
 const mockDeleteApiV3MovieById = deleteApiV3MovieById as jest.Mock
 const mockGetApiV3Queue = getApiV3Queue as jest.Mock
@@ -143,29 +128,6 @@ const libraryMovie = {
   certification: 'R',
   studio: 'Fox 2000 Pictures',
 }
-
-const qualityProfile = {
-  id: 1,
-  name: 'HD-1080p',
-  upgradeAllowed: true,
-  cutoff: 4,
-  items: [],
-  minFormatScore: 0,
-  cutoffFormatScore: 0,
-  formatItems: [],
-  language: { id: 1, name: 'English' },
-}
-
-const rootFolder = {
-  id: 1,
-  path: '/movies',
-  accessible: true,
-  freeSpace: 1000000000,
-  totalSpace: 2000000000,
-  unmappedFolders: [],
-}
-
-const commandResponse = { id: 99, name: 'MoviesSearch' }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
@@ -294,60 +256,6 @@ describe('RadarrService integration (SDK mocked)', () => {
       expect(results[0].movieTitle).toBe('Fight Club')
       expect(results[0].progressPercent).toBe(50)
       expect(results[0].downloadedBytes).toBe(1000000000)
-    })
-  })
-
-  describe('monitorAndDownloadMovie', () => {
-    it('should orchestrate all SDK calls and return success for new movie', async () => {
-      const addedMovie = { ...libraryMovie, id: 42, monitored: true }
-
-      // Not in library
-      mockGetApiV3Movie.mockResolvedValue({ data: [] })
-      // TMDB lookup
-      mockGetApiV3MovieLookupTmdb.mockResolvedValue({ data: movieResource })
-      // Config
-      mockGetApiV3Qualityprofile.mockResolvedValue({ data: [qualityProfile] })
-      mockGetApiV3Rootfolder.mockResolvedValue({ data: [rootFolder] })
-      // Add movie
-      mockPostApiV3Movie.mockResolvedValue({ data: addedMovie })
-      // Trigger search
-      mockPostApiV3Command.mockResolvedValue({ data: commandResponse })
-
-      const result = await service.monitorAndDownloadMovie(550)
-
-      expect(result.success).toBe(true)
-      expect(result.movieAdded).toBe(true)
-      expect(result.searchTriggered).toBe(true)
-      expect(result.commandId).toBe(99)
-      expect(postApiV3Movie).toHaveBeenCalledWith(
-        expect.objectContaining({
-          body: expect.objectContaining({
-            tmdbId: 550,
-            title: 'Fight Club',
-            qualityProfileId: 1,
-            rootFolderPath: '/movies',
-          }),
-        }),
-      )
-    })
-
-    it('should trigger search for existing monitored movie without re-adding', async () => {
-      const monitoredMovie = { ...libraryMovie, tmdbId: 550, monitored: true }
-
-      mockGetApiV3Movie.mockResolvedValue({ data: [monitoredMovie] })
-      mockPostApiV3Command.mockResolvedValue({ data: commandResponse })
-
-      const result = await service.monitorAndDownloadMovie(550)
-
-      expect(result.success).toBe(true)
-      expect(result.movieAdded).toBe(false)
-      expect(result.searchTriggered).toBe(true)
-      expect(postApiV3Movie).not.toHaveBeenCalled()
-      expect(postApiV3Command).toHaveBeenCalledWith(
-        expect.objectContaining({
-          body: { name: 'MoviesSearch', movieIds: [42] },
-        }),
-      )
     })
   })
 

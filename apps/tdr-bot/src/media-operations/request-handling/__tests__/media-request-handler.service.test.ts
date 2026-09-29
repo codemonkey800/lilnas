@@ -3,8 +3,10 @@ jest.mock('@langchain/openai')
 
 import { BaseMessage, HumanMessage } from '@langchain/core/messages'
 import { ChatOpenAI } from '@langchain/openai'
+import { QualityTier } from '@lilnas/utils/download/types'
 import { Test, TestingModule } from '@nestjs/testing'
 
+import { createMockDiscordIdentity } from 'src/media-operations/request-handling/__test-helpers__/mock-services'
 import { MediaRequestHandler } from 'src/media-operations/request-handling/media-request-handler.service'
 import {
   MovieDeleteContext,
@@ -40,6 +42,7 @@ describe('MediaRequestHandler', () => {
 
   // Mock data
   const mockUserId = 'user123'
+  const mockDiscord = createMockDiscordIdentity(mockUserId)
   const mockMessage = new HumanMessage({ content: 'Download The Matrix' })
   const mockMessages: BaseMessage[] = [mockMessage]
   const mockState = { someState: 'value' }
@@ -153,6 +156,7 @@ describe('MediaRequestHandler', () => {
           mockMessage,
           mockMessages,
           mockUserId,
+          mockDiscord,
           mockState,
         )
 
@@ -161,6 +165,7 @@ describe('MediaRequestHandler', () => {
           message: mockMessage,
           messages: mockMessages,
           userId: mockUserId,
+          discord: mockDiscord,
           context: mockContext,
           state: mockState,
         })
@@ -184,6 +189,7 @@ describe('MediaRequestHandler', () => {
           mockMessage,
           mockMessages,
           mockUserId,
+          mockDiscord,
           mockState,
         )
 
@@ -191,6 +197,7 @@ describe('MediaRequestHandler', () => {
           message: mockMessage,
           messages: mockMessages,
           userId: mockUserId,
+          discord: mockDiscord,
           context: mockContext,
           state: mockState,
         })
@@ -214,6 +221,7 @@ describe('MediaRequestHandler', () => {
           mockMessage,
           mockMessages,
           mockUserId,
+          mockDiscord,
           mockState,
         )
 
@@ -221,6 +229,7 @@ describe('MediaRequestHandler', () => {
           message: mockMessage,
           messages: mockMessages,
           userId: mockUserId,
+          discord: mockDiscord,
           context: mockContext,
           state: mockState,
         })
@@ -245,6 +254,7 @@ describe('MediaRequestHandler', () => {
           mockMessage,
           mockMessages,
           mockUserId,
+          mockDiscord,
           mockState,
         )
 
@@ -252,6 +262,7 @@ describe('MediaRequestHandler', () => {
           message: mockMessage,
           messages: mockMessages,
           userId: mockUserId,
+          discord: mockDiscord,
           context: mockContext,
           state: mockState,
         })
@@ -286,6 +297,7 @@ describe('MediaRequestHandler', () => {
           mockMessage,
           mockMessages,
           mockUserId,
+          mockDiscord,
           mockState,
         )
 
@@ -311,6 +323,7 @@ describe('MediaRequestHandler', () => {
           statusMessage,
           [statusMessage],
           mockUserId,
+          mockDiscord,
           mockState,
         )
 
@@ -318,6 +331,7 @@ describe('MediaRequestHandler', () => {
           message: statusMessage,
           messages: [statusMessage],
           userId: mockUserId,
+          discord: mockDiscord,
           state: mockState,
         })
         expect(result).toBe(mockStrategyResult)
@@ -333,7 +347,12 @@ describe('MediaRequestHandler', () => {
 
         for (const content of testCases) {
           const message = new HumanMessage({ content })
-          await handler.handleRequest(message, [message], mockUserId)
+          await handler.handleRequest(
+            message,
+            [message],
+            mockUserId,
+            mockDiscord,
+          )
           expect(downloadStatusStrategy.handleRequest).toHaveBeenCalled()
           jest.clearAllMocks()
         }
@@ -364,6 +383,7 @@ describe('MediaRequestHandler', () => {
           mockMessage,
           mockMessages,
           mockUserId,
+          mockDiscord,
           mockState,
         )
 
@@ -385,6 +405,7 @@ describe('MediaRequestHandler', () => {
           mockMessage,
           mockMessages,
           mockUserId,
+          mockDiscord,
           mockState,
         )
 
@@ -415,6 +436,7 @@ describe('MediaRequestHandler', () => {
           mockMessage,
           mockMessages,
           mockUserId,
+          mockDiscord,
           mockState,
         )
 
@@ -444,6 +466,7 @@ describe('MediaRequestHandler', () => {
           mockMessage,
           mockMessages,
           mockUserId,
+          mockDiscord,
           mockState,
         )
 
@@ -475,6 +498,7 @@ describe('MediaRequestHandler', () => {
           mockMessage,
           mockMessages,
           mockUserId,
+          mockDiscord,
           mockState,
         )
 
@@ -496,6 +520,7 @@ describe('MediaRequestHandler', () => {
           mockMessage,
           mockMessages,
           mockUserId,
+          mockDiscord,
           mockState,
         )
 
@@ -528,6 +553,7 @@ describe('MediaRequestHandler', () => {
           mockMessage,
           mockMessages,
           mockUserId,
+          mockDiscord,
           mockState,
         )
 
@@ -535,6 +561,7 @@ describe('MediaRequestHandler', () => {
           message: mockMessage,
           messages: mockMessages,
           userId: mockUserId,
+          discord: mockDiscord,
           state: mockState,
           context: {
             mediaType: MediaRequestType.Both,
@@ -561,6 +588,7 @@ describe('MediaRequestHandler', () => {
           browseMessage,
           [browseMessage],
           mockUserId,
+          mockDiscord,
           mockState,
         )
 
@@ -593,6 +621,7 @@ describe('MediaRequestHandler', () => {
             mockMessage,
             mockMessages,
             mockUserId,
+            mockDiscord,
             mockState,
           ),
         ).rejects.toThrow('Strategy failed')
@@ -611,6 +640,7 @@ describe('MediaRequestHandler', () => {
           mockMessage,
           mockMessages,
           mockUserId,
+          mockDiscord,
           mockState,
         )
 
@@ -638,7 +668,12 @@ describe('MediaRequestHandler', () => {
       contextService.hasContext.mockResolvedValue(false)
       movieDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
-      await handler.handleRequest(mockMessage, mockMessages, mockUserId)
+      await handler.handleRequest(
+        mockMessage,
+        mockMessages,
+        mockUserId,
+        mockDiscord,
+      )
 
       expect(retryService.executeWithRetry).toHaveBeenCalledWith(
         expect.any(Function),
@@ -665,7 +700,12 @@ describe('MediaRequestHandler', () => {
       mediaBrowsingStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
       // Should fallback to browsing strategy with defaults
-      await handler.handleRequest(mockMessage, mockMessages, mockUserId)
+      await handler.handleRequest(
+        mockMessage,
+        mockMessages,
+        mockUserId,
+        mockDiscord,
+      )
 
       expect(mediaBrowsingStrategy.handleRequest).toHaveBeenCalled()
     })
@@ -693,7 +733,12 @@ describe('MediaRequestHandler', () => {
       contextService.hasContext.mockResolvedValue(false)
       mediaBrowsingStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
-      await handler.handleRequest(mockMessage, mockMessages, mockUserId)
+      await handler.handleRequest(
+        mockMessage,
+        mockMessages,
+        mockUserId,
+        mockDiscord,
+      )
 
       expect(retryService.executeWithRetry).toHaveBeenCalled()
     })
@@ -717,12 +762,18 @@ describe('MediaRequestHandler', () => {
       })
       movieDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
-      await handler.handleRequest(mockMessage, mockMessages, mockUserId)
+      await handler.handleRequest(
+        mockMessage,
+        mockMessages,
+        mockUserId,
+        mockDiscord,
+      )
 
       expect(movieDownloadStrategy.handleRequest).toHaveBeenCalledWith({
         message: mockMessage,
         messages: mockMessages,
         userId: mockUserId,
+        discord: mockDiscord,
         state: undefined,
       })
     })
@@ -737,12 +788,18 @@ describe('MediaRequestHandler', () => {
       })
       tvDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
-      await handler.handleRequest(mockMessage, mockMessages, mockUserId)
+      await handler.handleRequest(
+        mockMessage,
+        mockMessages,
+        mockUserId,
+        mockDiscord,
+      )
 
       expect(tvDownloadStrategy.handleRequest).toHaveBeenCalledWith({
         message: mockMessage,
         messages: mockMessages,
         userId: mockUserId,
+        discord: mockDiscord,
         state: undefined,
       })
     })
@@ -764,10 +821,144 @@ describe('MediaRequestHandler', () => {
 
       movieDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
-      await handler.handleRequest(mockMessage, mockMessages, mockUserId)
+      await handler.handleRequest(
+        mockMessage,
+        mockMessages,
+        mockUserId,
+        mockDiscord,
+      )
 
       expect(mockInvoke).toHaveBeenCalledTimes(2)
       expect(movieDownloadStrategy.handleRequest).toHaveBeenCalled()
+    })
+
+    describe('quality from the message', () => {
+      it('puts a 4k request on the movie strategy params as up_to_4k', async () => {
+        mockInvoke.mockResolvedValue({
+          content: JSON.stringify({
+            mediaType: MediaRequestType.Movies,
+            searchIntent: SearchIntent.External,
+            searchTerms: 'Dune',
+            quality: '4k',
+          }),
+        })
+        movieDownloadStrategy.handleRequest.mockResolvedValue(
+          mockStrategyResult,
+        )
+
+        await handler.handleRequest(
+          mockMessage,
+          mockMessages,
+          mockUserId,
+          mockDiscord,
+        )
+
+        expect(movieDownloadStrategy.handleRequest).toHaveBeenCalledWith({
+          message: mockMessage,
+          messages: mockMessages,
+          userId: mockUserId,
+          discord: mockDiscord,
+          state: undefined,
+          qualityTier: QualityTier.UpTo4k,
+        })
+      })
+
+      it('puts a 720p request on the TV strategy params as up_to_720p', async () => {
+        mockInvoke.mockResolvedValue({
+          content: JSON.stringify({
+            mediaType: MediaRequestType.Shows,
+            searchIntent: SearchIntent.External,
+            searchTerms: 'The Office',
+            quality: '720p',
+          }),
+        })
+        tvDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
+
+        await handler.handleRequest(
+          mockMessage,
+          mockMessages,
+          mockUserId,
+          mockDiscord,
+        )
+
+        expect(tvDownloadStrategy.handleRequest).toHaveBeenCalledWith(
+          expect.objectContaining({ qualityTier: QualityTier.UpTo720p }),
+        )
+      })
+
+      it('carries the tier through LLM classification for Both type', async () => {
+        mockInvoke.mockResolvedValueOnce({
+          content: JSON.stringify({
+            mediaType: MediaRequestType.Both,
+            searchIntent: SearchIntent.External,
+            searchTerms: 'Severance',
+            quality: '1080p',
+          }),
+        })
+        mockInvoke.mockResolvedValueOnce({ mediaType: 'tv_show' })
+        tvDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
+
+        await handler.handleRequest(
+          mockMessage,
+          mockMessages,
+          mockUserId,
+          mockDiscord,
+        )
+
+        expect(tvDownloadStrategy.handleRequest).toHaveBeenCalledWith(
+          expect.objectContaining({ qualityTier: QualityTier.Hd }),
+        )
+      })
+
+      it('omits the tier for a null quality', async () => {
+        mockInvoke.mockResolvedValue({
+          content: JSON.stringify({
+            mediaType: MediaRequestType.Movies,
+            searchIntent: SearchIntent.External,
+            searchTerms: 'Dune',
+            quality: null,
+          }),
+        })
+        movieDownloadStrategy.handleRequest.mockResolvedValue(
+          mockStrategyResult,
+        )
+
+        await handler.handleRequest(
+          mockMessage,
+          mockMessages,
+          mockUserId,
+          mockDiscord,
+        )
+
+        const [params] = movieDownloadStrategy.handleRequest.mock.calls[0]
+        expect(params).not.toHaveProperty('qualityTier')
+      })
+
+      it('omits the tier for an invalid quality and still routes the download', async () => {
+        mockInvoke.mockResolvedValue({
+          content: JSON.stringify({
+            mediaType: MediaRequestType.Movies,
+            searchIntent: SearchIntent.External,
+            searchTerms: 'Dune',
+            quality: 'super-mega-hd',
+          }),
+        })
+        movieDownloadStrategy.handleRequest.mockResolvedValue(
+          mockStrategyResult,
+        )
+
+        const result = await handler.handleRequest(
+          mockMessage,
+          mockMessages,
+          mockUserId,
+          mockDiscord,
+        )
+
+        expect(result).toBe(mockStrategyResult)
+        expect(mediaBrowsingStrategy.handleRequest).not.toHaveBeenCalled()
+        const [params] = movieDownloadStrategy.handleRequest.mock.calls[0]
+        expect(params).not.toHaveProperty('qualityTier')
+      })
     })
   })
 
@@ -789,12 +980,18 @@ describe('MediaRequestHandler', () => {
       })
       movieDeleteStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
-      await handler.handleRequest(mockMessage, mockMessages, mockUserId)
+      await handler.handleRequest(
+        mockMessage,
+        mockMessages,
+        mockUserId,
+        mockDiscord,
+      )
 
       expect(movieDeleteStrategy.handleRequest).toHaveBeenCalledWith({
         message: mockMessage,
         messages: mockMessages,
         userId: mockUserId,
+        discord: mockDiscord,
         state: undefined,
       })
     })
@@ -809,12 +1006,18 @@ describe('MediaRequestHandler', () => {
       })
       tvDeleteStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
-      await handler.handleRequest(mockMessage, mockMessages, mockUserId)
+      await handler.handleRequest(
+        mockMessage,
+        mockMessages,
+        mockUserId,
+        mockDiscord,
+      )
 
       expect(tvDeleteStrategy.handleRequest).toHaveBeenCalledWith({
         message: mockMessage,
         messages: mockMessages,
         userId: mockUserId,
+        discord: mockDiscord,
         state: undefined,
       })
     })
@@ -836,7 +1039,12 @@ describe('MediaRequestHandler', () => {
 
       tvDeleteStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
-      await handler.handleRequest(mockMessage, mockMessages, mockUserId)
+      await handler.handleRequest(
+        mockMessage,
+        mockMessages,
+        mockUserId,
+        mockDiscord,
+      )
 
       expect(mockInvoke).toHaveBeenCalledTimes(2)
       expect(tvDeleteStrategy.handleRequest).toHaveBeenCalled()
@@ -866,7 +1074,7 @@ describe('MediaRequestHandler', () => {
 
       for (const keyword of statusKeywords) {
         const message = new HumanMessage({ content: `Check ${keyword}` })
-        await handler.handleRequest(message, [message], mockUserId)
+        await handler.handleRequest(message, [message], mockUserId, mockDiscord)
         expect(downloadStatusStrategy.handleRequest).toHaveBeenCalled()
         jest.clearAllMocks()
       }
@@ -890,7 +1098,7 @@ describe('MediaRequestHandler', () => {
           mockStrategyResult,
         )
 
-        await handler.handleRequest(message, [message], mockUserId)
+        await handler.handleRequest(message, [message], mockUserId, mockDiscord)
         expect(movieDownloadStrategy.handleRequest).toHaveBeenCalled()
         jest.clearAllMocks()
       }
@@ -906,7 +1114,12 @@ describe('MediaRequestHandler', () => {
       })
       movieDeleteStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
-      await handler.handleRequest(mockMessage, mockMessages, mockUserId)
+      await handler.handleRequest(
+        mockMessage,
+        mockMessages,
+        mockUserId,
+        mockDiscord,
+      )
 
       expect(movieDeleteStrategy.handleRequest).toHaveBeenCalled()
     })
@@ -928,7 +1141,12 @@ describe('MediaRequestHandler', () => {
 
       movieDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
-      await handler.handleRequest(mockMessage, mockMessages, mockUserId)
+      await handler.handleRequest(
+        mockMessage,
+        mockMessages,
+        mockUserId,
+        mockDiscord,
+      )
 
       expect(movieDownloadStrategy.handleRequest).toHaveBeenCalled()
     })
@@ -948,7 +1166,12 @@ describe('MediaRequestHandler', () => {
 
       movieDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
-      await handler.handleRequest(mockMessage, mockMessages, mockUserId)
+      await handler.handleRequest(
+        mockMessage,
+        mockMessages,
+        mockUserId,
+        mockDiscord,
+      )
 
       // Should default to movie strategy
       expect(movieDownloadStrategy.handleRequest).toHaveBeenCalled()
@@ -988,7 +1211,12 @@ describe('MediaRequestHandler', () => {
 
       mediaBrowsingStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
-      await handler.handleRequest(weatherMessage, [weatherMessage], mockUserId)
+      await handler.handleRequest(
+        weatherMessage,
+        [weatherMessage],
+        mockUserId,
+        mockDiscord,
+      )
 
       expect(contextService.clearContext).toHaveBeenCalledWith(mockUserId)
       expect(mediaBrowsingStrategy.handleRequest).toHaveBeenCalled()
@@ -1019,6 +1247,7 @@ describe('MediaRequestHandler', () => {
         selectionMessage,
         [selectionMessage],
         mockUserId,
+        mockDiscord,
       )
 
       expect(contextService.clearContext).not.toHaveBeenCalled()
@@ -1061,6 +1290,7 @@ describe('MediaRequestHandler', () => {
         nevermindMessage,
         [nevermindMessage],
         mockUserId,
+        mockDiscord,
       )
 
       expect(contextService.clearContext).toHaveBeenCalledWith(mockUserId)
@@ -1088,7 +1318,12 @@ describe('MediaRequestHandler', () => {
 
       tvDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
-      await handler.handleRequest(seasonMessage, [seasonMessage], mockUserId)
+      await handler.handleRequest(
+        seasonMessage,
+        [seasonMessage],
+        mockUserId,
+        mockDiscord,
+      )
 
       expect(contextService.clearContext).not.toHaveBeenCalled()
       expect(tvDownloadStrategy.handleRequest).toHaveBeenCalled()
@@ -1113,7 +1348,7 @@ describe('MediaRequestHandler', () => {
 
       movieDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
-      await handler.handleRequest(message, [message], mockUserId)
+      await handler.handleRequest(message, [message], mockUserId, mockDiscord)
 
       // Should default to not switching (keep context)
       expect(contextService.clearContext).not.toHaveBeenCalled()
@@ -1150,7 +1385,12 @@ describe('MediaRequestHandler', () => {
 
       mediaBrowsingStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
-      await handler.handleRequest(mathMessage, [mathMessage], mockUserId)
+      await handler.handleRequest(
+        mathMessage,
+        [mathMessage],
+        mockUserId,
+        mockDiscord,
+      )
 
       expect(contextService.clearContext).toHaveBeenCalledWith(mockUserId)
       expect(mediaBrowsingStrategy.handleRequest).toHaveBeenCalled()
@@ -1183,6 +1423,7 @@ describe('MediaRequestHandler', () => {
         clarificationMessage,
         [clarificationMessage],
         mockUserId,
+        mockDiscord,
       )
 
       expect(contextService.clearContext).not.toHaveBeenCalled()
@@ -1219,7 +1460,7 @@ describe('MediaRequestHandler', () => {
 
       mediaBrowsingStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
-      await handler.handleRequest(message, [message], mockUserId)
+      await handler.handleRequest(message, [message], mockUserId, mockDiscord)
 
       expect(contextService.clearContext).toHaveBeenCalledWith(mockUserId)
     })

@@ -1,5 +1,11 @@
+import { mediaId } from '@lilnas/utils/download/media-id'
 import {
-  MonitorAndDownloadResult,
+  type DownloadJob,
+  DownloadJobStatus,
+  DownloadType,
+} from '@lilnas/utils/download/types'
+
+import {
   MovieLibrarySearchResult,
   MovieSearchResult,
   RadarrMinimumAvailability,
@@ -8,7 +14,6 @@ import {
 } from 'src/media/types/radarr.types'
 import {
   LibrarySearchResult,
-  MonitorAndDownloadSeriesResult,
   SeriesSearchResult,
   SonarrSeriesStatus,
   SonarrSeriesType,
@@ -202,17 +207,61 @@ export function createMockLibraryShowList(
 // Result Fixtures
 // ============================================================================
 
-export const mockMovieDownloadSuccess: MonitorAndDownloadResult = {
-  success: true,
-  movieAdded: true,
-  searchTriggered: true,
+/**
+ * The job `POST /download/movies` answers with - by default a fresh request
+ * for The Matrix, still `searching`.
+ */
+export function createMockMovieJob(
+  overrides: Partial<DownloadJob> = {},
+): DownloadJob {
+  return {
+    completedAt: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    discordRequester: null,
+    hiddenAttribution: false,
+    id: 'job-603',
+    linkedDiscord: null,
+    media: {
+      id: mediaId({ type: DownloadType.Movie, tmdbId: 603 }),
+      title: 'The Matrix',
+      tmdbId: 603,
+      type: DownloadType.Movie,
+      year: 1999,
+    },
+    requester: null,
+    status: DownloadJobStatus.Searching,
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  }
 }
 
-export const mockMovieDownloadFailure: MonitorAndDownloadResult = {
-  success: false,
-  movieAdded: false,
-  searchTriggered: false,
-  error: 'Failed to add movie to Radarr',
+/**
+ * The job `POST /download/shows` answers with - by default a fresh
+ * whole-series request for Breaking Bad, still `searching`. Pass `scope` for
+ * a season or episode job.
+ */
+export function createMockShowJob(
+  overrides: Partial<DownloadJob> = {},
+): DownloadJob {
+  return {
+    completedAt: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    discordRequester: null,
+    hiddenAttribution: false,
+    id: 'job-81189',
+    linkedDiscord: null,
+    media: {
+      id: mediaId({ type: DownloadType.Show, tvdbId: 81189 }),
+      title: 'Breaking Bad',
+      tvdbId: 81189,
+      type: DownloadType.Show,
+      year: 2008,
+    },
+    requester: null,
+    status: DownloadJobStatus.Searching,
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  }
 }
 
 export const mockMovieDeleteSuccess: UnmonitorAndDeleteResult = {
@@ -226,23 +275,6 @@ export const mockMovieDeleteFailure: UnmonitorAndDeleteResult = {
   movieDeleted: false,
   filesDeleted: false,
   error: 'Failed to delete movie from Radarr',
-}
-
-export const mockTvDownloadSuccess: MonitorAndDownloadSeriesResult = {
-  success: true,
-  seriesAdded: true,
-  seriesUpdated: false,
-  searchTriggered: true,
-  changes: [],
-}
-
-export const mockTvDownloadFailure: MonitorAndDownloadSeriesResult = {
-  success: false,
-  seriesAdded: false,
-  seriesUpdated: false,
-  searchTriggered: false,
-  changes: [],
-  error: 'Failed to add series to Sonarr',
 }
 
 export const mockTvDeleteSuccess: UnmonitorAndDeleteSeriesResult = {

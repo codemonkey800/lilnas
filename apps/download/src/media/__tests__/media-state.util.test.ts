@@ -6,6 +6,7 @@ import {
   deriveManagedState,
   deriveManagedStateFromItems,
   deriveVideoState,
+  NOT_RELEASED_REASON,
   toEpisodeStateEntries,
 } from 'src/media/media-state.util'
 import type { PollableQueueItem } from 'src/media/queue-status.util'
@@ -211,6 +212,57 @@ describe('deriveManagedState', () => {
       state: 'absent',
     })
   })
+
+  // Radarr won't grab a movie before its minimum availability, so a bare
+  // "wanted" reads like a stall - the reason says why nothing is happening.
+  describe('isAvailable', () => {
+    it.each<[string, Parameters<typeof deriveManagedState>[0], object]>([
+      [
+        'monitored, no file, not available -> wanted with the reason',
+        { hasFile: false, isAvailable: false, monitored: true },
+        { state: 'wanted', stateReason: NOT_RELEASED_REASON },
+      ],
+      [
+        'monitored, no file, available -> wanted, no reason',
+        { hasFile: false, isAvailable: true, monitored: true },
+        { state: 'wanted' },
+      ],
+      [
+        'monitored, no file, unknown (Radarr omitted it) -> wanted, no reason',
+        { hasFile: false, monitored: true },
+        { state: 'wanted' },
+      ],
+      [
+        'unmonitored, no file, not available -> absent, no reason',
+        { hasFile: false, isAvailable: false, monitored: false },
+        { state: 'absent' },
+      ],
+      [
+        'a file on disk, not available -> available, no reason',
+        { hasFile: true, isAvailable: false, monitored: true },
+        { state: 'available' },
+      ],
+    ])('%s', (_label, input, expected) => {
+      expect(deriveManagedState(input)).toEqual(expected)
+    })
+
+    it('lets a queue item win over not-yet-released', () => {
+      expect(
+        deriveManagedState({
+          hasFile: false,
+          isAvailable: false,
+          item: DOWNLOADING,
+          monitored: true,
+        }),
+      ).toEqual(
+        deriveManagedState({
+          hasFile: false,
+          item: DOWNLOADING,
+          monitored: true,
+        }),
+      )
+    })
+  })
 })
 
 describe('deriveVideoState', () => {
@@ -257,6 +309,10 @@ describe('deriveVideoState', () => {
       withFile: 'needs_attention',
       withoutFile: 'needs_attention',
     },
+    [DownloadJobStatus.NotFound]: {
+      withFile: 'available',
+      withoutFile: 'absent',
+    },
     [DownloadJobStatus.Paused]: { withFile: 'paused', withoutFile: 'paused' },
     [DownloadJobStatus.Pausing]: { withFile: 'paused', withoutFile: 'paused' },
     [DownloadJobStatus.Pending]: { withFile: 'wanted', withoutFile: 'wanted' },
@@ -301,6 +357,15 @@ describe('deriveManagedStateFromItems', () => {
     expect(
       deriveManagedStateFromItems({ hasFile: false, monitored: false }, []),
     ).toEqual({ state: 'absent' })
+  })
+
+  it('passes isAvailable through when there are no items', () => {
+    expect(
+      deriveManagedStateFromItems(
+        { hasFile: false, isAvailable: false, monitored: true },
+        [],
+      ),
+    ).toEqual({ state: 'wanted', stateReason: NOT_RELEASED_REASON })
   })
 
   it('derives a single item the same as deriveManagedState', () => {

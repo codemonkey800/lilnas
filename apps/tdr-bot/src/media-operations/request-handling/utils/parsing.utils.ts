@@ -95,6 +95,10 @@ export class ParsingUtilities {
   /**
    * Extract search query from message using LLM
    * Extracted from llm.service.ts lines 2220-2257
+   *
+   * Searches are by title, so an empty extraction (the user asked by genre,
+   * actor, director or decade) comes back empty for the strategies to ask for
+   * a title - not the raw message, which would search for the whole sentence.
    */
   async extractSearchQueryWithLLM(content: string): Promise<string> {
     try {
@@ -119,7 +123,7 @@ export class ParsingUtilities {
         'Extracted search query using LLM',
       )
 
-      return extractedQuery || content // Fallback to original if empty
+      return extractedQuery
     } catch (error) {
       this.logger.error(
         { error: getErrorMessage(error), content },

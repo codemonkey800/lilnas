@@ -59,8 +59,16 @@ export function buildJobRow(
     // already crosses the same boundary.
     scope: record.scope ?? null,
     status: record.status,
+    // Plan 024. Same `?? null` as `error`/`scope` - and load-bearing here in
+    // a way it is not for a fresh insert: `persistJob()` upserts every column
+    // this returns, so clearing a note or a settled command on the record
+    // has to arrive as an explicit NULL to clear the column.
+    statusNote: record.statusNote ?? null,
     type: record.type,
     updatedAt: new Date(),
+    upstreamCommandAt: record.upstreamCommandAt ?? null,
+    upstreamCommandId: record.upstreamCommandId ?? null,
+    upstreamCommandKind: record.upstreamCommandKind ?? null,
   }
 }
 
@@ -114,7 +122,20 @@ export function hydrateJobRow(row: JobRow): DownloadJobRecord {
     // every other job would just be noise in every payload and fixture.
     ...(row.origin === 'upstream' ? { startedUpstream: true } : {}),
     status: row.status as DownloadJobStatus,
+    // Spread for the same reason as `startedUpstream`: all four are optional
+    // and absent on nearly every job, so an `undefined` key per field would
+    // only be noise in every payload and fixture.
+    ...(row.statusNote != null ? { statusNote: row.statusNote } : {}),
     type: row.type as DownloadType,
     updatedAt: row.updatedAt.toISOString(),
+    ...(row.upstreamCommandAt != null
+      ? { upstreamCommandAt: row.upstreamCommandAt }
+      : {}),
+    ...(row.upstreamCommandId != null
+      ? { upstreamCommandId: row.upstreamCommandId }
+      : {}),
+    ...(row.upstreamCommandKind != null
+      ? { upstreamCommandKind: row.upstreamCommandKind }
+      : {}),
   }
 }

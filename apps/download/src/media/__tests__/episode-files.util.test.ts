@@ -21,6 +21,9 @@ function stubSonarr(overrides: {
   }
 }
 
+/** Nothing to delete - a legitimate answer, never an error. */
+const NO_FILES = { episodeIds: [], fileIds: [] }
+
 describe('resolveEpisodeFileIds', () => {
   describe('an episode scope', () => {
     it('resolves the file the episode points at', async () => {
@@ -36,7 +39,7 @@ describe('resolveEpisodeFileIds', () => {
           episodeId: 4413,
           seasonNumber: 3,
         }),
-      ).resolves.toEqual([992])
+      ).resolves.toEqual({ episodeIds: [4413], fileIds: [992] })
 
       // Episode-first, because Sonarr's file list carries no episode id.
       expect(sonarr.getEpisodes).toHaveBeenCalledWith(9, { seasonNumber: 3 })
@@ -51,7 +54,7 @@ describe('resolveEpisodeFileIds', () => {
 
       await expect(
         resolveEpisodeFileIds(sonarr.reader, 9, { episodeId: 4412 }),
-      ).resolves.toEqual([])
+      ).resolves.toEqual(NO_FILES)
     })
 
     it('returns [] for an episode with no episodeFileId at all', async () => {
@@ -59,7 +62,7 @@ describe('resolveEpisodeFileIds', () => {
 
       await expect(
         resolveEpisodeFileIds(sonarr.reader, 9, { episodeId: 4412 }),
-      ).resolves.toEqual([])
+      ).resolves.toEqual(NO_FILES)
     })
 
     it('returns [] when the episode id matches nothing', async () => {
@@ -69,7 +72,41 @@ describe('resolveEpisodeFileIds', () => {
 
       await expect(
         resolveEpisodeFileIds(sonarr.reader, 9, { episodeId: 9999 }),
-      ).resolves.toEqual([])
+      ).resolves.toEqual(NO_FILES)
+    })
+
+    // `S03E01E02.mkv`: one file backs both episodes, so resolving E01
+    // resolves E02 as well - deleting the file takes both.
+    it('resolves every episode sharing a multi-episode file', async () => {
+      const sonarr = stubSonarr({
+        episodes: [
+          { episodeFileId: 991, id: 4412, seasonNumber: 3 },
+          { episodeFileId: 991, id: 4413, seasonNumber: 3 },
+          { episodeFileId: 992, id: 4414, seasonNumber: 3 },
+        ],
+      })
+
+      await expect(
+        resolveEpisodeFileIds(sonarr.reader, 9, {
+          episodeId: 4412,
+          seasonNumber: 3,
+        }),
+      ).resolves.toEqual({ episodeIds: [4412, 4413], fileIds: [991] })
+    })
+
+    // Sonarr's `0` is "no file", and is on every file-less episode - it must
+    // never read as a file they all share.
+    it('does not join file-less episodes through Sonarr’s 0', async () => {
+      const sonarr = stubSonarr({
+        episodes: [
+          { episodeFileId: 0, id: 4412, seasonNumber: 3 },
+          { episodeFileId: 0, id: 4413, seasonNumber: 3 },
+        ],
+      })
+
+      await expect(
+        resolveEpisodeFileIds(sonarr.reader, 9, { episodeId: 4412 }),
+      ).resolves.toEqual(NO_FILES)
     })
 
     it('passes no season filter when the scope names only an episode', async () => {
@@ -91,15 +128,25 @@ describe('resolveEpisodeFileIds', () => {
     ]
 
     it('narrows the file list to that season client-side', async () => {
-      const sonarr = stubSonarr({ episodeFiles: files })
+      const sonarr = stubSonarr({
+        episodeFiles: files,
+        episodes: [
+          { episodeFileId: 2, id: 31, seasonNumber: 3 },
+          // A multi-episode file: both episodes point at file 3.
+          { episodeFileId: 3, id: 32, seasonNumber: 3 },
+          { episodeFileId: 3, id: 33, seasonNumber: 3 },
+          { episodeFileId: 0, id: 34, seasonNumber: 3 },
+        ],
+      })
 
       await expect(
         resolveEpisodeFileIds(sonarr.reader, 9, { seasonNumber: 3 }),
-      ).resolves.toEqual([2, 3])
+      ).resolves.toEqual({ episodeIds: [31, 32, 33], fileIds: [2, 3] })
 
-      // Sonarr's episode-file endpoint has no season filter of its own.
+      // Sonarr's episode-file endpoint has no season filter of its own; the
+      // episode read only joins the files back to their episodes.
       expect(sonarr.getEpisodeFiles).toHaveBeenCalledWith(9)
-      expect(sonarr.getEpisodes).not.toHaveBeenCalled()
+      expect(sonarr.getEpisodes).toHaveBeenCalledWith(9, { seasonNumber: 3 })
     })
 
     it('returns [] for a season with no files', async () => {
@@ -107,7 +154,7 @@ describe('resolveEpisodeFileIds', () => {
 
       await expect(
         resolveEpisodeFileIds(sonarr.reader, 9, { seasonNumber: 4 }),
-      ).resolves.toEqual([])
+      ).resolves.toEqual(NO_FILES)
     })
 
     // Season 0 is specials - a truthiness check would widen this to the
@@ -118,11 +165,13 @@ describe('resolveEpisodeFileIds', () => {
           { id: 1, seasonNumber: 0 },
           { id: 2, seasonNumber: 1 },
         ],
+        episodes: [{ episodeFileId: 1, id: 1001, seasonNumber: 0 }],
       })
 
       await expect(
         resolveEpisodeFileIds(sonarr.reader, 9, { seasonNumber: 0 }),
-      ).resolves.toEqual([1])
+      ).resolves.toEqual({ episodeIds: [1001], fileIds: [1] })
+      expect(sonarr.getEpisodes).toHaveBeenCalledWith(9, { seasonNumber: 0 })
     })
   })
 
@@ -133,11 +182,19 @@ describe('resolveEpisodeFileIds', () => {
           { id: 1, seasonNumber: 1 },
           { id: 2, seasonNumber: 3 },
         ],
+        episodes: [
+          { episodeFileId: 1, id: 11, seasonNumber: 1 },
+          { episodeFileId: 2, id: 31, seasonNumber: 3 },
+          { episodeFileId: 2, id: 32, seasonNumber: 3 },
+        ],
       })
 
       await expect(
         resolveEpisodeFileIds(sonarr.reader, 9, {}),
-      ).resolves.toEqual([1, 2])
+      ).resolves.toEqual({ episodeIds: [11, 31, 32], fileIds: [1, 2] })
+      expect(sonarr.getEpisodes).toHaveBeenCalledWith(9, {
+        seasonNumber: undefined,
+      })
     })
 
     it('drops files Sonarr returned without an id', async () => {
@@ -147,7 +204,7 @@ describe('resolveEpisodeFileIds', () => {
 
       await expect(
         resolveEpisodeFileIds(sonarr.reader, 9, {}),
-      ).resolves.toEqual([2])
+      ).resolves.toEqual({ episodeIds: [], fileIds: [2] })
     })
 
     it('returns [] for a series with no files at all', async () => {
@@ -155,7 +212,7 @@ describe('resolveEpisodeFileIds', () => {
 
       await expect(
         resolveEpisodeFileIds(sonarr.reader, 9, {}),
-      ).resolves.toEqual([])
+      ).resolves.toEqual(NO_FILES)
     })
   })
 })

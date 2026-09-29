@@ -27,7 +27,12 @@ import { MovieDeleteStrategy } from './strategies/movie-delete.strategy'
 import { MovieDownloadStrategy } from './strategies/movie-download.strategy'
 import { TvDeleteStrategy } from './strategies/tv-delete.strategy'
 import { TvDownloadStrategy } from './strategies/tv-download.strategy'
+import {
+  DiscordIdentity,
+  StrategyRequestParams,
+} from './types/request-context.type'
 import { StrategyResult } from './types/strategy-result.type'
+import { toQualityTier } from './utils/quality.utils'
 
 const REASONING_TEMPERATURE = 0
 
@@ -62,11 +67,15 @@ export class MediaRequestHandler {
   /**
    * Handle a media request by routing to appropriate strategy
    * Extracted from llm.service.ts:640-797
+   *
+   * `discord` is the sender's identity; every strategy receives it in its
+   * params so requests it forwards to the download app are attributed to them.
    */
   async handleRequest(
     message: HumanMessage,
     messages: BaseMessage[],
     userId: string,
+    discord: DiscordIdentity,
     state?: unknown,
   ): Promise<StrategyResult> {
     this.logger.log({ userId }, 'Handling media request')
@@ -86,6 +95,7 @@ export class MediaRequestHandler {
           message,
           messages,
           userId,
+          discord,
           context: activeContext.data,
           state,
         }
@@ -127,6 +137,7 @@ export class MediaRequestHandler {
           message,
           messages,
           userId,
+          discord,
           state,
         })
       }
@@ -138,6 +149,7 @@ export class MediaRequestHandler {
           message,
           messages,
           userId,
+          discord,
           mediaRequest,
           state,
         )
@@ -147,6 +159,7 @@ export class MediaRequestHandler {
           message,
           messages,
           userId,
+          discord,
           mediaRequest,
           state,
         )
@@ -157,6 +170,7 @@ export class MediaRequestHandler {
           message,
           messages,
           userId,
+          discord,
           context: mediaRequest,
           state,
         })
@@ -174,16 +188,27 @@ export class MediaRequestHandler {
   }
 
   /**
-   * Route download request to appropriate strategy based on media type
+   * Route download request to appropriate strategy based on media type.
+   * A quality the message named rides along as `qualityTier`; with none, the
+   * key is left off so the download app's default tier applies.
    */
   private async routeDownloadRequest(
     message: HumanMessage,
     messages: BaseMessage[],
     userId: string,
+    discord: DiscordIdentity,
     mediaRequest: MediaRequest,
     state?: unknown,
   ): Promise<StrategyResult> {
-    const params = { message, messages, userId, state }
+    const qualityTier = toQualityTier(mediaRequest.quality)
+    const params: StrategyRequestParams = {
+      message,
+      messages,
+      userId,
+      discord,
+      state,
+      ...(qualityTier ? { qualityTier } : {}),
+    }
 
     // Direct media type routing
     if (mediaRequest.mediaType === MediaRequestType.Shows) {
@@ -220,10 +245,11 @@ export class MediaRequestHandler {
     message: HumanMessage,
     messages: BaseMessage[],
     userId: string,
+    discord: DiscordIdentity,
     mediaRequest: MediaRequest,
     state?: unknown,
   ): Promise<StrategyResult> {
-    const params = { message, messages, userId, state }
+    const params = { message, messages, userId, discord, state }
 
     // Direct media type routing
     if (mediaRequest.mediaType === MediaRequestType.Movies) {
@@ -362,6 +388,7 @@ export class MediaRequestHandler {
           duration: Date.now() - startTime,
           mediaType: validated.mediaType,
           searchIntent: validated.searchIntent,
+          quality: validated.quality,
           rawResponse: responseContent,
         },
         'Successfully determined media intent',

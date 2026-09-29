@@ -1,5 +1,6 @@
 import '@testing-library/jest-dom'
 
+import { QualityTier } from '@lilnas/utils/download/types'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
@@ -9,6 +10,16 @@ import {
 } from 'src/components/detail/movie-request-button'
 
 const MOVIE_ID = 'tmdb:438631'
+
+/** The Download press — the picker's trigger is a button too. */
+function downloadButton(): HTMLElement {
+  return screen.getByRole('button', { name: MOVIE_REQUEST_LABEL })
+}
+
+/** The tier picker's trigger, whatever tier it reads. */
+function tierTrigger(): HTMLElement {
+  return screen.getByRole('button', { name: /^Quality:/ })
+}
 
 function renderButton(onRequest = jest.fn().mockResolvedValue(undefined)) {
   render(<MovieRequestButton mediaId={MOVIE_ID} onRequest={onRequest} />)
@@ -25,12 +36,56 @@ describe('MovieRequestButton', () => {
     ).toBeInTheDocument()
   })
 
-  it('⚠️ passes the unchanged media key, and nothing else', async () => {
+  it('⚠️ passes the unchanged media key, with the default tier beside it', async () => {
     const { onRequest, user } = renderButton()
 
-    await user.click(screen.getByRole('button'))
+    await user.click(downloadButton())
 
-    expect(onRequest).toHaveBeenCalledWith(MOVIE_ID)
+    expect(onRequest).toHaveBeenCalledWith(MOVIE_ID, QualityTier.Hd)
+  })
+
+  it('puts the tier picker in front of the button', () => {
+    renderButton()
+
+    expect(tierTrigger().compareDocumentPosition(downloadButton())).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    )
+  })
+
+  it('preselects HD for a movie with no tier the app manages', () => {
+    render(<MovieRequestButton defaultQualityTier={null} mediaId={MOVIE_ID} />)
+
+    expect(tierTrigger()).toHaveAccessibleName('Quality: HD (up to 1080p)')
+  })
+
+  it('preselects the movie’s own tier', () => {
+    render(
+      <MovieRequestButton
+        defaultQualityTier={QualityTier.UpTo4k}
+        mediaId={MOVIE_ID}
+      />,
+    )
+
+    expect(tierTrigger()).toHaveAccessibleName('Quality: Up to 4K')
+  })
+
+  it('sends the tier picked beside it', async () => {
+    const { onRequest, user } = renderButton()
+
+    await user.click(tierTrigger())
+    await user.click(screen.getByRole('option', { name: 'Up to 4K' }))
+    await user.click(downloadButton())
+
+    expect(onRequest).toHaveBeenCalledWith(MOVIE_ID, QualityTier.UpTo4k)
+  })
+
+  it('does not request anything when only the tier changes', async () => {
+    const { onRequest, user } = renderButton()
+
+    await user.click(tierTrigger())
+    await user.click(screen.getByRole('option', { name: 'Up to 720p' }))
+
+    expect(onRequest).not.toHaveBeenCalled()
   })
 
   it('does nothing at all until it is pressed', () => {
@@ -45,7 +100,7 @@ describe('MovieRequestButton', () => {
       jest.fn().mockResolvedValue({ error: 'Could not start that download' }),
     )
 
-    await user.click(screen.getByRole('button'))
+    await user.click(downloadButton())
 
     expect(screen.getByRole('alert')).toHaveTextContent(
       'Could not start that download',
@@ -57,7 +112,7 @@ describe('MovieRequestButton', () => {
       jest.fn().mockResolvedValue({ job: { id: 'job_1' } }),
     )
 
-    await user.click(screen.getByRole('button'))
+    await user.click(downloadButton())
 
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
@@ -66,7 +121,7 @@ describe('MovieRequestButton', () => {
     render(<MovieRequestButton mediaId={MOVIE_ID} />)
 
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button'))
+    await user.click(downloadButton())
 
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
@@ -79,6 +134,6 @@ describe('MovieRequestButton', () => {
     expect(container.firstElementChild?.getAttribute('class')).toContain(
       'w-full',
     )
-    expect(screen.getByRole('button').getAttribute('class')).toContain('w-full')
+    expect(downloadButton().getAttribute('class')).toContain('w-full')
   })
 })

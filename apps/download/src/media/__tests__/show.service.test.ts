@@ -477,7 +477,7 @@ describe('ShowService', () => {
 
       expect(sonarrService.deleteEpisodeFile).toHaveBeenCalledWith(991)
       expect(sonarrService.unmonitorScope).toHaveBeenCalledWith(9, {
-        episodeId: 4412,
+        episodeIds: [4412],
       })
       // A sibling still has a file, so the season flag is left alone and
       // the series stays in the library.
@@ -488,6 +488,64 @@ describe('ShowService', () => {
       )
       expect(sonarrService.unmonitorAndDelete).not.toHaveBeenCalled()
       expect(mediaResolverService.invalidate).toHaveBeenCalledWith(SHOW_ID)
+    })
+
+    // `S03E01E02.mkv`: one file backs both episodes, so deleting "E01"
+    // deletes E02's footage too - both go, and both are unmonitored.
+    it('removes and unmonitors every episode sharing a multi-episode file', async () => {
+      resolvesTo(showInLibrary())
+      sonarrService.getEpisodes.mockResolvedValue([
+        { episodeFileId: 991, id: 4412, seasonNumber: 3 },
+        { episodeFileId: 991, id: 4413, seasonNumber: 3 },
+        { episodeFileId: 992, id: 4414, seasonNumber: 3 },
+      ])
+
+      await expect(
+        service.deleteFiles(SHOW_ID, { episodeId: 4412, seasonNumber: 3 }),
+      ).resolves.toEqual({
+        cascade: 'none',
+        deletedCount: 1,
+        removedFromLibrary: false,
+      })
+
+      // One file, deleted once.
+      expect(sonarrService.deleteEpisodeFile).toHaveBeenCalledTimes(1)
+      expect(sonarrService.deleteEpisodeFile).toHaveBeenCalledWith(991)
+      expect(sonarrService.unmonitorScope).toHaveBeenCalledWith(9, {
+        episodeIds: [4412, 4413],
+      })
+      expect(sonarrService.setSeasonsMonitored).toHaveBeenCalledWith(
+        9,
+        [],
+        false,
+      )
+    })
+
+    it('unmonitors the season when a multi-episode file was all it held', async () => {
+      resolvesTo(showInLibrary())
+      sonarrService.getEpisodes.mockResolvedValue([
+        { episodeFileId: 991, id: 4412, seasonNumber: 3 },
+        { episodeFileId: 991, id: 4413, seasonNumber: 3 },
+        { episodeFileId: 900, id: 4401, seasonNumber: 1 },
+      ])
+
+      await expect(
+        service.deleteFiles(SHOW_ID, { episodeId: 4412 }),
+      ).resolves.toEqual({
+        cascade: 'season',
+        deletedCount: 1,
+        removedFromLibrary: false,
+      })
+
+      expect(sonarrService.deleteEpisodeFile).toHaveBeenCalledWith(991)
+      expect(sonarrService.unmonitorScope).toHaveBeenCalledWith(9, {
+        seasonNumber: 3,
+      })
+      expect(sonarrService.setSeasonsMonitored).toHaveBeenCalledWith(
+        9,
+        [3],
+        false,
+      )
     })
 
     // The planner is only ever handed this series' queue - a whole-instance
@@ -667,7 +725,7 @@ describe('ShowService', () => {
       // A monitored, file-less episode is exactly what the next RSS sync
       // re-grabs, so the unmonitor is the load-bearing half here.
       expect(sonarrService.unmonitorScope).toHaveBeenCalledWith(9, {
-        episodeId: 4412,
+        episodeIds: [4412],
       })
     })
 
@@ -855,14 +913,17 @@ describe('ShowService', () => {
       })
     })
 
-    it('leaves a terminal job alone', async () => {
-      removesTheSeries()
-      seedJobs(job('show-done', SHOW_ID, DownloadJobStatus.Completed))
+    it.each([DownloadJobStatus.Completed, DownloadJobStatus.NotFound])(
+      'leaves a terminal (%s) job alone',
+      async status => {
+        removesTheSeries()
+        seedJobs(job('show-done', SHOW_ID, status))
 
-      await service.deleteFiles(SHOW_ID, { episodeId: 4412 })
+        await service.deleteFiles(SHOW_ID, { episodeId: 4412 })
 
-      expect(downloadStateService.updateJob).not.toHaveBeenCalled()
-    })
+        expect(downloadStateService.updateJob).not.toHaveBeenCalled()
+      },
+    )
 
     it('leaves another title’s job alone', async () => {
       removesTheSeries()

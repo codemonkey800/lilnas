@@ -19,14 +19,27 @@ import {
   deriveManagedStateFromItems,
   deriveVideoState,
 } from 'src/media/media-state.util'
-import type { PollableQueueItem } from 'src/media/queue-status.util'
+import type {
+  ClientReadingLookup,
+  PollableQueueItem,
+} from 'src/media/queue-status.util'
 import {
   aggregateQueueItems,
   matchesScope,
   toQueueSnapshot,
 } from 'src/media/queue-status.util'
+import type { SabReading, SabTransition } from 'src/sabnzbd/sab-readings.util'
 
 export type QueueSource = 'radarr' | 'sonarr'
+
+/**
+ * Whether the SAB readings in `MediaStateService` can be trusted:
+ * - `ok` - the last SAB tick succeeded; the readings are live.
+ * - `unhealthy` - SAB failed `SAB_UNHEALTHY_AFTER` ticks in a row; no
+ *   readings are held, so consumers fall back to Radarr/Sonarr's numbers.
+ * - `off` - SAB isn't configured, or hasn't been read yet.
+ */
+export type SabClientHealth = 'ok' | 'unhealthy' | 'off'
 
 /**
  * Plan 021. The in-memory facts a media's state is derived from, and the two
@@ -34,8 +47,10 @@ export type QueueSource = 'radarr' | 'sonarr'
  *
  * A **fed cache**: it fetches nothing and injects nothing. The poller writes
  * the full Radarr and Sonarr queues into it every tick, and
- * `DownloadStateService` writes the status of every in-flight video job.
- * Injecting nothing is the point - `DownloadStateService` already reaches
+ * `DownloadStateService` writes the status of every in-flight video job, and
+ * `SabnzbdMonitorService` writes its live per-download SABnzbd readings
+ * (keyed by `nzo_id` == the queue item's `downloadId`), their health, and
+ * the phase transitions the poller drains. Injecting nothing is the point - `DownloadStateService` already reaches
  * into this module through the `DownloadModule` <-> `MediaModule` forwardRef,
  * and the resolver annotates through this service, so if this in turn
  * injected `DownloadStateService` the cycle would need a second forwardRef
@@ -54,6 +69,22 @@ export class MediaStateService {
 
   /** Media id -> status of that video's in-flight job. Never terminal. */
   private readonly videoActivity = new Map<string, DownloadJobStatus>()
+
+  /** SAB `nzo_id` -> the monitor's latest reading of it. */
+  private clientReadings: ReadonlyMap<string, SabReading> = new Map()
+
+  private clientHealthState: SabClientHealth = 'off'
+
+  /** SAB phase changes pushed by the monitor, not yet taken by the poller. */
+  private clientTransitions: SabTransition[] = []
+
+  /**
+   * `clientReading` as a detached lookup, for the snapshot builders: every
+   * snapshot this service derives carries SAB's live numbers for the
+   * downloads that have a reading (see `toQueueSnapshot`).
+   */
+  private readonly readClient: ClientReadingLookup = downloadId =>
+    this.clientReading(downloadId)
 
   /**
    * Replaces - never merges - the stored queue for `source`, so an item that
@@ -98,6 +129,40 @@ export class MediaStateService {
     }
 
     this.videoActivity.set(mediaId, status)
+  }
+
+  /**
+   * Replaces - never merges - the SAB readings and their health. Copied, so
+   * the monitor reusing its map can't change what was stored. The monitor
+   * stores an empty map with `unhealthy`, so no stale speed outlives SAB.
+   */
+  setClientReadings(
+    readings: ReadonlyMap<string, SabReading>,
+    health: SabClientHealth,
+  ): void {
+    this.clientReadings = new Map(readings)
+    this.clientHealthState = health
+  }
+
+  /** The SAB reading for a queue item's `downloadId`, if SAB has one. */
+  clientReading(downloadId: string): SabReading | undefined {
+    return this.clientReadings.get(downloadId)
+  }
+  /** `off` until the monitor first stores anything. */
+  clientHealth(): SabClientHealth {
+    return this.clientHealthState
+  }
+
+  /** Queues SAB phase changes for the poller; appended in order. */
+  pushClientTransitions(transitions: readonly SabTransition[]): void {
+    this.clientTransitions.push(...transitions)
+  }
+
+  /** Every transition pushed since the last call, oldest first; drains. */
+  takeClientTransitions(): SabTransition[] {
+    const taken = this.clientTransitions
+    this.clientTransitions = []
+    return taken
   }
 
   /**
@@ -153,6 +218,7 @@ export class MediaStateService {
         const derived = deriveManagedStateFromItems(
           { hasFile: episode.hasFile, monitored: episode.monitored },
           matches,
+          this.readClient,
         )
 
         episode.state = derived.state
@@ -163,7 +229,8 @@ export class MediaStateService {
 
   /**
    * Movie: `filePath` is the file signal - a `Movie` has no `hasFile`, and
-   * Radarr only reports a path once there is a file.
+   * Radarr only reports a path once there is a file. `isAvailable` rides
+   * along so a not-yet-released `wanted` movie says so.
    */
   private deriveMovie(movie: Movie): DerivedState {
     const items =
@@ -172,8 +239,13 @@ export class MediaStateService {
         : this.queueItemsFor(DownloadType.Movie, movie.radarrId)
 
     return deriveManagedStateFromItems(
-      { hasFile: !!movie.filePath, monitored: movie.monitored ?? false },
+      {
+        hasFile: !!movie.filePath,
+        isAvailable: movie.isAvailable,
+        monitored: movie.monitored ?? false,
+      },
       items,
+      this.readClient,
     )
   }
 
@@ -187,7 +259,8 @@ export class MediaStateService {
    * `aggregateQueueItems` rather than from the winner alone: a season grab
    * is one item per episode, and the progress a series page shows should be
    * the whole grab's (summed bytes, the last-to-finish ETA), not whichever
-   * single episode happened to win.
+   * single episode happened to win. SAB's readings are merged per
+   * download over the whole fold, so a season pack's bytes count once.
    */
   private deriveShow(show: Show): DerivedState {
     const items =
@@ -201,12 +274,16 @@ export class MediaStateService {
         monitored: show.monitored ?? false,
       },
       items,
+      this.readClient,
     )
 
     const aggregate = items.length > 1 ? aggregateQueueItems(items) : undefined
     if (!derived.queueSnapshot || !aggregate) return derived
 
-    return { ...derived, queueSnapshot: toQueueSnapshot(aggregate) }
+    return {
+      ...derived,
+      queueSnapshot: toQueueSnapshot(aggregate, this.readClient),
+    }
   }
 }
 

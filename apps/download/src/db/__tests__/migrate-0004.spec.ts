@@ -4,6 +4,7 @@ import { checkIntegrity } from 'src/db/migrate'
 import { jobs } from 'src/db/schema'
 
 import {
+  JOB_COLUMNS_ADDED_LATER,
   openPartiallyMigratedDb,
   type PartiallyMigratedDb,
 } from './helpers/partial-migrations'
@@ -225,6 +226,7 @@ describe('migration 0004 (drop library-sync rows and removed_from_library)', () 
           status: 'completed',
           type: 'video',
           updated_at: UPDATED_AT,
+          ...JOB_COLUMNS_ADDED_LATER,
         })
       } finally {
         close()

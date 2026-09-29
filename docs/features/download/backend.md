@@ -293,62 +293,116 @@ download event, and browsing them for a title nobody has requested yet is the
 primary use case. Flagging is the one route that requires identity: a flag
 records a judgement _someone_ made.
 
-### Monitoring is borrowed, not kept
+### Browsing adds unmonitored; only a pick monitors
 
-The load-bearing constraint: Radarr/Sonarr won't surface (or let you grab)
-releases for a title that isn't **in the library and monitored**. So listing
-releases for a not-yet-requested title has to add and monitor it first —
-and leaving it that way would let an RSS sync grab something nobody asked
-for.
+_Rewritten for plan 024 (`57bdb050`, `9b7cf742`, `dd96632f`, `967fdcd8`).
+This used to borrow monitoring: turn it on for the listing, then restore it,
+deleting a title the listing had added. That broke grabs (Radarr caches a
+release decision for 30 min, keyed to the deleted movie's id), could delete
+a concurrent request's title, and was never needed._
 
-`ReleaseService.withMonitoring()` therefore captures, monitors, acts, and
-restores. The rule that makes it safe: **if it was already monitored, change
-nothing — on the way in or on the way out.** A title with a pending
-`requestMovie` is monitored on purpose, and blindly unmonitoring after a
-release listing would silently kill that request. A failed restore logs a
-warning and is swallowed; failing the caller's read because the cleanup
-didn't take would be the wrong trade.
+Radarr/Sonarr key their release endpoints on their own library ids, so a
+listing for a title not in the library has to add it first. Their
+interactive search and `POST /release` never check `monitored`, so nothing
+here needs it on.
 
-Sonarr needs one extra layer: series-level `monitored` isn't enough, because
-a series added with `monitor: 'none'` has a monitored series row and
-unmonitored episodes. `ensureSeries` reports back **only the episodes it
-switched on**, so the restore can't clobber ones the user monitored
-deliberately.
+| Path                             | A missing title is added         | Monitoring                                                 |
+| -------------------------------- | -------------------------------- | ---------------------------------------------------------- |
+| Browse (`listReleases`)          | **unmonitored**, and kept        | never touched — never flipped on, and nothing is deleted   |
+| Grab (`grabRelease`)             | unmonitored (`ensureForGrab`)    | turned on **after the grab succeeds** (`monitorAfterGrab`) |
+| Replace (`replaceRelease`)       | unmonitored                      | grab → delete the old file(s) → turn on                    |
+| Request (`requestMovie`/`…Show`) | monitored, on the tier's profile | a movie at the ensure; a show's scope in `startSearch`     |
 
-**Grab and replace opt out of the restore.** Once the user has picked a
-release the title stays monitored, so Radarr/Sonarr manage the import and
-future upgrades — exactly the state `requestMovie` already leaves behind.
-
-> **Accepted race:** the borrow window spans one interactive indexer search
-> (seconds to ~a minute). If an RSS sync ticks inside that window _and_ the
-> feed carries a matching release, Radarr can self-grab. Small, and strictly
-> better than the permanently-monitored state `requestMovie` already leaves.
-
-One side effect worth knowing: Sonarr's add path now passes
-`searchForMissingEpisodes: false`. The search moved to the explicit
-`SeriesSearch` command `requestShow` was _already_ sending afterwards, so a
-request still searches exactly once — but browsing releases for a
-not-yet-added show no longer kicks off a series-wide grab as a side effect.
+- **An unmonitored title with no file reads `absent`**, exactly like one that
+  isn't in the library.
+- **A fresh add waits for its refresh.** `ensureForBrowse` re-sends the
+  add-time refresh (`isNew: true`, which Radarr/Sonarr dedupe onto the add's
+  own) and waits up to `BROWSE_REFRESH_WAIT_MS` (30 s), so the search sees
+  the alternate titles that refresh saves. Best effort: a timeout or a
+  failed refresh logs and lists anyway.
+- **A show listing must name a season or an episode.** Sonarr's unscoped
+  `GET /release` is its RSS feed, not a search, so an unscoped listing is a
+  400 `Pick a season or an episode` (`PICK_A_SCOPE_MESSAGE`) before anything
+  is added.
+- **What a grab monitors.** A movie: the movie. A show: the grabbed episodes
+  first, then the series flag — an episode scope is that episode, a season
+  scope its episodes, an unscoped grab every episode **outside season 0**.
+  Replace adds the episodes whose files it deleted (a multi-episode file).
+  A failed monitor write only warns: the release is already handed over.
+- **Replace grabs first, deletes after.** A failed grab deletes nothing. A
+  failed delete after a good grab logs and the job carries on.
+- **A grab that misses the release cache is retried once.** `POST /release`
+  looks the pick up in the last search's 30-minute cache; a 404 re-runs the
+  same listing and grabs again if the pick is still there
+  (`grabWithRelist`), otherwise the job fails
+  `That release is no longer available — search again`.
+- **One title, one sequence at a time.** Every ensure and every monitor write
+  runs inside `mediaMutex` (`keyed-mutex.util.ts`: a FIFO async lock keyed by
+  the canonical media id), so two browses add a title once and a browse can't
+  interleave with a request. The grab, the relist and the delete run outside
+  it.
+- **Adds never search.** Radarr's add sends `searchForMovie: false`, Sonarr's
+  `searchForMissingEpisodes: false`; a request's search is its own command.
 
 ### Auto-select enforcement
 
-`requestMovie`/`requestShow` **ensure first, then decide**:
+A request ensures the title first; `startSearch` (`start-search.ts`) then
+decides:
 
-- **No flags** → fire the same generic `MoviesSearch`/`SeriesSearch` command
-  as before, byte for byte. Radarr/Sonarr's own scoring still picks.
-- **Flags present** → the app fetches releases itself, drops flagged and
-  upstream-`rejected` ones, and grabs the best of what's left
-  (`pickBestRelease`: custom-format score, then seeders, then publish date —
-  all descending, fully deterministic). Nothing left fails the job with a
-  message saying why, rather than leaving it in `Searching` forever.
+- **No flags** → the narrowest command the scope allows: `MoviesSearch`,
+  `EpisodeSearch`, `SeasonSearch` (season 0 included) or `SeriesSearch`.
+  Radarr/Sonarr pick. The job follows the command (see
+  [Commands, and when a search ends `not_found`](#commands-and-when-a-search-ends-not_found)).
+- **Flags present** → the app runs the interactive search itself and drops
+  every release that is flagged, `rejected`, or not `downloadAllowed`:
+  - a movie or episode takes the **first** eligible release, in
+    Radarr/Sonarr's own order (`pickBestRelease`) — that order already is
+    the profile's preference, so it is never re-ranked;
+  - a season takes a full-season pack, or else one release per missing
+    monitored episode (`pickSeasonReleases`);
+  - an unscoped show is searched season by season (`grabPerSeason`), since
+    Sonarr's unscoped release list is its RSS feed.
+- **Nothing usable** ends the job `not_found`, noted
+  `No usable release — every result is flagged or rejected`
+  (`NO_USABLE_RELEASE_NOTE`), not `failed`.
 
-That selector isn't trying to out-think Radarr/Sonarr's scoring, which still
-runs for every unflagged title. It only has to beat the alternative, which is
-failing the request outright.
+### Flagged releases are enforced twice
 
-Enforcement is **app-side only** — Radarr's and Sonarr's own selection logic
-is untouched, so a search started from _their_ UI can still re-pick a flagged
-release. That's the spec's accepted gap, not an oversight.
+_Plan 024 (`760fcf37`). Before it, enforcement was app-side only, and
+Radarr's/Sonarr's RSS sync, automatic search and retry-after-failure could
+grab a flagged release again._
+
+**App-side.** `assertNotFlagged` refuses a flagged guid on grab and replace
+with a 409 before any job exists, and the pickers above skip flagged
+releases. This half is load-bearing: an interactive grab (`POST /release`)
+bypasses release profiles, so upstream would take a flagged release from
+this app without complaint.
+
+**Upstream.** Each app gets one app-managed release profile,
+`lilnas · Flagged releases` (`FLAGGED_RELEASE_PROFILE_NAME`), whose
+`ignored` terms are every flagged title of that type:
+
+| Field       | Value              | Why                                                    |
+| ----------- | ------------------ | ------------------------------------------------------ |
+| `enabled`   | `true`             | the resource defaults to `false`, so it is always sent |
+| `required`  | `[]`               |                                                        |
+| `ignored`   | the flagged titles | a case-insensitive substring of the release title      |
+| `indexerId` | `0`                | every indexer                                          |
+| `tags`      | `[]`               | every movie/series                                     |
+
+- **Every flag and unflag re-syncs the app's full list** (`mirrorFlags` →
+  `syncFlaggedReleases`), started and not awaited: the flag is this app's
+  record either way, and a failure only warns. Boot syncs both apps once
+  (`ArrProfilesBootstrap`).
+- **One sync per app at a time**, reading `bad_files` under the lock, so
+  quick flags can't PUT out of order or create the profile twice.
+- **Written only on drift** — the term set (ignoring order and case) or the
+  shape above. **Deleted when no flags remain**: Radarr/Sonarr reject a
+  profile with no terms. A profile under any other name is never touched.
+- **A title with `/` is skipped** and logged once: a term with two slashes is
+  read as a regex. A flag sent without a real title takes the title of the
+  file on disk from `media_file_releases`; one with no title anywhere is
+  skipped and logged once.
 
 ### Deferred
 
@@ -367,9 +421,9 @@ release. That's the spec's accepted gap, not an oversight.
 
 ### Manual verification (needs live Radarr/Sonarr)
 
-Not covered by the unit suite — the monitoring borrow/restore in particular
-can only be proven against real instances. Run from inside the Docker
-network, or against `https://download.lilnas.io`:
+Not covered by the unit suite — the monitoring rules in particular can only
+be proven against real instances. Run from inside the Docker network, or
+against `https://download.lilnas.io`:
 
 ```bash
 BASE=http://download:8081/download
@@ -378,13 +432,12 @@ BASE=http://download:8081/download
 curl -s "$BASE/media/tmdb:27205/releases" | jq '.releases | length'
 
 # 2. Releases for a NOT-YET-ADDED movie. Should return results, and the
-#    movie should be left UNMONITORED afterwards - the borrow/restore.
+#    movie should be added UNMONITORED and left that way.
 curl -s "$BASE/media/tmdb:157336/releases" | jq '.releases[0]'
 #    Then confirm in Radarr: the movie exists, monitored = false.
 
 # 3. Releases for a movie with a PENDING request (monitored on purpose).
-#    Must be left STILL MONITORED - this is the branch that would
-#    otherwise silently kill the pending request.
+#    Must be left STILL MONITORED - a listing never writes monitoring.
 curl -s -XPOST "$BASE/movies" -H 'content-type: application/json' \
   -d '{"tmdbId":157336}'
 curl -s "$BASE/media/tmdb:157336/releases" >/dev/null
@@ -2443,16 +2496,19 @@ forwardRef pair. The writers push instead.
 
 ### Full-queue polling, and when to refresh
 
-`pollMovies`/`pollShows` read **the whole queue** every tick (`getQueue()`
-with no ids), `setQueue` it, then match tracked jobs from that list. Before
-this, a download grabbed in Radarr's own UI, from Discord or another tab was
-invisible.
+`poll()` runs `pollSource('radarr')` and `pollSource('sonarr')` side by
+side. Each reads **the whole queue** every tick (`getQueue()` with no ids),
+`setQueue`s it, then matches tracked jobs from that list (`matchJobItems`).
+Before this, a download grabbed in Radarr's own UI, from Discord or another
+tab was invisible.
 
-- **`RefreshMonitoredDownloads` is sent only when there is something to
-  watch** (`requestQueueRefresh`): a tracked job, **or** a non-empty cached
-  queue from the previous tick. An un-owned download keeps refreshing until
-  it leaves the queue, without nudging an idle Radarr six times a minute
-  forever. A failed refresh logs and reads the queue as-is.
+- **`RefreshMonitoredDownloads` is sent only when it buys something**
+  (`requestQueueRefresh`, before the tick's `getQueue`). With SABnzbd read
+  directly and healthy, once per SAB phase change — see
+  [Event refresh](#event-refresh-and-the-3f1-fallback). Otherwise only while
+  an item in the previous tick's queue, owned or not, is moving — see
+  [The queue refresh](#the-queue-refresh-plan-024--3f1). A failed refresh
+  logs and reads the queue as-is.
 - **A failed `getQueue` throws before `setQueue`**: the previous cache is
   kept and the poller backs off as before. `poll()` awaits both sources with
   `Promise.allSettled` (rethrowing the first failure), so the media diff
@@ -2766,21 +2822,44 @@ an attempt after the fact, and each is gone:
 
 ### Settling from files
 
-A tracked movie/show job with a queue item still takes its status from the
-item (`deriveStatusFromQueueItem(current, item)`, which now requires one).
-A job with **no** item is settled from the library instead, by
-`settleWithoutQueueItem(current, fileLanded, absentForMs)` in
-`queue-status.util.ts`:
+_Updated for plan 024: history now decides a download's outcome, and a
+missing queue item alone no longer fails anything. See
+[Radarr/Sonarr as the source of truth](#radarrsonarr-as-the-source-of-truth-plan-024)._
 
-| Status, no queue item                         | A file landed | No file, < 60 s | No file, ≥ 60 s |
-| --------------------------------------------- | ------------- | --------------- | --------------- |
-| `downloading` / `importing` / `paused`        | `completed`   | unchanged       | `failed`        |
-| `requested` / `searching` / `needs_attention` | `completed`   | unchanged       | unchanged       |
-| `cancelling` (plan 022)                       | `completed`   | see below       | `cancelled`     |
-| terminal, or a video-only status              | unchanged     | unchanged       | unchanged       |
+A tracked movie/show job with a queue item takes its status from the item
+(`deriveQueueItemState(current, item, context)`): progress, import trouble
+(`needs_attention`) and a delay-profile hold (`searching`, noted
+`Delayed by Radarr until 14:05`). A failed item is **not** `failed` — the
+history `failed` event decides that, and whether a retry follows; only a
+failed item still there after `ATTENTION_DELAY_MS` (2 min) turns
+`needs_attention`.
+
+A job with **no** item is settled by `settleAbsentJob(current, facts)` in
+`queue-status.util.ts`, from the library (`fileLanded`, via `didJobComplete`)
+and the job's persisted download links (`job_downloads`). First match wins:
+
+| No queue item, and …                                                                       | Result                                                                                       |
+| ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| terminal (incl. `not_found`), or a video-only status                                       | unchanged                                                                                    |
+| `cancelling` (plan 022)                                                                    | see below                                                                                    |
+| a file for the job's scope landed                                                          | `completed`                                                                                  |
+| no download links                                                                          | unchanged — `requested`/`searching` have nothing to lose from the queue                      |
+| every link resolved, at least one imported                                                 | `completed`                                                                                  |
+| every link failed                                                                          | unchanged — history's `failed` event already moved the job (`failed`, or `searching` + note) |
+| a link still open, absent ≥ `ABSENT_REMOVED_MS` (10 min) with the client healthy all along | `completed` if another link imported, else `cancelled`, `Removed from the download client`   |
+| otherwise                                                                                  | unchanged                                                                                    |
+
+- **The absence clock only runs while the download client is healthy.** The
+  poller passes `min(absent, healthy)`, so a SABnzbd outage settles nothing.
+- **`not_found` is terminal and never reached from here.** Only a search's
+  end decides it (see
+  [Commands](#commands-and-when-a-search-ends-not_found)).
+- **`statusNote`** is the job's one grey line about where it stands. It is
+  kept while the status holds and dropped when it moves, unless the move
+  writes its own.
 
 A `cancelling` job with no file settles `cancelled` after 30 s
-(`CANCEL_GRACE_MS`), or after 5 s if its downloads' history says they were
+(`CANCEL_GRACE_MS`), or after 5 s if every link says its download was
 removed or failed. See
 [Cancelling a movie or show attempt](#cancelling-a-movie-or-show-attempt-plan-022).
 
@@ -2821,6 +2900,13 @@ caller. "Newer" means a file's `dateAdded` is strictly after the job's
   a file doesn't read as finished.
 
 ### The 60 s grace
+
+> ⚠️ **Superseded by plan 024** (`ea73b63d`): `QUEUE_ABSENCE_GRACE_MS` and
+> `LEFT_QUEUE_WITHOUT_FILE_ERROR` are gone. The queue drops items for reasons
+> that are not failures — SABnzbd briefly unreachable, a Radarr/Sonarr
+> restart, SABnzbd's history rolling past its last 60 items — so a job with a
+> live link now waits `ABSENT_REMOVED_MS` (10 min) of healthy absence, and
+> ends `cancelled`, not `failed`. See the table above.
 
 A grabbed job (`downloading`/`importing`/`paused`) with no item and no file
 waits `QUEUE_ABSENCE_GRACE_MS = 60_000`, then fails with
@@ -2922,6 +3008,11 @@ had no way back to a file.
   bar clears.
 - **The poller's private `lastSnapshot`** (job id → last snapshot) is only a
   change detector. It is never what goes on the wire.
+- **Plan 025 adds SABnzbd's live fields** — `downloadedBytes`, `totalBytes`,
+  `speedBps`, `etaSeconds`, `stage`, `stageDetail`, `clientPaused`,
+  `clientDiskLow` — merged in by the same `toQueueSnapshot`, all optional
+  and absent while SABnzbd is off. See
+  [Readings on `queueSnapshot`](#readings-on-queuesnapshot).
 
 ### ⚠️ Known gaps
 
@@ -3218,6 +3309,12 @@ running at the press can grab after the unmonitor. The job therefore waits in
 
 ### How the poller settles it
 
+> ⚠️ **Partly superseded by plan 024**: the remembered download ids are now
+> persisted `job_downloads` links, so they survive a restart, and "history
+> says removed or failed" means every link carries a `failedAt`. A season pack
+> that also covers other episodes is kept rather than removed — see
+> [Cancelling out of a season pack](#cancelling-out-of-a-season-pack).
+
 | This tick                                         | Result                                        |
 | ------------------------------------------------- | --------------------------------------------- |
 | A queue item in the job's scope                   | removed by `removeLateGrab`; status unchanged |
@@ -3327,6 +3424,12 @@ queue snapshot with nothing under it to cancel. The poller now mints a job for
 each such download, and from then on it is an ordinary attempt.
 
 ### How a download is adopted
+
+> ⚠️ **Partly superseded by plan 024**: `rememberDownloads` is gone. An
+> adopted download is linked in `job_downloads`, ownership reads those
+> persisted links, and a download linked to a job that ended within the last
+> hour reopens that job instead — see
+> [Adoption and reopen](#adoption-and-reopen).
 
 The poller runs private `adoptUnownedDownloads(type, queue)` at the end of each
 source's tick, after the tracked jobs are settled. The rules live in
@@ -3609,6 +3712,712 @@ The dev-container restart and a live run on `download.dev.lilnas.io` —
 progressive, HLS, clip, pause/resume — are pending human checkpoints. The
 polling snippet is in `local-verification.md` under "Watching a video
 download".
+
+---
+
+## Radarr/Sonarr as the source of truth (plan 024)
+
+**Status: backend done.** Key commits, in order: `f6cde551` (`mediaMutex`),
+`89f3e955` (history normalizing and `claimGrab`), `57bdb050` (browse without
+borrowing monitoring), `8ef0b7de` (tier profiles), `97ba035f` (`not_found`
+and `statusNote`), `ef740d4e` (requests apply a tier), `0b8f41f7` (migration
+0007), `760fcf37` (flagged-release profile), `ea73b63d` (history settles
+jobs), `81708a50` (searches end `not_found`), `05038a93` (reopen), `8835c324`
+(credit own imports), `3d030f7e` (pack cancel), `a3c51bbd` (Sonarr v5),
+`10cc0f64` (requests start searches through command tracking).
+
+The poller used to decide outcomes from what was missing from `/queue`. That
+queue is rebuilt in memory and drops items whenever SABnzbd is briefly
+unreachable, after any Radarr/Sonarr restart, and once SABnzbd's history
+rolls past its last 60 items — so live downloads were mass-cancelled. The
+job → download link lived in memory and died with every restart.
+
+**History decides outcomes; the queue reports progress.**
+
+### History ingestion
+
+`MediaPollerService.syncHistory` → `ingestHistory`, per app, at the start of
+each tick (before commands and the queue):
+
+- **Every `HISTORY_POLL_MS` (5 s)**, one unpaged `GET /history/since`
+  (Sonarr with `includeEpisode: true`, for the season/episode numbers),
+  oldest first.
+- **Inclusive, then re-sorted.** The read starts _at_ the cursor's date.
+  `normalizeHistory` re-sorts by `(date, id)`: the wire sorts by date alone,
+  at second precision, and ids are not monotonic inside a second.
+- **The cursor** is `arr_history_cursors` (`app`, `cursor_date`,
+  `cursor_ids`): the newest date applied, plus every record id already
+  applied _at_ that date. Up to 52 records have been seen in one second, so a
+  single-id cursor would skip or replay. A re-fetched tie is skipped by id;
+  `setCursor` replaces the ids on a later date, unions them on an equal one,
+  and never moves backwards.
+- **First boot** (no cursor) reads `HISTORY_FIRST_READ_MS` (1 day) back, and
+  stores a cursor even when it found nothing. **Later boots** resume from the
+  cursor, but never more than `HISTORY_MAX_CATCH_UP_MS` (7 days) back.
+- **An event that fails to apply stops the batch.** The cursor covers only
+  what went before it, and the next interval retries from it. Every write is
+  idempotent on replay.
+- **Boot backfill** (`backfillLinks`, once per boot): a grabbed job with no
+  links yet — from before 0007, or whose grab was never read — is linked from
+  its title's own history by the same `claimGrab` rules.
+- ⚠️ **Never log a history record or its `data`.** A grab's
+  `data.downloadUrl` carries the indexer's API key. Only `message`, `source`,
+  `releaseSource` and (for completion) `fileId` are ever read out of `data`.
+
+| Event (`eventType`)                         | Effect                                                                              |
+| ------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `grabbed`                                   | linked to the job `claimGrab` picks; a new grab clears a retry note                 |
+| `downloadFolderImported`                    | `markImported` on every job linked to the download                                  |
+| `downloadFailed`                            | `markFailed`; the job goes back to `searching` with a note, or `failed` (see Retry) |
+| `downloadFailed`, marked failed by a person | `cancelled`, `Removed and blocklisted in <App>`                                     |
+| `downloadIgnored`                           | `cancelled`, `Ignored in <App>`                                                     |
+
+- **A person's failure** is `data.message` `Manually marked as failed`
+  (v4), or a Sonarr v5 `data.source` that isn't the failed-download handler.
+- **A failure or removal leaves a job alone** while another of its links is
+  still in flight, and a `cancelling` job only has its link marked.
+- **The numeric `eventType` form is accepted too.** `ignored` is 9 in Radarr
+  and 7 in Sonarr.
+
+### `job_downloads`
+
+Migration 0007 (`0007_greedy_thunderbolts.sql`) is purely additive: two new
+tables, and four nullable `jobs` columns.
+
+| Column                                   | Holds                                                                    |
+| ---------------------------------------- | ------------------------------------------------------------------------ |
+| `job_id` + `download_id` (PK)            | one row per download per job; `ON DELETE CASCADE` from `jobs`            |
+| `app`                                    | `radarr` / `sonarr` (CHECK); indexed with `download_id`                  |
+| `grabbed_at`, `imported_at`, `failed_at` | the history events' own `date` strings, verbatim                         |
+| `fail_reason`                            | the failure's `data.message`                                             |
+| `interactive`                            | the grab's `releaseSource === 'InteractiveSearch'`; NULL = not known yet |
+
+- **A season pack is one `downloadId`.** Sonarr writes one `grabbed` record
+  per episode, all sharing it, so the pack links once.
+- **Two jobs can share a download** (a season job and an episode job covered
+  by one pack), hence the composite key.
+- **A queue match links too.** A title-matched queue item is linked to its
+  job right away (`grabbed_at` NULL until the event is read), so its outcome
+  is known even if the grab event never is.
+- **Which queue items are a job's** (`matchJobItems`): every item carrying a
+  download it is linked to, plus its title's (and scope's) items that no
+  other in-flight job is linked to. An item whose download already failed for
+  the job is never read again.
+
+**`claimGrab`** (`history-events.util.ts`) picks the job a grab belongs to.
+A candidate is:
+
+- open, of the event's type and title (`movieId` / `seriesId`);
+- scoped to cover the event — a season job can't claim an event that
+  doesn't carry its season;
+- in `requested`, `searching`, `downloading`, `importing` or `cancelling`;
+- created no later than `CLAIM_CREATED_AT_SLACK_MS` (5 s) after the grab.
+
+Candidates rank by: a job whose upstream command predates the grab (at the
+grab's whole-second precision), then the narrowest scope (episode < season <
+series), then the oldest. No candidate means someone else grabbed it — that
+is adoption's business.
+
+### Commands, and when a search ends `not_found`
+
+A job records the Radarr/Sonarr command it waits on in `upstream_command_id`,
+`upstream_command_kind` (`refresh` | `search`) and `upstream_command_at`
+(ISO). All three are internal: `DownloadJobRecord` only, never the wire.
+
+| Request for a title …  | `request()` does                                                             | The job waits on                                                     |
+| ---------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| already in the library | `startSearch` at once                                                        | the `search` command, or nothing if the app grabbed itself           |
+| added by this request  | re-sends the add-time refresh (`isNew`, deduped onto the add's own), returns | the `refresh`, noted `Waiting for Radarr to finish adding the movie` |
+
+The Sonarr note reads `Waiting for Sonarr to finish adding the show`.
+
+`trackCommands` reads each job's command at most every `COMMAND_POLL_MS`
+(2 s), after the history sync, so a grab is linked before its search is
+judged:
+
+| The command                                                            | The job                                                                                 |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| a `refresh` still queued/running `REFRESH_WAIT_TIMEOUT_MS` (10 min) on | `failed`, `Radarr never finished adding the movie` (`Sonarr … the show`)                |
+| ended `failed` / `aborted` / `cancelled` / `orphaned`                  | `failed`, with the command's message                                                    |
+| a `refresh` that completed                                             | `startSearch` runs; the note clears; the job now waits on the `search` (or ends, below) |
+| a `search` that completed, with a link grabbed since it started        | stops waiting; `upstream_command_at` is kept, since `claimGrab` still ranks by it       |
+| a `search` that completed, nothing grabbed                             | `not_found`                                                                             |
+| gone (404 — upstream restarted)                                        | judged as completed                                                                     |
+
+- **`startSearch` runs only after the refresh.** Sonarr creates a new show's
+  episodes during it, and saves back a snapshot taken before it fetched, so a
+  monitor flag written meanwhile is undone. `startSearch` resolves the scope
+  (an episode asked for by number gets its `episodeId`, or the job fails
+  `S02E05 isn't in Sonarr`), monitors it (`monitorScope`, under
+  `mediaMutex`), then searches or picks (see
+  [Auto-select enforcement](#auto-select-enforcement)). One that throws is
+  retried until the refresh timeout, then fails
+  `Couldn't start the search in <App>: …`.
+- **`not_found` waits for history.** It is concluded only once a history
+  read that started at least 2 s after the command ended has applied
+  completely: a search can end between two reads, before the one that would
+  show its grab.
+- **Never read the command's message.** "N reports downloaded" is dropped
+  about five minutes after the command ends; the links are the answer.
+- **`not_found` never carries `error`**: the mockups draw it with a warn chip
+  and a grey note. It is terminal, and Retry is offered like any other
+  unsuccessful attempt.
+
+| `statusNote`                                                       | When                                                               |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| _(none)_                                                           | a plain `not_found` — its chip already reads "no release found"    |
+| `No usable release — every result is flagged or rejected`          | `not_found`: a title with flags, and nothing eligible              |
+| `<App>'s retry found no other release`                             | `not_found` after a failed download's retry (below)                |
+| `Waiting for <App> to finish adding the movie` / `… the show`      | `searching`, a fresh add's refresh still running                   |
+| `Delayed by <App> until HH:MM` / `Delayed by <App>`                | `searching`, held by a delay profile or an unreachable client      |
+| `Last download failed: <reason>. <App> is trying another release.` | `searching`, after a failure upstream retries                      |
+| `The download came back in <App>`                                  | a reopened job, for as long as the status the reopen gave it holds |
+| `KEPT_PACK_NOTE`                                                   | `cancelled` out of a season pack that keeps running                |
+
+### Retry after a failed download
+
+On a `downloadFailed` event, `retriesAfterFailure` asks whether
+Radarr/Sonarr will look for another release on their own:
+
+- **`autoRedownloadFailed`** in the app's download-client config (re-read
+  every 10 minutes; a missing flag reads as on, their own default).
+- **For a release picked by hand, also
+  `autoRedownloadFailedFromInteractiveSearch`.** "By hand" is the grab's
+  `releaseSource === 'InteractiveSearch'`, off the link's `interactive`, or
+  else the download's own history; unknown reads as automatic.
+
+| Upstream retries? | The job                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------- |
+| yes               | `searching`, noted `Last download failed: <reason>. <App> is trying another release.` |
+| no                | `failed`, with the client's message (or `Download failed in <App>`)                   |
+
+- **The retry search is followed.** `findRetrySearches` reads the command
+  list every tick while a job is looking (it only holds commands ~5 minutes
+  after they end), for a `trigger: 'unspecified'` `MoviesSearch` (Radarr) or
+  `EpisodeSearch`/`SeasonSearch` (Sonarr) on the job's title and scope,
+  queued no earlier than 2 s before the failure. The job then waits on it as
+  a `search`.
+- **A grab clears the note.** A retry that grabs nothing, or none seen within
+  `RETRY_SEARCH_TIMEOUT_MS` (30 min) of the failure, ends the job
+  `not_found`, noted `<App>'s retry found no other release`.
+
+### The absence rule and the health gate
+
+A job with no queue item settles by `settleAbsentJob` — the table is in
+[Settling from files](#settling-from-files). What keeps a flaky queue from
+cancelling live downloads:
+
+- **Absence never settles a job with nothing grabbed** (no links).
+- **A removal takes `ABSENT_REMOVED_MS` (10 min)** of absence with a link
+  still open, and ends `cancelled`, `Removed from the download client`
+  (`REMOVED_FROM_CLIENT_ERROR`) — or `completed` if another link imported.
+  A removal made in Radarr/Sonarr writes no history, so absence is the only
+  signal for it.
+- **The clock only runs while the download client is healthy.**
+  `checkClientHealth` reads each app's `/health` every `HEALTH_POLL_MS`
+  (30 s): a `DownloadClientCheck` or `DownloadClientStatusCheck` warning or
+  error is unhealthy, and so is a check that fails. `settleAbsentJobs` passes
+  `min(absent, healthy)`, so **nothing settles while SABnzbd is
+  unreachable**, and an outage mid-absence restarts the clock.
+- **`absentSince` is in memory.** A restart restarts every absence, which can
+  only delay a settle.
+- **A `cancelling` job is exempt from the gate**: its absence counts from
+  its first item-less tick, and it settles within `CANCEL_GRACE_MS`.
+
+### Completion credits the job's own downloads
+
+`didJobComplete` (`job-completion.util.ts`) now takes the job's `links` and
+the title's imports (`completionImports`: its `downloadFolderImported`
+records, reading only `data.fileId` from `data`).
+
+| Job                                 | Completes when                                                                  |
+| ----------------------------------- | ------------------------------------------------------------------------------- |
+| movie, season or series, with links | a new file **one of its own downloads imported**                                |
+| movie, season or series, no links   | any file newer than the job — the old date rule (pre-0007 jobs, manual imports) |
+| episode                             | that episode's file is newer than the job                                       |
+
+- **Why:** an RSS grab of another episode, or an upgrade of another season,
+  used to complete a job that was still stuck.
+- **An import is tied to a file** by its `fileId`, else by its episode's
+  current file, else — a Radarr record naming neither — any file, if the
+  import came after the job.
+- **The import history is read only when it can matter**: a linked job whose
+  title has a file newer than it (`hasFileAddedAfter`).
+- **An episode can complete while still queued** (`completeQueuedEpisodes`):
+  its row says `episodeHasFile` and the file is newer than the job — a pack
+  held up on another episode, or the row Sonarr keeps after a partial manual
+  import. A season or series waits for the queue.
+
+### Adoption and reopen
+
+- **Ownership reads persisted links.** `planAdoptions` skips a download
+  linked to an open job in `job_downloads`, so a restart forgets none. An
+  adopted download is linked to its new job at once.
+- **A download that comes back goes home.** `reopenEndedJob` /
+  `pickReopenableJob` (`adoption.util.ts`): a queued download whose link
+  (neither failed nor imported) belongs to a job that ended `cancelled` or
+  `failed` within `REOPEN_WINDOW_MS` (1 h, by its `updatedAt`) reopens the
+  newest such job. It takes the status the queue derives, its `error` and
+  command clear, it is noted `The download came back in <App>`, and it keeps
+  its requester — rather than a second, `upstream` job beside it.
+- **Never reopened:** a `completed` job, a job past the window, or a pack a
+  cancel kept running (`keptDownloadIds`), which is neither adopted nor
+  reopens anything.
+
+### Cancelling out of a season pack
+
+Sonarr's queue has one row per episode, and a season pack is N rows sharing
+one `downloadId`. Deleting any one row drops the whole download from the
+client, so a single-episode cancel used to kill the pack.
+
+`planQueueCancel` (`queue-cancel.util.ts`) plans a cancel per download:
+
+- **A download with rows outside the job's scope is kept.** The job's
+  fileless episodes are unmonitored, and it settles `cancelled` with no
+  `error`, noted `KEPT_PACK_NOTE`:
+  `Part of a season download that is still running — this episode may still import`.
+- **Any other download is removed with one DELETE**, named by one of its
+  rows — never one per row, which would only 404 after the first.
+- **The kept pack stays linked** to the cancelled job, which is what keeps
+  adoption and reopen off it. The poller's late-grab path follows the same
+  plan.
+
+### Quality tiers and the boot profile sync
+
+Every movie/show request carries a `qualityTier` (optional on
+`POST /download/movies` and `/shows`):
+
+| `QualityTier` | Profile (each app)          | Allows                                                  |
+| ------------- | --------------------------- | ------------------------------------------------------- |
+| `up_to_4k`    | `lilnas · Up to 4K`         | 2160p (Remux, Bluray, WEB, HDTV) and everything in `hd` |
+| `hd`          | `lilnas · HD (up to 1080p)` | Remux-1080p down to SDTV                                |
+| `up_to_720p`  | `lilnas · Up to 720p`       | Bluray-720p down to SDTV                                |
+
+- **Caps, not exact matches.** A tier allows everything up to its cap, so a
+  title with no 1080p release still downloads at 720p. Pre-release rips,
+  disc images and raw captures are never allowed
+  (`NEVER_ALLOWED_QUALITY_IDS`).
+- **No upgrades.** `upgradeAllowed: false`, the cutoff is the best allowed
+  item, and custom-format scores are zeroed. Radarr profiles carry English.
+- **Built by quality id** from each app's `/qualityprofile/schema`
+  (`TIER_QUALITY_IDS`, `quality-tiers.ts`). A schema that renumbers a listed
+  quality throws rather than allowing the wrong thing.
+- **`ArrProfilesBootstrap`** (`OnApplicationBootstrap`, started and not
+  awaited) creates a missing profile and repairs a drifted one in place —
+  allowed set, order, cutoff or `upgradeAllowed` — keeping its id, name and
+  anything else someone tuned. It matches by exact name, so a profile
+  without the `lilnas · ` prefix is never touched. A failure only logs;
+  `tierProfileId()` retries on first use. The same bootstrap mirrors the
+  flagged releases.
+- **The default** is `defaultQualityTier()`: env `DEFAULT_QUALITY_TIER`, or
+  the shared `DEFAULT_QUALITY_TIER` (`hd`) when unset. An unknown value falls
+  back to `hd`, warned once.
+- **Applied before any write.** An add uses the tier's profile; a library
+  title on another profile is moved onto it (the whole series, for a show);
+  a tier whose profile can't be had fails the job naming it, never falling
+  back. A browse or grab add gets the default tier's profile.
+- ⚠️ **The dev container talks to prod Radarr/Sonarr** (it joins
+  `lilnas_default` and reaches them by service name), so **any dev boot
+  writes these profiles, and the flagged-release profile, to prod.**
+
+### Sonarr v5 notes
+
+- **The v3 API is still served.** Everything here calls `/api/v3`, and v3
+  queue rows stay one per episode, so the pack rules above hold.
+- **A path-like lookup term is a 400.** `/series/lookup` rejects a term
+  starting with `/`, `\` or a drive letter (`PATH_LIKE_LOOKUP_TERM`), so
+  `SonarrService.search` returns `[]` for one without the round trip, and
+  maps any lookup 400 to `[]` (logged, never with the term).
+- **Manual failures** are detected by v4's message
+  (`Manually marked as failed`) or v5's `data.source` naming something other
+  than the failed-download handler.
+- **`SeriesSearch` is missing-only** under a profile that disallows upgrades
+  — every tier profile. No re-grab uses it: a re-download is a delete and a
+  grab by guid (`ReleaseService`), and Sonarr's own retry after a failure is
+  a `SeasonSearch`/`EpisodeSearch` (`RETRY_SEARCH_NAMES`).
+- **Manual import:** v5 lets `downloadId` win over `seriesId` but then
+  ignores `seasonNumber`, so candidates are read by `downloadId` alone.
+
+### The queue refresh (plan 024 · 3·F1)
+
+> **Now the fallback (plan 025).** This timed gate runs only while SABnzbd is
+> unset, not read yet, or unhealthy (`MediaStateService.clientHealth()` is
+> `'off'` or `'unhealthy'`). While it is `'ok'`, the live numbers come from
+> SABnzbd and a refresh is sent once per SAB phase change instead — see
+> [Event refresh, and the 3·F1 fallback](#event-refresh-and-the-3f1-fallback).
+
+Each `RefreshMonitoredDownloads` makes Radarr/Sonarr re-read SABnzbd, write
+two command rows, and retry every pending import (a folder scan and an
+ffprobe per file). So the poll still ticks every second, but the refresh is
+sent only for an item a person could see move, and only at a capped rate.
+
+- **Moving** (`isQueueItemMoving`, `queue-status.util.ts`):
+  - an import running now (`trackedDownloadState: 'importing'`), however
+    long it takes;
+  - anything else that reads as Downloading or Importing and whose
+    `sizeleft` or tracked state changed within `STALL_MS` (60 s). A newly
+    seen item counts as changed.
+- **Never moving:** failed at the client, held (`delay`,
+  `downloadClientUnavailable`), `importBlocked`, NeedsAttention, Paused.
+- **Stall clock:** the poller's per-source `queueProgress` map, keyed by
+  row id + download + what it was grabbed for. It is read from the previous
+  tick's queue, so it must run before that tick's `setQueue`. An item is
+  forgotten once it leaves the queue.
+- **Rate:** at most every `QUEUE_REFRESH_MS` (5 s) per source, or every
+  `WATCHED_QUEUE_REFRESH_MS` (1 s) while a moving item's title has a detail
+  page open (`DownloadGateway.watchedMediaIds()`, mapped through
+  `queuedMedia`). 500 ms of slack keeps the cron's jitter from skipping
+  every other tick.
+- **A tracked job alone sends nothing.** Radarr/Sonarr refresh on their own
+  5 s after a grab or an import, and history settles outcomes.
+
+---
+
+## SABnzbd live progress (plan 025)
+
+**Status: built, not yet verified against live SABnzbd.** Full plan in
+`docs/features/download/plans/025-sabnzbd-integration.md`. Commits, in order:
+`0eaf4e8a` (the snapshot fields), `e32b9b44` (disk-full wording), `2b2cef98`
+(mockups), `67395416` (API fixtures), `5101f4ff` (the read-only client),
+`e99a6a94` (the reducer), `dba6746b` (the monitor), `3e08a455` (event
+refresh), `829fd102` (the snapshot merge), `ca5c36e3` (attempt cards),
+`8af6570e` + `6d4c1452` ("Paused in SABnzbd").
+
+Radarr/Sonarr sit between this app and SABnzbd, and drop or distort what
+SABnzbd knows:
+
+- **Post-processing is invisible.** While SABnzbd verifies, repairs or
+  unpacks, their queue reads "Downloading" at 100 %.
+- **Progress was only as fresh as their `/queue`**, so plan 024's 3·F1
+  force-refreshed it every ~5 s — and each refresh costs two command rows, a
+  SABnzbd read and a retry of every pending import.
+
+**SABnzbd is now the source of live progress; Radarr/Sonarr stay the source
+of status and outcome.**
+
+| Fact                                                          | From                              |
+| ------------------------------------------------------------- | --------------------------------- |
+| Bytes downloaded / total, speed, ETA                          | SABnzbd `queue`                   |
+| Post-processing step and its text                             | SABnzbd `history` (live rows)     |
+| SABnzbd's own queue pause, free disk                          | SABnzbd `queue`                   |
+| Job status (`downloading`, `importing`, `needs_attention`, …) | Radarr/Sonarr `/queue`, as before |
+| Outcome (imported, failed, retried)                           | Radarr/Sonarr history (plan 024)  |
+
+### The SABnzbd 5.1.3 API contract
+
+Pinned in `src/sabnzbd/sabnzbd.schema.ts` and the fixtures
+(`src/sabnzbd/__tests__/fixtures/sabnzbd.fixtures.ts`), both derived from
+SABnzbd 5.1.3's source. The image is pinned to `5.1.3` in `infra/media.yml`.
+
+- **Endpoint.** `GET {SABNZBD_URL}/api?mode=…&output=json&apikey=…`; prod's
+  URL is the container's, `http://sabnzbd:8080`. The key is accepted **only**
+  as the `apikey` query param — there is no header auth.
+- **`queue` and `history` need the full API key.** The NZB key covers
+  level-1 modes only.
+- **Two error shapes.** An API error is HTTP 200
+  `{"status": false, "error": "…"}` (`SabnzbdApiError`). A key or host
+  rejection is HTTP 403 plain text whose body may be empty
+  (`SabnzbdAuthError`, classified on the status alone).
+- **Queue numbers are strings** (`"%.2f"`); the schemas coerce them. `mb` and
+  `mbleft` are MiB.
+- **`percentage` can go backwards** (par2 held back, then Fetching), so
+  progress is derived from `mb`/`mbleft`, never from it.
+- **Every runnable slot says `Downloading`.** While the downloader runs,
+  every slot not paused on its own reports `Downloading`, so only the first
+  in queue order (`index`) is treated as downloading. A Force-priority slot
+  downloads through a global pause.
+- **`timeleft` is cumulative** — the queue bytes ahead of and including the
+  slot, over the global speed — so the queue is always read unfiltered.
+  Never filter it by category.
+- **`history` answers `{"history": false}`** when nothing changed since the
+  `last_history_update` passed in. That is a change counter (starts at 1,
+  wraps to 1), not a timestamp.
+- **`limit=0` means SABnzbd's `history_limit`, not "all"**, so `getHistory`
+  always passes one (≥ 1, or it throws). The limit applies after the
+  `nzo_ids` filter.
+- **Post-processing rows come first** in `history`, with a live
+  `action_line` (`Repairing: 45% - 1:23 left`). Finished jobs are DB rows
+  reading `Completed` or `Failed`.
+- **A completed job is archived once Radarr/Sonarr import it** (prod runs
+  them with Remove Completed on), so it leaves the default view; `archive=1`
+  finds it. Prod deletes failed jobs outright, so a failed row is only
+  briefly visible.
+- **`nzo_id` is Radarr/Sonarr's `downloadId`.** It changes on a SABnzbd
+  "Retry".
+
+### Read-only by construction
+
+`SabnzbdService` (`src/sabnzbd/sabnzbd.service.ts`) knows three modes,
+`SAB_READ_MODES = ['version', 'queue', 'history']`. `request()` takes the
+mode as a plain string, so the allowlist is a **runtime** guard: any other
+mode throws before a URL is built. Raw HTTP only — no caching, no retries, a
+10 s timeout.
+
+Deletes, retries and blocklists stay with Radarr/Sonarr. Done in SABnzbd
+directly:
+
+| SABnzbd write | What goes wrong                                                          |
+| ------------- | ------------------------------------------------------------------------ |
+| delete        | the item vanishes from Radarr/Sonarr with no blocklist and no re-search  |
+| retry         | the job gets a new `nzo_id`, so it no longer matches the `downloadId`    |
+| `change_cat`  | the category no longer matches the one Radarr/Sonarr track the job under |
+
+### Configuration and blast radius
+
+| Variable          | Holds                                                                 |
+| ----------------- | --------------------------------------------------------------------- |
+| `SABNZBD_URL`     | `http://sabnzbd:8080` in prod                                         |
+| `SABNZBD_API_KEY` | SABnzbd's **full** API key — the NZB key can't read `queue`/`history` |
+
+- **Both optional, both in `apps/download/.env.prod`.** With either unset,
+  `SabnzbdService.enabled` is false, the monitor's tick returns at once,
+  health stays `'off'`, and the app behaves exactly as before plan 025.
+- **Dev leaves them unset.** `lilnas-download-dev` joins `lilnas_default`
+  and could reach prod SABnzbd by service name. `.env.example` lists both
+  with placeholders; leave them out of a dev `.env`.
+- ⚠️ **The full key is SABnzbd admin** — it can change config, add NZBs and
+  delete jobs. Mitigations:
+  - the mode allowlist above;
+  - the key and URL never reach a log or an error: a failed `fetch` is
+    rewrapped as `SABnzbd <mode> request failed` **without** `cause`
+    (undici's cause carries the URL, and the URL carries the key), and a
+    non-2xx body is discarded unread;
+  - not set in dev.
+- **The stronger option, not taken:** a read-only proxy sidecar in front of
+  SABnzbd that forwards only these three modes, so the app never holds the
+  key.
+
+### The monitor
+
+`SabnzbdMonitorService` (`src/sabnzbd/sabnzbd-monitor.service.ts`) ticks
+every `SAB_POLL_MS` (1 s, `@Interval`). A tick that fires while the last one
+is still waiting on SABnzbd is skipped, not stacked, and a tick never
+throws. `MediaModule` provides it, and nothing injects it: it pushes into
+`MediaStateService`.
+
+**The active set** — the ids worth reading — is every `downloadId` in the
+stored Radarr and Sonarr queues, plus every id the monitor still holds a
+non-terminal reading for, so a download Radarr/Sonarr dropped is followed to
+its end. An empty set sends no request and clears the readings. Only active
+ids keep a reading: a manual NZB nobody here tracks never reaches the store
+or triggers a refresh.
+
+**Per tick:**
+
+1. `mode=queue`, unfiltered.
+2. `mode=history` for the active ids **not** in the queue, skipped when there
+   are none. It carries the `last_history_update` cursor only when the id
+   list matches the one that cursor came from — a different query must not
+   be answered "unchanged".
+3. An id about to go `gone` (already missing `SAB_GONE_GRACE_TICKS` ticks)
+   gets **one** `archive=1` lookup, to tell a job Radarr/Sonarr already
+   imported from one that really vanished. On that tick step 2 goes out
+   without the cursor, so the history is a full picture, and the archive
+   rows are merged into it.
+4. `reduceSabReads` (`src/sabnzbd/sab-readings.util.ts`, pure) → one reading
+   per `nzo_id`, plus the phase transitions. Stored with
+   `setClientReadings(readings, 'ok')`; transitions queued with
+   `pushClientTransitions`.
+
+Every read goes out before anything is committed, so a failed tick leaves the
+cursor and the lookups untouched.
+
+**Phases** (`SabPhase`): `queued → downloading → paused → post_processing →
+completed | failed | gone`.
+
+| Phase                  | Read from                                                                                                |
+| ---------------------- | -------------------------------------------------------------------------------------------------------- |
+| `queued`               | a slot waiting its turn — `Queued`, `Grabbing`, `Propagating`, `Checking`, or a later `Downloading` slot |
+| `downloading`          | the first `Downloading`/`Fetching` slot in queue order                                                   |
+| `paused`               | a slot paused on its own, or any non-Force slot while the whole queue is paused                          |
+| `post_processing`      | a history row that isn't `Completed`/`Failed` — `Verifying`, `Repairing`, `Extracting`, `Moving`, …      |
+| `completed` / `failed` | a history (or archive) row                                                                               |
+| `gone`                 | missing from both views for more than `SAB_GONE_GRACE_TICKS` (2) ticks in a row                          |
+
+- **The grace** covers the download → post-processing handoff, when a job
+  can briefly be in neither view.
+- **Bytes** come from `mb`/`mbleft`. A history reading keeps the last queue
+  total; post-processing and completed read as fully downloaded.
+- **Speed** is an EWMA (`SAB_SPEED_EWMA_ALPHA` 0.3) of the byte delta between
+  consecutive `downloading` reads — SABnzbd has no per-job speed. Null until
+  two samples, and in every other phase.
+- **ETA** is the slot's own `timeleft`; null while paused, post-processing or
+  gone.
+- **A transition** is emitted only when an id's phase changes, `null → X` for
+  a newly seen id included. A terminal reading is dropped the first tick it
+  is absent, so the map never accumulates finished jobs.
+
+**Health** (`SabClientHealth`):
+
+| Health        | When                                            | Readings                       | Refresh                  |
+| ------------- | ----------------------------------------------- | ------------------------------ | ------------------------ |
+| `'off'`       | SABnzbd unset, or not read successfully yet     | none                           | 3·F1 timed gate          |
+| `'ok'`        | one successful read                             | live                           | one per SAB phase change |
+| `'unhealthy'` | `SAB_UNHEALTHY_AFTER` (3) failed ticks in a row | cleared, reducer state dropped | 3·F1 timed gate          |
+
+- **The first two failures keep the last readings** and `'ok'`. Clearing on
+  `'unhealthy'` makes snapshots fall back to Radarr/Sonarr's numbers instead
+  of freezing a stale speed.
+- **One log line per change**, not per failure:
+  `SABnzbd reachable, live download readings on`,
+  `SABnzbd reachable again, live download readings resumed`,
+  `SABnzbd unreachable, falling back to Radarr/Sonarr progress`.
+- **An auth error (HTTP 403)** also logs
+  `SABNZBD_API_KEY rejected - needs the full API key, not the NZB key`, once
+  per failing stretch.
+- A tick with nothing to read asked SABnzbd nothing, so it leaves health as
+  it is.
+
+**Where readings live:** `MediaStateService`, in memory only —
+`setClientReadings` (replaces, never merges), `clientReading(downloadId)`,
+`clientHealth()`, and `pushClientTransitions` / `takeClientTransitions`
+(drains). A restart starts from `'off'`.
+
+### Readings on `queueSnapshot`
+
+`toQueueSnapshot(item, lookup)` (`queue-status.util.ts`) takes a
+`ClientReadingLookup` — `MediaStateService.clientReading`, passed in so the
+util stays pure — and merges SABnzbd's side over Radarr/Sonarr's. Every
+snapshot builder passes it: `annotate`, `annotateEpisodes`,
+`toEpisodeStateEntries` (media events, `LibraryWatchService`) and the
+poller's `applyUpdate`.
+
+| Field                           | From                                                                                    |
+| ------------------------------- | --------------------------------------------------------------------------------------- |
+| `progress`                      | SABnzbd's bytes ratio when every download's size is known, else Radarr/Sonarr's         |
+| `status`, `timeLeft`            | always Radarr/Sonarr's — they decide the job's status                                   |
+| `downloadedBytes`, `totalBytes` | summed over the downloads                                                               |
+| `speedBps`                      | summed over the downloads that have one                                                 |
+| `etaSeconds`                    | the largest one known                                                                   |
+| `stage`                         | `queued` / `paused` / `downloading` / `post_processing` — the least advanced download's |
+| `stageDetail`                   | the `action_line`, HTML stripped — only when exactly one download is post-processing    |
+| `clientPaused`, `clientDiskLow` | see ["Paused in SABnzbd"](#paused-in-sabnzbd)                                           |
+
+- **All optional** on `DownloadQueueSnapshotSchema`
+  (`packages/utils/src/download/schema.ts`), and **absent** — never `false`
+  or `0` — while SABnzbd is off or has no reading.
+- **Aggregates merge per `downloadId` first.** `aggregateQueueItems` records
+  a fold's distinct `downloadIds`, so a Sonarr season pack — one download
+  behind many rows — counts its bytes once. A fold with a row lacking a
+  `downloadId` carries none and stays Radarr/Sonarr-only.
+- **All or nothing.** If any of the downloads has no reading, the whole
+  snapshot stays Radarr/Sonarr's: half of each would mix two clocks and two
+  notions of size. A download SABnzbd first saw in history has no size, so
+  its bytes are left out and `progress` stays Radarr/Sonarr's.
+- **`completed`, `failed` and `gone` downloads** count their bytes but have
+  no stage.
+- **Change detection.** `isQueueSnapshotEqual` compares `speedBps` in
+  10 KiB/s buckets, so smoothed-speed jitter alone never sends a job frame;
+  `downloadedBytes` is exact, so a moving download sends one every tick.
+- **1 Hz, with no new broadcast path.** The poller re-reads `/queue` and
+  rebuilds snapshots every 1 s tick, and `resolve()`'s `annotate` reads the
+  latest readings, so SABnzbd's numbers reach job frames (`touchJob`) and
+  media events at the poll's pace.
+- **Post-processing is a stage, not a job status.** It rides the existing
+  `finishing` handoff: the card's chip reads `unpacking`, the bar pins to
+  100 % and the line quotes `stageDetail`. Why not a status: a new
+  `DownloadJobStatus` touches every exhaustive status map, and the shared
+  `z.enum` an old tdr-bot build would reject.
+
+### Event refresh, and the 3·F1 fallback
+
+`MediaPollerService.requestQueueRefresh` runs in each `pollSource` before the
+queue read, and branches on `MediaStateService.clientHealth()`:
+
+| SABnzbd health         | Refresh                                                                                  |
+| ---------------------- | ---------------------------------------------------------------------------------------- |
+| `'ok'`                 | `requestEventRefresh`: one `RefreshMonitoredDownloads` per SAB phase change              |
+| `'off'`, `'unhealthy'` | 3·F1's timed gate, unchanged — see [The queue refresh](#the-queue-refresh-plan-024--3f1) |
+
+With SABnzbd healthy, all a refresh still buys is Radarr/Sonarr noticing a
+phase change — above all a finished download, ready to import — sooner than
+their own once-a-minute refresh.
+
+- **Owner.** A transition belongs to the app whose previous-tick queue (what
+  `getQueue` holds before this tick's `setQueue`) lists its `nzo_id` as a
+  `downloadId`.
+- **Rate.** At most one refresh per app per `EVENT_REFRESH_MIN_MS` (2 s); a
+  burst inside it collapses into the next refresh allowed.
+- **The pending list is taken whole and split.** The app's own transitions
+  are spent by the refresh, or pushed back while the limit holds; the other
+  app's are pushed back untouched, in order; one neither queue lists is
+  dropped.
+- **A refused refresh** is logged
+  (`Queue refresh request failed, reading the queue as-is`), counts against
+  the interval, and never backs off the poll.
+
+### Disk-full wording
+
+Needs no SABnzbd client: it reads the failure text Radarr/Sonarr already
+pass on.
+
+**Why.** Radarr/Sonarr map SABnzbd's failure to a Warning only when
+`fail_message` is exactly `Unpacking failed, write error or disk is full?`.
+SABnzbd's unrar paths append the unrar output, so a RAR disk-full arrives as
+**Failed**: Radarr/Sonarr blocklist a good release and re-search into the
+same full disk. The job used to show the raw unrar text, which reads like a
+broken release.
+
+`describeClientFailure` (`src/media/client-failure.util.ts`) matches
+`/disk (is )?full|write error|no space left/i` and rewords it:
+
+```
+The NAS ran out of disk space while SABnzbd was unpacking it. (<original>)
+```
+
+`<original>` is the client's text up to and including the first `?` or `.`
+at or after the disk phrase — which drops the unrar tail — or all of it when
+there is none. Any other text passes through unchanged.
+
+| Where                                             | What a person reads                                                                                                                                            |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `applyFailure`, no upstream retry                 | `failed`, with the reworded `error`                                                                                                                            |
+| `applyFailure`, upstream retries                  | `searching`, noted `Last download failed: the NAS ran out of disk space. Radarr is trying another release, which will fail the same way until space is freed.` |
+| `describeQueueItemError` / `deriveQueueItemState` | the `needs_attention` reason — the 7z case, which reaches Radarr/Sonarr as a Warning and escalates after `ATTENTION_DELAY_MS` (2 min)                          |
+
+- The Sonarr note names Sonarr.
+- The download link (`job_downloads.fail_reason`) keeps the client's raw
+  text.
+- **The blocklist is deliberately not undone.** Removing it is a prod write,
+  and a re-grab would hit the same full disk.
+
+### "Paused in SABnzbd"
+
+SABnzbd pauses its whole queue on its own — a full or nearly full disk, a
+quota, or a pause in its UI — and Radarr/Sonarr then report every item
+`paused`, the same as any other pause.
+
+- **`clientPaused`** is set when the merged `stage` is `paused` and at least
+  one paused download was read while SABnzbd's whole queue was paused. A
+  Force download that keeps going reads `downloading` and never counts; nor
+  does a download paused on its own with the queue running.
+- **`clientDiskLow`** rides with it when the lowest free space those readings
+  report (`diskspace1`, the download disk) is under `SAB_LOW_DISK_GB` (5 GB).
+  An unknown free space never counts.
+- **The attempt card** says `Paused in SABnzbd` — or
+  `Paused in SABnzbd — the download disk is almost full` — under its chip,
+  in place of `statusNote`. It keeps only the bytes under the bar and offers
+  **Cancel only**: this app didn't make the pause, so it doesn't offer to
+  undo it.
+
+### ⚠️ Known limits
+
+- **A SABnzbd "Retry" mints a new `nzo_id`.** The old job reads as removed
+  from the client, and the new download is adopted as an unowned job —
+  confusing, but correct. A manual retry needs the SABnzbd UI, now behind
+  `lilnas-auth` (`a84b2c7f`).
+- **Cancel during post-processing is deferred.** SABnzbd ignores a delete
+  for a job it is post-processing but answers success, and Radarr/Sonarr
+  re-track it and import.
+- **Status can lag SABnzbd.** It still comes from Radarr/Sonarr's `/queue`,
+  until the event refresh lands.
+- **Media events have no speed bucket.** `broadcastIfChanged` diffs the raw
+  snapshot (`JSON.stringify`), not through `isQueueSnapshotEqual`, so a
+  `downloading` reading whose smoothed speed moves sends a media frame that
+  tick even when its bytes don't.
+- **The fixtures are source-derived.** The live shapes of an active `queue`
+  slot and a post-processing `history` row haven't been captured yet; those
+  fixtures are marked `TODO(H1)`.
 
 ---
 

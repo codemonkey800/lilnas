@@ -24,13 +24,8 @@ import {
 import { MINIO_CONNECTION } from 'nestjs-minio'
 
 import { EnvKeys } from 'src/env'
+import { downloadApiUrl } from 'src/utils/download-api-url'
 import { downloadLinks } from 'src/utils/download-links'
-
-// Production's download service. Point it at a dev instance (e.g.
-// http://lilnas-download-dev:8081) to test against unmerged download changes.
-// Set DOWNLOAD_URL alongside it so the links in the reply name the same
-// instance (see `downloadLinks`).
-const DOWNLOAD_API_URL = env(EnvKeys.DOWNLOAD_API_URL, 'http://download:8081')
 
 const MAX_ERROR_LENGTH = 1000
 
@@ -70,7 +65,7 @@ class DownloadDto {
 @Injectable()
 export class DownloadCommandService {
   private readonly logger = new Logger(DownloadCommandService.name)
-  private client = new DownloadClient(DOWNLOAD_API_URL)
+  private client = new DownloadClient(downloadApiUrl())
 
   constructor(@Inject(MINIO_CONNECTION) private readonly minioClient: Client) {}
 

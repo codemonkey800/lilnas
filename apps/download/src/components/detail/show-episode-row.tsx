@@ -20,7 +20,10 @@ import {
   REPORT_PROMPT_EPISODE,
   REPORT_REASONS_EPISODE,
 } from 'src/components/detail/bad-file-flag'
-import type { DeleteMediaFilesAction } from 'src/components/detail/delete-confirm'
+import type {
+  DeleteMediaFilesAction,
+  FileSibling,
+} from 'src/components/detail/delete-confirm'
 import { DeleteConfirm } from 'src/components/detail/delete-confirm'
 import { formatDay } from 'src/components/detail/fact-section'
 import type { ImportDialogActions } from 'src/components/detail/import-dialog'
@@ -157,6 +160,14 @@ export type ShowEpisodeRowProps = {
   /** Opens or closes this row's drawer. */
   onToggle: (episodeId: number) => void
   onUnflag?: UnflagBadFileAction
+  /**
+   * The other episodes this episode's file also holds — a multi-episode file
+   * goes as one unit, so the delete confirm names them.
+   *
+   * ⚠️ A prop for the same reason as `cascadesTo`: the siblings are read off
+   * the season's episodes, which the season panel has and a row does not.
+   */
+  sharesFileWith?: readonly FileSibling[]
 }
 
 /**
@@ -176,9 +187,9 @@ export type ShowEpisodeRowProps = {
  * the mockup's row, and the drawer holds the rest.
  *
  * ⚠️ It is also the safer arrangement. The release search is a 30s+ indexer
- * sweep that **writes upstream** (it borrows monitoring to ask), so a page that
- * mounted twenty-five pickers would be twenty-five triggers deep in a surface
- * nobody has asked anything of yet. `ReleasePicker` already guarantees it never
+ * sweep that **writes upstream** (it adds a title missing from the library,
+ * unmonitored), so a page that mounted twenty-five pickers would be twenty-five
+ * triggers deep in a surface nobody has asked anything of yet. `ReleasePicker` already guarantees it never
  * searches without a press; the drawer means the press is two deliberate steps
  * away rather than one stray click.
  *
@@ -221,6 +232,7 @@ export function ShowEpisodeRow({
   onToggle,
   onUnflag,
   open,
+  sharesFileWith,
 }: ShowEpisodeRowProps): JSX.Element {
   const [cancelling, startCancel] = useTransition()
 
@@ -396,6 +408,7 @@ export function ShowEpisodeRow({
                   episodeNumber: episode.episodeNumber,
                   kind: 'episode',
                   seasonNumber: episode.seasonNumber,
+                  sharesFileWith,
                 }}
                 size="sm"
                 title={media.title}

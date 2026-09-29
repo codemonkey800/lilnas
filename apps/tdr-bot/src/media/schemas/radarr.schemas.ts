@@ -2,14 +2,10 @@ import { z } from 'zod'
 
 import {
   OptionalSearchQuerySchema,
-  QualityProfileSchema,
-  RootFolderSchema,
   SearchQuerySchema,
-  SystemStatusSchema,
 } from 'src/media/schemas/media.schemas'
 import {
   DownloadProtocol,
-  RadarrImageType,
   RadarrMinimumAvailability,
   RadarrMovieStatus,
   RadarrPathState,
@@ -22,12 +18,13 @@ import {
  * Radarr image schema
  */
 export const RadarrImageSchema = z.object({
-  coverType: z.nativeEnum(RadarrImageType),
+  // Radarr may send cover types beyond RadarrImageType (e.g. 'unknown')
+  coverType: z.string(),
   url: z.string().optional(),
   remoteUrl: z.string().optional(),
   path: z.string().optional(),
-  width: z.number().int().positive().optional(),
-  height: z.number().int().positive().optional(),
+  width: z.number().int().nonnegative().optional(),
+  height: z.number().int().nonnegative().optional(),
 })
 
 /**
@@ -94,11 +91,11 @@ export const RadarrCustomFormatSchema = z.object({
  * Radarr media info schema
  */
 export const RadarrMediaInfoSchema = z.object({
-  audioChannels: z.number().positive().optional(), // Allow float values
+  audioChannels: z.number().nonnegative().optional(), // Allow float values
   audioCodec: z.string().optional(),
   audioLanguages: z.string().optional(),
-  height: z.number().int().positive().optional(),
-  width: z.number().int().positive().optional(),
+  height: z.number().int().nonnegative().optional(),
+  width: z.number().int().nonnegative().optional(),
   resolution: z.string().optional(),
   runTime: z.string().optional(),
   scanType: z.string().optional(),
@@ -312,117 +309,6 @@ export const MovieLibrarySearchResultArraySchema = z.array(
 )
 
 /**
- * Radarr system status schema (alias of shared SystemStatusSchema)
- */
-export const RadarrSystemStatusSchema = SystemStatusSchema
-
-/**
- * Radarr quality profile schema (alias of shared QualityProfileSchema)
- */
-export const RadarrQualityProfileSchema = QualityProfileSchema
-
-/**
- * Radarr root folder schema (alias of shared RootFolderSchema)
- */
-export const RadarrRootFolderSchema = RootFolderSchema
-
-/**
- * Add movie request schema
- */
-export const AddMovieRequestSchema = z.object({
-  tmdbId: z.number().int(),
-  title: z.string(),
-  titleSlug: z.string(),
-  year: z.number().int().min(1900).max(2100),
-  qualityProfileId: z.number().int(),
-  rootFolderPath: z.string(),
-  monitored: z.boolean(),
-  minimumAvailability: z.nativeEnum(RadarrMinimumAvailability),
-  searchOnAdd: z.boolean(),
-  images: z.array(RadarrImageSchema).optional(),
-  genres: z.array(z.string()).optional(),
-  runtime: z.number().int().nonnegative().optional(),
-  overview: z.string().optional(),
-  inCinemas: z.string().optional(),
-  physicalRelease: z.string().optional(),
-  digitalRelease: z.string().optional(),
-  certification: z.string().optional(),
-  studio: z.string().optional(),
-  website: z.string().url().or(z.literal('')).optional(),
-  youTubeTrailerId: z.string().optional(),
-  tags: z.array(z.number().int()).optional(),
-})
-
-/**
- * Command request schema
- */
-export const RadarrCommandRequestSchema = z.object({
-  name: z.string(),
-  movieIds: z.array(z.number().int()).optional(),
-  movieId: z.number().int().optional(),
-})
-
-/**
- * Command response schema
- */
-export const RadarrCommandResponseSchema = z.object({
-  id: z.number().int(),
-  name: z.string(),
-  commandName: z.string(),
-  message: z.string().optional(),
-  body: z.object({
-    movieIds: z.array(z.number().int()).optional(),
-    movieId: z.number().int().optional(),
-    sendUpdatesToClient: z.boolean(),
-    updateScheduledTask: z.boolean(),
-    completionMessage: z.string(),
-    requiresDiskAccess: z.boolean(),
-    isExclusive: z.boolean(),
-    isTypeExclusive: z.boolean(),
-    isLongRunning: z.boolean(),
-    name: z.string(),
-    trigger: z.string(),
-  }),
-  priority: z.string(),
-  status: z.string(),
-  queued: z.string(),
-  started: z.string().optional(),
-  ended: z.string().optional(),
-  duration: z.string().optional(),
-  exception: z.string().optional(),
-  trigger: z.string(),
-  clientUserAgent: z.string().optional(),
-  stateChangeTime: z.string().optional(),
-  sendUpdatesToClient: z.boolean(),
-  updateScheduledTask: z.boolean(),
-  lastExecutionTime: z.string().optional(),
-})
-
-/**
- * Monitor movie options schema
- */
-export const MonitorMovieOptionsSchema = z.object({
-  qualityProfileId: z.number().int().optional(),
-  rootFolderPath: z.string().optional(),
-  minimumAvailability: z.nativeEnum(RadarrMinimumAvailability).optional(),
-  searchOnAdd: z.boolean().optional(),
-  monitored: z.boolean().optional(),
-})
-
-/**
- * Monitor and download result schema
- */
-export const MonitorAndDownloadResultSchema = z.object({
-  success: z.boolean(),
-  movieAdded: z.boolean(),
-  searchTriggered: z.boolean(),
-  movie: RadarrMovieResourceSchema.optional(),
-  commandId: z.number().int().optional(),
-  error: z.string().optional(),
-  warnings: z.array(z.string()).optional(),
-})
-
-/**
  * Delete movie options schema
  */
 export const DeleteMovieOptionsSchema = z.object({
@@ -527,9 +413,6 @@ export const RadarrErrorResponseSchema = z.object({
 export const RadarrInputSchemas = {
   searchQuery: SearchQuerySchema,
   optionalSearchQuery: OptionalSearchQuerySchema,
-  addMovieRequest: AddMovieRequestSchema,
-  commandRequest: RadarrCommandRequestSchema,
-  monitorMovieOptions: MonitorMovieOptionsSchema,
   deleteMovieOptions: DeleteMovieOptionsSchema,
 } as const
 
@@ -545,13 +428,6 @@ export const RadarrOutputSchemas = {
   movieSearchResultArray: MovieSearchResultArraySchema,
   movieLibrarySearchResult: MovieLibrarySearchResultSchema,
   movieLibrarySearchResultArray: MovieLibrarySearchResultArraySchema,
-  qualityProfile: RadarrQualityProfileSchema,
-  qualityProfileArray: z.array(RadarrQualityProfileSchema),
-  rootFolder: RadarrRootFolderSchema,
-  rootFolderArray: z.array(RadarrRootFolderSchema),
-  addMovieResponse: RadarrMovieResourceSchema,
-  commandResponse: RadarrCommandResponseSchema,
-  monitorAndDownloadResult: MonitorAndDownloadResultSchema,
   unmonitorAndDeleteResult: UnmonitorAndDeleteResultSchema,
   queueItem: RadarrQueueItemSchema,
   queueItemArray: z.array(RadarrQueueItemSchema),

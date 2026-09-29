@@ -59,13 +59,14 @@ describe('ParsingUtilities', () => {
       expect(mockInvoke).toHaveBeenCalledTimes(1)
     })
 
-    it('should fallback to original content when LLM extraction returns empty string', async () => {
+    it('returns an empty query, not the raw message, when the message names no title', async () => {
       mockInvoke.mockResolvedValueOnce(new AIMessage({ content: '   ' }))
 
-      const result =
-        await service.extractSearchQueryWithLLM('download inception')
+      const result = await service.extractSearchQueryWithLLM(
+        'download some horror movies',
+      )
 
-      expect(result).toBe('download inception')
+      expect(result).toBe('')
     })
 
     it('should use simple fallback when LLM encounters an error', async () => {
@@ -269,6 +270,27 @@ describe('ParsingUtilities', () => {
       expect(result.searchQuery).toBe('The Matrix')
       expect(result.selection).toBeNull()
       expect(result.tvSelection).toBeNull()
+    })
+
+    it('hands the strategies an empty search query when the message names no title', async () => {
+      mockInvoke
+        .mockResolvedValueOnce(new AIMessage({ content: '' }))
+        .mockResolvedValueOnce(
+          new AIMessage({
+            content: JSON.stringify({ error: 'no_selection_found' }),
+          }),
+        )
+        .mockResolvedValueOnce(
+          new AIMessage({
+            content: JSON.stringify({ error: 'no_tv_selection_found' }),
+          }),
+        )
+
+      const result = await service.parseInitialSelection(
+        'get me that movie with Ryan Gosling',
+      )
+
+      expect(result.searchQuery).toBe('')
     })
 
     it('should use complete fallback when all LLM operations fail', async () => {

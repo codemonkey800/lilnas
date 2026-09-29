@@ -7,6 +7,7 @@ import { StateModule } from 'src/state/state.module'
 import { ErrorClassificationService } from 'src/utils/error-classifier'
 import { RetryService } from 'src/utils/retry.service'
 
+import { DownloadClientFactory } from './download-client.factory'
 import { MediaRequestHandler } from './media-request-handler.service'
 import { DownloadStatusStrategy } from './strategies/download-status.strategy'
 import { MediaBrowsingStrategy } from './strategies/media-browsing.strategy'
@@ -25,6 +26,8 @@ import { ValidationUtilities } from './utils/validation.utils'
  * Provides the MediaRequestHandler service and all its dependencies:
  * - 6 strategy classes for different media operations
  * - 4 utility classes for parsing, selection, validation, and data fetching
+ * - DownloadClientFactory, for strategies that call the download app as the
+ *   requesting Discord user
  * - Integration with existing modules (Context, Prompt, Media, State)
  *
  * Note: FormattingUtilities exports functions, not a class, so it's not included as a provider
@@ -47,6 +50,9 @@ import { ValidationUtilities } from './utils/validation.utils'
     ValidationUtilities,
     DataFetchingUtilities,
 
+    // Download app client, stamped with the requesting Discord user
+    DownloadClientFactory,
+
     // Strategy classes (6 strategies)
     MovieDownloadStrategy,
     TvDownloadStrategy,
@@ -60,6 +66,7 @@ import { ValidationUtilities } from './utils/validation.utils'
   ],
   exports: [
     MediaRequestHandler, // Export for use in other modules (Phase 6)
+    DownloadClientFactory,
   ],
 })
 export class RequestHandlingModule {}

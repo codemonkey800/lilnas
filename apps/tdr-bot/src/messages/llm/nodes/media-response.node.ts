@@ -13,6 +13,7 @@ export class MediaResponseNode {
     message,
     messages,
     userId,
+    discord,
   }: typeof OverallStateAnnotation.State): Promise<
     Partial<typeof OverallStateAnnotation.State>
   > {
@@ -25,6 +26,7 @@ export class MediaResponseNode {
       message,
       messages,
       userId,
+      discord,
       undefined,
     )
   }

@@ -4,6 +4,7 @@ import { checkIntegrity } from 'src/db/migrate'
 import { jobs } from 'src/db/schema'
 
 import {
+  JOB_COLUMNS_ADDED_LATER,
   openPartiallyMigratedDb,
   type PartiallyMigratedDb,
 } from './helpers/partial-migrations'
@@ -186,11 +187,13 @@ const DISCORD_ROW: Record<string, unknown> = {
   updated_at: UPDATED_AT,
 }
 
-/** In `jobRows()`'s `ORDER BY id`. */
+/** In `jobRows()`'s `ORDER BY id`, with `JOB_COLUMNS_ADDED_LATER` added. */
 function byId(
   rows: Array<Record<string, unknown>>,
 ): Array<Record<string, unknown>> {
-  return [...rows].sort((a, b) => String(a.id).localeCompare(String(b.id)))
+  return [...rows]
+    .map(row => ({ ...row, ...JOB_COLUMNS_ADDED_LATER }))
+    .sort((a, b) => String(a.id).localeCompare(String(b.id)))
 }
 
 function jobRows(

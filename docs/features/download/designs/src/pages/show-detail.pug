@@ -37,6 +37,11 @@ mixin mediaChip(state)
   a second chip. `opts.attribution` is `true` for the person who asked
   (avatar), or a string drawn as a plain label instead — an attempt Sonarr
   started itself (no avatar, no link).
+
+  Plan 024 puts the quality tier picker right before Download series, with a
+  caption under it: Sonarr keeps one profile per series, so the tier applies
+  to the whole show — including a season's or an episode's Download further
+  down, which don't get a picker of their own.
 mixin showHeader(view, opts)
   - opts = opts || {}
   - const mobile = view === 'mobile'
@@ -62,6 +67,7 @@ mixin showHeader(view, opts)
         +attribution(opts.attribution)
     div(class='mb-7 flex flex-col gap-2')
       +btn({ label: 'Watch', variant: 'uv', iconEnd: 'eye', full: true })
+      +tierSelect({ tiers: QUALITY_TIERS, selected: DEFAULT_QUALITY_TIER, hint: 'Applies to the whole show', full: true })
       +btn({ label: 'Download series', variant: 'outline', iconEnd: 'download', full: true })
       +btn({ label: 'Delete series', variant: 'bad', iconEnd: 'trash', full: true })
   else
@@ -84,8 +90,9 @@ mixin showHeader(view, opts)
         if opts.attribution
           div(class='flex items-center gap-2')
             +attribution(opts.attribution)
-        div(class='mt-1 flex items-center gap-2.5')
+        div(class='mt-1 flex items-start gap-2.5')
           +btn({ label: 'Watch', variant: 'uv', iconEnd: 'eye' })
+          +tierSelect({ tiers: QUALITY_TIERS, selected: DEFAULT_QUALITY_TIER, hint: 'Applies to the whole show' })
           +btn({ label: 'Download series', variant: 'outline', iconEnd: 'download' })
           +btn({ label: 'Delete series', variant: 'bad', iconEnd: 'trash' })
 
@@ -107,6 +114,21 @@ mixin attribution(by)
   job's status (`cancelling…`, warn), not a media state, so it's a plain
   +chip rather than +mediaChip. The queue row is already gone — no bar, no
   throughput — and Cancel stays, inert, instead of vanishing.
+
+  `status` (plan 024) draws the job's own status chip for an attempt with no
+  queue row yet — `searching` — with `statusNote` as a small secondary line
+  right under it saying why it's still searching. No bar: nothing's queued.
+
+  Plan 025: `status` with a `progress` keeps the bar — the job's own chip
+  (`unpacking`, `finishing up`, `paused`) over a queued download, with
+  `statusNote` under the chip as above. `throughput` is the mono line under
+  the note either way: bytes, speed and estimate, or what happens next.
+mixin statusChip(status)
+  +chip({ label: status.live ? null : status.label, tone: status.tone })&attributes(attributes)
+    if status.live
+      +dot('live')
+      = status.label
+
 mixin attemptInFlight(a, mobile)
   +card()(class=['border-uv/35 bg-uv-ghost/30', mobile ? 'p-4' : 'p-5'])&attributes(attributes)
     if a.cancelling
@@ -115,11 +137,25 @@ mixin attemptInFlight(a, mobile)
         p(class='mb-3 text-sm text-ink-3')= a.note
       div(class=['flex items-center gap-2', mobile ? 'flex-col' : ''])
         +btn({ label: 'Cancel', variant: 'bad', iconEnd: 'x', full: mobile, disabled: true })
+    else if a.status && a.progress === undefined
+      +statusChip(a.status)(class='w-fit')
+      if a.statusNote
+        p(class='mt-2 text-cap text-ink-3')= a.statusNote
+      if a.note
+        p(class='mt-3 text-sm text-ink-3')= a.note
+      div(class=['mt-3 flex items-center gap-2', mobile ? 'flex-col' : ''])
+        each act in a.actions
+          +btn({ label: act.label, variant: act.variant, iconEnd: act.icon, full: mobile })
     else
-      div(class='mb-3 flex items-center justify-between gap-3')
-        +mediaChip(a.state)
+      div(class=[a.statusNote ? '' : 'mb-3', 'flex items-center justify-between gap-3'])
+        if a.status
+          +statusChip(a.status)
+        else
+          +mediaChip(a.state)
         if a.progress !== undefined
           span(class='font-mono text-mono-sm tabular-nums text-uv-hi')= `${a.progress}%`
+      if a.statusNote
+        p(class='mt-2 mb-3 text-cap text-ink-3')= a.statusNote
       if a.progress !== undefined
         +bar(a.progress)(class='mb-2')
       if a.note
@@ -134,18 +170,28 @@ mixin attemptInFlight(a, mobile)
   A finished attempt. `a.retry` draws Retry at the end of the row — only ever
   on the newest attempt overall, and only once nothing is in flight (the
   app's `sorted[0]` rule), so a fixture sets it on one row at most.
+
+  Plan 024: `scope` names which part of the show a finished attempt was for
+  ("Season 3, episode 4"), as the in-flight card's note already does, and
+  `statusNote` is a neutral line under the run — never red, unlike `error`.
+  The chip column is 132px so `no release found` fits on one line; every row
+  shares it so the column stays straight.
 mixin attemptLine(a, mobile)
   +stline({ mobile: mobile })
-    +chip({ label: a.label, tone: a.tone })(class=mobile ? '' : 'w-[108px] justify-center')
+    +chip({ label: a.label, tone: a.tone })(class=mobile ? '' : 'w-[132px] justify-center')
     span(
       class=[mobile ? '' : 'min-w-0 flex-1', 'flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-ink-3']
     )
+      if a.scope
+        span(class='text-ink-2')= a.scope
       span(class='font-mono text-mono-sm text-ink-4')= a.when
       span(class='flex items-center gap-1.5')
         +avatar(a.who[0])(class='h-5 w-5 text-[9px]')
         span(class='font-mono text-mono-sm text-ink-3')= a.who[1]
       if a.error
         span(class='text-bad')= a.error
+      if a.statusNote
+        span(class='basis-full text-cap text-ink-3')= a.statusNote
     if a.retry
       if mobile
         +stlineActions
@@ -271,11 +317,16 @@ mixin reportModal(view)
           +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
           +btn({ label: 'Submit report', variant: 'uv', size: 'sm' })
 
-mixin deleteModal(view)
+//-
+  `copy` ({ title, body }) swaps in another scope's sentences — the episode
+  delete (plan 024) names the other episodes its file holds. Omitted draws
+  the series delete.
+mixin deleteModal(view, copy)
+  - copy = copy || { title: `Delete "${TITLE}"?`, body: DELETE_WARNING }
   +modalScrim
     +modal
-      p(class='mb-1.5 text-h3')= `Delete "${TITLE}"?`
-      p(class='mb-[18px] text-sm text-ink-3')= DELETE_WARNING
+      p(class='mb-1.5 text-h3')= copy.title
+      p(class='mb-[18px] text-sm text-ink-3')= copy.body
       if view === 'mobile'
         div(class='flex flex-col gap-2')
           +deleteBtn(true)
@@ -287,8 +338,8 @@ mixin deleteModal(view)
 
 //- A cropped frame: enough of the page for a modal to sit over, faded off at
     the bottom so it reads as "this continues".
-mixin modalFrame(view, label)
-  +modalPreview(view, label)
+mixin modalFrame(view, label, id)
+  +modalPreview(view, label, id)
     if view === 'mobile'
       +showHeader(view, {})
       +seasonTabs(view)
@@ -410,6 +461,15 @@ mixin appendix(view)
       else
         +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
     +stline({ mobile: mobile })
+      +chip({ label: 'no release found', tone: 'warn' })(class=mobile ? '' : 'w-[168px] justify-center')
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3'])
+        | The search finished and grabbed nothing. Still monitored, so Sonarr may grab it later; Retry searches now.
+      if mobile
+        +stlineActions
+          +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+      else
+        +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+    +stline({ mobile: mobile })
       +chip({ tone: 'uv' })(class=mobile ? '' : 'w-[168px] justify-center')
         +dot('live')
         | importing…
@@ -451,6 +511,10 @@ mixin appendix(view)
     | row, and only that row, offers Retry.
   div(class=mobile ? '' : 'max-w-[480px]')
     +attemptsList(view, ATTEMPTS_AFTER_CANCEL)
+
+  +plan024(view)
+
+  +plan025(view)
 
   p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Cast — overflow
   if mobile
@@ -519,6 +583,145 @@ mixin appendix(view)
       +storyboardFrame(mobile ? 96 : 128)
         +chip({ label: 'removed', tone: 'mute' })
         p(class='text-cap text-ink-3') Gone from your library — Emby loses it too.
+
+//-
+  Plan 024's visible changes, gathered under one rule so a reviewer can find
+  them: the quality tier picker (in context in the primary frame's header;
+  here closed and open), a `no release found` attempt with Retry, `searching`
+  with each of its status notes, and an episode cancelled inside a season
+  pack. The episode delete that names a sibling is its own frame further
+  down ("Delete an episode").
+mixin plan024(view)
+  - const mobile = view === 'mobile'
+  - const suffix = mobile ? 'm' : 'd'
+  +appendixRule('Plan 024 — tiers, statuses, dialogs', 'plan-024-' + suffix)
+
+  p(
+    class='mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4'
+    id='tier-picker-' + suffix
+  ) Quality tier — applies to the whole show
+  p(class='mb-3 text-sm text-ink-3')
+    | The same three tiers as a movie, beside Download series only. Sonarr keeps one quality profile per series,
+    | so the pick covers every season and episode — the season and episode Download buttons below use it rather
+    | than carrying a picker each. Preselects the show's own tier when it's one of these, HD otherwise.
+  div(class=['flex gap-6', mobile ? 'flex-col' : 'items-start'])
+    div(class=['flex flex-col gap-2', mobile ? '' : 'flex-1'])
+      p(class='text-cap text-ink-3') Closed
+      div(class=['flex gap-2', mobile ? 'flex-col' : 'items-start'])
+        +tierSelect({
+          tiers: QUALITY_TIERS,
+          selected: DEFAULT_QUALITY_TIER,
+          hint: 'Applies to the whole show',
+          full: mobile,
+        })
+        +btn({ label: 'Download series', variant: 'outline', iconEnd: 'download', full: mobile })
+    div(class=['flex flex-col gap-2', mobile ? '' : 'flex-1'])
+      p(class='text-cap text-ink-3') Open
+      +tierSelect({
+        tiers: QUALITY_TIERS,
+        selected: DEFAULT_QUALITY_TIER,
+        hint: 'Applies to the whole show',
+        open: true,
+        full: mobile,
+      })
+
+  p(
+    class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4'
+    id='not-found-' + suffix
+  ) Attempts — no release found
+  p(class='mb-3 text-sm text-ink-3')
+    | The search finished without grabbing anything. It's terminal but not an error — warn, not red. The series
+    | stays monitored and reads "wanted", so the newest row offers Retry.
+  div(class=mobile ? '' : 'max-w-[560px]')
+    +attemptsList(view, ATTEMPTS_NOT_FOUND)
+
+  p(
+    class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4'
+    id='status-note-' + suffix
+  ) Attempts — searching, with a status note
+  p(class='mb-3 text-sm text-ink-3')
+    | Still searching, and why: Sonarr retrying after a failed download, a freshly added show Sonarr is still
+    | refreshing, or a release Sonarr is holding back. One small line under the status; Cancel only.
+  div(class=['flex flex-col gap-3', mobile ? '' : 'max-w-[480px]'])
+    each a in SEARCHING_WITH_NOTE
+      +attemptInFlight(a, mobile)
+
+  p(
+    class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4'
+    id='pack-cancel-' + suffix
+  ) Attempts — an episode cancelled inside a season pack
+  p(class='mb-3 text-sm text-ink-3')
+    | Episode 4 was cancelled, but its file is coming down inside the season 3 pack. Removing the queue row
+    | would kill the whole pack, so the pack keeps going and the episode's attempt ends cancelled with a note —
+    | it may still import. No Retry: the series is still downloading.
+  div(class=mobile ? '' : 'max-w-[560px]')
+    +attemptsList(view, ATTEMPTS_PACK_CANCEL)
+
+//-
+  One or more in-flight cards side by side on desktop, stacked on mobile,
+  each under a small caption naming the case it draws.
+mixin cardPair(cards, mobile)
+  div(class=['flex gap-6', mobile ? 'flex-col' : 'items-start'])
+    each a in cards
+      div(class=['flex flex-col gap-2', mobile ? '' : 'min-w-0 flex-1'])
+        p(class='text-cap text-ink-3')= a.caption
+        +attemptInFlight(a, mobile)
+
+//-
+  Plan 025's visible changes on a show: the movie page's SABnzbd states, with
+  the card's scope note and Sonarr as the importer. A show's card has no
+  Pause, so the paused-from-here card is the movie page's alone.
+mixin plan025(view)
+  - const mobile = view === 'mobile'
+  - const suffix = mobile ? 'm' : 'd'
+  +appendixRule('Plan 025 — SABnzbd progress, unpacking, disk full', 'plan-025-' + suffix)
+
+  p(
+    class='mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4'
+    id='sab-throughput-' + suffix
+  ) Attempts — downloading, with the live speed
+  p(class='mb-3 text-sm text-ink-3')
+    | While SABnzbd is fetching the release, the line under the scope reads its own queue: bytes, the live speed,
+    | and the time left. Before, a show only showed Sonarr's bare "~00:04:00 left". A paused attempt drops the
+    | speed and the estimate — see the paused cards below.
+  div(class=mobile ? '' : 'max-w-[480px]')
+    +cardPair(SAB_THROUGHPUT, mobile)
+
+  p(
+    class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4'
+    id='sab-pp-' + suffix
+  ) Attempts — every byte down, SABnzbd post-processing
+  p(class='mb-3 text-sm text-ink-3')
+    | The bar sits at 100 % while SABnzbd verifies, repairs and unpacks. Read directly, the chip names the stage
+    | and the line quotes SABnzbd's own progress text. With SABnzbd not configured, the chip stays plan 024's
+    | "finishing up" and the line says SABnzbd still has work to do before Sonarr imports it.
+  +cardPair(SAB_POST_PROCESSING, mobile)
+
+  p(
+    class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4'
+    id='sab-disk-' + suffix
+  ) Attempts — the NAS ran out of disk space
+  p(class='mb-3 text-sm text-ink-3')
+    | A disk-full failure reads as one, with SABnzbd's own message kept in brackets. Once the attempt has ended
+    | failed, it's the row's red error; the newest row offers Retry, which is only worth pressing after freeing
+    | space.
+  div(class=mobile ? '' : 'max-w-[560px]')
+    +attemptsList(view, SAB_DISK_FULL_FAILED)
+  p(class='mt-5 mb-3 text-sm text-ink-3')
+    | While Sonarr is still retrying on its own, the attempt is back to searching and the status note warns that
+    | the next release will hit the same wall.
+  div(class=mobile ? '' : 'max-w-[480px]')
+    +attemptInFlight(SAB_DISK_FULL_SEARCHING, mobile)
+
+  p(
+    class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4'
+    id='sab-paused-' + suffix
+  ) Attempts — paused in SABnzbd
+  p(class='mb-3 text-sm text-ink-3')
+    | SABnzbd's whole queue is paused — it pauses itself when the disk fills or a quota runs out, or someone
+    | paused it in SABnzbd's UI. This app didn't pause it, so there's no Resume here. When SABnzbd reports under
+    | 5 GB free, the note says the disk is the likely reason.
+  +cardPair(SAB_PAUSED, mobile)
 
 //- Skeleton stand-in for the whole page, while Sonarr is still answering.
 mixin loadingState(view)
@@ -628,4 +831,6 @@ block content
           +reportModal(view)
         +modalFrame(view, 'Delete series — as a modal')
           +deleteModal(view)
+        +modalFrame(view, 'Delete an episode — its file holds another', 'delete-episode-' + suffix)
+          +deleteModal(view, EPISODE_DELETE)
         +loadingState(view)

@@ -93,7 +93,11 @@ function discoverLookupMovie(): Movie {
 
 describe('MediaPollerService - the frames a finished download ends on', () => {
   let service: MediaPollerService
-  let downloadGateway: { broadcast: jest.Mock; broadcastPerViewer: jest.Mock }
+  let downloadGateway: {
+    broadcast: jest.Mock
+    broadcastPerViewer: jest.Mock
+    watchedMediaIds: jest.Mock
+  }
   let downloadStateService: DownloadStateService
   let radarrService: {
     getLibrary: jest.Mock
@@ -162,7 +166,11 @@ describe('MediaPollerService - the frames a finished download ends on', () => {
       lookupByTmdbId: jest.fn().mockResolvedValue(discoverLookupMovie()),
       refreshMonitoredDownloads: jest.fn().mockResolvedValue(undefined),
     }
-    downloadGateway = { broadcast: jest.fn(), broadcastPerViewer: jest.fn() }
+    downloadGateway = {
+      broadcast: jest.fn(),
+      broadcastPerViewer: jest.fn(),
+      watchedMediaIds: jest.fn(() => new Set<string>()),
+    }
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [

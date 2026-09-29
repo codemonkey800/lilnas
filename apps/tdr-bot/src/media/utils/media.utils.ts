@@ -2,6 +2,8 @@
  * Shared utilities for media services
  */
 
+import type { LoggerService } from '@nestjs/common'
+
 /**
  * Recursively maps `null` to `undefined` in a type, bridging SDK types that
  * use `T | null` to Zod schemas that expect `T | undefined`.
@@ -43,6 +45,38 @@ export function errorMessage(
   fallback = 'Unknown error',
 ): string {
   return error instanceof Error ? error.message : fallback
+}
+
+/**
+ * Parses each item of an upstream list, skipping (and logging) any item that
+ * fails instead of letting one bad item throw for the whole list.
+ */
+export function parseEachSkippingInvalid<
+  TIn extends { id?: number; title?: string | null },
+  TOut,
+>(
+  items: TIn[],
+  parse: (item: TIn) => TOut,
+  logger: Pick<LoggerService, 'warn'>,
+  itemKind: string,
+): TOut[] {
+  return items.flatMap((item, index) => {
+    try {
+      return [parse(item)]
+    } catch (error) {
+      logger.warn(
+        {
+          itemKind,
+          index,
+          itemId: item.id,
+          title: item.title ?? undefined,
+          error: errorMessage(error),
+        },
+        `Skipping invalid ${itemKind} from upstream list`,
+      )
+      return []
+    }
+  })
 }
 
 /**

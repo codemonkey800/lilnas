@@ -1,8 +1,8 @@
 import type { DownloadType } from '@lilnas/utils/download/types'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull } from 'drizzle-orm'
 
 import type { Db } from './db.service'
-import { type BadFileRow, badFiles } from './schema'
+import { type BadFileRow, badFiles, mediaFileReleases } from './schema'
 
 export interface InsertBadFileInput {
   flaggedByEmail: string
@@ -101,4 +101,97 @@ export function deleteBadFile(
     .where(and(eq(badFiles.id, id), eq(badFiles.mediaId, mediaId)))
     .returning()
     .get()
+}
+
+/**
+ * A flag's title if it's one worth keeping: trimmed, non-blank, and not
+ * just the guid again - the release picker shows the guid in place of a
+ * missing title, so a flag raised from that row sends the guid as `title`.
+ */
+export function usableReleaseTitle(
+  title: string | null | undefined,
+  releaseGuid: string,
+): string | undefined {
+  const trimmed = title?.trim()
+
+  return trimmed && trimmed !== releaseGuid ? trimmed : undefined
+}
+
+export interface FlaggedReleaseTitles {
+  /** One title per titled flag, in no particular order - not deduped. */
+  titles: string[]
+  /** Flags with no title anywhere - nothing to mirror them by. */
+  untitled: BadFileRow[]
+}
+
+/**
+ * The title of every flagged release of one media type - what the
+ * Radarr/Sonarr "flagged releases" profile is built from. A flag's own
+ * `releaseTitle` first; failing that, the title `media_file_releases`
+ * recorded for the same guid on the same title (a flag raised with only a
+ * guid, or before titles were backfilled). One query for each table, not
+ * one per flag.
+ */
+export function listFlaggedReleaseTitles(
+  db: Db,
+  mediaType: DownloadType,
+): FlaggedReleaseTitles {
+  const rows = db
+    .select()
+    .from(badFiles)
+    .where(eq(badFiles.mediaType, mediaType))
+    .orderBy(badFiles.id)
+    .all()
+
+  const titles: string[] = []
+  const missing: BadFileRow[] = []
+
+  for (const row of rows) {
+    const title = usableReleaseTitle(row.releaseTitle, row.releaseGuid)
+    if (title) titles.push(title)
+    else missing.push(row)
+  }
+
+  if (missing.length === 0) {
+    return { titles, untitled: [] }
+  }
+
+  const fallback = new Map<string, string>()
+  const releases = db
+    .select({
+      mediaId: mediaFileReleases.mediaId,
+      releaseGuid: mediaFileReleases.releaseGuid,
+      releaseTitle: mediaFileReleases.releaseTitle,
+    })
+    .from(mediaFileReleases)
+    .where(
+      and(
+        eq(mediaFileReleases.mediaType, mediaType),
+        inArray(
+          mediaFileReleases.releaseGuid,
+          missing.map(row => row.releaseGuid),
+        ),
+        isNotNull(mediaFileReleases.releaseTitle),
+      ),
+    )
+    .all()
+
+  for (const release of releases) {
+    const title = usableReleaseTitle(release.releaseTitle, release.releaseGuid)
+    if (title)
+      fallback.set(flagKey(release.mediaId, release.releaseGuid), title)
+  }
+
+  const untitled: BadFileRow[] = []
+  for (const row of missing) {
+    const title = fallback.get(flagKey(row.mediaId, row.releaseGuid))
+    if (title) titles.push(title)
+    else untitled.push(row)
+  }
+
+  return { titles, untitled }
+}
+
+function flagKey(mediaId: string, releaseGuid: string): string {
+  return `${mediaId}\u0000${releaseGuid}`
 }

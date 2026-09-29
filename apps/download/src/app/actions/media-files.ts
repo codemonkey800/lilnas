@@ -147,11 +147,13 @@ function revalidateDetail(mediaId: string): void {
  * from a prefetch, not "to warm a cache".
  *
  * `GET /download/media/:id/releases` is a GET that **writes upstream**. Radarr
- * and Sonarr will not surface releases for an unmonitored title, so the backend
- * borrows monitoring for the duration of the search and puts it back — a
- * caller that fires this on navigation mutates a real library as a side effect
- * of somebody *looking* at a page. It is also a genuine indexer sweep, 30s+,
- * with no cache behind it.
+ * and Sonarr key releases on their own library ids, so for a title not yet in
+ * the library the backend adds it first — unmonitored, and it stays there. It
+ * no longer flips monitoring or deletes anything, but a caller that fires this
+ * on navigation still fills a real library with titles as a side effect of
+ * somebody *looking* at a page. It is also a genuine indexer sweep, 30s+ (plus
+ * up to 30s more waiting on the add's metadata refresh), with no cache behind
+ * it.
  *
  * It lives in this module, next to the mutations, rather than beside the
  * page's other reads, precisely so that constraint is impossible to miss.

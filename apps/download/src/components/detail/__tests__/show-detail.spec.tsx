@@ -1,7 +1,11 @@
 import '@testing-library/jest-dom'
 
 import type { DownloadJob, Season, Show } from '@lilnas/utils/download/types'
-import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
+import {
+  DownloadJobStatus,
+  DownloadType,
+  QualityTier,
+} from '@lilnas/utils/download/types'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
@@ -30,6 +34,7 @@ import {
   SHOW_TMDB_LABEL,
   SHOW_TVDB_LABEL,
 } from 'src/components/detail/show-facts'
+import { SHOW_QUALITY_TIER_HINT } from 'src/components/detail/show-request-button'
 
 const WATCH_URL = 'https://emby.lilnas.io/web/index.html#!/item?id=673'
 
@@ -205,7 +210,7 @@ describe('the series-scoped controls', () => {
 
     await user.click(screen.getByRole('button', { name: 'Download series' }))
 
-    expect(onRequest).toHaveBeenCalledWith(SHOW_ID, {})
+    expect(onRequest).toHaveBeenCalledWith(SHOW_ID, {}, QualityTier.Hd)
   })
 
   it('⚠️ deletes the whole series with the EMPTY query on the unchanged key', async () => {
@@ -296,6 +301,115 @@ function s2With(extra: Parameters<typeof episode>[0]): Season {
     ],
   })
 }
+
+describe('the quality tier — one picker, in the header', () => {
+  /** A season with one episode on disk and one without — so both a season and an episode Download are on offer. */
+  const PARTIAL = season({
+    episodeCount: 2,
+    episodeFileCount: 1,
+    episodes: [
+      episode({ episodeNumber: 1, hasFile: true, id: 2430, seasonNumber: 1 }),
+      episode({ episodeNumber: 2, id: 2431, seasonNumber: 1 }),
+    ],
+    seasonNumber: 1,
+  })
+
+  function tierTriggers(): HTMLElement[] {
+    return screen.getAllByRole('button', { name: /^Quality:/ })
+  }
+
+  async function pickTier(
+    user: ReturnType<typeof userEvent.setup>,
+    label: string,
+  ): Promise<void> {
+    await user.click(screen.getByRole('button', { name: /^Quality:/ }))
+    await user.click(screen.getByRole('option', { name: label }))
+  }
+
+  it('⚠️ draws exactly one picker, however many Downloads the page offers', () => {
+    renderDetail({ seasons: [specials(), PARTIAL] })
+
+    // A series, a season and an episode Download are all on the page…
+    expect(
+      screen.getByRole('button', { name: 'Download series' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /Download season 1/ }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Download' })).toBeInTheDocument()
+    // …and one tier picker between them, captioned for the whole show.
+    expect(tierTriggers()).toHaveLength(1)
+    expect(tierTriggers()[0]).toHaveAccessibleDescription(
+      SHOW_QUALITY_TIER_HINT,
+    )
+  })
+
+  it('preselects the show’s own tier', () => {
+    renderDetail({ media: show({ qualityTier: QualityTier.UpTo720p }) })
+
+    expect(tierTriggers()[0]).toHaveAccessibleName('Quality: Up to 720p')
+  })
+
+  it('preselects HD for a show on a profile the app does not manage', () => {
+    renderDetail({ media: show({ qualityTier: null }) })
+
+    expect(tierTriggers()[0]).toHaveAccessibleName('Quality: HD (up to 1080p)')
+  })
+
+  it('requests the series in the picked tier', async () => {
+    const { onRequest, user } = renderDetail()
+
+    await pickTier(user, 'Up to 4K')
+    await user.click(screen.getByRole('button', { name: 'Download series' }))
+
+    expect(onRequest).toHaveBeenCalledWith(SHOW_ID, {}, QualityTier.UpTo4k)
+  })
+
+  it('⚠️ requests a season in the header’s tier, never the server default', async () => {
+    const { onRequest, user } = renderDetail({
+      seasons: [specials(), PARTIAL],
+    })
+
+    await pickTier(user, 'Up to 4K')
+    await user.click(screen.getByRole('button', { name: /Download season 1/ }))
+
+    expect(onRequest).toHaveBeenCalledWith(
+      SHOW_ID,
+      { seasonNumber: 1 },
+      QualityTier.UpTo4k,
+    )
+  })
+
+  it('⚠️ requests an episode in the header’s tier', async () => {
+    const { onRequest, user } = renderDetail({
+      seasons: [specials(), PARTIAL],
+    })
+
+    await pickTier(user, 'Up to 720p')
+    await user.click(screen.getByRole('button', { name: 'Download' }))
+
+    expect(onRequest).toHaveBeenCalledWith(
+      SHOW_ID,
+      { episodeId: 2431 },
+      QualityTier.UpTo720p,
+    )
+  })
+
+  it('requests a season in the show’s own tier when nothing was picked', async () => {
+    const { onRequest, user } = renderDetail({
+      media: show({ qualityTier: QualityTier.UpTo4k }),
+      seasons: [specials(), PARTIAL],
+    })
+
+    await user.click(screen.getByRole('button', { name: /Download season 1/ }))
+
+    expect(onRequest).toHaveBeenCalledWith(
+      SHOW_ID,
+      { seasonNumber: 1 },
+      QualityTier.UpTo4k,
+    )
+  })
+})
 
 describe('the series status reads the media, never a job', () => {
   it('reads "in library" with the episode count beside it for a settled series', () => {

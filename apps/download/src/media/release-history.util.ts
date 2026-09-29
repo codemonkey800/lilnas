@@ -210,8 +210,10 @@ export function mapFilesToReleases(
       continue
     }
 
-    // A file can be imported more than once - an upgrade replaces the file
-    // in place and reuses its id. The newest import is the one describing
+    // An upgrade does not reuse the id - it imports a new file under a new
+    // id and deletes the old one, so the old id simply stops being asked
+    // about. Two imports naming one fileId shouldn't happen; newest-wins is
+    // the defensive tiebreak, since the newest import is the one describing
     // what's on disk now.
     const existing = importsByFileId.get(fileId)
     if (!existing || recordTime(record) >= recordTime(existing)) {

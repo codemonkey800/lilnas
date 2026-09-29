@@ -30,8 +30,12 @@ describe('schema + migrations', () => {
       // `bad_files` is the first AUTOINCREMENT table in this schema, so
       // migration 0005 is what makes SQLite create it at all.
       expect(tableNames).toEqual([
+        // Plan 024 (migration 0007).
+        'arr_history_cursors',
         'audit_log',
         'bad_files',
+        // Plan 024 (migration 0007).
+        'job_downloads',
         'jobs',
         'media_file_releases',
         'videos',
@@ -140,6 +144,12 @@ describe('schema + migrations', () => {
         'completed_at',
         // No `removed_from_library`: 0003 added it and 0004 drops it again
         // (plan 021 - the gallery is built from the library now).
+        // Plan 024: migration 0007 is plain `ALTER TABLE ADD`s (no recreate),
+        // so these land at the end of the table.
+        'status_note',
+        'upstream_command_id',
+        'upstream_command_kind',
+        'upstream_command_at',
       ])
     } finally {
       close()

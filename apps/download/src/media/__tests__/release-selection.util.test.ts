@@ -1,8 +1,14 @@
 import type { Release } from '@lilnas/utils/download/types'
 
-import { pickBestRelease } from 'src/media/release-selection.util'
+import {
+  type EpisodeMappedRelease,
+  pickBestRelease,
+  pickSeasonReleases,
+} from 'src/media/release-selection.util'
 
-function release(overrides: Partial<Release> = {}): Release {
+function release(
+  overrides: Partial<EpisodeMappedRelease> = {},
+): EpisodeMappedRelease {
   return {
     downloadAllowed: true,
     flaggedBad: false,
@@ -16,6 +22,10 @@ function release(overrides: Partial<Release> = {}): Release {
 
 const NONE = new Set<string>()
 
+function guids(releases: readonly Release[]): string[] {
+  return releases.map(r => r.guid)
+}
+
 describe('pickBestRelease', () => {
   it('returns undefined for an empty list', () => {
     expect(pickBestRelease([], NONE)).toBeUndefined()
@@ -25,75 +35,49 @@ describe('pickBestRelease', () => {
     expect(pickBestRelease([release({ guid: 'g' })], NONE)?.guid).toBe('g')
   })
 
-  it('prefers the highest customFormatScore', () => {
+  // Radarr/Sonarr already return releases in their own preference order -
+  // re-ranking by seeders or score would override the user's profile.
+  it('keeps the upstream order over seeders and custom-format score', () => {
     const picked = pickBestRelease(
       [
-        release({ customFormatScore: 5, guid: 'low' }),
-        release({ customFormatScore: 50, guid: 'high' }),
-        release({ customFormatScore: 20, guid: 'mid' }),
+        release({ customFormatScore: 0, guid: 'first', seeders: 1 }),
+        release({ customFormatScore: 50, guid: 'popular', seeders: 900 }),
       ],
       NONE,
     )
 
-    expect(picked?.guid).toBe('high')
+    expect(picked?.guid).toBe('first')
   })
 
-  it('breaks a score tie on seeders', () => {
+  // Usenet reports no seeders; a seeders sort used to sink it below every
+  // torrent regardless of where upstream ranked it.
+  it('does not sink a usenet release with no seeders', () => {
     const picked = pickBestRelease(
       [
-        release({ customFormatScore: 10, guid: 'few', seeders: 2 }),
-        release({ customFormatScore: 10, guid: 'many', seeders: 200 }),
+        release({ guid: 'nzb', protocol: 'usenet', seeders: undefined }),
+        release({ guid: 'torrent', protocol: 'torrent', seeders: 300 }),
       ],
       NONE,
     )
 
-    expect(picked?.guid).toBe('many')
+    expect(picked?.guid).toBe('nzb')
   })
 
-  it('breaks a score-and-seeders tie on publish date, newest first', () => {
+  it('skips a release upstream will not allow downloading', () => {
     const picked = pickBestRelease(
       [
-        release({ guid: 'old', publishDate: '2020-01-01T00:00:00Z' }),
-        release({ guid: 'new', publishDate: '2026-01-01T00:00:00Z' }),
+        release({ downloadAllowed: false, guid: 'blocked' }),
+        release({ guid: 'ok' }),
       ],
       NONE,
     )
 
-    expect(picked?.guid).toBe('new')
+    expect(picked?.guid).toBe('ok')
   })
 
-  // A missing score/seeder count sorts as 0 rather than knocking the release
-  // out - an indexer that reports neither still returns usable releases.
-  it('treats a missing score or seeder count as zero, not as disqualifying', () => {
+  it('drops flagged guids even when they come first', () => {
     const picked = pickBestRelease(
-      [
-        release({ guid: 'bare' }),
-        release({ customFormatScore: 1, guid: 'scored' }),
-      ],
-      NONE,
-    )
-
-    expect(picked?.guid).toBe('scored')
-  })
-
-  it('sorts a release with an unparseable publish date last', () => {
-    const picked = pickBestRelease(
-      [
-        release({ guid: 'garbage', publishDate: 'not-a-date' }),
-        release({ guid: 'dated', publishDate: '2020-01-01T00:00:00Z' }),
-      ],
-      NONE,
-    )
-
-    expect(picked?.guid).toBe('dated')
-  })
-
-  it('drops flagged guids even when they would otherwise win', () => {
-    const picked = pickBestRelease(
-      [
-        release({ customFormatScore: 100, guid: 'flagged' }),
-        release({ customFormatScore: 1, guid: 'ok' }),
-      ],
+      [release({ guid: 'flagged' }), release({ guid: 'ok' })],
       new Set(['flagged']),
     )
 
@@ -101,39 +85,157 @@ describe('pickBestRelease', () => {
   })
 
   // Radarr/Sonarr would refuse the grab anyway, so a rejected release is
-  // never a candidate regardless of how well it scores.
+  // never a candidate regardless of its position.
   it('drops releases the upstream service already rejected', () => {
     const picked = pickBestRelease(
-      [
-        release({ customFormatScore: 100, guid: 'rejected', rejected: true }),
-        release({ customFormatScore: 1, guid: 'ok' }),
-      ],
+      [release({ guid: 'rejected', rejected: true }), release({ guid: 'ok' })],
       NONE,
     )
 
     expect(picked?.guid).toBe('ok')
   })
 
-  it('returns undefined when every release is flagged or rejected', () => {
+  it('returns undefined when no release is eligible', () => {
     const picked = pickBestRelease(
       [
         release({ guid: 'flagged' }),
         release({ guid: 'rejected', rejected: true }),
+        release({ downloadAllowed: false, guid: 'blocked' }),
       ],
       new Set(['flagged']),
     )
 
     expect(picked).toBeUndefined()
   })
+})
 
-  it('does not sort the caller’s array in place', () => {
-    const releases = [
-      release({ customFormatScore: 1, guid: 'low' }),
-      release({ customFormatScore: 9, guid: 'high' }),
-    ]
+describe('pickSeasonReleases', () => {
+  it('prefers the first eligible full-season pack over episode releases', () => {
+    const picked = pickSeasonReleases(
+      [
+        release({ episodeNumbers: [1], guid: 'e01' }),
+        release({ fullSeason: true, guid: 'pack-bad' }),
+        release({ fullSeason: true, guid: 'pack' }),
+        release({ fullSeason: true, guid: 'pack-later' }),
+      ],
+      new Set(['pack-bad']),
+      [1, 2, 3],
+    )
 
-    pickBestRelease(releases, NONE)
+    expect(guids(picked)).toEqual(['pack'])
+  })
 
-    expect(releases.map(r => r.guid)).toEqual(['low', 'high'])
+  it('picks the first eligible release per missing episode, in upstream order', () => {
+    const picked = pickSeasonReleases(
+      [
+        release({ episodeNumbers: [2], guid: 'e02-a' }),
+        release({ episodeNumbers: [1], guid: 'e01-a' }),
+        release({ episodeNumbers: [2], guid: 'e02-b' }),
+        release({ episodeNumbers: [1], guid: 'e01-b' }),
+      ],
+      NONE,
+      [1, 2],
+    )
+
+    expect(guids(picked)).toEqual(['e02-a', 'e01-a'])
+  })
+
+  it('never picks releases whose episodes overlap, including multi-episode ones', () => {
+    const picked = pickSeasonReleases(
+      [
+        release({ episodeNumbers: [2], guid: 'e02' }),
+        // Overlaps E02 already covered - skipped even though it adds E01.
+        release({ episodeNumbers: [1, 2], guid: 'e01e02' }),
+        release({ episodeNumbers: [3, 4], guid: 'e03e04' }),
+        // Overlaps E03 from the double above.
+        release({ episodeNumbers: [3], guid: 'e03' }),
+        release({ episodeNumbers: [1], guid: 'e01' }),
+      ],
+      NONE,
+      [1, 2, 3, 4],
+    )
+
+    expect(guids(picked)).toEqual(['e02', 'e03e04', 'e01'])
+  })
+
+  it('skips releases that cover no missing episode', () => {
+    const picked = pickSeasonReleases(
+      [
+        release({ episodeNumbers: [5], guid: 'has-file' }),
+        release({ episodeNumbers: [], guid: 'unparsed' }),
+        release({ guid: 'no-numbers' }),
+        release({ episodeNumbers: [6], guid: 'e06' }),
+      ],
+      NONE,
+      [6],
+    )
+
+    expect(guids(picked)).toEqual(['e06'])
+  })
+
+  // A double whose other half already has a file is still the right grab
+  // for the missing half - and it then blocks a second copy of that half.
+  it('takes a multi-episode release that covers any missing episode', () => {
+    const picked = pickSeasonReleases(
+      [
+        release({ episodeNumbers: [1, 2], guid: 'e01e02' }),
+        release({ episodeNumbers: [1], guid: 'e01' }),
+      ],
+      NONE,
+      [2],
+    )
+
+    expect(guids(picked)).toEqual(['e01e02'])
+  })
+
+  it('prefers the mapped episode numbers over the parsed ones', () => {
+    const picked = pickSeasonReleases(
+      [
+        // Parsed as E10 (absolute numbering) but Sonarr maps it to E01.
+        release({
+          episodeNumbers: [10],
+          guid: 'absolute',
+          mappedEpisodeNumbers: [1],
+        }),
+        release({ episodeNumbers: [1], guid: 'e01' }),
+      ],
+      NONE,
+      [1],
+    )
+
+    expect(guids(picked)).toEqual(['absolute'])
+  })
+
+  it('applies the eligibility filter to episode releases too', () => {
+    const picked = pickSeasonReleases(
+      [
+        release({ episodeNumbers: [1], guid: 'rejected', rejected: true }),
+        release({
+          downloadAllowed: false,
+          episodeNumbers: [1],
+          guid: 'blocked',
+        }),
+        release({ episodeNumbers: [1], guid: 'flagged' }),
+        release({ episodeNumbers: [1], guid: 'ok' }),
+      ],
+      new Set(['flagged']),
+      [1],
+    )
+
+    expect(guids(picked)).toEqual(['ok'])
+  })
+
+  it('returns an empty list when no release is eligible', () => {
+    expect(
+      pickSeasonReleases(
+        [
+          release({ fullSeason: true, guid: 'pack', rejected: true }),
+          release({ episodeNumbers: [1], guid: 'flagged' }),
+        ],
+        new Set(['flagged']),
+        [1],
+      ),
+    ).toEqual([])
+    expect(pickSeasonReleases([], NONE, [1])).toEqual([])
   })
 })

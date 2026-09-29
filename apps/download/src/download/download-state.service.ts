@@ -20,7 +20,7 @@ import { ChildProcessWithoutNullStreams } from 'child_process'
 import { nanoid } from 'nanoid'
 
 import { AttributionResolutionService } from 'src/auth/attribution-resolution.service'
-import { DbService } from 'src/db/db.service'
+import { type Db, DbService } from 'src/db/db.service'
 import { buildJobRow, hydrateJobRow } from 'src/db/job-row'
 import { getJobById, listJobsByStatus, listOpenJobs } from 'src/db/jobs.repo'
 import { mediaIdSuffix, videoNaturalKey } from 'src/db/media-id'
@@ -97,6 +97,16 @@ export class DownloadStateService {
     private readonly mediaResolverService: MediaResolverService,
     private readonly mediaStateService: MediaStateService,
   ) {}
+
+  /**
+   * The job store's database, for the job-side tables that live beside the
+   * `jobs` rows - the media poller's `job_downloads` links and history
+   * cursors - so a caller already holding this service needs no second
+   * provider to reach them.
+   */
+  get db(): Db {
+    return this.dbService.db
+  }
 
   setProc(id: string, proc: ChildProcessWithoutNullStreams): void {
     this.procs.set(id, proc)
@@ -420,7 +430,21 @@ export class DownloadStateService {
     record: DownloadJobRecord,
     resolved: Media | undefined,
   ): DownloadJob {
-    const { mediaId: recordMediaId, type, ...jobFields } = record
+    // Plan 024's `upstreamCommand*` fields are the poller's own bookkeeping
+    // and have no place on the wire `DownloadJob` - named here so the spread
+    // below can't carry them into a REST body or a WebSocket frame.
+    const {
+      mediaId: recordMediaId,
+      type,
+      upstreamCommandAt: _upstreamCommandAt,
+      upstreamCommandId: _upstreamCommandId,
+      upstreamCommandKind: _upstreamCommandKind,
+      ...jobFields
+    } = record
+    // Referenced only to satisfy no-unused-vars - see the destructure above.
+    void _upstreamCommandAt
+    void _upstreamCommandId
+    void _upstreamCommandKind
     // No per-job graft: a movie/show's `queueSnapshot` is the resolver's,
     // derived from the queue cache on every resolve(), so it is as fresh as
     // the last poll and there is only one place it can come from.

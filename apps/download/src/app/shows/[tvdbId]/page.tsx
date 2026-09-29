@@ -1,5 +1,5 @@
 import type { DownloadClient } from '@lilnas/utils/download/client'
-import type { BadFile, Season } from '@lilnas/utils/download/types'
+import type { BadFile, QualityTier, Season } from '@lilnas/utils/download/types'
 import { DownloadType } from '@lilnas/utils/download/types'
 import { revalidatePath } from 'next/cache'
 import { notFound } from 'next/navigation'
@@ -64,6 +64,12 @@ function isFrameworkSignal(error: unknown): boolean {
  * time. `ShowRequestButton` builds the scope from a discriminated union
  * (`showRequestScope`), so no call site assembles one by hand.
  *
+ * `qualityTier` is forwarded as it arrives - the backend's
+ * `RequestShowInputSchema` validates it, and it applies to the whole series
+ * whatever the scope (Sonarr keeps one profile per series). `ShowDetail` sends
+ * the header picker's tier with every scope, so a season or episode press
+ * never falls back to the default and moves the series off its tier.
+ *
  * An inline server action rather than a module in `src/app/actions/`: this is
  * the only page that requests a show, and the action closes over nothing, so a
  * shared module would buy nothing but another file. Failures come back as a
@@ -73,6 +79,7 @@ function isFrameworkSignal(error: unknown): boolean {
 async function requestShowScope(
   mediaId: string,
   scope: ShowRequestScope,
+  qualityTier?: QualityTier,
 ): Promise<ShowRequestResult> {
   'use server'
 
@@ -88,7 +95,7 @@ async function requestShowScope(
   const client = await getIdentifiedDownloadClient()
 
   try {
-    const job = await client.requestShow({ ...scope, tvdbId })
+    const job = await client.requestShow({ ...scope, qualityTier, tvdbId })
 
     revalidatePath(`/shows/${tvdbId}`)
 
@@ -177,8 +184,9 @@ export const metadata = {
  *
  * `getMedia` and `listSeasons` in parallel, plus `listBadFiles`.
  * **`listReleases` is not called**, at any scope, ever, from this page: it is a
- * 30s+ indexer sweep that *writes upstream* (Radarr and Sonarr will not surface
- * releases for an unmonitored title, so the backend borrows monitoring to ask).
+ * 30s+ indexer sweep that *writes upstream* (Radarr and Sonarr key releases on
+ * their own library ids, so the backend adds a title that isn't in the library
+ * yet — unmonitored, and it stays there).
  * `searchReleases` is handed down as a prop and reaches exactly one caller -
  * `ReleasePicker`'s own trigger press. Nothing on this page calls it on mount,
  * on hover, or on a prefetch.

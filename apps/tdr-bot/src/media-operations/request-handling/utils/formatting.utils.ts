@@ -4,6 +4,26 @@
  * Extracted from llm.service.ts for reuse across strategies
  */
 
+import type { DownloadingSeries } from 'src/media/types/sonarr.types'
+
+/**
+ * Describe the episodes a TV download covers: "S01E03: Title" for a single
+ * episode, "S01E01–E10 (season pack, 10 episodes)" for a pack.
+ */
+export function formatEpisodeDownload(
+  download: Pick<
+    DownloadingSeries,
+    'episodeLabel' | 'episodeTitle' | 'episodeCount'
+  >,
+): string {
+  if (download.episodeCount > 1) {
+    return `${download.episodeLabel} (season pack, ${download.episodeCount} episodes)`
+  }
+  return download.episodeTitle
+    ? `${download.episodeLabel}: ${download.episodeTitle}`
+    : download.episodeLabel
+}
+
 /**
  * Format bytes to human-readable file size
  * Extracted from llm.service.ts lines 2905-2911

@@ -2,6 +2,7 @@ import { AIMessage, HumanMessage } from '@langchain/core/messages'
 
 import { createTestingModule } from 'src/__tests__/test-utils'
 import { MediaRequestHandler } from 'src/media-operations/request-handling/media-request-handler.service'
+import { DiscordIdentity } from 'src/media-operations/request-handling/types/request-context.type'
 import { MediaResponseNode } from 'src/messages/llm/nodes/media-response.node'
 import { ResponseType } from 'src/schemas/graph'
 
@@ -11,6 +12,12 @@ function makeHuman(content = 'find Inception'): HumanMessage {
 
 function makeAI(content = 'Found Inception'): AIMessage {
   return new AIMessage({ id: 'ai-1', content })
+}
+
+const DISCORD: DiscordIdentity = {
+  userId: 'user-1',
+  username: 'alice.codes',
+  displayName: 'Alice',
 }
 
 describe('MediaResponseNode', () => {
@@ -34,13 +41,14 @@ describe('MediaResponseNode', () => {
     node = module.get(MediaResponseNode)
   })
 
-  it('delegates to mediaRequestHandler.handleRequest', async () => {
+  it("delegates to mediaRequestHandler.handleRequest with the sender's Discord identity", async () => {
     const message = makeHuman('find Inception')
     const messages = [makeHuman('previous')]
     const state = {
       message,
       messages,
       userId: 'user-1',
+      discord: DISCORD,
       guildId: 'g',
       userInput: 'find Inception',
       images: [],
@@ -53,6 +61,7 @@ describe('MediaResponseNode', () => {
       message,
       messages,
       'user-1',
+      DISCORD,
       undefined,
     )
   })
@@ -75,6 +84,7 @@ describe('MediaResponseNode', () => {
       message: makeHuman(),
       messages: [],
       userId: 'user-1',
+      discord: DISCORD,
       guildId: 'g',
       userInput: '',
       images: [],

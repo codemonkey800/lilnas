@@ -5,12 +5,17 @@ import {
   SearchQuerySchema,
 } from 'src/media/schemas/media.schemas'
 import {
+  RadarrImageSchema,
   RadarrInputSchemas,
+  RadarrMediaInfoSchema,
   RadarrOutputSchemas,
 } from 'src/media/schemas/radarr.schemas'
 import {
+  EpisodeResourceSchema,
+  SonarrImageSchema,
   SonarrInputSchemas,
   SonarrOutputSchemas,
+  SonarrRatingsSchema,
 } from 'src/media/schemas/sonarr.schemas'
 import {
   DownloadProtocol,
@@ -217,16 +222,16 @@ describe('RadarrOutputSchemas.downloadingMovieArray', () => {
   })
 })
 
-describe('SonarrInputSchemas.monitorSeriesOptions', () => {
-  it('should accept empty options (monitor entire series)', () => {
+describe('SonarrInputSchemas.unmonitorSeriesOptions', () => {
+  it('should accept empty options (the entire series)', () => {
     expect(() =>
-      SonarrInputSchemas.monitorSeriesOptions.parse({}),
+      SonarrInputSchemas.unmonitorSeriesOptions.parse({}),
     ).not.toThrow()
   })
 
   it('should accept a selection with whole-season items', () => {
     expect(() =>
-      SonarrInputSchemas.monitorSeriesOptions.parse({
+      SonarrInputSchemas.unmonitorSeriesOptions.parse({
         selection: [{ season: 1 }, { season: 2 }],
       }),
     ).not.toThrow()
@@ -234,7 +239,7 @@ describe('SonarrInputSchemas.monitorSeriesOptions', () => {
 
   it('should accept a selection with specific episode numbers', () => {
     expect(() =>
-      SonarrInputSchemas.monitorSeriesOptions.parse({
+      SonarrInputSchemas.unmonitorSeriesOptions.parse({
         selection: [{ season: 1, episodes: [1, 2, 3] }],
       }),
     ).not.toThrow()
@@ -242,15 +247,23 @@ describe('SonarrInputSchemas.monitorSeriesOptions', () => {
 
   it('should reject negative season numbers', () => {
     expect(() =>
-      SonarrInputSchemas.monitorSeriesOptions.parse({
+      SonarrInputSchemas.unmonitorSeriesOptions.parse({
         selection: [{ season: -1 }],
       }),
     ).toThrow(ZodError)
   })
 
+  it('should accept episode 0 (specials such as S00E00)', () => {
+    expect(() =>
+      SonarrInputSchemas.unmonitorSeriesOptions.parse({
+        selection: [{ season: 0, episodes: [0] }],
+      }),
+    ).not.toThrow()
+  })
+
   it('should reject negative episode numbers', () => {
     expect(() =>
-      SonarrInputSchemas.monitorSeriesOptions.parse({
+      SonarrInputSchemas.unmonitorSeriesOptions.parse({
         selection: [{ season: 1, episodes: [-1] }],
       }),
     ).toThrow(ZodError)
@@ -322,6 +335,8 @@ describe('SonarrOutputSchemas.seriesSearchResultArray', () => {
 describe('SonarrOutputSchemas.downloadingSeriesArray', () => {
   const validDownloadingSeries = {
     id: 1,
+    episodeCount: 1,
+    episodeLabel: 'S01E01',
     size: 2000000000,
     sizeleft: 1000000000,
     status: 'downloading',
@@ -371,5 +386,87 @@ describe('SonarrOutputSchemas.downloadingSeriesArray', () => {
     expect(result[0].seriesTitle).toBeUndefined()
     expect(result[0].episodeTitle).toBeUndefined()
     expect(result[0].seasonNumber).toBeUndefined()
+  })
+})
+
+describe('valid upstream data Radarr/Sonarr can send', () => {
+  it('RadarrMediaInfoSchema should accept 0 audio channels and 0 dimensions', () => {
+    expect(() =>
+      RadarrMediaInfoSchema.parse({ audioChannels: 0, width: 0, height: 0 }),
+    ).not.toThrow()
+  })
+
+  it('RadarrMediaInfoSchema should reject negative audio channels', () => {
+    expect(() => RadarrMediaInfoSchema.parse({ audioChannels: -1 })).toThrow(
+      ZodError,
+    )
+  })
+
+  it.each(['unknown', 'disc', 'some-future-type'])(
+    'RadarrImageSchema should accept coverType %p',
+    coverType => {
+      expect(() => RadarrImageSchema.parse({ coverType })).not.toThrow()
+    },
+  )
+
+  it.each(['unknown', 'screenshot', 'some-future-type'])(
+    'SonarrImageSchema should accept coverType %p',
+    coverType => {
+      expect(() => SonarrImageSchema.parse({ coverType })).not.toThrow()
+    },
+  )
+
+  it('EpisodeResourceSchema should accept E00', () => {
+    expect(() =>
+      EpisodeResourceSchema.parse({
+        id: 1,
+        seriesId: 1,
+        seasonNumber: 0,
+        episodeNumber: 0,
+        title: 'Pilot (Unaired)',
+        monitored: false,
+        hasFile: false,
+      }),
+    ).not.toThrow()
+  })
+
+  it('SonarrOutputSchemas.downloadingSeriesArray should accept E00', () => {
+    expect(() =>
+      SonarrOutputSchemas.downloadingSeriesArray.parse([
+        {
+          id: 1,
+          seriesTitle: 'Test Series',
+          seasonNumber: 0,
+          episodeNumber: 0,
+          episodeCount: 1,
+          episodeLabel: 'S00E00',
+          size: 0,
+          sizeleft: 0,
+          status: 'downloading',
+          protocol: 'usenet',
+          progressPercent: 0,
+          downloadedBytes: 0,
+          isActive: true,
+        },
+      ]),
+    ).not.toThrow()
+  })
+
+  it('SonarrRatingsSchema should accept the Sonarr v4 { votes, value } shape', () => {
+    expect(SonarrRatingsSchema.parse({ votes: 1234, value: 8.4 })).toEqual({
+      votes: 1234,
+      value: 8.4,
+    })
+    expect(() =>
+      SonarrRatingsSchema.parse({ votes: 0, value: 0 }),
+    ).not.toThrow()
+  })
+
+  it('SonarrRatingsSchema should reject the old per-source shape', () => {
+    expect(() =>
+      SonarrRatingsSchema.parse({
+        imdb: { votes: 1, value: 8, type: 'user' },
+      }),
+    ).toThrow(ZodError)
   })
 })

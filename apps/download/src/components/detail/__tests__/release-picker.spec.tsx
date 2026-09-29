@@ -193,9 +193,9 @@ describe('blockedReleaseReasons', () => {
 describe('ReleasePicker — the search is never speculative', () => {
   it('⚠️ does NOT call onSearch on mount', async () => {
     // `GET /download/media/:id/releases` fires a real indexer sweep AND writes
-    // upstream (it borrows Radarr/Sonarr monitoring to ask). A render must
-    // never trigger it — otherwise simply navigating to a detail page, or
-    // Next prefetching a link to one, mutates a real library.
+    // upstream (it adds a title missing from Radarr/Sonarr, unmonitored). A
+    // render must never trigger it — otherwise simply navigating to a detail
+    // page, or Next prefetching a link to one, mutates a real library.
     const onSearch = jest.fn()
 
     render(<ReleasePicker mediaId={MOVIE_ID} onSearch={onSearch} />)

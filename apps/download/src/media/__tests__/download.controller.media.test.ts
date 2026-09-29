@@ -14,6 +14,7 @@ import {
   DownloadType,
   type ManualImportCandidate,
   Media,
+  QualityTier,
   type Release,
   type Season,
 } from '@lilnas/utils/download/types'
@@ -62,7 +63,7 @@ describe('DownloadController - media endpoints', () => {
   let adminCheckService: jest.Mocked<AdminCheckService>
   let mediaResolver: ReturnType<typeof createFakeMediaResolver>
   let jobQueryService: { listJobsForMedia: jest.Mock }
-  let radarrService: { getCredits: jest.Mock }
+  let radarrService: { getCredits: jest.Mock; getMovieFiles: jest.Mock }
   let manualImportService: jest.Mocked<ManualImportService>
   let releaseService: jest.Mocked<ReleaseService>
   let showService: jest.Mocked<ShowService>
@@ -101,7 +102,10 @@ describe('DownloadController - media endpoints', () => {
     }
     mediaResolver = createFakeMediaResolver()
     jobQueryService = { listJobsForMedia: jest.fn().mockResolvedValue([]) }
-    radarrService = { getCredits: jest.fn() }
+    radarrService = {
+      getCredits: jest.fn(),
+      getMovieFiles: jest.fn().mockResolvedValue([]),
+    }
     videosById = new Map()
     auditLogService = { record: jest.fn() }
 
@@ -220,6 +224,8 @@ describe('DownloadController - media endpoints', () => {
         // Phase 018's third parameter: no Discord headers on this call, so
         // the controller resolves the Discord attribution to null.
         null,
+        // No `qualityTier` in the body - the service picks the default.
+        undefined,
       )
       expect(response).toEqual(movieJob)
       expect(response).not.toHaveProperty('url')
@@ -235,6 +241,23 @@ describe('DownloadController - media endpoints', () => {
         123,
         user,
         null,
+        undefined,
+      )
+    })
+
+    it('forwards the requested quality tier', async () => {
+      mediaDownloadService.requestMovie.mockResolvedValue(movieJob)
+
+      await controller.requestMovie(
+        { qualityTier: QualityTier.UpTo4k, tmdbId: 123 },
+        undefined,
+      )
+
+      expect(mediaDownloadService.requestMovie).toHaveBeenCalledWith(
+        123,
+        undefined,
+        null,
+        QualityTier.UpTo4k,
       )
     })
   })
@@ -351,6 +374,7 @@ describe('DownloadController - media endpoints', () => {
         undefined,
         undefined,
         null,
+        undefined,
       )
 
       mediaDownloadService.getShowJob.mockResolvedValue(showJob)
@@ -545,6 +569,71 @@ describe('DownloadController - media endpoints', () => {
       expect(response).not.toHaveProperty('credits')
     })
 
+    // `GET /movie` never computes the file's custom formats, so the detail
+    // route reads them from `/moviefile` and lays them onto `file`.
+    it("attaches a library movie file's custom formats from /moviefile", async () => {
+      const cached: Media = {
+        file: { quality: 'Remux-1080p' },
+        filePath: '/movies/End of Watch (2012)/End of Watch.mkv',
+        id: 'tmdb:77016',
+        radarrId: 531,
+        title: 'End of Watch',
+        tmdbId: 77016,
+        type: DownloadType.Movie,
+      }
+      mediaResolver.fixtures.set('tmdb:77016', cached)
+      radarrService.getMovieFiles.mockResolvedValue([
+        { customFormats: [{ name: 'DV' }, { name: 'IMAX' }], id: 11 },
+      ])
+
+      const response = await controller.getMediaDetail('tmdb:77016', undefined)
+
+      expect(radarrService.getMovieFiles).toHaveBeenCalledWith(531)
+      expect(response.media).toEqual({
+        ...cached,
+        file: { customFormats: ['DV', 'IMAX'], quality: 'Remux-1080p' },
+      })
+      // The resolver's cached object is never written to.
+      expect(cached).not.toHaveProperty('file.customFormats')
+    })
+
+    it('skips the /moviefile read for a movie with no file', async () => {
+      mediaResolver.fixtures.set('tmdb:77016', {
+        id: 'tmdb:77016',
+        radarrId: 531,
+        title: 'End of Watch',
+        tmdbId: 77016,
+        type: DownloadType.Movie,
+      })
+
+      const response = await controller.getMediaDetail('tmdb:77016', undefined)
+
+      expect(radarrService.getMovieFiles).not.toHaveBeenCalled()
+      expect(response.media).not.toHaveProperty('file')
+    })
+
+    it('renders no formats when the /moviefile read fails', async () => {
+      const cached: Media = {
+        file: { quality: 'Remux-1080p' },
+        filePath: '/movies/End of Watch (2012)/End of Watch.mkv',
+        id: 'tmdb:77016',
+        radarrId: 531,
+        title: 'End of Watch',
+        tmdbId: 77016,
+        type: DownloadType.Movie,
+      }
+      mediaResolver.fixtures.set('tmdb:77016', cached)
+      radarrService.getMovieFiles.mockRejectedValue(new Error('radarr down'))
+
+      const response = await controller.getMediaDetail('tmdb:77016', undefined)
+
+      expect(response.media).toEqual(cached)
+      expect(Logger.prototype.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ mediaId: 'tmdb:77016' }),
+        'GET /media/:id - movie file formats lookup failed',
+      )
+    })
+
     it('still returns a page when the upstream lookup is degraded', async () => {
       mediaResolver.fixtures.set('tmdb:5', {
         id: 'tmdb:5',
@@ -638,6 +727,27 @@ describe('DownloadController - media endpoints', () => {
       await expect(controller.listReleases('video:x', {})).rejects.toThrow(
         NotFoundException,
       )
+    })
+
+    // Sonarr's unscoped `GET /release` is its RSS feed, not a search. The
+    // real guard runs here - it throws before touching any of the service's
+    // dependencies, so an empty `this` is enough to reach it.
+    it('answers a show with no season or episode with a 400', async () => {
+      releaseService.listReleases.mockImplementation((id, scope) =>
+        ReleaseService.prototype.listReleases.call(
+          {} as ReleaseService,
+          id,
+          scope,
+        ),
+      )
+
+      const listing = controller.listReleases('tvdb:1', {})
+
+      await expect(listing).rejects.toThrow(BadRequestException)
+      await expect(listing).rejects.toMatchObject({
+        message: 'Pick a season or an episode',
+        status: 400,
+      })
     })
   })
 
@@ -1104,6 +1214,23 @@ describe('DownloadController - media endpoints', () => {
         undefined,
         { episodeId: 4412, seasonNumber: 3 },
         null,
+        undefined,
+      )
+    })
+
+    // Resolved to an episode id by `startSearch`, once the episodes exist.
+    it('forwards an episode asked for by number', async () => {
+      await controller.requestShow(
+        { episodeNumber: 5, seasonNumber: 2, tvdbId: 456 },
+        undefined,
+      )
+
+      expect(mediaDownloadService.requestShow).toHaveBeenCalledWith(
+        456,
+        undefined,
+        { episodeNumber: 5, seasonNumber: 2 },
+        null,
+        undefined,
       )
     })
 
@@ -1115,6 +1242,7 @@ describe('DownloadController - media endpoints', () => {
         undefined,
         { seasonNumber: 3 },
         null,
+        undefined,
       )
     })
 
@@ -1128,6 +1256,7 @@ describe('DownloadController - media endpoints', () => {
         undefined,
         { seasonNumber: 0 },
         null,
+        undefined,
       )
     })
 
@@ -1140,6 +1269,22 @@ describe('DownloadController - media endpoints', () => {
         undefined,
         undefined,
         null,
+        undefined,
+      )
+    })
+
+    it('forwards the requested quality tier alongside the scope', async () => {
+      await controller.requestShow(
+        { qualityTier: QualityTier.UpTo720p, seasonNumber: 2, tvdbId: 456 },
+        undefined,
+      )
+
+      expect(mediaDownloadService.requestShow).toHaveBeenCalledWith(
+        456,
+        undefined,
+        { seasonNumber: 2 },
+        null,
+        QualityTier.UpTo720p,
       )
     })
 
@@ -1151,6 +1296,7 @@ describe('DownloadController - media endpoints', () => {
         alice,
         { seasonNumber: 3 },
         null,
+        undefined,
       )
     })
   })

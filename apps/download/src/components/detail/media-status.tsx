@@ -3,7 +3,7 @@ import type { Media, MediaState } from '@lilnas/utils/download/types'
 import { mediaState } from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX, ReactNode } from 'react'
 
-import { FINISHING_LABEL, handoffDetail } from 'src/components/detail/job-state'
+import { finishingLabel, handoffDetail } from 'src/components/detail/job-state'
 import {
   mediaHandoff,
   mediaProgress,
@@ -20,8 +20,8 @@ export type MediaStatusProps = Omit<
   'children'
 > & {
   /**
-   * The line beside the chip. Defaults to the media's own `stateReason`,
-   * which the server only sets for `needs_attention`.
+   * The line beside the chip. Defaults to the media's own `stateReason` —
+   * why a title `needs_attention`, or that a `wanted` movie isn't out yet.
    */
   explain?: ReactNode
   /** The title whose state this is — a movie, a show or a video. */
@@ -58,7 +58,8 @@ export type MediaStatusProps = Omit<
  * UI shows a chip and a bar here and no attempt anywhere.
  *
  * Once every byte is down (see `Handoff`), the chip and the bar's note say
- * so - `finishing up`, then `importing…` - the bar settles instead of sitting
+ * so - `finishing up` (`unpacking` while SABnzbd post-processes), then
+ * `importing…` - the bar settles instead of sitting
  * frozen at 100%, and the queue's spent `~00:00:00 left` gives way to who is
  * doing what now.
  *
@@ -79,14 +80,15 @@ export function MediaStatus({
   const derived = mediaProgress(media)
   const pct = progressPct ?? derived?.pct ?? null
   const handoff = mediaHandoff(state, pct)
+  // `unpacking` while SABnzbd post-processes, as on the attempt card.
   const label =
     handoff === 'finishing'
-      ? FINISHING_LABEL
+      ? finishingLabel(derived?.stage)
       : mediaStateLabel(state, media.type)
   const detail =
     progressDetail ??
     (handoff
-      ? handoffDetail(handoff, media.type)
+      ? handoffDetail(handoff, media.type, derived)
       : derived?.timeLeft
         ? `~${derived.timeLeft} left`
         : null)

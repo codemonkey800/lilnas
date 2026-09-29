@@ -3,6 +3,7 @@
  */
 export type {
   ActiveContext,
+  DiscordIdentity,
   StrategyRequestParams,
 } from './request-context.type'
 export { MediaContextType } from './request-context.type'

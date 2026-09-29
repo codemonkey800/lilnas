@@ -51,6 +51,18 @@ describe('PROFILE_STATUS_ORDER', () => {
       at(DownloadJobStatus.Cleaning),
     )
   })
+
+  it('sits a search that found nothing among the other endings', () => {
+    const at = (status: DownloadJobStatus) =>
+      PROFILE_STATUS_ORDER.indexOf(status)
+
+    expect(at(DownloadJobStatus.NotFound)).toBe(
+      at(DownloadJobStatus.Failed) + 1,
+    )
+    expect(at(DownloadJobStatus.NotFound)).toBeGreaterThan(
+      at(DownloadJobStatus.Completed),
+    )
+  })
 })
 
 describe('parseProfileFilters', () => {

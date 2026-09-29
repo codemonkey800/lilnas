@@ -1,5 +1,6 @@
 import { HumanMessage } from '@langchain/core/messages'
 
+import { createMockDiscordIdentity } from 'src/media-operations/request-handling/__test-helpers__/mock-services'
 import { MediaOperationStrategy } from 'src/media-operations/request-handling/strategies/base/media-operation-strategy.interface'
 import { StrategyRequestParams } from 'src/media-operations/request-handling/types/request-context.type'
 
@@ -50,7 +51,7 @@ export interface StrategyEdgeCasesConfig<TMediaItem, TOperationResult> {
     serviceName: string
     /** Media service search method name (e.g., 'searchMovies', 'searchShows') */
     searchMethodName: string
-    /** Media service operation method name (e.g., 'monitorAndDownloadMovie', 'unmonitorAndDeleteMovie') */
+    /** Media service operation method name (e.g., 'requestMovie', 'unmonitorAndDeleteMovie') */
     operationMethodName: string
     /** Error prompt type (e.g., 'error', 'error_delete', 'TV_SHOW_ERROR') */
     errorPromptType: string
@@ -160,6 +161,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: `user${i}`,
+          discord: createMockDiscordIdentity(`user${i}`),
           state: createMockState(),
         }))
 
@@ -202,6 +204,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: 'user1',
+          discord: createMockDiscordIdentity('user1'),
           state: state1,
         }
 
@@ -212,6 +215,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: 'user2',
+          discord: createMockDiscordIdentity('user2'),
           state: state2,
         }
 
@@ -253,6 +257,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           message: new HumanMessage({ id: '1', content: 'first one' }),
           messages: [],
           userId: 'user1',
+          discord: createMockDiscordIdentity('user1'),
           context: activeContext,
           state: createMockState(),
         }
@@ -265,6 +270,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: 'user2',
+          discord: createMockDiscordIdentity('user2'),
           state: createMockState(),
         }
 
@@ -310,6 +316,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           context: { isActive: true, searchResults: [] } as unknown,
           state: mockState,
         }
@@ -340,6 +347,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           context: {
             type: contextType,
             searchResults: [mediaItems[0]],
@@ -375,6 +383,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           context: {
             type: 'wrongType',
             isActive: true,
@@ -411,6 +420,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: '',
+          discord: createMockDiscordIdentity(''),
           state: mockState,
         }
 
@@ -437,6 +447,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           message: new HumanMessage({ id: '1', content: '' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           state: mockState,
         }
 
@@ -466,6 +477,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           context: null as unknown,
           state: mockState,
         }
@@ -496,6 +508,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           context: undefined,
           state: mockState,
         }
@@ -519,6 +532,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           message: new HumanMessage({ id: '1', content: 'first one' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           context: {
             type: contextType,
             isActive: true,
@@ -545,6 +559,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           message: new HumanMessage({ id: '1', content: 'first one' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           context: {
             type: contextType,
             isActive: true,
@@ -581,6 +596,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           state: mockState,
         }
 
@@ -613,6 +629,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           state: mockState,
         }
 
@@ -646,6 +663,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           state: mockState,
         }
 
@@ -680,6 +698,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           state: mockState,
         }
 
@@ -709,6 +728,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           message: new HumanMessage({ id: '1', content: 'first one' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           context: activeContext,
           state: mockState,
         }
@@ -738,6 +758,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           message: new HumanMessage({ id: '1', content: 'first one' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           context: activeContext,
           state: mockState,
         }
@@ -776,6 +797,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           state: undefined,
         }
 
@@ -804,6 +826,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           state: null as unknown,
         }
 
@@ -832,6 +855,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           state: {} as unknown,
         }
 
@@ -867,6 +891,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           state: createMockState(),
         }
 
@@ -904,6 +929,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           state: createMockState(),
         }
 
@@ -956,6 +982,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           message: new HumanMessage({ id: '1', content: 'first one' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           context: activeContext,
           state: createMockState(),
         }
@@ -1006,6 +1033,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           message: new HumanMessage({ id: '1', content: 'first one' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           context: activeContext,
           state: mockState,
         }
@@ -1039,6 +1067,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           state: mockState,
         }
 
@@ -1094,6 +1123,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
           message: new HumanMessage({ id: '1', content: 'first one' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
           context: activeContext,
           state: mockState,
         }

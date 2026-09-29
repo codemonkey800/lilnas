@@ -328,6 +328,12 @@ describe('statusTone', () => {
     expect(statusTone(DownloadJobStatus.Cancelled)).toBe('mute')
   })
 
+  // Plan 024: a search that came back empty is an outcome, not a breakage -
+  // warn, never the red `failed` reads in.
+  it('warns rather than alarms when a search found nothing', () => {
+    expect(statusTone(DownloadJobStatus.NotFound)).toBe('warn')
+  })
+
   it('accents the statuses where the machine is actively working', () => {
     expect(statusTone(DownloadJobStatus.Searching)).toBe('uv')
     expect(statusTone(DownloadJobStatus.Downloading)).toBe('uv')

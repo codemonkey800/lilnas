@@ -81,7 +81,8 @@ export enum RadarrMinimumAvailability {
  * Radarr image information
  */
 export interface RadarrImage extends ImageInfo {
-  coverType: RadarrImageType
+  /** Usually a RadarrImageType value; Radarr may send others (e.g. 'unknown') */
+  coverType: string
   url?: string
   remoteUrl?: string
 }
@@ -90,6 +91,7 @@ export interface RadarrImage extends ImageInfo {
  * Radarr image type enum
  */
 export enum RadarrImageType {
+  UNKNOWN = 'unknown',
   POSTER = 'poster',
   FANART = 'fanart',
   BANNER = 'banner',
@@ -341,57 +343,6 @@ export interface RadarrRootFolder {
 export interface RadarrUnmappedFolder {
   name: string
   path: string
-}
-
-/**
- * Add movie request payload
- */
-export interface AddMovieRequest {
-  tmdbId: number
-  title: string
-  titleSlug: string
-  year: number
-  qualityProfileId: number
-  rootFolderPath: string
-  monitored: boolean
-  minimumAvailability: RadarrMinimumAvailability
-  searchOnAdd: boolean
-  images?: RadarrImage[]
-  genres?: string[]
-  runtime?: number
-  overview?: string
-  inCinemas?: string
-  physicalRelease?: string
-  digitalRelease?: string
-  certification?: string
-  studio?: string
-  website?: string
-  youTubeTrailerId?: string
-  tags?: number[]
-}
-
-/**
- * Monitor movie options
- */
-export interface MonitorMovieOptions {
-  qualityProfileId?: number
-  rootFolderPath?: string
-  minimumAvailability?: RadarrMinimumAvailability
-  searchOnAdd?: boolean
-  monitored?: boolean
-}
-
-/**
- * Monitor and download result
- */
-export interface MonitorAndDownloadResult {
-  success: boolean
-  movieAdded: boolean
-  searchTriggered: boolean
-  movie?: RadarrMovie
-  commandId?: number
-  error?: string
-  warnings?: string[]
 }
 
 /**

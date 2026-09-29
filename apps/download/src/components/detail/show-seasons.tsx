@@ -38,6 +38,7 @@ import {
   deleteCascade,
   episodeProgressLabel,
   episodeScopedJobs,
+  fileSiblings,
   isDownloadableState,
   seasonByTabValue,
   seasonHeading,
@@ -363,6 +364,9 @@ export function ShowSeasons({
               onSearch={onSearch}
               onToggle={toggleEpisode}
               onUnflag={onUnflag}
+              // ⚠️ A multi-episode file goes as one unit — the confirm names
+              // the episodes that go with this one.
+              sharesFileWith={fileSiblings(season, episode)}
             />
           ))
         )}

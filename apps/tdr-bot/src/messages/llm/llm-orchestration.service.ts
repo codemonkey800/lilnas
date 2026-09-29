@@ -4,6 +4,7 @@ import { ToolNode } from '@langchain/langgraph/prebuilt'
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
 
 import { MAX_GRAPH_HISTORY_SIZE } from 'src/constants/llm'
+import type { DiscordIdentity } from 'src/media-operations/request-handling/types/request-context.type'
 import { PromptService } from 'src/messages/prompts/prompt.service'
 import { MessageUtils } from 'src/messages/utils/message-utils'
 import {
@@ -192,6 +193,9 @@ export class LLMOrchestrationService implements OnModuleInit {
    * @param params.message - Raw message content from the user.
    * @param params.user - Display name of the message author.
    * @param params.userId - Discord user ID (falls back to `user`).
+   * @param params.discord - The sender's Discord identity, carried to media
+   *   strategies for attribution. Callers without a Discord message (the
+   *   graph-test stdin loop) omit it and get one built from `userId`/`user`.
    * @param params.guildId - Discord guild ID for reminder delivery.
    * @returns The AI-generated response text and any generated images.
    */
@@ -199,15 +203,21 @@ export class LLMOrchestrationService implements OnModuleInit {
     message,
     user,
     userId,
+    discord,
     guildId,
   }: {
     message: string
     user: string
     userId?: string
+    discord?: DiscordIdentity
     guildId?: string
   }): Promise<MessageResponse> {
     const userInput = `${user} said "${message}"`
     const finalUserId = userId || user
+    const finalDiscord = discord ?? {
+      userId: finalUserId,
+      username: user,
+    }
 
     this.logger.log(
       { user, message, userInput, userId: finalUserId },
@@ -226,6 +236,7 @@ export class LLMOrchestrationService implements OnModuleInit {
       } = await this.app.invoke({
         userInput,
         userId: finalUserId,
+        discord: finalDiscord,
         guildId: guildId ?? '',
         messages: currentState.graphHistory.at(-1)?.messages ?? [],
       })

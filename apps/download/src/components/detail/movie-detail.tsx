@@ -461,6 +461,9 @@ export function MovieDetail({
     actions.push(
       <MovieRequestButton
         className={cns(ACTION_BUTTON)}
+        // The movie's own tier, preselected — `DEFAULT_QUALITY_TIER` when it
+        // has none the app manages.
+        defaultQualityTier={media.qualityTier}
         key="request"
         mediaId={media.id}
         onRequest={onRequest}

@@ -18,6 +18,7 @@ import {
   DownloadJobSchema,
   DownloadJobStatus,
   DownloadQueueSnapshotSchema,
+  DownloadQueueStageSchema,
   DownloadType,
   EmbyStatusSchema,
   EPISODE_FINALE_TYPES,
@@ -48,6 +49,7 @@ import {
   MovieRatingsSchema,
   MovieSchema,
   ProfileQuerySchema,
+  QualityTier,
   ReleaseProtocolSchema,
   ReleaseQualitySchema,
   ReleaseSchema,
@@ -75,6 +77,7 @@ export {
   DownloadType,
   EPISODE_FINALE_TYPES,
   MEDIA_STATES,
+  QualityTier,
   SHOW_SERIES_TYPES,
   SHOW_STATUSES,
 }
@@ -89,6 +92,7 @@ export const TERMINAL_DOWNLOAD_JOB_STATUSES = [
   DownloadJobStatus.Cancelled,
   DownloadJobStatus.Completed,
   DownloadJobStatus.Failed,
+  DownloadJobStatus.NotFound,
 ] as const
 
 export function isTerminalDownloadJobStatus(
@@ -110,6 +114,27 @@ export function isInProgressDownloadJobStatus(
     IN_PROGRESS_DOWNLOAD_JOB_STATUSES as readonly DownloadJobStatus[]
   ).includes(status)
 }
+
+/**
+ * Plan 024. Every {@link QualityTier}, best first - the order a picker lists
+ * them in. Hand-listed rather than `Object.values()` so the order is explicit;
+ * types.spec.ts pins that it covers every member.
+ */
+export const QUALITY_TIERS = [
+  QualityTier.UpTo4k,
+  QualityTier.Hd,
+  QualityTier.UpTo720p,
+] as const satisfies readonly QualityTier[]
+
+/** Plan 024. What a person reads for each tier, keyed in best-first order. */
+export const QUALITY_TIER_LABELS: Readonly<Record<QualityTier, string>> = {
+  [QualityTier.UpTo4k]: 'Up to 4K',
+  [QualityTier.Hd]: 'HD (up to 1080p)',
+  [QualityTier.UpTo720p]: 'Up to 720p',
+}
+
+/** Plan 024. The tier a request gets when it names none. */
+export const DEFAULT_QUALITY_TIER: QualityTier = QualityTier.Hd
 
 export type CreateDownloadJobInput = z.infer<
   typeof CreateDownloadJobInputSchema
@@ -151,6 +176,9 @@ export type DiscordIdentity = z.infer<typeof DiscordIdentitySchema>
  * it was always coming from.
  */
 export type DownloadQueueSnapshot = z.infer<typeof DownloadQueueSnapshotSchema>
+
+/** Where a download sits in SABnzbd - see {@link DownloadQueueSnapshotSchema}. */
+export type DownloadQueueStage = z.infer<typeof DownloadQueueStageSchema>
 
 /**
  * yt-dlp's progress on a video job's current file, per job and per file.
@@ -304,7 +332,19 @@ export type DownloadJob = z.infer<typeof DownloadJobSchema>
 export type DownloadJobRecord = Omit<DownloadJob, 'media' | 'progress'> & {
   mediaId: string
   type: DownloadType
+  /**
+   * Plan 024: the Radarr/Sonarr command this job is waiting on - its id,
+   * kind, and when it was sent (ISO). Internal bookkeeping for the poller,
+   * so it lives here and not on `DownloadJobSchema`: `toJob()` strips all
+   * three before a record becomes a wire `DownloadJob`.
+   */
+  upstreamCommandAt?: string
+  upstreamCommandId?: number
+  upstreamCommandKind?: UpstreamCommandKind
 }
+
+/** Which kind of Radarr/Sonarr command a job is waiting on (plan 024). */
+export type UpstreamCommandKind = 'refresh' | 'search'
 
 /**
  * One gallery card: a title in the library, when it landed there

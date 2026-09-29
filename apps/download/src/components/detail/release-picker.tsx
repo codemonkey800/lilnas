@@ -40,10 +40,10 @@ export const RELEASE_SEARCH_AGAIN_LABEL = 'Search again'
  *
  * `GET /download/media/:id/releases` fires a real interactive search at every
  * configured indexer — 30s+ — and **writes upstream despite being a GET**:
- * Radarr and Sonarr will not surface releases for an unmonitored title, so the
- * backend borrows monitoring and puts it back. Firing that on page load, on
- * hover, or on a prefetch would mutate a user's library as a side effect of
- * *looking* at a page.
+ * Radarr and Sonarr key releases on their own library ids, so the backend adds
+ * a title that isn't in the library yet (unmonitored, and it stays there).
+ * Firing that on page load, on hover, or on a prefetch would fill a user's
+ * library as a side effect of *looking* at a page.
  *
  * So the note says what the button will do before it does it, and says that
  * looking is still free.
@@ -348,11 +348,11 @@ export type ReleasePickerProps = Omit<
  * ⚠️ **The list is behind an explicit button.** The mockups draw it already
  * populated, which is a fine thing for a still image and an unsafe thing for an
  * app: `GET /download/media/:id/releases` fires a 30s+ interactive search at
- * every indexer *and can write upstream*, because Radarr and Sonarr will not
- * surface releases for an unmonitored title and the backend borrows monitoring
- * to ask. Rendering the populated list on page load would mutate a library as a
- * side effect of navigation, and Next's link prefetching would do it for pages
- * nobody even opened. So the search is a user action, it says what it will do
+ * every indexer *and can write upstream*, because Radarr and Sonarr key
+ * releases on their own library ids and the backend adds a title that isn't in
+ * the library yet — unmonitored, and it stays there. Rendering the populated
+ * list on page load would mutate a library as a side effect of navigation, and
+ * Next's link prefetching would do it for pages nobody even opened. So the search is a user action, it says what it will do
  * first, and this component never calls `onSearch` from anything but a press.
  *
  * The rest follows the mockup:

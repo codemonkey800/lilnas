@@ -295,6 +295,10 @@ export type StatusTone = 'bad' | 'mute' | 'ok' | 'uv' | 'warn'
  * rather than busy, which is precisely why the second one cannot be `uv` -
  * an accent and a breathing dot would read as "the machine is working on it"
  * for a job that will sit there forever.
+ *
+ * `not_found` (plan 024) is `warn` too, and deliberately not `bad`: a search
+ * that came back empty is an outcome, not a breakage - nothing went wrong,
+ * there was just nothing to grab yet, and Retry is the person's move.
  */
 const STATUS_TONES: Record<DownloadJobStatus, StatusTone> = {
   [DownloadJobStatus.Cancelled]: 'mute',
@@ -306,6 +310,7 @@ const STATUS_TONES: Record<DownloadJobStatus, StatusTone> = {
   [DownloadJobStatus.Failed]: 'bad',
   [DownloadJobStatus.Importing]: 'uv',
   [DownloadJobStatus.NeedsAttention]: 'warn',
+  [DownloadJobStatus.NotFound]: 'warn',
   [DownloadJobStatus.Paused]: 'warn',
   [DownloadJobStatus.Pausing]: 'warn',
   [DownloadJobStatus.Pending]: 'mute',

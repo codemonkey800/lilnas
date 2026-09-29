@@ -56,7 +56,7 @@ describe('planShowDelete', () => {
         fileCount: 1,
         fileIds: [101],
         seasonNumbersToUnmonitor: [],
-        unmonitorScope: { episodeId: 1 },
+        unmonitorScope: { episodeIds: [1] },
       })
     })
 
@@ -70,7 +70,7 @@ describe('planShowDelete', () => {
         fileCount: 0,
         fileIds: [],
         seasonNumbersToUnmonitor: [],
-        unmonitorScope: { episodeId: 1 },
+        unmonitorScope: { episodeIds: [1] },
       })
     })
 
@@ -132,7 +132,7 @@ describe('planShowDelete', () => {
         fileCount: 1,
         fileIds: [101],
         seasonNumbersToUnmonitor: [],
-        unmonitorScope: { episodeId: 1 },
+        unmonitorScope: { episodeIds: [1] },
       })
     })
 
@@ -169,7 +169,7 @@ describe('planShowDelete', () => {
         fileCount: 0,
         fileIds: [],
         seasonNumbersToUnmonitor: [],
-        unmonitorScope: { episodeId: 999 },
+        unmonitorScope: { episodeIds: [999] },
       })
     })
 
@@ -197,7 +197,111 @@ describe('planShowDelete', () => {
       )
 
       expect(plan.fileIds).toEqual([101])
-      expect(plan.unmonitorScope).toEqual({ episodeId: 1 })
+      expect(plan.unmonitorScope).toEqual({ episodeIds: [1] })
+    })
+
+    describe('a multi-episode file', () => {
+      // `S03E01E02.mkv`: episodes 1 and 2 both point at file 101, so
+      // deleting "episode 1" deletes episode 2's footage too.
+      it('removes and unmonitors every episode sharing the file', () => {
+        const plan = planShowDelete(
+          [episode(1, 3, 101), episode(2, 3, 101), episode(3, 3, 103)],
+          [],
+          { episodeId: 1 },
+        )
+
+        expect(plan).toEqual({
+          cascade: 'none',
+          fileCount: 1,
+          fileIds: [101],
+          seasonNumbersToUnmonitor: [],
+          unmonitorScope: { episodeIds: [1, 2] },
+        })
+      })
+
+      it('lists the shared file once however many episodes it backs', () => {
+        const plan = planShowDelete(
+          [
+            episode(1, 3, 101),
+            episode(2, 3, 101),
+            episode(3, 3, 101),
+            episode(4, 3, 104),
+          ],
+          [],
+          { episodeId: 2 },
+        )
+
+        expect(plan.fileIds).toEqual([101])
+        expect(plan.fileCount).toBe(1)
+        expect(plan.unmonitorScope).toEqual({ episodeIds: [1, 2, 3] })
+      })
+
+      // The sibling's file is the one being deleted, so it cannot hold the
+      // season open - the season is empty once the file goes.
+      it('sees the season emptied when the siblings were all that was left', () => {
+        const plan = planShowDelete(
+          [episode(1, 3, 101), episode(2, 3, 101), episode(3, 4, 103)],
+          [],
+          { episodeId: 1 },
+        )
+
+        expect(plan).toEqual({
+          cascade: 'season',
+          fileCount: 1,
+          fileIds: [101],
+          seasonNumbersToUnmonitor: [3],
+          unmonitorScope: { seasonNumber: 3 },
+        })
+      })
+
+      it('cascades to the series when that season was the last one left', () => {
+        const plan = planShowDelete(
+          [episode(1, 3, 101), episode(2, 3, 101), episode(3, 4)],
+          [],
+          { episodeId: 2 },
+        )
+
+        expect(plan).toEqual({
+          cascade: 'series',
+          fileCount: 1,
+          fileIds: [],
+          seasonNumbersToUnmonitor: [],
+          unmonitorScope: undefined,
+        })
+      })
+
+      it('empties season 0 the same way as any other season', () => {
+        const plan = planShowDelete(
+          [episode(1, 0, 101), episode(2, 0, 101), episode(3, 1, 103)],
+          [],
+          { episodeId: 1 },
+        )
+
+        expect(plan.cascade).toBe('season')
+        expect(plan.seasonNumbersToUnmonitor).toEqual([0])
+      })
+
+      // The sibling goes - and is unmonitored - with the target, so its
+      // in-flight item is ignored exactly as the target's own would be.
+      it('ignores a sibling’s in-flight queue item when deciding the season', () => {
+        const plan = planShowDelete(
+          [episode(1, 3, 101), episode(2, 3, 101), episode(3, 4, 103)],
+          [queued({ episodeId: 2, seasonNumber: 3 })],
+          { episodeId: 1 },
+        )
+
+        expect(plan.cascade).toBe('season')
+      })
+
+      it('does not treat episodes without a file as siblings of each other', () => {
+        const plan = planShowDelete(
+          [episode(1, 3), episode(2, 3), episode(3, 3, 103)],
+          [],
+          { episodeId: 1 },
+        )
+
+        expect(plan.unmonitorScope).toEqual({ episodeIds: [1] })
+      })
     })
 
     it('ignores episodes Sonarr could not place in a season', () => {

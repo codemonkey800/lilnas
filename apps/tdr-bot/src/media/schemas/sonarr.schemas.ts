@@ -2,14 +2,9 @@ import { z } from 'zod'
 
 import {
   OptionalSearchQuerySchema,
-  QualityProfileSchema,
-  RootFolderSchema,
   SearchQuerySchema,
-  SystemStatusSchema,
 } from 'src/media/schemas/media.schemas'
 import {
-  SonarrImageType,
-  SonarrMonitorType,
   SonarrSeriesStatus,
   SonarrSeriesType,
 } from 'src/media/types/sonarr.types'
@@ -18,46 +13,21 @@ import {
  * Sonarr image schema
  */
 export const SonarrImageSchema = z.object({
-  coverType: z.nativeEnum(SonarrImageType),
+  // Sonarr may send cover types beyond SonarrImageType (e.g. 'unknown')
+  coverType: z.string(),
   url: z.string().optional(),
   remoteUrl: z.string().optional(),
   path: z.string().optional(),
-  width: z.number().int().positive().optional(),
-  height: z.number().int().positive().optional(),
+  width: z.number().int().nonnegative().optional(),
+  height: z.number().int().nonnegative().optional(),
 })
 
 /**
- * Sonarr ratings schema
+ * Sonarr ratings schema (Sonarr v4 `Ratings`: a single aggregate rating)
  */
 export const SonarrRatingsSchema = z.object({
-  imdb: z
-    .object({
-      votes: z.number().int().nonnegative(),
-      value: z.number().min(0).max(10),
-      type: z.string(),
-    })
-    .optional(),
-  theMovieDb: z
-    .object({
-      votes: z.number().int().nonnegative(),
-      value: z.number().min(0).max(10),
-      type: z.string(),
-    })
-    .optional(),
-  rottenTomatoes: z
-    .object({
-      votes: z.number().int().nonnegative(),
-      value: z.number().min(0).max(100),
-      type: z.string(),
-    })
-    .optional(),
-  tvdb: z
-    .object({
-      votes: z.number().int().nonnegative(),
-      value: z.number().min(0).max(10),
-      type: z.string(),
-    })
-    .optional(),
+  votes: z.number().int().nonnegative(),
+  value: z.number().nonnegative(),
 })
 
 /**
@@ -270,95 +240,6 @@ export const LibrarySearchResultSchema = SeriesSearchResultSchema.extend({
 export const LibrarySearchResultArraySchema = z.array(LibrarySearchResultSchema)
 
 /**
- * Sonarr system status schema (alias of shared SystemStatusSchema)
- */
-export const SonarrSystemStatusSchema = SystemStatusSchema
-
-/**
- * Sonarr quality profile schema (alias of shared QualityProfileSchema)
- */
-export const SonarrQualityProfileSchema = QualityProfileSchema
-
-/**
- * Sonarr root folder schema (alias of shared RootFolderSchema)
- */
-export const SonarrRootFolderSchema = RootFolderSchema
-
-/**
- * Add series request schema
- */
-export const AddSeriesRequestSchema = z.object({
-  tvdbId: z.number().int(),
-  title: z.string(),
-  titleSlug: z.string(),
-  qualityProfileId: z.number().int(),
-  languageProfileId: z.number().int().optional(),
-  rootFolderPath: z.string(),
-  monitored: z.boolean(),
-  monitor: z.nativeEnum(SonarrMonitorType),
-  seasonFolder: z.boolean(),
-  useSceneNumbering: z.boolean(),
-  seriesType: z.nativeEnum(SonarrSeriesType),
-  searchForMissingEpisodes: z.boolean(),
-  searchForCutoffUnmetEpisodes: z.boolean(),
-  images: z.array(SonarrImageSchema).optional(),
-  seasons: z.array(SonarrSeasonSchema).optional(),
-  year: z.number().int().min(1900).max(2100).optional(),
-  firstAired: z.string().optional(),
-  overview: z.string().optional(),
-  network: z.string().optional(),
-  airTime: z.string().optional(),
-  certification: z.string().optional(),
-  genres: z.array(z.string()).optional(),
-  tags: z.array(z.number().int()).optional(),
-})
-
-/**
- * Command request schema
- */
-export const SonarrCommandRequestSchema = z.object({
-  name: z.string(),
-  seriesIds: z.array(z.number().int()).optional(),
-  seriesId: z.number().int().optional(),
-})
-
-/**
- * Command response schema
- */
-export const SonarrCommandResponseSchema = z.object({
-  id: z.number().int(),
-  name: z.string(),
-  commandName: z.string(),
-  message: z.string().optional(),
-  body: z.object({
-    seriesIds: z.array(z.number().int()).optional(),
-    seriesId: z.number().int().optional(),
-    sendUpdatesToClient: z.boolean(),
-    updateScheduledTask: z.boolean(),
-    completionMessage: z.string(),
-    requiresDiskAccess: z.boolean(),
-    isExclusive: z.boolean(),
-    isTypeExclusive: z.boolean(),
-    isLongRunning: z.boolean(),
-    name: z.string(),
-    trigger: z.string(),
-  }),
-  priority: z.string(),
-  status: z.string(),
-  queued: z.string(),
-  started: z.string().optional(),
-  ended: z.string().optional(),
-  duration: z.string().optional(),
-  exception: z.string().optional(),
-  trigger: z.string(),
-  clientUserAgent: z.string().optional(),
-  stateChangeTime: z.string().optional(),
-  sendUpdatesToClient: z.boolean(),
-  updateScheduledTask: z.boolean(),
-  lastExecutionTime: z.string().optional(),
-})
-
-/**
  * Sonarr error response schema
  */
 export const SonarrErrorResponseSchema = z.object({
@@ -374,7 +255,7 @@ export const EpisodeResourceSchema = z.object({
   id: z.number().int(),
   seriesId: z.number().int(),
   seasonNumber: z.number().int().nonnegative(),
-  episodeNumber: z.number().int().positive(),
+  episodeNumber: z.number().int().nonnegative(),
   title: z.string(),
   monitored: z.boolean(),
   hasFile: z.boolean(),
@@ -390,14 +271,7 @@ export const EpisodeResourceSchema = z.object({
  */
 export const SeasonEpisodeSelectionSchema = z.object({
   season: z.number().int().nonnegative(),
-  episodes: z.array(z.number().int().positive()).optional(),
-})
-
-/**
- * Monitor series options schema
- */
-export const MonitorSeriesOptionsSchema = z.object({
-  selection: z.array(SeasonEpisodeSelectionSchema).optional(),
+  episodes: z.array(z.number().int().nonnegative()).optional(),
 })
 
 /**
@@ -409,20 +283,11 @@ export const UnmonitorSeriesOptionsSchema = z.object({
 })
 
 /**
- * Monitoring change schema
- */
-export const MonitoringChangeSchema = z.object({
-  season: z.number().int().nonnegative(),
-  episodes: z.array(z.number().int().positive()).optional(),
-  action: z.enum(['monitored', 'unmonitored']),
-})
-
-/**
  * Unmonitoring change schema
  */
 export const UnmonitoringChangeSchema = z.object({
   season: z.number().int().nonnegative(),
-  episodes: z.array(z.number().int().positive()).optional(),
+  episodes: z.array(z.number().int().nonnegative()).optional(),
   action: z.enum([
     'unmonitored',
     'deleted_series',
@@ -433,18 +298,13 @@ export const UnmonitoringChangeSchema = z.object({
 })
 
 /**
- * Monitor and download series result schema
+ * Pack download kept running during a partial cancel
  */
-export const MonitorAndDownloadSeriesResultSchema = z.object({
-  success: z.boolean(),
-  seriesAdded: z.boolean(),
-  seriesUpdated: z.boolean(),
-  searchTriggered: z.boolean(),
-  changes: z.array(MonitoringChangeSchema),
-  series: SonarrSeriesSchema.optional(),
-  commandId: z.number().int().optional(),
-  warnings: z.array(z.string()).optional(),
-  error: z.string().optional(),
+export const KeptPackDownloadSchema = z.object({
+  downloadId: z.string(),
+  title: z.string().optional(),
+  coveredEpisodes: z.string(),
+  unmonitoredEpisodes: z.string(),
 })
 
 /**
@@ -459,6 +319,7 @@ export const UnmonitorAndDeleteSeriesResultSchema = z.object({
   changes: z.array(UnmonitoringChangeSchema),
   series: SonarrSeriesSchema.optional(),
   commandIds: z.array(z.number().int()).optional(),
+  keptPacks: z.array(KeptPackDownloadSchema).optional(),
   warnings: z.array(z.string()).optional(),
   error: z.string().optional(),
 })
@@ -502,7 +363,7 @@ export const SonarrQueueItemSchema = z.object({
   episode: z
     .object({
       id: z.number().int(),
-      episodeNumber: z.number().int().positive(),
+      episodeNumber: z.number().int().nonnegative(),
       seasonNumber: z.number().int().nonnegative(),
       title: z.string(),
     })
@@ -530,12 +391,15 @@ export const DeleteSeriesRequestSchema = z.object({
  */
 export const DownloadingSeriesSchema = z.object({
   id: z.number().int(),
+  downloadId: z.string().optional(),
   seriesId: z.number().int().optional(),
   episodeId: z.number().int().optional(),
   seriesTitle: z.string().optional(),
   episodeTitle: z.string().optional(),
   seasonNumber: z.number().int().nonnegative().optional(),
-  episodeNumber: z.number().int().positive().optional(),
+  episodeNumber: z.number().int().nonnegative().optional(),
+  episodeCount: z.number().int().nonnegative(),
+  episodeLabel: z.string(),
   size: z.number().int().nonnegative(),
   sizeleft: z.number().int().nonnegative(),
   status: z.string(),
@@ -619,7 +483,7 @@ export const SeasonDetailsSchema = z.object({
   episodes: z.array(
     z.object({
       id: z.number().int(),
-      episodeNumber: z.number().int().positive(),
+      episodeNumber: z.number().int().nonnegative(),
       title: z.string(),
       monitored: z.boolean(),
       hasFile: z.boolean(),
@@ -643,7 +507,7 @@ export const EpisodeDetailsSchema = z.object({
   id: z.number().int(),
   seriesId: z.number().int(),
   seasonNumber: z.number().int().nonnegative(),
-  episodeNumber: z.number().int().positive(),
+  episodeNumber: z.number().int().nonnegative(),
   title: z.string(),
   monitored: z.boolean(),
   hasFile: z.boolean(),
@@ -674,8 +538,8 @@ export const EpisodeDetailsSchema = z.object({
         .object({
           audioChannels: z.number().int().nonnegative(),
           audioCodec: z.string().optional(),
-          height: z.number().int().positive().optional(),
-          width: z.number().int().positive().optional(),
+          height: z.number().int().nonnegative().optional(),
+          width: z.number().int().nonnegative().optional(),
           videoCodec: z.string().optional(),
           subtitles: z.array(z.string()).optional(),
         })
@@ -695,9 +559,6 @@ export const EpisodeDetailsSchema = z.object({
 export const SonarrInputSchemas = {
   searchQuery: SearchQuerySchema,
   optionalSearchQuery: OptionalSearchQuerySchema,
-  addSeriesRequest: AddSeriesRequestSchema,
-  commandRequest: SonarrCommandRequestSchema,
-  monitorSeriesOptions: MonitorSeriesOptionsSchema,
   unmonitorSeriesOptions: UnmonitorSeriesOptionsSchema,
   updateEpisodeRequest: UpdateEpisodeRequestSchema,
   bulkEpisodeUpdateRequest: BulkEpisodeUpdateRequestSchema,
@@ -717,12 +578,6 @@ export const SonarrOutputSchemas = {
   seriesSearchResultArray: SeriesSearchResultArraySchema,
   librarySearchResult: LibrarySearchResultSchema,
   librarySearchResultArray: LibrarySearchResultArraySchema,
-  qualityProfile: SonarrQualityProfileSchema,
-  qualityProfileArray: z.array(SonarrQualityProfileSchema),
-  rootFolder: SonarrRootFolderSchema,
-  rootFolderArray: z.array(SonarrRootFolderSchema),
-  addSeriesResponse: SonarrSeriesResourceSchema,
-  commandResponse: SonarrCommandResponseSchema,
   errorResponse: SonarrErrorResponseSchema,
   episodeResource: EpisodeResourceSchema,
   episodeResourceArray: z.array(EpisodeResourceSchema),
@@ -730,7 +585,6 @@ export const SonarrOutputSchemas = {
   queueItemArray: z.array(SonarrQueueItemSchema),
   downloadingSeries: DownloadingSeriesSchema,
   downloadingSeriesArray: z.array(DownloadingSeriesSchema),
-  monitorAndDownloadSeriesResult: MonitorAndDownloadSeriesResultSchema,
   unmonitorAndDeleteSeriesResult: UnmonitorAndDeleteSeriesResultSchema,
 } as const
 
@@ -738,9 +592,6 @@ export const SonarrOutputSchemas = {
  * Type inference helpers (only exported types with active consumers)
  */
 export type { SearchQueryInput } from 'src/media/schemas/media.schemas'
-export type MonitorSeriesOptionsInput = z.infer<
-  typeof MonitorSeriesOptionsSchema
->
 export type UnmonitorSeriesOptionsInput = z.infer<
   typeof UnmonitorSeriesOptionsSchema
 >

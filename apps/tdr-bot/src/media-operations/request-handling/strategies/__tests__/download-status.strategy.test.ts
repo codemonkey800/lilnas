@@ -1,4 +1,5 @@
-import { HumanMessage } from '@langchain/core/messages'
+import { BaseMessage, HumanMessage } from '@langchain/core/messages'
+import { ChatOpenAI } from '@langchain/openai'
 import { Test, TestingModule } from '@nestjs/testing'
 
 import { RadarrService } from 'src/media/services/radarr.service'
@@ -7,6 +8,7 @@ import {
   createMockDownloadingMovie,
   createMockDownloadingSeries,
 } from 'src/media-operations/request-handling/__test-fixtures__/download-fixtures'
+import { createMockDiscordIdentity } from 'src/media-operations/request-handling/__test-helpers__/mock-services'
 import { DownloadStatusStrategy } from 'src/media-operations/request-handling/strategies/download-status.strategy'
 import { StrategyRequestParams } from 'src/media-operations/request-handling/types/request-context.type'
 import { ValidationUtilities } from 'src/media-operations/request-handling/utils/validation.utils'
@@ -81,6 +83,7 @@ describe('DownloadStatusStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'what is downloading?' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
       }
 
       radarrService.getDownloadingMovies.mockResolvedValue([])
@@ -114,6 +117,7 @@ describe('DownloadStatusStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'download status' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
       }
 
       radarrService.getDownloadingMovies.mockResolvedValue([])
@@ -136,6 +140,7 @@ describe('DownloadStatusStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'what is downloading?' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
       }
 
       radarrService.getDownloadingMovies.mockResolvedValue([
@@ -168,6 +173,7 @@ describe('DownloadStatusStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'download status' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
       }
 
       const movie1 = createMockDownloadingMovie({ movieTitle: 'The Matrix' })
@@ -197,6 +203,7 @@ describe('DownloadStatusStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'what is downloading?' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
       }
 
       radarrService.getDownloadingMovies.mockResolvedValue([])
@@ -218,6 +225,7 @@ describe('DownloadStatusStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'download status' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
       }
 
       const episode = createMockDownloadingSeries({
@@ -242,12 +250,65 @@ describe('DownloadStatusStrategy', () => {
     })
   })
 
+  describe('Active downloads - season packs', () => {
+    const originalApiKey = process.env.OPENAI_API_KEY
+
+    beforeEach(() => {
+      process.env.OPENAI_API_KEY = 'test-key'
+    })
+
+    afterEach(() => {
+      process.env.OPENAI_API_KEY = originalApiKey
+      jest.restoreAllMocks()
+    })
+
+    it('should describe a season pack as one download with its episode range', async () => {
+      const params: StrategyRequestParams = {
+        message: new HumanMessage({ id: '1', content: 'download status' }),
+        messages: [],
+        userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
+      }
+      const invoke = jest
+        .spyOn(ChatOpenAI.prototype, 'invoke')
+        .mockResolvedValue(mockChatResponse as never)
+      retryService.executeWithRetry.mockImplementation(fn => fn())
+
+      radarrService.getDownloadingMovies.mockResolvedValue([])
+      sonarrService.getDownloadingEpisodes.mockResolvedValue([
+        createMockDownloadingSeries({
+          seriesTitle: 'The Wire',
+          episodeNumber: undefined,
+          episodeTitle: undefined,
+          episodeCount: 10,
+          episodeLabel: 'S01E01–E10',
+        }),
+        createMockDownloadingSeries(),
+      ])
+
+      await strategy.handleRequest(params)
+
+      const [prompt] = invoke.mock.calls[0] as [BaseMessage[]]
+      const context = prompt
+        .map(m => String(m.content))
+        .find(c => c.startsWith('ACTIVE DOWNLOADS FOUND'))
+      expect(context).toContain(
+        '0 movies and 2 TV downloads (11 episodes) currently downloading',
+      )
+      expect(context).toContain(
+        '"episode":"S01E01–E10 (season pack, 10 episodes)"',
+      )
+      expect(context).toContain('"episode":"S01E01: Pilot"')
+    })
+  })
+
   describe('Active downloads - mixed content', () => {
     it('should handle both movies and episodes in single response when both types are downloading', async () => {
       const params: StrategyRequestParams = {
         message: new HumanMessage({ id: '1', content: 'what is downloading?' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
       }
 
       radarrService.getDownloadingMovies.mockResolvedValue([
@@ -277,6 +338,7 @@ describe('DownloadStatusStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'download status' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
       }
 
       const movie1 = createMockDownloadingMovie({ movieTitle: 'The Matrix' })
@@ -314,6 +376,7 @@ describe('DownloadStatusStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'what is downloading?' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
       }
 
       const error = new Error('Radarr service unavailable')
@@ -338,6 +401,7 @@ describe('DownloadStatusStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'download status' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
       }
 
       radarrService.getDownloadingMovies.mockRejectedValue(
@@ -384,6 +448,7 @@ describe('DownloadStatusStrategy', () => {
         message: new HumanMessage({ id: '2', content: 'download status' }),
         messages: [previousMessage1, previousMessage2],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
       }
 
       radarrService.getDownloadingMovies.mockResolvedValue([
@@ -408,6 +473,7 @@ describe('DownloadStatusStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'download status' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
       }
 
       const customState = {
@@ -451,6 +517,7 @@ describe('DownloadStatusStrategy', () => {
           }),
           messages: [],
           userId: `user${i}`,
+          discord: createMockDiscordIdentity(`user${i}`),
         }))
 
         // Setup mocks
@@ -487,12 +554,14 @@ describe('DownloadStatusStrategy', () => {
           }),
           messages: [],
           userId: 'user1',
+          discord: createMockDiscordIdentity('user1'),
         }
 
         const request2: StrategyRequestParams = {
           message: new HumanMessage({ id: '2', content: 'download status' }),
           messages: [],
           userId: 'user2',
+          discord: createMockDiscordIdentity('user2'),
         }
 
         radarrService.getDownloadingMovies.mockResolvedValue([
@@ -523,6 +592,7 @@ describe('DownloadStatusStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'download status' }),
           messages: [],
           userId: 'user1',
+          discord: createMockDiscordIdentity('user1'),
         }
 
         const request2: StrategyRequestParams = {
@@ -532,6 +602,7 @@ describe('DownloadStatusStrategy', () => {
           }),
           messages: [],
           userId: 'user2',
+          discord: createMockDiscordIdentity('user2'),
         }
 
         // Setup mock to succeed first time, fail second time
@@ -567,6 +638,7 @@ describe('DownloadStatusStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'download status' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
         }
 
         const malformedMovie = createMockDownloadingMovie({
@@ -596,6 +668,7 @@ describe('DownloadStatusStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'download status' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
         }
 
         const malformedMovie = createMockDownloadingMovie({
@@ -615,6 +688,7 @@ describe('DownloadStatusStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'download status' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
         }
 
         const malformedEpisode = createMockDownloadingSeries({
@@ -636,6 +710,7 @@ describe('DownloadStatusStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'download status' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
         }
 
         const malformedEpisode = createMockDownloadingSeries({
@@ -659,6 +734,7 @@ describe('DownloadStatusStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'download status' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
         }
 
         radarrService.getDownloadingMovies.mockResolvedValue([])
@@ -680,6 +756,7 @@ describe('DownloadStatusStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'download status' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
         }
 
         // Create 100 movies in queue
@@ -715,6 +792,7 @@ describe('DownloadStatusStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'download status' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
         }
 
         radarrService.getDownloadingMovies.mockRejectedValue(
@@ -739,6 +817,7 @@ describe('DownloadStatusStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'download status' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
         }
 
         radarrService.getDownloadingMovies.mockResolvedValue([])
@@ -763,6 +842,7 @@ describe('DownloadStatusStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'download status' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
         }
 
         radarrService.getDownloadingMovies.mockRejectedValue(
@@ -789,6 +869,7 @@ describe('DownloadStatusStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'download status' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
         }
 
         radarrService.getDownloadingMovies.mockResolvedValue([
@@ -811,6 +892,7 @@ describe('DownloadStatusStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'download status' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
         }
 
         radarrService.getDownloadingMovies.mockResolvedValue([
@@ -836,6 +918,7 @@ describe('DownloadStatusStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'download status' }),
           messages: [],
           userId: undefined as never,
+          discord: createMockDiscordIdentity(undefined as never),
         }
 
         radarrService.getDownloadingMovies.mockResolvedValue([
@@ -853,6 +936,7 @@ describe('DownloadStatusStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'download status' }),
           messages: [],
           userId: '',
+          discord: createMockDiscordIdentity(''),
         }
 
         radarrService.getDownloadingMovies.mockResolvedValue([
@@ -870,6 +954,7 @@ describe('DownloadStatusStrategy', () => {
           message: new HumanMessage({ id: '1', content: '' }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
         }
 
         radarrService.getDownloadingMovies.mockResolvedValue([
@@ -889,6 +974,7 @@ describe('DownloadStatusStrategy', () => {
           message: null as never,
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
         }
 
         radarrService.getDownloadingMovies.mockResolvedValue([
@@ -906,6 +992,7 @@ describe('DownloadStatusStrategy', () => {
           message: new HumanMessage({ id: '1', content: 'download status' }),
           messages: undefined as never,
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
         }
 
         radarrService.getDownloadingMovies.mockResolvedValue([
@@ -926,6 +1013,7 @@ describe('DownloadStatusStrategy', () => {
           }),
           messages: [],
           userId: 'user123',
+          discord: createMockDiscordIdentity('user123'),
         }
 
         radarrService.getDownloadingMovies.mockResolvedValue([

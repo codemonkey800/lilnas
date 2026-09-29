@@ -92,6 +92,7 @@ import {
   type MediaFileSource,
 } from 'src/media/media-file.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
+import { movieFileCustomFormats } from 'src/media/movie-metadata.util'
 import { RadarrService } from 'src/media/radarr.service'
 import { ReleaseService } from 'src/media/release.service'
 import { ShowService } from 'src/media/show.service'
@@ -148,6 +149,23 @@ class RequestShowInputDto extends createZodDto(RequestShowInputSchema) {}
 interface RouteAuditEvent {
   action: AuditAction
   metadata?: (job: DownloadJob) => Record<string, unknown>
+}
+
+/**
+ * A movie with its file's custom formats laid onto `file`. Written to a
+ * **copy** for the same reason as `withCurrentRelease()`: the resolver caches
+ * the object it hands back. No formats (or not a movie) returns `media`
+ * itself, so the key stays absent rather than present-and-undefined.
+ */
+function withFileCustomFormats(
+  media: Media,
+  customFormats: string[] | undefined,
+): Media {
+  if (!customFormats || !isMovie(media)) {
+    return media
+  }
+
+  return { ...media, file: { ...media.file, customFormats } }
 }
 
 @Controller('/download')
@@ -724,10 +742,11 @@ export class DownloadController {
       throw new NotFoundException('Media not found')
     }
 
-    const [jobs, annotated, credits] = await Promise.all([
+    const [jobs, annotated, credits, customFormats] = await Promise.all([
       this.jobQueryService.listJobsForMedia(id),
       this.withCurrentRelease(resolved),
       this.creditsFor(resolved),
+      this.customFormatsFor(resolved),
     ])
 
     this.logger.log(
@@ -744,7 +763,7 @@ export class DownloadController {
     return {
       ...(credits ? { credits } : {}),
       jobs: await this.serveJobs(jobs, isAdmin),
-      media: annotated,
+      media: withFileCustomFormats(annotated, customFormats),
     }
   }
 
@@ -772,6 +791,45 @@ export class DownloadController {
           mediaId: resolved.id,
         },
         'GET /media/:id - credits lookup failed',
+      )
+
+      return undefined
+    }
+  }
+
+  /**
+   * The custom formats Radarr matched on a library movie's file, for the
+   * detail page's `Formats` fact.
+   *
+   * Read from `GET /moviefile` because the `GET /movie` the resolver caches
+   * never computes them. Detail route only, like {@link creditsFor}: a Radarr
+   * call per title. Skipped for a movie with no file (nothing to match) or
+   * outside the library (no `radarrId`), and a failed lookup degrades to no
+   * formats rather than failing the page.
+   */
+  private async customFormatsFor(
+    resolved: Media,
+  ): Promise<string[] | undefined> {
+    if (
+      !isMovie(resolved) ||
+      resolved.radarrId == null ||
+      resolved.filePath == null
+    ) {
+      return undefined
+    }
+
+    try {
+      return movieFileCustomFormats(
+        await this.radarrService.getMovieFiles(resolved.radarrId),
+      )
+    } catch (err) {
+      this.logger.warn(
+        {
+          action: 'getMediaDetail',
+          error: getErrorMessage(err),
+          mediaId: resolved.id,
+        },
+        'GET /media/:id - movie file formats lookup failed',
       )
 
       return undefined
@@ -835,8 +893,9 @@ export class DownloadController {
    * attribution to mask.
    *
    * Note this route can *write* upstream despite being a GET: Radarr/Sonarr
-   * won't surface releases for an unmonitored title, so it borrows monitoring
-   * and puts it back (see `ReleaseService.withMonitoring`).
+   * key releases on their own library ids, so a title not yet in the library
+   * is added (unmonitored, and left there) before the search. It never
+   * changes monitoring and never deletes (see `ReleaseService`).
    */
   @Get('/media/:id/releases')
   async listReleases(
@@ -1766,6 +1825,7 @@ export class DownloadController {
         action,
         hasDiscordRequester: !!discordRequester,
         hasRequester: !!user,
+        qualityTier: input.qualityTier,
         tmdbId: input.tmdbId,
       },
       'POST /movies - Requesting movie download',
@@ -1776,6 +1836,7 @@ export class DownloadController {
         input.tmdbId,
         user,
         discordRequester,
+        input.qualityTier,
       ),
       this.resolveIsAdmin(user),
     ])
@@ -1879,7 +1940,10 @@ export class DownloadController {
   /**
    * `episodeId`/`seasonNumber` are both optional and narrow the request to
    * one episode or one season; omitting them requests the whole series, and
-   * that path is byte-for-byte what it was before Phase 4. Both are logged
+   * that path is byte-for-byte what it was before Phase 4. `episodeNumber`
+   * (with `seasonNumber`, never with `episodeId` - the schema enforces both)
+   * names one episode by number; the job carries it that way until the
+   * series' episodes exist and it resolves to an id. All three are logged
    * so a scoped request is greppable.
    */
   @Post('/shows')
@@ -1902,6 +1966,7 @@ export class DownloadController {
     // the job is `{"seasonNumber":3}` rather than carrying a null episodeId.
     const scope = narrowScope({
       episodeId: input.episodeId,
+      episodeNumber: input.episodeNumber,
       seasonNumber: input.seasonNumber,
     })
 
@@ -1909,8 +1974,10 @@ export class DownloadController {
       {
         action,
         episodeId: input.episodeId,
+        episodeNumber: input.episodeNumber,
         hasDiscordRequester: !!discordRequester,
         hasRequester: !!user,
+        qualityTier: input.qualityTier,
         seasonNumber: input.seasonNumber,
         tvdbId: input.tvdbId,
       },
@@ -1923,6 +1990,7 @@ export class DownloadController {
         user,
         scope,
         discordRequester,
+        input.qualityTier,
       ),
       this.resolveIsAdmin(user),
     ])

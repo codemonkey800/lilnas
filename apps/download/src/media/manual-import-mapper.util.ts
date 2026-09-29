@@ -154,31 +154,50 @@ export function toMovieCandidate(
 }
 
 /**
- * Sonarr's `ManualImportResource` -> the wire candidate, in three branches:
+ * Whether a Sonarr candidate belongs to the series - and, when `seasonNumber`
+ * is given, the season - a listing is for.
  *
- * - Sonarr parsed the episodes: use them.
- * - It did not, but the request is episode-scoped: the job already names the
- *   episode, so the scope answers the question Sonarr could not. Only the id
- *   matters to the command - the numbers are display, and default to 0 when
- *   nothing supplies them.
- * - Neither: not importable ({@link UNPARSED_EPISODES_REASON}). A season
- *   pack Sonarr could not parse legitimately lands here; it is a blocked
- *   row, not an error.
+ * Sonarr is asked by `downloadId` alone (see
+ * `SonarrService.getManualImportCandidates`), so this is where the listing is
+ * narrowed:
+ *
+ * - The series must be named and match. v4 resolves it from the tracked
+ *   download even when the filename defeats its parser, so a file with no
+ *   `series` is one Sonarr could not tie to this show at all.
+ * - A season is known from the resource's own `seasonNumber` or from its
+ *   parsed episodes, and must match. Season 0 is specials, a real season,
+ *   so every test is `!= null` and never truthiness.
+ * - A file whose season is unknown (nothing parsed) stays: it came out of a
+ *   download in scope, and dropping it would hide a blocked row the human
+ *   has to deal with.
  */
-export function toShowCandidate(
+export function isInShowScope(
   resource: SonarrManualImportResource,
-  scope?: ShowScope,
-): ManualImportCandidate | undefined {
-  const base = toBaseCandidate(resource)
+  seriesId: number,
+  seasonNumber?: number,
+): boolean {
+  if (resource.series?.id !== seriesId) return false
+  if (seasonNumber == null) return true
 
-  if (!base) {
-    return undefined
-  }
+  const seasons = [
+    resource.seasonNumber,
+    ...(resource.episodes ?? []).map(episode => episode.seasonNumber),
+  ].filter((season): season is number => season != null)
 
-  // `flatMap` rather than `filter().map()` so the `id != null` test actually
-  // narrows - the command is keyed on episode ids, and an episode Sonarr
-  // handed back without one is not addressable.
-  const episodes = (resource.episodes ?? []).flatMap(episode =>
+  return seasons.length === 0 || seasons.includes(seasonNumber)
+}
+
+/**
+ * The episodes Sonarr parsed for a file, id-bearing only.
+ *
+ * `flatMap` rather than `filter().map()` so the `id != null` test actually
+ * narrows - the command is keyed on episode ids, and an episode Sonarr
+ * handed back without one is not addressable.
+ */
+function toParsedEpisodes(
+  resource: SonarrManualImportResource,
+): NonNullable<ManualImportCandidate['episodes']> {
+  return (resource.episodes ?? []).flatMap(episode =>
     episode.id == null
       ? []
       : [
@@ -190,19 +209,74 @@ export function toShowCandidate(
           },
         ],
   )
+}
+
+/**
+ * The one file an episode scope may be mapped onto, or `undefined`.
+ *
+ * An episode job names one episode, and one episode is one file - so of the
+ * files Sonarr could not parse, only the **largest** stands in for it (the
+ * episode itself, rather than a sample or an extra riding along in the same
+ * folder). The rest stay unmapped. Ties keep the first listed. Only files a
+ * later call can address (a `path`) are considered.
+ */
+function pickFallback(
+  resources: SonarrManualImportResource[],
+  scope: ShowScope | undefined,
+): SonarrManualImportResource | undefined {
+  if (scope?.episodeId == null) return undefined
+
+  let largest: SonarrManualImportResource | undefined
+
+  for (const resource of resources) {
+    if (!resource.path || toParsedEpisodes(resource).length > 0) continue
+    if (!largest || (resource.size ?? 0) > (largest.size ?? 0)) {
+      largest = resource
+    }
+  }
+
+  return largest
+}
+
+/**
+ * One Sonarr `ManualImportResource` -> the wire candidate, in three branches:
+ *
+ * - Sonarr parsed the episodes: use them.
+ * - It did not, but this file is the listing's episode-scope fallback
+ *   (`fallbackScope`, see {@link pickFallback}): the job already names the
+ *   episode, so the scope answers the question Sonarr could not. Only the id
+ *   matters to the command - the numbers are display, and default to 0 when
+ *   nothing supplies them.
+ * - Neither: not importable ({@link UNPARSED_EPISODES_REASON}). A season
+ *   pack Sonarr could not parse legitimately lands here, as does every
+ *   unparsed file of an episode scope but the fallback; it is a blocked
+ *   row, not an error.
+ */
+function toShowCandidate(
+  resource: SonarrManualImportResource,
+  fallbackScope: ShowScope | undefined,
+): ManualImportCandidate | undefined {
+  const base = toBaseCandidate(resource)
+
+  if (!base) {
+    return undefined
+  }
+
+  const episodes = toParsedEpisodes(resource)
 
   if (episodes.length > 0) {
     return { ...base, episodes, importable: true }
   }
 
-  if (scope?.episodeId != null) {
+  if (fallbackScope?.episodeId != null) {
     return {
       ...base,
       episodes: [
         {
-          episodeNumber: scope.episodeNumber ?? 0,
-          id: scope.episodeId,
-          seasonNumber: scope.seasonNumber ?? resource.seasonNumber ?? 0,
+          episodeNumber: fallbackScope.episodeNumber ?? 0,
+          id: fallbackScope.episodeId,
+          seasonNumber:
+            fallbackScope.seasonNumber ?? resource.seasonNumber ?? 0,
         },
       ],
       importable: true,
@@ -210,4 +284,27 @@ export function toShowCandidate(
   }
 
   return { ...base, blockedReason: UNPARSED_EPISODES_REASON, importable: false }
+}
+
+/**
+ * A Sonarr listing -> its wire candidates, index-aligned with `resources`:
+ * `undefined` at the index of a resource with no `path`, which the caller
+ * logs and skips.
+ *
+ * Mapped as a listing rather than file by file because the episode-scope
+ * fallback is a property of the listing: of all the files Sonarr could not
+ * parse, at most one - {@link pickFallback}'s - is mapped onto the scoped
+ * episode. Mapping each file alone would put that one episode on every
+ * unparsed file, and importing them all would make them overwrite each
+ * other.
+ */
+export function toShowCandidates(
+  resources: SonarrManualImportResource[],
+  scope?: ShowScope,
+): Array<ManualImportCandidate | undefined> {
+  const fallback = pickFallback(resources, scope)
+
+  return resources.map(resource =>
+    toShowCandidate(resource, resource === fallback ? scope : undefined),
+  )
 }

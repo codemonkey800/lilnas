@@ -40,6 +40,7 @@ function buildState(messages = [makeHuman()], message = makeHuman()) {
     message,
     userInput: '',
     userId: 'u',
+    discord: { userId: 'u', username: 'testuser' },
     guildId: 'g',
     images: [],
     responseType: ResponseType.Math,

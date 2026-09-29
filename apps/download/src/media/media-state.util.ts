@@ -9,7 +9,10 @@ import {
   MEDIA_STATE_PRECEDENCE,
 } from '@lilnas/utils/download/types'
 
-import type { PollableQueueItem } from 'src/media/queue-status.util'
+import type {
+  ClientReadingLookup,
+  PollableQueueItem,
+} from 'src/media/queue-status.util'
 import {
   deriveStatusFromQueueItem,
   describeQueueItemError,
@@ -23,15 +26,29 @@ import {
  */
 export interface ManagedStateInput {
   hasFile: boolean
+  /**
+   * Radarr's `isAvailable` - whether the movie has reached its
+   * `minimumAvailability` (announced / in cinemas / released), before which
+   * Radarr won't grab it. Movies only; Sonarr has no such flag. Absent means
+   * unknown (Radarr drops null keys), which is never read as "not yet".
+   */
+  isAvailable?: boolean
   item?: PollableQueueItem
   monitored: boolean
 }
+
+/** `stateReason` for a monitored movie Radarr won't grab yet. */
+export const NOT_RELEASED_REASON = 'Not released yet'
 
 export interface DerivedState {
   /** Present exactly when a queue item was, so a page can draw progress. */
   queueSnapshot?: DownloadQueueSnapshot
   state: MediaState
-  /** Only ever set for `needs_attention` - the reason a human must act. */
+  /**
+   * Why the state is what it is, when that isn't obvious: for
+   * `needs_attention` the reason a human must act, for `wanted` that the
+   * movie isn't released yet ({@link NOT_RELEASED_REASON}).
+   */
   stateReason?: string
 }
 
@@ -57,17 +74,28 @@ export interface DerivedState {
  *   about it.
  *
  * No item: a file on disk is `available`, else monitored is `wanted`, else
- * `absent`.
+ * `absent`. A `wanted` movie Radarr reports as `isAvailable: false` carries
+ * {@link NOT_RELEASED_REASON} - Radarr won't search for it until it reaches
+ * its minimum availability, so "wanted" alone reads like a stall.
+ *
+ * `reading` merges SABnzbd's live numbers into the snapshot
+ * (`toQueueSnapshot`); it never changes the state.
  */
-export function deriveManagedState(input: ManagedStateInput): DerivedState {
-  const { hasFile, item, monitored } = input
+export function deriveManagedState(
+  input: ManagedStateInput,
+  reading?: ClientReadingLookup,
+): DerivedState {
+  const { hasFile, isAvailable, item, monitored } = input
 
   if (!item) {
     if (hasFile) return { state: 'available' }
-    return { state: monitored ? 'wanted' : 'absent' }
+    if (!monitored) return { state: 'absent' }
+    return isAvailable === false
+      ? { state: 'wanted', stateReason: NOT_RELEASED_REASON }
+      : { state: 'wanted' }
   }
 
-  const queueSnapshot = toQueueSnapshot(item)
+  const queueSnapshot = toQueueSnapshot(item, reading)
   const status = deriveStatusFromQueueItem(DownloadJobStatus.Downloading, item)
 
   switch (status) {
@@ -95,9 +123,10 @@ export function deriveManagedState(input: ManagedStateInput): DerivedState {
  * existed) - and the video's own file decides. A `Record` so a new
  * `DownloadJobStatus` fails type-check here until someone decides.
  *
- * `Importing` and `Requested`/`Searching` are Radarr/Sonarr job statuses a
- * video job never reaches today; they are mapped the way they read for a
- * movie so the table stays honest if one ever does.
+ * `Importing`, `Requested`/`Searching` and `NotFound` are Radarr/Sonarr job
+ * statuses a video job never reaches today; they are mapped the way they read
+ * for a movie so the table stays honest if one ever does - `NotFound` is over,
+ * so it has no opinion and the file decides.
  */
 const VIDEO_JOB_STATE: Record<DownloadJobStatus, MediaState | null> = {
   [DownloadJobStatus.Cancelled]: null,
@@ -109,6 +138,7 @@ const VIDEO_JOB_STATE: Record<DownloadJobStatus, MediaState | null> = {
   [DownloadJobStatus.Failed]: null,
   [DownloadJobStatus.Importing]: 'importing',
   [DownloadJobStatus.NeedsAttention]: 'needs_attention',
+  [DownloadJobStatus.NotFound]: null,
   [DownloadJobStatus.Paused]: 'paused',
   [DownloadJobStatus.Pausing]: 'paused',
   [DownloadJobStatus.Pending]: 'wanted',
@@ -144,15 +174,18 @@ const precedence = (state: MediaState) => MEDIA_STATE_PRECEDENCE.indexOf(state)
  * item can produce (`needs_attention`, `downloading`, `importing`, `paused`)
  * outranks every state the library can (`available`, `wanted`, `absent`), so
  * "the best item, else the library" *is* the rollup over both.
+ *
+ * `reading` is passed through to each item's snapshot.
  */
 export function deriveManagedStateFromItems(
   library: Omit<ManagedStateInput, 'item'>,
   items: readonly PollableQueueItem[],
+  reading?: ClientReadingLookup,
 ): DerivedState {
   if (items.length === 0) return deriveManagedState(library)
 
   return items
-    .map(item => deriveManagedState({ ...library, item }))
+    .map(item => deriveManagedState({ ...library, item }, reading))
     .reduce((best, next) =>
       precedence(next.state) < precedence(best.state) ? next : best,
     )
@@ -172,10 +205,14 @@ export function deriveManagedStateFromItems(
  * An episode Sonarr returned without an `id` or `seasonNumber` is skipped:
  * it can't be keyed, and `EpisodeStateEntrySchema` would reject it anyway.
  * `toEpisode` throws on the same shape; a poll shouldn't.
+ *
+ * `reading` merges SABnzbd's live numbers into each episode's snapshot -
+ * per episode, over that episode's own item(s).
  */
 export function toEpisodeStateEntries(
   episodes: readonly EpisodeResource[],
   items: readonly PollableQueueItem[],
+  reading?: ClientReadingLookup,
 ): EpisodeStateEntry[] {
   const entries: EpisodeStateEntry[] = []
 
@@ -189,7 +226,7 @@ export function toEpisodeStateEntries(
     }
     const matches = items.filter(item => matchesScope(item, { episodeId }))
 
-    const derived = deriveManagedStateFromItems(library, matches)
+    const derived = deriveManagedStateFromItems(library, matches, reading)
 
     entries.push({
       episodeId,

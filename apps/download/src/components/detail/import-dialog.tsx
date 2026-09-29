@@ -1,12 +1,13 @@
 'use client'
 
 import { cns } from '@lilnas/utils/cns'
-import type {
-  DiscardImportQuery,
-  ImportFilesInput,
-  ListImportCandidatesQuery,
-  ManualImportCandidate,
-  ShowScope,
+import {
+  type DiscardImportQuery,
+  DownloadType,
+  type ImportFilesInput,
+  type ListImportCandidatesQuery,
+  type ManualImportCandidate,
+  type ShowScope,
 } from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX, ReactNode } from 'react'
 import { useEffect, useId, useRef, useState, useTransition } from 'react'
@@ -25,7 +26,8 @@ import { Note } from 'src/components/ui/card'
 import { Spinner } from 'src/components/ui/feedback'
 import { Icon } from 'src/components/ui/icon'
 import { MChip } from 'src/components/ui/mchip'
-import { DeleteButton, Modal } from 'src/components/ui/modal'
+import { DeleteButton, Modal, ReasonGroup } from 'src/components/ui/modal'
+import { mediaTypeFromKey } from 'src/db/media-id'
 import { formatBytes, UNKNOWN_VALUE } from 'src/lib/format'
 
 /**
@@ -165,6 +167,52 @@ export function importRejections(
 }
 
 /**
+ * The movie list's accessible name. A movie takes exactly one file, so its rows
+ * are a `radiogroup` and this is what a screen reader announces on entering it.
+ */
+export const IMPORT_MOVIE_GROUP_LABEL = 'File to import'
+
+/**
+ * Whether upstream flagged this file as a sample — any rejection mentioning
+ * "sample", case-insensitively. A sample is never what anyone came to import,
+ * so it never starts checked; it stays pickable, because rejections are
+ * informational (see {@link IMPORT_REJECTION_NOTE}).
+ */
+export function isSampleCandidate(candidate: ManualImportCandidate): boolean {
+  return candidate.rejections.some(rejection => /sample/i.test(rejection))
+}
+
+/**
+ * The rows that start checked.
+ *
+ * - **A movie** (`single`) takes one file: the largest importable non-sample
+ *   one, or nothing when there is none — Radarr imports one file per movie.
+ * - **A show** takes several: every importable non-sample row.
+ */
+export function defaultImportSelection(
+  candidates: readonly ManualImportCandidate[],
+  single: boolean,
+): ReadonlySet<string> {
+  const eligible = candidates.filter(
+    candidate => candidate.importable && !isSampleCandidate(candidate),
+  )
+
+  if (!single) {
+    return new Set(eligible.map(candidate => candidate.path))
+  }
+
+  const largest = eligible.reduce<ManualImportCandidate | undefined>(
+    (best, candidate) =>
+      best === undefined || (candidate.size ?? 0) > (best.size ?? 0)
+        ? candidate
+        : best,
+    undefined,
+  )
+
+  return new Set(largest ? [largest.path] : [])
+}
+
+/**
  * The mockup's selected-file row: a bordered block that tints `uv` when it is
  * chosen. `movie-detail.pug:146`, plus `[&+&]:mt-2` from the `reason` mixin,
  * which is what spaces a *list* of them.
@@ -182,16 +230,26 @@ const ROW_IDLE = 'border-line'
 const ROW_BLOCKED = 'opacity-55'
 
 /**
- * A square box rather than the mockup's round dot, and that is the one thing
- * this row changes: the mockup draws a single file, where a dot reads as "the
- * one". This dialog renders a *list*, several rows of which can be committed
- * together, and a round indicator would be promising a radio group. The
- * geometry, the border weight and the `uv` are the mixin's.
+ * The indicator follows the selection model. A movie takes one file, so its
+ * rows are a radio group and wear the mockup's round dot — `Reason`'s, in
+ * `modal.tsx`. A show's rows can be committed together, so they wear a square
+ * box instead: a dot there would be promising a radio group. The geometry, the
+ * border weight and the `uv` are the mixin's either way.
  */
 const BOX_BASE = 'mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-[5px]'
 
 const BOX_CHECKED = 'border-[1.5px] border-uv bg-uv-ghost text-uv'
 const BOX_IDLE = 'border-[1.5px] border-line-loud'
+
+const DOT_BASE =
+  'mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border-[1.5px]'
+
+const DOT_CHECKED = cns(
+  'border-uv',
+  "after:h-2 after:w-2 after:rounded-full after:bg-uv after:content-['']",
+)
+
+const DOT_IDLE = 'border-line-loud'
 
 /** The file's own name — the only column that identifies it. `ink`, not `ink-3`. */
 const ROW_TITLE = 'truncate font-mono text-mono-sm text-ink'
@@ -269,9 +327,12 @@ export type ImportDialogProps = Omit<
  * are deliberately more than that:
  *
  * - **A list, not a file.** A stuck download can span several queue items and
- *   several files, so every row is selectable and the importable ones start
- *   checked. A row the server marked `importable: false` is unchecked,
- *   `aria-disabled` and carries its reason — never silently missing.
+ *   several files, so every row is rendered. A show's rows are checkboxes and
+ *   several can go in at once; a movie's are a radio group, because Radarr
+ *   imports one file per movie. {@link defaultImportSelection} decides what
+ *   starts checked, and a sample never does. A row the server marked
+ *   `importable: false` is unchecked, `aria-disabled` and carries its reason —
+ *   never silently missing.
  * - **Rejections never block a row.** Upstream's `ManualImport` command builds
  *   a fresh decision with no rejections at all, so they are reported (in the
  *   mockup's alert note) and then explicitly discounted by
@@ -323,6 +384,9 @@ export function ImportDialog({
 
   const { commit: commitAction, discard: discardAction, list } = actions
 
+  // Radarr imports one file per movie, so a movie's list is single-select.
+  const single = mediaTypeFromKey(mediaId) === DownloadType.Movie
+
   // ⚠️ The two keys the wire actually carries, read off the scope rather than
   // spread from it: `ShowScope` also has `episodeNumber`, which is display-only
   // and belongs in no request. Pulling them apart here is also what keeps the
@@ -362,17 +426,11 @@ export function ImportDialog({
       const found = result && 'candidates' in result ? result.candidates : []
 
       setCandidates(found)
-      // Everything the server said it can import starts checked: the user came
-      // here to import, and the common case is one file and one press.
-      setSelected(
-        new Set(
-          found
-            .filter(candidate => candidate.importable)
-            .map(candidate => candidate.path),
-        ),
-      )
+      // Pre-checked so the common case is one press: the user came here to
+      // import. See `defaultImportSelection` for which rows.
+      setSelected(defaultImportSelection(found, single))
     })
-  }, [episodeId, list, mediaId, open, seasonNumber])
+  }, [episodeId, list, mediaId, open, seasonNumber, single])
 
   function close(): void {
     setOpen(false)
@@ -385,6 +443,13 @@ export function ImportDialog({
 
   function toggle(candidate: ManualImportCandidate): void {
     if (!candidate.importable) {
+      return
+    }
+
+    // A radio is chosen, never un-chosen: picking a file replaces the last one.
+    if (single) {
+      setSelected(new Set([candidate.path]))
+
       return
     }
 
@@ -580,6 +645,33 @@ export function ImportDialog({
           </div>
         ) : candidates.length === 0 ? (
           <p className={cns('mb-3 text-sm text-ink-3')}>{IMPORT_EMPTY_NOTE}</p>
+        ) : single ? (
+          // `ReasonGroup` brings the APG radio keyboard model — arrows move and
+          // choose, one tab stop — and reads each row's `data-value` back off
+          // the DOM, so the path is the value.
+          <ReasonGroup
+            aria-label={IMPORT_MOVIE_GROUP_LABEL}
+            className={cns('mb-3')}
+            value={[...selected][0]}
+            onValueChange={path => {
+              const candidate = candidates.find(entry => entry.path === path)
+
+              if (candidate) {
+                toggle(candidate)
+              }
+            }}
+          >
+            {candidates.map((candidate, index) => (
+              <ImportRow
+                candidate={candidate}
+                checked={selected.has(candidate.path)}
+                key={candidate.path}
+                reasonId={`${rowIdBase}-${index}`}
+                single
+                onToggle={toggle}
+              />
+            ))}
+          </ReasonGroup>
         ) : (
           <div className={cns('mb-3')}>
             {candidates.map((candidate, index) => (
@@ -621,16 +713,19 @@ type ImportRowProps = {
   checked: boolean
   onToggle: (candidate: ManualImportCandidate) => void
   reasonId: string
+  /** A movie's row: a `radio` with a round dot rather than a `checkbox`. */
+  single?: boolean
 }
 
 /**
  * One candidate file: whether it is going in, what it is, and what it was
  * resolved to.
  *
- * A real `<button role="checkbox">` rather than the mockup's `<div>`, for the
- * same reason `Reason` in `modal.tsx` is a `<button role="radio">`: the row is
- * genuinely activatable, and a button brings its own activation, its own
- * keyboard handling and the theme's `:focus-visible` ring with it.
+ * A real `<button role="checkbox">` — or `role="radio"` for a movie's row,
+ * inside `ReasonGroup` — rather than the mockup's `<div>`, for the same reason
+ * `Reason` in `modal.tsx` is a `<button role="radio">`: the row is genuinely
+ * activatable, and a button brings its own activation, its own keyboard
+ * handling and the theme's `:focus-visible` ring with it.
  *
  * ⚠️ A blocked row is `aria-disabled`, never `disabled`. A real `disabled`
  * attribute drops the row out of the focus order and takes the
@@ -644,6 +739,7 @@ function ImportRow({
   checked,
   onToggle,
   reasonId,
+  single = false,
 }: ImportRowProps): JSX.Element {
   const quality = candidate.quality?.name
   const size = candidate.size === undefined ? null : formatBytes(candidate.size)
@@ -672,15 +768,20 @@ function ImportRow({
         checked ? ROW_CHECKED : ROW_IDLE,
         blocked && ROW_BLOCKED,
       )}
-      role="checkbox"
+      data-value={single ? candidate.path : undefined}
+      role={single ? 'radio' : 'checkbox'}
       title={candidate.path}
       onClick={() => onToggle(candidate)}
     >
-      <span className={cns(BOX_BASE, checked ? BOX_CHECKED : BOX_IDLE)}>
-        {checked ? (
-          <Icon className={cns('h-[11px] w-[11px]')} name="check" />
-        ) : null}
-      </span>
+      {single ? (
+        <span className={cns(DOT_BASE, checked ? DOT_CHECKED : DOT_IDLE)} />
+      ) : (
+        <span className={cns(BOX_BASE, checked ? BOX_CHECKED : BOX_IDLE)}>
+          {checked ? (
+            <Icon className={cns('h-[11px] w-[11px]')} name="check" />
+          ) : null}
+        </span>
+      )}
       <span className={cns('flex min-w-0 flex-1 flex-col gap-1.5')}>
         <span className={cns(ROW_TITLE)}>{name}</span>
         <span className={cns(ROW_META)}>

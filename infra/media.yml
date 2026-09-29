@@ -46,7 +46,7 @@ services:
       - traefik.http.routers.radarr.middlewares=lilnas-auth
 
   sabnzbd:
-    image: lscr.io/linuxserver/sabnzbd
+    image: lscr.io/linuxserver/sabnzbd:5.1.3-ls274
     restart: unless-stopped
     logging: *default-logging
     environment:
@@ -63,6 +63,7 @@ services:
       - traefik.http.routers.sabnzbd.rule=Host(`sabnzbd.lilnas.io`)
       - traefik.http.routers.sabnzbd.entrypoints=websecure
       - traefik.http.routers.sabnzbd.tls.certresolver=le
+      - traefik.http.routers.sabnzbd.middlewares=lilnas-auth
 
   emby:
     image: emby/embyserver

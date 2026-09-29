@@ -42,7 +42,11 @@ const ROUND_TRIP_COLUMNS = [
   'requesterUserId',
   'scope',
   'status',
+  'statusNote',
   'type',
+  'upstreamCommandAt',
+  'upstreamCommandId',
+  'upstreamCommandKind',
 ] as const
 
 function roundTripSubset(row: RowInsert | JobRow) {
@@ -189,6 +193,25 @@ describe('job-row codec', () => {
       status: 'downloading',
       type: 'movie',
       updatedAt: new Date('2026-01-08T00:00:00.000Z'),
+    },
+    // Plan 024: a job waiting on a Radarr search, with a note saying so.
+    'movie (waiting on an upstream command)': {
+      completedAt: null,
+      createdAt: new Date('2026-01-09T00:00:00.000Z'),
+      error: null,
+      hiddenAttribution: false,
+      id: 'movie-command',
+      mediaId: 'tmdb:3',
+      origin: 'service',
+      requesterEmail: null,
+      requesterUserId: null,
+      status: 'searching',
+      statusNote: 'Waiting for Radarr to finish searching',
+      type: 'movie',
+      updatedAt: new Date('2026-01-09T00:00:00.000Z'),
+      upstreamCommandAt: '2026-01-09T00:00:05Z',
+      upstreamCommandId: 4821,
+      upstreamCommandKind: 'search',
     },
   }
 
@@ -488,5 +511,76 @@ describe('job-row codec', () => {
         close()
       }
     })
+  })
+
+  // ---- Plan 024: the status note and the upstream command columns ----
+
+  it('hydrates the status note and the command columns onto the record', () => {
+    const { db, close } = createTestDb()
+    try {
+      const row = insertAndRead(
+        db,
+        fixtures['movie (waiting on an upstream command)']!,
+      )
+
+      expect(hydrateJobRow(row)).toMatchObject({
+        statusNote: 'Waiting for Radarr to finish searching',
+        upstreamCommandAt: '2026-01-09T00:00:05Z',
+        upstreamCommandId: 4821,
+        upstreamCommandKind: 'search',
+      })
+    } finally {
+      close()
+    }
+  })
+
+  // Absent, not `undefined`, like `startedUpstream`: nearly every job has
+  // none of the four, and a key per field would be noise in every payload.
+  it('leaves all four keys off a record whose columns are NULL', () => {
+    const { db, close } = createTestDb()
+    try {
+      const record = hydrateJobRow(
+        insertAndRead(db, fixtures['movie (web origin)']!),
+      )
+
+      for (const key of [
+        'statusNote',
+        'upstreamCommandAt',
+        'upstreamCommandId',
+        'upstreamCommandKind',
+      ]) {
+        expect(record).not.toHaveProperty(key)
+      }
+    } finally {
+      close()
+    }
+  })
+
+  // `persistJob()` upserts every column `buildJobRow` returns, so a record
+  // that dropped its note or its settled command must write explicit NULLs
+  // - `undefined` would leave the stale value in place.
+  it('writes NULL for a cleared note and command, never undefined', () => {
+    const { db, close } = createTestDb()
+    try {
+      const {
+        statusNote: _statusNote,
+        upstreamCommandAt: _at,
+        upstreamCommandId: _id,
+        upstreamCommandKind: _kind,
+        ...cleared
+      } = hydrateJobRow(
+        insertAndRead(db, fixtures['movie (waiting on an upstream command)']!),
+      )
+      void [_statusNote, _at, _id, _kind]
+
+      expect(buildJobRow(cleared)).toMatchObject({
+        statusNote: null,
+        upstreamCommandAt: null,
+        upstreamCommandId: null,
+        upstreamCommandKind: null,
+      })
+    } finally {
+      close()
+    }
   })
 })

@@ -40,6 +40,7 @@ function buildState(message = makeHuman(), messages: AIMessage[] = []) {
     messages,
     userInput: '',
     userId: 'u',
+    discord: { userId: 'u', username: 'testuser' },
     guildId: 'g',
     images: [],
     responseType: ResponseType.Image,

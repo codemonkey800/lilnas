@@ -13,6 +13,7 @@ import {
 } from '@lilnas/utils/download/types'
 import { getErrorMessage } from '@lilnas/utils/error'
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
@@ -25,17 +26,27 @@ import {
   getBadFileByGuid,
   insertBadFile,
   listBadFilesByMediaId,
+  usableReleaseTitle,
 } from 'src/db/bad-files.repo'
 import { DbService } from 'src/db/db.service'
+import { getReleaseTitleByGuid } from 'src/db/media-file-releases.repo'
 import { mediaId, mediaIdSuffix } from 'src/db/media-id'
 import type { BadFileRow, MediaFileReleaseRow } from 'src/db/schema'
 
+import type { CommandRef, CommandSnapshot } from './arr-command.types'
+import { waitForCommand } from './command-wait.util'
 import { CurrentReleaseService } from './current-release.service'
-import { resolveEpisodeFileIds } from './episode-files.util'
+import {
+  type ResolvedEpisodeFiles,
+  resolveEpisodeFileIds,
+} from './episode-files.util'
+import { syncFlaggedReleases } from './flagged-release-sync.util'
+import { mediaMutex } from './keyed-mutex.util'
 import { MediaDownloadService } from './media-download.service'
 import { MediaResolverService } from './media-resolver.service'
 import { RadarrService } from './radarr.service'
-import { SonarrService } from './sonarr.service'
+import { SdkHttpError } from './sdk-result.util'
+import { SonarrService, toSonarrReleaseScope } from './sonarr.service'
 
 /**
  * A media id parsed back into the upstream identifier its service actually
@@ -46,20 +57,45 @@ export type ReleaseTarget =
   | { tmdbId: number; type: DownloadType.Movie }
   | { tvdbId: number; type: DownloadType.Show }
 
-/** Narrows a release listing (and the monitoring borrow) to part of a show. */
+/** Narrows a release listing (or a grab's monitoring) to part of a show. */
 export interface ReleaseScope {
   episodeId?: number
   seasonNumber?: number
 }
 
-interface WithMonitoringOptions extends ReleaseScope {
-  /**
-   * `true` for the read path (browsing releases must not leave a title
-   * monitored), `false` for grab and replace (the user picked something, so
-   * the title stays monitored and Radarr/Sonarr manage the import and future
-   * upgrades - exactly the state `requestMovie` leaves behind).
-   */
-  restore: boolean
+/**
+ * The longest a release listing waits for Radarr/Sonarr to finish the
+ * metadata refresh they queue when a title is added, before searching
+ * anyway. A search that runs first can miss releases - the alternate titles
+ * and translations it matches on arrive with that refresh.
+ */
+export const BROWSE_REFRESH_WAIT_MS = 30_000
+
+/** How often the refresh wait re-reads the command. */
+const BROWSE_REFRESH_POLL_MS = 1_000
+
+/**
+ * The 400 for a show release listing that names neither a season nor an
+ * episode - see `listReleases`.
+ */
+export const PICK_A_SCOPE_MESSAGE = 'Pick a season or an episode'
+
+/**
+ * The job error for a pick whose release cache entry expired and that a
+ * fresh search no longer returns.
+ */
+const RELEASE_GONE_MESSAGE =
+  'That release is no longer available — search again'
+
+/**
+ * The canonical media id for a parsed target - the `mediaMutex` key and the
+ * resolver cache key. Rebuilt from the target rather than taken from the
+ * route so `tmdb:027205` and `tmdb:27205` share one lock.
+ */
+function targetMediaId(target: ReleaseTarget): string {
+  return target.type === DownloadType.Movie
+    ? mediaId({ tmdbId: target.tmdbId, type: DownloadType.Movie })
+    : mediaId({ tvdbId: target.tvdbId, type: DownloadType.Show })
 }
 
 /**
@@ -179,13 +215,22 @@ function toCurrentRelease(row: MediaFileReleaseRow): Release {
  * the indexers have, grabbing one, replacing what's already downloaded, and
  * flagging one as bad.
  *
- * The load-bearing idea here is that Radarr and Sonarr won't surface (or let
- * you grab) releases for a title that isn't in the library **and** monitored
- * - so browsing releases for a title nobody has requested yet has to add and
- * monitor it first. Leaving it that way is not acceptable (an RSS sync would
- * eventually grab something nobody asked for, and the library would fill up
- * with titles nobody requested), so the read path *borrows* both the library
- * entry and the monitoring flag and puts each back; see `withMonitoring`.
+ * Radarr and Sonarr key their release endpoints on their own library ids, so
+ * browsing releases for a title nobody has requested yet has to add it
+ * first. It is added **unmonitored** and left there: their interactive
+ * search and `POST /release` never check `monitored`, so browsing never
+ * needs it on, never flips it, and never deletes anything. An unmonitored
+ * title with no file reads as `absent`, exactly like one that isn't in the
+ * library at all.
+ *
+ * Only a grab (or a replace) turns monitoring on, and only once the grab has
+ * succeeded - so a failed grab leaves the title as it found it. A replace
+ * deletes the old files only after that same successful grab, so a failed
+ * one leaves them on disk too.
+ *
+ * Every ensure and every monitor write runs inside `mediaMutex`, keyed by
+ * media id, so two browses of one title add it once, and a browse can't
+ * interleave its add with a request's.
  */
 @Injectable()
 export class ReleaseService {
@@ -210,36 +255,147 @@ export class ReleaseService {
    * the library, and browsing releases for a not-yet-requested title is the
    * primary use case. `ensureMovie`/`ensureSeries` is where the upstream id
    * comes from instead.
+   *
+   * A show listing must name a season or an episode, and one that names
+   * neither is a 400 before anything is added: Sonarr's unscoped
+   * `GET /release` is its RSS feed, not a search (see `SonarrReleaseScope`).
    */
   async listReleases(
     mediaId: string,
     scope: ReleaseScope = {},
   ): Promise<Release[]> {
     const target = parseReleaseTarget(mediaId)
+    const showScope =
+      target.type === DownloadType.Show
+        ? toSonarrReleaseScope(scope)
+        : undefined
 
-    const releases = await this.withMonitoring(
+    if (target.type === DownloadType.Show && !showScope) {
+      throw new BadRequestException(PICK_A_SCOPE_MESSAGE)
+    }
+
+    const upstreamId = await this.ensureForBrowse(target)
+
+    const found = showScope
+      ? await this.sonarrService.getReleases(upstreamId, showScope)
+      : await this.radarrService.getReleases(upstreamId)
+
+    // Before `annotateFlagged`, so a synthesized row picks its `flaggedBad`
+    // up for free.
+    const releases = await this.withCurrentRelease(
+      mediaId,
       target,
-      { ...scope, restore: true },
-      async upstreamId => {
-        const found =
-          target.type === DownloadType.Movie
-            ? await this.radarrService.getReleases(upstreamId)
-            : await this.sonarrService.getReleases(upstreamId, scope)
-
-        // Inside the borrow, where the upstream id is already resolved, and
-        // before `annotateFlagged` so a synthesized row picks its
-        // `flaggedBad` up for free.
-        return this.withCurrentRelease(
-          mediaId,
-          target,
-          upstreamId,
-          scope,
-          found,
-        )
-      },
+      upstreamId,
+      scope,
+      found,
     )
 
     return this.annotateFlagged(mediaId, releases)
+  }
+
+  /**
+   * Gets the title into the library for a release listing and returns its
+   * upstream id - adding it **unmonitored** when it is missing, and writing
+   * nothing when it is already there.
+   *
+   * On a fresh add, waits (up to `BROWSE_REFRESH_WAIT_MS`) for the refresh
+   * Radarr/Sonarr queue on every add, so the search runs against the full
+   * metadata. The wait is inside the lock on purpose: a second browse of the
+   * same title queues behind it and then finds a title that is both present
+   * and refreshed, rather than searching one that is half-built. The cost -
+   * a concurrent request for that title waits too, for at most the bound -
+   * only arises on the first-ever browse of a title.
+   */
+  private ensureForBrowse(target: ReleaseTarget): Promise<number> {
+    const key = targetMediaId(target)
+
+    return mediaMutex.run(key, async () => {
+      if (target.type === DownloadType.Movie) {
+        const { radarrId, wasAdded } = await this.radarrService.ensureMovie(
+          target.tmdbId,
+          { monitored: false },
+        )
+
+        if (wasAdded) {
+          this.mediaResolverService.invalidate(key)
+          await this.awaitAddRefresh(
+            key,
+            () => this.radarrService.refreshMovie(radarrId, { isNew: true }),
+            id => this.radarrService.getCommand(id),
+          )
+        }
+
+        return radarrId
+      }
+
+      const { sonarrId, wasAdded } = await this.sonarrService.ensureSeries(
+        target.tvdbId,
+        { monitored: false },
+      )
+
+      if (wasAdded) {
+        this.mediaResolverService.invalidate(key)
+        await this.awaitAddRefresh(
+          key,
+          () => this.sonarrService.refreshSeries(sonarrId, { isNew: true }),
+          id => this.sonarrService.getCommand(id),
+        )
+      }
+
+      return sonarrId
+    })
+  }
+
+  /**
+   * Waits for the refresh Radarr/Sonarr queued when they added a title.
+   *
+   * `refresh` re-sends that refresh's exact body (`isNew: true`). The *arrs
+   * de-dupe a command whose body matches one still queued or running, so
+   * this hands back the add's own refresh rather than starting a second,
+   * concurrent one.
+   *
+   * Best effort by design: a timeout, a refresh that ended badly, or a
+   * failed read all log and return, and the listing goes ahead. A search on
+   * thin metadata may find less; failing the listing would find nothing.
+   */
+  private async awaitAddRefresh(
+    key: string,
+    refresh: () => Promise<CommandRef>,
+    getCommand: (id: number) => Promise<CommandSnapshot | null>,
+  ): Promise<void> {
+    try {
+      const { id } = await refresh()
+      const waited = await waitForCommand(getCommand, id, {
+        intervalMs: BROWSE_REFRESH_POLL_MS,
+        timeoutMs: BROWSE_REFRESH_WAIT_MS,
+      })
+
+      if (waited.outcome === 'timeout') {
+        this.logger.warn(
+          { action: 'listReleases', commandId: id, mediaId: key },
+          `Refresh after adding the title was still running after ${BROWSE_REFRESH_WAIT_MS}ms - listing releases anyway`,
+        )
+      } else if (
+        waited.outcome === 'ended' &&
+        waited.command.status !== 'completed'
+      ) {
+        this.logger.warn(
+          {
+            action: 'listReleases',
+            commandId: id,
+            mediaId: key,
+            message: waited.command.message,
+            status: waited.command.status,
+          },
+          'Refresh after adding the title did not complete - listing releases anyway',
+        )
+      }
+    } catch (err) {
+      this.logger.warn(
+        { action: 'listReleases', error: getErrorMessage(err), mediaId: key },
+        'Could not wait for the refresh after adding the title - listing releases anyway',
+      )
+    }
   }
 
   /**
@@ -306,11 +462,9 @@ export class ReleaseService {
 
       // The same episode -> file resolution the replace path does, sharing
       // its handling of `episodeFileId: 0` ("no file", so an empty result).
-      const [fileId] = await resolveEpisodeFileIds(
-        this.sonarrService,
-        upstreamId,
-        scope,
-      )
+      const {
+        fileIds: [fileId],
+      } = await resolveEpisodeFileIds(this.sonarrService, upstreamId, scope)
 
       if (fileId === undefined) {
         return undefined
@@ -344,10 +498,11 @@ export class ReleaseService {
    *
    * Two things distinguish it from `listReleases`:
    *
-   * 1. **Monitoring is not restored.** A grab is a real choice, so the title
-   *    (and, for shows, the target episodes) stays monitored afterwards so
-   *    Radarr/Sonarr manage the import and future upgrades - exactly the
-   *    state `requestMovie` already leaves behind.
+   * 1. **It turns monitoring on - after the grab succeeds.** A grab is a real
+   *    choice, so the title (and, for shows, the grabbed episodes) ends up
+   *    monitored and Radarr/Sonarr manage the import and future upgrades.
+   *    Not before: the grab doesn't need it, and a grab that fails leaves
+   *    monitoring exactly as it was.
    * 2. **The job goes through `MediaDownloadService.request()`**, the same
    *    choke point `requestMovie`/`requestShow` use, so requester
    *    attribution, `hiddenAttribution`, the WS events and the queue poller
@@ -375,16 +530,25 @@ export class ReleaseService {
   }
 
   /**
-   * Swaps what's on disk for a different release: delete the current file(s),
-   * then grab the chosen one. One action, so the user isn't left with a
-   * deleted movie and no replacement if they wander off halfway.
+   * Swaps what's on disk for a different release: grab the chosen one, then
+   * delete the current file(s). One action, so the user isn't left to do the
+   * second half by hand.
+   *
+   * **Grab first, delete after.** A grab that fails - the release is gone,
+   * the indexer is down - deletes nothing, so the user keeps what they had
+   * and the job fails as any grab does. Only a successful grab earns the
+   * delete. A delete that then fails is logged and the job carries on: the
+   * replacement is already downloading, and the worst case is an import
+   * Radarr/Sonarr refuse as "not an upgrade" - a state the poller surfaces,
+   * not one to fail a working download over.
    *
    * The delete uses the **per-file** endpoints, never `unmonitorAndDelete` -
    * that removes the whole movie/series, and the replacement release needs
-   * somewhere to import to. Monitoring normally no-ops here (a title with
-   * files is already in the library and monitored), but the grab still goes
-   * through `withMonitoring` because a downloaded-then-manually-unmonitored
-   * title is possible and would otherwise fail the grab.
+   * somewhere to import to. Monitoring is handled exactly as `grabRelease`
+   * does, and runs after the delete, so it also re-asserts what Radarr's /
+   * Sonarr's "unmonitor deleted files" setting may just have turned off.
+   * A downloaded-then-manually-unmonitored title comes out of a replace
+   * monitored too.
    *
    * Deleting zero files is **not** an error - nothing to replace just means
    * this is a plain grab.
@@ -399,52 +563,113 @@ export class ReleaseService {
 
     return this.runGrab({
       action: 'replaceRelease',
-      input,
-      mediaId,
-      prepare: async upstreamId => {
-        const deleted = await this.deleteExistingFiles(target, upstreamId, {
+      afterGrab: upstreamId =>
+        this.deleteReplacedFiles(mediaId, target, upstreamId, {
           episodeId: input.episodeId,
           seasonNumber: input.seasonNumber,
-        })
-
-        // The library cache still holds the pre-delete entry, so drop it -
-        // the next read of `filePath` must see the post-delete truth, not a
-        // copy from up to a TTL window ago that this app already knows is
-        // wrong.
-        this.mediaResolverService.invalidate(mediaId)
-
-        this.logger.log(
-          { action: 'replaceRelease', deleted, mediaId, upstreamId },
-          'Deleted existing files before grabbing the replacement',
-        )
-      },
+        }),
+      input,
+      mediaId,
       requester,
       target,
     })
   }
 
   /**
-   * The shared tail of `grabRelease` and `replaceRelease` - everything from
-   * "monitor the title" through "hand the pick to Radarr/Sonarr" wrapped in
-   * the tracking job. `prepare` is replace's delete step, run *inside* the
-   * monitoring borrow so it gets the same resolved upstream id the grab uses
-   * rather than resolving it twice.
+   * Replace's delete step, run once the replacement is grabbed. Never
+   * throws: a failure here is a warning, not a failed job - see
+   * `replaceRelease`.
    *
-   * Split out so the two paths can never diverge on `restore: false` or on
-   * which choke point mints the job.
+   * Returns the episodes whose files it set out to delete, for the monitor
+   * step to turn back on. That is wider than the scope when a multi-episode
+   * file is involved: replacing E01 of `S01E01E02.mkv` takes E02's footage
+   * too, and Sonarr's "unmonitor deleted episodes" setting would otherwise
+   * leave E02 with neither a file nor monitoring. On a part-way failure it
+   * still returns the whole resolved set - monitoring an episode whose file
+   * survived only lets Radarr/Sonarr keep upgrading it.
+   */
+  private async deleteReplacedFiles(
+    mediaId: string,
+    target: ReleaseTarget,
+    upstreamId: number,
+    scope: ReleaseScope,
+  ): Promise<number[]> {
+    let episodeIds: number[] = []
+
+    try {
+      const resolved = await this.resolveExistingFiles(
+        target,
+        upstreamId,
+        scope,
+      )
+      episodeIds = resolved.episodeIds
+
+      await this.deleteExistingFiles(target, resolved.fileIds)
+
+      this.logger.log(
+        {
+          action: 'replaceRelease',
+          deleted: resolved.fileIds.length,
+          mediaId,
+          scope,
+          upstreamId,
+        },
+        'Grabbed the replacement and deleted the existing files',
+      )
+    } catch (err) {
+      this.logger.warn(
+        {
+          action: 'replaceRelease',
+          error: getErrorMessage(err),
+          mediaId,
+          scope,
+          upstreamId,
+        },
+        'Grabbed the replacement but could not delete the existing files - the import may be refused as not an upgrade',
+      )
+    } finally {
+      // The library cache still holds the pre-delete entry, so drop it - the
+      // next read of `filePath` must see the post-delete truth (or a partial
+      // delete's), not a copy from up to a TTL window ago that this app
+      // already knows is wrong.
+      this.mediaResolverService.invalidate(mediaId)
+    }
+
+    return episodeIds
+  }
+
+  /**
+   * The shared tail of `grabRelease` and `replaceRelease` - ensure the title,
+   * hand the pick to Radarr/Sonarr, then monitor it, all wrapped in the
+   * tracking job. `afterGrab` is replace's delete step, run between the grab
+   * and the monitor step so it only happens once the grab succeeded, gets
+   * the same resolved upstream id the grab used, and is followed by the
+   * monitor write that re-asserts whatever the delete may have unmonitored.
+   * The episode ids it returns are monitored alongside the grab's scope.
+   *
+   * The ensure and the monitor step each take `mediaMutex` for the title;
+   * the grab and `afterGrab` run outside it. Neither touches the library
+   * entry or its monitoring, so nothing a concurrent request or browse does
+   * in between can change what they do - and a slow grab (Radarr pushing the
+   * release to the download client) must not hold up a request for the
+   * same title. A grab that misses Radarr/Sonarr's release cache is retried
+   * once through a fresh listing - see `grabWithRelist`.
+   *
+   * Split out so the two paths can never diverge on the monitoring order or
+   * on which choke point mints the job.
    */
   private async runGrab({
     action,
+    afterGrab,
     input,
     mediaId,
-    prepare,
     requester,
     target,
   }: {
     action: string
+    afterGrab?: (upstreamId: number) => Promise<readonly number[]>
     input: GrabReleaseInput
     mediaId: string
-    prepare?: (upstreamId: number) => Promise<void>
     requester?: JobRequester | null
     target: ReleaseTarget
   }): Promise<DownloadJob> {
@@ -456,21 +681,18 @@ export class ReleaseService {
       requester,
       scope,
       submit: async () => {
-        await this.withMonitoring(
-          target,
-          {
-            episodeId: input.episodeId,
-            // A grab is an explicit choice - the title stays monitored.
-            restore: false,
-            seasonNumber: input.seasonNumber,
-          },
-          async upstreamId => {
-            await prepare?.(upstreamId)
+        const upstreamId = await this.ensureForGrab(target)
 
-            return target.type === DownloadType.Movie
-              ? this.radarrService.grabRelease(input.guid, input.indexerId)
-              : this.sonarrService.grabRelease(input.guid, input.indexerId)
-          },
+        await this.grabWithRelist(action, target, upstreamId, input)
+
+        const alsoMonitor = (await afterGrab?.(upstreamId)) ?? []
+
+        await this.monitorAfterGrab(
+          action,
+          target,
+          upstreamId,
+          { episodeId: input.episodeId, seasonNumber: input.seasonNumber },
+          alsoMonitor,
         )
 
         return scope ? { scope: await this.resolveScope(mediaId, scope) } : {}
@@ -479,6 +701,226 @@ export class ReleaseService {
       upstreamId:
         target.type === DownloadType.Movie ? target.tmdbId : target.tvdbId,
     })
+  }
+
+  /**
+   * Hands the picked release to Radarr/Sonarr, recovering once from an
+   * expired release cache.
+   *
+   * `POST /release` doesn't search - it looks the pick up in the decisions
+   * the last interactive search cached, keyed by guid + indexer, for 30
+   * minutes. A picker left open longer than that, or an *arr restart in
+   * between, makes the grab 404 even though the release may still be out
+   * there. So a 404 re-runs the same listing the picker ran (which refills
+   * the cache) and, if the pick is in it, grabs it once more.
+   *
+   * Exactly one relist and one retry: a 404 on the retry fails as any grab
+   * failure does. Anything other than a 404 - a 409 indexer failure, a
+   * network error - is not a cache miss and is rethrown untouched.
+   *
+   * Runs outside `mediaMutex`, like the grab itself: the relist is a full
+   * indexer search, and holding the title's lock across it would stall a
+   * request for the same title for no benefit.
+   */
+  private async grabWithRelist(
+    action: string,
+    target: ReleaseTarget,
+    upstreamId: number,
+    input: GrabReleaseInput,
+  ): Promise<void> {
+    const grab = () =>
+      target.type === DownloadType.Movie
+        ? this.radarrService.grabRelease(input.guid, input.indexerId)
+        : this.sonarrService.grabRelease(input.guid, input.indexerId)
+
+    try {
+      await grab()
+      return
+    } catch (err) {
+      if (!(err instanceof SdkHttpError) || err.status !== 404) {
+        throw err
+      }
+    }
+
+    const mediaId = targetMediaId(target)
+    this.logger.warn(
+      { action, guid: input.guid, indexerId: input.indexerId, mediaId },
+      'Release is no longer in the release cache - searching again before retrying the grab',
+    )
+
+    if (!(await this.isStillListed(action, target, upstreamId, input))) {
+      throw new Error(RELEASE_GONE_MESSAGE)
+    }
+
+    await grab()
+  }
+
+  /**
+   * Whether the pick turns up again in a fresh listing of the same scope -
+   * the raw indexer search, so the synthesized on-disk row `listReleases`
+   * adds can't count as a match. Matched on guid + indexer id, the pair the
+   * cache is keyed on.
+   *
+   * A relist that fails reads as "not listed": the grab already 404'd, and
+   * "search again" is still the right next step for the user. So does a
+   * show grab with no season or episode, which has no scoped listing to
+   * repeat.
+   */
+  private async isStillListed(
+    action: string,
+    target: ReleaseTarget,
+    upstreamId: number,
+    input: GrabReleaseInput,
+  ): Promise<boolean> {
+    // An unscoped show grab has no listing to repeat - Sonarr's unscoped
+    // release list is its RSS feed, not the search the pick came from.
+    const showScope =
+      target.type === DownloadType.Show
+        ? toSonarrReleaseScope(input)
+        : undefined
+
+    if (target.type === DownloadType.Show && !showScope) {
+      return false
+    }
+
+    try {
+      const releases = showScope
+        ? await this.sonarrService.getReleases(upstreamId, showScope)
+        : await this.radarrService.getReleases(upstreamId)
+
+      return releases.some(
+        release =>
+          release.guid === input.guid && release.indexerId === input.indexerId,
+      )
+    } catch (err) {
+      this.logger.warn(
+        {
+          action,
+          error: getErrorMessage(err),
+          guid: input.guid,
+          mediaId: targetMediaId(target),
+        },
+        'Could not search again after the release cache miss',
+      )
+
+      return false
+    }
+  }
+
+  /**
+   * The grab path's ensure: the same unmonitored add as a listing, but no
+   * refresh wait. A grab re-finds its release in Radarr/Sonarr's cache of
+   * the last search, so in practice the title was already added by the
+   * listing the pick came from.
+   */
+  private ensureForGrab(target: ReleaseTarget): Promise<number> {
+    const key = targetMediaId(target)
+
+    return mediaMutex.run(key, async () => {
+      const { upstreamId, wasAdded } =
+        target.type === DownloadType.Movie
+          ? await this.radarrService
+              .ensureMovie(target.tmdbId, { monitored: false })
+              .then(ensured => ({ ...ensured, upstreamId: ensured.radarrId }))
+          : await this.sonarrService
+              .ensureSeries(target.tvdbId, { monitored: false })
+              .then(ensured => ({ ...ensured, upstreamId: ensured.sonarrId }))
+
+      if (wasAdded) {
+        this.mediaResolverService.invalidate(key)
+      }
+
+      return upstreamId
+    })
+  }
+
+  /**
+   * Turns monitoring on for what a successful grab covers, so Radarr/Sonarr
+   * import it and manage upgrades from here on.
+   *
+   * - A movie: the movie.
+   * - A show: the grabbed episodes, then the series. An episode scope is
+   *   that episode; a season scope is that season's episodes; an unscoped
+   *   grab is every episode **outside season 0** - a whole-series pick is
+   *   not a request for the specials.
+   * - Plus `alsoMonitor`: the episodes a replace deleted files for (see
+   *   `deleteReplacedFiles`), so no episode it emptied is left unmonitored.
+   *
+   * Non-fatal: the release is already handed over by the time this runs,
+   * and Radarr/Sonarr import a grabbed download whether or not the title is
+   * monitored. Failing a successful grab over it would report an error for a
+   * download that is going ahead anyway.
+   */
+  private async monitorAfterGrab(
+    action: string,
+    target: ReleaseTarget,
+    upstreamId: number,
+    scope: ReleaseScope,
+    alsoMonitor: readonly number[] = [],
+  ): Promise<void> {
+    const key = targetMediaId(target)
+
+    try {
+      await mediaMutex.run(key, async () => {
+        if (target.type === DownloadType.Movie) {
+          await this.radarrService.editMovies([upstreamId], {
+            monitored: true,
+          })
+          return
+        }
+
+        await this.monitorGrabbedEpisodes(upstreamId, scope, alsoMonitor)
+        // Episodes first and the series flag last, so a monitored series
+        // never points at still-unmonitored episodes this grab covers.
+        await this.sonarrService.editSeries([upstreamId], { monitored: true })
+      })
+    } catch (err) {
+      this.logger.warn(
+        {
+          action,
+          error: getErrorMessage(err),
+          mediaId: key,
+          scope,
+          upstreamId,
+        },
+        'Grabbed the release but could not turn monitoring on',
+      )
+    } finally {
+      // Monitoring changed (or may have, part-way) - the cached copy's
+      // `monitored` is stale either way.
+      this.mediaResolverService.invalidate(key)
+    }
+  }
+
+  /** `monitorAfterGrab`'s episode half - see there for what a scope covers. */
+  private async monitorGrabbedEpisodes(
+    sonarrId: number,
+    scope: ReleaseScope,
+    alsoMonitor: readonly number[],
+  ): Promise<void> {
+    const episodes = await this.sonarrService.getEpisodes(sonarrId, {
+      seasonNumber: scope.seasonNumber,
+    })
+    const extra = new Set(alsoMonitor)
+
+    // `!= null`, never truthiness - season 0 is Sonarr's specials. A season
+    // scope is already narrowed upstream by `getEpisodes`. The episodes in
+    // `alsoMonitor` share a file with one in scope, so they sit in the same
+    // season and this read already covers them.
+    const inScope = episodes.filter(
+      episode =>
+        (episode.id != null && extra.has(episode.id)) ||
+        (scope.episodeId != null
+          ? episode.id === scope.episodeId
+          : scope.seasonNumber != null ||
+            (episode.seasonNumber != null && episode.seasonNumber > 0)),
+    )
+
+    const toTurnOn = inScope
+      .filter(episode => episode.id != null && episode.monitored !== true)
+      .map(episode => episode.id as number)
+
+    await this.sonarrService.setEpisodesMonitored(toTurnOn, true)
   }
 
   /**
@@ -508,8 +950,35 @@ export class ReleaseService {
   }
 
   /**
-   * Deletes the files currently backing a title, scoped the same way the
-   * release listing was, and returns how many it removed.
+   * The files currently backing a title, scoped the same way the release
+   * listing was, plus the episodes they back (always empty for a movie). A
+   * multi-episode file resolves to one id, so it is deleted once however
+   * many of its episodes the scope names.
+   */
+  private async resolveExistingFiles(
+    target: ReleaseTarget,
+    upstreamId: number,
+    scope: ReleaseScope,
+  ): Promise<ResolvedEpisodeFiles> {
+    if (target.type === DownloadType.Movie) {
+      const files = await this.radarrService.getMovieFiles(upstreamId)
+
+      return {
+        episodeIds: [],
+        fileIds: files
+          .map(file => file.id)
+          .filter((id): id is number => id != null),
+      }
+    }
+
+    // Which files a scope names is shared with `ShowService.deleteFiles` -
+    // see `resolveEpisodeFileIds` for why that resolution is asymmetric
+    // between an episode scope and a season/series one.
+    return resolveEpisodeFileIds(this.sonarrService, upstreamId, scope)
+  }
+
+  /**
+   * Deletes the files `resolveExistingFiles` named.
    *
    * Sequential rather than `Promise.all`: these are destructive calls against
    * a service that also has to rescan the folder afterwards, and a
@@ -518,36 +987,13 @@ export class ReleaseService {
    */
   private async deleteExistingFiles(
     target: ReleaseTarget,
-    upstreamId: number,
-    scope: ReleaseScope,
-  ): Promise<number> {
-    if (target.type === DownloadType.Movie) {
-      const files = await this.radarrService.getMovieFiles(upstreamId)
-      const fileIds = files
-        .map(file => file.id)
-        .filter((id): id is number => id != null)
-
-      for (const id of fileIds) {
-        await this.radarrService.deleteMovieFile(id)
-      }
-
-      return fileIds.length
-    }
-
-    // Which files a scope names is shared with `ShowService.deleteFiles` -
-    // see `resolveEpisodeFileIds` for why that resolution is asymmetric
-    // between an episode scope and a season/series one.
-    const fileIds = await resolveEpisodeFileIds(
-      this.sonarrService,
-      upstreamId,
-      scope,
-    )
-
+    fileIds: readonly number[],
+  ): Promise<void> {
     for (const id of fileIds) {
-      await this.sonarrService.deleteEpisodeFile(id)
+      await (target.type === DownloadType.Movie
+        ? this.radarrService.deleteMovieFile(id)
+        : this.sonarrService.deleteEpisodeFile(id))
     }
-
-    return fileIds.length
   }
 
   /**
@@ -559,6 +1005,10 @@ export class ReleaseService {
    * Flagging is the one action here gated behind `ForwardedUserGuard`,
    * because a flag records a judgement *someone* made and an anonymous one
    * would be unattributable.
+   *
+   * The title is what Radarr/Sonarr get told to reject (see
+   * `mirrorFlags()`), so a flag sent without one - or with the guid standing
+   * in for one - takes the title of the file on disk from that release.
    */
   flagBadFile(
     mediaId: string,
@@ -566,6 +1016,10 @@ export class ReleaseService {
     user: ForwardedUser,
   ): BadFile {
     const target = parseReleaseTarget(mediaId)
+    const releaseTitle =
+      usableReleaseTitle(input.title, input.guid) ??
+      getReleaseTitleByGuid(this.dbService.db, mediaId, input.guid) ??
+      input.title
 
     const row = insertBadFile(this.dbService.db, {
       flaggedByEmail: user.email,
@@ -575,7 +1029,7 @@ export class ReleaseService {
       mediaType: target.type,
       reason: input.reason,
       releaseGuid: input.guid,
-      releaseTitle: input.title,
+      releaseTitle,
     })
 
     this.logger.log(
@@ -587,6 +1041,8 @@ export class ReleaseService {
       },
       'Flagged a release as a bad file',
     )
+
+    this.mirrorFlags(target.type)
 
     return toBadFile(row)
   }
@@ -607,7 +1063,7 @@ export class ReleaseService {
    * here" either way.
    */
   unflagBadFile(mediaId: string, flagId: number): BadFile {
-    parseReleaseTarget(mediaId)
+    const target = parseReleaseTarget(mediaId)
 
     const row = deleteBadFile(this.dbService.db, mediaId, flagId)
 
@@ -622,7 +1078,31 @@ export class ReleaseService {
       'Removed a bad-file flag',
     )
 
+    this.mirrorFlags(target.type)
+
     return toBadFile(row)
+  }
+
+  /**
+   * Plan 024. Re-mirrors every flag of this type into Radarr's/Sonarr's
+   * "flagged releases" release profile, after a flag or unflag has already
+   * landed in the table. Started, not awaited: the flag is this app's
+   * record and stands on its own, so a slow or down Radarr neither holds up
+   * the response nor fails it - it's logged, and the next flag or boot syncs
+   * the full list again.
+   */
+  private mirrorFlags(type: DownloadType): void {
+    const isMovie = type === DownloadType.Movie
+    const owner = isMovie ? this.radarrService : this.sonarrService
+    const app = isMovie ? 'Radarr' : 'Sonarr'
+
+    syncFlaggedReleases(this.dbService.db, type, owner, this.logger).catch(
+      (error: unknown) => {
+        this.logger.warn(
+          `Could not mirror the flagged releases into ${app}; the next flag or restart retries: ${getErrorMessage(error)}`,
+        )
+      },
+    )
   }
 
   /**
@@ -659,139 +1139,5 @@ export class ReleaseService {
     return releases.map(release =>
       flagged.has(release.guid) ? { ...release, flaggedBad: true } : release,
     )
-  }
-
-  /**
-   * Runs `fn` with the title guaranteed present and monitored upstream, then
-   * optionally puts the library back the way it found it.
-   *
-   * Two rules make this safe:
-   *
-   * 1. **If it was already monitored, change nothing - on the way in or on
-   *    the way out.** A title with a pending `requestMovie` is monitored on
-   *    purpose, and blindly unmonitoring after a release listing would
-   *    silently kill that request. Anything already downloaded is normally
-   *    monitored too, so this covers that without depending on it being
-   *    true.
-   * 2. **If this call *added* the title, remove it again.** Radarr and
-   *    Sonarr key their release endpoints on their own library ids, so
-   *    listing releases for a title nobody has requested means adding it
-   *    first - and unmonitoring is not an undo for that. Before this, a
-   *    plain `GET /media/:id/releases` on a catalogue title left a permanent
-   *    library entry behind, which made a whole-catalogue read sweep a
-   *    whole-catalogue import.
-   *
-   * The removal is `deleteFiles: false` on purpose: a title that was not in
-   * the library a moment ago has nothing on disk this call is entitled to
-   * delete, and the flag is the difference between undoing an add and
-   * destroying someone's copy if the "was it there?" read ever raced a real
-   * request.
-   *
-   * A failed restore logs and is swallowed - the caller asked for releases,
-   * and failing their request because the cleanup didn't take would be the
-   * wrong trade.
-   *
-   * Accepted race: the borrow window spans one interactive indexer search
-   * (seconds to ~a minute). If an RSS sync ticks inside that window *and* the
-   * feed carries a matching release, Radarr can self-grab. Small, and
-   * strictly better than the permanently-monitored state `requestMovie`
-   * already leaves behind.
-   */
-  private async withMonitoring<T>(
-    target: ReleaseTarget,
-    opts: WithMonitoringOptions,
-    fn: (upstreamId: number) => Promise<T>,
-  ): Promise<T> {
-    if (target.type === DownloadType.Movie) {
-      const ensured = await this.radarrService.ensureMovie(target.tmdbId)
-      const { radarrId, wasAdded, wasMonitored } = ensured
-      // A borrow that is restored leaves the library as it found it, so the
-      // cached copy is still right; one that is kept changed it.
-      if (!opts.restore) {
-        this.mediaResolverService.invalidateAfterEnsure(
-          mediaId({ tmdbId: target.tmdbId, type: DownloadType.Movie }),
-          ensured,
-        )
-      }
-
-      try {
-        return await fn(radarrId)
-      } finally {
-        if (opts.restore && wasAdded) {
-          await this.restore('radarr', radarrId, () =>
-            this.radarrService.unmonitorAndDelete(radarrId, false),
-          )
-        } else if (opts.restore && !wasMonitored) {
-          await this.restore('radarr', radarrId, () =>
-            this.radarrService.setMonitored(radarrId, false),
-          )
-        }
-      }
-    }
-
-    const ensured = await this.sonarrService.ensureSeries(target.tvdbId, {
-      monitorEpisodes: {
-        episodeId: opts.episodeId,
-        seasonNumber: opts.seasonNumber,
-      },
-    })
-    const { sonarrId, turnedOnEpisodeIds, wasAdded, wasMonitored } = ensured
-    if (!opts.restore) {
-      this.mediaResolverService.invalidateAfterEnsure(
-        mediaId({ tvdbId: target.tvdbId, type: DownloadType.Show }),
-        ensured,
-      )
-    }
-
-    try {
-      return await fn(sonarrId)
-    } finally {
-      if (opts.restore && wasAdded) {
-        // Nothing episode-level to undo: the series row is going, and
-        // `turnedOnEpisodeIds` is empty on the add branch anyway.
-        await this.restore('sonarr', sonarrId, () =>
-          this.sonarrService.unmonitorAndDelete(sonarrId, false),
-        )
-      } else if (opts.restore) {
-        await this.restore('sonarr', sonarrId, async () => {
-          // Episodes first, then the series - the reverse of the order they
-          // were turned on, and the order that leaves the least time with a
-          // monitored series pointing at unmonitored episodes.
-          await this.sonarrService.setEpisodesMonitored(
-            turnedOnEpisodeIds,
-            false,
-          )
-          if (!wasMonitored) {
-            await this.sonarrService.setSeriesMonitored(sonarrId, false)
-          }
-        })
-      }
-    }
-  }
-
-  /**
-   * Runs the restore half of `withMonitoring` - whichever of "put the flag
-   * back" or "take the entry out again" applies - downgrading any failure to
-   * a warning. Split out so the `finally` blocks above stay readable and so
-   * there is exactly one place that decides a failed restore is non-fatal.
-   */
-  private async restore(
-    source: 'radarr' | 'sonarr',
-    upstreamId: number,
-    undo: () => Promise<void>,
-  ): Promise<void> {
-    try {
-      await undo()
-    } catch (err) {
-      this.logger.warn(
-        {
-          action: 'restoreMonitoring',
-          error: getErrorMessage(err),
-          source,
-          upstreamId,
-        },
-        'Failed to restore the borrowed library state - the title may be left monitored, or left in the library',
-      )
-    }
   }
 }

@@ -8,23 +8,37 @@ import {
   isTerminalDownloadJobStatus,
   JobRequester,
   Media,
-  type Release,
+  type QualityTier,
   type ShowScope,
+  type UpstreamCommandKind,
 } from '@lilnas/utils/download/types'
 import { getErrorMessage } from '@lilnas/utils/error'
 import { Injectable, Logger } from '@nestjs/common'
 import { nanoid } from 'nanoid'
 
-import { listBadFilesByMediaId } from 'src/db/bad-files.repo'
 import { DbService } from 'src/db/db.service'
+import { linkDownload, listForJob } from 'src/db/job-downloads.repo'
 import { mediaId } from 'src/db/media-id'
 import { DownloadStateService } from 'src/download/download-state.service'
+import type { CommandRef, CommandSnapshot } from 'src/media/arr-command.types'
 
+import { mediaMutex } from './keyed-mutex.util'
 import { MediaResolverService } from './media-resolver.service'
+import { defaultQualityTier } from './quality-tier-default'
+import {
+  KEPT_PACK_NOTE,
+  planQueueCancel,
+  type QueueCancelPlan,
+} from './queue-cancel.util'
 import { matchesScope, type PollableQueueItem } from './queue-status.util'
 import { RadarrService } from './radarr.service'
-import { pickBestRelease } from './release-selection.util'
+import { findRefreshInFlight } from './refresh-in-flight.util'
 import { SonarrService } from './sonarr.service'
+import {
+  startSearch,
+  type StartSearchDeps,
+  type StartSearchResult,
+} from './start-search'
 
 /**
  * One assertion for both media types, replacing the byte-identical
@@ -46,17 +60,90 @@ function assertJobMediaType(
   return job
 }
 
+/** What `cancelUpstream` did to the job's queue. */
+interface CancelUpstreamOutcome {
+  /** The season packs left running - see `planQueueCancel`. */
+  kept: string[]
+  /**
+   * Whether it asked for any download to be removed, or found one it could
+   * not name - either way, something the poller has to see leave.
+   */
+  removed: boolean
+}
+
+function hasRemovals(plan: QueueCancelPlan): boolean {
+  return plan.remove.length > 0 || plan.unnamed.length > 0
+}
+
 /**
- * What a `submit()` can hand back to `request()`. Only ever used to replace
- * the scope the caller asked for with the *resolved* one, once `submit` has
- * been upstream and filled in the display fields.
+ * The note a job carries while it waits on the add-time refresh of a title
+ * its request just added - wording approved in the plan 024 mockups.
+ */
+export const ADD_REFRESH_NOTES = {
+  [DownloadType.Movie]: 'Waiting for Radarr to finish adding the movie',
+  [DownloadType.Show]: 'Waiting for Sonarr to finish adding the show',
+} as const
+
+/**
+ * What a `submit()` can hand back to `request()`, all of it folded into the
+ * one `updateJob` that moves the job on from `Requested`:
+ *
+ * - `scope`: the *resolved* scope, replacing the one the caller asked for
+ *   once `submit` has been upstream and filled in the display fields;
+ * - `command`: the Radarr/Sonarr command the job now waits on - the
+ *   poller follows it (`upstreamCommandId`/`Kind`/`At`);
+ * - `actedAt`: when this app sent a grab itself, with no command to follow
+ *   - stored as `upstreamCommandAt`, which `claimGrab` ranks the job by;
+ * - `status`: `NotFound` ends the job at once instead of `Searching`;
+ * - `statusNote`: the note written with the new status.
  *
  * Returned rather than written directly so `request()` stays the only place
- * that touches `DownloadStateService`, and so the resolution rides along on
- * the same `updateJob` that moves the job to `Searching`.
+ * that touches `DownloadStateService`.
  */
 export interface RequestSubmitResult {
+  actedAt?: string
+  command?: { kind: UpstreamCommandKind; ref: CommandRef }
   scope?: ShowScope
+  status?: DownloadJobStatus.NotFound
+  statusNote?: string
+}
+
+/**
+ * `startSearch`'s outcome as `request()` writes it. A `failed` outcome
+ * throws, so it lands through `request()`'s catch like any other failure.
+ */
+function toSubmitResult(result: StartSearchResult): RequestSubmitResult {
+  const scope = result.scope ? { scope: result.scope } : {}
+
+  switch (result.outcome) {
+    case 'search':
+      return { ...scope, command: { kind: 'search', ref: result.command } }
+    case 'grabbed':
+      return { ...scope, actedAt: result.grabbedAt }
+    case 'not_found':
+      return {
+        ...scope,
+        status: DownloadJobStatus.NotFound,
+        ...(result.statusNote != null ? { statusNote: result.statusNote } : {}),
+      }
+    case 'failed':
+      throw new Error(result.error)
+  }
+}
+
+/** The job's upstream-command columns for what `submit()` handed back. */
+function upstreamCommandPatch(
+  result: RequestSubmitResult | void,
+): Partial<DownloadJobRecord> {
+  if (result?.command) {
+    return {
+      upstreamCommandAt: result.command.ref.queuedAt,
+      upstreamCommandId: result.command.ref.id,
+      upstreamCommandKind: result.command.kind,
+    }
+  }
+
+  return result?.actedAt != null ? { upstreamCommandAt: result.actedAt } : {}
 }
 
 /**
@@ -97,11 +184,24 @@ export class MediaDownloadService {
    * between them (a forwarded user wins). See
    * `DownloadService.createVideoDownloadJob` for why both are carried
    * separately rather than pre-collapsed.
+   *
+   * `qualityTier` (default: `defaultQualityTier()`) picks the movie's
+   * quality profile - on the add, or by re-profiling a library movie that is
+   * on another one. A tier profile Radarr can't provide fails the job; it
+   * never falls back to another profile.
+   *
+   * Never waits on Radarr: a movie already in the library is searched at
+   * once (`startSearch`); a fresh add hands the job Radarr's add-time
+   * refresh to wait on (see `waitOnRefresh`), and the poller starts the
+   * search once that refresh has finished. So does a library movie Radarr
+   * is still refreshing - one an earlier request added moments ago (see
+   * `refreshInFlight`).
    */
   async requestMovie(
     tmdbId: number,
     requester?: JobRequester | null,
     discordRequester?: DiscordRequester | null,
+    qualityTier?: QualityTier,
   ): Promise<DownloadJob> {
     const jobMediaId = mediaId({ tmdbId, type: DownloadType.Movie })
 
@@ -111,26 +211,53 @@ export class MediaDownloadService {
       mediaId: jobMediaId,
       requester,
       // Ensure first, *then* decide - the upstream id doesn't exist until
-      // the title is in the library, and both branches need it.
-      submit: async () => {
-        const ensured = await this.radarrService.ensureMovie(tmdbId)
-        this.mediaResolverService.invalidateAfterEnsure(jobMediaId, ensured)
-        const { radarrId } = ensured
-        const flagged = this.flaggedGuids(jobMediaId)
+      // the title is in the library, and both branches need it. Only the
+      // ensure holds the title's lock; the refresh check and the search
+      // that follow don't touch the library entry.
+      submit: async job => {
+        // Before the lock and the add: a tier that can't be had stops the
+        // request here, with nothing written.
+        const qualityProfileId = await this.radarrService.tierProfileId(
+          qualityTier ?? defaultQualityTier(),
+        )
 
-        if (flagged.size === 0) {
-          // Byte-for-byte the pre-Phase-3 path: hand it to Radarr's own
-          // scoring and let it pick.
-          await this.radarrService.triggerSearch(radarrId)
-          return
+        const ensured = await mediaMutex.run(jobMediaId, async () => {
+          const ensured = await this.radarrService.ensureMovie(tmdbId, {
+            monitored: true,
+            qualityProfileId,
+          })
+          const reprofiled = await this.applyQualityProfile(
+            ensured.wasAdded,
+            ensured.movie.qualityProfileId,
+            qualityProfileId,
+            () =>
+              this.radarrService.editMovies([ensured.radarrId], {
+                qualityProfileId,
+              }),
+          )
+          this.invalidateAfterRequestEnsure(jobMediaId, ensured, reprofiled)
+          return ensured
+        })
+
+        if (ensured.wasAdded) {
+          return this.waitOnRefresh(
+            await this.radarrService.refreshMovie(ensured.radarrId, {
+              isNew: true,
+            }),
+            ADD_REFRESH_NOTES[DownloadType.Movie],
+          )
         }
 
-        const release = this.pickUnflaggedRelease(
-          jobMediaId,
-          await this.radarrService.getReleases(radarrId),
-          flagged,
+        return (
+          (await this.refreshInFlight(
+            DownloadType.Movie,
+            ensured.radarrId,
+            job.id,
+          )) ??
+          toSubmitResult(
+            await startSearch(this.searchDeps(), job, ensured.radarrId),
+          )
         )
-        await this.radarrService.grabRelease(release.guid, release.indexerId)
       },
       type: DownloadType.Movie,
       upstreamId: tmdbId,
@@ -138,25 +265,45 @@ export class MediaDownloadService {
   }
 
   /**
-   * Requests a show, optionally narrowed to one season or one episode.
+   * Requests a show, optionally narrowed to one season or one episode - by
+   * Sonarr's `episodeId`, or by `seasonNumber` + `episodeNumber`.
    *
    * Whatever the scope, the request monitors exactly what it covers, across
    * all three of Sonarr's independent `monitored` flags: a bare request
-   * monitors every season flag and every episode, a season request monitors
-   * that season's flag and its episodes, and an episode request monitors
-   * only the episode and leaves its season's flag alone. A bare
-   * `POST /download/shows` is an *explicit* whole-series request, so it
-   * passes an empty scope rather than no options at all (see
+   * monitors every season flag and every episode outside season 0 (Sonarr's
+   * own `MonitorTypes.All` is `SeasonNumber > 0` - a whole-show request is
+   * not a request for the specials), a season request monitors that
+   * season's flag and its episodes (season 0 included, when named), and an
+   * episode request monitors only the episode and leaves its season's flag
+   * alone. A bare `POST /download/shows` is an *explicit* whole-series
+   * request, so it passes an empty scope rather than no options at all (see
    * `EnsureSeriesOptions`).
    *
-   * With no `scope` there is still no scope-resolution round trip and no
-   * `scope` on the job - the search stays the generic `SeriesSearch`.
+   * `ensureSeries` turns the series flag on (and, for a series that was
+   * off, the fileless episodes outside a narrow scope off); `startSearch`
+   * monitors the scope and searches. A series already in the library is
+   * searched at once. A fresh add - `monitor: 'all'` for the whole series,
+   * `'none'` for a narrower scope - waits on Sonarr's add-time refresh
+   * instead (see `waitOnRefresh`): the episodes don't exist until it
+   * finishes, and a flag written during it is undone by it. The poller runs
+   * `startSearch` once it has. A library series Sonarr is still refreshing
+   * waits the same way - the second and later requests of a multi-season
+   * pick, sent one after another for a show the first one added (see
+   * `refreshInFlight`).
+   *
+   * With no `scope` there is no scope on the job - the search stays the
+   * generic `SeriesSearch`.
+   *
+   * `qualityTier` works as it does for `requestMovie`, and applies to the
+   * **whole series** whatever the scope - Sonarr's quality profile is a
+   * series-level setting.
    */
   async requestShow(
     tvdbId: number,
     requester?: JobRequester | null,
     scope?: ShowScope,
     discordRequester?: DiscordRequester | null,
+    qualityTier?: QualityTier,
   ): Promise<DownloadJob> {
     const jobMediaId = mediaId({ tvdbId, type: DownloadType.Show })
 
@@ -166,53 +313,52 @@ export class MediaDownloadService {
       mediaId: jobMediaId,
       requester,
       scope,
-      submit: async () => {
-        // Always an explicit scope now - `{}` is "the whole series", which
-        // is what a bare request means. See `EnsureSeriesOptions`.
-        const ensured = await this.sonarrService.ensureSeries(tvdbId, {
-          monitorEpisodes: scope ?? {},
-        })
-        this.mediaResolverService.invalidateAfterEnsure(jobMediaId, ensured)
-        const { sonarrId } = ensured
+      submit: async job => {
+        // See `requestMovie`: the tier is settled before anything is written.
+        const qualityProfileId = await this.sonarrService.tierProfileId(
+          qualityTier ?? defaultQualityTier(),
+        )
 
-        // Season flags after episodes, never before: Sonarr's `PUT /series`
-        // may cascade a changed season flag down to that season's episodes,
-        // so every episode read that feeds a result has to have happened
-        // already. An episode request leaves its season's flag alone.
-        if (scope?.episodeId == null) {
-          await this.sonarrService.setSeasonsMonitored(
-            sonarrId,
-            // `!= null`, not truthiness - season 0 is Sonarr's specials.
-            scope?.seasonNumber != null ? [scope.seasonNumber] : 'all',
-            true,
+        const ensured = await mediaMutex.run(jobMediaId, async () => {
+          // Always an explicit scope - `{}` is "the whole series", which is
+          // what a bare request means. See `EnsureSeriesOptions`.
+          const ensured = await this.sonarrService.ensureSeries(tvdbId, {
+            monitored: true,
+            monitorEpisodes: scope ?? {},
+            qualityProfileId,
+          })
+          const reprofiled = await this.applyQualityProfile(
+            ensured.wasAdded,
+            ensured.series.qualityProfileId,
+            qualityProfileId,
+            () =>
+              this.sonarrService.editSeries([ensured.sonarrId], {
+                qualityProfileId,
+              }),
+          )
+          this.invalidateAfterRequestEnsure(jobMediaId, ensured, reprofiled)
+          return ensured
+        })
+
+        if (ensured.wasAdded) {
+          return this.waitOnRefresh(
+            await this.sonarrService.refreshSeries(ensured.sonarrId, {
+              isNew: true,
+            }),
+            ADD_REFRESH_NOTES[DownloadType.Show],
           )
         }
 
-        // Resolved *after* `ensureSeries`, not before: an episode id can't
-        // exist for a series Sonarr has never seen, so resolving first
-        // would fail on the one path (a fresh add) where the series has to
-        // be created before anything about it can be looked up.
-        const resolved = scope
-          ? await this.sonarrService.resolveScope(scope)
-          : undefined
-
-        const flagged = this.flaggedGuids(jobMediaId)
-
-        if (flagged.size === 0) {
-          await this.triggerScopedSearch(sonarrId, resolved)
-          return { scope: resolved }
-        }
-
-        const release = this.pickUnflaggedRelease(
-          jobMediaId,
-          resolved
-            ? await this.sonarrService.getReleases(sonarrId, resolved)
-            : await this.sonarrService.getReleases(sonarrId),
-          flagged,
+        return (
+          (await this.refreshInFlight(
+            DownloadType.Show,
+            ensured.sonarrId,
+            job.id,
+          )) ??
+          toSubmitResult(
+            await startSearch(this.searchDeps(), job, ensured.sonarrId),
+          )
         )
-        await this.sonarrService.grabRelease(release.guid, release.indexerId)
-
-        return { scope: resolved }
       },
       type: DownloadType.Show,
       upstreamId: tvdbId,
@@ -220,79 +366,133 @@ export class MediaDownloadService {
   }
 
   /**
-   * Picks the narrowest search command the scope allows: one episode, one
-   * season, or the whole series. Only reached when the title has no flagged
-   * releases - once it does, this app picks the release itself, because none
-   * of these commands can be told "anything but that one".
-   */
-  private async triggerScopedSearch(
-    sonarrId: number,
-    scope: ShowScope | undefined,
-  ): Promise<void> {
-    if (scope?.episodeId != null) {
-      return this.sonarrService.triggerEpisodeSearch([scope.episodeId])
-    }
-
-    // `!= null`, not truthiness - season 0 is Sonarr's specials season.
-    if (scope?.seasonNumber != null) {
-      return this.sonarrService.triggerSeasonSearch(
-        sonarrId,
-        scope.seasonNumber,
-      )
-    }
-
-    return this.sonarrService.triggerSearch(sonarrId)
-  }
-
-  /**
-   * Every release guid flagged as bad for a title. An empty set is the
-   * common case and the one that matters most - it's what keeps a title with
-   * no flags on the untouched command path.
-   */
-  private flaggedGuids(jobMediaId: string): Set<string> {
-    return new Set(
-      listBadFilesByMediaId(this.dbService.db, jobMediaId).map(
-        row => row.releaseGuid,
-      ),
-    )
-  }
-
-  /**
-   * The app's own pick, used only once a title has flagged releases: the
-   * generic `MoviesSearch`/`SeriesSearch` command has no way to be told
-   * "anything but that one", so this app has to do the choosing itself.
+   * What a fresh add leaves the job waiting on: the add-time refresh.
+   * Radarr/Sonarr queue it themselves on every add, carrying
+   * `isNewMovie`/`isNewSeries`, and dedupe an identical queued or running
+   * command - so the `isNew` refresh the caller just pushed hands back that
+   * command's id rather than queueing another. Stored with kind `refresh`,
+   * so the poller calls `startSearch` once it has finished.
    *
-   * Throws when nothing survives the filter. That failure lands on the job
-   * (via `request()`'s catch) with a message that says *why* - which beats a
-   * job that sits in `Searching` forever waiting for a grab that will never
-   * come.
+   * Also what `refreshInFlight` hands a library title that is still being
+   * refreshed - with no note when the refresh isn't the add-time one.
    */
-  private pickUnflaggedRelease(
-    jobMediaId: string,
-    releases: Release[],
-    flagged: ReadonlySet<string>,
-  ): Release {
-    const release = pickBestRelease(releases, flagged)
-
-    if (!release) {
-      throw new Error(
-        `No usable release for ${jobMediaId}: all ${releases.length} ` +
-          `release(s) were either rejected upstream or flagged as bad files`,
-      )
+  private waitOnRefresh(
+    refresh: CommandRef,
+    statusNote?: string,
+  ): RequestSubmitResult {
+    return {
+      command: { kind: 'refresh', ref: refresh },
+      ...(statusNote != null ? { statusNote } : {}),
     }
+  }
+
+  /**
+   * The refresh a title already in the library is still going through, for
+   * the job to wait on like a fresh add's - or `undefined`, to search now.
+   *
+   * Only the first of several requests for a title that wasn't in the
+   * library sees `wasAdded`: the bot sends a multi-season or multi-episode
+   * pick as one request per season or episode, and a second web request
+   * can land just as quickly. The rest find the title already there while
+   * the add-time refresh is still running - a show's episodes may not exist
+   * yet, and the refresh re-saves a snapshot read before it fetched, undoing
+   * the monitor flags `startSearch` writes. See `findRefreshInFlight` for
+   * which refreshes count; the add-time one carries its "Waiting for ..."
+   * note, a plain one none.
+   *
+   * No lock needed: Radarr/Sonarr queue the add-time refresh inside the add
+   * call itself, and `mediaMutex` already lets this request's ensure through
+   * only after the earlier add returned - so that refresh is on the list by
+   * the time this reads it.
+   *
+   * A failed read is logged and searches now - the request goes ahead as it
+   * did before this check existed, rather than failing on it.
+   */
+  private async refreshInFlight(
+    type: DownloadType.Movie | DownloadType.Show,
+    upstreamId: number,
+    jobId: string,
+  ): Promise<RequestSubmitResult | undefined> {
+    const action = 'refreshInFlight'
+    let commands: CommandSnapshot[]
+    try {
+      commands =
+        type === DownloadType.Movie
+          ? await this.radarrService.listCommands()
+          : await this.sonarrService.listCommands()
+    } catch (err) {
+      this.logger.warn(
+        { action, error: getErrorMessage(err), jobId, type, upstreamId },
+        'Could not read the command list - searching without checking for a refresh',
+      )
+      return undefined
+    }
+
+    const refresh = findRefreshInFlight(commands, type, upstreamId)
+    if (!refresh) return undefined
 
     this.logger.log(
       {
-        action: 'pickUnflaggedRelease',
-        candidates: releases.length,
-        flaggedCount: flagged.size,
-        guid: release.guid,
-        mediaId: jobMediaId,
+        action,
+        commandId: refresh.ref.id,
+        isNew: refresh.isNew,
+        jobId,
+        type,
+        upstreamId,
       },
-      'Picked a release ourselves - this title has flagged bad files',
+      'Title is still being refreshed - searching once the refresh finishes',
     )
 
-    return release
+    return this.waitOnRefresh(
+      refresh.ref,
+      refresh.isNew ? ADD_REFRESH_NOTES[type] : undefined,
+    )
+  }
+
+  /** `startSearch`'s dependencies, from what this service already holds. */
+  private searchDeps(): StartSearchDeps {
+    return {
+      db: this.dbService.db,
+      logger: this.logger,
+      radarrService: this.radarrService,
+      sonarrService: this.sonarrService,
+    }
+  }
+
+  /**
+   * Moves a library title onto the requested tier's profile when it is on
+   * another one, and reports whether it did. A fresh add already got the
+   * profile, and a title already on it is left alone - no call either way.
+   */
+  private async applyQualityProfile(
+    wasAdded: boolean,
+    currentProfileId: number | undefined,
+    wantedProfileId: number,
+    edit: () => Promise<void>,
+  ): Promise<boolean> {
+    if (wasAdded || currentProfileId === wantedProfileId) {
+      return false
+    }
+
+    await edit()
+    return true
+  }
+
+  /**
+   * `invalidateAfterEnsure`, plus a re-profile: the cached library entry
+   * holds the old profile, so the title's tier would read stale until the
+   * TTL ran out.
+   */
+  private invalidateAfterRequestEnsure(
+    jobMediaId: string,
+    ensured: { wasAdded: boolean; wasMonitored: boolean },
+    reprofiled: boolean,
+  ): void {
+    if (reprofiled) {
+      this.mediaResolverService.invalidate(jobMediaId)
+    } else {
+      this.mediaResolverService.invalidateAfterEnsure(jobMediaId, ensured)
+    }
   }
 
   getMovieJob(id: string): Promise<DownloadJob> {
@@ -363,7 +563,11 @@ export class MediaDownloadService {
      * in) to replace it.
      */
     scope?: ShowScope
-    submit: () => Promise<RequestSubmitResult | void>
+    /**
+     * Handed the job as minted - `startSearch` needs its id, media id and
+     * requested scope.
+     */
+    submit: (job: DownloadJobRecord) => Promise<RequestSubmitResult | void>
     type: DownloadType
     upstreamId: number
   }): Promise<DownloadJob> {
@@ -396,7 +600,7 @@ export class MediaDownloadService {
     this.logger.log({ action, jobId: id, upstreamId }, 'Requesting download')
 
     try {
-      const result = await submit()
+      const result = await submit(record)
 
       // Re-read, because a cancel can land while `submit()` is out upstream
       // and `updateJob` has no compare-and-set - writing `Searching` blind
@@ -415,18 +619,38 @@ export class MediaDownloadService {
       }
 
       // The poller got there first (it only moves a job it can see
-      // upstream) - its status is fresher than ours.
+      // upstream) - its status is fresher than ours. The command is still
+      // worth following while the job is open: the poller judges it
+      // against the job's status as it finds it.
       if (current && current.status !== DownloadJobStatus.Requested) {
-        return this.downloadStateService.hydrateOne(current)
+        const commandPatch = upstreamCommandPatch(result)
+        return this.downloadStateService.hydrateOne(
+          !isTerminalDownloadJobStatus(current.status) &&
+            current.upstreamCommandId == null &&
+            Object.keys(commandPatch).length > 0
+            ? this.downloadStateService.updateJob(id, commandPatch)
+            : current,
+        )
+      }
+
+      if (result?.status === DownloadJobStatus.NotFound) {
+        this.logger.log(
+          { action, jobId: id, statusNote: result.statusNote, upstreamId },
+          'Nothing to grab for the request',
+        )
       }
 
       return this.downloadStateService.hydrateOne(
         this.downloadStateService.updateJob(id, {
-          // Folded into the same write that moves the job to Searching
-          // rather than a second update - one broadcast, not two, for what
-          // is one state change.
+          // Folded into the same write that moves the job on rather than a
+          // second update - one broadcast, not two, for what is one state
+          // change.
           ...(result?.scope ? { scope: result.scope } : {}),
-          status: DownloadJobStatus.Searching,
+          ...upstreamCommandPatch(result),
+          ...(result?.statusNote != null
+            ? { statusNote: result.statusNote }
+            : {}),
+          status: result?.status ?? DownloadJobStatus.Searching,
         }),
       )
     } catch (err) {
@@ -536,6 +760,11 @@ export class MediaDownloadService {
    * it `Cancelled` (or `Completed`, if a file landed first) once nothing is
    * left in the queue.
    *
+   * The one exception is a job whose only downloads are season packs that
+   * also carry other episodes: those keep running (see `cancelUpstream`), so
+   * it goes straight to `Cancelled`, noted `KEPT_PACK_NOTE` and with no
+   * `error` - there is no removal to wait for.
+   *
    * Upstream first, status last, like `deleteJob`: if the upstream work
    * throws, the job is left exactly as it was and the error propagates, so a
    * second press simply tries again. A library file is never touched.
@@ -557,7 +786,7 @@ export class MediaDownloadService {
       return job
     }
 
-    await this.cancelUpstream(job, action)
+    const outcome = await this.cancelUpstream(job, action)
 
     // The library cache still holds the pre-cancel `monitored` flag.
     this.mediaResolverService.invalidate(job.media.id)
@@ -576,12 +805,29 @@ export class MediaDownloadService {
       return this.downloadStateService.hydrateOne(current)
     }
 
+    // Everything the job had queued is a season pack left running: nothing
+    // was removed, so there is no removal for the poller to wait out, and
+    // the pack itself would keep a `cancelling` job from ever settling.
+    // Anything removed alongside a kept pack goes through `cancelling`, and
+    // the poller settles it with the same note once only the pack is left.
+    const keptOnly = outcome.kept.length > 0 && !outcome.removed
+
     const cancelling = this.downloadStateService.updateJob(id, {
       // A job cancelled out of `NeedsAttention` still carries upstream's
       // import error, which says nothing true about a cancelled attempt.
       error: undefined,
-      status: DownloadJobStatus.Cancelling,
+      ...(keptOnly
+        ? {
+            status: DownloadJobStatus.Cancelled,
+            statusNote: KEPT_PACK_NOTE,
+          }
+        : { status: DownloadJobStatus.Cancelling }),
     })
+
+    // What keeps adoption off the kept pack (`keptDownloadIds`). The poller
+    // normally linked it already; after the write, so the row it needs is
+    // certainly there.
+    if (keptOnly) this.linkKeptDownloads(job, outcome.kept, action)
 
     // The press landed while `request()`'s `submit()` was out upstream, and
     // `submit()` resolved during the upstream calls above - so `request()`
@@ -630,7 +876,11 @@ export class MediaDownloadService {
     )
   }
 
-  /** `cancelUpstream`, with a failure logged instead of thrown. */
+  /**
+   * `cancelUpstream`, with a failure logged instead of thrown. Its outcome is
+   * dropped: the job is already `Cancelling`, and a season pack it kept is
+   * the poller's to settle (`removeLateGrab`).
+   */
   private async cancelUpstreamQuietly(
     job: DownloadJob,
     action: string,
@@ -646,16 +896,25 @@ export class MediaDownloadService {
   }
 
   /**
-   * The upstream half of a cancel: removes the job's queue items (the client
-   * drops its partial files; nothing is blocklisted and no re-search is
-   * started), then unmonitors only what has no file, so RSS doesn't grab it
-   * again and a cancelled *replacement* leaves the title monitored for the
-   * copy already on disk. Season and series flags are left alone.
+   * The upstream half of a cancel: removes the job's downloads from the
+   * queue (the client drops its partial files; nothing is blocklisted and no
+   * re-search is started), then unmonitors only what has no file, so RSS
+   * doesn't grab it again and a cancelled *replacement* leaves the title
+   * monitored for the copy already on disk. Season and series flags are left
+   * alone.
    *
    * The queue is read fresh rather than from `MediaStateService`, whose copy
    * is up to a tick old - exactly the window a just-grabbed release lives in.
-   * A show job only ever touches items inside its own scope, so cancelling
-   * one episode leaves a sibling episode's download running.
+   * Rows are handled one download at a time (`planQueueCancel`): each is
+   * removed with one DELETE, except a show download that also carries an
+   * episode outside the job's scope - a season pack an episode job is part
+   * of - which is kept, since removing any of its rows removes all of it. A
+   * show job only ever touches downloads inside its own scope, so
+   * cancelling one episode leaves a sibling episode's download running.
+   *
+   * A movie also matches the rows Radarr could not tie to any movie (no
+   * `movieId`), by the downloads the job is linked to - only the unfiltered
+   * queue read returns those.
    *
    * No upstream id (a first request `submit()` hasn't added yet) means there
    * is nothing upstream to undo.
@@ -663,58 +922,111 @@ export class MediaDownloadService {
   private async cancelUpstream(
     job: DownloadJob,
     action: string,
-  ): Promise<void> {
-    if (!isManagedMedia(job.media)) return
+  ): Promise<CancelUpstreamOutcome> {
+    const nothing: CancelUpstreamOutcome = { kept: [], removed: false }
+    if (!isManagedMedia(job.media)) return nothing
 
     if (job.media.type === DownloadType.Movie) {
       const { radarrId } = job.media
-      if (radarrId == null) return
+      if (radarrId == null) return nothing
 
-      const queue = await this.radarrService.getQueue([radarrId])
+      const linked = new Set(
+        listForJob(this.downloadStateService.db, job.id).flatMap(link =>
+          link.failedAt == null ? [link.downloadId] : [],
+        ),
+      )
+      const queue = await this.radarrService.getQueue(
+        linked.size > 0 ? undefined : [radarrId],
+      )
+      const plan = planQueueCancel(
+        queue.filter(
+          item =>
+            item.movieId === radarrId ||
+            (item.movieId == null &&
+              item.downloadId != null &&
+              linked.has(item.downloadId)),
+        ),
+        queue,
+      )
       await this.removeQueueItems(
         job,
-        queue.filter(item => item.movieId === radarrId),
+        plan,
         queueId => this.radarrService.removeQueueItem(queueId),
         action,
       )
       await this.radarrService.unmonitorIfMissing(radarrId)
-      return
+      return { kept: [], removed: hasRemovals(plan) }
     }
 
     const { sonarrId } = job.media
-    if (sonarrId == null) return
+    if (sonarrId == null) return nothing
 
     const queue = await this.sonarrService.getQueue([sonarrId])
+    const inScope = (item: PollableQueueItem) =>
+      item.seriesId === sonarrId && matchesScope(item, job.scope)
+    const plan = planQueueCancel(queue.filter(inScope), queue, inScope)
+
+    if (plan.kept.length > 0) {
+      this.logger.log(
+        { action, downloadIds: plan.kept, jobId: job.id },
+        'Kept a season download that also carries other episodes',
+      )
+    }
+
     await this.removeQueueItems(
       job,
-      queue.filter(
-        item => item.seriesId === sonarrId && matchesScope(item, job.scope),
-      ),
+      plan,
       queueId => this.sonarrService.removeQueueItem(queueId),
       action,
     )
     await this.sonarrService.unmonitorScope(sonarrId, job.scope ?? {}, {
       withoutFileOnly: true,
     })
+    return { kept: plan.kept, removed: hasRemovals(plan) }
   }
 
   /**
-   * Removes every item, best-effort. A partial failure is logged and
-   * swallowed rather than thrown: the job still moves to `Cancelling`, and
-   * the poller removes whatever is left of a `Cancelling` job's queue on its
-   * next tick.
+   * Links a pack-cancelled job to the downloads it left running, logged
+   * rather than thrown: the cancel already took, and a link the poller has
+   * not written yet only means adoption may pick the pack up.
+   */
+  private linkKeptDownloads(
+    job: DownloadJob,
+    downloadIds: readonly string[],
+    action: string,
+  ): void {
+    for (const downloadId of downloadIds) {
+      try {
+        linkDownload(this.downloadStateService.db, {
+          app: 'sonarr',
+          downloadId,
+          grabbedAt: null,
+          jobId: job.id,
+        })
+      } catch (err) {
+        this.logger.warn(
+          { action, downloadId, error: getErrorMessage(err), jobId: job.id },
+          'Failed to link a kept season download to its cancelled job',
+        )
+      }
+    }
+  }
+
+  /**
+   * Removes each planned download with one DELETE, best-effort. A partial
+   * failure is logged and swallowed rather than thrown: the job still moves
+   * to `Cancelling`, and the poller removes whatever is left of a
+   * `Cancelling` job's queue on its next tick.
    */
   private async removeQueueItems(
     job: DownloadJob,
-    items: PollableQueueItem[],
+    plan: QueueCancelPlan,
     remove: (queueId: number) => Promise<void>,
     action: string,
   ): Promise<void> {
-    const removable = items.filter(
-      (item): item is PollableQueueItem & { id: number } => item.id != null,
-    )
+    const removable = plan.remove
 
-    if (removable.length !== items.length) {
+    if (plan.unnamed.length > 0) {
       this.logger.log(
         { action, jobId: job.id },
         'Skipped a queue item with no id - there is no row to remove',

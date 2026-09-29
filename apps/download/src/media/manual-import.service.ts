@@ -23,10 +23,11 @@ import { mediaTypeFromKey } from 'src/db/media-id'
 import { DownloadStateService } from 'src/download/download-state.service'
 
 import {
+  isInShowScope,
   type RadarrManualImportResource,
   type SonarrManualImportResource,
   toMovieCandidate,
-  toShowCandidate,
+  toShowCandidates,
 } from './manual-import-mapper.util'
 import { MediaResolverService } from './media-resolver.service'
 import { matchesScope, type PollableQueueItem } from './queue-status.util'
@@ -222,6 +223,18 @@ export class ManualImportService {
   ): Promise<ImportFilesResponse> {
     const action = 'importFiles'
     const scope = scopeFromInput(input)
+
+    // De-duplicated because the command is keyed on path: the same path twice
+    // would be two identical files in one command, which upstream would
+    // happily try to import twice.
+    const paths = Array.from(new Set(input.paths))
+
+    // Radarr imports one file per movie - a second file would just replace
+    // the first. Checked before anything is asked of upstream.
+    if (mediaTypeFromKey(mediaId) === DownloadType.Movie && paths.length > 1) {
+      throw new BadRequestException('A movie takes one file')
+    }
+
     const collected = await this.collect(mediaId, scope)
 
     if (collected.items.length === 0) {
@@ -230,10 +243,6 @@ export class ManualImportService {
       )
     }
 
-    // De-duplicated because the command is keyed on path: the same path twice
-    // would be two identical files in one command, which upstream would
-    // happily try to import twice.
-    const paths = Array.from(new Set(input.paths))
     const byPath = new Map(
       collected.candidates.map(candidate => [candidate.path, candidate]),
     )
@@ -400,6 +409,8 @@ export class ManualImportService {
    * One `getManualImportCandidates` call per distinct `downloadId` in scope,
    * concatenated: two blocked episodes of one season are two queue items,
    * two candidate lists and - later - one command carrying both files.
+   * Sonarr's lists are then narrowed to this series and the scope's season
+   * ({@link isInShowScope}), since Sonarr is asked by `downloadId` alone.
    */
   private async collect(
     mediaId: string,
@@ -438,26 +449,41 @@ export class ManualImportService {
       }
     }
 
-    const entries: CandidateEntry<SonarrManualImportResource>[] = []
+    // Sonarr is asked by `downloadId` alone, so the series and season are
+    // narrowed here - and the whole listing is gathered before any mapping,
+    // because the episode-scope fallback picks one file out of all of them.
+    const listed: Array<{
+      downloadId: string
+      resource: SonarrManualImportResource
+    }> = []
 
     for (const downloadId of downloadIds) {
-      const resources = await this.sonarrService.getManualImportCandidates(
-        downloadId,
-        target.upstreamId,
-        scope?.seasonNumber,
-      )
+      const resources =
+        await this.sonarrService.getManualImportCandidates(downloadId)
 
       for (const resource of resources) {
-        const candidate = toShowCandidate(resource, scope)
-
-        if (!candidate) {
-          this.warnUnaddressable(mediaId, downloadId)
-          continue
+        if (isInShowScope(resource, target.upstreamId, scope?.seasonNumber)) {
+          listed.push({ downloadId, resource })
         }
-
-        entries.push({ candidate, resource })
       }
     }
+
+    const candidates = toShowCandidates(
+      listed.map(({ resource }) => resource),
+      scope,
+    )
+    const entries: CandidateEntry<SonarrManualImportResource>[] = []
+
+    listed.forEach(({ downloadId, resource }, index) => {
+      const candidate = candidates[index]
+
+      if (!candidate) {
+        this.warnUnaddressable(mediaId, downloadId)
+        return
+      }
+
+      entries.push({ candidate, resource })
+    })
 
     return {
       candidates: entries.map(entry => entry.candidate),
