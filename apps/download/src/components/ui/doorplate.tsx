@@ -10,10 +10,9 @@ type DoorplateElementProps = Omit<
 
 export type DoorplateProps = DoorplateElementProps & {
   /**
-   * Renders an `<a>` instead of a `<span>`. The mockups always pass
-   * `https://lilnas.io` here - the doorplate is the way back out to the rest
-   * of the lilnas apps - but the signature is also legitimately inert, so the
-   * link is opt-in rather than baked in.
+   * Renders an `<a>` instead of a `<span>` - the doorplate is the way back to
+   * this app's own homepage - but the signature is also legitimately inert,
+   * so the link is opt-in rather than baked in.
    */
   href?: string
   /** The subdomain, in mono. `Download` for this app. */

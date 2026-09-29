@@ -5,8 +5,8 @@ import { AccountLink } from 'src/components/shell/account-link'
 import { Doorplate } from 'src/components/ui/doorplate'
 import type { Viewer } from 'src/lib/viewer'
 
-/** The doorplate is the way back out to the rest of the lilnas apps. */
-export const LILNAS_HREF = 'https://lilnas.io'
+/** The doorplate is the way back to this app's own homepage (the library). */
+export const HOME_HREF = '/'
 
 /** The app this bar belongs to, in mono on the doorplate. */
 export const APP_NAME = 'Download'
@@ -153,11 +153,7 @@ export function AppBar({
   return (
     <header {...props} className={cns(APP_BAR_CLASSES, className)}>
       {back ? <span className={BACK_SLOT_CLASSES}>{back}</span> : null}
-      <Doorplate
-        className={cns('shrink-0')}
-        href={LILNAS_HREF}
-        name={APP_NAME}
-      />
+      <Doorplate className={cns('shrink-0')} href={HOME_HREF} name={APP_NAME} />
       <div className={NAV_SEARCH_SLOT_CLASSES}>{navSearch}</div>
       {/*
         ⚠️ Gated on `isAdmin`, and rendered as *nothing at all* for everybody
