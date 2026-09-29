@@ -1,10 +1,35 @@
 import {
+  formatEpisodeDownload,
   formatFileSize,
   formatMediaAsJson,
   formatTimeRemaining,
 } from 'src/media-operations/request-handling/utils/formatting.utils'
 
 describe('FormattingUtilities', () => {
+  describe('formatEpisodeDownload', () => {
+    it('should show label and title for a single episode', () => {
+      expect(
+        formatEpisodeDownload({
+          episodeLabel: 'S01E03',
+          episodeTitle: 'Pilot',
+          episodeCount: 1,
+        }),
+      ).toBe('S01E03: Pilot')
+    })
+
+    it('should show the label alone when the title is unknown', () => {
+      expect(
+        formatEpisodeDownload({ episodeLabel: 'S00E00', episodeCount: 1 }),
+      ).toBe('S00E00')
+    })
+
+    it('should describe a season pack by range and episode count', () => {
+      expect(
+        formatEpisodeDownload({ episodeLabel: 'S01E01–E10', episodeCount: 10 }),
+      ).toBe('S01E01–E10 (season pack, 10 episodes)')
+    })
+  })
+
   describe('formatFileSize', () => {
     it('should format file sizes across all units', () => {
       expect(formatFileSize(0)).toBe('0 B')

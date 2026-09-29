@@ -3,7 +3,10 @@ import { forwardRef, Module } from '@nestjs/common'
 import { DownloadModule } from 'src/download/download.module'
 import { DownloadGatewayModule } from 'src/download-gateway/download-gateway.module'
 import { EmbyModule } from 'src/emby/emby.module'
+import { SabnzbdModule } from 'src/sabnzbd/sabnzbd.module'
+import { SabnzbdMonitorService } from 'src/sabnzbd/sabnzbd-monitor.service'
 
+import { ArrProfilesBootstrap } from './arr-profiles.bootstrap'
 import { radarrClientProvider, sonarrClientProvider } from './clients'
 import { CurrentReleaseService } from './current-release.service'
 import { DiscoveryService } from './discovery.service'
@@ -32,6 +35,11 @@ import { SonarrService } from './sonarr.service'
 // EmbyStatusService only to EmbyService), so there is no cycle to break and
 // forwardRef() would only hide that fact from the next reader.
 //
+// SabnzbdModule is plain for the same reason: SabnzbdService talks only to
+// SABnzbd over HTTP. SabnzbdMonitorService is provided here rather than in
+// SabnzbdModule because it pushes into MediaStateService, and nothing
+// injects it - it runs on its own @Interval and writes to the store.
+//
 // DownloadGatewayModule is plain for the same reason: it imports only
 // AuthModule, so MediaPollerService and LibraryWatchService can inject
 // DownloadGateway to broadcast media state changes without adding a second
@@ -41,10 +49,12 @@ import { SonarrService } from './sonarr.service'
     forwardRef(() => DownloadModule),
     DownloadGatewayModule,
     EmbyModule,
+    SabnzbdModule,
   ],
   providers: [
     radarrClientProvider,
     sonarrClientProvider,
+    ArrProfilesBootstrap,
     CurrentReleaseService,
     DiscoveryService,
     LibraryWatchService,
@@ -57,6 +67,7 @@ import { SonarrService } from './sonarr.service'
     MediaResolverService,
     MediaStateService,
     ReleaseService,
+    SabnzbdMonitorService,
     ShowService,
   ],
   exports: [

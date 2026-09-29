@@ -4,6 +4,7 @@ import {
   CAST_CREDIT_LIMIT,
   languageList,
   languageName,
+  movieFileCustomFormats,
   originalLanguageName,
   toMediaCredits,
   toMovieFile,
@@ -136,12 +137,15 @@ describe('toMovieFile', () => {
     expect(file?.video).toBeUndefined()
   })
 
-  it('keeps custom format names, deduped', () => {
+  // `GET /movie` never computes the embedded file's custom formats, so they
+  // come from `/moviefile` via movieFileCustomFormats() instead.
+  it('leaves custom formats to the /moviefile read', () => {
     const file = toMovieFile({
-      customFormats: [{ name: 'DV' }, { name: 'HDR10+' }, { name: 'DV' }],
+      customFormats: [{ name: 'DV' }],
+      quality: { quality: { name: 'WEBDL-1080p' } },
     })
 
-    expect(file?.customFormats).toEqual(['DV', 'HDR10+'])
+    expect(file).toEqual({ quality: 'WEBDL-1080p' })
   })
 
   it('carries an unmet cutoff and an edition', () => {
@@ -164,6 +168,49 @@ describe('toMovieFile', () => {
     expect(toMovieFile({ mediaInfo: { audioBitrate: 0 }, size: 0 })).toBe(
       undefined,
     )
+  })
+})
+
+describe('movieFileCustomFormats', () => {
+  it("keeps the served file's custom format names, deduped", () => {
+    expect(
+      movieFileCustomFormats([
+        {
+          ...END_OF_WATCH_FILE,
+          customFormats: [{ name: 'DV' }, { name: 'HDR10+' }, { name: 'DV' }],
+          id: 11,
+        },
+      ]),
+    ).toEqual(['DV', 'HDR10+'])
+  })
+
+  // The same pick CurrentReleaseService makes: the first file with an id.
+  it('reads the first file with an id', () => {
+    expect(
+      movieFileCustomFormats([
+        { customFormats: [{ name: 'Ghost' }] },
+        { customFormats: [{ name: 'IMAX' }], id: 12 },
+        { customFormats: [{ name: 'Later' }], id: 13 },
+      ]),
+    ).toEqual(['IMAX'])
+  })
+
+  it('drops blank names', () => {
+    expect(
+      movieFileCustomFormats([
+        { customFormats: [{ name: ' ' }, {}, { name: 'x265' }], id: 11 },
+      ]),
+    ).toEqual(['x265'])
+  })
+
+  // Radarr's JSON omits null keys, so a file that matched nothing may carry
+  // no `customFormats` at all.
+  it.each([
+    ['an empty list', [{ customFormats: [], id: 11 }]],
+    ['a missing key', [{ id: 11 }]],
+    ['no files', []],
+  ])('is undefined for %s', (_label, files: MovieFileResource[]) => {
+    expect(movieFileCustomFormats(files)).toBeUndefined()
   })
 })
 

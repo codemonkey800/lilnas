@@ -80,6 +80,14 @@ export class ChatHandler implements IMessageHandler {
         message: content,
         user: message.author.displayName,
         userId: context.userId,
+        // `username` is the unique handle the download app attributes the
+        // request to; `globalName` is the display name, nullable on the
+        // Discord API (same mapping as `/download`'s createJob).
+        discord: {
+          userId: context.userId,
+          username: message.author.username,
+          displayName: message.author.globalName ?? undefined,
+        },
         guildId: message.guildId ?? '',
       })
 

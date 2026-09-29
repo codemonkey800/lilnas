@@ -6,7 +6,11 @@ import type {
   MediaDetailResponse,
   Movie,
 } from '@lilnas/utils/download/types'
-import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
+import {
+  DownloadJobStatus,
+  DownloadType,
+  QualityTier,
+} from '@lilnas/utils/download/types'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { notFound } from 'next/navigation'
@@ -22,6 +26,7 @@ import {
 import { cancelMovieJob, retryMovieJob } from 'src/app/actions/media-job'
 import MoviePage, { generateMetadata } from 'src/app/movies/[tmdbId]/page'
 import { MOVIE_WATCH_LABEL } from 'src/components/detail/movie-detail'
+import { MOVIE_REQUEST_LABEL } from 'src/components/detail/movie-request-button'
 import { RELEASE_SEARCH_LABEL } from 'src/components/detail/release-picker'
 import { getIdentifiedDownloadClient } from 'src/lib/download-client'
 
@@ -93,6 +98,8 @@ const BAD_FILES: ListBadFilesResponse = { badFiles: [] }
 
 const getMedia = jest.fn<Promise<MediaDetailResponse>, [string]>()
 const listBadFiles = jest.fn<Promise<ListBadFilesResponse>, [string]>()
+// ⚠️ A stub, never the client: the real call is a LIVE `POST /download/movies`.
+const requestMovie = jest.fn<Promise<DownloadJob>, [unknown]>()
 
 async function renderPage(tmdbId = '438631') {
   return render(await MoviePage({ params: Promise.resolve({ tmdbId }) }))
@@ -101,11 +108,12 @@ async function renderPage(tmdbId = '438631') {
 beforeEach(() => {
   getMedia.mockResolvedValue(DETAIL)
   listBadFiles.mockResolvedValue(BAD_FILES)
-  jest
-    .mocked(getIdentifiedDownloadClient)
-    .mockResolvedValue({ getMedia, listBadFiles } as unknown as Awaited<
-      ReturnType<typeof getIdentifiedDownloadClient>
-    >)
+  requestMovie.mockResolvedValue(JOB)
+  jest.mocked(getIdentifiedDownloadClient).mockResolvedValue({
+    getMedia,
+    listBadFiles,
+    requestMovie,
+  } as unknown as Awaited<ReturnType<typeof getIdentifiedDownloadClient>>)
 })
 
 describe('MoviePage — the route segment', () => {
@@ -269,6 +277,51 @@ describe('MoviePage — the lifecycle actions it wires', () => {
     await userEvent.click(screen.getByRole('button', { name: /^retry$/i }))
 
     expect(retryMovieJob).toHaveBeenCalledWith('job-failed')
+  })
+})
+
+describe('MoviePage — the request action it wires', () => {
+  /** Not on disk, nothing in flight — what draws the header's Download. */
+  const WANTED: Movie = {
+    ...MOVIE,
+    embyStatus: undefined,
+    filePath: undefined,
+    state: 'wanted',
+  }
+
+  beforeEach(() => {
+    getMedia.mockResolvedValue({ jobs: [], media: WANTED })
+  })
+
+  it('forwards the picked quality tier to the client', async () => {
+    await renderPage()
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: /^Quality:/ }))
+    await user.click(screen.getByRole('option', { name: 'Up to 720p' }))
+    await user.click(screen.getByRole('button', { name: MOVIE_REQUEST_LABEL }))
+
+    expect(requestMovie).toHaveBeenCalledWith({
+      qualityTier: QualityTier.UpTo720p,
+      tmdbId: 438631,
+    })
+  })
+
+  it('forwards the preselected tier when nothing was picked', async () => {
+    getMedia.mockResolvedValue({
+      jobs: [],
+      media: { ...WANTED, qualityTier: QualityTier.UpTo4k },
+    })
+    await renderPage()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: MOVIE_REQUEST_LABEL }),
+    )
+
+    expect(requestMovie).toHaveBeenCalledWith({
+      qualityTier: QualityTier.UpTo4k,
+      tmdbId: 438631,
+    })
   })
 })
 

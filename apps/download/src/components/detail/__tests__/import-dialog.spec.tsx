@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event'
 
 import type { ImportDialogActions } from 'src/components/detail/import-dialog'
 import {
+  defaultImportSelection,
   IMPORT_BLOCKED_REASON,
   IMPORT_CANCEL_LABEL,
   IMPORT_CONFIRM_LABEL,
@@ -16,12 +17,14 @@ import {
   IMPORT_DISCARD_NOTE,
   IMPORT_DISCARD_TITLE,
   IMPORT_EMPTY_NOTE,
+  IMPORT_MOVIE_GROUP_LABEL,
   IMPORT_REJECTION_NOTE,
   IMPORT_TRIGGER_LABEL,
   importCandidateSecondary,
   ImportDialog,
   importDialogTitle,
   importRejections,
+  isSampleCandidate,
 } from 'src/components/detail/import-dialog'
 
 const MOVIE_ID = 'tmdb:445571'
@@ -73,6 +76,37 @@ const EPISODE: ManualImportCandidate = {
   rejections: [],
   relativePath: 'Harbor.Watch.S02E05E06.mkv',
   size: 3 * 1024 ** 3,
+}
+
+/** A smaller cut of the same movie — a second file that is not the default. */
+const GAME_NIGHT_720: ManualImportCandidate = {
+  ...GAME_NIGHT,
+  path: '/downloads/Game.Night.2018.1080p.BluRay.x265/Game.Night.2018.720p.mkv',
+  quality: { name: 'Bluray-720p', resolution: 720 },
+  rejections: [],
+  relativePath: 'Game.Night.2018.720p.mkv',
+  size: 800 * 1024 * 1024,
+}
+
+/**
+ * A file upstream called a sample, yet importable — rejections never block.
+ * Deliberately the *largest* file, so "largest" alone would pick it.
+ */
+const GAME_NIGHT_SAMPLE: ManualImportCandidate = {
+  ...GAME_NIGHT,
+  path: '/downloads/Game.Night.2018.1080p.BluRay.x265/Game.Night.sample.mkv',
+  rejections: ['Sample'],
+  relativePath: 'Game.Night.sample.mkv',
+  size: 4 * 1024 ** 3,
+}
+
+/** The episode's sample, flagged the same way. */
+const EPISODE_SAMPLE: ManualImportCandidate = {
+  ...EPISODE,
+  path: '/downloads/Harbor.Watch.S02E05E06/Harbor.Watch.S02E05E06.sample.mkv',
+  rejections: ['Sample'],
+  relativePath: 'Harbor.Watch.S02E05E06.sample.mkv',
+  size: 40 * 1024 * 1024,
 }
 
 /** The rejection as the dialog renders it — `formatRejection`'s doing. */
@@ -165,6 +199,42 @@ describe('importRejections', () => {
   })
 })
 
+describe('isSampleCandidate', () => {
+  it('matches a sample rejection case-insensitively', () => {
+    expect(isSampleCandidate(GAME_NIGHT_SAMPLE)).toBe(true)
+    expect(
+      isSampleCandidate({ ...GAME_NIGHT, rejections: ['looks like a SAMPLE'] }),
+    ).toBe(true)
+  })
+
+  it('ignores every other rejection', () => {
+    expect(isSampleCandidate(GAME_NIGHT)).toBe(false)
+  })
+})
+
+describe('defaultImportSelection', () => {
+  it('picks the one largest non-sample file for a movie', () => {
+    expect([
+      ...defaultImportSelection(
+        [GAME_NIGHT_720, GAME_NIGHT_SAMPLE, GAME_NIGHT],
+        true,
+      ),
+    ]).toEqual([GAME_NIGHT.path])
+  })
+
+  it('picks nothing for a movie with only a sample and a blocked file', () => {
+    expect(defaultImportSelection([GAME_NIGHT_SAMPLE, SAMPLE], true).size).toBe(
+      0,
+    )
+  })
+
+  it('picks every importable non-sample file for a show', () => {
+    expect([
+      ...defaultImportSelection([EPISODE, EPISODE_SAMPLE, SAMPLE], false),
+    ]).toEqual([EPISODE.path])
+  })
+})
+
 describe('ImportDialog — the trigger', () => {
   it('fetches nothing while closed', () => {
     const actions = stub([GAME_NIGHT])
@@ -224,7 +294,7 @@ describe('ImportDialog — the dialog', () => {
   it('renders the candidate, checked, with its quality, size and title', async () => {
     await open()
 
-    const row = screen.getByRole('checkbox', {
+    const row = screen.getByRole('radio', {
       name: /Game\.Night\.2018\.1080p\.BluRay\.x265\.mp4/,
     })
 
@@ -257,7 +327,7 @@ describe('ImportDialog — a blocked row', () => {
   it('renders it disabled, with the reason the server gave', async () => {
     await open([GAME_NIGHT, SAMPLE])
 
-    const row = screen.getByRole('checkbox', { name: /sample\.mkv/ })
+    const row = screen.getByRole('radio', { name: /sample\.mkv/ })
 
     expect(row).toHaveAttribute('aria-disabled', 'true')
     expect(row).toHaveAttribute('aria-checked', 'false')
@@ -273,17 +343,128 @@ describe('ImportDialog — a blocked row', () => {
   it('refuses to be checked, so it can never reach the commit', async () => {
     const { actions, user } = await open([GAME_NIGHT, SAMPLE])
 
-    await user.click(screen.getByRole('checkbox', { name: /sample\.mkv/ }))
+    await user.click(screen.getByRole('radio', { name: /sample\.mkv/ }))
 
-    expect(
-      screen.getByRole('checkbox', { name: /sample\.mkv/ }),
-    ).toHaveAttribute('aria-checked', 'false')
+    expect(screen.getByRole('radio', { name: /sample\.mkv/ })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    )
 
     await user.click(confirmButton())
 
     expect(actions.commit).toHaveBeenCalledWith(MOVIE_ID, {
       episodeId: undefined,
       paths: [GAME_NIGHT.path],
+      seasonNumber: undefined,
+    })
+  })
+})
+
+describe('ImportDialog — a movie takes one file', () => {
+  const MOVIE_FILES = [GAME_NIGHT_720, GAME_NIGHT_SAMPLE, GAME_NIGHT] as const
+
+  function radio(name: RegExp): HTMLElement {
+    return screen.getByRole('radio', { name })
+  }
+
+  it('renders a named radio group, not checkboxes', async () => {
+    await open(MOVIE_FILES)
+
+    const group = screen.getByRole('radiogroup', {
+      name: IMPORT_MOVIE_GROUP_LABEL,
+    })
+
+    expect(within(group).getAllByRole('radio')).toHaveLength(3)
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+  })
+
+  it('defaults to the largest file that is not a sample', async () => {
+    await open(MOVIE_FILES)
+
+    expect(radio(/1080p\.BluRay\.x265\.mp4/)).toBeChecked()
+    expect(radio(/720p\.mkv/)).not.toBeChecked()
+    expect(radio(/Game\.Night\.sample\.mkv/)).not.toBeChecked()
+  })
+
+  it('starts with nothing chosen when the only file is a sample', async () => {
+    await open([GAME_NIGHT_SAMPLE])
+
+    expect(radio(/Game\.Night\.sample\.mkv/)).not.toBeChecked()
+    expect(confirmButton()).toHaveAttribute('aria-disabled', 'true')
+  })
+
+  it('moves the choice on click, and never un-chooses it', async () => {
+    const { actions, user } = await open(MOVIE_FILES)
+
+    await user.click(radio(/720p\.mkv/))
+
+    expect(radio(/720p\.mkv/)).toBeChecked()
+    expect(radio(/1080p\.BluRay\.x265\.mp4/)).not.toBeChecked()
+
+    // Pressing the chosen radio again leaves it chosen.
+    await user.click(radio(/720p\.mkv/))
+
+    expect(radio(/720p\.mkv/)).toBeChecked()
+
+    await user.click(confirmButton())
+
+    expect(actions.commit).toHaveBeenCalledWith(MOVIE_ID, {
+      episodeId: undefined,
+      paths: [GAME_NIGHT_720.path],
+      seasonNumber: undefined,
+    })
+  })
+
+  it('moves the choice with the arrow keys, as one tab stop', async () => {
+    const { actions, user } = await open(MOVIE_FILES)
+
+    const chosen = radio(/1080p\.BluRay\.x265\.mp4/)
+
+    // Roving tab stop: only the chosen radio is in the tab order.
+    expect(chosen).toHaveAttribute('tabindex', '0')
+    expect(radio(/720p\.mkv/)).toHaveAttribute('tabindex', '-1')
+
+    chosen.focus()
+    // The last row wraps around to the first.
+    await user.keyboard('{ArrowDown}')
+
+    expect(radio(/720p\.mkv/)).toHaveFocus()
+    expect(radio(/720p\.mkv/)).toBeChecked()
+    expect(chosen).not.toBeChecked()
+
+    await user.click(confirmButton())
+
+    expect(actions.commit).toHaveBeenCalledWith(MOVIE_ID, {
+      episodeId: undefined,
+      paths: [GAME_NIGHT_720.path],
+      seasonNumber: undefined,
+    })
+  })
+})
+
+describe('ImportDialog — a show takes several files', () => {
+  it('starts a sample unchecked and every other importable row checked', async () => {
+    const { actions, user } = await open([EPISODE, EPISODE_SAMPLE], {
+      mediaId: SHOW_ID,
+    })
+
+    expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('checkbox', { name: /S02E05E06\.mkv/ }),
+    ).toBeChecked()
+    expect(
+      screen.getByRole('checkbox', { name: /S02E05E06\.sample\.mkv/ }),
+    ).not.toBeChecked()
+
+    // Still pickable by hand — the rejection is informational.
+    await user.click(
+      screen.getByRole('checkbox', { name: /S02E05E06\.sample\.mkv/ }),
+    )
+    await user.click(confirmButton())
+
+    expect(actions.commit).toHaveBeenCalledWith(SHOW_ID, {
+      episodeId: undefined,
+      paths: [EPISODE.path, EPISODE_SAMPLE.path],
       seasonNumber: undefined,
     })
   })
@@ -313,12 +494,10 @@ describe('ImportDialog — importing', () => {
   })
 
   it('offers no import at all once nothing is checked', async () => {
-    const { actions, user } = await open()
+    const { actions, user } = await open([EPISODE], { mediaId: SHOW_ID })
 
     await user.click(
-      screen.getByRole('checkbox', {
-        name: /Game\.Night\.2018\.1080p\.BluRay\.x265\.mp4/,
-      }),
+      screen.getByRole('checkbox', { name: /Harbor\.Watch\.S02E05E06\.mkv/ }),
     )
 
     expect(confirmButton()).toHaveAttribute('aria-disabled', 'true')

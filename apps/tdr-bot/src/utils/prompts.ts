@@ -1,4 +1,4 @@
-import { BaseMessage, SystemMessage } from '@langchain/core/messages'
+import { SystemMessage } from '@langchain/core/messages'
 import dedent from 'dedent'
 
 import { VERSION } from 'src/constants/version'
@@ -71,8 +71,9 @@ export const GET_MEDIA_TYPE_PROMPT = new SystemMessage(dedent`
 
   {
     "mediaType": "movies" | "shows" | "both",
-    "searchIntent": "library" | "external" | "both",
-    "searchTerms": "extracted search terms"
+    "searchIntent": "library" | "external" | "both" | "delete",
+    "searchTerms": "extracted search terms",
+    "quality": "4k" | "1080p" | "720p" | null
   }
 
   Media Types:
@@ -86,23 +87,30 @@ export const GET_MEDIA_TYPE_PROMPT = new SystemMessage(dedent`
   - "${SearchIntent.Both}" - both existing and new content
   - "${SearchIntent.Delete}" - deleting from library ("delete", "remove", "uninstall")
 
-  Search Terms (extract meaningful terms for searching):
-  - Include: movie/show titles, actors, directors, genres, years, keywords, themes
+  Search Terms (the title to search for):
+  - Searches are by title (and year): extract the movie/show title, plus the year if the user gives one
   - Remove: action words (search, find), filler words (me, some, new), media type words (movies, shows)
-  - For library-only requests, can be empty string or relevant filter terms
-  - For complex queries, extract the core searchable content
+  - If the user asks by genre, actor, director or decade instead of a title, use an empty string - the bot will ask them for a title
+  - For library-only requests, can be empty string or the title to filter by
+
+  Quality (the video quality the user asked for, if any):
+  - "4k" - "in 4k", "4K UHD", "2160p", "ultra hd"
+  - "1080p" - "1080p", "full hd"
+  - "720p" - "720p"
+  - null - no quality mentioned
+  - Quality words are not search terms
 
   Examples:
-  - "what movies do I have?" → {"mediaType": "${MediaRequestType.Movies}", "searchIntent": "${SearchIntent.Library}", "searchTerms": ""}
-  - "search for The Batman" → {"mediaType": "${MediaRequestType.Movies}", "searchIntent": "${SearchIntent.External}", "searchTerms": "The Batman"}
-  - "find me horror shows from the 90s" → {"mediaType": "${MediaRequestType.Shows}", "searchIntent": "${SearchIntent.External}", "searchTerms": "horror 90s"}
-  - "do I have Breaking Bad?" → {"mediaType": "${MediaRequestType.Shows}", "searchIntent": "${SearchIntent.Library}", "searchTerms": "Breaking Bad"}
-  - "show me sci-fi movies and find new ones" → {"mediaType": "${MediaRequestType.Movies}", "searchIntent": "${SearchIntent.Both}", "searchTerms": "sci-fi"}
-  - "that movie with Ryan Gosling about space" → {"mediaType": "${MediaRequestType.Movies}", "searchIntent": "${SearchIntent.External}", "searchTerms": "Ryan Gosling space"}
-  - "cooking shows like MasterChef" → {"mediaType": "${MediaRequestType.Shows}", "searchIntent": "${SearchIntent.External}", "searchTerms": "cooking MasterChef"}
-  - "delete Cars movie" → {"mediaType": "${MediaRequestType.Movies}", "searchIntent": "${SearchIntent.Delete}", "searchTerms": "Cars"}
-  - "remove The Batman from my library" → {"mediaType": "${MediaRequestType.Movies}", "searchIntent": "${SearchIntent.Delete}", "searchTerms": "The Batman"}
-  - "delete cars the first one" → {"mediaType": "${MediaRequestType.Movies}", "searchIntent": "${SearchIntent.Delete}", "searchTerms": "cars"}
+  - "what movies do I have?" → {"mediaType": "${MediaRequestType.Movies}", "searchIntent": "${SearchIntent.Library}", "searchTerms": "", "quality": null}
+  - "search for The Batman" → {"mediaType": "${MediaRequestType.Movies}", "searchIntent": "${SearchIntent.External}", "searchTerms": "The Batman", "quality": null}
+  - "do I have Breaking Bad?" → {"mediaType": "${MediaRequestType.Shows}", "searchIntent": "${SearchIntent.Library}", "searchTerms": "Breaking Bad", "quality": null}
+  - "do I have Dune? if not, find it" → {"mediaType": "${MediaRequestType.Movies}", "searchIntent": "${SearchIntent.Both}", "searchTerms": "Dune", "quality": null}
+  - "find me some scary shows" → {"mediaType": "${MediaRequestType.Shows}", "searchIntent": "${SearchIntent.External}", "searchTerms": "", "quality": null}
+  - "delete Cars movie" → {"mediaType": "${MediaRequestType.Movies}", "searchIntent": "${SearchIntent.Delete}", "searchTerms": "Cars", "quality": null}
+  - "remove The Batman from my library" → {"mediaType": "${MediaRequestType.Movies}", "searchIntent": "${SearchIntent.Delete}", "searchTerms": "The Batman", "quality": null}
+  - "delete cars the first one" → {"mediaType": "${MediaRequestType.Movies}", "searchIntent": "${SearchIntent.Delete}", "searchTerms": "cars", "quality": null}
+  - "download Dune in 4k" → {"mediaType": "${MediaRequestType.Movies}", "searchIntent": "${SearchIntent.External}", "searchTerms": "Dune", "quality": "4k"}
+  - "add The Office in 720p please" → {"mediaType": "${MediaRequestType.Shows}", "searchIntent": "${SearchIntent.External}", "searchTerms": "The Office", "quality": "720p"}
 
   Return only valid JSON, no additional text.
 `)
@@ -171,47 +179,25 @@ export const MOVIE_SELECTION_PARSING_PROMPT = new SystemMessage(dedent`
 `)
 
 export const EXTRACT_SEARCH_QUERY_PROMPT = new SystemMessage(dedent`
-  Extract the movie search query from the user's message. Focus on movie titles, actor names, directors, genres, years, and descriptive keywords.
+  Extract the movie or TV show search query from the user's message. Searches are by title (and year): extract the title, plus the year if the user gives one.
 
   Guidelines:
   - Remove action words: download, add, get, find, search for, look for, want, need, delete, remove, uninstall
-  - Keep descriptive content: actor names, directors, genres, years, plot keywords
+  - Remove season/episode picks and quality words (4k, 1080p, 720p) - they are not part of the title
   - For references like "the new Batman" extract "Batman"
-  - For "that movie with Ryan Goslin about space" extract "Ryan Gosling space"
-  - For "the latest Marvel movie" extract "Marvel"
-  - Remove filler words: movie, film, the (unless part of a title)
+  - Remove filler words: movie, film, show, series, the (unless part of a title)
+  - If the user asks by genre, actor, director or decade instead of a title, return an empty response - there is no title to search for
 
   Examples:
   - "Download Inception" → "Inception"
-  - "I want to get that movie with Ryan Gosling about space" → "Ryan Gosling space"
   - "Find the new Batman sequel" → "Batman"
-  - "Search for horror movies from the 90s" → "horror 90s"
-  - "Get me that Leonardo DiCaprio movie about dreams" → "Leonardo DiCaprio dreams"
+  - "Download Breaking Bad season 2" → "Breaking Bad"
+  - "Get me Dune in 4k" → "Dune"
   - "Delete Cars movie" → "Cars"
   - "Remove The Batman from my library" → "The Batman"
   - "Delete cars the first one" → "cars"
 
   Return only the extracted search terms, no additional text.
-`)
-
-export const MOVIE_RESPONSE_CONTEXT_PROMPT = new SystemMessage(dedent`
-  Generate a conversational response for the movie download bot based on the situation and context provided.
-
-  Maintain the bot's personality:
-  - Helpful and enthusiastic about movies
-  - Conversational and friendly tone
-  - Uses appropriate emojis occasionally
-  - Provides clear, actionable guidance
-
-  Situation types:
-  - CLARIFICATION: Ask for more specific movie details
-  - NO_RESULTS: Explain no movies found and suggest alternatives
-  - MULTIPLE_RESULTS: Present movie options as a numbered list exactly as provided. Do NOT reformat, reorder, or omit the numbered list. The user needs the exact numbers to make a selection. You may add a brief intro and outro around the list.
-  - ERROR: Explain service issues helpfully
-  - SUCCESS: Confirm successful movie download with enthusiasm
-  - PROCESSING_ERROR: Handle selection/processing failures
-
-  Always provide helpful guidance and maintain conversational flow.
 `)
 
 export const MEDIA_CONTEXT_PROMPT = new SystemMessage(dedent`
@@ -256,6 +242,9 @@ export const DOWNLOAD_STATUS_RESPONSE_PROMPT = new SystemMessage(dedent`
 
   📺 **TV Shows** (if any):
   - Series Name S#E#: Episode Title: 85% • downloading • 420 MB • 3 mins left
+  - Series Name S01E01–E10 (season pack, 10 episodes): 40% • downloading • 8.2 GB • 1 hr left
+
+  A season pack is ONE download covering several episodes: list it once with its episode range and a single size, never once per episode.
 
   If there are no downloads, say so clearly. Be enthusiastic and helpful in your response tone.
 `)
@@ -310,26 +299,6 @@ export const KAWAII_PROMPT = dedent`
   are very detailed and give as much info when responding to questions when
   possible. You can hold conversations and ask follow up questions to things that
   interest you.
-`
-
-export const MEAN_PROMPT = dedent`
-  You are a mean person that is rude, passive aggressive, makes snide remarks,
-  insults people, uses slurs, and often gets into arguments with others. If
-  someone gets in an argument with you, starts fighting you, or acts aggressive or
-  mean to you in some way, you fight back and argue with them more or yell at them
-  in all caps. Despite this, you try your best to answer questions but in as
-  little detail as possible unless the person asks for more detail, but if this
-  happens you express how unhappy you are that you have to.
-`
-
-export const DRUNK_PROMPT = dedent`
-  You are a person that is really drunk. You will only answer like a very drunk
-  person texting and nothing else. Your level of drunkenness will be
-  deliberately and randomly make a lot of grammar and spelling mistakes in your
-  answers. You will also randomly ignore what I said and say something random
-  with the same level of drunkeness I mentionned. Do not write explanations on
-  replies. You will also use a lot of emojis only from the emoji dictionary due
-  to how drunk you are.
 `
 
 export const TV_SHOW_SELECTION_PARSING_PROMPT = new SystemMessage(dedent`
@@ -387,52 +356,6 @@ export const TV_SHOW_SELECTION_PARSING_PROMPT = new SystemMessage(dedent`
   Return only valid JSON, no additional text.
 `)
 
-export const TV_SHOW_RESPONSE_CONTEXT_PROMPT = new SystemMessage(dedent`
-  Generate a conversational response for the TV show download bot based on the situation and context provided.
-
-  Maintain the bot's personality:
-  - Helpful and enthusiastic about TV shows
-  - Conversational and friendly tone
-  - Uses appropriate emojis from the dictionary occasionally
-  - Provides clear, actionable guidance for TV show selection
-
-  Situation types:
-  - TV_SHOW_SELECTION_NEEDED: Present show options as a numbered list exactly as provided. Do NOT reformat, reorder, or omit the numbered list. The user needs the exact numbers to make a selection. You may add a brief intro and outro around the list, and explain selection choices (entire series, specific seasons, specific episodes).
-  - TV_SHOW_CLARIFICATION: Ask for more specific show details
-  - TV_SHOW_NO_RESULTS: Explain no shows found and suggest alternatives
-  - TV_SHOW_SUCCESS: Confirm successful show download with enthusiasm
-  - TV_SHOW_ERROR: Explain service issues helpfully
-  - TV_SHOW_PROCESSING_ERROR: Handle selection/processing failures
-
-  Always provide helpful guidance about TV show selection options and maintain conversational flow.
-`)
-
-export const TV_SHOW_DELETE_RESPONSE_CONTEXT_PROMPT = new SystemMessage(dedent`
-  Generate a conversational response for the TV show delete bot based on the situation and context provided.
-
-  Maintain the bot's personality:
-  - Helpful but cautious about deletions (ONLY when asking for confirmation, NOT when reporting completed deletions)
-  - Conversational and friendly tone
-  - Uses appropriate emojis from the dictionary occasionally
-  - For SUCCESS situations: celebrate the completed deletion, do not ask for additional confirmation
-  - For other situations: provides clear guidance about what will be deleted and emphasizes permanence
-
-  Situation types:
-  - TV_SHOW_DELETE_MULTIPLE_RESULTS_NEED_BOTH: Multiple shows found, need both show selection and parts selection
-  - TV_SHOW_DELETE_NEED_RESULT_SELECTION: Multiple shows found, user specified parts but not which show
-  - TV_SHOW_DELETE_NEED_SERIES_SELECTION: Show identified, but user hasn't specified what parts to delete
-  - TV_SHOW_DELETE_NO_RESULTS: No shows found matching the search query
-  - TV_SHOW_DELETE_SUCCESS: Deletion has ALREADY BEEN COMPLETED successfully - inform the user of successful deletion, do not ask for confirmation
-  - TV_SHOW_DELETE_ERROR: Deletion failed due to service issues
-
-  Selection guidance:
-  - For show selection: "the first one", "the 2009 version", ordinal numbers, years
-  - For parts selection: "entire series", "season 1", "season 2 episodes 1-3", specific seasons/episodes
-  - Always clarify that file deletion is permanent when files will be removed
-
-  Always provide helpful guidance about selection options and maintain conversational flow.
-`)
-
 export const EXTRACT_TV_SEARCH_QUERY_PROMPT = new SystemMessage(dedent`
   Extract the TV show search query from the user's message. Focus on show titles, actor names, genres, years, and descriptive keywords.
 
@@ -455,9 +378,3 @@ export const EXTRACT_TV_SEARCH_QUERY_PROMPT = new SystemMessage(dedent`
 `)
 
 export const TDR_SYSTEM_PROMPT_ID = 'tdr-system-prompt'
-
-export function getDebugMessages(messages: BaseMessage[]): BaseMessage[] {
-  return messages.map(m =>
-    m.id === TDR_SYSTEM_PROMPT_ID ? new SystemMessage('TDR System Prompt') : m,
-  )
-}

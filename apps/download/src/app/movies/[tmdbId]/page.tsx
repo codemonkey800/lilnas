@@ -1,5 +1,8 @@
 import { cns } from '@lilnas/utils/cns'
-import type { MediaDetailResponse } from '@lilnas/utils/download/types'
+import type {
+  MediaDetailResponse,
+  QualityTier,
+} from '@lilnas/utils/download/types'
 import { isMovie } from '@lilnas/utils/download/types'
 import type { Metadata } from 'next'
 import { revalidatePath } from 'next/cache'
@@ -83,7 +86,8 @@ async function loadBadFiles(mediaId: string) {
 }
 
 /**
- * Starts a movie download at Radarr's own best-release pick.
+ * Starts a movie download at Radarr's own best-release pick, in the quality
+ * tier picked beside the button.
  *
  * ⚠️ **This writes to the real Radarr library** — `POST /download/movies`
  * ensures the movie is monitored and fires `MoviesSearch`, exactly the way
@@ -96,8 +100,15 @@ async function loadBadFiles(mediaId: string) {
  * nothing but another file. Failures come back as a result rather than a
  * throw, so a refused request renders next to the button that caused it
  * instead of taking the whole page down.
+ *
+ * `qualityTier` is forwarded as it arrives: the backend's
+ * `RequestMovieInputSchema` is what validates it, and a tier it refuses comes
+ * back as the same failed-request result as any other refusal.
  */
-async function requestMovie(mediaId: string): Promise<MovieRequestResult> {
+async function requestMovie(
+  mediaId: string,
+  qualityTier?: QualityTier,
+): Promise<MovieRequestResult> {
   'use server'
 
   const tmdbId = Number(mediaIdSuffix(mediaId))
@@ -112,7 +123,7 @@ async function requestMovie(mediaId: string): Promise<MovieRequestResult> {
   const client = await getIdentifiedDownloadClient()
 
   try {
-    const job = await client.requestMovie({ tmdbId })
+    const job = await client.requestMovie({ qualityTier, tmdbId })
 
     revalidatePath(`/movies/${tmdbId}`)
 

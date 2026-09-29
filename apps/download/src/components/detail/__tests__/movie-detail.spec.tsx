@@ -6,7 +6,11 @@ import type {
   Movie,
   Release,
 } from '@lilnas/utils/download/types'
-import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
+import {
+  DownloadJobStatus,
+  DownloadType,
+  QualityTier,
+} from '@lilnas/utils/download/types'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
@@ -685,6 +689,18 @@ describe('MovieDetail — media state', () => {
     ).toBeInTheDocument()
   })
 
+  it('says a wanted movie is not released yet', () => {
+    // Radarr won't grab before the movie's minimum availability — without the
+    // reason, "wanted" and nothing happening reads like a stall.
+    renderDetail({
+      jobs: [],
+      media: { ...WANTED, stateReason: 'Not released yet' },
+    })
+
+    expect(screen.getByText('wanted')).toBeInTheDocument()
+    expect(screen.getByText('Not released yet')).toBeInTheDocument()
+  })
+
   it('⚠️ Cars: a failed newest attempt over a movie on disk still reads "in library"', () => {
     // The motivating bug. A restart failed the newest job for a movie that was
     // perfectly playable, and the page — reading the job — chipped it
@@ -887,14 +903,45 @@ describe('MovieDetail — the live feed marker', () => {
 })
 
 describe('MovieDetail — the download shortcut', () => {
-  it('passes the movie’s own media key to the handler, and nothing else', async () => {
+  it('passes the movie’s own media key to the handler, in the default tier', async () => {
     const onRequest = jest.fn().mockResolvedValue(undefined)
     const user = userEvent.setup()
     renderDetail({ jobs: [], media: UNFETCHED, onRequest })
 
     await user.click(firstButton(MOVIE_REQUEST_LABEL))
 
-    expect(onRequest).toHaveBeenCalledWith(MOVIE_ID)
+    expect(onRequest).toHaveBeenCalledWith(MOVIE_ID, QualityTier.Hd)
+  })
+
+  it('draws the tier picker beside Download, preselecting the movie’s own tier', () => {
+    renderDetail({
+      jobs: [],
+      media: { ...UNFETCHED, qualityTier: QualityTier.UpTo720p },
+    })
+
+    expect(
+      screen.getByRole('button', { name: 'Quality: Up to 720p' }),
+    ).toBeInTheDocument()
+  })
+
+  it('requests in the tier picked beside Download', async () => {
+    const onRequest = jest.fn().mockResolvedValue(undefined)
+    const user = userEvent.setup()
+    renderDetail({ jobs: [], media: WANTED, onRequest })
+
+    await user.click(screen.getByRole('button', { name: /^Quality:/ }))
+    await user.click(screen.getByRole('option', { name: 'Up to 4K' }))
+    await user.click(downloadButton())
+
+    expect(onRequest).toHaveBeenCalledWith(MOVIE_ID, QualityTier.UpTo4k)
+  })
+
+  it('draws no tier picker where there is no Download', () => {
+    renderDetail({ jobs: [], media: RADARR_GRAB })
+
+    expect(
+      screen.queryByRole('button', { name: /^Quality:/ }),
+    ).not.toBeInTheDocument()
   })
 
   it.each([
@@ -969,9 +1016,9 @@ describe('MovieDetail — the release picker', () => {
 
     renderDetail({ onSearch })
 
-    // ⚠️ `GET /media/:id/releases` writes upstream — it borrows Radarr's
-    // monitoring to ask and puts it back. Firing it on navigation would
-    // mutate a library as a side effect of looking at a page.
+    // ⚠️ `GET /media/:id/releases` writes upstream — it adds a movie missing
+    // from Radarr's library (unmonitored, and it stays). Firing it on
+    // navigation would mutate a library as a side effect of looking at a page.
     await waitFor(() => {
       expect(
         screen.getAllByRole('button', { name: RELEASE_SEARCH_LABEL })[0],

@@ -8,6 +8,7 @@ import {
   RadarrMovieStatus,
   UnmonitorAndDeleteResult,
 } from 'src/media/types/radarr.types'
+import { createMockDiscordIdentity } from 'src/media-operations/request-handling/__test-helpers__/mock-services'
 import { testSelectionBehavior } from 'src/media-operations/request-handling/__test-helpers__/selection-behavior-suite'
 import { testStrategyEdgeCases } from 'src/media-operations/request-handling/__test-helpers__/strategy-edge-cases-suite'
 import { testStrategyRouting } from 'src/media-operations/request-handling/__test-helpers__/strategy-routing-suite'
@@ -239,6 +240,7 @@ describe('MovieDeleteStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'delete a movie' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -267,6 +269,7 @@ describe('MovieDeleteStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -291,6 +294,7 @@ describe('MovieDeleteStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'delete matrix' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -316,6 +320,7 @@ describe('MovieDeleteStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'delete matrix' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -359,6 +364,7 @@ describe('MovieDeleteStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'delete matrix' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -432,6 +438,7 @@ describe('MovieDeleteStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'first one' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: movieDeleteContext,
         state: mockState,
       }
@@ -459,6 +466,7 @@ describe('MovieDeleteStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'the 1999 one' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: movieDeleteContext,
         state: mockState,
       }
@@ -486,6 +494,7 @@ describe('MovieDeleteStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'that one' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: movieDeleteContext,
         state: mockState,
       }
@@ -510,6 +519,7 @@ describe('MovieDeleteStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'tenth one' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: movieDeleteContext,
         state: mockState,
       }
@@ -535,6 +545,7 @@ describe('MovieDeleteStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'first one' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: movieDeleteContext,
         state: mockState,
       }
@@ -564,6 +575,7 @@ describe('MovieDeleteStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'delete matrix' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -590,6 +602,7 @@ describe('MovieDeleteStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'delete matrix' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 

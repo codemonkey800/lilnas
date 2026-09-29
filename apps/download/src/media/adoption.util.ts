@@ -16,10 +16,14 @@
  *   that settles failed and is re-adopted on the next tick, forever.
  * - Never twice: a group is skipped when an open job of the same title
  *   already covers it (any job for a movie; for a show, one whose scope
- *   matches every item in the group), or when its `downloadId` is one the
- *   poller already remembers for an existing job.
+ *   matches every item in the group), or when its `downloadId` is linked
+ *   to an open job in `job_downloads`.
  * - Never an upgrade: see `isAdoptable`, applied once the file facts are
  *   read.
+ * - Back to its own job first: a download linked to a job that ended
+ *   cancelled or failed within `REOPEN_WINDOW_MS` - SABnzbd came back, or a
+ *   cancel raced a grab - reopens that job rather than minting an `upstream`
+ *   one beside it, so it keeps its requester. See `pickReopenableJob`.
  */
 import type { ShowScope } from '@lilnas/utils/download/types'
 import {
@@ -55,6 +59,60 @@ export interface AdoptionCandidate {
   upstreamId: number
 }
 
+/**
+ * How long after a job ended cancelled or failed a download it was linked
+ * to can still come back to it. Past this the job is history and the
+ * download is adopted like any other.
+ */
+export const REOPEN_WINDOW_MS = 3_600_000
+
+/** The ended statuses a download coming back can reopen. */
+const REOPENABLE_STATUSES: ReadonlySet<DownloadJobStatus> = new Set([
+  DownloadJobStatus.Cancelled,
+  DownloadJobStatus.Failed,
+])
+
+/** What `pickReopenableJob` reads off a job. */
+export interface ReopenableJob {
+  createdAt: string
+  status: DownloadJobStatus
+  /** When the job last changed - for an ended job, when it settled. */
+  updatedAt: string
+}
+
+/**
+ * Of the jobs a download that is back in the queue was linked to, the one
+ * it goes back to: the newest (by `createdAt`) that ended cancelled or
+ * failed at most `REOPEN_WINDOW_MS` before `now` (epoch ms). `undefined`
+ * when none did - a completed job is never reopened, nor one that ended
+ * longer ago.
+ *
+ * A job's settle time is its `updatedAt`: `completedAt` is stamped for a
+ * completed job only, and the job pipeline writes nothing more to a job
+ * once it has ended.
+ */
+export function pickReopenableJob<T extends ReopenableJob>(
+  jobs: readonly T[],
+  now: number,
+): T | undefined {
+  let newest: T | undefined
+
+  for (const job of jobs) {
+    if (!REOPENABLE_STATUSES.has(job.status)) continue
+
+    const settledAt = Date.parse(job.updatedAt)
+    if (Number.isNaN(settledAt) || now - settledAt > REOPEN_WINDOW_MS) {
+      continue
+    }
+
+    if (!newest || Date.parse(job.createdAt) > Date.parse(newest.createdAt)) {
+      newest = job
+    }
+  }
+
+  return newest
+}
+
 /** An open (non-terminal) job, with the upstream id it resolved to. */
 export interface AdoptionOpenJob {
   scope?: ShowScope
@@ -66,7 +124,7 @@ export interface AdoptionOpenJob {
  * in the order each group first appears in the queue.
  *
  * `openJobs` are the non-terminal jobs of `type`; `claimedDownloadIds` is
- * every `downloadId` the poller has remembered for them. An item with no
+ * every `downloadId` linked to one of them in `job_downloads`. An item with no
  * movieId/seriesId (Radarr/Sonarr could not match the release to a title)
  * is ignored - there is nothing to attach a job to.
  */

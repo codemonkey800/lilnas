@@ -5,7 +5,10 @@ import {
   type AdoptionCandidate,
   type AdoptionOpenJob,
   isAdoptable,
+  pickReopenableJob,
   planAdoptions,
+  REOPEN_WINDOW_MS,
+  type ReopenableJob,
 } from 'src/media/adoption.util'
 import type { PollableQueueItem } from 'src/media/queue-status.util'
 
@@ -436,5 +439,85 @@ describe('isAdoptable', () => {
     ])
 
     expect(isAdoptable(candidate, () => true)).toBe(true)
+  })
+})
+
+describe('pickReopenableJob', () => {
+  const SETTLED_AT = '2026-08-20T12:00:00.000Z'
+  const SETTLED = Date.parse(SETTLED_AT)
+
+  function endedJob(
+    overrides: Partial<ReopenableJob & { id: string }> = {},
+  ): ReopenableJob & { id: string } {
+    return {
+      createdAt: '2026-08-20T11:00:00.000Z',
+      id: 'job',
+      status: DownloadJobStatus.Cancelled,
+      updatedAt: SETTLED_AT,
+      ...overrides,
+    }
+  }
+
+  it.each([DownloadJobStatus.Cancelled, DownloadJobStatus.Failed])(
+    'picks a job that ended %s within the window',
+    status => {
+      const job = endedJob({ status })
+
+      expect(pickReopenableJob([job], SETTLED + 60_000)).toBe(job)
+    },
+  )
+
+  it('picks a job that ended exactly REOPEN_WINDOW_MS ago', () => {
+    const job = endedJob()
+
+    expect(pickReopenableJob([job], SETTLED + REOPEN_WINDOW_MS)).toBe(job)
+  })
+
+  it('picks nothing once the window has passed', () => {
+    expect(
+      pickReopenableJob([endedJob()], SETTLED + REOPEN_WINDOW_MS + 1),
+    ).toBeUndefined()
+  })
+
+  it.each([
+    DownloadJobStatus.Completed,
+    DownloadJobStatus.NotFound,
+    DownloadJobStatus.Downloading,
+    DownloadJobStatus.Cancelling,
+  ])('never picks a %s job', status => {
+    expect(
+      pickReopenableJob([endedJob({ status })], SETTLED + 60_000),
+    ).toBeUndefined()
+  })
+
+  it('picks nothing for a job with no readable settle time', () => {
+    expect(
+      pickReopenableJob([endedJob({ updatedAt: 'never' })], SETTLED),
+    ).toBeUndefined()
+  })
+
+  it('picks the newest of several reopenable jobs', () => {
+    const older = endedJob({ id: 'older' })
+    const newer = endedJob({
+      createdAt: '2026-08-20T11:30:00.000Z',
+      id: 'newer',
+      status: DownloadJobStatus.Failed,
+    })
+
+    expect(pickReopenableJob([newer, older], SETTLED)?.id).toBe('newer')
+    expect(pickReopenableJob([older, newer], SETTLED)?.id).toBe('newer')
+  })
+
+  it('passes over a newer job that is not reopenable', () => {
+    const cancelled = endedJob({ id: 'cancelled' })
+    const completed = endedJob({
+      createdAt: '2026-08-20T11:30:00.000Z',
+      id: 'completed',
+      status: DownloadJobStatus.Completed,
+    })
+
+    expect(pickReopenableJob([cancelled, completed], SETTLED)?.id).toBe(
+      'cancelled',
+    )
   })
 })

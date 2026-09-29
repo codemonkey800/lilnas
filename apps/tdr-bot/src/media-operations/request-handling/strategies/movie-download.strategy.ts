@@ -1,12 +1,18 @@
 import { HumanMessage } from '@langchain/core/messages'
-import { mediaId } from '@lilnas/utils/download/media-id'
-import { DownloadType } from '@lilnas/utils/download/types'
+import { DownloadApiError } from '@lilnas/utils/download/client'
+import {
+  type DownloadJob,
+  DownloadJobStatus,
+  type QualityTier,
+} from '@lilnas/utils/download/types'
 import { getErrorMessage } from '@lilnas/utils/error'
 import { Injectable, Logger } from '@nestjs/common'
 
 import { RadarrService } from 'src/media/services/radarr.service'
 import type { MovieSearchResult } from 'src/media/types/radarr.types'
+import { DownloadClientFactory } from 'src/media-operations/request-handling/download-client.factory'
 import type {
+  DiscordIdentity,
   StrategyRequestParams,
   StrategyResult,
 } from 'src/media-operations/request-handling/types'
@@ -15,17 +21,35 @@ import { SelectionUtilities } from 'src/media-operations/request-handling/utils/
 import { ContextManagementService } from 'src/message-handler/context/context-management.service'
 import { PromptGenerationService } from 'src/message-handler/services/prompts/prompt-generation.service'
 import { StateService } from 'src/state/state.service'
+import { downloadApiErrorMessage } from 'src/utils/download-api-error'
 import { withDownloadLinks } from 'src/utils/download-links'
 
 import { BaseMediaStrategy } from './base/base-media-strategy'
 import { MAX_SEARCH_RESULTS } from './base/strategy.constants'
 import type { MovieSelectionContext } from './base/strategy.types'
 
+/** What a movie request carries besides the movie itself. */
+interface MovieRequestOptions {
+  /** Who asked - the download app attributes the job to them. */
+  discord: DiscordIdentity
+  /** Absent means the download app's default tier. */
+  qualityTier?: QualityTier
+  /**
+   * The ordinal/year the user picked the movie by in their own message
+   * ("the 1999 one"), when it was auto-applied rather than chosen from a list
+   */
+  selectionCriteria?: string
+}
+
 /**
  * Strategy for handling movie download requests.
  * Supports two flows:
  * 1. New Search: Initial movie search with optional auto-selection
  * 2. Selection: User selecting from previously shown search results
+ *
+ * Search runs against Radarr directly; the request itself goes to the
+ * download app (`POST /download/movies`), which owns adding, monitoring,
+ * quality tiers and searching, and records who asked.
  *
  * Extracted from LLMService methods:
  * - handleNewMovieSearch() (lines 910-1084)
@@ -39,6 +63,7 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
 
   constructor(
     private readonly radarrService: RadarrService,
+    private readonly downloadClientFactory: DownloadClientFactory,
     private readonly promptService: PromptGenerationService,
     private readonly parsingUtilities: ParsingUtilities,
     private readonly selectionUtilities: SelectionUtilities,
@@ -57,7 +82,7 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
   protected async executeRequest(
     params: StrategyRequestParams,
   ): Promise<StrategyResult> {
-    const { message, messages, context, userId } = params
+    const { message, messages, context, userId, discord, qualityTier } = params
 
     this.logger.log(
       { userId, hasContext: !!context, strategy: this.strategyName },
@@ -72,11 +97,16 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
         messages,
         movieContext,
         userId,
+        // A tier named in the pick itself wins over one named with the search
+        { discord, qualityTier: qualityTier ?? movieContext.qualityTier },
       )
     }
 
     // Otherwise, it's a new search
-    return await this.handleNewMovieSearch(message, messages, userId)
+    return await this.handleNewMovieSearch(message, messages, userId, {
+      discord,
+      qualityTier,
+    })
   }
 
   /**
@@ -87,6 +117,7 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
     message: HumanMessage,
     messages: HumanMessage[],
     userId: string,
+    request: MovieRequestOptions,
   ): Promise<StrategyResult> {
     this.logger.log(
       { userId, content: message.content },
@@ -162,48 +193,10 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
             'Auto-applying movie selection (explicit search selection provided)',
           )
 
-          // Generate acknowledgment message and download
-          const response = await this.promptService.generateMoviePrompt(
-            messages,
-            this.getChatModel(),
-            'success',
-            {
-              selectedMovie,
-              downloadResult: { movieAdded: true, searchTriggered: true },
-              autoApplied: true,
-              selectionCriteria: `${selection.selectionType}: ${selection.value}`,
-            },
-          )
-
-          // Start download process
-          const downloadResult =
-            await this.radarrService.monitorAndDownloadMovie(
-              selectedMovie.tmdbId,
-            )
-
-          if (!downloadResult.success) {
-            // Override response with error if download failed
-            const errorResponse = await this.promptService.generateMoviePrompt(
-              messages,
-              this.getChatModel(),
-              'error',
-              {
-                selectedMovie,
-                errorMessage: `Failed to add "${selectedMovie.title}" to downloads: ${downloadResult.error}`,
-              },
-            )
-            return {
-              images: [],
-              messages: messages.concat(errorResponse),
-            }
-          }
-
-          return {
-            images: [],
-            messages: messages.concat(
-              this.withMovieLinks(response, selectedMovie),
-            ),
-          }
+          return await this.downloadMovie(selectedMovie, messages, userId, {
+            ...request,
+            selectionCriteria: `${selection.selectionType}: ${selection.value}`,
+          })
         } else {
           this.logger.warn(
             { userId, selection, searchResultsCount: searchResults.length },
@@ -220,19 +213,20 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
         )
         return await this.downloadMovie(
           searchResults[0],
-          message,
           messages,
           userId,
+          request,
         )
       }
 
       // Multiple results - store context and ask user to choose
-      const movieContext = {
-        type: 'movie' as const,
+      const movieContext: MovieSelectionContext = {
+        type: 'movie',
         searchResults: searchResults.slice(0, MAX_SEARCH_RESULTS),
         query: searchQuery,
         timestamp: Date.now(),
         isActive: true,
+        ...(request.qualityTier ? { qualityTier: request.qualityTier } : {}),
       }
 
       // Store context in ContextManagementService
@@ -294,6 +288,7 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
     messages: HumanMessage[],
     movieContext: MovieSelectionContext,
     userId: string,
+    request: MovieRequestOptions,
   ): Promise<StrategyResult> {
     this.logger.log(
       { userId, selectionMessage: message.content },
@@ -353,7 +348,7 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
       await this.contextService.clearContext(userId)
       this.logger.log({ userId }, 'Cleared movie context after selection')
 
-      return await this.downloadMovie(selectedMovie, message, messages, userId)
+      return await this.downloadMovie(selectedMovie, messages, userId, request)
     } catch (error) {
       this.logger.error(
         { error: getErrorMessage(error), userId },
@@ -381,77 +376,64 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
   }
 
   /**
-   * Execute movie download via RadarrService.
-   * Extracted from downloadMovie() in llm.service.ts (lines 1173-1233)
+   * Request `movie` from the download app as the Discord user who asked.
+   *
+   * The app answers with the job it created, which is usually still in
+   * flight (`requested`/`searching`) - so the reply says the movie was
+   * requested, never that it downloaded. A job can also come back already
+   * terminal: `completed` when the movie was already downloaded, or
+   * `failed`/`not_found` when the request went nowhere. Every job reply links
+   * the job's title page, where a failed request can be retried.
    */
   private async downloadMovie(
     movie: MovieSearchResult,
-    _originalMessage: HumanMessage,
     messages: HumanMessage[],
     userId: string,
+    request: MovieRequestOptions,
   ): Promise<StrategyResult> {
+    const { discord, qualityTier } = request
+
     this.logger.log(
-      { userId, movieTitle: movie.title, tmdbId: movie.tmdbId },
-      'Attempting to download movie',
+      { userId, movieTitle: movie.title, tmdbId: movie.tmdbId, qualityTier },
+      'Requesting movie from the download app',
     )
 
+    let job: DownloadJob
     try {
       const startTime = Date.now()
-      const result = await this.radarrService.monitorAndDownloadMovie(
-        movie.tmdbId,
+      job = await this.downloadClientFactory.forDiscord(discord).requestMovie({
+        tmdbId: movie.tmdbId,
+        // Omitted, not `undefined`, when absent - the server's default applies
+        ...(qualityTier ? { qualityTier } : {}),
+      })
+      this.logger.log(
+        {
+          userId,
+          movieTitle: movie.title,
+          jobId: job.id,
+          status: job.status,
+          duration: Date.now() - startTime,
+        },
+        'Movie requested',
       )
-      const duration = Date.now() - startTime
-
-      if (result.success) {
-        this.logger.log(
-          { userId, movieTitle: movie.title, duration },
-          'Movie download initiated successfully',
-        )
-        const successResponse = await this.promptService.generateMoviePrompt(
-          messages,
-          this.getChatModel(),
-          'success',
-          {
-            selectedMovie: movie,
-            downloadResult: result,
-          },
-        )
-
-        return {
-          images: [],
-          messages: messages.concat(
-            this.withMovieLinks(successResponse, movie),
-          ),
-        }
-      } else {
-        const errorResponse = await this.promptService.generateMoviePrompt(
-          messages,
-          this.getChatModel(),
-          'error',
-          {
-            selectedMovie: movie,
-            errorMessage: `Failed to add "${movie.title}" to downloads: ${result.error}`,
-          },
-        )
-
-        return {
-          images: [],
-          messages: messages.concat(errorResponse),
-        }
-      }
     } catch (error) {
+      const reason = downloadApiErrorMessage(error)
       this.logger.error(
-        { error: getErrorMessage(error), userId, movieTitle: movie.title },
-        'Failed to download movie',
+        { error: reason, userId, movieTitle: movie.title },
+        'Failed to request movie',
       )
 
+      // No job was created, so there is nothing to link to
       const errorResponse = await this.promptService.generateMoviePrompt(
         messages,
         this.getChatModel(),
         'error',
         {
           selectedMovie: movie,
-          errorMessage: `Couldn't add "${movie.title}" to downloads. The Radarr service might be unavailable.`,
+          errorMessage:
+            error instanceof DownloadApiError
+              ? `Couldn't request "${movie.title}": ${reason}`
+              : `Couldn't request "${movie.title}" - the download app might be unavailable (${reason}).`,
         },
       )
 
@@ -460,20 +442,76 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
         messages: messages.concat(errorResponse),
       }
     }
+
+    const response = await this.replyForJob(job, movie, messages, request)
+
+    return {
+      images: [],
+      messages: messages.concat(
+        withDownloadLinks(response, job.media, job.media.title),
+      ),
+    }
   }
 
-  /** Appends links to the activity page and the movie's download page. */
-  private withMovieLinks(
-    response: HumanMessage,
+  /** The reply for the job a request came back with, by where it stands. */
+  private replyForJob(
+    job: DownloadJob,
     movie: MovieSearchResult,
-  ): HumanMessage {
-    return withDownloadLinks(
-      response,
-      {
-        id: mediaId({ type: DownloadType.Movie, tmdbId: movie.tmdbId }),
-        type: DownloadType.Movie,
-      },
-      movie.title,
-    )
+    messages: HumanMessage[],
+    { selectionCriteria }: MovieRequestOptions,
+  ): Promise<HumanMessage> {
+    const title = job.media.title
+
+    switch (job.status) {
+      case DownloadJobStatus.Completed:
+        return this.promptService.generateMoviePrompt(
+          messages,
+          this.getChatModel(),
+          'already_downloaded',
+          { selectedMovie: movie },
+        )
+      case DownloadJobStatus.Failed:
+        return this.promptService.generateMoviePrompt(
+          messages,
+          this.getChatModel(),
+          'error',
+          {
+            selectedMovie: movie,
+            errorMessage: `Requested "${title}", but the request failed: ${job.error ?? 'no reason was given'}.`,
+          },
+        )
+      case DownloadJobStatus.NotFound:
+        return this.promptService.generateMoviePrompt(
+          messages,
+          this.getChatModel(),
+          'error',
+          {
+            selectedMovie: movie,
+            errorMessage: `Requested "${title}", but no release was found for it${job.statusNote ? ` (${job.statusNote})` : ''}.`,
+          },
+        )
+      case DownloadJobStatus.Cancelled:
+        return this.promptService.generateMoviePrompt(
+          messages,
+          this.getChatModel(),
+          'error',
+          {
+            selectedMovie: movie,
+            errorMessage: `The request for "${title}" was cancelled before it got anywhere.`,
+          },
+        )
+      default:
+        return this.promptService.generateMoviePrompt(
+          messages,
+          this.getChatModel(),
+          'success',
+          {
+            selectedMovie: movie,
+            statusNote: job.statusNote,
+            autoApplied: selectionCriteria !== undefined,
+            selectionCriteria,
+          },
+        )
+    }
   }
 }

@@ -90,18 +90,19 @@ export type ShowProgress = {
 /**
  * How many episodes a season has.
  *
- * ⚠️ `Season.episodeCount` and `Season.episodes.length` genuinely disagree,
- * in both directions, and this is the reconciliation:
+ * ⚠️ `Season.episodeCount` is **not** a total. Sonarr counts an episode
+ * there only when it is `(monitored AND aired) OR hasFile`
+ * (`SeriesStatisticsRepository.cs:80`) — so unmonitored and not-yet-aired
+ * episodes are left out. Silicon Valley's season 0 comes back
+ * `episodeCount: 0` over five unmonitored specials, and a heading reading
+ * "Specials · 0 episodes" over five rows is simply wrong.
  *
- * - Sonarr's statistic counts episodes it knows about but has not listed, so
- *   it is the larger and honest number for a season still airing.
- * - It also **excludes specials entirely**. Silicon Valley's season 0 comes
- *   back `episodeCount: 0` with five episodes in `episodes` - and a heading
- *   reading "Specials · 0 episodes" over five rows is simply wrong.
- *
- * So: whichever is larger. The heading then never undercounts the rows
- * underneath it, and never loses an unaired episode Sonarr is already
- * tracking.
+ * The real total — Sonarr's `totalEpisodeCount`, a plain `COUNT(*)` — is
+ * `episodes.length`, since the seasons route lists every episode Sonarr
+ * holds. `episodeCount` is a subset of those, so for a real payload the
+ * larger of the two is always the listed count; the `max` only matters for
+ * a season whose statistics ran ahead of its list, where it still never
+ * undercounts the rows underneath the heading.
  */
 export function seasonEpisodeTotal(season: Season): number {
   return Math.max(season.episodeCount, season.episodes.length)
@@ -127,8 +128,10 @@ export function seasonProgress(season: Season): ShowProgress {
 /**
  * The whole series' share, summed across seasons.
  *
- * ⚠️ **Specials are excluded**, which is what Sonarr's own series statistics
- * do. They are opt-in extras almost nobody grabs, and counting them would
+ * ⚠️ **Specials are excluded** — a choice made here, not Sonarr's: its series
+ * statistics sum every season, specials included, and only *look* like they
+ * skip them because unmonitored specials count `0` in `episodeCount`. They
+ * are opt-in extras almost nobody grabs, and counting them would
  * leave a fully-downloaded series reading `53 of 58 episodes` forever. They
  * are still listed and still individually downloadable - see
  * {@link SPECIALS_SEASON_NUMBER}.
@@ -315,10 +318,43 @@ function seriesRemains(
   )
 }
 
-/** Whether anything in `season` other than `target` is still on disk or on its way. */
+/**
+ * The other episodes backed by `episode`'s file — a multi-episode file
+ * (`S01E01E02.mkv`) points each of its episodes at the same `episodeFileId`,
+ * so deleting one deletes them all.
+ *
+ * ⚠️ Read off the season alone: Sonarr keeps a multi-episode file within one
+ * season. An episode with no file shares nothing — the wire omits
+ * `episodeFileId` rather than sending Sonarr's `0`, so `== null` is the whole
+ * test.
+ */
+export function fileSiblings(
+  season: Pick<Season, 'episodes'>,
+  episode: Episode,
+): Episode[] {
+  const { episodeFileId } = episode
+
+  if (episodeFileId == null) {
+    return []
+  }
+
+  return season.episodes.filter(
+    entry => entry.id !== episode.id && entry.episodeFileId === episodeFileId,
+  )
+}
+
+/**
+ * Whether anything in `season` is still on disk or on its way once `target`
+ * goes — and with it every sibling sharing its file.
+ */
 function seasonRemains(season: Season, target: Episode): boolean {
+  const removed = new Set([
+    target.id,
+    ...fileSiblings(season, target).map(entry => entry.id),
+  ])
+
   return season.episodes.some(
-    entry => entry.id !== target.id && episodeRemains(entry),
+    entry => !removed.has(entry.id) && episodeRemains(entry),
   )
 }
 
@@ -331,7 +367,8 @@ function seasonRemains(season: Season, target: Episode): boolean {
  * file that is about to exist and a delete must never cancel a sibling's grab
  * by unmonitoring the season it is landing in. Deleting the last remaining
  * episode of a season unmonitors the season; deleting the last remaining
- * season removes the series from Sonarr.
+ * season removes the series from Sonarr. An episode takes every sibling
+ * sharing its file with it (see {@link fileSiblings}), so those count as gone.
  *
  * "In flight" is read off each episode's `state`, which the server derives
  * from Sonarr's **full** queue - so a grab Sonarr made from its own RSS feed

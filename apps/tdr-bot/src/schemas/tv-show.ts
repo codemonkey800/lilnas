@@ -109,7 +109,8 @@ export const TvShowDeleteContextSchema = z.object({
 export type TvShowDeleteContext = z.infer<typeof TvShowDeleteContextSchema>
 
 /**
- * TV Show selection structure - matches exactly what SonarrService.monitorAndDownloadSeries expects
+ * TV Show selection structure - which seasons/episodes a request or delete
+ * covers. Absent `selection` means the entire series.
  */
 export const TvShowSelectionSchema = z.object({
   selection: z
@@ -123,21 +124,3 @@ export const TvShowSelectionSchema = z.object({
 })
 
 export type TvShowSelection = z.infer<typeof TvShowSelectionSchema>
-
-/**
- * TV Show download result schema
- */
-export const TvShowDownloadResultSchema = z.object({
-  success: z.boolean(),
-  series: z
-    .object({
-      tvdbId: z.number(),
-      title: z.string(),
-      year: z.number().optional(),
-    })
-    .optional(),
-  message: z.string(),
-  error: z.string().optional(),
-})
-
-export type TvShowDownloadResult = z.infer<typeof TvShowDownloadResultSchema>

@@ -1,6 +1,8 @@
 import type { EpisodeResource, QueueResource } from '@lilnas/media/sonarr'
 import type { ShowScope } from '@lilnas/utils/download/types'
 
+import type { UnmonitorScope } from './sonarr.service'
+
 /** How far up the series a delete reaches once it removes what was asked. */
 export type ShowDeleteCascade = 'none' | 'season' | 'series'
 
@@ -24,9 +26,10 @@ export interface ShowDeletePlan {
   seasonNumbersToUnmonitor: number[]
   /**
    * The scope to hand `unmonitorScope`: the season when the cascade reached
-   * it, else the episode. `undefined` when `cascade === 'series'`.
+   * it, else the episode plus every sibling sharing its file. `undefined`
+   * when `cascade === 'series'`.
    */
-  unmonitorScope?: ShowScope
+  unmonitorScope?: UnmonitorScope
 }
 
 /**
@@ -114,7 +117,7 @@ function isRemaining(episode: PlacedEpisode, queue: QueuePlacement): boolean {
 }
 
 /**
- * Whether anything in `seasonNumber` is left once `excludedEpisodeId` goes:
+ * Whether anything in `seasonNumber` is left once `excludedEpisodeIds` go:
  * another remaining episode, or a season-level queue item that has not been
  * pinned to an episode yet.
  */
@@ -122,14 +125,14 @@ function seasonRemains(
   episodes: readonly PlacedEpisode[],
   queue: QueuePlacement,
   seasonNumber: number,
-  excludedEpisodeId: number,
+  excludedEpisodeIds: ReadonlySet<number>,
 ): boolean {
   return (
     queue.seasonNumbers.has(seasonNumber) ||
     episodes.some(
       episode =>
         episode.seasonNumber === seasonNumber &&
-        episode.id !== excludedEpisodeId &&
+        !excludedEpisodeIds.has(episode.id) &&
         isRemaining(episode, queue),
     )
   )
@@ -182,20 +185,44 @@ function seasonPlan(seasonNumber: number, fileIds: number[]): ShowDeletePlan {
   }
 }
 
-function episodePlan(episodeId: number, fileIds: number[]): ShowDeletePlan {
+function episodePlan(episodeIds: number[], fileIds: number[]): ShowDeletePlan {
   return {
     cascade: 'none',
     fileCount: fileIds.length,
     fileIds,
     seasonNumbersToUnmonitor: [],
-    unmonitorScope: { episodeId },
+    unmonitorScope: { episodeIds },
   }
+}
+
+/**
+ * The episodes a delete of `target` removes: `target` itself, plus every
+ * episode sharing its file. A multi-episode file (`S01E01E02.mkv`) backs
+ * each of its episodes with the same `episodeFileId`, so deleting "E01"
+ * deletes E02's footage too - they go, and are unmonitored, as one unit.
+ *
+ * Sonarr keeps a multi-episode file within one season, so the siblings share
+ * `target.seasonNumber`; the season rules below rely on that.
+ */
+function episodesSharingFile(
+  episodes: readonly PlacedEpisode[],
+  target: PlacedEpisode,
+): PlacedEpisode[] {
+  if (!target.fileId) {
+    return [target]
+  }
+
+  return episodes.filter(
+    episode => episode.id === target.id || episode.fileId === target.fileId,
+  )
 }
 
 /**
  * Decide how far a show delete reaches, narrowest scope first - the same
  * order as `resolveEpisodeFileIds`: one episode, one season, or the series.
  *
+ * An episode delete removes every episode sharing its file (a multi-episode
+ * file is one unit), so all of them count as gone and all are unmonitored.
  * Deleting the last remaining episode of a season also unmonitors the
  * season, and deleting the last remaining season of a series removes the
  * series from Sonarr entirely. "Remaining" means the episode has a file on
@@ -224,13 +251,22 @@ export function planShowDelete(
 
     // An episode we cannot place in a season cannot cascade to one.
     if (target == null) {
-      return episodePlan(scope.episodeId, [])
+      return episodePlan([scope.episodeId], [])
     }
 
-    const fileIds = target.fileId ? [target.fileId] : []
+    const removed = episodesSharingFile(placed, target)
+    const removedIds = removed.map(episode => episode.id)
+    const fileIds = uniqueFileIds(removed)
 
-    if (seasonRemains(placed, placedQueue, target.seasonNumber, target.id)) {
-      return episodePlan(target.id, fileIds)
+    if (
+      seasonRemains(
+        placed,
+        placedQueue,
+        target.seasonNumber,
+        new Set(removedIds),
+      )
+    ) {
+      return episodePlan(removedIds, fileIds)
     }
 
     if (seriesRemains(placed, placedQueue, target.seasonNumber)) {

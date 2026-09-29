@@ -18,6 +18,8 @@ import { MediaFileService } from 'src/media/media-file.service'
 import { MediaResolverService } from 'src/media/media-resolver.service'
 import { ReleaseService } from 'src/media/release.service'
 import { ShowService } from 'src/media/show.service'
+import { SabnzbdService } from 'src/sabnzbd/sabnzbd.service'
+import { SabnzbdMonitorService } from 'src/sabnzbd/sabnzbd-monitor.service'
 
 // DownloadModule <-> MediaModule is a genuine circular module dependency
 // (see download.module.ts and media.module.ts for why), resolved with
@@ -65,6 +67,9 @@ describe('DownloadModule <-> MediaModule wiring', () => {
       SONARR_API_KEY: 'test-sonarr-key',
       SONARR_URL: 'http://localhost:8989',
     }
+    // - SABnzbd is optional: boot must not need it.
+    delete process.env.SABNZBD_API_KEY
+    delete process.env.SABNZBD_URL
   })
 
   afterEach(() => {
@@ -164,6 +169,26 @@ describe('DownloadModule <-> MediaModule wiring', () => {
     expect(module.get(MediaFileService, { strict: false })).toBeInstanceOf(
       MediaFileService,
     )
+
+    await module.close()
+  })
+
+  // SabnzbdMonitorService is provided by MediaModule and injected by nothing
+  // - it runs on its own @Interval - so no unit test proves it wires up.
+  // With the SABNZBD_* vars unset it must still boot, and its tick must stay
+  // idle rather than reach for SAB.
+  it('registers SabnzbdMonitorService, idle with SABnzbd unconfigured', async () => {
+    const fetchSpy = jest.spyOn(global, 'fetch')
+    const module: TestingModule = await Test.createTestingModule({
+      imports: [RootTestModule],
+    }).compile()
+
+    const monitor = module.get(SabnzbdMonitorService, { strict: false })
+    expect(monitor).toBeInstanceOf(SabnzbdMonitorService)
+    expect(module.get(SabnzbdService, { strict: false }).enabled).toBe(false)
+
+    await monitor.tick()
+    expect(fetchSpy).not.toHaveBeenCalled()
 
     await module.close()
   })

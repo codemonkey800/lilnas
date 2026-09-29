@@ -1,11 +1,7 @@
 import type {
-  CommandResource,
-  CommandResourceWritable,
   MovieResource,
-  QualityProfileResource,
   QueueResource,
   QueueResourcePagingResource,
-  RootFolderResource,
 } from '@lilnas/media/radarr'
 import {
   deleteApiV3MovieById,
@@ -13,24 +9,12 @@ import {
   getApiV3Movie,
   getApiV3MovieById,
   getApiV3MovieLookup,
-  getApiV3MovieLookupTmdb,
-  getApiV3Qualityprofile,
   getApiV3Queue,
   getApiV3QueueDetails,
-  getApiV3Rootfolder,
-  postApiV3Command,
-  postApiV3Movie,
 } from '@lilnas/media/radarr'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { nanoid } from 'nanoid'
 import { performance } from 'perf_hooks'
-
-/**
- * Radarr's MoviesSearch command accepts movieIds but the generated SDK type
- * omits command-specific body parameters. We extend it locally so TypeScript
- * validates the extra field rather than silently ignoring it via a raw `as`.
- */
-type MoviesSearchCommand = CommandResourceWritable & { movieIds?: number[] }
 
 import { RetryConfigService } from 'src/config/retry.config'
 import type { RadarrMediaClient } from 'src/media/clients'
@@ -41,26 +25,20 @@ import {
 } from 'src/media/schemas/radarr.schemas'
 import { BaseMediaService } from 'src/media/services/base-media.service'
 import {
-  AddMovieRequest,
   DeleteMovieOptions,
   DownloadingMovie,
-  MonitorAndDownloadResult,
-  MonitorMovieOptions,
   MovieLibrarySearchResult,
   MovieSearchResult,
-  RadarrMinimumAvailability,
   RadarrMovie,
   RadarrQueueStatus,
   UnmonitorAndDeleteResult,
 } from 'src/media/types/radarr.types'
-import { errorMessage, generateTitleSlug } from 'src/media/utils/media.utils'
+import { errorMessage } from 'src/media/utils/media.utils'
 import {
   toDownloadingMovie,
   toRadarrMovie,
   toRadarrMovieArray,
-  toRadarrMovieResource,
   toRadarrMovieResourceArray,
-  transformToSearchResult,
   transformToSearchResults,
 } from 'src/media/utils/radarr.utils'
 import { RetryConfig, RetryService } from 'src/utils/retry.service'
@@ -141,12 +119,15 @@ export class RadarrService extends BaseMediaService {
 
       const allQueueItems: QueueResource[] = queueResponse.records ?? []
 
+      // `warning` covers stalled downloads (no connections, missing blocks,
+      // import blocked); they are still in flight and must stay visible.
       const downloadingItems = allQueueItems.filter(item => {
         const status = item.status ?? ''
         return (
           status === RadarrQueueStatus.DOWNLOADING ||
           status === RadarrQueueStatus.QUEUED ||
-          status === RadarrQueueStatus.PAUSED
+          status === RadarrQueueStatus.PAUSED ||
+          status === RadarrQueueStatus.WARNING
         )
       })
 
@@ -198,226 +179,6 @@ export class RadarrService extends BaseMediaService {
   }
 
   /**
-   * Monitor a movie and trigger immediate download
-   */
-  async monitorAndDownloadMovie(
-    tmdbId: number,
-    options: MonitorMovieOptions = {},
-  ): Promise<MonitorAndDownloadResult> {
-    const id = nanoid()
-    const warnings: string[] = []
-
-    this.logger.log(
-      { id, tmdbId, options },
-      'Starting monitor and download movie operation',
-    )
-
-    try {
-      // Check if movie is already in library
-      const existingMovie = await this.isMovieInLibrary(tmdbId, id)
-      if (existingMovie) {
-        this.logger.log(
-          {
-            id,
-            tmdbId,
-            movieId: existingMovie.id,
-            title: existingMovie.title,
-          },
-          'Movie already exists in library',
-        )
-
-        if (existingMovie.monitored) {
-          try {
-            const command = await this.triggerMovieSearch(existingMovie.id, id)
-            return {
-              success: true,
-              movieAdded: false,
-              searchTriggered: true,
-              movie: existingMovie,
-              commandId: command.id,
-              warnings: ['Movie already monitored in library'],
-            }
-          } catch (searchError) {
-            this.logger.error(
-              { id, tmdbId, movieId: existingMovie.id, error: searchError },
-              'Failed to trigger search for existing movie',
-            )
-            return {
-              success: false,
-              movieAdded: false,
-              searchTriggered: false,
-              movie: existingMovie,
-              error: `Movie exists but search failed: ${searchError instanceof Error ? searchError.message : 'Unknown error'}`,
-            }
-          }
-        } else {
-          warnings.push('Movie exists but is not monitored')
-        }
-      }
-
-      // Get movie details by TMDB ID lookup
-      let movie: MovieSearchResult
-      try {
-        const movieResource = await this.executeWithRetry<MovieResource>(
-          () =>
-            getApiV3MovieLookupTmdb({
-              client: this.client,
-              query: { tmdbId },
-            }),
-          `${this.serviceName}-lookupMovieByTmdbId-${id}`,
-        )
-        movie = transformToSearchResult(toRadarrMovieResource(movieResource))
-
-        this.logger.log(
-          { id, tmdbId, title: movie.title },
-          'Found movie via TMDB lookup',
-        )
-      } catch (lookupError) {
-        this.logger.error(
-          { id, tmdbId, error: lookupError },
-          'Failed to lookup movie by TMDB ID',
-        )
-        return {
-          success: false,
-          movieAdded: false,
-          searchTriggered: false,
-          error: `Failed to lookup movie: ${lookupError instanceof Error ? lookupError.message : 'Unknown error'}`,
-        }
-      }
-
-      let config: { qualityProfileId: number; rootFolderPath: string }
-      try {
-        config = await this.getMovieConfiguration(options, id)
-      } catch (configError) {
-        this.logger.error(
-          { id, tmdbId, error: errorMessage(configError) },
-          'Configuration failed',
-        )
-        return {
-          success: false,
-          movieAdded: false,
-          searchTriggered: false,
-          error: `Configuration error: ${errorMessage(configError)}`,
-        }
-      }
-
-      const addMovieRequest: AddMovieRequest = {
-        tmdbId: movie.tmdbId,
-        title: movie.title,
-        titleSlug: generateTitleSlug(movie.title),
-        year: movie.year || new Date().getFullYear(),
-        qualityProfileId: config.qualityProfileId,
-        rootFolderPath: config.rootFolderPath,
-        monitored: options.monitored ?? true,
-        minimumAvailability:
-          options.minimumAvailability ?? RadarrMinimumAvailability.RELEASED,
-        searchOnAdd: options.searchOnAdd ?? false,
-        genres: movie.genres,
-        runtime: movie.runtime,
-        overview: movie.overview,
-        inCinemas: movie.inCinemas,
-        physicalRelease: movie.physicalRelease,
-        digitalRelease: movie.digitalRelease,
-        certification: movie.certification,
-        studio: movie.studio,
-        website: movie.website,
-        youTubeTrailerId: movie.youTubeTrailerId,
-      }
-
-      let addedMovie: RadarrMovie
-      try {
-        addedMovie = toRadarrMovie(
-          await this.executeWithRetry<MovieResource>(
-            () =>
-              postApiV3Movie({
-                client: this.client,
-                // Domain RadarrImage uses a local enum; SDK expects MediaCover.
-                // The shapes are identical at runtime – only the enum type differs.
-                body: addMovieRequest as unknown as MovieResource,
-              }),
-            `${this.serviceName}-addMovie-${id}`,
-          ),
-        )
-
-        this.logger.log(
-          { id, tmdbId, movieId: addedMovie.id, title: addedMovie.title },
-          'Movie added successfully to Radarr',
-        )
-      } catch (addError) {
-        this.logger.error(
-          { id, tmdbId, error: addError },
-          'Failed to add movie to Radarr',
-        )
-        return {
-          success: false,
-          movieAdded: false,
-          searchTriggered: false,
-          error: `Failed to add movie: ${addError instanceof Error ? addError.message : 'Unknown error'}`,
-        }
-      }
-
-      let commandId: number | undefined
-      let searchTriggered = false
-      if (addedMovie.monitored) {
-        try {
-          const command = await this.triggerMovieSearch(addedMovie.id, id)
-          commandId = command.id
-          searchTriggered = true
-          this.logger.log(
-            { id, tmdbId, movieId: addedMovie.id, commandId: command.id },
-            'Movie search triggered successfully',
-          )
-        } catch (searchError) {
-          this.logger.error(
-            { id, tmdbId, movieId: addedMovie.id, error: searchError },
-            'Failed to trigger movie search',
-          )
-          warnings.push(
-            `Movie added but search failed: ${searchError instanceof Error ? searchError.message : 'Unknown error'}`,
-          )
-        }
-      } else {
-        warnings.push('Movie added but not monitored, search not triggered')
-      }
-
-      const result: MonitorAndDownloadResult = {
-        success: true,
-        movieAdded: true,
-        searchTriggered,
-        movie: addedMovie,
-        commandId,
-        warnings: warnings.length > 0 ? warnings : undefined,
-      }
-
-      this.logger.log(
-        {
-          id,
-          tmdbId,
-          movieId: addedMovie.id,
-          searchTriggered,
-          commandId,
-          warnings,
-        },
-        'Monitor and download movie operation completed',
-      )
-
-      return result
-    } catch (error) {
-      this.logger.error(
-        { id, tmdbId, error: errorMessage(error) },
-        'Monitor and download movie operation failed',
-      )
-
-      return {
-        success: false,
-        movieAdded: false,
-        searchTriggered: false,
-        error: errorMessage(error),
-      }
-    }
-  }
-
-  /**
    * Unmonitor a movie and delete its files
    */
   async unmonitorAndDeleteMovie(
@@ -433,8 +194,7 @@ export class RadarrService extends BaseMediaService {
     )
 
     try {
-      const libraryMovies = await this.getLibraryMovies()
-      const movie = libraryMovies.find(m => m.tmdbId === tmdbId)
+      const movie = await this.isMovieInLibrary(tmdbId, id)
 
       if (!movie) {
         this.logger.error({ id, tmdbId }, 'Movie not found in Jeremy+ library')
@@ -628,7 +388,7 @@ export class RadarrService extends BaseMediaService {
       const duration = performance.now() - start
 
       const results = transformToSearchResults(
-        toRadarrMovieResourceArray(rawMovies),
+        toRadarrMovieResourceArray(rawMovies, this.logger),
       )
       const validatedResults =
         RadarrOutputSchemas.movieSearchResultArray.parse(results)
@@ -662,95 +422,13 @@ export class RadarrService extends BaseMediaService {
   ): Promise<RadarrMovie | null> {
     const movies = toRadarrMovieArray(
       await this.executeWithRetry<MovieResource[]>(
-        () => getApiV3Movie({ client: this.client }),
+        () => getApiV3Movie({ client: this.client, query: { tmdbId } }),
         `${this.serviceName}-isMovieInLibrary-${operationId}`,
       ),
+      this.logger,
     )
 
     return movies.find(m => m.tmdbId === tmdbId) ?? null
-  }
-
-  private async triggerMovieSearch(
-    movieId: number,
-    operationId: string,
-  ): Promise<CommandResource> {
-    const command: MoviesSearchCommand = {
-      name: 'MoviesSearch',
-      movieIds: [movieId],
-    }
-    return this.executeWithRetry<CommandResource>(
-      () =>
-        postApiV3Command({
-          client: this.client,
-          body: command,
-        }),
-      `${this.serviceName}-triggerMovieSearch-${operationId}`,
-    )
-  }
-
-  private async getMovieConfiguration(
-    options: MonitorMovieOptions,
-    operationId: string,
-  ): Promise<{ qualityProfileId: number; rootFolderPath: string }> {
-    let { qualityProfileId, rootFolderPath } = options
-
-    if (!qualityProfileId || !rootFolderPath) {
-      const [profiles, folders] = await Promise.all([
-        qualityProfileId
-          ? Promise.resolve<QualityProfileResource[]>([])
-          : this.executeWithRetry<QualityProfileResource[]>(
-              () => getApiV3Qualityprofile({ client: this.client }),
-              `${this.serviceName}-getQualityProfiles-${operationId}`,
-            ),
-        rootFolderPath
-          ? Promise.resolve<RootFolderResource[]>([])
-          : this.executeWithRetry<RootFolderResource[]>(
-              () => getApiV3Rootfolder({ client: this.client }),
-              `${this.serviceName}-getRootFolders-${operationId}`,
-            ),
-      ])
-
-      if (!qualityProfileId) {
-        const profileList = profiles
-        if (profileList.length === 0) {
-          throw new Error('No quality profiles available in Radarr')
-        }
-        const profileId = profileList[0].id
-        if (profileId == null) {
-          throw new Error('Quality profile returned from Radarr has no ID')
-        }
-        qualityProfileId = profileId
-        this.logger.log(
-          { qualityProfileId, name: profileList[0].name },
-          'Using default quality profile',
-        )
-      }
-
-      if (!rootFolderPath) {
-        const accessibleFolders = folders.filter(f => f.accessible)
-        if (accessibleFolders.length === 0) {
-          throw new Error('No accessible root folders available in Radarr')
-        }
-        const folderPath = accessibleFolders[0].path
-        if (folderPath == null) {
-          throw new Error('Root folder returned from Radarr has no path')
-        }
-        rootFolderPath = folderPath
-        this.logger.log(
-          { rootFolderPath, id: accessibleFolders[0].id },
-          'Using default root folder',
-        )
-      }
-    }
-
-    if (qualityProfileId == null) {
-      throw new Error('Could not determine quality profile ID for Radarr')
-    }
-    if (rootFolderPath == null) {
-      throw new Error('Could not determine root folder path for Radarr')
-    }
-
-    return { qualityProfileId, rootFolderPath }
   }
 
   private async cancelMovieDownloads(
@@ -869,6 +547,7 @@ export class RadarrService extends BaseMediaService {
           () => getApiV3Movie({ client: this.client }),
           `${this.serviceName}-getAllMovies-${operationId}`,
         ),
+        this.logger,
       )
 
       let filteredMovies = allMovies

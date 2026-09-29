@@ -38,7 +38,9 @@ mixin mediaChip(state)
     this stays opt-in rather than needing a flag everywhere. The header's
     Download stays outline weight, not the primary `uv` variant, on purpose —
     the release picker below is still the better path (the user picks), and
-    this is a shortcut next to it, not competing advice.
+    this is a shortcut next to it, not competing advice. Plan 024 puts the
+    quality tier picker right before it — it's what the shortcut will ask
+    Radarr for, so it sits where the press is.
     attribution — `true` draws the person who asked (avatar, linked to their
     profile); a string draws that name as a plain label instead, for an
     attempt Radarr started itself (no avatar, no link — Radarr has no profile).
@@ -68,6 +70,7 @@ mixin movieHeader(view, opts)
         +btn({ label: 'Watch', variant: 'uv', iconEnd: 'eye', full: true })
         +btn({ label: 'Delete', variant: 'bad', iconEnd: 'trash', full: true })
       else
+        +tierSelect({ tiers: QUALITY_TIERS, selected: DEFAULT_QUALITY_TIER, full: true })
         +btn({ label: 'Download', variant: 'outline', iconEnd: 'download', full: true })
   else
     div(class='mb-7 flex items-start gap-6')
@@ -91,6 +94,7 @@ mixin movieHeader(view, opts)
             +btn({ label: 'Watch', variant: 'uv', iconEnd: 'eye' })
             +btn({ label: 'Delete', variant: 'bad', iconEnd: 'trash' })
           else
+            +tierSelect({ tiers: QUALITY_TIERS, selected: DEFAULT_QUALITY_TIER })
             +btn({ label: 'Download', variant: 'outline', iconEnd: 'download' })
 
 //- The header's "who asked, when" line — see `attribution` on +movieHeader.
@@ -113,16 +117,43 @@ mixin attribution(by)
   +chip rather than +mediaChip. The queue row is already gone — no bar, no
   throughput — and Cancel stays, inert, instead of vanishing. Pause isn't
   offered on a job that's winding down.
+
+  `status` (plan 024) draws the job's own status chip for an attempt with no
+  queue row yet — `searching` — with `statusNote` as a small secondary line
+  right under it saying why it's still searching. No bar: nothing's queued.
+
+  Plan 025: `status` with a `progress` keeps the bar — the job's own chip
+  (`unpacking`, `finishing up`, `paused`) over a queued download, with
+  `statusNote` under the chip as above. `throughput` is the mono line under
+  the bar either way: bytes, speed and estimate, or what happens next.
+mixin statusChip(status)
+  +chip({ label: status.live ? null : status.label, tone: status.tone })&attributes(attributes)
+    if status.live
+      +dot('live')
+      = status.label
+
 mixin attemptInFlight(a, mobile)
   +card()(class=['border-uv/35 bg-uv-ghost/30', mobile ? 'p-4' : 'p-5'])&attributes(attributes)
     if a.cancelling
       +chip({ label: 'cancelling…', tone: 'warn' })(class='mb-3 w-fit')
       div(class=['flex items-center gap-2', mobile ? 'flex-col' : ''])
         +btn({ label: 'Cancel', variant: 'bad', iconEnd: 'x', full: mobile, disabled: true })
+    else if a.status && a.progress === undefined
+      +statusChip(a.status)(class='w-fit')
+      if a.statusNote
+        p(class='mt-2 text-cap text-ink-3')= a.statusNote
+      div(class=['mt-3 flex items-center gap-2', mobile ? 'flex-col' : ''])
+        each act in a.actions
+          +btn({ label: act.label, variant: act.variant, iconEnd: act.icon, full: mobile })
     else
-      div(class='mb-3 flex items-center justify-between gap-3')
-        +mediaChip(a.state)
+      div(class=[a.statusNote ? '' : 'mb-3', 'flex items-center justify-between gap-3'])
+        if a.status
+          +statusChip(a.status)
+        else
+          +mediaChip(a.state)
         span(class='font-mono text-mono-sm tabular-nums text-uv-hi')= `${a.progress}%`
+      if a.statusNote
+        p(class='mt-2 mb-3 text-cap text-ink-3')= a.statusNote
       +bar(a.progress)(class='mb-2')
       p(class='mb-3 font-mono text-mono-sm tabular-nums text-ink-3')= a.throughput
       div(class=['flex items-center gap-2', mobile ? 'flex-col' : ''])
@@ -133,9 +164,13 @@ mixin attemptInFlight(a, mobile)
   A finished attempt. `a.retry` draws Retry at the end of the row — only ever
   on the newest attempt overall, and only once nothing is in flight (the
   app's `sorted[0]` rule), so a fixture sets it on one row at most.
+
+  `statusNote` (plan 024) is a neutral line under the when/who run — never
+  red, unlike `error`. The chip column is 132px so `no release found` fits
+  on one line; every row shares it so the column stays straight.
 mixin attemptLine(a, mobile)
   +stline({ mobile: mobile })
-    +chip({ label: a.label, tone: a.tone })(class=mobile ? '' : 'w-[108px] justify-center')
+    +chip({ label: a.label, tone: a.tone })(class=mobile ? '' : 'w-[132px] justify-center')
     span(
       class=[mobile ? '' : 'min-w-0 flex-1', 'flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-ink-3']
     )
@@ -145,6 +180,8 @@ mixin attemptLine(a, mobile)
         span(class='font-mono text-mono-sm text-ink-3')= a.who[1]
       if a.error
         span(class='text-bad')= a.error
+      if a.statusNote
+        span(class='basis-full text-cap text-ink-3')= a.statusNote
     if a.retry
       if mobile
         +stlineActions
@@ -235,32 +272,56 @@ mixin reportModal(view)
           +btn({ label: 'Submit report', variant: 'uv', size: 'sm' })
 
 //-
-  Radarr's own manual-import picker, mirrored: the one file it found, what it
-  resolved, and the informational rejection that's blocking the auto-pick.
-  Discard sits opposite Import rather than in the page's own Delete flow —
-  this is "I don't want this download", not "remove the title from the
-  library".
+  One file in the import dialog — a radio, since a movie takes exactly one
+  file (plan 024 · 1·D1). The chosen row tints uv and fills its dot.
+mixin importRow(file)
+  div(
+    role='radio'
+    aria-checked=file.checked ? 'true' : 'false'
+    class=[
+      'flex items-start gap-2.5 rounded-md border px-3 py-[11px] [&+&]:mt-2',
+      file.checked ? 'border-uv/40 bg-uv-ghost' : 'border-line',
+    ]
+  )&attributes(attributes)
+    span(
+      class=[
+        'mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border-[1.5px]',
+        file.checked
+          ? "border-uv after:h-2 after:w-2 after:rounded-full after:bg-uv after:content-['']"
+          : 'border-line-loud',
+      ]
+    )
+    div(class='flex min-w-0 flex-1 flex-col gap-1.5')
+      p(class='truncate font-mono text-mono-sm text-ink')= file.name
+      div(class='flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-mono-sm text-ink-3')
+        +mchip(null, file.size)
+        +mchip(null, file.quality)
+        +mchip(null, file.language)
+
+//- Every file the download folder held, as one radio group.
+mixin importFiles
+  div(role='radiogroup' aria-label='File to import')&attributes(attributes)
+    each file in IMPORT_FILES
+      +importRow(file)
+
+//-
+  Radarr's own manual-import picker, mirrored: every file it found, what each
+  resolved to, and the informational rejections that blocked the auto-pick.
+  One file goes in — the rows are radios, the largest non-sample file starts
+  chosen, and the sample is listed but left unchosen. Discard sits opposite
+  Import rather than in the page's own Delete flow — this is "I don't want
+  this download", not "remove the title from the library".
 mixin importModal(view)
   - const mobile = view === 'mobile'
   +modalScrim
     +modal
       p(class='mb-1.5 text-h3')= `Import "${TITLE}"`
       p(class='mb-3 text-sm text-ink-3')
-        | The bytes are already down — Radarr just couldn't match the file. Pick it and import, or discard.
-      div(
-        class="mb-3 flex items-start gap-2.5 rounded-md border border-uv/40 bg-uv-ghost px-3 py-[11px]"
-      )
-        span(
-          class="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border-[1.5px] border-uv after:h-2 after:w-2 after:rounded-full after:bg-uv after:content-['']"
-        )
-        div(class='flex min-w-0 flex-1 flex-col gap-1.5')
-          p(class='truncate font-mono text-mono-sm text-ink')= FILE.name
-          div(class='flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-mono-sm text-ink-3')
-            +mchip(null, FILE.size)
-            +mchip(null, FILE.quality)
-            +mchip(null, FILE.language)
+        | The bytes are already down — Radarr just couldn't match the file. Pick one to import, or discard.
+      +importFiles()(class='mb-3')
       +note('alert')(class='mb-3')
-        p(class='text-sm text-ink-2')= FILE.rejection
+        each rejection in IMPORT_REJECTIONS
+          p(class='text-sm text-ink-2')= rejection
         p(class='mt-1 text-xs text-ink-4') Informational only — a manual import ignores it.
       if mobile
         div(class='flex flex-col gap-2')
@@ -295,8 +356,8 @@ mixin deleteModal(view)
 
 //- A cropped frame: enough of the page for a modal to sit over, faded off at
     the bottom so it reads as "this continues".
-mixin modalFrame(view, label)
-  +modalPreview(view, label)
+mixin modalFrame(view, label, id, tall)
+  +modalPreview(view, label, id, tall)
     if view === 'mobile'
       +movieHeader(view, {})
       +releaseList(view, {})
@@ -439,6 +500,15 @@ mixin appendix(view)
       else
         +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
     +stline({ mobile: mobile })
+      +chip({ label: 'no release found', tone: 'warn' })(class=mobile ? '' : 'w-[168px] justify-center')
+      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3'])
+        | The search finished and grabbed nothing. Still monitored, so Radarr may grab it later; Retry searches now.
+      if mobile
+        +stlineActions
+          +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+      else
+        +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
+    +stline({ mobile: mobile })
       +chip({ tone: 'uv' })(class=mobile ? '' : 'w-[168px] justify-center')
         +dot('live')
         | importing…
@@ -476,6 +546,10 @@ mixin appendix(view)
     | that row, and only that row, offers Retry.
   div(class=mobile ? '' : 'max-w-[480px]')
     +attemptsList(view, ATTEMPTS_AFTER_CANCEL)
+
+  +plan024(view)
+
+  +plan025(view)
 
   p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Cast — overflow
   if mobile
@@ -532,18 +606,7 @@ mixin appendix(view)
     +storyboardStep('2 · Pick and import', !mobile)
       div(class='rounded-lg border border-line bg-surface p-4')
         p(class='mb-2.5 text-h3')= `Import "${TITLE}"`
-        div(
-          class="mb-3 flex items-start gap-2.5 rounded-md border border-uv/40 bg-uv-ghost px-3 py-[11px]"
-        )
-          span(
-            class="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border-[1.5px] border-uv after:h-2 after:w-2 after:rounded-full after:bg-uv after:content-['']"
-          )
-          div(class='flex min-w-0 flex-1 flex-col gap-1.5')
-            p(class='truncate font-mono text-mono-sm text-ink')= FILE.name
-            div(class='flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-mono-sm text-ink-3')
-              +mchip(null, FILE.size)
-              +mchip(null, FILE.quality)
-              +mchip(null, FILE.language)
+        +importFiles()(class='mb-3')
         if mobile
           div(class='flex flex-col gap-2')
             +btn({ label: 'Import', variant: 'uv', size: 'sm', iconEnd: 'check', full: true })
@@ -602,6 +665,122 @@ mixin appendix(view)
     +storyboardStep('3 · Removed')
       +storyboardFrame(mobile ? 96 : 128)
         +chip({ label: 'not downloaded', tone: 'mute' })(class='w-[118px] justify-center')
+
+//-
+  Plan 024's visible changes, gathered under one rule so a reviewer can find
+  them: the quality tier picker (in context on the not-downloaded frame
+  above; here closed and open), a `no release found` attempt with Retry, and
+  `searching` with each of its status notes. The one-file import dialog is
+  its own frame further down ("Import — as a modal").
+mixin plan024(view)
+  - const mobile = view === 'mobile'
+  - const suffix = mobile ? 'm' : 'd'
+  +appendixRule('Plan 024 — tiers, statuses, dialogs', 'plan-024-' + suffix)
+
+  p(
+    class='mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4'
+    id='tier-picker-' + suffix
+  ) Quality tier — beside Download
+  p(class='mb-3 text-sm text-ink-3')
+    | Three app-managed tiers. They're caps, not exact matches — "Up to 4K" falls back to 1080p when there's no
+    | 4K. It preselects the movie's own tier when its Radarr profile is one of these, and HD otherwise.
+    | Downloading writes the chosen tier to the movie; a pick from the release list below ignores it.
+  div(class=['flex gap-6', mobile ? 'flex-col' : 'items-start'])
+    div(class=['flex flex-col gap-2', mobile ? '' : 'flex-1'])
+      p(class='text-cap text-ink-3') Closed
+      div(class=['flex gap-2', mobile ? 'flex-col' : 'items-start'])
+        +tierSelect({ tiers: QUALITY_TIERS, selected: DEFAULT_QUALITY_TIER, full: mobile })
+        +btn({ label: 'Download', variant: 'outline', iconEnd: 'download', full: mobile })
+    div(class=['flex flex-col gap-2', mobile ? '' : 'flex-1'])
+      p(class='text-cap text-ink-3') Open
+      +tierSelect({ tiers: QUALITY_TIERS, selected: DEFAULT_QUALITY_TIER, open: true, full: mobile })
+
+  p(
+    class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4'
+    id='not-found-' + suffix
+  ) Attempts — no release found
+  p(class='mb-3 text-sm text-ink-3')
+    | The search finished without grabbing anything. It's terminal but not an error — warn, not red. The movie
+    | stays monitored and reads "wanted", so the newest row offers Retry. A status note, when there is one, is
+    | neutral text under the row.
+  div(class=mobile ? '' : 'max-w-[560px]')
+    +attemptsList(view, ATTEMPTS_NOT_FOUND)
+
+  p(
+    class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4'
+    id='status-note-' + suffix
+  ) Attempts — searching, with a status note
+  p(class='mb-3 text-sm text-ink-3')
+    | Still searching, and why: Radarr retrying after a failed download, a freshly added movie Radarr is still
+    | refreshing, or a release Radarr is holding back. One small line under the status; Cancel only.
+  div(class=['flex flex-col gap-3', mobile ? '' : 'max-w-[480px]'])
+    each a in SEARCHING_WITH_NOTE
+      +attemptInFlight(a, mobile)
+
+//-
+  Two or more in-flight cards side by side on desktop, stacked on mobile,
+  each under a small caption naming the case it draws.
+mixin cardPair(cards, mobile)
+  div(class=['flex gap-6', mobile ? 'flex-col' : 'items-start'])
+    each a in cards
+      div(class=['flex flex-col gap-2', mobile ? '' : 'min-w-0 flex-1'])
+        p(class='text-cap text-ink-3')= a.caption
+        +attemptInFlight(a, mobile)
+
+//-
+  Plan 025's visible changes: what reading SABnzbd directly adds to an
+  attempt. Every state is the ordinary in-flight card or attempt row — only
+  the chip, the note under it and the mono line under the bar change.
+mixin plan025(view)
+  - const mobile = view === 'mobile'
+  - const suffix = mobile ? 'm' : 'd'
+  +appendixRule('Plan 025 — SABnzbd progress, unpacking, disk full', 'plan-025-' + suffix)
+
+  p(
+    class='mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4'
+    id='sab-throughput-' + suffix
+  ) Attempts — downloading, with the live speed
+  p(class='mb-3 text-sm text-ink-3')
+    | While SABnzbd is fetching the release, the line under the bar reads its own queue: bytes, the live speed,
+    | and the time left — the same line a video already gets. Before, a movie only showed Radarr's bare
+    | "~00:03:00 left". Paused, there's no speed and nothing to estimate, so the line keeps just the bytes.
+  +cardPair(SAB_THROUGHPUT, mobile)
+
+  p(
+    class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4'
+    id='sab-pp-' + suffix
+  ) Attempts — every byte down, SABnzbd post-processing
+  p(class='mb-3 text-sm text-ink-3')
+    | The bar sits at 100 % while SABnzbd verifies, repairs and unpacks. Read directly, the chip names the stage
+    | and the line quotes SABnzbd's own progress text. With SABnzbd not configured, the chip stays plan 024's
+    | "finishing up" and the line says SABnzbd still has work to do before Radarr imports it.
+  +cardPair(SAB_POST_PROCESSING, mobile)
+
+  p(
+    class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4'
+    id='sab-disk-' + suffix
+  ) Attempts — the NAS ran out of disk space
+  p(class='mb-3 text-sm text-ink-3')
+    | A disk-full failure reads as one, with SABnzbd's own message kept in brackets. Once the attempt has ended
+    | failed, it's the row's red error; the newest row offers Retry, which is only worth pressing after freeing
+    | space.
+  div(class=mobile ? '' : 'max-w-[560px]')
+    +attemptsList(view, SAB_DISK_FULL_FAILED)
+  p(class='mt-5 mb-3 text-sm text-ink-3')
+    | While Radarr is still retrying on its own, the attempt is back to searching and the status note warns that
+    | the next release will hit the same wall.
+  div(class=mobile ? '' : 'max-w-[480px]')
+    +attemptInFlight(SAB_DISK_FULL_SEARCHING, mobile)
+
+  p(
+    class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4'
+    id='sab-paused-' + suffix
+  ) Attempts — paused in SABnzbd
+  p(class='mb-3 text-sm text-ink-3')
+    | SABnzbd's whole queue is paused — it pauses itself when the disk fills or a quota runs out, or someone
+    | paused it in SABnzbd's UI. This app didn't pause it, so there's no Resume here. When SABnzbd reports under
+    | 5 GB free, the note says the disk is the likely reason.
+  +cardPair(SAB_PAUSED, mobile)
 
 //- Skeleton stand-in for the whole page, while Radarr is still answering.
 mixin loadingState(view)
@@ -711,7 +890,7 @@ block content
 
         +modalFrame(view, 'Report a problem — as a modal')
           +reportModal(view)
-        +modalFrame(view, 'Import — as a modal')
+        +modalFrame(view, 'Import — as a modal · pick one file', 'import-modal-' + suffix, true)
           +importModal(view)
         +modalFrame(view, 'Delete — as a modal')
           +deleteModal(view)

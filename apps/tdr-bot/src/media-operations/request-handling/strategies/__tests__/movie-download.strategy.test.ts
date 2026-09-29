@@ -1,15 +1,22 @@
 import { HumanMessage } from '@langchain/core/messages'
+import { DownloadApiError } from '@lilnas/utils/download/client'
+import { DownloadJobStatus, QualityTier } from '@lilnas/utils/download/types'
 import { Test, TestingModule } from '@nestjs/testing'
 
 import { RadarrService } from 'src/media/services/radarr.service'
 import {
-  MonitorAndDownloadResult,
   MovieSearchResult,
   RadarrMovieStatus,
 } from 'src/media/types/radarr.types'
+import { createMockMovieJob } from 'src/media-operations/request-handling/__test-fixtures__/media-fixtures'
+import {
+  createMockDiscordIdentity,
+  createMockDownloadClientFactory,
+} from 'src/media-operations/request-handling/__test-helpers__/mock-services'
 import { testSelectionBehavior } from 'src/media-operations/request-handling/__test-helpers__/selection-behavior-suite'
 import { testStrategyEdgeCases } from 'src/media-operations/request-handling/__test-helpers__/strategy-edge-cases-suite'
 import { testStrategyRouting } from 'src/media-operations/request-handling/__test-helpers__/strategy-routing-suite'
+import { DownloadClientFactory } from 'src/media-operations/request-handling/download-client.factory'
 import { MovieDownloadStrategy } from 'src/media-operations/request-handling/strategies/movie-download.strategy'
 import { StrategyRequestParams } from 'src/media-operations/request-handling/types/request-context.type'
 import { ParsingUtilities } from 'src/media-operations/request-handling/utils/parsing.utils'
@@ -21,6 +28,12 @@ import { StateService } from 'src/state/state.service'
 describe('MovieDownloadStrategy', () => {
   let strategy: MovieDownloadStrategy
   let radarrService: jest.Mocked<RadarrService>
+  let downloadClientFactory: ReturnType<
+    typeof createMockDownloadClientFactory
+  >['factory']
+  let downloadClient: ReturnType<
+    typeof createMockDownloadClientFactory
+  >['client']
   let promptService: jest.Mocked<PromptGenerationService>
   let parsingUtilities: jest.Mocked<ParsingUtilities>
   let selectionUtilities: jest.Mocked<SelectionUtilities>
@@ -87,24 +100,18 @@ describe('MovieDownloadStrategy', () => {
     popularity: 68.9,
   }
 
-  // Mock download results
-  const mockSuccessResult: MonitorAndDownloadResult = {
-    success: true,
-    movieAdded: true,
-    searchTriggered: true,
-  }
+  // The job the download app answers a request with - still searching
+  const mockRequestedJob = createMockMovieJob()
 
-  const mockFailureResult: MonitorAndDownloadResult = {
-    success: false,
-    movieAdded: false,
-    searchTriggered: false,
-    error: 'Failed to add movie to Radarr',
-  }
+  const matrixLinks =
+    'Follow along on the [activity page](<https://download.lilnas.io/activity>), or open [The Matrix](<https://download.lilnas.io/movies/603>).'
 
   // Mock state object (passed in params, not DI) - context methods removed, now in ContextManagementService
   const mockState = {}
 
   beforeEach(async () => {
+    const mockDownload = createMockDownloadClientFactory()
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MovieDownloadStrategy,
@@ -112,8 +119,11 @@ describe('MovieDownloadStrategy', () => {
           provide: RadarrService,
           useValue: {
             searchMovies: jest.fn(),
-            monitorAndDownloadMovie: jest.fn(),
           },
+        },
+        {
+          provide: DownloadClientFactory,
+          useValue: mockDownload.factory,
         },
         {
           provide: PromptGenerationService,
@@ -159,6 +169,8 @@ describe('MovieDownloadStrategy', () => {
 
     strategy = module.get<MovieDownloadStrategy>(MovieDownloadStrategy)
     radarrService = module.get(RadarrService)
+    downloadClientFactory = module.get(DownloadClientFactory)
+    downloadClient = mockDownload.client
     promptService = module.get(PromptGenerationService)
     parsingUtilities = module.get(ParsingUtilities)
     selectionUtilities = module.get(SelectionUtilities)
@@ -177,7 +189,7 @@ describe('MovieDownloadStrategy', () => {
       },
       mediaService: {
         searchOrLibraryMethod: () => radarrService.searchMovies,
-        operationMethod: () => radarrService.monitorAndDownloadMovie,
+        operationMethod: () => downloadClient.requestMovie,
       },
       promptService: {
         generatePromptMethod: () => promptService.generateMoviePrompt,
@@ -192,7 +204,7 @@ describe('MovieDownloadStrategy', () => {
         timestamp: Date.now(),
       },
       mediaItems: [mockMovie1, mockMovie2, mockMovie3],
-      operationResult: mockSuccessResult,
+      operationResult: mockRequestedJob,
       chatResponse: mockChatResponse,
     },
     config: {
@@ -206,11 +218,15 @@ describe('MovieDownloadStrategy', () => {
   })
 
   describe('New Movie Search - Basic Flows', () => {
-    it('should return clarification when search query is empty', async () => {
+    it('asks for a title when the search query is empty', async () => {
       const params: StrategyRequestParams = {
-        message: new HumanMessage({ id: '1', content: 'download a movie' }),
+        message: new HumanMessage({
+          id: '1',
+          content: 'download some horror movies',
+        }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -224,6 +240,11 @@ describe('MovieDownloadStrategy', () => {
       const result = await strategy.handleRequest(params)
 
       expect(radarrService.searchMovies).not.toHaveBeenCalled()
+      expect(promptService.generateMoviePrompt).toHaveBeenCalledWith(
+        [],
+        expect.anything(),
+        'clarification',
+      )
       expect(result.messages).toHaveLength(1)
       expect(result.messages[0]).toBe(mockChatResponse)
       expect(result.images).toEqual([])
@@ -237,6 +258,7 @@ describe('MovieDownloadStrategy', () => {
         }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -259,6 +281,7 @@ describe('MovieDownloadStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'download matrix' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -268,7 +291,7 @@ describe('MovieDownloadStrategy', () => {
         tvSelection: null,
       })
       radarrService.searchMovies.mockResolvedValue([mockMovie1])
-      radarrService.monitorAndDownloadMovie.mockResolvedValue(mockSuccessResult)
+      downloadClient.requestMovie.mockResolvedValue(mockRequestedJob)
       promptService.generateMoviePrompt.mockResolvedValue(mockChatResponse)
 
       const result = await strategy.handleRequest(params)
@@ -276,7 +299,7 @@ describe('MovieDownloadStrategy', () => {
       expect(contextService.setContext).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
       expect(result.messages[0].content).toBe(
-        'Here is your movie response...\n\nFollow along on the [activity page](<https://download.lilnas.io/activity>), or open [The Matrix](<https://download.lilnas.io/movies/603>).',
+        `Here is your movie response...\n\n${matrixLinks}`,
       )
     })
 
@@ -285,6 +308,7 @@ describe('MovieDownloadStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'download matrix' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -313,7 +337,7 @@ describe('MovieDownloadStrategy', () => {
           isActive: true,
         },
       )
-      expect(radarrService.monitorAndDownloadMovie).not.toHaveBeenCalled()
+      expect(downloadClient.requestMovie).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
 
@@ -322,6 +346,7 @@ describe('MovieDownloadStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'download matrix' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         state: mockState,
       }
 
@@ -353,7 +378,7 @@ describe('MovieDownloadStrategy', () => {
       },
       mediaService: {
         searchOrLibraryMethod: () => radarrService.searchMovies,
-        operationMethod: () => radarrService.monitorAndDownloadMovie,
+        operationMethod: () => downloadClient.requestMovie,
       },
       promptService: {
         generatePromptMethod: () => promptService.generateMoviePrompt,
@@ -365,7 +390,7 @@ describe('MovieDownloadStrategy', () => {
     },
     fixtures: {
       mediaItems: [mockMovie1, mockMovie2, mockMovie3],
-      operationResult: mockSuccessResult,
+      operationResult: mockRequestedJob,
       chatResponse: mockChatResponse,
     },
     config: {
@@ -393,6 +418,7 @@ describe('MovieDownloadStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'first one' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: movieContext,
         state: mockState,
       }
@@ -402,7 +428,7 @@ describe('MovieDownloadStrategy', () => {
         value: '1',
       })
       selectionUtilities.findSelectedMovie.mockReturnValue(mockMovie1)
-      radarrService.monitorAndDownloadMovie.mockResolvedValue(mockSuccessResult)
+      downloadClient.requestMovie.mockResolvedValue(mockRequestedJob)
       promptService.generateMoviePrompt.mockResolvedValue(mockChatResponse)
 
       const result = await strategy.handleRequest(params)
@@ -416,6 +442,7 @@ describe('MovieDownloadStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'the 1999 one' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: movieContext,
         state: mockState,
       }
@@ -425,7 +452,7 @@ describe('MovieDownloadStrategy', () => {
         value: '1999',
       })
       selectionUtilities.findSelectedMovie.mockReturnValue(mockMovie1)
-      radarrService.monitorAndDownloadMovie.mockResolvedValue(mockSuccessResult)
+      downloadClient.requestMovie.mockResolvedValue(mockRequestedJob)
       promptService.generateMoviePrompt.mockResolvedValue(mockChatResponse)
 
       const result = await strategy.handleRequest(params)
@@ -439,6 +466,7 @@ describe('MovieDownloadStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'that one' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: movieContext,
         state: mockState,
       }
@@ -453,7 +481,7 @@ describe('MovieDownloadStrategy', () => {
       const result = await strategy.handleRequest(params)
 
       expect(contextService.clearContext).not.toHaveBeenCalled()
-      expect(radarrService.monitorAndDownloadMovie).not.toHaveBeenCalled()
+      expect(downloadClient.requestMovie).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
 
@@ -462,6 +490,7 @@ describe('MovieDownloadStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'tenth one' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: movieContext,
         state: mockState,
       }
@@ -476,7 +505,7 @@ describe('MovieDownloadStrategy', () => {
       const result = await strategy.handleRequest(params)
 
       expect(contextService.clearContext).not.toHaveBeenCalled()
-      expect(radarrService.monitorAndDownloadMovie).not.toHaveBeenCalled()
+      expect(downloadClient.requestMovie).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
 
@@ -485,6 +514,7 @@ describe('MovieDownloadStrategy', () => {
         message: new HumanMessage({ id: '1', content: 'first one' }),
         messages: [],
         userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
         context: movieContext,
         state: mockState,
       }
@@ -506,53 +536,300 @@ describe('MovieDownloadStrategy', () => {
     })
   })
 
-  describe('Error Handling', () => {
-    it('should handle errors gracefully when download service throws exception', async () => {
-      const params: StrategyRequestParams = {
-        message: new HumanMessage({ id: '1', content: 'download matrix' }),
-        messages: [],
-        userId: 'user123',
-        state: mockState,
-      }
-
-      parsingUtilities.parseInitialSelection.mockResolvedValue({
-        searchQuery: 'matrix',
-        selection: null,
-        tvSelection: null,
-      })
-      radarrService.searchMovies.mockResolvedValue([mockMovie1])
-      radarrService.monitorAndDownloadMovie.mockRejectedValue(
-        new Error('Download service error'),
-      )
-      promptService.generateMoviePrompt.mockResolvedValue(mockChatResponse)
-
-      const result = await strategy.handleRequest(params)
-
-      expect(result.messages).toHaveLength(1)
+  describe('Requesting via the download app', () => {
+    const singleResultParams = (
+      overrides: Partial<StrategyRequestParams> = {},
+    ): StrategyRequestParams => ({
+      message: new HumanMessage({ id: '1', content: 'download matrix' }),
+      messages: [],
+      userId: 'user123',
+      discord: createMockDiscordIdentity('user123'),
+      state: mockState,
+      ...overrides,
     })
 
-    it('should return error response when download result indicates failure from service', async () => {
-      const params: StrategyRequestParams = {
-        message: new HumanMessage({ id: '1', content: 'download matrix' }),
-        messages: [],
-        userId: 'user123',
-        state: mockState,
-      }
-
+    beforeEach(() => {
       parsingUtilities.parseInitialSelection.mockResolvedValue({
         searchQuery: 'matrix',
         selection: null,
         tvSelection: null,
       })
       radarrService.searchMovies.mockResolvedValue([mockMovie1])
-      radarrService.monitorAndDownloadMovie.mockResolvedValue(mockFailureResult)
       promptService.generateMoviePrompt.mockResolvedValue(mockChatResponse)
+    })
 
-      const result = await strategy.handleRequest(params)
+    it("requests the movie as the sender, leaving the tier to the server's default", async () => {
+      downloadClient.requestMovie.mockResolvedValue(mockRequestedJob)
 
+      await strategy.handleRequest(singleResultParams())
+
+      expect(downloadClientFactory.forDiscord).toHaveBeenCalledWith({
+        userId: 'user123',
+        username: 'testuser',
+        displayName: 'Test User',
+      })
+      // Omitted outright, not sent as `qualityTier: undefined`
+      expect(downloadClient.requestMovie).toHaveBeenCalledWith({
+        tmdbId: 603,
+      })
+      expect(downloadClient.requestMovie.mock.calls[0][0]).not.toHaveProperty(
+        'qualityTier',
+      )
+    })
+
+    it('passes the asked-for quality tier through', async () => {
+      downloadClient.requestMovie.mockResolvedValue(mockRequestedJob)
+
+      await strategy.handleRequest(
+        singleResultParams({ qualityTier: QualityTier.UpTo4k }),
+      )
+
+      expect(downloadClient.requestMovie).toHaveBeenCalledWith({
+        tmdbId: 603,
+        qualityTier: QualityTier.UpTo4k,
+      })
+    })
+
+    it('replies that the movie was requested, with links to follow it', async () => {
+      downloadClient.requestMovie.mockResolvedValue(
+        createMockMovieJob({
+          statusNote: 'Waiting for Radarr to finish adding the movie',
+        }),
+      )
+
+      const result = await strategy.handleRequest(singleResultParams())
+
+      expect(promptService.generateMoviePrompt).toHaveBeenCalledWith(
+        [],
+        expect.anything(),
+        'success',
+        expect.objectContaining({
+          selectedMovie: mockMovie1,
+          statusNote: 'Waiting for Radarr to finish adding the movie',
+          autoApplied: false,
+        }),
+      )
       expect(result.messages).toHaveLength(1)
-      // Nothing was added, so there is nothing to link to.
+      expect(result.messages[0].content).toBe(
+        `Here is your movie response...\n\n${matrixLinks}`,
+      )
+    })
+
+    it('says the movie is already downloaded when the job comes back completed', async () => {
+      downloadClient.requestMovie.mockResolvedValue(
+        createMockMovieJob({
+          status: DownloadJobStatus.Completed,
+          completedAt: '2026-01-01T00:00:00.000Z',
+        }),
+      )
+
+      const result = await strategy.handleRequest(singleResultParams())
+
+      expect(promptService.generateMoviePrompt).toHaveBeenCalledWith(
+        [],
+        expect.anything(),
+        'already_downloaded',
+        { selectedMovie: mockMovie1 },
+      )
+      expect(promptService.generateMoviePrompt).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        'success',
+        expect.anything(),
+      )
+      expect(result.messages[0].content).toBe(
+        `Here is your movie response...\n\n${matrixLinks}`,
+      )
+    })
+
+    it("reports a job that failed at request time with the job's error, still linking it", async () => {
+      downloadClient.requestMovie.mockResolvedValue(
+        createMockMovieJob({
+          status: DownloadJobStatus.Failed,
+          error: 'Radarr has no "HD (up to 1080p)" quality profile',
+        }),
+      )
+
+      const result = await strategy.handleRequest(singleResultParams())
+
+      expect(promptService.generateMoviePrompt).toHaveBeenCalledWith(
+        [],
+        expect.anything(),
+        'error',
+        {
+          selectedMovie: mockMovie1,
+          errorMessage:
+            'Requested "The Matrix", but the request failed: Radarr has no "HD (up to 1080p)" quality profile.',
+        },
+      )
+      // The job page offers Retry, so the links still help
+      expect(result.messages[0].content).toBe(
+        `Here is your movie response...\n\n${matrixLinks}`,
+      )
+    })
+
+    it('reports a job that found no release', async () => {
+      downloadClient.requestMovie.mockResolvedValue(
+        createMockMovieJob({ status: DownloadJobStatus.NotFound }),
+      )
+
+      await strategy.handleRequest(singleResultParams())
+
+      expect(promptService.generateMoviePrompt).toHaveBeenCalledWith(
+        [],
+        expect.anything(),
+        'error',
+        {
+          selectedMovie: mockMovie1,
+          errorMessage:
+            'Requested "The Matrix", but no release was found for it.',
+        },
+      )
+    })
+
+    it("hands the download app's error message to the error prompt, with no links", async () => {
+      downloadClient.requestMovie.mockRejectedValue(
+        new DownloadApiError(400, 'Bad Request', {
+          statusCode: 400,
+          message: 'Radarr has no "Up to 4K" quality profile',
+          error: 'Bad Request',
+        }),
+      )
+
+      const result = await strategy.handleRequest(
+        singleResultParams({ qualityTier: QualityTier.UpTo4k }),
+      )
+
+      expect(promptService.generateMoviePrompt).toHaveBeenCalledWith(
+        [],
+        expect.anything(),
+        'error',
+        {
+          selectedMovie: mockMovie1,
+          errorMessage:
+            'Couldn\'t request "The Matrix": Radarr has no "Up to 4K" quality profile',
+        },
+      )
+      // Nothing was created, so there is nothing to link to
+      expect(result.messages).toHaveLength(1)
       expect(result.messages[0]).toBe(mockChatResponse)
+    })
+
+    it('says the download app might be down when it cannot be reached', async () => {
+      downloadClient.requestMovie.mockRejectedValue(
+        new TypeError('fetch failed'),
+      )
+
+      const result = await strategy.handleRequest(singleResultParams())
+
+      expect(promptService.generateMoviePrompt).toHaveBeenCalledWith(
+        [],
+        expect.anything(),
+        'error',
+        {
+          selectedMovie: mockMovie1,
+          errorMessage:
+            'Couldn\'t request "The Matrix" - the download app might be unavailable (fetch failed).',
+        },
+      )
+      expect(result.messages[0]).toBe(mockChatResponse)
+    })
+
+    it('requests an auto-applied pick once, noting how it was picked', async () => {
+      parsingUtilities.parseInitialSelection.mockResolvedValue({
+        searchQuery: 'matrix',
+        selection: { selectionType: 'year', value: '1999' },
+        tvSelection: null,
+      })
+      radarrService.searchMovies.mockResolvedValue([mockMovie1, mockMovie2])
+      selectionUtilities.findSelectedMovie.mockReturnValue(mockMovie1)
+      downloadClient.requestMovie.mockResolvedValue(mockRequestedJob)
+
+      const result = await strategy.handleRequest(
+        singleResultParams({ qualityTier: QualityTier.Hd }),
+      )
+
+      expect(downloadClient.requestMovie).toHaveBeenCalledTimes(1)
+      expect(downloadClient.requestMovie).toHaveBeenCalledWith({
+        tmdbId: 603,
+        qualityTier: QualityTier.Hd,
+      })
+      expect(promptService.generateMoviePrompt).toHaveBeenCalledTimes(1)
+      expect(promptService.generateMoviePrompt).toHaveBeenCalledWith(
+        [],
+        expect.anything(),
+        'success',
+        expect.objectContaining({
+          autoApplied: true,
+          selectionCriteria: 'year: 1999',
+        }),
+      )
+      expect(result.messages[0].content).toBe(
+        `Here is your movie response...\n\n${matrixLinks}`,
+      )
+    })
+
+    it('keeps the tier asked for with the search for the follow-up pick', async () => {
+      radarrService.searchMovies.mockResolvedValue([mockMovie1, mockMovie2])
+
+      await strategy.handleRequest(
+        singleResultParams({ qualityTier: QualityTier.UpTo720p }),
+      )
+
+      expect(contextService.setContext).toHaveBeenCalledWith(
+        'user123',
+        'movie',
+        expect.objectContaining({ qualityTier: QualityTier.UpTo720p }),
+      )
+      const storedContext = contextService.setContext.mock.calls[0][2]
+
+      parsingUtilities.parseSearchSelection.mockResolvedValue({
+        selectionType: 'ordinal',
+        value: '2',
+      })
+      selectionUtilities.findSelectedMovie.mockReturnValue(mockMovie2)
+      downloadClient.requestMovie.mockResolvedValue(mockRequestedJob)
+
+      await strategy.handleRequest(
+        singleResultParams({
+          message: new HumanMessage({ id: '2', content: 'the second one' }),
+          context: storedContext,
+        }),
+      )
+
+      expect(downloadClient.requestMovie).toHaveBeenCalledWith({
+        tmdbId: 604,
+        qualityTier: QualityTier.UpTo720p,
+      })
+    })
+
+    it('lets a tier named in the pick override the one from the search', async () => {
+      parsingUtilities.parseSearchSelection.mockResolvedValue({
+        selectionType: 'ordinal',
+        value: '1',
+      })
+      selectionUtilities.findSelectedMovie.mockReturnValue(mockMovie1)
+      downloadClient.requestMovie.mockResolvedValue(mockRequestedJob)
+
+      await strategy.handleRequest(
+        singleResultParams({
+          message: new HumanMessage({ id: '2', content: 'first one in 4k' }),
+          qualityTier: QualityTier.UpTo4k,
+          context: {
+            type: 'movie',
+            searchResults: [mockMovie1, mockMovie2],
+            query: 'matrix',
+            timestamp: Date.now(),
+            isActive: true,
+            qualityTier: QualityTier.UpTo720p,
+          },
+        }),
+      )
+
+      expect(downloadClient.requestMovie).toHaveBeenCalledWith({
+        tmdbId: 603,
+        qualityTier: QualityTier.UpTo4k,
+      })
     })
   })
 
@@ -571,7 +848,7 @@ describe('MovieDownloadStrategy', () => {
       },
       mediaService: {
         searchMethod: () => radarrService.searchMovies,
-        operationMethod: () => radarrService.monitorAndDownloadMovie,
+        operationMethod: () => downloadClient.requestMovie,
       },
       promptService: {
         generatePromptMethod: () => promptService.generateMoviePrompt,
@@ -583,15 +860,15 @@ describe('MovieDownloadStrategy', () => {
     },
     fixtures: {
       mediaItems: [mockMovie1, mockMovie2, mockMovie3],
-      operationResult: mockSuccessResult,
+      operationResult: mockRequestedJob,
       chatResponse: mockChatResponse,
     },
     config: {
       mediaType: 'movie',
       contextType: 'movie',
-      serviceName: 'RadarrService',
+      serviceName: 'DownloadClient',
       searchMethodName: 'searchMovies',
-      operationMethodName: 'monitorAndDownloadMovie',
+      operationMethodName: 'requestMovie',
       errorPromptType: 'error',
       processingErrorPromptType: 'processing_error',
     },

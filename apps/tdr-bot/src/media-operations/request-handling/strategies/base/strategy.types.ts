@@ -1,3 +1,5 @@
+import type { QualityTier } from '@lilnas/utils/download/types'
+
 import type {
   MovieLibrarySearchResult,
   MovieSearchResult,
@@ -18,6 +20,11 @@ export interface MovieSelectionContext {
   query: string
   timestamp: number
   isActive: boolean
+  /**
+   * The tier asked for with the search ("the matrix in 4k"), kept so the
+   * follow-up pick ("the first one") still requests it
+   */
+  qualityTier?: QualityTier
 }
 
 /**
@@ -42,6 +49,11 @@ export interface TvShowSelectionContext {
   isActive: boolean
   originalSearchSelection?: SearchSelection
   originalTvSelection?: TvShowSelection
+  /**
+   * The tier asked for with the search or show pick ("breaking bad in 4k"),
+   * kept so the follow-up pick ("season 2") still requests it
+   */
+  qualityTier?: QualityTier
 }
 
 /**

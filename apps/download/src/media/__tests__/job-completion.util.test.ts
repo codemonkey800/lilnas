@@ -4,7 +4,10 @@ import type { EpisodeFileResource, EpisodeResource } from '@lilnas/media/sonarr'
 import {
   type CompletionEpisode,
   type CompletionFile,
+  type CompletionImport,
+  completionImports,
   didJobComplete,
+  hasFileAddedAfter,
 } from 'src/media/job-completion.util'
 
 const CREATED_AT = new Date('2026-09-17T12:00:00.000Z')
@@ -21,6 +24,19 @@ function file(id: number, dateAdded?: string, seasonNumber?: number) {
 
 function episode(id: number, seasonNumber: number, episodeFileId?: number) {
   return { episodeFileId, id, seasonNumber } satisfies CompletionEpisode
+}
+
+/** The download the job grabbed, and one it never did (an RSS grab). */
+const OWN = 'dl-own'
+const RSS = 'dl-rss'
+
+const LINKS = [{ downloadId: OWN }]
+
+function imported(
+  downloadId: string,
+  fields: Omit<CompletionImport, 'downloadId'> = {},
+): CompletionImport {
+  return { date: AFTER, downloadId, ...fields }
 }
 
 describe('didJobComplete', () => {
@@ -431,5 +447,332 @@ describe('didJobComplete', () => {
         }),
       ).toBe(false)
     })
+  })
+})
+
+describe('didJobComplete, for a job with download links', () => {
+  // Two seasons, one file each landed after the job: season 1's by the
+  // job's own download, season 2's by an unrelated RSS grab.
+  const episodes = [episode(1, 1, 101), episode(2, 2, 201)]
+  const files = [file(101, AFTER, 1), file(201, AFTER, 2)]
+
+  describe('a whole series', () => {
+    it('does not complete on an unrelated RSS import', () => {
+      expect(
+        didJobComplete({
+          createdAt: CREATED_AT,
+          episodes,
+          files: [file(201, AFTER, 2)],
+          imports: [imported(RSS, { episodeId: 2, fileId: 201 })],
+          links: LINKS,
+        }),
+      ).toBe(false)
+    })
+
+    it("completes on the job's own import", () => {
+      expect(
+        didJobComplete({
+          createdAt: CREATED_AT,
+          episodes,
+          files,
+          imports: [
+            imported(RSS, { episodeId: 2, fileId: 201 }),
+            imported(OWN, { episodeId: 1, fileId: 101 }),
+          ],
+          links: LINKS,
+        }),
+      ).toBe(true)
+    })
+
+    it("does not complete on its own import of a file that isn't new", () => {
+      expect(
+        didJobComplete({
+          createdAt: CREATED_AT,
+          episodes,
+          files: [file(101, BEFORE, 1)],
+          imports: [imported(OWN, { episodeId: 1, fileId: 101 })],
+          links: LINKS,
+        }),
+      ).toBe(false)
+    })
+
+    it('does not complete with links but no import history read', () => {
+      expect(
+        didJobComplete({
+          createdAt: CREATED_AT,
+          episodes,
+          files,
+          links: LINKS,
+        }),
+      ).toBe(false)
+    })
+
+    // An import record that doesn't name its file still names its episode,
+    // and the episode points at the file on disk.
+    it("credits the file an import's episode points at", () => {
+      expect(
+        didJobComplete({
+          createdAt: CREATED_AT,
+          episodes,
+          files,
+          imports: [imported(OWN, { episodeId: 1 })],
+          links: LINKS,
+        }),
+      ).toBe(true)
+    })
+  })
+
+  describe('a season', () => {
+    const scope = { seasonNumber: 2 }
+
+    it('does not complete on an RSS import into its season', () => {
+      expect(
+        didJobComplete({
+          createdAt: CREATED_AT,
+          episodes,
+          files,
+          imports: [
+            imported(RSS, { episodeId: 2, fileId: 201 }),
+            imported(OWN, { episodeId: 1, fileId: 101 }),
+          ],
+          links: LINKS,
+          scope,
+        }),
+      ).toBe(false)
+    })
+
+    it("completes on the job's own import into its season", () => {
+      expect(
+        didJobComplete({
+          createdAt: CREATED_AT,
+          episodes,
+          files,
+          imports: [imported(OWN, { episodeId: 2, fileId: 201 })],
+          links: LINKS,
+          scope,
+        }),
+      ).toBe(true)
+    })
+
+    // Specials are season 0 - a season, not the whole series.
+    it('treats season 0 as a season', () => {
+      expect(
+        didJobComplete({
+          createdAt: CREATED_AT,
+          episodes: [episode(1, 0, 101), episode(2, 1, 201)],
+          files: [file(101, AFTER, 0), file(201, AFTER, 1)],
+          imports: [imported(OWN, { episodeId: 2, fileId: 201 })],
+          links: LINKS,
+          scope: { seasonNumber: 0 },
+        }),
+      ).toBe(false)
+    })
+  })
+
+  describe('a movie', () => {
+    it('does not complete on an import of another download', () => {
+      expect(
+        didJobComplete({
+          createdAt: CREATED_AT,
+          files: [file(501, AFTER)],
+          imports: [imported(RSS, { fileId: 501 })],
+          links: LINKS,
+        }),
+      ).toBe(false)
+    })
+
+    it("completes on the job's own import", () => {
+      expect(
+        didJobComplete({
+          createdAt: CREATED_AT,
+          files: [file(501, AFTER)],
+          imports: [imported(OWN, { fileId: 501 })],
+          links: LINKS,
+        }),
+      ).toBe(true)
+    })
+
+    // Radarr before it recorded `fileId`: the import names no file and no
+    // episode, and a movie is one file, so a new one is the import's.
+    it('credits a new file to its own import that names no file', () => {
+      expect(
+        didJobComplete({
+          createdAt: CREATED_AT,
+          files: [file(501, AFTER)],
+          imports: [imported(OWN)],
+          links: LINKS,
+        }),
+      ).toBe(true)
+    })
+
+    it('does not credit an unnamed import from before the job', () => {
+      expect(
+        didJobComplete({
+          createdAt: CREATED_AT,
+          files: [file(501, AFTER)],
+          imports: [imported(OWN, { date: BEFORE })],
+          links: LINKS,
+        }),
+      ).toBe(false)
+    })
+  })
+
+  // A job from before links were recorded, or a file imported by hand, has
+  // no download to tie a file to - the date alone still decides.
+  describe('with no links', () => {
+    it.each([
+      ['absent', undefined],
+      ['empty', []],
+    ])('completes on any new file when links are %s', (_label, links) => {
+      expect(
+        didJobComplete({
+          createdAt: CREATED_AT,
+          episodes,
+          files: [file(201, AFTER, 2)],
+          imports: [imported(RSS, { episodeId: 2, fileId: 201 })],
+          links,
+        }),
+      ).toBe(true)
+    })
+
+    it('still ignores a file older than the job', () => {
+      expect(
+        didJobComplete({
+          createdAt: CREATED_AT,
+          files: [file(501, BEFORE)],
+          links: [],
+        }),
+      ).toBe(false)
+    })
+  })
+
+  // An episode scope names its one file, so whatever filled it is the job's
+  // answer - links or not.
+  it('completes an episode job on its episode whichever download filled it', () => {
+    expect(
+      didJobComplete({
+        createdAt: CREATED_AT,
+        episodes,
+        files,
+        imports: [imported(RSS, { episodeId: 2, fileId: 201 })],
+        links: LINKS,
+        scope: { episodeId: 2, seasonNumber: 2 },
+      }),
+    ).toBe(true)
+  })
+})
+
+describe('didJobComplete, while the job still has a queue item', () => {
+  const episodes = [episode(1, 3, 301), episode(2, 3, 0)]
+  const scope = { episodeId: 1, seasonNumber: 3 }
+
+  // A pack held up on episode 2, or the row Sonarr keeps after a partial
+  // manual import: episode 1 is on disk while the item stays.
+  it('completes an episode job whose episode has a new file', () => {
+    expect(
+      didJobComplete({
+        createdAt: CREATED_AT,
+        episodes,
+        files: [file(301, AFTER, 3)],
+        queueItem: { episodeHasFile: true },
+        scope,
+      }),
+    ).toBe(true)
+  })
+
+  it('does not complete it while Sonarr says the episode has no file', () => {
+    expect(
+      didJobComplete({
+        createdAt: CREATED_AT,
+        episodes,
+        files: [file(301, AFTER, 3)],
+        queueItem: { episodeHasFile: false },
+        scope,
+      }),
+    ).toBe(false)
+  })
+
+  // An upgrade in flight: the episode has its old file the whole time.
+  it('does not complete it on a file from before the job', () => {
+    expect(
+      didJobComplete({
+        createdAt: CREATED_AT,
+        episodes,
+        files: [file(301, BEFORE, 3)],
+        queueItem: { episodeHasFile: true },
+        scope,
+      }),
+    ).toBe(false)
+  })
+
+  it.each([
+    ['a season job', { seasonNumber: 3 }],
+    ['a whole-series job', undefined],
+  ])('never completes %s', (_label, jobScope) => {
+    expect(
+      didJobComplete({
+        createdAt: CREATED_AT,
+        episodes,
+        files: [file(301, AFTER, 3)],
+        imports: [imported(OWN, { episodeId: 1, fileId: 301 })],
+        links: LINKS,
+        queueItem: { episodeHasFile: true },
+        scope: jobScope,
+      }),
+    ).toBe(false)
+  })
+
+  it('never completes a movie job', () => {
+    expect(
+      didJobComplete({
+        createdAt: CREATED_AT,
+        files: [file(501, AFTER)],
+        queueItem: {},
+      }),
+    ).toBe(false)
+  })
+})
+
+describe('completionImports', () => {
+  it('keeps the downloadFolderImported records, with their file and episode', () => {
+    expect(
+      completionImports([
+        {
+          data: { FileId: '301', indexer: 'secret-url' },
+          date: AFTER,
+          downloadId: OWN,
+          episodeId: 7,
+          eventType: 'downloadFolderImported',
+        },
+        { date: AFTER, downloadId: OWN, eventType: 'grabbed' },
+        { date: AFTER, eventType: 'downloadFolderImported' },
+        { date: AFTER, downloadId: '', eventType: 'downloadFolderImported' },
+      ]),
+    ).toEqual([{ date: AFTER, downloadId: OWN, episodeId: 7, fileId: 301 }])
+  })
+
+  it('leaves out a fileId that is missing or unparseable', () => {
+    expect(
+      completionImports([
+        { downloadId: OWN, eventType: 'downloadFolderImported' },
+        {
+          data: { fileId: 'abc' },
+          downloadId: RSS,
+          eventType: 'downloadFolderImported',
+        },
+      ]),
+    ).toEqual([{ downloadId: OWN }, { downloadId: RSS }])
+  })
+})
+
+describe('hasFileAddedAfter', () => {
+  it('is whether any file is newer than the date', () => {
+    expect(
+      hasFileAddedAfter([file(1, BEFORE), file(2, AFTER)], CREATED_AT),
+    ).toBe(true)
+    expect(hasFileAddedAfter([file(1, BEFORE), file(2)], CREATED_AT)).toBe(
+      false,
+    )
+    expect(hasFileAddedAfter([file(2, AFTER)], new Date('nope'))).toBe(false)
   })
 })

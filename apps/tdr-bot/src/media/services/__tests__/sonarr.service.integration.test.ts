@@ -12,37 +12,24 @@ import { Test, TestingModule } from '@nestjs/testing'
 
 // Mock SDK module BEFORE any imports
 jest.mock('@lilnas/media/sonarr', () => ({
-  deleteApiV3QueueById: jest.fn(),
+  deleteApiV3QueueBulk: jest.fn(),
   deleteApiV3SeriesById: jest.fn(),
   getApiV3Episode: jest.fn(),
-  getApiV3EpisodeById: jest.fn(),
   getApiV3Episodefile: jest.fn(),
-  getApiV3Qualityprofile: jest.fn(),
   getApiV3Queue: jest.fn(),
-  getApiV3Rootfolder: jest.fn(),
   getApiV3Series: jest.fn(),
   getApiV3SeriesById: jest.fn(),
   getApiV3SeriesLookup: jest.fn(),
-  postApiV3Command: jest.fn(),
-  postApiV3Series: jest.fn(),
   putApiV3EpisodeMonitor: jest.fn(),
   putApiV3SeriesById: jest.fn(),
 }))
 
 import {
-  deleteApiV3QueueById,
+  deleteApiV3QueueBulk,
   deleteApiV3SeriesById,
-  getApiV3Episode,
-  getApiV3Qualityprofile,
   getApiV3Queue,
-  getApiV3Rootfolder,
   getApiV3Series,
-  getApiV3SeriesById,
   getApiV3SeriesLookup,
-  postApiV3Command,
-  postApiV3Series,
-  putApiV3EpisodeMonitor,
-  putApiV3SeriesById,
 } from '@lilnas/media/sonarr'
 
 import { RetryConfigService } from 'src/config/retry.config'
@@ -66,16 +53,8 @@ jest.mock('perf_hooks', () => ({
 // Shorthands
 const mockGetApiV3SeriesLookup = getApiV3SeriesLookup as jest.Mock
 const mockGetApiV3Series = getApiV3Series as jest.Mock
-const mockGetApiV3SeriesById = getApiV3SeriesById as jest.Mock
-const mockGetApiV3Qualityprofile = getApiV3Qualityprofile as jest.Mock
-const mockGetApiV3Rootfolder = getApiV3Rootfolder as jest.Mock
-const mockPostApiV3Series = postApiV3Series as jest.Mock
-const mockPutApiV3SeriesById = putApiV3SeriesById as jest.Mock
-const mockGetApiV3Episode = getApiV3Episode as jest.Mock
-const mockPutApiV3EpisodeMonitor = putApiV3EpisodeMonitor as jest.Mock
-const mockPostApiV3Command = postApiV3Command as jest.Mock
 const mockGetApiV3Queue = getApiV3Queue as jest.Mock
-const mockDeleteApiV3QueueById = deleteApiV3QueueById as jest.Mock
+const mockDeleteApiV3QueueBulk = deleteApiV3QueueBulk as jest.Mock
 const mockDeleteApiV3SeriesById = deleteApiV3SeriesById as jest.Mock
 
 // ─── Test data ────────────────────────────────────────────────────────────────
@@ -99,7 +78,7 @@ const seriesResource = {
     { seasonNumber: 1, monitored: true },
   ],
   genres: ['Crime', 'Drama'],
-  ratings: { imdb: { value: 9.5, votes: 2000000, type: 'user' } },
+  ratings: { votes: 2000000, value: 9.5 },
   images: [
     {
       coverType: SonarrImageType.POSTER,
@@ -133,56 +112,6 @@ const librarySeries = {
     percentOfEpisodes: 100,
   },
 }
-
-const qualityProfile = {
-  id: 1,
-  name: 'Any',
-  upgradeAllowed: true,
-  cutoff: 4,
-  items: [],
-  minFormatScore: 0,
-  cutoffFormatScore: 0,
-  formatItems: [],
-  language: { id: 1, name: 'English' },
-}
-
-const rootFolder = {
-  id: 1,
-  path: '/tv',
-  accessible: true,
-  freeSpace: 5000000000,
-  totalSpace: 10000000000,
-  unmappedFolders: [],
-}
-
-const commandResponse = { id: 99, name: 'SeriesSearch' }
-
-const episodes = [
-  {
-    id: 1001,
-    seriesId: 1,
-    tvdbId: 111,
-    episodeFileId: 0,
-    seasonNumber: 1,
-    episodeNumber: 1,
-    title: 'Pilot',
-    airDate: '2008-01-20',
-    hasFile: false,
-    monitored: true,
-  },
-  {
-    id: 1002,
-    seriesId: 1,
-    tvdbId: 112,
-    episodeFileId: 0,
-    seasonNumber: 1,
-    episodeNumber: 2,
-    title: 'Cat In The Bag',
-    airDate: '2008-01-27',
-    hasFile: false,
-    monitored: true,
-  },
-]
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
@@ -306,76 +235,6 @@ describe('SonarrService integration (SDK mocked)', () => {
     })
   })
 
-  describe('monitorAndDownloadSeries (new series)', () => {
-    it('should orchestrate all SDK calls and return success for new series', async () => {
-      const addedSeries = { ...librarySeries, id: 1 }
-
-      // Not in library
-      mockGetApiV3Series.mockResolvedValue({ data: [] })
-      // Search finds it
-      mockGetApiV3SeriesLookup.mockResolvedValue({ data: [seriesResource] })
-      // Config
-      mockGetApiV3Qualityprofile.mockResolvedValue({ data: [qualityProfile] })
-      mockGetApiV3Rootfolder.mockResolvedValue({ data: [rootFolder] })
-      // Add series
-      mockPostApiV3Series.mockResolvedValue({ data: addedSeries })
-      // Episodes for monitoring
-      mockGetApiV3Episode.mockResolvedValue({ data: episodes })
-      // Monitor episodes
-      mockPutApiV3EpisodeMonitor.mockResolvedValue({ data: undefined })
-      // Trigger search
-      mockPostApiV3Command.mockResolvedValue({ data: commandResponse })
-
-      const result = await service.monitorAndDownloadSeries(81189)
-
-      expect(result.success).toBe(true)
-      expect(result.seriesAdded).toBe(true)
-      expect(result.searchTriggered).toBe(true)
-      expect(result.commandId).toBe(99)
-      expect(postApiV3Series).toHaveBeenCalled()
-      expect(postApiV3Command).toHaveBeenCalledWith(
-        expect.objectContaining({
-          body: { name: 'SeriesSearch', seriesId: 1 },
-        }),
-      )
-    })
-
-    it('should return failure when series is not found in search results', async () => {
-      mockGetApiV3Series.mockResolvedValue({ data: [] })
-      mockGetApiV3SeriesLookup.mockResolvedValue({ data: [] })
-
-      const result = await service.monitorAndDownloadSeries(99999)
-
-      expect(result.success).toBe(false)
-      expect(result.seriesAdded).toBe(false)
-      expect(result.error).toContain('not found')
-    })
-  })
-
-  describe('monitorAndDownloadSeries (existing series)', () => {
-    it('should update existing series and trigger search without re-adding', async () => {
-      const updatedSeries = { ...librarySeries }
-
-      mockGetApiV3Series.mockResolvedValue({ data: [librarySeries] })
-      // updateSeries: fetch + put
-      mockGetApiV3SeriesById.mockResolvedValue({ data: librarySeries })
-      mockPutApiV3SeriesById.mockResolvedValue({ data: updatedSeries })
-      // Get episodes for monitoring
-      mockGetApiV3Episode.mockResolvedValue({ data: episodes })
-      mockPutApiV3EpisodeMonitor.mockResolvedValue({ data: undefined })
-      // Trigger search
-      mockPostApiV3Command.mockResolvedValue({ data: commandResponse })
-
-      const result = await service.monitorAndDownloadSeries(81189)
-
-      expect(result.success).toBe(true)
-      expect(result.seriesAdded).toBe(false)
-      expect(result.seriesUpdated).toBe(true)
-      expect(postApiV3Series).not.toHaveBeenCalled()
-      expect(putApiV3SeriesById).toHaveBeenCalled()
-    })
-  })
-
   describe('unmonitorAndDeleteSeries (entire series)', () => {
     it('should cancel downloads and delete series when no selection is provided', async () => {
       mockGetApiV3Series.mockResolvedValue({ data: [librarySeries] })
@@ -410,14 +269,17 @@ describe('SonarrService integration (SDK mocked)', () => {
 
       mockGetApiV3Series.mockResolvedValue({ data: [librarySeries] })
       mockGetApiV3Queue.mockResolvedValue({ data: { records: [queueItem] } })
-      mockDeleteApiV3QueueById.mockResolvedValue({ data: undefined })
+      mockDeleteApiV3QueueBulk.mockResolvedValue({ data: undefined })
       mockDeleteApiV3SeriesById.mockResolvedValue({ data: undefined })
 
       const result = await service.unmonitorAndDeleteSeries(81189)
 
       expect(result.success).toBe(true)
-      expect(deleteApiV3QueueById).toHaveBeenCalledWith(
-        expect.objectContaining({ path: { id: 5 } }),
+      expect(deleteApiV3QueueBulk).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: { ids: [5] },
+          query: { removeFromClient: true, blocklist: false },
+        }),
       )
       expect(deleteApiV3SeriesById).toHaveBeenCalled()
       expect(result.canceledDownloads).toBe(1)

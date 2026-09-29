@@ -8,7 +8,25 @@ import type {
 import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
 
 import { MediaStateService } from 'src/media/media-state.service'
+import { NOT_RELEASED_REASON } from 'src/media/media-state.util'
 import type { PollableQueueItem } from 'src/media/queue-status.util'
+import type { SabReading } from 'src/sabnzbd/sab-readings.util'
+
+const sabReading = (overrides: Partial<SabReading> = {}): SabReading => ({
+  diskFreeGb: 500,
+  downloadedBytes: 600,
+  etaSeconds: 60,
+  failMessage: null,
+  globallyPaused: false,
+  nzoId: 'SABnzbd_nzo_a',
+  phase: 'downloading',
+  seenAt: 0,
+  speedBps: 10,
+  stage: null,
+  stageDetail: null,
+  totalBytes: 1000,
+  ...overrides,
+})
 
 const STUCK_REASON = 'Movie was not found in the grabbed release'
 
@@ -192,6 +210,66 @@ describe('MediaStateService', () => {
     })
   })
 
+  describe('SAB client readings', () => {
+    it('holds nothing and reports off before the first set', () => {
+      expect(service.clientReading('SABnzbd_nzo_a')).toBeUndefined()
+      expect(service.clientHealth()).toBe('off')
+    })
+
+    it('stores the readings by nzo_id with their health', () => {
+      service.setClientReadings(
+        new Map([['SABnzbd_nzo_a', sabReading()]]),
+        'ok',
+      )
+
+      expect(service.clientReading('SABnzbd_nzo_a')).toEqual(sabReading())
+      expect(service.clientReading('SABnzbd_nzo_b')).toBeUndefined()
+      expect(service.clientHealth()).toBe('ok')
+    })
+
+    it('replaces rather than merges', () => {
+      service.setClientReadings(
+        new Map([['SABnzbd_nzo_a', sabReading()]]),
+        'ok',
+      )
+      service.setClientReadings(new Map(), 'unhealthy')
+
+      expect(service.clientReading('SABnzbd_nzo_a')).toBeUndefined()
+      expect(service.clientHealth()).toBe('unhealthy')
+    })
+
+    it('is unaffected by the caller mutating its map afterwards', () => {
+      const readings = new Map([['SABnzbd_nzo_a', sabReading()]])
+      service.setClientReadings(readings, 'ok')
+      readings.clear()
+
+      expect(service.clientReading('SABnzbd_nzo_a')).toBeDefined()
+    })
+  })
+
+  describe('SAB client transitions', () => {
+    it('drains every pushed transition, oldest first', () => {
+      service.pushClientTransitions([
+        { from: null, nzoId: 'SABnzbd_nzo_a', to: 'downloading' },
+      ])
+      service.pushClientTransitions([
+        { from: 'downloading', nzoId: 'SABnzbd_nzo_a', to: 'post_processing' },
+        { from: null, nzoId: 'SABnzbd_nzo_b', to: 'queued' },
+      ])
+
+      expect(service.takeClientTransitions()).toEqual([
+        { from: null, nzoId: 'SABnzbd_nzo_a', to: 'downloading' },
+        { from: 'downloading', nzoId: 'SABnzbd_nzo_a', to: 'post_processing' },
+        { from: null, nzoId: 'SABnzbd_nzo_b', to: 'queued' },
+      ])
+      expect(service.takeClientTransitions()).toEqual([])
+    })
+
+    it('returns an empty list when nothing was pushed', () => {
+      expect(service.takeClientTransitions()).toEqual([])
+    })
+  })
+
   describe('annotate', () => {
     it('annotates one of each type plus a placeholder', () => {
       service.setQueue('radarr', [downloading({ movieId: 7 })])
@@ -248,6 +326,35 @@ describe('MediaStateService', () => {
 
       expect(theMovie.state).toBe('available')
       expect(theMovie).not.toHaveProperty('queueSnapshot')
+    })
+
+    it("says a wanted movie Radarr reports as not available isn't released yet", () => {
+      const theMovie = movie({ isAvailable: false })
+
+      service.annotate([theMovie])
+
+      expect(theMovie.state).toBe('wanted')
+      expect(theMovie.stateReason).toBe(NOT_RELEASED_REASON)
+    })
+
+    it('clears the not-released reason once Radarr reports the movie available', () => {
+      const theMovie = movie({ isAvailable: false })
+      service.annotate([theMovie])
+
+      theMovie.isAvailable = true
+      service.annotate([theMovie])
+
+      expect(theMovie.state).toBe('wanted')
+      expect(theMovie).not.toHaveProperty('stateReason')
+    })
+
+    it('gives a wanted movie with isAvailable unknown no reason', () => {
+      const theMovie = movie()
+
+      service.annotate([theMovie])
+
+      expect(theMovie.state).toBe('wanted')
+      expect(theMovie).not.toHaveProperty('stateReason')
     })
 
     it('treats a movie with no monitored flag as unmonitored', () => {
@@ -498,6 +605,192 @@ describe('MediaStateService', () => {
 
       expect(list[0]?.episodes[0]?.state).toBe('wanted')
       expect(list[0]?.episodes[0]).not.toHaveProperty('queueSnapshot')
+    })
+  })
+
+  // Radarr's/Sonarr's numbers in these say 75%; SAB's say 60%.
+  describe('SAB readings on snapshots', () => {
+    const withReadings = (...readings: SabReading[]) =>
+      service.setClientReadings(
+        new Map(readings.map(reading => [reading.nzoId, reading])),
+        'ok',
+      )
+
+    it("merges a movie's reading into its snapshot", () => {
+      service.setQueue('radarr', [
+        downloading({ downloadId: 'SABnzbd_nzo_a', movieId: 7 }),
+      ])
+      withReadings(sabReading())
+      const theMovie = movie()
+
+      service.annotate([theMovie])
+
+      expect(theMovie.queueSnapshot).toEqual({
+        downloadedBytes: 600,
+        etaSeconds: 60,
+        progress: 60,
+        speedBps: 10,
+        stage: 'downloading',
+        status: 'downloading',
+        timeLeft: '00:05:00',
+        totalBytes: 1000,
+      })
+      expect(theMovie.state).toBe('downloading')
+    })
+
+    it("keeps Radarr's numbers for a movie with no reading", () => {
+      service.setQueue('radarr', [
+        downloading({ downloadId: 'SABnzbd_nzo_other', movieId: 7 }),
+      ])
+      withReadings(sabReading())
+      const theMovie = movie()
+
+      service.annotate([theMovie])
+
+      expect(theMovie.queueSnapshot).toEqual({
+        progress: 75,
+        status: 'downloading',
+        timeLeft: '00:05:00',
+      })
+    })
+
+    it("falls back to Radarr's numbers once SAB turns unhealthy", () => {
+      service.setQueue('radarr', [
+        downloading({ downloadId: 'SABnzbd_nzo_a', movieId: 7 }),
+      ])
+      withReadings(sabReading())
+      const theMovie = movie()
+      service.annotate([theMovie])
+
+      service.setClientReadings(new Map(), 'unhealthy')
+      service.annotate([theMovie])
+
+      expect(theMovie.queueSnapshot).toEqual({
+        progress: 75,
+        status: 'downloading',
+        timeLeft: '00:05:00',
+      })
+    })
+
+    it("merges a single-item series' reading", () => {
+      service.setQueue('sonarr', [
+        downloading({ downloadId: 'SABnzbd_nzo_a', episodeId: 1, seriesId: 9 }),
+      ])
+      withReadings(sabReading())
+      const theShow = show()
+
+      service.annotate([theShow])
+
+      expect(theShow.queueSnapshot).toMatchObject({
+        downloadedBytes: 600,
+        progress: 60,
+        totalBytes: 1000,
+      })
+    })
+
+    it("counts a season pack's bytes once across its episode rows", () => {
+      service.setQueue(
+        'sonarr',
+        [1, 2, 3].map(episodeId =>
+          downloading({ downloadId: 'SABnzbd_nzo_a', episodeId, seriesId: 9 }),
+        ),
+      )
+      withReadings(sabReading())
+      const theShow = show()
+
+      service.annotate([theShow])
+
+      expect(theShow.queueSnapshot).toMatchObject({
+        downloadedBytes: 600,
+        progress: 60,
+        speedBps: 10,
+        totalBytes: 1000,
+      })
+    })
+
+    it('sums two downloads of one series, with the largest ETA', () => {
+      service.setQueue('sonarr', [
+        downloading({ downloadId: 'SABnzbd_nzo_a', episodeId: 1, seriesId: 9 }),
+        downloading({ downloadId: 'SABnzbd_nzo_b', episodeId: 2, seriesId: 9 }),
+      ])
+      withReadings(
+        sabReading(),
+        sabReading({
+          downloadedBytes: 200,
+          etaSeconds: 300,
+          nzoId: 'SABnzbd_nzo_b',
+          phase: 'queued',
+          speedBps: null,
+        }),
+      )
+      const theShow = show()
+
+      service.annotate([theShow])
+
+      expect(theShow.queueSnapshot).toMatchObject({
+        downloadedBytes: 800,
+        etaSeconds: 300,
+        progress: 40,
+        speedBps: 10,
+        stage: 'queued',
+        totalBytes: 2000,
+      })
+    })
+
+    it("keeps a series on Sonarr's numbers when one download has no reading", () => {
+      service.setQueue('sonarr', [
+        downloading({ downloadId: 'SABnzbd_nzo_a', episodeId: 1, seriesId: 9 }),
+        downloading({ downloadId: 'SABnzbd_nzo_b', episodeId: 2, seriesId: 9 }),
+      ])
+      withReadings(sabReading())
+      const theShow = show()
+
+      service.annotate([theShow])
+
+      expect(theShow.queueSnapshot).toEqual({
+        progress: 75,
+        status: 'downloading',
+        timeLeft: '00:05:00',
+      })
+    })
+
+    it("gives each episode its own download's reading", () => {
+      service.setQueue('sonarr', [
+        downloading({ downloadId: 'SABnzbd_nzo_a', episodeId: 1, seriesId: 9 }),
+        downloading({ downloadId: 'SABnzbd_nzo_a', episodeId: 3, seriesId: 9 }),
+        downloading({ downloadId: 'SABnzbd_nzo_b', episodeId: 4, seriesId: 9 }),
+      ])
+      withReadings(
+        sabReading(),
+        sabReading({
+          downloadedBytes: 100,
+          etaSeconds: null,
+          nzoId: 'SABnzbd_nzo_b',
+          phase: 'paused',
+          speedBps: null,
+        }),
+      )
+      const list: Season[] = [
+        {
+          episodeCount: 4,
+          episodeFileCount: 0,
+          episodes: [1, 2, 3, 4].map(id => episode({ id })),
+          monitored: true,
+          seasonNumber: 1,
+        },
+      ]
+
+      service.annotateEpisodes(9, list)
+
+      const snapshots = list[0]?.episodes.map(e => e.queueSnapshot)
+      expect(snapshots?.[0]).toMatchObject({ progress: 60, totalBytes: 1000 })
+      expect(snapshots?.[1]).toBeUndefined()
+      expect(snapshots?.[2]).toMatchObject({ progress: 60, totalBytes: 1000 })
+      expect(snapshots?.[3]).toMatchObject({
+        downloadedBytes: 100,
+        progress: 10,
+        stage: 'paused',
+      })
     })
   })
 })

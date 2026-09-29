@@ -4,6 +4,7 @@ import {
   DownloadJobStatus,
   DownloadType,
   Media,
+  QualityTier,
   SearchMediaResponse,
 } from 'src/download/types'
 
@@ -1042,6 +1043,24 @@ describe('DownloadClient', () => {
       )
     })
 
+    it('requestMovie forwards qualityTier in the body', async () => {
+      const fetchSpy = mockFetchJson(buildJob(MOVIE_MEDIA))
+
+      await client.requestMovie({
+        qualityTier: QualityTier.UpTo4k,
+        tmdbId: 42,
+      })
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/download/movies',
+        {
+          body: JSON.stringify({ qualityTier: 'up_to_4k', tmdbId: 42 }),
+          headers: JSON_HEADERS,
+          method: 'POST',
+        },
+      )
+    })
+
     it('getMovieJob issues a GET to /download/movies/:id', async () => {
       const fetchSpy = mockFetchJson(buildJob(MOVIE_MEDIA))
 
@@ -1097,6 +1116,48 @@ describe('DownloadClient', () => {
         'http://localhost:8081/download/shows',
         {
           body: JSON.stringify({ tvdbId: 9 }),
+          headers: JSON_HEADERS,
+          method: 'POST',
+        },
+      )
+    })
+
+    it('requestShow forwards qualityTier alongside the scope', async () => {
+      const fetchSpy = mockFetchJson(buildJob(MOVIE_MEDIA))
+
+      await client.requestShow({
+        qualityTier: QualityTier.UpTo720p,
+        seasonNumber: 2,
+        tvdbId: 9,
+      })
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/download/shows',
+        {
+          body: JSON.stringify({
+            qualityTier: 'up_to_720p',
+            seasonNumber: 2,
+            tvdbId: 9,
+          }),
+          headers: JSON_HEADERS,
+          method: 'POST',
+        },
+      )
+    })
+
+    it('requestShow forwards an episode asked for by number', async () => {
+      const fetchSpy = mockFetchJson(buildJob(MOVIE_MEDIA))
+
+      await client.requestShow({ episodeNumber: 5, seasonNumber: 2, tvdbId: 9 })
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/download/shows',
+        {
+          body: JSON.stringify({
+            episodeNumber: 5,
+            seasonNumber: 2,
+            tvdbId: 9,
+          }),
           headers: JSON_HEADERS,
           method: 'POST',
         },
@@ -1396,6 +1457,22 @@ describe('DownloadClient', () => {
       const job = buildJob(VIDEO_MEDIA, {
         id: 'job-1',
         status: DownloadJobStatus.Failed,
+      })
+
+      const promise = DownloadClient.localInstance.waitForJob('job-1')
+      FakeSocket.instances[0]?.emitMessage(terminalFrame(job))
+
+      await expect(promise).resolves.toEqual(job)
+      expect(FakeSocket.instances[0]?.close).toHaveBeenCalledTimes(1)
+    })
+
+    // Plan 024. A movie/show search that finds nothing ends in `not_found`,
+    // which has to settle the wait just like `failed` does.
+    it('resolves on a not_found job frame for the watched id', async () => {
+      mockWebSocket()
+      const job = buildJob(VIDEO_MEDIA, {
+        id: 'job-1',
+        status: DownloadJobStatus.NotFound,
       })
 
       const promise = DownloadClient.localInstance.waitForJob('job-1')

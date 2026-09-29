@@ -8,13 +8,8 @@ jest.mock('@lilnas/media/radarr', () => ({
   getApiV3Movie: jest.fn(),
   getApiV3MovieById: jest.fn(),
   getApiV3MovieLookup: jest.fn(),
-  getApiV3MovieLookupTmdb: jest.fn(),
-  getApiV3Qualityprofile: jest.fn(),
   getApiV3Queue: jest.fn(),
   getApiV3QueueDetails: jest.fn(),
-  getApiV3Rootfolder: jest.fn(),
-  postApiV3Command: jest.fn(),
-  postApiV3Movie: jest.fn(),
 }))
 
 import {
@@ -23,13 +18,8 @@ import {
   getApiV3Movie,
   getApiV3MovieById,
   getApiV3MovieLookup,
-  getApiV3MovieLookupTmdb,
-  getApiV3Qualityprofile,
   getApiV3Queue,
   getApiV3QueueDetails,
-  getApiV3Rootfolder,
-  postApiV3Command,
-  postApiV3Movie,
 } from '@lilnas/media/radarr'
 
 import { RetryConfigService } from 'src/config/retry.config'
@@ -42,17 +32,13 @@ import { RadarrService } from 'src/media/services/radarr.service'
 import {
   DeleteMovieOptions,
   DownloadProtocol,
-  MonitorMovieOptions,
-  MovieLibrarySearchResult,
   MovieSearchResult,
   RadarrImageType,
   RadarrMinimumAvailability,
   RadarrMovie,
   RadarrMovieResource,
   RadarrMovieStatus,
-  RadarrQualityProfile,
   RadarrQueueStatus,
-  RadarrRootFolder,
   TrackedDownloadState,
   TrackedDownloadStatus,
 } from 'src/media/types/radarr.types'
@@ -67,34 +53,22 @@ jest.mock('src/media/utils/radarr.utils', () => {
   return {
     ...actual,
     transformToSearchResults: jest.fn(),
-    transformToSearchResult: jest.fn(),
     toRadarrMovieResourceArray: jest.fn((arr: unknown[]) => arr),
-    toRadarrMovieResource: jest.fn((r: unknown) => r),
     toRadarrMovie: jest.fn((r: unknown) => r),
     toRadarrMovieArray: jest.fn((arr: unknown[]) => arr),
   }
 })
 
-import {
-  transformToSearchResult,
-  transformToSearchResults,
-} from 'src/media/utils/radarr.utils'
+import { transformToSearchResults } from 'src/media/utils/radarr.utils'
 
 const mockTransformToSearchResults =
   transformToSearchResults as jest.MockedFunction<
     typeof transformToSearchResults
   >
-const mockTransformToSearchResult =
-  transformToSearchResult as jest.MockedFunction<typeof transformToSearchResult>
 
 // Shorthands for SDK mocks
 const mockGetApiV3MovieLookup = getApiV3MovieLookup as jest.Mock
-const mockGetApiV3MovieLookupTmdb = getApiV3MovieLookupTmdb as jest.Mock
-const mockGetApiV3Qualityprofile = getApiV3Qualityprofile as jest.Mock
-const mockGetApiV3Rootfolder = getApiV3Rootfolder as jest.Mock
-const mockPostApiV3Movie = postApiV3Movie as jest.Mock
 const mockGetApiV3MovieById = getApiV3MovieById as jest.Mock
-const mockPostApiV3Command = postApiV3Command as jest.Mock
 const mockGetApiV3Movie = getApiV3Movie as jest.Mock
 const mockDeleteApiV3MovieById = deleteApiV3MovieById as jest.Mock
 const mockGetApiV3Queue = getApiV3Queue as jest.Mock
@@ -183,33 +157,6 @@ const createMockQueueItem = (overrides: Record<string, unknown> = {}) => ({
   estimatedCompletionTime: new Date(Date.now() + 3600000).toISOString(),
   added: new Date().toISOString(),
   movie: createMockRadarrMovie(),
-  ...overrides,
-})
-
-const createMockQualityProfile = (
-  overrides: Partial<RadarrQualityProfile> = {},
-): RadarrQualityProfile => ({
-  id: 1,
-  name: 'HD-1080p',
-  upgradeAllowed: true,
-  cutoff: 4,
-  items: [],
-  minFormatScore: 0,
-  cutoffFormatScore: 0,
-  formatItems: [],
-  language: { id: 1, name: 'English' },
-  ...overrides,
-})
-
-const createMockRootFolder = (
-  overrides: Partial<RadarrRootFolder> = {},
-): RadarrRootFolder => ({
-  id: 1,
-  path: '/movies',
-  accessible: true,
-  freeSpace: 1000000000,
-  totalSpace: 2000000000,
-  unmappedFolders: [],
   ...overrides,
 })
 
@@ -713,369 +660,23 @@ describe('RadarrService', () => {
 
       expect(result).toHaveLength(2)
     })
-  })
 
-  describe('monitorAndDownloadMovie', () => {
-    const mockMovie = createMockMovieSearchResult()
-    const mockQualityProfiles = [
-      createMockQualityProfile({ id: 1, name: 'HD-1080p' }),
-    ]
-    const mockRootFolders = [
-      createMockRootFolder({ id: 1, path: '/movies', accessible: true }),
-    ]
-    const mockCommandResponse = { id: 1, name: 'MoviesSearch' }
-
-    const makeLookupResult = (movie: MovieSearchResult) => ({
-      tmdbId: movie.tmdbId,
-      title: movie.title,
-      year: movie.year,
-      overview: movie.overview,
-      runtime: movie.runtime,
-      genres: movie.genres,
-      inCinemas: movie.inCinemas,
-      physicalRelease: movie.physicalRelease,
-      digitalRelease: movie.digitalRelease,
-      certification: movie.certification,
-      studio: movie.studio,
-      website: movie.website,
-      youTubeTrailerId: movie.youTubeTrailerId,
-      popularity: movie.popularity,
-      imdbId: movie.imdbId,
-      originalTitle: movie.originalTitle,
-      ratings: {
-        imdb: { value: movie.rating || 0, votes: 1000, type: 'user' },
-      },
-      images: [
-        { coverType: RadarrImageType.POSTER, url: movie.posterPath || '' },
-        { coverType: RadarrImageType.FANART, url: movie.backdropPath || '' },
-      ],
-      status: movie.status,
-      hasFile: false,
-      isAvailable: true,
-      minimumAvailability: RadarrMinimumAvailability.RELEASED,
-      cleanTitle: 'testmovie',
-      titleSlug: 'test-movie',
-    })
-
-    beforeEach(() => {
-      mockGetApiV3Qualityprofile.mockResolvedValue({
-        data: mockQualityProfiles,
-      })
-      mockGetApiV3Rootfolder.mockResolvedValue({ data: mockRootFolders })
-      mockGetApiV3MovieLookupTmdb.mockResolvedValue({
-        data: makeLookupResult(mockMovie),
-      })
-
-      mockTransformToSearchResult.mockImplementation(movieResource => ({
-        tmdbId: movieResource.tmdbId,
-        imdbId: movieResource.imdbId,
-        title: movieResource.title,
-        originalTitle: movieResource.originalTitle,
-        year: movieResource.year,
-        overview: movieResource.overview,
-        runtime: movieResource.runtime,
-        genres: movieResource.genres,
-        rating: movieResource.ratings?.imdb?.value,
-        posterPath: movieResource.images?.find(
-          img => img.coverType === 'poster',
-        )?.url,
-        backdropPath: movieResource.images?.find(
-          img => img.coverType === 'fanart',
-        )?.url,
-        inCinemas: movieResource.inCinemas,
-        physicalRelease: movieResource.physicalRelease,
-        digitalRelease: movieResource.digitalRelease,
-        status: movieResource.status,
-        certification: movieResource.certification,
-        studio: movieResource.studio,
-        website: movieResource.website,
-        youTubeTrailerId: movieResource.youTubeTrailerId,
-        popularity: movieResource.popularity,
-      }))
-    })
-
-    it('should monitor and download movie successfully with new movie', async () => {
-      const addedMovie = createMockRadarrMovie({
-        id: 1,
-        tmdbId: mockMovie.tmdbId,
-        monitored: true,
-      })
-
-      // Not in library
-      mockGetApiV3Movie.mockResolvedValue({ data: [] })
-      mockPostApiV3Movie.mockResolvedValue({ data: addedMovie })
-      mockPostApiV3Command.mockResolvedValue({ data: mockCommandResponse })
-
-      const result = await service.monitorAndDownloadMovie(mockMovie.tmdbId)
-
-      expect(getApiV3Movie).toHaveBeenCalled()
-      expect(getApiV3MovieLookupTmdb).toHaveBeenCalledWith(
-        expect.objectContaining({ query: { tmdbId: mockMovie.tmdbId } }),
-      )
-      expect(getApiV3Qualityprofile).toHaveBeenCalled()
-      expect(getApiV3Rootfolder).toHaveBeenCalled()
-      expect(postApiV3Movie).toHaveBeenCalledWith(
-        expect.objectContaining({
-          body: expect.objectContaining({
-            tmdbId: mockMovie.tmdbId,
-            title: mockMovie.title,
-            qualityProfileId: 1,
-            rootFolderPath: '/movies',
-            monitored: true,
-            minimumAvailability: RadarrMinimumAvailability.RELEASED,
-            searchOnAdd: false,
-          }),
+    it('should include stalled downloads reported with warning status', async () => {
+      const mockQueueItems = [
+        createMockQueueItem({
+          id: 1,
+          status: RadarrQueueStatus.WARNING,
+          movie: createMockRadarrMovie({ title: 'Stalled Movie' }),
         }),
-      )
-      expect(postApiV3Command).toHaveBeenCalledWith(
-        expect.objectContaining({
-          body: { name: 'MoviesSearch', movieIds: [1] },
-        }),
-      )
+      ]
 
-      expect(result).toEqual({
-        success: true,
-        movieAdded: true,
-        searchTriggered: true,
-        movie: addedMovie,
-        commandId: 1,
-        warnings: undefined,
-      })
-    })
+      mockGetApiV3Queue.mockResolvedValue({ data: { records: mockQueueItems } })
 
-    it('should handle movie already in library and monitored', async () => {
-      const existingMovie = createMockRadarrMovie({
-        id: 1,
-        tmdbId: mockMovie.tmdbId,
-        monitored: true,
-      })
+      const result = await service.getDownloadingMovies()
 
-      // In library
-      mockGetApiV3Movie.mockResolvedValue({ data: [existingMovie] })
-      mockPostApiV3Command.mockResolvedValue({ data: mockCommandResponse })
-
-      const result = await service.monitorAndDownloadMovie(mockMovie.tmdbId)
-
-      expect(postApiV3Movie).not.toHaveBeenCalled()
-      expect(getApiV3MovieLookupTmdb).not.toHaveBeenCalled()
-      expect(postApiV3Command).toHaveBeenCalledWith(
-        expect.objectContaining({
-          body: { name: 'MoviesSearch', movieIds: [1] },
-        }),
-      )
-
-      expect(result).toEqual({
-        success: true,
-        movieAdded: false,
-        searchTriggered: true,
-        movie: existingMovie,
-        commandId: 1,
-        warnings: ['Movie already monitored in library'],
-      })
-    })
-
-    it('should handle movie already in library but not monitored', async () => {
-      const existingMovie = createMockRadarrMovie({
-        id: 1,
-        tmdbId: mockMovie.tmdbId,
-        monitored: false,
-      })
-      const addedMovie = createMockRadarrMovie({
-        id: 1,
-        tmdbId: mockMovie.tmdbId,
-        monitored: true,
-      })
-
-      mockGetApiV3Movie.mockResolvedValue({ data: [existingMovie] })
-      mockPostApiV3Movie.mockResolvedValue({ data: addedMovie })
-      mockPostApiV3Command.mockResolvedValue({ data: mockCommandResponse })
-
-      const result = await service.monitorAndDownloadMovie(mockMovie.tmdbId)
-
-      expect(postApiV3Movie).toHaveBeenCalled()
-      expect(result.success).toBe(true)
-    })
-
-    it('should handle custom options', async () => {
-      const addedMovie = createMockRadarrMovie({
-        id: 1,
-        tmdbId: mockMovie.tmdbId,
-        monitored: false,
-      })
-      const options: MonitorMovieOptions = {
-        qualityProfileId: 2,
-        rootFolderPath: '/custom/movies',
-        monitored: false,
-        minimumAvailability: RadarrMinimumAvailability.IN_CINEMAS,
-        searchOnAdd: true,
-      }
-
-      mockGetApiV3Movie.mockResolvedValue({ data: [] })
-      mockPostApiV3Movie.mockResolvedValue({
-        data: { ...addedMovie, monitored: false },
-      })
-
-      const result = await service.monitorAndDownloadMovie(
-        mockMovie.tmdbId,
-        options,
-      )
-
-      expect(postApiV3Movie).toHaveBeenCalledWith(
-        expect.objectContaining({
-          body: expect.objectContaining({
-            qualityProfileId: 2,
-            rootFolderPath: '/custom/movies',
-            monitored: false,
-            minimumAvailability: RadarrMinimumAvailability.IN_CINEMAS,
-            searchOnAdd: true,
-          }),
-        }),
-      )
-
-      expect(postApiV3Command).not.toHaveBeenCalled()
-      expect(result.searchTriggered).toBe(false)
-    })
-
-    it('should handle configuration failures - no quality profiles', async () => {
-      mockGetApiV3Movie.mockResolvedValue({ data: [] })
-      mockGetApiV3Qualityprofile.mockResolvedValue({ data: [] })
-
-      const result = await service.monitorAndDownloadMovie(mockMovie.tmdbId)
-
-      expect(result).toEqual({
-        success: false,
-        movieAdded: false,
-        searchTriggered: false,
-        error: 'Configuration error: No quality profiles available in Radarr',
-      })
-    })
-
-    it('should handle add movie failures', async () => {
-      mockGetApiV3Movie.mockResolvedValue({ data: [] })
-      mockPostApiV3Movie.mockRejectedValue(new Error('Movie already exists'))
-
-      const result = await service.monitorAndDownloadMovie(mockMovie.tmdbId)
-
-      expect(result).toEqual({
-        success: false,
-        movieAdded: false,
-        searchTriggered: false,
-        error: 'Failed to add movie: Movie already exists',
-      })
-    })
-
-    it('should handle search trigger failures with warnings', async () => {
-      const addedMovie = createMockRadarrMovie({
-        id: 1,
-        tmdbId: mockMovie.tmdbId,
-        monitored: true,
-      })
-
-      mockGetApiV3Movie.mockResolvedValue({ data: [] })
-      mockPostApiV3Movie.mockResolvedValue({ data: addedMovie })
-      mockPostApiV3Command.mockRejectedValue(new Error('Search failed'))
-
-      const result = await service.monitorAndDownloadMovie(mockMovie.tmdbId)
-
-      expect(result.success).toBe(true)
-      expect(result.movieAdded).toBe(true)
-      expect(result.searchTriggered).toBe(false)
-      expect(result.warnings).toContain(
-        'Movie added but search failed: Search failed',
-      )
-    })
-
-    it('should handle no accessible root folders', async () => {
-      mockGetApiV3Movie.mockResolvedValue({ data: [] })
-      mockGetApiV3Rootfolder.mockResolvedValue({
-        data: [createMockRootFolder({ accessible: false })],
-      })
-
-      const result = await service.monitorAndDownloadMovie(mockMovie.tmdbId)
-
-      expect(result).toEqual({
-        success: false,
-        movieAdded: false,
-        searchTriggered: false,
-        error:
-          'Configuration error: No accessible root folders available in Radarr',
-      })
-    })
-
-    it('should handle movie with special characters in title', async () => {
-      const specialMovie = createMockMovieSearchResult({
-        title: 'Fast & Furious: Tokyo Drift',
-        tmdbId: 999999,
-      })
-      const addedMovie = createMockRadarrMovie({
-        id: 1,
-        tmdbId: 999999,
-        title: 'Fast & Furious: Tokyo Drift',
-        monitored: true,
-      })
-
-      mockGetApiV3Movie.mockResolvedValue({ data: [] })
-      mockGetApiV3MovieLookupTmdb.mockResolvedValue({
-        data: makeLookupResult(specialMovie),
-      })
-      mockPostApiV3Movie.mockResolvedValue({ data: addedMovie })
-      mockPostApiV3Command.mockResolvedValue({ data: mockCommandResponse })
-
-      const result = await service.monitorAndDownloadMovie(specialMovie.tmdbId)
-
-      expect(postApiV3Movie).toHaveBeenCalledWith(
-        expect.objectContaining({
-          body: expect.objectContaining({
-            title: 'Fast & Furious: Tokyo Drift',
-          }),
-        }),
-      )
-      expect(result.success).toBe(true)
-    })
-
-    it('should handle isMovieInLibrary API errors gracefully', async () => {
-      mockGetApiV3Movie.mockRejectedValue(new Error('API timeout'))
-
-      const result = await service.monitorAndDownloadMovie(mockMovie.tmdbId)
-
-      expect(result).toEqual({
-        success: false,
-        movieAdded: false,
-        searchTriggered: false,
-        error: 'API timeout',
-      })
-    })
-
-    it('should handle quality profiles API errors', async () => {
-      mockGetApiV3Movie.mockResolvedValue({ data: [] })
-      mockGetApiV3Qualityprofile.mockRejectedValue(
-        new Error('Quality profiles unavailable'),
-      )
-
-      const result = await service.monitorAndDownloadMovie(mockMovie.tmdbId)
-
-      expect(result).toEqual({
-        success: false,
-        movieAdded: false,
-        searchTriggered: false,
-        error: 'Configuration error: Quality profiles unavailable',
-      })
-    })
-
-    it('should handle root folders API errors', async () => {
-      mockGetApiV3Movie.mockResolvedValue({ data: [] })
-      mockGetApiV3Rootfolder.mockRejectedValue(
-        new Error('Root folders unavailable'),
-      )
-
-      const result = await service.monitorAndDownloadMovie(mockMovie.tmdbId)
-
-      expect(result).toEqual({
-        success: false,
-        movieAdded: false,
-        searchTriggered: false,
-        error: 'Configuration error: Root folders unavailable',
-      })
+      expect(result).toHaveLength(1)
+      expect(result[0].status).toBe(RadarrQueueStatus.WARNING)
+      expect(result[0].movieTitle).toBe('Stalled Movie')
     })
   })
 
@@ -1087,13 +688,7 @@ describe('RadarrService', () => {
     })
 
     it('should unmonitor and delete movie successfully', async () => {
-      jest.spyOn(service, 'getLibraryMovies').mockResolvedValue([
-        {
-          ...mockMovieData,
-          tmdbId: mockMovieData.tmdbId,
-          rootFolderPath: '/movies',
-        } as Partial<MovieLibrarySearchResult> as MovieLibrarySearchResult,
-      ])
+      mockGetApiV3Movie.mockResolvedValue({ data: [mockMovieData] })
       mockGetApiV3MovieById.mockResolvedValue({ data: mockMovieData })
       mockGetApiV3QueueDetails.mockResolvedValue({ data: [] })
       mockDeleteApiV3MovieById.mockResolvedValue({ data: undefined })
@@ -1104,6 +699,9 @@ describe('RadarrService', () => {
         options,
       )
 
+      expect(getApiV3Movie).toHaveBeenCalledWith(
+        expect.objectContaining({ query: { tmdbId: mockMovieData.tmdbId } }),
+      )
       expect(getApiV3MovieById).toHaveBeenCalledWith(
         expect.objectContaining({ path: { id: 1 } }),
       )
@@ -1132,12 +730,7 @@ describe('RadarrService', () => {
         { id: 2, title: 'Download 2' },
       ]
 
-      jest.spyOn(service, 'getLibraryMovies').mockResolvedValue([
-        {
-          ...mockMovieData,
-          tmdbId: mockMovieData.tmdbId,
-        } as Partial<MovieLibrarySearchResult> as MovieLibrarySearchResult,
-      ])
+      mockGetApiV3Movie.mockResolvedValue({ data: [mockMovieData] })
 
       mockGetApiV3MovieById.mockResolvedValue({ data: mockMovieData })
       mockGetApiV3QueueDetails.mockResolvedValue({ data: mockQueueItems })
@@ -1160,12 +753,7 @@ describe('RadarrService', () => {
         { id: 2, title: 'Download 2' },
       ]
 
-      jest.spyOn(service, 'getLibraryMovies').mockResolvedValue([
-        {
-          ...mockMovieData,
-          tmdbId: mockMovieData.tmdbId,
-        } as Partial<MovieLibrarySearchResult> as MovieLibrarySearchResult,
-      ])
+      mockGetApiV3Movie.mockResolvedValue({ data: [mockMovieData] })
 
       mockGetApiV3MovieById.mockResolvedValue({ data: mockMovieData })
       mockGetApiV3QueueDetails.mockResolvedValue({ data: mockQueueItems })
@@ -1185,13 +773,26 @@ describe('RadarrService', () => {
       )
     })
 
+    it('should report a movie missing from the library without deleting', async () => {
+      mockGetApiV3Movie.mockResolvedValue({ data: [] })
+
+      const result = await service.unmonitorAndDeleteMovie(12345)
+
+      expect(getApiV3Movie).toHaveBeenCalledWith(
+        expect.objectContaining({ query: { tmdbId: 12345 } }),
+      )
+      expect(getApiV3MovieById).not.toHaveBeenCalled()
+      expect(deleteApiV3MovieById).not.toHaveBeenCalled()
+      expect(result).toEqual({
+        success: false,
+        movieDeleted: false,
+        filesDeleted: false,
+        error: 'Movie with TMDB ID 12345 not found in Jeremy+ library',
+      })
+    })
+
     it('should handle movie not found error', async () => {
-      jest.spyOn(service, 'getLibraryMovies').mockResolvedValue([
-        {
-          ...mockMovieData,
-          tmdbId: mockMovieData.tmdbId,
-        } as Partial<MovieLibrarySearchResult> as MovieLibrarySearchResult,
-      ])
+      mockGetApiV3Movie.mockResolvedValue({ data: [mockMovieData] })
 
       mockGetApiV3MovieById.mockResolvedValue({
         data: undefined,
@@ -1207,12 +808,7 @@ describe('RadarrService', () => {
     })
 
     it('should handle download cancellation failures with warnings', async () => {
-      jest.spyOn(service, 'getLibraryMovies').mockResolvedValue([
-        {
-          ...mockMovieData,
-          tmdbId: mockMovieData.tmdbId,
-        } as Partial<MovieLibrarySearchResult> as MovieLibrarySearchResult,
-      ])
+      mockGetApiV3Movie.mockResolvedValue({ data: [mockMovieData] })
 
       mockGetApiV3MovieById.mockResolvedValue({ data: mockMovieData })
       mockGetApiV3QueueDetails.mockRejectedValue(
@@ -1232,12 +828,7 @@ describe('RadarrService', () => {
     })
 
     it('should handle deletion failures', async () => {
-      jest.spyOn(service, 'getLibraryMovies').mockResolvedValue([
-        {
-          ...mockMovieData,
-          tmdbId: mockMovieData.tmdbId,
-        } as Partial<MovieLibrarySearchResult> as MovieLibrarySearchResult,
-      ])
+      mockGetApiV3Movie.mockResolvedValue({ data: [mockMovieData] })
 
       mockGetApiV3MovieById.mockResolvedValue({ data: mockMovieData })
       mockGetApiV3QueueDetails.mockResolvedValue({ data: [] })
@@ -1263,12 +854,7 @@ describe('RadarrService', () => {
         hasFile: false,
       })
 
-      jest.spyOn(service, 'getLibraryMovies').mockResolvedValue([
-        {
-          ...unmonitoredMovie,
-          tmdbId: unmonitoredMovie.tmdbId,
-        } as Partial<MovieLibrarySearchResult> as MovieLibrarySearchResult,
-      ])
+      mockGetApiV3Movie.mockResolvedValue({ data: [unmonitoredMovie] })
 
       mockGetApiV3MovieById.mockResolvedValue({ data: unmonitoredMovie })
       mockGetApiV3QueueDetails.mockResolvedValue({ data: [] })

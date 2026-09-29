@@ -12,6 +12,8 @@ import {
   DiscoverQuerySchema,
   DownloadJobSchema,
   DownloadJobStatus,
+  DownloadQueueSnapshotSchema,
+  DownloadQueueStageSchema,
   DownloadType,
   EmbyStatusSchema,
   EpisodeSchema,
@@ -29,8 +31,10 @@ import {
   MediaSchema,
   MovieSchema,
   ProfileQuerySchema,
+  QualityTier,
   ReleaseSchema,
   ReplaceReleaseInputSchema,
+  RequestMovieInputSchema,
   RequestShowInputSchema,
   SeasonSchema,
   ShowSchema,
@@ -1030,6 +1034,137 @@ describe('DownloadJobSchema with startedUpstream', () => {
   })
 })
 
+describe('DownloadJobSchema with not_found and statusNote', () => {
+  const baseJob = {
+    completedAt: null,
+    createdAt: '2026-09-28T12:00:00.000Z',
+    discordRequester: null,
+    hiddenAttribution: false,
+    id: 'job-1',
+    linkedDiscord: null,
+    media: validMovie,
+    requester: null,
+    status: DownloadJobStatus.Searching,
+    updatedAt: '2026-09-28T12:00:00.000Z',
+  }
+
+  it('accepts the not_found status', () => {
+    const input = {
+      ...baseJob,
+      completedAt: '2026-09-28T12:05:00.000Z',
+      status: 'not_found',
+    }
+    expect(DownloadJobSchema.parse(input).status).toBe(
+      DownloadJobStatus.NotFound,
+    )
+  })
+
+  it('round-trips a job carrying a statusNote', () => {
+    const input = {
+      ...baseJob,
+      statusNote: 'Waiting for Sonarr to finish adding the show',
+    }
+    expect(DownloadJobSchema.parse(input)).toEqual(input)
+  })
+
+  // Every job before the field existed, and every job with nothing to add,
+  // has no `statusNote` key at all.
+  it('parses a job with no statusNote key', () => {
+    expect(DownloadJobSchema.parse(baseJob).statusNote).toBeUndefined()
+  })
+
+  it('rejects a non-string statusNote rather than dropping it', () => {
+    expect(
+      DownloadJobSchema.safeParse({ ...baseJob, statusNote: 42 }).success,
+    ).toBe(false)
+    expect(
+      DownloadJobSchema.safeParse({ ...baseJob, statusNote: null }).success,
+    ).toBe(false)
+  })
+})
+
+describe('DownloadQueueSnapshotSchema', () => {
+  // Radarr/Sonarr's fields only - what every snapshot carried before plan 025,
+  // and all it carries while SABnzbd is unset or unreachable.
+  const arrOnly = {
+    progress: 42.5,
+    status: 'downloading',
+    timeLeft: '00:12:30',
+  }
+
+  // The same entry with SABnzbd's live reading merged in.
+  const withSab = {
+    ...arrOnly,
+    clientPaused: false,
+    downloadedBytes: 1_825_361_100,
+    etaSeconds: 750,
+    speedBps: 12_582_912,
+    stage: 'downloading',
+    totalBytes: 4_294_967_296,
+  }
+
+  const postProcessing = {
+    ...withSab,
+    etaSeconds: 0,
+    speedBps: 0,
+    stage: 'post_processing',
+    stageDetail: 'Repairing: 45%',
+  }
+
+  it.each([
+    ['an empty snapshot', {}],
+    ['a Radarr/Sonarr-only snapshot', arrOnly],
+    ['a snapshot with SABnzbd fields', withSab],
+    ['a post-processing snapshot', postProcessing],
+    ['a snapshot paused in SABnzbd', { ...withSab, clientPaused: true }],
+    [
+      'a snapshot paused in SABnzbd on a low disk',
+      { ...withSab, clientDiskLow: true, clientPaused: true },
+    ],
+  ])('round-trips %s', (_label, sample) => {
+    expect(DownloadQueueSnapshotSchema.parse(sample)).toEqual(sample)
+  })
+
+  it.each(DownloadQueueStageSchema.options)('accepts stage %s', stage => {
+    expect(
+      DownloadQueueSnapshotSchema.safeParse({ ...withSab, stage }).success,
+    ).toBe(true)
+  })
+
+  it.each([
+    ['an unknown stage', { ...withSab, stage: 'repairing' }],
+    ['a job status as the stage', { ...withSab, stage: 'completed' }],
+    ['a string clientPaused', { ...withSab, clientPaused: 'true' }],
+    ['a string clientDiskLow', { ...withSab, clientDiskLow: 'true' }],
+    ['a string downloadedBytes', { ...withSab, downloadedBytes: '100' }],
+  ])('rejects %s', (_label, input) => {
+    expect(DownloadQueueSnapshotSchema.safeParse(input).success).toBe(false)
+  })
+
+  // A consumer on the pre-plan-025 shape (tdr-bot's plain `z.object`) strips
+  // the new keys rather than failing, so deploy order does not matter.
+  it('still parses under the pre-plan-025 shape, which strips the new keys', () => {
+    const legacy = DownloadQueueSnapshotSchema.pick({
+      progress: true,
+      status: true,
+      timeLeft: true,
+    })
+    expect(legacy.parse(postProcessing)).toEqual(arrOnly)
+  })
+
+  it('carries the new fields on an episode', () => {
+    const episode = {
+      episodeNumber: 5,
+      hasFile: false,
+      id: 4412,
+      monitored: true,
+      queueSnapshot: postProcessing,
+      seasonNumber: 3,
+    }
+    expect(EpisodeSchema.parse(episode)).toEqual(episode)
+  })
+})
+
 describe('VideoProgressSchema', () => {
   // A progressive (non-fragmented) grab: one of two files that get merged,
   // with a real `total_bytes`.
@@ -1295,6 +1430,143 @@ describe('RequestShowInputSchema', () => {
       RequestShowInputSchema.safeParse({ seasonNumber: '3', tvdbId: 81189 })
         .success,
     ).toBe(false)
+  })
+
+  // Plan 024: an episode by number, for a series with no episode ids yet.
+  describe('episodeNumber', () => {
+    it('is accepted with a seasonNumber', () => {
+      expect(
+        RequestShowInputSchema.parse({
+          episodeNumber: 5,
+          seasonNumber: 2,
+          tvdbId: 81189,
+        }),
+      ).toEqual({ episodeNumber: 5, seasonNumber: 2, tvdbId: 81189 })
+    })
+
+    // Season 0 is the specials - a truthiness check would reject it.
+    it('is accepted with season 0', () => {
+      expect(
+        RequestShowInputSchema.safeParse({
+          episodeNumber: 1,
+          seasonNumber: 0,
+          tvdbId: 81189,
+        }).success,
+      ).toBe(true)
+    })
+
+    it('requires a seasonNumber', () => {
+      const result = RequestShowInputSchema.safeParse({
+        episodeNumber: 5,
+        tvdbId: 81189,
+      })
+
+      expect(result.success).toBe(false)
+      expect(result.error?.issues).toEqual([
+        expect.objectContaining({
+          message: '`episodeNumber` needs `seasonNumber`',
+          path: ['episodeNumber'],
+        }),
+      ])
+    })
+
+    it('cannot be combined with an episodeId', () => {
+      const result = RequestShowInputSchema.safeParse({
+        episodeId: 4412,
+        episodeNumber: 5,
+        seasonNumber: 2,
+        tvdbId: 81189,
+      })
+
+      expect(result.success).toBe(false)
+      expect(result.error?.issues).toEqual([
+        expect.objectContaining({
+          message: '`episodeNumber` and `episodeId` are mutually exclusive',
+          path: ['episodeNumber'],
+        }),
+      ])
+    })
+
+    it('must be a positive integer', () => {
+      for (const episodeNumber of [0, -1, 1.5, '5']) {
+        expect(
+          RequestShowInputSchema.safeParse({
+            episodeNumber,
+            seasonNumber: 2,
+            tvdbId: 81189,
+          }).success,
+        ).toBe(false)
+      }
+    })
+  })
+})
+
+// ---- Plan 024: quality tiers ----
+
+describe.each([
+  ['RequestMovieInputSchema', RequestMovieInputSchema, { tmdbId: 438631 }],
+  ['RequestShowInputSchema', RequestShowInputSchema, { tvdbId: 81189 }],
+] as const)('qualityTier on %s', (_name, schema, base) => {
+  it.each(Object.values(QualityTier))('accepts the %s tier', qualityTier => {
+    expect(schema.parse({ ...base, qualityTier })).toEqual({
+      ...base,
+      qualityTier,
+    })
+  })
+
+  // The server picks the default, so an absent tier stays absent on the wire.
+  it('stays optional - a request without one parses unchanged', () => {
+    const result = schema.parse(base)
+    expect(result).toEqual(base)
+    expect(result).not.toHaveProperty('qualityTier')
+  })
+
+  it.each(['4k', 'HD', 'up_to_1080p', '', null, 2160])(
+    'rejects the unknown tier %p',
+    qualityTier => {
+      expect(schema.safeParse({ ...base, qualityTier }).success).toBe(false)
+    },
+  )
+})
+
+describe('qualityTier on the Media hierarchy', () => {
+  it.each([
+    ['movie', validMovie],
+    ['show', validShow],
+  ])('reaches %s through ManagedMediaBase', (_label, media) => {
+    const withTier = { ...media, qualityTier: QualityTier.UpTo4k }
+    expect(MediaSchema.parse(withTier)).toEqual(withTier)
+  })
+
+  // Not in the library, or on a profile the app doesn't manage.
+  it.each([
+    ['movie', validMovie],
+    ['show', validShow],
+  ])('accepts null on a %s', (_label, media) => {
+    const unmanaged = { ...media, qualityTier: null }
+    expect(MediaSchema.parse(unmanaged)).toEqual(unmanaged)
+  })
+
+  // Optional until every server builder fills it (plan 024, task 2·A4).
+  it('stays optional - a managed media parses without it', () => {
+    expect(MovieSchema.parse(validMovie)).toEqual(validMovie)
+    expect(ShowSchema.parse(validShow)).toEqual(validShow)
+  })
+
+  it('rejects an unknown tier', () => {
+    expect(
+      MovieSchema.safeParse({ ...validMovie, qualityTier: '4k' }).success,
+    ).toBe(false)
+  })
+
+  // Same as `embyStatus`: Video sits under MediaBaseSchema, so zod strips it.
+  it('is stripped from a video rather than rejected', () => {
+    const result = VideoSchema.safeParse({
+      ...validVideo,
+      qualityTier: QualityTier.Hd,
+    })
+    expect(result.success).toBe(true)
+    expect(result.data).not.toHaveProperty('qualityTier')
   })
 })
 

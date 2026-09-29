@@ -2,6 +2,7 @@ import { DownloadType } from '@lilnas/utils/download/types'
 
 import {
   getMediaFileRelease,
+  getReleaseTitleByGuid,
   listMediaFileReleasesByFileIds,
   upsertMediaFileRelease,
 } from 'src/db/media-file-releases.repo'
@@ -292,6 +293,58 @@ describe('media file releases repo', () => {
         'indexer://show-1',
         'indexer://show-3',
       ])
+    } finally {
+      close()
+    }
+  })
+})
+
+describe('getReleaseTitleByGuid', () => {
+  it('finds the title of a file from that release on that title', () => {
+    const { db, close } = createTestDb()
+    try {
+      upsertMediaFileRelease(db, {
+        mediaId: 'tvdb:81189',
+        mediaType: DownloadType.Show,
+        releaseGuid: 'indexer://pack',
+        releaseTitle: 'Show.S01.1080p',
+        upstreamFileId: 7,
+      })
+
+      expect(getReleaseTitleByGuid(db, 'tvdb:81189', 'indexer://pack')).toBe(
+        'Show.S01.1080p',
+      )
+      expect(
+        getReleaseTitleByGuid(db, 'tvdb:1', 'indexer://pack'),
+      ).toBeUndefined()
+      expect(
+        getReleaseTitleByGuid(db, 'tvdb:81189', 'indexer://other'),
+      ).toBeUndefined()
+    } finally {
+      close()
+    }
+  })
+
+  it('skips a file whose release title was never recorded', () => {
+    const { db, close } = createTestDb()
+    try {
+      upsertMediaFileRelease(db, {
+        mediaId: 'tmdb:27205',
+        mediaType: DownloadType.Movie,
+        releaseGuid: 'indexer://abc',
+        upstreamFileId: 42,
+      })
+      upsertMediaFileRelease(db, {
+        mediaId: 'tmdb:27205',
+        mediaType: DownloadType.Movie,
+        releaseGuid: 'indexer://abc',
+        releaseTitle: '',
+        upstreamFileId: 43,
+      })
+
+      expect(
+        getReleaseTitleByGuid(db, 'tmdb:27205', 'indexer://abc'),
+      ).toBeUndefined()
     } finally {
       close()
     }

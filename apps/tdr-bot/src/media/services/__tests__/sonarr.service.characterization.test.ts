@@ -12,19 +12,14 @@ import { Test, TestingModule } from '@nestjs/testing'
 // Mock SDK module BEFORE any imports
 jest.mock('@lilnas/media/sonarr', () => ({
   deleteApiV3EpisodefileById: jest.fn(),
-  deleteApiV3QueueById: jest.fn(),
+  deleteApiV3QueueBulk: jest.fn(),
   deleteApiV3SeriesById: jest.fn(),
   getApiV3Episode: jest.fn(),
-  getApiV3EpisodeById: jest.fn(),
   getApiV3Episodefile: jest.fn(),
-  getApiV3Qualityprofile: jest.fn(),
   getApiV3Queue: jest.fn(),
-  getApiV3Rootfolder: jest.fn(),
   getApiV3Series: jest.fn(),
   getApiV3SeriesById: jest.fn(),
   getApiV3SeriesLookup: jest.fn(),
-  postApiV3Command: jest.fn(),
-  postApiV3Series: jest.fn(),
   putApiV3EpisodeMonitor: jest.fn(),
   putApiV3SeriesById: jest.fn(),
 }))
@@ -101,12 +96,7 @@ const createMockSeriesResource = (
     createMockSeason({ seasonNumber: 2, monitored: true }),
   ],
   genres: ['Crime', 'Drama', 'Thriller'],
-  ratings: {
-    imdb: { value: 9.5, votes: 2000000, type: 'user' },
-    theMovieDb: { value: 8.8, votes: 100000, type: 'user' },
-    tvdb: { value: 9.0, votes: 50000, type: 'user' },
-    rottenTomatoes: { value: 96, votes: 1000, type: 'user' },
-  },
+  ratings: { votes: 2000000, value: 9.225 },
   images: [
     {
       coverType: SonarrImageType.POSTER,
@@ -154,7 +144,7 @@ const createMockSeries = (
     createMockSeason({ seasonNumber: 2, monitored: true }),
   ],
   genres: ['Crime', 'Drama', 'Thriller'],
-  ratings: { imdb: { value: 9.5, votes: 2000000, type: 'user' } },
+  ratings: { votes: 2000000, value: 9.5 },
   images: [
     {
       coverType: SonarrImageType.POSTER,
@@ -261,8 +251,7 @@ describe('SonarrService (characterization)', () => {
       })
     })
 
-    it('should calculate average rating across imdb, tmdb, tvdb, and rottenTomatoes', async () => {
-      // imdb=9.5, tmdb=8.8, tvdb=9.0, rt=96/10=9.6 → avg = (9.5+8.8+9.0+9.6)/4 = 9.225
+    it('should use the Sonarr v4 aggregate ratings value', async () => {
       mockGetApiV3SeriesLookup.mockResolvedValue({
         data: [createMockSeriesResource()],
       })
@@ -272,18 +261,14 @@ describe('SonarrService (characterization)', () => {
       expect(result.rating).toBeCloseTo(9.225, 2)
     })
 
-    it('should use only available ratings for average calculation', async () => {
+    it('should return undefined rating when the series has no votes', async () => {
       mockGetApiV3SeriesLookup.mockResolvedValue({
-        data: [
-          createMockSeriesResource({
-            ratings: { imdb: { value: 9.5, votes: 2000000, type: 'user' } },
-          }),
-        ],
+        data: [createMockSeriesResource({ ratings: { votes: 0, value: 0 } })],
       })
 
       const [result] = await service.searchShows('test')
 
-      expect(result.rating).toBe(9.5)
+      expect(result.rating).toBeUndefined()
     })
 
     it('should return undefined rating when no ratings are present', async () => {
@@ -360,6 +345,46 @@ describe('SonarrService (characterization)', () => {
   })
 
   describe('getLibrarySeries — output shape', () => {
+    it('should skip and log a series that fails validation instead of failing the list', async () => {
+      mockGetApiV3Series.mockResolvedValue({
+        data: [
+          createMockSeries(),
+          // Missing required library fields (path, monitored, ...)
+          { id: 2, title: 'Broken Series' },
+        ],
+      })
+
+      const results = await service.getLibrarySeries()
+
+      expect(results).toHaveLength(1)
+      expect(results[0].title).toBe('Breaking Bad')
+      expect(Logger.prototype.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          itemKind: 'series',
+          itemId: 2,
+          title: 'Broken Series',
+        }),
+        'Skipping invalid series from upstream list',
+      )
+    })
+
+    it('should accept a series with an unknown image cover type', async () => {
+      const series = createMockSeries()
+      mockGetApiV3Series.mockResolvedValue({
+        data: [
+          {
+            ...series,
+            images: [...series.images, { coverType: 'unknown', url: '/x.jpg' }],
+          },
+        ],
+      })
+
+      const results = await service.getLibrarySeries()
+
+      expect(results).toHaveLength(1)
+      expect(Logger.prototype.warn).not.toHaveBeenCalled()
+    })
+
     it('should return correctly transformed LibrarySearchResult with all fields', async () => {
       mockGetApiV3Series.mockResolvedValue({ data: [createMockSeries()] })
 
@@ -385,7 +410,7 @@ describe('SonarrService (characterization)', () => {
       expect(result.backdropPath).toBe('https://img.sonarr.tv/fanart.jpg')
     })
 
-    it('should extract rating from imdb in library results', async () => {
+    it('should extract rating from ratings.value in library results', async () => {
       mockGetApiV3Series.mockResolvedValue({ data: [createMockSeries()] })
 
       const [result] = await service.getLibrarySeries()

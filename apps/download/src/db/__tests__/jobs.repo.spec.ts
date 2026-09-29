@@ -1613,6 +1613,7 @@ describe('listOpenJobs', () => {
     try {
       seedJob(db, { id: 'done-1', status: 'completed', type: 'movie' })
       seedJob(db, { id: 'failed-1', status: 'failed' })
+      seedJob(db, { id: 'not-found-1', status: 'not_found', type: 'show' })
 
       expect(listOpenJobs(db)).toEqual([])
       expect(listOpenJobs(db, [DownloadType.Movie])).toEqual([])

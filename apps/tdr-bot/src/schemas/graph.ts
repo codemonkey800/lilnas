@@ -2,6 +2,8 @@ import { BaseMessage, HumanMessage } from '@langchain/core/messages'
 import { Annotation, messagesStateReducer } from '@langchain/langgraph'
 import { z } from 'zod'
 
+import type { DiscordIdentity } from 'src/media-operations/request-handling/types/request-context.type'
+
 /** Identifiers for each node (and pseudo-node) in the LangGraph state machine. */
 export enum GraphNode {
   AddTdrSystemPrompt = 'addTdrSystemPrompt',
@@ -58,10 +60,27 @@ export const ImageResponseSchema = z.object({
 
 export type ImageResponse = z.infer<typeof ImageResponseSchema>
 
+/** A video quality the user named in their message ("in 4k", "1080p"). */
+export const MediaRequestQualitySchema = z.enum(['4k', '1080p', '720p'])
+
+export type MediaRequestQuality = z.infer<typeof MediaRequestQualitySchema>
+
 export const MediaRequestSchema = z.object({
   mediaType: z.nativeEnum(MediaRequestType),
   searchIntent: z.nativeEnum(SearchIntent),
   searchTerms: z.string(),
+  /**
+   * `null` or absent when the message names no quality. Case and stray
+   * whitespace are forgiven ("4K"); any other value the model invents becomes
+   * `null` rather than failing the whole parse, so a garbled quality never
+   * costs the user their request.
+   */
+  quality: z
+    .preprocess(
+      value => (typeof value === 'string' ? value.trim().toLowerCase() : value),
+      MediaRequestQualitySchema.nullish(),
+    )
+    .catch(null),
 })
 
 export type MediaRequest = z.infer<typeof MediaRequestSchema>
@@ -71,6 +90,8 @@ export const InputStateAnnotation = Annotation.Root({
   messages: Annotation<BaseMessage[]>,
   userInput: Annotation<string>,
   userId: Annotation<string>,
+  /** Who sent the message, for attributing media requests to them. */
+  discord: Annotation<DiscordIdentity>,
   guildId: Annotation<string>,
 })
 
@@ -88,6 +109,7 @@ export const OverallStateAnnotation = Annotation.Root({
   }),
   userInput: Annotation<string>,
   userId: Annotation<string>,
+  discord: Annotation<DiscordIdentity>,
   guildId: Annotation<string>,
   images: Annotation<ImageResponse[]>,
   message: Annotation<HumanMessage>(),

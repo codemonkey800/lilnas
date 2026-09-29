@@ -862,6 +862,57 @@ describe('DownloadStateService', () => {
       expect(job).not.toHaveProperty('type')
       expect(job?.media.type).toBe(DownloadType.Movie)
     })
+
+    // Plan 024: the pending-command bookkeeping is internal, but the status
+    // note is on the wire.
+    it('keeps the upstream command fields off the wire, but not the status note', async () => {
+      const [job] = await service.hydrate([
+        buildMovieRecord({
+          statusNote: 'Waiting for Radarr to finish searching',
+          upstreamCommandAt: NOW_ISO,
+          upstreamCommandId: 4821,
+          upstreamCommandKind: 'search',
+        }),
+      ])
+
+      expect(job).not.toHaveProperty('upstreamCommandAt')
+      expect(job).not.toHaveProperty('upstreamCommandId')
+      expect(job).not.toHaveProperty('upstreamCommandKind')
+      expect(job?.statusNote).toBe('Waiting for Radarr to finish searching')
+    })
+  })
+
+  describe('persisting the status note and upstream command (plan 024)', () => {
+    it('writes them on update, and clears the columns when they are unset', () => {
+      const record = buildMovieRecord()
+      service.addJob(record)
+
+      service.updateJob(record.id, {
+        statusNote: 'Waiting for Radarr to finish searching',
+        upstreamCommandAt: NOW_ISO,
+        upstreamCommandId: 4821,
+        upstreamCommandKind: 'search',
+      })
+      expect(readRow(record.id)).toMatchObject({
+        statusNote: 'Waiting for Radarr to finish searching',
+        upstreamCommandAt: NOW_ISO,
+        upstreamCommandId: 4821,
+        upstreamCommandKind: 'search',
+      })
+
+      service.updateJob(record.id, {
+        statusNote: undefined,
+        upstreamCommandAt: undefined,
+        upstreamCommandId: undefined,
+        upstreamCommandKind: undefined,
+      })
+      expect(readRow(record.id)).toMatchObject({
+        statusNote: null,
+        upstreamCommandAt: null,
+        upstreamCommandId: null,
+        upstreamCommandKind: null,
+      })
+    })
   })
 
   describe('setProc / getProc / clearProc', () => {

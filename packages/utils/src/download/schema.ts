@@ -36,6 +36,13 @@ export enum DownloadJobStatus {
    */
   NeedsAttention = 'needs_attention',
   /**
+   * Plan 024. The search finished and turned up no release worth grabbing -
+   * the job's last word, shown as "No release found". Terminal: without it a
+   * search that finds nothing would sit in `searching` forever. Retry is
+   * offered, exactly as for `failed`.
+   */
+  NotFound = 'not_found',
+  /**
    * Phase 5. Deliberately **not** in `TERMINAL_DOWNLOAD_JOB_STATUSES`
    * (./types.ts): a paused job is still an open piece of work, so it stays on
    * the Activity feed rather than dropping into history. The other half of
@@ -58,6 +65,22 @@ export enum DownloadJobStatus {
   Uploading = 'uploading',
 }
 
+/**
+ * Plan 024. The three Radarr/Sonarr quality profiles this app manages, each
+ * a ceiling on resolution. A request may name one (the UI's picker, tdr-bot's
+ * "in 4k"); absent means `DEFAULT_QUALITY_TIER` (./types.ts). The wire value
+ * is this app's own key, never an upstream profile id or name - the server
+ * maps it to whichever profile it provisioned for the tier.
+ *
+ * Declared best-first; `QUALITY_TIERS` (./types.ts) pins that order for
+ * anything that lists them.
+ */
+export enum QualityTier {
+  UpTo4k = 'up_to_4k',
+  Hd = 'hd',
+  UpTo720p = 'up_to_720p',
+}
+
 export const TIME_REGEX = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$/
 
 export const TimeRangeSchema = z.object({
@@ -66,17 +89,61 @@ export const TimeRangeSchema = z.object({
 })
 
 /**
+ * Where a download sits in SABnzbd, carried on
+ * {@link DownloadQueueSnapshotSchema}'s `stage`. `post_processing` covers
+ * SABnzbd's verify/repair/unpack/move steps; its detail rides on
+ * `stageDetail`.
+ */
+export const DownloadQueueStageSchema = z.enum([
+  'queued',
+  'downloading',
+  'paused',
+  'post_processing',
+])
+
+/**
  * A snapshot of a title's last-known Radarr/Sonarr queue entry - per media,
  * not per job. The resolver sets `media.queueSnapshot` from
  * `MediaStateService`'s queue cache (a series' entries rolled up into one
  * series-wide figure), so an episode job and a whole-series job on the same
  * show carry the same progress. An episode's own entry rides on
  * `EpisodeSchema.queueSnapshot`.
+ *
+ * `progress`, `status` and `timeLeft` come from Radarr/Sonarr. Every field
+ * after them is a live reading straight from SABnzbd, and is absent whenever
+ * that read is off - SABnzbd unset or unreachable - so a consumer must treat
+ * each one as optional. Radarr/Sonarr stay the source of a job's status and
+ * outcome; post-processing is a `stage` here, never a job status.
  */
 export const DownloadQueueSnapshotSchema = z.object({
   progress: z.number().optional(),
   status: z.string().optional(),
   timeLeft: z.string().optional(),
+  /** Bytes SABnzbd has downloaded so far. */
+  downloadedBytes: z.number().optional(),
+  /** The download's total size in bytes, per SABnzbd. */
+  totalBytes: z.number().optional(),
+  /** SABnzbd's current download speed, in bytes per second. */
+  speedBps: z.number().optional(),
+  /** SABnzbd's estimate of the seconds left. */
+  etaSeconds: z.number().optional(),
+  /** Where the download sits in SABnzbd. */
+  stage: DownloadQueueStageSchema.optional(),
+  /**
+   * SABnzbd's plain-text action line for the current stage, shown as-is -
+   * e.g. "Repairing: 45%" while post-processing.
+   */
+  stageDetail: z.string().optional(),
+  /**
+   * "Paused in SABnzbd": SABnzbd's whole queue is paused - disk full, a quota
+   * hit, or a pause in SABnzbd's own UI - not just this download.
+   */
+  clientPaused: z.boolean().optional(),
+  /**
+   * SABnzbd paused and its download disk has under 5 GB free - the likely
+   * reason for the pause. Only ever set alongside `clientPaused`.
+   */
+  clientDiskLow: z.boolean().optional(),
 })
 
 /**
@@ -217,6 +284,8 @@ export const MediaSearchQuerySchema = z.object({
 })
 
 export const RequestMovieInputSchema = z.object({
+  /** Plan 024. Absent means `DEFAULT_QUALITY_TIER` (./types.ts). */
+  qualityTier: z.enum(QualityTier).optional(),
   tmdbId: z.number().int().positive(),
 })
 
@@ -231,12 +300,31 @@ export const RequestMovieInputSchema = z.object({
  * worth a 400 rather than something to silently coerce. That difference is
  * also why there is no shared zod fragment between the two - see
  * `DeleteMediaFilesQuerySchema`.
+ *
+ * `episodeNumber` (plan 024) names one episode by number instead of by
+ * Sonarr's id - for a caller that only knows "S02E05", or a series Sonarr
+ * doesn't hold yet (so no episode id exists). It needs `seasonNumber` and
+ * can't be combined with `episodeId`; the server resolves it to an id once
+ * the series' episodes exist.
  */
-export const RequestShowInputSchema = z.object({
-  episodeId: z.number().int().positive().optional(),
-  seasonNumber: z.number().int().min(0).optional(),
-  tvdbId: z.number().int().positive(),
-})
+export const RequestShowInputSchema = z
+  .object({
+    episodeId: z.number().int().positive().optional(),
+    /** Plan 024. Needs `seasonNumber`; not with `episodeId`. */
+    episodeNumber: z.number().int().positive().optional(),
+    /** Plan 024. Absent means `DEFAULT_QUALITY_TIER` (./types.ts). */
+    qualityTier: z.enum(QualityTier).optional(),
+    seasonNumber: z.number().int().min(0).optional(),
+    tvdbId: z.number().int().positive(),
+  })
+  .refine(input => input.episodeNumber == null || input.seasonNumber != null, {
+    message: '`episodeNumber` needs `seasonNumber`',
+    path: ['episodeNumber'],
+  })
+  .refine(input => input.episodeNumber == null || input.episodeId == null, {
+    message: '`episodeNumber` and `episodeId` are mutually exclusive',
+    path: ['episodeNumber'],
+  })
 
 // ---- The Media hierarchy ----
 
@@ -316,8 +404,10 @@ export const MediaBaseSchema = z.object({
    */
   state: MediaStateSchema.optional(),
   /**
-   * Plan 021. Upstream's one-line reason a queue item is stuck - present iff
-   * `state === 'needs_attention'`.
+   * Plan 021. Why the state is what it is, when that isn't obvious:
+   * upstream's one-line reason a queue item is stuck (`needs_attention`), or
+   * `Not released yet` for a `wanted` movie Radarr won't grab before its
+   * minimum availability. Absent otherwise.
    */
   stateReason: z.string().optional(),
   title: z.string(),
@@ -401,6 +491,15 @@ export const ManagedMediaBaseSchema = MediaBaseSchema.extend({
    * file). Absent when the title isn't in the library at all.
    */
   monitored: z.boolean().optional(),
+  /**
+   * Plan 024. The title's current tier, read off its Radarr/Sonarr quality
+   * profile. `null` when not in the library or on a profile the app doesn't
+   * manage.
+   *
+   * Optional for now so the server's builders keep compiling until each one
+   * fills it; once they all do, this tightens to `.nullable()` alone.
+   */
+  qualityTier: z.enum(QualityTier).nullable().optional(),
   queueSnapshot: DownloadQueueSnapshotSchema.optional(),
 })
 
@@ -497,6 +596,13 @@ export const MovieSchema = ManagedMediaBaseSchema.extend({
   /** `tt1855199`. */
   imdbId: z.string().optional(),
   inCinemas: z.string().optional(),
+  /**
+   * Radarr's `isAvailable` - whether the movie has reached its
+   * `minimumAvailability` (announced / in cinemas / released); Radarr won't
+   * grab it before then. Absent means unknown - Radarr omits null keys -
+   * never "not yet".
+   */
+  isAvailable: z.boolean().optional(),
   /** A display name (`English`), not Radarr's language object. */
   originalLanguage: z.string().optional(),
   originalTitle: z.string().optional(),
@@ -547,8 +653,12 @@ export const ShowSchema = ManagedMediaBaseSchema.extend({
   /** Other names the series goes by - distinct, never its own title. */
   alternateTitles: z.array(z.string()).optional(),
   /**
-   * Plan 021. Straight from Sonarr's series `statistics`, like
-   * `SeasonSchema`'s per-season counts - Sonarr's number is the honest one.
+   * Plan 021. Straight from Sonarr's series `statistics.episodeCount`, like
+   * `SeasonSchema`'s per-season counts. **Not a total**: Sonarr counts an
+   * episode there only when it is `(monitored AND aired) OR hasFile`
+   * (`SeriesStatisticsRepository.cs:80`) - summed over every season,
+   * specials included - so it is how many episodes Sonarr wants or has. The
+   * total is Sonarr's `totalEpisodeCount`, which this schema doesn't carry.
    * Optional because a series not yet in the library has no statistics.
    */
   episodeCount: z.number().int().min(0).optional(),
@@ -653,6 +763,13 @@ export const DownloadJobSchema = z.object({
    */
   startedUpstream: z.boolean().optional(),
   status: z.enum(DownloadJobStatus),
+  /**
+   * Plan 024. A human-readable line about where the job stands, shown under
+   * its status - "Waiting for Sonarr to finish adding the show", "Delayed by
+   * Radarr until 21:40". Absent when there is nothing to add, so existing
+   * fixtures, stored rows and `apps/tdr-bot`'s parse stay valid unchanged.
+   */
+  statusNote: z.string().optional(),
   updatedAt: z.iso.datetime(),
 })
 
@@ -1042,20 +1159,31 @@ export const EpisodeSchema = z.object({
 })
 
 /**
- * One season of a series plus its episodes. The counts come from Sonarr's
- * own per-season `statistics` rather than being derived from `episodes` -
- * they include episodes Sonarr knows about but hasn't listed yet, so the two
- * can legitimately disagree and Sonarr's number is the honest one.
+ * One season of a series plus its episodes - every episode Sonarr holds for
+ * the season, aired or not, monitored or not.
  */
 export const SeasonSchema = z.object({
+  /**
+   * Sonarr's per-season `statistics.episodeCount`, which is **not** the
+   * season's size: an episode counts only when it is
+   * `(monitored AND aired) OR hasFile` (`SeriesStatisticsRepository.cs:80`).
+   * A season of unmonitored specials reads `0`; a monitored season still
+   * airing leaves out what hasn't aired. The season's total (Sonarr's
+   * `totalEpisodeCount`) is `episodes.length`. Falls back to
+   * `episodes.length` when Sonarr sent no statistics.
+   */
   episodeCount: z.number().int().min(0),
+  /** Sonarr's per-season `statistics.episodeFileCount`. */
   episodeFileCount: z.number().int().min(0),
   episodes: z.array(EpisodeSchema),
   /**
    * The **season-level** flag off `SeriesResource.seasons[]`, which is a
    * separate layer from the series row and from each episode's own
-   * `monitored`. Reported, never written: episode-level monitoring is what
-   * governs searching, so Phase 4 leaves this one alone.
+   * `monitored`. Episode-level monitoring is still what governs searching,
+   * but this one is written too: a request monitors the season(s) it covers
+   * and a season-scoped file delete unmonitors that season, both through
+   * `SonarrService.setSeasonsMonitored()` - after the episodes, since
+   * Sonarr's `PUT /series` may cascade the flag down to them.
    */
   monitored: z.boolean(),
   /** `0` for specials. */

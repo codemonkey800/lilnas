@@ -1,7 +1,10 @@
 'use client'
 
 import { cns } from '@lilnas/utils/cns'
-import type { DeleteMediaFilesQuery } from '@lilnas/utils/download/types'
+import type {
+  DeleteMediaFilesQuery,
+  Episode,
+} from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX, ReactNode } from 'react'
 import { useRef, useState, useTransition } from 'react'
 
@@ -57,6 +60,15 @@ export type DeleteScope =
       kind: 'episode'
       /** For the `S02E05` in the heading. Omitted falls back to "this episode". */
       seasonNumber?: number
+      /**
+       * The other episodes held by this episode's file — a multi-episode file
+       * (`S01E01E02.mkv`) is one file on disk, so deleting E01 takes E02 with
+       * it. See {@link fileSiblings} in `show-state.ts`, which computes it.
+       *
+       * ⚠️ Copy only, exactly as `cascadesTo`: the backend resolves the
+       * siblings from Sonarr itself, and never from this list.
+       */
+      sharesFileWith?: readonly FileSibling[]
     }
   | { kind: 'movie' }
   | {
@@ -79,6 +91,9 @@ export type DeleteScope =
       jobId: string
       kind: 'video'
     }
+
+/** An episode held by the same file as the one being deleted — for its `S01E02`. */
+export type FileSibling = Pick<Episode, 'episodeNumber' | 'seasonNumber'>
 
 /** Every scope `DELETE /download/media/:id/files` can express — all but `video`. */
 export type MediaFilesScope = Exclude<DeleteScope, { kind: 'video' }>
@@ -153,6 +168,32 @@ function scopeClause(
     : 'Other seasons are left alone.'
 }
 
+/**
+ * The sentence naming a multi-episode file's other episodes, or `''` when
+ * the file holds only this one — so the description stays byte-identical for
+ * every ordinary episode.
+ *
+ * `S01E02` rather than "this episode" even without the heading's numbers: a
+ * sibling is always a real episode the season panel listed, so both numbers
+ * are always known.
+ */
+function siblingsClause(siblings: readonly FileSibling[] = []): string {
+  if (siblings.length === 0) {
+    return ''
+  }
+
+  const labels = siblings.map(sibling =>
+    episodeLabel(sibling.seasonNumber, sibling.episodeNumber),
+  )
+  const named =
+    labels.length === 1
+      ? labels[0]
+      : `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`
+  const pronoun = labels.length === 1 ? 'it' : 'they'
+
+  return ` This file also holds ${named} — ${pronoun} will be removed too.`
+}
+
 /** `S02E05` when both numbers are known; "this episode" when they are not. */
 function episodeLabel(seasonNumber?: number, episodeNumber?: number): string {
   if (seasonNumber === undefined || episodeNumber === undefined) {
@@ -223,6 +264,10 @@ export type DeleteConfirmCopy = {
  * the series would be the worst kind of wrong this component can be, so the
  * promise is withdrawn rather than contradicted a sentence later.
  *
+ * ⚠️ An `episode` scope whose file also holds other episodes names them
+ * (`sharesFileWith`) — "this one episode" would otherwise be false: deleting
+ * E01 of an `S01E01E02.mkv` removes the one file both episodes live in.
+ *
  * ⚠️ The `video` sentence deliberately says neither "library" nor "Radarr".
  * A video was never in `/storage/media-library` and no arr ever knew about it:
  * `deleteVideoJob` removes the objects the download produced and clears the
@@ -242,11 +287,18 @@ export function deleteConfirmCopy(
     freesBytes === undefined ? '' : ` and frees ${formatBytes(freesBytes)}`
 
   switch (scope.kind) {
-    case 'episode':
+    case 'episode': {
+      const siblings = siblingsClause(scope.sharesFileWith)
+      // "this one episode" would be false of a file that holds several.
+      const file = siblings
+        ? "this episode's file"
+        : 'the file for this one episode'
+
       return {
-        description: `Removes the file for this one episode from the library${frees}. ${scopeClause(scope)} This can't be undone.`,
+        description: `Removes ${file} from the library${frees}.${siblings} ${scopeClause(scope)} This can't be undone.`,
         title: `Delete ${episodeLabel(scope.seasonNumber, scope.episodeNumber)} of "${title}"?`,
       }
+    }
     case 'season':
       return {
         description: `Removes the file for every episode in season ${scope.seasonNumber} from the library${frees}. ${scopeClause(scope)} This can't be undone.`,

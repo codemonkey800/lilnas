@@ -136,6 +136,17 @@ describe('MediaStatus', () => {
       ).toBeInTheDocument()
     })
 
+    it('shows the reason on a wanted movie', () => {
+      render(
+        <MediaStatus
+          media={{ ...MOVIE, state: 'wanted', stateReason: 'Not released yet' }}
+        />,
+      )
+
+      expect(screen.getByText('wanted')).toBeInTheDocument()
+      expect(screen.getByText('Not released yet')).toBeInTheDocument()
+    })
+
     it('prefers explain over the state reason', () => {
       render(
         <MediaStatus
@@ -240,7 +251,9 @@ describe('MediaStatus', () => {
       expect(screen.getAllByText('finishing up')).toHaveLength(2)
       expect(screen.queryByText('downloading')).not.toBeInTheDocument()
       expect(
-        screen.getByText('All downloaded. Radarr imports it next.'),
+        screen.getByText(
+          'All downloaded. SABnzbd is checking and unpacking it; Radarr imports it after.',
+        ),
       ).toBeInTheDocument()
       expect(screen.queryByText('~00:00:00 left')).not.toBeInTheDocument()
       expect(progressBar()).toHaveAttribute(
@@ -250,6 +263,48 @@ describe('MediaStatus', () => {
       expect(
         progressBar()?.querySelector('[data-settling]'),
       ).toBeInTheDocument()
+    })
+
+    // Plan 025: SABnzbd's post-processing, named as the attempt card names it.
+    it.each([
+      [
+        'with its step',
+        'Repairing: 45%',
+        'SABnzbd is unpacking it · Repairing: 45%. Radarr imports it after.',
+      ],
+      [
+        'without a step',
+        undefined,
+        'SABnzbd is unpacking it. Radarr imports it after.',
+      ],
+    ])('names SABnzbd’s post-processing %s', (_case, stageDetail, line) => {
+      render(
+        <MediaStatus
+          media={{
+            ...MOVIE,
+            queueSnapshot: {
+              downloadedBytes: 2.6 * 1024 ** 3,
+              progress: 99.5,
+              speedBps: 8.4 * 1024 ** 2,
+              stage: 'post_processing',
+              stageDetail,
+              status: 'downloading',
+              timeLeft: '00:00:00',
+              totalBytes: 2.6 * 1024 ** 3,
+            },
+            state: 'downloading',
+          }}
+        />,
+      )
+
+      // The chip and the bar's note both name the stage.
+      expect(screen.getAllByText('unpacking')).toHaveLength(2)
+      expect(screen.queryByText('finishing up')).not.toBeInTheDocument()
+      expect(screen.getByText(line)).toBeInTheDocument()
+      expect(progressBar()).toHaveAttribute('aria-valuenow', '100')
+      expect(progressBar()).toHaveAttribute('aria-valuetext', '100%, unpacking')
+      // No throughput in the header — that is the attempt card's line.
+      expect(screen.queryByText(/B\/s|GB/)).not.toBeInTheDocument()
     })
 
     it('says who is importing instead of a spent estimate', () => {

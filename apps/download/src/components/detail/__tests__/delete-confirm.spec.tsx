@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event'
 
 import type {
   DeleteScope,
+  FileSibling,
   MediaFilesScope,
 } from 'src/components/detail/delete-confirm'
 import {
@@ -393,6 +394,106 @@ describe('deleteConfirmCopy — the cascade warning', () => {
       }).description,
     ).toContain(
       `from the library and frees 2.1 GB. ${SERIES_WARNING_FROM_SEASON}`,
+    )
+  })
+})
+
+/**
+ * An `S02E05E06.mkv` — one file on disk holding two episodes — so deleting
+ * S02E05 takes S02E06 with it.
+ */
+function multiEpisodeScope(
+  sharesFileWith: readonly FileSibling[],
+  cascadesTo?: DeleteCascade,
+): MediaFilesScope {
+  return {
+    cascadesTo,
+    episodeId: 4823,
+    episodeNumber: 5,
+    kind: 'episode',
+    seasonNumber: 2,
+    sharesFileWith,
+  }
+}
+
+describe('deleteConfirmCopy — a multi-episode file', () => {
+  it('names the sibling the file also holds', () => {
+    const copy = deleteConfirmCopy(
+      multiEpisodeScope([{ episodeNumber: 6, seasonNumber: 2 }]),
+      { title: SHOW_TITLE },
+    )
+
+    expect(copy.description).toBe(
+      "Removes this episode's file from the library. This file also holds S02E06 — it will be removed too. The rest of the season is left alone. This can't be undone.",
+    )
+  })
+
+  it('names every sibling, joined as a list', () => {
+    const copy = deleteConfirmCopy(
+      multiEpisodeScope([
+        { episodeNumber: 6, seasonNumber: 2 },
+        { episodeNumber: 7, seasonNumber: 2 },
+        { episodeNumber: 8, seasonNumber: 2 },
+      ]),
+      { title: SHOW_TITLE },
+    )
+
+    expect(copy.description).toContain(
+      'This file also holds S02E06, S02E07 and S02E08 — they will be removed too.',
+    )
+  })
+
+  // ⚠️ Season 0 is specials, and a real season — `S00E02`, never dropped.
+  it('names a special by its season 0 code', () => {
+    const copy = deleteConfirmCopy(
+      {
+        episodeId: 90,
+        episodeNumber: 1,
+        kind: 'episode',
+        seasonNumber: 0,
+        sharesFileWith: [{ episodeNumber: 2, seasonNumber: 0 }],
+      },
+      { title: SHOW_TITLE },
+    )
+
+    expect(copy.title).toBe('Delete S00E01 of "Harbor Watch"?')
+    expect(copy.description).toContain('This file also holds S00E02')
+  })
+
+  it('stays byte-identical for a file holding only this episode', () => {
+    expect(
+      deleteConfirmCopy(multiEpisodeScope([]), { title: SHOW_TITLE })
+        .description,
+    ).toBe(EPISODE_PLAIN)
+  })
+
+  it('names the siblings before the cascade warning', () => {
+    const { description } = deleteConfirmCopy(
+      multiEpisodeScope([{ episodeNumber: 6, seasonNumber: 2 }], 'season'),
+      { freesBytes: 2.1 * 1024 ** 3, title: SHOW_TITLE },
+    )
+
+    expect(description).toMatch(
+      /^Removes this episode's file from the library and frees 2\.1 GB\. This file also holds S02E06 — it will be removed too\. It's the last downloaded episode of the season/,
+    )
+    expect(description.endsWith("This can't be undone.")).toBe(true)
+  })
+
+  it('⚠️ never puts the siblings on the wire', () => {
+    expect(
+      deleteScopeQuery(
+        multiEpisodeScope([{ episodeNumber: 6, seasonNumber: 2 }]),
+      ),
+    ).toEqual({ episodeId: 4823 })
+  })
+
+  it('says so in the open dialog', async () => {
+    await open(multiEpisodeScope([{ episodeNumber: 6, seasonNumber: 2 }]))
+
+    expect(screen.getByRole('dialog')).toHaveAccessibleDescription(
+      expect.stringContaining(
+        'This file also holds S02E06 — it will be removed too.',
+      ),
     )
   })
 })

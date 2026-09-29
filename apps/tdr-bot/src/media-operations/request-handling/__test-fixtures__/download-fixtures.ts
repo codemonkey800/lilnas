@@ -41,6 +41,8 @@ export function createMockDownloadingSeries(
     seasonNumber: 1,
     episodeNumber: 1,
     episodeTitle: 'Pilot',
+    episodeCount: 1,
+    episodeLabel: 'S01E01',
     progressPercent: 50.0,
     status: 'downloading',
     size: 524288000, // 500MB

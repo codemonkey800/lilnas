@@ -870,6 +870,12 @@
         .h-\[460px\] {
           height: 460px;
         }
+        .h-\[720px\] {
+          height: 720px;
+        }
+        .h-\[900px\] {
+          height: 900px;
+        }
         .h-full {
           height: 100%;
         }
@@ -1041,6 +1047,9 @@
         .w-\[130px\] {
           width: 130px;
         }
+        .w-\[132px\] {
+          width: 132px;
+        }
         .w-\[140px\] {
           width: 140px;
         }
@@ -1064,6 +1073,9 @@
         }
         .w-\[220px\] {
           width: 220px;
+        }
+        .w-\[236px\] {
+          width: 236px;
         }
         .w-\[240px\] {
           width: 240px;
@@ -1169,6 +1181,9 @@
         }
         .shrink-0 {
           flex-shrink: 0;
+        }
+        .basis-full {
+          flex-basis: 100%;
         }
         .border-collapse {
           border-collapse: collapse;
@@ -1767,6 +1782,10 @@
         .\[mask-image\:linear-gradient\(180deg\,\#000_78\%\,transparent\)\] {
           -webkit-mask-image: linear-gradient(#000 78%, #0000);
           mask-image: linear-gradient(#000 78%, #0000);
+        }
+        .\[mask-image\:linear-gradient\(180deg\,\#000_90\%\,transparent\)\] {
+          -webkit-mask-image: linear-gradient(#000 90%, #0000);
+          mask-image: linear-gradient(#000 90%, #0000);
         }
         .object-cover {
           object-fit: cover;
@@ -3828,6 +3847,18 @@
               >Sonarr upgrade</a
             ><a
               class="inline-flex h-[23px] items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap text-ink-3"
+              href="#plan-024-d"
+              >Plan 024</a
+            ><a
+              class="inline-flex h-[23px] items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap text-ink-3"
+              href="#plan-025-d"
+              >Plan 025</a
+            ><a
+              class="inline-flex h-[23px] items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap text-ink-3"
+              href="#delete-episode-d"
+              >Delete episode</a
+            ><a
+              class="inline-flex h-[23px] items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap text-ink-3"
               href="#loading-d"
               >Loading</a
             >
@@ -3942,15 +3973,36 @@
                         >Sam · 1h ago</span
                       >
                     </div>
-                    <div class="mt-1 flex items-center gap-2.5">
+                    <div class="mt-1 flex items-start gap-2.5">
                       <button
                         class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent bg-uv text-uv-ink font-[620] hover:bg-uv-hi active:bg-uv-press h-[38px] px-[15px]"
                         type="button"
                       >
                         Watch<svg class="h-[15px] w-[15px] shrink-0">
                           <use href="#i-eye"></use>
-                        </svg></button
-                      ><button
+                        </svg>
+                      </button>
+                      <div class="flex flex-col gap-1.5 w-[236px]">
+                        <button
+                          class="flex h-[38px] w-full items-center gap-2 rounded-md border bg-bg-sunk px-3 text-left text-[14px] transition-[border-color,box-shadow] duration-200 ease-uv border-line hover:border-uv-dim"
+                          type="button"
+                          aria-haspopup="listbox"
+                          aria-expanded="false"
+                        >
+                          <span
+                            class="font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+                            >Quality</span
+                          ><span class="min-w-0 flex-1 truncate"
+                            >HD (up to 1080p)</span
+                          ><svg class="h-[13px] w-[13px] shrink-0 text-ink-3">
+                            <use href="#i-chevron"></use>
+                          </svg>
+                        </button>
+                        <p class="text-cap text-ink-4">
+                          Applies to the whole show
+                        </p>
+                      </div>
+                      <button
                         class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[38px] px-[15px]"
                         type="button"
                       >
@@ -4003,7 +4055,7 @@
                     class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft items-center gap-[14px]"
                   >
                     <span
-                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-ok-ghost text-ok border-ok/30 w-[108px] justify-center"
+                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-ok-ghost text-ok border-ok/30 w-[132px] justify-center"
                       >completed</span
                     ><span
                       class="min-w-0 flex-1 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-ink-3"
@@ -4023,7 +4075,7 @@
                     class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft items-center gap-[14px]"
                   >
                     <span
-                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-surface-2 text-ink-3 border-line w-[108px] justify-center"
+                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-surface-2 text-ink-3 border-line w-[132px] justify-center"
                       >cancelled</span
                     ><span
                       class="min-w-0 flex-1 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-ink-3"
@@ -4043,7 +4095,7 @@
                     class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft items-center gap-[14px]"
                   >
                     <span
-                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-bad-ghost text-bad border-bad/32 w-[108px] justify-center"
+                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-bad-ghost text-bad border-bad/32 w-[132px] justify-center"
                       >failed</span
                     ><span
                       class="min-w-0 flex-1 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-ink-3"
@@ -4378,6 +4430,22 @@
                 class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft items-center gap-[14px]"
               >
                 <span
+                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-warn-ghost text-warn border-warn/30 w-[168px] justify-center"
+                  >no release found</span
+                ><span class="min-w-0 flex-1 text-sm text-ink-3"
+                  >The search finished and grabbed nothing. Still monitored, so
+                  Sonarr may grab it later; Retry searches now.</span
+                ><button
+                  class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[30px] px-[11px] text-[13px]"
+                  type="button"
+                >
+                  Retry
+                </button>
+              </div>
+              <div
+                class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft items-center gap-[14px]"
+              >
+                <span
                   class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30 w-[168px] justify-center"
                   ><span
                     class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
@@ -4487,7 +4555,7 @@
                   class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft items-center gap-[14px]"
                 >
                   <span
-                    class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-surface-2 text-ink-3 border-line w-[108px] justify-center"
+                    class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-surface-2 text-ink-3 border-line w-[132px] justify-center"
                     >cancelled</span
                   ><span
                     class="min-w-0 flex-1 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-ink-3"
@@ -4512,7 +4580,7 @@
                   class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft items-center gap-[14px]"
                 >
                   <span
-                    class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-bad-ghost text-bad border-bad/32 w-[108px] justify-center"
+                    class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-bad-ghost text-bad border-bad/32 w-[132px] justify-center"
                     >failed</span
                   ><span
                     class="min-w-0 flex-1 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-ink-3"
@@ -4529,6 +4597,710 @@
                       >Indexer timed out after 3 retries</span
                     ></span
                   >
+                </div>
+              </div>
+            </div>
+            <div
+              class="my-11 mb-7 flex items-center gap-3"
+              id="plan-024-d"
+              aria-hidden="true"
+            >
+              <span class="h-px flex-1 bg-line"></span
+              ><span
+                class="font-mono text-label tracking-[0.11em] whitespace-nowrap uppercase text-ink-4"
+                >Plan 024 — tiers, statuses, dialogs</span
+              ><span class="h-px flex-1 bg-line"></span>
+            </div>
+            <p
+              class="mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+              id="tier-picker-d"
+            >
+              Quality tier — applies to the whole show
+            </p>
+            <p class="mb-3 text-sm text-ink-3">
+              The same three tiers as a movie, beside Download series only.
+              Sonarr keeps one quality profile per series, so the pick covers
+              every season and episode — the season and episode Download buttons
+              below use it rather than carrying a picker each. Preselects the
+              show's own tier when it's one of these, HD otherwise.
+            </p>
+            <div class="flex gap-6 items-start">
+              <div class="flex flex-col gap-2 flex-1">
+                <p class="text-cap text-ink-3">Closed</p>
+                <div class="flex gap-2 items-start">
+                  <div class="flex flex-col gap-1.5 w-[236px]">
+                    <button
+                      class="flex h-[38px] w-full items-center gap-2 rounded-md border bg-bg-sunk px-3 text-left text-[14px] transition-[border-color,box-shadow] duration-200 ease-uv border-line hover:border-uv-dim"
+                      type="button"
+                      aria-haspopup="listbox"
+                      aria-expanded="false"
+                    >
+                      <span
+                        class="font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+                        >Quality</span
+                      ><span class="min-w-0 flex-1 truncate"
+                        >HD (up to 1080p)</span
+                      ><svg class="h-[13px] w-[13px] shrink-0 text-ink-3">
+                        <use href="#i-chevron"></use>
+                      </svg>
+                    </button>
+                    <p class="text-cap text-ink-4">Applies to the whole show</p>
+                  </div>
+                  <button
+                    class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[38px] px-[15px]"
+                    type="button"
+                  >
+                    Download series<svg class="h-[15px] w-[15px] shrink-0">
+                      <use href="#i-download"></use>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div class="flex flex-col gap-2 flex-1">
+                <p class="text-cap text-ink-3">Open</p>
+                <div class="flex flex-col gap-1.5 w-[236px]">
+                  <button
+                    class="flex h-[38px] w-full items-center gap-2 rounded-md border bg-bg-sunk px-3 text-left text-[14px] transition-[border-color,box-shadow] duration-200 ease-uv border-uv shadow-[0_0_0_3px_var(--color-uv-ghost)]"
+                    type="button"
+                    aria-haspopup="listbox"
+                    aria-expanded="true"
+                  >
+                    <span
+                      class="font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+                      >Quality</span
+                    ><span class="min-w-0 flex-1 truncate"
+                      >HD (up to 1080p)</span
+                    ><svg
+                      class="h-[13px] w-[13px] shrink-0 text-ink-3 rotate-180"
+                    >
+                      <use href="#i-chevron"></use>
+                    </svg>
+                  </button>
+                  <div
+                    class="flex flex-col gap-px rounded-lg border border-line-loud bg-surface-3 p-1 shadow-lift"
+                    role="listbox"
+                    aria-label="Quality"
+                  >
+                    <button
+                      class="flex h-8 w-full items-center justify-between rounded-xs px-2.5 text-left text-[14px] transition-colors duration-200 ease-uv hover:bg-surface-2 text-ink-2"
+                      type="button"
+                      role="option"
+                      aria-selected="false"
+                    >
+                      Up to 4K</button
+                    ><button
+                      class="flex h-8 w-full items-center justify-between rounded-xs px-2.5 text-left text-[14px] transition-colors duration-200 ease-uv hover:bg-surface-2 bg-uv-ghost font-[550] text-uv-hi"
+                      type="button"
+                      role="option"
+                      aria-selected="true"
+                    >
+                      HD (up to 1080p)<svg
+                        class="h-[14px] w-[14px] shrink-0 text-uv-hi"
+                      >
+                        <use href="#i-check"></use>
+                      </svg></button
+                    ><button
+                      class="flex h-8 w-full items-center justify-between rounded-xs px-2.5 text-left text-[14px] transition-colors duration-200 ease-uv hover:bg-surface-2 text-ink-2"
+                      type="button"
+                      role="option"
+                      aria-selected="false"
+                    >
+                      Up to 720p
+                    </button>
+                  </div>
+                  <p class="text-cap text-ink-4">Applies to the whole show</p>
+                </div>
+              </div>
+            </div>
+            <p
+              class="mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+              id="not-found-d"
+            >
+              Attempts — no release found
+            </p>
+            <p class="mb-3 text-sm text-ink-3">
+              The search finished without grabbing anything. It's terminal but
+              not an error — warn, not red. The series stays monitored and reads
+              "wanted", so the newest row offers Retry.
+            </p>
+            <div class="max-w-[560px]">
+              <p class="mb-3 text-h2">Attempts</p>
+              <div
+                class="rounded-lg border border-line p-5 bg-bg-sunk px-4 py-1 mb-8"
+              >
+                <div
+                  class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft items-center gap-[14px]"
+                >
+                  <span
+                    class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-warn-ghost text-warn border-warn/30 w-[132px] justify-center"
+                    >no release found</span
+                  ><span
+                    class="min-w-0 flex-1 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-ink-3"
+                    ><span class="text-ink-2">Season 4</span
+                    ><span class="font-mono text-mono-sm text-ink-4"
+                      >6m ago</span
+                    ><span class="flex items-center gap-1.5"
+                      ><span
+                        class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] h-5 w-5 text-[9px]"
+                        >SR</span
+                      ><span class="font-mono text-mono-sm text-ink-3"
+                        >Sam</span
+                      ></span
+                    ></span
+                  ><button
+                    class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[30px] px-[11px] text-[13px]"
+                    type="button"
+                  >
+                    Retry
+                  </button>
+                </div>
+                <div
+                  class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft items-center gap-[14px]"
+                >
+                  <span
+                    class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-ok-ghost text-ok border-ok/30 w-[132px] justify-center"
+                    >completed</span
+                  ><span
+                    class="min-w-0 flex-1 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-ink-3"
+                    ><span class="text-ink-2">Season 3</span
+                    ><span class="font-mono text-mono-sm text-ink-4"
+                      >3h ago</span
+                    ><span class="flex items-center gap-1.5"
+                      ><span
+                        class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] h-5 w-5 text-[9px]"
+                        >SR</span
+                      ><span class="font-mono text-mono-sm text-ink-3"
+                        >Sam</span
+                      ></span
+                    ></span
+                  >
+                </div>
+              </div>
+            </div>
+            <p
+              class="mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+              id="status-note-d"
+            >
+              Attempts — searching, with a status note
+            </p>
+            <p class="mb-3 text-sm text-ink-3">
+              Still searching, and why: Sonarr retrying after a failed download,
+              a freshly added show Sonarr is still refreshing, or a release
+              Sonarr is holding back. One small line under the status; Cancel
+              only.
+            </p>
+            <div class="flex flex-col gap-3 max-w-[480px]">
+              <div
+                class="rounded-lg border border-line p-5 bg-surface border-uv/35 bg-uv-ghost/30 p-5"
+              >
+                <span
+                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30 w-fit"
+                  ><span
+                    class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
+                  ></span
+                  >searching</span
+                >
+                <p class="mt-2 text-cap text-ink-3">
+                  Last download failed: Aborted, cannot be completed. Sonarr is
+                  trying another release.
+                </p>
+                <p class="mt-3 text-sm text-ink-3">Season 4</p>
+                <div class="mt-3 flex items-center gap-2">
+                  <button
+                    class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[38px] px-[11px]"
+                    type="button"
+                  >
+                    Cancel<svg class="h-[15px] w-[15px] shrink-0">
+                      <use href="#i-x"></use>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div
+                class="rounded-lg border border-line p-5 bg-surface border-uv/35 bg-uv-ghost/30 p-5"
+              >
+                <span
+                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30 w-fit"
+                  ><span
+                    class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
+                  ></span
+                  >searching</span
+                >
+                <p class="mt-2 text-cap text-ink-3">
+                  Waiting for Sonarr to finish adding the show
+                </p>
+                <div class="mt-3 flex items-center gap-2">
+                  <button
+                    class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[38px] px-[11px]"
+                    type="button"
+                  >
+                    Cancel<svg class="h-[15px] w-[15px] shrink-0">
+                      <use href="#i-x"></use>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div
+                class="rounded-lg border border-line p-5 bg-surface border-uv/35 bg-uv-ghost/30 p-5"
+              >
+                <span
+                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30 w-fit"
+                  ><span
+                    class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
+                  ></span
+                  >searching</span
+                >
+                <p class="mt-2 text-cap text-ink-3">
+                  Delayed by Sonarr until 21:40
+                </p>
+                <p class="mt-3 text-sm text-ink-3">Season 4, episode 2</p>
+                <div class="mt-3 flex items-center gap-2">
+                  <button
+                    class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[38px] px-[11px]"
+                    type="button"
+                  >
+                    Cancel<svg class="h-[15px] w-[15px] shrink-0">
+                      <use href="#i-x"></use>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <p
+              class="mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+              id="pack-cancel-d"
+            >
+              Attempts — an episode cancelled inside a season pack
+            </p>
+            <p class="mb-3 text-sm text-ink-3">
+              Episode 4 was cancelled, but its file is coming down inside the
+              season 3 pack. Removing the queue row would kill the whole pack,
+              so the pack keeps going and the episode's attempt ends cancelled
+              with a note — it may still import. No Retry: the series is still
+              downloading.
+            </p>
+            <div class="max-w-[560px]">
+              <p class="mb-3 text-h2">Attempts</p>
+              <div
+                class="rounded-lg border border-line p-5 bg-surface border-uv/35 bg-uv-ghost/30 p-5 mb-3"
+              >
+                <div class="mb-3 flex items-center justify-between gap-3">
+                  <span
+                    class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30"
+                    ><span
+                      class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
+                    ></span
+                    >downloading</span
+                  ><span class="font-mono text-mono-sm tabular-nums text-uv-hi"
+                    >64%</span
+                  >
+                </div>
+                <div
+                  class="h-[5px] overflow-hidden rounded-full bg-surface-3 mb-2"
+                >
+                  <i
+                    class="block h-full rounded-full bg-uv transition-[width] duration-[380ms] ease-uv"
+                    style="width: 64%"
+                  ></i>
+                </div>
+                <p class="mb-3 text-sm text-ink-3">Season 3</p>
+                <p class="mb-3 font-mono text-mono-sm tabular-nums text-ink-3">
+                  2.9 GB / 4.5 GB · 11.2 MB/s
+                </p>
+                <div class="flex items-center gap-2">
+                  <button
+                    class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[38px] px-[11px]"
+                    type="button"
+                  >
+                    Cancel<svg class="h-[15px] w-[15px] shrink-0">
+                      <use href="#i-x"></use>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div
+                class="rounded-lg border border-line p-5 bg-bg-sunk px-4 py-1 mb-8"
+              >
+                <div
+                  class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft items-center gap-[14px]"
+                >
+                  <span
+                    class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-surface-2 text-ink-3 border-line w-[132px] justify-center"
+                    >cancelled</span
+                  ><span
+                    class="min-w-0 flex-1 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-ink-3"
+                    ><span class="text-ink-2">Season 3, episode 4</span
+                    ><span class="font-mono text-mono-sm text-ink-4"
+                      >1m ago</span
+                    ><span class="flex items-center gap-1.5"
+                      ><span
+                        class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] h-5 w-5 text-[9px]"
+                        >JA</span
+                      ><span class="font-mono text-mono-sm text-ink-3"
+                        >Jeremy</span
+                      ></span
+                    ><span class="basis-full text-cap text-ink-3"
+                      >Part of a season download that is still running — this
+                      episode may still import</span
+                    ></span
+                  >
+                </div>
+              </div>
+            </div>
+            <div
+              class="my-11 mb-7 flex items-center gap-3"
+              id="plan-025-d"
+              aria-hidden="true"
+            >
+              <span class="h-px flex-1 bg-line"></span
+              ><span
+                class="font-mono text-label tracking-[0.11em] whitespace-nowrap uppercase text-ink-4"
+                >Plan 025 — SABnzbd progress, unpacking, disk full</span
+              ><span class="h-px flex-1 bg-line"></span>
+            </div>
+            <p
+              class="mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+              id="sab-throughput-d"
+            >
+              Attempts — downloading, with the live speed
+            </p>
+            <p class="mb-3 text-sm text-ink-3">
+              While SABnzbd is fetching the release, the line under the scope
+              reads its own queue: bytes, the live speed, and the time left.
+              Before, a show only showed Sonarr's bare "~00:04:00 left". A
+              paused attempt drops the speed and the estimate — see the paused
+              cards below.
+            </p>
+            <div class="max-w-[480px]">
+              <div class="flex gap-6 items-start">
+                <div class="flex flex-col gap-2 min-w-0 flex-1">
+                  <p class="text-cap text-ink-3">Downloading</p>
+                  <div
+                    class="rounded-lg border border-line p-5 bg-surface border-uv/35 bg-uv-ghost/30 p-5"
+                  >
+                    <div class="mb-3 flex items-center justify-between gap-3">
+                      <span
+                        class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30"
+                        ><span
+                          class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
+                        ></span
+                        >downloading</span
+                      ><span
+                        class="font-mono text-mono-sm tabular-nums text-uv-hi"
+                        >35%</span
+                      >
+                    </div>
+                    <div
+                      class="h-[5px] overflow-hidden rounded-full bg-surface-3 mb-2"
+                    >
+                      <i
+                        class="block h-full rounded-full bg-uv transition-[width] duration-[380ms] ease-uv"
+                        style="width: 35%"
+                      ></i>
+                    </div>
+                    <p class="mb-3 text-sm text-ink-3">Season 3, episode 7</p>
+                    <p
+                      class="mb-3 font-mono text-mono-sm tabular-nums text-ink-3"
+                    >
+                      610 MB / 1.7 GB · 4.4 MB/s · ~4 min left
+                    </p>
+                    <div class="flex items-center gap-2">
+                      <button
+                        class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[38px] px-[11px]"
+                        type="button"
+                      >
+                        Cancel<svg class="h-[15px] w-[15px] shrink-0">
+                          <use href="#i-x"></use>
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p
+              class="mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+              id="sab-pp-d"
+            >
+              Attempts — every byte down, SABnzbd post-processing
+            </p>
+            <p class="mb-3 text-sm text-ink-3">
+              The bar sits at 100 % while SABnzbd verifies, repairs and unpacks.
+              Read directly, the chip names the stage and the line quotes
+              SABnzbd's own progress text. With SABnzbd not configured, the chip
+              stays plan 024's "finishing up" and the line says SABnzbd still
+              has work to do before Sonarr imports it.
+            </p>
+            <div class="flex gap-6 items-start">
+              <div class="flex flex-col gap-2 min-w-0 flex-1">
+                <p class="text-cap text-ink-3">SABnzbd read directly</p>
+                <div
+                  class="rounded-lg border border-line p-5 bg-surface border-uv/35 bg-uv-ghost/30 p-5"
+                >
+                  <div class="mb-3 flex items-center justify-between gap-3">
+                    <span
+                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30"
+                      ><span
+                        class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
+                      ></span
+                      >unpacking</span
+                    ><span
+                      class="font-mono text-mono-sm tabular-nums text-uv-hi"
+                      >100%</span
+                    >
+                  </div>
+                  <div
+                    class="h-[5px] overflow-hidden rounded-full bg-surface-3 mb-2"
+                  >
+                    <i
+                      class="block h-full rounded-full bg-uv transition-[width] duration-[380ms] ease-uv"
+                      style="width: 100%"
+                    ></i>
+                  </div>
+                  <p class="mb-3 text-sm text-ink-3">Season 3</p>
+                  <p
+                    class="mb-3 font-mono text-mono-sm tabular-nums text-ink-3"
+                  >
+                    SABnzbd is unpacking it · Repairing: 45%. Sonarr imports it
+                    after.
+                  </p>
+                  <div class="flex items-center gap-2">
+                    <button
+                      class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[38px] px-[11px]"
+                      type="button"
+                    >
+                      Cancel<svg class="h-[15px] w-[15px] shrink-0">
+                        <use href="#i-x"></use>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div class="flex flex-col gap-2 min-w-0 flex-1">
+                <p class="text-cap text-ink-3">
+                  SABnzbd not configured — the fallback
+                </p>
+                <div
+                  class="rounded-lg border border-line p-5 bg-surface border-uv/35 bg-uv-ghost/30 p-5"
+                >
+                  <div class="mb-3 flex items-center justify-between gap-3">
+                    <span
+                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30"
+                      ><span
+                        class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
+                      ></span
+                      >finishing up</span
+                    ><span
+                      class="font-mono text-mono-sm tabular-nums text-uv-hi"
+                      >100%</span
+                    >
+                  </div>
+                  <div
+                    class="h-[5px] overflow-hidden rounded-full bg-surface-3 mb-2"
+                  >
+                    <i
+                      class="block h-full rounded-full bg-uv transition-[width] duration-[380ms] ease-uv"
+                      style="width: 100%"
+                    ></i>
+                  </div>
+                  <p class="mb-3 text-sm text-ink-3">Season 3</p>
+                  <p
+                    class="mb-3 font-mono text-mono-sm tabular-nums text-ink-3"
+                  >
+                    All downloaded. SABnzbd is checking and unpacking it; Sonarr
+                    imports it after.
+                  </p>
+                  <div class="flex items-center gap-2">
+                    <button
+                      class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[38px] px-[11px]"
+                      type="button"
+                    >
+                      Cancel<svg class="h-[15px] w-[15px] shrink-0">
+                        <use href="#i-x"></use>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p
+              class="mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+              id="sab-disk-d"
+            >
+              Attempts — the NAS ran out of disk space
+            </p>
+            <p class="mb-3 text-sm text-ink-3">
+              A disk-full failure reads as one, with SABnzbd's own message kept
+              in brackets. Once the attempt has ended failed, it's the row's red
+              error; the newest row offers Retry, which is only worth pressing
+              after freeing space.
+            </p>
+            <div class="max-w-[560px]">
+              <p class="mb-3 text-h2">Attempts</p>
+              <div
+                class="rounded-lg border border-line p-5 bg-bg-sunk px-4 py-1 mb-8"
+              >
+                <div
+                  class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft items-center gap-[14px]"
+                >
+                  <span
+                    class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-bad-ghost text-bad border-bad/32 w-[132px] justify-center"
+                    >failed</span
+                  ><span
+                    class="min-w-0 flex-1 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-ink-3"
+                    ><span class="text-ink-2">Season 3</span
+                    ><span class="font-mono text-mono-sm text-ink-4"
+                      >6m ago</span
+                    ><span class="flex items-center gap-1.5"
+                      ><span
+                        class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] h-5 w-5 text-[9px]"
+                        >SR</span
+                      ><span class="font-mono text-mono-sm text-ink-3"
+                        >Sam</span
+                      ></span
+                    ><span class="text-bad"
+                      >The NAS ran out of disk space while SABnzbd was unpacking
+                      it. (Unpacking failed, write error or disk is full?)</span
+                    ></span
+                  ><button
+                    class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[30px] px-[11px] text-[13px]"
+                    type="button"
+                  >
+                    Retry
+                  </button>
+                </div>
+              </div>
+            </div>
+            <p class="mt-5 mb-3 text-sm text-ink-3">
+              While Sonarr is still retrying on its own, the attempt is back to
+              searching and the status note warns that the next release will hit
+              the same wall.
+            </p>
+            <div class="max-w-[480px]">
+              <div
+                class="rounded-lg border border-line p-5 bg-surface border-uv/35 bg-uv-ghost/30 p-5"
+              >
+                <span
+                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30 w-fit"
+                  ><span
+                    class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
+                  ></span
+                  >searching</span
+                >
+                <p class="mt-2 text-cap text-ink-3">
+                  Last download failed: the NAS ran out of disk space. Sonarr is
+                  trying another release, which will fail the same way until
+                  space is freed.
+                </p>
+                <p class="mt-3 text-sm text-ink-3">Season 3</p>
+                <div class="mt-3 flex items-center gap-2">
+                  <button
+                    class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[38px] px-[11px]"
+                    type="button"
+                  >
+                    Cancel<svg class="h-[15px] w-[15px] shrink-0">
+                      <use href="#i-x"></use>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <p
+              class="mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+              id="sab-paused-d"
+            >
+              Attempts — paused in SABnzbd
+            </p>
+            <p class="mb-3 text-sm text-ink-3">
+              SABnzbd's whole queue is paused — it pauses itself when the disk
+              fills or a quota runs out, or someone paused it in SABnzbd's UI.
+              This app didn't pause it, so there's no Resume here. When SABnzbd
+              reports under 5 GB free, the note says the disk is the likely
+              reason.
+            </p>
+            <div class="flex gap-6 items-start">
+              <div class="flex flex-col gap-2 min-w-0 flex-1">
+                <p class="text-cap text-ink-3">SABnzbd's queue is paused</p>
+                <div
+                  class="rounded-lg border border-line p-5 bg-surface border-uv/35 bg-uv-ghost/30 p-5"
+                >
+                  <div class="flex items-center justify-between gap-3">
+                    <span
+                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-warn-ghost text-warn border-warn/30"
+                      >paused</span
+                    ><span
+                      class="font-mono text-mono-sm tabular-nums text-uv-hi"
+                      >35%</span
+                    >
+                  </div>
+                  <p class="mt-2 mb-3 text-cap text-ink-3">Paused in SABnzbd</p>
+                  <div
+                    class="h-[5px] overflow-hidden rounded-full bg-surface-3 mb-2"
+                  >
+                    <i
+                      class="block h-full rounded-full bg-uv transition-[width] duration-[380ms] ease-uv"
+                      style="width: 35%"
+                    ></i>
+                  </div>
+                  <p class="mb-3 text-sm text-ink-3">Season 3, episode 7</p>
+                  <p
+                    class="mb-3 font-mono text-mono-sm tabular-nums text-ink-3"
+                  >
+                    610 MB / 1.7 GB
+                  </p>
+                  <div class="flex items-center gap-2">
+                    <button
+                      class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[38px] px-[11px]"
+                      type="button"
+                    >
+                      Cancel<svg class="h-[15px] w-[15px] shrink-0">
+                        <use href="#i-x"></use>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div class="flex flex-col gap-2 min-w-0 flex-1">
+                <p class="text-cap text-ink-3">Paused, with under 5 GB free</p>
+                <div
+                  class="rounded-lg border border-line p-5 bg-surface border-uv/35 bg-uv-ghost/30 p-5"
+                >
+                  <div class="flex items-center justify-between gap-3">
+                    <span
+                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-warn-ghost text-warn border-warn/30"
+                      >paused</span
+                    ><span
+                      class="font-mono text-mono-sm tabular-nums text-uv-hi"
+                      >35%</span
+                    >
+                  </div>
+                  <p class="mt-2 mb-3 text-cap text-ink-3">
+                    Paused in SABnzbd — the download disk is almost full
+                  </p>
+                  <div
+                    class="h-[5px] overflow-hidden rounded-full bg-surface-3 mb-2"
+                  >
+                    <i
+                      class="block h-full rounded-full bg-uv transition-[width] duration-[380ms] ease-uv"
+                      style="width: 35%"
+                    ></i>
+                  </div>
+                  <p class="mb-3 text-sm text-ink-3">Season 3, episode 7</p>
+                  <p
+                    class="mb-3 font-mono text-mono-sm tabular-nums text-ink-3"
+                  >
+                    610 MB / 1.7 GB
+                  </p>
+                  <div class="flex items-center gap-2">
+                    <button
+                      class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[38px] px-[11px]"
+                      type="button"
+                    >
+                      Cancel<svg class="h-[15px] w-[15px] shrink-0">
+                        <use href="#i-x"></use>
+                      </svg>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -4817,15 +5589,36 @@
                         >Sonarr · 1h ago</span
                       >
                     </div>
-                    <div class="mt-1 flex items-center gap-2.5">
+                    <div class="mt-1 flex items-start gap-2.5">
                       <button
                         class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent bg-uv text-uv-ink font-[620] hover:bg-uv-hi active:bg-uv-press h-[38px] px-[15px]"
                         type="button"
                       >
                         Watch<svg class="h-[15px] w-[15px] shrink-0">
                           <use href="#i-eye"></use>
-                        </svg></button
-                      ><button
+                        </svg>
+                      </button>
+                      <div class="flex flex-col gap-1.5 w-[236px]">
+                        <button
+                          class="flex h-[38px] w-full items-center gap-2 rounded-md border bg-bg-sunk px-3 text-left text-[14px] transition-[border-color,box-shadow] duration-200 ease-uv border-line hover:border-uv-dim"
+                          type="button"
+                          aria-haspopup="listbox"
+                          aria-expanded="false"
+                        >
+                          <span
+                            class="font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+                            >Quality</span
+                          ><span class="min-w-0 flex-1 truncate"
+                            >HD (up to 1080p)</span
+                          ><svg class="h-[13px] w-[13px] shrink-0 text-ink-3">
+                            <use href="#i-chevron"></use>
+                          </svg>
+                        </button>
+                        <p class="text-cap text-ink-4">
+                          Applies to the whole show
+                        </p>
+                      </div>
+                      <button
                         class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[38px] px-[15px]"
                         type="button"
                       >
@@ -4976,15 +5769,36 @@
                         >
                       </div>
                     </div>
-                    <div class="mt-1 flex items-center gap-2.5">
+                    <div class="mt-1 flex items-start gap-2.5">
                       <button
                         class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent bg-uv text-uv-ink font-[620] hover:bg-uv-hi active:bg-uv-press h-[38px] px-[15px]"
                         type="button"
                       >
                         Watch<svg class="h-[15px] w-[15px] shrink-0">
                           <use href="#i-eye"></use>
-                        </svg></button
-                      ><button
+                        </svg>
+                      </button>
+                      <div class="flex flex-col gap-1.5 w-[236px]">
+                        <button
+                          class="flex h-[38px] w-full items-center gap-2 rounded-md border bg-bg-sunk px-3 text-left text-[14px] transition-[border-color,box-shadow] duration-200 ease-uv border-line hover:border-uv-dim"
+                          type="button"
+                          aria-haspopup="listbox"
+                          aria-expanded="false"
+                        >
+                          <span
+                            class="font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+                            >Quality</span
+                          ><span class="min-w-0 flex-1 truncate"
+                            >HD (up to 1080p)</span
+                          ><svg class="h-[13px] w-[13px] shrink-0 text-ink-3">
+                            <use href="#i-chevron"></use>
+                          </svg>
+                        </button>
+                        <p class="text-cap text-ink-4">
+                          Applies to the whole show
+                        </p>
+                      </div>
+                      <button
                         class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[38px] px-[15px]"
                         type="button"
                       >
@@ -5049,7 +5863,7 @@
             Report an episode — as a modal
           </p>
           <div
-            class="relative max-w-full overflow-hidden rounded-xl border border-line bg-bg w-[1280px] flex h-[440px] flex-col"
+            class="relative max-w-full overflow-hidden rounded-xl border border-line bg-bg w-[1280px] flex flex-col h-[440px]"
           >
             <div
               class="flex shrink-0 items-center justify-between gap-3 border-b border-line-soft bg-bg-sunk px-4 py-[11px]"
@@ -5144,15 +5958,36 @@
                         ><span class="text-sm">Dax Petrov</span>
                       </div>
                     </div>
-                    <div class="mt-1 flex items-center gap-2.5">
+                    <div class="mt-1 flex items-start gap-2.5">
                       <button
                         class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent bg-uv text-uv-ink font-[620] hover:bg-uv-hi active:bg-uv-press h-[38px] px-[15px]"
                         type="button"
                       >
                         Watch<svg class="h-[15px] w-[15px] shrink-0">
                           <use href="#i-eye"></use>
-                        </svg></button
-                      ><button
+                        </svg>
+                      </button>
+                      <div class="flex flex-col gap-1.5 w-[236px]">
+                        <button
+                          class="flex h-[38px] w-full items-center gap-2 rounded-md border bg-bg-sunk px-3 text-left text-[14px] transition-[border-color,box-shadow] duration-200 ease-uv border-line hover:border-uv-dim"
+                          type="button"
+                          aria-haspopup="listbox"
+                          aria-expanded="false"
+                        >
+                          <span
+                            class="font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+                            >Quality</span
+                          ><span class="min-w-0 flex-1 truncate"
+                            >HD (up to 1080p)</span
+                          ><svg class="h-[13px] w-[13px] shrink-0 text-ink-3">
+                            <use href="#i-chevron"></use>
+                          </svg>
+                        </button>
+                        <p class="text-cap text-ink-4">
+                          Applies to the whole show
+                        </p>
+                      </div>
+                      <button
                         class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[38px] px-[15px]"
                         type="button"
                       >
@@ -5419,7 +6254,7 @@
             Delete series — as a modal
           </p>
           <div
-            class="relative max-w-full overflow-hidden rounded-xl border border-line bg-bg w-[1280px] flex h-[440px] flex-col"
+            class="relative max-w-full overflow-hidden rounded-xl border border-line bg-bg w-[1280px] flex flex-col h-[440px]"
           >
             <div
               class="flex shrink-0 items-center justify-between gap-3 border-b border-line-soft bg-bg-sunk px-4 py-[11px]"
@@ -5514,15 +6349,36 @@
                         ><span class="text-sm">Dax Petrov</span>
                       </div>
                     </div>
-                    <div class="mt-1 flex items-center gap-2.5">
+                    <div class="mt-1 flex items-start gap-2.5">
                       <button
                         class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent bg-uv text-uv-ink font-[620] hover:bg-uv-hi active:bg-uv-press h-[38px] px-[15px]"
                         type="button"
                       >
                         Watch<svg class="h-[15px] w-[15px] shrink-0">
                           <use href="#i-eye"></use>
-                        </svg></button
-                      ><button
+                        </svg>
+                      </button>
+                      <div class="flex flex-col gap-1.5 w-[236px]">
+                        <button
+                          class="flex h-[38px] w-full items-center gap-2 rounded-md border bg-bg-sunk px-3 text-left text-[14px] transition-[border-color,box-shadow] duration-200 ease-uv border-line hover:border-uv-dim"
+                          type="button"
+                          aria-haspopup="listbox"
+                          aria-expanded="false"
+                        >
+                          <span
+                            class="font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+                            >Quality</span
+                          ><span class="min-w-0 flex-1 truncate"
+                            >HD (up to 1080p)</span
+                          ><svg class="h-[13px] w-[13px] shrink-0 text-ink-3">
+                            <use href="#i-chevron"></use>
+                          </svg>
+                        </button>
+                        <p class="text-cap text-ink-4">
+                          Applies to the whole show
+                        </p>
+                      </div>
+                      <button
                         class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[38px] px-[15px]"
                         type="button"
                       >
@@ -5767,6 +6623,383 @@
           </div>
           <p
             class="block text-center font-mono text-label tracking-[0.11em] uppercase text-ink-4 mt-1"
+            id="delete-episode-d"
+          >
+            Delete an episode — its file holds another
+          </p>
+          <div
+            class="relative max-w-full overflow-hidden rounded-xl border border-line bg-bg w-[1280px] flex flex-col h-[440px]"
+          >
+            <div
+              class="flex shrink-0 items-center justify-between gap-3 border-b border-line-soft bg-bg-sunk px-4 py-[11px]"
+            >
+              <div class="flex min-w-0 flex-1 items-center gap-[14px]">
+                <button
+                  class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-ink-3 hover:bg-surface-2 hover:text-ink h-[38px] px-[11px] h-8 w-8 shrink-0 p-0"
+                  type="button"
+                  aria-label="Back to library"
+                >
+                  <svg class="h-[15px] w-[15px] -scale-x-100">
+                    <use href="#i-arrow"></use>
+                  </svg></button
+                ><span
+                  class="inline-flex h-8 items-center gap-[9px] rounded-full border border-transparent bg-transparent py-0 pr-3 pl-1 transition-[border-color,background-color] duration-200 ease-uv hover:border-uv-dim hover:bg-surface-2"
+                  href="https://lilnas.io"
+                  ><span class="grid h-6 w-6 shrink-0 place-items-center"
+                    ><svg class="h-full w-full">
+                      <use href="#pepe"></use></svg></span
+                  ><span
+                    class="font-mono text-[12px] font-medium tracking-[-0.01em]"
+                    >Download</span
+                  ></span
+                >
+                <div
+                  class="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-line bg-bg-sunk px-3 transition-[border-color,box-shadow] duration-200 ease-uv focus-within:border-uv focus-within:shadow-[0_0_0_3px_var(--color-uv-ghost)] h-8 max-w-[320px]"
+                >
+                  <svg class="h-[14px] w-[14px] shrink-0 text-ink-4">
+                    <use href="#i-search"></use></svg
+                  ><input
+                    class="min-w-0 flex-1 truncate border-none bg-none text-[13px] text-ink outline-none placeholder:text-ink-4"
+                    placeholder="Search or paste a link…"
+                  />
+                </div>
+              </div>
+              <span class="flex shrink-0 items-center gap-2.5"
+                ><a
+                  class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] shadow-[0_0_0_2px_var(--color-bg-sunk),0_0_0_4px_var(--color-uv)] transition-[border-color,background-color] duration-200 ease-uv hover:border-uv-dim hover:bg-surface-2 h-[30px] w-[30px] text-[11.5px]"
+                  href="profile.html"
+                  title="Jeremy · you"
+                  >JA</a
+                ></span
+              >
+            </div>
+            <div
+              class="px-8 pt-[30px] pb-11 relative flex-1 overflow-hidden [mask-image:linear-gradient(180deg,#000_78%,transparent)]"
+            >
+              <div class="mx-auto max-w-[1080px]">
+                <a class="mb-[22px] flex items-center gap-1.5" href="#"
+                  ><svg class="h-[13px] w-[13px] -scale-x-100 text-ink-4">
+                    <use href="#i-arrow"></use></svg
+                  ><span class="text-sm text-ink-3">Library</span></a
+                >
+                <div class="mb-8 flex items-start gap-6">
+                  <div
+                    class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v3 w-[200px]"
+                  >
+                    <span
+                      class="p-2.5 text-center text-[12px]/[1.3] font-semibold text-ink-2 group-has-[img]:hidden"
+                      >Harbor Watch</span
+                    ><img
+                      class="absolute inset-0 h-full w-full object-cover"
+                      src="assets/emby/show-1.jpg"
+                      alt=""
+                      data-poster="data-poster"
+                    />
+                  </div>
+                  <div class="flex flex-1 flex-col gap-[14px] pt-0.5">
+                    <div>
+                      <p class="mb-1.5 text-h1">Harbor Watch</p>
+                      <p class="mb-2 text-sm text-ink-3">
+                        2022– · 3 seasons · Drama
+                      </p>
+                      <div class="flex items-center gap-2">
+                        <span
+                          class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-ok-ghost text-ok border-ok/30"
+                          >in library</span
+                        >
+                      </div>
+                    </div>
+                    <div class="flex flex-wrap gap-4">
+                      <div class="flex shrink-0 items-center gap-2">
+                        <span
+                          class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-[30px] w-[30px] text-[12px]"
+                          >IK</span
+                        ><span class="text-sm">Ida Kowalczyk</span>
+                      </div>
+                      <div class="flex shrink-0 items-center gap-2">
+                        <span
+                          class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-[30px] w-[30px] text-[12px]"
+                          >DP</span
+                        ><span class="text-sm">Dax Petrov</span>
+                      </div>
+                    </div>
+                    <div class="mt-1 flex items-start gap-2.5">
+                      <button
+                        class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent bg-uv text-uv-ink font-[620] hover:bg-uv-hi active:bg-uv-press h-[38px] px-[15px]"
+                        type="button"
+                      >
+                        Watch<svg class="h-[15px] w-[15px] shrink-0">
+                          <use href="#i-eye"></use>
+                        </svg>
+                      </button>
+                      <div class="flex flex-col gap-1.5 w-[236px]">
+                        <button
+                          class="flex h-[38px] w-full items-center gap-2 rounded-md border bg-bg-sunk px-3 text-left text-[14px] transition-[border-color,box-shadow] duration-200 ease-uv border-line hover:border-uv-dim"
+                          type="button"
+                          aria-haspopup="listbox"
+                          aria-expanded="false"
+                        >
+                          <span
+                            class="font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+                            >Quality</span
+                          ><span class="min-w-0 flex-1 truncate"
+                            >HD (up to 1080p)</span
+                          ><svg class="h-[13px] w-[13px] shrink-0 text-ink-3">
+                            <use href="#i-chevron"></use>
+                          </svg>
+                        </button>
+                        <p class="text-cap text-ink-4">
+                          Applies to the whole show
+                        </p>
+                      </div>
+                      <button
+                        class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[38px] px-[15px]"
+                        type="button"
+                      >
+                        Download series<svg class="h-[15px] w-[15px] shrink-0">
+                          <use href="#i-download"></use>
+                        </svg></button
+                      ><button
+                        class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[38px] px-[11px]"
+                        type="button"
+                      >
+                        Delete series<svg class="h-[15px] w-[15px] shrink-0">
+                          <use href="#i-trash"></use>
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div class="border-b border-line flex gap-[22px] mb-5">
+                  <button
+                    class="relative px-px py-[9px] text-[14px] font-[550] whitespace-nowrap transition-colors duration-200 ease-uv text-ink-3 hover:text-ink-2"
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                  >
+                    Season 1</button
+                  ><button
+                    class="relative px-px py-[9px] text-[14px] font-[550] whitespace-nowrap transition-colors duration-200 ease-uv text-ink after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-sm after:bg-uv after:content-['']"
+                    type="button"
+                    role="tab"
+                    aria-selected="true"
+                  >
+                    Season 2</button
+                  ><button
+                    class="relative px-px py-[9px] text-[14px] font-[550] whitespace-nowrap transition-colors duration-200 ease-uv text-ink-3 hover:text-ink-2"
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                  >
+                    <span class="inline-flex items-center gap-1.5"
+                      >Season 3<span
+                        class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
+                      ></span
+                      ><span
+                        class="font-mono text-mono-sm tabular-nums text-uv-hi"
+                        >58%</span
+                      ></span
+                    ></button
+                  ><button
+                    class="relative px-px py-[9px] text-[14px] font-[550] whitespace-nowrap transition-colors duration-200 ease-uv text-ink-3 hover:text-ink-2"
+                    type="button"
+                    role="tab"
+                    aria-selected="false"
+                  >
+                    <span class="inline-flex items-center gap-1.5"
+                      >Season 4<span
+                        class="h-[7px] w-[7px] shrink-0 rounded-full bg-warn"
+                      ></span
+                    ></span>
+                  </button>
+                </div>
+                <div class="mb-[14px] flex items-center justify-between">
+                  <span class="text-h2">Season 2 · 7 episodes</span>
+                  <div class="flex items-center gap-2">
+                    <button
+                      class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[30px] px-[11px] text-[13px]"
+                      type="button"
+                    >
+                      Download season<svg class="h-[15px] w-[15px] shrink-0">
+                        <use href="#i-download"></use>
+                      </svg></button
+                    ><button
+                      class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[30px] px-[11px] text-[13px]"
+                      type="button"
+                    >
+                      Delete season<svg class="h-[15px] w-[15px] shrink-0">
+                        <use href="#i-trash"></use>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <div
+                  class="rounded-lg border border-line p-5 bg-bg-sunk px-4 py-1"
+                >
+                  <div
+                    class="flex px-1 py-3 [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft items-center gap-[14px]"
+                  >
+                    <span
+                      class="w-[26px] shrink-0 font-mono text-mono-sm text-ink-4"
+                      >E1</span
+                    ><span class="flex-1 text-sm">The Long Tide</span
+                    ><span class="font-mono text-mono-sm text-ink-4">42m</span
+                    ><span
+                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-ok-ghost text-ok border-ok/30"
+                      >in library</span
+                    ><button
+                      class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-ink-3 hover:bg-surface-2 hover:text-ink h-[30px] px-[11px] text-[13px]"
+                      type="button"
+                    >
+                      Watch<svg class="h-[15px] w-[15px] shrink-0">
+                        <use href="#i-eye"></use>
+                      </svg>
+                    </button>
+                  </div>
+                  <div
+                    class="flex px-1 py-3 [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft items-center gap-[14px]"
+                  >
+                    <span
+                      class="w-[26px] shrink-0 font-mono text-mono-sm text-ink-4"
+                      >E2</span
+                    ><span class="flex-1 text-sm">Quota</span
+                    ><span class="font-mono text-mono-sm text-ink-4">39m</span
+                    ><span
+                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-warn-ghost text-warn border-warn/30"
+                      >needs your decision</span
+                    ><button
+                      class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[30px] px-[11px] text-[13px]"
+                      type="button"
+                    >
+                      Import<svg class="h-[15px] w-[15px] shrink-0">
+                        <use href="#i-check"></use>
+                      </svg>
+                    </button>
+                  </div>
+                  <div
+                    class="flex px-1 py-3 [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft items-center gap-[14px]"
+                  >
+                    <span
+                      class="w-[26px] shrink-0 font-mono text-mono-sm text-ink-4"
+                      >E3</span
+                    ><span class="flex-1 text-sm">Harbor Rules</span
+                    ><span class="font-mono text-mono-sm text-ink-4">45m</span
+                    ><span
+                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30"
+                      ><span
+                        class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
+                      ></span
+                      >downloading</span
+                    >
+                    <div class="flex w-[120px] items-center gap-2">
+                      <div
+                        class="h-[5px] overflow-hidden rounded-full bg-surface-3 flex-1"
+                      >
+                        <i
+                          class="block h-full rounded-full bg-uv transition-[width] duration-[380ms] ease-uv"
+                          style="width: 31%"
+                        ></i>
+                      </div>
+                      <span
+                        class="font-mono text-mono-sm tabular-nums text-uv-hi"
+                        >31%</span
+                      >
+                    </div>
+                    <button
+                      class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[30px] px-[11px] text-[13px]"
+                      type="button"
+                    >
+                      Cancel<svg class="h-[15px] w-[15px] shrink-0">
+                        <use href="#i-x"></use>
+                      </svg>
+                    </button>
+                  </div>
+                  <div
+                    class="flex px-1 py-3 [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft items-center gap-[14px]"
+                  >
+                    <span
+                      class="w-[26px] shrink-0 font-mono text-mono-sm text-ink-4"
+                      >E4</span
+                    ><span class="flex-1 text-sm">Low Tide</span
+                    ><span class="font-mono text-mono-sm text-ink-4">44m</span
+                    ><span
+                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30"
+                      ><span
+                        class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
+                      ></span
+                      >importing…</span
+                    >
+                  </div>
+                  <div
+                    class="flex px-1 py-3 [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft items-center gap-[14px]"
+                  >
+                    <span
+                      class="w-[26px] shrink-0 font-mono text-mono-sm text-ink-4"
+                      >E5</span
+                    ><span class="flex-1 text-sm">The Permit</span
+                    ><span class="font-mono text-mono-sm text-ink-4">38m</span
+                    ><span
+                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-surface-2 text-ink-3 border-line"
+                      >wanted</span
+                    >
+                  </div>
+                  <div
+                    class="flex px-1 py-3 [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft items-center gap-[14px]"
+                  >
+                    <span
+                      class="w-[26px] shrink-0 font-mono text-mono-sm text-ink-4"
+                      >E6</span
+                    ><span class="flex-1 text-sm">Salvage</span
+                    ><span class="font-mono text-mono-sm text-ink-4">41m</span
+                    ><span
+                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-surface-2 text-ink-3 border-line"
+                      >not downloaded</span
+                    ><button
+                      class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[30px] px-[11px] text-[13px]"
+                      type="button"
+                    >
+                      Download<svg class="h-[15px] w-[15px] shrink-0">
+                        <use href="#i-download"></use>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div
+                class="absolute inset-0 flex items-center justify-center bg-scrim/62 p-6 backdrop-blur-[2px]"
+              >
+                <div
+                  class="w-full max-w-[380px] rounded-lg border border-line-loud bg-surface p-[22px] shadow-lift"
+                >
+                  <p class="mb-1.5 text-h3">
+                    Delete S01E01 of &quot;Harbor Watch&quot;?
+                  </p>
+                  <p class="mb-[18px] text-sm text-ink-3">
+                    Removes this episode's file from the library and frees 1.4
+                    GB. This file also holds S01E02 — it will be removed too.
+                    The rest of the season is left alone. This can't be undone.
+                  </p>
+                  <div class="flex justify-end gap-2">
+                    <button
+                      class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-ink-3 hover:bg-surface-2 hover:text-ink h-[30px] px-[11px] text-[13px]"
+                      type="button"
+                    >
+                      Cancel</button
+                    ><button
+                      class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent h-[30px] px-[11px] text-[13px] border-bad/40 bg-bad-ghost text-bad"
+                      type="button"
+                    >
+                      Delete<svg class="h-[15px] w-[15px] shrink-0">
+                        <use href="#i-trash"></use>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p
+            class="block text-center font-mono text-label tracking-[0.11em] uppercase text-ink-4 mt-1"
             id="loading-d"
           >
             Loading state
@@ -5904,6 +7137,18 @@
               >Sonarr upgrade</a
             ><a
               class="inline-flex h-[23px] items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap text-ink-3"
+              href="#plan-024-m"
+              >Plan 024</a
+            ><a
+              class="inline-flex h-[23px] items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap text-ink-3"
+              href="#plan-025-m"
+              >Plan 025</a
+            ><a
+              class="inline-flex h-[23px] items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap text-ink-3"
+              href="#delete-episode-m"
+              >Delete episode</a
+            ><a
+              class="inline-flex h-[23px] items-center gap-1.5 rounded-full border border-line bg-surface-2 px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap text-ink-3"
               href="#loading-m"
               >Loading</a
             >
@@ -6013,8 +7258,27 @@
                 >
                   Watch<svg class="h-[15px] w-[15px] shrink-0">
                     <use href="#i-eye"></use>
-                  </svg></button
-                ><button
+                  </svg>
+                </button>
+                <div class="flex flex-col gap-1.5 w-full">
+                  <button
+                    class="flex h-[38px] w-full items-center gap-2 rounded-md border bg-bg-sunk px-3 text-left text-[14px] transition-[border-color,box-shadow] duration-200 ease-uv border-line hover:border-uv-dim"
+                    type="button"
+                    aria-haspopup="listbox"
+                    aria-expanded="false"
+                  >
+                    <span
+                      class="font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+                      >Quality</span
+                    ><span class="min-w-0 flex-1 truncate"
+                      >HD (up to 1080p)</span
+                    ><svg class="h-[13px] w-[13px] shrink-0 text-ink-3">
+                      <use href="#i-chevron"></use>
+                    </svg>
+                  </button>
+                  <p class="text-cap text-ink-4">Applies to the whole show</p>
+                </div>
+                <button
                   class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[38px] px-[15px] w-full"
                   type="button"
                 >
@@ -6456,6 +7720,24 @@
                 class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft flex-col items-start gap-[9px]"
               >
                 <span
+                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-warn-ghost text-warn border-warn/30"
+                  >no release found</span
+                ><span class="text-sm text-ink-3"
+                  >The search finished and grabbed nothing. Still monitored, so
+                  Sonarr may grab it later; Retry searches now.</span
+                ><span class="flex w-full gap-2 [&>button]:flex-1"
+                  ><button
+                    class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[30px] px-[11px] text-[13px]"
+                    type="button"
+                  >
+                    Retry
+                  </button></span
+                >
+              </div>
+              <div
+                class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft flex-col items-start gap-[9px]"
+              >
+                <span
                   class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30"
                   ><span
                     class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
@@ -6612,6 +7894,714 @@
                       >Indexer timed out after 3 retries</span
                     ></span
                   >
+                </div>
+              </div>
+            </div>
+            <div
+              class="my-11 mb-7 flex items-center gap-3"
+              id="plan-024-m"
+              aria-hidden="true"
+            >
+              <span class="h-px flex-1 bg-line"></span
+              ><span
+                class="font-mono text-label tracking-[0.11em] whitespace-nowrap uppercase text-ink-4"
+                >Plan 024 — tiers, statuses, dialogs</span
+              ><span class="h-px flex-1 bg-line"></span>
+            </div>
+            <p
+              class="mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+              id="tier-picker-m"
+            >
+              Quality tier — applies to the whole show
+            </p>
+            <p class="mb-3 text-sm text-ink-3">
+              The same three tiers as a movie, beside Download series only.
+              Sonarr keeps one quality profile per series, so the pick covers
+              every season and episode — the season and episode Download buttons
+              below use it rather than carrying a picker each. Preselects the
+              show's own tier when it's one of these, HD otherwise.
+            </p>
+            <div class="flex gap-6 flex-col">
+              <div class="flex flex-col gap-2">
+                <p class="text-cap text-ink-3">Closed</p>
+                <div class="flex gap-2 flex-col">
+                  <div class="flex flex-col gap-1.5 w-full">
+                    <button
+                      class="flex h-[38px] w-full items-center gap-2 rounded-md border bg-bg-sunk px-3 text-left text-[14px] transition-[border-color,box-shadow] duration-200 ease-uv border-line hover:border-uv-dim"
+                      type="button"
+                      aria-haspopup="listbox"
+                      aria-expanded="false"
+                    >
+                      <span
+                        class="font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+                        >Quality</span
+                      ><span class="min-w-0 flex-1 truncate"
+                        >HD (up to 1080p)</span
+                      ><svg class="h-[13px] w-[13px] shrink-0 text-ink-3">
+                        <use href="#i-chevron"></use>
+                      </svg>
+                    </button>
+                    <p class="text-cap text-ink-4">Applies to the whole show</p>
+                  </div>
+                  <button
+                    class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[38px] px-[15px] w-full"
+                    type="button"
+                  >
+                    Download series<svg class="h-[15px] w-[15px] shrink-0">
+                      <use href="#i-download"></use>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div class="flex flex-col gap-2">
+                <p class="text-cap text-ink-3">Open</p>
+                <div class="flex flex-col gap-1.5 w-full">
+                  <button
+                    class="flex h-[38px] w-full items-center gap-2 rounded-md border bg-bg-sunk px-3 text-left text-[14px] transition-[border-color,box-shadow] duration-200 ease-uv border-uv shadow-[0_0_0_3px_var(--color-uv-ghost)]"
+                    type="button"
+                    aria-haspopup="listbox"
+                    aria-expanded="true"
+                  >
+                    <span
+                      class="font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+                      >Quality</span
+                    ><span class="min-w-0 flex-1 truncate"
+                      >HD (up to 1080p)</span
+                    ><svg
+                      class="h-[13px] w-[13px] shrink-0 text-ink-3 rotate-180"
+                    >
+                      <use href="#i-chevron"></use>
+                    </svg>
+                  </button>
+                  <div
+                    class="flex flex-col gap-px rounded-lg border border-line-loud bg-surface-3 p-1 shadow-lift"
+                    role="listbox"
+                    aria-label="Quality"
+                  >
+                    <button
+                      class="flex h-8 w-full items-center justify-between rounded-xs px-2.5 text-left text-[14px] transition-colors duration-200 ease-uv hover:bg-surface-2 text-ink-2"
+                      type="button"
+                      role="option"
+                      aria-selected="false"
+                    >
+                      Up to 4K</button
+                    ><button
+                      class="flex h-8 w-full items-center justify-between rounded-xs px-2.5 text-left text-[14px] transition-colors duration-200 ease-uv hover:bg-surface-2 bg-uv-ghost font-[550] text-uv-hi"
+                      type="button"
+                      role="option"
+                      aria-selected="true"
+                    >
+                      HD (up to 1080p)<svg
+                        class="h-[14px] w-[14px] shrink-0 text-uv-hi"
+                      >
+                        <use href="#i-check"></use>
+                      </svg></button
+                    ><button
+                      class="flex h-8 w-full items-center justify-between rounded-xs px-2.5 text-left text-[14px] transition-colors duration-200 ease-uv hover:bg-surface-2 text-ink-2"
+                      type="button"
+                      role="option"
+                      aria-selected="false"
+                    >
+                      Up to 720p
+                    </button>
+                  </div>
+                  <p class="text-cap text-ink-4">Applies to the whole show</p>
+                </div>
+              </div>
+            </div>
+            <p
+              class="mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+              id="not-found-m"
+            >
+              Attempts — no release found
+            </p>
+            <p class="mb-3 text-sm text-ink-3">
+              The search finished without grabbing anything. It's terminal but
+              not an error — warn, not red. The series stays monitored and reads
+              "wanted", so the newest row offers Retry.
+            </p>
+            <div>
+              <p class="mb-3 text-h2">Attempts</p>
+              <div
+                class="rounded-lg border border-line p-5 bg-bg-sunk px-[14px] py-1 mb-7"
+              >
+                <div
+                  class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft flex-col items-start gap-[9px]"
+                >
+                  <span
+                    class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-warn-ghost text-warn border-warn/30"
+                    >no release found</span
+                  ><span
+                    class="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-ink-3"
+                    ><span class="text-ink-2">Season 4</span
+                    ><span class="font-mono text-mono-sm text-ink-4"
+                      >6m ago</span
+                    ><span class="flex items-center gap-1.5"
+                      ><span
+                        class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] h-5 w-5 text-[9px]"
+                        >SR</span
+                      ><span class="font-mono text-mono-sm text-ink-3"
+                        >Sam</span
+                      ></span
+                    ></span
+                  ><span class="flex w-full gap-2 [&>button]:flex-1"
+                    ><button
+                      class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[30px] px-[11px] text-[13px]"
+                      type="button"
+                    >
+                      Retry
+                    </button></span
+                  >
+                </div>
+                <div
+                  class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft flex-col items-start gap-[9px]"
+                >
+                  <span
+                    class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-ok-ghost text-ok border-ok/30"
+                    >completed</span
+                  ><span
+                    class="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-ink-3"
+                    ><span class="text-ink-2">Season 3</span
+                    ><span class="font-mono text-mono-sm text-ink-4"
+                      >3h ago</span
+                    ><span class="flex items-center gap-1.5"
+                      ><span
+                        class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] h-5 w-5 text-[9px]"
+                        >SR</span
+                      ><span class="font-mono text-mono-sm text-ink-3"
+                        >Sam</span
+                      ></span
+                    ></span
+                  >
+                </div>
+              </div>
+            </div>
+            <p
+              class="mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+              id="status-note-m"
+            >
+              Attempts — searching, with a status note
+            </p>
+            <p class="mb-3 text-sm text-ink-3">
+              Still searching, and why: Sonarr retrying after a failed download,
+              a freshly added show Sonarr is still refreshing, or a release
+              Sonarr is holding back. One small line under the status; Cancel
+              only.
+            </p>
+            <div class="flex flex-col gap-3">
+              <div
+                class="rounded-lg border border-line p-5 bg-surface border-uv/35 bg-uv-ghost/30 p-4"
+              >
+                <span
+                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30 w-fit"
+                  ><span
+                    class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
+                  ></span
+                  >searching</span
+                >
+                <p class="mt-2 text-cap text-ink-3">
+                  Last download failed: Aborted, cannot be completed. Sonarr is
+                  trying another release.
+                </p>
+                <p class="mt-3 text-sm text-ink-3">Season 4</p>
+                <div class="mt-3 flex items-center gap-2 flex-col">
+                  <button
+                    class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[38px] px-[11px] w-full"
+                    type="button"
+                  >
+                    Cancel<svg class="h-[15px] w-[15px] shrink-0">
+                      <use href="#i-x"></use>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div
+                class="rounded-lg border border-line p-5 bg-surface border-uv/35 bg-uv-ghost/30 p-4"
+              >
+                <span
+                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30 w-fit"
+                  ><span
+                    class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
+                  ></span
+                  >searching</span
+                >
+                <p class="mt-2 text-cap text-ink-3">
+                  Waiting for Sonarr to finish adding the show
+                </p>
+                <div class="mt-3 flex items-center gap-2 flex-col">
+                  <button
+                    class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[38px] px-[11px] w-full"
+                    type="button"
+                  >
+                    Cancel<svg class="h-[15px] w-[15px] shrink-0">
+                      <use href="#i-x"></use>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div
+                class="rounded-lg border border-line p-5 bg-surface border-uv/35 bg-uv-ghost/30 p-4"
+              >
+                <span
+                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30 w-fit"
+                  ><span
+                    class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
+                  ></span
+                  >searching</span
+                >
+                <p class="mt-2 text-cap text-ink-3">
+                  Delayed by Sonarr until 21:40
+                </p>
+                <p class="mt-3 text-sm text-ink-3">Season 4, episode 2</p>
+                <div class="mt-3 flex items-center gap-2 flex-col">
+                  <button
+                    class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[38px] px-[11px] w-full"
+                    type="button"
+                  >
+                    Cancel<svg class="h-[15px] w-[15px] shrink-0">
+                      <use href="#i-x"></use>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <p
+              class="mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+              id="pack-cancel-m"
+            >
+              Attempts — an episode cancelled inside a season pack
+            </p>
+            <p class="mb-3 text-sm text-ink-3">
+              Episode 4 was cancelled, but its file is coming down inside the
+              season 3 pack. Removing the queue row would kill the whole pack,
+              so the pack keeps going and the episode's attempt ends cancelled
+              with a note — it may still import. No Retry: the series is still
+              downloading.
+            </p>
+            <div>
+              <p class="mb-3 text-h2">Attempts</p>
+              <div
+                class="rounded-lg border border-line p-5 bg-surface border-uv/35 bg-uv-ghost/30 p-4 mb-3"
+              >
+                <div class="mb-3 flex items-center justify-between gap-3">
+                  <span
+                    class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30"
+                    ><span
+                      class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
+                    ></span
+                    >downloading</span
+                  ><span class="font-mono text-mono-sm tabular-nums text-uv-hi"
+                    >64%</span
+                  >
+                </div>
+                <div
+                  class="h-[5px] overflow-hidden rounded-full bg-surface-3 mb-2"
+                >
+                  <i
+                    class="block h-full rounded-full bg-uv transition-[width] duration-[380ms] ease-uv"
+                    style="width: 64%"
+                  ></i>
+                </div>
+                <p class="mb-3 text-sm text-ink-3">Season 3</p>
+                <p class="mb-3 font-mono text-mono-sm tabular-nums text-ink-3">
+                  2.9 GB / 4.5 GB · 11.2 MB/s
+                </p>
+                <div class="flex items-center gap-2 flex-col">
+                  <button
+                    class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[38px] px-[11px] w-full"
+                    type="button"
+                  >
+                    Cancel<svg class="h-[15px] w-[15px] shrink-0">
+                      <use href="#i-x"></use>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <div
+                class="rounded-lg border border-line p-5 bg-bg-sunk px-[14px] py-1 mb-7"
+              >
+                <div
+                  class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft flex-col items-start gap-[9px]"
+                >
+                  <span
+                    class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-surface-2 text-ink-3 border-line"
+                    >cancelled</span
+                  ><span
+                    class="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-ink-3"
+                    ><span class="text-ink-2">Season 3, episode 4</span
+                    ><span class="font-mono text-mono-sm text-ink-4"
+                      >1m ago</span
+                    ><span class="flex items-center gap-1.5"
+                      ><span
+                        class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] h-5 w-5 text-[9px]"
+                        >JA</span
+                      ><span class="font-mono text-mono-sm text-ink-3"
+                        >Jeremy</span
+                      ></span
+                    ><span class="basis-full text-cap text-ink-3"
+                      >Part of a season download that is still running — this
+                      episode may still import</span
+                    ></span
+                  >
+                </div>
+              </div>
+            </div>
+            <div
+              class="my-11 mb-7 flex items-center gap-3"
+              id="plan-025-m"
+              aria-hidden="true"
+            >
+              <span class="h-px flex-1 bg-line"></span
+              ><span
+                class="font-mono text-label tracking-[0.11em] whitespace-nowrap uppercase text-ink-4"
+                >Plan 025 — SABnzbd progress, unpacking, disk full</span
+              ><span class="h-px flex-1 bg-line"></span>
+            </div>
+            <p
+              class="mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+              id="sab-throughput-m"
+            >
+              Attempts — downloading, with the live speed
+            </p>
+            <p class="mb-3 text-sm text-ink-3">
+              While SABnzbd is fetching the release, the line under the scope
+              reads its own queue: bytes, the live speed, and the time left.
+              Before, a show only showed Sonarr's bare "~00:04:00 left". A
+              paused attempt drops the speed and the estimate — see the paused
+              cards below.
+            </p>
+            <div>
+              <div class="flex gap-6 flex-col">
+                <div class="flex flex-col gap-2">
+                  <p class="text-cap text-ink-3">Downloading</p>
+                  <div
+                    class="rounded-lg border border-line p-5 bg-surface border-uv/35 bg-uv-ghost/30 p-4"
+                  >
+                    <div class="mb-3 flex items-center justify-between gap-3">
+                      <span
+                        class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30"
+                        ><span
+                          class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
+                        ></span
+                        >downloading</span
+                      ><span
+                        class="font-mono text-mono-sm tabular-nums text-uv-hi"
+                        >35%</span
+                      >
+                    </div>
+                    <div
+                      class="h-[5px] overflow-hidden rounded-full bg-surface-3 mb-2"
+                    >
+                      <i
+                        class="block h-full rounded-full bg-uv transition-[width] duration-[380ms] ease-uv"
+                        style="width: 35%"
+                      ></i>
+                    </div>
+                    <p class="mb-3 text-sm text-ink-3">Season 3, episode 7</p>
+                    <p
+                      class="mb-3 font-mono text-mono-sm tabular-nums text-ink-3"
+                    >
+                      610 MB / 1.7 GB · 4.4 MB/s · ~4 min left
+                    </p>
+                    <div class="flex items-center gap-2 flex-col">
+                      <button
+                        class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[38px] px-[11px] w-full"
+                        type="button"
+                      >
+                        Cancel<svg class="h-[15px] w-[15px] shrink-0">
+                          <use href="#i-x"></use>
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p
+              class="mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+              id="sab-pp-m"
+            >
+              Attempts — every byte down, SABnzbd post-processing
+            </p>
+            <p class="mb-3 text-sm text-ink-3">
+              The bar sits at 100 % while SABnzbd verifies, repairs and unpacks.
+              Read directly, the chip names the stage and the line quotes
+              SABnzbd's own progress text. With SABnzbd not configured, the chip
+              stays plan 024's "finishing up" and the line says SABnzbd still
+              has work to do before Sonarr imports it.
+            </p>
+            <div class="flex gap-6 flex-col">
+              <div class="flex flex-col gap-2">
+                <p class="text-cap text-ink-3">SABnzbd read directly</p>
+                <div
+                  class="rounded-lg border border-line p-5 bg-surface border-uv/35 bg-uv-ghost/30 p-4"
+                >
+                  <div class="mb-3 flex items-center justify-between gap-3">
+                    <span
+                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30"
+                      ><span
+                        class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
+                      ></span
+                      >unpacking</span
+                    ><span
+                      class="font-mono text-mono-sm tabular-nums text-uv-hi"
+                      >100%</span
+                    >
+                  </div>
+                  <div
+                    class="h-[5px] overflow-hidden rounded-full bg-surface-3 mb-2"
+                  >
+                    <i
+                      class="block h-full rounded-full bg-uv transition-[width] duration-[380ms] ease-uv"
+                      style="width: 100%"
+                    ></i>
+                  </div>
+                  <p class="mb-3 text-sm text-ink-3">Season 3</p>
+                  <p
+                    class="mb-3 font-mono text-mono-sm tabular-nums text-ink-3"
+                  >
+                    SABnzbd is unpacking it · Repairing: 45%. Sonarr imports it
+                    after.
+                  </p>
+                  <div class="flex items-center gap-2 flex-col">
+                    <button
+                      class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[38px] px-[11px] w-full"
+                      type="button"
+                    >
+                      Cancel<svg class="h-[15px] w-[15px] shrink-0">
+                        <use href="#i-x"></use>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div class="flex flex-col gap-2">
+                <p class="text-cap text-ink-3">
+                  SABnzbd not configured — the fallback
+                </p>
+                <div
+                  class="rounded-lg border border-line p-5 bg-surface border-uv/35 bg-uv-ghost/30 p-4"
+                >
+                  <div class="mb-3 flex items-center justify-between gap-3">
+                    <span
+                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30"
+                      ><span
+                        class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
+                      ></span
+                      >finishing up</span
+                    ><span
+                      class="font-mono text-mono-sm tabular-nums text-uv-hi"
+                      >100%</span
+                    >
+                  </div>
+                  <div
+                    class="h-[5px] overflow-hidden rounded-full bg-surface-3 mb-2"
+                  >
+                    <i
+                      class="block h-full rounded-full bg-uv transition-[width] duration-[380ms] ease-uv"
+                      style="width: 100%"
+                    ></i>
+                  </div>
+                  <p class="mb-3 text-sm text-ink-3">Season 3</p>
+                  <p
+                    class="mb-3 font-mono text-mono-sm tabular-nums text-ink-3"
+                  >
+                    All downloaded. SABnzbd is checking and unpacking it; Sonarr
+                    imports it after.
+                  </p>
+                  <div class="flex items-center gap-2 flex-col">
+                    <button
+                      class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[38px] px-[11px] w-full"
+                      type="button"
+                    >
+                      Cancel<svg class="h-[15px] w-[15px] shrink-0">
+                        <use href="#i-x"></use>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p
+              class="mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+              id="sab-disk-m"
+            >
+              Attempts — the NAS ran out of disk space
+            </p>
+            <p class="mb-3 text-sm text-ink-3">
+              A disk-full failure reads as one, with SABnzbd's own message kept
+              in brackets. Once the attempt has ended failed, it's the row's red
+              error; the newest row offers Retry, which is only worth pressing
+              after freeing space.
+            </p>
+            <div>
+              <p class="mb-3 text-h2">Attempts</p>
+              <div
+                class="rounded-lg border border-line p-5 bg-bg-sunk px-[14px] py-1 mb-7"
+              >
+                <div
+                  class="flex px-0.5 py-[13px] [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft flex-col items-start gap-[9px]"
+                >
+                  <span
+                    class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-bad-ghost text-bad border-bad/32"
+                    >failed</span
+                  ><span
+                    class="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-ink-3"
+                    ><span class="text-ink-2">Season 3</span
+                    ><span class="font-mono text-mono-sm text-ink-4"
+                      >6m ago</span
+                    ><span class="flex items-center gap-1.5"
+                      ><span
+                        class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] h-5 w-5 text-[9px]"
+                        >SR</span
+                      ><span class="font-mono text-mono-sm text-ink-3"
+                        >Sam</span
+                      ></span
+                    ><span class="text-bad"
+                      >The NAS ran out of disk space while SABnzbd was unpacking
+                      it. (Unpacking failed, write error or disk is full?)</span
+                    ></span
+                  ><span class="flex w-full gap-2 [&>button]:flex-1"
+                    ><button
+                      class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[30px] px-[11px] text-[13px]"
+                      type="button"
+                    >
+                      Retry
+                    </button></span
+                  >
+                </div>
+              </div>
+            </div>
+            <p class="mt-5 mb-3 text-sm text-ink-3">
+              While Sonarr is still retrying on its own, the attempt is back to
+              searching and the status note warns that the next release will hit
+              the same wall.
+            </p>
+            <div>
+              <div
+                class="rounded-lg border border-line p-5 bg-surface border-uv/35 bg-uv-ghost/30 p-4"
+              >
+                <span
+                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30 w-fit"
+                  ><span
+                    class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
+                  ></span
+                  >searching</span
+                >
+                <p class="mt-2 text-cap text-ink-3">
+                  Last download failed: the NAS ran out of disk space. Sonarr is
+                  trying another release, which will fail the same way until
+                  space is freed.
+                </p>
+                <p class="mt-3 text-sm text-ink-3">Season 3</p>
+                <div class="mt-3 flex items-center gap-2 flex-col">
+                  <button
+                    class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[38px] px-[11px] w-full"
+                    type="button"
+                  >
+                    Cancel<svg class="h-[15px] w-[15px] shrink-0">
+                      <use href="#i-x"></use>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <p
+              class="mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+              id="sab-paused-m"
+            >
+              Attempts — paused in SABnzbd
+            </p>
+            <p class="mb-3 text-sm text-ink-3">
+              SABnzbd's whole queue is paused — it pauses itself when the disk
+              fills or a quota runs out, or someone paused it in SABnzbd's UI.
+              This app didn't pause it, so there's no Resume here. When SABnzbd
+              reports under 5 GB free, the note says the disk is the likely
+              reason.
+            </p>
+            <div class="flex gap-6 flex-col">
+              <div class="flex flex-col gap-2">
+                <p class="text-cap text-ink-3">SABnzbd's queue is paused</p>
+                <div
+                  class="rounded-lg border border-line p-5 bg-surface border-uv/35 bg-uv-ghost/30 p-4"
+                >
+                  <div class="flex items-center justify-between gap-3">
+                    <span
+                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-warn-ghost text-warn border-warn/30"
+                      >paused</span
+                    ><span
+                      class="font-mono text-mono-sm tabular-nums text-uv-hi"
+                      >35%</span
+                    >
+                  </div>
+                  <p class="mt-2 mb-3 text-cap text-ink-3">Paused in SABnzbd</p>
+                  <div
+                    class="h-[5px] overflow-hidden rounded-full bg-surface-3 mb-2"
+                  >
+                    <i
+                      class="block h-full rounded-full bg-uv transition-[width] duration-[380ms] ease-uv"
+                      style="width: 35%"
+                    ></i>
+                  </div>
+                  <p class="mb-3 text-sm text-ink-3">Season 3, episode 7</p>
+                  <p
+                    class="mb-3 font-mono text-mono-sm tabular-nums text-ink-3"
+                  >
+                    610 MB / 1.7 GB
+                  </p>
+                  <div class="flex items-center gap-2 flex-col">
+                    <button
+                      class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[38px] px-[11px] w-full"
+                      type="button"
+                    >
+                      Cancel<svg class="h-[15px] w-[15px] shrink-0">
+                        <use href="#i-x"></use>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div class="flex flex-col gap-2">
+                <p class="text-cap text-ink-3">Paused, with under 5 GB free</p>
+                <div
+                  class="rounded-lg border border-line p-5 bg-surface border-uv/35 bg-uv-ghost/30 p-4"
+                >
+                  <div class="flex items-center justify-between gap-3">
+                    <span
+                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-warn-ghost text-warn border-warn/30"
+                      >paused</span
+                    ><span
+                      class="font-mono text-mono-sm tabular-nums text-uv-hi"
+                      >35%</span
+                    >
+                  </div>
+                  <p class="mt-2 mb-3 text-cap text-ink-3">
+                    Paused in SABnzbd — the download disk is almost full
+                  </p>
+                  <div
+                    class="h-[5px] overflow-hidden rounded-full bg-surface-3 mb-2"
+                  >
+                    <i
+                      class="block h-full rounded-full bg-uv transition-[width] duration-[380ms] ease-uv"
+                      style="width: 35%"
+                    ></i>
+                  </div>
+                  <p class="mb-3 text-sm text-ink-3">Season 3, episode 7</p>
+                  <p
+                    class="mb-3 font-mono text-mono-sm tabular-nums text-ink-3"
+                  >
+                    610 MB / 1.7 GB
+                  </p>
+                  <div class="flex items-center gap-2 flex-col">
+                    <button
+                      class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[38px] px-[11px] w-full"
+                      type="button"
+                    >
+                      Cancel<svg class="h-[15px] w-[15px] shrink-0">
+                        <use href="#i-x"></use>
+                      </svg>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -6903,8 +8893,27 @@
                 >
                   Watch<svg class="h-[15px] w-[15px] shrink-0">
                     <use href="#i-eye"></use>
-                  </svg></button
-                ><button
+                  </svg>
+                </button>
+                <div class="flex flex-col gap-1.5 w-full">
+                  <button
+                    class="flex h-[38px] w-full items-center gap-2 rounded-md border bg-bg-sunk px-3 text-left text-[14px] transition-[border-color,box-shadow] duration-200 ease-uv border-line hover:border-uv-dim"
+                    type="button"
+                    aria-haspopup="listbox"
+                    aria-expanded="false"
+                  >
+                    <span
+                      class="font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+                      >Quality</span
+                    ><span class="min-w-0 flex-1 truncate"
+                      >HD (up to 1080p)</span
+                    ><svg class="h-[13px] w-[13px] shrink-0 text-ink-3">
+                      <use href="#i-chevron"></use>
+                    </svg>
+                  </button>
+                  <p class="text-cap text-ink-4">Applies to the whole show</p>
+                </div>
+                <button
                   class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[38px] px-[15px] w-full"
                   type="button"
                 >
@@ -7045,8 +9054,27 @@
                 >
                   Watch<svg class="h-[15px] w-[15px] shrink-0">
                     <use href="#i-eye"></use>
-                  </svg></button
-                ><button
+                  </svg>
+                </button>
+                <div class="flex flex-col gap-1.5 w-full">
+                  <button
+                    class="flex h-[38px] w-full items-center gap-2 rounded-md border bg-bg-sunk px-3 text-left text-[14px] transition-[border-color,box-shadow] duration-200 ease-uv border-line hover:border-uv-dim"
+                    type="button"
+                    aria-haspopup="listbox"
+                    aria-expanded="false"
+                  >
+                    <span
+                      class="font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+                      >Quality</span
+                    ><span class="min-w-0 flex-1 truncate"
+                      >HD (up to 1080p)</span
+                    ><svg class="h-[13px] w-[13px] shrink-0 text-ink-3">
+                      <use href="#i-chevron"></use>
+                    </svg>
+                  </button>
+                  <p class="text-cap text-ink-4">Applies to the whole show</p>
+                </div>
+                <button
                   class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[38px] px-[15px] w-full"
                   type="button"
                 >
@@ -7105,7 +9133,7 @@
             Report an episode — as a modal
           </p>
           <div
-            class="relative max-w-full overflow-hidden rounded-xl border border-line bg-bg w-[390px] flex h-[460px] flex-col"
+            class="relative max-w-full overflow-hidden rounded-xl border border-line bg-bg w-[390px] flex flex-col h-[460px]"
           >
             <div
               class="flex shrink-0 items-center justify-between gap-3 border-b border-line-soft bg-bg-sunk py-2.5 pr-[14px] pl-4"
@@ -7182,8 +9210,27 @@
                 >
                   Watch<svg class="h-[15px] w-[15px] shrink-0">
                     <use href="#i-eye"></use>
-                  </svg></button
-                ><button
+                  </svg>
+                </button>
+                <div class="flex flex-col gap-1.5 w-full">
+                  <button
+                    class="flex h-[38px] w-full items-center gap-2 rounded-md border bg-bg-sunk px-3 text-left text-[14px] transition-[border-color,box-shadow] duration-200 ease-uv border-line hover:border-uv-dim"
+                    type="button"
+                    aria-haspopup="listbox"
+                    aria-expanded="false"
+                  >
+                    <span
+                      class="font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+                      >Quality</span
+                    ><span class="min-w-0 flex-1 truncate"
+                      >HD (up to 1080p)</span
+                    ><svg class="h-[13px] w-[13px] shrink-0 text-ink-3">
+                      <use href="#i-chevron"></use>
+                    </svg>
+                  </button>
+                  <p class="text-cap text-ink-4">Applies to the whole show</p>
+                </div>
+                <button
                   class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[38px] px-[15px] w-full"
                   type="button"
                 >
@@ -7458,7 +9505,7 @@
             Delete series — as a modal
           </p>
           <div
-            class="relative max-w-full overflow-hidden rounded-xl border border-line bg-bg w-[390px] flex h-[460px] flex-col"
+            class="relative max-w-full overflow-hidden rounded-xl border border-line bg-bg w-[390px] flex flex-col h-[460px]"
           >
             <div
               class="flex shrink-0 items-center justify-between gap-3 border-b border-line-soft bg-bg-sunk py-2.5 pr-[14px] pl-4"
@@ -7535,8 +9582,27 @@
                 >
                   Watch<svg class="h-[15px] w-[15px] shrink-0">
                     <use href="#i-eye"></use>
-                  </svg></button
-                ><button
+                  </svg>
+                </button>
+                <div class="flex flex-col gap-1.5 w-full">
+                  <button
+                    class="flex h-[38px] w-full items-center gap-2 rounded-md border bg-bg-sunk px-3 text-left text-[14px] transition-[border-color,box-shadow] duration-200 ease-uv border-line hover:border-uv-dim"
+                    type="button"
+                    aria-haspopup="listbox"
+                    aria-expanded="false"
+                  >
+                    <span
+                      class="font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+                      >Quality</span
+                    ><span class="min-w-0 flex-1 truncate"
+                      >HD (up to 1080p)</span
+                    ><svg class="h-[13px] w-[13px] shrink-0 text-ink-3">
+                      <use href="#i-chevron"></use>
+                    </svg>
+                  </button>
+                  <p class="text-cap text-ink-4">Applies to the whole show</p>
+                </div>
+                <button
                   class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[38px] px-[15px] w-full"
                   type="button"
                 >
@@ -7767,6 +9833,364 @@
                   <p class="mb-[18px] text-sm text-ink-3">
                     Removes all 3 seasons from Emby and frees 9.4 GB. This can't
                     be undone.
+                  </p>
+                  <div class="flex flex-col gap-2">
+                    <button
+                      class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent h-[30px] px-[11px] text-[13px] w-full border-bad/40 bg-bad-ghost text-bad"
+                      type="button"
+                    >
+                      Delete<svg class="h-[15px] w-[15px] shrink-0">
+                        <use href="#i-trash"></use>
+                      </svg></button
+                    ><button
+                      class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-ink-3 hover:bg-surface-2 hover:text-ink h-[30px] px-[11px] text-[13px] w-full"
+                      type="button"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p
+            class="block text-center font-mono text-label tracking-[0.11em] uppercase text-ink-4 mt-1"
+            id="delete-episode-m"
+          >
+            Delete an episode — its file holds another
+          </p>
+          <div
+            class="relative max-w-full overflow-hidden rounded-xl border border-line bg-bg w-[390px] flex flex-col h-[460px]"
+          >
+            <div
+              class="flex shrink-0 items-center justify-between gap-3 border-b border-line-soft bg-bg-sunk py-2.5 pr-[14px] pl-4"
+            >
+              <div class="flex min-w-0 items-center gap-2.5">
+                <button
+                  class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-ink-3 hover:bg-surface-2 hover:text-ink h-[38px] px-[11px] h-[30px] w-[30px] shrink-0 p-0"
+                  type="button"
+                  aria-label="Back to library"
+                >
+                  <svg class="h-[15px] w-[15px] -scale-x-100">
+                    <use href="#i-arrow"></use>
+                  </svg></button
+                ><span
+                  class="inline-flex h-8 items-center gap-[9px] rounded-full border border-transparent bg-transparent py-0 pr-3 pl-1 transition-[border-color,background-color] duration-200 ease-uv hover:border-uv-dim hover:bg-surface-2"
+                  href="https://lilnas.io"
+                  ><span class="grid h-6 w-6 shrink-0 place-items-center"
+                    ><svg class="h-full w-full">
+                      <use href="#pepe"></use></svg></span
+                  ><span
+                    class="font-mono text-[12px] font-medium tracking-[-0.01em]"
+                    >Download</span
+                  ></span
+                >
+              </div>
+              <span class="flex shrink-0 items-center gap-1.5"
+                ><button
+                  class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-ink-3 hover:bg-surface-2 hover:text-ink h-[38px] px-[11px] h-[30px] w-[30px] p-0"
+                  type="button"
+                  aria-label="Search"
+                >
+                  <svg class="h-[15px] w-[15px] shrink-0">
+                    <use href="#i-search"></use>
+                  </svg></button
+                ><a
+                  class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-3 transition-colors duration-200 ease-uv hover:bg-surface-2 hover:text-ink"
+                  href="profile.html"
+                  aria-label="Your account"
+                  ><span
+                    class="flex shrink-0 items-center justify-center rounded-full border border-line bg-surface-3 font-semibold text-ink-2 h-6 w-6 text-[10.5px] shadow-[0_0_0_2px_var(--color-bg-sunk),0_0_0_4px_var(--color-uv)]"
+                    >JA</span
+                  ></a
+                ></span
+              >
+            </div>
+            <div
+              class="px-6 pt-[18px] pb-[30px] relative flex-1 overflow-hidden [mask-image:linear-gradient(180deg,#000_78%,transparent)]"
+            >
+              <div
+                class="group relative flex shrink-0 items-center justify-center overflow-hidden rounded-md aspect-[2/3] poster-v3 mx-auto mb-4 w-full max-w-[220px]"
+              >
+                <span
+                  class="p-2.5 text-center text-[12px]/[1.3] font-semibold text-ink-2 group-has-[img]:hidden"
+                  >Harbor Watch</span
+                ><img
+                  class="absolute inset-0 h-full w-full object-cover"
+                  src="assets/emby/show-1.jpg"
+                  alt=""
+                  data-poster="data-poster"
+                />
+              </div>
+              <p class="mb-1.5 text-h1">Harbor Watch</p>
+              <p class="mb-2 text-sm text-ink-3">2022– · 3 seasons · Drama</p>
+              <div class="mb-4 flex flex-wrap items-center gap-2">
+                <span
+                  class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-ok-ghost text-ok border-ok/30"
+                  >in library</span
+                >
+              </div>
+              <div class="mb-7 flex flex-col gap-2">
+                <button
+                  class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent bg-uv text-uv-ink font-[620] hover:bg-uv-hi active:bg-uv-press h-[38px] px-[15px] w-full"
+                  type="button"
+                >
+                  Watch<svg class="h-[15px] w-[15px] shrink-0">
+                    <use href="#i-eye"></use>
+                  </svg>
+                </button>
+                <div class="flex flex-col gap-1.5 w-full">
+                  <button
+                    class="flex h-[38px] w-full items-center gap-2 rounded-md border bg-bg-sunk px-3 text-left text-[14px] transition-[border-color,box-shadow] duration-200 ease-uv border-line hover:border-uv-dim"
+                    type="button"
+                    aria-haspopup="listbox"
+                    aria-expanded="false"
+                  >
+                    <span
+                      class="font-mono text-label tracking-[0.11em] uppercase text-ink-4"
+                      >Quality</span
+                    ><span class="min-w-0 flex-1 truncate"
+                      >HD (up to 1080p)</span
+                    ><svg class="h-[13px] w-[13px] shrink-0 text-ink-3">
+                      <use href="#i-chevron"></use>
+                    </svg>
+                  </button>
+                  <p class="text-cap text-ink-4">Applies to the whole show</p>
+                </div>
+                <button
+                  class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[38px] px-[15px] w-full"
+                  type="button"
+                >
+                  Download series<svg class="h-[15px] w-[15px] shrink-0">
+                    <use href="#i-download"></use>
+                  </svg></button
+                ><button
+                  class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[38px] px-[11px] w-full"
+                  type="button"
+                >
+                  Delete series<svg class="h-[15px] w-[15px] shrink-0">
+                    <use href="#i-trash"></use>
+                  </svg>
+                </button>
+              </div>
+              <div
+                class="border-b border-line flex gap-[22px] overflow-x-auto mb-4"
+              >
+                <button
+                  class="relative px-px py-[9px] text-[14px] font-[550] whitespace-nowrap transition-colors duration-200 ease-uv text-ink-3 hover:text-ink-2"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                >
+                  S1</button
+                ><button
+                  class="relative px-px py-[9px] text-[14px] font-[550] whitespace-nowrap transition-colors duration-200 ease-uv text-ink after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-sm after:bg-uv after:content-['']"
+                  type="button"
+                  role="tab"
+                  aria-selected="true"
+                >
+                  S2</button
+                ><button
+                  class="relative px-px py-[9px] text-[14px] font-[550] whitespace-nowrap transition-colors duration-200 ease-uv text-ink-3 hover:text-ink-2"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                >
+                  <span class="inline-flex items-center gap-[5px]"
+                    >S3<span
+                      class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
+                    ></span
+                    ><span
+                      class="font-mono text-mono-sm tabular-nums text-uv-hi"
+                      >58%</span
+                    ></span
+                  ></button
+                ><button
+                  class="relative px-px py-[9px] text-[14px] font-[550] whitespace-nowrap transition-colors duration-200 ease-uv text-ink-3 hover:text-ink-2"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                >
+                  <span class="inline-flex items-center gap-[5px]"
+                    >S4<span
+                      class="h-[7px] w-[7px] shrink-0 rounded-full bg-warn"
+                    ></span
+                  ></span>
+                </button>
+              </div>
+              <p class="mb-2.5 text-h2">Season 2 · 7 episodes</p>
+              <div class="mb-4 flex flex-col gap-2">
+                <button
+                  class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[30px] px-[11px] text-[13px] w-full"
+                  type="button"
+                >
+                  Download season<svg class="h-[15px] w-[15px] shrink-0">
+                    <use href="#i-download"></use>
+                  </svg></button
+                ><button
+                  class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[30px] px-[11px] text-[13px] w-full"
+                  type="button"
+                >
+                  Delete season<svg class="h-[15px] w-[15px] shrink-0">
+                    <use href="#i-trash"></use>
+                  </svg>
+                </button>
+              </div>
+              <div
+                class="rounded-lg border border-line p-5 bg-bg-sunk px-[14px] py-1"
+              >
+                <div
+                  class="flex px-1 py-3 [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft flex-col items-start gap-2"
+                >
+                  <span class="flex items-center gap-2"
+                    ><span
+                      class="w-[26px] shrink-0 font-mono text-mono-sm text-ink-4"
+                      >E1</span
+                    ><span class="text-sm">The Long Tide</span></span
+                  ><span class="flex items-center gap-2.5"
+                    ><span class="font-mono text-mono-sm text-ink-4">42m</span
+                    ><span
+                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-ok-ghost text-ok border-ok/30"
+                      >in library</span
+                    ><button
+                      class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-ink-3 hover:bg-surface-2 hover:text-ink h-[30px] px-[11px] text-[13px]"
+                      type="button"
+                    >
+                      Watch<svg class="h-[15px] w-[15px] shrink-0">
+                        <use href="#i-eye"></use>
+                      </svg></button
+                  ></span>
+                </div>
+                <div
+                  class="flex px-1 py-3 [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft flex-col items-start gap-2"
+                >
+                  <span class="flex items-center gap-2"
+                    ><span
+                      class="w-[26px] shrink-0 font-mono text-mono-sm text-ink-4"
+                      >E2</span
+                    ><span class="text-sm">Quota</span></span
+                  ><span class="flex items-center gap-2.5"
+                    ><span class="font-mono text-mono-sm text-ink-4">39m</span
+                    ><span
+                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-warn-ghost text-warn border-warn/30"
+                      >needs your decision</span
+                    ><button
+                      class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[30px] px-[11px] text-[13px]"
+                      type="button"
+                    >
+                      Import<svg class="h-[15px] w-[15px] shrink-0">
+                        <use href="#i-check"></use>
+                      </svg></button
+                  ></span>
+                </div>
+                <div
+                  class="flex px-1 py-3 [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft flex-col items-start gap-2"
+                >
+                  <span class="flex items-center gap-2"
+                    ><span
+                      class="w-[26px] shrink-0 font-mono text-mono-sm text-ink-4"
+                      >E3</span
+                    ><span class="text-sm">Harbor Rules</span></span
+                  ><span class="flex items-center gap-2.5"
+                    ><span class="font-mono text-mono-sm text-ink-4">45m</span
+                    ><span
+                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30"
+                      ><span
+                        class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
+                      ></span
+                      >downloading</span
+                    ></span
+                  ><span class="flex w-full items-center gap-2.5"
+                    ><div
+                      class="h-[5px] overflow-hidden rounded-full bg-surface-3 flex-1"
+                    >
+                      <i
+                        class="block h-full rounded-full bg-uv transition-[width] duration-[380ms] ease-uv"
+                        style="width: 31%"
+                      ></i>
+                    </div>
+                    <span class="font-mono text-mono-sm tabular-nums text-uv-hi"
+                      >31%</span
+                    ><button
+                      class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-transparent text-bad hover:bg-bad-ghost h-[30px] px-[11px] text-[13px]"
+                      type="button"
+                    >
+                      Cancel<svg class="h-[15px] w-[15px] shrink-0">
+                        <use href="#i-x"></use>
+                      </svg></button
+                  ></span>
+                </div>
+                <div
+                  class="flex px-1 py-3 [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft flex-col items-start gap-2"
+                >
+                  <span class="flex items-center gap-2"
+                    ><span
+                      class="w-[26px] shrink-0 font-mono text-mono-sm text-ink-4"
+                      >E4</span
+                    ><span class="text-sm">Low Tide</span></span
+                  ><span class="flex items-center gap-2.5"
+                    ><span class="font-mono text-mono-sm text-ink-4">44m</span
+                    ><span
+                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-uv-ghost text-uv-hi border-uv/30"
+                      ><span
+                        class="h-[7px] w-[7px] shrink-0 rounded-full dot-live"
+                      ></span
+                      >importing…</span
+                    ></span
+                  >
+                </div>
+                <div
+                  class="flex px-1 py-3 [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft flex-col items-start gap-2"
+                >
+                  <span class="flex items-center gap-2"
+                    ><span
+                      class="w-[26px] shrink-0 font-mono text-mono-sm text-ink-4"
+                      >E5</span
+                    ><span class="text-sm">The Permit</span></span
+                  ><span class="flex items-center gap-2.5"
+                    ><span class="font-mono text-mono-sm text-ink-4">38m</span
+                    ><span
+                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-surface-2 text-ink-3 border-line"
+                      >wanted</span
+                    ></span
+                  >
+                </div>
+                <div
+                  class="flex px-1 py-3 [&amp;+&amp;]:border-t [&amp;+&amp;]:border-line-soft flex-col items-start gap-2"
+                >
+                  <span class="flex items-center gap-2"
+                    ><span
+                      class="w-[26px] shrink-0 font-mono text-mono-sm text-ink-4"
+                      >E6</span
+                    ><span class="text-sm">Salvage</span></span
+                  ><span class="flex items-center gap-2.5"
+                    ><span class="font-mono text-mono-sm text-ink-4">41m</span
+                    ><span
+                      class="inline-flex h-[23px] items-center gap-1.5 rounded-full border px-2.5 font-mono text-[11px] font-medium tracking-[0.01em] whitespace-nowrap bg-surface-2 text-ink-3 border-line"
+                      >not downloaded</span
+                    ><button
+                      class="inline-flex items-center justify-center gap-[7px] rounded-md border text-[14px] font-[550] tracking-[-0.005em] whitespace-nowrap transition-press active:scale-96 disabled:pointer-events-none disabled:opacity-38 border-line bg-surface text-ink hover:border-uv-dim hover:bg-surface-2 h-[30px] px-[11px] text-[13px]"
+                      type="button"
+                    >
+                      Download<svg class="h-[15px] w-[15px] shrink-0">
+                        <use href="#i-download"></use>
+                      </svg></button
+                  ></span>
+                </div>
+              </div>
+              <div
+                class="absolute inset-0 flex items-center justify-center bg-scrim/62 p-6 backdrop-blur-[2px]"
+              >
+                <div
+                  class="w-full max-w-[380px] rounded-lg border border-line-loud bg-surface p-[22px] shadow-lift"
+                >
+                  <p class="mb-1.5 text-h3">
+                    Delete S01E01 of &quot;Harbor Watch&quot;?
+                  </p>
+                  <p class="mb-[18px] text-sm text-ink-3">
+                    Removes this episode's file from the library and frees 1.4
+                    GB. This file also holds S01E02 — it will be removed too.
+                    The rest of the season is left alone. This can't be undone.
                   </p>
                   <div class="flex flex-col gap-2">
                     <button

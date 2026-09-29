@@ -25,6 +25,7 @@ import type {
   DownloadType,
   ShowScope,
   TimeRange,
+  UpstreamCommandKind,
   VideoFile,
   VideoSourceInfo,
 } from '@lilnas/utils/download/types'
@@ -33,6 +34,7 @@ import {
   check,
   index,
   integer,
+  primaryKey,
   sqliteTable,
   text,
   uniqueIndex,
@@ -54,6 +56,9 @@ export const DOWNLOAD_JOB_STATUSES = [
   // process: it describes Radarr/Sonarr's queue row, not anything this
   // process holds (see reconcile-interrupted-jobs.ts).
   'needs_attention',
+  // Plan 024. No migration either, for the same bare-`text` reason. A
+  // terminal status: the search came back empty, so the job is over.
+  'not_found',
   // Phase 5. No migration accompanies these two: `status` is a bare
   // `text NOT NULL` column with no CHECK constraint behind it (the enum
   // lives only in drizzle's TS types), so widening the tuple emits no SQL.
@@ -92,6 +97,19 @@ export const JOB_ORIGINS = ['service', 'web', 'discord'] as const
 // caller, which is a different answer to "who started this".
 export const JOB_ROW_ORIGINS = [...JOB_ORIGINS, 'upstream'] as const
 
+// Plan 024: which upstream app a history event or a command belongs to. The
+// same pair `QueueSource` (media-state.service.ts) spells out - not imported
+// from there, since that module is nowhere near drizzle-kit's bundle of this
+// file and a type-only pin across the two would be a dependency from the
+// schema onto a service.
+export const ARR_APPS = ['radarr', 'sonarr'] as const
+
+export type ArrApp = (typeof ARR_APPS)[number]
+
+// Plan 024: the kind of Radarr/Sonarr command a job is waiting on - a
+// metadata refresh after an add, or the search that grabs a release.
+export const UPSTREAM_COMMAND_KINDS = ['refresh', 'search'] as const
+
 // Compile-time-only guard that the SQL enum tuples in this file never
 // silently drift from the shared TS enums they mirror (`DownloadType`/
 // `DownloadJobStatus` in `@lilnas/utils/download/types`, plus Phase 8's
@@ -112,6 +130,11 @@ export const typePin: AssertSameUnion<
 export const statusPin: AssertSameUnion<
   (typeof DOWNLOAD_JOB_STATUSES)[number],
   `${DownloadJobStatus}`
+> = true
+
+export const upstreamCommandKindPin: AssertSameUnion<
+  (typeof UPSTREAM_COMMAND_KINDS)[number],
+  UpstreamCommandKind
 > = true
 
 export const jobs = sqliteTable(
@@ -163,6 +186,11 @@ export const jobs = sqliteTable(
 
     error: text('error'),
 
+    // Plan 024: one line on where an in-flight job stands ("Delayed by
+    // Radarr's delay profile") - `DownloadJob.statusNote` on the wire. NULL
+    // on every row written before the column, which is what "no note" means.
+    statusNote: text('status_note'),
+
     // The derived media key (`tmdb:438631` / `tvdb:121361` / `video:<id>`,
     // see `media-id.ts`). Deliberately **not** a foreign key: it points at
     // `videos` for a third of rows and at TMDB/TVDB for the rest, and
@@ -182,6 +210,21 @@ export const jobs = sqliteTable(
     // nothing and cost three migrations' worth of surface. Same
     // `text({ mode: 'json' })` convention `videos.timeRange` follows.
     scope: text('scope', { mode: 'json' }).$type<ShowScope>(),
+
+    // Plan 024: the Radarr/Sonarr command this job is waiting on - its id,
+    // what kind it is, and when it was sent (ISO text, like the history
+    // timestamps it is compared against). All three NULL once nothing is
+    // pending, and on every row from before the columns. Internal only:
+    // they ride `DownloadJobRecord`, never the wire `DownloadJob`.
+    //
+    // No CHECK on the kind, unlike the new tables below: SQLite can't add a
+    // CHECK to an existing table without recreating it, and a `jobs`
+    // recreate is not worth one column's enum.
+    upstreamCommandId: integer('upstream_command_id'),
+    upstreamCommandKind: text('upstream_command_kind', {
+      enum: UPSTREAM_COMMAND_KINDS,
+    }),
+    upstreamCommandAt: text('upstream_command_at'),
 
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .$defaultFn(() => new Date())
@@ -265,6 +308,73 @@ export const jobs = sqliteTable(
 )
 
 export type JobRow = typeof jobs.$inferSelect
+
+// Plan 024: every Radarr/Sonarr download a job owns, keyed by the download
+// client's id - the durable form of the poller's old in-memory
+// job -> download-ids Map, which a restart emptied. A job's outcome is read
+// off these rows as the history events for each download land (grabbed,
+// then imported or failed), rather than guessed from the item leaving the
+// queue.
+//
+// The timestamps are the history events' own `date` strings, stored
+// verbatim as TEXT rather than this file's usual `timestamp_ms`: they are
+// upstream's clock, compared only against other upstream dates, and a
+// round trip through `Date` would buy nothing.
+export const jobDownloads = sqliteTable(
+  'job_downloads',
+  {
+    jobId: text('job_id')
+      .notNull()
+      .references(() => jobs.id, { onDelete: 'cascade' }),
+    app: text('app', { enum: ARR_APPS }).notNull(),
+    downloadId: text('download_id').notNull(),
+    // Nullable: a download can be linked from its queue item before the
+    // grab event carrying the date is read. `linkDownload` fills it later.
+    grabbedAt: text('grabbed_at'),
+    importedAt: text('imported_at'),
+    failedAt: text('failed_at'),
+    failReason: text('fail_reason'),
+    // Whether the grab was a release picked by hand (the grab event's
+    // `releaseSource` is `InteractiveSearch`), which decides whether a
+    // failure retries automatically. NULL = not known yet.
+    interactive: integer('interactive', { mode: 'boolean' }),
+  },
+  t => [
+    // One row per download per job. Two jobs can share a download (a
+    // season job and an episode job both covered by one season pack), so
+    // `download_id` alone is not the key.
+    primaryKey({ columns: [t.jobId, t.downloadId] }),
+    // The history path's lookup: an event names an app and a download id,
+    // never a job.
+    index('job_downloads_app_download_id_idx').on(t.app, t.downloadId),
+    check('job_downloads_app_known', sql`${t.app} IN ('radarr', 'sonarr')`),
+  ],
+)
+
+export type JobDownloadRow = typeof jobDownloads.$inferSelect
+
+// Plan 024: how far each app's history has been read. Radarr/Sonarr history
+// is paged newest-first by `date`, and many records share one date (up to
+// 52 seen in a single second) with ids that are not monotonic inside the
+// tie - so a `(date, id)` cursor would skip or replay records. The cursor is
+// the newest date applied plus every record id already applied *at* that
+// date: the next read re-fetches the tie and skips exactly those ids.
+export const arrHistoryCursors = sqliteTable(
+  'arr_history_cursors',
+  {
+    app: text('app', { enum: ARR_APPS }).primaryKey(),
+    cursorDate: text('cursor_date').notNull(),
+    cursorIds: text('cursor_ids', { mode: 'json' }).$type<number[]>().notNull(),
+  },
+  t => [
+    check(
+      'arr_history_cursors_app_known',
+      sql`${t.app} IN ('radarr', 'sonarr')`,
+    ),
+  ],
+)
+
+export type ArrHistoryCursorRow = typeof arrHistoryCursors.$inferSelect
 
 // Phase 3: the only media type nothing upstream (Radarr/Sonarr) tracks -
 // movies and shows are always derived from a live lookup (plan §"What

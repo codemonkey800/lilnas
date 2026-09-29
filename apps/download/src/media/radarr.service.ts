@@ -1,12 +1,15 @@
 import type {
+  CommandResource,
   CommandResourceWritable,
   CreditResource,
   HistoryResource,
   Language,
   ManualImportResource,
+  MovieEditorResource,
   MovieFileResource,
   MovieResource,
   QualityModel,
+  QualityProfileResource,
   QueueResource,
   ReleaseResource,
 } from '@lilnas/media/radarr'
@@ -14,8 +17,15 @@ import {
   deleteApiV3MovieById,
   deleteApiV3MoviefileById,
   deleteApiV3QueueById,
+  deleteApiV3ReleaseprofileById,
+  getApiV3Command,
+  getApiV3CommandById,
+  getApiV3ConfigDownloadclient,
   getApiV3Credit,
+  getApiV3Health,
+  getApiV3History,
   getApiV3HistoryMovie,
+  getApiV3HistorySince,
   getApiV3Manualimport,
   getApiV3Movie,
   getApiV3MovieById,
@@ -23,25 +33,40 @@ import {
   getApiV3MovieLookup,
   getApiV3MovieLookupTmdb,
   getApiV3Qualityprofile,
+  getApiV3QualityprofileSchema,
   getApiV3Queue,
   getApiV3Release,
+  getApiV3Releaseprofile,
   getApiV3Rootfolder,
   postApiV3Command,
   postApiV3Movie,
+  postApiV3Qualityprofile,
   postApiV3Release,
-  putApiV3MovieById,
+  postApiV3Releaseprofile,
+  putApiV3MovieEditor,
+  putApiV3QualityprofileById,
+  putApiV3ReleaseprofileById,
 } from '@lilnas/media/radarr'
 import {
   DownloadType,
   type MediaCredits,
   type Movie,
+  QUALITY_TIERS,
+  QualityTier,
   type Release,
 } from '@lilnas/utils/download/types'
+import { getErrorMessage } from '@lilnas/utils/error'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 
 import { mediaId } from 'src/db/media-id'
+import type { CommandRef, CommandSnapshot } from 'src/media/arr-command.types'
 import type { RadarrMediaClient } from 'src/media/clients'
 import { RADARR_CLIENT } from 'src/media/clients'
+import {
+  buildFlaggedTerms,
+  FLAGGED_RELEASE_PROFILE_NAME,
+  planFlaggedReleaseProfile,
+} from 'src/media/flagged-release-terms.util'
 import { mapCatalogueEntries } from 'src/media/map-media.util'
 import {
   originalLanguageName,
@@ -49,8 +74,19 @@ import {
   toMovieFile,
   toMovieRatings,
 } from 'src/media/movie-metadata.util'
+import { defaultQualityTier } from 'src/media/quality-tier-default'
+import {
+  planTierProfiles,
+  tierProfileName,
+  type TierProfilePlan,
+} from 'src/media/quality-tiers'
 import { toCommonRelease } from 'src/media/release-mapper.util'
-import { checkSdkError, unwrapSdkResult } from 'src/media/sdk-result.util'
+import {
+  checkSdkError,
+  isAlreadyAddedError,
+  SdkHttpError,
+  unwrapSdkResult,
+} from 'src/media/sdk-result.util'
 import { generateTitleSlug } from 'src/media/title-slug.util'
 import { toUpstreamIsoDateTime } from 'src/media/upstream-date.util'
 
@@ -61,6 +97,108 @@ import { toUpstreamIsoDateTime } from 'src/media/upstream-date.util'
  * (Mirrors apps/tdr-bot/src/media/services/radarr.service.ts.)
  */
 type MoviesSearchCommand = CommandResourceWritable & { movieIds?: number[] }
+
+/**
+ * Radarr's RefreshMovie command - same locally-typed trick as
+ * `MoviesSearchCommand`. `isNewMovie` is only ever sent as `true` (see
+ * `refreshMovie()` for why it must match Radarr's own add-time refresh
+ * exactly); absent otherwise.
+ */
+type RefreshMovieCommand = CommandResourceWritable & {
+  isNewMovie?: true
+  movieIds: number[]
+}
+
+/**
+ * The only two fields `editMovies()` lets a caller change. `PUT
+ * /movie/editor` accepts more (root folder, tags, minimum availability, file
+ * moves), none of which this app should ever be touching in bulk.
+ */
+export interface MovieEditorChanges {
+  monitored?: boolean
+  qualityProfileId?: number
+}
+
+/**
+ * The health-check sources that speak for the download client. Any of them
+ * at `warning` or `error` means Radarr can't reach or use it - either none is
+ * configured/enabled (`DownloadClientCheck`) or the ones that are keep failing
+ * (`DownloadClientStatusCheck`).
+ */
+const DOWNLOAD_CLIENT_HEALTH_SOURCES = new Set([
+  'DownloadClientCheck',
+  'DownloadClientStatusCheck',
+])
+
+/** Radarr's queue is small; a page this size is almost always the only one. */
+const QUEUE_PAGE_SIZE = 1000
+
+/** One download's history is a handful of rows; this is rarely exceeded. */
+const HISTORY_PAGE_SIZE = 100
+
+/**
+ * The paging envelope every paged Radarr endpoint returns (`/queue`,
+ * `/history`, ...), reduced to what `readAllPages()` needs.
+ */
+interface PagingEnvelope<T> {
+  page?: number
+  pageSize?: number
+  records?: T[] | null
+  totalRecords?: number
+}
+
+/**
+ * Reads a paged endpoint to the end: page 1, 2, ... until `page * pageSize`
+ * covers `totalRecords`. Stops early on an empty page too, so an envelope
+ * that under-reports (or omits) its counters can't loop forever.
+ */
+async function readAllPages<T>(
+  fetchPage: (page: number) => Promise<PagingEnvelope<T>>,
+  pageSize: number,
+): Promise<T[]> {
+  const all: T[] = []
+
+  for (let page = 1; ; page++) {
+    const envelope = await fetchPage(page)
+    const records = envelope.records ?? []
+    all.push(...records)
+
+    const readSoFar = (envelope.page ?? page) * (envelope.pageSize ?? pageSize)
+    if (records.length === 0 || readSoFar >= (envelope.totalRecords ?? 0)) {
+      return all
+    }
+  }
+}
+
+/**
+ * Maps a Radarr command resource onto the app-agnostic snapshot. Returns
+ * `undefined` for a resource missing the three fields every command has -
+ * never seen in practice, but a snapshot without an id or status would be
+ * useless to every caller.
+ *
+ * Radarr omits null fields from its JSON, so an absent `message`/`started`/
+ * `ended` just means "none yet".
+ */
+function toCommandSnapshot(
+  resource: CommandResource,
+): CommandSnapshot | undefined {
+  if (resource.id == null || resource.name == null || resource.status == null) {
+    return undefined
+  }
+
+  return {
+    body: { ...resource.body },
+    ended: resource.ended ?? undefined,
+    id: resource.id,
+    message: resource.message ?? undefined,
+    name: resource.name,
+    queued: resource.queued ?? undefined,
+    result: resource.result ?? undefined,
+    started: resource.started ?? undefined,
+    status: resource.status,
+    trigger: resource.trigger ?? undefined,
+  }
+}
 
 /**
  * One file in a ManualImport command body - what Radarr's own manual-import
@@ -99,23 +237,15 @@ type ManualImportCommand = CommandResourceWritable & {
   importMode: 'auto' | 'copy' | 'move'
 }
 
-export interface RequestMovieResult {
-  overview?: string
-  posterUrl?: string
-  radarrId: number
-  title: string
-}
-
 /**
  * What `ensureMovie()` hands back. `wasMonitored` is the state **before**
- * the call - `false` for a fresh add - and is the whole point of the return
- * shape: `ReleaseService.withMonitoring()` needs to know whether it borrowed
- * monitoring (and must therefore put it back) or found it already on (and
- * must leave it strictly alone, since a pending request depends on it).
+ * the call - `false` for a fresh add - so a caller can tell whether the
+ * ensure changed anything its caches hold (see
+ * `MediaResolverService.invalidateAfterEnsure`).
  *
- * `movie` rides along because `requestMovie()` needs the resource's
- * title/overview/poster for its own result, and re-fetching what
- * `ensureMovie` already had in hand would be a wasted round trip.
+ * `movie` rides along so a caller that needs the resource's
+ * title/overview/poster doesn't re-fetch what `ensureMovie` already had in
+ * hand.
  */
 export interface EnsureMovieResult {
   movie: MovieResource
@@ -125,13 +255,33 @@ export interface EnsureMovieResult {
    * the library at all beforehand.
    *
    * `wasMonitored: false` alone cannot express that: it is equally true of a
-   * movie that was already in the library with monitoring off, where
-   * restoring means flipping one flag back. A caller borrowing the library
-   * entry for a read has to be able to tell "put the flag back" from "take
-   * the entry out again", and this is that distinction.
+   * movie that was already in the library with monitoring off. The browse
+   * path keys its wait for Radarr's add-time refresh on this - only a fresh
+   * add has one.
    */
   wasAdded: boolean
   wasMonitored: boolean
+}
+
+/** What `ensureMovie()` is asked to leave behind. */
+export interface EnsureMovieOptions {
+  /**
+   * `true` for a request: add the movie monitored, or turn monitoring on for
+   * a library movie that has it off. `false` for browsing and grabbing: add
+   * an absent movie **unmonitored** and never write to one that is already
+   * there. Radarr's interactive search and its grab endpoint don't check
+   * `monitored`, so neither needs it on - a grab turns it on itself, and only
+   * once the grab has succeeded.
+   */
+  monitored: boolean
+  /**
+   * The quality profile an **add** gets - a request's tier profile. Absent
+   * means the default tier's (`defaultQualityTier()`), so no add ever lands
+   * on whatever profile Radarr lists first. A movie already in the library
+   * keeps its profile: re-tiering one is the request path's call (see
+   * `MediaDownloadService.requestMovie`), never a browse's.
+   */
+  qualityProfileId?: number
 }
 
 /**
@@ -175,7 +325,10 @@ function pickMovieReleaseDate(movie: MovieResource): string | undefined {
  * `mapCatalogueEntries()`, which turns that throw into one dropped record
  * and a warning instead of a failed listing.
  */
-export function toMovie(movie: MovieResource): Movie {
+export function toMovie(
+  movie: MovieResource,
+  tierForProfileId: (profileId: number) => QualityTier | null = () => null,
+): Movie {
   const posterUrl = movie.images?.find(
     img => img.coverType === 'poster',
   )?.remoteUrl
@@ -216,6 +369,7 @@ export function toMovie(movie: MovieResource): Movie {
     id: mediaId({ tmdbId, type: DownloadType.Movie }),
     imdbId: movie.imdbId || undefined,
     inCinemas: movie.inCinemas ?? undefined,
+    isAvailable: movie.isAvailable ?? undefined,
     // A lookup hit outside the library still carries `monitored` (Radarr's
     // default for the add form), which says nothing about this title - so
     // only a library movie reports one.
@@ -229,6 +383,12 @@ export function toMovie(movie: MovieResource): Movie {
     overview: movie.overview ?? undefined,
     physicalRelease: movie.physicalRelease ?? undefined,
     posterUrl: posterUrl ?? undefined,
+    // Only a library movie has a profile of its own - a lookup hit's is the
+    // add form's default.
+    qualityTier:
+      radarrId && movie.qualityProfileId != null
+        ? tierForProfileId(movie.qualityProfileId)
+        : null,
     radarrId,
     ratingValue: movie.ratings?.tmdb?.value ?? movie.ratings?.imdb?.value,
     ratings: toMovieRatings(movie.ratings),
@@ -268,7 +428,7 @@ export class RadarrService {
       'searchMovies',
     )
 
-    return mapCatalogueEntries(movies, toMovie, {
+    return mapCatalogueEntries(movies, this.toMovie, {
       action: 'searchMovies',
       logger: this.logger,
     })
@@ -277,16 +437,18 @@ export class RadarrService {
   /**
    * The whole Radarr library, mapped to `Media` - `MediaResolverService`'s
    * library cache is built from this (one call per TTL window rather than
-   * one per job). Same underlying call as `requestMovie()`'s existing
-   * library-first lookup (`getApiV3Movie`).
+   * one per job). Same underlying call as `ensureMovie()`'s library-first
+   * lookup (`getApiV3Movie`), unfiltered.
    */
   async getLibrary(): Promise<Movie[]> {
-    const movies = unwrapSdkResult(
-      await getApiV3Movie({ client: this.client }),
-      'getMovies',
-    )
+    const [movies] = await Promise.all([
+      getApiV3Movie({ client: this.client }).then(result =>
+        unwrapSdkResult(result, 'getMovies'),
+      ),
+      this.warmTierCache(),
+    ])
 
-    return mapCatalogueEntries(movies, toMovie, {
+    return mapCatalogueEntries(movies, this.toMovie, {
       action: 'getMovies',
       logger: this.logger,
     })
@@ -323,13 +485,15 @@ export class RadarrService {
    * every second.
    */
   async getLibraryMovie(tmdbId: number): Promise<Movie | undefined> {
-    const movies = unwrapSdkResult(
-      await getApiV3Movie({ client: this.client, query: { tmdbId } }),
-      'getMovie',
-    )
+    const [movies] = await Promise.all([
+      getApiV3Movie({ client: this.client, query: { tmdbId } }).then(result =>
+        unwrapSdkResult(result, 'getMovie'),
+      ),
+      this.warmTierCache(),
+    ])
 
     const movie = movies.find(entry => entry.tmdbId === tmdbId)
-    return movie ? toMovie(movie) : undefined
+    return movie ? this.toMovie(movie) : undefined
   }
 
   /**
@@ -347,57 +511,38 @@ export class RadarrService {
       'lookupMovieByTmdbId',
     )
 
-    return toMovie(lookup)
+    return this.toMovie(lookup)
   }
 
   /**
-   * Gets the movie into a state where Radarr will actually surface and grab
-   * releases for it: present in the library **and** monitored. Radarr's
-   * release endpoint keys on `movieId`, so a title nobody has requested yet
-   * has to be added before its releases can even be listed.
+   * Gets the movie into Radarr's library, so the endpoints that key on
+   * Radarr's own `movieId` (release search, grab, files) have one.
    *
-   * Three branches, and `wasMonitored` distinguishes them for the caller:
-   * absent (add it, `false`), present-but-unmonitored (flip it on, `false`),
-   * present-and-monitored (**touch nothing**, `true`). That last branch is
-   * load-bearing: a title with a pending `requestMovie` is monitored on
-   * purpose, and a caller that later "restored" it to unmonitored would
-   * silently kill that request.
+   * Three branches:
    *
-   * `wasAdded` reports the first branch separately, because unmonitoring a
-   * movie this call added is *not* a restore - it leaves a library entry
-   * nobody asked for. See `ReleaseService.withMonitoring()`, which deletes
-   * on that branch instead.
+   * - **absent**: added with `monitored: opts.monitored` and
+   *   `searchForMovie: false` - the add never searches; a caller that wants
+   *   a search layers the command on top. `wasAdded: true`.
+   * - **present, `opts.monitored: false`**: nothing is written. Browsing a
+   *   title someone has requested must not touch the monitoring that request
+   *   depends on, and browsing one nobody has must not start Radarr looking
+   *   for it.
+   * - **present, `opts.monitored: true`**: monitoring is turned on if it was
+   *   off (a plain search on an unmonitored movie would otherwise quietly
+   *   no-op), and left strictly alone if it was already on.
    *
-   * Extracted verbatim from `requestMovie()`'s add-if-missing half - the one
-   * new behaviour is the monitoring flip, which a plain search on an
-   * unmonitored movie would otherwise have quietly no-op'd.
+   * A `400 already been added` from the add (a concurrent add won the race
+   * between the library read and the POST) re-reads the library and carries
+   * on down the "present" branch rather than failing.
    */
-  async ensureMovie(tmdbId: number): Promise<EnsureMovieResult> {
-    const existingMovies = unwrapSdkResult(
-      await getApiV3Movie({ client: this.client }),
-      'getMovies',
-    )
-
-    const existing = existingMovies.find(m => m.tmdbId === tmdbId)
+  async ensureMovie(
+    tmdbId: number,
+    opts: EnsureMovieOptions,
+  ): Promise<EnsureMovieResult> {
+    const existing = await this.findLibraryMovie(tmdbId)
 
     if (existing) {
-      if (existing.id == null) {
-        throw new Error(
-          `Radarr did not return an id for movie tmdbId=${tmdbId}`,
-        )
-      }
-
-      const wasMonitored = existing.monitored === true
-      if (!wasMonitored) {
-        await this.setMonitored(existing.id, true)
-      }
-
-      return {
-        movie: existing,
-        radarrId: existing.id,
-        wasAdded: false,
-        wasMonitored,
-      }
+      return this.ensureExistingMovie(tmdbId, existing, opts)
     }
 
     const lookup = unwrapSdkResult(
@@ -408,39 +553,55 @@ export class RadarrService {
       'lookupMovieByTmdbId',
     )
 
-    const { qualityProfileId, rootFolderPath } =
-      await this.getDefaultConfiguration()
+    const [qualityProfileId, { rootFolderPath }] = await Promise.all([
+      opts.qualityProfileId ?? this.tierProfileId(defaultQualityTier()),
+      this.getDefaultConfiguration(),
+    ])
 
     const title = lookup.title ?? `Movie ${tmdbId}`
 
-    const added = unwrapSdkResult(
-      await postApiV3Movie({
-        client: this.client,
-        // Domain fields line up 1:1 with MovieResource; addOptions is the
-        // only nested writable-only shape, so a targeted cast covers it.
-        body: {
-          tmdbId,
-          title,
-          titleSlug: generateTitleSlug(title),
-          year: lookup.year,
-          qualityProfileId,
-          rootFolderPath,
-          monitored: true,
-          minimumAvailability: 'released',
-          addOptions: { searchForMovie: false },
-        } as unknown as MovieResource,
-      }),
-      'addMovie',
-    )
+    let added: MovieResource
+    try {
+      added = unwrapSdkResult(
+        await postApiV3Movie({
+          client: this.client,
+          // Domain fields line up 1:1 with MovieResource; addOptions is the
+          // only nested writable-only shape, so a targeted cast covers it.
+          body: {
+            tmdbId,
+            title,
+            titleSlug: generateTitleSlug(title),
+            year: lookup.year,
+            qualityProfileId,
+            rootFolderPath,
+            monitored: opts.monitored,
+            minimumAvailability: 'released',
+            addOptions: { searchForMovie: false },
+          } as unknown as MovieResource,
+        }),
+        'addMovie',
+      )
+    } catch (error) {
+      const raced = isAlreadyAddedError(error)
+        ? await this.findLibraryMovie(tmdbId)
+        : undefined
+      if (!raced) {
+        throw error
+      }
+
+      this.logger.log(
+        { action: 'ensureMovie', tmdbId },
+        'Movie was added concurrently - continuing with the library entry',
+      )
+      return this.ensureExistingMovie(tmdbId, raced, opts)
+    }
 
     if (added.id == null) {
       throw new Error(`Radarr did not return an id for movie tmdbId=${tmdbId}`)
     }
 
-    // `wasMonitored: false`, not `true`: a movie that didn't exist a moment
-    // ago was not monitored *before this call*, which is exactly what a
-    // caller restoring borrowed monitoring needs to know. `wasAdded` is what
-    // tells that caller the entry itself is also this call's doing.
+    // `wasMonitored: false` even when added monitored: a movie that didn't
+    // exist a moment ago was not monitored *before this call*.
     return {
       movie: added,
       radarrId: added.id,
@@ -449,15 +610,85 @@ export class RadarrService {
     }
   }
 
+  /** `ensureMovie()`'s "already in the library" branch. */
+  private async ensureExistingMovie(
+    tmdbId: number,
+    existing: MovieResource,
+    opts: EnsureMovieOptions,
+  ): Promise<EnsureMovieResult> {
+    if (existing.id == null) {
+      throw new Error(`Radarr did not return an id for movie tmdbId=${tmdbId}`)
+    }
+
+    const wasMonitored = existing.monitored === true
+    if (opts.monitored && !wasMonitored) {
+      await this.setMonitored(existing.id, true)
+    }
+
+    return {
+      movie: existing,
+      radarrId: existing.id,
+      wasAdded: false,
+      wasMonitored,
+    }
+  }
+
   /**
-   * Flips a movie's `monitored` flag. Radarr's `PUT /movie/{id}` replaces the
-   * whole resource, so the current one is read back first and re-sent with
-   * the single field changed - anything else would blank out the movie's
-   * quality profile, root folder and tags.
+   * The raw library resource for one `tmdbId`, or `undefined`. Filtered
+   * upstream like `getLibraryMovie()` - a few KB rather than the whole
+   * library - and still matched here, so an older Radarr that ignores the
+   * filter can't hand back the wrong movie.
+   */
+  private async findLibraryMovie(
+    tmdbId: number,
+  ): Promise<MovieResource | undefined> {
+    const movies = unwrapSdkResult(
+      await getApiV3Movie({ client: this.client, query: { tmdbId } }),
+      'getMovies',
+    )
+
+    return movies.find(m => m.tmdbId === tmdbId)
+  }
+
+  /**
+   * Flips a movie's `monitored` flag, through the bulk editor rather than
+   * `PUT /movie/{id}`: the editor changes only the fields it is sent, so
+   * there is no read-back and no full-resource PUT (whose path validators
+   * can reject an otherwise unchanged movie).
    */
   async setMonitored(radarrId: number, monitored: boolean): Promise<void> {
-    const movie = await this.getMovieResource(radarrId)
-    await this.putMonitored(radarrId, movie, monitored)
+    await this.editMovies([radarrId], { monitored })
+  }
+
+  /**
+   * Radarr's bulk movie editor (`PUT /movie/editor`): applies the given
+   * changes to every listed movie and leaves every other field alone. Only
+   * the keys actually present in `changes` are sent - an absent key means
+   * "don't touch", and sending it as `undefined`/`null` would not.
+   *
+   * An empty id list is a no-op rather than a request Radarr would accept
+   * and do nothing with.
+   */
+  async editMovies(
+    movieIds: number[],
+    changes: MovieEditorChanges,
+  ): Promise<void> {
+    if (movieIds.length === 0) {
+      return
+    }
+
+    const body: MovieEditorResource = { movieIds }
+    if (changes.monitored !== undefined) {
+      body.monitored = changes.monitored
+    }
+    if (changes.qualityProfileId !== undefined) {
+      body.qualityProfileId = changes.qualityProfileId
+    }
+
+    checkSdkError(
+      await putApiV3MovieEditor({ client: this.client, body }),
+      'editMovies',
+    )
   }
 
   /**
@@ -481,7 +712,7 @@ export class RadarrService {
       return false
     }
 
-    await this.putMonitored(radarrId, movie, false)
+    await this.editMovies([radarrId], { monitored: false })
     return true
   }
 
@@ -492,32 +723,15 @@ export class RadarrService {
     )
   }
 
-  private async putMonitored(
-    radarrId: number,
-    movie: MovieResource,
-    monitored: boolean,
-  ): Promise<void> {
-    checkSdkError(
-      await putApiV3MovieById({
-        client: this.client,
-        // The generated path type is a string here (unlike the GET above,
-        // which takes a number) - an inconsistency in Radarr's spec, not a
-        // choice on this side.
-        path: { id: String(radarrId) },
-        body: { ...movie, monitored },
-      }),
-      'setMovieMonitored',
-    )
-  }
-
   /**
    * Radarr's interactive indexer search for one movie, mapped to the shared
    * `Release` DTO. Every result comes back with `flaggedBad: false` -
    * annotation against `bad_files` happens in `ReleaseService`, which is the
    * only layer that has a DB.
    *
-   * The movie must be in the library and monitored first (see
-   * `ensureMovie()`), otherwise Radarr has nothing to search for.
+   * The movie must be in the library first (see `ensureMovie()`) - Radarr
+   * keys the search on its own id. It need not be monitored: the
+   * interactive search never checks.
    */
   async getReleases(radarrId: number): Promise<Release[]> {
     const releases = unwrapSdkResult(
@@ -608,48 +822,101 @@ export class RadarrService {
   }
 
   /**
-   * Adds (if needed) and triggers a search for a movie by TMDB ID.
-   * Simplified relative to tdr-bot's monitorAndDownloadMovie: no
-   * retry/circuit-breaker wrapper, no granular options, just enough to get
-   * the movie monitored in Radarr and a search command queued.
-   *
-   * Now literally `ensureMovie()` + the search command - the add-if-missing
-   * half moved out so `ReleaseService` can reach it without also triggering
-   * a search it doesn't want.
-   */
-  async requestMovie(tmdbId: number): Promise<RequestMovieResult> {
-    const { movie, radarrId } = await this.ensureMovie(tmdbId)
-
-    await this.triggerSearch(radarrId)
-
-    const posterUrl = movie.images?.find(
-      img => img.coverType === 'poster',
-    )?.remoteUrl
-
-    return {
-      overview: movie.overview ?? undefined,
-      posterUrl: posterUrl ?? undefined,
-      radarrId,
-      title: movie.title ?? `Movie ${tmdbId}`,
-    }
-  }
-
-  /**
    * Radarr's generic "go find something for this movie" command - the
    * unflagged auto-select path. When a title *does* have flagged releases,
    * `MediaDownloadService` fetches and picks itself instead, because this
    * command gives the app no say in what Radarr grabs.
+   *
+   * Returns the queued command so a caller can follow it with
+   * `getCommand()`; one that doesn't care can ignore it.
    */
-  async triggerSearch(radarrId: number): Promise<void> {
+  async triggerSearch(radarrId: number): Promise<CommandRef> {
     const command: MoviesSearchCommand = {
       name: 'MoviesSearch',
       movieIds: [radarrId],
     }
 
-    checkSdkError(
-      await postApiV3Command({ client: this.client, body: command }),
-      'triggerMovieSearch',
+    return this.postCommand(command, 'triggerMovieSearch')
+  }
+
+  /**
+   * Queues a RefreshMovie for one movie - Radarr re-reads its metadata and
+   * rescans its folder on disk.
+   *
+   * `isNew` exists for the add flow. Adding a movie makes Radarr queue its
+   * own refresh with body `{ movieIds: [id], isNewMovie: true }`, and Radarr
+   * de-dupes a POST whose body matches a queued command (trigger ignored) by
+   * returning that existing command. Sending exactly the same body is
+   * therefore how a caller gets the id of the refresh Radarr already queued,
+   * instead of queueing a second one - so `isNewMovie` is sent only when
+   * asked for, and omitted (never `false`) otherwise.
+   */
+  async refreshMovie(
+    radarrId: number,
+    opts: { isNew?: boolean } = {},
+  ): Promise<CommandRef> {
+    const command: RefreshMovieCommand = {
+      name: 'RefreshMovie',
+      movieIds: [radarrId],
+      ...(opts.isNew ? { isNewMovie: true as const } : {}),
+    }
+
+    return this.postCommand(command, 'refreshMovie')
+  }
+
+  /**
+   * One command by id, or `null` when Radarr has no record of it (404).
+   *
+   * A command stays in memory for ~5 minutes after it ends; past that the
+   * lookup falls back to Radarr's database (kept ~1 day), which reports
+   * `result: 'unknown'` and no `message` whatever actually happened. Any
+   * other failure still throws.
+   */
+  async getCommand(id: number): Promise<CommandSnapshot | null> {
+    const res = await getApiV3CommandById({
+      client: this.client,
+      path: { id },
+    })
+
+    let resource: CommandResource
+    try {
+      resource = unwrapSdkResult(res, 'getCommand')
+    } catch (error) {
+      if (error instanceof SdkHttpError && error.status === 404) {
+        return null
+      }
+      throw error
+    }
+
+    const snapshot = toCommandSnapshot(resource)
+    if (!snapshot) {
+      throw new Error(`getCommand returned a malformed command (id=${id})`)
+    }
+    return snapshot
+  }
+
+  /**
+   * Every command Radarr still holds in memory - queued, running, and those
+   * that ended within the last ~5 minutes. Older ones are only reachable
+   * one at a time through `getCommand()`.
+   */
+  async listCommands(): Promise<CommandSnapshot[]> {
+    const resources = unwrapSdkResult(
+      await getApiV3Command({ client: this.client }),
+      'listCommands',
     )
+
+    return resources.flatMap(resource => {
+      const snapshot = toCommandSnapshot(resource)
+      if (!snapshot) {
+        this.logger.warn(
+          { id: resource.id, name: resource.name },
+          'Skipping a malformed Radarr command',
+        )
+        return []
+      }
+      return [snapshot]
+    })
   }
 
   /**
@@ -675,24 +942,124 @@ export class RadarrService {
   }
 
   /**
-   * Fetches the current Radarr queue, optionally scoped to specific movie
-   * IDs. Used by MediaPollerService (no filter -> all tracked jobs matched
-   * client-side) and by unmonitorAndDelete (filtered to one movie).
+   * Fetches the whole Radarr queue - every page - optionally scoped to
+   * specific movie IDs. Used by MediaPollerService (no filter -> all tracked
+   * jobs matched client-side) and by unmonitorAndDelete (filtered to one
+   * movie).
+   *
+   * Records come back raw, `errorMessage` included - often the download
+   * client's only explanation for a failed item. Two kinds of row are kept
+   * on purpose:
+   * - pending releases (`delay`, `downloadClientUnavailable`, `fallback`),
+   *   which have no `downloadId` yet.
+   * - unknown items (`movieId` absent) - a download Radarr can't match to a
+   *   library movie. Requested with `includeUnknownMovieItems`, but only on
+   *   the unfiltered read: a caller scoping to movie ids wants that movie's
+   *   rows, and `unmonitorAndDelete` would otherwise cancel strangers.
    */
   async getQueue(movieIds?: number[]): Promise<QueueResource[]> {
-    const paging = unwrapSdkResult(
-      await getApiV3Queue({
+    const filtered = movieIds != null && movieIds.length > 0
+
+    return readAllPages(
+      async page =>
+        unwrapSdkResult(
+          await getApiV3Queue({
+            client: this.client,
+            query: {
+              includeMovie: false,
+              page,
+              pageSize: QUEUE_PAGE_SIZE,
+              ...(filtered ? { movieIds } : { includeUnknownMovieItems: true }),
+            },
+          }),
+          'getQueue',
+        ),
+      QUEUE_PAGE_SIZE,
+    )
+  }
+
+  /**
+   * Every history record since `date`, oldest first. `/history/since` is
+   * unpaged - one call returns the full list - and its `eventType` is the
+   * camelCase string (`grabbed`, `downloadFailed`, ...).
+   *
+   * Never log a record's `data` wholesale: `data.downloadUrl` carries the
+   * indexer's API key.
+   */
+  async getHistorySince(date: Date): Promise<HistoryResource[]> {
+    return unwrapSdkResult(
+      await getApiV3HistorySince({
         client: this.client,
-        query: {
-          includeMovie: false,
-          pageSize: 1000,
-          ...(movieIds && movieIds.length > 0 ? { movieIds } : {}),
-        },
+        query: { date: date.toISOString() },
       }),
-      'getQueue',
+      'getHistorySince',
+    )
+  }
+
+  /**
+   * Every history record for one download (the download client's id -
+   * the grab, the import, a failure, ...), newest first as Radarr sorts
+   * them. Paged upstream; this reads every page.
+   *
+   * Same caution as `getHistorySince()`: `data.downloadUrl` holds the
+   * indexer API key.
+   */
+  async getHistoryByDownloadId(downloadId: string): Promise<HistoryResource[]> {
+    return readAllPages(
+      async page =>
+        unwrapSdkResult(
+          await getApiV3History({
+            client: this.client,
+            query: { downloadId, page, pageSize: HISTORY_PAGE_SIZE },
+          }),
+          'getHistoryByDownloadId',
+        ),
+      HISTORY_PAGE_SIZE,
+    )
+  }
+
+  /**
+   * Whether Radarr can currently use its download client, per its own
+   * health checks. Unhealthy means any `DownloadClientCheck` or
+   * `DownloadClientStatusCheck` entry at `warning` or `error`; every other
+   * health source (indexers, disk space, updates, ...) is ignored here.
+   */
+  async isDownloadClientHealthy(): Promise<boolean> {
+    const checks = unwrapSdkResult(
+      await getApiV3Health({ client: this.client }),
+      'getHealth',
     )
 
-    return paging.records ?? []
+    return !checks.some(
+      check =>
+        check.source != null &&
+        DOWNLOAD_CLIENT_HEALTH_SOURCES.has(check.source) &&
+        (check.type === 'warning' || check.type === 'error'),
+    )
+  }
+
+  /**
+   * Radarr's own settings for what happens after a failed download:
+   * - `autoRedownloadFailed`: it searches for another release by itself.
+   * - `fromInteractive`: it does so even when the failed grab was picked by
+   *   hand (interactive search).
+   *
+   * A missing key falls back to Radarr's own default, `true` - the choice
+   * that keeps a caller from racing Radarr with a second search.
+   */
+  async getFailedDownloadConfig(): Promise<{
+    autoRedownloadFailed: boolean
+    fromInteractive: boolean
+  }> {
+    const config = unwrapSdkResult(
+      await getApiV3ConfigDownloadclient({ client: this.client }),
+      'getDownloadClientConfig',
+    )
+
+    return {
+      autoRedownloadFailed: config.autoRedownloadFailed ?? true,
+      fromInteractive: config.autoRedownloadFailedFromInteractiveSearch ?? true,
+    }
   }
 
   /**
@@ -849,31 +1216,271 @@ export class RadarrService {
     )
   }
 
+  // - Quality tier profiles
+
+  // - Tier -> id of its `lilnas · ` profile, filled by `ensureTierProfiles()`
+  private readonly tierProfileIds = new Map<QualityTier, number>()
+  private tierProfilesInFlight: Promise<void> | null = null
+
+  /**
+   * Plan 024. Creates or repairs the three `lilnas · <tier>` quality
+   * profiles, matched by name: a missing one is created, a drifted one is
+   * updated in place (see `planTierProfiles()`), and a profile without the
+   * prefix is never touched. Idempotent; concurrent calls share one run.
+   */
+  async ensureTierProfiles(): Promise<void> {
+    this.tierProfilesInFlight ??= this.reconcileTierProfiles().finally(() => {
+      this.tierProfilesInFlight = null
+    })
+    return this.tierProfilesInFlight
+  }
+
+  /**
+   * The id of `tier`'s profile. Served from the cache; a miss (boot's
+   * `ensureTierProfiles()` failed, or hasn't run yet) runs it first.
+   *
+   * Rejects - naming the profile - when that run fails, rather than let a
+   * caller fall back to some other profile: a request that can't get its
+   * tier fails outright.
+   */
+  async tierProfileId(tier: QualityTier): Promise<number> {
+    const cached = this.tierProfileIds.get(tier)
+    if (cached != null) return cached
+
+    try {
+      await this.ensureTierProfiles()
+    } catch (error) {
+      throw new Error(
+        `Could not set up Radarr's "${tierProfileName(tier)}" quality profile: ${getErrorMessage(error)}`,
+      )
+    }
+    const id = this.tierProfileIds.get(tier)
+    if (id == null) {
+      throw new Error(`Radarr has no "${tierProfileName(tier)}" profile`)
+    }
+    return id
+  }
+
+  /**
+   * The tier a quality profile id stands for, from the cache - `null` for a
+   * profile that isn't one of ours, or before the cache is filled.
+   */
+  tierForProfileId(id: number): QualityTier | null {
+    for (const [tier, profileId] of this.tierProfileIds) {
+      if (profileId === id) return tier
+    }
+    return null
+  }
+
+  // - One read-path attempt at filling the tier cache, kept once settled
+  private tierCacheWarm: Promise<void> | null = null
+
+  /**
+   * Makes sure `tierForProfileId()` has something to answer from before a
+   * library read maps its movies. A no-op once every tier is cached - the
+   * normal case, boot having filled it. Otherwise it joins (or starts) one
+   * `ensureTierProfiles()` run, **once**: a failure is logged and the read
+   * goes on with the tiers it has (`null` for the rest), and the read path
+   * never retries it - a request's `tierProfileId()` does that lazily, into
+   * the same cache. So a page view costs Radarr at most one extra round,
+   * ever.
+   */
+  private async warmTierCache(): Promise<void> {
+    if (this.tierProfileIds.size >= QUALITY_TIERS.length) return
+
+    this.tierCacheWarm ??= this.ensureTierProfiles().catch((error: unknown) => {
+      this.logger.warn(
+        `Could not load the quality tier profiles; titles report no tier until they are: ${getErrorMessage(error)}`,
+      )
+    })
+    await this.tierCacheWarm
+  }
+
+  /** `toMovie()` with this service's tier cache behind `qualityTier`. */
+  private readonly toMovie = (movie: MovieResource): Movie =>
+    toMovie(movie, id => this.tierForProfileId(id))
+
+  private async reconcileTierProfiles(): Promise<void> {
+    const [profilesResult, schemaResult] = await Promise.all([
+      getApiV3Qualityprofile({ client: this.client }),
+      getApiV3QualityprofileSchema({ client: this.client }),
+    ])
+    const plans = planTierProfiles(
+      'radarr',
+      unwrapSdkResult(profilesResult, 'getQualityProfiles'),
+      unwrapSdkResult(schemaResult, 'getQualityProfileSchema'),
+    )
+
+    // - One at a time, caching each as it lands, so a failure part-way
+    //   still leaves the tiers before it usable
+    for (const plan of plans) {
+      this.tierProfileIds.set(plan.tier, await this.applyTierProfilePlan(plan))
+    }
+  }
+
+  private async applyTierProfilePlan(
+    plan: TierProfilePlan<QualityProfileResource>,
+  ): Promise<number> {
+    const name = tierProfileName(plan.tier)
+
+    switch (plan.action) {
+      case 'keep':
+        return plan.id
+
+      case 'create': {
+        const created = unwrapSdkResult(
+          await postApiV3Qualityprofile({
+            client: this.client,
+            body: plan.profile,
+          }),
+          'createQualityProfile',
+        )
+        if (created.id == null) {
+          throw new Error(
+            `createQualityProfile returned "${name}" without an id`,
+          )
+        }
+        this.logger.log(`Created quality profile "${name}" (${created.id})`)
+        return created.id
+      }
+
+      case 'update':
+        unwrapSdkResult(
+          await putApiV3QualityprofileById({
+            client: this.client,
+            path: { id: String(plan.id) },
+            body: plan.profile,
+          }),
+          'updateQualityProfile',
+        )
+        this.logger.log(
+          `Repaired drifted quality profile "${name}" (${plan.id})`,
+        )
+        return plan.id
+    }
+  }
+
+  // - Flagged release profile
+
+  // - Titles already warned about as unmirrorable, so each is logged once
+  private readonly reportedSkippedFlagTitles = new Set<string>()
+
+  /**
+   * Plan 024. Mirrors this app's flagged release titles (`bad_files`) into
+   * the `lilnas · Flagged releases` release profile, so Radarr's own RSS
+   * sync and automatic searches reject them too. Created on the first flag,
+   * updated only when the term set changes, deleted with the last flag (an
+   * empty profile is invalid) - see `planFlaggedReleaseProfile()`. A
+   * profile under any other name is never touched.
+   *
+   * Interactive grabs ignore release profiles, so this backs up - doesn't
+   * replace - `ReleaseService`'s own refusal of a flagged release.
+   */
+  async syncFlaggedReleaseProfile(titles: string[]): Promise<void> {
+    const { terms, skipped } = buildFlaggedTerms(titles)
+    const unreported = skipped.filter(
+      title => !this.reportedSkippedFlagTitles.has(title),
+    )
+    if (unreported.length > 0) {
+      unreported.forEach(title => this.reportedSkippedFlagTitles.add(title))
+      this.logger.warn(
+        `Not mirroring ${unreported.length} flagged release title(s) into Radarr: a "/" would make Radarr read the term as a regex: ${unreported.join(', ')}`,
+      )
+    }
+
+    const plan = planFlaggedReleaseProfile(
+      unwrapSdkResult(
+        await getApiV3Releaseprofile({ client: this.client }),
+        'getReleaseProfiles',
+      ),
+      terms,
+    )
+
+    if (plan.create) {
+      const created = unwrapSdkResult(
+        await postApiV3Releaseprofile({
+          client: this.client,
+          body: plan.create,
+        }),
+        'createReleaseProfile',
+      )
+      this.logger.log(
+        `Created release profile "${FLAGGED_RELEASE_PROFILE_NAME}" (${created.id}) with ${terms.length} term(s)`,
+      )
+    }
+
+    if (plan.update) {
+      unwrapSdkResult(
+        await putApiV3ReleaseprofileById({
+          client: this.client,
+          path: { id: String(plan.update.id) },
+          body: plan.update,
+        }),
+        'updateReleaseProfile',
+      )
+      this.logger.log(
+        `Updated release profile "${FLAGGED_RELEASE_PROFILE_NAME}" (${plan.update.id}) to ${terms.length} term(s)`,
+      )
+    }
+
+    for (const id of plan.deleteIds) {
+      checkSdkError(
+        await deleteApiV3ReleaseprofileById({
+          client: this.client,
+          path: { id },
+        }),
+        'deleteReleaseProfile',
+      )
+      this.logger.log(
+        `Deleted release profile "${FLAGGED_RELEASE_PROFILE_NAME}" (${id})`,
+      )
+    }
+  }
+
+  /**
+   * Posts a command and returns a reference to it. Radarr answers 201 with
+   * the command resource - possibly one it already had queued (see
+   * `refreshMovie()`) - and its `id` is the handle `getCommand()` takes.
+   */
+  private async postCommand(
+    command: CommandResourceWritable,
+    context: string,
+  ): Promise<CommandRef> {
+    const resource = unwrapSdkResult(
+      await postApiV3Command({ client: this.client, body: command }),
+      context,
+    )
+
+    if (resource.id == null) {
+      throw new Error(`${context} returned a command without an id`)
+    }
+
+    return {
+      id: resource.id,
+      name: resource.name ?? command.name ?? '',
+      // Radarr always stamps `queued`; the fallback only keeps the type
+      // honest if a response ever omits it.
+      queuedAt: resource.queued ?? new Date().toISOString(),
+    }
+  }
+
+  /**
+   * Where an add goes. The root folder only - the quality profile is the
+   * requested tier's (see `EnsureMovieOptions.qualityProfileId`).
+   */
   private async getDefaultConfiguration(): Promise<{
-    qualityProfileId: number
     rootFolderPath: string
   }> {
-    const [profiles, folders] = await Promise.all([
-      unwrapSdkResult(
-        await getApiV3Qualityprofile({ client: this.client }),
-        'getQualityProfiles',
-      ),
-      unwrapSdkResult(
-        await getApiV3Rootfolder({ client: this.client }),
-        'getRootFolders',
-      ),
-    ])
-
-    const profile = profiles[0]
-    if (!profile || profile.id == null) {
-      throw new Error('No quality profiles available in Radarr')
-    }
+    const folders = unwrapSdkResult(
+      await getApiV3Rootfolder({ client: this.client }),
+      'getRootFolders',
+    )
 
     const folder = folders.find(f => f.accessible)
     if (!folder || folder.path == null) {
       throw new Error('No accessible root folders available in Radarr')
     }
 
-    return { qualityProfileId: profile.id, rootFolderPath: folder.path }
+    return { rootFolderPath: folder.path }
   }
 }

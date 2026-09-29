@@ -596,6 +596,7 @@ async function seedRows(
       }
       if (
         job.data.status === DownloadJobStatus.Failed ||
+        job.data.status === DownloadJobStatus.NotFound ||
         job.data.status === DownloadJobStatus.Cancelled
       ) {
         break
@@ -755,7 +756,8 @@ async function reachedClientRow(
         job.status === DownloadJobStatus.Downloading ||
         job.status === DownloadJobStatus.Importing ||
         job.status === DownloadJobStatus.Completed ||
-        job.status === DownloadJobStatus.Failed
+        job.status === DownloadJobStatus.Failed ||
+        job.status === DownloadJobStatus.NotFound
       ) {
         break
       }

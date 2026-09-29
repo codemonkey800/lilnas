@@ -12,11 +12,8 @@ import {
   SeriesSearchResult,
   UnmonitorAndDeleteSeriesResult,
 } from 'src/media/types/sonarr.types'
-import {
-  MovieDeleteResultSchema,
-  MovieDownloadResultSchema,
-  TVDownloadResultSchema,
-} from 'src/schemas/context.schemas'
+import { describeKeptPack } from 'src/media/utils/sonarr.utils'
+import { MovieDeleteResultSchema } from 'src/schemas/context.schemas'
 import { SearchSelection } from 'src/schemas/search-selection'
 import { TvShowSelection } from 'src/schemas/tv-show'
 import { RetryService } from 'src/utils/retry.service'
@@ -27,6 +24,35 @@ import {
   TV_SHOW_DELETE_RESPONSE_CONTEXT_PROMPT,
   TV_SHOW_RESPONSE_CONTEXT_PROMPT,
 } from './prompt.constants'
+
+/** What a TV show download reply is about. */
+export type TvShowPromptSituation =
+  | 'TV_SHOW_CLARIFICATION'
+  | 'TV_SHOW_NO_RESULTS'
+  | 'TV_SHOW_SELECTION_NEEDED'
+  | 'TV_SHOW_GRANULAR_SELECTION_NEEDED'
+  | 'TV_SHOW_ERROR'
+  | 'TV_SHOW_SUCCESS'
+  | 'TV_SHOW_ALREADY_DOWNLOADED'
+  | 'TV_SHOW_PROCESSING_ERROR'
+
+export interface TvShowPromptContext {
+  searchQuery?: string
+  shows?: SeriesSearchResult[]
+  selectedShow?: SeriesSearchResult
+  errorMessage?: string
+  /**
+   * `TV_SHOW_SUCCESS`/`TV_SHOW_ALREADY_DOWNLOADED`: one line per part of the
+   * request (whole series, a season, an episode) on how it went - queued
+   * (with the job's `statusNote`), already downloaded, or failed and why.
+   */
+  requestResults?: string[]
+  autoApplied?: boolean
+  selectionCriteria?: string
+  autoSelectedShow?: boolean
+  selectionHint?: SearchSelection | null
+  granularSelectionHint?: TvShowSelection | null
+}
 
 @Injectable()
 export class PromptGenerationService {
@@ -43,6 +69,7 @@ export class PromptGenerationService {
       | 'multiple_results'
       | 'error'
       | 'success'
+      | 'already_downloaded'
       | 'processing_error'
       | 'no_downloads',
     context?: {
@@ -50,7 +77,8 @@ export class PromptGenerationService {
       movies?: MovieSearchResult[]
       selectedMovie?: MovieSearchResult
       errorMessage?: string
-      downloadResult?: unknown
+      /** `success` only: the requested job's `statusNote`, when it has one. */
+      statusNote?: string
       autoApplied?: boolean
       selectionCriteria?: string
       selectionHint?: SearchSelection | null
@@ -88,24 +116,31 @@ export class PromptGenerationService {
           }
           break
         case 'error':
-          contextPrompt += `There was an error with the movie request. ${context?.errorMessage || 'The Radarr service might be unavailable.'} Respond helpfully and suggest they try again.`
+          contextPrompt += `There was an error with the movie request. ${context?.errorMessage || 'The download app might be unavailable.'} Respond helpfully and suggest they try again.`
           break
+        // A queued request, not a finished download - the download app has
+        // only taken the request when this is generated.
         case 'success':
-          if (context?.selectedMovie && context?.downloadResult) {
+          if (context?.selectedMovie) {
             const movie = context.selectedMovie
-            // Validate the result structure with Zod schema
-            const result = MovieDownloadResultSchema.parse(
-              context.downloadResult,
-            )
 
             let successMessage = ''
             if (context.autoApplied && context.selectionCriteria) {
               successMessage += `Using ${context.selectionCriteria} as requested! `
             }
 
-            successMessage += `Successfully ${result.movieAdded ? 'added' : 'found'} "${movie.title}" ${result.movieAdded ? 'to download queue' : 'in library'}. ${result.searchTriggered ? 'Search has been triggered.' : 'Search will start automatically.'} Respond with enthusiasm.`
+            successMessage += `"${movie.title}" has been requested and is queued: the download app will search for a release and download it, which can take a while. It has NOT downloaded yet - do not say it downloaded, finished or is ready to watch. Tell them they can follow its progress at the links below.`
 
-            contextPrompt += successMessage
+            if (context.statusNote) {
+              successMessage += ` Current status: ${context.statusNote}.`
+            }
+
+            contextPrompt += `${successMessage} Respond with enthusiasm.`
+          }
+          break
+        case 'already_downloaded':
+          if (context?.selectedMovie) {
+            contextPrompt += `"${context.selectedMovie.title}" is already downloaded and in the library, so there was nothing new to fetch. Let them know they already have it.`
           }
           break
         case 'processing_error':
@@ -150,7 +185,8 @@ export class PromptGenerationService {
         multiple_results: 'I found multiple movies. Which one would you like?',
         error:
           'Sorry, there was an error with your movie request. Please try again.',
-        success: `Successfully added "${context?.selectedMovie?.title}" to downloads!`,
+        success: `Requested "${context?.selectedMovie?.title}" - it's queued for download.`,
+        already_downloaded: `"${context?.selectedMovie?.title}" is already downloaded!`,
         processing_error:
           'Sorry, I had trouble processing your selection. Please try searching again.',
         no_downloads: 'No downloads are currently active. The queue is clear!',
@@ -292,27 +328,8 @@ export class PromptGenerationService {
   async generateTvShowPrompt(
     messages: BaseMessage[],
     chatModel: ChatOpenAI,
-    situation:
-      | 'TV_SHOW_CLARIFICATION'
-      | 'TV_SHOW_NO_RESULTS'
-      | 'TV_SHOW_SELECTION_NEEDED'
-      | 'TV_SHOW_GRANULAR_SELECTION_NEEDED'
-      | 'TV_SHOW_ERROR'
-      | 'TV_SHOW_SUCCESS'
-      | 'TV_SHOW_PROCESSING_ERROR',
-    context?: {
-      searchQuery?: string
-      shows?: SeriesSearchResult[]
-      selectedShow?: SeriesSearchResult
-      errorMessage?: string
-      downloadResult?: unknown
-      autoApplied?: boolean
-      selectionCriteria?: string
-      granularSelection?: TvShowSelection | null
-      autoSelectedShow?: boolean
-      selectionHint?: SearchSelection | null
-      granularSelectionHint?: TvShowSelection | null
-    },
+    situation: TvShowPromptSituation,
+    context?: TvShowPromptContext,
   ): Promise<HumanMessage> {
     try {
       let contextPrompt = `Situation: ${situation}\n\n`
@@ -397,33 +414,35 @@ export class PromptGenerationService {
           }
           break
         case 'TV_SHOW_ERROR':
-          contextPrompt += `There was an error with the TV show request. ${context?.errorMessage || 'The Sonarr service might be unavailable.'} Respond helpfully and suggest they try again.`
+          contextPrompt += `There was an error with the TV show request. ${context?.errorMessage || 'The download app might be unavailable.'} Respond helpfully and suggest they try again.`
           break
+        // Queued requests, not finished downloads - the download app has only
+        // taken them when this is generated.
         case 'TV_SHOW_SUCCESS':
-          if (context?.selectedShow && context?.downloadResult) {
+          if (context?.selectedShow) {
             const show = context.selectedShow
-            // Validate the result structure with Zod schema
-            const result = TVDownloadResultSchema.parse(context.downloadResult)
 
             let successMessage = ''
             if (context.autoApplied && context.selectionCriteria) {
               successMessage += `Using ${context.selectionCriteria} as requested! `
             }
 
-            if (context.autoApplied && context.granularSelection?.selection) {
-              const selections = context.granularSelection.selection
-                .map(s =>
-                  s.episodes
-                    ? `season ${s.season} episodes ${s.episodes.join(', ')}`
-                    : `season ${s.season}`,
-                )
-                .join(', ')
-              successMessage += `Downloading ${selections} `
+            successMessage += `"${show.title}" has been requested and is queued: the download app will search for releases and download them, which can take a while. Nothing has downloaded yet - do not say it downloaded, finished or is ready to watch. Tell them they can follow its progress at the links below.`
+
+            if (context.requestResults?.length) {
+              successMessage += `\n\nHow each part of the request went:\n${bulletList(context.requestResults)}\n\nMention every part that was already downloaded or could not be requested, with its reason.`
             }
 
-            successMessage += `Successfully ${result.seriesAdded ? 'added' : 'updated'} "${show.title}" ${result.seriesAdded ? 'to download queue' : 'monitoring'}. ${result.searchTriggered ? 'Search has been triggered.' : 'Search will start automatically.'} Respond with enthusiasm about the TV show.`
+            contextPrompt += `${successMessage}\n\nRespond with enthusiasm about the TV show.`
+          }
+          break
+        case 'TV_SHOW_ALREADY_DOWNLOADED':
+          if (context?.selectedShow) {
+            contextPrompt += `Everything requested from "${context.selectedShow.title}" is already downloaded and in the library, so there was nothing new to fetch. Let them know they already have it.`
 
-            contextPrompt += successMessage
+            if (context.requestResults?.length) {
+              contextPrompt += `\n\nWhat was requested:\n${bulletList(context.requestResults)}`
+            }
           }
           break
         case 'TV_SHOW_PROCESSING_ERROR':
@@ -467,7 +486,8 @@ export class PromptGenerationService {
         TV_SHOW_GRANULAR_SELECTION_NEEDED: `I've selected "${context?.selectedShow?.title}". What would you like to download - entire series, specific seasons, or episodes?`,
         TV_SHOW_ERROR:
           'Sorry, there was an error with your TV show request. Please try again.',
-        TV_SHOW_SUCCESS: `Successfully added "${context?.selectedShow?.title}" to downloads!`,
+        TV_SHOW_SUCCESS: `Requested "${context?.selectedShow?.title}" - it's queued for download.${context?.requestResults?.length ? `\n${bulletList(context.requestResults)}` : ''}`,
+        TV_SHOW_ALREADY_DOWNLOADED: `"${context?.selectedShow?.title}" is already downloaded!`,
         TV_SHOW_PROCESSING_ERROR:
           'Sorry, I had trouble processing your selection. Please try searching again.',
       }
@@ -553,8 +573,13 @@ export class PromptGenerationService {
       )
 
       // Fallback responses based on situation type
+      const keptPacks = context.deleteResult?.keptPacks ?? []
+      const keptPacksNote =
+        keptPacks.length > 0
+          ? ` Heads up: ${keptPacks.map(describeKeptPack).join('; ')}.`
+          : ''
       const fallbackResponses: Record<string, string> = {
-        TV_SHOW_DELETE_SUCCESS: `✅ Successfully deleted "${context.selectedShow?.title}" from your library! The files have been permanently removed. 🗑️`,
+        TV_SHOW_DELETE_SUCCESS: `✅ Successfully deleted "${context.selectedShow?.title}" from your library! The files were deleted. 🗑️${keptPacksNote}`,
         TV_SHOW_DELETE_ERROR:
           context.errorMessage ||
           'Failed to delete the TV show. Please try again.',
@@ -579,27 +604,8 @@ export class PromptGenerationService {
    */
   async generateTvShowChatResponse(
     messages: BaseMessage[],
-    situation:
-      | 'TV_SHOW_CLARIFICATION'
-      | 'TV_SHOW_NO_RESULTS'
-      | 'TV_SHOW_SELECTION_NEEDED'
-      | 'TV_SHOW_GRANULAR_SELECTION_NEEDED'
-      | 'TV_SHOW_ERROR'
-      | 'TV_SHOW_SUCCESS'
-      | 'TV_SHOW_PROCESSING_ERROR',
-    context?: {
-      searchQuery?: string
-      shows?: SeriesSearchResult[]
-      selectedShow?: SeriesSearchResult
-      errorMessage?: string
-      downloadResult?: unknown
-      autoApplied?: boolean
-      selectionCriteria?: string
-      granularSelection?: TvShowSelection | null
-      autoSelectedShow?: boolean
-      selectionHint?: SearchSelection | null
-      granularSelectionHint?: TvShowSelection | null
-    },
+    situation: TvShowPromptSituation,
+    context?: TvShowPromptContext,
   ): Promise<HumanMessage> {
     // Create default chatModel for strategy use
     const chatModel = new ChatOpenAI({
@@ -640,4 +646,9 @@ export class PromptGenerationService {
       context,
     )
   }
+}
+
+/** `lines` as a markdown bullet list, one per line. */
+function bulletList(lines: readonly string[]): string {
+  return lines.map(line => `- ${line}`).join('\n')
 }

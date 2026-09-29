@@ -5,6 +5,7 @@ import {
   isShow,
   type Season,
   type ShowScope,
+  TERMINAL_DOWNLOAD_JOB_STATUSES,
 } from '@lilnas/utils/download/types'
 import { getErrorMessage } from '@lilnas/utils/error'
 import {
@@ -26,16 +27,14 @@ import { parseReleaseTarget } from './release.service'
 import { SonarrService } from './sonarr.service'
 
 /**
- * Statuses a job can never leave. Deliberately a second copy of the set in
- * media-poller.service.ts rather than an import from it: four members are
- * cheaper to duplicate than a dependency from this service onto the poller,
- * which it otherwise has nothing to do with.
+ * Statuses a job can never leave. Built from the shared
+ * `TERMINAL_DOWNLOAD_JOB_STATUSES` rather than hand-listed, so a terminal
+ * status added upstream (plan 024's `not_found`) lands here with no edit -
+ * and still not imported from media-poller.service.ts, which this service
+ * otherwise has nothing to do with.
  */
-const TERMINAL_STATUSES = new Set<DownloadJobStatus>([
-  DownloadJobStatus.Cancelled,
-  DownloadJobStatus.Completed,
-  DownloadJobStatus.Failed,
-])
+const TERMINAL_STATUSES: ReadonlySet<DownloadJobStatus> =
+  new Set<DownloadJobStatus>(TERMINAL_DOWNLOAD_JOB_STATUSES)
 
 /** What a delete removed, and how far up the title it reached. */
 export interface DeleteFilesResult {

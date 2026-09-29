@@ -1,7 +1,10 @@
+import type { DownloadClient } from '@lilnas/utils/download/client'
 import { EMPTY } from 'rxjs'
 
 import { RadarrService } from 'src/media/services/radarr.service'
 import { SonarrService } from 'src/media/services/sonarr.service'
+import { DownloadClientFactory } from 'src/media-operations/request-handling/download-client.factory'
+import { DiscordIdentity } from 'src/media-operations/request-handling/types/request-context.type'
 import { DataFetchingUtilities } from 'src/media-operations/request-handling/utils/data-fetching.utils'
 import { ParsingUtilities } from 'src/media-operations/request-handling/utils/parsing.utils'
 import { SelectionUtilities } from 'src/media-operations/request-handling/utils/selection.utils'
@@ -9,6 +12,22 @@ import { ValidationUtilities } from 'src/media-operations/request-handling/utils
 import { PromptGenerationService } from 'src/message-handler/services/prompts/prompt-generation.service'
 import { StateService } from 'src/state/state.service'
 import { RetryService } from 'src/utils/retry.service'
+
+// ============================================================================
+// Request Params
+// ============================================================================
+
+/**
+ * The Discord identity every `StrategyRequestParams` carries, keyed to the
+ * test's `userId` so the two describe the same sender.
+ */
+export function createMockDiscordIdentity(userId = 'user123'): DiscordIdentity {
+  return {
+    userId,
+    username: 'testuser',
+    displayName: 'Test User',
+  }
+}
 
 // ============================================================================
 // Individual Mock Creators
@@ -21,9 +40,29 @@ export function createMockRadarrService(): jest.Mocked<RadarrService> {
     checkHealth: jest.fn(),
     getLibraryMovies: jest.fn(),
     getDownloadingMovies: jest.fn(),
-    monitorAndDownloadMovie: jest.fn(),
     unmonitorAndDeleteMovie: jest.fn(),
   } as unknown as jest.Mocked<RadarrService>
+}
+
+/**
+ * A `DownloadClientFactory` whose `forDiscord` always hands back the same
+ * mocked client, so a test can stub `client.requestMovie`/`requestShow` and
+ * then assert both what was requested and who `forDiscord` was called for.
+ */
+export function createMockDownloadClientFactory(): {
+  factory: jest.Mocked<DownloadClientFactory>
+  client: jest.Mocked<DownloadClient>
+} {
+  const client = {
+    requestMovie: jest.fn(),
+    requestShow: jest.fn(),
+  } as unknown as jest.Mocked<DownloadClient>
+
+  const factory = {
+    forDiscord: jest.fn().mockReturnValue(client),
+  } as unknown as jest.Mocked<DownloadClientFactory>
+
+  return { factory, client }
 }
 
 export function createMockSonarrService(): jest.Mocked<SonarrService> {
@@ -33,7 +72,6 @@ export function createMockSonarrService(): jest.Mocked<SonarrService> {
     getSystemStatus: jest.fn(),
     checkHealth: jest.fn(),
     getDownloadingEpisodes: jest.fn(),
-    monitorAndDownloadSeries: jest.fn(),
     unmonitorAndDeleteSeries: jest.fn(),
     getSeriesDetails: jest.fn(),
     getSeasonDetails: jest.fn(),

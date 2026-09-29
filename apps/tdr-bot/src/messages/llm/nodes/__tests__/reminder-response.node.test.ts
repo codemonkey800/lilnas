@@ -111,6 +111,7 @@ function buildState(
   return {
     userInput,
     userId,
+    discord: { userId, username: 'testuser' },
     guildId,
     messages: [],
     images: [],

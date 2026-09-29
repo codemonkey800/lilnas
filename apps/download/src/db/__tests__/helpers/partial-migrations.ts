@@ -105,3 +105,18 @@ export function openPartiallyMigratedDb(
     sqlite,
   }
 }
+
+/**
+ * The `jobs` columns added by plain `ALTER TABLE ADD` migrations since the
+ * last recreate (0007, plan 024), as `SELECT *` returns them on a row that
+ * predates them. `migrateRest()` always runs to the newest migration, so a
+ * spec pinning an older migration's rows byte-for-byte spreads this in
+ * rather than listing columns that migration never knew about. A later
+ * migration that adds a nullable `jobs` column appends it here.
+ */
+export const JOB_COLUMNS_ADDED_LATER: Readonly<Record<string, null>> = {
+  status_note: null,
+  upstream_command_at: null,
+  upstream_command_id: null,
+  upstream_command_kind: null,
+}

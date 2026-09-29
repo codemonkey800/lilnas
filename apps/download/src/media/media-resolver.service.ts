@@ -71,9 +71,9 @@ export type LibraryChangeListener = (mediaIds: readonly string[]) => void
 
 /**
  * The library fields a page's state is derived from - whether the title is
- * in the library at all, its monitoring, and its file(s). A change in any of
- * them is what `onLibraryChange` reports; metadata (title, poster, ratings)
- * moving is not.
+ * in the library at all, its monitoring, its file(s), and its quality tier.
+ * A change in any of them is what `onLibraryChange` reports; metadata
+ * (title, poster, ratings) moving is not.
  */
 function libraryFingerprint(media: Movie | Show): string {
   return media.type === DownloadType.Movie
@@ -82,12 +82,14 @@ function libraryFingerprint(media: Movie | Show): string {
         media.monitored,
         media.filePath,
         media.addedAt,
+        media.qualityTier,
       ])
     : JSON.stringify([
         media.sonarrId,
         media.monitored,
         media.episodeCount,
         media.episodeFileCount,
+        media.qualityTier,
       ])
 }
 

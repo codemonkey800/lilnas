@@ -279,10 +279,10 @@ export class DownloadClient {
   }
 
   /**
-   * Resolves with the job's first terminal snapshot — `completed`, `failed`
-   * or `cancelled` — as seen over the download gateway's WebSocket, with one
-   * `getJob()` on every socket open to cover whatever happened before the
-   * socket was listening. Rejects on abort, and with a `DownloadApiError`
+   * Resolves with the job's first terminal snapshot — `completed`, `failed`,
+   * `cancelled` or `not_found` — as seen over the download gateway's
+   * WebSocket, with one `getJob()` on every socket open to cover whatever
+   * happened before the socket was listening. Rejects on abort, and with a `DownloadApiError`
    * when the job does not exist (404). Everything else — a dropped socket,
    * a 5xx, the backend being down — is retried on the reconnect ladder until
    * the signal says stop. Carries no timeout and does no cancelling of its

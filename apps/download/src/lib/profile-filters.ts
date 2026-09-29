@@ -91,7 +91,8 @@ const STATUS_RANK: Record<DownloadJobStatus, number> = {
   [DownloadJobStatus.Cancelling]: 11,
   [DownloadJobStatus.Completed]: 12,
   [DownloadJobStatus.Failed]: 13,
-  [DownloadJobStatus.Cancelled]: 14,
+  [DownloadJobStatus.NotFound]: 14,
+  [DownloadJobStatus.Cancelled]: 15,
 }
 
 /** Every status, in lifecycle order — see {@link STATUS_RANK}. */

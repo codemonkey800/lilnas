@@ -31,13 +31,15 @@ import type {
   JobProgress,
 } from 'src/components/detail/job-state'
 import {
-  FINISHING_LABEL,
+  clientPauseNote,
   handoffDetail,
   jobActionState,
+  jobChipLabel,
   jobHandoff,
   jobProgress,
   jobStatusLabel,
   jobTransferLine,
+  queueTimeLeft,
 } from 'src/components/detail/job-state'
 import { Avatar } from 'src/components/ui/avatar'
 import { Button } from 'src/components/ui/button'
@@ -211,6 +213,14 @@ export function AttemptList({
 }
 
 /**
+ * `statusNote` — plan 024's line on where a job stands ("Delayed by Radarr
+ * until 21:40"). Small, neutral grey on purpose, in-flight card and history
+ * row alike: it explains, it never alarms, so it is never `text-bad` the way
+ * `error` is.
+ */
+const STATUS_NOTE = 'text-cap text-ink-3'
+
+/**
  * `show-detail.pug`'s "Season 3, episode 6" — which part of a show an attempt
  * is for, so two in-flight attempts at one series can be told apart. `null`
  * for a movie, a video or a series-wide grab.
@@ -232,15 +242,23 @@ type AttemptCardProps = {
 }
 
 /**
- * `attemptInFlight`: the attempt's status chip and percentage over a bar, a
- * note, the time estimate (or, once the bytes are down, what happens next),
- * and whatever this status lets you do.
+ * `attemptInFlight`: the attempt's status chip and percentage, its status
+ * note right under the chip, a bar, a note, the time estimate (or, once the
+ * bytes are down, what happens next), and whatever this status lets you do.
  *
  * A video's card is `video-detail.pug`'s `progress` mixin: yt-dlp's counter
  * (`fragment 4 of 9`) between the chip and the percentage, and the transfer
  * line (`412 MB / 640 MB · 3.1 MB/s · ~2m left`) under the bar. A movie's or
- * show's queue entry has a status word but no counter and no bytes, so its
- * card keeps the bare `~hh:mm:ss left`.
+ * show's queue entry has a status word but no counter; while SABnzbd is read
+ * directly its line is plan 025's `throughput` — `1.2 GB / 2.6 GB · 8.4 MB/s ·
+ * ~3m left` — and without SABnzbd it keeps the bare `~hh:mm:ss left`.
+ *
+ * Paused in SABnzbd — its whole queue stopped, not a pause made here — the
+ * note under the chip says so (`clientPauseNote`), taking the place of
+ * `statusNote` while it holds: both describe where the job stands, and the
+ * SABnzbd pause is the one stopping it now. The line under the bar keeps just
+ * the bytes, and the card offers Cancel but neither Pause nor Resume, since
+ * this app did not make that pause and so does not offer to undo it.
  *
  * Its own component so each card owns its own transition — pausing one of two
  * in-flight attempts must not grey out the other's buttons.
@@ -265,12 +283,15 @@ function AttemptCard({
   // Every byte down but not in the library yet: the chip says so, the bar
   // settles, and the spent `~00:00:00 left` gives way to what happens next.
   const handoff = jobHandoff(job.status, progress?.pct)
-  const label =
-    handoff === 'finishing' ? FINISHING_LABEL : jobStatusLabel(job.status)
+  // `unpacking` while SABnzbd says it is post-processing, `finishing up` at
+  // 100% otherwise — see `jobChipLabel`.
+  const label = jobChipLabel(job.status, handoff, progress?.stage)
   // Only a video's note is a counter. A movie's is Radarr's status word, which
   // the chip already says better.
   const counter = isVideo ? (progress?.note ?? null) : null
   const aside = attemptAside(job, handoff, progress, transfer)
+  const sabPause = clientPauseNote(job)
+  const statusNote = sabPause ?? job.statusNote
   const note = [attemptScopeLabel(job.scope), job.error]
     .filter(Boolean)
     .join(' — ')
@@ -284,6 +305,11 @@ function AttemptCard({
   const controls = ATTEMPT_ACTION_SPECS.map(spec => {
     const availability = jobActionState(job.status, spec.key)
     if (availability === 'none') {
+      return null
+    }
+
+    // SABnzbd's pause, not ours — nothing here to pause further or undo.
+    if (sabPause && (spec.key === 'pause' || spec.key === 'resume')) {
       return null
     }
 
@@ -363,6 +389,9 @@ function AttemptCard({
           </span>
         ) : null}
       </div>
+      {statusNote ? (
+        <p className={cns('mt-2', STATUS_NOTE)}>{statusNote}</p>
+      ) : null}
       {progress ? (
         <Bar
           aria-label="Download progress"
@@ -394,11 +423,16 @@ function AttemptCard({
 /**
  * The mono line under an attempt's bar, first match wins:
  *
- * - A handoff says what happens next (`handoffDetail`) — nothing for a video,
- *   whose chip already names the step.
+ * - A handoff says what happens next (`handoffDetail`), quoting SABnzbd's
+ *   post-processing step when it has one — nothing for a video, whose chip
+ *   already names the step.
  * - A video with a bar reads its transfer and yt-dlp's estimate, which
  *   `formatEta` has already phrased: `412 MB / 640 MB · 3.1 MB/s · ~2m left`.
- * - A movie or show wraps the queue's raw `hh:mm:ss` as `~00:12:00 left`.
+ * - A movie or show reads SABnzbd's bytes and rate when it has them, then the
+ *   estimate `queueTimeLeft` phrases — `1.2 GB / 2.6 GB · 8.4 MB/s · ~3m
+ *   left`, or the queue's raw `hh:mm:ss` as `~00:12:00 left` without SABnzbd.
+ *   Paused in SABnzbd — the download or its whole queue — the line keeps
+ *   just the bytes.
  * - A video with bytes but no percentage reads the transfer alone.
  */
 function attemptAside(
@@ -408,20 +442,19 @@ function attemptAside(
   transfer: string | null,
 ): string | null {
   if (handoff) {
-    return handoffDetail(handoff, job.media.type)
+    return handoffDetail(handoff, job.media.type, progress)
   }
 
   if (!progress) {
     return transfer
   }
 
-  if (job.media.type === DownloadType.Video) {
-    return (
-      [progress.detail, progress.timeLeft].filter(Boolean).join(' · ') || null
-    )
-  }
+  const timeLeft =
+    job.media.type === DownloadType.Video
+      ? progress.timeLeft
+      : queueTimeLeft(progress)
 
-  return progress.timeLeft ? `~${progress.timeLeft} left` : null
+  return [progress.detail, timeLeft].filter(Boolean).join(' · ') || null
 }
 
 type AttemptLineProps = {
@@ -435,10 +468,16 @@ type AttemptLineProps = {
 const RETRY_SPEC = ACTION_SPECS.find(spec => spec.key === 'retry')
 
 /**
- * `attemptLine`: a finished attempt — fixed-width status chip, when it ended,
- * who asked, and what went wrong. Otherwise no controls, except Retry on the
+ * `attemptLine`: a finished attempt — fixed-width status chip, which part of a
+ * show it was for, when it ended, who asked, what went wrong, and its status
+ * note on a line of its own. Otherwise no controls, except Retry on the
  * newest row when `AttemptList`'s `retryable` allows it — at the legend rows'
  * `sm` size, since it sits in a `StateLine` rather than a card.
+ *
+ * The chip column is 132px — plan 024's `no release found` on one line — and
+ * every row shares it so the column stays straight. The scope is the in-flight
+ * card's own "Season 3, episode 4", and says nothing for a movie, a video or a
+ * series-wide grab.
  */
 function AttemptLine({ job, now, onRetry }: AttemptLineProps): JSX.Element {
   const [pending, startTransition] = useTransition()
@@ -448,6 +487,8 @@ function AttemptLine({ job, now, onRetry }: AttemptLineProps): JSX.Element {
       await action(job.id)
     })
   }
+
+  const scope = attemptScopeLabel(job.scope)
 
   return (
     <StateLine
@@ -459,7 +500,7 @@ function AttemptLine({ job, now, onRetry }: AttemptLineProps): JSX.Element {
       data-status={job.status}
     >
       <Chip
-        className={cns('sm:w-[108px] sm:justify-center')}
+        className={cns('sm:w-[132px] sm:justify-center')}
         label={jobStatusLabel(job.status)}
         tone={statusTone(job.status)}
       />
@@ -468,12 +509,18 @@ function AttemptLine({ job, now, onRetry }: AttemptLineProps): JSX.Element {
           'flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-ink-3',
         )}
       >
+        {scope ? <span className={cns('text-ink-2')}>{scope}</span> : null}
         <span className={cns('font-mono text-mono-sm text-ink-4')}>
           {formatRelative(job.completedAt ?? job.createdAt, now)}
         </span>
         <AttemptRequester job={job} />
         {job.error ? (
           <span className={cns('min-w-0 text-bad')}>{job.error}</span>
+        ) : null}
+        {job.statusNote ? (
+          <span className={cns('basis-full', STATUS_NOTE)}>
+            {job.statusNote}
+          </span>
         ) : null}
       </span>
       {onRetry && RETRY_SPEC ? (

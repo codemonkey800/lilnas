@@ -2,14 +2,17 @@ import { cns } from '@lilnas/utils/cns'
 import type {
   BadFile,
   DownloadJob,
+  QualityTier,
   Season,
   Show,
 } from '@lilnas/utils/download/types'
 import {
+  DEFAULT_QUALITY_TIER,
   isMediaInFlight,
   isTerminalDownloadJobStatus,
 } from '@lilnas/utils/download/types'
 import type { JSX, ReactNode } from 'react'
+import { useState } from 'react'
 
 import { jobUpstreamSource } from 'src/components/activity/activity-requester'
 import { AttemptList } from 'src/components/detail/attempt-list'
@@ -143,8 +146,8 @@ export type ShowDetailProps = {
   onUnflag?: UnflagBadFileAction
   /**
    * Whether the live feed is currently **not** connected — `!connected` off
-   * the socket, handed in by `ShowDetailLive` so this stays a plain function
-   * of its props. Drives {@link SHOW_STALE_LABEL}, and only while something
+   * the socket, handed in by `ShowDetailLive` so the socket stays out of this
+   * component. Drives {@link SHOW_STALE_LABEL}, and only while something
    * is moving: a settled series has no frame to miss.
    */
   stale?: boolean
@@ -196,6 +199,17 @@ export type ShowDetailProps = {
  * item Sonarr is running on its own draws the chip and the bar off the show's
  * `queueSnapshot` either way: once adopted it is an ordinary attempt credited
  * to `Sonarr`, and an upgrade — never adopted — has no attempt anywhere.
+ *
+ * ## One quality tier, in the header
+ *
+ * Plan 024's tier picker sits beside Download series and nowhere else —
+ * Sonarr keeps one quality profile per series. The tier is state *here*, not
+ * in the button, because the season and episode Downloads further down
+ * request in it too: `requestInSeriesTier` hands `ShowSeasons` an `onRequest`
+ * that adds the header's tier to every season and episode press. Sending
+ * nothing from those rows instead would not be neutral — the backend reads an
+ * absent tier as `DEFAULT_QUALITY_TIER` and moves the whole series onto it, so
+ * fetching one episode of a 4K show would quietly downgrade the show.
  *
  * `AttemptList` then lists **every** attempt at this show, any scope — an
  * episode grab is an attempt on this show, and its card says which episode.
@@ -256,6 +270,16 @@ export function ShowDetail({
   // video pages make.
   const reconnecting = stale && (inFlight || attemptInFlight)
 
+  // The show's own tier, else the default — what the header's picker opens
+  // on. See "One quality tier, in the header".
+  const [qualityTier, setQualityTier] = useState<QualityTier>(
+    media.qualityTier ?? DEFAULT_QUALITY_TIER,
+  )
+
+  const requestInSeriesTier: ShowRequestAction | undefined = onRequest
+    ? (mediaId, scope) => onRequest(mediaId, scope, qualityTier)
+    : undefined
+
   return (
     <>
       <LibraryLink />
@@ -267,9 +291,12 @@ export function ShowDetail({
       <DetailHeader
         actions={
           <div
+            // `items-start`, as `show-detail.pug` draws it: the tier picker's
+            // hint makes its group taller than Watch and Delete, and the
+            // buttons line up along the top rather than around its middle.
             className={cns(
               'mt-1 flex flex-col gap-2',
-              'sm:flex-row sm:flex-wrap sm:items-center sm:gap-2.5',
+              'sm:flex-row sm:flex-wrap sm:items-start sm:gap-2.5',
             )}
           >
             <WatchAction media={media} />
@@ -277,7 +304,9 @@ export function ShowDetail({
               className={cns(HEADER_ACTION)}
               full
               mediaId={media.id}
+              qualityTier={qualityTier}
               target={{ kind: 'series' }}
+              onQualityTierChange={setQualityTier}
               onRequest={onRequest}
             />
             {hasFiles ? (
@@ -372,7 +401,7 @@ export function ShowDetail({
         onFlag={onFlag}
         onGrab={onGrab}
         onReplace={onReplace}
-        onRequest={onRequest}
+        onRequest={requestInSeriesTier}
         onRetry={onRetry}
         onSearch={onSearch}
         onUnflag={onUnflag}

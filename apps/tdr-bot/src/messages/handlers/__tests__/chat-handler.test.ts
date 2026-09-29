@@ -193,6 +193,54 @@ describe('ChatHandler', () => {
       expect(result.handled).toBe(true)
     })
 
+    it("passes the author's Discord identity to the LLM", async () => {
+      const message = new MessageBuilder()
+        .inGuild()
+        .withMention(BOT_USER_ID)
+        .withContent(`<@${BOT_USER_ID}> download inception`)
+        .build()
+      Object.assign(message.author, {
+        username: 'alice.codes',
+        globalName: 'Alice',
+      })
+
+      await handler.handle(message, makeContext())
+
+      expect(llm.sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          discord: {
+            userId: 'user-123',
+            username: 'alice.codes',
+            displayName: 'Alice',
+          },
+        }),
+      )
+    })
+
+    it('leaves displayName unset when the author has no global name', async () => {
+      const message = new MessageBuilder()
+        .inGuild()
+        .withMention(BOT_USER_ID)
+        .withContent(`<@${BOT_USER_ID}> hello`)
+        .build()
+      Object.assign(message.author, {
+        username: 'alice.codes',
+        globalName: null,
+      })
+
+      await handler.handle(message, makeContext())
+
+      expect(llm.sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          discord: {
+            userId: 'user-123',
+            username: 'alice.codes',
+            displayName: undefined,
+          },
+        }),
+      )
+    })
+
     it('sends generic error reply when LLM throws a non-timeout error', async () => {
       llm.sendMessage.mockRejectedValue(new Error('LLM failure'))
 

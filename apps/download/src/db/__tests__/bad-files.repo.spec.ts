@@ -5,9 +5,12 @@ import {
   getBadFileByGuid,
   insertBadFile,
   listBadFilesByMediaId,
+  listFlaggedReleaseTitles,
+  usableReleaseTitle,
 } from 'src/db/bad-files.repo'
+import { upsertMediaFileRelease } from 'src/db/media-file-releases.repo'
 
-import { createTestDb } from './test-utils'
+import { createTestDb, type TestDb } from './test-utils'
 
 const flagger = {
   flaggedByEmail: 'alice@example.com',
@@ -275,5 +278,130 @@ describe('bad files repo', () => {
     } finally {
       close()
     }
+  })
+})
+
+describe('usableReleaseTitle', () => {
+  it('trims a real title', () => {
+    expect(usableReleaseTitle('  Inception.2010.1080p ', 'g')).toBe(
+      'Inception.2010.1080p',
+    )
+  })
+
+  it.each([
+    ['absent', undefined],
+    ['null', null],
+    ['blank', '   '],
+    ['just the guid', 'indexer://abc'],
+  ])('rejects a title that is %s', (_, title) => {
+    expect(usableReleaseTitle(title, 'indexer://abc')).toBeUndefined()
+  })
+})
+
+describe('listFlaggedReleaseTitles', () => {
+  let testDb: TestDb
+
+  beforeEach(() => {
+    testDb = createTestDb()
+  })
+
+  afterEach(() => {
+    testDb.close()
+  })
+
+  function flag(
+    mediaId: string,
+    releaseGuid: string,
+    releaseTitle?: string,
+  ): void {
+    insertBadFile(testDb.db, {
+      ...flagger,
+      mediaId,
+      mediaType: mediaId.startsWith('tmdb:')
+        ? DownloadType.Movie
+        : DownloadType.Show,
+      releaseGuid,
+      releaseTitle,
+    })
+  }
+
+  function fileRelease(
+    mediaId: string,
+    releaseGuid: string,
+    releaseTitle: string | undefined,
+    upstreamFileId: number,
+  ): void {
+    upsertMediaFileRelease(testDb.db, {
+      mediaId,
+      mediaType: mediaId.startsWith('tmdb:')
+        ? DownloadType.Movie
+        : DownloadType.Show,
+      releaseGuid,
+      releaseTitle,
+      upstreamFileId,
+    })
+  }
+
+  it('lists every titled flag of one media type, across titles', () => {
+    flag('tmdb:1', 'g1', 'Movie.One.1080p')
+    flag('tmdb:2', 'g2', 'Movie.Two.720p')
+    flag('tvdb:3', 'g3', 'Show.S01.1080p')
+
+    expect(
+      listFlaggedReleaseTitles(testDb.db, DownloadType.Movie).titles.sort(),
+    ).toEqual(['Movie.One.1080p', 'Movie.Two.720p'])
+    expect(listFlaggedReleaseTitles(testDb.db, DownloadType.Show)).toEqual({
+      titles: ['Show.S01.1080p'],
+      untitled: [],
+    })
+  })
+
+  it('falls back to the title media_file_releases has for the same guid', () => {
+    flag('tmdb:1', 'g1')
+    fileRelease('tmdb:1', 'g1', 'Movie.One.2160p', 501)
+
+    expect(listFlaggedReleaseTitles(testDb.db, DownloadType.Movie)).toEqual({
+      titles: ['Movie.One.2160p'],
+      untitled: [],
+    })
+  })
+
+  it('treats a flag titled with its own guid as untitled', () => {
+    flag('tmdb:1', 'indexer://g1', 'indexer://g1')
+    fileRelease('tmdb:1', 'indexer://g1', 'Movie.One.2160p', 501)
+
+    expect(
+      listFlaggedReleaseTitles(testDb.db, DownloadType.Movie).titles,
+    ).toEqual(['Movie.One.2160p'])
+  })
+
+  it('only falls back to a file of the same title', () => {
+    flag('tmdb:1', 'g1')
+    fileRelease('tmdb:2', 'g1', 'Some.Other.Movie', 501)
+
+    const result = listFlaggedReleaseTitles(testDb.db, DownloadType.Movie)
+
+    expect(result.titles).toEqual([])
+    expect(result.untitled.map(row => row.releaseGuid)).toEqual(['g1'])
+  })
+
+  it('reports a flag with no title anywhere as untitled', () => {
+    flag('tmdb:1', 'g1', 'Movie.One.1080p')
+    flag('tmdb:1', 'g2')
+    fileRelease('tmdb:1', 'g2', undefined, 501)
+
+    const result = listFlaggedReleaseTitles(testDb.db, DownloadType.Movie)
+
+    expect(result.titles).toEqual(['Movie.One.1080p'])
+    expect(result.untitled).toEqual([
+      expect.objectContaining({ mediaId: 'tmdb:1', releaseGuid: 'g2' }),
+    ])
+  })
+
+  it('is empty with no flags', () => {
+    expect(listFlaggedReleaseTitles(testDb.db, DownloadType.Movie)).toEqual({
+      titles: [],
+      untitled: [],
+    })
   })
 })

@@ -277,7 +277,7 @@ async function loadFixtures(file: string): Promise<Fixtures> {
 
 /**
  * Terminal states, verbatim from `TERMINAL_DOWNLOAD_JOB_STATUSES`
- * (`packages/utils/src/download/types.ts:56-60`). `Paused`/`Pausing` are
+ * (`packages/utils/src/download/types.ts`). `Paused`/`Pausing` are
  * **not** terminal — both exist today and are deliberately excluded there, so
  * anything that treats "not moving" as "finished" would be wrong about a
  * paused job.
@@ -286,6 +286,7 @@ const TERMINAL_STATUSES: ReadonlySet<DownloadJobStatus> = new Set([
   DownloadJobStatus.Cancelled,
   DownloadJobStatus.Completed,
   DownloadJobStatus.Failed,
+  DownloadJobStatus.NotFound,
 ])
 
 /**
@@ -305,6 +306,10 @@ const TERMINAL_STATUSES: ReadonlySet<DownloadJobStatus> = new Set([
  *   which move the job to `Cancelling` for the poller to settle. The delete
  *   routes cancel only an attempt still in flight; see {@link legalSuccessors}
  *   for a finished one.
+ *
+ * `NotFound` is terminal but **not** here: only a movie/show search can come
+ * back empty, so it lives in {@link MEDIA_TRANSITIONS} alone and a video job
+ * can never reach it.
  */
 const ALWAYS_REACHABLE: readonly DownloadJobStatus[] = [
   DownloadJobStatus.Cancelled,
@@ -340,7 +345,8 @@ const RESTING_STATUSES: ReadonlySet<DownloadJobStatus> = new Set([
  * file, a waiting job (`Requested`/`Searching`/`NeedsAttention`) stays where
  * it is — a job that never entered the queue sits in `Searching`
  * indefinitely, which is a legitimate outcome (no indexer had the release),
- * not a stall to fail on — while a grabbed one
+ * not a stall to fail on — until the search command completes with nothing
+ * grabbed, which ends it `NotFound` (plan 024) — while a grabbed one
  * (`Downloading`/`Importing`/`Paused`) fails with `Left the queue without
  * producing a file` after a grace period. `Failed` needs no entry here: it is
  * in {@link ALWAYS_REACHABLE}.
@@ -370,7 +376,11 @@ const MEDIA_TRANSITIONS: ReadonlyMap<
 > = new Map([
   [
     DownloadJobStatus.Requested,
-    [DownloadJobStatus.Searching, DownloadJobStatus.Completed],
+    [
+      DownloadJobStatus.Searching,
+      DownloadJobStatus.Completed,
+      DownloadJobStatus.NotFound,
+    ],
   ],
   [
     DownloadJobStatus.Searching,
@@ -380,6 +390,7 @@ const MEDIA_TRANSITIONS: ReadonlyMap<
       DownloadJobStatus.NeedsAttention,
       DownloadJobStatus.Paused,
       DownloadJobStatus.Completed,
+      DownloadJobStatus.NotFound,
     ],
   ],
   [
@@ -467,8 +478,9 @@ function legalSuccessors(
     // `updateJob()` is never called on one again during a watch. Absorbing,
     // by construction - and the delete routes keep it that way: they cancel
     // only an attempt still in flight, so teardown of a finished job leaves
-    // `completed` as `completed` (and `failed` as `failed`) rather than
-    // rewriting it to `cancelled`.
+    // `completed` as `completed` (and `failed`/`not_found` as they were)
+    // rather than rewriting it to `cancelled`. A Retry of a `not_found` job
+    // is a new job, not a transition out of this one.
     return []
   }
   const table = kind === 'video' ? VIDEO_TRANSITIONS : MEDIA_TRANSITIONS
@@ -1693,6 +1705,25 @@ function pollRow(
       kind: 'semantic',
       note: 'the job failed',
       details,
+    }
+  }
+
+  // Plan 024. The same honest outcome as a job still `Searching` at the end
+  // of the window, only settled: the search finished and no indexer held a
+  // release. The write path ran; the download path did not.
+  if (last === DownloadJobStatus.NotFound) {
+    return {
+      name,
+      status: 'pass',
+      hollow: true,
+      kind: 'semantic',
+      note: 'no release found — the search came back empty',
+      details: [
+        'Not a failure: the request reached Sonarr/Radarr and its search ' +
+          'completed, but no indexer held a release to grab. The download ' +
+          'path was not exercised.',
+        ...details,
+      ],
     }
   }
 

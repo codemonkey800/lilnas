@@ -147,6 +147,7 @@ function showCandidate(
     relativePath: 'the.wire.s03e05.mkv',
     releaseGroup: null,
     seasonNumber: 3,
+    series: { id: SONARR_ID },
     size: 2_000_000,
     ...overrides,
   }
@@ -319,12 +320,107 @@ describe('ManualImportService', () => {
       expect(sonarrService.getManualImportCandidates).toHaveBeenNthCalledWith(
         1,
         'download-a',
-        SONARR_ID,
-        3,
       )
       expect(candidates.map(candidate => candidate.path)).toEqual([
         SHOW_PATH,
         SHOW_PATH_2,
+      ])
+    })
+
+    // Sonarr v4 answers a query carrying `seriesId` with the series' library
+    // files, so the download is asked alone and the listing narrowed here.
+    it("keeps only the files of this series' download", async () => {
+      sonarrService.getQueue.mockResolvedValue([showQueueItem(4201)])
+      sonarrService.getManualImportCandidates.mockResolvedValue([
+        showCandidate({
+          episodes: [{ episodeNumber: 5, id: 4201, seasonNumber: 3 }],
+        }),
+        showCandidate({ path: SHOW_PATH_2, series: { id: SONARR_ID + 1 } }),
+        showCandidate({ path: '/downloads/unknown.mkv', series: undefined }),
+      ])
+
+      const candidates = await service.listCandidates(SHOW_ID, undefined)
+
+      expect(sonarrService.getManualImportCandidates).toHaveBeenCalledWith(
+        SHOW_DOWNLOAD_ID,
+      )
+      expect(candidates.map(candidate => candidate.path)).toEqual([SHOW_PATH])
+    })
+
+    it("keeps only the scoped season's files of a multi-season pack", async () => {
+      sonarrService.getQueue.mockResolvedValue([
+        showQueueItem(4201, { episodeId: null }),
+      ])
+      sonarrService.getManualImportCandidates.mockResolvedValue([
+        showCandidate({
+          episodes: [{ episodeNumber: 5, id: 4201, seasonNumber: 3 }],
+        }),
+        showCandidate({
+          episodes: [{ episodeNumber: 1, id: 4301, seasonNumber: 4 }],
+          path: SHOW_PATH_2,
+          seasonNumber: 4,
+        }),
+        // Parsed episodes but no season on the resource itself.
+        showCandidate({
+          episodes: [{ episodeNumber: 2, id: 4302, seasonNumber: 4 }],
+          path: '/downloads/the.wire.s04e02.mkv',
+          seasonNumber: null,
+        }),
+      ])
+
+      const candidates = await service.listCandidates(SHOW_ID, {
+        seasonNumber: 3,
+      })
+
+      expect(candidates.map(candidate => candidate.path)).toEqual([SHOW_PATH])
+    })
+
+    // Season 0 is specials - falsy, and still a season to narrow to.
+    it('narrows to season 0 rather than treating it as no season', async () => {
+      sonarrService.getQueue.mockResolvedValue([
+        showQueueItem(4001, { episodeId: null, seasonNumber: 0 }),
+      ])
+      sonarrService.getManualImportCandidates.mockResolvedValue([
+        showCandidate({
+          episodes: [{ episodeNumber: 1, id: 4001, seasonNumber: 0 }],
+          path: '/downloads/the.wire.s00e01.mkv',
+          seasonNumber: 0,
+        }),
+        showCandidate({
+          episodes: [{ episodeNumber: 5, id: 4201, seasonNumber: 3 }],
+        }),
+      ])
+
+      const candidates = await service.listCandidates(SHOW_ID, {
+        seasonNumber: 0,
+      })
+
+      expect(candidates.map(candidate => candidate.path)).toEqual([
+        '/downloads/the.wire.s00e01.mkv',
+      ])
+    })
+
+    it('maps only the largest unparsed file onto an episode scope', async () => {
+      sonarrService.getQueue.mockResolvedValue([showQueueItem(4201)])
+      sonarrService.getManualImportCandidates.mockResolvedValue([
+        showCandidate({ episodes: [], path: SHOW_PATH_2, size: 40_000_000 }),
+        showCandidate({ episodes: [], size: 2_000_000_000 }),
+      ])
+
+      const candidates = await service.listCandidates(SHOW_ID, {
+        episodeId: 4201,
+        seasonNumber: 3,
+      })
+
+      expect(
+        candidates.map(({ importable, path }) => ({ importable, path })),
+      ).toEqual([
+        { importable: false, path: SHOW_PATH_2 },
+        { importable: true, path: SHOW_PATH },
+      ])
+      expect(candidates[0]?.blockedReason).toBe(UNPARSED_EPISODES_REASON)
+      expect(candidates[1]?.episodes).toEqual([
+        { episodeNumber: 0, id: 4201, seasonNumber: 3 },
       ])
     })
 
@@ -484,8 +580,6 @@ describe('ManualImportService', () => {
 
       expect(sonarrService.getManualImportCandidates).toHaveBeenCalledWith(
         SHOW_DOWNLOAD_ID,
-        SONARR_ID,
-        undefined,
       )
       expect(sonarrService.commitManualImport).toHaveBeenCalledWith([
         expect.objectContaining({ episodeIds: [4201], seriesId: SONARR_ID }),
@@ -549,6 +643,24 @@ describe('ManualImportService', () => {
       expect(sonarrService.commitManualImport).not.toHaveBeenCalled()
     })
 
+    it('400s on an unparsed file that lost the episode-scope fallback', async () => {
+      sonarrService.getQueue.mockResolvedValue([showQueueItem(4201)])
+      sonarrService.getManualImportCandidates.mockResolvedValue([
+        showCandidate({ episodes: [], path: SHOW_PATH_2, size: 40_000_000 }),
+        showCandidate({ episodes: [], size: 2_000_000_000 }),
+      ])
+
+      await expect(
+        service.importFiles(SHOW_ID, {
+          episodeId: 4201,
+          paths: [SHOW_PATH, SHOW_PATH_2],
+        }),
+      ).rejects.toThrow(
+        `These files can't be imported from here: ${SHOW_PATH_2}`,
+      )
+      expect(sonarrService.commitManualImport).not.toHaveBeenCalled()
+    })
+
     it('404s when nothing is in scope', async () => {
       radarrService.getQueue.mockResolvedValue([])
 
@@ -562,6 +674,29 @@ describe('ManualImportService', () => {
         service.importFiles(MOVIE_ID, { episodeId: 4201, paths: [MOVIE_PATH] }),
       ).rejects.toThrow(BadRequestException)
       expect(radarrService.getQueue).not.toHaveBeenCalled()
+    })
+
+    it('400s when a movie import names more than one file', async () => {
+      const importing = service.importFiles(MOVIE_ID, {
+        paths: [MOVIE_PATH, '/downloads/Game.Night.2018/sample.mkv'],
+      })
+
+      await expect(importing).rejects.toThrow(BadRequestException)
+      await expect(importing).rejects.toThrow('A movie takes one file')
+      // Refused before anything is asked of Radarr.
+      expect(radarrService.getQueue).not.toHaveBeenCalled()
+      expect(radarrService.commitManualImport).not.toHaveBeenCalled()
+    })
+
+    it('counts a movie path sent twice as one file', async () => {
+      radarrService.getQueue.mockResolvedValue([movieQueueItem])
+      radarrService.getManualImportCandidates.mockResolvedValue([
+        movieCandidate,
+      ])
+
+      await expect(
+        service.importFiles(MOVIE_ID, { paths: [MOVIE_PATH, MOVIE_PATH] }),
+      ).resolves.toEqual({ importedCount: 1 })
     })
 
     it('leaves a job that is not NeedsAttention alone', async () => {

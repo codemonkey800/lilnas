@@ -8,6 +8,7 @@ import { SonarrService } from 'src/media/services/sonarr.service'
 import { StrategyRequestParams } from 'src/media-operations/request-handling/types/request-context.type'
 import { StrategyResult } from 'src/media-operations/request-handling/types/strategy-result.type'
 import {
+  formatEpisodeDownload,
   formatFileSize,
   formatTimeRemaining,
 } from 'src/media-operations/request-handling/utils/formatting.utils'
@@ -74,7 +75,7 @@ export class DownloadStatusStrategy extends BaseMediaStrategy {
         {
           userId,
           movieCount: movieDownloads.length,
-          episodeCount: episodeDownloads.length,
+          tvDownloadCount: episodeDownloads.length,
           duration: Date.now() - startTime,
         },
         'Fetched download status from services',
@@ -113,11 +114,16 @@ export class DownloadStatusStrategy extends BaseMediaStrategy {
         }
       }
 
-      // Format download data into minified JSON context
+      // Format download data into minified JSON context. Each TV entry is one
+      // download; a season pack covers several episodes.
       const downloadData = {
         summary: {
           totalMovies: movieDownloads.length,
-          totalEpisodes: episodeDownloads.length,
+          totalTvDownloads: episodeDownloads.length,
+          totalEpisodes: episodeDownloads.reduce(
+            (sum, e) => sum + e.episodeCount,
+            0,
+          ),
         },
         movies: movieDownloads.map(m => ({
           title: m.movieTitle,
@@ -130,7 +136,7 @@ export class DownloadStatusStrategy extends BaseMediaStrategy {
         })),
         episodes: episodeDownloads.map(e => ({
           series: e.seriesTitle,
-          episode: `S${e.seasonNumber}E${e.episodeNumber}: ${e.episodeTitle}`,
+          episode: formatEpisodeDownload(e),
           progress: e.progressPercent,
           status: e.status,
           size: formatFileSize(e.size),
@@ -142,6 +148,7 @@ export class DownloadStatusStrategy extends BaseMediaStrategy {
         {
           userId,
           movieCount: downloadData.summary.totalMovies,
+          tvDownloadCount: downloadData.summary.totalTvDownloads,
           episodeCount: downloadData.summary.totalEpisodes,
         },
         'Retrieved download status data',
@@ -149,7 +156,7 @@ export class DownloadStatusStrategy extends BaseMediaStrategy {
 
       // Add download context as system message and generate response
       const contextMessage = new SystemMessage(
-        `ACTIVE DOWNLOADS FOUND: ${downloadData.summary.totalMovies} movies and ${downloadData.summary.totalEpisodes} episodes currently downloading. Use ONLY the data provided below and do NOT mention any titles that are not in this data: ${JSON.stringify(downloadData)}`,
+        `ACTIVE DOWNLOADS FOUND: ${downloadData.summary.totalMovies} movies and ${downloadData.summary.totalTvDownloads} TV downloads (${downloadData.summary.totalEpisodes} episodes) currently downloading. Use ONLY the data provided below and do NOT mention any titles that are not in this data: ${JSON.stringify(downloadData)}`,
       )
 
       const response = await this.retryService.executeWithRetry(

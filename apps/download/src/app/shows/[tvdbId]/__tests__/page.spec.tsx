@@ -1,6 +1,10 @@
 import '@testing-library/jest-dom'
 
-import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
+import {
+  DownloadJobStatus,
+  DownloadType,
+  QualityTier,
+} from '@lilnas/utils/download/types'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { notFound } from 'next/navigation'
@@ -67,6 +71,8 @@ type Client = {
   getMedia: jest.Mock
   listBadFiles: jest.Mock
   listSeasons: jest.Mock
+  /** Only the request tests pass one — see {@link requestStub}. */
+  requestShow?: jest.Mock
 }
 
 function client(overrides: Partial<Client> = {}): Client {
@@ -256,5 +262,71 @@ describe('the lifecycle actions it wires', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
 
     expect(retryShowJob).toHaveBeenCalledWith('job_s')
+  })
+})
+
+/** ⚠️ A stub, never the client: the real call is a LIVE `POST /download/shows`. */
+function requestStub(): jest.Mock {
+  return jest.fn().mockResolvedValue(scopedJob(undefined))
+}
+
+describe('the request action it wires', () => {
+  async function pickTier(label: string): Promise<void> {
+    await userEvent.click(screen.getByRole('button', { name: /^Quality:/ }))
+    await userEvent.click(screen.getByRole('option', { name: label }))
+  }
+
+  it('forwards the picked tier with the whole-series request', async () => {
+    const requestShow = requestStub()
+    client({ requestShow })
+    await renderPage()
+
+    await pickTier('Up to 4K')
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Download series' }),
+    )
+
+    expect(requestShow).toHaveBeenCalledWith({
+      qualityTier: QualityTier.UpTo4k,
+      tvdbId: 277165,
+    })
+  })
+
+  it('⚠️ forwards the header’s tier with a season request', async () => {
+    const requestShow = requestStub()
+    client({ requestShow })
+    await renderPage()
+
+    await pickTier('Up to 720p')
+    await userEvent.click(
+      screen.getByRole('button', { name: /Download season 1/ }),
+    )
+
+    expect(requestShow).toHaveBeenCalledWith({
+      qualityTier: QualityTier.UpTo720p,
+      seasonNumber: 1,
+      tvdbId: 277165,
+    })
+  })
+
+  it('⚠️ forwards the show’s own tier with an episode request', async () => {
+    const requestShow = requestStub()
+    client({
+      getMedia: jest.fn().mockResolvedValue({
+        jobs: [],
+        media: show({ qualityTier: QualityTier.UpTo4k }),
+      }),
+      requestShow,
+    })
+    await renderPage()
+
+    // E2 has no file, so it carries the direct download control.
+    await userEvent.click(screen.getByRole('button', { name: 'Download' }))
+
+    expect(requestShow).toHaveBeenCalledWith({
+      episodeId: 2431,
+      qualityTier: QualityTier.UpTo4k,
+      tvdbId: 277165,
+    })
   })
 })
