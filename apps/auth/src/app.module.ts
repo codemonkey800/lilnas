@@ -1,6 +1,5 @@
 import { env } from '@lilnas/utils/env'
 import { Module } from '@nestjs/common'
-import { ThrottlerModule } from '@nestjs/throttler'
 import { LoggerModule } from 'nestjs-pino'
 
 import { AdminController } from './admin/admin.controller'
@@ -18,6 +17,7 @@ import {
 import { MeController } from './me/me.controller'
 import { RequestsController } from './requests/requests.controller'
 import { RequestsService } from './requests/requests.service'
+import { GatedHostsService } from './services/gated-hosts.service'
 import { ServiceRegistryService } from './services/service-registry.service'
 import { SseModule } from './sse/sse.module'
 import { AccessCacheModule } from './verify/access-cache.module'
@@ -32,34 +32,13 @@ const isProduction = env(EnvKeys.NODE_ENV, 'development') === 'production'
     AuthModule,
     AccessCacheModule,
     SseModule,
-    // S5: three named tiers, copied verbatim from
-    // apps/equations/src/app.module.ts (the only other lilnas app already
-    // using @nestjs/throttler) — burst, sustained, and hourly ceilings
-    // stacked together rather than a single limit. Applied via
-    // @UseGuards(ThrottlerGuard) on AdminController/RequestsController/
-    // MeController only — NOT VerifyController or HealthController. See
-    // those two controllers' own comments for why: /verify is the hot path
-    // for every gated host on the box, and a shared per-IP (or, behind
-    // Traefik, effectively per-upstream) counter in front of it is a
-    // single failure mode for the whole deployment, not a per-route
-    // concern. This is a deliberate omission, not an oversight.
-    ThrottlerModule.forRoot([
-      {
-        name: 'short',
-        ttl: 60000, // 1 minute
-        limit: 5, // 5 requests per minute
-      },
-      {
-        name: 'medium',
-        ttl: 900000, // 15 minutes
-        limit: 20, // 20 requests per 15 minutes
-      },
-      {
-        name: 'long',
-        ttl: 3600000, // 1 hour
-        limit: 50, // 50 requests per hour
-      },
-    ]),
+    // No rate limiter. Port 8081 is never published — every caller is this
+    // container's own Next server (Server Components/Actions, over
+    // localhost) or Traefik/a sibling container, so a per-IP limit here
+    // only ever sees 127.0.0.1 and ends up throttling the app itself: the
+    // admin dashboard and every pending page shared one global bucket and
+    // 429'd themselves within minutes. Abuse control belongs where the real
+    // client IP is visible (Traefik), not behind the Next server.
     LoggerModule.forRoot({
       pinoHttp: {
         level: isProduction ? 'info' : 'debug',
@@ -120,6 +99,7 @@ const isProduction = env(EnvKeys.NODE_ENV, 'development') === 'production'
     RequestsService,
     AdminGuard,
     ServiceRegistryService,
+    GatedHostsService,
     UsersService,
   ],
 })

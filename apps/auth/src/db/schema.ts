@@ -39,6 +39,12 @@ import {
 //     their own header comment below for why the link is a separate table
 //     from the identity, and why neither the link nor the UI ever accepts a
 //     hand-typed Discord handle.
+//
+//   gated_host — every host /verify has been asked about, i.e. every host
+//     Traefik actually routes through the lilnas-auth middleware. The
+//     service registry's second source, for hosts that live outside this
+//     repo's compose files (e.g. a ~/dev project exposed at
+//     *.dev.lilnas.io). See its own comment below.
 // ──────────────────────────────────────────────────────────────────────────────
 
 export const user = sqliteTable('user', {
@@ -411,3 +417,21 @@ export const discordLink = sqliteTable(
 )
 
 export type DiscordLinkRow = typeof discordLink.$inferSelect
+
+// A host Traefik has sent through the lilnas-auth ForwardAuth middleware.
+// Traefik only calls /verify for routers carrying that middleware, so a row
+// here is proof the host is gated — no compose file or Docker socket needed
+// to discover it. That is what lets a project outside this repo (anything
+// joined to `lilnas-proxy` with `middlewares=lilnas-auth`, see
+// docs/lilnas-expose.md) show up in the registry. `lastSeenAt` lets a host
+// whose project was torn down age out instead of listing forever;
+// gated-hosts.service.ts owns the write throttling and the age cutoff.
+export const gatedHost = sqliteTable('gated_host', {
+  // Lowercase, via normalizeHost() — the same form grants and
+  // access_request rows are keyed on.
+  host: text('host').primaryKey(),
+  firstSeenAt: integer('first_seen_at', { mode: 'timestamp_ms' }).notNull(),
+  lastSeenAt: integer('last_seen_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+export type GatedHostRow = typeof gatedHost.$inferSelect
