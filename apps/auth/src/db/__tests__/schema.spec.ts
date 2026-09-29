@@ -38,6 +38,7 @@ describe('schema + migrations', () => {
           'account',
           'discord_identity',
           'discord_link',
+          'gated_host',
           'grant',
           'pre_authorized_grant',
           'session',

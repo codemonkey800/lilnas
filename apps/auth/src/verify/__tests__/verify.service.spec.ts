@@ -20,6 +20,7 @@ import {
   runMigrations,
 } from 'src/db/database.module'
 import * as schema from 'src/db/schema'
+import { GatedHostsService } from 'src/services/gated-hosts.service'
 import { AccessCacheService } from 'src/verify/access-cache.service'
 import { VerifyController } from 'src/verify/verify.controller'
 import { VerifyService } from 'src/verify/verify.service'
@@ -645,6 +646,7 @@ describe('VerifyController integration (real NestJS app, real HTTP, real DB)', (
       providers: [
         VerifyService,
         AccessCacheService,
+        GatedHostsService,
         { provide: PinoLogger, useValue: fakeLogger() },
       ],
     })
@@ -874,6 +876,34 @@ describe('VerifyController integration (real NestJS app, real HTTP, real DB)', (
         expect(res.status).toBeGreaterThanOrEqual(500)
         expect(res.status).toBeLessThan(600)
         expect(res.headers['set-cookie']).toBeUndefined()
+      } finally {
+        await app.close()
+      }
+    } finally {
+      testDb.close()
+    }
+  })
+
+  it('records the (normalized) X-Forwarded-Host as a gated host, even for a signed-out request', async () => {
+    const testDb = createTestDb()
+    try {
+      const { app, port } = await startTestApp(testDb.db)
+      try {
+        await httpRequest(port, {
+          method: 'GET',
+          path: '/verify',
+          headers: {
+            'x-forwarded-host': 'Hop-Road.dev.lilnas.io:443',
+            'x-forwarded-proto': 'https',
+            'x-forwarded-uri': '/',
+          },
+        })
+
+        const hosts = testDb.db
+          .select({ host: schema.gatedHost.host })
+          .from(schema.gatedHost)
+          .all()
+        expect(hosts).toEqual([{ host: 'hop-road.dev.lilnas.io' }])
       } finally {
         await app.close()
       }

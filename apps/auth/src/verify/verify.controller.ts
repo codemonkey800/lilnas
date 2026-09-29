@@ -1,6 +1,7 @@
 import { All, Controller, Req, Res } from '@nestjs/common'
 import type { Request, Response } from 'express'
 
+import { GatedHostsService } from 'src/services/gated-hosts.service'
 import { normalizeHost } from 'src/services/normalize-host'
 
 import { VerifyService } from './verify.service'
@@ -62,17 +63,13 @@ export const VERIFY_RESPONSE_HEADERS = [
 // blocking an already-authenticated user's POST/PUT/DELETE to a migrated
 // service purely because of an unrelated infra config change this
 // controller has no visibility into.
-//
-// S5: deliberately NO @UseGuards(ThrottlerGuard) here, unlike every other
-// controller in this app — see app.module.ts's ThrottlerModule.forRoot()
-// comment. This is the ForwardAuth hot path for every gated host on the
-// box; a shared rate limiter in front of it is a single failure mode for
-// the whole deployment, not a per-route concern. The omission is
-// intentional, not an oversight.
 // ──────────────────────────────────────────────────────────────────────────────
 @Controller('verify')
 export class VerifyController {
-  constructor(private readonly verifyService: VerifyService) {}
+  constructor(
+    private readonly verifyService: VerifyService,
+    private readonly gatedHosts: GatedHostsService,
+  ) {}
 
   @All()
   async verify(@Req() req: Request, @Res() res: Response): Promise<void> {
@@ -84,11 +81,21 @@ export class VerifyController {
     // case-sensitive Set lookup would miss an existing grant and bounce an
     // already-granted user to /pending.
     const rawForwardedHost = firstHeaderValue(req.headers['x-forwarded-host'])
+    const forwardedHost = rawForwardedHost
+      ? normalizeHost(rawForwardedHost)
+      : undefined
+
+    // Traefik only calls /verify for routers carrying the lilnas-auth
+    // middleware, so this host is gated by definition — record it for the
+    // service registry. See gated-hosts.service.ts's header comment; a Map
+    // lookup in the common case, never throws.
+    if (forwardedHost) {
+      this.gatedHosts.recordSeen(forwardedHost)
+    }
+
     const decision = await this.verifyService.decide({
       cookieHeader: req.headers.cookie,
-      forwardedHost: rawForwardedHost
-        ? normalizeHost(rawForwardedHost)
-        : undefined,
+      forwardedHost,
       forwardedProto: firstHeaderValue(req.headers['x-forwarded-proto']),
       forwardedUri: firstHeaderValue(req.headers['x-forwarded-uri']),
     })

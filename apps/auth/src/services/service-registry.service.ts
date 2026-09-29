@@ -6,6 +6,8 @@ import path from 'path'
 
 import { EnvKeys } from 'src/env'
 
+import { GatedHostsService } from './gated-hosts.service'
+
 // ──────────────────────────────────────────────────────────────────────────────
 // "Adding a Traefik label is sufficient for a service to appear in the
 // admin UI." Adapted from apps/portal/src/utils/hosts.ts's
@@ -24,6 +26,11 @@ import { EnvKeys } from 'src/env'
 // still on the old `forward-auth` middleware from one already migrated to
 // `lilnas-auth` — what makes the admin UI useful during a staged,
 // per-router migration rather than only after it completes.
+//
+// Compose files only cover this repo. Hosts routed from anywhere else (a
+// ~/dev project on `lilnas-proxy`, say) come from GatedHostsService instead
+// — hosts /verify has actually been asked about — and are merged in by
+// ServiceRegistryService.getServices() below.
 // ──────────────────────────────────────────────────────────────────────────────
 
 const HOST_REGEX = /Host\(`([\S]+\.lilnas\.io)`\)/
@@ -278,7 +285,32 @@ export class ServiceRegistryService {
     | { entries: ServiceRegistryEntry[]; expiresAtMs: number }
     | undefined
 
-  constructor(private readonly logger: PinoLogger) {}
+  constructor(
+    private readonly logger: PinoLogger,
+    private readonly gatedHosts: GatedHostsService,
+  ) {}
+
+  // The compose scan (cached) plus every host /verify has recently seen
+  // that the scan doesn't already cover. The gated-host half is read fresh
+  // on every call — it is one indexed SELECT, and caching it would reopen
+  // the gap this exists to close: a first-ever visit to a new dev host
+  // redirects to /pending, whose status check must already see that host.
+  // Merged hosts are reported as `lilnas-auth` because that is the only
+  // way /verify ever sees them. Unlike the compose scan, *.dev.lilnas.io is
+  // NOT filtered out in production here: a dev host routed through the
+  // production lilnas-auth middleware is exactly what this is for.
+  async getServices(): Promise<ServiceRegistryEntry[]> {
+    const composeEntries = await this.getComposeServices()
+    const known = new Set(composeEntries.map(entry => entry.host))
+    const learned = this.gatedHosts
+      .listActiveHosts()
+      .filter(host => !known.has(host) && !isBlocklisted(host))
+      .map(host => ({ host, gatedBy: 'lilnas-auth' as const }))
+    if (learned.length === 0) return composeEntries
+    return [...composeEntries, ...learned].sort((a, b) =>
+      a.host.localeCompare(b.host),
+    )
+  }
 
   // "A filesystem walk per admin page load is fine, per verify request is
   // not — though the verify path never calls this." The cache exists
@@ -287,7 +319,7 @@ export class ServiceRegistryService {
   // CACHE_TTL_MS is a fixed constant rather than a new env-tunable, since
   // 30s already satisfies "adding a label is visible on the next admin
   // page load" without a config knob nobody requested.
-  async getServices(): Promise<ServiceRegistryEntry[]> {
+  private async getComposeServices(): Promise<ServiceRegistryEntry[]> {
     if (this.cache && this.cache.expiresAtMs > Date.now()) {
       return this.cache.entries
     }
