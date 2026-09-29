@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -48,8 +49,8 @@ jest.mock('next/navigation', () => ({
 // jsdom does not implement EventSource (same gap
 // src/app/pending/__tests__/pending-page.spec.tsx already works around) —
 // AdminDashboardClient opens one on mount for its own live-updates effect
-// (see that component's header comment), so a polyfill stub is required
-// even though none of the tests below exercise the live-update path itself.
+// (see that component's header comment), so a polyfill stub is required.
+// `emit()` lets the live-updates describe block below drive its listeners.
 type Listener = (event: unknown) => void
 class FakeEventSource {
   static instances: FakeEventSource[] = []
@@ -70,6 +71,12 @@ class FakeEventSource {
 
   close(): void {
     this.closed = true
+  }
+
+  emit(type: string): void {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener({ type })
+    }
   }
 }
 
@@ -1080,5 +1087,50 @@ describe('AdminDashboardClient — Edit access modal, Discord section', () => {
       within(modal).queryByRole('button', { name: /^unlink$/i }),
     ).not.toBeInTheDocument()
     expect(within(modal).getByText(/not linked/i)).toBeInTheDocument()
+  })
+})
+
+describe('AdminDashboardClient — live updates', () => {
+  function renderDashboard() {
+    render(
+      <AdminDashboardClient
+        initialQueue={[]}
+        initialUsers={[]}
+        services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
+      />,
+    )
+    const source = FakeEventSource.instances[0]
+    if (!source)
+      throw new Error('expected the dashboard to open an EventSource')
+    return source
+  }
+
+  it('does not refresh on the first SSE open — the page just rendered these props', () => {
+    const source = renderDashboard()
+
+    act(() => source.emit('open'))
+
+    expect(mockRefresh).not.toHaveBeenCalled()
+  })
+
+  it('refreshes on a later open (a reconnect may have missed events)', () => {
+    const source = renderDashboard()
+
+    act(() => source.emit('open'))
+    act(() => source.emit('open'))
+
+    expect(mockRefresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('refreshes on every admin-changed event', () => {
+    const source = renderDashboard()
+
+    act(() => source.emit('open'))
+    act(() => source.emit('admin-changed'))
+    act(() => source.emit('admin-changed'))
+
+    expect(mockRefresh).toHaveBeenCalledTimes(2)
   })
 })
