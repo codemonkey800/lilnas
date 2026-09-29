@@ -2,7 +2,7 @@
 
 import { cns } from '@lilnas/utils/cns'
 import { useRouter } from 'next/navigation'
-import { useEffect, useMemo, useState, useTransition } from 'react'
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 
 import {
   approveRequest,
@@ -245,6 +245,16 @@ export function AdminDashboardClient({
   // EventSource and open a fresh one after a backoff).
   const [sseEpoch, setSseEpoch] = useState(0)
 
+  // Whether the admin SSE stream has opened at least once since mount. The
+  // FIRST open lands a moment after page.tsx rendered these very props, so
+  // refreshing on it only re-ran the same five backend reads for nothing
+  // (every page load cost two full renders). Every LATER open — the
+  // browser's own auto-reconnect, or a rebuilt EventSource after an
+  // sseEpoch bump — follows a gap where events may have been missed, so
+  // those still refresh. A ref, not state: it survives the effect re-running
+  // on sseEpoch without itself causing a render.
+  const hasConnectedRef = useRef(false)
+
   // Live dashboard updates — see this component's own header comment above
   // for what publishes to this one broadcast topic and why router.refresh()
   // is the uniform reaction. Ported verbatim from pending-client.tsx's own
@@ -257,7 +267,13 @@ export function AdminDashboardClient({
     const refresh = () => router.refresh()
 
     const source = new EventSource('/api/sse/admin')
-    source.addEventListener('open', refresh)
+    source.addEventListener('open', () => {
+      if (!hasConnectedRef.current) {
+        hasConnectedRef.current = true
+        return
+      }
+      refresh()
+    })
     source.addEventListener('admin-changed', refresh)
 
     let retryTimer: ReturnType<typeof setTimeout> | undefined
