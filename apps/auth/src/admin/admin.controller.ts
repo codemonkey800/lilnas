@@ -10,7 +10,6 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common'
-import { ThrottlerGuard } from '@nestjs/throttler'
 import type { z } from 'zod'
 
 import { DB, type Db } from 'src/db/database.module'
@@ -138,11 +137,9 @@ export type DiscordLinkEntry = {
 // ──────────────────────────────────────────────────────────────────────────────
 // The admin API surface. Authorization is AdminGuard alone — see that
 // file's header comment for why it never touches the grants table.
-// ThrottlerGuard (S5) is layered on top of that, not instead of it — see
-// app.module.ts's ThrottlerModule.forRoot() comment for the tier values
-// and why this controller gets one but VerifyController does not.
+// No rate limiting — see app.module.ts's comment on why this app has none.
 // ──────────────────────────────────────────────────────────────────────────────
-@UseGuards(AdminGuard, ThrottlerGuard)
+@UseGuards(AdminGuard)
 @Controller('admin')
 export class AdminController {
   constructor(

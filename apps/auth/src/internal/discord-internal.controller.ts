@@ -76,12 +76,6 @@ const NOT_FOUND: DiscordLinkLookupResponse = { identity: null, user: null }
 // boundary here; there is no session cookie to check because the callers
 // (apps/download's DiscordLinkService, apps/tdr-bot) are servers with no
 // session of their own.
-//
-// No @UseGuards(ThrottlerGuard) either, for the same reason AdminCheckController
-// and VerifyController skip it: this is a container-to-container path called
-// once per Discord-attributed job render, and the app's default tiers (5/min
-// from one IP — and behind a shared Docker network every caller is effectively
-// one IP) would make the route useless rather than safer.
 @Controller('internal')
 export class DiscordLinkLookupController {
   constructor(@Inject(DB) private readonly db: Db) {}

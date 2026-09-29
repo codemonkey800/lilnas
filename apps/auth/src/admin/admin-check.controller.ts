@@ -25,11 +25,7 @@ export interface AdminCheckResponse {
 // identical trust boundary for its own unauthenticated status route.
 //
 // Registered flat in app.module.ts's `controllers` array, matching
-// MeController's own no-per-feature-module convention. No @UseGuards
-// (ThrottlerGuard) either — once Phase 1 wires this into most of
-// download's list/detail requests, it becomes a container-to-container hot
-// path like /verify, and the default throttle tiers would make it useless
-// from one caller's IP.
+// MeController's own no-per-feature-module convention.
 @Controller('admin')
 export class AdminCheckController {
   @Get('check')
