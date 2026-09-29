@@ -5,7 +5,7 @@ import {
   ADMIN_LINK_LABEL,
   APP_NAME,
   AppBar,
-  LILNAS_HREF,
+  HOME_HREF,
 } from 'src/components/shell/app-bar'
 import type { Viewer } from 'src/lib/viewer'
 
@@ -27,12 +27,11 @@ function bar(): HTMLElement {
 }
 
 describe('AppBar', () => {
-  it('renders the doorplate pointing out to lilnas, not at this app', () => {
+  it("renders the doorplate pointing at this app's own homepage", () => {
     render(<AppBar viewer={VIEWER} />)
     const doorplate = screen.getByRole('link', { name: APP_NAME })
 
-    expect(doorplate).toHaveAttribute('href', LILNAS_HREF)
-    expect(doorplate).not.toHaveAttribute('href', '/')
+    expect(doorplate).toHaveAttribute('href', HOME_HREF)
   })
 
   it('renders the account link when there is a viewer', () => {
