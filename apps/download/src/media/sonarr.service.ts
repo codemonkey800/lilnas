@@ -255,8 +255,9 @@ export function toSonarrReleaseScope(
 export interface EnsureSeriesOptions {
   /**
    * `true` for a request: add the series monitored (`monitor: 'all'` -
-   * every season but the specials), or turn series monitoring on for a
-   * library series that has it off. `false`
+   * every season but the specials; a narrow scope's add is monitored later,
+   * by `monitorScope` - see `ensureSeries`), or turn series monitoring on
+   * for a library series that has it off. `false`
    * for browsing and grabbing: add an absent series **unmonitored**
    * (`monitor: 'none'`, so every episode is off too) and never write to one
    * that is already there. Sonarr's interactive search and its grab endpoint
@@ -773,10 +774,12 @@ export class SonarrService {
    *   covers every episode outside the specials - Sonarr's
    *   `MonitorTypes.All` is `SeasonNumber > 0` (`EpisodeMonitoredService.cs`),
    *   the same line `monitorScopedEpisodes` draws for an unscoped request.
-   *   A monitored add for a narrower scope is `'none'` (the series flag
-   *   still on), so RSS isn't armed for every other episode: the caller
-   *   monitors the scope with `monitorScope` once the add-time refresh has
-   *   finished and the episodes exist. An unmonitored add is `'none'`.
+   *   A monitored add for a narrower scope is `'none'`, so RSS isn't armed
+   *   for every other episode - and Sonarr adds a `'none'` series with the
+   *   series flag **off**, whatever `monitored` says. The caller monitors
+   *   the scope with `monitorScope`, series flag included, once the add-time
+   *   refresh has finished and the episodes exist. An unmonitored add is
+   *   `'none'`.
    * - **present, `opts.monitored: false`**: nothing is written.
    * - **present, `opts.monitored: true`**: series monitoring is turned on if
    *   it was off, and `opts.monitorEpisodes` names the episodes to turn on.
@@ -1012,35 +1015,64 @@ export class SonarrService {
   }
 
   /**
-   * Monitors exactly what a request's scope covers, across Sonarr's episode
-   * and season flags: the scope's episodes (`monitorScopedEpisodes` - an
+   * Monitors exactly what a request's scope covers, across all three of
+   * Sonarr's flags: the scope's episodes (`monitorScopedEpisodes` - an
    * empty scope is every regular season, specials only when named), then,
    * for a season or the whole series, the season flags (`'all'` skips
-   * season 0, like the episodes). An episode scope leaves its season's flag
-   * alone.
+   * season 0, like the episodes), then the series flag
+   * (`monitorSeriesLast`). An episode scope leaves its season's flag alone.
    *
    * Episodes before season flags, never after: Sonarr's `PUT /series` may
    * cascade a changed season flag down to that season's episodes.
    *
    * `startSearch` runs this after a fresh add's refresh has finished - a
    * write made during the refresh is undone by it - and for a library
-   * series, where `ensureSeries` has already turned the scope's episodes on
-   * and this only adds the season flags.
+   * series, where `ensureSeries` has already turned the scope's episodes
+   * and the series flag on, and this only adds the season flags.
    */
   async monitorScope(sonarrId: number, scope: SeriesScope): Promise<void> {
     await this.monitorScopedEpisodes(sonarrId, scope)
 
-    if (scope.episodeId != null || scope.episodeNumber != null) {
-      return
+    if (scope.episodeId == null && scope.episodeNumber == null) {
+      await this.setSeasonsMonitored(
+        sonarrId,
+        // `!= null`, not truthiness - season 0 is Sonarr's specials, and
+        // only an explicit `[0]` reaches it: `'all'` skips it.
+        scope.seasonNumber != null ? [scope.seasonNumber] : 'all',
+        true,
+      )
     }
 
-    await this.setSeasonsMonitored(
-      sonarrId,
-      // `!= null`, not truthiness - season 0 is Sonarr's specials, and only
-      // an explicit `[0]` reaches it: `'all'` skips it.
-      scope.seasonNumber != null ? [scope.seasonNumber] : 'all',
-      true,
-    )
+    await this.monitorSeriesLast(sonarrId, scope)
+  }
+
+  /**
+   * Turns the series flag on if it is off - the last of `monitorScope`'s
+   * writes. A narrow request's fresh add is `monitor: 'none'`, and Sonarr's
+   * `AddSeriesService` adds any `'none'` series **unmonitored**, whatever
+   * `monitored` says. Left that way, the scope's own flags sit under a
+   * series Sonarr ignores: `SeasonSearch` (`monitoredOnly: true`) rejects
+   * every release as "Series is not monitored", and RSS never grabs.
+   *
+   * Fileless episodes outside a narrow scope are turned off first, as in
+   * `ensureExistingSeries`, so the flag going on arms only the scope. After a
+   * `'none'` add there are none to turn off; the pass is there for a series
+   * someone switched off in Sonarr since the request.
+   */
+  private async monitorSeriesLast(
+    sonarrId: number,
+    scope: SeriesScope,
+  ): Promise<void> {
+    const series = await this.getSeriesById(sonarrId)
+    if (series.monitored === true) return
+
+    if (isNarrowScope(scope)) {
+      await this.unmonitorFilelessOutsideScope(
+        await this.getEpisodes(sonarrId),
+        scope,
+      )
+    }
+    await this.setSeriesMonitored(sonarrId, true)
   }
 
   /**

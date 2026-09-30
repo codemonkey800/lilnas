@@ -1480,6 +1480,66 @@ describe('SonarrService', () => {
         expect(putApiV3SeriesById).not.toHaveBeenCalled()
       },
     )
+
+    // Sonarr's `AddSeriesService` adds any `monitor: 'none'` series
+    // unmonitored, and `SeasonSearch` then rejects every release as "Series
+    // is not monitored".
+    describe('with the series flag off, as a narrow add leaves it', () => {
+      const seriesOff = { ...series, monitored: false }
+      /** Season 1's episode left on - RSS would grab it with the flag on. */
+      const withStray = episodes.map(episode =>
+        episode.id === 100 ? { ...episode, monitored: true } : episode,
+      )
+
+      beforeEach(() => {
+        mockGetApiV3SeriesById.mockResolvedValue({ data: seriesOff })
+        mockGetApiV3Episode.mockImplementation(
+          async ({ query }: { query: { seasonNumber?: number } }) => ({
+            data: withStray.filter(
+              episode =>
+                query.seasonNumber == null ||
+                episode.seasonNumber === query.seasonNumber,
+            ),
+          }),
+        )
+      })
+
+      it('turns the series flag on last, after the season flag', async () => {
+        await service.monitorScope(9, { seasonNumber: 2 })
+
+        expect(monitoredSeasons()).toEqual([2])
+        expect(mockPutApiV3SeriesById).toHaveBeenCalledTimes(2)
+        expect(mockPutApiV3SeriesById.mock.calls[1][0].body).toEqual({
+          ...seriesOff,
+          monitored: true,
+        })
+      })
+
+      it('turns fileless episodes outside the scope off before the flag goes on', async () => {
+        await service.monitorScope(9, { seasonNumber: 2 })
+
+        const offCall = mockPutApiV3EpisodeMonitor.mock.calls.findIndex(
+          ([call]) => call.body.monitored === false,
+        )
+        expect(mockPutApiV3EpisodeMonitor.mock.calls[offCall][0].body).toEqual({
+          episodeIds: [100],
+          monitored: false,
+        })
+        expect(
+          mockPutApiV3EpisodeMonitor.mock.invocationCallOrder[offCall],
+        ).toBeLessThan(mockPutApiV3SeriesById.mock.invocationCallOrder[1] ?? 0)
+      })
+
+      it('turns the series flag on for one episode, season flag untouched', async () => {
+        await service.monitorScope(9, { episodeId: 202, seasonNumber: 2 })
+
+        expect(mockPutApiV3SeriesById).toHaveBeenCalledTimes(1)
+        expect(mockPutApiV3SeriesById.mock.calls[0][0].body).toEqual({
+          ...seriesOff,
+          monitored: true,
+        })
+      })
+    })
   })
 
   describe('setSeasonsMonitored', () => {
