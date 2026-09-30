@@ -398,6 +398,17 @@ describe('EmbyStatusService', () => {
       expect(embyService.getLibraryItems).not.toHaveBeenCalled()
     })
 
+    // A show's `filePath` is its series folder, there from the moment
+    // Sonarr adds it - the file count is what says anything landed.
+    it('leaves a show with no episode files unannotated', async () => {
+      const empty = show({ episodeFileCount: 0 })
+
+      await service.annotate([empty])
+
+      expect(hasEmbyStatus(empty)).toBe(false)
+      expect(embyService.getLibraryItems).not.toHaveBeenCalled()
+    })
+
     it('makes no Emby call for an empty batch', async () => {
       await service.annotate([])
 

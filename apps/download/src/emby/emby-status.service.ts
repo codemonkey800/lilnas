@@ -1,6 +1,7 @@
 import {
   DownloadType,
   isManagedMedia,
+  isShow,
   type Media,
   type Movie,
   type Show,
@@ -105,6 +106,7 @@ export class EmbyStatusService {
    * | Situation                                   | `embyStatus`                            |
    * | ------------------------------------------- | --------------------------------------- |
    * | No `filePath` (not downloaded / search hit) | left **absent** - Emby never consulted  |
+   * | A show whose `episodeFileCount` is `0`       | left **absent** - Emby never consulted  |
    * | File on disk, matching Emby item             | `{ state: 'indexed', itemId, watchUrl }` |
    * | File on disk, no matching Emby item          | `{ state: 'indexing' }`                  |
    * | File on disk, Emby unreachable               | `{ state: 'unknown' }`                   |
@@ -126,6 +128,9 @@ export class EmbyStatusService {
       // Leaving the field absent (rather than writing `indexing`) is what
       // lets the frontend tell "not downloaded" from "downloaded, waiting".
       if (!isManagedMedia(item) || !item.filePath) continue
+      // A show's `filePath` is its series folder, set as soon as Sonarr has
+      // the series - Sonarr's own file count is what says anything landed.
+      if (isShow(item) && item.episodeFileCount === 0) continue
 
       candidates.push({ media: item, path: item.filePath })
     }
