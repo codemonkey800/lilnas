@@ -49,13 +49,19 @@ services:
       - /home/jeremy/lilnas:/home/jeremy/lilnas:ro
       - /usr/lib:/mnt/host-glibc/lib:ro
       - /usr/lib64:/mnt/host-glibc/lib64:ro
+      # Claude Code's native install: ~/.local/bin/claude is a symlink to
+      # ~/.local/share/claude/versions/<ver>, which the host's auto-updater
+      # repoints on each release. Both are mounted at their real absolute
+      # host paths so that symlink resolves unchanged in the container and
+      # updates are picked up on the next container restart.
+      - /home/jeremy/.local/bin:/home/jeremy/.local/bin:ro
+      - /home/jeremy/.local/share/claude:/home/jeremy/.local/share/claude:ro
       - ./design/claude-wrapper.sh:/usr/local/bin/claude:ro
       # Open Design's agent detection probes Claude Code's canonical
-      # native-install path directly (~/.claude/local/claude), not just
-      # $PATH. That file is mounted verbatim from the host and hardcodes
-      # an absolute /home/jeremy/... exec target that doesn't exist in
-      # this container, so it must be overlaid too.
-      - ./design/claude-wrapper.sh:/home/open-design/.claude/local/claude:ro
+      # native-install path directly (~/.local/bin/claude), not just
+      # $PATH. The real one is a glibc binary the container can't exec
+      # directly, so the wrapper must be overlaid there too.
+      - ./design/claude-wrapper.sh:/home/open-design/.local/bin/claude:ro
     read_only: true
     tmpfs:
       - /tmp
