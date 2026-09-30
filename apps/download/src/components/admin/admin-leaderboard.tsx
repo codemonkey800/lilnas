@@ -2,6 +2,8 @@ import { cns } from '@lilnas/utils/cns'
 import type { AdminStatsResponse } from '@lilnas/utils/download/types'
 import type { JSX } from 'react'
 
+import { discordAvatarTitle } from 'src/components/activity/activity-requester'
+import { DiscordIdentityMark } from 'src/components/activity/discord-identity-mark'
 import { formatCount } from 'src/components/admin/admin-stats'
 import { Avatar } from 'src/components/ui/avatar'
 import { Card } from 'src/components/ui/card'
@@ -44,14 +46,17 @@ export type AdminLeaderboardProps = {
  * `days` (see `AdminStatsService`), so the window control — and the window the
  * stat tiles print — say nothing about this list.
  *
- * ⚠️ Service jobs are absent by construction: `countJobsByRequester` drops rows
- * with a null requester rather than bucketing them, so "everyone who downloaded
- * something" here means every *person*.
+ * ⚠️ Service jobs are absent by construction: the repo counts drop rows with
+ * no person behind them rather than bucketing them, so "everyone who downloaded
+ * something" here means every *person* — web requesters and Discord submitters
+ * alike, with a linked Discord account already folded into its email's row.
  *
- * Every name links, because the whole page is admin-only and therefore every
+ * Every email links, because the whole page is admin-only and therefore every
  * requester on it is someone the viewer is allowed to inspect — and the link
  * goes to this page's own requester filter, which is where a per-user history
- * lives (spec §12: a filter on this view, not a route of its own).
+ * lives (spec §12: a filter on this view, not a route of its own). An unclaimed
+ * Discord account has no email for that filter to key on, so it renders like
+ * `AdminActor`'s unlinked branch: handle plus `DiscordIdentityMark`, no link.
  */
 export function AdminLeaderboard({
   filters,
@@ -77,29 +82,54 @@ export function AdminLeaderboard({
       */}
       <ol aria-label="Top downloaders" className="flex flex-col stagger">
         {stats.topRequesters.map((entry, index) => {
-          const you = viewer !== null && viewer.email === entry.requesterEmail
-          const href = adminHref({
-            ...filters,
-            requester: entry.requesterEmail,
-          })
+          const rank = <span className={RANK}>{index + 1}</span>
+          const countCell = (tone: string) => (
+            <span className={cns(COUNT, tone)}>{formatCount(entry.count)}</span>
+          )
+
+          if (entry.requesterEmail === null) {
+            if (entry.discordRequester === null) {
+              return null
+            }
+
+            const { discordUserId, discordUsername } = entry.discordRequester
+
+            return (
+              <li className={ROW} key={`discord:${discordUserId}`}>
+                {rank}
+                <Avatar
+                  initials={initials(discordUsername)}
+                  title={discordAvatarTitle(discordUsername)}
+                />
+                <span className="flex min-w-0 flex-1 items-center gap-1">
+                  <span className="truncate text-sm">{discordUsername}</span>
+                  <DiscordIdentityMark
+                    discordUserId={discordUserId}
+                    discordUsername={discordUsername}
+                  />
+                </span>
+                {countCell('text-ink-3')}
+              </li>
+            )
+          }
+
+          const email = entry.requesterEmail
+          const you = viewer !== null && viewer.email === email
+          const href = adminHref({ ...filters, requester: email })
 
           return (
-            <li className={ROW} key={entry.requesterEmail}>
-              <span className={RANK}>{index + 1}</span>
+            <li className={ROW} key={email}>
+              {rank}
               <Avatar
                 href={href}
-                initials={initials(entry.requesterEmail)}
+                initials={initials(email)}
                 ring={you}
-                title={
-                  you ? `${entry.requesterEmail} · you` : entry.requesterEmail
-                }
+                title={you ? `${email} · you` : email}
               />
               <a className={NAME} href={href}>
-                {entry.requesterEmail}
+                {email}
               </a>
-              <span className={cns(COUNT, you ? 'text-uv-hi' : 'text-ink-3')}>
-                {formatCount(entry.count)}
-              </span>
+              {countCell(you ? 'text-uv-hi' : 'text-ink-3')}
             </li>
           )
         })}

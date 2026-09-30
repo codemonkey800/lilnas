@@ -103,7 +103,7 @@ export class AdminController {
     const action = 'getStats'
     const startTime = Date.now()
 
-    const stats = this.adminStatsService.getStats(query)
+    const stats = await this.adminStatsService.getStats(query)
 
     const duration = Date.now() - startTime
     this.logger.log(
