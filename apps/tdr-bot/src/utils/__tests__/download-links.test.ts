@@ -113,5 +113,23 @@ describe('download-links', () => {
       // The model's message is left untouched.
       expect(response.content).toBe('Added it!')
     })
+
+    it('does not repeat a links line the model echoed from earlier replies', () => {
+      delete process.env.DOWNLOAD_URL
+      const echoed =
+        'Follow along on the [activity page](<https://download.lilnas.io/activity>), or open [MobLand](<https://download.lilnas.io/shows/1>).'
+      const response = new HumanMessage({
+        id: 'r1',
+        content: `Added it!\n\n${echoed}\n`,
+      })
+
+      const result = withDownloadLinks(
+        response,
+        { id: 'tvdb:1', type: DownloadType.Show },
+        'MobLand',
+      )
+
+      expect(result.content).toBe(`Added it!\n\n${echoed}`)
+    })
   })
 })

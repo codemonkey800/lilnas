@@ -88,9 +88,19 @@ export function selectionList(items: SelectionListItem[]): string {
 }
 
 /**
+ * The line {@link withDownloadLinks} appends, as the model may echo it: it
+ * sees earlier replies that end with one, so it can copy it into its own text
+ * (with any URL or title).
+ */
+const ECHOED_LINKS_LINE_REGEX =
+  /^[ \t]*Follow along on the \[activity page\].*$/gim
+
+/**
  * A copy of `response` with a line linking the activity page and the title's
  * page appended. Added in code rather than handed to the model, which can
  * reword or mangle a URL. `<…>` keeps Discord from unfurling either link.
+ * A copy of that line the model wrote itself is dropped so it isn't shown
+ * twice.
  */
 export function withDownloadLinks(
   response: HumanMessage,
@@ -100,8 +110,13 @@ export function withDownloadLinks(
   const links = downloadLinks(media)
   const line = `Follow along on the [activity page](<${links.activity}>), or open [${escapeLinkText(title)}](<${links.media}>).`
 
+  const text = response.content
+    .toString()
+    .replace(ECHOED_LINKS_LINE_REGEX, '')
+    .trimEnd()
+
   return new HumanMessage({
     id: response.id ?? nanoid(),
-    content: `${response.content.toString()}\n\n${line}`,
+    content: `${text}\n\n${line}`,
   })
 }
