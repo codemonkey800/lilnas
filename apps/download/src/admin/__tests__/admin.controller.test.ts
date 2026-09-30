@@ -70,7 +70,7 @@ describe('AdminController', () => {
     auditLogService = module.get(AuditLogService)
 
     adminCheckService.checkIsAdmin.mockResolvedValue(true)
-    adminStatsService.getStats.mockReturnValue(EMPTY_STATS)
+    adminStatsService.getStats.mockResolvedValue(EMPTY_STATS)
     auditLogService.listAuditLog.mockResolvedValue({
       items: [],
       nextCursor: null,
@@ -191,11 +191,13 @@ describe('AdminController', () => {
       const stats: AdminStatsResponse = {
         ...EMPTY_STATS,
         jobsPerDay: [{ count: 3, day: '2026-06-15', type: DownloadType.Video }],
-        topRequesters: [{ count: 3, requesterEmail: 'ada@lilnas.io' }],
+        topRequesters: [
+          { count: 3, discordRequester: null, requesterEmail: 'ada@lilnas.io' },
+        ],
         totalJobs: 3,
         windowDays: 7,
       }
-      adminStatsService.getStats.mockReturnValue(stats)
+      adminStatsService.getStats.mockResolvedValue(stats)
 
       await expect(controller.getStats({ days: 7 })).resolves.toBe(stats)
     })

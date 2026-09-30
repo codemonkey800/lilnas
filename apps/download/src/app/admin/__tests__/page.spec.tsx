@@ -63,8 +63,8 @@ const AUDIT_ENTRY: AuditLogEntry = {
 const STATS: AdminStatsResponse = {
   jobsPerDay: [{ count: 4, day: '2026-09-16', type: DownloadType.Movie }],
   topRequesters: [
-    { count: 9, requesterEmail: JEREMY },
-    { count: 4, requesterEmail: SAM },
+    { count: 9, discordRequester: null, requesterEmail: JEREMY },
+    { count: 4, discordRequester: null, requesterEmail: SAM },
   ],
   totalJobs: 13,
   totalsByStatus: [{ count: 13, status: DownloadJobStatus.Completed }],
@@ -264,6 +264,30 @@ describe('AdminPage — the requester filter', () => {
       ]),
     )
     expect(board.getAllByRole('listitem')).toHaveLength(2)
+  })
+
+  // An unclaimed Discord account has no email for `?requester=` to key on, so
+  // it is ranked like anyone else but renders as its handle with no link.
+  it('ranks an unlinked Discord submitter without linking it', async () => {
+    getStats.mockResolvedValue({
+      ...STATS,
+      topRequesters: [
+        {
+          count: 4,
+          discordRequester: {
+            discordUserId: '123456789012345678',
+            discordUsername: 'bigkrizz72',
+          },
+          requesterEmail: null,
+        },
+      ],
+    })
+
+    await renderPage()
+    const board = within(screen.getByRole('list', { name: 'Top downloaders' }))
+
+    expect(board.getByText('bigkrizz72')).toBeInTheDocument()
+    expect(board.queryAllByRole('link')).toHaveLength(0)
   })
 })
 

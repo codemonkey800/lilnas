@@ -4,9 +4,14 @@ import type {
 } from '@lilnas/utils/download/types'
 import { Injectable } from '@nestjs/common'
 
+import {
+  AttributionResolutionService,
+  type ResolvableAuditEntry,
+} from 'src/auth/attribution-resolution.service'
 import { DbService } from 'src/db/db.service'
 import {
   countJobsByDay,
+  countJobsByDiscordRequester,
   countJobsByRequester,
   countJobsByStatus,
   countJobsByType,
@@ -22,6 +27,8 @@ import {
 export const TOP_REQUESTERS_LIMIT = 20
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000
+
+type TopRequester = AdminStatsResponse['topRequesters'][number]
 
 /**
  * The aggregate half of the admin dashboard - `GET /download/admin/stats`.
@@ -44,12 +51,15 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000
  */
 @Injectable()
 export class AdminStatsService {
-  constructor(private readonly dbService: DbService) {}
+  constructor(
+    private readonly attributionResolutionService: AttributionResolutionService,
+    private readonly dbService: DbService,
+  ) {}
 
   /**
-   * Synchronous, like every other read that goes straight at the repos -
-   * better-sqlite3's driver has no async surface, so a promise here would be
-   * decoration.
+   * Async only for the leaderboard's Discord link lookups (see
+   * {@link rankRequesters}); every aggregate itself is a synchronous
+   * better-sqlite3 read.
    *
    * The four aggregates are returned exactly as the repos produce them:
    * **sparse**, never zero-filled. A status nobody has hit, or a
@@ -64,7 +74,7 @@ export class AdminStatsService {
    * the same number, and deriving it makes the panel's total and its type
    * breakdown incapable of disagreeing.
    */
-  getStats(query: AdminStatsQuery): AdminStatsResponse {
+  async getStats(query: AdminStatsQuery): Promise<AdminStatsResponse> {
     const { db } = this.dbService
 
     // Windows the activity chart only. `Date.now()` rather than a
@@ -82,7 +92,7 @@ export class AdminStatsService {
 
     return {
       jobsPerDay: countJobsByDay(db, windowFilter),
-      topRequesters: this.rankRequesters(allTimeFilter),
+      topRequesters: await this.rankRequesters(allTimeFilter),
       totalJobs: totalsByType.reduce((total, row) => total + row.count, 0),
       totalsByStatus: countJobsByStatus(db, allTimeFilter),
       totalsByType,
@@ -91,26 +101,87 @@ export class AdminStatsService {
   }
 
   /**
-   * `countJobsByRequester()` groups but does not order, so the ranking is
-   * this layer's job. Sorted by count descending with the email as a
-   * tiebreak, which keeps the cut at {@link TOP_REQUESTERS_LIMIT}
-   * deterministic when several people sit on the same count - otherwise
-   * whoever fell off the list would depend on SQLite's grouping order and
-   * the panel would reshuffle between identical requests.
+   * One row per person across both submission surfaces. A job carries either
+   * a lilnas requester (web) or a Discord submitter, never both (the
+   * `jobs_origin_matches_requester` CHECK), so counting only the first would
+   * leave everyone who downloads over `/download` in Discord off the board.
    *
-   * Also renames `email` -> `requesterEmail` for the wire shape; service
-   * jobs (a null requester) are already dropped by the repo rather than
-   * bucketed as "unknown".
+   * Discord submitters go through the same read-time link resolution the
+   * audit log uses: a linked account folds into its lilnas email's row, so a
+   * person who uses both surfaces is ranked once, on their combined count;
+   * an unclaimed one stays a row of its own under its current handle.
+   * Emails merge case-insensitively, matching how `?requester=` filters.
+   *
+   * Neither repo count orders its groups, so the ranking is this layer's
+   * job: count descending with the name as a tiebreak, which keeps the cut
+   * at {@link TOP_REQUESTERS_LIMIT} deterministic when several people sit on
+   * the same count - otherwise whoever fell off the list would depend on
+   * SQLite's grouping order and the panel would reshuffle between identical
+   * requests. Service and upstream jobs have neither identity and are
+   * dropped by the repos rather than bucketed as "unknown".
    */
-  private rankRequesters(
+  private async rankRequesters(
     filter: JobListFilter,
-  ): AdminStatsResponse['topRequesters'] {
-    return countJobsByRequester(this.dbService.db, filter)
-      .map(row => ({ count: row.count, requesterEmail: row.email }))
+  ): Promise<AdminStatsResponse['topRequesters']> {
+    const { db } = this.dbService
+    const byPerson = new Map<string, TopRequester>()
+
+    const add = (key: string, row: TopRequester): void => {
+      const existing = byPerson.get(key)
+      byPerson.set(
+        key,
+        existing ? { ...existing, count: existing.count + row.count } : row,
+      )
+    }
+
+    for (const row of countJobsByRequester(db, filter)) {
+      add(row.email.toLowerCase(), {
+        count: row.count,
+        discordRequester: null,
+        requesterEmail: row.email,
+      })
+    }
+
+    const discordRows =
+      await this.attributionResolutionService.resolveAuditEntries(
+        countJobsByDiscordRequester(db, filter).map(
+          (row): ResolvableAuditEntry & { count: number } => ({
+            actor: null,
+            count: row.count,
+            discordActor: {
+              discordUserId: row.discordUserId,
+              discordUsername: row.discordUsername,
+            },
+          }),
+        ),
+      )
+
+    for (const { actor, count, discordActor } of discordRows) {
+      if (actor) {
+        add(actor.email.toLowerCase(), {
+          count,
+          discordRequester: null,
+          requesterEmail: actor.email,
+        })
+      } else if (discordActor) {
+        add(`discord:${discordActor.discordUserId}`, {
+          count,
+          discordRequester: discordActor,
+          requesterEmail: null,
+        })
+      }
+    }
+
+    return [...byPerson.values()]
       .sort(
         (a, b) =>
-          b.count - a.count || a.requesterEmail.localeCompare(b.requesterEmail),
+          b.count - a.count || requesterName(a).localeCompare(requesterName(b)),
       )
       .slice(0, TOP_REQUESTERS_LIMIT)
   }
+}
+
+/** What a leaderboard row is called - the tiebreak key. */
+function requesterName(row: TopRequester): string {
+  return row.requesterEmail ?? row.discordRequester?.discordUsername ?? ''
 }

@@ -439,6 +439,56 @@ export function countJobsByRequester(
     .filter((row): row is RequesterFacetCount => row.email !== null)
 }
 
+export interface DiscordRequesterCount {
+  count: number
+  discordUserId: string
+  discordUsername: string
+}
+
+/**
+ * {@link countJobsByRequester}'s Discord-side twin: distinct Discord
+ * submitters (with counts) matching `filter`. Keyed on the snowflake, the
+ * only stable handle a Discord row carries - the username is renameable.
+ *
+ * The handle returned is the one on that account's **newest** row. SQLite
+ * fills a bare column in an aggregate query from the row that produced the
+ * query's single `max()`, so `discord_username` beside
+ * `max(created_at)` is the latest name rather than an arbitrary one.
+ * Callers that render it still refresh it from auth's roster.
+ */
+export function countJobsByDiscordRequester(
+  db: Db,
+  filter: JobListFilter,
+): DiscordRequesterCount[] {
+  const conditions: Array<SQL | undefined> = [
+    buildJobWhere(filter),
+    isNotNull(jobs.discordUserId),
+  ]
+
+  return db
+    .select({
+      count: count(),
+      discordUserId: jobs.discordUserId,
+      discordUsername: jobs.discordUsername,
+      lastCreatedAtMs: sql<number>`max(${jobs.createdAt})`,
+    })
+    .from(jobs)
+    .where(and(...conditions))
+    .groupBy(jobs.discordUserId)
+    .all()
+    .flatMap(row =>
+      row.discordUserId !== null && row.discordUsername !== null
+        ? [
+            {
+              count: row.count,
+              discordUserId: row.discordUserId,
+              discordUsername: row.discordUsername,
+            },
+          ]
+        : [],
+    )
+}
+
 /**
  * Distinct job types (with counts) matching `filter`, for the gallery
  * facets endpoint's type chip list. Unlike `countJobsByRequester()` above,

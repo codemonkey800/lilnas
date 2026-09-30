@@ -725,7 +725,17 @@ export interface AdminStatsResponse {
     day: string
     type: DownloadType
   }>
-  topRequesters: Array<{ count: number; requesterEmail: string }>
+  /**
+   * One row per *person*, across both submission surfaces. Exactly one of the
+   * pair is non-null: `requesterEmail` for a lilnas account (its web jobs plus
+   * the Discord jobs of any account linked to it), `discordRequester` for a
+   * Discord account no lilnas user has claimed yet.
+   */
+  topRequesters: Array<{
+    count: number
+    discordRequester: DiscordRequester | null
+    requesterEmail: string | null
+  }>
   totalsByStatus: Array<{ count: number; status: DownloadJobStatus }>
   totalsByType: Array<{ count: number; type: DownloadType }>
   totalJobs: number
