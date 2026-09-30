@@ -11,6 +11,7 @@ import {
   aggregateQueueItems,
   ATTENTION_DELAY_MS,
   CANCEL_GRACE_MS,
+  CLIENT_GONE_CONFIRM_MS,
   type ClientReadingLookup,
   deriveQueueItemState,
   deriveStatusFromQueueItem,
@@ -1418,6 +1419,7 @@ describe('settleAbsentJob', () => {
     Uploading,
   } = DownloadJobStatus
   const GONE = ABSENT_REMOVED_MS
+  const SAB_GONE = CLIENT_GONE_CONFIRM_MS
   // How long a cancelling job's resolved links must agree with an empty
   // queue before the cancel is called done - two separate reads.
   const CONFIRM = 5_000
@@ -1580,6 +1582,53 @@ describe('settleAbsentJob', () => {
         links: [failed, open],
       }),
       Cancelled,
+    ],
+
+    // SABnzbd reported every open download deleted - a removal made in
+    // Radarr's/Sonarr's queue, which writes no history.
+    [
+      'open link gone at SAB, just under the confirm',
+      Downloading,
+      facts({
+        absentForMs: SAB_GONE - 1,
+        clientHealthyForMs: GONE,
+        goneAtClient: new Set(['a']),
+        links: [open],
+      }),
+      undefined,
+    ],
+    [
+      'open link gone at SAB, confirmed',
+      Downloading,
+      facts({
+        absentForMs: SAB_GONE,
+        clientHealthyForMs: SAB_GONE,
+        goneAtClient: new Set(['a']),
+        links: [open],
+      }),
+      Cancelled,
+    ],
+    [
+      'open link gone at SAB after another imported',
+      Downloading,
+      facts({
+        absentForMs: SAB_GONE,
+        clientHealthyForMs: SAB_GONE,
+        goneAtClient: new Set(['a']),
+        links: [imported, open],
+      }),
+      Completed,
+    ],
+    [
+      'one of two open links gone at SAB',
+      Downloading,
+      facts({
+        absentForMs: SAB_GONE,
+        clientHealthyForMs: SAB_GONE,
+        goneAtClient: new Set(['a']),
+        links: [open, { downloadId: 'd' }],
+      }),
+      undefined,
     ],
 
     // The client was unhealthy during the absence: the queue proves nothing.

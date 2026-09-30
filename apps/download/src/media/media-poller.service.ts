@@ -386,8 +386,9 @@ export interface PollableCompletionData {
  * once a file for its scope landed or its links say it imported, and
  * `cancelled` ("Removed from the download client") only after its download
  * has been gone `ABSENT_REMOVED_MS` with the download client healthy the
- * whole time - see `checkClientHealth`. A requested/searching job, or one
- * with no links, is never settled by absence.
+ * whole time - see `checkClientHealth` - or `CLIENT_GONE_CONFIRM_MS` once
+ * SABnzbd reports it deleted. A requested/searching job, or one with no
+ * links, is never settled by absence.
  *
  * A `cancelling` job - cancel pressed here, its queue items already removed
  * - is carried the rest of the way. A queue item it still has (a search
@@ -1357,7 +1358,9 @@ export class MediaPollerService {
    * the client was last seen healthy - `min(absent, healthy)` - so a queue
    * that was empty because SABnzbd could not be reached settles nothing, and
    * the job settles once it has been gone `ABSENT_REMOVED_MS` with the
-   * client healthy throughout.
+   * client healthy throughout - or `CLIENT_GONE_CONFIRM_MS`, once SABnzbd
+   * itself has reported every open download `gone`
+   * (`MediaStateService.isClientGone`).
    *
    * That includes a `cancelling` job, which is not terminal: it settles
    * `cancelled` - with no `error`, the cancel being the user's own - once
@@ -1420,6 +1423,11 @@ export class MediaPollerService {
             : Math.min(absentForMs, clientHealthyForMs),
         clientHealthyForMs,
         fileLanded,
+        goneAtClient: new Set(
+          links
+            .map(link => link.downloadId)
+            .filter(id => this.mediaStateService.isClientGone(id)),
+        ),
         links,
       })
       if (next === undefined) continue

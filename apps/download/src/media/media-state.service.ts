@@ -24,6 +24,7 @@ import type {
   PollableQueueItem,
 } from 'src/media/queue-status.util'
 import {
+  ABSENT_REMOVED_MS,
   aggregateQueueItems,
   matchesScope,
   toQueueSnapshot,
@@ -77,6 +78,13 @@ export class MediaStateService {
 
   /** SAB phase changes pushed by the monitor, not yet taken by the poller. */
   private clientTransitions: SabTransition[] = []
+
+  /**
+   * SAB `nzo_id` -> when the monitor reported it `gone`. Latched here because
+   * the reading itself lasts one monitor tick - a terminal id nothing else
+   * tracks is dropped on the next - which the poller could miss.
+   */
+  private readonly clientGone = new Map<string, number>()
 
   /**
    * `clientReading` as a detached lookup, for the snapshot builders: every
@@ -153,9 +161,38 @@ export class MediaStateService {
     return this.clientHealthState
   }
 
-  /** Queues SAB phase changes for the poller; appended in order. */
+  /**
+   * Queues SAB phase changes for the poller; appended in order. Also latches
+   * every `-> gone` for `isClientGone`, and clears the latch of an id seen
+   * in any other phase since.
+   */
   pushClientTransitions(transitions: readonly SabTransition[]): void {
     this.clientTransitions.push(...transitions)
+
+    const now = Date.now()
+    for (const { nzoId, to } of transitions) {
+      if (to === 'gone') {
+        this.clientGone.set(nzoId, now)
+      } else {
+        this.clientGone.delete(nzoId)
+      }
+    }
+
+    // Past `ABSENT_REMOVED_MS` the poller settles the job without the
+    // latch, so an entry older than that has nothing left to answer.
+    for (const [nzoId, goneAt] of this.clientGone) {
+      if (now - goneAt > ABSENT_REMOVED_MS) this.clientGone.delete(nzoId)
+    }
+  }
+
+  /**
+   * Whether SAB reported this download `gone` - in neither its queue, its
+   * history nor its archive: deleted at the client. What settles a job whose
+   * download was removed in Radarr's/Sonarr's queue, which writes no history
+   * (see `settleAbsentJob`).
+   */
+  isClientGone(downloadId: string): boolean {
+    return this.clientGone.has(downloadId)
   }
 
   /** Every transition pushed since the last call, oldest first; drains. */
