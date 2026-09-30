@@ -2,6 +2,10 @@ import { BaseMessage, HumanMessage } from '@langchain/core/messages'
 import { ChatOpenAI } from '@langchain/openai'
 
 import {
+  createMockMovie,
+  createMockShow,
+} from 'src/media-operations/request-handling/__test-fixtures__/media-fixtures'
+import {
   MOVIE_RESPONSE_CONTEXT_PROMPT,
   TV_SHOW_RESPONSE_CONTEXT_PROMPT,
 } from 'src/message-handler/services/prompts/prompt.constants'
@@ -81,6 +85,113 @@ describe('PromptGenerationService', () => {
 
     expect(sentContext()).toContain('The download app might be unavailable.')
     expect(sentContext()).not.toContain('Sonarr')
+  })
+
+  describe('selection lists', () => {
+    const originalDownloadUrl = process.env.DOWNLOAD_URL
+
+    beforeEach(() => {
+      delete process.env.DOWNLOAD_URL
+    })
+
+    afterEach(() => {
+      if (originalDownloadUrl !== undefined) {
+        process.env.DOWNLOAD_URL = originalDownloadUrl
+      }
+    })
+
+    const movies = [
+      createMockMovie(),
+      createMockMovie({
+        tmdbId: 604,
+        title: 'The Matrix Reloaded',
+        year: 2003,
+        rating: undefined,
+      }),
+    ]
+
+    const shows = [
+      createMockShow(),
+      createMockShow({
+        tvdbId: 273181,
+        title: 'Better Call Saul',
+        year: 2015,
+        seasons: [{ seasonNumber: 0, monitored: false }],
+        ended: false,
+        rating: undefined,
+      }),
+    ]
+
+    const movieList = [
+      '1. [The Matrix](<https://download.lilnas.io/movies/603>) (1999) ⭐8.2',
+      '2. [The Matrix Reloaded](<https://download.lilnas.io/movies/604>) (2003)',
+    ].join('\n')
+
+    const showList = [
+      '1. [Breaking Bad](<https://download.lilnas.io/shows/81189>) (2008) - Ended, 3 seasons ⭐9.5',
+      '2. [Better Call Saul](<https://download.lilnas.io/shows/273181>) (2015) - Ongoing, 0 seasons',
+    ].join('\n')
+
+    it('appends a linked movie list to the model reply', async () => {
+      const reply = await service.generateMoviePrompt(
+        [],
+        chatModel(),
+        'multiple_results',
+        { searchQuery: 'matrix', movies },
+      )
+
+      expect(reply.content).toBe(`reply\n\n${movieList}`)
+      expect(sentContext()).toContain('Do NOT write the list')
+    })
+
+    it('appends the movie list to the fallback reply too', async () => {
+      invoke.mockRejectedValue(new Error('OpenAI is down'))
+
+      const reply = await service.generateMoviePrompt(
+        [],
+        chatModel(),
+        'multiple_results',
+        { searchQuery: 'matrix', movies },
+      )
+
+      expect(reply.content).toBe(
+        `I found multiple movies. Which one would you like?\n\n${movieList}`,
+      )
+    })
+
+    it('appends a linked show list when several shows match', async () => {
+      const reply = await service.generateTvShowPrompt(
+        [],
+        chatModel(),
+        'TV_SHOW_SELECTION_NEEDED',
+        { searchQuery: 'breaking', shows },
+      )
+
+      expect(reply.content).toBe(`reply\n\n${showList}`)
+      expect(sentContext()).toContain('Do NOT write the list')
+    })
+
+    it('adds no list when a single show is being narrowed down', async () => {
+      const reply = await service.generateTvShowPrompt(
+        [],
+        chatModel(),
+        'TV_SHOW_SELECTION_NEEDED',
+        { searchQuery: 'breaking', shows: [createMockShow()] },
+      )
+
+      expect(reply.content).toBe('reply')
+    })
+
+    it('adds no list to other movie situations', async () => {
+      const reply = await service.generateMoviePrompt(
+        [],
+        chatModel(),
+        'success',
+        { selectedMovie: movies[0], movies },
+      )
+
+      expect(reply.content).toBe('reply')
+    })
   })
 
   it('says the files were deleted when the TV show delete reply falls back', async () => {

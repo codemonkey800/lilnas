@@ -1,5 +1,7 @@
 import { BaseMessage, HumanMessage } from '@langchain/core/messages'
 import { ChatOpenAI } from '@langchain/openai'
+import { mediaId } from '@lilnas/utils/download/media-id'
+import { DownloadType } from '@lilnas/utils/download/types'
 import { getErrorMessage } from '@lilnas/utils/error'
 import { Injectable, Logger } from '@nestjs/common'
 import { nanoid } from 'nanoid'
@@ -16,6 +18,7 @@ import { describeKeptPack } from 'src/media/utils/sonarr.utils'
 import { MovieDeleteResultSchema } from 'src/schemas/context.schemas'
 import { SearchSelection } from 'src/schemas/search-selection'
 import { TvShowSelection } from 'src/schemas/tv-show'
+import { selectionList } from 'src/utils/download-links'
 import { RetryService } from 'src/utils/retry.service'
 
 import {
@@ -54,6 +57,64 @@ export interface TvShowPromptContext {
   granularSelectionHint?: TvShowSelection | null
 }
 
+/**
+ * A reply offering several movies, with the linked list of them appended.
+ * The model only writes the intro: the list is built in code so every link
+ * survives intact.
+ */
+function withMovieSelectionList(
+  content: string,
+  movies: MovieSearchResult[],
+): string {
+  const list = selectionList(
+    movies.map(movie => ({
+      media: {
+        id: mediaId({ type: DownloadType.Movie, tmdbId: movie.tmdbId }),
+        type: DownloadType.Movie,
+      },
+      title: movie.title,
+      details: [
+        movie.year ? `(${movie.year})` : '',
+        movie.rating ? `⭐${movie.rating.toFixed(1)}` : '',
+      ]
+        .filter(Boolean)
+        .join(' '),
+    })),
+  )
+
+  return `${content}\n\n${list}`
+}
+
+/** {@link withMovieSelectionList} for shows. */
+function withShowSelectionList(
+  content: string,
+  shows: SeriesSearchResult[],
+): string {
+  const list = selectionList(
+    shows.map(show => {
+      const seasons = show.seasons?.filter(s => s.seasonNumber > 0).length || 0
+      const status = show.ended ? 'Ended' : 'Ongoing'
+
+      return {
+        media: {
+          id: mediaId({ type: DownloadType.Show, tvdbId: show.tvdbId }),
+          type: DownloadType.Show,
+        },
+        title: show.title,
+        details: [
+          show.year ? `(${show.year})` : '',
+          `- ${status}, ${seasons} seasons`,
+          show.rating ? `⭐${show.rating.toFixed(1)}` : '',
+        ]
+          .filter(Boolean)
+          .join(' '),
+      }
+    }),
+  )
+
+  return `${content}\n\n${list}`
+}
+
 @Injectable()
 export class PromptGenerationService {
   private readonly logger = new Logger(PromptGenerationService.name)
@@ -86,6 +147,11 @@ export class PromptGenerationService {
       episodeCount?: number
     },
   ): Promise<HumanMessage> {
+    const finish = (content: string): string =>
+      situation === 'multiple_results' && context?.movies?.length
+        ? withMovieSelectionList(content, context.movies)
+        : content
+
     try {
       let contextPrompt = `Situation: ${situation.toUpperCase()}\n\n`
 
@@ -112,7 +178,7 @@ export class PromptGenerationService {
 
             // Selection hints have been removed - all selections now require explicit user choice
 
-            contextPrompt += `Ask the user which one they want to download. They can respond with ordinal numbers, years, actor names, etc.`
+            contextPrompt += `This list is added below your reply automatically, with each title linked to its page. Do NOT write the list or the titles yourself - just a brief intro asking which one they want to download. They can respond with ordinal numbers, years, actor names, etc.`
           }
           break
         case 'error':
@@ -169,7 +235,7 @@ export class PromptGenerationService {
 
       return new HumanMessage({
         id: nanoid(),
-        content: response.content.toString(),
+        content: finish(response.content.toString()),
       })
     } catch (error) {
       this.logger.error(
@@ -194,7 +260,7 @@ export class PromptGenerationService {
 
       return new HumanMessage({
         id: nanoid(),
-        content: fallbackMessages[situation],
+        content: finish(fallbackMessages[situation]),
       })
     }
   }
@@ -331,6 +397,13 @@ export class PromptGenerationService {
     situation: TvShowPromptSituation,
     context?: TvShowPromptContext,
   ): Promise<HumanMessage> {
+    const finish = (content: string): string =>
+      situation === 'TV_SHOW_SELECTION_NEEDED' &&
+      context?.shows &&
+      context.shows.length > 1
+        ? withShowSelectionList(content, context.shows)
+        : content
+
     try {
       let contextPrompt = `Situation: ${situation}\n\n`
 
@@ -393,7 +466,7 @@ export class PromptGenerationService {
 
               // Selection hints have been removed - all selections now require explicit user choice
 
-              contextPrompt += `Which show do you want? Then I'll ask about season/episode selection.`
+              contextPrompt += `This list is added below your reply automatically, with each title linked to its page. Do NOT write the list or the titles yourself - just a brief intro asking which show they want, then say you'll ask about season/episode selection.`
             }
           }
           break
@@ -468,7 +541,7 @@ export class PromptGenerationService {
 
       return new HumanMessage({
         id: nanoid(),
-        content: response.content.toString(),
+        content: finish(response.content.toString()),
       })
     } catch (error) {
       this.logger.error(
@@ -494,7 +567,7 @@ export class PromptGenerationService {
 
       return new HumanMessage({
         id: nanoid(),
-        content: fallbackMessages[situation],
+        content: finish(fallbackMessages[situation]),
       })
     }
   }

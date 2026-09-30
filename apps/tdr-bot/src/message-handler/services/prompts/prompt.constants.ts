@@ -13,7 +13,7 @@ export const MOVIE_RESPONSE_CONTEXT_PROMPT = new SystemMessage(dedent`
   Situation types:
   - CLARIFICATION: Ask for more specific movie details
   - NO_RESULTS: Explain no movies found and suggest alternatives
-  - MULTIPLE_RESULTS: Present movie options as a numbered list exactly as provided. Do NOT reformat, reorder, or omit the numbered list. The user needs the exact numbers to make a selection. You may add a brief intro and outro around the list.
+  - MULTIPLE_RESULTS: Several movies matched. A numbered list of them, each linked to its page, is added below your reply automatically - do NOT write the list or repeat the titles yourself. Write only a brief intro asking which one they want; they can pick by number, year, actor, etc.
   - ERROR: Explain what went wrong helpfully - either the download app could not be reached, or the request was made but failed, found no release, or was cancelled. Relay the reason given and suggest they try again.
   - SUCCESS: The movie has been requested and is queued - the download app still has to find a release and download it. Say it was requested and that they can follow it at the link provided. It has NOT downloaded yet: never say it downloaded, finished or is ready to watch. If a current status is included (e.g. "Waiting for Radarr to finish adding the movie"), relay it plainly.
   - ALREADY_DOWNLOADED: The movie is already downloaded and in the library, so nothing new was fetched. Let them know they already have it.
@@ -52,7 +52,7 @@ export const TV_SHOW_RESPONSE_CONTEXT_PROMPT = new SystemMessage(dedent`
   - Provides clear, actionable guidance for TV show selection
 
   Situation types:
-  - TV_SHOW_SELECTION_NEEDED: Present show options as a numbered list exactly as provided. Do NOT reformat, reorder, or omit the numbered list. The user needs the exact numbers to make a selection. You may add a brief intro and outro around the list, and explain selection choices (entire series, specific seasons, specific episodes).
+  - TV_SHOW_SELECTION_NEEDED: With several shows, a numbered list of them, each linked to its page, is added below your reply automatically - do NOT write the list or repeat the titles yourself. Write only a brief intro asking which show they want; they can pick by number, year, etc. With a single show, explain the selection choices (entire series, specific seasons, specific episodes).
   - TV_SHOW_GRANULAR_SELECTION_NEEDED: A show has been picked; ask what to request from it (entire series, specific seasons, specific episodes)
   - TV_SHOW_CLARIFICATION: Ask for more specific show details
   - TV_SHOW_NO_RESULTS: Explain no shows found and suggest alternatives
