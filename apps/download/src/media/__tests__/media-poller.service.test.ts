@@ -2541,6 +2541,30 @@ describe('MediaPollerService', () => {
       expect(updated?.error).toBe(REMOVED_FROM_CLIENT_ERROR)
     })
 
+    it('cancels a linked movie job within seconds once SABnzbd reports it gone', async () => {
+      const job = await seed(
+        buildMovieJob({ status: DownloadJobStatus.Downloading }),
+      )
+
+      at(T0)
+      radarrService.getQueue.mockResolvedValue([LINKED_ITEM])
+      await service.poll()
+
+      at(T0 + 10_000)
+      radarrService.getQueue.mockResolvedValue([])
+      await service.poll()
+      mediaStateService.pushClientTransitions([
+        { from: 'downloading', nzoId: 'dl-1', to: 'gone' },
+      ])
+
+      at(T0 + 10_000 + CLIENT_GONE_CONFIRM_MS)
+      await service.poll()
+
+      const updated = downloadStateService.jobs.get(job.id)
+      expect(updated?.status).toBe(DownloadJobStatus.Cancelled)
+      expect(updated?.error).toBe(REMOVED_FROM_CLIENT_ERROR)
+    })
+
     it('restarts the absence when the item comes back', async () => {
       const job = await seed(
         buildMovieJob({ status: DownloadJobStatus.Downloading }),
