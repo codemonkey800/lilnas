@@ -81,8 +81,10 @@ export type StartSearchResult =
  * - resolves the scope - an `episodeId` gets its season/episode numbers, and
  *   an episode asked for by number (`seasonNumber` + `episodeNumber`) gets
  *   its `episodeId`, or the job fails "S02E05 isn't in Sonarr";
- * - monitors what the scope covers (`SonarrService.monitorScope`), under the
- *   title's `mediaMutex`. Only now, never during the add-time refresh:
+ * - monitors what the scope covers, series flag included
+ *   (`SonarrService.monitorScope`), under the title's `mediaMutex` - a
+ *   season search skips every release of an unmonitored series. Only now,
+ *   never during the add-time refresh:
  *   Sonarr's refresh saves back a snapshot taken before it fetched, undoing
  *   any flag written meanwhile.
  *
