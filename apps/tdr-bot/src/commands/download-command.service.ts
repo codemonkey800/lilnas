@@ -25,7 +25,7 @@ import { MINIO_CONNECTION } from 'nestjs-minio'
 
 import { EnvKeys } from 'src/env'
 import { downloadApiUrl } from 'src/utils/download-api-url'
-import { downloadLinks } from 'src/utils/download-links'
+import { downloadLinks, escapeLinkText } from 'src/utils/download-links'
 
 const MAX_ERROR_LENGTH = 1000
 
@@ -427,6 +427,10 @@ export class DownloadCommandService {
     }
 
     const media = job.media
+    const linkText = media.title ? escapeLinkText(media.title) : ''
+    const titleLine = linkText
+      ? `[**${linkText}**](<${media.sourceUrl}>)\n`
+      : ''
     const urls = media.downloadUrls ?? []
     const files: string[] = []
 
@@ -448,7 +452,7 @@ export class DownloadCommandService {
         await interaction.channel.send({
           files,
           content: [
-            media.title ? `[**${media.title}**](<${media.sourceUrl}>)\n` : '',
+            titleLine,
             author ? `sent by <@${author}>\n` : '',
             description,
           ]
@@ -469,7 +473,7 @@ export class DownloadCommandService {
 
           await interaction.channel.send({
             content: [
-              media.title ? `[**${media.title}**](<${media.sourceUrl}>)\n` : '',
+              titleLine,
               author ? `sent by <@${author}>\n` : '',
               description ? `${description}\n\n` : '',
               fileLinks,

@@ -251,6 +251,37 @@ describe('DownloadCommandService', () => {
       expect(interaction.followUp).not.toHaveBeenCalled()
     })
 
+    it('strips emoji from the title link so Discord renders it', async () => {
+      const minioClient = {
+        fGetObject: jest.fn().mockResolvedValue(undefined),
+      } as unknown as Client
+      service = new DownloadCommandService(minioClient)
+
+      const interaction = createMockInteraction()
+      mockClient.waitForJob.mockResolvedValue({
+        id: 'job-1',
+        status: DownloadJobStatus.Completed,
+        media: {
+          type: DownloadType.Video,
+          sourceUrl: 'https://example.com/video',
+          title: 'Wow 🤯 clip',
+          downloadUrls: ['https://storage.example.com/videos/job-1/file.mp4'],
+        },
+      })
+
+      await (service as unknown as PrivateAwaitJob).awaitJob({
+        id: 'req-1',
+        interaction: interaction as never,
+        jobId: 'job-1',
+        url: 'https://example.com/video',
+      })
+
+      const [{ content }] = interaction.channel.send.mock.calls[0] as [
+        { content: string },
+      ]
+      expect(content).toContain('[**Wow clip**](<https://example.com/video>)')
+    })
+
     it('sends a "no files" notice when the job completed with no download urls', async () => {
       const interaction = createMockInteraction()
       mockClient.waitForJob.mockResolvedValue({
