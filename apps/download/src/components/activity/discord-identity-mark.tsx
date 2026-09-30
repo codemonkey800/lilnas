@@ -68,6 +68,10 @@ const TRIGGER = cns(
  *   card — a left-anchored panel on a right-hand column runs off the viewport.
  * - `w-max` with a viewport-relative cap, so the snowflake sets the width on a
  *   roomy surface and the panel still cannot exceed the screen on a phone.
+ * - `@container-normal` undoes `FilterPanel`'s `@container`. Inline-size
+ *   containment sizes the box as if it had no content, so `w-max` collapses to
+ *   the padding alone and the text wraps one word — or one digit — per line.
+ *   Nothing in this popover queries the container, so dropping it costs nothing.
  * - `z-30` clears the `z-20` a `FilterPanel` popover wrapper uses elsewhere, so
  *   a mark inside a filtered list does not render under the filter panel.
  *
@@ -78,7 +82,7 @@ const TRIGGER = cns(
  */
 const PANEL = cns(
   'absolute top-[calc(100%+9px)] left-1/2 z-30 -translate-x-1/2',
-  'flex w-max max-w-[min(15rem,calc(100vw-2rem))] flex-col gap-[9px]',
+  '@container-normal flex w-max max-w-[min(15rem,calc(100vw-2rem))] flex-col gap-[9px]',
   'border-line-loud bg-surface-3 px-3 py-2.5',
 )
 
