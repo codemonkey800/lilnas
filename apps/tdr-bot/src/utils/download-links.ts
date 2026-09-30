@@ -61,6 +61,32 @@ export function escapeLinkText(text: string): string {
     .replace(/[[\]\\]/g, '\\$&')
 }
 
+/** One option in a list the user picks a title from. */
+export interface SelectionListItem {
+  media: Pick<Media, 'id' | 'type'>
+  title: string
+  /** Shown after the link, e.g. `(1999) ⭐8.7`. */
+  details?: string
+}
+
+/**
+ * A numbered list of `items`, each title linking to its page on the download
+ * site. Built in code rather than by the model for the same reason as
+ * {@link withDownloadLinks}, and numbered from 1 in `items` order so "the
+ * second one" still names the right title. `<…>` keeps Discord from
+ * unfurling every link.
+ */
+export function selectionList(items: SelectionListItem[]): string {
+  return items
+    .map((item, index) => {
+      const link = `[${escapeLinkText(item.title)}](<${downloadLinks(item.media).media}>)`
+      const details = item.details ? ` ${item.details}` : ''
+
+      return `${index + 1}. ${link}${details}`
+    })
+    .join('\n')
+}
+
 /**
  * A copy of `response` with a line linking the activity page and the title's
  * page appended. Added in code rather than handed to the model, which can

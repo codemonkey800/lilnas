@@ -4,6 +4,7 @@ import { DownloadType } from '@lilnas/utils/download/types'
 import {
   downloadLinks,
   escapeLinkText,
+  selectionList,
   withDownloadLinks,
 } from 'src/utils/download-links'
 
@@ -66,6 +67,31 @@ describe('download-links', () => {
 
     it('strips multi-codepoint emoji without leaving joiners behind', () => {
       expect(escapeLinkText('👨‍👩‍👧 Family 👍🏽 trip 🇯🇵 ❤️')).toBe('Family trip')
+    })
+  })
+
+  describe('selectionList', () => {
+    it('numbers each title and links it to its page', () => {
+      delete process.env.DOWNLOAD_URL
+
+      expect(
+        selectionList([
+          {
+            media: { id: 'tmdb:603', type: DownloadType.Movie },
+            title: 'The Matrix',
+            details: '(1999) ⭐8.2',
+          },
+          {
+            media: { id: 'tvdb:81189', type: DownloadType.Show },
+            title: '[REC] 🎬',
+          },
+        ]),
+      ).toBe(
+        [
+          '1. [The Matrix](<https://download.lilnas.io/movies/603>) (1999) ⭐8.2',
+          '2. [\\[REC\\]](<https://download.lilnas.io/shows/81189>)',
+        ].join('\n'),
+      )
     })
   })
 
