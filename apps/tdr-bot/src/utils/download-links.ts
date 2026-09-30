@@ -41,11 +41,24 @@ export function downloadLinks(
 }
 
 /**
- * Escapes the characters that would end a Discord masked link's text early,
- * so a title like `[REC]` still renders as one link.
+ * Emoji and the invisible characters that build them (skin tones, flags,
+ * keycaps, joiners, variation selectors).
+ */
+const EMOJI_REGEX =
+  /\p{Extended_Pictographic}|\p{Emoji_Modifier}|\p{Regional_Indicator}|\u200d|\ufe0f|\u20e3/gu
+
+/**
+ * Makes `text` safe to use as a Discord masked link's text. Emoji are
+ * stripped because Discord shows the whole link as raw markdown when its text
+ * contains one, and brackets are escaped so a title like `[REC]` doesn't end
+ * the text early.
  */
 export function escapeLinkText(text: string): string {
-  return text.replace(/[[\]\\]/g, '\\$&')
+  return text
+    .replace(EMOJI_REGEX, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+    .replace(/[[\]\\]/g, '\\$&')
 }
 
 /**

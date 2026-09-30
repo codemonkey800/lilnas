@@ -55,6 +55,18 @@ describe('download-links', () => {
     it('escapes brackets and backslashes', () => {
       expect(escapeLinkText('[REC] \\ 2')).toBe('\\[REC\\] \\\\ 2')
     })
+
+    it('strips emoji, which stop Discord rendering the link', () => {
+      expect(
+        escapeLinkText(
+          "I don't remember this in CoD 🤯 #callofduty #nostalgia",
+        ),
+      ).toBe("I don't remember this in CoD #callofduty #nostalgia")
+    })
+
+    it('strips multi-codepoint emoji without leaving joiners behind', () => {
+      expect(escapeLinkText('👨‍👩‍👧 Family 👍🏽 trip 🇯🇵 ❤️')).toBe('Family trip')
+    })
   })
 
   describe('withDownloadLinks', () => {
