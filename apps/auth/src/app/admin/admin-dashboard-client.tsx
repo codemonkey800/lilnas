@@ -736,8 +736,8 @@ export function AdminDashboardClient({
                       <span className="avatar">{getInitials(user.email)}</span>
                       <div className="person-card__text">
                         <span className="person-card__name">{user.email}</span>
+                        <PersonStatusChip user={user} />
                       </div>
-                      <PersonStatusChip user={user} />
                     </div>
                     <div className="person-card__row">
                       <span className="person-card__row-label">Access</span>
@@ -874,8 +874,8 @@ export function AdminDashboardClient({
                       <span className="avatar">{getInitials(user.email)}</span>
                       <div className="person-card__text">
                         <span className="person-card__name">{user.email}</span>
+                        <PersonStatusChip user={user} />
                       </div>
-                      <PersonStatusChip user={user} />
                     </div>
                     <div className="person-card__row">
                       <span className="person-card__row-label">Access</span>
