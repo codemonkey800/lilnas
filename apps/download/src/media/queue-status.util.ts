@@ -849,6 +849,17 @@ function settleCancelling(
  */
 export const ABSENT_REMOVED_MS = 600_000
 
+/**
+ * How long a job must be missing from the queue before SABnzbd reporting
+ * every open download `gone` - in neither its queue, its history nor its
+ * archive - is taken as the removal `ABSENT_REMOVED_MS` otherwise waits out.
+ * Short, because `gone` is SABnzbd's own word that the download was deleted.
+ * Not zero: a download Radarr/Sonarr import and then delete from SABnzbd
+ * also goes `gone`, and two history polls give the import time to show up as
+ * a landed file or an imported link first.
+ */
+export const CLIENT_GONE_CONFIRM_MS = 10_000
+
 /** Why a job was cancelled when its download vanished from the client. */
 export const REMOVED_FROM_CLIENT_ERROR = 'Removed from the download client'
 
@@ -872,6 +883,12 @@ export interface AbsentJobFacts {
   fileLanded: boolean
   /** Every download the job grabbed. */
   links: readonly JobDownloadLink[]
+  /**
+   * The job's download ids SABnzbd has reported `gone`
+   * (`MediaStateService.isClientGone`). Absent or empty when SABnzbd isn't
+   * read directly.
+   */
+  goneAtClient?: ReadonlySet<string>
 }
 
 const linkResolved = (link: JobDownloadLink) =>
@@ -901,14 +918,18 @@ const linkResolved = (link: JobDownloadLink) =>
  *   `REMOVED_FROM_CLIENT_ERROR`. A client outage during the absence resets
  *   the clock - SABnzbd unreachable for 20 minutes settles nothing - which
  *   is why the caller counts `absentForMs` only from when the client was
- *   last seen healthy.
+ *   last seen healthy. When SABnzbd has reported every open download
+ *   `gone`, `CLIENT_GONE_CONFIRM_MS` of absence is enough - a removal made
+ *   in Radarr's/Sonarr's queue writes no history, and this is the only
+ *   thing that says so sooner.
  * - Otherwise unchanged.
  */
 export function settleAbsentJob(
   current: DownloadJobStatus,
   facts: AbsentJobFacts,
 ): DownloadJobStatus | undefined {
-  const { absentForMs, clientHealthyForMs, fileLanded, links } = facts
+  const { absentForMs, clientHealthyForMs, fileLanded, goneAtClient, links } =
+    facts
 
   if (current === DownloadJobStatus.Cancelling) {
     return settleCancelling(fileLanded, absentForMs, linkOutcome(links))
@@ -928,8 +949,13 @@ export function settleAbsentJob(
     return imported ? DownloadJobStatus.Completed : undefined
   }
 
+  const openGone = links
+    .filter(link => !linkResolved(link))
+    .every(link => goneAtClient?.has(link.downloadId) === true)
+
   const removedAtClient =
-    absentForMs >= ABSENT_REMOVED_MS && clientHealthyForMs >= absentForMs
+    (openGone && absentForMs >= CLIENT_GONE_CONFIRM_MS) ||
+    (absentForMs >= ABSENT_REMOVED_MS && clientHealthyForMs >= absentForMs)
 
   if (!removedAtClient) return undefined
 

@@ -9,7 +9,10 @@ import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
 
 import { MediaStateService } from 'src/media/media-state.service'
 import { NOT_RELEASED_REASON } from 'src/media/media-state.util'
-import type { PollableQueueItem } from 'src/media/queue-status.util'
+import {
+  ABSENT_REMOVED_MS,
+  type PollableQueueItem,
+} from 'src/media/queue-status.util'
 import type { SabReading } from 'src/sabnzbd/sab-readings.util'
 
 const sabReading = (overrides: Partial<SabReading> = {}): SabReading => ({
@@ -267,6 +270,49 @@ describe('MediaStateService', () => {
 
     it('returns an empty list when nothing was pushed', () => {
       expect(service.takeClientTransitions()).toEqual([])
+    })
+  })
+
+  describe('isClientGone', () => {
+    afterEach(() => {
+      jest.restoreAllMocks()
+    })
+
+    // The poller asks after the transitions were drained - the latch is
+    // what outlives them.
+    it('latches a download SAB reported gone, drained or not', () => {
+      service.pushClientTransitions([
+        { from: 'downloading', nzoId: 'SABnzbd_nzo_a', to: 'gone' },
+      ])
+      service.takeClientTransitions()
+
+      expect(service.isClientGone('SABnzbd_nzo_a')).toBe(true)
+      expect(service.isClientGone('SABnzbd_nzo_b')).toBe(false)
+    })
+
+    it('forgets it once SAB lists the download again', () => {
+      service.pushClientTransitions([
+        { from: 'downloading', nzoId: 'SABnzbd_nzo_a', to: 'gone' },
+      ])
+      service.pushClientTransitions([
+        { from: null, nzoId: 'SABnzbd_nzo_a', to: 'downloading' },
+      ])
+
+      expect(service.isClientGone('SABnzbd_nzo_a')).toBe(false)
+    })
+
+    it('forgets it past ABSENT_REMOVED_MS, when absence settles the job anyway', () => {
+      const now = jest.spyOn(Date, 'now').mockReturnValue(1_000)
+      service.pushClientTransitions([
+        { from: 'downloading', nzoId: 'SABnzbd_nzo_a', to: 'gone' },
+      ])
+
+      now.mockReturnValue(1_000 + ABSENT_REMOVED_MS + 1)
+      service.pushClientTransitions([
+        { from: null, nzoId: 'SABnzbd_nzo_b', to: 'queued' },
+      ])
+
+      expect(service.isClientGone('SABnzbd_nzo_a')).toBe(false)
     })
   })
 

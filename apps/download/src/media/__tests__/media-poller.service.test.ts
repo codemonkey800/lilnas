@@ -75,6 +75,7 @@ import {
   ABSENT_REMOVED_MS,
   ATTENTION_DELAY_MS,
   CANCEL_GRACE_MS,
+  CLIENT_GONE_CONFIRM_MS,
   REMOVED_FROM_CLIENT_ERROR,
   STALL_MS,
 } from 'src/media/queue-status.util'
@@ -2490,6 +2491,49 @@ describe('MediaPollerService', () => {
       sonarrService.getQueue.mockResolvedValue([])
       await service.poll()
       at(T0 + 10_000 + ABSENT_REMOVED_MS)
+      await service.poll()
+
+      const updated = downloadStateService.jobs.get(job.id)
+      expect(updated?.status).toBe(DownloadJobStatus.Cancelled)
+      expect(updated?.error).toBe(REMOVED_FROM_CLIENT_ERROR)
+    })
+
+    // Removed in Sonarr's own queue: no history event, but SABnzbd no
+    // longer has the download anywhere.
+    it('cancels a linked show job within seconds once SABnzbd reports it gone', async () => {
+      const job = await seed(
+        buildShowJob({
+          scope: { episodeId: 1, seasonNumber: 3 },
+          status: DownloadJobStatus.Downloading,
+        }),
+      )
+
+      at(T0)
+      sonarrService.getQueue.mockResolvedValue([
+        {
+          downloadId: 'dl-show',
+          episodeId: 1,
+          seasonNumber: 3,
+          seriesId: 9,
+          status: 'downloading',
+        },
+      ])
+      await service.poll()
+
+      at(T0 + 10_000)
+      sonarrService.getQueue.mockResolvedValue([])
+      await service.poll()
+      mediaStateService.pushClientTransitions([
+        { from: 'downloading', nzoId: 'dl-show', to: 'gone' },
+      ])
+
+      at(T0 + 10_000 + CLIENT_GONE_CONFIRM_MS - 1)
+      await service.poll()
+      expect(downloadStateService.jobs.get(job.id)?.status).toBe(
+        DownloadJobStatus.Downloading,
+      )
+
+      at(T0 + 10_000 + CLIENT_GONE_CONFIRM_MS)
       await service.poll()
 
       const updated = downloadStateService.jobs.get(job.id)
