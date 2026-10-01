@@ -132,7 +132,7 @@ export function EditAccessModal({
         if (event.target === event.currentTarget) onClose()
       }}
     >
-      <div className="modal">
+      <div className="modal modal-wide">
         <div className="row between">
           <h2 className="h2">Edit access</h2>
           <button
