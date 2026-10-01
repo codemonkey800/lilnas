@@ -16,6 +16,10 @@ import type {
 import { NotifyBusService } from 'src/sse/notify-bus.service'
 import type { AccessCacheService } from 'src/verify/access-cache.service'
 
+// Access-rule patterns are validated against this suffix (see
+// src/grants/host-matcher.ts's HostMatcherSchema).
+process.env.REDIRECT_ALLOWED_SUFFIX = 'localhost.test'
+
 function createTestDb() {
   const sqlite = new BetterSqlite3(':memory:')
   applyPragmas(sqlite)
@@ -40,6 +44,8 @@ function fakeAccessCache(): AccessCacheService {
   return {
     addGrant: jest.fn(),
     removeGrant: jest.fn(),
+    addPreAuthorization: jest.fn(),
+    removePreAuthorization: jest.fn(),
     isBlocked: jest.fn().mockReturnValue(false),
     hasGrant: jest.fn().mockReturnValue(false),
     resolveSession: jest.fn(),
@@ -545,5 +551,62 @@ describe('AdminController', () => {
           .all(),
       ).toHaveLength(0)
     })
+  })
+  describe('access-rule patterns', () => {
+    function grantsFor(userId: string): string[] {
+      return testDb.db
+        .select()
+        .from(schema.grant)
+        .where(eq(schema.grant.userId, userId))
+        .all()
+        .map(row => row.serviceHost)
+    }
+
+    it('setUserServices() accepts a pattern under the allowed suffix without consulting the (empty) registry', async () => {
+      const userId = seedUser(testDb.db)
+
+      await controller.setUserServices(userId, {
+        changes: [{ serviceHost: '*.Dev.localhost.test', grant: true }],
+      })
+
+      expect(grantsFor(userId)).toEqual(['*.dev.localhost.test'])
+    })
+
+    it('preAuthorize() accepts a pattern for a not-yet-signed-in email', async () => {
+      await controller.preAuthorize({
+        email: 'rule-preauth@example.com',
+        serviceHosts: ['*.dev.localhost.test'],
+      })
+
+      expect(testDb.db.select().from(schema.preAuthorizedGrant).all()).toEqual([
+        expect.objectContaining({
+          email: 'rule-preauth@example.com',
+          serviceHost: '*.dev.localhost.test',
+        }),
+      ])
+    })
+
+    it.each(['foo-*.localhost.test', '*.example.com'])(
+      'rejects %s with BadRequestException on both routes, writing nothing',
+      async serviceHost => {
+        const userId = seedUser(testDb.db)
+
+        await expect(
+          controller.setUserServices(userId, {
+            changes: [{ serviceHost, grant: true }],
+          }),
+        ).rejects.toThrow(BadRequestException)
+        await expect(
+          controller.preAuthorize({
+            email: 'bad-rule@example.com',
+            serviceHosts: [serviceHost],
+          }),
+        ).rejects.toThrow(/not a valid access rule/)
+        expect(grantsFor(userId)).toEqual([])
+        expect(
+          testDb.db.select().from(schema.preAuthorizedGrant).all(),
+        ).toEqual([])
+      },
+    )
   })
 })

@@ -19,7 +19,11 @@ import type {
   ServiceRegistryEntry,
   ServiceRegistryService,
 } from 'src/services/service-registry.service'
-import { ADMIN_TOPIC, NotifyBusService } from 'src/sse/notify-bus.service'
+import {
+  ADMIN_TOPIC,
+  NotifyBusService,
+  topicFor,
+} from 'src/sse/notify-bus.service'
 import { signInAndGetSessionCookiePair } from 'src/verify/__tests__/helpers/session-fixtures'
 import { AccessCacheService } from 'src/verify/access-cache.service'
 import { VerifyService } from 'src/verify/verify.service'
@@ -436,6 +440,132 @@ describe('U9: user and grant management', () => {
         )
         expect(swole.outcome).toBe('allow')
         expect(yacht.outcome).toBe('allow')
+      } finally {
+        testDb.close()
+      }
+    })
+  })
+
+  describe('access rules: a pattern grant approves the pending requests it covers', () => {
+    function requestStatuses(db: Db, userId: string) {
+      return Object.fromEntries(
+        db
+          .select()
+          .from(schema.accessRequest)
+          .where(eq(schema.accessRequest.userId, userId))
+          .all()
+          .map(row => [row.serviceHost, row.status]),
+      )
+    }
+
+    function seedPending(db: Db, userId: string, serviceHost: string) {
+      const now = new Date()
+      db.insert(schema.accessRequest)
+        .values({
+          userId,
+          serviceHost,
+          status: 'pending',
+          createdAt: now,
+          lastSeenAt: now,
+        })
+        .run()
+    }
+
+    it('setUserServices(): approves only the covered requests, pushes each waiting /pending tab through, and the user passes verify', async () => {
+      const testDb = createTestDb()
+      try {
+        const { auth, notifyBus, usersService, verifyService } =
+          createHarness(testDb)
+        const cookie = await signIn(auth, {
+          sub: 'google-sub-rule-edit',
+          email: 'rule-edit@example.com',
+        })
+        const userRow = mustFindUser(testDb.db, 'rule-edit@example.com')
+        seedPending(testDb.db, userRow.id, 'foo.dev.lilnas.io')
+        seedPending(testDb.db, userRow.id, 'a.b.dev.lilnas.io')
+        seedPending(testDb.db, userRow.id, 'swole.lilnas.io')
+        const publishedTopics: string[] = []
+        notifyBus.stream$.subscribe(signal =>
+          publishedTopics.push(signal.topic),
+        )
+
+        usersService.setUserServices(userRow.id, [
+          { serviceHost: '*.dev.lilnas.io', grant: true },
+        ])
+
+        expect(requestStatuses(testDb.db, userRow.id)).toEqual({
+          'foo.dev.lilnas.io': 'approved',
+          'a.b.dev.lilnas.io': 'approved',
+          'swole.lilnas.io': 'pending',
+        })
+        expect(publishedTopics).toEqual([
+          topicFor(userRow.id, 'foo.dev.lilnas.io'),
+          topicFor(userRow.id, 'a.b.dev.lilnas.io'),
+          ADMIN_TOPIC,
+        ])
+        const decision = await verifyService.decide(
+          verifyInputFor(cookie, 'foo.dev.lilnas.io'),
+        )
+        expect(decision.outcome).toBe('allow')
+      } finally {
+        testDb.close()
+      }
+    })
+
+    it('setUserServices(): a literal grant leaves a matching pending request alone', async () => {
+      const testDb = createTestDb()
+      try {
+        const { auth, notifyBus, usersService } = createHarness(testDb)
+        await signIn(auth, {
+          sub: 'google-sub-literal-edit',
+          email: 'literal-edit@example.com',
+        })
+        const userRow = mustFindUser(testDb.db, 'literal-edit@example.com')
+        seedPending(testDb.db, userRow.id, 'swole.lilnas.io')
+        const publishedTopics: string[] = []
+        notifyBus.stream$.subscribe(signal =>
+          publishedTopics.push(signal.topic),
+        )
+
+        usersService.setUserService(userRow.id, 'swole.lilnas.io', true)
+
+        expect(requestStatuses(testDb.db, userRow.id)).toEqual({
+          'swole.lilnas.io': 'pending',
+        })
+        expect(publishedTopics).toEqual([ADMIN_TOPIC])
+      } finally {
+        testDb.close()
+      }
+    })
+
+    it('preAuthorizeMany(): an existing user granted a pattern has their covered pending requests approved and published', async () => {
+      const testDb = createTestDb()
+      try {
+        const { auth, notifyBus, usersService } = createHarness(testDb)
+        await signIn(auth, {
+          sub: 'google-sub-rule-preauth',
+          email: 'rule-preauth@example.com',
+        })
+        const userRow = mustFindUser(testDb.db, 'rule-preauth@example.com')
+        seedPending(testDb.db, userRow.id, 'foo.dev.lilnas.io')
+        seedPending(testDb.db, userRow.id, 'dev.lilnas.io')
+        const publishedTopics: string[] = []
+        notifyBus.stream$.subscribe(signal =>
+          publishedTopics.push(signal.topic),
+        )
+
+        usersService.preAuthorizeMany('rule-preauth@example.com', [
+          '*.dev.lilnas.io',
+        ])
+
+        expect(requestStatuses(testDb.db, userRow.id)).toEqual({
+          'foo.dev.lilnas.io': 'approved',
+          'dev.lilnas.io': 'pending',
+        })
+        expect(publishedTopics).toEqual([
+          topicFor(userRow.id, 'foo.dev.lilnas.io'),
+          ADMIN_TOPIC,
+        ])
       } finally {
         testDb.close()
       }

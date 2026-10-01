@@ -143,12 +143,14 @@ export function listPendingQueue(db: Db): QueueRow[] {
 // pending" read — mirrors listPendingQueue()'s `WHERE status = 'pending'`
 // filter, scoped to one user. Served by the existing
 // access_request_user_service_idx (userId, serviceHost) index's leading
-// column; no new index needed.
+// column; no new index needed. Takes an Executor so users.service.ts can
+// also run it inside its own transaction — a pattern grant approves every
+// pending request it now covers (see UsersService.setUserServices()).
 export function listPendingRequestsForUser(
-  db: Db,
+  executor: Executor,
   userId: string,
 ): AccessRequestRow[] {
-  return db
+  return executor
     .select()
     .from(accessRequest)
     .where(

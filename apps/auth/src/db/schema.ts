@@ -23,9 +23,12 @@ import {
 //     tables exist as the shape that adapter points to.
 //
 //   grant — who can reach what. One row per (userId, serviceHost) the user
-//     currently has standing access to. Pure current-state: a revoke is a
-//     DELETE, never a soft-delete flag — there is no "history" concept for
-//     grants the way there is for access_request.
+//     currently has standing access to, where serviceHost is a host
+//     MATCHER: a literal host or an access-rule pattern like
+//     `*.dev.lilnas.io` (see src/grants/host-matcher.ts). Pure
+//     current-state: a revoke is a DELETE, never a soft-delete flag — there
+//     is no "history" concept for grants the way there is for
+//     access_request.
 //
 //   access_request — the request lifecycle. See the unique-index comment on
 //     the table definition below for the load-bearing judgment call on how
@@ -171,6 +174,12 @@ export type VerificationRow = typeof verification.$inferSelect
 
 // ──────────────────────────────────────────────────────────────────────────────
 // grant
+//
+// `service_host` is a host matcher, not necessarily a literal host: either
+// an exact host (`swole.lilnas.io`) or an access-rule pattern
+// (`*.dev.lilnas.io`) granting every host below that suffix. Both share this
+// table and its unique index — see src/grants/host-matcher.ts for the
+// matching rules and AccessCacheService for how /verify applies them.
 // ──────────────────────────────────────────────────────────────────────────────
 
 export const grant = sqliteTable(
@@ -214,7 +223,9 @@ export type GrantRow = typeof grant.$inferSelect
 // "pre-authorize by email" action finds an EXISTING user row for that
 // email, it writes directly to `grant` instead and never creates a row
 // here at all — this table only ever represents a person who has not yet
-// signed in.
+// signed in. `service_host` is a host matcher here too (a literal host or
+// a `*.<suffix>` pattern, see `grant` above) and binds into `grant`
+// unchanged.
 // ──────────────────────────────────────────────────────────────────────────────
 
 export const preAuthorizedGrant = sqliteTable(
