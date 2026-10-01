@@ -541,6 +541,11 @@
     flex-direction: column;
     gap: 16px;
   }
+  /* Opt-in wider dialog for content that benefits from columns (the
+     services grid); still capped by the overlay's padding on small screens. */
+  .modal-wide {
+    max-width: 880px;
+  }
 
   /* ---------- toast ---------- */
 
@@ -1139,7 +1144,9 @@
 
   .service-check-grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    /* Column count follows the container's width: one column in a phone
+       sized dialog, two in the 420px one, up to five in the wide one. */
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
     gap: 6px;
   }
   /* The grid's own gap spaces the tiles; the stacked-list margin above
@@ -1154,11 +1161,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-  @media (max-width: 480px) {
-    .service-check-grid {
-      grid-template-columns: 1fr;
-    }
   }
 
   .service-chip-list {
