@@ -914,6 +914,149 @@ describe('AdminDashboardClient — Edit access modal checkbox diffing (M2/M3)', 
 // of an existing link. The link/unlink panel's own behavior is tested
 // separately in discord-links-panel.spec.tsx.
 // ──────────────────────────────────────────────────────────────────────────────
+describe('AdminDashboardClient — access rules', () => {
+  function openEditAccess(user: AdminUserEntry): HTMLElement {
+    render(
+      <AdminDashboardClient
+        initialQueue={[]}
+        initialUsers={[user]}
+        services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
+      />,
+    )
+    fireEvent.click(editAccessButtonFor(user.email))
+    return screen
+      .getByRole('heading', { name: /^edit access$/i })
+      .closest('.modal') as HTMLElement
+  }
+
+  it('renders a held rule as a chip, never as a checkbox, and lists it on the People row', () => {
+    const modal = openEditAccess(
+      buildUser({ services: ['swole.lilnas.io', '*.dev.lilnas.io'] }),
+    )
+
+    expect(
+      within(modal).queryByRole('checkbox', { name: /\*\.dev/ }),
+    ).not.toBeInTheDocument()
+    expect(
+      within(modal).getByRole('button', {
+        name: 'Remove rule *.dev.lilnas.io',
+      }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getAllByText('All *.dev.lilnas.io sites').length,
+    ).toBeGreaterThan(0)
+  })
+
+  it('adding a typed rule and saving sends it as a grant in the same batched call', async () => {
+    mockSetUserServices.mockResolvedValue(undefined)
+    const modal = openEditAccess(buildUser({ services: [] }))
+
+    fireEvent.change(within(modal).getByLabelText('Access rules'), {
+      target: { value: ' *.Preview.lilnas.io ' },
+    })
+    fireEvent.click(within(modal).getByRole('button', { name: 'Add rule' }))
+    fireEvent.click(within(modal).getByRole('checkbox', { name: /swole/i }))
+    fireEvent.click(within(modal).getByRole('button', { name: /save access/i }))
+
+    await waitFor(() => {
+      expect(mockSetUserServices).toHaveBeenCalledWith('user_1', [
+        { serviceHost: '*.preview.lilnas.io', grant: true },
+        { serviceHost: 'swole.lilnas.io', grant: true },
+      ])
+    })
+  })
+
+  it('removing a held rule and saving sends a grant:false change for it', async () => {
+    mockSetUserServices.mockResolvedValue(undefined)
+    const modal = openEditAccess(buildUser({ services: ['*.dev.lilnas.io'] }))
+
+    fireEvent.click(
+      within(modal).getByRole('button', {
+        name: 'Remove rule *.dev.lilnas.io',
+      }),
+    )
+    fireEvent.click(within(modal).getByRole('button', { name: /save access/i }))
+
+    await waitFor(() => {
+      expect(mockSetUserServices).toHaveBeenCalledWith('user_1', [
+        { serviceHost: '*.dev.lilnas.io', grant: false },
+      ])
+    })
+  })
+
+  it('rejects a malformed rule client-side without adding it', () => {
+    const modal = openEditAccess(buildUser({ services: [] }))
+
+    fireEvent.change(within(modal).getByLabelText('Access rules'), {
+      target: { value: 'foo-*.lilnas.io' },
+    })
+    fireEvent.click(within(modal).getByRole('button', { name: 'Add rule' }))
+
+    expect(
+      within(modal).queryByRole('button', { name: /remove rule/i }),
+    ).not.toBeInTheDocument()
+    expect(
+      within(modal)
+        .getByText(/use a single leading wildcard/i)
+        .closest('.field'),
+    ).toHaveClass('has-error')
+  })
+
+  it('shows the server error when saving a rule fails', async () => {
+    mockSetUserServices.mockRejectedValue(
+      new Error('"*.example.com" is not a valid access rule'),
+    )
+    const modal = openEditAccess(buildUser({ services: [] }))
+
+    fireEvent.change(within(modal).getByLabelText('Access rules'), {
+      target: { value: '*.example.com' },
+    })
+    fireEvent.click(within(modal).getByRole('button', { name: 'Add rule' }))
+    fireEvent.click(within(modal).getByRole('button', { name: /save access/i }))
+
+    expect(await within(modal).findByRole('alert')).toHaveTextContent(
+      'not a valid access rule',
+    )
+  })
+
+  it('the Add-person preset chip appends *.dev.lilnas.io to the hosts sent to preAuthorizeUsers', async () => {
+    mockPreAuthorizeUsers.mockResolvedValue(undefined)
+    render(
+      <AdminDashboardClient
+        initialQueue={[]}
+        initialUsers={[]}
+        services={SERVICES}
+        discordUnlinked={NO_DISCORD}
+        discordLinks={[]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /add person/i }))
+    const modal = screen
+      .getByRole('heading', { name: /add a person/i })
+      .closest('.modal') as HTMLElement
+    fireEvent.change(within(modal).getByLabelText('Email address'), {
+      target: { value: 'dev.friend@example.com' },
+    })
+    fireEvent.click(within(modal).getByRole('checkbox', { name: /swole/i }))
+    fireEvent.click(
+      within(modal).getByRole('button', { name: '*.dev.lilnas.io' }),
+    )
+    fireEvent.click(
+      within(modal).getByRole('button', { name: /grant access/i }),
+    )
+
+    await waitFor(() => {
+      expect(mockPreAuthorizeUsers).toHaveBeenCalledWith(
+        'dev.friend@example.com',
+        ['swole.lilnas.io', '*.dev.lilnas.io'],
+      )
+    })
+  })
+})
+
 describe('AdminDashboardClient — Discord handle on People rows', () => {
   it('renders the linked handle as a chip in BOTH the desktop row and the mobile card', () => {
     const linked = buildUser({
@@ -992,9 +1135,11 @@ describe('AdminDashboardClient — Edit access modal, Discord section', () => {
       within(modal).getByRole('button', { name: /^unlink$/i }),
     ).toBeInTheDocument()
     // The whole design constraint, asserted: the only text input this modal
-    // has ever had is the (Add-person) email field, which lives in a
-    // different modal — there is no handle/snowflake box here to type into.
-    expect(within(modal).queryByRole('textbox')).not.toBeInTheDocument()
+    // has is the access-rule pattern box — there is no handle/snowflake box
+    // here to type into.
+    expect(within(modal).getAllByRole('textbox')).toEqual([
+      within(modal).getByLabelText('Access rules'),
+    ])
   })
 
   it('unlinking from the modal confirms first, then calls unlinkDiscordAccount with the user id', async () => {
