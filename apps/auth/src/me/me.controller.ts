@@ -12,6 +12,7 @@ import { isAdminEmail } from 'src/admin/admin.guard'
 import { DB, type Db } from 'src/db/database.module'
 import { EnvKeys } from 'src/env'
 import { findUserById, listGrantsForUser } from 'src/grants/grants.repo'
+import { isHostPattern } from 'src/grants/host-matcher'
 import { listPendingRequestsForUser } from 'src/requests/requests.repo'
 import { AccessCacheService } from 'src/verify/access-cache.service'
 
@@ -43,7 +44,12 @@ export type MeResponse = {
   createdAt: string
   // Every service this user currently has standing access to — just the
   // hosts, mirroring AdminUserEntry.services' own shape (admin.controller.ts).
+  // LITERAL hosts only, so every entry is a real, linkable site.
   grants: string[]
+  // The user's access-rule patterns (`*.dev.lilnas.io`, see
+  // src/grants/host-matcher.ts) — split out of `grants` because a rule
+  // names a family of hosts, not one a client could link to.
+  rules: string[]
   // This user's own currently-pending requests (there can be more than one
   // — a person may have requested several gated services). The pending
   // page matches its own serviceHost against this list to show "Requested
@@ -75,6 +81,10 @@ export class MeController {
       throw new UnauthorizedException()
     }
 
+    const matchers = listGrantsForUser(this.db, session.userId).map(
+      grant => grant.serviceHost,
+    )
+
     return {
       name: user.name,
       email: user.email,
@@ -82,9 +92,8 @@ export class MeController {
       isAdmin: isAdminEmail(user.email, env(EnvKeys.ADMIN_EMAILS)),
       blockedAt: user.blockedAt?.toISOString() ?? null,
       createdAt: user.createdAt.toISOString(),
-      grants: listGrantsForUser(this.db, session.userId).map(
-        grant => grant.serviceHost,
-      ),
+      grants: matchers.filter(matcher => !isHostPattern(matcher)),
+      rules: matchers.filter(isHostPattern),
       pendingRequests: listPendingRequestsForUser(this.db, session.userId).map(
         request => ({
           serviceHost: request.serviceHost,
