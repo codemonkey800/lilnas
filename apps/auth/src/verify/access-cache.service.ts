@@ -14,6 +14,7 @@ import {
   listAllPreAuthorizedGrants,
   listBlockedUserIds,
 } from 'src/grants/grants.repo'
+import { isHostPattern, matchesHost } from 'src/grants/host-matcher'
 
 // ──────────────────────────────────────────────────────────────────────────────
 // The preloaded, write-through-invalidated in-memory cache backing every
@@ -24,7 +25,9 @@ import {
 //      grants.repo.ts; mutated in place by addGrant/removeGrant, the write-
 //      through invalidation surface requests.service.ts's approveRequest()
 //      and users.service.ts's edit/revoke actions call after their own DB
-//      writes.
+//      writes. Pattern grants (`*.dev.lilnas.io`, see
+//      src/grants/host-matcher.ts) live beside it in patternGrantsByUser, so
+//      the common literal-host hit stays one Set lookup.
 //   2. blockedUserIds — the block/unblock enforcement half. Preloaded at
 //      boot; mutated in place by blockUser/unblockUser, users.service.ts's
 //      write-through surface. Read fresh on every decision (never itself
@@ -117,6 +120,11 @@ export class AccessCacheService implements OnModuleInit {
   private static readonly MAX_SESSION_CACHE_MS = 60_000
 
   private readonly grantsByUser = new Map<string, Set<string>>()
+  // A user's PATTERN grants, kept apart from grantsByUser's exact Set so the
+  // hot path only falls back to a linear suffix scan on a literal miss. A
+  // plain array rather than a Set: a user holds a handful of rules at most,
+  // and addGrant() dedupes on insert.
+  private readonly patternGrantsByUser = new Map<string, string[]>()
   private readonly blockedUserIds = new Set<string>()
   private readonly sessionCache = new Map<string, CachedSession>()
   // P1: in-flight dedup for resolveSession()'s cache-miss path — see that
@@ -158,14 +166,30 @@ export class AccessCacheService implements OnModuleInit {
 
   // ── Grants ────────────────────────────────────────────────────────────
 
+  // `serviceHost` is always a concrete, normalized host here (never a
+  // pattern) — an exact literal grant wins first; otherwise any of the
+  // user's pattern grants covering it does.
   hasGrant(userId: string, serviceHost: string): boolean {
-    return this.grantsByUser.get(userId)?.has(serviceHost) ?? false
+    if (this.grantsByUser.get(userId)?.has(serviceHost)) {
+      return true
+    }
+    const patterns = this.patternGrantsByUser.get(userId)
+    return patterns?.some(pattern => matchesHost(pattern, serviceHost)) ?? false
   }
 
   // Write-through invalidation surface for the approve action and "edit a
   // user's services" / pre-authorize-by-email actions. Idempotent —
   // granting an already-granted pair is a no-op on the underlying Set.
+  // `serviceHost` is a host matcher: a pattern is routed to
+  // patternGrantsByUser instead.
   addGrant(userId: string, serviceHost: string): void {
+    if (isHostPattern(serviceHost)) {
+      const patterns = this.patternGrantsByUser.get(userId) ?? []
+      if (!patterns.includes(serviceHost)) {
+        this.patternGrantsByUser.set(userId, [...patterns, serviceHost])
+      }
+      return
+    }
     let hosts = this.grantsByUser.get(userId)
     if (!hosts) {
       hosts = new Set<string>()
@@ -177,6 +201,16 @@ export class AccessCacheService implements OnModuleInit {
   // Write-through invalidation surface for the revoke / "edit a user's
   // services" actions. Removing a pair that was never granted is a no-op.
   removeGrant(userId: string, serviceHost: string): void {
+    if (isHostPattern(serviceHost)) {
+      const patterns = this.patternGrantsByUser.get(userId)
+      if (patterns) {
+        this.patternGrantsByUser.set(
+          userId,
+          patterns.filter(pattern => pattern !== serviceHost),
+        )
+      }
+      return
+    }
     this.grantsByUser.get(userId)?.delete(serviceHost)
   }
 
@@ -307,7 +341,9 @@ export class AccessCacheService implements OnModuleInit {
     }
     this.preAuthorizedByEmail.delete(normalizedEmail)
 
-    return hostsToBind.includes(forwardedHost)
+    // A matcher test rather than includes(): a pre-authorized PATTERN
+    // (`*.dev.lilnas.io`) lets its first matching host straight through too.
+    return hostsToBind.some(matcher => matchesHost(matcher, forwardedHost))
   }
 
   // ── Blocked status ────────────────────────────────────────────────────

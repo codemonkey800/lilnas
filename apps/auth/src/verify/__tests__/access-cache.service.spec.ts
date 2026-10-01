@@ -309,6 +309,107 @@ describe('AccessCacheService', () => {
     })
   })
 
+  describe('pattern grants (access rules)', () => {
+    beforeEach(() => {
+      testDb = createTestDb()
+    })
+
+    function seedUser(id: string, email: string) {
+      const now = new Date()
+      testDb.db
+        .insert(schema.user)
+        .values({
+          id,
+          name: 'Test User',
+          email,
+          emailVerified: false,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run()
+    }
+
+    it('a pattern grant covers every host below its suffix, but not the suffix itself or another user', () => {
+      const { cache } = createHarness(testDb)
+      cache.onModuleInit()
+      cache.addGrant('u1', '*.dev.lilnas.io')
+
+      expect(cache.hasGrant('u1', 'foo.dev.lilnas.io')).toBe(true)
+      expect(cache.hasGrant('u1', 'a.b.dev.lilnas.io')).toBe(true)
+      expect(cache.hasGrant('u1', 'dev.lilnas.io')).toBe(false)
+      expect(cache.hasGrant('u1', 'swole.lilnas.io')).toBe(false)
+      expect(cache.hasGrant('u2', 'foo.dev.lilnas.io')).toBe(false)
+    })
+
+    it('removing a pattern grant stops it matching, and leaves literal grants alone', () => {
+      const { cache } = createHarness(testDb)
+      cache.onModuleInit()
+      cache.addGrant('u1', '*.dev.lilnas.io')
+      cache.addGrant('u1', '*.dev.lilnas.io')
+      cache.addGrant('u1', 'swole.lilnas.io')
+
+      cache.removeGrant('u1', '*.dev.lilnas.io')
+
+      expect(cache.hasGrant('u1', 'foo.dev.lilnas.io')).toBe(false)
+      expect(cache.hasGrant('u1', 'swole.lilnas.io')).toBe(true)
+    })
+
+    it('onModuleInit restores pattern grants from the database', () => {
+      seedUser('u1', 'rule@example.com')
+      testDb.db
+        .insert(schema.grant)
+        .values({
+          userId: 'u1',
+          serviceHost: '*.dev.lilnas.io',
+          createdAt: new Date(),
+        })
+        .run()
+
+      const { cache } = createHarness(testDb)
+      cache.onModuleInit()
+
+      expect(cache.hasGrant('u1', 'foo.dev.lilnas.io')).toBe(true)
+    })
+
+    it('bindPreAuthorizedGrant binds a pre-authorized pattern and lets its first matching host through', () => {
+      const { cache } = createHarness(testDb)
+      cache.onModuleInit()
+      cache.addPreAuthorization('rule-preauth@example.com', '*.dev.lilnas.io')
+      seedUser('u1', 'rule-preauth@example.com')
+
+      const bound = cache.bindPreAuthorizedGrant(
+        'u1',
+        'rule-preauth@example.com',
+        'foo.dev.lilnas.io',
+      )
+
+      expect(bound).toBe(true)
+      expect(cache.hasGrant('u1', 'bar.dev.lilnas.io')).toBe(true)
+      expect(testDb.db.select().from(schema.grant).all()).toEqual([
+        expect.objectContaining({
+          userId: 'u1',
+          serviceHost: '*.dev.lilnas.io',
+        }),
+      ])
+    })
+
+    it('bindPreAuthorizedGrant still binds a pattern on a non-matching host, but reports false for that host', () => {
+      const { cache } = createHarness(testDb)
+      cache.onModuleInit()
+      cache.addPreAuthorization('rule-miss@example.com', '*.dev.lilnas.io')
+      seedUser('u1', 'rule-miss@example.com')
+
+      const bound = cache.bindPreAuthorizedGrant(
+        'u1',
+        'rule-miss@example.com',
+        'swole.lilnas.io',
+      )
+
+      expect(bound).toBe(false)
+      expect(cache.hasGrant('u1', 'foo.dev.lilnas.io')).toBe(true)
+    })
+  })
+
   describe('resolveSession — cheap pre-check (never touches the cache or the database)', () => {
     beforeEach(() => {
       testDb = createTestDb()
