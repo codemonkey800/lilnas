@@ -216,9 +216,9 @@ export function EditAccessModal({
             {accessModalError}
           </p>
         ) : null}
-        <div className="row between">
+        <div className="row between wrap-items gap-3">
           {user ? (
-            <div className="row gap-2">
+            <div className="row wrap-items gap-2">
               <button
                 type="button"
                 className="btn btn-outline btn-sm"
@@ -237,7 +237,7 @@ export function EditAccessModal({
               </button>
             </div>
           ) : null}
-          <div className="row gap-2.5">
+          <div className="row ml-auto gap-2.5">
             <button type="button" className="btn btn-outline" onClick={onClose}>
               Cancel
             </button>
