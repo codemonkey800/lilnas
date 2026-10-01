@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { HostMatcherSchema } from 'src/grants/host-matcher'
+
 // ──────────────────────────────────────────────────────────────────────────────
 // S3: request-body validation for admin.controller.ts's mutating routes.
 // Mirrors apps/tdr-code/src/console/auth-admin.dto.ts's file convention
@@ -28,15 +30,20 @@ export type BulkRejectBodyDto = z.infer<typeof BulkRejectBodySchema>
 // separate HTTP round trip and a separate backend transaction. See
 // UsersService.preAuthorizeMany()/setUserServices()'s own comments for the
 // "one transaction for the whole batch" half of this fix.
+//
+// Every serviceHost is a host matcher — a literal host or an access-rule
+// pattern like `*.dev.lilnas.io` (see src/grants/host-matcher.ts). The
+// schema validates and normalizes a pattern's shape; whether a LITERAL
+// names a real service stays AdminController's registry check.
 export const PreAuthorizeBodySchema = z.object({
   email: z.string().email(),
-  serviceHosts: z.array(z.string().min(1)).min(1),
+  serviceHosts: z.array(HostMatcherSchema).min(1),
 })
 export type PreAuthorizeBodyDto = z.infer<typeof PreAuthorizeBodySchema>
 
 export const SetUserServicesBodySchema = z.object({
   changes: z
-    .array(z.object({ serviceHost: z.string().min(1), grant: z.boolean() }))
+    .array(z.object({ serviceHost: HostMatcherSchema, grant: z.boolean() }))
     .min(1),
 })
 export type SetUserServicesBodyDto = z.infer<typeof SetUserServicesBodySchema>

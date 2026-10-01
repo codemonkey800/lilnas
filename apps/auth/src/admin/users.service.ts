@@ -18,6 +18,7 @@ import {
 import {
   deleteGrant,
   deletePreAuthorizedGrant,
+  type Executor,
   findPreAuthorizedGrantsByEmail,
   findUserByEmail,
   findUserById,
@@ -27,12 +28,47 @@ import {
   listGrantsForUser,
   setBlockedAt,
 } from 'src/grants/grants.repo'
+import { isHostPattern, matchesHost } from 'src/grants/host-matcher'
+import {
+  listPendingRequestsForUser,
+  markDecided,
+} from 'src/requests/requests.repo'
 import { NotifyBusService } from 'src/sse/notify-bus.service'
 import { AccessCacheService } from 'src/verify/access-cache.service'
 
 import { normalizeEmail } from './normalize-email'
 
 export type ServiceChange = { serviceHost: string; grant: boolean }
+
+// A pending access_request a just-granted access rule now covers. Literal
+// grants never produce these — see approveRequestsCoveredBy().
+type CoveredRequest = { userId: string; serviceHost: string }
+
+// Marks every currently-pending access_request of `userId`'s that `pattern`
+// covers as approved, inside the caller's transaction, and returns them so
+// the caller can publish each one's status change AFTER commit (and after
+// its cache update) — the same write -> invalidate -> publish order
+// RequestsService.approveRequest() uses. Without this, a user already
+// parked on /pending for foo.dev.lilnas.io would sit there after an admin
+// granted *.dev.lilnas.io: their SSE topic is per (user, host), and the
+// rule's own host string never matches it. Only ever called for a PATTERN:
+// a literal grant keeps its long-standing behavior (the request stays in
+// the queue for the admin to approve or dismiss).
+function approveRequestsCoveredBy(
+  tx: Executor,
+  userId: string,
+  pattern: string,
+  now: Date,
+): CoveredRequest[] {
+  const covered: CoveredRequest[] = []
+  for (const row of listPendingRequestsForUser(tx, userId)) {
+    if (matchesHost(pattern, row.serviceHost)) {
+      markDecided(tx, row.id, 'approved', now)
+      covered.push({ userId, serviceHost: row.serviceHost })
+    }
+  }
+  return covered
+}
 
 // Kept local rather than graduated into a shared cross-file registry —
 // matches access-cache.service.ts's own established per-file convention
@@ -119,17 +155,33 @@ export class UsersService {
       tx => {
         const existingUser = findUserByEmail(tx, email)
         if (existingUser) {
+          const now = new Date()
+          const covered: CoveredRequest[] = []
           for (const serviceHost of serviceHosts) {
             if (!grantExists(tx, existingUser.id, serviceHost)) {
-              insertGrant(tx, existingUser.id, serviceHost, new Date())
+              insertGrant(tx, existingUser.id, serviceHost, now)
             }
             for (const row of findPreAuthorizedGrantsByEmail(tx, email)) {
               if (row.serviceHost === serviceHost) {
                 deletePreAuthorizedGrant(tx, row.id)
               }
             }
+            if (isHostPattern(serviceHost)) {
+              covered.push(
+                ...approveRequestsCoveredBy(
+                  tx,
+                  existingUser.id,
+                  serviceHost,
+                  now,
+                ),
+              )
+            }
           }
-          return { kind: 'granted' as const, userId: existingUser.id }
+          return {
+            kind: 'granted' as const,
+            userId: existingUser.id,
+            covered,
+          }
         }
 
         for (const serviceHost of serviceHosts) {
@@ -144,6 +196,9 @@ export class UsersService {
       for (const serviceHost of serviceHosts) {
         this.accessCache.addGrant(result.userId, serviceHost)
         this.accessCache.removePreAuthorization(email, serviceHost)
+      }
+      for (const request of result.covered) {
+        this.notifyBus.publishStatusChange(request.userId, request.serviceHost)
       }
     } else {
       for (const serviceHost of serviceHosts) {
@@ -197,14 +252,23 @@ export class UsersService {
   setUserServices(userId: string, changes: ServiceChange[]): void {
     const grantedHosts: string[] = []
     const revokedHosts: string[] = []
+    const covered: CoveredRequest[] = []
 
     this.db.transaction(
       tx => {
+        const now = new Date()
         for (const { serviceHost, grant } of changes) {
           if (grant) {
             if (!grantExists(tx, userId, serviceHost)) {
-              insertGrant(tx, userId, serviceHost, new Date())
+              insertGrant(tx, userId, serviceHost, now)
               grantedHosts.push(serviceHost)
+            }
+            // Run even when the rule was already held — a request it
+            // covers has no business staying pending either way.
+            if (isHostPattern(serviceHost)) {
+              covered.push(
+                ...approveRequestsCoveredBy(tx, userId, serviceHost, now),
+              )
             }
           } else {
             deleteGrant(tx, userId, serviceHost)
@@ -221,13 +285,21 @@ export class UsersService {
     for (const serviceHost of revokedHosts) {
       this.accessCache.removeGrant(userId, serviceHost)
     }
+    for (const request of covered) {
+      this.notifyBus.publishStatusChange(request.userId, request.serviceHost)
+    }
     // Same "only publish on a genuine change" gate as removeUser() below —
     // a batch where every grant was already held and every revoke target
     // was already absent has nothing new to tell the dashboard. A revoke
     // entry always counts as a change regardless of whether the grant
     // actually existed (deleteGrant is a no-op DELETE either way, but the
     // admin's intent — "this box is now unchecked" — is a real action).
-    if (grantedHosts.length > 0 || revokedHosts.length > 0) {
+    // An auto-approved request leaving the queue is a change too.
+    if (
+      grantedHosts.length > 0 ||
+      revokedHosts.length > 0 ||
+      covered.length > 0
+    ) {
       this.notifyBus.publishAdminChange()
     }
   }

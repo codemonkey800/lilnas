@@ -23,6 +23,7 @@ import {
   listGrantsForUser,
   listUsersWithGrantHistory,
 } from 'src/grants/grants.repo'
+import { HostMatcherSchema, isHostPattern } from 'src/grants/host-matcher'
 import {
   countPriorDecisions,
   listPendingQueue,
@@ -399,7 +400,18 @@ export class AdminController {
     return { ok: true }
   }
 
+  // An access-rule pattern (`*.dev.lilnas.io`) is checked for shape only and
+  // never against the registry — matching hosts the registry doesn't know
+  // yet is the whole point of a rule: production's registry skips
+  // *.dev.lilnas.io hosts from its compose scan and only learns them once
+  // /verify has seen them (service-registry.service.ts's includeDevHosts).
+  // The DTO already ran HostMatcherSchema; re-running it here keeps this
+  // method safe for any caller that didn't.
   private async assertKnownServiceHost(serviceHost: string): Promise<void> {
+    if (isHostPattern(serviceHost)) {
+      this.parseBody(HostMatcherSchema, serviceHost)
+      return
+    }
     const services = await this.serviceRegistry.getServices()
     if (!services.some(service => service.host === serviceHost)) {
       throw new BadRequestException(
