@@ -16,7 +16,8 @@ type AccountStatus = 'admin' | 'blocked' | 'granted' | 'pending' | 'none'
 function getAccountStatus(me: MeResponse): AccountStatus {
   if (me.isAdmin) return 'admin'
   if (me.blockedAt) return 'blocked'
-  if (me.grants.length > 0) return 'granted'
+  // A user whose only access is an access rule is just as granted.
+  if (me.grants.length > 0 || me.rules.length > 0) return 'granted'
   if (me.pendingRequests.length > 0) return 'pending'
   return 'none'
 }
@@ -79,6 +80,7 @@ function StatusChip({ status }: { status: AccountStatus }) {
 // reflects that rather than whatever the grants table happens to say.
 export function HomeClient({ me }: HomeClientProps) {
   const status = getAccountStatus(me)
+  const serviceCount = me.grants.length + me.rules.length
 
   function handleSignOut() {
     void signOut().then(() => {
@@ -169,32 +171,45 @@ export function HomeClient({ me }: HomeClientProps) {
           <div className="row between">
             <h2 className="h2">Your services</h2>
             <span className="caption">
-              {me.grants.length}{' '}
-              {me.grants.length === 1 ? 'service' : 'services'}
+              {serviceCount} {serviceCount === 1 ? 'service' : 'services'}
             </span>
           </div>
           <div className="services-grid">
-            {me.grants.length === 0 ? (
+            {serviceCount === 0 ? (
               <div className="empty-state col-span-full">
                 <p className="body-text">No services granted yet.</p>
               </div>
             ) : (
-              me.grants.map(host => {
-                const meta = getServiceMeta(host)
-                return (
-                  <a
-                    key={host}
-                    href={`https://${host}`}
-                    className="service-tile"
-                  >
+              [
+                // Access rules first, as plain (non-link) tiles — a rule
+                // names a whole family of sites, so there's no single URL
+                // to send the user to.
+                ...me.rules.map(rule => (
+                  <div key={rule} className="service-tile">
                     <span className="service-tile__icon">
-                      <Icon name={meta.icon} />
+                      <Icon name="globe" />
                     </span>
-                    <span className="service-tile__name">{meta.name}</span>
-                    <span className="service-tile__domain">{host}</span>
-                  </a>
-                )
-              })
+                    <span className="service-tile__name">Any {rule} site</span>
+                    <span className="service-tile__domain">Access rule</span>
+                  </div>
+                )),
+                ...me.grants.map(host => {
+                  const meta = getServiceMeta(host)
+                  return (
+                    <a
+                      key={host}
+                      href={`https://${host}`}
+                      className="service-tile"
+                    >
+                      <span className="service-tile__icon">
+                        <Icon name={meta.icon} />
+                      </span>
+                      <span className="service-tile__name">{meta.name}</span>
+                      <span className="service-tile__domain">{host}</span>
+                    </a>
+                  )
+                }),
+              ]
             )}
           </div>
         </div>

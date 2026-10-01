@@ -111,6 +111,7 @@ describe('MeController', () => {
       blockedAt: null,
       createdAt: createdAt.toISOString(),
       grants: [],
+      rules: [],
       pendingRequests: [],
     })
   })
@@ -164,6 +165,22 @@ describe('MeController', () => {
     const result = await controller.me(fakeRequest('cookie=x'))
 
     expect(result.grants.sort()).toEqual(['files.lilnas.io', 'swole.lilnas.io'])
+  })
+
+  it('splits access-rule patterns out of grants into rules', async () => {
+    testDb = createTestDb()
+    const { id } = seedUser(testDb.db)
+    seedGrant(testDb.db, id, 'swole.lilnas.io')
+    seedGrant(testDb.db, id, '*.dev.lilnas.io')
+    const controller = new MeController(
+      testDb.db,
+      fakeAccessCache({ userId: id, email: 'member@example.com' }),
+    )
+
+    const result = await controller.me(fakeRequest('cookie=x'))
+
+    expect(result.grants).toEqual(['swole.lilnas.io'])
+    expect(result.rules).toEqual(['*.dev.lilnas.io'])
   })
 
   it('populates pendingRequests from every currently-pending request this user has, excluding decided ones', async () => {

@@ -74,6 +74,7 @@ describe('fetchMe', () => {
       blockedAt: null,
       createdAt: '2026-01-01T00:00:00.000Z',
       grants: ['swole.lilnas.io'],
+      rules: [],
       pendingRequests: [],
     }
     const fetchSpy = jest
