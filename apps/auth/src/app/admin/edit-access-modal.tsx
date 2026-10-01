@@ -4,6 +4,7 @@ import { cns } from '@lilnas/utils/cns'
 import type { TransitionStartFunction } from 'react'
 import { useRef, useState } from 'react'
 
+import { AccessRulesField } from 'src/app/admin/access-rules-field'
 import { setUserServices } from 'src/app/admin/actions'
 import type {
   AdminServiceEntry,
@@ -13,6 +14,7 @@ import { Icon } from 'src/app/components/icons'
 import { ServiceCheckGrid } from 'src/app/components/service-check-grid'
 import { getInitials } from 'src/app/lib/initials'
 import { toggleInSet } from 'src/app/lib/toggle-in-set'
+import { isHostPattern } from 'src/grants/host-matcher'
 
 // The union of the registry's current hosts and a given user's own current
 // grants — not the registry alone — so a grant for a host that has since
@@ -20,12 +22,14 @@ import { toggleInSet } from 'src/app/lib/toggle-in-set'
 // login.lilnas.io to auth.lilnas.io) still shows up, checked, with a
 // checkbox available to uncheck it. Ported from the pre-merge
 // users-client.tsx's identical helper; see that file's own history for the
-// "why."
+// "why." Access-rule patterns in the user's grants are left out — they
+// aren't services to check, and AccessRulesField renders them instead.
 function visibleServiceHosts(
   userServices: string[],
   services: AdminServiceEntry[],
 ): string[] {
-  return [...new Set([...services.map(s => s.host), ...userServices])].sort(
+  const literalGrants = userServices.filter(host => !isHostPattern(host))
+  return [...new Set([...services.map(s => s.host), ...literalGrants])].sort(
     (a, b) => a.localeCompare(b),
   )
 }
@@ -69,6 +73,10 @@ export type EditAccessModalProps = {
 // sent as ONE batched setUserServices() call rather than one call per
 // checkbox — see UsersService.setUserServices()'s own comment for the
 // "one transaction for the whole batch" rationale.
+//
+// Access rules ride the SAME selection Set and diff as the checkboxes: a
+// rule is just another host matcher in `accessSelected`, so adding or
+// removing one produces a grant/revoke change in that one batched call.
 export function EditAccessModal({
   user,
   onClose,
@@ -193,6 +201,16 @@ export function EditAccessModal({
             disabled={isPending}
           />
         </div>
+        <AccessRulesField
+          rules={[...accessSelected].filter(isHostPattern)}
+          onAdd={rule =>
+            setAccessSelected(prev => toggleInSet(prev, rule, true))
+          }
+          onRemove={rule =>
+            setAccessSelected(prev => toggleInSet(prev, rule, false))
+          }
+          disabled={isPending}
+        />
         {accessModalError ? (
           <p role="alert" className="text-sm text-red-400">
             {accessModalError}

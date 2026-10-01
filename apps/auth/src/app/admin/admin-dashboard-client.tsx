@@ -31,6 +31,7 @@ import { getInitials } from 'src/app/lib/initials'
 import { timeAgo } from 'src/app/lib/time-ago'
 import { toggleInSet } from 'src/app/lib/toggle-in-set'
 import { getServiceMeta } from 'src/app/service-meta'
+import { isHostPattern } from 'src/grants/host-matcher'
 
 export type AdminDashboardClientProps = {
   initialQueue: AdminQueueEntry[]
@@ -70,11 +71,17 @@ function ServiceChips({ hosts }: { hosts: string[] }) {
   const remaining = hosts.length - visible.length
   return (
     <div className="service-chip-list">
-      {visible.map(host => (
-        <span key={host} className="chip chip-neutral">
-          {getServiceMeta(host).name}
-        </span>
-      ))}
+      {visible.map(host => {
+        const meta = getServiceMeta(host)
+        return (
+          <span key={host} className="chip chip-neutral">
+            {/* Only access rules carry an icon — it's what sets "All
+             *.dev.lilnas.io sites" apart from a single service. */}
+            {isHostPattern(host) ? <Icon name={meta.icon} /> : null}
+            {meta.name}
+          </span>
+        )
+      })}
       {remaining > 0 ? (
         <span className="chip chip-neutral">+{remaining}</span>
       ) : null}

@@ -4,11 +4,13 @@ import { cns } from '@lilnas/utils/cns'
 import type { TransitionStartFunction } from 'react'
 import { useState } from 'react'
 
+import { AccessRulesField } from 'src/app/admin/access-rules-field'
 import { preAuthorizeUsers } from 'src/app/admin/actions'
 import type { AdminServiceEntry } from 'src/app/admin/require-admin'
 import { Icon } from 'src/app/components/icons'
 import { ServiceCheckGrid } from 'src/app/components/service-check-grid'
 import { toggleInSet } from 'src/app/lib/toggle-in-set'
+import { isHostPattern } from 'src/grants/host-matcher'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -42,7 +44,9 @@ export type AddPersonModalProps = {
 // modal to keep in sync by hand. `addSelected` is sent as ONE batched
 // preAuthorizeUsers() call rather than one call per checkbox — see
 // UsersService.preAuthorizeMany()'s own comment for the "one transaction
-// for the whole batch" rationale.
+// for the whole batch" rationale. Access rules live in that same Set
+// (AccessRulesField below), so they're sent in the same call as the
+// checked hosts.
 export function AddPersonModal({
   isOpen,
   onClose,
@@ -129,6 +133,14 @@ export function AddPersonModal({
             disabled={isPending}
           />
         </div>
+        <AccessRulesField
+          rules={[...addSelected].filter(isHostPattern)}
+          onAdd={rule => setAddSelected(prev => toggleInSet(prev, rule, true))}
+          onRemove={rule =>
+            setAddSelected(prev => toggleInSet(prev, rule, false))
+          }
+          disabled={isPending}
+        />
         {addModalError ? (
           <p role="alert" className="text-sm text-red-400">
             {addModalError}

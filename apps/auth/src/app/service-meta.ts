@@ -1,3 +1,5 @@
+import { isHostPattern } from 'src/grants/host-matcher'
+
 import type { IconName } from './components/icons'
 
 // Deliberately keyed by THIS deployment's real Traefik-discovered hosts
@@ -132,6 +134,17 @@ export const SERVICE_META: Record<string, ServiceMeta> = {
   },
 }
 
+// `host` may be an access-rule pattern (`*.dev.lilnas.io`, see
+// src/grants/host-matcher.ts) — anywhere a user's raw grant list is
+// rendered, a rule shows up beside the literal hosts, and it reads as the
+// family of sites it covers rather than as a raw wildcard.
 export function getServiceMeta(host: string): ServiceMeta {
+  if (isHostPattern(host)) {
+    return {
+      name: `All ${host} sites`,
+      description: `Every site matching ${host}`,
+      icon: 'globe',
+    }
+  }
   return SERVICE_META[host] ?? { name: host, description: host, icon: 'globe' }
 }
