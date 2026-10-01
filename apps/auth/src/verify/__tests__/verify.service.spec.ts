@@ -263,6 +263,34 @@ describe('VerifyService.decide (direct construction, real DB, real buildAuth())'
     expect(after.outcome === 'redirect' && after.location).toContain('/pending')
   })
 
+  it('access rules: a pattern grant allows a matching host, redirects a non-matching one, and stops allowing once revoked', async () => {
+    testDb = createTestDb()
+    const { auth, cache, verifyService } = createHarness(testDb)
+    const cookie = await signInAndGetSessionCookiePair(auth, AUTH_HOST, {
+      sub: 'google-sub-rule',
+      email: 'rule@example.com',
+    })
+    const userId = getUserIdByEmail(testDb.db, 'rule@example.com')
+    cache.addGrant(userId, '*.dev.lilnas.io')
+
+    const decideFor = (forwardedHost: string) =>
+      verifyService.decide({
+        cookieHeader: cookie,
+        forwardedHost,
+        forwardedProto: 'https',
+        forwardedUri: '/',
+      })
+
+    expect((await decideFor('foo.dev.lilnas.io')).outcome).toBe('allow')
+    expect((await decideFor('a.b.dev.lilnas.io')).outcome).toBe('allow')
+    expect((await decideFor('dev.lilnas.io')).outcome).toBe('redirect')
+    expect((await decideFor('swole.lilnas.io')).outcome).toBe('redirect')
+
+    cache.removeGrant(userId, '*.dev.lilnas.io')
+
+    expect((await decideFor('foo.dev.lilnas.io')).outcome).toBe('redirect')
+  })
+
   it('edge case: a session past its cached (clamped) lifetime re-verifies against the database and is correctly redirected once genuinely expired', async () => {
     testDb = createTestDb()
     const { auth, cache, verifyService } = createHarness(testDb)
