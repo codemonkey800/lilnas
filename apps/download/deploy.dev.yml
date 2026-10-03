@@ -126,8 +126,8 @@ services:
       # (/movies) and Sonarr (/tv) report in their file APIs — matching
       # deploy.yml, so the save-to-device route resolves real paths. ro: this
       # app must never write the library.
-      - /storage/media-library/movies:/movies:ro
-      - /storage/media-library/tv:/tv:ro
+      - /storage/movies:/movies:ro
+      - /storage/tv:/tv:ro
 
     tmpfs:
       - /data:uid=1000,gid=1001,mode=0770,size=64m
