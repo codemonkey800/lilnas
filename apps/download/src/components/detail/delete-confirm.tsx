@@ -242,7 +242,7 @@ export type DeleteConfirmCopy = {
  * delete would be actively misleading.
  *
  * ⚠️ "from the library", not the mockup's "from Emby". The files live in
- * `/storage/media-library`; Emby indexes that directory and is one of several
+ * `/storage/movies` and `/storage/tv`; Emby indexes those directories and is one of several
  * things that will notice. Naming the player rather than the thing being
  * deleted would understate what happens.
  *
@@ -269,7 +269,7 @@ export type DeleteConfirmCopy = {
  * E01 of an `S01E01E02.mkv` removes the one file both episodes live in.
  *
  * ⚠️ The `video` sentence deliberately says neither "library" nor "Radarr".
- * A video was never in `/storage/media-library` and no arr ever knew about it:
+ * A video was never in `/storage/movies` or `/storage/tv` and no arr ever knew about it:
  * `deleteVideoJob` removes the objects the download produced and clears the
  * URLs that pointed at them. Inheriting the movie phrasing would have the
  * dialog claim a file is leaving a library it was never in. What survives is

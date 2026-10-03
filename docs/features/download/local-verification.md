@@ -36,7 +36,7 @@ production Traefik.**
 > **No mutating requests against the media library.**
 >
 > Grab, replace, delete-files and flag-bad-file write to Radarr and Sonarr and
-> delete real files off `/storage/media-library`. The `:ro` mounts are defence
+> delete real files off `/storage/movies` and `/storage/tv`. The `:ro` mounts are defence
 > in depth behind that rule, not a replacement for it. Video download / pause /
 > cancel _are_ fair game — a yt-dlp job is self-contained.
 
@@ -63,7 +63,7 @@ rather than the production one.
 
 **Path fidelity.** Radarr and Sonarr report paths like `/movies/Foo (2020)/Foo.mkv`.
 Those exist inside the container's `:ro` mounts and **do not exist on the host**
-— the real trees are at `/storage/media-library/{movies,tv}`. A host-native
+— the real trees are at `/storage/movies` and `/storage/tv`. A host-native
 backend 404s on the disk-streaming branch that the local-save work has to verify.
 
 **Traefik, not a published port, is the way in.** The router carries the

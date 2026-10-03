@@ -355,7 +355,7 @@ export async function unflagBadFile(
  * then `seasonNumber`, then everything).
  *
  * ⚠️ Destructive and irreversible — it removes real files from
- * `/storage/media-library`. The scope is never inferred here: `DeleteConfirm`
+ * `/storage/movies` or `/storage/tv`. The scope is never inferred here: `DeleteConfirm`
  * builds the query from its own `DeleteScope` discriminant and names that scope
  * verbatim in the dialog, so what the user read and what this deletes are the
  * same value.
