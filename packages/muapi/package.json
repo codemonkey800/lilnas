@@ -1,0 +1,29 @@
+{
+  "name": "@lilnas/muapi",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.18.2",
+  "prettier": "@lilnas/prettier",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./client": "./dist/generated/client/index.js"
+  },
+  "scripts": {
+    "fetch-spec": "curl -sSf https://api.muapi.ai/openapi.json -o apis/muapi.json",
+    "generate": "openapi-ts",
+    "build": "tsc -p .",
+    "clean": "rm -rf dist/ .turbo/",
+    "lint": "run-p -l 'lint:!(fix)'",
+    "lint:eslint": "eslint src",
+    "lint:prettier": "prettier -c src",
+    "lint:fix": "run-p -l lint:*:fix",
+    "lint:eslint:fix": "eslint --fix src",
+    "lint:prettier:fix": "prettier -w src",
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@hey-api/openapi-ts": "^0.93.0"
+  }
+}
