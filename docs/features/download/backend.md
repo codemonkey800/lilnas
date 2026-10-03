@@ -1387,8 +1387,8 @@ same split `DeleteMediaFilesQuerySchema` already makes.
 
 ### `:ro` library mounts at Radarr/Sonarr-identical paths
 
-`apps/download/deploy.yml` gained `/storage/media-library/movies:/movies:ro`
-and `/storage/media-library/tv:/tv:ro`. Radarr and Sonarr report
+`apps/download/deploy.yml` gained `/storage/movies:/movies:ro`
+and `/storage/tv:/tv:ro`. Radarr and Sonarr report
 container-absolute paths in their file APIs, so mounting the library at the
 **identical** container paths means those paths need zero translation — the
 same byte-identical-paths trick Phase 6's Emby match already relies on, and
@@ -1400,7 +1400,7 @@ services already write as via `PUID`/`PGID` — unlike the `/data` mount, which
 does document one.
 
 `deploy.dev.yml` gets no mounts on purpose. Dev runs no Radarr/Sonarr and the
-dev host has no `/storage/media-library`, so a dev save 404s honestly instead
+dev host has no `/storage/movies` or `/storage/tv`, so a dev save 404s honestly instead
 of half-working.
 
 ### Defense in depth: the disk-path allowlist
