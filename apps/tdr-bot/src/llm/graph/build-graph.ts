@@ -33,10 +33,30 @@ export const FALLBACK_SKILL = 'chat'
 /** A pending follow-up older than this is stale and ignored. */
 export const FOLLOW_UP_TTL_MS = 5 * 60 * 1000
 
+function isLive(pending: PendingFollowUp): boolean {
+  return Date.now() - pending.createdAt <= FOLLOW_UP_TTL_MS
+}
+
+/** The current author's own follow-up; other users' are never theirs to answer. */
 function liveFollowUp(state: LlmGraphStateType): PendingFollowUp | null {
-  const pending = state.pendingFollowUp
-  if (!pending) return null
-  return Date.now() - pending.createdAt > FOLLOW_UP_TTL_MS ? null : pending
+  const pending = state.pendingFollowUps[state.userId]
+  return pending && isLive(pending) ? pending : null
+}
+
+/**
+ * The thread's follow-ups after this turn: expired ones dropped, and the
+ * current author's replaced by `next` (null clears it). Other users' live
+ * follow-ups carry over untouched.
+ */
+function withFollowUp(
+  state: LlmGraphStateType,
+  next: PendingFollowUp | null,
+): Record<string, PendingFollowUp> {
+  const kept = Object.entries(state.pendingFollowUps).filter(
+    ([userId, pending]) => userId !== state.userId && isLive(pending),
+  )
+  if (next) kept.push([state.userId, next])
+  return Object.fromEntries(kept)
 }
 
 export interface BuildGraphDeps {
@@ -158,7 +178,7 @@ export function buildGraph(deps: BuildGraphDeps) {
 
     const output = await skill.run(input, { llm, logger: new Logger(id) })
     if (output.reroute) {
-      return { reroute: true, pendingFollowUp: null }
+      return { reroute: true, pendingFollowUps: withFollowUp(state, null) }
     }
     const requestId = getRequestContext()?.requestId
     if (requestId) {
@@ -176,9 +196,12 @@ export function buildGraph(deps: BuildGraphDeps) {
       reroute: false,
       messages: output.messages,
       images: output.images ?? [],
-      pendingFollowUp: output.followUp
-        ? { skill: id, data: output.followUp.data, createdAt: Date.now() }
-        : null,
+      pendingFollowUps: withFollowUp(
+        state,
+        output.followUp
+          ? { skill: id, data: output.followUp.data, createdAt: Date.now() }
+          : null,
+      ),
     }
   }
 

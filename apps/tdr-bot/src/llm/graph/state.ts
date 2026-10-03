@@ -16,8 +16,11 @@ export interface PendingFollowUp {
 }
 
 /**
- * Graph state. `messages` and `pendingFollowUp` are checkpointed per thread;
+ * Graph state. `messages` and `pendingFollowUps` are checkpointed per thread;
  * the rest is per-turn input or scratch, so it stays out of checkpoints.
+ *
+ * Follow-ups are keyed by the Discord user who started them: a thread is a
+ * whole channel, but "the first one" only answers the person who was asked.
  */
 export const LlmGraphState = new StateSchema({
   messages: MessagesValue,
@@ -28,10 +31,9 @@ export const LlmGraphState = new StateSchema({
   discord: new UntrackedValue(z.custom<DiscordIdentity>()),
   skill: new UntrackedValue(z.custom<string | undefined>()),
   reroute: new UntrackedValue(z.custom<boolean | undefined>()),
-  pendingFollowUp: z
-    .custom<PendingFollowUp | null>()
-    .nullable()
-    .default(() => null),
+  pendingFollowUps: z
+    .custom<Record<string, PendingFollowUp>>()
+    .default(() => ({})),
 })
 
 export type LlmGraphStateType = typeof LlmGraphState.State
