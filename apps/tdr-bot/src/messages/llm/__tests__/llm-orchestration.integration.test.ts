@@ -718,8 +718,11 @@ describe('LLMOrchestrationService - Integration', () => {
           const { skill, followUp, images, contains } = turn.expect
           if (skill !== undefined) expect(lastSkill()).toBe(skill)
           if (followUp !== undefined) {
-            const pending = (await checkpoint('chan-1', 'guild-1'))
-              .pendingFollowUp
+            const pending = (
+              (await checkpoint('chan-1', 'guild-1')).pendingFollowUps as
+                | Record<string, unknown>
+                | undefined
+            )?.['u-1']
             expect(!!pending).toBe(followUp)
           }
           if (images !== undefined) expect(result.images).toHaveLength(images)

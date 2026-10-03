@@ -33,10 +33,10 @@ builds a `ChatOpenAI` or `DallEAPIWrapper`.
 2. `src/messages/llm/llm-orchestration.service.ts` invokes the graph from
    `src/llm/graph/build-graph.ts`, with one thread per channel
    (`thread-id.ts`). The checkpointer stores the conversation in Postgres.
-3. `router` picks a skill: a pending follow-up first, then a skill's
+3. `router` picks a skill: the author's own pending follow-up first, then a skill's
    `match()` fast path, then an LLM call over the skills' `description`s.
 4. `runSkill` runs the chosen skill. A skill can set `followUp` (the next
-   message in the channel returns to it) or `reroute` (decline the message;
+   message from the same user in the channel returns to it) or `reroute` (decline the message;
    the graph goes back to `router`).
 5. `finalize` checks the skill ended with a non-empty AI message and the graph
    ends. The reply, and any images, go back to Discord.

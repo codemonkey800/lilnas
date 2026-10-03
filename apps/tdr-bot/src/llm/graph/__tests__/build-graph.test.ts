@@ -37,14 +37,14 @@ function setup(skills: Skill[]) {
     systemPrompt: () => new SystemMessage('system'),
     checkpointer: new MemorySaver(),
   })
-  const send = (text: string, threadId = 't1') =>
+  const send = (text: string, userId = 'u1', threadId = 't1') =>
     graph.invoke(
       {
         messages: [new HumanMessage(text)],
-        userId: 'u1',
+        userId,
         channelId: 'c1',
         guildId: 'g1',
-        discord,
+        discord: { ...discord, userId },
       },
       { configurable: { thread_id: threadId } },
     )
@@ -157,7 +157,7 @@ describe('buildGraph', () => {
     // Cleared: the third message is classified normally again.
     expect(echo.run.mock.calls).toHaveLength(2)
     expect(llm.calls).toHaveLength(1)
-    expect(third.pendingFollowUp).toBeNull()
+    expect(third.pendingFollowUps.u1).toBeUndefined()
   })
 
   it('stamps a follow-up with its creation time', async () => {
@@ -169,7 +169,7 @@ describe('buildGraph', () => {
 
     const first = await send('echo start')
 
-    expect(first.pendingFollowUp?.createdAt).toBeGreaterThanOrEqual(before)
+    expect(first.pendingFollowUps.u1?.createdAt).toBeGreaterThanOrEqual(before)
   })
 
   it('still routes back to a follow-up that is within the TTL', async () => {
@@ -214,7 +214,7 @@ describe('buildGraph', () => {
       skill: 'other',
       source: 'llm',
     })
-    expect(second.pendingFollowUp).toBeNull()
+    expect(second.pendingFollowUps.u1).toBeUndefined()
   })
 
   it('does not hand an expired follow-up to the same skill when it is re-picked', async () => {
@@ -250,10 +250,108 @@ describe('buildGraph', () => {
 
     expect(second.messages.at(-1)?.content).toBe('other done')
     expect(other.run.mock.calls[0][0].message.content).toBe('something else')
-    expect(second.pendingFollowUp).toBeNull()
+    expect(second.pendingFollowUps.u1).toBeUndefined()
     expect(metrics.routerDecision).toHaveBeenLastCalledWith({
       skill: 'other',
       source: 'llm',
+    })
+  })
+
+  describe('follow-ups in a shared channel', () => {
+    const asksWhich = () =>
+      reply('which one?', { followUp: { data: { n: 1 } } })
+
+    it("does not resume one user's follow-up with another user's reply", async () => {
+      echo.run
+        .mockImplementationOnce(asksWhich)
+        .mockImplementation(() => reply('fresh'))
+      const { send, metrics, llm } = setup([echo, other, chat])
+      llm.script('router.classify', { skill: 'other' })
+
+      await send('echo start', 'alice')
+      const bobs = await send('the first one', 'bob')
+
+      expect(bobs.messages.at(-1)?.content).toBe('other done')
+      expect(echo.run).toHaveBeenCalledTimes(1)
+      expect(metrics.routerDecision).toHaveBeenLastCalledWith({
+        skill: 'other',
+        source: 'llm',
+      })
+      expect(bobs.pendingFollowUps.alice?.data).toEqual({ n: 1 })
+    })
+
+    it("hands a follow-up back to its owner after another user's turn", async () => {
+      echo.run
+        .mockImplementationOnce(asksWhich)
+        .mockImplementationOnce(() => reply('got it'))
+      const { send, llm } = setup([echo, other, chat])
+      llm.script('router.classify', { skill: 'other' })
+
+      await send('echo start', 'alice')
+      await send('unrelated', 'bob')
+      const alices = await send('the first one', 'alice')
+
+      expect(alices.messages.at(-1)?.content).toBe('got it')
+      expect(echo.run.mock.calls[1][0].followUp).toEqual({ n: 1 })
+      expect(echo.run.mock.calls[1][0].userId).toBe('alice')
+      expect(alices.pendingFollowUps.alice).toBeUndefined()
+    })
+
+    it("keeps each user's follow-up when two flows overlap", async () => {
+      echo.run
+        .mockImplementationOnce(() =>
+          reply('alice: which?', { followUp: { data: 'a' } }),
+        )
+        .mockImplementationOnce(() =>
+          reply('bob: which?', { followUp: { data: 'b' } }),
+        )
+        .mockImplementation(() => reply('done'))
+      const { send } = setup([echo, other, chat])
+
+      await send('echo a', 'alice')
+      const afterBob = await send('echo b', 'bob')
+      await send('answer', 'alice')
+      await send('answer', 'bob')
+
+      expect(Object.keys(afterBob.pendingFollowUps).sort()).toEqual([
+        'alice',
+        'bob',
+      ])
+      expect(echo.run.mock.calls[2][0].followUp).toBe('a')
+      expect(echo.run.mock.calls[3][0].followUp).toBe('b')
+    })
+
+    it("keeps another user's follow-up when this user's skill reroutes", async () => {
+      echo.run
+        .mockImplementationOnce(asksWhich)
+        .mockImplementationOnce(asksWhich)
+        .mockImplementationOnce(() =>
+          Promise.resolve({ messages: [], followUp: null, reroute: true }),
+        )
+      const { send, llm } = setup([echo, other, chat])
+      llm.script('router.classify', { skill: 'other' })
+
+      await send('echo a', 'alice')
+      await send('echo b', 'bob')
+      const rerouted = await send('never mind', 'bob')
+
+      expect(rerouted.pendingFollowUps.bob).toBeUndefined()
+      expect(rerouted.pendingFollowUps.alice?.skill).toBe('echo')
+    })
+
+    it('drops expired follow-ups from the checkpoint on the next turn', async () => {
+      echo.run.mockImplementationOnce(asksWhich)
+      const { send, llm } = setup([echo, other, chat])
+      llm.script('router.classify', { skill: 'other' })
+      const now = Date.now()
+      const spy = jest.spyOn(Date, 'now').mockReturnValue(now)
+
+      await send('echo start', 'alice')
+      spy.mockReturnValue(now + FOLLOW_UP_TTL_MS + 1)
+      const bobs = await send('unrelated', 'bob')
+      spy.mockRestore()
+
+      expect(bobs.pendingFollowUps).toEqual({})
     })
   })
 
