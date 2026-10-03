@@ -1,18 +1,17 @@
-import { HumanMessage } from '@langchain/core/messages'
+import { BaseMessage, HumanMessage } from '@langchain/core/messages'
 import { getErrorMessage } from '@lilnas/utils/error'
 import { Injectable, Logger } from '@nestjs/common'
 
+import { PromptGenerationService } from 'src/llm/skills/media/prompt-generation.service'
 import { RadarrService } from 'src/media/services/radarr.service'
 import type { MovieLibrarySearchResult } from 'src/media/types/radarr.types'
-import type {
+import {
+  MediaContextType,
   StrategyRequestParams,
   StrategyResult,
 } from 'src/media-operations/request-handling/types'
 import { ParsingUtilities } from 'src/media-operations/request-handling/utils/parsing.utils'
 import { SelectionUtilities } from 'src/media-operations/request-handling/utils/selection.utils'
-import { ContextManagementService } from 'src/message-handler/context/context-management.service'
-import { PromptGenerationService } from 'src/message-handler/services/prompts/prompt-generation.service'
-import { StateService } from 'src/state/state.service'
 
 import { BaseMediaStrategy } from './base/base-media-strategy'
 import { MAX_SEARCH_RESULTS } from './base/strategy.constants'
@@ -39,12 +38,8 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
     private readonly promptService: PromptGenerationService,
     private readonly parsingUtilities: ParsingUtilities,
     private readonly selectionUtilities: SelectionUtilities,
-    state: StateService,
-    contextService: ContextManagementService,
   ) {
     super()
-    this.stateService = state
-    this.contextService = contextService
   }
 
   /**
@@ -85,7 +80,7 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
    */
   private async handleNewMovieDelete(
     message: HumanMessage,
-    messages: HumanMessage[],
+    messages: BaseMessage[],
     userId: string,
   ): Promise<StrategyResult> {
     this.logger.log(
@@ -102,7 +97,6 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
       const clarificationResponse =
         await this.promptService.generateMovieDeletePrompt(
           messages,
-          this.getChatModel(),
           'clarification_delete',
         )
       return {
@@ -129,7 +123,6 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
         const noResultsResponse =
           await this.promptService.generateMovieDeletePrompt(
             messages,
-            this.getChatModel(),
             'no_results_delete',
             { searchQuery },
           )
@@ -163,8 +156,7 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
             'Auto-applying movie selection for delete (explicit search selection provided)',
           )
 
-          // Clear any existing context and delete the movie directly
-          await this.contextService.clearContext(userId)
+          // No pendingContext on the result: any open selection is dropped
           return await this.deleteMovie(
             selectedMovie,
             message,
@@ -202,18 +194,10 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
         isActive: true,
       }
 
-      // Store context in ContextManagementService
-      await this.contextService.setContext(
-        userId,
-        'movieDelete',
-        movieDeleteContext,
-      )
-
       // Create selection prompt
       const selectionResponse =
         await this.promptService.generateMovieDeletePrompt(
           messages,
-          this.getChatModel(),
           'multiple_results_delete',
           {
             searchQuery,
@@ -224,6 +208,10 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
       return {
         images: [],
         messages: messages.concat(selectionResponse),
+        pendingContext: {
+          type: MediaContextType.MovieDelete,
+          data: movieDeleteContext,
+        },
       }
     } catch (error) {
       this.logger.error(
@@ -233,7 +221,6 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
 
       const errorResponse = await this.promptService.generateMovieDeletePrompt(
         messages,
-        this.getChatModel(),
         'error_delete',
         {
           searchQuery,
@@ -254,7 +241,7 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
    */
   private async handleMovieDeleteSelection(
     message: HumanMessage,
-    messages: HumanMessage[],
+    messages: BaseMessage[],
     movieDeleteContext: MovieDeleteContext,
     userId: string,
   ): Promise<StrategyResult> {
@@ -276,7 +263,6 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
         const clarificationResponse =
           await this.promptService.generateMovieDeletePrompt(
             messages,
-            this.getChatModel(),
             'multiple_results_delete',
             {
               searchQuery: movieDeleteContext.query,
@@ -286,6 +272,10 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
         return {
           images: [],
           messages: messages.concat(clarificationResponse),
+          pendingContext: {
+            type: MediaContextType.MovieDelete,
+            data: movieDeleteContext,
+          },
         }
       }
 
@@ -300,7 +290,6 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
         const clarificationResponse =
           await this.promptService.generateMovieDeletePrompt(
             messages,
-            this.getChatModel(),
             'multiple_results_delete',
             {
               searchQuery: movieDeleteContext.query,
@@ -310,11 +299,14 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
         return {
           images: [],
           messages: messages.concat(clarificationResponse),
+          pendingContext: {
+            type: MediaContextType.MovieDelete,
+            data: movieDeleteContext,
+          },
         }
       }
 
-      // Clear context and delete the movie
-      await this.contextService.clearContext(userId)
+      // No pendingContext on the result: the selection is settled
       return await this.deleteMovie(selectedMovie, message, messages, userId)
     } catch (error) {
       this.logger.error(
@@ -322,12 +314,9 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
         'Failed to process movie delete selection',
       )
 
-      // Clear context on error
-      await this.contextService.clearContext(userId)
-
+      // No pendingContext on the result: the selection is dropped on error
       const errorResponse = await this.promptService.generateMovieDeletePrompt(
         messages,
-        this.getChatModel(),
         'processing_error_delete',
         {
           errorMessage:
@@ -349,7 +338,7 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
   private async deleteMovie(
     movie: MovieLibrarySearchResult,
     _originalMessage: HumanMessage,
-    messages: HumanMessage[],
+    messages: BaseMessage[],
     userId: string,
   ): Promise<StrategyResult> {
     this.logger.log(
@@ -367,7 +356,6 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
         const successResponse =
           await this.promptService.generateMovieDeletePrompt(
             messages,
-            this.getChatModel(),
             'success_delete',
             {
               selectedMovie: movie,
@@ -383,7 +371,6 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
         const errorResponse =
           await this.promptService.generateMovieDeletePrompt(
             messages,
-            this.getChatModel(),
             'error_delete',
             {
               selectedMovie: movie,
@@ -404,7 +391,6 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
 
       const errorResponse = await this.promptService.generateMovieDeletePrompt(
         messages,
-        this.getChatModel(),
         'error_delete',
         {
           selectedMovie: movie,

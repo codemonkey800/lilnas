@@ -1,0 +1,130 @@
+extends ../layout/page.pug
+include ../mixins/ui.pug
+
+block title
+  | Transcript — tdr-bot mockups
+
+block content
+  - const channels = [{ name: 'general', last: '2 min ago', count: 1284 }, { name: 'media-requests', last: '1 h ago', count: 412 }, { name: 'dev', last: 'Yesterday', count: 96 }, { name: 'bot-testing', last: '29 Sep', count: 37 }]
+  - const calls = [{ op: 'chat', model: 'gpt-4.1-mini', inp: 1842, out: 96, cached: 1536, cost: 0.00088, ms: 1120, retries: 0, finish: 'tool_calls' }, { op: 'chat', model: 'gpt-4.1-mini', inp: 2011, out: 212, cached: 1792, cost: 0.00131, ms: 2340, retries: 1, finish: 'stop' }]
+
+  mixin llmCalls(list)
+    details(class='mt-2 rounded-lg border border-line bg-bg text-xs')
+      summary(class='cursor-pointer select-none px-3 py-1.5 text-ink-2')
+        | #{list.length} LLM calls · $#{list.reduce((a, c) => a + c.cost, 0).toFixed(5)}
+      div(class='overflow-x-auto')
+        table(class='w-full text-left')
+          thead(class='text-ink-3')
+            tr
+              each h in ['Operation', 'Model', 'In', 'Out', 'Cached', 'Cost (USD)', 'Duration', 'Retries', 'Finish']
+                th(class='px-3 py-1.5 font-medium')= h
+          tbody(class='font-mono text-ink-2')
+            each c in list
+              tr(class='border-t border-line')
+                td(class='px-3 py-1.5')= c.op
+                td(class='px-3 py-1.5')= c.model
+                td(class='px-3 py-1.5')= c.inp.toLocaleString('en-US')
+                td(class='px-3 py-1.5')= c.out
+                td(class='px-3 py-1.5')= c.cached.toLocaleString('en-US')
+                td(class='px-3 py-1.5') $#{c.cost.toFixed(5)}
+                td(class='px-3 py-1.5') #{(c.ms / 1000).toFixed(2)}s
+                td(class='px-3 py-1.5')
+                  if c.retries
+                    span(class='text-warn')= c.retries
+                  else
+                    | 0
+                td(class='px-3 py-1.5')= c.finish
+
+  mixin toolRow(name, summary)
+    details(class='ml-10 rounded-lg border border-dashed border-line text-xs text-ink-3')
+      summary(class='cursor-pointer select-none px-3 py-1')
+        span(class='font-mono text-accent-soft')= name
+        |  · #{summary}
+      pre(class='overflow-x-auto px-3 pb-2 font-mono') { "query": "weather in Lisbon" }
+
+  mixin human(name, time)
+    div(class='flex justify-end')
+      div(class='max-w-[75%] rounded-2xl rounded-br-sm bg-accent/25 px-4 py-2.5')
+        div(class='mb-0.5 text-[11px] font-medium text-accent-soft') #{name} · #{time}
+        div(class='text-sm')
+          block
+
+  mixin assistant(time)
+    div(class='flex')
+      div(class='max-w-[80%] flex-1')
+        div(class='rounded-2xl rounded-bl-sm bg-surface px-4 py-2.5')
+          div(class='mb-0.5 text-[11px] font-medium text-ink-3') tdr-bot · #{time}
+          div(class='text-sm')
+            block
+        block calls
+
+  mixin topbar(loading)
+    div(class='flex flex-wrap items-center gap-4 border-b border-line bg-surface px-4 py-3')
+      div(class='flex items-center gap-2 text-xs text-ink-2')
+        span From
+        span(class='rounded-md border border-line bg-bg px-2 py-1 font-mono') 2026-09-27
+        span To
+        span(class='rounded-md border border-line bg-bg px-2 py-1 font-mono') 2026-10-03
+      div(class='ml-auto flex gap-6 text-right')
+        each stat in [['Total cost', '$4.82'], ['Input tokens', '2.41M'], ['Output tokens', '188k'], ['Cached', '1.93M']]
+          div
+            div(class='text-[11px] text-ink-3')= stat[0]
+            if loading
+              div(class='skeleton mt-1 h-4 w-14 rounded')
+            else
+              div(class='font-mono text-sm font-semibold')= stat[1]
+
+  mixin shell(mode)
+    div(class='overflow-hidden rounded-xl border border-line bg-bg')
+      - const isLoading = mode === 'loading'
+      +topbar(isLoading)
+      div(class='grid min-h-[34rem] grid-cols-[15rem_1fr]')
+        aside(class='border-r border-line bg-surface/60')
+          each ch, i in channels
+            div(class='border-b border-line px-4 py-3 ' + (i === 0 && mode !== 'empty' ? 'bg-accent/15' : ''))
+              if mode === 'loading'
+                div(class='skeleton mb-2 h-3.5 w-24 rounded')
+                div(class='skeleton h-3 w-32 rounded')
+              else
+                div(class='text-sm font-medium') # #{ch.name}
+                div(class='mt-0.5 flex justify-between text-[11px] text-ink-3')
+                  span= ch.last
+                  span #{ch.count.toLocaleString('en-US')} msgs
+        section(class='p-5')
+          case mode
+            when 'loading'
+              div(class='space-y-4')
+                each w in ['w-1/2', 'w-2/3', 'w-2/5', 'w-3/5']
+                  div(class='flex ' + (w === 'w-1/2' || w === 'w-2/5' ? 'justify-end' : ''))
+                    div(class='skeleton h-16 rounded-2xl ' + w)
+            when 'empty'
+              div(class='grid h-full place-items-center text-center')
+                div
+                  div(class='text-3xl') 💬
+                  div(class='mt-2 text-sm font-medium') No messages in this range
+                  p(class='mt-1 text-xs text-ink-3') Widen the date filter or pick another channel.
+            default
+              div(class='space-y-3')
+                +human('Mika (mika_dev)', '09:12') What's the weather in Lisbon this weekend?
+                +toolRow('web_search', 'Tavily · 5 results')
+                +assistant('09:12')
+                  | Looks sunny: highs around 24°C Saturday, a bit of cloud Sunday.
+                  block calls
+                    +llmCalls(calls)
+                +human('Sam', '09:14') thanks! also can you render ∫ x² dx
+                +toolRow('render_equation', 'equations service · ok')
+                +assistant('09:14')
+                  | Here you go: ∫x² dx = x³/3 + C.
+                  block calls
+                    +llmCalls(calls.slice(0, 1))
+
+  h1(class='text-2xl font-semibold') Transcript
+  p(class='mb-8 mt-1 text-sm text-ink-2') Per-channel conversation history with LLM call audit. Turn rows and tool calls expand on click.
+
+  div(class='space-y-8')
+    +frame('1 · Conversation', 'Channel #general; first assistant turn expanded in the design, click the rows to open them.')
+      +shell('default')
+    +frame('2 · Empty', 'Date range has no messages.')
+      +shell('empty')
+    +frame('3 · Loading', 'Skeletons while the channel and totals load.')
+      +shell('loading')

@@ -1,0 +1,22 @@
+extends ../layout/page.pug
+
+block title
+  | tdr-bot — UI mockups · lilnas
+
+//-
+  Pug's `.foo.bar` shorthand can't express a utility containing a . or a /
+  — `.px-1.5` parses as a class `px-1` followed by a broken `.5`. Write
+  those as class='…' instead, like the <code> below. Everything else can use
+  the shorthand.
+
+block content
+  h1.text-3xl.font-semibold tdr-bot — UI mockups
+
+  p(class='mt-3 text-ink-2') Admin screens for the LLM redesign.
+
+  ul(class='mt-8 grid gap-4 sm:grid-cols-2')
+    each page in [{ href: 'settings.html', title: 'Settings', desc: 'Models, generation, system prompt; six states.' }, { href: 'transcript.html', title: 'Transcript', desc: 'Channel conversations with per-call LLM usage and cost.' }]
+      li
+        a(href=page.href class='block rounded-xl border border-line bg-surface p-5 hover:border-accent')
+          div(class='font-semibold')= page.title
+          div(class='mt-1 text-sm text-ink-2')= page.desc

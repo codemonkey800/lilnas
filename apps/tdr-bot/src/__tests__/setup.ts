@@ -220,17 +220,6 @@ jest.mock('nanoid', () => ({
   nanoid: jest.fn(() => 'test-id-123'),
 }))
 
-// Mock @langchain/langgraph
-jest.mock('@langchain/langgraph', () => ({
-  StateGraph: jest.fn(),
-  Annotation: Object.assign(
-    jest.fn(() => ({ spec: {} })),
-    {
-      Root: jest.fn(spec => ({ spec, State: spec })),
-    },
-  ),
-}))
-
 // Mock remark
 jest.mock('remark', () => ({
   remark: jest.fn(() => ({

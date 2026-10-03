@@ -1,11 +1,11 @@
 import { SystemMessage } from '@langchain/core/messages'
 
+import { createTestingModule } from 'src/__tests__/test-utils'
 import {
-  createMockStateService,
-  createTestingModule,
-} from 'src/__tests__/test-utils'
+  defaultSettings,
+  SettingsService,
+} from 'src/llm/settings/settings.service'
 import { PromptService } from 'src/messages/prompts/prompt.service'
-import { StateService } from 'src/state/state.service'
 import {
   EMOJI_DICTIONARY,
   INPUT_FORMAT,
@@ -15,22 +15,19 @@ import {
 
 describe('PromptService', () => {
   let service: PromptService
-  let stateService: jest.Mocked<StateService>
+  let settings: { get: jest.Mock }
 
   beforeEach(async () => {
-    stateService = createMockStateService()
-    stateService.getState.mockReturnValue({
-      chatModel: 'gpt-4-turbo',
-      reasoningModel: 'gpt-4o-mini',
-      temperature: 0,
-      maxTokens: 1000,
-      prompt: 'Be a helpful kawaii assistant.',
-      graphHistory: [],
-    })
+    settings = {
+      get: jest.fn().mockReturnValue({
+        ...defaultSettings(),
+        systemPrompt: 'Be a helpful kawaii assistant.',
+      }),
+    }
 
     const module = await createTestingModule([
       PromptService,
-      { provide: StateService, useValue: stateService },
+      { provide: SettingsService, useValue: settings },
     ])
 
     service = module.get(PromptService)
@@ -49,7 +46,7 @@ describe('PromptService', () => {
       expect(result.id).toBe(TDR_SYSTEM_PROMPT_ID)
     })
 
-    it('includes the state prompt in the content', () => {
+    it('includes the settings system prompt in the content', () => {
       const content = service.getSystemPrompt().content as string
 
       expect(content).toContain('Be a helpful kawaii assistant.')
@@ -73,14 +70,10 @@ describe('PromptService', () => {
       expect(content).toContain(EMOJI_DICTIONARY.trim())
     })
 
-    it('reflects updated prompt when state changes', () => {
-      stateService.getState.mockReturnValue({
-        chatModel: 'gpt-4-turbo',
-        reasoningModel: 'gpt-4o-mini',
-        temperature: 0,
-        maxTokens: 1000,
-        prompt: 'New custom prompt text.',
-        graphHistory: [],
+    it('reflects updated prompt when settings change', () => {
+      settings.get.mockReturnValue({
+        ...defaultSettings(),
+        systemPrompt: 'New custom prompt text.',
       })
 
       const content = service.getSystemPrompt().content as string

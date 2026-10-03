@@ -38,6 +38,8 @@ async function runApp() {
 async function runGraphTest() {
   dotenv.config()
   sourceMapSupport.install()
+  // graph-test needs no database: keep its checkpoints in memory
+  process.env.GRAPH_CHECKPOINTER ??= 'memory'
 
   // dynamically import bootstrap so that top level `env()` calls use the values
   // from `.env`

@@ -10,6 +10,7 @@ import {
 } from '@lilnas/utils/download/types'
 import { Test, TestingModule } from '@nestjs/testing'
 
+import { PromptGenerationService } from 'src/llm/skills/media/prompt-generation.service'
 import { SonarrService } from 'src/media/services/sonarr.service'
 import {
   SeriesSearchResult,
@@ -29,13 +30,13 @@ import {
   toShowRequestUnits,
   TvDownloadStrategy,
 } from 'src/media-operations/request-handling/strategies/tv-download.strategy'
-import { StrategyRequestParams } from 'src/media-operations/request-handling/types/request-context.type'
+import {
+  MediaContextType,
+  StrategyRequestParams,
+} from 'src/media-operations/request-handling/types/request-context.type'
 import { ParsingUtilities } from 'src/media-operations/request-handling/utils/parsing.utils'
 import { SelectionUtilities } from 'src/media-operations/request-handling/utils/selection.utils'
-import { ContextManagementService } from 'src/message-handler/context/context-management.service'
-import { PromptGenerationService } from 'src/message-handler/services/prompts/prompt-generation.service'
 import { TvShowSelection } from 'src/schemas/tv-show'
-import { StateService } from 'src/state/state.service'
 
 describe('TvDownloadStrategy', () => {
   let strategy: TvDownloadStrategy
@@ -49,7 +50,6 @@ describe('TvDownloadStrategy', () => {
   let promptService: jest.Mocked<PromptGenerationService>
   let parsingUtilities: jest.Mocked<ParsingUtilities>
   let selectionUtilities: jest.Mocked<SelectionUtilities>
-  let contextService: jest.Mocked<ContextManagementService>
 
   // Mock response messages
   const mockChatResponse = new HumanMessage({
@@ -181,7 +181,7 @@ describe('TvDownloadStrategy', () => {
   const breakingBadLinks =
     'Follow along on the [activity page](<https://download.lilnas.io/activity>), or open [Breaking Bad](<https://download.lilnas.io/shows/12345>).'
 
-  // Mock state object (passed in params, not DI) - context methods removed, now in ContextManagementService
+  // Mock state object (passed in params, not DI) - context handling removed, now carried on StrategyResult.pendingContext
   const mockState = {}
 
   beforeEach(async () => {
@@ -220,25 +220,6 @@ describe('TvDownloadStrategy', () => {
             findSelectedShow: jest.fn(),
           },
         },
-        {
-          provide: StateService,
-          useValue: {
-            getState: jest.fn().mockReturnValue({
-              chatModel: 'gpt-4',
-              temperature: 0.7,
-            }),
-            setUserTvShowContext: jest.fn(),
-            clearUserTvShowContext: jest.fn(),
-          },
-        },
-        {
-          provide: ContextManagementService,
-          useValue: {
-            setContext: jest.fn(),
-            getContext: jest.fn(),
-            clearContext: jest.fn(),
-          },
-        },
       ],
     }).compile()
 
@@ -249,11 +230,6 @@ describe('TvDownloadStrategy', () => {
     promptService = module.get(PromptGenerationService)
     parsingUtilities = module.get(ParsingUtilities)
     selectionUtilities = module.get(SelectionUtilities)
-    contextService = module.get(ContextManagementService)
-
-    // Reset context service mocks
-    contextService.setContext.mockClear()
-    contextService.clearContext.mockClear()
   })
 
   testStrategyRouting({
@@ -378,7 +354,7 @@ describe('TvDownloadStrategy', () => {
 
       expect(sonarrService.searchShows).not.toHaveBeenCalled()
       expect(promptService.generateTvShowChatResponse).not.toHaveBeenCalled()
-      expect(contextService.setContext).not.toHaveBeenCalled()
+      expect(result.pendingContext).toBeUndefined()
       expect(result.messages).toHaveLength(1)
       expect(result.messages[0].content).toBe(NOT_A_TITLE_REPLY)
       expect(result.images).toEqual([])
@@ -408,14 +384,17 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(contextService.setContext).toHaveBeenCalledWith('user123', 'tv', {
-        type: 'tvShow',
-        searchResults: [mockShow1],
-        query: 'breaking bad',
-        timestamp: expect.any(Number),
-        isActive: true,
-        originalSearchSelection: undefined,
-        originalTvSelection: undefined,
+      expect(result.pendingContext).toEqual({
+        type: MediaContextType.TvDownload,
+        data: {
+          type: 'tvShow',
+          searchResults: [mockShow1],
+          query: 'breaking bad',
+          timestamp: expect.any(Number),
+          isActive: true,
+          originalSearchSelection: undefined,
+          originalTvSelection: undefined,
+        },
       })
       expect(downloadClient.requestShow).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
@@ -446,14 +425,17 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(contextService.setContext).toHaveBeenCalledWith('user123', 'tv', {
-        type: 'tvShow',
-        searchResults: [mockShow1, mockShow2, mockShow3],
-        query: 'breaking',
-        timestamp: expect.any(Number),
-        isActive: true,
-        originalSearchSelection: undefined,
-        originalTvSelection: undefined,
+      expect(result.pendingContext).toEqual({
+        type: MediaContextType.TvDownload,
+        data: {
+          type: 'tvShow',
+          searchResults: [mockShow1, mockShow2, mockShow3],
+          query: 'breaking',
+          timestamp: expect.any(Number),
+          isActive: true,
+          originalSearchSelection: undefined,
+          originalTvSelection: undefined,
+        },
       })
       expect(downloadClient.requestShow).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
@@ -520,7 +502,7 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(contextService.setContext).not.toHaveBeenCalled()
+      expect(result.pendingContext).toBeUndefined()
       expect(downloadClient.requestShow).toHaveBeenCalledWith({
         tvdbId: mockShow2.tvdbId,
         seasonNumber: 1,
@@ -557,14 +539,17 @@ describe('TvDownloadStrategy', () => {
       const result = await strategy.handleRequest(params)
 
       expect(downloadClient.requestShow).not.toHaveBeenCalled()
-      expect(contextService.setContext).toHaveBeenCalledWith('user123', 'tv', {
-        type: 'tvShow',
-        searchResults: [mockShow1, mockShow2],
-        query: 'breaking',
-        timestamp: expect.any(Number),
-        isActive: true,
-        originalSearchSelection: { selectionType: 'ordinal', value: '5' },
-        originalTvSelection: mockEntireSeriesSelection,
+      expect(result.pendingContext).toEqual({
+        type: MediaContextType.TvDownload,
+        data: {
+          type: 'tvShow',
+          searchResults: [mockShow1, mockShow2],
+          query: 'breaking',
+          timestamp: expect.any(Number),
+          isActive: true,
+          originalSearchSelection: { selectionType: 'ordinal', value: '5' },
+          originalTvSelection: mockEntireSeriesSelection,
+        },
       })
       expect(result.messages).toHaveLength(1)
     })
@@ -622,10 +607,9 @@ describe('TvDownloadStrategy', () => {
         mockChatResponse,
       )
 
-      await strategy.handleRequest(params)
+      const result = await strategy.handleRequest(params)
 
-      expect(contextService.setContext).not.toHaveBeenCalled()
-      expect(contextService.clearContext).not.toHaveBeenCalled()
+      expect(result.pendingContext).toBeUndefined()
     })
   })
 
@@ -689,7 +673,7 @@ describe('TvDownloadStrategy', () => {
       const result = await strategy.handleRequest(params)
 
       expect(downloadClient.requestShow).not.toHaveBeenCalled()
-      expect(contextService.setContext).toHaveBeenCalled()
+      expect(result.pendingContext).toBeDefined()
       expect(result.messages).toHaveLength(1)
     })
 
@@ -749,14 +733,17 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(contextService.setContext).toHaveBeenCalledWith('user123', 'tv', {
-        type: 'tvShow',
-        searchResults: [mockShow2],
-        query: 'breaking',
-        timestamp: expect.any(Number),
-        isActive: true,
-        originalSearchSelection: { selectionType: 'ordinal', value: '2' },
-        originalTvSelection: undefined,
+      expect(result.pendingContext).toEqual({
+        type: MediaContextType.TvDownload,
+        data: {
+          type: 'tvShow',
+          searchResults: [mockShow2],
+          query: 'breaking',
+          timestamp: expect.any(Number),
+          isActive: true,
+          originalSearchSelection: { selectionType: 'ordinal', value: '2' },
+          originalTvSelection: undefined,
+        },
       })
       expect(result.messages).toHaveLength(1)
     })
@@ -786,14 +773,17 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(contextService.setContext).toHaveBeenCalledWith('user123', 'tv', {
-        type: 'tvShow',
-        searchResults: [mockShow1],
-        query: 'breaking',
-        timestamp: expect.any(Number),
-        isActive: true,
-        originalSearchSelection: { selectionType: 'year', value: '2008' },
-        originalTvSelection: undefined,
+      expect(result.pendingContext).toEqual({
+        type: MediaContextType.TvDownload,
+        data: {
+          type: 'tvShow',
+          searchResults: [mockShow1],
+          query: 'breaking',
+          timestamp: expect.any(Number),
+          isActive: true,
+          originalSearchSelection: { selectionType: 'year', value: '2008' },
+          originalTvSelection: undefined,
+        },
       })
       expect(result.messages).toHaveLength(1)
     })
@@ -823,14 +813,17 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(contextService.setContext).toHaveBeenCalledWith('user123', 'tv', {
-        type: 'tvShow',
-        searchResults: [mockShow1, mockShow2],
-        query: 'breaking',
-        timestamp: expect.any(Number),
-        isActive: true,
-        originalSearchSelection: { selectionType: 'ordinal', value: '10' },
-        originalTvSelection: undefined,
+      expect(result.pendingContext).toEqual({
+        type: MediaContextType.TvDownload,
+        data: {
+          type: 'tvShow',
+          searchResults: [mockShow1, mockShow2],
+          query: 'breaking',
+          timestamp: expect.any(Number),
+          isActive: true,
+          originalSearchSelection: { selectionType: 'ordinal', value: '10' },
+          originalTvSelection: undefined,
+        },
       })
       expect(result.messages).toHaveLength(1)
     })
@@ -862,7 +855,7 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(contextService.setContext).not.toHaveBeenCalled()
+      expect(result.pendingContext).toBeUndefined()
       expect(result.messages).toHaveLength(1)
     })
 
@@ -891,14 +884,17 @@ describe('TvDownloadStrategy', () => {
       const result = await strategy.handleRequest(params)
 
       expect(downloadClient.requestShow).not.toHaveBeenCalled()
-      expect(contextService.setContext).toHaveBeenCalledWith('user123', 'tv', {
-        type: 'tvShow',
-        searchResults: [mockShow1],
-        query: 'breaking bad',
-        timestamp: expect.any(Number),
-        isActive: true,
-        originalSearchSelection: undefined,
-        originalTvSelection: undefined,
+      expect(result.pendingContext).toEqual({
+        type: MediaContextType.TvDownload,
+        data: {
+          type: 'tvShow',
+          searchResults: [mockShow1],
+          query: 'breaking bad',
+          timestamp: expect.any(Number),
+          isActive: true,
+          originalSearchSelection: undefined,
+          originalTvSelection: undefined,
+        },
       })
       expect(result.messages).toHaveLength(1)
     })
@@ -960,13 +956,12 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(contextService.setContext).toHaveBeenCalledWith(
-        'user123',
-        'tv',
-        expect.objectContaining({
+      expect(result.pendingContext).toEqual({
+        type: MediaContextType.TvDownload,
+        data: expect.objectContaining({
           searchResults: [mockShow1],
         }),
-      )
+      })
       expect(result.messages).toHaveLength(1)
     })
 
@@ -997,13 +992,12 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(contextService.setContext).toHaveBeenCalledWith(
-        'user123',
-        'tv',
-        expect.objectContaining({
+      expect(result.pendingContext).toEqual({
+        type: MediaContextType.TvDownload,
+        data: expect.objectContaining({
           searchResults: [mockShow2],
         }),
-      )
+      })
       expect(result.messages).toHaveLength(1)
     })
 
@@ -1036,7 +1030,7 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
+      expect(result.pendingContext).toBeUndefined()
       expect(result.messages).toHaveLength(1)
     })
 
@@ -1128,9 +1122,9 @@ describe('TvDownloadStrategy', () => {
         mockChatResponse,
       )
 
-      await strategy.handleRequest(params)
+      const result = await strategy.handleRequest(params)
 
-      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
+      expect(result.pendingContext).toBeUndefined()
     })
   })
 
@@ -1161,7 +1155,7 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
+      expect(result.pendingContext).toBeUndefined()
       expect(result.messages).toHaveLength(1)
     })
 
@@ -1191,7 +1185,7 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
+      expect(result.pendingContext).toBeUndefined()
       expect(result.messages).toHaveLength(1)
     })
 
@@ -1221,7 +1215,7 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
+      expect(result.pendingContext).toBeUndefined()
       expect(result.messages).toHaveLength(1)
     })
 
@@ -1254,7 +1248,7 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
+      expect(result.pendingContext).toBeUndefined()
       expect(result.messages).toHaveLength(1)
     })
 
@@ -1284,7 +1278,7 @@ describe('TvDownloadStrategy', () => {
       const result = await strategy.handleRequest(params)
 
       expect(downloadClient.requestShow).not.toHaveBeenCalled()
-      expect(contextService.clearContext).not.toHaveBeenCalled()
+      expect(result.pendingContext?.data).toEqual(params.context)
       expect(result.messages).toHaveLength(1)
     })
 
@@ -1312,9 +1306,9 @@ describe('TvDownloadStrategy', () => {
         mockChatResponse,
       )
 
-      await strategy.handleRequest(params)
+      const result = await strategy.handleRequest(params)
 
-      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
+      expect(result.pendingContext).toBeUndefined()
     })
   })
 
@@ -1905,7 +1899,7 @@ describe('TvDownloadStrategy', () => {
       })
       sonarrService.searchShows.mockResolvedValue([mockShow1, mockShow2])
 
-      await strategy.handleRequest(
+      const listResult = await strategy.handleRequest(
         pickParams({
           message: new HumanMessage({ id: '1', content: 'breaking in 720p' }),
           context: undefined,
@@ -1913,12 +1907,12 @@ describe('TvDownloadStrategy', () => {
         }),
       )
 
-      expect(contextService.setContext).toHaveBeenLastCalledWith(
-        'user123',
-        'tv',
-        expect.objectContaining({ qualityTier: QualityTier.UpTo720p }),
-      )
-      const listContext = contextService.setContext.mock.calls[0][2]
+      expect(listResult.pendingContext).toEqual({
+        type: MediaContextType.TvDownload,
+        data: expect.objectContaining({ qualityTier: QualityTier.UpTo720p }),
+      })
+      const listContext = listResult.pendingContext
+        ?.data as StrategyRequestParams['context']
 
       // Show pick - no tier named, so the stored one carries on
       parsingUtilities.parseSearchSelection.mockResolvedValue({
@@ -1926,22 +1920,22 @@ describe('TvDownloadStrategy', () => {
         value: '1',
       })
       selectionUtilities.findSelectedShow.mockReturnValue(mockShow1)
-      await strategy.handleRequest(
+      const showResult = await strategy.handleRequest(
         pickParams({
           message: new HumanMessage({ id: '2', content: 'the first one' }),
           context: listContext,
         }),
       )
 
-      expect(contextService.setContext).toHaveBeenLastCalledWith(
-        'user123',
-        'tv',
-        expect.objectContaining({
+      expect(showResult.pendingContext).toEqual({
+        type: MediaContextType.TvDownload,
+        data: expect.objectContaining({
           searchResults: [mockShow1],
           qualityTier: QualityTier.UpTo720p,
         }),
-      )
-      const showContext = contextService.setContext.mock.calls[1][2]
+      })
+      const showContext = showResult.pendingContext
+        ?.data as StrategyRequestParams['context']
 
       // Season pick
       parsingUtilities.parseTvShowSelection.mockResolvedValue(
@@ -2006,10 +2000,6 @@ describe('TvDownloadStrategy', () => {
       },
       promptService: {
         generatePromptMethod: () => promptService.generateTvShowChatResponse,
-      },
-      contextService: {
-        setContext: () => contextService.setContext,
-        clearContext: () => contextService.clearContext,
       },
     },
     fixtures: {

@@ -1,12 +1,47 @@
+import type { ModelSpec } from 'src/llm/models/catalog'
+import type { ModelRole } from 'src/llm/models/roles'
+import type { SettingsPatch } from 'src/llm/settings/settings.schema'
+
 import {
   ChannelInfo,
-  EditableAppState,
-  GraphHistoryFile,
-  MessageState,
+  ConversationMessage,
   SendMessageResponse,
+  SettingsResponse,
+  TranscriptChannel,
+  TranscriptResponse,
 } from './api.types'
 
 const API_URL = '/api'
+
+export interface ValidationIssue {
+  path: string
+  message: string
+}
+
+export class ApiRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly issues: ValidationIssue[] = [],
+  ) {
+    super(message)
+    this.name = 'ApiRequestError'
+  }
+}
+
+async function parseOrThrow<T>(response: Response): Promise<T> {
+  const body = await response.json().catch(() => null)
+  if (!response.ok) {
+    const message =
+      typeof body?.message === 'string' ? body.message : response.statusText
+    const issues: ValidationIssue[] = Array.isArray(body?.issues)
+      ? body.issues
+      : []
+    throw new ApiRequestError(message, response.status, issues)
+  }
+
+  return body as T
+}
 
 let instance: ApiClient | null = null
 
@@ -22,25 +57,54 @@ export class ApiClient {
     })
   }
 
-  async getMessages(): Promise<MessageState[]> {
-    const response = await this.request('/messages')
-    return await response.json()
+  async getConversation(channelId: string): Promise<ConversationMessage[]> {
+    const response = await this.request(
+      `/conversations/${encodeURIComponent(channelId)}`,
+    )
+    return await parseOrThrow<ConversationMessage[]>(response)
   }
 
-  async getState(): Promise<EditableAppState> {
-    const response = await this.request('/state')
-    return response.json()
+  async getTranscriptChannels(): Promise<TranscriptChannel[]> {
+    const response = await this.request('/transcript/channels')
+    return await parseOrThrow<TranscriptChannel[]>(response)
   }
 
-  async updateState(
-    state: Partial<EditableAppState>,
-  ): Promise<EditableAppState> {
-    const response = await this.request('/state', {
-      method: 'POST',
-      body: JSON.stringify(state),
+  async getTranscript(
+    channelId: string,
+    range: { from?: string; to?: string } = {},
+  ): Promise<TranscriptResponse> {
+    const params = new URLSearchParams()
+    if (range.from) params.set('from', range.from)
+    if (range.to) params.set('to', range.to)
+    const query = params.size ? `?${params}` : ''
+    const response = await this.request(
+      `/transcript/${encodeURIComponent(channelId)}${query}`,
+    )
+    return await parseOrThrow<TranscriptResponse>(response)
+  }
+
+  async getSettings(): Promise<SettingsResponse> {
+    const response = await this.request('/settings')
+    return await parseOrThrow<SettingsResponse>(response)
+  }
+
+  async updateSettings(patch: SettingsPatch): Promise<SettingsResponse> {
+    const response = await this.request('/settings', {
+      method: 'PUT',
+      body: JSON.stringify(patch),
     })
 
-    return await response.json()
+    return await parseOrThrow<SettingsResponse>(response)
+  }
+
+  async resetSettings(): Promise<SettingsResponse> {
+    const response = await this.request('/settings/reset', { method: 'POST' })
+    return await parseOrThrow<SettingsResponse>(response)
+  }
+
+  async getModels(role: ModelRole): Promise<ModelSpec[]> {
+    const response = await this.request(`/models?role=${role}`)
+    return await parseOrThrow<ModelSpec[]>(response)
   }
 
   async getChannels(): Promise<ChannelInfo[]> {
@@ -57,16 +121,6 @@ export class ApiClient {
       body: JSON.stringify({ content }),
     })
 
-    return await response.json()
-  }
-
-  async getGraphHistoryFiles(): Promise<GraphHistoryFile[]> {
-    const response = await this.request('/graph-history/files')
-    return await response.json()
-  }
-
-  async getGraphHistoryMessages(filename: string): Promise<MessageState[]> {
-    const response = await this.request(`/graph-history/files/${filename}`)
     return await response.json()
   }
 

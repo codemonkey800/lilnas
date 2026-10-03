@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common'
 import { nanoid } from 'nanoid'
 import { Context, type ContextOf, On } from 'necord'
 
+import { runWithRequestContext } from 'src/llm/observability/request-context'
 import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
 
 import { HandlerRegistry } from './handlers/handler.registry'
@@ -26,9 +27,18 @@ export class MessagesService {
       const context: MessageContext = {
         requestId: nanoid(),
         userId: message.author.id,
+        channelId: message.channelId,
       }
 
-      await this.runHandlers(message, context)
+      await runWithRequestContext(
+        {
+          requestId: context.requestId,
+          userId: context.userId,
+          channelId: message.channelId,
+          guildId: message.guildId ?? undefined,
+        },
+        () => this.runHandlers(message, context),
+      )
     } catch (error) {
       this.logger.error('Unhandled error in onMessage', {
         error: error instanceof Error ? error.message : 'Unknown error',

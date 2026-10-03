@@ -1,6 +1,7 @@
 import { HumanMessage } from '@langchain/core/messages'
 import { Test, TestingModule } from '@nestjs/testing'
 
+import { PromptGenerationService } from 'src/llm/skills/media/prompt-generation.service'
 import { RadarrService } from 'src/media/services/radarr.service'
 import {
   MovieLibrarySearchResult,
@@ -13,12 +14,12 @@ import { testSelectionBehavior } from 'src/media-operations/request-handling/__t
 import { testStrategyEdgeCases } from 'src/media-operations/request-handling/__test-helpers__/strategy-edge-cases-suite'
 import { testStrategyRouting } from 'src/media-operations/request-handling/__test-helpers__/strategy-routing-suite'
 import { MovieDeleteStrategy } from 'src/media-operations/request-handling/strategies/movie-delete.strategy'
-import { StrategyRequestParams } from 'src/media-operations/request-handling/types/request-context.type'
+import {
+  MediaContextType,
+  StrategyRequestParams,
+} from 'src/media-operations/request-handling/types/request-context.type'
 import { ParsingUtilities } from 'src/media-operations/request-handling/utils/parsing.utils'
 import { SelectionUtilities } from 'src/media-operations/request-handling/utils/selection.utils'
-import { ContextManagementService } from 'src/message-handler/context/context-management.service'
-import { PromptGenerationService } from 'src/message-handler/services/prompts/prompt-generation.service'
-import { StateService } from 'src/state/state.service'
 
 describe('MovieDeleteStrategy', () => {
   let strategy: MovieDeleteStrategy
@@ -26,7 +27,6 @@ describe('MovieDeleteStrategy', () => {
   let promptService: jest.Mocked<PromptGenerationService>
   let parsingUtilities: jest.Mocked<ParsingUtilities>
   let selectionUtilities: jest.Mocked<SelectionUtilities>
-  let contextService: jest.Mocked<ContextManagementService>
 
   // Mock response messages
   const mockChatResponse = new HumanMessage({
@@ -133,7 +133,7 @@ describe('MovieDeleteStrategy', () => {
     error: 'Failed to delete movie from Radarr',
   }
 
-  // Mock state object (passed in params, not DI) - context methods removed, now in ContextManagementService
+  // Mock state object (passed in params, not DI) - context handling removed, now carried on StrategyResult.pendingContext
   const mockState = {}
 
   beforeEach(async () => {
@@ -166,23 +166,6 @@ describe('MovieDeleteStrategy', () => {
             findSelectedMovieFromLibrary: jest.fn(),
           },
         },
-        {
-          provide: StateService,
-          useValue: {
-            getState: jest.fn().mockReturnValue({
-              chatModel: 'gpt-4',
-              temperature: 0.7,
-            }),
-          },
-        },
-        {
-          provide: ContextManagementService,
-          useValue: {
-            setContext: jest.fn(),
-            getContext: jest.fn(),
-            clearContext: jest.fn(),
-          },
-        },
       ],
     }).compile()
 
@@ -191,7 +174,6 @@ describe('MovieDeleteStrategy', () => {
     promptService = module.get(PromptGenerationService)
     parsingUtilities = module.get(ParsingUtilities)
     selectionUtilities = module.get(SelectionUtilities)
-    contextService = module.get(ContextManagementService)
   })
 
   testStrategyRouting({
@@ -311,7 +293,7 @@ describe('MovieDeleteStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(contextService.setContext).not.toHaveBeenCalled()
+      expect(result.pendingContext).toBeUndefined()
       expect(result.messages).toHaveLength(1)
     })
 
@@ -340,10 +322,9 @@ describe('MovieDeleteStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(contextService.setContext).toHaveBeenCalledWith(
-        'user123',
-        'movieDelete',
-        {
+      expect(result.pendingContext).toEqual({
+        type: MediaContextType.MovieDelete,
+        data: {
           type: 'movieDelete',
           searchResults: [
             mockLibraryMovie1,
@@ -354,7 +335,7 @@ describe('MovieDeleteStrategy', () => {
           timestamp: expect.any(Number),
           isActive: true,
         },
-      )
+      })
       expect(radarrService.unmonitorAndDeleteMovie).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
@@ -402,10 +383,6 @@ describe('MovieDeleteStrategy', () => {
       },
       promptService: {
         generatePromptMethod: () => promptService.generateMovieDeletePrompt,
-      },
-      contextService: {
-        setContext: () => contextService.setContext,
-        clearContext: () => contextService.clearContext,
       },
     },
     fixtures: {
@@ -457,7 +434,7 @@ describe('MovieDeleteStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
+      expect(result.pendingContext).toBeUndefined()
       expect(result.messages).toHaveLength(1)
     })
 
@@ -485,7 +462,7 @@ describe('MovieDeleteStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
+      expect(result.pendingContext).toBeUndefined()
       expect(result.messages).toHaveLength(1)
     })
 
@@ -509,7 +486,7 @@ describe('MovieDeleteStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(contextService.clearContext).not.toHaveBeenCalled()
+      expect(result.pendingContext?.data).toEqual(params.context)
       expect(radarrService.unmonitorAndDeleteMovie).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
@@ -535,7 +512,7 @@ describe('MovieDeleteStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(contextService.clearContext).not.toHaveBeenCalled()
+      expect(result.pendingContext?.data).toEqual(params.context)
       expect(radarrService.unmonitorAndDeleteMovie).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
@@ -564,7 +541,7 @@ describe('MovieDeleteStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
+      expect(result.pendingContext).toBeUndefined()
       expect(result.messages).toHaveLength(1)
     })
   })
@@ -641,10 +618,6 @@ describe('MovieDeleteStrategy', () => {
       },
       promptService: {
         generatePromptMethod: () => promptService.generateMovieDeletePrompt,
-      },
-      contextService: {
-        setContext: () => contextService.setContext,
-        clearContext: () => contextService.clearContext,
       },
     },
     fixtures: {

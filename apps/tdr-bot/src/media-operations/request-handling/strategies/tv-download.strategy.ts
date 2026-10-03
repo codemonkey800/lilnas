@@ -14,21 +14,20 @@ import { getErrorMessage } from '@lilnas/utils/error'
 import { Injectable, Logger } from '@nestjs/common'
 import { nanoid } from 'nanoid'
 
+import { PromptGenerationService } from 'src/llm/skills/media/prompt-generation.service'
 import { SonarrService } from 'src/media/services/sonarr.service'
 import type { SeriesSearchResult } from 'src/media/types/sonarr.types'
 import { isPathLikeLookupTerm } from 'src/media/utils/sonarr.utils'
 import { DownloadClientFactory } from 'src/media-operations/request-handling/download-client.factory'
-import type {
+import {
   DiscordIdentity,
+  MediaContextType,
   StrategyRequestParams,
   StrategyResult,
 } from 'src/media-operations/request-handling/types'
 import { ParsingUtilities } from 'src/media-operations/request-handling/utils/parsing.utils'
 import { SelectionUtilities } from 'src/media-operations/request-handling/utils/selection.utils'
-import { ContextManagementService } from 'src/message-handler/context/context-management.service'
-import { PromptGenerationService } from 'src/message-handler/services/prompts/prompt-generation.service'
 import type { TvShowSelection } from 'src/schemas/tv-show'
-import { StateService } from 'src/state/state.service'
 import { downloadApiErrorMessage } from 'src/utils/download-api-error'
 import { withDownloadLinks } from 'src/utils/download-links'
 
@@ -180,12 +179,8 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
     private readonly promptService: PromptGenerationService,
     private readonly parsingUtilities: ParsingUtilities,
     private readonly selectionUtilities: SelectionUtilities,
-    state: StateService,
-    contextService: ContextManagementService,
   ) {
     super()
-    this.stateService = state
-    this.contextService = contextService
   }
 
   /**
@@ -377,9 +372,6 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
             ...contextTier,
           }
 
-          // Store context in ContextManagementService
-          await this.contextService.setContext(userId, 'tv', tvShowContext)
-
           const granularSelectionResponse =
             await this.promptService.generateTvShowChatResponse(
               messages,
@@ -390,6 +382,10 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
           return {
             images: [],
             messages: messages.concat(granularSelectionResponse),
+            pendingContext: {
+              type: MediaContextType.TvDownload,
+              data: tvShowContext,
+            },
           }
         } else {
           this.logger.warn(
@@ -437,9 +433,6 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
           ...contextTier,
         }
 
-        // Store context in ContextManagementService
-        await this.contextService.setContext(userId, 'tv', tvShowContext)
-
         const selectionResponse =
           await this.promptService.generateTvShowChatResponse(
             messages,
@@ -450,6 +443,10 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
         return {
           images: [],
           messages: messages.concat(selectionResponse),
+          pendingContext: {
+            type: MediaContextType.TvDownload,
+            data: tvShowContext,
+          },
         }
       }
 
@@ -465,9 +462,6 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
         ...contextTier,
       }
 
-      // Store context in ContextManagementService
-      await this.contextService.setContext(userId, 'tv', tvShowContext)
-
       // Create selection prompt
       const selectionResponse =
         await this.promptService.generateTvShowChatResponse(
@@ -482,6 +476,10 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
       return {
         images: [],
         messages: messages.concat(selectionResponse),
+        pendingContext: {
+          type: MediaContextType.TvDownload,
+          data: tvShowContext,
+        },
       }
     } catch (error) {
       this.logger.error(
@@ -543,6 +541,10 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
           return {
             images: [],
             messages: messages.concat(clarificationResponse),
+            pendingContext: {
+              type: MediaContextType.TvDownload,
+              data: tvShowContext,
+            },
           }
         }
 
@@ -564,6 +566,10 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
           return {
             images: [],
             messages: messages.concat(clarificationResponse),
+            pendingContext: {
+              type: MediaContextType.TvDownload,
+              data: tvShowContext,
+            },
           }
         }
 
@@ -585,8 +591,7 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
             'Auto-applying stored granular selection after show selection',
           )
 
-          // Clear context and request the TV show with stored granular selection
-          await this.contextService.clearContext(userId)
+          // No pendingContext on the result: the selection is settled
           return await this.requestShow(
             selectedShow,
             tvShowContext.originalTvSelection,
@@ -613,9 +618,6 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
               ? { qualityTier: request.qualityTier }
               : {}),
           }
-          // Store context in ContextManagementService
-          await this.contextService.setContext(userId, 'tv', updatedContext)
-
           const granularSelectionResponse =
             await this.promptService.generateTvShowChatResponse(
               messages,
@@ -626,6 +628,10 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
           return {
             images: [],
             messages: messages.concat(granularSelectionResponse),
+            pendingContext: {
+              type: MediaContextType.TvDownload,
+              data: updatedContext,
+            },
           }
         }
       }
@@ -655,13 +661,16 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
         return {
           images: [],
           messages: messages.concat(granularSelectionResponse),
+          pendingContext: {
+            type: MediaContextType.TvDownload,
+            data: tvShowContext,
+          },
         }
       }
 
       const selectedShow = tvShowContext.searchResults[0]
 
-      // Clear context and request the TV show
-      await this.contextService.clearContext(userId)
+      // No pendingContext on the result: the selection is settled
       return await this.requestShow(
         selectedShow,
         tvShowSelection,
@@ -675,16 +684,7 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
         'Failed to process TV show selection',
       )
 
-      // Clear context on error
-      try {
-        await this.contextService.clearContext(userId)
-      } catch (clearError) {
-        this.logger.warn(
-          { error: getErrorMessage(clearError), userId },
-          'Failed to clear context during error cleanup',
-        )
-      }
-
+      // No pendingContext on the result: the selection is dropped on error
       const errorResponse = await this.promptService.generateTvShowChatResponse(
         messages,
         'TV_SHOW_PROCESSING_ERROR',

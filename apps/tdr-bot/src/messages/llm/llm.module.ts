@@ -1,45 +1,30 @@
 import { Module } from '@nestjs/common'
 
-import { RequestHandlingModule } from 'src/media-operations/request-handling/request-handling.module'
-import { ContextModule } from 'src/message-handler/context/context.module'
+import { DrizzleModule } from 'src/db/drizzle.module'
+import {
+  graphCheckpointerProvider,
+  GraphCheckpointerSetup,
+} from 'src/llm/graph/checkpointer'
+import { LlmCoreModule } from 'src/llm/llm-core.module'
+import { SkillsModule } from 'src/llm/skills/skills.module'
 import { PromptsModule } from 'src/messages/prompts/prompts.module'
-import { RemindersModule } from 'src/reminders/reminders.module'
 import { ServicesModule } from 'src/services/services.module'
-import { StateModule } from 'src/state/state.module'
 
 import { LLMOrchestrationService } from './llm-orchestration.service'
-import { ModelFactoryModule } from './model-factory.module'
-import { DefaultResponseNode } from './nodes/default-response.node'
-import { ImageResponseNode } from './nodes/image-response.node'
-import { IntentDetectionNode } from './nodes/intent-detection.node'
-import { MathResponseNode } from './nodes/math-response.node'
-import { MediaResponseNode } from './nodes/media-response.node'
-import { ReminderResponseNode } from './nodes/reminder-response.node'
 
-/**
- * Aggregates all LLM graph nodes and the orchestration service.
- *
- * Imports the reminder, media, context, and model-factory modules
- * so every node has access to its required dependencies.
- */
+/** Provides the orchestration service that runs the skills graph. */
 @Module({
   imports: [
-    RequestHandlingModule,
-    ModelFactoryModule,
+    DrizzleModule,
+    LlmCoreModule,
     PromptsModule,
     ServicesModule,
-    RemindersModule,
-    ContextModule,
-    StateModule,
+    SkillsModule,
   ],
   providers: [
+    graphCheckpointerProvider,
+    GraphCheckpointerSetup,
     LLMOrchestrationService,
-    IntentDetectionNode,
-    DefaultResponseNode,
-    ImageResponseNode,
-    MathResponseNode,
-    MediaResponseNode,
-    ReminderResponseNode,
   ],
   exports: [LLMOrchestrationService],
 })

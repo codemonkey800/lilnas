@@ -1,0 +1,29 @@
+//- Shared furniture for the tdr-bot mockups. Every mixin ends in &attributes.
+
+mixin frame(label, note)
+  section&attributes(attributes)
+    div(class='mb-2 flex items-baseline gap-3')
+      h2(class='text-sm font-semibold uppercase tracking-wider text-accent-soft')= label
+      if note
+        span(class='text-xs text-ink-3')= note
+    div(class='rounded-xl border border-line bg-bg p-4')
+      block
+
+mixin card(title, hint)
+  div(class='rounded-xl border border-line bg-surface p-5')&attributes(attributes)
+    div(class='mb-4')
+      h3(class='text-base font-semibold')= title
+      if hint
+        p(class='mt-0.5 text-xs text-ink-3')= hint
+    block
+
+mixin btn(kind, disabled)
+  - const base = 'inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium'
+  - const kinds = { primary: 'bg-accent text-white', ghost: 'border border-line text-ink-2' }
+  button(type='button' class=base + ' ' + kinds[kind || 'primary'] + (disabled ? ' opacity-50' : ''))&attributes(attributes)
+    block
+
+mixin chip(tone)
+  - const tones = { ok: 'bg-ok/15 text-ok', warn: 'bg-warn/15 text-warn', bad: 'bg-bad/15 text-bad', muted: 'bg-raised text-ink-2' }
+  span(class='inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ' + tones[tone || 'muted'])&attributes(attributes)
+    block

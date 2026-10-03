@@ -14,10 +14,8 @@ import {
   TextChannel,
   User,
 } from 'discord.js'
-import { map, of } from 'rxjs'
 
 import { Message } from 'src/messages/types'
-import { StateService } from 'src/state/state.service'
 import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
 import {
   ErrorCategory,
@@ -171,32 +169,6 @@ export async function createTestingModule(
   }).compile()
 
   return module
-}
-
-// Mock StateService factory
-export function createMockStateService(): jest.Mocked<StateService> {
-  const mockState = {
-    maxTokens: 1000,
-    temperature: 0.7,
-    chatModel: 'gpt-4-turbo' as const,
-    reasoningModel: 'gpt-4o-mini' as const,
-    prompt: 'Test system prompt',
-    graphHistory: [],
-  }
-
-  const state$ = of(mockState)
-
-  return {
-    setState: jest.fn(),
-    getState: jest.fn().mockReturnValue(mockState),
-    select: jest
-      .fn()
-      .mockImplementation((selector: (s: typeof mockState) => unknown) =>
-        state$.pipe(map(selector)),
-      ),
-    changes$: state$,
-    onModuleDestroy: jest.fn(),
-  } as unknown as jest.Mocked<StateService>
 }
 
 // Mock RetryService factory

@@ -1,11 +1,8 @@
 import { Module } from '@nestjs/common'
 
+import { LlmCoreModule } from 'src/llm/llm-core.module'
+import { PromptModule } from 'src/llm/skills/media/prompt.module'
 import { MediaModule } from 'src/media/media.module'
-import { ContextModule } from 'src/message-handler/context/context.module'
-import { PromptModule } from 'src/message-handler/services/prompts/prompt.module'
-import { StateModule } from 'src/state/state.module'
-import { ErrorClassificationService } from 'src/utils/error-classifier'
-import { RetryService } from 'src/utils/retry.service'
 
 import { DownloadClientFactory } from './download-client.factory'
 import { MediaRequestHandler } from './media-request-handler.service'
@@ -28,22 +25,17 @@ import { ValidationUtilities } from './utils/validation.utils'
  * - 4 utility classes for parsing, selection, validation, and data fetching
  * - DownloadClientFactory, for strategies that call the download app as the
  *   requesting Discord user
- * - Integration with existing modules (Context, Prompt, Media, State)
+ * - Integration with existing modules (Prompt, Media, LlmCore)
  *
  * Note: FormattingUtilities exports functions, not a class, so it's not included as a provider
  */
 @Module({
   imports: [
-    ContextModule, // For ContextManagementService
     PromptModule, // For PromptGenerationService
     MediaModule, // For RadarrService, SonarrService
-    StateModule, // For StateService (used by utilities)
+    LlmCoreModule, // For LlmClient
   ],
   providers: [
-    // Core error classification and retry services
-    ErrorClassificationService,
-    RetryService,
-
     // Utility classes (4 utilities - formatting exports functions, not a class)
     ParsingUtilities,
     SelectionUtilities,

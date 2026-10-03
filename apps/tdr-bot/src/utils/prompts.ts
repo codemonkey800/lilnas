@@ -2,68 +2,12 @@ import { SystemMessage } from '@langchain/core/messages'
 import dedent from 'dedent'
 
 import { VERSION } from 'src/constants/version'
-import { MediaRequestType, ResponseType, SearchIntent } from 'src/schemas/graph'
+import { MediaRequestType, SearchIntent } from 'src/schemas/graph'
 
 import { emojis } from './emojis'
 
-export const GET_RESPONSE_TYPE_PROMPT = new SystemMessage(dedent`
-  Determine the response type for the next message.
-
-  If the message is asking to generate an image, return "${ResponseType.Image}".
-
-  If the message is asking for the solution to a complex math problem or asking
-  a math question, respond with "${ResponseType.Math}". Simple arithmetic like 1
-  + 2 is not considered as complex math.
-
-  If the message is related to media operations (movies, TV shows, series) or mentions "Jeremy+" or "jeremy plus", return "${ResponseType.Media}". This includes requests to:
-  - Download, add, get, or obtain movies/shows
-  - Delete, remove, or uninstall movies/shows
-  - Search, find, or look for movies/shows
-  - Check progress, status, or library content
-  - Check download status, current downloads, or what's downloading
-  - Any mention of "Jeremy+" regardless of the request type
-
-  If the message is about reminders, return "${ResponseType.Reminder}". This includes requests to:
-  - Set, create, or add a reminder
-  - View, list, or show reminders
-  - Cancel, delete, or remove a reminder
-  - Any message asking to be reminded about something
-
-  Otherwise, respond with "${ResponseType.Default}".
-`)
-
-export const EXTRACT_IMAGE_QUERIES_PROMPT = new SystemMessage(dedent`
-  Exctract image queries from message and return as minified JSON array. The
-  object should have the following structure:
-
-  {
-    "title": "The title of the image",
-    "query": "The query used to search for the image"
-  }
-`)
-
-export const GET_MATH_RESPONSE_PROMPT = new SystemMessage(dedent`
-  Return solution to complex math question step-by-step in LaTeX format. Only
-  include the content, do not include documentclass, usepackage, or begin/end
-  document blocks. Use $ $ for inline math and $$ $$ for math equations on their
-  own line. Do not use emojis or unicode. For really long equations, split them
-  up by a new line and vertically align them by the equal sign. For titles in a
-  new section, use \section{Title}. For bolding text, use \textbf{Text}. To
-  italicize text, use \textit{Text}. Do not use # for headers.
-`)
-
 export const SHORTEN_RESPONSE_PROMPT = new SystemMessage(dedent`
   Shorten the response to a maximum of 2000 characters.
-`)
-
-export const GET_CHAT_MATH_RESPONSE = new SystemMessage(dedent`
-  Tell the user the solution is displayed below. Do not include the solution in
-  the response.
-`)
-
-export const IMAGE_RESPONSE = new SystemMessage(dedent`
-  Tell the user the image generated is displayed below. Don't tell the user you
-  can't draw images because you can.
 `)
 
 export const GET_MEDIA_TYPE_PROMPT = new SystemMessage(dedent`
@@ -277,7 +221,8 @@ export const PROMPT_INTRO = dedent`
 `
 
 export const INPUT_FORMAT = dedent`
-  Every message you receive will be in the format -> <author> said "<message>"
+  Every user message you receive is the message text itself, and the name of
+  its author is attached to the message as its name.
 `
 
 export const EMOJI_DICTIONARY = dedent`

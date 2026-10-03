@@ -6,11 +6,9 @@ import {
   createTestingModule,
 } from 'src/__tests__/test-utils'
 import { Reminder } from 'src/db/schema'
-import { ModelFactoryService } from 'src/messages/llm/model-factory.service'
-import {
-  DALLE_WRAPPER_TOKEN,
-  TAVILY_SEARCH_TOKEN,
-} from 'src/reminders/reminder.constants'
+import { LlmClient } from 'src/llm/client/llm-client'
+import { FakeLlmClient } from 'src/llm/testing/fake-llm-client'
+import { TAVILY_SEARCH_TOKEN } from 'src/reminders/reminder.constants'
 import { ReminderService } from 'src/reminders/reminder.service'
 import { ReminderDeliveryService } from 'src/reminders/reminder-delivery.service'
 import { EquationImageService } from 'src/services/equation-image.service'
@@ -30,11 +28,6 @@ jest.mock('@langchain/tavily', () => ({
 const mockDalleInvoke = jest
   .fn()
   .mockResolvedValue('https://dalle.example.com/image.png')
-jest.mock('@langchain/openai', () => ({
-  DallEAPIWrapper: jest
-    .fn()
-    .mockImplementation(() => ({ invoke: mockDalleInvoke })),
-}))
 
 // ─── Mock prom-client to avoid duplicate metric registration ─────────────────
 
@@ -115,21 +108,42 @@ function makeDiscordClient(
   return { guilds: { cache: guildsCache } } as unknown as Client
 }
 
-function makeModelFactory(responseContent = 'Hey! Reminder time!'): {
-  factory: jest.Mocked<ModelFactoryService>
+/**
+ * Scripts a FakeLlmClient by operation. The chat / reasoning mocks record the
+ * messages each role receives; image generation is routed to `mockDalleInvoke`.
+ */
+function makeLlm(responseContent = 'Hey! Reminder time!'): {
+  factory: FakeLlmClient
   mockChatModel: { invoke: jest.Mock }
   mockReasoningModel: { invoke: jest.Mock }
 } {
   const mockChatModel = {
-    invoke: jest.fn().mockResolvedValue(new AIMessage(responseContent)),
+    invoke: jest.fn().mockReturnValue(new AIMessage(responseContent)),
   }
   const mockReasoningModel = {
-    invoke: jest.fn().mockResolvedValue(new AIMessage('$x^2 + y^2 = z^2$')),
+    invoke: jest.fn().mockReturnValue(new AIMessage('$x^2 + y^2 = z^2$')),
   }
-  const factory = {
-    createChatModel: jest.fn().mockReturnValue(mockChatModel),
-    createReasoningModel: jest.fn().mockReturnValue(mockReasoningModel),
-  } as unknown as jest.Mocked<ModelFactoryService>
+  const factory = new FakeLlmClient()
+  for (const op of [
+    'reminder.deliver',
+    'reminder.deliverSearch',
+    'reminder.deliverImage',
+    'reminder.deliverMath',
+  ]) {
+    factory.script(op, call =>
+      call.role === 'reasoning'
+        ? mockReasoningModel.invoke(call.messages)
+        : mockChatModel.invoke(call.messages),
+    )
+  }
+  factory.generateImage = async call => {
+    factory.imageCalls.push(call)
+    return {
+      url: (await mockDalleInvoke(call.prompt)) as string,
+      model: 'fake-image-model',
+      durationMs: 0,
+    }
+  }
   return { factory, mockChatModel, mockReasoningModel }
 }
 
@@ -165,7 +179,7 @@ describe('ReminderDeliveryService', () => {
 
   async function buildService(
     client: Client,
-    modelFactory: jest.Mocked<ModelFactoryService>,
+    llm: FakeLlmClient,
     equationImageService: jest.Mocked<EquationImageService> = makeEquationImageServiceMock(),
   ) {
     reminderService = makeReminderServiceMock()
@@ -174,17 +188,13 @@ describe('ReminderDeliveryService', () => {
     const module = await createTestingModule([
       ReminderDeliveryService,
       { provide: Client, useValue: client },
-      { provide: ModelFactoryService, useValue: modelFactory },
+      { provide: LlmClient, useValue: llm },
       { provide: RetryService, useValue: retryService },
       { provide: ReminderService, useValue: reminderService },
       { provide: EquationImageService, useValue: equationImageService },
       {
         provide: TAVILY_SEARCH_TOKEN,
         useValue: { invoke: mockTavilyInvoke },
-      },
-      {
-        provide: DALLE_WRAPPER_TOKEN,
-        useValue: { invoke: mockDalleInvoke },
       },
     ])
 
@@ -200,7 +210,7 @@ describe('ReminderDeliveryService', () => {
 
   describe('onModuleInit', () => {
     it('registers the deliver method as the delivery function', async () => {
-      const { factory } = makeModelFactory()
+      const { factory } = makeLlm()
       const client = makeDiscordClient([])
       service = await buildService(client, factory)
 
@@ -212,7 +222,7 @@ describe('ReminderDeliveryService', () => {
     })
 
     it('registers a bound function that calls deliver on the service instance', async () => {
-      const { factory } = makeModelFactory()
+      const { factory } = makeLlm()
       const channel = makeMockTextChannel()
       const client = makeDiscordClient([channel])
       service = await buildService(client, factory)
@@ -233,7 +243,7 @@ describe('ReminderDeliveryService', () => {
       const sendFn = jest.fn().mockResolvedValue({})
       const channel = makeMockTextChannel('tdr-bot-chat', sendFn)
       const client = makeDiscordClient([channel])
-      const { factory } = makeModelFactory('Hey, reminder!')
+      const { factory } = makeLlm('Hey, reminder!')
       service = await buildService(client, factory)
 
       await service.deliver(createTestReminder())
@@ -247,7 +257,7 @@ describe('ReminderDeliveryService', () => {
       const nonTextChannel = makeMockTextChannel()
       nonTextChannel.isTextBased.mockReturnValue(false)
       const client = makeDiscordClient([nonTextChannel])
-      const { factory } = makeModelFactory()
+      const { factory } = makeLlm()
       service = await buildService(client, factory)
 
       await expect(service.deliver(createTestReminder())).resolves.not.toThrow()
@@ -257,7 +267,7 @@ describe('ReminderDeliveryService', () => {
     it('does nothing when no matching channels are found', async () => {
       const nonMatchingChannel = makeMockTextChannel('general')
       const client = makeDiscordClient([nonMatchingChannel])
-      const { factory } = makeModelFactory()
+      const { factory } = makeLlm()
       service = await buildService(client, factory)
 
       await expect(service.deliver(createTestReminder())).resolves.not.toThrow()
@@ -268,7 +278,7 @@ describe('ReminderDeliveryService', () => {
       const sendFn = jest.fn().mockResolvedValue({})
       const channel = makeMockTextChannel('tdr-bot-chat', sendFn)
       const client = makeDiscordClient([channel], 'guild-1')
-      const { factory } = makeModelFactory('Reminder!')
+      const { factory } = makeLlm('Reminder!')
       service = await buildService(client, factory)
 
       // Reminder with a different guildId should not send to guild-1
@@ -282,7 +292,7 @@ describe('ReminderDeliveryService', () => {
       const client = makeDiscordClient([
         makeMockTextChannel('tdr-bot-chat', sendFn),
       ])
-      const { factory, mockChatModel } = makeModelFactory('Reminder text')
+      const { factory, mockChatModel } = makeLlm('Reminder text')
       service = await buildService(client, factory)
 
       await service.deliver(createTestReminder())
@@ -296,7 +306,7 @@ describe('ReminderDeliveryService', () => {
 
     it('includes the userId mention in the LLM prompt', async () => {
       const client = makeDiscordClient([makeMockTextChannel()])
-      const { factory, mockChatModel } = makeModelFactory('Reminder')
+      const { factory, mockChatModel } = makeLlm('Reminder')
       service = await buildService(client, factory)
       const reminder = createTestReminder({ userId: 'user-99' })
 
@@ -314,16 +324,13 @@ describe('ReminderDeliveryService', () => {
       const client = makeDiscordClient([
         makeMockTextChannel('tdr-bot-chat', sendFn),
       ])
-      const { factory } = makeModelFactory()
-      const fallbackRetry = createMockRetryService()
-      fallbackRetry.executeWithRetry
-        .mockRejectedValueOnce(new Error('LLM unavailable'))
-        .mockImplementation(operation => operation())
+      const { factory } = makeLlm()
+      factory.script('reminder.deliver', new Error('LLM unavailable'))
       service = await createTestingModule([
         ReminderDeliveryService,
         { provide: Client, useValue: client },
-        { provide: ModelFactoryService, useValue: factory },
-        { provide: RetryService, useValue: fallbackRetry },
+        { provide: LlmClient, useValue: factory },
+        { provide: RetryService, useValue: createMockRetryService() },
         { provide: ReminderService, useValue: makeReminderServiceMock() },
         {
           provide: EquationImageService,
@@ -332,10 +339,6 @@ describe('ReminderDeliveryService', () => {
         {
           provide: TAVILY_SEARCH_TOKEN,
           useValue: { invoke: mockTavilyInvoke },
-        },
-        {
-          provide: DALLE_WRAPPER_TOKEN,
-          useValue: { invoke: mockDalleInvoke },
         },
       ]).then(m => m.get(ReminderDeliveryService))
 
@@ -354,9 +357,7 @@ describe('ReminderDeliveryService', () => {
   describe('deliver to target user', () => {
     it('includes the targetUserId mention in the LLM prompt when targetUserId is set', async () => {
       const client = makeDiscordClient([makeMockTextChannel()])
-      const { factory, mockChatModel } = makeModelFactory(
-        'Reminder for target!',
-      )
+      const { factory, mockChatModel } = makeLlm('Reminder for target!')
       service = await buildService(client, factory)
 
       await service.deliver(
@@ -377,7 +378,7 @@ describe('ReminderDeliveryService', () => {
 
     it('falls back to userId mention when targetUserId is null', async () => {
       const client = makeDiscordClient([makeMockTextChannel()])
-      const { factory, mockChatModel } = makeModelFactory('Reminder!')
+      const { factory, mockChatModel } = makeLlm('Reminder!')
       service = await buildService(client, factory)
 
       await service.deliver(
@@ -398,16 +399,13 @@ describe('ReminderDeliveryService', () => {
       const client = makeDiscordClient([
         makeMockTextChannel('tdr-bot-chat', sendFn),
       ])
-      const { factory } = makeModelFactory()
-      const fallbackRetry = createMockRetryService()
-      fallbackRetry.executeWithRetry
-        .mockRejectedValueOnce(new Error('LLM unavailable'))
-        .mockImplementation(operation => operation())
+      const { factory } = makeLlm()
+      factory.script('reminder.deliver', new Error('LLM unavailable'))
       service = await createTestingModule([
         ReminderDeliveryService,
         { provide: Client, useValue: client },
-        { provide: ModelFactoryService, useValue: factory },
-        { provide: RetryService, useValue: fallbackRetry },
+        { provide: LlmClient, useValue: factory },
+        { provide: RetryService, useValue: createMockRetryService() },
         { provide: ReminderService, useValue: makeReminderServiceMock() },
         {
           provide: EquationImageService,
@@ -416,10 +414,6 @@ describe('ReminderDeliveryService', () => {
         {
           provide: TAVILY_SEARCH_TOKEN,
           useValue: { invoke: mockTavilyInvoke },
-        },
-        {
-          provide: DALLE_WRAPPER_TOKEN,
-          useValue: { invoke: mockDalleInvoke },
         },
       ]).then(m => m.get(ReminderDeliveryService))
 
@@ -446,9 +440,7 @@ describe('ReminderDeliveryService', () => {
       const client = makeDiscordClient([
         makeMockTextChannel('tdr-bot-chat', sendFn),
       ])
-      const { factory } = makeModelFactory(
-        'Here is the weather in Tokyo: sunny!',
-      )
+      const { factory } = makeLlm('Here is the weather in Tokyo: sunny!')
       service = await buildService(client, factory)
 
       await service.deliver(
@@ -466,7 +458,7 @@ describe('ReminderDeliveryService', () => {
       const client = makeDiscordClient([
         makeMockTextChannel('tdr-bot-chat', sendFn),
       ])
-      const { factory } = makeModelFactory('Tokyo weather: sunny, 22°C!')
+      const { factory } = makeLlm('Tokyo weather: sunny, 22°C!')
       service = await buildService(client, factory)
 
       await service.deliver(
@@ -483,7 +475,7 @@ describe('ReminderDeliveryService', () => {
       const client = makeDiscordClient([
         makeMockTextChannel('tdr-bot-chat', sendFn),
       ])
-      const { factory } = makeModelFactory('Here is the result')
+      const { factory } = makeLlm('Here is the result')
       service = await buildService(client, factory)
 
       const longWhat = 'x'.repeat(300)
@@ -500,7 +492,7 @@ describe('ReminderDeliveryService', () => {
       const client = makeDiscordClient([
         makeMockTextChannel('tdr-bot-chat', sendFn),
       ])
-      const { factory } = makeModelFactory('Fallback')
+      const { factory } = makeLlm('Fallback')
       const failingRetry = createMockRetryService()
       failingRetry.executeWithRetry
         .mockRejectedValueOnce(new Error('Tavily error'))
@@ -510,7 +502,7 @@ describe('ReminderDeliveryService', () => {
       service = await createTestingModule([
         ReminderDeliveryService,
         { provide: Client, useValue: client },
-        { provide: ModelFactoryService, useValue: factory },
+        { provide: LlmClient, useValue: factory },
         { provide: RetryService, useValue: failingRetry },
         { provide: ReminderService, useValue: trackedReminderService },
         {
@@ -521,7 +513,6 @@ describe('ReminderDeliveryService', () => {
           provide: TAVILY_SEARCH_TOKEN,
           useValue: { invoke: mockTavilyInvoke },
         },
-        { provide: DALLE_WRAPPER_TOKEN, useValue: { invoke: mockDalleInvoke } },
       ]).then(m => m.get(ReminderDeliveryService))
 
       await service.deliver(
@@ -538,7 +529,7 @@ describe('ReminderDeliveryService', () => {
       const client = makeDiscordClient([
         makeMockTextChannel('tdr-bot-chat', sendFn),
       ])
-      const { factory } = makeModelFactory('Fallback message')
+      const { factory } = makeLlm('Fallback message')
       const failingRetry = createMockRetryService()
       failingRetry.executeWithRetry
         .mockRejectedValueOnce(new Error('Tavily error'))
@@ -547,7 +538,7 @@ describe('ReminderDeliveryService', () => {
       service = await createTestingModule([
         ReminderDeliveryService,
         { provide: Client, useValue: client },
-        { provide: ModelFactoryService, useValue: factory },
+        { provide: LlmClient, useValue: factory },
         { provide: RetryService, useValue: failingRetry },
         { provide: ReminderService, useValue: makeReminderServiceMock() },
         {
@@ -557,10 +548,6 @@ describe('ReminderDeliveryService', () => {
         {
           provide: TAVILY_SEARCH_TOKEN,
           useValue: { invoke: mockTavilyInvoke },
-        },
-        {
-          provide: DALLE_WRAPPER_TOKEN,
-          useValue: { invoke: mockDalleInvoke },
         },
       ]).then(m => m.get(ReminderDeliveryService))
 
@@ -578,9 +565,9 @@ describe('ReminderDeliveryService', () => {
   // ── deliver (image action) ────────────────────────────────────────────────
 
   describe('deliver (image action)', () => {
-    it('calls DallEAPIWrapper with the reminder topic', async () => {
+    it('generates an image with the reminder topic', async () => {
       const client = makeDiscordClient([makeMockTextChannel()])
-      const { factory } = makeModelFactory('Here is your image!')
+      const { factory } = makeLlm('Here is your image!')
       service = await buildService(client, factory)
 
       await service.deliver(
@@ -593,6 +580,7 @@ describe('ReminderDeliveryService', () => {
       expect(mockDalleInvoke).toHaveBeenCalledWith(
         'Generate an image of: a random image of a honda or porsche',
       )
+      expect(factory.imageCalls[0].operation).toBe('reminder.generateImage')
     })
 
     it('sends message with an embed containing the generated image', async () => {
@@ -600,7 +588,7 @@ describe('ReminderDeliveryService', () => {
       const client = makeDiscordClient([
         makeMockTextChannel('tdr-bot-chat', sendFn),
       ])
-      const { factory } = makeModelFactory('Check out this car!')
+      const { factory } = makeLlm('Check out this car!')
       service = await buildService(client, factory)
 
       await service.deliver(
@@ -617,7 +605,7 @@ describe('ReminderDeliveryService', () => {
 
     it('strips HTML-like tags from the DALL-E prompt', async () => {
       const client = makeDiscordClient([makeMockTextChannel()])
-      const { factory } = makeModelFactory('Image!')
+      const { factory } = makeLlm('Image!')
       service = await buildService(client, factory)
 
       await service.deliver(
@@ -637,18 +625,15 @@ describe('ReminderDeliveryService', () => {
       const client = makeDiscordClient([
         makeMockTextChannel('tdr-bot-chat', sendFn),
       ])
-      const { factory } = makeModelFactory('Fallback')
-      const failingRetry = createMockRetryService()
-      failingRetry.executeWithRetry
-        .mockRejectedValueOnce(new Error('DALL-E error'))
-        .mockImplementation(operation => operation())
+      const { factory } = makeLlm('Fallback')
+      mockDalleInvoke.mockRejectedValueOnce(new Error('DALL-E error'))
 
       const trackedReminderService = makeReminderServiceMock()
       service = await createTestingModule([
         ReminderDeliveryService,
         { provide: Client, useValue: client },
-        { provide: ModelFactoryService, useValue: factory },
-        { provide: RetryService, useValue: failingRetry },
+        { provide: LlmClient, useValue: factory },
+        { provide: RetryService, useValue: createMockRetryService() },
         { provide: ReminderService, useValue: trackedReminderService },
         {
           provide: EquationImageService,
@@ -658,7 +643,6 @@ describe('ReminderDeliveryService', () => {
           provide: TAVILY_SEARCH_TOKEN,
           useValue: { invoke: mockTavilyInvoke },
         },
-        { provide: DALLE_WRAPPER_TOKEN, useValue: { invoke: mockDalleInvoke } },
       ]).then(m => m.get(ReminderDeliveryService))
 
       await service.deliver(
@@ -675,17 +659,14 @@ describe('ReminderDeliveryService', () => {
       const client = makeDiscordClient([
         makeMockTextChannel('tdr-bot-chat', sendFn),
       ])
-      const { factory } = makeModelFactory('Fallback message')
-      const failingRetry = createMockRetryService()
-      failingRetry.executeWithRetry
-        .mockRejectedValueOnce(new Error('DALL-E error'))
-        .mockImplementation(operation => operation())
+      const { factory } = makeLlm('Fallback message')
+      mockDalleInvoke.mockRejectedValueOnce(new Error('DALL-E error'))
 
       service = await createTestingModule([
         ReminderDeliveryService,
         { provide: Client, useValue: client },
-        { provide: ModelFactoryService, useValue: factory },
-        { provide: RetryService, useValue: failingRetry },
+        { provide: LlmClient, useValue: factory },
+        { provide: RetryService, useValue: createMockRetryService() },
         { provide: ReminderService, useValue: makeReminderServiceMock() },
         {
           provide: EquationImageService,
@@ -694,10 +675,6 @@ describe('ReminderDeliveryService', () => {
         {
           provide: TAVILY_SEARCH_TOKEN,
           useValue: { invoke: mockTavilyInvoke },
-        },
-        {
-          provide: DALLE_WRAPPER_TOKEN,
-          useValue: { invoke: mockDalleInvoke },
         },
       ]).then(m => m.get(ReminderDeliveryService))
 
@@ -716,9 +693,7 @@ describe('ReminderDeliveryService', () => {
   describe('deliver (math action)', () => {
     it('calls reasoning model to generate LaTeX', async () => {
       const client = makeDiscordClient([makeMockTextChannel()])
-      const { factory, mockReasoningModel } = makeModelFactory(
-        'Here is an equation!',
-      )
+      const { factory, mockReasoningModel } = makeLlm('Here is an equation!')
       service = await buildService(client, factory)
 
       await service.deliver(
@@ -730,7 +705,7 @@ describe('ReminderDeliveryService', () => {
 
     it('calls EquationImageService with the generated LaTeX', async () => {
       const client = makeDiscordClient([makeMockTextChannel()])
-      const { factory } = makeModelFactory('Here is your math!')
+      const { factory } = makeLlm('Here is your math!')
       const equationService = makeEquationImageServiceMock()
       service = await buildService(client, factory, equationService)
 
@@ -746,7 +721,7 @@ describe('ReminderDeliveryService', () => {
       const client = makeDiscordClient([
         makeMockTextChannel('tdr-bot-chat', sendFn),
       ])
-      const { factory } = makeModelFactory('Here is your daily equation!')
+      const { factory } = makeLlm('Here is your daily equation!')
       service = await buildService(client, factory)
 
       await service.deliver(
@@ -766,7 +741,7 @@ describe('ReminderDeliveryService', () => {
       const client = makeDiscordClient([
         makeMockTextChannel('tdr-bot-chat', sendFn),
       ])
-      const { factory } = makeModelFactory('Here is your math!')
+      const { factory } = makeLlm('Here is your math!')
       const equationService = makeEquationImageServiceMock()
       equationService.getImage.mockResolvedValue(undefined)
       service = await buildService(client, factory, equationService)
@@ -788,18 +763,17 @@ describe('ReminderDeliveryService', () => {
       const client = makeDiscordClient([
         makeMockTextChannel('tdr-bot-chat', sendFn),
       ])
-      const { factory } = makeModelFactory('Fallback')
-      const failingRetry = createMockRetryService()
-      failingRetry.executeWithRetry
-        .mockRejectedValueOnce(new Error('Reasoning model error'))
-        .mockImplementation(operation => operation())
+      const { factory, mockReasoningModel } = makeLlm('Fallback')
+      mockReasoningModel.invoke.mockReturnValueOnce(
+        new Error('Reasoning model error'),
+      )
 
       const trackedReminderService = makeReminderServiceMock()
       service = await createTestingModule([
         ReminderDeliveryService,
         { provide: Client, useValue: client },
-        { provide: ModelFactoryService, useValue: factory },
-        { provide: RetryService, useValue: failingRetry },
+        { provide: LlmClient, useValue: factory },
+        { provide: RetryService, useValue: createMockRetryService() },
         { provide: ReminderService, useValue: trackedReminderService },
         {
           provide: EquationImageService,
@@ -809,7 +783,6 @@ describe('ReminderDeliveryService', () => {
           provide: TAVILY_SEARCH_TOKEN,
           useValue: { invoke: mockTavilyInvoke },
         },
-        { provide: DALLE_WRAPPER_TOKEN, useValue: { invoke: mockDalleInvoke } },
       ]).then(m => m.get(ReminderDeliveryService))
 
       await service.deliver(
@@ -826,17 +799,16 @@ describe('ReminderDeliveryService', () => {
       const client = makeDiscordClient([
         makeMockTextChannel('tdr-bot-chat', sendFn),
       ])
-      const { factory } = makeModelFactory('Fallback message')
-      const failingRetry = createMockRetryService()
-      failingRetry.executeWithRetry
-        .mockRejectedValueOnce(new Error('Reasoning model error'))
-        .mockImplementation(operation => operation())
+      const { factory, mockReasoningModel } = makeLlm('Fallback message')
+      mockReasoningModel.invoke.mockReturnValueOnce(
+        new Error('Reasoning model error'),
+      )
 
       service = await createTestingModule([
         ReminderDeliveryService,
         { provide: Client, useValue: client },
-        { provide: ModelFactoryService, useValue: factory },
-        { provide: RetryService, useValue: failingRetry },
+        { provide: LlmClient, useValue: factory },
+        { provide: RetryService, useValue: createMockRetryService() },
         { provide: ReminderService, useValue: makeReminderServiceMock() },
         {
           provide: EquationImageService,
@@ -845,10 +817,6 @@ describe('ReminderDeliveryService', () => {
         {
           provide: TAVILY_SEARCH_TOKEN,
           useValue: { invoke: mockTavilyInvoke },
-        },
-        {
-          provide: DALLE_WRAPPER_TOKEN,
-          useValue: { invoke: mockDalleInvoke },
         },
       ]).then(m => m.get(ReminderDeliveryService))
 
@@ -871,7 +839,7 @@ describe('ReminderDeliveryService', () => {
       const client = makeDiscordClient([channel])
       // Generate a message longer than 2000 characters
       const longMessage = 'a'.repeat(2100)
-      const { factory } = makeModelFactory(longMessage)
+      const { factory } = makeLlm(longMessage)
       service = await buildService(client, factory)
 
       await service.deliver(createTestReminder())
@@ -885,7 +853,7 @@ describe('ReminderDeliveryService', () => {
       const sendFn = jest.fn().mockResolvedValue({})
       const channel = makeMockTextChannel('tdr-bot-chat', sendFn)
       const client = makeDiscordClient([channel])
-      const { factory } = makeModelFactory('Reminder!')
+      const { factory } = makeLlm('Reminder!')
       service = await buildService(client, factory)
 
       await service.deliver(createTestReminder({ guildId: '' }))
@@ -910,7 +878,7 @@ describe('ReminderDeliveryService', () => {
       const client = {
         guilds: { cache: { get: jest.fn().mockReturnValue(guild) } },
       } as unknown as import('discord.js').Client
-      const { factory } = makeModelFactory('Reminder!')
+      const { factory } = makeLlm('Reminder!')
       service = await buildService(client, factory)
 
       await service.deliver(createTestReminder())
@@ -929,18 +897,18 @@ describe('ReminderDeliveryService', () => {
     it('records a delivery failure when sending to a channel fails', async () => {
       const channel = makeMockTextChannel('tdr-bot-chat')
       const client = makeDiscordClient([channel])
-      const { factory } = makeModelFactory('Reminder message')
+      const { factory } = makeLlm('Reminder message')
 
       reminderService = makeReminderServiceMock()
       retryService = createMockRetryService()
-      retryService.executeWithRetry
-        .mockResolvedValueOnce(new AIMessage('Reminder message')) // for generate
-        .mockRejectedValueOnce(new Error('Discord error')) // for send
+      retryService.executeWithRetry.mockRejectedValueOnce(
+        new Error('Discord error'),
+      ) // for send
 
       service = await createTestingModule([
         ReminderDeliveryService,
         { provide: Client, useValue: client },
-        { provide: ModelFactoryService, useValue: factory },
+        { provide: LlmClient, useValue: factory },
         { provide: RetryService, useValue: retryService },
         { provide: ReminderService, useValue: reminderService },
         {
@@ -950,10 +918,6 @@ describe('ReminderDeliveryService', () => {
         {
           provide: TAVILY_SEARCH_TOKEN,
           useValue: { invoke: mockTavilyInvoke },
-        },
-        {
-          provide: DALLE_WRAPPER_TOKEN,
-          useValue: { invoke: mockDalleInvoke },
         },
       ]).then(m => m.get(ReminderDeliveryService))
 
@@ -966,7 +930,7 @@ describe('ReminderDeliveryService', () => {
 
     it('does not throw when the guild is not found', async () => {
       const client = makeDiscordClient([], 'different-guild')
-      const { factory } = makeModelFactory('Reminder message')
+      const { factory } = makeLlm('Reminder message')
       service = await buildService(client, factory)
 
       // guildId 'guild-1' not in client — should resolve gracefully

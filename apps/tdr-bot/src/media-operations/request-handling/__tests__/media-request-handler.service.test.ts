@@ -1,12 +1,13 @@
-// Mock @langchain/openai before any imports
-jest.mock('@langchain/openai')
-
 import { BaseMessage, HumanMessage } from '@langchain/core/messages'
-import { ChatOpenAI } from '@langchain/openai'
 import { QualityTier } from '@lilnas/utils/download/types'
 import { Test, TestingModule } from '@nestjs/testing'
 
-import { createMockDiscordIdentity } from 'src/media-operations/request-handling/__test-helpers__/mock-services'
+import { LlmClient } from 'src/llm/client/llm-client'
+import { FakeLlmClient } from 'src/llm/testing/fake-llm-client'
+import {
+  createFakeLlmClient,
+  createMockDiscordIdentity,
+} from 'src/media-operations/request-handling/__test-helpers__/mock-services'
 import { MediaRequestHandler } from 'src/media-operations/request-handling/media-request-handler.service'
 import {
   MovieDeleteContext,
@@ -20,15 +21,13 @@ import { MovieDeleteStrategy } from 'src/media-operations/request-handling/strat
 import { MovieDownloadStrategy } from 'src/media-operations/request-handling/strategies/movie-download.strategy'
 import { TvDeleteStrategy } from 'src/media-operations/request-handling/strategies/tv-delete.strategy'
 import { TvDownloadStrategy } from 'src/media-operations/request-handling/strategies/tv-download.strategy'
+import { MediaContextType } from 'src/media-operations/request-handling/types/request-context.type'
 import { StrategyResult } from 'src/media-operations/request-handling/types/strategy-result.type'
-import { ContextManagementService } from 'src/message-handler/context/context-management.service'
 import { MediaRequestType, SearchIntent } from 'src/schemas/graph'
-import { RetryService } from 'src/utils/retry.service'
 
 describe('MediaRequestHandler', () => {
   let handler: MediaRequestHandler
-  let contextService: jest.Mocked<ContextManagementService>
-  let retryService: jest.Mocked<RetryService>
+  let llm: FakeLlmClient
   let movieDownloadStrategy: jest.Mocked<MovieDownloadStrategy>
   let tvDownloadStrategy: jest.Mocked<TvDownloadStrategy>
   let movieDeleteStrategy: jest.Mocked<MovieDeleteStrategy>
@@ -36,16 +35,11 @@ describe('MediaRequestHandler', () => {
   let mediaBrowsingStrategy: jest.Mocked<MediaBrowsingStrategy>
   let downloadStatusStrategy: jest.Mocked<DownloadStatusStrategy>
 
-  // Mock ChatOpenAI
-  const mockChatOpenAI = ChatOpenAI as jest.MockedClass<typeof ChatOpenAI>
-  const mockInvoke = jest.fn()
-
   // Mock data
   const mockUserId = 'user123'
   const mockDiscord = createMockDiscordIdentity(mockUserId)
   const mockMessage = new HumanMessage({ content: 'Download The Matrix' })
   const mockMessages: BaseMessage[] = [mockMessage]
-  const mockState = { someState: 'value' }
 
   const mockStrategyResult: StrategyResult = {
     images: [],
@@ -53,34 +47,12 @@ describe('MediaRequestHandler', () => {
   }
 
   beforeEach(async () => {
-    // Setup ChatOpenAI mock
-    mockInvoke.mockReset()
-    mockChatOpenAI.mockImplementation(
-      () =>
-        ({
-          invoke: mockInvoke,
-          withStructuredOutput: jest.fn().mockReturnThis(),
-        }) as unknown as ChatOpenAI,
-    )
+    llm = createFakeLlmClient()
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MediaRequestHandler,
-        {
-          provide: ContextManagementService,
-          useValue: {
-            hasContext: jest.fn(),
-            getContextType: jest.fn(),
-            getContext: jest.fn(),
-            clearContext: jest.fn(),
-          },
-        },
-        {
-          provide: RetryService,
-          useValue: {
-            executeWithRetry: jest.fn(),
-          },
-        },
+        { provide: LlmClient, useValue: llm },
         {
           provide: MovieDownloadStrategy,
           useValue: {
@@ -121,8 +93,6 @@ describe('MediaRequestHandler', () => {
     }).compile()
 
     handler = module.get<MediaRequestHandler>(MediaRequestHandler)
-    contextService = module.get(ContextManagementService)
-    retryService = module.get(RetryService)
     movieDownloadStrategy = module.get(MovieDownloadStrategy)
     tvDownloadStrategy = module.get(TvDownloadStrategy)
     movieDeleteStrategy = module.get(MovieDeleteStrategy)
@@ -137,6 +107,10 @@ describe('MediaRequestHandler', () => {
 
   describe('handleRequest', () => {
     describe('Context routing', () => {
+      beforeEach(() => {
+        llm.script('media.topicSwitch', 'CONTINUE')
+      })
+
       it('should route to movieDownloadStrategy when context type is "movie"', async () => {
         const mockContext: MovieSelectionContext = {
           type: 'movie',
@@ -145,9 +119,6 @@ describe('MediaRequestHandler', () => {
           timestamp: Date.now(),
           isActive: true,
         }
-        contextService.hasContext.mockResolvedValue(true)
-        contextService.getContextType.mockResolvedValue('movie')
-        contextService.getContext.mockResolvedValue(mockContext)
         movieDownloadStrategy.handleRequest.mockResolvedValue(
           mockStrategyResult,
         )
@@ -157,17 +128,15 @@ describe('MediaRequestHandler', () => {
           mockMessages,
           mockUserId,
           mockDiscord,
-          mockState,
+          { type: MediaContextType.MovieDownload, data: mockContext },
         )
 
-        expect(contextService.hasContext).toHaveBeenCalledWith(mockUserId)
         expect(movieDownloadStrategy.handleRequest).toHaveBeenCalledWith({
           message: mockMessage,
           messages: mockMessages,
           userId: mockUserId,
           discord: mockDiscord,
           context: mockContext,
-          state: mockState,
         })
         expect(result).toBe(mockStrategyResult)
       })
@@ -180,9 +149,6 @@ describe('MediaRequestHandler', () => {
           timestamp: Date.now(),
           isActive: true,
         }
-        contextService.hasContext.mockResolvedValue(true)
-        contextService.getContextType.mockResolvedValue('tv')
-        contextService.getContext.mockResolvedValue(mockContext)
         tvDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
         const result = await handler.handleRequest(
@@ -190,7 +156,7 @@ describe('MediaRequestHandler', () => {
           mockMessages,
           mockUserId,
           mockDiscord,
-          mockState,
+          { type: MediaContextType.TvDownload, data: mockContext },
         )
 
         expect(tvDownloadStrategy.handleRequest).toHaveBeenCalledWith({
@@ -199,7 +165,6 @@ describe('MediaRequestHandler', () => {
           userId: mockUserId,
           discord: mockDiscord,
           context: mockContext,
-          state: mockState,
         })
         expect(result).toBe(mockStrategyResult)
       })
@@ -212,9 +177,6 @@ describe('MediaRequestHandler', () => {
           timestamp: Date.now(),
           isActive: true,
         }
-        contextService.hasContext.mockResolvedValue(true)
-        contextService.getContextType.mockResolvedValue('movieDelete')
-        contextService.getContext.mockResolvedValue(mockContext)
         movieDeleteStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
         const result = await handler.handleRequest(
@@ -222,7 +184,7 @@ describe('MediaRequestHandler', () => {
           mockMessages,
           mockUserId,
           mockDiscord,
-          mockState,
+          { type: MediaContextType.MovieDelete, data: mockContext },
         )
 
         expect(movieDeleteStrategy.handleRequest).toHaveBeenCalledWith({
@@ -231,7 +193,6 @@ describe('MediaRequestHandler', () => {
           userId: mockUserId,
           discord: mockDiscord,
           context: mockContext,
-          state: mockState,
         })
         expect(result).toBe(mockStrategyResult)
       })
@@ -243,11 +204,7 @@ describe('MediaRequestHandler', () => {
           searchResults: [],
           timestamp: Date.now(),
           isActive: true,
-          originalTvSelection: { selection: [] },
         }
-        contextService.hasContext.mockResolvedValue(true)
-        contextService.getContextType.mockResolvedValue('tvDelete')
-        contextService.getContext.mockResolvedValue(mockContext)
         tvDeleteStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
         const result = await handler.handleRequest(
@@ -255,7 +212,7 @@ describe('MediaRequestHandler', () => {
           mockMessages,
           mockUserId,
           mockDiscord,
-          mockState,
+          { type: MediaContextType.TvDelete, data: mockContext },
         )
 
         expect(tvDeleteStrategy.handleRequest).toHaveBeenCalledWith({
@@ -264,30 +221,15 @@ describe('MediaRequestHandler', () => {
           userId: mockUserId,
           discord: mockDiscord,
           context: mockContext,
-          state: mockState,
         })
         expect(result).toBe(mockStrategyResult)
       })
 
-      it('should clear context and continue when context type is unknown', async () => {
-        contextService.hasContext.mockResolvedValue(true)
-        contextService.getContextType.mockResolvedValue('unknownType')
-        contextService.getContext.mockResolvedValue({
-          timestamp: Date.now(),
-          isActive: true,
-        })
-        contextService.clearContext.mockResolvedValue(true)
-
-        // Mock getMediaTypeAndIntent to return a browse request
-        retryService.executeWithRetry.mockImplementation(
-          <T>(callback: () => T) => Promise.resolve(callback()),
-        )
-        mockInvoke.mockResolvedValue({
-          content: JSON.stringify({
-            mediaType: MediaRequestType.Both,
-            searchIntent: SearchIntent.Library,
-            searchTerms: '',
-          }),
+      it('should ignore an unknown context type and continue', async () => {
+        llm.script('media.intent', {
+          mediaType: MediaRequestType.Both,
+          searchIntent: SearchIntent.Library,
+          searchTerms: '',
         })
         mediaBrowsingStrategy.handleRequest.mockResolvedValue(
           mockStrategyResult,
@@ -298,17 +240,37 @@ describe('MediaRequestHandler', () => {
           mockMessages,
           mockUserId,
           mockDiscord,
-          mockState,
+          { type: 'unknownType' as MediaContextType, data: {} },
         )
 
-        expect(contextService.clearContext).toHaveBeenCalledWith(mockUserId)
         expect(mediaBrowsingStrategy.handleRequest).toHaveBeenCalled()
+      })
+
+      it('should not check for a topic switch without an active context', async () => {
+        llm.script('media.intent', {
+          mediaType: MediaRequestType.Both,
+          searchIntent: SearchIntent.Library,
+          searchTerms: '',
+        })
+        mediaBrowsingStrategy.handleRequest.mockResolvedValue(
+          mockStrategyResult,
+        )
+
+        await handler.handleRequest(
+          mockMessage,
+          mockMessages,
+          mockUserId,
+          mockDiscord,
+        )
+
+        expect(llm.calls.map(call => call.operation)).not.toContain(
+          'media.topicSwitch',
+        )
       })
     })
 
     describe('Status request routing', () => {
       beforeEach(() => {
-        contextService.hasContext.mockResolvedValue(false)
         downloadStatusStrategy.handleRequest.mockResolvedValue(
           mockStrategyResult,
         )
@@ -324,7 +286,6 @@ describe('MediaRequestHandler', () => {
           [statusMessage],
           mockUserId,
           mockDiscord,
-          mockState,
         )
 
         expect(downloadStatusStrategy.handleRequest).toHaveBeenCalledWith({
@@ -332,7 +293,6 @@ describe('MediaRequestHandler', () => {
           messages: [statusMessage],
           userId: mockUserId,
           discord: mockDiscord,
-          state: mockState,
         })
         expect(result).toBe(mockStrategyResult)
       })
@@ -360,20 +320,11 @@ describe('MediaRequestHandler', () => {
     })
 
     describe('Download request routing', () => {
-      beforeEach(() => {
-        contextService.hasContext.mockResolvedValue(false)
-        retryService.executeWithRetry.mockImplementation(
-          <T>(callback: () => T) => Promise.resolve(callback()),
-        )
-      })
-
       it('should route to movieDownloadStrategy for Movies media type', async () => {
-        mockInvoke.mockResolvedValue({
-          content: JSON.stringify({
-            mediaType: MediaRequestType.Movies,
-            searchIntent: SearchIntent.External,
-            searchTerms: 'The Matrix',
-          }),
+        llm.script('media.intent', {
+          mediaType: MediaRequestType.Movies,
+          searchIntent: SearchIntent.External,
+          searchTerms: 'The Matrix',
         })
         movieDownloadStrategy.handleRequest.mockResolvedValue(
           mockStrategyResult,
@@ -384,7 +335,6 @@ describe('MediaRequestHandler', () => {
           mockMessages,
           mockUserId,
           mockDiscord,
-          mockState,
         )
 
         expect(movieDownloadStrategy.handleRequest).toHaveBeenCalled()
@@ -392,12 +342,10 @@ describe('MediaRequestHandler', () => {
       })
 
       it('should route to tvDownloadStrategy for Shows media type', async () => {
-        mockInvoke.mockResolvedValue({
-          content: JSON.stringify({
-            mediaType: MediaRequestType.Shows,
-            searchIntent: SearchIntent.External,
-            searchTerms: 'Breaking Bad',
-          }),
+        llm.script('media.intent', {
+          mediaType: MediaRequestType.Shows,
+          searchIntent: SearchIntent.External,
+          searchTerms: 'Breaking Bad',
         })
         tvDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
@@ -406,7 +354,6 @@ describe('MediaRequestHandler', () => {
           mockMessages,
           mockUserId,
           mockDiscord,
-          mockState,
         )
 
         expect(tvDownloadStrategy.handleRequest).toHaveBeenCalled()
@@ -415,18 +362,14 @@ describe('MediaRequestHandler', () => {
 
       it('should use LLM classification for Both media type and route to movie', async () => {
         // First call: getMediaTypeAndIntent returns Both
-        mockInvoke.mockResolvedValueOnce({
-          content: JSON.stringify({
-            mediaType: MediaRequestType.Both,
-            searchIntent: SearchIntent.External,
-            searchTerms: 'The Matrix',
-          }),
+        llm.script('media.intent', {
+          mediaType: MediaRequestType.Both,
+          searchIntent: SearchIntent.External,
+          searchTerms: 'The Matrix',
         })
 
         // Second call: classifyMediaType returns movie
-        mockInvoke.mockResolvedValueOnce({
-          mediaType: 'movie',
-        })
+        llm.script('media.classifyType', { mediaType: 'movie' })
 
         movieDownloadStrategy.handleRequest.mockResolvedValue(
           mockStrategyResult,
@@ -437,28 +380,23 @@ describe('MediaRequestHandler', () => {
           mockMessages,
           mockUserId,
           mockDiscord,
-          mockState,
         )
 
-        expect(mockInvoke).toHaveBeenCalledTimes(2)
+        expect(llm.calls).toHaveLength(2)
         expect(movieDownloadStrategy.handleRequest).toHaveBeenCalled()
         expect(result).toBe(mockStrategyResult)
       })
 
       it('should use LLM classification for Both media type and route to TV', async () => {
         // First call: getMediaTypeAndIntent returns Both
-        mockInvoke.mockResolvedValueOnce({
-          content: JSON.stringify({
-            mediaType: MediaRequestType.Both,
-            searchIntent: SearchIntent.External,
-            searchTerms: 'Breaking Bad',
-          }),
+        llm.script('media.intent', {
+          mediaType: MediaRequestType.Both,
+          searchIntent: SearchIntent.External,
+          searchTerms: 'Breaking Bad',
         })
 
         // Second call: classifyMediaType returns tv_show
-        mockInvoke.mockResolvedValueOnce({
-          mediaType: 'tv_show',
-        })
+        llm.script('media.classifyType', { mediaType: 'tv_show' })
 
         tvDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
@@ -467,30 +405,20 @@ describe('MediaRequestHandler', () => {
           mockMessages,
           mockUserId,
           mockDiscord,
-          mockState,
         )
 
-        expect(mockInvoke).toHaveBeenCalledTimes(2)
+        expect(llm.calls).toHaveLength(2)
         expect(tvDownloadStrategy.handleRequest).toHaveBeenCalled()
         expect(result).toBe(mockStrategyResult)
       })
     })
 
     describe('Delete request routing', () => {
-      beforeEach(() => {
-        contextService.hasContext.mockResolvedValue(false)
-        retryService.executeWithRetry.mockImplementation(
-          <T>(callback: () => T) => Promise.resolve(callback()),
-        )
-      })
-
       it('should route to movieDeleteStrategy for Movies with Delete intent', async () => {
-        mockInvoke.mockResolvedValue({
-          content: JSON.stringify({
-            mediaType: MediaRequestType.Movies,
-            searchIntent: SearchIntent.Delete,
-            searchTerms: 'The Matrix',
-          }),
+        llm.script('media.intent', {
+          mediaType: MediaRequestType.Movies,
+          searchIntent: SearchIntent.Delete,
+          searchTerms: 'The Matrix',
         })
         movieDeleteStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
@@ -499,7 +427,6 @@ describe('MediaRequestHandler', () => {
           mockMessages,
           mockUserId,
           mockDiscord,
-          mockState,
         )
 
         expect(movieDeleteStrategy.handleRequest).toHaveBeenCalled()
@@ -507,12 +434,10 @@ describe('MediaRequestHandler', () => {
       })
 
       it('should route to tvDeleteStrategy for Shows with Delete intent', async () => {
-        mockInvoke.mockResolvedValue({
-          content: JSON.stringify({
-            mediaType: MediaRequestType.Shows,
-            searchIntent: SearchIntent.Delete,
-            searchTerms: 'Breaking Bad',
-          }),
+        llm.script('media.intent', {
+          mediaType: MediaRequestType.Shows,
+          searchIntent: SearchIntent.Delete,
+          searchTerms: 'Breaking Bad',
         })
         tvDeleteStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
@@ -521,7 +446,6 @@ describe('MediaRequestHandler', () => {
           mockMessages,
           mockUserId,
           mockDiscord,
-          mockState,
         )
 
         expect(tvDeleteStrategy.handleRequest).toHaveBeenCalled()
@@ -531,22 +455,16 @@ describe('MediaRequestHandler', () => {
 
     describe('Browse request routing', () => {
       beforeEach(() => {
-        contextService.hasContext.mockResolvedValue(false)
-        retryService.executeWithRetry.mockImplementation(
-          <T>(callback: () => T) => Promise.resolve(callback()),
-        )
         mediaBrowsingStrategy.handleRequest.mockResolvedValue(
           mockStrategyResult,
         )
       })
 
       it('should route to mediaBrowsingStrategy when SearchIntent is Library', async () => {
-        mockInvoke.mockResolvedValue({
-          content: JSON.stringify({
-            mediaType: MediaRequestType.Both,
-            searchIntent: SearchIntent.Library,
-            searchTerms: 'action movies',
-          }),
+        llm.script('media.intent', {
+          mediaType: MediaRequestType.Both,
+          searchIntent: SearchIntent.Library,
+          searchTerms: 'action movies',
         })
 
         const result = await handler.handleRequest(
@@ -554,7 +472,6 @@ describe('MediaRequestHandler', () => {
           mockMessages,
           mockUserId,
           mockDiscord,
-          mockState,
         )
 
         expect(mediaBrowsingStrategy.handleRequest).toHaveBeenCalledWith({
@@ -562,7 +479,6 @@ describe('MediaRequestHandler', () => {
           messages: mockMessages,
           userId: mockUserId,
           discord: mockDiscord,
-          state: mockState,
           context: {
             mediaType: MediaRequestType.Both,
             searchIntent: SearchIntent.Library,
@@ -576,12 +492,10 @@ describe('MediaRequestHandler', () => {
         const browseMessage = new HumanMessage({
           content: 'Show me some action movies',
         })
-        mockInvoke.mockResolvedValue({
-          content: JSON.stringify({
-            mediaType: MediaRequestType.Movies,
-            searchIntent: SearchIntent.Both,
-            searchTerms: 'action',
-          }),
+        llm.script('media.intent', {
+          mediaType: MediaRequestType.Movies,
+          searchIntent: SearchIntent.Both,
+          searchTerms: 'action',
         })
 
         const result = await handler.handleRequest(
@@ -589,7 +503,6 @@ describe('MediaRequestHandler', () => {
           [browseMessage],
           mockUserId,
           mockDiscord,
-          mockState,
         )
 
         expect(mediaBrowsingStrategy.handleRequest).toHaveBeenCalled()
@@ -598,21 +511,12 @@ describe('MediaRequestHandler', () => {
     })
 
     describe('Error handling', () => {
-      beforeEach(() => {
-        contextService.hasContext.mockResolvedValue(false)
-      })
-
       it('should throw error when strategy fails', async () => {
         const error = new Error('Strategy failed')
-        retryService.executeWithRetry.mockImplementation(
-          <T>(callback: () => T) => Promise.resolve(callback()),
-        )
-        mockInvoke.mockResolvedValue({
-          content: JSON.stringify({
-            mediaType: MediaRequestType.Movies,
-            searchIntent: SearchIntent.External,
-            searchTerms: 'The Matrix',
-          }),
+        llm.script('media.intent', {
+          mediaType: MediaRequestType.Movies,
+          searchIntent: SearchIntent.External,
+          searchTerms: 'The Matrix',
         })
         movieDownloadStrategy.handleRequest.mockRejectedValue(error)
 
@@ -622,15 +526,12 @@ describe('MediaRequestHandler', () => {
             mockMessages,
             mockUserId,
             mockDiscord,
-            mockState,
           ),
         ).rejects.toThrow('Strategy failed')
       })
 
       it('should handle getMediaTypeAndIntent errors gracefully with defaults', async () => {
-        retryService.executeWithRetry.mockRejectedValue(
-          new Error('LLM call failed'),
-        )
+        llm.script('media.intent', new Error('LLM call failed'))
         mediaBrowsingStrategy.handleRequest.mockResolvedValue(
           mockStrategyResult,
         )
@@ -641,7 +542,6 @@ describe('MediaRequestHandler', () => {
           mockMessages,
           mockUserId,
           mockDiscord,
-          mockState,
         )
 
         expect(mediaBrowsingStrategy.handleRequest).toHaveBeenCalled()
@@ -658,14 +558,8 @@ describe('MediaRequestHandler', () => {
         searchTerms: 'The Matrix',
       }
 
-      retryService.executeWithRetry.mockImplementation(<T>(callback: () => T) =>
-        Promise.resolve(callback()),
-      )
-      mockInvoke.mockResolvedValue({
-        content: JSON.stringify(expectedResponse),
-      })
+      llm.script('media.intent', expectedResponse)
 
-      contextService.hasContext.mockResolvedValue(false)
       movieDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
       await handler.handleRequest(
@@ -675,28 +569,15 @@ describe('MediaRequestHandler', () => {
         mockDiscord,
       )
 
-      expect(retryService.executeWithRetry).toHaveBeenCalledWith(
-        expect.any(Function),
-        {
-          maxAttempts: 3,
-          baseDelay: 1000,
-          maxDelay: 30000,
-          timeout: 30000,
-        },
-        'OpenAI-getMediaTypeAndIntent',
-      )
-      expect(mockInvoke).toHaveBeenCalled()
+      expect(llm.calls[0]).toMatchObject({
+        operation: 'media.intent',
+        role: 'reasoning',
+      })
     })
 
     it('should return defaults when LLM response is invalid', async () => {
-      retryService.executeWithRetry.mockImplementation(<T>(callback: () => T) =>
-        Promise.resolve(callback()),
-      )
-      mockInvoke.mockResolvedValue({
-        content: 'invalid json',
-      })
+      llm.script('media.intent', 'invalid json')
 
-      contextService.hasContext.mockResolvedValue(false)
       mediaBrowsingStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
       // Should fallback to browsing strategy with defaults
@@ -710,27 +591,13 @@ describe('MediaRequestHandler', () => {
       expect(mediaBrowsingStrategy.handleRequest).toHaveBeenCalled()
     })
 
-    it('should use retry service for LLM calls', async () => {
-      let attempts = 0
-      retryService.executeWithRetry.mockImplementation(
-        async (callback: () => unknown) => {
-          attempts++
-          if (attempts < 2) {
-            throw new Error('Temporary failure')
-          }
-          return callback()
-        },
-      )
-
-      mockInvoke.mockResolvedValue({
-        content: JSON.stringify({
-          mediaType: MediaRequestType.Both,
-          searchIntent: SearchIntent.Library,
-          searchTerms: '',
-        }),
+    it('should make the intent call through the LlmClient', async () => {
+      llm.script('media.intent', {
+        mediaType: MediaRequestType.Both,
+        searchIntent: SearchIntent.Library,
+        searchTerms: '',
       })
 
-      contextService.hasContext.mockResolvedValue(false)
       mediaBrowsingStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
       await handler.handleRequest(
@@ -740,25 +607,16 @@ describe('MediaRequestHandler', () => {
         mockDiscord,
       )
 
-      expect(retryService.executeWithRetry).toHaveBeenCalled()
+      expect(llm.calls.map(call => call.operation)).toContain('media.intent')
     })
   })
 
   describe('routeDownloadRequest', () => {
-    beforeEach(() => {
-      contextService.hasContext.mockResolvedValue(false)
-      retryService.executeWithRetry.mockImplementation(<T>(callback: () => T) =>
-        Promise.resolve(callback()),
-      )
-    })
-
     it('should route directly to movieDownloadStrategy for Movies type', async () => {
-      mockInvoke.mockResolvedValue({
-        content: JSON.stringify({
-          mediaType: MediaRequestType.Movies,
-          searchIntent: SearchIntent.External,
-          searchTerms: 'Inception',
-        }),
+      llm.script('media.intent', {
+        mediaType: MediaRequestType.Movies,
+        searchIntent: SearchIntent.External,
+        searchTerms: 'Inception',
       })
       movieDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
@@ -779,12 +637,10 @@ describe('MediaRequestHandler', () => {
     })
 
     it('should route directly to tvDownloadStrategy for Shows type', async () => {
-      mockInvoke.mockResolvedValue({
-        content: JSON.stringify({
-          mediaType: MediaRequestType.Shows,
-          searchIntent: SearchIntent.External,
-          searchTerms: 'Breaking Bad',
-        }),
+      llm.script('media.intent', {
+        mediaType: MediaRequestType.Shows,
+        searchIntent: SearchIntent.External,
+        searchTerms: 'Breaking Bad',
       })
       tvDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
@@ -806,18 +662,14 @@ describe('MediaRequestHandler', () => {
 
     it('should use LLM classification for Both type', async () => {
       // First call for intent detection
-      mockInvoke.mockResolvedValueOnce({
-        content: JSON.stringify({
-          mediaType: MediaRequestType.Both,
-          searchIntent: SearchIntent.External,
-          searchTerms: 'Inception',
-        }),
+      llm.script('media.intent', {
+        mediaType: MediaRequestType.Both,
+        searchIntent: SearchIntent.External,
+        searchTerms: 'Inception',
       })
 
       // Second call for classification
-      mockInvoke.mockResolvedValueOnce({
-        mediaType: 'movie',
-      })
+      llm.script('media.classifyType', { mediaType: 'movie' })
 
       movieDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
@@ -828,19 +680,17 @@ describe('MediaRequestHandler', () => {
         mockDiscord,
       )
 
-      expect(mockInvoke).toHaveBeenCalledTimes(2)
+      expect(llm.calls).toHaveLength(2)
       expect(movieDownloadStrategy.handleRequest).toHaveBeenCalled()
     })
 
     describe('quality from the message', () => {
       it('puts a 4k request on the movie strategy params as up_to_4k', async () => {
-        mockInvoke.mockResolvedValue({
-          content: JSON.stringify({
-            mediaType: MediaRequestType.Movies,
-            searchIntent: SearchIntent.External,
-            searchTerms: 'Dune',
-            quality: '4k',
-          }),
+        llm.script('media.intent', {
+          mediaType: MediaRequestType.Movies,
+          searchIntent: SearchIntent.External,
+          searchTerms: 'Dune',
+          quality: '4k',
         })
         movieDownloadStrategy.handleRequest.mockResolvedValue(
           mockStrategyResult,
@@ -864,13 +714,11 @@ describe('MediaRequestHandler', () => {
       })
 
       it('puts a 720p request on the TV strategy params as up_to_720p', async () => {
-        mockInvoke.mockResolvedValue({
-          content: JSON.stringify({
-            mediaType: MediaRequestType.Shows,
-            searchIntent: SearchIntent.External,
-            searchTerms: 'The Office',
-            quality: '720p',
-          }),
+        llm.script('media.intent', {
+          mediaType: MediaRequestType.Shows,
+          searchIntent: SearchIntent.External,
+          searchTerms: 'The Office',
+          quality: '720p',
         })
         tvDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
@@ -887,15 +735,13 @@ describe('MediaRequestHandler', () => {
       })
 
       it('carries the tier through LLM classification for Both type', async () => {
-        mockInvoke.mockResolvedValueOnce({
-          content: JSON.stringify({
-            mediaType: MediaRequestType.Both,
-            searchIntent: SearchIntent.External,
-            searchTerms: 'Severance',
-            quality: '1080p',
-          }),
+        llm.script('media.intent', {
+          mediaType: MediaRequestType.Both,
+          searchIntent: SearchIntent.External,
+          searchTerms: 'Severance',
+          quality: '1080p',
         })
-        mockInvoke.mockResolvedValueOnce({ mediaType: 'tv_show' })
+        llm.script('media.classifyType', { mediaType: 'tv_show' })
         tvDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
         await handler.handleRequest(
@@ -911,13 +757,11 @@ describe('MediaRequestHandler', () => {
       })
 
       it('omits the tier for a null quality', async () => {
-        mockInvoke.mockResolvedValue({
-          content: JSON.stringify({
-            mediaType: MediaRequestType.Movies,
-            searchIntent: SearchIntent.External,
-            searchTerms: 'Dune',
-            quality: null,
-          }),
+        llm.script('media.intent', {
+          mediaType: MediaRequestType.Movies,
+          searchIntent: SearchIntent.External,
+          searchTerms: 'Dune',
+          quality: null,
         })
         movieDownloadStrategy.handleRequest.mockResolvedValue(
           mockStrategyResult,
@@ -935,13 +779,11 @@ describe('MediaRequestHandler', () => {
       })
 
       it('omits the tier for an invalid quality and still routes the download', async () => {
-        mockInvoke.mockResolvedValue({
-          content: JSON.stringify({
-            mediaType: MediaRequestType.Movies,
-            searchIntent: SearchIntent.External,
-            searchTerms: 'Dune',
-            quality: 'super-mega-hd',
-          }),
+        llm.script('media.intent', {
+          mediaType: MediaRequestType.Movies,
+          searchIntent: SearchIntent.External,
+          searchTerms: 'Dune',
+          quality: 'super-mega-hd',
         })
         movieDownloadStrategy.handleRequest.mockResolvedValue(
           mockStrategyResult,
@@ -963,20 +805,11 @@ describe('MediaRequestHandler', () => {
   })
 
   describe('routeDeleteRequest', () => {
-    beforeEach(() => {
-      contextService.hasContext.mockResolvedValue(false)
-      retryService.executeWithRetry.mockImplementation(<T>(callback: () => T) =>
-        Promise.resolve(callback()),
-      )
-    })
-
     it('should route directly to movieDeleteStrategy for Movies type', async () => {
-      mockInvoke.mockResolvedValue({
-        content: JSON.stringify({
-          mediaType: MediaRequestType.Movies,
-          searchIntent: SearchIntent.Delete,
-          searchTerms: 'The Matrix',
-        }),
+      llm.script('media.intent', {
+        mediaType: MediaRequestType.Movies,
+        searchIntent: SearchIntent.Delete,
+        searchTerms: 'The Matrix',
       })
       movieDeleteStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
@@ -997,12 +830,10 @@ describe('MediaRequestHandler', () => {
     })
 
     it('should route directly to tvDeleteStrategy for Shows type', async () => {
-      mockInvoke.mockResolvedValue({
-        content: JSON.stringify({
-          mediaType: MediaRequestType.Shows,
-          searchIntent: SearchIntent.Delete,
-          searchTerms: 'Breaking Bad',
-        }),
+      llm.script('media.intent', {
+        mediaType: MediaRequestType.Shows,
+        searchIntent: SearchIntent.Delete,
+        searchTerms: 'Breaking Bad',
       })
       tvDeleteStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
@@ -1024,18 +855,14 @@ describe('MediaRequestHandler', () => {
 
     it('should use LLM classification for Both type', async () => {
       // First call for intent detection
-      mockInvoke.mockResolvedValueOnce({
-        content: JSON.stringify({
-          mediaType: MediaRequestType.Both,
-          searchIntent: SearchIntent.Delete,
-          searchTerms: 'Breaking Bad',
-        }),
+      llm.script('media.intent', {
+        mediaType: MediaRequestType.Both,
+        searchIntent: SearchIntent.Delete,
+        searchTerms: 'Breaking Bad',
       })
 
       // Second call for classification
-      mockInvoke.mockResolvedValueOnce({
-        mediaType: 'tv_show',
-      })
+      llm.script('media.classifyType', { mediaType: 'tv_show' })
 
       tvDeleteStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
@@ -1046,17 +873,13 @@ describe('MediaRequestHandler', () => {
         mockDiscord,
       )
 
-      expect(mockInvoke).toHaveBeenCalledTimes(2)
+      expect(llm.calls).toHaveLength(2)
       expect(tvDeleteStrategy.handleRequest).toHaveBeenCalled()
     })
   })
 
   describe('Helper methods', () => {
     beforeEach(() => {
-      contextService.hasContext.mockResolvedValue(false)
-      retryService.executeWithRetry.mockImplementation(<T>(callback: () => T) =>
-        Promise.resolve(callback()),
-      )
       downloadStatusStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
     })
 
@@ -1087,12 +910,10 @@ describe('MediaRequestHandler', () => {
         const message = new HumanMessage({
           content: `${keyword} The Matrix`,
         })
-        mockInvoke.mockResolvedValue({
-          content: JSON.stringify({
-            mediaType: MediaRequestType.Movies,
-            searchIntent: SearchIntent.External,
-            searchTerms: 'The Matrix',
-          }),
+        llm.script('media.intent', {
+          mediaType: MediaRequestType.Movies,
+          searchIntent: SearchIntent.External,
+          searchTerms: 'The Matrix',
         })
         movieDownloadStrategy.handleRequest.mockResolvedValue(
           mockStrategyResult,
@@ -1105,12 +926,10 @@ describe('MediaRequestHandler', () => {
     })
 
     it('should correctly identify delete requests with SearchIntent.Delete', async () => {
-      mockInvoke.mockResolvedValue({
-        content: JSON.stringify({
-          mediaType: MediaRequestType.Movies,
-          searchIntent: SearchIntent.Delete,
-          searchTerms: 'The Matrix',
-        }),
+      llm.script('media.intent', {
+        mediaType: MediaRequestType.Movies,
+        searchIntent: SearchIntent.Delete,
+        searchTerms: 'The Matrix',
       })
       movieDeleteStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
@@ -1126,18 +945,14 @@ describe('MediaRequestHandler', () => {
 
     it('should successfully classify media type as movie', async () => {
       // First call for intent detection
-      mockInvoke.mockResolvedValueOnce({
-        content: JSON.stringify({
-          mediaType: MediaRequestType.Both,
-          searchIntent: SearchIntent.External,
-          searchTerms: 'The Avengers',
-        }),
+      llm.script('media.intent', {
+        mediaType: MediaRequestType.Both,
+        searchIntent: SearchIntent.External,
+        searchTerms: 'The Avengers',
       })
 
       // Second call for classification
-      mockInvoke.mockResolvedValueOnce({
-        mediaType: 'movie',
-      })
+      llm.script('media.classifyType', { mediaType: 'movie' })
 
       movieDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
@@ -1153,16 +968,14 @@ describe('MediaRequestHandler', () => {
 
     it('should default to movie classification on LLM error', async () => {
       // First call for intent detection
-      mockInvoke.mockResolvedValueOnce({
-        content: JSON.stringify({
-          mediaType: MediaRequestType.Both,
-          searchIntent: SearchIntent.External,
-          searchTerms: 'Something',
-        }),
+      llm.script('media.intent', {
+        mediaType: MediaRequestType.Both,
+        searchIntent: SearchIntent.External,
+        searchTerms: 'Something',
       })
 
       // Second call fails
-      mockInvoke.mockRejectedValueOnce(new Error('Classification failed'))
+      llm.script('media.classifyType', new Error('Classification failed'))
 
       movieDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
@@ -1179,366 +992,131 @@ describe('MediaRequestHandler', () => {
   })
 
   describe('Topic Switch Detection', () => {
-    it('should detect topic switch when user says "what\'s the weather?"', async () => {
-      const weatherMessage = new HumanMessage({
-        content: "what's the weather?",
-      })
+    const movieContext = {
+      type: MediaContextType.MovieDownload,
+      data: { type: 'movie', timestamp: Date.now(), isActive: true },
+    }
 
-      // Setup: User has an active movie context
-      contextService.hasContext.mockResolvedValue(true)
-      contextService.getContextType.mockResolvedValue('movie')
-      contextService.getContext.mockResolvedValue({
-        timestamp: Date.now(),
-        isActive: true,
-      })
+    it.each([
+      ["what's the weather?", MediaContextType.MovieDownload],
+      ['actually nevermind', MediaContextType.TvDownload],
+      ['calculate 2+2', MediaContextType.MovieDelete],
+      ['stop', MediaContextType.TvDelete],
+    ])(
+      'reroutes "%s" out of a %s context without running a strategy',
+      async (content, type) => {
+        const message = new HumanMessage({ content })
+        llm.script('media.topicSwitch', 'SWITCH')
 
-      // Topic switch detection returns SWITCH
-      retryService.executeWithRetry.mockImplementation((fn: () => unknown) =>
-        Promise.resolve(fn()),
-      )
-      mockInvoke.mockResolvedValueOnce({
-        content: 'SWITCH',
-      })
+        const result = await handler.handleRequest(
+          message,
+          [message],
+          mockUserId,
+          mockDiscord,
+          { type, data: movieContext.data },
+        )
 
-      // After clearing context, normal intent detection
-      mockInvoke.mockResolvedValueOnce({
-        content: JSON.stringify({
-          mediaType: MediaRequestType.Both,
-          searchIntent: SearchIntent.Library,
-          searchTerms: 'weather',
-        }),
-      })
+        expect(result).toEqual({ images: [], messages: [], reroute: true })
+        expect(result.pendingContext).toBeUndefined()
+        for (const strategy of [
+          movieDownloadStrategy,
+          tvDownloadStrategy,
+          movieDeleteStrategy,
+          tvDeleteStrategy,
+          mediaBrowsingStrategy,
+        ]) {
+          expect(strategy.handleRequest).not.toHaveBeenCalled()
+        }
+        expect(llm.calls.map(call => call.operation)).not.toContain(
+          'media.intent',
+        )
+      },
+    )
 
-      mediaBrowsingStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
+    it.each(['first one', 'season 1', 'the one from 2010'])(
+      'continues the context when the user says "%s"',
+      async content => {
+        const message = new HumanMessage({ content })
+        llm.script('media.topicSwitch', 'CONTINUE')
+        movieDownloadStrategy.handleRequest.mockResolvedValue(
+          mockStrategyResult,
+        )
 
-      await handler.handleRequest(
-        weatherMessage,
-        [weatherMessage],
-        mockUserId,
-        mockDiscord,
-      )
+        const result = await handler.handleRequest(
+          message,
+          [message],
+          mockUserId,
+          mockDiscord,
+          movieContext,
+        )
 
-      expect(contextService.clearContext).toHaveBeenCalledWith(mockUserId)
-      expect(mediaBrowsingStrategy.handleRequest).toHaveBeenCalled()
-    })
-
-    it('should NOT detect topic switch when user says "first one"', async () => {
-      const selectionMessage = new HumanMessage({ content: 'first one' })
-
-      // Setup: User has an active movie context
-      contextService.hasContext.mockResolvedValue(true)
-      contextService.getContextType.mockResolvedValue('movie')
-      contextService.getContext.mockResolvedValue({
-        timestamp: Date.now(),
-        isActive: true,
-      })
-
-      // Topic switch detection returns CONTINUE
-      retryService.executeWithRetry.mockImplementation((fn: () => unknown) =>
-        Promise.resolve(fn()),
-      )
-      mockInvoke.mockResolvedValueOnce({
-        content: 'CONTINUE',
-      })
-
-      movieDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
-
-      await handler.handleRequest(
-        selectionMessage,
-        [selectionMessage],
-        mockUserId,
-        mockDiscord,
-      )
-
-      expect(contextService.clearContext).not.toHaveBeenCalled()
-      expect(movieDownloadStrategy.handleRequest).toHaveBeenCalled()
-    })
-
-    it('should detect topic switch when user says "actually nevermind"', async () => {
-      const nevermindMessage = new HumanMessage({
-        content: 'actually nevermind',
-      })
-
-      // Setup: User has an active TV context
-      contextService.hasContext.mockResolvedValue(true)
-      contextService.getContextType.mockResolvedValue('tv')
-      contextService.getContext.mockResolvedValue({
-        timestamp: Date.now(),
-        isActive: true,
-      })
-
-      // Topic switch detection returns SWITCH
-      retryService.executeWithRetry.mockImplementation((fn: () => unknown) =>
-        Promise.resolve(fn()),
-      )
-      mockInvoke.mockResolvedValueOnce({
-        content: 'SWITCH',
-      })
-
-      // After clearing context, normal intent detection
-      mockInvoke.mockResolvedValueOnce({
-        content: JSON.stringify({
-          mediaType: MediaRequestType.Both,
-          searchIntent: SearchIntent.Library,
-          searchTerms: '',
-        }),
-      })
-
-      mediaBrowsingStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
-
-      await handler.handleRequest(
-        nevermindMessage,
-        [nevermindMessage],
-        mockUserId,
-        mockDiscord,
-      )
-
-      expect(contextService.clearContext).toHaveBeenCalledWith(mockUserId)
-      expect(mediaBrowsingStrategy.handleRequest).toHaveBeenCalled()
-    })
-
-    it('should NOT switch when user makes TV selection with "season 1"', async () => {
-      const seasonMessage = new HumanMessage({ content: 'season 1' })
-
-      // Setup: User has an active TV context
-      contextService.hasContext.mockResolvedValue(true)
-      contextService.getContextType.mockResolvedValue('tv')
-      contextService.getContext.mockResolvedValue({
-        timestamp: Date.now(),
-        isActive: true,
-      })
-
-      // Topic switch detection returns CONTINUE
-      retryService.executeWithRetry.mockImplementation((fn: () => unknown) =>
-        Promise.resolve(fn()),
-      )
-      mockInvoke.mockResolvedValueOnce({
-        content: 'CONTINUE',
-      })
-
-      tvDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
-
-      await handler.handleRequest(
-        seasonMessage,
-        [seasonMessage],
-        mockUserId,
-        mockDiscord,
-      )
-
-      expect(contextService.clearContext).not.toHaveBeenCalled()
-      expect(tvDownloadStrategy.handleRequest).toHaveBeenCalled()
-    })
-
-    it('should handle topic switch detection errors gracefully', async () => {
-      const message = new HumanMessage({ content: 'some message' })
-
-      // Setup: User has an active movie context
-      contextService.hasContext.mockResolvedValue(true)
-      contextService.getContextType.mockResolvedValue('movie')
-      contextService.getContext.mockResolvedValue({
-        timestamp: Date.now(),
-        isActive: true,
-      })
-
-      // Topic switch detection throws error
-      retryService.executeWithRetry.mockImplementation((fn: () => unknown) =>
-        Promise.resolve(fn()),
-      )
-      mockInvoke.mockRejectedValueOnce(new Error('LLM timeout'))
-
-      movieDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
-
-      await handler.handleRequest(message, [message], mockUserId, mockDiscord)
-
-      // Should default to not switching (keep context)
-      expect(contextService.clearContext).not.toHaveBeenCalled()
-      expect(movieDownloadStrategy.handleRequest).toHaveBeenCalled()
-    })
-
-    it('should detect topic switch for delete contexts', async () => {
-      const mathMessage = new HumanMessage({ content: 'calculate 2+2' })
-
-      // Setup: User has an active movie delete context
-      contextService.hasContext.mockResolvedValue(true)
-      contextService.getContextType.mockResolvedValue('movieDelete')
-      contextService.getContext.mockResolvedValue({
-        timestamp: Date.now(),
-        isActive: true,
-      })
-
-      // Topic switch detection returns SWITCH
-      retryService.executeWithRetry.mockImplementation((fn: () => unknown) =>
-        Promise.resolve(fn()),
-      )
-      mockInvoke.mockResolvedValueOnce({
-        content: 'SWITCH',
-      })
-
-      // After clearing context, normal intent detection
-      mockInvoke.mockResolvedValueOnce({
-        content: JSON.stringify({
-          mediaType: MediaRequestType.Both,
-          searchIntent: SearchIntent.Library,
-          searchTerms: 'calculate',
-        }),
-      })
-
-      mediaBrowsingStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
-
-      await handler.handleRequest(
-        mathMessage,
-        [mathMessage],
-        mockUserId,
-        mockDiscord,
-      )
-
-      expect(contextService.clearContext).toHaveBeenCalledWith(mockUserId)
-      expect(mediaBrowsingStrategy.handleRequest).toHaveBeenCalled()
-    })
-
-    it('should continue when user clarifies with "the one from 2010"', async () => {
-      const clarificationMessage = new HumanMessage({
-        content: 'the one from 2010',
-      })
-
-      // Setup: User has an active movie context
-      contextService.hasContext.mockResolvedValue(true)
-      contextService.getContextType.mockResolvedValue('movie')
-      contextService.getContext.mockResolvedValue({
-        timestamp: Date.now(),
-        isActive: true,
-      })
-
-      // Topic switch detection returns CONTINUE
-      retryService.executeWithRetry.mockImplementation((fn: () => unknown) =>
-        Promise.resolve(fn()),
-      )
-      mockInvoke.mockResolvedValueOnce({
-        content: 'CONTINUE',
-      })
-
-      movieDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
-
-      await handler.handleRequest(
-        clarificationMessage,
-        [clarificationMessage],
-        mockUserId,
-        mockDiscord,
-      )
-
-      expect(contextService.clearContext).not.toHaveBeenCalled()
-      expect(movieDownloadStrategy.handleRequest).toHaveBeenCalled()
-    })
+        expect(result).toBe(mockStrategyResult)
+        expect(movieDownloadStrategy.handleRequest).toHaveBeenCalled()
+      },
+    )
 
     it('should handle case-insensitive SWITCH responses', async () => {
-      const message = new HumanMessage({ content: 'tell me a joke' })
+      const message = new HumanMessage({ content: 'never mind' })
+      llm.script('media.topicSwitch', 'switch')
 
-      // Setup: User has an active context
-      contextService.hasContext.mockResolvedValue(true)
-      contextService.getContextType.mockResolvedValue('tv')
-      contextService.getContext.mockResolvedValue({
-        timestamp: Date.now(),
-        isActive: true,
-      })
-
-      // Topic switch returns lowercase "switch"
-      retryService.executeWithRetry.mockImplementation((fn: () => unknown) =>
-        Promise.resolve(fn()),
+      const result = await handler.handleRequest(
+        message,
+        [message],
+        mockUserId,
+        mockDiscord,
+        movieContext,
       )
-      mockInvoke.mockResolvedValueOnce({
-        content: 'switch',
-      })
 
-      // Normal intent detection
-      mockInvoke.mockResolvedValueOnce({
-        content: JSON.stringify({
-          mediaType: MediaRequestType.Both,
-          searchIntent: SearchIntent.Library,
-          searchTerms: '',
-        }),
-      })
+      expect(result.reroute).toBe(true)
+    })
 
-      mediaBrowsingStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
+    it('should keep the context when topic switch detection fails', async () => {
+      const message = new HumanMessage({ content: 'some message' })
+      llm.script('media.topicSwitch', new Error('LLM timeout'))
+      movieDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
-      await handler.handleRequest(message, [message], mockUserId, mockDiscord)
+      const result = await handler.handleRequest(
+        message,
+        [message],
+        mockUserId,
+        mockDiscord,
+        movieContext,
+      )
 
-      expect(contextService.clearContext).toHaveBeenCalledWith(mockUserId)
+      expect(result.reroute).toBeUndefined()
+      expect(movieDownloadStrategy.handleRequest).toHaveBeenCalled()
     })
   })
 
-  describe('hasActiveMediaContext', () => {
-    it('should return true when active context exists and no topic switch', async () => {
-      // Arrange
-      contextService.hasContext.mockResolvedValue(true)
-      const topicResponse = { content: 'CONTINUE' }
-      retryService.executeWithRetry.mockImplementation(fn => fn())
-      mockInvoke.mockResolvedValue(topicResponse) // No topic switch
+  describe('detectTopicSwitch', () => {
+    it('should return false for a continuation', async () => {
+      llm.script('media.topicSwitch', 'CONTINUE')
 
-      const message = new HumanMessage({ content: 'The first one' })
-
-      // Act
-      const result = await handler.hasActiveMediaContext(mockUserId, message)
-
-      // Assert
-      expect(result).toBe(true)
-      expect(contextService.hasContext).toHaveBeenCalledWith(mockUserId)
-      expect(retryService.executeWithRetry).toHaveBeenCalled() // Topic switch detection uses retry
-      expect(contextService.clearContext).not.toHaveBeenCalled()
-    })
-
-    it('should return false when no context exists', async () => {
-      // Arrange
-      contextService.hasContext.mockResolvedValue(false)
-
-      const message = new HumanMessage({ content: 'Hello' })
-
-      // Act
-      const result = await handler.hasActiveMediaContext(mockUserId, message)
-
-      // Assert
-      expect(result).toBe(false)
-      expect(contextService.hasContext).toHaveBeenCalledWith(mockUserId)
-      expect(retryService.executeWithRetry).not.toHaveBeenCalled() // Skip topic detection if no context
-      expect(contextService.clearContext).not.toHaveBeenCalled()
-    })
-
-    it('should clear context and return false when topic switch detected', async () => {
-      // Arrange
-      contextService.hasContext.mockResolvedValue(true)
-      const topicResponse = { content: 'SWITCH' }
-      retryService.executeWithRetry.mockImplementation(fn => fn())
-      mockInvoke.mockResolvedValue(topicResponse) // Topic switched
-
-      const message = new HumanMessage({
-        content: "What's the weather like?",
-      })
-
-      // Act
-      const result = await handler.hasActiveMediaContext(mockUserId, message)
-
-      // Assert
-      expect(result).toBe(false)
-      expect(contextService.hasContext).toHaveBeenCalledWith(mockUserId)
-      expect(retryService.executeWithRetry).toHaveBeenCalled() // Topic switch detection uses retry
-      expect(contextService.clearContext).toHaveBeenCalledWith(mockUserId)
-    })
-
-    it('should handle topic switch detection errors gracefully', async () => {
-      // Arrange
-      contextService.hasContext.mockResolvedValue(true)
-      retryService.executeWithRetry.mockRejectedValue(
-        new Error('OpenAI API error'),
+      const result = await handler.detectTopicSwitch(
+        new HumanMessage({ content: 'The first one' }),
       )
 
-      const message = new HumanMessage({ content: 'Some message' })
+      expect(result).toBe(false)
+    })
 
-      // Act
-      const result = await handler.hasActiveMediaContext(mockUserId, message)
+    it('should return true for a switch', async () => {
+      llm.script('media.topicSwitch', 'SWITCH')
 
-      // Assert
-      expect(result).toBe(true) // Default to true on error (assume no switch)
-      expect(contextService.hasContext).toHaveBeenCalledWith(mockUserId)
-      expect(contextService.clearContext).not.toHaveBeenCalled()
+      const result = await handler.detectTopicSwitch(
+        new HumanMessage({ content: "What's the weather like?" }),
+      )
+
+      expect(result).toBe(true)
+    })
+
+    it('should assume no switch when the LLM call fails', async () => {
+      llm.script('media.topicSwitch', new Error('OpenAI API error'))
+
+      const result = await handler.detectTopicSwitch(
+        new HumanMessage({ content: 'Some message' }),
+      )
+
+      expect(result).toBe(false)
     })
   })
 })

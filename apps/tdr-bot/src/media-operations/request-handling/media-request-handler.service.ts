@@ -1,10 +1,13 @@
-import { BaseMessage, HumanMessage } from '@langchain/core/messages'
-import { ChatOpenAI } from '@langchain/openai'
+import {
+  BaseMessage,
+  HumanMessage,
+  SystemMessage,
+} from '@langchain/core/messages'
 import { Injectable, Logger } from '@nestjs/common'
 import dedent from 'dedent'
 import { nanoid } from 'nanoid'
 
-import { ContextManagementService } from 'src/message-handler/context/context-management.service'
+import { LlmClient } from 'src/llm/client/llm-client'
 import {
   MediaRequest,
   MediaRequestSchema,
@@ -19,7 +22,6 @@ import {
   GET_MEDIA_TYPE_PROMPT,
   TOPIC_SWITCH_DETECTION_PROMPT,
 } from 'src/utils/prompts'
-import { RetryService } from 'src/utils/retry.service'
 
 import { DownloadStatusStrategy } from './strategies/download-status.strategy'
 import { MediaBrowsingStrategy } from './strategies/media-browsing.strategy'
@@ -28,31 +30,33 @@ import { MovieDownloadStrategy } from './strategies/movie-download.strategy'
 import { TvDeleteStrategy } from './strategies/tv-delete.strategy'
 import { TvDownloadStrategy } from './strategies/tv-download.strategy'
 import {
+  ActiveMediaContext,
   DiscordIdentity,
+  MediaContextType,
   StrategyRequestParams,
 } from './types/request-context.type'
 import { StrategyResult } from './types/strategy-result.type'
 import { toQualityTier } from './utils/quality.utils'
 
-const REASONING_TEMPERATURE = 0
+/** Classification replies are tiny; cap them. */
+const MAX_CLASSIFICATION_TOKENS = 500
 
 /**
  * MediaRequestHandler - Routes media requests to appropriate strategies
  *
  * Responsibilities:
- * - Check for active contexts (multi-turn operations)
+ * - Resume an active context (multi-turn operations) handed in by the caller
  * - Determine request intent (download, delete, browse, status)
  * - Classify media type (movie vs TV show)
  * - Route to appropriate strategy
- * - Handle request deduplication via context checking
+ * - Report a topic switch so the caller can re-route the message
  */
 @Injectable()
 export class MediaRequestHandler {
   private readonly logger = new Logger(MediaRequestHandler.name)
 
   constructor(
-    private readonly contextService: ContextManagementService,
-    private readonly retryService: RetryService,
+    private readonly llm: LlmClient,
     // Strategy classes
     private readonly movieDownloadStrategy: MovieDownloadStrategy,
     private readonly tvDownloadStrategy: TvDownloadStrategy,
@@ -70,22 +74,31 @@ export class MediaRequestHandler {
    *
    * `discord` is the sender's identity; every strategy receives it in its
    * params so requests it forwards to the download app are attributed to them.
+   *
+   * Multi-turn state is the caller's: `activeContext` is the `pendingContext`
+   * an earlier result returned. When the message has switched topics instead
+   * of answering it, the result is `{ reroute: true }` with nothing to say.
    */
   async handleRequest(
     message: HumanMessage,
     messages: BaseMessage[],
     userId: string,
     discord: DiscordIdentity,
-    state?: unknown,
+    activeContext?: ActiveMediaContext | null,
   ): Promise<StrategyResult> {
     this.logger.log({ userId }, 'Handling media request')
 
     try {
-      // Step 1: Check for active contexts first (multi-turn operations)
-      // getActiveContext now includes topic switch detection
-      const activeContext = await this.getActiveContext(userId, message)
-
+      // Step 1: Resume the active context first (multi-turn operations)
       if (activeContext) {
+        if (await this.detectTopicSwitch(message)) {
+          this.logger.log(
+            { userId, contextType: activeContext.type },
+            'Topic switch detected, dropping context',
+          )
+          return { images: [], messages: [], reroute: true }
+        }
+
         this.logger.log(
           { userId, contextType: activeContext.type },
           'Found active context, routing to appropriate strategy',
@@ -97,25 +110,23 @@ export class MediaRequestHandler {
           userId,
           discord,
           context: activeContext.data,
-          state,
         }
 
         // Route based on context type
         switch (activeContext.type) {
-          case 'movie':
+          case MediaContextType.MovieDownload:
             return await this.movieDownloadStrategy.handleRequest(params)
-          case 'tv':
+          case MediaContextType.TvDownload:
             return await this.tvDownloadStrategy.handleRequest(params)
-          case 'movieDelete':
+          case MediaContextType.MovieDelete:
             return await this.movieDeleteStrategy.handleRequest(params)
-          case 'tvDelete':
+          case MediaContextType.TvDelete:
             return await this.tvDeleteStrategy.handleRequest(params)
           default:
             this.logger.warn(
               { contextType: activeContext.type },
-              'Unknown context type, clearing and continuing',
+              'Unknown context type, ignoring and continuing',
             )
-            await this.contextService.clearContext(userId)
         }
       }
 
@@ -138,7 +149,6 @@ export class MediaRequestHandler {
           messages,
           userId,
           discord,
-          state,
         })
       }
 
@@ -151,7 +161,6 @@ export class MediaRequestHandler {
           userId,
           discord,
           mediaRequest,
-          state,
         )
       } else if (this.isDeleteRequest(mediaRequest)) {
         this.logger.log({ userId }, 'Routing to delete flow')
@@ -161,7 +170,6 @@ export class MediaRequestHandler {
           userId,
           discord,
           mediaRequest,
-          state,
         )
       } else {
         // Browse or library search
@@ -172,7 +180,6 @@ export class MediaRequestHandler {
           userId,
           discord,
           context: mediaRequest,
-          state,
         })
       }
     } catch (error) {
@@ -198,7 +205,6 @@ export class MediaRequestHandler {
     userId: string,
     discord: DiscordIdentity,
     mediaRequest: MediaRequest,
-    state?: unknown,
   ): Promise<StrategyResult> {
     const qualityTier = toQualityTier(mediaRequest.quality)
     const params: StrategyRequestParams = {
@@ -206,7 +212,6 @@ export class MediaRequestHandler {
       messages,
       userId,
       discord,
-      state,
       ...(qualityTier ? { qualityTier } : {}),
     }
 
@@ -247,9 +252,8 @@ export class MediaRequestHandler {
     userId: string,
     discord: DiscordIdentity,
     mediaRequest: MediaRequest,
-    state?: unknown,
   ): Promise<StrategyResult> {
-    const params = { message, messages, userId, discord, state }
+    const params = { message, messages, userId, discord }
 
     // Direct media type routing
     if (mediaRequest.mediaType === MediaRequestType.Movies) {
@@ -280,85 +284,6 @@ export class MediaRequestHandler {
   }
 
   /**
-   * Check if user has an active media context
-   * Used for optimization: allows skipping LLM intent detection during multi-turn operations
-   * Includes topic switch detection - if user switched topics, clears context and returns false
-   *
-   * @param userId - User ID to check context for
-   * @param message - Current message from user
-   * @returns true if active context exists and user still in context, false otherwise
-   */
-  public async hasActiveMediaContext(
-    userId: string,
-    message: HumanMessage,
-  ): Promise<boolean> {
-    const hasContext = await this.contextService.hasContext(userId)
-    if (!hasContext) {
-      return false
-    }
-
-    // Check if user switched topics using LLM
-    const topicSwitched = await this.detectTopicSwitch(message)
-    if (topicSwitched) {
-      this.logger.log({ userId }, 'Topic switch detected, clearing context')
-      await this.contextService.clearContext(userId)
-      return false
-    }
-
-    this.logger.log(
-      { userId },
-      'Active media context exists, user still in context',
-    )
-    return true
-  }
-
-  /**
-   * Check for active user contexts
-   * Returns the active context with type and data if one exists
-   * Includes topic switch detection - if user switched topics, clears context and returns null
-   */
-  private async getActiveContext(
-    userId: string,
-    message: HumanMessage,
-  ): Promise<{ type: string; data: unknown } | null> {
-    const hasContext = await this.contextService.hasContext(userId)
-    if (!hasContext) {
-      return null
-    }
-
-    // Parallelize context lookup - both read from same map independently
-    const [contextType, contextData] = await Promise.all([
-      this.contextService.getContextType(userId),
-      this.contextService.getContext(userId),
-    ])
-
-    if (!contextType || !contextData) {
-      return null
-    }
-
-    // Check if user switched topics using LLM
-    const topicSwitched = await this.detectTopicSwitch(message)
-    if (topicSwitched) {
-      this.logger.log(
-        { userId, contextType },
-        'Topic switch detected, clearing context',
-      )
-      await this.contextService.clearContext(userId)
-      return null
-    }
-
-    this.logger.log(
-      { userId, contextType },
-      'User still in context, maintaining active context',
-    )
-
-    return {
-      type: contextType,
-      data: contextData,
-    }
-  }
-
-  /**
    * Determine media type and search intent from message
    * Extracted from llm.service.ts:2684-2719
    */
@@ -368,20 +293,15 @@ export class MediaRequestHandler {
     try {
       this.logger.log('Determining media type and search intent')
       const startTime = Date.now()
-      const mediaTypeResponse = await this.retryService.executeWithRetry(
-        () => this.getReasoningModel().invoke([GET_MEDIA_TYPE_PROMPT, message]),
-        {
-          maxAttempts: 3,
-          baseDelay: 1000,
-          maxDelay: 30000,
-          timeout: 30000,
-        },
-        'OpenAI-getMediaTypeAndIntent',
-      )
-
-      const responseContent = mediaTypeResponse.content as string
-      const parsedResponse = JSON.parse(responseContent)
-      const validated = MediaRequestSchema.parse(parsedResponse)
+      const { output: validated, message: mediaTypeResponse } =
+        await this.llm.call({
+          operation: 'media.intent',
+          role: 'reasoning',
+          messages: [GET_MEDIA_TYPE_PROMPT, message],
+          schema: MediaRequestSchema,
+          overrides: { maxTokens: MAX_CLASSIFICATION_TOKENS },
+        })
+      const responseContent = String(mediaTypeResponse.content)
 
       this.logger.log(
         {
@@ -483,11 +403,6 @@ export class MediaRequestHandler {
   ): Promise<MediaTypeClassification> {
     const messageContent = this.getMessageContent(message)
 
-    const classificationModel = new ChatOpenAI({
-      model: 'gpt-4o-mini',
-      temperature: REASONING_TEMPERATURE,
-    }).withStructuredOutput(MediaTypeClassificationSchema)
-
     const systemPrompt = dedent`
       You are a media type classifier. Your job is to determine if a user's message is asking for movies or TV shows.
 
@@ -509,10 +424,15 @@ export class MediaRequestHandler {
 
     try {
       const startTime = Date.now()
-      const result = await classificationModel.invoke([
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: messageContent },
-      ])
+      const { output: result } = await this.llm.call({
+        operation: 'media.classifyType',
+        role: 'reasoning',
+        messages: [
+          new SystemMessage(systemPrompt),
+          new HumanMessage(messageContent),
+        ],
+        schema: MediaTypeClassificationSchema,
+      })
 
       this.logger.log(
         {
@@ -539,17 +459,6 @@ export class MediaRequestHandler {
   }
 
   /**
-   * Get reasoning model for intent detection
-   */
-  private getReasoningModel() {
-    return new ChatOpenAI({
-      model: 'gpt-4o-mini',
-      temperature: REASONING_TEMPERATURE,
-      maxTokens: 500, // Small response for classification
-    })
-  }
-
-  /**
    * Extract message content as string
    */
   private getMessageContent(message: HumanMessage): string {
@@ -565,7 +474,7 @@ export class MediaRequestHandler {
    * @param message - The user's message to check
    * @returns true if user switched topics, false if still in media selection context
    */
-  private async detectTopicSwitch(message: HumanMessage): Promise<boolean> {
+  async detectTopicSwitch(message: HumanMessage): Promise<boolean> {
     try {
       const userInput = this.getMessageContent(message)
 
@@ -582,18 +491,14 @@ export class MediaRequestHandler {
         content: `${promptContent}\n\nUser message: "${userInput}"`,
       })
 
-      const response = await this.retryService.executeWithRetry(
-        () => this.getReasoningModel().invoke([promptMessage]),
-        {
-          maxAttempts: 3,
-          baseDelay: 1000,
-          maxDelay: 30000,
-          timeout: 15000,
-        },
-        'OpenAI-detectTopicSwitch',
-      )
+      const response = await this.llm.call({
+        operation: 'media.topicSwitch',
+        role: 'reasoning',
+        messages: [promptMessage],
+        overrides: { maxTokens: MAX_CLASSIFICATION_TOKENS },
+      })
 
-      const result = response.content.toString().trim().toUpperCase()
+      const result = response.output.trim().toUpperCase()
       const switched = result === 'SWITCH'
 
       this.logger.log(

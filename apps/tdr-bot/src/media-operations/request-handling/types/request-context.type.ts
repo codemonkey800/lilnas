@@ -62,10 +62,19 @@ export interface StrategyRequestParams {
  * Context types for tracking active operations
  */
 export enum MediaContextType {
-  MovieDownload = 'movie_download',
-  TvDownload = 'tv_download',
-  MovieDelete = 'movie_delete',
-  TvDelete = 'tv_delete',
+  MovieDownload = 'movie',
+  TvDownload = 'tv',
+  MovieDelete = 'movieDelete',
+  TvDelete = 'tvDelete',
+}
+
+/**
+ * Multi-turn state a strategy returns as `pendingContext` and the caller
+ * hands back to `MediaRequestHandler.handleRequest` as `activeContext`
+ */
+export interface ActiveMediaContext {
+  type: MediaContextType
+  data: unknown
 }
 
 /**

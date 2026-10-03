@@ -6,17 +6,23 @@ import {
   NotFoundException,
   Param,
   Post,
+  Put,
+  Query,
 } from '@nestjs/common'
 import { ChannelType, Client } from 'discord.js'
-import * as fs from 'fs-extra'
-import { ChatModel } from 'openai/resources'
-import * as path from 'path'
 
 import { VERSION } from 'src/constants/version'
-import { ImageResponse } from 'src/schemas/graph'
+import { ModelSpec } from 'src/llm/models/catalog'
+import { ModelRegistry } from 'src/llm/models/model-registry'
+import { MODEL_ROLES, ModelRole } from 'src/llm/models/roles'
+import type { SettingsPatch } from 'src/llm/settings/settings.schema'
+import { SettingsPatchSchema } from 'src/llm/settings/settings.schema'
+import {
+  SettingsService,
+  SettingsValidationError,
+} from 'src/llm/settings/settings.service'
+import { LLMOrchestrationService } from 'src/messages/llm/llm-orchestration.service'
 import { EquationImageService } from 'src/services/equation-image.service'
-import { AppState, StateService } from 'src/state/state.service'
-import { TDR_SYSTEM_PROMPT_ID } from 'src/utils/prompts'
 
 import type {
   ChannelInfo,
@@ -24,92 +30,88 @@ import type {
   SendMessageResponse,
 } from './api.types'
 import {
-  EditableAppState,
-  GraphHistoryFile,
+  ConversationMessage,
   HealthResponse,
-  MessageState,
+  SettingsResponse,
 } from './api.types'
+import { toConversationMessages } from './conversation-messages'
+import { ZodValidationPipe } from './zod-validation.pipe'
 
-const LOG_DIR = process.env.NODE_ENV === 'development' ? './logs' : '/mnt/logs'
+function isModelRole(value: string): value is ModelRole {
+  return (MODEL_ROLES as readonly string[]).includes(value)
+}
 
-class UpdateStateDto {
-  chatModel?: ChatModel
-  maxTokens?: number
-  prompt?: string
-  reasoningModel?: ChatModel
-  temperature?: number
+function toBadRequest(error: unknown): unknown {
+  if (error instanceof SettingsValidationError) {
+    return new BadRequestException({
+      message: error.message,
+      issues: error.issues,
+    })
+  }
+
+  return error
 }
 
 @Controller()
 export class ApiController {
   constructor(
-    private readonly state: StateService,
+    private readonly llm: LLMOrchestrationService,
+    private readonly settings: SettingsService,
+    private readonly registry: ModelRegistry,
     private readonly equationImage: EquationImageService,
     private readonly client: Client,
   ) {}
 
-  @Get('state')
-  async getState(): Promise<EditableAppState> {
-    const state = this.state.getState()
-
+  private settingsResponse(): SettingsResponse {
     return {
-      chatModel: state.chatModel,
-      maxTokens: state.maxTokens,
-      prompt: state.prompt,
-      reasoningModel: state.reasoningModel,
-      temperature: state.temperature,
+      ...this.settings.get(),
+      updatedAt: this.settings.getUpdatedAt().toISOString(),
     }
   }
 
-  @Post('state')
-  async updateState(@Body() state: UpdateStateDto) {
-    const nextState: Partial<AppState> = { ...state }
-
-    // Clear history if prompt is changed
-    const prev = this.state.getState()
-    if (state.prompt && state.prompt !== prev.prompt) {
-      nextState.graphHistory = []
-    }
-
-    this.state.setState(nextState)
-
-    return this.state.getState()
+  @Get('settings')
+  async getSettings(): Promise<SettingsResponse> {
+    return this.settingsResponse()
   }
 
-  @Get('messages')
-  async getMessages(): Promise<MessageState[]> {
-    const imagesMap = new Map<string, ImageResponse[]>()
-    const state = this.state.getState()
-
-    for (const item of state.graphHistory) {
-      if (item.images && item.images.length > 0) {
-        const parentId = item.images[0].parentId
-
-        if (parentId) {
-          imagesMap.set(parentId, item.images)
-        }
-      }
+  @Put('settings')
+  async updateSettings(
+    @Body(new ZodValidationPipe(SettingsPatchSchema)) patch: SettingsPatch,
+  ): Promise<SettingsResponse> {
+    try {
+      await this.settings.update(patch)
+    } catch (error) {
+      throw toBadRequest(error)
     }
 
-    return Promise.all(
-      state.graphHistory
-        .at(-1)
-        ?.messages.filter(m => m.id !== TDR_SYSTEM_PROMPT_ID)
-        .map(async message => {
-          const id = message.id ?? ''
-          const images = imagesMap.get(id) ?? []
+    return this.settingsResponse()
+  }
 
-          return {
-            id: message?.id,
-            content: message?.content.toString() ?? '--',
-            kwargs: message?.additional_kwargs ?? {},
-            type: message?.getType() ?? 'human',
-            images,
+  @Post('settings/reset')
+  async resetSettings(): Promise<SettingsResponse> {
+    await this.settings.reset()
 
-            ...(images && images.length > 0 ? { images } : {}),
-          }
-        }) ?? [],
-    )
+    return this.settingsResponse()
+  }
+
+  @Get('models')
+  async getModels(@Query('role') role?: string): Promise<ModelSpec[]> {
+    if (role !== undefined && !isModelRole(role)) {
+      throw new BadRequestException(
+        `Invalid role "${role}"; expected one of ${MODEL_ROLES.join(', ')}`,
+      )
+    }
+
+    return this.registry.list(role)
+  }
+
+  @Get('conversations/:channelId')
+  async getConversation(
+    @Param('channelId') channelId: string,
+  ): Promise<ConversationMessage[]> {
+    const messages = await this.llm.getThreadMessages(channelId)
+
+    return toConversationMessages(messages)
   }
 
   @Get('health')
@@ -197,84 +199,6 @@ export class ApiController {
       throw new BadRequestException(
         `Failed to send message: ${error instanceof Error ? error.message : 'Unknown error'}`,
       )
-    }
-  }
-
-  @Get('graph-history/files')
-  async getGraphHistoryFiles(): Promise<GraphHistoryFile[]> {
-    try {
-      const files = await fs.readdir(LOG_DIR)
-
-      // Filter for graph-history files
-      const graphHistoryFiles = files.filter(
-        file => file.startsWith('graph-history-') && file.endsWith('.jsonl'),
-      )
-
-      // Extract indices and sort in reverse order (newest first)
-      const historyFiles = graphHistoryFiles
-        .map(filename => {
-          const match = filename.match(/graph-history-(\d+)\.jsonl/)
-          if (!match) return null
-
-          const index = parseInt(match[1], 10)
-          return {
-            filename,
-            index,
-            label: `Log File ${index}`,
-          }
-        })
-        .filter((file): file is GraphHistoryFile => file !== null)
-        .sort((a, b) => b.index - a.index) // Newest first
-
-      return historyFiles
-    } catch {
-      // If directory doesn't exist or other errors, return empty array
-      return []
-    }
-  }
-
-  @Get('graph-history/files/:filename')
-  async getGraphHistoryMessages(
-    @Param('filename') filename: string,
-  ): Promise<MessageState[]> {
-    // Validate filename to prevent directory traversal
-    if (!filename.match(/^graph-history-\d+\.jsonl$/)) {
-      throw new BadRequestException('Invalid filename')
-    }
-
-    const filePath = path.join(LOG_DIR, filename)
-
-    try {
-      const fileExists = await fs.pathExists(filePath)
-      if (!fileExists) {
-        throw new NotFoundException('History file not found')
-      }
-
-      // Read and parse JSONL
-      const content = await fs.readFile(filePath, 'utf-8')
-      const lines = content.trim().split('\n')
-
-      const messages: MessageState[] = lines
-        .filter(line => line.trim().length > 0)
-        .map(line => {
-          try {
-            return JSON.parse(line)
-          } catch {
-            return null
-          }
-        })
-        .filter((msg): msg is MessageState => msg !== null)
-
-      return messages
-    } catch (error) {
-      if (
-        error instanceof NotFoundException ||
-        error instanceof BadRequestException
-      ) {
-        throw error
-      }
-
-      throw new BadRequestException('Failed to read history file')
     }
   }
 }

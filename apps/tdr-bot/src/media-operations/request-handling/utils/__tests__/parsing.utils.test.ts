@@ -1,48 +1,24 @@
-// Mock ChatOpenAI before imports
-const mockInvoke = jest.fn()
-const mockWithStructuredOutput = jest.fn()
-const mockChatOpenAI = jest.fn().mockImplementation(() => ({
-  invoke: mockInvoke,
-  withStructuredOutput: mockWithStructuredOutput,
-}))
-
-jest.mock('@langchain/openai', () => ({
-  ChatOpenAI: mockChatOpenAI,
-}))
-
-import { AIMessage } from '@langchain/core/messages'
 import { Test, TestingModule } from '@nestjs/testing'
 
+import { LlmCall } from 'src/llm/client/llm-call.types'
+import { LlmClient } from 'src/llm/client/llm-client'
+import { FakeLlmClient } from 'src/llm/testing/fake-llm-client'
+import { createFakeLlmClient } from 'src/media-operations/request-handling/__test-helpers__/mock-services'
 import { ParsingUtilities } from 'src/media-operations/request-handling/utils/parsing.utils'
-import { StateService } from 'src/state/state.service'
-import { RetryService } from 'src/utils/retry.service'
 
 describe('ParsingUtilities', () => {
   let service: ParsingUtilities
-  let mockStateService: jest.Mocked<Pick<StateService, 'getState'>>
-  let mockRetryService: jest.Mocked<Pick<RetryService, 'executeWithRetry'>>
+  let llm: FakeLlmClient
+
+  /** The text of the user message an LLM call was made for. */
+  const inputOf = (messages: { content: unknown }[]): string =>
+    String(messages[1]?.content ?? '')
 
   beforeEach(async () => {
-    // Reset all mocks
-    jest.clearAllMocks()
-
-    mockStateService = {
-      getState: jest.fn().mockReturnValue({
-        reasoningModel: 'gpt-4o-mini',
-        temperature: 0,
-      }),
-    } as jest.Mocked<Pick<StateService, 'getState'>>
-
-    mockRetryService = {
-      executeWithRetry: jest.fn().mockImplementation(async fn => await fn()),
-    } as jest.Mocked<Pick<RetryService, 'executeWithRetry'>>
+    llm = createFakeLlmClient()
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        ParsingUtilities,
-        { provide: StateService, useValue: mockStateService },
-        { provide: RetryService, useValue: mockRetryService },
-      ],
+      providers: [ParsingUtilities, { provide: LlmClient, useValue: llm }],
     }).compile()
 
     service = module.get<ParsingUtilities>(ParsingUtilities)
@@ -50,17 +26,17 @@ describe('ParsingUtilities', () => {
 
   describe('extractSearchQueryWithLLM', () => {
     it('should extract search query when LLM successfully processes user message', async () => {
-      mockInvoke.mockResolvedValueOnce(new AIMessage({ content: 'Inception' }))
+      llm.script('media.extractQuery', 'Inception')
 
       const result =
         await service.extractSearchQueryWithLLM('download inception')
 
       expect(result).toBe('Inception')
-      expect(mockInvoke).toHaveBeenCalledTimes(1)
+      expect(llm.calls).toHaveLength(1)
     })
 
     it('returns an empty query, not the raw message, when the message names no title', async () => {
-      mockInvoke.mockResolvedValueOnce(new AIMessage({ content: '   ' }))
+      llm.script('media.extractQuery', '   ')
 
       const result = await service.extractSearchQueryWithLLM(
         'download some horror movies',
@@ -70,7 +46,7 @@ describe('ParsingUtilities', () => {
     })
 
     it('should use simple fallback when LLM encounters an error', async () => {
-      mockInvoke.mockRejectedValueOnce(new Error('LLM error'))
+      llm.script('media.extractQuery', new Error('LLM error'))
 
       const result = await service.extractSearchQueryWithLLM(
         'download the matrix movie',
@@ -82,9 +58,7 @@ describe('ParsingUtilities', () => {
     })
 
     it('should trim whitespace when extracted query contains leading or trailing spaces', async () => {
-      mockInvoke.mockResolvedValueOnce(
-        new AIMessage({ content: '  The Godfather  ' }),
-      )
+      llm.script('media.extractQuery', '  The Godfather  ')
 
       const result =
         await service.extractSearchQueryWithLLM('get the godfather')
@@ -95,9 +69,7 @@ describe('ParsingUtilities', () => {
 
   describe('extractTvDeleteQueryWithLLM', () => {
     it('should extract TV show name when given delete request', async () => {
-      mockInvoke.mockResolvedValueOnce(
-        new AIMessage({ content: 'Breaking Bad' }),
-      )
+      llm.script('media.extractTvQuery', 'Breaking Bad')
 
       const result = await service.extractTvDeleteQueryWithLLM(
         'delete breaking bad',
@@ -107,7 +79,7 @@ describe('ParsingUtilities', () => {
     })
 
     it('should fallback to simple extraction when LLM encounters error', async () => {
-      mockInvoke.mockRejectedValueOnce(new Error('LLM error'))
+      llm.script('media.extractTvQuery', new Error('LLM error'))
 
       const result =
         await service.extractTvDeleteQueryWithLLM('delete the wire')
@@ -120,14 +92,10 @@ describe('ParsingUtilities', () => {
 
   describe('parseSearchSelection', () => {
     it('should parse selection when given ordinal reference', async () => {
-      mockInvoke.mockResolvedValueOnce(
-        new AIMessage({
-          content: JSON.stringify({
-            selectionType: 'ordinal',
-            value: '2',
-          }),
-        }),
-      )
+      llm.script('media.parseSelection', {
+        selectionType: 'ordinal',
+        value: '2',
+      })
 
       const result = await service.parseSearchSelection('the second one')
 
@@ -138,14 +106,10 @@ describe('ParsingUtilities', () => {
     })
 
     it('should parse selection when given year reference', async () => {
-      mockInvoke.mockResolvedValueOnce(
-        new AIMessage({
-          content: JSON.stringify({
-            selectionType: 'year',
-            value: '2010',
-          }),
-        }),
-      )
+      llm.script('media.parseSelection', {
+        selectionType: 'year',
+        value: '2010',
+      })
 
       const result = await service.parseSearchSelection('the 2010 version')
 
@@ -156,20 +120,16 @@ describe('ParsingUtilities', () => {
     })
 
     it('should throw error when LLM returns invalid selection type', async () => {
-      mockInvoke.mockResolvedValueOnce(
-        new AIMessage({
-          content: JSON.stringify({
-            selectionType: 'unknown',
-            value: 'test',
-          }),
-        }),
-      )
+      llm.script('media.parseSelection', {
+        selectionType: 'unknown',
+        value: 'test',
+      })
 
       await expect(service.parseSearchSelection('invalid')).rejects.toThrow()
     })
 
     it('should throw error when LLM fails to process selection', async () => {
-      mockInvoke.mockRejectedValueOnce(new Error('LLM error'))
+      llm.script('media.parseSelection', new Error('LLM error'))
 
       await expect(service.parseSearchSelection('test')).rejects.toThrow()
     })
@@ -177,13 +137,9 @@ describe('ParsingUtilities', () => {
 
   describe('parseTvShowSelection', () => {
     it('should parse selection when user specifies specific season', async () => {
-      mockInvoke.mockResolvedValueOnce(
-        new AIMessage({
-          content: JSON.stringify({
-            selection: [{ season: 1 }],
-          }),
-        }),
-      )
+      llm.script('media.parseTvSelection', {
+        selection: [{ season: 1 }],
+      })
 
       const result = await service.parseTvShowSelection('season 1')
 
@@ -193,11 +149,7 @@ describe('ParsingUtilities', () => {
     })
 
     it('should parse selection when user requests entire series', async () => {
-      mockInvoke.mockResolvedValueOnce(
-        new AIMessage({
-          content: JSON.stringify({}),
-        }),
-      )
+      llm.script('media.parseTvSelection', {})
 
       const result = await service.parseTvShowSelection('entire series')
 
@@ -205,13 +157,9 @@ describe('ParsingUtilities', () => {
     })
 
     it('should parse selection when user specifies episodes within season', async () => {
-      mockInvoke.mockResolvedValueOnce(
-        new AIMessage({
-          content: JSON.stringify({
-            selection: [{ season: 1, episodes: [1, 2, 3] }],
-          }),
-        }),
-      )
+      llm.script('media.parseTvSelection', {
+        selection: [{ season: 1, episodes: [1, 2, 3] }],
+      })
 
       const result = await service.parseTvShowSelection('season 1 episodes 1-3')
 
@@ -221,13 +169,9 @@ describe('ParsingUtilities', () => {
     })
 
     it('should throw error when LLM returns invalid schema format', async () => {
-      mockInvoke.mockResolvedValueOnce(
-        new AIMessage({
-          content: JSON.stringify({
-            selection: 'invalid',
-          }),
-        }),
-      )
+      llm.script('media.parseTvSelection', {
+        selection: 'invalid',
+      })
 
       await expect(service.parseTvShowSelection('test')).rejects.toThrow()
     })
@@ -235,17 +179,13 @@ describe('ParsingUtilities', () => {
 
   describe('parseInitialSelection', () => {
     it('should parse all components when given complete media request', async () => {
-      // Mock search query extraction
-      mockInvoke
-        .mockResolvedValueOnce(new AIMessage({ content: 'Inception' }))
-        // Mock search selection
-        .mockResolvedValueOnce(
-          new AIMessage({
-            content: JSON.stringify({ selectionType: 'ordinal', value: '1' }),
-          }),
-        )
-        // Mock TV selection
-        .mockResolvedValueOnce(new AIMessage({ content: JSON.stringify({}) }))
+      llm
+        .script('media.extractQuery', 'Inception')
+        .script('media.parseSelection', {
+          selectionType: 'ordinal',
+          value: '1',
+        })
+        .script('media.parseTvSelection', {})
 
       const result = await service.parseInitialSelection(
         'download inception first one',
@@ -257,13 +197,10 @@ describe('ParsingUtilities', () => {
     })
 
     it('should handle gracefully when some parsing steps fail', async () => {
-      // Mock search query success
-      mockInvoke
-        .mockResolvedValueOnce(new AIMessage({ content: 'The Matrix' }))
-        // Mock search selection failure
-        .mockRejectedValueOnce(new Error('Parse error'))
-        // Mock TV selection failure
-        .mockRejectedValueOnce(new Error('Parse error'))
+      llm
+        .script('media.extractQuery', 'The Matrix')
+        .script('media.parseSelection', new Error('Parse error'))
+        .script('media.parseTvSelection', new Error('Parse error'))
 
       const result = await service.parseInitialSelection('download the matrix')
 
@@ -273,18 +210,10 @@ describe('ParsingUtilities', () => {
     })
 
     it('hands the strategies an empty search query when the message names no title', async () => {
-      mockInvoke
-        .mockResolvedValueOnce(new AIMessage({ content: '' }))
-        .mockResolvedValueOnce(
-          new AIMessage({
-            content: JSON.stringify({ error: 'no_selection_found' }),
-          }),
-        )
-        .mockResolvedValueOnce(
-          new AIMessage({
-            content: JSON.stringify({ error: 'no_tv_selection_found' }),
-          }),
-        )
+      llm
+        .script('media.extractQuery', '')
+        .script('media.parseSelection', { error: 'no_selection_found' })
+        .script('media.parseTvSelection', { error: 'no_tv_selection_found' })
 
       const result = await service.parseInitialSelection(
         'get me that movie with Ryan Gosling',
@@ -294,7 +223,11 @@ describe('ParsingUtilities', () => {
     })
 
     it('should use complete fallback when all LLM operations fail', async () => {
-      mockInvoke.mockRejectedValue(new Error('Complete failure'))
+      const failure = new Error('Complete failure')
+      llm
+        .script('media.extractQuery', failure)
+        .script('media.parseSelection', failure)
+        .script('media.parseTvSelection', failure)
 
       const result = await service.parseInitialSelection('download inception')
 
@@ -306,13 +239,6 @@ describe('ParsingUtilities', () => {
   })
 
   describe('Concurrent Operations (ISSUE-6)', () => {
-    beforeEach(() => {
-      // Ensure clean mock state for concurrent tests - reset implementation
-      jest.clearAllMocks()
-      mockInvoke.mockReset()
-      mockWithStructuredOutput.mockReset()
-    })
-
     it('should handle 10 concurrent parseInitialSelection calls without race conditions', async () => {
       // Setup: Create 10 different movie requests
       const requests = Array.from({ length: 10 }, (_, i) => ({
@@ -320,17 +246,15 @@ describe('ParsingUtilities', () => {
         expectedQuery: `Movie ${i}`,
       }))
 
-      // Mock responses for each concurrent call
       // Each call makes 3 LLM invocations: searchQuery, searchSelection, tvSelection
-      requests.forEach(req => {
-        mockInvoke
-          // Search query extraction
-          .mockResolvedValueOnce(new AIMessage({ content: req.expectedQuery }))
-          // Search selection (will be caught and return null)
-          .mockRejectedValueOnce(new Error('No selection'))
-          // TV selection (will be caught and return null)
-          .mockRejectedValueOnce(new Error('No TV selection'))
-      })
+      llm
+        .script('media.extractQuery', call => {
+          const input = inputOf(call.messages)
+          return requests.find(r => r.content === input)?.expectedQuery ?? ''
+        })
+        // Search and TV selection fail and are caught as null
+        .script('media.parseSelection', new Error('No selection'))
+        .script('media.parseTvSelection', new Error('No TV selection'))
 
       // Execute: Run all requests concurrently
       const results = await Promise.all(
@@ -346,7 +270,7 @@ describe('ParsingUtilities', () => {
       })
 
       // Verify all LLM calls were made (10 requests × 3 calls each)
-      expect(mockInvoke).toHaveBeenCalledTimes(30)
+      expect(llm.calls).toHaveLength(30)
     })
 
     it('should handle parseInitialSelection with slow LLM responses', async () => {
@@ -357,18 +281,24 @@ describe('ParsingUtilities', () => {
         delay: 500 + i * 200, // Varying delays: 500ms, 700ms, 900ms, 1100ms, 1300ms
       }))
 
-      // Mock slow responses
-      requests.forEach(req => {
-        mockInvoke
-          // Search query with delay
-          .mockImplementationOnce(async () => {
-            await new Promise(resolve => setTimeout(resolve, req.delay))
-            return new AIMessage({ content: req.expectedQuery })
-          })
-          // Search selection - quick failure
-          .mockRejectedValueOnce(new Error('No selection'))
-          // TV selection - quick failure
-          .mockRejectedValueOnce(new Error('No TV selection'))
+      llm
+        .script('media.extractQuery', call => {
+          const input = inputOf(call.messages)
+          return requests.find(r => r.content === input)?.expectedQuery ?? ''
+        })
+        .script('media.parseSelection', new Error('No selection'))
+        .script('media.parseTvSelection', new Error('No TV selection'))
+
+      // Delay the search query extraction like a slow model would
+      const respond = llm.call.bind(llm)
+      const callSpy = jest.spyOn(llm, 'call').mockImplementation(async call => {
+        if (call.operation === 'media.extractQuery') {
+          const delay = requests.find(
+            r => r.content === inputOf(call.messages),
+          )?.delay
+          await new Promise(resolve => setTimeout(resolve, delay))
+        }
+        return respond(call)
       })
 
       // Execute: Run all requests concurrently
@@ -390,7 +320,7 @@ describe('ParsingUtilities', () => {
       // Max delay is 1300ms, allow 2000ms buffer for processing
       expect(totalTime).toBeLessThan(3000)
 
-      expect(mockInvoke).toHaveBeenCalledTimes(15)
+      expect(callSpy).toHaveBeenCalledTimes(15)
     })
 
     it('should handle concurrent extractSearchQueryWithLLM calls', async () => {
@@ -400,9 +330,9 @@ describe('ParsingUtilities', () => {
         expected: `Movie ${i}`,
       }))
 
-      // Mock responses
-      queries.forEach(q => {
-        mockInvoke.mockResolvedValueOnce(new AIMessage({ content: q.expected }))
+      llm.script('media.extractQuery', call => {
+        const input = inputOf(call.messages)
+        return queries.find(q => q.input === input)?.expected ?? ''
       })
 
       // Execute: Run all queries concurrently
@@ -416,7 +346,7 @@ describe('ParsingUtilities', () => {
         expect(result).toBe(queries[index].expected)
       })
 
-      expect(mockInvoke).toHaveBeenCalledTimes(10)
+      expect(llm.calls).toHaveLength(10)
     })
 
     it('should handle concurrent parseSearchSelection calls', async () => {
@@ -444,11 +374,9 @@ describe('ParsingUtilities', () => {
         },
       ]
 
-      // Mock responses
-      selections.forEach(s => {
-        mockInvoke.mockResolvedValueOnce(
-          new AIMessage({ content: JSON.stringify(s.expected) }),
-        )
+      llm.script('media.parseSelection', call => {
+        const input = inputOf(call.messages)
+        return selections.find(s => s.input === input)?.expected ?? {}
       })
 
       // Execute: Run all selections concurrently
@@ -462,41 +390,48 @@ describe('ParsingUtilities', () => {
         expect(result).toEqual(selections[index].expected)
       })
 
-      expect(mockInvoke).toHaveBeenCalledTimes(5)
+      expect(llm.calls).toHaveLength(5)
     })
 
     it('should handle mixed concurrent operations across different methods', async () => {
-      // Setup: Use a lookup map for cleaner mock responses
-      const mockResponseMap: Record<string, AIMessage> = {
-        'download inception': new AIMessage({ content: 'Inception' }),
-        'get the matrix': new AIMessage({ content: 'The Matrix' }),
-        'the first one': new AIMessage({
-          content: JSON.stringify({ selectionType: 'ordinal', value: '1' }),
-        }),
-        'from 2010': new AIMessage({
-          content: JSON.stringify({ selectionType: 'year', value: '2010' }),
-        }),
-        'delete breaking bad': new AIMessage({ content: 'Breaking Bad' }),
-        'remove the wire': new AIMessage({ content: 'The Wire' }),
-        'season 1': new AIMessage({
-          content: JSON.stringify({ selection: [{ season: 1 }] }),
-        }),
-        'entire series': new AIMessage({ content: JSON.stringify({}) }),
-      }
-
-      mockInvoke.mockImplementation(async messages => {
-        const content = messages[1]?.content || ''
-        // Use map lookup to find matching response by checking if content includes the key
-        const matchedKey = Object.keys(mockResponseMap).find(key =>
-          content.includes(key),
-        )
-
-        if (matchedKey) {
-          return mockResponseMap[matchedKey]
+      // Setup: one scripted answer per operation, looked up by user input
+      const answers =
+        (map: Record<string, string | object>) =>
+        (call: LlmCall<unknown>): string | object => {
+          const input = inputOf(call.messages)
+          if (input in map) return map[input]
+          throw new Error(`Unexpected mock call for content: ${input}`)
         }
 
-        throw new Error(`Unexpected mock call for content: ${content}`)
-      })
+      llm
+        .script(
+          'media.extractQuery',
+          answers({
+            'download inception': 'Inception',
+            'get the matrix': 'The Matrix',
+          }),
+        )
+        .script(
+          'media.parseSelection',
+          answers({
+            'the first one': { selectionType: 'ordinal', value: '1' },
+            'from 2010': { selectionType: 'year', value: '2010' },
+          }),
+        )
+        .script(
+          'media.extractTvQuery',
+          answers({
+            'delete breaking bad': 'Breaking Bad',
+            'remove the wire': 'The Wire',
+          }),
+        )
+        .script(
+          'media.parseTvSelection',
+          answers({
+            'season 1': { selection: [{ season: 1 }] },
+            'entire series': {},
+          }),
+        )
 
       // Execute: Call different methods concurrently
       const results = await Promise.all([
@@ -521,40 +456,29 @@ describe('ParsingUtilities', () => {
       expect(results[6]).toEqual({ selection: [{ season: 1 }] })
       expect(results[7]).toEqual({})
 
-      expect(mockInvoke).toHaveBeenCalledTimes(8)
+      expect(llm.calls).toHaveLength(8)
     })
 
     it('should handle concurrent operations with mixed success and failures', async () => {
-      // Setup: Use a lookup map for cleaner mock responses
-      let callCount = 0
-
-      const mockResponseMap: Record<string, AIMessage | (() => never)> = {
-        'success 1': new AIMessage({ content: 'Success 1' }),
-        'success 2': new AIMessage({ content: 'Success 2' }),
-        'success 3': new AIMessage({ content: 'Success 3' }),
-        'valid selection': new AIMessage({
-          content: JSON.stringify({ selectionType: 'ordinal', value: '1' }),
-        }),
-        'invalid selection': () => {
-          throw new Error('Parse error')
-        },
-      }
-
-      mockInvoke.mockImplementation(async messages => {
-        callCount++
-        const content = messages[1]?.content || ''
-
-        const response = mockResponseMap[content]
-        if (response !== undefined) {
-          // If it's a function, call it (for errors)
-          if (typeof response === 'function') {
-            response()
+      // Setup: one scripted answer per operation, looked up by user input
+      llm
+        .script('media.extractQuery', call => {
+          const input = inputOf(call.messages)
+          const answers: Record<string, string> = {
+            'success 1': 'Success 1',
+            'success 2': 'Success 2',
+            'success 3': 'Success 3',
           }
-          return response
-        }
-
-        throw new Error(`Unexpected mock call for content: ${content}`)
-      })
+          if (input in answers) return answers[input]
+          throw new Error(`Unexpected mock call for content: ${input}`)
+        })
+        .script('media.parseSelection', call => {
+          const input = inputOf(call.messages)
+          if (input === 'valid selection') {
+            return { selectionType: 'ordinal', value: '1' }
+          }
+          throw new Error('Parse error')
+        })
 
       // Execute: Run with Promise.allSettled to capture both successes and failures
       const results = await Promise.allSettled([
@@ -585,7 +509,7 @@ describe('ParsingUtilities', () => {
         })
       }
 
-      // Fourth should fail (after 3 retry attempts by RetryService)
+      // Fourth should fail with the model's error
       expect(results[3].status).toBe('rejected')
       if (results[3].status === 'rejected') {
         expect(results[3].reason.message).toContain('Parse error')
@@ -597,8 +521,8 @@ describe('ParsingUtilities', () => {
         expect(results[4].value).toBe('Success 3')
       }
 
-      // Verify mock was called: 3 successes + 1 valid selection + 3 retries for invalid + 1 final success = 8
-      expect(callCount).toBeGreaterThanOrEqual(5)
+      // Every method attempted its LLM call
+      expect(llm.calls.length).toBeGreaterThanOrEqual(5)
     })
   })
 })

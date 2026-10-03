@@ -4,7 +4,6 @@ import { Counter, Gauge, Histogram, register } from 'prom-client'
 type MessageHandler = 'chat' | 'keywords'
 type HandledStatus = 'success' | 'error'
 type LlmStatus = 'success' | 'error'
-type LlmResponseType = 'default' | 'image' | 'math' | 'media' | 'reminder'
 type TokenType = 'prompt_tokens' | 'completion_tokens' | 'total_tokens'
 type ImageGenerationStatus = 'success' | 'error'
 type ResponseSentStatus =
@@ -31,15 +30,15 @@ const messagesHandledTotal = new Counter({
 
 const llmRequestsTotal = new Counter({
   name: 'tdr_bot_llm_requests_total',
-  help: 'Total number of LLM graph invocations by response type and outcome',
-  labelNames: ['response_type', 'status'],
+  help: 'Total number of LLM graph invocations by skill and outcome',
+  labelNames: ['skill', 'status'],
   registers: [register],
 })
 
 const llmRequestDurationSeconds = new Histogram({
   name: 'tdr_bot_llm_request_duration_seconds',
-  help: 'End-to-end duration of LLM graph invocations by response type',
-  labelNames: ['response_type'],
+  help: 'End-to-end duration of LLM graph invocations by skill',
+  labelNames: ['skill'],
   buckets: [0.5, 1, 2.5, 5, 10, 15, 20, 30, 45, 60],
   registers: [register],
 })
@@ -53,8 +52,8 @@ const llmTokensTotal = new Counter({
 
 const intentDetectionsTotal = new Counter({
   name: 'tdr_bot_intent_detections_total',
-  help: 'Total number of intent detections by classified response type',
-  labelNames: ['response_type'],
+  help: 'Total number of intent detections by routed skill',
+  labelNames: ['skill'],
   registers: [register],
 })
 
@@ -132,16 +131,13 @@ export class TdrBotMetricsService {
   }
 
   /** Records an LLM graph invocation keyed by response type and success/error. */
-  llmRequest(responseType: LlmResponseType, status: LlmStatus): void {
-    llmRequestsTotal.inc({ response_type: responseType, status })
+  llmRequest(skill: string, status: LlmStatus): void {
+    llmRequestsTotal.inc({ skill, status })
   }
 
   /** Observes the end-to-end duration of an LLM graph invocation (converted to seconds). */
-  observeLlmDuration(responseType: LlmResponseType, durationMs: number): void {
-    llmRequestDurationSeconds.observe(
-      { response_type: responseType },
-      durationMs / 1000,
-    )
+  observeLlmDuration(skill: string, durationMs: number): void {
+    llmRequestDurationSeconds.observe({ skill }, durationMs / 1000)
   }
 
   /** Increments the token usage counter by the given amount. */
@@ -149,9 +145,9 @@ export class TdrBotMetricsService {
     llmTokensTotal.inc({ type }, count)
   }
 
-  /** Tracks which response type was classified by intent detection. */
-  intentDetected(responseType: LlmResponseType): void {
-    intentDetectionsTotal.inc({ response_type: responseType })
+  /** Tracks which skill the router picked. */
+  intentDetected(skill: string): void {
+    intentDetectionsTotal.inc({ skill })
   }
 
   /** Records a DALL-E image generation attempt (success or error). */

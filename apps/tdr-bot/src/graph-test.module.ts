@@ -1,12 +1,12 @@
 import { Logger, Module } from '@nestjs/common'
 import { LoggerModule } from 'nestjs-pino'
 
+import { GRAPH_TEST_THREAD_ID } from './llm/graph/thread-id'
 import { LLMModule } from './messages/llm/llm.module'
 import { LLMOrchestrationService } from './messages/llm/llm-orchestration.service'
-import { StateModule } from './state/state.module'
 
 @Module({
-  imports: [LoggerModule.forRoot(), StateModule, LLMModule],
+  imports: [LoggerModule.forRoot(), LLMModule],
   providers: [],
 })
 export class GraphTestModule {
@@ -23,6 +23,7 @@ export class GraphTestModule {
       const response = await this.llmService.sendMessage({
         message,
         user: 'paulbeenis420',
+        channelId: GRAPH_TEST_THREAD_ID,
       })
 
       console.log('sendMessageV2 response:', { response })

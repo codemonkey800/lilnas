@@ -1,0 +1,23 @@
+//-
+  The shell every page extends. Anything that would otherwise be copy-pasted
+  into each page — the head, fonts, the page frame — belongs here.
+
+  The builder inlines the compiled Tailwind (and src/runtime.js, if you add
+  one) just before </head>, so nothing here needs to link out except fonts.
+
+  Blocks a page fills in:
+    title    the full <title>
+    head     anything extra in <head> (rare)
+    content  the page body
+
+doctype html
+html(lang='en')
+  head
+    meta(charset='utf-8')
+    meta(name='viewport' content='width=device-width, initial-scale=1')
+    title
+      block title
+    block head
+  body.bg-bg.text-ink.antialiased
+    main.mx-auto.max-w-6xl.px-6.py-10
+      block content
