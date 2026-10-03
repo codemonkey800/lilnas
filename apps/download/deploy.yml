@@ -22,8 +22,8 @@ services:
       # Radarr (/movies) and Sonarr (/tv) report in their file APIs - the
       # save-to-device route (Phase 7) opens those paths verbatim. ro: this
       # app must never write the library.
-      - /storage/media-library/movies:/movies:ro
-      - /storage/media-library/tv:/tv:ro
+      - /storage/movies:/movies:ro
+      - /storage/tv:/tv:ro
     labels:
       - traefik.enable=true
       - traefik.http.routers.download.rule=Host(`download.lilnas.io`)

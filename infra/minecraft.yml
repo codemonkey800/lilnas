@@ -1,5 +1,5 @@
 # Vanilla Minecraft Server Configuration
-# Previous SevTech: Ages modpack backed up to: /storage/backup-archive/minecraft-sevtech-backup-20250816.7z
+# Previous SevTech: Ages modpack backed up to: /storage/archive/minecraft-sevtech-backup-20250816.7z
 services:
   minecraft:
     image: itzg/minecraft-server:latest

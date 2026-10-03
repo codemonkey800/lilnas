@@ -18,4 +18,4 @@ services:
     volumes:
       - /storage/app-data/valheim/config:/config
       - /storage/app-data/valheim/data:/opt/valheim
-      - /storage/backup-archive/valheim:/config/backups
+      - /storage/archive/valheim:/config/backups

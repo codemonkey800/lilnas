@@ -15,7 +15,7 @@ services:
       TZ: America/Los_Angeles
     volumes:
       - /storage/app-data/sonarr:/config
-      - /storage/media-library/tv:/tv
+      - /storage/tv:/tv
       - /storage/downloads/completed:/downloads
     labels:
       - traefik.enable=true
@@ -35,7 +35,7 @@ services:
       TZ: America/Los_Angeles
     volumes:
       - /storage/app-data/radarr:/config
-      - /storage/media-library/movies:/movies
+      - /storage/movies:/movies
       - /storage/downloads/completed:/downloads
     labels:
       - traefik.enable=true
@@ -75,8 +75,8 @@ services:
       TZ: America/Los_Angeles
     volumes:
       - /storage/app-data/emby:/config # Configuration directory
-      - /storage/media-library/tv:/tv # Media directory
-      - /storage/media-library/movies:/movies # Media directory
+      - /storage/tv:/tv # Media directory
+      - /storage/movies:/movies # Media directory
     devices:
       - /dev/dri:/dev/dri # VAAPI/NVDEC/NVENC render nodes
     labels:

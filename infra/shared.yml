@@ -15,7 +15,7 @@ services:
     env_file:
       - .env.storage
     volumes:
-      - /storage/fast-staging/minio:/data
+      - /storage/app-data/minio:/data
     healthcheck:
       test: ['CMD', 'mc', 'ready', 'local']
       interval: 5s

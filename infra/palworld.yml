@@ -16,4 +16,4 @@ services:
       - .env.palworld
     volumes:
       - /storage/app-data/palworld/:/palworld/
-      - /storage/backup-archive/palworld/v2.7.1/:/palworld/backups/
+      - /storage/archive/palworld/v2.7.1/:/palworld/backups/
