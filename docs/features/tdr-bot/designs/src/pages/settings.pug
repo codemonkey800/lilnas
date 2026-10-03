@@ -1,0 +1,128 @@
+extends ../layout/page.pug
+include ../mixins/ui.pug
+
+block title
+  | Settings — tdr-bot mockups
+
+//-
+  Models are listed once; each state frame picks from them. `temp` marks a
+  chat model that accepts temperature; the others take a reasoning effort.
+block content
+  - const models = { chat: [{ id: 'gpt-4.1', desc: 'Flagship non-reasoning model. Fast, strong tool use.', inp: 2.0, out: 8.0, temp: true }, { id: 'gpt-4.1-mini', desc: 'Cheaper everyday chat. Good default.', inp: 0.4, out: 1.6, temp: true }, { id: 'gpt-5-mini', desc: 'Reasoning model. Slower, better on hard questions.', inp: 0.25, out: 2.0, temp: false }], reasoning: [{ id: 'gpt-5', desc: 'Best reasoning, used for math and planning.', inp: 1.25, out: 10.0 }, { id: 'gpt-5-mini', desc: 'Light reasoning at a low price.', inp: 0.25, out: 2.0 }, { id: 'o4-mini', desc: 'Compact o-series reasoning model.', inp: 1.1, out: 4.4 }], image: [{ id: 'gpt-image-1', desc: 'Image generation and edits.', inp: 5.0, out: 40.0 }, { id: 'dall-e-3', desc: 'Legacy image generation.', inp: 0, out: 0 }] }
+  - const find = (role, id) => models[role].find(m => m.id === id)
+  - const price = m => (m.inp || m.out ? '$' + m.inp.toFixed(2) + ' in / $' + m.out.toFixed(2) + ' out per 1M' : 'per-image pricing')
+
+  mixin modelOption(m, selected)
+    div(class='flex items-start justify-between gap-4 px-3 py-3.5 ' + (selected ? 'bg-accent/20' : ''))
+      div
+        div(class='font-mono text-sm')= m.id
+        div(class='mt-1.5 text-xs leading-relaxed text-ink-3')= m.desc
+      div(class='shrink-0 text-right text-xs text-ink-2')= price(m)
+
+  mixin modelSelect(role, label, id, opts)
+    - opts = opts || {}
+    - const m = find(role, id)
+    div
+      label(class='mb-1 block text-xs font-medium text-ink-2')= label
+      div(class='rounded-lg border bg-bg ' + (opts.error ? 'border-bad' : opts.open ? 'border-accent' : 'border-line'))
+        if opts.error
+          div(class='flex items-start justify-between gap-4 px-3 py-3.5')
+            div
+              div(class='font-mono text-sm')= opts.error.value
+              div(class='mt-1.5 text-xs text-bad') Unknown model
+            div(class='text-xs text-ink-3') ▾
+        else
+          div(class='flex items-start justify-between gap-4 px-3 py-3.5')
+            div
+              div(class='font-mono text-sm')= m.id
+              div(class='mt-1.5 text-xs leading-relaxed text-ink-3')= m.desc
+            div(class='shrink-0 text-right text-xs text-ink-2')
+              div= price(m)
+              div(class='text-ink-3') ▾
+        if opts.open
+          div(class='divide-y divide-line border-t border-line')
+            each o in models[role]
+              - const sel = o.id === id
+              +modelOption(o, sel)
+      if opts.error
+        p(class='mt-1 text-xs text-bad')
+          | “#{opts.error.value}” is not in the allow-list. Pick one of the models above.
+
+  mixin settingsPanel(s)
+    //- s: { chat, reasoning, image, prompt, status, open, error }
+    - const chat = find('chat', s.chat)
+    - const dirty = s.status === 'dirty' || s.status === 'saving' || s.status === 'error'
+    - const btnOff = !dirty || s.status === 'saving'
+    div(class='space-y-4')
+      +card('Models', 'One model per role. Prices are USD per 1M tokens.')
+        div(class='space-y-4')
+          +modelSelect('chat', 'Chat', s.chat, { open: s.open, error: s.error })
+          +modelSelect('reasoning', 'Reasoning', s.reasoning)
+          +modelSelect('image', 'Image', s.image)
+      +card('Generation', chat.temp ? 'Temperature applies to this chat model.' : chat.id + ' is a reasoning model and has no temperature.')
+        if chat.temp
+          div
+            div(class='mb-2 flex items-center justify-between text-xs')
+              label(class='font-medium text-ink-2') Temperature
+              span(class='font-mono text-ink') 0.7
+            div(class='relative h-1.5 rounded-full bg-raised')
+              div(class='absolute inset-y-0 left-0 w-[35%] rounded-full bg-accent')
+              div(class='absolute left-[35%] top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-accent-soft bg-white')
+            div(class='mt-1 flex justify-between text-[11px] text-ink-3')
+              span 0 · precise
+              span 2 · creative
+        else
+          fieldset
+            legend(class='mb-2 text-xs font-medium text-ink-2') Reasoning effort
+            div(class='flex gap-3')
+              each lvl in ['low', 'medium', 'high']
+                label(class='flex flex-1 items-center gap-2 rounded-lg border px-3 py-2 text-sm ' + (lvl === 'medium' ? 'border-accent bg-accent/15' : 'border-line'))
+                  span(class='grid size-4 place-items-center rounded-full border ' + (lvl === 'medium' ? 'border-accent-soft' : 'border-line'))
+                    if lvl === 'medium'
+                      span(class='size-2 rounded-full bg-accent-soft')
+                  = lvl
+      +card('System prompt', 'Prepended to every conversation.')
+        div(class='rounded-lg border border-line bg-bg p-3 font-mono text-xs leading-relaxed text-ink-2')= s.prompt
+        div(class='mt-1.5 flex justify-between text-[11px] text-ink-3')
+          span Markdown allowed
+          span #{s.prompt.length} / 4000
+      div(class='flex items-center gap-3')
+        +btn('primary', btnOff)
+          if s.status === 'saving'
+            span(class='size-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white')
+            | Saving…
+          else
+            | Save
+        +btn('ghost', btnOff) Reset
+        div(class='ml-auto text-xs')
+          case s.status
+            when 'clean'
+              span(class='text-ink-3') Saved 2 Oct 2026, 21:14
+            when 'dirty'
+              +chip('warn') Unsaved changes
+            when 'saving'
+              span(class='text-ink-3') Writing to the database…
+            when 'saved'
+              +chip('ok') ✓ Saved 3 Oct 2026, 09:41
+            when 'error'
+              +chip('bad') Can't save — fix the highlighted field
+
+  - const prompt = 'You are tdr-bot, a helpful assistant in a private Discord server. Keep replies short and friendly. Use tools when they help; never invent links.'
+  - const base = { chat: 'gpt-4.1-mini', reasoning: 'gpt-5', image: 'gpt-image-1', prompt: prompt, status: 'clean' }
+
+  h1(class='text-2xl font-semibold') Settings
+  p(class='mb-8 mt-1 text-sm text-ink-2') Runtime LLM configuration. Each frame below is the same screen in a different state.
+
+  div(class='grid gap-8 lg:grid-cols-2')
+    +frame('1 · Clean', 'Loaded from the database, nothing edited. Chat select shown open.')
+      +settingsPanel(Object.assign({}, base, { open: true }))
+    +frame('2 · Dirty', 'Chat model changed and prompt edited; Save and Reset enabled.')
+      +settingsPanel(Object.assign({}, base, { chat: 'gpt-4.1', status: 'dirty', prompt: prompt + ' Answer in the language the user wrote in.' }))
+    +frame('3 · Saving', 'Request in flight; controls disabled.')
+      +settingsPanel(Object.assign({}, base, { chat: 'gpt-4.1', status: 'saving' }))
+    +frame('4 · Saved', 'Confirmation with the saved-at timestamp.')
+      +settingsPanel(Object.assign({}, base, { chat: 'gpt-4.1', status: 'saved' }))
+    +frame('5 · Error', 'Server rejects an unknown model id; the field is flagged inline.')
+      +settingsPanel(Object.assign({}, base, { status: 'error', error: { value: 'gpt-4.5-turbo' } }))
+    +frame('6 · Reasoning-model variant', 'Chat model has no temperature, so Generation shows reasoning effort instead.')
+      +settingsPanel(Object.assign({}, base, { chat: 'gpt-5-mini', status: 'dirty' }))

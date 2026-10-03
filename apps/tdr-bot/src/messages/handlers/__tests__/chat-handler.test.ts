@@ -53,7 +53,7 @@ function makeTypingIndicator(): jest.Mocked<TypingIndicatorService> {
 }
 
 function makeContext(): MessageContext {
-  return { requestId: 'req-1', userId: 'user-123' }
+  return { requestId: 'req-1', userId: 'user-123', channelId: 'channel-1' }
 }
 
 describe('ChatHandler', () => {
@@ -186,7 +186,11 @@ describe('ChatHandler', () => {
 
       expect(typingIndicator.start).toHaveBeenCalledWith(message.channel)
       expect(llm.sendMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ message: 'hello', userId: 'user-123' }),
+        expect.objectContaining({
+          message: 'hello',
+          userId: 'user-123',
+          channelId: message.channelId,
+        }),
       )
       expect(responseService.sendReply).toHaveBeenCalled()
       expect(typingIndicator.stop).toHaveBeenCalledWith(message.channelId)

@@ -1,8 +1,7 @@
 import { SystemMessage } from '@langchain/core/messages'
-import { ChatOpenAI } from '@langchain/openai'
 import { Injectable, Logger } from '@nestjs/common'
 
-import { REASONING_TEMPERATURE } from 'src/constants/llm'
+import { LlmClient } from 'src/llm/client/llm-client'
 import { RadarrService } from 'src/media/services/radarr.service'
 import { SonarrService } from 'src/media/services/sonarr.service'
 import { StrategyRequestParams } from 'src/media-operations/request-handling/types/request-context.type'
@@ -13,9 +12,7 @@ import {
   formatTimeRemaining,
 } from 'src/media-operations/request-handling/utils/formatting.utils'
 import { ValidationUtilities } from 'src/media-operations/request-handling/utils/validation.utils'
-import { StateService } from 'src/state/state.service'
 import { DOWNLOAD_STATUS_RESPONSE_PROMPT } from 'src/utils/prompts'
-import { RetryService } from 'src/utils/retry.service'
 
 import { BaseMediaStrategy } from './base/base-media-strategy'
 
@@ -32,22 +29,11 @@ export class DownloadStatusStrategy extends BaseMediaStrategy {
   constructor(
     private readonly radarrService: RadarrService,
     private readonly sonarrService: SonarrService,
-    private readonly state: StateService,
-    private readonly retryService: RetryService,
+    llm: LlmClient,
     private readonly validationUtilities: ValidationUtilities,
   ) {
     super()
-  }
-
-  /**
-   * Get reasoning model for status response generation
-   */
-  private getReasoningModel(): ChatOpenAI {
-    const state = this.state.getState()
-    return new ChatOpenAI({
-      model: state.reasoningModel,
-      temperature: REASONING_TEMPERATURE,
-    })
+    this.llm = llm
   }
 
   /**
@@ -92,21 +78,11 @@ export class DownloadStatusStrategy extends BaseMediaStrategy {
           'No downloads are currently active. The queue is clear! Let the user know in a friendly way and offer to help them start new downloads.',
         )
 
-        const response = await this.retryService.executeWithRetry(
-          () =>
-            this.getReasoningModel().invoke([
-              noDownloadsResponse,
-              ...messages,
-              message,
-            ]),
-          {
-            maxAttempts: 3,
-            baseDelay: 1000,
-            maxDelay: 30000,
-            timeout: 30000,
-          },
-          'OpenAI-downloadStatusNoDownloads',
-        )
+        const { message: response } = await this.llm.call({
+          operation: 'media.downloadStatusEmpty',
+          role: 'reasoning',
+          messages: [noDownloadsResponse, ...messages, message],
+        })
 
         return {
           images: [],
@@ -159,22 +135,16 @@ export class DownloadStatusStrategy extends BaseMediaStrategy {
         `ACTIVE DOWNLOADS FOUND: ${downloadData.summary.totalMovies} movies and ${downloadData.summary.totalTvDownloads} TV downloads (${downloadData.summary.totalEpisodes} episodes) currently downloading. Use ONLY the data provided below and do NOT mention any titles that are not in this data: ${JSON.stringify(downloadData)}`,
       )
 
-      const response = await this.retryService.executeWithRetry(
-        () =>
-          this.getReasoningModel().invoke([
-            DOWNLOAD_STATUS_RESPONSE_PROMPT,
-            contextMessage,
-            ...messages,
-            message,
-          ]),
-        {
-          maxAttempts: 3,
-          baseDelay: 1000,
-          maxDelay: 30000,
-          timeout: 30000,
-        },
-        'OpenAI-downloadStatus',
-      )
+      const { message: response } = await this.llm.call({
+        operation: 'media.downloadStatus',
+        role: 'reasoning',
+        messages: [
+          DOWNLOAD_STATUS_RESPONSE_PROMPT,
+          contextMessage,
+          ...messages,
+          message,
+        ],
+      })
 
       // Validate response for potential hallucinations
       const movieTitles = movieDownloads
@@ -204,23 +174,17 @@ export class DownloadStatusStrategy extends BaseMediaStrategy {
       )
 
       // Fallback response when services are unavailable
-      const errorResponse = await this.retryService.executeWithRetry(
-        () =>
-          this.getReasoningModel().invoke([
-            new SystemMessage(
-              'The download services are currently unavailable. Respond helpfully and suggest they try again later.',
-            ),
-            ...messages,
-            message,
-          ]),
-        {
-          maxAttempts: 3,
-          baseDelay: 1000,
-          maxDelay: 30000,
-          timeout: 30000,
-        },
-        'OpenAI-downloadStatusError',
-      )
+      const { message: errorResponse } = await this.llm.call({
+        operation: 'media.downloadStatusError',
+        role: 'reasoning',
+        messages: [
+          new SystemMessage(
+            'The download services are currently unavailable. Respond helpfully and suggest they try again later.',
+          ),
+          ...messages,
+          message,
+        ],
+      })
 
       return {
         images: [],

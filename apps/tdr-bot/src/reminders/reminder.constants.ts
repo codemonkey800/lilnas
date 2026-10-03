@@ -21,6 +21,3 @@ export const MAX_REMINDER_WHAT_LENGTH = 500
 
 /** NestJS injection token for the Tavily web-search tool. */
 export const TAVILY_SEARCH_TOKEN = 'TAVILY_SEARCH'
-
-/** NestJS injection token for the DALL-E image generation wrapper. */
-export const DALLE_WRAPPER_TOKEN = 'DALLE_WRAPPER'

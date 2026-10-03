@@ -1,7 +1,5 @@
 import { z } from 'zod'
 
-import { BaseContext } from 'src/message-handler/context/interfaces/context.interface'
-
 /**
  * Determines the side-effect performed when a reminder fires.
  *
@@ -33,18 +31,8 @@ export const ReminderExtractionSchema = z.object({
   reminderIdToCancel: z.string().nullable(),
   channelId: z.string().nullable(),
   targetUserId: z.string().nullable().default(null),
-  actionType: z
-    .nativeEnum(ReminderActionType)
-    .default(ReminderActionType.Default),
+  actionType: z.enum(ReminderActionType).default(ReminderActionType.Default),
 })
 
 /** Parsed reminder extraction output from the LLM. */
 export type ReminderExtraction = z.infer<typeof ReminderExtractionSchema>
-
-/**
- * Conversational context stored between turns while the user
- * is providing missing reminder details (e.g. day, time).
- */
-export interface ReminderContext extends BaseContext {
-  partialExtraction: Partial<ReminderExtraction>
-}

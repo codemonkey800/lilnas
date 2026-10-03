@@ -1,19 +1,18 @@
-import { HumanMessage } from '@langchain/core/messages'
+import { BaseMessage, HumanMessage } from '@langchain/core/messages'
 import { getErrorMessage } from '@lilnas/utils/error'
 import { Injectable, Logger } from '@nestjs/common'
 
+import { PromptGenerationService } from 'src/llm/skills/media/prompt-generation.service'
 import { SonarrService } from 'src/media/services/sonarr.service'
-import type {
+import {
+  MediaContextType,
   StrategyRequestParams,
   StrategyResult,
 } from 'src/media-operations/request-handling/types'
 import { ParsingUtilities } from 'src/media-operations/request-handling/utils/parsing.utils'
 import { SelectionUtilities } from 'src/media-operations/request-handling/utils/selection.utils'
-import { ContextManagementService } from 'src/message-handler/context/context-management.service'
-import { PromptGenerationService } from 'src/message-handler/services/prompts/prompt-generation.service'
 import type { SearchSelection } from 'src/schemas/search-selection'
 import type { TvShowSelection } from 'src/schemas/tv-show'
-import { StateService } from 'src/state/state.service'
 
 import { BaseMediaStrategy } from './base/base-media-strategy'
 import { MAX_SEARCH_RESULTS } from './base/strategy.constants'
@@ -41,12 +40,8 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
     private readonly promptService: PromptGenerationService,
     private readonly parsingUtilities: ParsingUtilities,
     private readonly selectionUtilities: SelectionUtilities,
-    state: StateService,
-    contextService: ContextManagementService,
   ) {
     super()
-    this.stateService = state
-    this.contextService = contextService
   }
 
   /**
@@ -87,7 +82,7 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
    */
   private async handleNewTvShowDelete(
     message: HumanMessage,
-    messages: HumanMessage[],
+    messages: BaseMessage[],
     userId: string,
   ): Promise<StrategyResult> {
     this.logger.log(
@@ -221,13 +216,6 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
             originalTvSelection: tvSelection || undefined,
           }
 
-          // Store context in ContextManagementService
-          await this.contextService.setContext(
-            userId,
-            'tvDelete',
-            tvShowDeleteContext,
-          )
-
           const needSeriesResponse =
             await this.promptService.generateTvShowDeleteChatResponse(
               messages,
@@ -239,6 +227,10 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
           return {
             images: [],
             messages: messages.concat(needSeriesResponse),
+            pendingContext: {
+              type: MediaContextType.TvDelete,
+              data: tvShowDeleteContext,
+            },
           }
         }
       } else {
@@ -301,13 +293,6 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
           originalTvSelection: tvSelection || undefined,
         }
 
-        // Store context in ContextManagementService
-        await this.contextService.setContext(
-          userId,
-          'tvDelete',
-          tvShowDeleteContext,
-        )
-
         // Determine what we need to ask for
         if (!searchSelection && !tvSelection) {
           // Need both selections
@@ -323,6 +308,10 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
           return {
             images: [],
             messages: messages.concat(response),
+            pendingContext: {
+              type: MediaContextType.TvDelete,
+              data: tvShowDeleteContext,
+            },
           }
         } else if (!searchSelection || (searchSelection && tvSelection)) {
           // Need result selection (either no search selection, or search selection didn't match)
@@ -338,6 +327,10 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
           return {
             images: [],
             messages: messages.concat(response),
+            pendingContext: {
+              type: MediaContextType.TvDelete,
+              data: tvShowDeleteContext,
+            },
           }
         } else {
           // Need series selection (have valid search selection but no TV selection)
@@ -353,6 +346,10 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
           return {
             images: [],
             messages: messages.concat(response),
+            pendingContext: {
+              type: MediaContextType.TvDelete,
+              data: tvShowDeleteContext,
+            },
           }
         }
       }
@@ -384,7 +381,7 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
    */
   private async handleTvShowDeleteSelection(
     message: HumanMessage,
-    messages: HumanMessage[],
+    messages: BaseMessage[],
     tvShowDeleteContext: TvShowDeleteContext,
     userId: string,
   ): Promise<StrategyResult> {
@@ -438,6 +435,10 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
         return {
           images: [],
           messages: messages.concat(response),
+          pendingContext: {
+            type: MediaContextType.TvDelete,
+            data: tvShowDeleteContext,
+          },
         }
       }
 
@@ -472,6 +473,10 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
         return {
           images: [],
           messages: messages.concat(response),
+          pendingContext: {
+            type: MediaContextType.TvDelete,
+            data: tvShowDeleteContext,
+          },
         }
       }
 
@@ -499,11 +504,14 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
         return {
           images: [],
           messages: messages.concat(response),
+          pendingContext: {
+            type: MediaContextType.TvDelete,
+            data: tvShowDeleteContext,
+          },
         }
       }
 
-      // Clear context and proceed with delete
-      await this.contextService.clearContext(userId)
+      // No pendingContext on the result: the selection is settled
       return await this.deleteTvShow(
         selectedShow,
         finalTvSelection,
@@ -517,16 +525,7 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
         'Failed to process TV show delete selection',
       )
 
-      // Clear context on error
-      try {
-        await this.contextService.clearContext(userId)
-      } catch (clearError) {
-        this.logger.warn(
-          { error: getErrorMessage(clearError), userId },
-          'Failed to clear context during error cleanup',
-        )
-      }
-
+      // No pendingContext on the result: the selection is dropped on error
       const errorResponse =
         await this.promptService.generateTvShowDeleteChatResponse(
           messages,
@@ -552,7 +551,7 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
     show: { id: number; tvdbId: number; title: string; year?: number },
     selection: TvShowSelection,
     _originalMessage: HumanMessage,
-    messages: HumanMessage[],
+    messages: BaseMessage[],
     userId: string,
   ): Promise<StrategyResult> {
     // VALIDATION GATE: Ensure we have valid selection data before proceeding

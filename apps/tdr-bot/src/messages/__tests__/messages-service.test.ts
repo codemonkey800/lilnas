@@ -3,6 +3,7 @@ import {
   createMockMetricsService,
   createTestingModule,
 } from 'src/__tests__/test-utils'
+import { getRequestContext } from 'src/llm/observability/request-context'
 import { IMessageHandler } from 'src/messages/handlers/handler.interface'
 import { HandlerRegistry } from 'src/messages/handlers/handler.registry'
 import { MessagesService } from 'src/messages/messages.service'
@@ -201,6 +202,34 @@ describe('MessagesService', () => {
       const context: MessageContext = handler.handle.mock.calls[0][1]
       expect(context.userId).toBe('author-99')
       expect(context.requestId).toBeTruthy()
+    })
+
+    it('runs handlers inside a request context and sets channelId', async () => {
+      let seen: ReturnType<typeof getRequestContext>
+      const handler = makeHandler(true, true)
+      handler.handle.mockImplementation(async () => {
+        seen = getRequestContext()
+        return { handled: true }
+      })
+      service = await buildService(makeGuard(true), makeRegistry([handler]))
+
+      const message = createMockMessage({
+        author: { id: 'author-7', displayName: 'T', bot: false },
+        channelId: 'chan-5',
+        guildId: null,
+      })
+      await service.onMessage([message] as Parameters<
+        typeof service.onMessage
+      >[0])
+
+      const context: MessageContext = handler.handle.mock.calls[0][1]
+      expect(context.channelId).toBe('chan-5')
+      expect(seen).toEqual({
+        requestId: context.requestId,
+        userId: 'author-7',
+        channelId: 'chan-5',
+        guildId: undefined,
+      })
     })
 
     it('generates a requestId (nanoid) for each message', async () => {

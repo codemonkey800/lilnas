@@ -222,3 +222,13 @@ export const REMINDER_MATH_DELIVERY_PROMPT = new SystemMessage(dedent`
   Keep the message under 200 characters. No markdown. Use emojis sparingly.
   The equation image will be attached separately — do not describe it in text.
 `)
+
+/** Prompt for deciding whether a message continues an in-progress reminder setup. */
+export const REMINDER_CONTINUATION_PROMPT = new SystemMessage(dedent`
+  The user was in the middle of setting up a reminder and was asked for more details.
+  Decide whether their latest message is still providing reminder information
+  (a time, a day, what to be reminded about) or has switched to something unrelated.
+
+  Respond with JSON: {"continuing": true} when they are still setting up the reminder,
+  {"continuing": false} when they switched topics (e.g. "nevermind", "what's the weather?").
+`)

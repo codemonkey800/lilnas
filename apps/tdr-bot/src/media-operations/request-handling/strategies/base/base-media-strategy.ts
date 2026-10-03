@@ -1,13 +1,11 @@
 import { BaseMessage, HumanMessage } from '@langchain/core/messages'
-import { ChatOpenAI } from '@langchain/openai'
 import { getErrorMessage } from '@lilnas/utils/error'
 import { Logger } from '@nestjs/common'
 import { nanoid } from 'nanoid'
 
+import { LlmClient } from 'src/llm/client/llm-client'
 import { StrategyRequestParams } from 'src/media-operations/request-handling/types/request-context.type'
 import { StrategyResult } from 'src/media-operations/request-handling/types/strategy-result.type'
-import { ContextManagementService } from 'src/message-handler/context/context-management.service'
-import { StateService } from 'src/state/state.service'
 
 import { MediaOperationStrategy } from './media-operation-strategy.interface'
 
@@ -18,8 +16,7 @@ import { MediaOperationStrategy } from './media-operation-strategy.interface'
 export abstract class BaseMediaStrategy implements MediaOperationStrategy {
   protected abstract readonly logger: Logger
   protected abstract readonly strategyName: string
-  protected stateService!: StateService
-  protected contextService!: ContextManagementService
+  protected llm!: LlmClient
 
   /**
    * Handle a media operation request with error handling
@@ -86,22 +83,5 @@ export abstract class BaseMediaStrategy implements MediaOperationStrategy {
     return typeof message.content === 'string'
       ? message.content
       : message.content.toString()
-  }
-
-  /**
-   * Get chat model configured from state
-   * Requires stateService to be injected in the concrete strategy
-   */
-  protected getChatModel(): ChatOpenAI {
-    if (!this.stateService) {
-      throw new Error(
-        `${this.strategyName}: StateService not injected for getChatModel()`,
-      )
-    }
-    const state = this.stateService.getState()
-    return new ChatOpenAI({
-      model: state.chatModel,
-      temperature: state.temperature,
-    })
   }
 }

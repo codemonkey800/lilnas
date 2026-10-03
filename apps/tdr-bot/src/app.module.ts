@@ -13,11 +13,11 @@ import { ApiModule } from './api/api.module'
 import { AppEventsService } from './app-events.service'
 import { CommandsModule } from './commands/commands.module'
 import { EnvKeys } from './env'
+import { requestContextMixin } from './llm/observability/request-context'
 import { MediaModule } from './media/media.module'
 import { MessagesModule } from './messages/messages.module'
 import { SchedulesModule } from './schedules/schedules.module'
 import { ServicesModule } from './services/services.module'
-import { StateModule } from './state/state.module'
 
 @Module({
   imports: [
@@ -35,6 +35,7 @@ import { StateModule } from './state/state.module'
           return {
             pinoHttp: {
               level: 'info',
+              mixin: requestContextMixin,
             },
           }
         }
@@ -59,6 +60,7 @@ import { StateModule } from './state/state.module'
                 ],
               },
               level: 'debug',
+              mixin: requestContextMixin,
             },
           }
         }
@@ -70,6 +72,7 @@ import { StateModule } from './state/state.module'
               target: 'pino-pretty',
             },
             level: 'debug',
+            mixin: requestContextMixin,
           },
         }
       })(),
@@ -98,7 +101,6 @@ import { StateModule } from './state/state.module'
     // https://docs.nestjs.com/techniques/task-scheduling
     ScheduleModule.forRoot(),
     ServicesModule,
-    StateModule,
     // Sets up scheduled functions
     SchedulesModule,
   ],

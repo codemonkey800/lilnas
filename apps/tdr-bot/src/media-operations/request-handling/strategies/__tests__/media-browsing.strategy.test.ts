@@ -1,21 +1,23 @@
-import { HumanMessage } from '@langchain/core/messages'
+import { AIMessage, HumanMessage } from '@langchain/core/messages'
 import { Test, TestingModule } from '@nestjs/testing'
 
-import { createMockDiscordIdentity } from 'src/media-operations/request-handling/__test-helpers__/mock-services'
+import { LlmClient } from 'src/llm/client/llm-client'
+import { FakeLlmClient } from 'src/llm/testing/fake-llm-client'
+import {
+  createFakeLlmClient,
+  createMockDiscordIdentity,
+} from 'src/media-operations/request-handling/__test-helpers__/mock-services'
 import { MediaBrowsingStrategy } from 'src/media-operations/request-handling/strategies/media-browsing.strategy'
 import { StrategyRequestParams } from 'src/media-operations/request-handling/types/request-context.type'
 import { DataFetchingUtilities } from 'src/media-operations/request-handling/utils/data-fetching.utils'
 import { MediaRequest, MediaRequestType, SearchIntent } from 'src/schemas/graph'
-import { StateService } from 'src/state/state.service'
-import { RetryService } from 'src/utils/retry.service'
 
 describe('MediaBrowsingStrategy', () => {
   let strategy: MediaBrowsingStrategy
-  let stateService: jest.Mocked<StateService>
-  let retryService: jest.Mocked<RetryService>
+  let llm: FakeLlmClient
   let dataFetchingUtilities: jest.Mocked<DataFetchingUtilities>
 
-  const mockChatResponse = new HumanMessage({
+  const mockChatResponse = new AIMessage({
     id: 'mock-response-id',
     content: 'Here are the movies in your library...',
   })
@@ -32,24 +34,11 @@ describe('MediaBrowsingStrategy', () => {
   }
 
   beforeEach(async () => {
+    llm = createFakeLlmClient()
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MediaBrowsingStrategy,
-        {
-          provide: StateService,
-          useValue: {
-            getState: jest.fn().mockReturnValue({
-              chatModel: 'gpt-4',
-              temperature: 0.7,
-            }),
-          },
-        },
-        {
-          provide: RetryService,
-          useValue: {
-            executeWithRetry: jest.fn(),
-          },
-        },
+        { provide: LlmClient, useValue: llm },
         {
           provide: DataFetchingUtilities,
           useValue: {
@@ -61,8 +50,6 @@ describe('MediaBrowsingStrategy', () => {
     }).compile()
 
     strategy = module.get<MediaBrowsingStrategy>(MediaBrowsingStrategy)
-    stateService = module.get(StateService)
-    retryService = module.get(RetryService)
     dataFetchingUtilities = module.get(DataFetchingUtilities)
   })
 
@@ -83,7 +70,7 @@ describe('MediaBrowsingStrategy', () => {
       }
 
       dataFetchingUtilities.fetchLibraryData.mockResolvedValue(mockLibraryData)
-      retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+      llm.script('media.browse', mockChatResponse)
 
       const result = await strategy.handleRequest(params)
 
@@ -94,7 +81,7 @@ describe('MediaBrowsingStrategy', () => {
       expect(
         dataFetchingUtilities.fetchExternalSearchData,
       ).not.toHaveBeenCalled()
-      expect(retryService.executeWithRetry).toHaveBeenCalled()
+      expect(llm.calls).toHaveLength(1)
       expect(result.messages).toHaveLength(1)
       expect(result.messages[0]).toBe(mockChatResponse)
       expect(result.images).toEqual([])
@@ -119,7 +106,7 @@ describe('MediaBrowsingStrategy', () => {
         count: 0,
         content: '**TV SHOWS:** No TV shows found in library',
       })
-      retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+      llm.script('media.browse', mockChatResponse)
 
       const result = await strategy.handleRequest(params)
 
@@ -150,7 +137,7 @@ describe('MediaBrowsingStrategy', () => {
       dataFetchingUtilities.fetchExternalSearchData.mockResolvedValue(
         mockExternalData,
       )
-      retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+      llm.script('media.browse', mockChatResponse)
 
       const result = await strategy.handleRequest(params)
 
@@ -176,14 +163,14 @@ describe('MediaBrowsingStrategy', () => {
         context: mediaRequest,
       }
 
-      retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+      llm.script('media.browse', mockChatResponse)
 
       const result = await strategy.handleRequest(params)
 
       expect(
         dataFetchingUtilities.fetchExternalSearchData,
       ).not.toHaveBeenCalled()
-      expect(retryService.executeWithRetry).toHaveBeenCalled()
+      expect(llm.calls).toHaveLength(1)
       expect(result.messages).toHaveLength(1)
       expect(result.messages[0]).toBe(mockChatResponse)
     })
@@ -209,7 +196,7 @@ describe('MediaBrowsingStrategy', () => {
       dataFetchingUtilities.fetchExternalSearchData.mockResolvedValue(
         mockExternalData,
       )
-      retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+      llm.script('media.browse', mockChatResponse)
 
       const result = await strategy.handleRequest(params)
 
@@ -246,19 +233,16 @@ describe('MediaBrowsingStrategy', () => {
         count: 1,
         content: '**🔍 TV SHOW SEARCH RESULTS:**\nBreaking Bad',
       })
-      retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+      llm.script('media.browse', mockChatResponse)
 
       await strategy.handleRequest(params)
 
-      // Verify retry service was called with combined data
-      const retryCall = retryService.executeWithRetry.mock.calls[0]
-      expect(retryCall[1]).toMatchObject({
-        maxAttempts: 3,
-        baseDelay: 1000,
-        maxDelay: 30000,
-        timeout: 45000,
+      // Verify the chat model was called with combined data
+      expect(llm.calls).toHaveLength(1)
+      expect(llm.calls[0]).toMatchObject({
+        operation: 'media.browse',
+        role: 'chat',
       })
-      expect(retryCall[2]).toBe('OpenAI-getMediaBrowsingResponse')
     })
   })
 
@@ -284,7 +268,7 @@ describe('MediaBrowsingStrategy', () => {
       }
 
       dataFetchingUtilities.fetchLibraryData.mockResolvedValue(mockLibraryData)
-      retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+      llm.script('media.browse', mockChatResponse)
 
       const result = await strategy.handleRequest(params)
 
@@ -309,16 +293,12 @@ describe('MediaBrowsingStrategy', () => {
       }
 
       dataFetchingUtilities.fetchLibraryData.mockResolvedValue(mockLibraryData)
-      retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+      llm.script('media.browse', mockChatResponse)
 
       await strategy.handleRequest(params)
 
-      // Verify the retry service received a function to execute
-      expect(retryService.executeWithRetry).toHaveBeenCalledWith(
-        expect.any(Function),
-        expect.any(Object),
-        'OpenAI-getMediaBrowsingResponse',
-      )
+      // Verify the chat model received the conversation
+      expect(llm.calls[0]).toMatchObject({ operation: 'media.browse' })
     })
   })
 
@@ -351,7 +331,7 @@ describe('MediaBrowsingStrategy', () => {
       expect(result.images).toEqual([])
     })
 
-    it('should return error response when retry service fails', async () => {
+    it('should return error response when the LLM call fails', async () => {
       const mediaRequest: MediaRequest = {
         mediaType: MediaRequestType.Movies,
         searchIntent: SearchIntent.Library,
@@ -367,9 +347,7 @@ describe('MediaBrowsingStrategy', () => {
       }
 
       dataFetchingUtilities.fetchLibraryData.mockResolvedValue(mockLibraryData)
-      retryService.executeWithRetry.mockRejectedValue(
-        new Error('OpenAI API error'),
-      )
+      llm.script('media.browse', new Error('OpenAI API error'))
 
       const result = await strategy.handleRequest(params)
 
@@ -378,50 +356,6 @@ describe('MediaBrowsingStrategy', () => {
         'Sorry, I encountered an error',
       )
       expect(result.messages[0].content).toContain('OpenAI API error')
-    })
-  })
-
-  describe('State integration', () => {
-    it('should use chat model configuration from state service when processing request', async () => {
-      const mediaRequest: MediaRequest = {
-        mediaType: MediaRequestType.Movies,
-        searchIntent: SearchIntent.Library,
-        searchTerms: 'matrix',
-      }
-
-      const params: StrategyRequestParams = {
-        message: new HumanMessage({ id: '1', content: 'show me matrix' }),
-        messages: [],
-        userId: 'user123',
-        discord: createMockDiscordIdentity('user123'),
-        context: mediaRequest,
-      }
-
-      const customState = {
-        chatModel: 'gpt-3.5-turbo' as const,
-        temperature: 0.5,
-        graphHistory: [],
-        maxTokens: 4096,
-        prompt: '',
-        reasoningModel: 'gpt-4' as const,
-        userMovieContexts: new Map(),
-        userMovieDeleteContexts: new Map(),
-        userTvShowContexts: new Map(),
-        userTvShowDeleteContexts: new Map(),
-      }
-
-      stateService.getState.mockReturnValue(customState)
-
-      dataFetchingUtilities.fetchLibraryData.mockResolvedValue(mockLibraryData)
-      retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
-
-      const result = await strategy.handleRequest(params)
-
-      // Verify the strategy successfully processes the request with custom state
-      expect(result.messages).toHaveLength(1)
-      expect(result.messages[0]).toBe(mockChatResponse)
-      // The state is used internally to create ChatOpenAI instance
-      expect(retryService.executeWithRetry).toHaveBeenCalled()
     })
   })
 
@@ -448,7 +382,7 @@ describe('MediaBrowsingStrategy', () => {
         dataFetchingUtilities.fetchLibraryData.mockResolvedValue(
           mockLibraryData,
         )
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        llm.script('media.browse', mockChatResponse)
 
         // Execute: Run all requests concurrently
         const results = await Promise.all(
@@ -464,7 +398,7 @@ describe('MediaBrowsingStrategy', () => {
 
         // Verify: Services called correct number of times
         expect(dataFetchingUtilities.fetchLibraryData).toHaveBeenCalledTimes(10)
-        expect(retryService.executeWithRetry).toHaveBeenCalledTimes(10)
+        expect(llm.calls).toHaveLength(10)
       })
 
       it('should maintain request isolation between concurrent calls', async () => {
@@ -504,7 +438,7 @@ describe('MediaBrowsingStrategy', () => {
         dataFetchingUtilities.fetchExternalSearchData.mockResolvedValue(
           mockExternalData,
         )
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        llm.script('media.browse', mockChatResponse)
 
         // Execute concurrently
         const results = await Promise.all([
@@ -559,7 +493,7 @@ describe('MediaBrowsingStrategy', () => {
           return Promise.reject(new Error('Service unavailable'))
         })
 
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        llm.script('media.browse', mockChatResponse)
 
         // Execute concurrently
         const results = await Promise.all([
@@ -612,7 +546,7 @@ describe('MediaBrowsingStrategy', () => {
         dataFetchingUtilities.fetchLibraryData.mockResolvedValue(
           mockLibraryData,
         )
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        llm.script('media.browse', mockChatResponse)
 
         // Base strategy catches all errors and returns error response
         const result = await strategy.handleRequest(params)
@@ -660,7 +594,7 @@ describe('MediaBrowsingStrategy', () => {
         dataFetchingUtilities.fetchLibraryData.mockResolvedValue(
           mockLibraryData,
         )
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        llm.script('media.browse', mockChatResponse)
 
         // Should handle gracefully - library search with empty string
         const result = await strategy.handleRequest(params)
@@ -807,42 +741,13 @@ describe('MediaBrowsingStrategy', () => {
         dataFetchingUtilities.fetchLibraryData.mockResolvedValue(
           mockLibraryData,
         )
-        retryService.executeWithRetry.mockRejectedValue(
-          new Error('Max retries exceeded'),
-        )
+        llm.script('media.browse', new Error('Max retries exceeded'))
 
         // The base strategy catches all errors and returns fallback response
         const result = await strategy.handleRequest(params)
 
         expect(result.messages).toBeDefined()
         expect(result.images).toEqual([])
-      })
-
-      it('should handle StateService getState throwing exception', async () => {
-        const params: StrategyRequestParams = {
-          message: new HumanMessage({ id: '1', content: 'show movies' }),
-          messages: [],
-          userId: 'user123',
-          discord: createMockDiscordIdentity('user123'),
-          context: {
-            mediaType: MediaRequestType.Movies,
-            searchIntent: SearchIntent.Library,
-            searchTerms: 'matrix',
-          } as MediaRequest,
-        }
-
-        dataFetchingUtilities.fetchLibraryData.mockResolvedValue(
-          mockLibraryData,
-        )
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
-        stateService.getState.mockImplementation(() => {
-          throw new Error('State service error')
-        })
-
-        // Should catch and handle gracefully
-        const result = await strategy.handleRequest(params)
-
-        expect(result.messages).toBeDefined()
       })
     })
 
@@ -863,7 +768,7 @@ describe('MediaBrowsingStrategy', () => {
         dataFetchingUtilities.fetchLibraryData.mockResolvedValue(
           mockLibraryData,
         )
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        llm.script('media.browse', mockChatResponse)
 
         // Should handle gracefully
         await expect(strategy.handleRequest(params)).resolves.toBeDefined()
@@ -885,7 +790,7 @@ describe('MediaBrowsingStrategy', () => {
         dataFetchingUtilities.fetchLibraryData.mockResolvedValue(
           mockLibraryData,
         )
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        llm.script('media.browse', mockChatResponse)
 
         // Should handle gracefully
         await expect(strategy.handleRequest(params)).resolves.toBeDefined()
@@ -907,7 +812,7 @@ describe('MediaBrowsingStrategy', () => {
         dataFetchingUtilities.fetchLibraryData.mockResolvedValue(
           mockLibraryData,
         )
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        llm.script('media.browse', mockChatResponse)
 
         // Should handle gracefully
         const result = await strategy.handleRequest(params)
@@ -931,7 +836,7 @@ describe('MediaBrowsingStrategy', () => {
         dataFetchingUtilities.fetchLibraryData.mockResolvedValue(
           mockLibraryData,
         )
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        llm.script('media.browse', mockChatResponse)
 
         // Should handle or throw appropriately
         await expect(strategy.handleRequest(params)).rejects.toThrow()
@@ -953,7 +858,7 @@ describe('MediaBrowsingStrategy', () => {
         dataFetchingUtilities.fetchLibraryData.mockResolvedValue(
           mockLibraryData,
         )
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        llm.script('media.browse', mockChatResponse)
 
         // Should handle or throw
         await expect(strategy.handleRequest(params)).rejects.toThrow()
@@ -978,7 +883,7 @@ describe('MediaBrowsingStrategy', () => {
         dataFetchingUtilities.fetchLibraryData.mockResolvedValue(
           mockLibraryData,
         )
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        llm.script('media.browse', mockChatResponse)
 
         // Should handle gracefully
         const result = await strategy.handleRequest(params)

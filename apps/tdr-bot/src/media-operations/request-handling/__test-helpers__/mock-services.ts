@@ -1,6 +1,8 @@
 import type { DownloadClient } from '@lilnas/utils/download/client'
-import { EMPTY } from 'rxjs'
 
+import { LlmClient } from 'src/llm/client/llm-client'
+import { PromptGenerationService } from 'src/llm/skills/media/prompt-generation.service'
+import { FakeLlmClient } from 'src/llm/testing/fake-llm-client'
 import { RadarrService } from 'src/media/services/radarr.service'
 import { SonarrService } from 'src/media/services/sonarr.service'
 import { DownloadClientFactory } from 'src/media-operations/request-handling/download-client.factory'
@@ -9,8 +11,6 @@ import { DataFetchingUtilities } from 'src/media-operations/request-handling/uti
 import { ParsingUtilities } from 'src/media-operations/request-handling/utils/parsing.utils'
 import { SelectionUtilities } from 'src/media-operations/request-handling/utils/selection.utils'
 import { ValidationUtilities } from 'src/media-operations/request-handling/utils/validation.utils'
-import { PromptGenerationService } from 'src/message-handler/services/prompts/prompt-generation.service'
-import { StateService } from 'src/state/state.service'
 import { RetryService } from 'src/utils/retry.service'
 
 // ============================================================================
@@ -79,26 +79,6 @@ export function createMockSonarrService(): jest.Mocked<SonarrService> {
   } as unknown as jest.Mocked<SonarrService>
 }
 
-export function createMockStateService(
-  stateOverrides?: Record<string, unknown>,
-): jest.Mocked<StateService> {
-  return {
-    setState: jest.fn(),
-    getState: jest.fn().mockReturnValue({
-      reasoningModel: 'gpt-4o-mini',
-      chatModel: 'gpt-4',
-      temperature: 0.7,
-      graphHistory: [],
-      maxTokens: 4096,
-      prompt: '',
-      ...stateOverrides,
-    }),
-    select: jest.fn().mockReturnValue(EMPTY),
-    changes$: EMPTY,
-    onModuleDestroy: jest.fn(),
-  } as unknown as jest.Mocked<StateService>
-}
-
 export function createMockRetryService(): jest.Mocked<RetryService> {
   return {
     executeWithRetry: jest.fn().mockImplementation(async fn => await fn()),
@@ -108,6 +88,11 @@ export function createMockRetryService(): jest.Mocked<RetryService> {
     resetCircuitBreaker: jest.fn(),
     getCircuitBreakerStatus: jest.fn(),
   } as unknown as jest.Mocked<RetryService>
+}
+
+/** A scriptable `LlmClient`; script per operation, e.g. `'media.intent'`. */
+export function createFakeLlmClient(): FakeLlmClient {
+  return new FakeLlmClient()
 }
 
 export function createMockPromptGenerationService(): jest.Mocked<PromptGenerationService> {
@@ -123,9 +108,6 @@ export function createMockPromptGenerationService(): jest.Mocked<PromptGeneratio
 }
 
 export function createMockParsingUtilities(): jest.Mocked<ParsingUtilities> {
-  const mockState = createMockStateService()
-  const mockRetry = createMockRetryService()
-
   return {
     logger: {
       log: jest.fn(),
@@ -133,9 +115,7 @@ export function createMockParsingUtilities(): jest.Mocked<ParsingUtilities> {
       warn: jest.fn(),
       debug: jest.fn(),
     } as unknown as jest.Mocked<ParsingUtilities['logger']>,
-    state: mockState,
-    retryService: mockRetry,
-    getReasoningModel: jest.fn(),
+    llm: createFakeLlmClient(),
     parseInitialSelection: jest.fn(),
     parseSearchSelection: jest.fn(),
     parseTvShowSelection: jest.fn(),
@@ -196,8 +176,8 @@ export function createMockValidationUtilities(): jest.Mocked<ValidationUtilities
 export interface StrategyTestMocks {
   radarr?: jest.Mocked<RadarrService>
   sonarr?: jest.Mocked<SonarrService>
-  state?: jest.Mocked<StateService>
   retry?: jest.Mocked<RetryService>
+  llm?: FakeLlmClient
   promptGeneration?: jest.Mocked<PromptGenerationService>
   parsing?: jest.Mocked<ParsingUtilities>
   selection?: jest.Mocked<SelectionUtilities>
@@ -217,8 +197,8 @@ export function createStrategyMocks(
 
   if (services.includes('radarr')) mocks.radarr = createMockRadarrService()
   if (services.includes('sonarr')) mocks.sonarr = createMockSonarrService()
-  if (services.includes('state')) mocks.state = createMockStateService()
   if (services.includes('retry')) mocks.retry = createMockRetryService()
+  if (services.includes('llm')) mocks.llm = createFakeLlmClient()
   if (services.includes('promptGeneration'))
     mocks.promptGeneration = createMockPromptGenerationService()
   if (services.includes('parsing')) mocks.parsing = createMockParsingUtilities()
@@ -245,11 +225,11 @@ export function createMockProviders(mocks: StrategyTestMocks) {
   if (mocks.sonarr) {
     providers.push({ provide: SonarrService, useValue: mocks.sonarr })
   }
-  if (mocks.state) {
-    providers.push({ provide: StateService, useValue: mocks.state })
-  }
   if (mocks.retry) {
     providers.push({ provide: RetryService, useValue: mocks.retry })
+  }
+  if (mocks.llm) {
+    providers.push({ provide: LlmClient, useValue: mocks.llm })
   }
   if (mocks.promptGeneration) {
     providers.push({

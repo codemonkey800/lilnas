@@ -3,9 +3,8 @@ import { Injectable, Logger } from '@nestjs/common'
 import { EmbedBuilder } from 'discord.js'
 
 import { DISCORD_MAX_MESSAGE_LENGTH } from 'src/constants/chat'
-import { ModelFactoryService } from 'src/messages/llm/model-factory.service'
+import { LlmClient } from 'src/llm/client/llm-client'
 import { Message } from 'src/messages/types'
-import { LLMStringContentSchema } from 'src/schemas/llm.schemas'
 import { MessageResponse } from 'src/schemas/messages'
 import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
 import { ErrorCategory } from 'src/utils/error-classifier'
@@ -20,7 +19,7 @@ export class ResponseService {
 
   constructor(
     private readonly retryService: RetryService,
-    private readonly modelFactory: ModelFactoryService,
+    private readonly llm: LlmClient,
     private readonly sanitize: ResponseSanitizer,
     private readonly metrics: TdrBotMetricsService,
   ) {}
@@ -117,19 +116,12 @@ export class ResponseService {
 
   private async shortenResponse(content: string): Promise<string> {
     try {
-      const model = this.modelFactory.createChatModel()
-      const response = await this.retryService.executeWithRetry(
-        () =>
-          model.invoke([SHORTEN_RESPONSE_PROMPT, new HumanMessage(content)]),
-        {
-          maxAttempts: 2,
-          baseDelay: 1000,
-          maxDelay: 5000,
-          timeout: 30000,
-        },
-        'OpenAI-shortenResponse',
-      )
-      const shortened = LLMStringContentSchema.parse(response.content)
+      const { output: shortened } = await this.llm.call({
+        operation: 'response.shorten',
+        role: 'chat',
+        messages: [SHORTEN_RESPONSE_PROMPT, new HumanMessage(content)],
+        overrides: { timeoutMs: 30000, maxAttempts: 2 },
+      })
       if (shortened.length <= DISCORD_MAX_MESSAGE_LENGTH) return shortened
 
       this.logger.warn(

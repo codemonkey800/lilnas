@@ -5,6 +5,7 @@ module.exports = {
   testMatch: [
     '**/__tests__/**/*.ts',
     '**/?(*.)+(spec|test).ts',
+    '!**/*.live.test.ts', // run by `pnpm test:live`
     '!**/__tests__/setup.ts',
     '!**/__tests__/test-utils.ts',
     '!**/__tests__/test-constants.ts',

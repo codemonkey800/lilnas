@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common'
 
-import { StateModule } from 'src/state/state.module'
+import { SettingsModule } from 'src/llm/settings/settings.module'
 
 import { PromptService } from './prompt.service'
 
 @Module({
-  imports: [StateModule],
+  imports: [SettingsModule],
   providers: [PromptService],
   exports: [PromptService],
 })

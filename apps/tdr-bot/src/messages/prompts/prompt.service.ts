@@ -1,8 +1,8 @@
-import { BaseMessage, SystemMessage } from '@langchain/core/messages'
+import { SystemMessage } from '@langchain/core/messages'
 import { Injectable } from '@nestjs/common'
 import dedent from 'dedent'
 
-import { StateService } from 'src/state/state.service'
+import { SettingsService } from 'src/llm/settings/settings.service'
 import {
   EMOJI_DICTIONARY,
   INPUT_FORMAT,
@@ -12,10 +12,10 @@ import {
 
 @Injectable()
 export class PromptService {
-  constructor(private readonly state: StateService) {}
+  constructor(private readonly settings: SettingsService) {}
 
-  getSystemPrompt(): BaseMessage {
-    const { prompt } = this.state.getState()
+  getSystemPrompt(): SystemMessage {
+    const { systemPrompt } = this.settings.get()
 
     return new SystemMessage({
       id: TDR_SYSTEM_PROMPT_ID,
@@ -24,7 +24,7 @@ export class PromptService {
 
         ${INPUT_FORMAT}
 
-        ${prompt}
+        ${systemPrompt}
 
         ${EMOJI_DICTIONARY}
       `,

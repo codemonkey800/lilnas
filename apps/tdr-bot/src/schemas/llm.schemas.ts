@@ -1,7 +1,5 @@
 import { z } from 'zod'
 
-import { ResponseType } from 'src/schemas/graph'
-
 /**
  * Zod schemas for LLM-related data validation
  *
@@ -18,15 +16,6 @@ import { ResponseType } from 'src/schemas/graph'
 export const LLMStringContentSchema = z
   .string()
   .min(1, 'LLM content must not be empty')
-
-/**
- * Schema for validating ResponseType enum values
- *
- * Ensures the response type is one of the valid ResponseType enum values.
- */
-export const ResponseTypeContentSchema = z.nativeEnum(ResponseType, {
-  message: `Invalid response type. Must be one of: ${Object.values(ResponseType).join(', ')}`,
-})
 
 /**
  * Schema for validating tool call structures

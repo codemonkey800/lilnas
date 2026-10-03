@@ -2,13 +2,12 @@ import { HumanMessage } from '@langchain/core/messages'
 import { Injectable, Logger } from '@nestjs/common'
 import { nanoid } from 'nanoid'
 
+import { LlmClient } from 'src/llm/client/llm-client'
 import { StrategyRequestParams } from 'src/media-operations/request-handling/types/request-context.type'
 import { StrategyResult } from 'src/media-operations/request-handling/types/strategy-result.type'
 import { DataFetchingUtilities } from 'src/media-operations/request-handling/utils/data-fetching.utils'
 import { MediaRequest, SearchIntent } from 'src/schemas/graph'
-import { StateService } from 'src/state/state.service'
 import { MEDIA_CONTEXT_PROMPT } from 'src/utils/prompts'
-import { RetryService } from 'src/utils/retry.service'
 
 import { BaseMediaStrategy } from './base/base-media-strategy'
 
@@ -23,12 +22,11 @@ export class MediaBrowsingStrategy extends BaseMediaStrategy {
   protected readonly strategyName = 'MediaBrowsingStrategy'
 
   constructor(
-    state: StateService,
-    private readonly retryService: RetryService,
+    llm: LlmClient,
     private readonly dataFetchingUtilities: DataFetchingUtilities,
   ) {
     super()
-    this.stateService = state
+    this.llm = llm
   }
 
   /**
@@ -100,16 +98,11 @@ export class MediaBrowsingStrategy extends BaseMediaStrategy {
 
     // Get conversational response from chat model
     this.logger.log('Getting conversational response with media context')
-    const chatResponse = await this.retryService.executeWithRetry(
-      () => this.getChatModel().invoke([...messages, contextPrompt]),
-      {
-        maxAttempts: 3,
-        baseDelay: 1000,
-        maxDelay: 30000,
-        timeout: 45000,
-      },
-      'OpenAI-getMediaBrowsingResponse',
-    )
+    const { message: chatResponse } = await this.llm.call({
+      operation: 'media.browse',
+      role: 'chat',
+      messages: [...messages, contextPrompt],
+    })
 
     this.logger.log(
       { mediaType, searchIntent, totalCount },

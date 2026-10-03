@@ -1,4 +1,4 @@
-import { HumanMessage } from '@langchain/core/messages'
+import { BaseMessage, HumanMessage } from '@langchain/core/messages'
 import { DownloadApiError } from '@lilnas/utils/download/client'
 import {
   type DownloadJob,
@@ -8,19 +8,18 @@ import {
 import { getErrorMessage } from '@lilnas/utils/error'
 import { Injectable, Logger } from '@nestjs/common'
 
+import { PromptGenerationService } from 'src/llm/skills/media/prompt-generation.service'
 import { RadarrService } from 'src/media/services/radarr.service'
 import type { MovieSearchResult } from 'src/media/types/radarr.types'
 import { DownloadClientFactory } from 'src/media-operations/request-handling/download-client.factory'
-import type {
+import {
   DiscordIdentity,
+  MediaContextType,
   StrategyRequestParams,
   StrategyResult,
 } from 'src/media-operations/request-handling/types'
 import { ParsingUtilities } from 'src/media-operations/request-handling/utils/parsing.utils'
 import { SelectionUtilities } from 'src/media-operations/request-handling/utils/selection.utils'
-import { ContextManagementService } from 'src/message-handler/context/context-management.service'
-import { PromptGenerationService } from 'src/message-handler/services/prompts/prompt-generation.service'
-import { StateService } from 'src/state/state.service'
 import { downloadApiErrorMessage } from 'src/utils/download-api-error'
 import { withDownloadLinks } from 'src/utils/download-links'
 
@@ -67,12 +66,8 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
     private readonly promptService: PromptGenerationService,
     private readonly parsingUtilities: ParsingUtilities,
     private readonly selectionUtilities: SelectionUtilities,
-    state: StateService,
-    contextService: ContextManagementService,
   ) {
     super()
-    this.stateService = state
-    this.contextService = contextService
   }
 
   /**
@@ -115,7 +110,7 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
    */
   private async handleNewMovieSearch(
     message: HumanMessage,
-    messages: HumanMessage[],
+    messages: BaseMessage[],
     userId: string,
     request: MovieRequestOptions,
   ): Promise<StrategyResult> {
@@ -131,11 +126,7 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
 
     if (!searchQuery.trim()) {
       const clarificationResponse =
-        await this.promptService.generateMoviePrompt(
-          messages,
-          this.getChatModel(),
-          'clarification',
-        )
+        await this.promptService.generateMoviePrompt(messages, 'clarification')
       return {
         images: [],
         messages: messages.concat(clarificationResponse),
@@ -160,7 +151,6 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
       if (searchResults.length === 0) {
         const noResultsResponse = await this.promptService.generateMoviePrompt(
           messages,
-          this.getChatModel(),
           'no_results',
           { searchQuery },
         )
@@ -229,9 +219,6 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
         ...(request.qualityTier ? { qualityTier: request.qualityTier } : {}),
       }
 
-      // Store context in ContextManagementService
-      await this.contextService.setContext(userId, 'movie', movieContext)
-
       this.logger.log(
         {
           userId,
@@ -244,7 +231,6 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
       // Create selection prompt
       const selectionResponse = await this.promptService.generateMoviePrompt(
         messages,
-        this.getChatModel(),
         'multiple_results',
         {
           searchQuery,
@@ -255,6 +241,10 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
       return {
         images: [],
         messages: messages.concat(selectionResponse),
+        pendingContext: {
+          type: MediaContextType.MovieDownload,
+          data: movieContext,
+        },
       }
     } catch (error) {
       this.logger.error(
@@ -264,7 +254,6 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
 
       const errorResponse = await this.promptService.generateMoviePrompt(
         messages,
-        this.getChatModel(),
         'error',
         {
           searchQuery,
@@ -285,7 +274,7 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
    */
   private async handleMovieSelection(
     message: HumanMessage,
-    messages: HumanMessage[],
+    messages: BaseMessage[],
     movieContext: MovieSelectionContext,
     userId: string,
     request: MovieRequestOptions,
@@ -308,7 +297,6 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
         const clarificationResponse =
           await this.promptService.generateMoviePrompt(
             messages,
-            this.getChatModel(),
             'multiple_results',
             {
               searchQuery: movieContext.query,
@@ -318,6 +306,10 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
         return {
           images: [],
           messages: messages.concat(clarificationResponse),
+          pendingContext: {
+            type: MediaContextType.MovieDownload,
+            data: movieContext,
+          },
         }
       }
 
@@ -331,7 +323,6 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
         const clarificationResponse =
           await this.promptService.generateMoviePrompt(
             messages,
-            this.getChatModel(),
             'multiple_results',
             {
               searchQuery: movieContext.query,
@@ -341,13 +332,14 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
         return {
           images: [],
           messages: messages.concat(clarificationResponse),
+          pendingContext: {
+            type: MediaContextType.MovieDownload,
+            data: movieContext,
+          },
         }
       }
 
-      // Clear context and download the movie
-      await this.contextService.clearContext(userId)
-      this.logger.log({ userId }, 'Cleared movie context after selection')
-
+      // No pendingContext on the result: the selection is settled
       return await this.downloadMovie(selectedMovie, messages, userId, request)
     } catch (error) {
       this.logger.error(
@@ -355,12 +347,9 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
         'Failed to process movie selection',
       )
 
-      // Clear context on error
-      await this.contextService.clearContext(userId)
-
+      // No pendingContext on the result: the selection is dropped on error
       const errorResponse = await this.promptService.generateMoviePrompt(
         messages,
-        this.getChatModel(),
         'processing_error',
         {
           errorMessage:
@@ -387,7 +376,7 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
    */
   private async downloadMovie(
     movie: MovieSearchResult,
-    messages: HumanMessage[],
+    messages: BaseMessage[],
     userId: string,
     request: MovieRequestOptions,
   ): Promise<StrategyResult> {
@@ -426,7 +415,6 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
       // No job was created, so there is nothing to link to
       const errorResponse = await this.promptService.generateMoviePrompt(
         messages,
-        this.getChatModel(),
         'error',
         {
           selectedMovie: movie,
@@ -457,7 +445,7 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
   private replyForJob(
     job: DownloadJob,
     movie: MovieSearchResult,
-    messages: HumanMessage[],
+    messages: BaseMessage[],
     { selectionCriteria }: MovieRequestOptions,
   ): Promise<HumanMessage> {
     const title = job.media.title
@@ -466,52 +454,31 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
       case DownloadJobStatus.Completed:
         return this.promptService.generateMoviePrompt(
           messages,
-          this.getChatModel(),
           'already_downloaded',
           { selectedMovie: movie },
         )
       case DownloadJobStatus.Failed:
-        return this.promptService.generateMoviePrompt(
-          messages,
-          this.getChatModel(),
-          'error',
-          {
-            selectedMovie: movie,
-            errorMessage: `Requested "${title}", but the request failed: ${job.error ?? 'no reason was given'}.`,
-          },
-        )
+        return this.promptService.generateMoviePrompt(messages, 'error', {
+          selectedMovie: movie,
+          errorMessage: `Requested "${title}", but the request failed: ${job.error ?? 'no reason was given'}.`,
+        })
       case DownloadJobStatus.NotFound:
-        return this.promptService.generateMoviePrompt(
-          messages,
-          this.getChatModel(),
-          'error',
-          {
-            selectedMovie: movie,
-            errorMessage: `Requested "${title}", but no release was found for it${job.statusNote ? ` (${job.statusNote})` : ''}.`,
-          },
-        )
+        return this.promptService.generateMoviePrompt(messages, 'error', {
+          selectedMovie: movie,
+          errorMessage: `Requested "${title}", but no release was found for it${job.statusNote ? ` (${job.statusNote})` : ''}.`,
+        })
       case DownloadJobStatus.Cancelled:
-        return this.promptService.generateMoviePrompt(
-          messages,
-          this.getChatModel(),
-          'error',
-          {
-            selectedMovie: movie,
-            errorMessage: `The request for "${title}" was cancelled before it got anywhere.`,
-          },
-        )
+        return this.promptService.generateMoviePrompt(messages, 'error', {
+          selectedMovie: movie,
+          errorMessage: `The request for "${title}" was cancelled before it got anywhere.`,
+        })
       default:
-        return this.promptService.generateMoviePrompt(
-          messages,
-          this.getChatModel(),
-          'success',
-          {
-            selectedMovie: movie,
-            statusNote: job.statusNote,
-            autoApplied: selectionCriteria !== undefined,
-            selectionCriteria,
-          },
-        )
+        return this.promptService.generateMoviePrompt(messages, 'success', {
+          selectedMovie: movie,
+          statusNote: job.statusNote,
+          autoApplied: selectionCriteria !== undefined,
+          selectionCriteria,
+        })
     }
   }
 }

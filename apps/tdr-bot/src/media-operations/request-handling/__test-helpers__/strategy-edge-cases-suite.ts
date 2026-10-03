@@ -28,10 +28,6 @@ export interface StrategyEdgeCasesConfig<TMediaItem, TOperationResult> {
     promptService: {
       generatePromptMethod: jest.Mock | (() => unknown)
     }
-    contextService?: {
-      setContext: jest.Mock | (() => unknown)
-      clearContext: jest.Mock | (() => unknown)
-    }
   }
 
   /** Mock fixtures */
@@ -123,17 +119,6 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
       return unwrapMock(mocks.promptService.generatePromptMethod)!
     },
   }
-  const contextService = mocks.contextService
-    ? {
-        get setContext() {
-          return unwrapMock(mocks.contextService!.setContext)!
-        },
-        get clearContext() {
-          return unwrapMock(mocks.contextService!.clearContext)!
-        },
-      }
-    : null
-
   const { mediaItems, operationResult, chatResponse } = fixtures
 
   // Helper to check if parseInitialSelection is available
@@ -228,15 +213,15 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
         promptService.generatePromptMethod.mockResolvedValue(chatResponse)
 
         // Execute concurrently
-        await Promise.all([
+        const [result1, result2] = await Promise.all([
           getStrategy().handleRequest(request1),
           getStrategy().handleRequest(request2),
         ])
 
-        // Verify: Context service was called with correct userIds if available
-        if (contextService?.setContext) {
-          expect(contextService.setContext).toHaveBeenCalled()
-        }
+        // Each request carries its own pending context; nothing is shared
+        expect(result1.pendingContext).toBeDefined()
+        expect(result2.pendingContext).toBeDefined()
+        expect(result1.pendingContext).not.toBe(result2.pendingContext)
       })
 
       it('should handle context switching during concurrent operations', async () => {
@@ -776,10 +761,8 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
         const result = await getStrategy().handleRequest(params)
 
         expect(result.messages).toBeDefined()
-        // Context clearing is now handled by ContextManagementService
-        if (contextService?.clearContext) {
-          expect(contextService.clearContext).toHaveBeenCalledWith('user123')
-        }
+        // The failed selection is dropped, not carried forward
+        expect(result.pendingContext).toBeUndefined()
       })
     })
 
@@ -871,147 +854,10 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
         // The strategy may try to call set context method on empty object
         await expect(getStrategy().handleRequest(params)).resolves.toBeDefined()
       })
-
-      it('should handle context service methods throwing exceptions', async () => {
-        if (!parsingUtils.parseInitialSelection) {
-          return
-        }
-
-        // Make contextService.setContext throw an error if available
-        if (contextService?.setContext) {
-          contextService.setContext.mockRejectedValueOnce(
-            new Error('Context storage error'),
-          )
-        }
-
-        const params: StrategyRequestParams = {
-          message: new HumanMessage({
-            id: '1',
-            content: `download ${mediaType}`,
-          }),
-          messages: [],
-          userId: 'user123',
-          discord: createMockDiscordIdentity('user123'),
-          state: createMockState(),
-        }
-
-        parsingUtils.parseInitialSelection!.mockResolvedValue({
-          searchQuery: mediaType,
-          selection: null,
-          tvSelection: null,
-        })
-        mediaService.searchMethod.mockResolvedValue(mediaItems.slice(0, 3))
-        promptService.generatePromptMethod.mockResolvedValue(chatResponse)
-
-        // Exception from setContext is caught and returns error response
-        const result = await getStrategy().handleRequest(params)
-
-        expect(result.messages).toBeDefined()
-        expect(result.messages.length).toBeGreaterThan(0)
-      })
-
-      it('should handle context service setContext throwing exception during context creation', async () => {
-        if (!parsingUtils.parseInitialSelection) {
-          return
-        }
-
-        // Make contextService.setContext throw an error if available
-        if (contextService?.setContext) {
-          contextService.setContext.mockRejectedValueOnce(
-            new Error('Database connection failed'),
-          )
-        }
-
-        const params: StrategyRequestParams = {
-          message: new HumanMessage({
-            id: '1',
-            content: `download ${mediaType}`,
-          }),
-          messages: [],
-          userId: 'user123',
-          discord: createMockDiscordIdentity('user123'),
-          state: createMockState(),
-        }
-
-        parsingUtils.parseInitialSelection!.mockResolvedValue({
-          searchQuery: mediaType,
-          selection: null,
-          tvSelection: null,
-        })
-        mediaService.searchMethod.mockResolvedValue(mediaItems.slice(0, 3))
-        promptService.generatePromptMethod.mockResolvedValue(chatResponse)
-
-        // Exception from setContext is caught and returns error response
-        const result = await getStrategy().handleRequest(params)
-
-        expect(result.messages).toBeDefined()
-        expect(result.messages.length).toBeGreaterThan(0)
-      })
-
-      it('should handle context service clearContext throwing exception during cleanup', async () => {
-        const activeContext = {
-          type: contextType,
-          searchResults: mediaItems.slice(0, 2),
-          query: 'test',
-          timestamp: Date.now(),
-          isActive: true,
-          // Include originalTvSelection for TV strategies to ensure clearContext path is taken
-          // For tvShowDelete, need non-empty selection to pass validation
-          originalTvSelection:
-            contextType === 'tvShow'
-              ? { selection: [] }
-              : contextType === 'tvShowDelete'
-                ? { selection: [{ season: 1 }] }
-                : undefined,
-        }
-
-        // Make contextService.clearContext throw an error on second call if available
-        if (contextService?.clearContext) {
-          let clearContextCallCount = 0
-          contextService.clearContext.mockImplementation(() => {
-            clearContextCallCount++
-            // First call succeeds (before operation), second call throws (during error cleanup)
-            if (clearContextCallCount >= 2) {
-              throw new Error('Failed to clear context')
-            }
-            return Promise.resolve()
-          })
-        }
-
-        const params: StrategyRequestParams = {
-          message: new HumanMessage({ id: '1', content: 'first one' }),
-          messages: [],
-          userId: 'user123',
-          discord: createMockDiscordIdentity('user123'),
-          context: activeContext,
-          state: createMockState(),
-        }
-
-        parsingUtils.parseSearchSelection.mockResolvedValue({
-          selectionType: 'ordinal',
-          value: '1',
-        })
-        selectionUtils.findSelectedItem.mockReturnValue(mediaItems[0])
-        // Make the operation fail to trigger error cleanup path
-        mediaService.operationMethod.mockRejectedValue(
-          new Error('Operation failed'),
-        )
-        promptService.generatePromptMethod.mockResolvedValue(chatResponse)
-
-        // Cleanup error during error handling should be caught and logged, not propagate
-        const result = await getStrategy().handleRequest(params)
-
-        expect(result.messages).toBeDefined()
-        expect(result.messages.length).toBeGreaterThan(0)
-        // Should still return an error response for the original operation failure
-        if (contextService?.clearContext) {
-          expect(contextService.clearContext).toHaveBeenCalled()
-        }
-      })
     })
 
     describe('Context Lifecycle', () => {
-      it('should clear context when operation succeeds from selection', async () => {
+      it('should leave nothing pending when operation succeeds from selection', async () => {
         const activeContext = {
           type: contextType,
           searchResults: mediaItems.slice(0, 2),
@@ -1046,15 +892,12 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
         mediaService.operationMethod.mockResolvedValue(operationResult)
         promptService.generatePromptMethod.mockResolvedValue(chatResponse)
 
-        await getStrategy().handleRequest(params)
+        const result = await getStrategy().handleRequest(params)
 
-        // Check contextService if available
-        if (contextService?.clearContext) {
-          expect(contextService.clearContext).toHaveBeenCalledWith('user123')
-        }
+        expect(result.pendingContext).toBeUndefined()
       })
 
-      it('should clear context when auto-selection succeeds', async () => {
+      it('should leave nothing pending when auto-selection succeeds', async () => {
         if (!hasParseInitialSelection()) {
           return
         }
@@ -1091,17 +934,13 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
         mediaService.operationMethod.mockResolvedValue(operationResult)
         promptService.generatePromptMethod.mockResolvedValue(chatResponse)
 
-        await getStrategy().handleRequest(params)
+        const result = await getStrategy().handleRequest(params)
 
-        // Auto-selection should not set context
-        // Note: clearContext is only called when there's an existing context to clean up,
-        // not during new search auto-selection
-        if (contextService?.setContext) {
-          expect(contextService.setContext).not.toHaveBeenCalled()
-        }
+        // Auto-selection settles the request, so nothing is left pending
+        expect(result.pendingContext).toBeUndefined()
       })
 
-      it('should clear context on error during selection handling', async () => {
+      it('should leave nothing pending on error during selection handling', async () => {
         const activeContext = {
           type: contextType,
           searchResults: mediaItems.slice(0, 2),
@@ -1141,10 +980,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
         const result = await getStrategy().handleRequest(params)
 
         expect(result.messages).toBeDefined()
-        // Check contextService if available
-        if (contextService?.clearContext) {
-          expect(contextService.clearContext).toHaveBeenCalledWith('user123')
-        }
+        expect(result.pendingContext).toBeUndefined()
       })
     })
   })

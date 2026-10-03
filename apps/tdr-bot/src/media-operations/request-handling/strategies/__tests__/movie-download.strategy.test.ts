@@ -3,6 +3,7 @@ import { DownloadApiError } from '@lilnas/utils/download/client'
 import { DownloadJobStatus, QualityTier } from '@lilnas/utils/download/types'
 import { Test, TestingModule } from '@nestjs/testing'
 
+import { PromptGenerationService } from 'src/llm/skills/media/prompt-generation.service'
 import { RadarrService } from 'src/media/services/radarr.service'
 import {
   MovieSearchResult,
@@ -18,12 +19,12 @@ import { testStrategyEdgeCases } from 'src/media-operations/request-handling/__t
 import { testStrategyRouting } from 'src/media-operations/request-handling/__test-helpers__/strategy-routing-suite'
 import { DownloadClientFactory } from 'src/media-operations/request-handling/download-client.factory'
 import { MovieDownloadStrategy } from 'src/media-operations/request-handling/strategies/movie-download.strategy'
-import { StrategyRequestParams } from 'src/media-operations/request-handling/types/request-context.type'
+import {
+  MediaContextType,
+  StrategyRequestParams,
+} from 'src/media-operations/request-handling/types/request-context.type'
 import { ParsingUtilities } from 'src/media-operations/request-handling/utils/parsing.utils'
 import { SelectionUtilities } from 'src/media-operations/request-handling/utils/selection.utils'
-import { ContextManagementService } from 'src/message-handler/context/context-management.service'
-import { PromptGenerationService } from 'src/message-handler/services/prompts/prompt-generation.service'
-import { StateService } from 'src/state/state.service'
 
 describe('MovieDownloadStrategy', () => {
   let strategy: MovieDownloadStrategy
@@ -37,7 +38,6 @@ describe('MovieDownloadStrategy', () => {
   let promptService: jest.Mocked<PromptGenerationService>
   let parsingUtilities: jest.Mocked<ParsingUtilities>
   let selectionUtilities: jest.Mocked<SelectionUtilities>
-  let contextService: jest.Mocked<ContextManagementService>
 
   // Mock response messages
   const mockChatResponse = new HumanMessage({
@@ -106,7 +106,7 @@ describe('MovieDownloadStrategy', () => {
   const matrixLinks =
     'Follow along on the [activity page](<https://download.lilnas.io/activity>), or open [The Matrix](<https://download.lilnas.io/movies/603>).'
 
-  // Mock state object (passed in params, not DI) - context methods removed, now in ContextManagementService
+  // Mock state object (passed in params, not DI) - context handling removed, now carried on StrategyResult.pendingContext
   const mockState = {}
 
   beforeEach(async () => {
@@ -144,26 +144,6 @@ describe('MovieDownloadStrategy', () => {
             findSelectedMovie: jest.fn(),
           },
         },
-        {
-          provide: StateService,
-          useValue: {
-            getState: jest.fn().mockReturnValue({
-              chatModel: 'gpt-4',
-              temperature: 0.7,
-            }),
-            setUserMovieContext: jest.fn(),
-            clearUserMovieContext: jest.fn(),
-          },
-        },
-        {
-          provide: ContextManagementService,
-          useValue: {
-            setContext: jest.fn().mockResolvedValue(undefined),
-            clearContext: jest.fn().mockResolvedValue(true),
-            getContext: jest.fn().mockResolvedValue(null),
-            hasContext: jest.fn().mockResolvedValue(false),
-          },
-        },
       ],
     }).compile()
 
@@ -174,7 +154,6 @@ describe('MovieDownloadStrategy', () => {
     promptService = module.get(PromptGenerationService)
     parsingUtilities = module.get(ParsingUtilities)
     selectionUtilities = module.get(SelectionUtilities)
-    contextService = module.get(ContextManagementService)
   })
 
   testStrategyRouting({
@@ -242,7 +221,6 @@ describe('MovieDownloadStrategy', () => {
       expect(radarrService.searchMovies).not.toHaveBeenCalled()
       expect(promptService.generateMoviePrompt).toHaveBeenCalledWith(
         [],
-        expect.anything(),
         'clarification',
       )
       expect(result.messages).toHaveLength(1)
@@ -296,7 +274,7 @@ describe('MovieDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(contextService.setContext).not.toHaveBeenCalled()
+      expect(result.pendingContext).toBeUndefined()
       expect(result.messages).toHaveLength(1)
       expect(result.messages[0].content).toBe(
         `Here is your movie response...\n\n${matrixLinks}`,
@@ -326,17 +304,16 @@ describe('MovieDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(contextService.setContext).toHaveBeenCalledWith(
-        'user123',
-        'movie',
-        {
+      expect(result.pendingContext).toEqual({
+        type: MediaContextType.MovieDownload,
+        data: {
           type: 'movie',
           searchResults: [mockMovie1, mockMovie2, mockMovie3],
           query: 'matrix',
           timestamp: expect.any(Number),
           isActive: true,
         },
-      )
+      })
       expect(downloadClient.requestMovie).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
@@ -382,10 +359,6 @@ describe('MovieDownloadStrategy', () => {
       },
       promptService: {
         generatePromptMethod: () => promptService.generateMoviePrompt,
-      },
-      contextService: {
-        setContext: () => contextService.setContext,
-        clearContext: () => contextService.clearContext,
       },
     },
     fixtures: {
@@ -433,7 +406,7 @@ describe('MovieDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
+      expect(result.pendingContext).toBeUndefined()
       expect(result.messages).toHaveLength(1)
     })
 
@@ -457,7 +430,7 @@ describe('MovieDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
+      expect(result.pendingContext).toBeUndefined()
       expect(result.messages).toHaveLength(1)
     })
 
@@ -480,7 +453,7 @@ describe('MovieDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(contextService.clearContext).not.toHaveBeenCalled()
+      expect(result.pendingContext?.data).toEqual(params.context)
       expect(downloadClient.requestMovie).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
@@ -504,7 +477,7 @@ describe('MovieDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(contextService.clearContext).not.toHaveBeenCalled()
+      expect(result.pendingContext?.data).toEqual(params.context)
       expect(downloadClient.requestMovie).not.toHaveBeenCalled()
       expect(result.messages).toHaveLength(1)
     })
@@ -531,7 +504,7 @@ describe('MovieDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(contextService.clearContext).toHaveBeenCalledWith('user123')
+      expect(result.pendingContext).toBeUndefined()
       expect(result.messages).toHaveLength(1)
     })
   })
@@ -601,7 +574,6 @@ describe('MovieDownloadStrategy', () => {
 
       expect(promptService.generateMoviePrompt).toHaveBeenCalledWith(
         [],
-        expect.anything(),
         'success',
         expect.objectContaining({
           selectedMovie: mockMovie1,
@@ -627,12 +599,10 @@ describe('MovieDownloadStrategy', () => {
 
       expect(promptService.generateMoviePrompt).toHaveBeenCalledWith(
         [],
-        expect.anything(),
         'already_downloaded',
         { selectedMovie: mockMovie1 },
       )
       expect(promptService.generateMoviePrompt).not.toHaveBeenCalledWith(
-        expect.anything(),
         expect.anything(),
         'success',
         expect.anything(),
@@ -654,7 +624,6 @@ describe('MovieDownloadStrategy', () => {
 
       expect(promptService.generateMoviePrompt).toHaveBeenCalledWith(
         [],
-        expect.anything(),
         'error',
         {
           selectedMovie: mockMovie1,
@@ -677,7 +646,6 @@ describe('MovieDownloadStrategy', () => {
 
       expect(promptService.generateMoviePrompt).toHaveBeenCalledWith(
         [],
-        expect.anything(),
         'error',
         {
           selectedMovie: mockMovie1,
@@ -702,7 +670,6 @@ describe('MovieDownloadStrategy', () => {
 
       expect(promptService.generateMoviePrompt).toHaveBeenCalledWith(
         [],
-        expect.anything(),
         'error',
         {
           selectedMovie: mockMovie1,
@@ -724,7 +691,6 @@ describe('MovieDownloadStrategy', () => {
 
       expect(promptService.generateMoviePrompt).toHaveBeenCalledWith(
         [],
-        expect.anything(),
         'error',
         {
           selectedMovie: mockMovie1,
@@ -757,7 +723,6 @@ describe('MovieDownloadStrategy', () => {
       expect(promptService.generateMoviePrompt).toHaveBeenCalledTimes(1)
       expect(promptService.generateMoviePrompt).toHaveBeenCalledWith(
         [],
-        expect.anything(),
         'success',
         expect.objectContaining({
           autoApplied: true,
@@ -772,16 +737,16 @@ describe('MovieDownloadStrategy', () => {
     it('keeps the tier asked for with the search for the follow-up pick', async () => {
       radarrService.searchMovies.mockResolvedValue([mockMovie1, mockMovie2])
 
-      await strategy.handleRequest(
+      const listResult = await strategy.handleRequest(
         singleResultParams({ qualityTier: QualityTier.UpTo720p }),
       )
 
-      expect(contextService.setContext).toHaveBeenCalledWith(
-        'user123',
-        'movie',
-        expect.objectContaining({ qualityTier: QualityTier.UpTo720p }),
-      )
-      const storedContext = contextService.setContext.mock.calls[0][2]
+      expect(listResult.pendingContext).toEqual({
+        type: MediaContextType.MovieDownload,
+        data: expect.objectContaining({ qualityTier: QualityTier.UpTo720p }),
+      })
+      const storedContext = listResult.pendingContext
+        ?.data as StrategyRequestParams['context']
 
       parsingUtilities.parseSearchSelection.mockResolvedValue({
         selectionType: 'ordinal',
@@ -852,10 +817,6 @@ describe('MovieDownloadStrategy', () => {
       },
       promptService: {
         generatePromptMethod: () => promptService.generateMoviePrompt,
-      },
-      contextService: {
-        setContext: () => contextService.setContext,
-        clearContext: () => contextService.clearContext,
       },
     },
     fixtures: {

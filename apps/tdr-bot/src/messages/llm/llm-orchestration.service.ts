@@ -1,189 +1,105 @@
-import { isAIMessage } from '@langchain/core/messages'
-import { StateGraph, StateType, UpdateType } from '@langchain/langgraph'
-import { ToolNode } from '@langchain/langgraph/prebuilt'
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
+import {
+  BaseMessage,
+  HumanMessage,
+  isAIMessage,
+} from '@langchain/core/messages'
+import { BaseCheckpointSaver } from '@langchain/langgraph'
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common'
+import { Mutex } from 'async-mutex'
+import { nanoid } from 'nanoid'
 
-import { MAX_GRAPH_HISTORY_SIZE } from 'src/constants/llm'
+import { LlmClient } from 'src/llm/client/llm-client'
+import { toMessageName } from 'src/llm/conversation/message-name'
+import { trimConversation } from 'src/llm/conversation/trim'
+import { buildGraph } from 'src/llm/graph/build-graph'
+import { GRAPH_CHECKPOINTER } from 'src/llm/graph/checkpointer'
+import { threadIdFor } from 'src/llm/graph/thread-id'
+import { LlmMetricsService } from 'src/llm/observability/llm-metrics.service'
+import { SkillRegistry } from 'src/llm/skills/skill.registry'
 import type { DiscordIdentity } from 'src/media-operations/request-handling/types/request-context.type'
 import { PromptService } from 'src/messages/prompts/prompt.service'
-import { MessageUtils } from 'src/messages/utils/message-utils'
-import {
-  GraphNode,
-  InputStateAnnotation,
-  OutputStateAnnotation,
-  OverallStateAnnotation,
-  ResponseType,
-} from 'src/schemas/graph'
 import { LLMStringContentSchema } from 'src/schemas/llm.schemas'
 import { MessageResponse } from 'src/schemas/messages'
-import { StateService } from 'src/state/state.service'
 import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
-import { TDR_SYSTEM_PROMPT_ID } from 'src/utils/prompts'
 
-import { DefaultResponseNode } from './nodes/default-response.node'
-import { ImageResponseNode } from './nodes/image-response.node'
-import { IntentDetectionNode } from './nodes/intent-detection.node'
-import { MathResponseNode } from './nodes/math-response.node'
-import { MediaResponseNode } from './nodes/media-response.node'
-import { ReminderResponseNode } from './nodes/reminder-response.node'
-import { getTools } from './tools'
-
-/** Compiled LangGraph that accepts input state and returns output state. */
-interface CompiledLLMGraph {
-  invoke(
-    input: typeof InputStateAnnotation.State,
-  ): Promise<typeof OutputStateAnnotation.State>
-}
-
-/** Maps each {@link ResponseType} to its corresponding graph node. */
-const RESPONSE_TYPE_GRAPH_NODE_MAP: Record<ResponseType, GraphNode> = {
-  [ResponseType.Default]: GraphNode.GetModelDefaultResponse,
-  [ResponseType.Math]: GraphNode.GetModelMathResponse,
-  [ResponseType.Image]: GraphNode.GetModelImageResponse,
-  [ResponseType.Media]: GraphNode.GetModelMediaResponse,
-  [ResponseType.Reminder]: GraphNode.GetModelReminderResponse,
-}
+/** Skill label for turns that failed before the router picked one. */
+const UNKNOWN_SKILL = 'unknown'
 
 /**
- * Builds and owns the LangGraph state machine that processes
- * every user message through the AI pipeline.
+ * Owns the compiled skills graph that processes every user message.
  *
  * The graph flow is:
- *   Start → IntentDetection → TrimMessages → AddSystemPrompt
- *         → (conditional) → ResponseNode → End
+ *   Start → router → runSkill → (reroute → router | finalize) → End
  *
- * The default response node supports tool calling (e.g. Tavily search)
- * with a tool-call → tools → response loop.
+ * The router picks a skill (fast path, pending follow-up, or LLM classifier)
+ * and the skill produces the reply messages.
  */
 @Injectable()
 export class LLMOrchestrationService implements OnModuleInit {
   private readonly logger = new Logger(LLMOrchestrationService.name)
 
-  private app!: CompiledLLMGraph
+  private app!: ReturnType<typeof buildGraph>
+
+  /** One mutex per thread with turns in flight, so a channel never races. */
+  private readonly threadLocks = new Map<
+    string,
+    { mutex: Mutex; holders: number }
+  >()
 
   constructor(
-    private readonly state: StateService,
+    @Inject(GRAPH_CHECKPOINTER)
+    private readonly checkpointer: BaseCheckpointSaver,
     private readonly promptService: PromptService,
-    private readonly intentDetection: IntentDetectionNode,
-    private readonly defaultResponse: DefaultResponseNode,
-    private readonly imageResponse: ImageResponseNode,
-    private readonly mathResponse: MathResponseNode,
-    private readonly mediaResponse: MediaResponseNode,
-    private readonly reminderResponse: ReminderResponseNode,
+    private readonly registry: SkillRegistry,
+    private readonly llm: LlmClient,
+    private readonly llmMetrics: LlmMetricsService,
     private readonly metrics: TdrBotMetricsService,
   ) {}
 
-  /** Compiles the LangGraph state machine and wires all nodes and edges. */
+  /** Compiles the skills graph. */
   onModuleInit() {
-    const tools = getTools()
-    const toolNode = new ToolNode(tools)
-
-    this.app = new StateGraph<
-      (typeof OverallStateAnnotation)['spec'],
-      StateType<(typeof OverallStateAnnotation)['spec']>,
-      UpdateType<(typeof OutputStateAnnotation)['spec']>,
-      GraphNode.Start,
-      (typeof InputStateAnnotation)['spec'],
-      (typeof OutputStateAnnotation)['spec']
-    >({
-      input: InputStateAnnotation,
-      output: OutputStateAnnotation,
-      stateSchema: OverallStateAnnotation,
+    this.app = buildGraph({
+      registry: this.registry,
+      llm: this.llm,
+      metrics: this.llmMetrics,
+      trim: trimConversation,
+      systemPrompt: () => this.promptService.getSystemPrompt(),
+      checkpointer: this.checkpointer,
     })
-      .addNode(
-        GraphNode.CheckResponseType,
-        this.intentDetection.invoke.bind(this.intentDetection),
-      )
-      .addNode(GraphNode.AddTdrSystemPrompt, this.addTdrSystemPrompt.bind(this))
-      .addNode(GraphNode.TrimMessages, this.trimMessages.bind(this))
-      .addNode(
-        GraphNode.GetModelDefaultResponse,
-        this.defaultResponse.invoke.bind(this.defaultResponse),
-      )
-      .addNode(
-        GraphNode.GetModelImageResponse,
-        this.imageResponse.invoke.bind(this.imageResponse),
-      )
-      .addNode(
-        GraphNode.GetModelMathResponse,
-        this.mathResponse.invoke.bind(this.mathResponse),
-      )
-      .addNode(
-        GraphNode.GetModelMediaResponse,
-        this.mediaResponse.invoke.bind(this.mediaResponse),
-      )
-      .addNode(
-        GraphNode.GetModelReminderResponse,
-        this.reminderResponse.invoke.bind(this.reminderResponse),
-      )
-      .addNode(GraphNode.Tools, toolNode)
-      .addEdge(GraphNode.Start, GraphNode.CheckResponseType)
-      .addEdge(GraphNode.CheckResponseType, GraphNode.TrimMessages)
-      .addEdge(GraphNode.TrimMessages, GraphNode.AddTdrSystemPrompt)
-      .addEdge(GraphNode.Tools, GraphNode.GetModelDefaultResponse)
-      .addEdge(GraphNode.GetModelImageResponse, GraphNode.End)
-      .addEdge(GraphNode.GetModelMathResponse, GraphNode.End)
-      .addEdge(GraphNode.GetModelMediaResponse, GraphNode.End)
-      .addEdge(GraphNode.GetModelReminderResponse, GraphNode.End)
-      .addConditionalEdges(
-        GraphNode.AddTdrSystemPrompt,
-        state => RESPONSE_TYPE_GRAPH_NODE_MAP[state.responseType],
-      )
-      .addConditionalEdges(
-        GraphNode.GetModelDefaultResponse,
-        this.handleModelResponse.bind(this),
-      )
-      .compile()
 
     this.logger.log(
-      { toolCount: tools.length, toolNames: tools.map(t => t.name) },
+      { skills: this.registry.ids() },
       'LLM orchestration graph compiled',
     )
   }
 
-  /** Prepends the TDR Bot system prompt to the message list if not already present. */
-  private addTdrSystemPrompt({
-    messages,
-  }: typeof OverallStateAnnotation.State) {
-    if (messages?.some(m => m.id === TDR_SYSTEM_PROMPT_ID)) {
-      return { messages }
+  /** Runs `fn` once every earlier turn on the same thread has finished. */
+  private async withThreadLock<T>(
+    threadId: string,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const lock = this.threadLocks.get(threadId) ?? {
+      mutex: new Mutex(),
+      holders: 0,
     }
-
-    return {
-      messages: [this.promptService.getSystemPrompt()].concat(messages),
+    lock.holders++
+    this.threadLocks.set(threadId, lock)
+    try {
+      return await lock.mutex.runExclusive(fn)
+    } finally {
+      if (--lock.holders === 0) {
+        this.threadLocks.delete(threadId)
+      }
     }
   }
 
-  /** Routes to the Tools node if the last AI message contains tool calls, otherwise ends. */
-  private handleModelResponse({
-    messages,
-  }: typeof OverallStateAnnotation.State) {
-    const lastMessage = messages.at(-1)
+  /** Messages checkpointed for a channel's thread; empty for an unknown channel. */
+  async getThreadMessages(channelId: string): Promise<BaseMessage[]> {
+    const snapshot = await this.app.getState({
+      configurable: { thread_id: threadIdFor({ channelId }) },
+    })
 
-    if (!lastMessage) {
-      throw new Error('No messages in state')
-    }
-
-    if (MessageUtils.isToolsMessage(lastMessage)) {
-      this.logger.log('Model response contains tool calls, routing to tools')
-      return GraphNode.Tools
-    }
-
-    return GraphNode.End
-  }
-
-  /** Caps the conversation history to the most recent messages to control token usage. */
-  private trimMessages({ messages }: typeof OverallStateAnnotation.State) {
-    this.logger.log({ messageCount: messages.length }, 'Trimming messages')
-
-    const finalMessages = MessageUtils.trimMessages(messages, 50)
-
-    this.logger.log(
-      { originalCount: messages.length, trimmedCount: finalMessages.length },
-      'Messages trimmed',
-    )
-
-    return { messages: finalMessages }
+    return snapshot.values?.messages ?? []
   }
 
   /**
@@ -197,6 +113,7 @@ export class LLMOrchestrationService implements OnModuleInit {
    *   strategies for attribution. Callers without a Discord message (the
    *   graph-test stdin loop) omit it and get one built from `userId`/`user`.
    * @param params.guildId - Discord guild ID for reminder delivery.
+   * @param params.channelId - Conversation thread: history is kept per channel.
    * @returns The AI-generated response text and any generated images.
    */
   async sendMessage({
@@ -205,58 +122,53 @@ export class LLMOrchestrationService implements OnModuleInit {
     userId,
     discord,
     guildId,
+    channelId,
   }: {
     message: string
     user: string
     userId?: string
     discord?: DiscordIdentity
     guildId?: string
+    channelId: string
   }): Promise<MessageResponse> {
-    const userInput = `${user} said "${message}"`
     const finalUserId = userId || user
     const finalDiscord = discord ?? {
       userId: finalUserId,
       username: user,
     }
 
-    this.logger.log(
-      { user, message, userInput, userId: finalUserId },
+    this.logger.debug(
+      { user, message, userId: finalUserId },
       'Invoking LLM Orchestration',
     )
 
-    const currentState = this.state.getState()
+    const humanMessage = new HumanMessage({
+      id: nanoid(),
+      content: message,
+      name: toMessageName(user),
+      additional_kwargs: { displayName: user },
+    })
+    const threadId = threadIdFor({ channelId, guildId })
     const startTime = Date.now()
 
-    let responseType: ResponseType = ResponseType.Default
+    let skill = UNKNOWN_SKILL
     try {
-      const {
-        images,
-        messages,
-        responseType: detectedType,
-      } = await this.app.invoke({
-        userInput,
-        userId: finalUserId,
-        discord: finalDiscord,
-        guildId: guildId ?? '',
-        messages: currentState.graphHistory.at(-1)?.messages ?? [],
-      })
+      const result = await this.withThreadLock(threadId, () =>
+        this.app.invoke(
+          {
+            messages: [humanMessage],
+            userId: finalUserId,
+            discord: finalDiscord,
+            channelId,
+            guildId: guildId ?? '',
+          },
+          { configurable: { thread_id: threadId } },
+        ),
+      )
 
-      responseType = detectedType ?? ResponseType.Default
+      const { images, messages } = result
+      skill = result.skill ?? skill
       const durationMs = Date.now() - startTime
-
-      this.state.setState(prev => {
-        const history = prev.graphHistory.concat({
-          images,
-          messages,
-          responseType,
-        })
-        return {
-          graphHistory:
-            history.length > MAX_GRAPH_HISTORY_SIZE
-              ? history.slice(-MAX_GRAPH_HISTORY_SIZE)
-              : history,
-        }
-      })
 
       const lastMessage = messages.at(-1)
 
@@ -265,38 +177,34 @@ export class LLMOrchestrationService implements OnModuleInit {
       }
 
       if (isAIMessage(lastMessage)) {
-        const tokenUsage = lastMessage.response_metadata?.tokenUsage as
-          | Record<string, number>
-          | undefined
+        const usage = lastMessage.usage_metadata
 
-        this.logger.log(tokenUsage, 'Token count for last message')
+        this.logger.log(usage, 'Token count for last message')
 
-        if (tokenUsage) {
-          if (tokenUsage.promptTokens) {
-            this.metrics.llmTokens('prompt_tokens', tokenUsage.promptTokens)
+        if (usage) {
+          if (usage.input_tokens) {
+            this.metrics.llmTokens('prompt_tokens', usage.input_tokens)
           }
-          if (tokenUsage.completionTokens) {
-            this.metrics.llmTokens(
-              'completion_tokens',
-              tokenUsage.completionTokens,
-            )
+          if (usage.output_tokens) {
+            this.metrics.llmTokens('completion_tokens', usage.output_tokens)
           }
-          if (tokenUsage.totalTokens) {
-            this.metrics.llmTokens('total_tokens', tokenUsage.totalTokens)
+          if (usage.total_tokens) {
+            this.metrics.llmTokens('total_tokens', usage.total_tokens)
           }
         }
       }
 
-      this.metrics.llmRequest(responseType, 'success')
-      this.metrics.observeLlmDuration(responseType, durationMs)
+      this.metrics.intentDetected(skill)
+      this.metrics.llmRequest(skill, 'success')
+      this.metrics.observeLlmDuration(skill, durationMs)
 
       const content = LLMStringContentSchema.parse(lastMessage.content)
 
-      return { images, content }
+      return { images: images ?? [], content }
     } catch (error) {
       const durationMs = Date.now() - startTime
-      this.metrics.llmRequest(responseType, 'error')
-      this.metrics.observeLlmDuration(responseType, durationMs)
+      this.metrics.llmRequest(skill, 'error')
+      this.metrics.observeLlmDuration(skill, durationMs)
       throw error
     }
   }

@@ -89,6 +89,7 @@ export class ChatHandler implements IMessageHandler {
           displayName: message.author.globalName ?? undefined,
         },
         guildId: message.guildId ?? '',
+        channelId: message.channelId,
       })
 
       this.logger.log(

@@ -1,86 +1,231 @@
 /**
  * Integration tests for LLMOrchestrationService.
  *
- * Tests the full stack: LLMOrchestrationService + real node implementations
- * (IntentDetectionNode, DefaultResponseNode, etc.) + PromptService + ModelFactoryService
- * + the real compiled LangGraph StateGraph.
- *
- * Only external API clients (ChatOpenAI, DallEAPIWrapper, TavilySearchResults)
- * and I/O services (EquationImageService, MediaRequestHandler) are mocked.
+ * Full turns through the real compiled skills graph: real SkillRegistry, the
+ * five real skills, the real PromptService and a MemorySaver checkpointer.
+ * Only the LlmClient (a scripted FakeLlmClient) and I/O services
+ * (EquationImageService, MediaRequestHandler, ReminderService, Tavily) are
+ * faked. The T3 golden SCENARIOS are replayed end to end with scripted
+ * responses.
  */
 
-// Unmock LangGraph so the real StateGraph compiles and routes through the graph.
-// This overrides the global mock in setup.ts for this file only.
-jest.unmock('@langchain/langgraph')
-jest.unmock('@langchain/langgraph/prebuilt')
-
-jest.mock('@langchain/openai')
-jest.mock('@langchain/community/tools/tavily_search')
+// Distinct message ids per turn: the global nanoid mock would collapse them.
+let nanoidCounter = 0
+jest.mock('nanoid', () => ({
+  nanoid: jest.fn(() => `nano-${++nanoidCounter}`),
+}))
+jest.mock('@langchain/tavily')
+const mockTools: StructuredToolInterface[] = []
 jest.mock('src/messages/llm/tools', () => ({
-  getTools: jest.fn().mockReturnValue([]),
+  getTools: jest.fn(() => mockTools),
 }))
 
-import { AIMessage, HumanMessage } from '@langchain/core/messages'
-import { ChatOpenAI } from '@langchain/openai'
-import { Test, TestingModule } from '@nestjs/testing'
-
 import {
-  createMockMetricsService,
-  createMockStateService,
-} from 'src/__tests__/test-utils'
+  AIMessage,
+  BaseMessage,
+  HumanMessage,
+  ToolMessage,
+} from '@langchain/core/messages'
+import { StructuredToolInterface, tool } from '@langchain/core/tools'
+import { MemorySaver } from '@langchain/langgraph'
+import { Test, TestingModule } from '@nestjs/testing'
+import { z } from 'zod'
+
+import { createMockMetricsService } from 'src/__tests__/test-utils'
+import { LlmClient } from 'src/llm/client/llm-client'
+import { GRAPH_CHECKPOINTER } from 'src/llm/graph/checkpointer'
+import { threadIdFor } from 'src/llm/graph/thread-id'
+import { LlmMetricsService } from 'src/llm/observability/llm-metrics.service'
+import {
+  defaultSettings,
+  SettingsService,
+} from 'src/llm/settings/settings.service'
+import { ChatSkill } from 'src/llm/skills/chat/skill'
+import { ImageSkill } from 'src/llm/skills/image/skill'
+import { MathSkill } from 'src/llm/skills/math/skill'
+import { MediaSkill } from 'src/llm/skills/media.skill'
+import { ReminderSkill } from 'src/llm/skills/reminder.skill'
+import { SKILLS } from 'src/llm/skills/skill.interface'
+import { SkillRegistry } from 'src/llm/skills/skill.registry'
+import { FakeLlmClient } from 'src/llm/testing/fake-llm-client'
+import { SCENARIOS } from 'src/llm/testing/golden/scenarios'
 import { MediaRequestHandler } from 'src/media-operations/request-handling/media-request-handler.service'
-import { ContextManagementService } from 'src/message-handler/context/context-management.service'
+import {
+  type ActiveMediaContext,
+  MediaContextType,
+} from 'src/media-operations/request-handling/types'
 import { LLMOrchestrationService } from 'src/messages/llm/llm-orchestration.service'
-import { ModelFactoryService } from 'src/messages/llm/model-factory.service'
-import { DefaultResponseNode } from 'src/messages/llm/nodes/default-response.node'
-import { ImageResponseNode } from 'src/messages/llm/nodes/image-response.node'
-import { IntentDetectionNode } from 'src/messages/llm/nodes/intent-detection.node'
-import { MathResponseNode } from 'src/messages/llm/nodes/math-response.node'
-import { MediaResponseNode } from 'src/messages/llm/nodes/media-response.node'
-import { ReminderResponseNode } from 'src/messages/llm/nodes/reminder-response.node'
 import { PromptService } from 'src/messages/prompts/prompt.service'
 import { ReminderService } from 'src/reminders/reminder.service'
-import { ReminderContext } from 'src/reminders/reminder.types'
-import { ResponseType } from 'src/schemas/graph'
 import { EquationImageService } from 'src/services/equation-image.service'
-import { StateService } from 'src/state/state.service'
 import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
-import { ErrorClassificationService } from 'src/utils/error-classifier'
 import { TDR_SYSTEM_PROMPT_ID } from 'src/utils/prompts'
-import { RetryService } from 'src/utils/retry.service'
 
 const TEST_TIMEOUT = 15_000
+
+const REMINDER_EXTRACTION = {
+  action: 'create',
+  what: null,
+  isRecurring: null,
+  day: null,
+  time: null,
+  recurringPattern: null,
+  scheduledAt: null,
+  cronExpression: null,
+  reminderIdToCancel: null,
+  channelId: null,
+  targetUserId: null,
+  actionType: 'default',
+}
+
+type Responses = Record<string, object | string>
+
+/** Scripted LLM responses and fake-service behaviour for one turn. */
+interface TurnScript {
+  llm: Responses
+  media?: {
+    messages: AIMessage[]
+    pendingContext?: ActiveMediaContext
+    reroute?: true
+  }
+}
+
+/** Per-scenario scripts, one entry per turn of the matching SCENARIOS entry. */
+const SCENARIO_SCRIPTS: Record<string, TurnScript[]> = {
+  'reminder missing the day, then supplied': [
+    {
+      llm: {
+        'reminder.extract': {
+          ...REMINDER_EXTRACTION,
+          what: 'call mom',
+          time: '5pm',
+        },
+        'reminder.askMissing': 'Which day should I remind you?',
+      },
+    },
+    {
+      llm: {
+        'reminder.topicSwitch': { continuing: true },
+        'reminder.extract': { ...REMINDER_EXTRACTION, day: 'tomorrow' },
+        'reminder.confirm': 'Got it! I will remind you tomorrow at 5pm.',
+      },
+    },
+  ],
+  'reminder then topic switch': [
+    {
+      llm: {
+        'reminder.extract': {
+          ...REMINDER_EXTRACTION,
+          what: 'water the plants',
+        },
+        'reminder.askMissing': 'Which day should I remind you?',
+      },
+    },
+    {
+      llm: {
+        'reminder.topicSwitch': { continuing: false },
+        'router.classify': { skill: 'chat' },
+        'chat.respond': 'Leonardo da Vinci painted the Mona Lisa.',
+      },
+    },
+  ],
+  'media search then pick the first one': [
+    {
+      llm: { 'router.classify': { skill: 'media' } },
+      media: {
+        messages: [new AIMessage('I found two Dunes. Which one?')],
+        pendingContext: {
+          type: MediaContextType.MovieDownload,
+          data: { results: [1, 2] },
+        },
+      },
+    },
+    {
+      llm: {},
+      media: { messages: [new AIMessage('Downloading Dune (2021).')] },
+    },
+  ],
+  'media search then unrelated question': [
+    {
+      llm: { 'router.classify': { skill: 'media' } },
+      media: {
+        messages: [new AIMessage('I found two Dunes. Which one?')],
+        pendingContext: {
+          type: MediaContextType.MovieDownload,
+          data: { results: [1, 2] },
+        },
+      },
+    },
+    {
+      llm: {
+        'router.classify': { skill: 'chat' },
+        'chat.respond': 'The capital of France is Paris.',
+      },
+      media: { messages: [], reroute: true },
+    },
+  ],
+  'image request returns an image': [
+    {
+      llm: {
+        'router.classify': { skill: 'image' },
+        'image.extractQueries': [
+          { query: 'a cat wearing a top hat', title: 'top hat cat' },
+        ],
+        'image.respond': 'Here is your dapper cat!',
+      },
+    },
+  ],
+}
 
 function ai(content: string, id = 'ai-id'): AIMessage {
   return new AIMessage({ id, content })
 }
 
-function human(content: string, id = 'h-id'): HumanMessage {
-  return new HumanMessage({ id, content })
-}
-
 describe('LLMOrchestrationService - Integration', () => {
+  /** The checkpointed state values for a channel's thread. */
+  async function checkpoint(
+    channelId: string,
+    guildId?: string,
+  ): Promise<Record<string, unknown>> {
+    const tuple = await checkpointer.getTuple({
+      configurable: { thread_id: threadIdFor({ channelId, guildId }) },
+    })
+    return tuple?.checkpoint.channel_values ?? {}
+  }
+
+  async function history(channelId: string): Promise<BaseMessage[]> {
+    return ((await checkpoint(channelId)).messages as BaseMessage[]) ?? []
+  }
+
+  /** The skill the router picked for the latest turn. */
+  function lastSkill(): string | undefined {
+    return metrics.intentDetected.mock.calls.at(-1)?.[0]
+  }
+
   let module: TestingModule
   let service: LLMOrchestrationService
-  let stateService: jest.Mocked<StateService>
+  let checkpointer: MemorySaver
+  let llm: FakeLlmClient
+  let metrics: jest.Mocked<TdrBotMetricsService>
   let equationImageService: jest.Mocked<EquationImageService>
   let mediaRequestHandler: jest.Mocked<MediaRequestHandler>
-  let mockInvoke: jest.Mock
-  let mockContextService: jest.Mocked<ContextManagementService>
-  let mockReminderService: jest.Mocked<ReminderService>
+  let reminderService: jest.Mocked<ReminderService>
+  let settings: { get: jest.Mock }
 
   beforeEach(async () => {
     jest.clearAllMocks()
 
-    stateService = createMockStateService()
-    stateService.getState.mockReturnValue({
-      chatModel: 'gpt-4-turbo',
-      reasoningModel: 'gpt-4o-mini',
-      temperature: 0,
-      maxTokens: 1000,
-      prompt: 'You are TDR, a kawaii Discord bot.',
-      graphHistory: [],
-    })
+    mockTools.length = 0
+    checkpointer = new MemorySaver()
+    llm = new FakeLlmClient()
+    metrics = createMockMetricsService()
+
+    settings = {
+      get: jest.fn().mockReturnValue({
+        ...defaultSettings(),
+        systemPrompt: 'You are TDR, a kawaii Discord bot.',
+      }),
+    }
 
     equationImageService = {
       getImage: jest.fn().mockResolvedValue({
@@ -95,66 +240,40 @@ describe('LLMOrchestrationService - Integration', () => {
         messages: [ai('Found the movie Inception.')],
         images: [],
       }),
-      hasActiveMediaContext: jest.fn().mockResolvedValue(false),
     } as unknown as jest.Mocked<MediaRequestHandler>
 
-    mockInvoke = jest.fn()
-    const MockChatOpenAI = ChatOpenAI as jest.MockedClass<typeof ChatOpenAI>
-    MockChatOpenAI.mockImplementation(
-      () =>
-        ({
-          invoke: mockInvoke,
-          bindTools: jest.fn().mockReturnThis(),
-        }) as unknown as ChatOpenAI,
-    )
-
-    const retryService: jest.Mocked<RetryService> = {
-      executeWithRetry: jest
-        .fn()
-        .mockImplementation((fn: () => unknown) => fn()),
-    } as unknown as jest.Mocked<RetryService>
-
-    mockContextService = {
-      getContextType: jest.fn().mockResolvedValue(null),
-      getContext: jest.fn().mockResolvedValue(null),
-      setContext: jest.fn().mockResolvedValue(undefined),
-      clearContext: jest.fn().mockResolvedValue(true),
-      hasContext: jest.fn().mockResolvedValue(false),
-    } as unknown as jest.Mocked<ContextManagementService>
-
-    mockReminderService = {
-      create: jest.fn(),
+    reminderService = {
+      create: jest.fn().mockImplementation(async input => ({
+        ...input,
+        scheduledAt: input.scheduledAt ?? null,
+      })),
       listForUser: jest.fn().mockResolvedValue([]),
       cancel: jest.fn(),
-      setDeliveryFunction: jest.fn(),
-      recordDeliveryFailure: jest.fn(),
-      deleteAfterDelivery: jest.fn(),
-      scheduleReminder: jest.fn(),
-      onModuleInit: jest.fn(),
     } as unknown as jest.Mocked<ReminderService>
 
     module = await Test.createTestingModule({
       providers: [
         LLMOrchestrationService,
-        ModelFactoryService,
         PromptService,
-        IntentDetectionNode,
-        DefaultResponseNode,
-        ImageResponseNode,
-        MathResponseNode,
-        MediaResponseNode,
-        ReminderResponseNode,
-        { provide: StateService, useValue: stateService },
+        SkillRegistry,
+        ChatSkill,
+        MathSkill,
+        ImageSkill,
+        MediaSkill,
+        ReminderSkill,
+        {
+          provide: SKILLS,
+          useFactory: (...skills: unknown[]) => skills,
+          inject: [ChatSkill, MathSkill, ImageSkill, MediaSkill, ReminderSkill],
+        },
+        { provide: GRAPH_CHECKPOINTER, useValue: checkpointer },
         { provide: EquationImageService, useValue: equationImageService },
         { provide: MediaRequestHandler, useValue: mediaRequestHandler },
-        { provide: RetryService, useValue: retryService },
-        {
-          provide: ErrorClassificationService,
-          useValue: { classifyError: jest.fn() },
-        },
-        { provide: ContextManagementService, useValue: mockContextService },
-        { provide: ReminderService, useValue: mockReminderService },
-        { provide: TdrBotMetricsService, useValue: createMockMetricsService() },
+        { provide: ReminderService, useValue: reminderService },
+        { provide: LlmClient, useValue: llm },
+        { provide: LlmMetricsService, useValue: { routerDecision: jest.fn() } },
+        { provide: SettingsService, useValue: settings },
+        { provide: TdrBotMetricsService, useValue: metrics },
       ],
     }).compile()
 
@@ -168,383 +287,448 @@ describe('LLMOrchestrationService - Integration', () => {
     await module?.close()
   })
 
-  describe('simple chat (Default response type)', () => {
+  describe('chat skill', () => {
     it(
-      'routes through intent detection → default response and returns content',
+      'routes through the classifier to chat and returns content',
       async () => {
-        const chatContent = 'Hello! How can I help you?'
-        // intent detection returns "default"
-        mockInvoke
-          .mockResolvedValueOnce(ai(ResponseType.Default)) // intent
-          .mockResolvedValueOnce(ai(chatContent)) // default response
+        llm
+          .script('router.classify', { skill: 'chat' })
+          .script('chat.respond', 'Hello! How can I help you?')
 
         const result = await service.sendMessage({
           message: 'Hello!',
           user: 'Alice',
           userId: 'u-1',
+          channelId: 'chan-1',
         })
 
-        expect(result.content).toBe(chatContent)
+        expect(result.content).toBe('Hello! How can I help you?')
         expect(result.images ?? []).toEqual([])
+        expect(lastSkill()).toBe('chat')
+        expect(metrics.llmRequest).toHaveBeenCalledWith('chat', 'success')
       },
       TEST_TIMEOUT,
     )
 
     it(
-      'appends result to graphHistory and uses previous history in next call',
+      'a second turn in the same channel sees the first turn',
       async () => {
-        mockInvoke
-          .mockResolvedValueOnce(ai(ResponseType.Default)) // intent turn 1
-          .mockResolvedValueOnce(ai('Nice to meet you!')) // response turn 1
-          .mockResolvedValueOnce(ai(ResponseType.Default)) // intent turn 2
-          .mockResolvedValueOnce(ai('Your name is Bob.')) // response turn 2
+        let seen: string[] = []
+        llm.script('router.classify', { skill: 'chat' })
+        llm.script('chat.respond', call => {
+          seen = call.messages.map(m => String(m.content))
+          return seen.includes('What is my name?')
+            ? 'Your name is Bob.'
+            : 'Nice to meet you!'
+        })
 
-        // Turn 1
         await service.sendMessage({
           message: 'My name is Bob',
           user: 'Bob',
           userId: 'u-2',
+          channelId: 'chan-1',
         })
-
-        // Simulate state update
-        const updateFn = (stateService.setState as jest.Mock).mock
-          .calls[0][0] as (
-          p: ReturnType<typeof stateService.getState>,
-        ) => Partial<ReturnType<typeof stateService.getState>>
-        const prevState = stateService.getState()
-        const updated = updateFn(prevState)
-        stateService.getState.mockReturnValue({
-          ...prevState,
-          graphHistory: updated.graphHistory ?? [],
-        })
-
-        // Turn 2
         const result2 = await service.sendMessage({
           message: 'What is my name?',
           user: 'Bob',
           userId: 'u-2',
+          channelId: 'chan-1',
         })
 
         expect(result2.content).toBe('Your name is Bob.')
-        // graphHistory was set after turn 1
-        expect(updated.graphHistory).toHaveLength(1)
+        expect(seen).toEqual([
+          expect.stringContaining('TDR'),
+          'My name is Bob',
+          'Nice to meet you!',
+          'What is my name?',
+        ])
+      },
+      TEST_TIMEOUT,
+    )
+
+    it(
+      'does not share history between channels',
+      async () => {
+        const seenByChannel: Record<string, string[]> = {}
+        llm.script('router.classify', { skill: 'chat' })
+        llm.script('chat.respond', call => {
+          const texts = call.messages.map(m => String(m.content))
+          const channel = texts.includes('hello chan-a') ? 'chan-a' : 'chan-b'
+          seenByChannel[channel] = texts
+          return `reply in ${channel}`
+        })
+
+        for (const channelId of ['chan-a', 'chan-b']) {
+          await service.sendMessage({
+            message: `hello ${channelId}`,
+            user: 'Alice',
+            userId: 'u-1',
+            channelId,
+          })
+        }
+
+        expect(seenByChannel['chan-b']).toContain('hello chan-b')
+        expect(seenByChannel['chan-b']).not.toContain('hello chan-a')
+        expect(seenByChannel['chan-b']).not.toContain('reply in chan-a')
+      },
+      TEST_TIMEOUT,
+    )
+
+    it(
+      'serialises concurrent turns in one channel so both land in order',
+      async () => {
+        let releaseFirst!: () => void
+        const firstGate = new Promise<void>(resolve => {
+          releaseFirst = resolve
+        })
+        let secondSaw: string[] = []
+        llm.script('router.classify', { skill: 'chat' })
+        llm.script('chat.respond', async call => {
+          const texts = call.messages.map(m => String(m.content))
+          if (texts.includes('second')) {
+            secondSaw = texts
+            return 'reply two'
+          }
+          await firstGate
+          return 'reply one'
+        })
+
+        const first = service.sendMessage({
+          message: 'first',
+          user: 'Alice',
+          userId: 'u-1',
+          channelId: 'chan-1',
+        })
+        const second = service.sendMessage({
+          message: 'second',
+          user: 'Bob',
+          userId: 'u-2',
+          channelId: 'chan-1',
+        })
+        // Let the second turn queue behind the first, then release the first.
+        await new Promise(resolve => setTimeout(resolve, 20))
+        releaseFirst()
+        const [r1, r2] = await Promise.all([first, second])
+
+        expect(r1.content).toBe('reply one')
+        expect(r2.content).toBe('reply two')
+        expect(secondSaw.slice(1)).toEqual(['first', 'reply one', 'second'])
+        expect((await history('chan-1')).map(m => String(m.content))).toEqual([
+          'first',
+          'reply one',
+          'second',
+          'reply two',
+        ])
+      },
+      TEST_TIMEOUT,
+    )
+
+    it(
+      'stamps the human message with the Discord display name',
+      async () => {
+        llm
+          .script('router.classify', { skill: 'chat' })
+          .script('chat.respond', 'hey')
+
+        await service.sendMessage({
+          message: 'hello there',
+          user: 'Alice Display',
+          userId: 'u-1',
+          channelId: 'chan-1',
+        })
+
+        const humans = (await history('chan-1')).filter(
+          m => m instanceof HumanMessage,
+        )
+        expect(humans).toHaveLength(1)
+        expect(humans[0].content).toBe('hello there')
+        expect(humans[0].name).toBe('Alice_Display')
+        expect(humans[0].additional_kwargs.displayName).toBe('Alice Display')
+      },
+      TEST_TIMEOUT,
+    )
+
+    it(
+      'completes a tool-call round trip',
+      async () => {
+        mockTools.push(
+          tool(async ({ q }: { q: string }) => `result for ${q}`, {
+            name: 'lookup',
+            description: 'Looks something up',
+            schema: z.object({ q: z.string() }),
+          }),
+        )
+        const toolCall = new AIMessage({
+          id: 'ai-tool',
+          content: '',
+          tool_calls: [
+            {
+              id: 'call_1',
+              name: 'lookup',
+              args: { q: 'cats' },
+              type: 'tool_call',
+            },
+          ],
+        })
+        const responses = [toolCall, ai('Cats are great.', 'ai-final')]
+        llm.script('router.classify', { skill: 'chat' })
+        llm.script('chat.respond', () => responses.shift() as AIMessage)
+
+        const result = await service.sendMessage({
+          message: 'tell me about cats',
+          user: 'Alice',
+          userId: 'u-1',
+          channelId: 'chan-1',
+        })
+
+        expect(result.content).toBe('Cats are great.')
+        const toolMessage = (await history('chan-1')).find(
+          m => m instanceof ToolMessage,
+        )
+        expect(toolMessage?.content).toBe('result for cats')
       },
       TEST_TIMEOUT,
     )
   })
 
-  describe('media request routing', () => {
+  describe('failures', () => {
     it(
-      'routes to media response when intent detection returns "media"',
+      'records an error metric under the skill label and rethrows',
       async () => {
-        mockInvoke.mockResolvedValueOnce(ai(ResponseType.Media)) // intent
-        const mediaMsg = ai('Found Inception (2010)')
-        mediaRequestHandler.handleRequest.mockResolvedValue({
-          messages: [mediaMsg],
-          images: [],
-        })
+        llm
+          .script('router.classify', { skill: 'chat' })
+          .script('chat.respond', new Error('model down'))
 
-        const result = await service.sendMessage({
-          message: 'Find the movie Inception',
-          user: 'Charlie',
-          userId: 'u-3',
-        })
+        await expect(
+          service.sendMessage({
+            message: 'hello',
+            user: 'Alice',
+            userId: 'u-1',
+            channelId: 'chan-1',
+          }),
+        ).rejects.toThrow('model down')
 
-        expect(mediaRequestHandler.handleRequest).toHaveBeenCalled()
-        expect(result.content).toBe('Found Inception (2010)')
+        expect(metrics.llmRequest).toHaveBeenCalledWith('unknown', 'error')
+        expect(metrics.observeLlmDuration).toHaveBeenCalledWith(
+          'unknown',
+          expect.any(Number),
+        )
       },
       TEST_TIMEOUT,
     )
+  })
 
+  describe('math skill', () => {
     it(
-      'skips LLM intent detection when active media context exists',
+      'renders the equation image and returns the chat reply',
       async () => {
-        mediaRequestHandler.hasActiveMediaContext.mockResolvedValue(true)
+        llm
+          .script('router.classify', { skill: 'math' })
+          .script('math.latex', '2 + 2 = 4')
+          .script('math.respond', ai('The answer is 4.', 'chat-id'))
+
+        const result = await service.sendMessage({
+          message: 'What is 2 + 2?',
+          user: 'Eve',
+          userId: 'u-5',
+          channelId: 'chan-1',
+        })
+
+        expect(lastSkill()).toBe('math')
+        expect(result.content).toBe('The answer is 4.')
+        expect(equationImageService.getImage).toHaveBeenCalledWith('2 + 2 = 4')
+        expect(result.images).toEqual([
+          {
+            title: 'the solution',
+            url: 'https://example.com/eq.png',
+            parentId: 'chat-id',
+          },
+        ])
+      },
+      TEST_TIMEOUT,
+    )
+  })
+
+  describe('image skill', () => {
+    it(
+      'generates images and records the success metric',
+      async () => {
+        llm
+          .script('router.classify', { skill: 'image' })
+          .script('image.extractQueries', [{ query: 'a fox', title: 'fox' }])
+          .script('image.respond', 'Here is a fox')
+          .scriptImage('https://example.com/fox.png')
+
+        const result = await service.sendMessage({
+          message: 'make a picture of a fox',
+          user: 'Ivan',
+          userId: 'u-9',
+          channelId: 'chan-1',
+        })
+
+        expect(lastSkill()).toBe('image')
+        expect(result.content).toBe('Here is a fox')
+        expect(result.images).toEqual([
+          expect.objectContaining({
+            title: 'fox',
+            url: 'https://example.com/fox.png',
+          }),
+        ])
+        expect(metrics.imageGeneration).toHaveBeenCalledWith('success')
+      },
+      TEST_TIMEOUT,
+    )
+  })
+
+  describe('media skill', () => {
+    it(
+      'takes the fast path for a download request and skips the classifier',
+      async () => {
         mediaRequestHandler.handleRequest.mockResolvedValue({
           messages: [ai('Downloading Inception now.')],
           images: [],
         })
 
         const result = await service.sendMessage({
-          message: '1',
-          user: 'Dave',
-          userId: 'u-4',
+          message: 'download the movie Inception',
+          user: 'Charlie',
+          userId: 'u-3',
+          channelId: 'chan-1',
         })
 
-        // No LLM call for intent detection
-        expect(mockInvoke).not.toHaveBeenCalled()
+        expect(llm.calls.map(c => c.operation)).not.toContain('router.classify')
         expect(mediaRequestHandler.handleRequest).toHaveBeenCalled()
+        expect(lastSkill()).toBe('media')
         expect(result.content).toBe('Downloading Inception now.')
       },
       TEST_TIMEOUT,
     )
   })
 
-  describe('math response routing', () => {
+  describe('reminder skill', () => {
     it(
-      'routes to math node and returns equation image',
+      'creates a reminder and returns the confirmation',
       async () => {
-        const latexContent = '2 + 2 = 4'
-        const chatContent = 'The answer is 4.'
-        mockInvoke
-          .mockResolvedValueOnce(ai(ResponseType.Math)) // intent
-          .mockResolvedValueOnce(ai(latexContent)) // LaTeX extraction
-          .mockResolvedValueOnce(ai(chatContent, 'chat-id')) // chat response
+        llm
+          .script('reminder.extract', {
+            ...REMINDER_EXTRACTION,
+            what: 'pay rent',
+            day: 'tomorrow',
+            time: '9:00 AM',
+            scheduledAt: '2026-03-19T09:00:00',
+          })
+          .script('reminder.confirm', 'Got it! Reminder set for tomorrow.')
 
         const result = await service.sendMessage({
-          message: 'What is 2 + 2?',
-          user: 'Eve',
-          userId: 'u-5',
+          message: 'remind me to pay rent tomorrow at 9am',
+          user: 'Judy',
+          userId: 'u-10',
+          guildId: 'guild-1',
+          channelId: 'chan-1',
         })
 
-        expect(result.content).toBe(chatContent)
-        expect(equationImageService.getImage).toHaveBeenCalledWith(latexContent)
-        expect(result.images).toHaveLength(1)
-        expect(result.images![0]).toMatchObject({
-          title: 'the solution',
-          url: 'https://example.com/eq.png',
-        })
+        expect(lastSkill()).toBe('reminder')
+        expect(result.content).toBe('Got it! Reminder set for tomorrow.')
+        expect(reminderService.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            userId: 'u-10',
+            guildId: 'guild-1',
+            what: 'pay rent',
+          }),
+        )
       },
       TEST_TIMEOUT,
     )
   })
 
-  describe('system prompt injection', () => {
+  describe('system prompt', () => {
     it(
-      'injects the TDR system prompt when conversation starts fresh',
+      'is given to the skill once, fresh each turn, and not checkpointed',
       async () => {
-        let capturedMessages: unknown[] = []
-        mockInvoke
-          .mockResolvedValueOnce(ai(ResponseType.Default)) // intent
-          .mockImplementationOnce(async (msgs: unknown[]) => {
-            capturedMessages = msgs
-            return ai('response')
-          })
+        let captured: BaseMessage[] = []
+        llm.script('router.classify', { skill: 'chat' })
+        llm.script('chat.respond', call => {
+          captured = call.messages
+          return 'response'
+        })
 
         await service.sendMessage({
           message: 'hi',
-          user: 'Frank',
-          userId: 'u-6',
+          user: 'Heidi',
+          userId: 'u-8',
+          channelId: 'chan-1',
         })
-
-        const hasSystemPrompt = capturedMessages.some(
-          (m: unknown) => (m as { id?: string }).id === TDR_SYSTEM_PROMPT_ID,
-        )
-        expect(hasSystemPrompt).toBe(true)
-      },
-      TEST_TIMEOUT,
-    )
-
-    it(
-      'does not duplicate system prompt when it already exists in history',
-      async () => {
-        const { SystemMessage } = await import('@langchain/core/messages')
-        const existingPrompt = new SystemMessage({
-          id: TDR_SYSTEM_PROMPT_ID,
-          content: 'existing',
+        settings.get.mockReturnValue({
+          ...defaultSettings(),
+          systemPrompt: 'You are TDR, now extra formal.',
         })
-        stateService.getState.mockReturnValue({
-          chatModel: 'gpt-4-turbo',
-          reasoningModel: 'gpt-4o-mini',
-          temperature: 0,
-          maxTokens: 1000,
-          prompt: 'prompt',
-          graphHistory: [
-            {
-              messages: [existingPrompt, human('prev msg')],
-              images: [],
-              responseType: undefined,
-            },
-          ],
-        })
-
-        let capturedMessages: unknown[] = []
-        mockInvoke
-          .mockResolvedValueOnce(ai(ResponseType.Default)) // intent
-          .mockImplementationOnce(async (msgs: unknown[]) => {
-            capturedMessages = msgs
-            return ai('response')
-          })
-
         await service.sendMessage({
           message: 'follow-up',
-          user: 'Grace',
-          userId: 'u-7',
-        })
-
-        const systemPromptCount = capturedMessages.filter(
-          (m: unknown) => (m as { id?: string }).id === TDR_SYSTEM_PROMPT_ID,
-        ).length
-        expect(systemPromptCount).toBe(1)
-      },
-      TEST_TIMEOUT,
-    )
-  })
-
-  describe('reminder response routing', () => {
-    it(
-      'routes to reminder node when intent detection returns "reminder" and returns a confirmation',
-      async () => {
-        const confirmationContent = 'Got it! Reminder set for tomorrow.'
-
-        const extractionJson = JSON.stringify({
-          action: 'create',
-          what: 'pay rent',
-          isRecurring: false,
-          day: 'tomorrow',
-          time: '9:00 AM',
-          recurringPattern: null,
-          scheduledAt: '2026-03-19T09:00:00',
-          cronExpression: null,
-          reminderIdToCancel: null,
-          channelId: null,
-          targetUserId: null,
-          actionType: 'default',
-        })
-
-        const createdReminder = {
-          id: 'rem-1',
-          userId: 'u-r1',
-          guildId: 'guild-1',
-          what: 'pay rent',
-          isRecurring: false,
-          cronExpression: null,
-          scheduledAt: new Date('2026-03-19T09:00:00'),
-          dayDescription: 'tomorrow',
-          timeDescription: '9:00 AM',
-          channelId: null,
-          targetUserId: null,
-          actionType: 'default',
-          createdAt: new Date(),
-        }
-        mockReminderService.create.mockResolvedValue(createdReminder)
-
-        mockInvoke
-          .mockResolvedValueOnce(ai(ResponseType.Reminder)) // intent detection
-          .mockResolvedValueOnce(ai(extractionJson)) // reasoning model extracts reminder
-          .mockResolvedValueOnce(ai(confirmationContent)) // chat model confirms
-
-        const result = await service.sendMessage({
-          message: 'remind me to pay rent tomorrow',
-          user: 'Ivan',
-          userId: 'u-r1',
-          guildId: 'guild-1',
-        })
-
-        expect(mockReminderService.create).toHaveBeenCalledWith(
-          expect.objectContaining({ what: 'pay rent', userId: 'u-r1' }),
-        )
-        expect(result.content).toBe(confirmationContent)
-      },
-      TEST_TIMEOUT,
-    )
-
-    it(
-      'continues reminder flow when active reminder context exists and user provides follow-up',
-      async () => {
-        // Simulate an active reminder context (user was asked for missing "what")
-        mockContextService.getContextType.mockResolvedValue('reminder')
-        mockContextService.getContext.mockResolvedValue({
-          timestamp: Date.now(),
-          isActive: true,
-          partialExtraction: { day: 'tomorrow', isRecurring: false },
-        } as ReminderContext)
-
-        const confirmationContent = 'Reminder set for tomorrow!'
-        const extractionWithWhat = JSON.stringify({
-          action: 'create',
-          what: 'call mom',
-          isRecurring: false,
-          day: 'tomorrow',
-          time: null,
-          recurringPattern: null,
-          scheduledAt: '2026-03-19T09:00:00',
-          cronExpression: null,
-          reminderIdToCancel: null,
-          channelId: null,
-          targetUserId: null,
-          actionType: 'default',
-        })
-
-        const createdReminder = {
-          id: 'rem-2',
-          userId: 'u-r2',
-          guildId: 'guild-1',
-          what: 'call mom',
-          isRecurring: false,
-          cronExpression: null,
-          scheduledAt: new Date('2026-03-19T09:00:00'),
-          dayDescription: 'tomorrow',
-          timeDescription: '',
-          channelId: null,
-          targetUserId: null,
-          actionType: 'default',
-          createdAt: new Date(),
-        }
-        mockReminderService.create.mockResolvedValue(createdReminder)
-
-        // With active reminder context: topic-switch check returns CONTINUE,
-        // so intent detection short-circuits to Reminder without another LLM call.
-        // Then the reasoning model extracts the merged reminder.
-        mockInvoke
-          .mockResolvedValueOnce(ai('CONTINUE')) // topic-switch detection
-          .mockResolvedValueOnce(ai(extractionWithWhat)) // reasoning extraction
-          .mockResolvedValueOnce(ai(confirmationContent)) // confirm message
-
-        const result = await service.sendMessage({
-          message: 'to call mom',
-          user: 'Jane',
-          userId: 'u-r2',
-          guildId: 'guild-1',
-        })
-
-        expect(mockReminderService.create).toHaveBeenCalledWith(
-          expect.objectContaining({ what: 'call mom', userId: 'u-r2' }),
-        )
-        expect(result.content).toBe(confirmationContent)
-      },
-      TEST_TIMEOUT,
-    )
-  })
-
-  describe('graphHistory management', () => {
-    it(
-      'caps history at MAX_GRAPH_HISTORY_SIZE when limit is reached',
-      async () => {
-        const { MAX_GRAPH_HISTORY_SIZE } = await import('src/constants/llm')
-        const fullHistory = Array.from(
-          { length: MAX_GRAPH_HISTORY_SIZE },
-          (_, i) => ({
-            messages: [ai(`msg-${i}`)],
-            images: [],
-            responseType: undefined,
-          }),
-        )
-        stateService.getState.mockReturnValue({
-          chatModel: 'gpt-4-turbo',
-          reasoningModel: 'gpt-4o-mini',
-          temperature: 0,
-          maxTokens: 1000,
-          prompt: 'prompt',
-          graphHistory: fullHistory,
-        })
-
-        mockInvoke
-          .mockResolvedValueOnce(ai(ResponseType.Default))
-          .mockResolvedValueOnce(ai('response'))
-
-        await service.sendMessage({
-          message: 'one more',
-          user: 'Hal',
+          user: 'Heidi',
           userId: 'u-8',
+          channelId: 'chan-1',
         })
 
-        const updateFn = (stateService.setState as jest.Mock).mock
-          .calls[0][0] as (
-          p: ReturnType<typeof stateService.getState>,
-        ) => Partial<ReturnType<typeof stateService.getState>>
-        const updated = updateFn(stateService.getState())
-        expect(updated.graphHistory!.length).toBe(MAX_GRAPH_HISTORY_SIZE)
+        const prompts = captured.filter(m => m.id === TDR_SYSTEM_PROMPT_ID)
+        expect(prompts).toHaveLength(1)
+        expect(String(prompts[0].content)).toContain('now extra formal')
+        expect(String(prompts[0].content)).not.toContain('kawaii')
+        expect(
+          (await history('chan-1')).some(m => m.id === TDR_SYSTEM_PROMPT_ID),
+        ).toBe(false)
+      },
+      TEST_TIMEOUT,
+    )
+  })
+
+  describe('golden SCENARIOS replayed end to end', () => {
+    it('has a script for every scenario', () => {
+      expect(Object.keys(SCENARIO_SCRIPTS).sort()).toEqual(
+        SCENARIOS.map(s => s.name).sort(),
+      )
+    })
+
+    it.each(SCENARIOS.map(s => [s.name, s] as const))(
+      '%s',
+      async (_name, scenario) => {
+        const scripts = SCENARIO_SCRIPTS[scenario.name]
+        llm.scriptImage('https://example.com/image.png')
+        expect(scripts).toHaveLength(scenario.turns.length)
+
+        for (const [index, turn] of scenario.turns.entries()) {
+          const script = scripts[index]
+          for (const [operation, response] of Object.entries(script.llm)) {
+            llm.script(operation, response)
+          }
+          if (script.media) {
+            mediaRequestHandler.handleRequest.mockResolvedValueOnce({
+              images: [],
+              ...script.media,
+            })
+          }
+
+          const result = await service.sendMessage({
+            message: turn.input,
+            user: 'Tester',
+            userId: 'u-1',
+            guildId: 'guild-1',
+            channelId: 'chan-1',
+          })
+
+          const { skill, followUp, images, contains } = turn.expect
+          if (skill !== undefined) expect(lastSkill()).toBe(skill)
+          if (followUp !== undefined) {
+            const pending = (await checkpoint('chan-1', 'guild-1'))
+              .pendingFollowUp
+            expect(!!pending).toBe(followUp)
+          }
+          if (images !== undefined) expect(result.images).toHaveLength(images)
+          if (contains !== undefined) {
+            expect(result.content.toLowerCase()).toContain(
+              contains.toLowerCase(),
+            )
+          }
+        }
       },
       TEST_TIMEOUT,
     )

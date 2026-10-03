@@ -10,7 +10,7 @@ import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
 import { RetryService } from 'src/utils/retry.service'
 
 function makeContext(): MessageContext {
-  return { requestId: 'req-1', userId: 'user-123' }
+  return { requestId: 'req-1', userId: 'user-123', channelId: 'channel-1' }
 }
 
 describe('KeywordsHandler', () => {

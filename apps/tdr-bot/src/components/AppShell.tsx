@@ -2,17 +2,27 @@
 
 import AppBar from '@mui/material/AppBar'
 import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
 import Toolbar from '@mui/material/Toolbar'
 import Typography from '@mui/material/Typography'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { ReactNode } from 'react'
 
 import { SadPepeIcon } from './SadPepeIcon'
+
+const NAV_LINKS = [
+  { href: '/settings', label: 'Settings' },
+  { href: '/transcript', label: 'Transcript' },
+]
 
 interface AppShellProps {
   children: ReactNode
 }
 
 export function AppShell({ children }: AppShellProps) {
+  const pathname = usePathname()
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       <AppBar position="sticky" elevation={0}>
@@ -46,6 +56,23 @@ export function AppShell({ children }: AppShellProps) {
             <Typography variant="h6" component="span" fontWeight={600}>
               TDR Bot
             </Typography>
+          </Box>
+
+          <Box component="nav" sx={{ display: 'flex', gap: 1 }}>
+            {NAV_LINKS.map(({ href, label }) => (
+              <Button
+                key={href}
+                component={Link}
+                href={href}
+                color="inherit"
+                sx={{
+                  fontWeight: pathname.startsWith(href) ? 700 : 400,
+                  opacity: pathname.startsWith(href) ? 1 : 0.75,
+                }}
+              >
+                {label}
+              </Button>
+            ))}
           </Box>
         </Toolbar>
       </AppBar>

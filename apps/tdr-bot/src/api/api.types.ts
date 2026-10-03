@@ -1,20 +1,28 @@
-import { BaseMessage, MessageType } from '@langchain/core/messages'
+import { MessageType } from '@langchain/core/messages'
 
+import type { LlmCallRow } from 'src/db/schema'
+import type { Settings } from 'src/llm/settings/settings.schema'
 import { ImageResponse } from 'src/schemas/graph'
-import { AppState } from 'src/state/state.service'
 
-export interface MessageState {
+export interface ConversationToolCall {
   id?: string
-  content: string
+  name: string
+  args: Record<string, unknown>
+}
+
+/** One checkpointed message in a channel's conversation thread. */
+export interface ConversationMessage {
+  id?: string
   type: MessageType
-  kwargs: BaseMessage['additional_kwargs']
+  content: string
+  name?: string
+  /** Request that produced this message (AI messages from the graph only). */
+  requestId?: string
+  toolCalls?: ConversationToolCall[]
   images?: ImageResponse[]
 }
 
-export type EditableAppState = Pick<
-  AppState,
-  'maxTokens' | 'chatModel' | 'reasoningModel' | 'prompt' | 'temperature'
->
+export type SettingsResponse = Settings & { updatedAt: string }
 
 export interface HealthResponse {
   status: string
@@ -39,10 +47,22 @@ export interface SendMessageResponse {
   sentAt?: string
 }
 
-export interface GraphHistoryFile {
-  filename: string
-  index: number
-  label: string
+export interface TranscriptChannel {
+  channelId: string
+  /** Discord channel name, or the id when the channel isn't cached. */
+  name: string
+  lastAt: string
+  calls: number
 }
 
-export type GraphHistoryFilesResponse = GraphHistoryFile[]
+export interface TranscriptTotals {
+  costUsd: number
+  inputTokens: number
+  outputTokens: number
+}
+
+export interface TranscriptResponse {
+  messages: ConversationMessage[]
+  calls: LlmCallRow[]
+  totals: TranscriptTotals
+}

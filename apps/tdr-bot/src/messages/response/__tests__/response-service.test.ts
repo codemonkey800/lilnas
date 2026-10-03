@@ -1,5 +1,3 @@
-import { AIMessage } from '@langchain/core/messages'
-
 import {
   createMockMessage,
   createMockMetricsService,
@@ -7,7 +5,8 @@ import {
   createTestingModule,
 } from 'src/__tests__/test-utils'
 import { DISCORD_MAX_MESSAGE_LENGTH } from 'src/constants/chat'
-import { ModelFactoryService } from 'src/messages/llm/model-factory.service'
+import { LlmClient } from 'src/llm/client/llm-client'
+import { FakeLlmClient } from 'src/llm/testing/fake-llm-client'
 import { ResponseService } from 'src/messages/response/response.service'
 import { ResponseSanitizer } from 'src/messages/response/response-sanitizer'
 import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
@@ -21,33 +20,25 @@ function makeSanitizer(): jest.Mocked<ResponseSanitizer> {
   } as unknown as jest.Mocked<ResponseSanitizer>
 }
 
-function makeModelFactory(
-  shortenedContent = 'shortened response',
-): jest.Mocked<ModelFactoryService> {
-  const mockModel = {
-    invoke: jest.fn().mockResolvedValue(new AIMessage(shortenedContent)),
-  }
-  return {
-    createChatModel: jest.fn().mockReturnValue(mockModel),
-    createReasoningModel: jest.fn(),
-  } as unknown as jest.Mocked<ModelFactoryService>
+function makeLlm(shortenedContent = 'shortened response'): FakeLlmClient {
+  return new FakeLlmClient().script('response.shorten', shortenedContent)
 }
 
 describe('ResponseService', () => {
   let service: ResponseService
   let retryService: jest.Mocked<RetryService>
-  let modelFactory: jest.Mocked<ModelFactoryService>
+  let llm: FakeLlmClient
   let sanitizer: jest.Mocked<ResponseSanitizer>
 
   beforeEach(async () => {
     retryService = createMockRetryService()
-    modelFactory = makeModelFactory()
+    llm = makeLlm()
     sanitizer = makeSanitizer()
 
     const module = await createTestingModule([
       ResponseService,
       { provide: RetryService, useValue: retryService },
-      { provide: ModelFactoryService, useValue: modelFactory },
+      { provide: LlmClient, useValue: llm },
       { provide: ResponseSanitizer, useValue: sanitizer },
       { provide: TdrBotMetricsService, useValue: createMockMetricsService() },
     ])
@@ -110,7 +101,11 @@ describe('ResponseService', () => {
 
       await service.sendReply(message, { content: longContent, images: [] })
 
-      expect(modelFactory.createChatModel).toHaveBeenCalled()
+      expect(llm.calls).toHaveLength(1)
+      expect(llm.calls[0]).toMatchObject({
+        operation: 'response.shorten',
+        role: 'chat',
+      })
     })
 
     it('sends fallback message when reply throws after retries', async () => {
@@ -195,14 +190,7 @@ describe('ResponseService', () => {
   describe('shortenResponse (via sendReply with long content)', () => {
     it('calls LLM to shorten content and uses its output', async () => {
       const shortenedContent = 'Short answer.'
-      const mockModel = {
-        invoke: jest.fn().mockResolvedValue(new AIMessage(shortenedContent)),
-      }
-      modelFactory.createChatModel.mockReturnValue(
-        mockModel as unknown as ReturnType<
-          ModelFactoryService['createChatModel']
-        >,
-      )
+      llm.script('response.shorten', shortenedContent)
 
       const longContent = 'a'.repeat(DISCORD_MAX_MESSAGE_LENGTH + 100)
       sanitizer.sanitizeResponse.mockResolvedValue(longContent)
@@ -216,20 +204,7 @@ describe('ResponseService', () => {
     })
 
     it('falls back to smart truncation when LLM shortening fails', async () => {
-      const mockModel = {
-        invoke: jest.fn().mockRejectedValue(new Error('LLM error')),
-      }
-      modelFactory.createChatModel.mockReturnValue(
-        mockModel as unknown as ReturnType<
-          ModelFactoryService['createChatModel']
-        >,
-      )
-      // Make retryService actually throw the error for the shortening call
-      retryService.executeWithRetry
-        .mockImplementationOnce(async () => {
-          throw new Error('LLM shorten failed')
-        })
-        .mockImplementation(async (fn: () => unknown) => fn())
+      llm.script('response.shorten', new Error('LLM error'))
 
       const longContent = 'a'.repeat(DISCORD_MAX_MESSAGE_LENGTH + 100)
       sanitizer.sanitizeResponse.mockResolvedValue(longContent)

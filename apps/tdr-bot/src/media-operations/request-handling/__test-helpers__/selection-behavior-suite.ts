@@ -2,7 +2,18 @@ import { HumanMessage } from '@langchain/core/messages'
 
 import { createMockDiscordIdentity } from 'src/media-operations/request-handling/__test-helpers__/mock-services'
 import { MediaOperationStrategy } from 'src/media-operations/request-handling/strategies/base/media-operation-strategy.interface'
-import { StrategyRequestParams } from 'src/media-operations/request-handling/types/request-context.type'
+import {
+  MediaContextType,
+  StrategyRequestParams,
+} from 'src/media-operations/request-handling/types/request-context.type'
+
+/** The `pendingContext.type` a strategy returns for each context's own `type` */
+export const PENDING_CONTEXT_TYPE: Record<string, MediaContextType> = {
+  movie: MediaContextType.MovieDownload,
+  tvShow: MediaContextType.TvDownload,
+  movieDelete: MediaContextType.MovieDelete,
+  tvShowDelete: MediaContextType.TvDelete,
+}
 
 /**
  * Configuration for shared selection behavior tests
@@ -28,10 +39,6 @@ export interface SelectionBehaviorConfig<TMediaItem, TOperationResult> {
     }
     promptService: {
       generatePromptMethod: jest.Mock | (() => unknown)
-    }
-    contextService: {
-      setContext: jest.Mock | (() => unknown)
-      clearContext: jest.Mock | (() => unknown)
     }
   }
 
@@ -84,10 +91,6 @@ export interface SelectionBehaviorConfig<TMediaItem, TOperationResult> {
  *     },
  *     promptService: {
  *       generatePromptMethod: () => promptService.generateMoviePrompt,
- *     },
- *     contextService: {
- *       setContext: () => contextService.setContext,
- *       clearContext: () => contextService.clearContext,
  *     },
  *   },
  *   fixtures: {
@@ -169,15 +172,6 @@ export function testSelectionBehavior<TMediaItem, TOperationResult>(
       return unwrapMock(mocks.promptService.generatePromptMethod)!
     },
   }
-  const contextService = {
-    get setContext() {
-      return unwrapMock(mocks.contextService.setContext)!
-    },
-    get clearContext() {
-      return unwrapMock(mocks.contextService.clearContext)!
-    },
-  }
-
   const { mediaItems, operationResult, chatResponse, tvSelection } = fixtures
 
   // Ordinal Selection Tests
@@ -215,7 +209,7 @@ export function testSelectionBehavior<TMediaItem, TOperationResult>(
 
         const result = await getStrategy().handleRequest(params)
 
-        expect(contextService.setContext).not.toHaveBeenCalled()
+        expect(result.pendingContext).toBeUndefined()
         expect(result.messages).toHaveLength(1)
       })
 
@@ -244,17 +238,16 @@ export function testSelectionBehavior<TMediaItem, TOperationResult>(
 
         const result = await getStrategy().handleRequest(params)
 
-        expect(contextService.setContext).toHaveBeenCalledWith(
-          'user123',
-          contextType,
-          {
+        expect(result.pendingContext).toEqual({
+          type: PENDING_CONTEXT_TYPE[contextType],
+          data: {
             type: contextType,
             searchResults: mediaItems.slice(0, 3),
             query: mediaType,
             timestamp: expect.any(Number),
             isActive: true,
           },
-        )
+        })
         expect(mediaService.operationMethod).not.toHaveBeenCalled()
         expect(result.messages).toHaveLength(1)
       })
@@ -296,7 +289,7 @@ export function testSelectionBehavior<TMediaItem, TOperationResult>(
 
         const result = await getStrategy().handleRequest(params)
 
-        expect(contextService.setContext).not.toHaveBeenCalled()
+        expect(result.pendingContext).toBeUndefined()
         expect(result.messages).toHaveLength(1)
       })
 
@@ -325,17 +318,16 @@ export function testSelectionBehavior<TMediaItem, TOperationResult>(
 
         const result = await getStrategy().handleRequest(params)
 
-        expect(contextService.setContext).toHaveBeenCalledWith(
-          'user123',
-          contextType,
-          {
+        expect(result.pendingContext).toEqual({
+          type: PENDING_CONTEXT_TYPE[contextType],
+          data: {
             type: contextType,
             searchResults: mediaItems.slice(0, 3),
             query: mediaType,
             timestamp: expect.any(Number),
             isActive: true,
           },
-        )
+        })
         expect(mediaService.operationMethod).not.toHaveBeenCalled()
         expect(result.messages).toHaveLength(1)
       })

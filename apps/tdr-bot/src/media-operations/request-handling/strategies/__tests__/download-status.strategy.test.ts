@@ -1,34 +1,46 @@
-import { BaseMessage, HumanMessage } from '@langchain/core/messages'
-import { ChatOpenAI } from '@langchain/openai'
+import { AIMessage, BaseMessage, HumanMessage } from '@langchain/core/messages'
 import { Test, TestingModule } from '@nestjs/testing'
 
+import { LlmClient } from 'src/llm/client/llm-client'
+import { FakeLlmClient } from 'src/llm/testing/fake-llm-client'
 import { RadarrService } from 'src/media/services/radarr.service'
 import { SonarrService } from 'src/media/services/sonarr.service'
 import {
   createMockDownloadingMovie,
   createMockDownloadingSeries,
 } from 'src/media-operations/request-handling/__test-fixtures__/download-fixtures'
-import { createMockDiscordIdentity } from 'src/media-operations/request-handling/__test-helpers__/mock-services'
+import {
+  createFakeLlmClient,
+  createMockDiscordIdentity,
+} from 'src/media-operations/request-handling/__test-helpers__/mock-services'
 import { DownloadStatusStrategy } from 'src/media-operations/request-handling/strategies/download-status.strategy'
 import { StrategyRequestParams } from 'src/media-operations/request-handling/types/request-context.type'
 import { ValidationUtilities } from 'src/media-operations/request-handling/utils/validation.utils'
-import { StateService } from 'src/state/state.service'
-import { RetryService } from 'src/utils/retry.service'
 
 describe('DownloadStatusStrategy', () => {
   let strategy: DownloadStatusStrategy
   let radarrService: jest.Mocked<RadarrService>
   let sonarrService: jest.Mocked<SonarrService>
-  let stateService: jest.Mocked<StateService>
-  let retryService: jest.Mocked<RetryService>
+  let llm: FakeLlmClient
   let validationUtilities: jest.Mocked<ValidationUtilities>
 
-  const mockChatResponse = new HumanMessage({
+  const mockChatResponse = new AIMessage({
     id: 'mock-response-id',
     content: 'You have 2 movies and 1 episode downloading...',
   })
 
+  const STATUS_OPERATIONS = [
+    'media.downloadStatus',
+    'media.downloadStatusEmpty',
+    'media.downloadStatusError',
+  ]
+
+  /** Script every status operation with the same response. */
+  const scriptLlm = (response: AIMessage | HumanMessage | Error) =>
+    STATUS_OPERATIONS.forEach(op => llm.script(op, response as AIMessage))
+
   beforeEach(async () => {
+    llm = createFakeLlmClient()
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         DownloadStatusStrategy,
@@ -44,22 +56,7 @@ describe('DownloadStatusStrategy', () => {
             getDownloadingEpisodes: jest.fn(),
           },
         },
-        {
-          provide: StateService,
-          useValue: {
-            getState: jest.fn().mockReturnValue({
-              reasoningModel: 'gpt-4',
-              chatModel: 'gpt-4',
-              temperature: 0,
-            }),
-          },
-        },
-        {
-          provide: RetryService,
-          useValue: {
-            executeWithRetry: jest.fn(),
-          },
-        },
+        { provide: LlmClient, useValue: llm },
         {
           provide: ValidationUtilities,
           useValue: {
@@ -72,8 +69,6 @@ describe('DownloadStatusStrategy', () => {
     strategy = module.get<DownloadStatusStrategy>(DownloadStatusStrategy)
     radarrService = module.get(RadarrService)
     sonarrService = module.get(SonarrService)
-    stateService = module.get(StateService)
-    retryService = module.get(RetryService)
     validationUtilities = module.get(ValidationUtilities)
   })
 
@@ -88,21 +83,14 @@ describe('DownloadStatusStrategy', () => {
 
       radarrService.getDownloadingMovies.mockResolvedValue([])
       sonarrService.getDownloadingEpisodes.mockResolvedValue([])
-      retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+      scriptLlm(mockChatResponse)
 
       const result = await strategy.handleRequest(params)
 
       expect(radarrService.getDownloadingMovies).toHaveBeenCalled()
       expect(sonarrService.getDownloadingEpisodes).toHaveBeenCalled()
-      expect(retryService.executeWithRetry).toHaveBeenCalledWith(
-        expect.any(Function),
-        {
-          maxAttempts: 3,
-          baseDelay: 1000,
-          maxDelay: 30000,
-          timeout: 30000,
-        },
-        'OpenAI-downloadStatusNoDownloads',
+      expect(llm.calls.map(call => call.operation)).toContain(
+        'media.downloadStatusEmpty',
       )
       expect(
         validationUtilities.validateDownloadResponse,
@@ -122,14 +110,12 @@ describe('DownloadStatusStrategy', () => {
 
       radarrService.getDownloadingMovies.mockResolvedValue([])
       sonarrService.getDownloadingEpisodes.mockResolvedValue([])
-      retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+      scriptLlm(mockChatResponse)
 
       await strategy.handleRequest(params)
 
-      expect(retryService.executeWithRetry).toHaveBeenCalledWith(
-        expect.any(Function),
-        expect.any(Object),
-        'OpenAI-downloadStatusNoDownloads',
+      expect(llm.calls.map(call => call.operation)).toContain(
+        'media.downloadStatusEmpty',
       )
     })
   })
@@ -147,21 +133,14 @@ describe('DownloadStatusStrategy', () => {
         createMockDownloadingMovie(),
       ])
       sonarrService.getDownloadingEpisodes.mockResolvedValue([])
-      retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+      scriptLlm(mockChatResponse)
 
       const result = await strategy.handleRequest(params)
 
       expect(radarrService.getDownloadingMovies).toHaveBeenCalled()
       expect(sonarrService.getDownloadingEpisodes).toHaveBeenCalled()
-      expect(retryService.executeWithRetry).toHaveBeenCalledWith(
-        expect.any(Function),
-        {
-          maxAttempts: 3,
-          baseDelay: 1000,
-          maxDelay: 30000,
-          timeout: 30000,
-        },
-        'OpenAI-downloadStatus',
+      expect(llm.calls.map(call => call.operation)).toContain(
+        'media.downloadStatus',
       )
       expect(result.messages).toHaveLength(2)
       expect(result.messages[1]).toBe(mockChatResponse)
@@ -184,7 +163,7 @@ describe('DownloadStatusStrategy', () => {
 
       radarrService.getDownloadingMovies.mockResolvedValue([movie1, movie2])
       sonarrService.getDownloadingEpisodes.mockResolvedValue([])
-      retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+      scriptLlm(mockChatResponse)
 
       await strategy.handleRequest(params)
 
@@ -210,7 +189,7 @@ describe('DownloadStatusStrategy', () => {
       sonarrService.getDownloadingEpisodes.mockResolvedValue([
         createMockDownloadingSeries(),
       ])
-      retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+      scriptLlm(mockChatResponse)
 
       const result = await strategy.handleRequest(params)
 
@@ -237,7 +216,7 @@ describe('DownloadStatusStrategy', () => {
 
       radarrService.getDownloadingMovies.mockResolvedValue([])
       sonarrService.getDownloadingEpisodes.mockResolvedValue([episode])
-      retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+      scriptLlm(mockChatResponse)
 
       await strategy.handleRequest(params)
 
@@ -269,10 +248,7 @@ describe('DownloadStatusStrategy', () => {
         userId: 'user123',
         discord: createMockDiscordIdentity('user123'),
       }
-      const invoke = jest
-        .spyOn(ChatOpenAI.prototype, 'invoke')
-        .mockResolvedValue(mockChatResponse as never)
-      retryService.executeWithRetry.mockImplementation(fn => fn())
+      scriptLlm(mockChatResponse)
 
       radarrService.getDownloadingMovies.mockResolvedValue([])
       sonarrService.getDownloadingEpisodes.mockResolvedValue([
@@ -288,7 +264,7 @@ describe('DownloadStatusStrategy', () => {
 
       await strategy.handleRequest(params)
 
-      const [prompt] = invoke.mock.calls[0] as [BaseMessage[]]
+      const prompt: BaseMessage[] = llm.calls[0].messages
       const context = prompt
         .map(m => String(m.content))
         .find(c => c.startsWith('ACTIVE DOWNLOADS FOUND'))
@@ -317,7 +293,7 @@ describe('DownloadStatusStrategy', () => {
       sonarrService.getDownloadingEpisodes.mockResolvedValue([
         createMockDownloadingSeries(),
       ])
-      retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+      scriptLlm(mockChatResponse)
 
       const result = await strategy.handleRequest(params)
 
@@ -357,7 +333,7 @@ describe('DownloadStatusStrategy', () => {
         episode1,
         episode2,
       ])
-      retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+      scriptLlm(mockChatResponse)
 
       await strategy.handleRequest(params)
 
@@ -383,11 +359,11 @@ describe('DownloadStatusStrategy', () => {
       radarrService.getDownloadingMovies.mockRejectedValue(error)
       sonarrService.getDownloadingEpisodes.mockRejectedValue(error)
 
-      const errorResponse = new HumanMessage({
+      const errorResponse = new AIMessage({
         id: 'error-response',
         content: 'The download services are currently unavailable.',
       })
-      retryService.executeWithRetry.mockResolvedValue(errorResponse)
+      scriptLlm(errorResponse)
 
       const result = await strategy.handleRequest(params)
 
@@ -411,23 +387,16 @@ describe('DownloadStatusStrategy', () => {
         new Error('Connection timeout'),
       )
 
-      const fallbackResponse = new HumanMessage({
+      const fallbackResponse = new AIMessage({
         id: 'fallback',
         content: 'Sorry, I cannot check downloads right now.',
       })
-      retryService.executeWithRetry.mockResolvedValue(fallbackResponse)
+      scriptLlm(fallbackResponse)
 
       const result = await strategy.handleRequest(params)
 
-      expect(retryService.executeWithRetry).toHaveBeenCalledWith(
-        expect.any(Function),
-        {
-          maxAttempts: 3,
-          baseDelay: 1000,
-          maxDelay: 30000,
-          timeout: 30000,
-        },
-        'OpenAI-downloadStatusError',
+      expect(llm.calls.map(call => call.operation)).toContain(
+        'media.downloadStatusError',
       )
       expect(result.messages[1]).toBe(fallbackResponse)
     })
@@ -455,7 +424,7 @@ describe('DownloadStatusStrategy', () => {
         createMockDownloadingMovie(),
       ])
       sonarrService.getDownloadingEpisodes.mockResolvedValue([])
-      retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+      scriptLlm(mockChatResponse)
 
       const result = await strategy.handleRequest(params)
 
@@ -464,45 +433,6 @@ describe('DownloadStatusStrategy', () => {
       expect(result.messages[1]).toBe(previousMessage2)
       expect(result.messages[2]).toBe(params.message)
       expect(result.messages[3]).toBe(mockChatResponse)
-    })
-  })
-
-  describe('State integration', () => {
-    it('should successfully process request with custom state configuration', async () => {
-      const params: StrategyRequestParams = {
-        message: new HumanMessage({ id: '1', content: 'download status' }),
-        messages: [],
-        userId: 'user123',
-        discord: createMockDiscordIdentity('user123'),
-      }
-
-      const customState = {
-        reasoningModel: 'gpt-3.5-turbo' as const,
-        chatModel: 'gpt-4' as const,
-        temperature: 0,
-        graphHistory: [],
-        maxTokens: 4096,
-        prompt: '',
-        userMovieContexts: new Map(),
-        userMovieDeleteContexts: new Map(),
-        userTvShowContexts: new Map(),
-        userTvShowDeleteContexts: new Map(),
-      }
-
-      stateService.getState.mockReturnValue(customState)
-      radarrService.getDownloadingMovies.mockResolvedValue([
-        createMockDownloadingMovie(),
-      ])
-      sonarrService.getDownloadingEpisodes.mockResolvedValue([])
-      retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
-
-      const result = await strategy.handleRequest(params)
-
-      // Verify the strategy successfully processes the request with custom state
-      // The state is used internally to create ChatOpenAI instance via getReasoningModel()
-      expect(result.messages).toHaveLength(2)
-      expect(result.messages[1]).toBe(mockChatResponse)
-      expect(retryService.executeWithRetry).toHaveBeenCalled()
     })
   })
 
@@ -527,7 +457,7 @@ describe('DownloadStatusStrategy', () => {
         sonarrService.getDownloadingEpisodes.mockResolvedValue([
           createMockDownloadingSeries(),
         ])
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        scriptLlm(mockChatResponse)
 
         // Execute: Run all requests concurrently
         const results = await Promise.all(
@@ -570,7 +500,7 @@ describe('DownloadStatusStrategy', () => {
         sonarrService.getDownloadingEpisodes.mockResolvedValue([
           createMockDownloadingSeries(),
         ])
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        scriptLlm(mockChatResponse)
 
         // Execute concurrently
         const results = await Promise.all([
@@ -616,7 +546,7 @@ describe('DownloadStatusStrategy', () => {
         })
 
         sonarrService.getDownloadingEpisodes.mockResolvedValue([])
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        scriptLlm(mockChatResponse)
 
         // Execute concurrently
         const results = await Promise.all([
@@ -647,7 +577,7 @@ describe('DownloadStatusStrategy', () => {
 
         radarrService.getDownloadingMovies.mockResolvedValue([malformedMovie])
         sonarrService.getDownloadingEpisodes.mockResolvedValue([])
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        scriptLlm(mockChatResponse)
 
         // Should handle gracefully
         const result = await strategy.handleRequest(params)
@@ -677,7 +607,7 @@ describe('DownloadStatusStrategy', () => {
 
         radarrService.getDownloadingMovies.mockResolvedValue([malformedMovie])
         sonarrService.getDownloadingEpisodes.mockResolvedValue([])
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        scriptLlm(mockChatResponse)
 
         // Should handle gracefully
         await expect(strategy.handleRequest(params)).resolves.toBeDefined()
@@ -699,7 +629,7 @@ describe('DownloadStatusStrategy', () => {
         sonarrService.getDownloadingEpisodes.mockResolvedValue([
           malformedEpisode,
         ])
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        scriptLlm(mockChatResponse)
 
         // Should handle gracefully (formatFileSize should handle undefined)
         await expect(strategy.handleRequest(params)).resolves.toBeDefined()
@@ -723,7 +653,7 @@ describe('DownloadStatusStrategy', () => {
         sonarrService.getDownloadingEpisodes.mockResolvedValue([
           malformedEpisode,
         ])
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        scriptLlm(mockChatResponse)
 
         // Should handle gracefully
         await expect(strategy.handleRequest(params)).resolves.toBeDefined()
@@ -739,15 +669,13 @@ describe('DownloadStatusStrategy', () => {
 
         radarrService.getDownloadingMovies.mockResolvedValue([])
         sonarrService.getDownloadingEpisodes.mockResolvedValue([])
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        scriptLlm(mockChatResponse)
 
         const result = await strategy.handleRequest(params)
 
         expect(result.messages).toBeDefined()
-        expect(retryService.executeWithRetry).toHaveBeenCalledWith(
-          expect.any(Function),
-          expect.any(Object),
-          'OpenAI-downloadStatusNoDownloads',
+        expect(llm.calls.map(call => call.operation)).toContain(
+          'media.downloadStatusEmpty',
         )
       })
 
@@ -769,7 +697,7 @@ describe('DownloadStatusStrategy', () => {
 
         radarrService.getDownloadingMovies.mockResolvedValue(largeMovieArray)
         sonarrService.getDownloadingEpisodes.mockResolvedValue([])
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        scriptLlm(mockChatResponse)
 
         // Should handle large arrays without errors
         const result = await strategy.handleRequest(params)
@@ -799,16 +727,14 @@ describe('DownloadStatusStrategy', () => {
           new Error('Radarr API connection failed'),
         )
         sonarrService.getDownloadingEpisodes.mockResolvedValue([])
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        scriptLlm(mockChatResponse)
 
         // Should catch and handle gracefully
         const result = await strategy.handleRequest(params)
 
         expect(result.messages).toBeDefined()
-        expect(retryService.executeWithRetry).toHaveBeenCalledWith(
-          expect.any(Function),
-          expect.any(Object),
-          'OpenAI-downloadStatusError',
+        expect(llm.calls.map(call => call.operation)).toContain(
+          'media.downloadStatusError',
         )
       })
 
@@ -824,16 +750,14 @@ describe('DownloadStatusStrategy', () => {
         sonarrService.getDownloadingEpisodes.mockRejectedValue(
           new Error('Sonarr API connection failed'),
         )
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        scriptLlm(mockChatResponse)
 
         // Should catch and handle gracefully
         const result = await strategy.handleRequest(params)
 
         expect(result.messages).toBeDefined()
-        expect(retryService.executeWithRetry).toHaveBeenCalledWith(
-          expect.any(Function),
-          expect.any(Object),
-          'OpenAI-downloadStatusError',
+        expect(llm.calls.map(call => call.operation)).toContain(
+          'media.downloadStatusError',
         )
       })
 
@@ -851,16 +775,14 @@ describe('DownloadStatusStrategy', () => {
         sonarrService.getDownloadingEpisodes.mockRejectedValue(
           new Error('Sonarr unavailable'),
         )
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        scriptLlm(mockChatResponse)
 
         // Should catch and handle gracefully
         const result = await strategy.handleRequest(params)
 
         expect(result.messages).toBeDefined()
-        expect(retryService.executeWithRetry).toHaveBeenCalledWith(
-          expect.any(Function),
-          expect.any(Object),
-          'OpenAI-downloadStatusError',
+        expect(llm.calls.map(call => call.operation)).toContain(
+          'media.downloadStatusError',
         )
       })
 
@@ -876,9 +798,7 @@ describe('DownloadStatusStrategy', () => {
           createMockDownloadingMovie(),
         ])
         sonarrService.getDownloadingEpisodes.mockResolvedValue([])
-        retryService.executeWithRetry.mockRejectedValue(
-          new Error('Max retries exceeded'),
-        )
+        scriptLlm(new Error('Max retries exceeded'))
 
         // The base strategy catches all errors and returns fallback response
         const result = await strategy.handleRequest(params)
@@ -899,7 +819,7 @@ describe('DownloadStatusStrategy', () => {
           createMockDownloadingMovie(),
         ])
         sonarrService.getDownloadingEpisodes.mockResolvedValue([])
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        scriptLlm(mockChatResponse)
         validationUtilities.validateDownloadResponse.mockImplementation(() => {
           throw new Error('Validation failed')
         })
@@ -925,7 +845,7 @@ describe('DownloadStatusStrategy', () => {
           createMockDownloadingMovie(),
         ])
         sonarrService.getDownloadingEpisodes.mockResolvedValue([])
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        scriptLlm(mockChatResponse)
 
         // Should handle gracefully
         await expect(strategy.handleRequest(params)).resolves.toBeDefined()
@@ -943,7 +863,7 @@ describe('DownloadStatusStrategy', () => {
           createMockDownloadingMovie(),
         ])
         sonarrService.getDownloadingEpisodes.mockResolvedValue([])
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        scriptLlm(mockChatResponse)
 
         // Should handle gracefully
         await expect(strategy.handleRequest(params)).resolves.toBeDefined()
@@ -961,7 +881,7 @@ describe('DownloadStatusStrategy', () => {
           createMockDownloadingMovie(),
         ])
         sonarrService.getDownloadingEpisodes.mockResolvedValue([])
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        scriptLlm(mockChatResponse)
 
         // Should handle gracefully
         const result = await strategy.handleRequest(params)
@@ -981,7 +901,7 @@ describe('DownloadStatusStrategy', () => {
           createMockDownloadingMovie(),
         ])
         sonarrService.getDownloadingEpisodes.mockResolvedValue([])
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        scriptLlm(mockChatResponse)
 
         // Should handle or throw appropriately
         await expect(strategy.handleRequest(params)).rejects.toThrow()
@@ -999,7 +919,7 @@ describe('DownloadStatusStrategy', () => {
           createMockDownloadingMovie(),
         ])
         sonarrService.getDownloadingEpisodes.mockResolvedValue([])
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        scriptLlm(mockChatResponse)
 
         // Should handle or throw
         await expect(strategy.handleRequest(params)).rejects.toThrow()
@@ -1020,7 +940,7 @@ describe('DownloadStatusStrategy', () => {
           createMockDownloadingMovie(),
         ])
         sonarrService.getDownloadingEpisodes.mockResolvedValue([])
-        retryService.executeWithRetry.mockResolvedValue(mockChatResponse)
+        scriptLlm(mockChatResponse)
 
         // Should handle gracefully
         const result = await strategy.handleRequest(params)

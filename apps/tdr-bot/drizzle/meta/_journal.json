@@ -15,6 +15,20 @@
       "when": 1773938007806,
       "tag": "0001_friendly_thor_girl",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791015136275,
+      "tag": "0002_rare_smiling_tiger",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791018997374,
+      "tag": "0003_cloudy_patch",
+      "breakpoints": true
     }
   ]
 }

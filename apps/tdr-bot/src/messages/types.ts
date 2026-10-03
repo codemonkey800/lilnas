@@ -7,6 +7,7 @@ export type Message = ContextOf<'messageCreate'>[0]
 export interface MessageContext {
   requestId: string
   userId: string
+  channelId: string
 }
 
 export type HandlerResult =
