@@ -52,10 +52,23 @@ function TotalsBar({
   ]
 
   return (
-    <Stack direction="row" spacing={3} sx={{ ml: 'auto', textAlign: 'right' }}>
+    <Box
+      sx={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(3, auto)',
+        columnGap: 3,
+        ml: { md: 'auto' },
+        textAlign: { md: 'right' },
+        justifyContent: { xs: 'space-between', md: 'end' },
+      }}
+    >
       {stats.map(([label, value]) => (
-        <Box key={label}>
-          <Typography variant="caption" color="text.secondary">
+        <Box key={label} sx={{ minWidth: 0 }}>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ display: 'block', whiteSpace: 'nowrap' }}
+          >
             {label}
           </Typography>
           {loading || value === undefined ? (
@@ -67,7 +80,95 @@ function TotalsBar({
           )}
         </Box>
       ))}
-    </Stack>
+    </Box>
+  )
+}
+
+const fmtInt = (n: number | null) => (n ?? 0).toLocaleString('en-US')
+const fmtCost = (c: LlmCallRow) =>
+  c.costUsd === null ? '—' : usd(Number(c.costUsd))
+const fmtDuration = (c: LlmCallRow) =>
+  c.durationMs === null ? '—' : `${(c.durationMs / 1000).toFixed(2)}s`
+
+function CallCard({ call }: { call: LlmCallRow }) {
+  const metrics: [string, string][] = [
+    ['In', fmtInt(call.inputTokens)],
+    ['Out', fmtInt(call.outputTokens)],
+    ['Cached', fmtInt(call.cachedTokens)],
+    ['Cost', fmtCost(call)],
+    ['Time', fmtDuration(call)],
+    ['Finish', call.finishReason ?? call.status],
+  ]
+  const retries = call.retries ?? 0
+
+  return (
+    <Box sx={{ px: 1.5, py: 1, borderTop: 1, borderColor: 'divider' }}>
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'baseline',
+          gap: 1,
+          mb: 0.75,
+          minWidth: 0,
+        }}
+      >
+        <Typography fontSize={12} fontWeight={600} noWrap>
+          {call.operation}
+        </Typography>
+        <Typography
+          fontSize={11}
+          fontFamily="monospace"
+          color="text.secondary"
+          noWrap
+          sx={{ minWidth: 0 }}
+        >
+          {call.model}
+        </Typography>
+        {retries > 0 && (
+          <Typography
+            fontSize={11}
+            color="warning.main"
+            sx={{ ml: 'auto', flexShrink: 0 }}
+          >
+            {retries} retr{retries === 1 ? 'y' : 'ies'}
+          </Typography>
+        )}
+      </Box>
+      <Box
+        component="dl"
+        sx={{
+          m: 0,
+          display: 'grid',
+          gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+          rowGap: 0.75,
+          columnGap: 1.5,
+        }}
+      >
+        {metrics.map(([label, value]) => (
+          <Box key={label} sx={{ minWidth: 0 }}>
+            <Box
+              component="dt"
+              sx={{ fontSize: 10, color: 'text.secondary', lineHeight: 1.4 }}
+            >
+              {label}
+            </Box>
+            <Box
+              component="dd"
+              sx={{
+                m: 0,
+                fontFamily: 'monospace',
+                fontSize: 12,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {value}
+            </Box>
+          </Box>
+        ))}
+      </Box>
+    </Box>
   )
 }
 
@@ -94,6 +195,7 @@ function CallsTable({ calls }: { calls: LlmCallRow[] }) {
         borderColor: 'divider',
         borderRadius: 2,
         fontSize: 12,
+        minWidth: 0,
       }}
     >
       <Box
@@ -102,7 +204,12 @@ function CallsTable({ calls }: { calls: LlmCallRow[] }) {
       >
         {calls.length} LLM call{calls.length === 1 ? '' : 's'} · {usd(cost)}
       </Box>
-      <Box sx={{ overflowX: 'auto' }}>
+      <Box sx={{ display: { xs: 'block', md: 'none' } }}>
+        {calls.map(c => (
+          <CallCard key={c.id} call={c} />
+        ))}
+      </Box>
+      <Box sx={{ display: { xs: 'none', md: 'block' }, overflowX: 'auto' }}>
         <Box component="table" sx={{ width: '100%', textAlign: 'left' }}>
           <thead>
             <tr>
@@ -123,13 +230,11 @@ function CallsTable({ calls }: { calls: LlmCallRow[] }) {
                 {[
                   c.operation,
                   c.model,
-                  (c.inputTokens ?? 0).toLocaleString('en-US'),
-                  (c.outputTokens ?? 0).toLocaleString('en-US'),
-                  (c.cachedTokens ?? 0).toLocaleString('en-US'),
-                  c.costUsd === null ? '—' : usd(Number(c.costUsd)),
-                  c.durationMs === null
-                    ? '—'
-                    : `${(c.durationMs / 1000).toFixed(2)}s`,
+                  fmtInt(c.inputTokens),
+                  fmtInt(c.outputTokens),
+                  fmtInt(c.cachedTokens),
+                  fmtCost(c),
+                  fmtDuration(c),
                   String(c.retries ?? 0),
                   c.finishReason ?? c.status,
                 ].map((value, i) => (
@@ -163,7 +268,8 @@ function Item({ item }: { item: TranscriptItem }) {
       <Box
         component="details"
         sx={{
-          ml: 5,
+          ml: { xs: 2, md: 5 },
+          minWidth: 0,
           border: 1,
           borderStyle: 'dashed',
           borderColor: 'divider',
@@ -198,8 +304,11 @@ function Item({ item }: { item: TranscriptItem }) {
     >
       <Box
         sx={{
-          maxWidth: isHuman ? '75%' : '80%',
+          maxWidth: isHuman
+            ? { xs: '88%', md: '75%' }
+            : { xs: '100%', md: '80%' },
           flex: isHuman ? undefined : 1,
+          minWidth: 0,
         }}
       >
         <Box
@@ -219,7 +328,10 @@ function Item({ item }: { item: TranscriptItem }) {
           >
             {isHuman ? (item.message.name ?? 'user') : 'tdr-bot'}
           </Typography>
-          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+          <Typography
+            variant="body2"
+            sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
+          >
             {item.message.content}
           </Typography>
         </Box>
@@ -311,21 +423,49 @@ export default function TranscriptPage() {
     [transcript.data],
   )
 
+  const dateField = (
+    label: string,
+    value: string,
+    onChange: (v: string) => void,
+  ) => (
+    <TextField
+      label={label}
+      type="date"
+      size="small"
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      slotProps={{ inputLabel: { shrink: true } }}
+      sx={{ minWidth: 0, '& input': { minWidth: 0 } }}
+    />
+  )
+
+  const channelList = channels.isLoading ? (
+    [0, 1, 2, 3].map(i => (
+      <Box key={i} sx={{ px: 2, py: 1.5, flexShrink: 0 }}>
+        <Skeleton width={96} />
+        <Skeleton width={128} />
+      </Box>
+    ))
+  ) : channels.error ? (
+    <Alert severity="error">{channels.error.message}</Alert>
+  ) : null
+
   return (
     <Box
       sx={{
-        border: 1,
-        borderColor: 'divider',
-        borderRadius: 3,
-        m: 3,
+        border: { md: 1 },
+        borderColor: { md: 'divider' },
+        borderRadius: { md: 3 },
+        m: { xs: 0, md: 3 },
         overflow: 'hidden',
       }}
     >
-      <Stack
-        direction="row"
-        alignItems="center"
-        spacing={2}
+      <Box
         sx={{
+          display: 'flex',
+          flexDirection: { xs: 'column', md: 'row' },
+          alignItems: { xs: 'stretch', md: 'center' },
+          gap: 2,
           px: 2,
           py: 1.5,
           bgcolor: 'background.paper',
@@ -333,46 +473,103 @@ export default function TranscriptPage() {
           borderColor: 'divider',
         }}
       >
-        <TextField
-          label="From"
-          type="date"
-          size="small"
-          value={from}
-          onChange={e => setFrom(e.target.value)}
-          slotProps={{ inputLabel: { shrink: true } }}
-        />
-        <TextField
-          label="To"
-          type="date"
-          size="small"
-          value={to}
-          onChange={e => setTo(e.target.value)}
-          slotProps={{ inputLabel: { shrink: true } }}
-        />
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: {
+              xs: 'repeat(2, minmax(0, 1fr))',
+              md: 'repeat(2, 11rem)',
+            },
+            gap: 1.5,
+          }}
+        >
+          {dateField('From', from, setFrom)}
+          {dateField('To', to, setTo)}
+        </Box>
         <TotalsBar
           totals={transcript.data?.totals}
           loading={channels.isLoading || transcript.isLoading}
         />
-      </Stack>
+      </Box>
 
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: '15rem 1fr',
-          minHeight: '34rem',
+          gridTemplateColumns: {
+            xs: 'minmax(0, 1fr)',
+            md: '15rem minmax(0, 1fr)',
+          },
+          minHeight: { md: '34rem' },
         }}
       >
-        <Box component="aside" sx={{ borderRight: 1, borderColor: 'divider' }}>
-          {channels.isLoading ? (
-            [0, 1, 2, 3].map(i => (
-              <Box key={i} sx={{ px: 2, py: 1.5 }}>
-                <Skeleton width={96} />
-                <Skeleton width={128} />
-              </Box>
-            ))
-          ) : channels.error ? (
-            <Alert severity="error">{channels.error.message}</Alert>
-          ) : (
+        <Box
+          component="nav"
+          aria-label="Channels"
+          sx={{
+            display: { xs: 'flex', md: 'none' },
+            gap: 1,
+            px: 2,
+            py: 1.25,
+            overflowX: 'auto',
+            borderBottom: 1,
+            borderColor: 'divider',
+            scrollbarWidth: 'none',
+          }}
+        >
+          {channelList ??
+            channels.data?.map(ch => {
+              const active = ch.channelId === channelId
+              return (
+                <Box
+                  component="button"
+                  type="button"
+                  key={ch.channelId}
+                  aria-pressed={active}
+                  onClick={() => setSelected(ch.channelId)}
+                  sx={{
+                    flexShrink: 0,
+                    display: 'flex',
+                    alignItems: 'baseline',
+                    gap: 0.75,
+                    px: 1.5,
+                    py: 0.75,
+                    border: 1,
+                    borderRadius: 999,
+                    borderColor: active ? 'primary.main' : 'divider',
+                    bgcolor: active ? 'action.selected' : 'transparent',
+                    color: 'text.primary',
+                    font: 'inherit',
+                    fontSize: 13,
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                    '&:focus-visible': {
+                      outline: 2,
+                      outlineColor: 'primary.light',
+                      outlineOffset: 2,
+                    },
+                  }}
+                >
+                  # {ch.name}
+                  <Box
+                    component="span"
+                    sx={{ fontSize: 11, color: 'text.secondary' }}
+                  >
+                    {ch.calls.toLocaleString('en-US')}
+                  </Box>
+                </Box>
+              )
+            })}
+        </Box>
+
+        <Box
+          component="aside"
+          sx={{
+            display: { xs: 'none', md: 'block' },
+            borderRight: 1,
+            borderColor: 'divider',
+          }}
+        >
+          {channelList ?? (
             <List disablePadding>
               {channels.data?.map(ch => (
                 <ListItemButton
@@ -395,7 +592,14 @@ export default function TranscriptPage() {
           )}
         </Box>
 
-        <Box component="section" sx={{ p: 2.5 }}>
+        <Box
+          component="section"
+          sx={{
+            p: { xs: 2, md: 2.5 },
+            minWidth: 0,
+            minHeight: { xs: '24rem', md: 0 },
+          }}
+        >
           <TranscriptBody
             items={items}
             loading={
