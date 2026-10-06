@@ -9,7 +9,6 @@ import { trimConversation } from 'src/llm/conversation/trim'
 import { buildGraph } from 'src/llm/graph/build-graph'
 import { LlmMetricsService } from 'src/llm/observability/llm-metrics.service'
 import { CHAT_SKILL_DESCRIPTION } from 'src/llm/skills/chat/prompts'
-import { IMAGE_SKILL_DESCRIPTION } from 'src/llm/skills/image/prompts'
 import { MATH_SKILL_DESCRIPTION } from 'src/llm/skills/math/prompts'
 import { MediaSkill } from 'src/llm/skills/media.skill'
 import { ReminderSkill } from 'src/llm/skills/reminder.skill'
@@ -34,7 +33,6 @@ function stub(id: string, description: string): Skill {
 const skills: Skill[] = [
   stub('chat', CHAT_SKILL_DESCRIPTION),
   stub('math', MATH_SKILL_DESCRIPTION),
-  stub('image', IMAGE_SKILL_DESCRIPTION),
   stub('media', new MediaSkill(null as never).description),
   stub('reminder', new ReminderSkill(null as never).description),
 ]

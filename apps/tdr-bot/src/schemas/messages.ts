@@ -13,7 +13,7 @@ export const MessageResponseSchema = z.object({
     .array(ImageResponseSchema)
     .optional()
     .describe(
-      'An array of images to display to the user if the user asks to generate an image using the DALLE tool.',
+      'An array of images to display to the user, such as rendered equations.',
     ),
 })
 

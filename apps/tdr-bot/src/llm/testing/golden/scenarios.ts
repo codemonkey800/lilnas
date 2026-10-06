@@ -63,13 +63,4 @@ export const SCENARIOS: readonly Scenario[] = [
       },
     ],
   },
-  {
-    name: 'image request returns an image',
-    turns: [
-      {
-        input: 'draw me a cat wearing a top hat',
-        expect: { skill: 'image', images: 1 },
-      },
-    ],
-  },
 ]

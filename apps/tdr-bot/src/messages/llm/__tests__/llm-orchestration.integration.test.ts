@@ -41,7 +41,6 @@ import {
   SettingsService,
 } from 'src/llm/settings/settings.service'
 import { ChatSkill } from 'src/llm/skills/chat/skill'
-import { ImageSkill } from 'src/llm/skills/image/skill'
 import { MathSkill } from 'src/llm/skills/math/skill'
 import { MediaSkill } from 'src/llm/skills/media.skill'
 import { ReminderSkill } from 'src/llm/skills/reminder.skill'
@@ -164,17 +163,6 @@ const SCENARIO_SCRIPTS: Record<string, TurnScript[]> = {
       media: { messages: [], reroute: true },
     },
   ],
-  'image request returns an image': [
-    {
-      llm: {
-        'router.classify': { skill: 'image' },
-        'image.extractQueries': [
-          { query: 'a cat wearing a top hat', title: 'top hat cat' },
-        ],
-        'image.respond': 'Here is your dapper cat!',
-      },
-    },
-  ],
 }
 
 function ai(content: string, id = 'ai-id'): AIMessage {
@@ -258,13 +246,12 @@ describe('LLMOrchestrationService - Integration', () => {
         SkillRegistry,
         ChatSkill,
         MathSkill,
-        ImageSkill,
         MediaSkill,
         ReminderSkill,
         {
           provide: SKILLS,
           useFactory: (...skills: unknown[]) => skills,
-          inject: [ChatSkill, MathSkill, ImageSkill, MediaSkill, ReminderSkill],
+          inject: [ChatSkill, MathSkill, MediaSkill, ReminderSkill],
         },
         { provide: GRAPH_CHECKPOINTER, useValue: checkpointer },
         { provide: EquationImageService, useValue: equationImageService },
@@ -549,37 +536,6 @@ describe('LLMOrchestrationService - Integration', () => {
     )
   })
 
-  describe('image skill', () => {
-    it(
-      'generates images and records the success metric',
-      async () => {
-        llm
-          .script('router.classify', { skill: 'image' })
-          .script('image.extractQueries', [{ query: 'a fox', title: 'fox' }])
-          .script('image.respond', 'Here is a fox')
-          .scriptImage('https://example.com/fox.png')
-
-        const result = await service.sendMessage({
-          message: 'make a picture of a fox',
-          user: 'Ivan',
-          userId: 'u-9',
-          channelId: 'chan-1',
-        })
-
-        expect(lastSkill()).toBe('image')
-        expect(result.content).toBe('Here is a fox')
-        expect(result.images).toEqual([
-          expect.objectContaining({
-            title: 'fox',
-            url: 'https://example.com/fox.png',
-          }),
-        ])
-        expect(metrics.imageGeneration).toHaveBeenCalledWith('success')
-      },
-      TEST_TIMEOUT,
-    )
-  })
-
   describe('media skill', () => {
     it(
       'takes the fast path for a download request and skips the classifier',
@@ -692,7 +648,6 @@ describe('LLMOrchestrationService - Integration', () => {
       '%s',
       async (_name, scenario) => {
         const scripts = SCENARIO_SCRIPTS[scenario.name]
-        llm.scriptImage('https://example.com/image.png')
         expect(scripts).toHaveLength(scenario.turns.length)
 
         for (const [index, turn] of scenario.turns.entries()) {
