@@ -25,10 +25,6 @@ jest.mock('@langchain/tavily', () => ({
     .mockImplementation(() => ({ invoke: mockTavilyInvoke })),
 }))
 
-const mockDalleInvoke = jest
-  .fn()
-  .mockResolvedValue('https://dalle.example.com/image.png')
-
 // ─── Mock prom-client to avoid duplicate metric registration ─────────────────
 
 jest.mock('prom-client', () => ({
@@ -110,7 +106,7 @@ function makeDiscordClient(
 
 /**
  * Scripts a FakeLlmClient by operation. The chat / reasoning mocks record the
- * messages each role receives; image generation is routed to `mockDalleInvoke`.
+ * messages each role receives.
  */
 function makeLlm(responseContent = 'Hey! Reminder time!'): {
   factory: FakeLlmClient
@@ -127,7 +123,6 @@ function makeLlm(responseContent = 'Hey! Reminder time!'): {
   for (const op of [
     'reminder.deliver',
     'reminder.deliverSearch',
-    'reminder.deliverImage',
     'reminder.deliverMath',
   ]) {
     factory.script(op, call =>
@@ -135,14 +130,6 @@ function makeLlm(responseContent = 'Hey! Reminder time!'): {
         ? mockReasoningModel.invoke(call.messages)
         : mockChatModel.invoke(call.messages),
     )
-  }
-  factory.generateImage = async call => {
-    factory.imageCalls.push(call)
-    return {
-      url: (await mockDalleInvoke(call.prompt)) as string,
-      model: 'fake-image-model',
-      durationMs: 0,
-    }
   }
   return { factory, mockChatModel, mockReasoningModel }
 }
@@ -203,7 +190,6 @@ describe('ReminderDeliveryService', () => {
 
   beforeEach(() => {
     mockTavilyInvoke.mockClear()
-    mockDalleInvoke.mockClear()
   })
 
   // ── onModuleInit ────────────────────────────────────────────────────────
@@ -562,126 +548,23 @@ describe('ReminderDeliveryService', () => {
     })
   })
 
-  // ── deliver (image action) ────────────────────────────────────────────────
+  // ── deliver (legacy image action) ─────────────────────────────────────────
 
-  describe('deliver (image action)', () => {
-    it('generates an image with the reminder topic', async () => {
-      const client = makeDiscordClient([makeMockTextChannel()])
-      const { factory } = makeLlm('Here is your image!')
-      service = await buildService(client, factory)
-
-      await service.deliver(
-        createTestReminder({
-          actionType: 'image',
-          what: 'a random image of a honda or porsche',
-        }),
-      )
-
-      expect(mockDalleInvoke).toHaveBeenCalledWith(
-        'Generate an image of: a random image of a honda or porsche',
-      )
-      expect(factory.imageCalls[0].operation).toBe('reminder.generateImage')
-    })
-
-    it('sends message with an embed containing the generated image', async () => {
+  describe('deliver (legacy image action)', () => {
+    it('delivers a stored image reminder as a plain text reminder', async () => {
       const sendFn = jest.fn().mockResolvedValue({})
       const client = makeDiscordClient([
         makeMockTextChannel('tdr-bot-chat', sendFn),
       ])
-      const { factory } = makeLlm('Check out this car!')
+      const { factory } = makeLlm('Reminder!')
       service = await buildService(client, factory)
-
-      await service.deliver(
-        createTestReminder({ actionType: 'image', what: 'a porsche' }),
-      )
-
-      expect(sendFn).toHaveBeenCalledWith(
-        expect.objectContaining({
-          content: 'Check out this car!',
-          embeds: expect.arrayContaining([expect.any(Object)]),
-        }),
-      )
-    })
-
-    it('strips HTML-like tags from the DALL-E prompt', async () => {
-      const client = makeDiscordClient([makeMockTextChannel()])
-      const { factory } = makeLlm('Image!')
-      service = await buildService(client, factory)
-
-      await service.deliver(
-        createTestReminder({
-          actionType: 'image',
-          what: '<script>evil</script> a porsche',
-        }),
-      )
-
-      const invokedWith = mockDalleInvoke.mock.calls[0][0] as string
-      expect(invokedWith).not.toContain('<script>')
-      expect(invokedWith).not.toContain('</script>')
-    })
-
-    it('records image_delivery_error failure reason on image delivery failure', async () => {
-      const sendFn = jest.fn().mockResolvedValue({})
-      const client = makeDiscordClient([
-        makeMockTextChannel('tdr-bot-chat', sendFn),
-      ])
-      const { factory } = makeLlm('Fallback')
-      mockDalleInvoke.mockRejectedValueOnce(new Error('DALL-E error'))
-
-      const trackedReminderService = makeReminderServiceMock()
-      service = await createTestingModule([
-        ReminderDeliveryService,
-        { provide: Client, useValue: client },
-        { provide: LlmClient, useValue: factory },
-        { provide: RetryService, useValue: createMockRetryService() },
-        { provide: ReminderService, useValue: trackedReminderService },
-        {
-          provide: EquationImageService,
-          useValue: makeEquationImageServiceMock(),
-        },
-        {
-          provide: TAVILY_SEARCH_TOKEN,
-          useValue: { invoke: mockTavilyInvoke },
-        },
-      ]).then(m => m.get(ReminderDeliveryService))
 
       await service.deliver(
         createTestReminder({ actionType: 'image', what: 'a car' }),
       )
 
-      expect(trackedReminderService.recordDeliveryFailure).toHaveBeenCalledWith(
-        'image_delivery_error',
-      )
-    })
-
-    it('falls back to default delivery when image generation fails', async () => {
-      const sendFn = jest.fn().mockResolvedValue({})
-      const client = makeDiscordClient([
-        makeMockTextChannel('tdr-bot-chat', sendFn),
-      ])
-      const { factory } = makeLlm('Fallback message')
-      mockDalleInvoke.mockRejectedValueOnce(new Error('DALL-E error'))
-
-      service = await createTestingModule([
-        ReminderDeliveryService,
-        { provide: Client, useValue: client },
-        { provide: LlmClient, useValue: factory },
-        { provide: RetryService, useValue: createMockRetryService() },
-        { provide: ReminderService, useValue: makeReminderServiceMock() },
-        {
-          provide: EquationImageService,
-          useValue: makeEquationImageServiceMock(),
-        },
-        {
-          provide: TAVILY_SEARCH_TOKEN,
-          useValue: { invoke: mockTavilyInvoke },
-        },
-      ]).then(m => m.get(ReminderDeliveryService))
-
-      await service.deliver(
-        createTestReminder({ actionType: 'image', what: 'a car' }),
-      )
-
+      expect(factory.imageCalls).toHaveLength(0)
+      expect(factory.calls.map(c => c.operation)).toEqual(['reminder.deliver'])
       expect(sendFn).toHaveBeenCalledWith(
         expect.objectContaining({ content: expect.any(String) }),
       )

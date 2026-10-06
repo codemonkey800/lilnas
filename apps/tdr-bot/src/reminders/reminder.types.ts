@@ -5,13 +5,11 @@ import { z } from 'zod'
  *
  * - `Default` — plain text reminder
  * - `Search`  — run a Tavily web search and summarise results
- * - `Image`   — generate a DALL-E image
  * - `Math`    — render a LaTeX equation via the equations service
  */
 export enum ReminderActionType {
   Default = 'default',
   Search = 'search',
-  Image = 'image',
   Math = 'math',
 }
 
