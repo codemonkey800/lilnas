@@ -310,7 +310,6 @@ export class ReminderSkill implements Skill {
     const actionLabel: Record<ReminderActionType, string> = {
       [ReminderActionType.Default]: 'remind',
       [ReminderActionType.Search]: 'search for',
-      [ReminderActionType.Image]: 'generate an image of',
       [ReminderActionType.Math]: 'show a math equation about',
     }
     const actionPrefix = actionLabel[reminder.actionType as ReminderActionType]

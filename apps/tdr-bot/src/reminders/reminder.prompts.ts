@@ -81,7 +81,6 @@ export function buildExtractReminderPrompt(
     - targetUserId: if the message contains a Discord user mention in the format "<@USER_ID>" (e.g. "<@123456789012345678>") referring to another person to remind, extract just the numeric user ID as a string. Return null if the reminder is for the requester ("remind me") or no user is explicitly mentioned.
     - actionType: the type of action to perform at delivery time. Use one of:
       * "search" — if the reminder involves fetching or looking up live information (weather, news, sports scores, stock prices, current events, any real-time data)
-      * "image" — if the reminder involves generating or creating an image or picture
       * "math" — if the reminder involves solving, showing, or generating a math equation or formula
       * "default" — for all other reminders (standard text reminders)
 
@@ -107,7 +106,6 @@ export function buildExtractReminderPrompt(
     - "remind me to call my mom starting next week Wednesday" (today is Tuesday) → {"action":"create","what":"call my mom","isRecurring":false,"day":"next Wednesday","time":null,"recurringPattern":null,"scheduledAt":"2026-03-25T09:00:00","cronExpression":null,"reminderIdToCancel":null,"channelId":null,"targetUserId":null,"actionType":"default"}
     - "every 5 minutes tell me the weather in tokyo" → {"action":"create","what":"the weather in tokyo","isRecurring":true,"day":"today","time":null,"recurringPattern":"every 5 minutes","scheduledAt":null,"cronExpression":"*/5 * * * *","reminderIdToCancel":null,"channelId":null,"targetUserId":null,"actionType":"search"}
     - "every morning give me the latest tech news" → {"action":"create","what":"the latest tech news","isRecurring":true,"day":"every day","time":"9:00 AM","recurringPattern":"every morning","scheduledAt":null,"cronExpression":"0 9 * * *","reminderIdToCancel":null,"channelId":null,"targetUserId":null,"actionType":"search"}
-    - "every 10 minutes generate a random image of a honda or porsche" → {"action":"create","what":"a random image of a honda or porsche","isRecurring":true,"day":"today","time":null,"recurringPattern":"every 10 minutes","scheduledAt":null,"cronExpression":"*/10 * * * *","reminderIdToCancel":null,"channelId":null,"targetUserId":null,"actionType":"image"}
     - "every day show me a random calculus equation" → {"action":"create","what":"a random calculus equation","isRecurring":true,"day":"every day","time":null,"recurringPattern":"every day","scheduledAt":null,"cronExpression":"0 9 * * *","reminderIdToCancel":null,"channelId":null,"targetUserId":null,"actionType":"math"}
     - "remind me to buss all over @basuradavid in about 5 minutes in <#987654321012345678>" (current time: 2026-03-17T14:00:00) → {"action":"create","what":"buss all over @basuradavid","isRecurring":false,"day":"today","time":"in 5 minutes","recurringPattern":null,"scheduledAt":"2026-03-17T14:05:00","cronExpression":null,"reminderIdToCancel":null,"channelId":"987654321012345678","targetUserId":null,"actionType":"default"}
     - "every hour post the weather in <#111222333444555666>" → {"action":"create","what":"the weather","isRecurring":true,"day":"today","time":null,"recurringPattern":"every hour","scheduledAt":null,"cronExpression":"0 * * * *","reminderIdToCancel":null,"channelId":"111222333444555666","targetUserId":null,"actionType":"search"}
@@ -200,16 +198,6 @@ export const REMINDER_SEARCH_DELIVERY_PROMPT = new SystemMessage(dedent`
   Write a short, friendly summary of the search results relevant to the reminder topic.
   Tag the user with their mention (provided in the prompt) at the start of the message.
   Keep the response under 400 characters. No markdown. Use emojis sparingly.
-`)
-
-/** Prompt for generating a caption to accompany a DALL-E image reminder. */
-export const REMINDER_IMAGE_DELIVERY_PROMPT = new SystemMessage(dedent`
-  You are TDR Bot, a friendly member of a group of friends on Discord.
-  Your job is to deliver a scheduled image reminder.
-
-  Write a short, playful caption to accompany the generated image.
-  Tag the user with their mention (provided in the prompt) at the start of the message.
-  Keep the caption under 150 characters. No markdown. Use emojis sparingly.
 `)
 
 /** Prompt for introducing a math/equation reminder alongside a rendered image. */
