@@ -5,20 +5,13 @@ import { RemindersModule } from 'src/reminders/reminders.module'
 import { ServicesModule } from 'src/services/services.module'
 
 import { ChatSkill } from './chat/skill'
-import { ImageSkill } from './image/skill'
 import { MathSkill } from './math/skill'
 import { MediaSkill } from './media.skill'
 import { ReminderSkill } from './reminder.skill'
 import { Skill, SKILLS } from './skill.interface'
 import { SkillRegistry } from './skill.registry'
 
-const SKILL_CLASSES = [
-  ChatSkill,
-  MathSkill,
-  ImageSkill,
-  MediaSkill,
-  ReminderSkill,
-]
+const SKILL_CLASSES = [ChatSkill, MathSkill, MediaSkill, ReminderSkill]
 
 /** Registers every skill under {@link SKILLS} and exposes the registry. */
 @Module({

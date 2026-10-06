@@ -3,13 +3,12 @@ import dayjs from 'dayjs'
 import { z } from 'zod'
 
 import { LlmCall } from 'src/llm/client/llm-call.types'
-import { EXTRACT_IMAGE_QUERIES_PROMPT } from 'src/llm/skills/image/prompts'
 import {
   buildExtractReminderPrompt,
   REMINDER_CONTINUATION_PROMPT,
 } from 'src/reminders/reminder.prompts'
 import { ReminderExtractionSchema } from 'src/reminders/reminder.types'
-import { ImageQuerySchema, MediaRequestSchema } from 'src/schemas/graph'
+import { MediaRequestSchema } from 'src/schemas/graph'
 import { MediaTypeClassificationSchema } from 'src/schemas/media-classification'
 import { SearchSelectionSchema } from 'src/schemas/search-selection'
 import { TvShowSelectionSchema } from 'src/schemas/tv-show'
@@ -31,18 +30,6 @@ const human = (text: string) => new HumanMessage(text)
 // One representative prompt per `schema:` used in src/llm/skills/** and
 // src/media-operations/**, with the same prompt and settings as production.
 const CASES: SchemaCase[] = [
-  {
-    name: 'image.extractQueries',
-    call: {
-      operation: 'image.extractQueries',
-      role: 'reasoning',
-      messages: [
-        EXTRACT_IMAGE_QUERIES_PROMPT,
-        human('show me a picture of a corgi and a red panda'),
-      ],
-      schema: ImageQuerySchema,
-    },
-  },
   {
     name: 'reminder.topicSwitch',
     call: {

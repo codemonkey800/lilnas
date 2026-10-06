@@ -1,4 +1,4 @@
-export type RouterSkill = 'chat' | 'math' | 'image' | 'media' | 'reminder'
+export type RouterSkill = 'chat' | 'math' | 'media' | 'reminder'
 
 export interface RouterCase {
   input: string
@@ -9,7 +9,6 @@ export interface RouterCase {
 export const ROUTER_SKILLS: readonly RouterSkill[] = [
   'chat',
   'math',
-  'image',
   'media',
   'reminder',
 ]
@@ -78,18 +77,6 @@ export const ROUTER_CASES: readonly RouterCase[] = [
     input:
       'what are the eigenvalues of a 3x3 matrix with rows 2 0 0, 0 3 4, 0 4 9',
     expected: 'math',
-  },
-
-  // image
-  { input: 'draw me a cat wearing a top hat', expected: 'image' },
-  { input: 'generate a picture of a sunset over the ocean', expected: 'image' },
-  { input: 'make an image of a cyberpunk city at night', expected: 'image' },
-  { input: 'can you create a logo for my discord server?', expected: 'image' },
-  { input: 'paint a watercolor of a mountain cabin', expected: 'image' },
-  { input: 'show me a picture of a golden retriever puppy', expected: 'image' },
-  {
-    input: 'generate an image of a dragon, then make it more cartoonish',
-    expected: 'image',
   },
 
   // media
