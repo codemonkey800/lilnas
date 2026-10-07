@@ -12,7 +12,10 @@ Object.defineProperty(process.env, 'NODE_ENV', {
   writable: true,
 })
 process.env.DISCORD_BOT_TOKEN = 'test-token'
-process.env.OPENAI_API_KEY = 'test-api-key'
+// Live tests (`test:live`) need the real key, which live-env loads from `.env`
+if (process.env.LIVE_LLM !== '1') {
+  process.env.OPENAI_API_KEY = 'test-api-key'
+}
 process.env.TAVILY_API_KEY = 'test-tavily-key'
 process.env.GRAPH_TEST = 'false'
 process.env.EQUATIONS_URL = 'http://localhost:3000'
