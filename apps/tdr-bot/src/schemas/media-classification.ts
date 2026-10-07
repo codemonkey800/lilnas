@@ -6,7 +6,8 @@ export const MediaTypeClassificationSchema = z.object({
     .describe('The classified media type based on the user message'),
   reasoning: z
     .string()
-    .optional()
+    // Nullable, not optional: OpenAI strict structured output requires every property
+    .nullable()
     .describe('Brief explanation of why this classification was chosen'),
 })
 

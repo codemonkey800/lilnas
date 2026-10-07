@@ -8,7 +8,7 @@ import {
   SearchSelection,
   SearchSelectionSchema,
 } from 'src/schemas/search-selection'
-import { TvShowSelection, TvShowSelectionSchema } from 'src/schemas/tv-show'
+import { TvShowSelection, TvShowSelectionLlmSchema } from 'src/schemas/tv-show'
 import {
   EXTRACT_SEARCH_QUERY_PROMPT,
   EXTRACT_TV_SEARCH_QUERY_PROMPT,
@@ -217,7 +217,7 @@ export class ParsingUtilities {
           TV_SHOW_SELECTION_PARSING_PROMPT,
           new HumanMessage({ id: nanoid(), content: selectionText }),
         ],
-        schema: TvShowSelectionSchema,
+        schema: TvShowSelectionLlmSchema,
       })
 
       const validated = response.output

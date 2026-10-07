@@ -33,7 +33,8 @@ export const MediaRequestSchema = z.object({
   searchIntent: z.enum(SearchIntent),
   searchTerms: z.string(),
   /**
-   * `null` or absent when the message names no quality. Case and stray
+   * `null` when the message names no quality. Nullable rather than optional:
+   * OpenAI strict structured output requires every property. Case and stray
    * whitespace are forgiven ("4K"); any other value the model invents becomes
    * `null` rather than failing the whole parse, so a garbled quality never
    * costs the user their request.
@@ -41,7 +42,7 @@ export const MediaRequestSchema = z.object({
   quality: z
     .preprocess(
       value => (typeof value === 'string' ? value.trim().toLowerCase() : value),
-      MediaRequestQualitySchema.nullish(),
+      MediaRequestQualitySchema.nullable(),
     )
     .catch(null),
 })

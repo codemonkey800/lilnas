@@ -329,6 +329,7 @@ export class MediaRequestHandler {
         mediaType: MediaRequestType.Both,
         searchIntent: SearchIntent.Library,
         searchTerms: '',
+        quality: null,
       }
     }
   }
@@ -454,7 +455,7 @@ export class MediaRequestHandler {
       )
 
       // Default to movie on error
-      return { mediaType: 'movie' }
+      return { mediaType: 'movie', reasoning: null }
     }
   }
 
