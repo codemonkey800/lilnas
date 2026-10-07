@@ -124,3 +124,23 @@ export const TvShowSelectionSchema = z.object({
 })
 
 export type TvShowSelection = z.infer<typeof TvShowSelectionSchema>
+
+/**
+ * `TvShowSelectionSchema` as the LLM fills it in. OpenAI strict structured
+ * output requires every property, so absent fields come back as `null` and
+ * are mapped to `undefined` here.
+ */
+export const TvShowSelectionLlmSchema = z.object({
+  selection: z
+    .array(
+      z.object({
+        season: z.number(),
+        episodes: z
+          .array(z.number())
+          .nullable()
+          .transform(episodes => episodes ?? undefined),
+      }),
+    )
+    .nullable()
+    .transform(selection => selection ?? undefined),
+})

@@ -59,6 +59,7 @@ describe('MediaBrowsingStrategy', () => {
         mediaType: MediaRequestType.Movies,
         searchIntent: SearchIntent.Library,
         searchTerms: 'matrix',
+        quality: null,
       }
 
       const params: StrategyRequestParams = {
@@ -92,6 +93,7 @@ describe('MediaBrowsingStrategy', () => {
         mediaType: MediaRequestType.Shows,
         searchIntent: SearchIntent.Library,
         searchTerms: 'nonexistent',
+        quality: null,
       }
 
       const params: StrategyRequestParams = {
@@ -124,6 +126,7 @@ describe('MediaBrowsingStrategy', () => {
         mediaType: MediaRequestType.Movies,
         searchIntent: SearchIntent.External,
         searchTerms: 'matrix',
+        quality: null,
       }
 
       const params: StrategyRequestParams = {
@@ -153,6 +156,7 @@ describe('MediaBrowsingStrategy', () => {
         mediaType: MediaRequestType.Movies,
         searchIntent: SearchIntent.External,
         searchTerms: '',
+        quality: null,
       }
 
       const params: StrategyRequestParams = {
@@ -182,6 +186,7 @@ describe('MediaBrowsingStrategy', () => {
         mediaType: MediaRequestType.Movies,
         searchIntent: SearchIntent.Both,
         searchTerms: 'matrix',
+        quality: null,
       }
 
       const params: StrategyRequestParams = {
@@ -215,6 +220,7 @@ describe('MediaBrowsingStrategy', () => {
         mediaType: MediaRequestType.Shows,
         searchIntent: SearchIntent.Both,
         searchTerms: 'breaking',
+        quality: null,
       }
 
       const params: StrategyRequestParams = {
@@ -252,6 +258,7 @@ describe('MediaBrowsingStrategy', () => {
         mediaType: MediaRequestType.Movies,
         searchIntent: SearchIntent.Library,
         searchTerms: 'matrix',
+        quality: null,
       }
 
       const previousMessage = new HumanMessage({
@@ -282,6 +289,7 @@ describe('MediaBrowsingStrategy', () => {
         mediaType: MediaRequestType.Movies,
         searchIntent: SearchIntent.Library,
         searchTerms: 'test',
+        quality: null,
       }
 
       const params: StrategyRequestParams = {
@@ -308,6 +316,7 @@ describe('MediaBrowsingStrategy', () => {
         mediaType: MediaRequestType.Movies,
         searchIntent: SearchIntent.Library,
         searchTerms: 'matrix',
+        quality: null,
       }
 
       const params: StrategyRequestParams = {
@@ -336,6 +345,7 @@ describe('MediaBrowsingStrategy', () => {
         mediaType: MediaRequestType.Movies,
         searchIntent: SearchIntent.Library,
         searchTerms: 'matrix',
+        quality: null,
       }
 
       const params: StrategyRequestParams = {
@@ -414,6 +424,7 @@ describe('MediaBrowsingStrategy', () => {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Library,
             searchTerms: 'matrix',
+            quality: null,
           } as MediaRequest,
         }
 
@@ -429,6 +440,7 @@ describe('MediaBrowsingStrategy', () => {
             mediaType: MediaRequestType.Shows,
             searchIntent: SearchIntent.External,
             searchTerms: 'breaking bad',
+            quality: null,
           } as MediaRequest,
         }
 
@@ -465,6 +477,7 @@ describe('MediaBrowsingStrategy', () => {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Library,
             searchTerms: 'test',
+            quality: null,
           } as MediaRequest,
         }
 
@@ -480,6 +493,7 @@ describe('MediaBrowsingStrategy', () => {
             mediaType: MediaRequestType.Shows,
             searchIntent: SearchIntent.Library,
             searchTerms: 'test',
+            quality: null,
           } as MediaRequest,
         }
 
@@ -519,6 +533,7 @@ describe('MediaBrowsingStrategy', () => {
           context: {
             searchIntent: SearchIntent.Library,
             searchTerms: 'matrix',
+            quality: null,
           } as never,
         }
 
@@ -540,6 +555,7 @@ describe('MediaBrowsingStrategy', () => {
           context: {
             mediaType: MediaRequestType.Movies,
             searchTerms: 'matrix',
+            quality: null,
           } as never,
         }
 
@@ -588,6 +604,7 @@ describe('MediaBrowsingStrategy', () => {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Library,
             searchTerms: '',
+            quality: null,
           } as MediaRequest,
         }
 
@@ -654,6 +671,7 @@ describe('MediaBrowsingStrategy', () => {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Library,
             searchTerms: 'matrix',
+            quality: null,
           } as MediaRequest,
         }
 
@@ -680,6 +698,7 @@ describe('MediaBrowsingStrategy', () => {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.External,
             searchTerms: 'matrix',
+            quality: null,
           } as MediaRequest,
         }
 
@@ -706,6 +725,7 @@ describe('MediaBrowsingStrategy', () => {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Both,
             searchTerms: 'matrix',
+            quality: null,
           } as MediaRequest,
         }
 
@@ -735,6 +755,7 @@ describe('MediaBrowsingStrategy', () => {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Library,
             searchTerms: 'matrix',
+            quality: null,
           } as MediaRequest,
         }
 
@@ -762,6 +783,7 @@ describe('MediaBrowsingStrategy', () => {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Library,
             searchTerms: 'matrix',
+            quality: null,
           } as MediaRequest,
         }
 
@@ -784,6 +806,7 @@ describe('MediaBrowsingStrategy', () => {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Library,
             searchTerms: 'matrix',
+            quality: null,
           } as MediaRequest,
         }
 
@@ -806,6 +829,7 @@ describe('MediaBrowsingStrategy', () => {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Library,
             searchTerms: 'matrix',
+            quality: null,
           } as MediaRequest,
         }
 
@@ -830,6 +854,7 @@ describe('MediaBrowsingStrategy', () => {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Library,
             searchTerms: 'matrix',
+            quality: null,
           } as MediaRequest,
         }
 
@@ -852,6 +877,7 @@ describe('MediaBrowsingStrategy', () => {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Library,
             searchTerms: 'matrix',
+            quality: null,
           } as MediaRequest,
         }
 
@@ -877,6 +903,7 @@ describe('MediaBrowsingStrategy', () => {
             mediaType: MediaRequestType.Movies,
             searchIntent: SearchIntent.Library,
             searchTerms: 'matrix',
+            quality: null,
           } as MediaRequest,
         }
 

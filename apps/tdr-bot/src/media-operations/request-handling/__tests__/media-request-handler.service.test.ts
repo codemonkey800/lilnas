@@ -369,7 +369,10 @@ describe('MediaRequestHandler', () => {
         })
 
         // Second call: classifyMediaType returns movie
-        llm.script('media.classifyType', { mediaType: 'movie' })
+        llm.script('media.classifyType', {
+          mediaType: 'movie',
+          reasoning: null,
+        })
 
         movieDownloadStrategy.handleRequest.mockResolvedValue(
           mockStrategyResult,
@@ -396,7 +399,10 @@ describe('MediaRequestHandler', () => {
         })
 
         // Second call: classifyMediaType returns tv_show
-        llm.script('media.classifyType', { mediaType: 'tv_show' })
+        llm.script('media.classifyType', {
+          mediaType: 'tv_show',
+          reasoning: null,
+        })
 
         tvDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
@@ -483,6 +489,7 @@ describe('MediaRequestHandler', () => {
             mediaType: MediaRequestType.Both,
             searchIntent: SearchIntent.Library,
             searchTerms: 'action movies',
+            quality: null,
           },
         })
         expect(result).toBe(mockStrategyResult)
@@ -669,7 +676,7 @@ describe('MediaRequestHandler', () => {
       })
 
       // Second call for classification
-      llm.script('media.classifyType', { mediaType: 'movie' })
+      llm.script('media.classifyType', { mediaType: 'movie', reasoning: null })
 
       movieDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
@@ -741,7 +748,10 @@ describe('MediaRequestHandler', () => {
           searchTerms: 'Severance',
           quality: '1080p',
         })
-        llm.script('media.classifyType', { mediaType: 'tv_show' })
+        llm.script('media.classifyType', {
+          mediaType: 'tv_show',
+          reasoning: null,
+        })
         tvDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
         await handler.handleRequest(
@@ -862,7 +872,10 @@ describe('MediaRequestHandler', () => {
       })
 
       // Second call for classification
-      llm.script('media.classifyType', { mediaType: 'tv_show' })
+      llm.script('media.classifyType', {
+        mediaType: 'tv_show',
+        reasoning: null,
+      })
 
       tvDeleteStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 
@@ -952,7 +965,7 @@ describe('MediaRequestHandler', () => {
       })
 
       // Second call for classification
-      llm.script('media.classifyType', { mediaType: 'movie' })
+      llm.script('media.classifyType', { mediaType: 'movie', reasoning: null })
 
       movieDownloadStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
 

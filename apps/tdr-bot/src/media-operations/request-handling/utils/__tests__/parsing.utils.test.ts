@@ -138,7 +138,7 @@ describe('ParsingUtilities', () => {
   describe('parseTvShowSelection', () => {
     it('should parse selection when user specifies specific season', async () => {
       llm.script('media.parseTvSelection', {
-        selection: [{ season: 1 }],
+        selection: [{ season: 1, episodes: null }],
       })
 
       const result = await service.parseTvShowSelection('season 1')
@@ -149,7 +149,7 @@ describe('ParsingUtilities', () => {
     })
 
     it('should parse selection when user requests entire series', async () => {
-      llm.script('media.parseTvSelection', {})
+      llm.script('media.parseTvSelection', { selection: null })
 
       const result = await service.parseTvShowSelection('entire series')
 
@@ -185,7 +185,7 @@ describe('ParsingUtilities', () => {
           selectionType: 'ordinal',
           value: '1',
         })
-        .script('media.parseTvSelection', {})
+        .script('media.parseTvSelection', { selection: null })
 
       const result = await service.parseInitialSelection(
         'download inception first one',
@@ -428,8 +428,8 @@ describe('ParsingUtilities', () => {
         .script(
           'media.parseTvSelection',
           answers({
-            'season 1': { selection: [{ season: 1 }] },
-            'entire series': {},
+            'season 1': { selection: [{ season: 1, episodes: null }] },
+            'entire series': { selection: null },
           }),
         )
 

@@ -11,7 +11,10 @@ import { ReminderExtractionSchema } from 'src/reminders/reminder.types'
 import { MediaRequestSchema } from 'src/schemas/graph'
 import { MediaTypeClassificationSchema } from 'src/schemas/media-classification'
 import { SearchSelectionSchema } from 'src/schemas/search-selection'
-import { TvShowSelectionSchema } from 'src/schemas/tv-show'
+import {
+  TvShowSelectionLlmSchema,
+  TvShowSelectionSchema,
+} from 'src/schemas/tv-show'
 import {
   GET_MEDIA_TYPE_PROMPT,
   MOVIE_SELECTION_PARSING_PROMPT,
@@ -23,6 +26,8 @@ import { describeLive, LiveLlm, MAX_RUN_COST_USD, recordCost } from './live-env'
 interface SchemaCase {
   name: string
   call: LlmCall<unknown>
+  /** The shape `output` must have, when `call.schema` transforms it */
+  outputSchema?: z.ZodType
 }
 
 const human = (text: string) => new HumanMessage(text)
@@ -98,8 +103,9 @@ const CASES: SchemaCase[] = [
         TV_SHOW_SELECTION_PARSING_PROMPT,
         human('season 2 and episodes 3 and 4 of season 3'),
       ],
-      schema: TvShowSelectionSchema,
+      schema: TvShowSelectionLlmSchema,
     },
+    outputSchema: TvShowSelectionSchema,
   },
 ]
 
@@ -113,9 +119,10 @@ describeLive('live structured output', () => {
 
   it.each(CASES)(
     '$name parses against the real model',
-    async ({ call }) => {
+    async ({ call, outputSchema }) => {
       const result = await live.client.call(call)
-      expect(call.schema?.safeParse(result.output).success).toBe(true)
+      const schema = outputSchema ?? call.schema
+      expect(schema?.safeParse(result.output).success).toBe(true)
     },
     120_000,
   )
