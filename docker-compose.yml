@@ -8,6 +8,7 @@ include:
   - ./infra/minecraft.yml
   - ./infra/monitoring.yml
   - ./infra/nexus-code-work.yml
+  - ./infra/work-docs.yml
   - path: ./infra/nexus-code.yml
     env_file: ./infra/.env.nexus-code
   - ./infra/palworld.yml
