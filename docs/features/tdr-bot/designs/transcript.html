@@ -1,4 +1,4 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -387,6 +387,9 @@
         .mt-8 {
           margin-top: calc(var(--spacing) * 8);
         }
+        .-mb-4 {
+          margin-bottom: calc(var(--spacing) * -4);
+        }
         .mb-0\.5 {
           margin-bottom: calc(var(--spacing) * 0.5);
         }
@@ -398,9 +401,6 @@
         }
         .mb-4 {
           margin-bottom: calc(var(--spacing) * 4);
-        }
-        .mb-8 {
-          margin-bottom: calc(var(--spacing) * 8);
         }
         .ml-10 {
           margin-left: calc(var(--spacing) * 10);
@@ -542,6 +542,9 @@
         }
         .justify-end {
           justify-content: flex-end;
+        }
+        .gap-1\.5 {
+          gap: calc(var(--spacing) * 1.5);
         }
         .gap-2 {
           gap: calc(var(--spacing) * 2);
@@ -931,6 +934,9 @@
           }
         }
         @media (min-width: 64rem) {
+          .lg\:col-span-full {
+            grid-column: 1/-1;
+          }
           .lg\:grid-cols-2 {
             grid-template-columns: repeat(2, minmax(0, 1fr));
           }
@@ -1045,19 +1051,20 @@
   </head>
   <body class="bg-bg text-ink antialiased">
     <main class="mx-auto max-w-6xl px-6 py-10">
-      <h1 class="text-2xl font-semibold">Transcript</h1>
-      <p class="mb-8 mt-1 text-sm text-ink-2">
-        Per-channel conversation history with LLM call audit. Turn rows and tool
-        calls expand on click.
-      </p>
-      <div class="space-y-8">
-        <section>
+      <div class="page space-y-8">
+        <h1 class="text-2xl font-semibold">Transcript</h1>
+        <p class="mt-1 text-sm text-ink-2">
+          Per-channel conversation history with LLM call audit. Turn rows and
+          tool calls expand on click.
+        </p>
+        <section class="sec">
           <div class="mb-2 flex items-baseline gap-3">
-            <h2
-              class="text-sm font-semibold uppercase tracking-wider text-accent-soft"
+            <div
+              class="flex items-baseline gap-1.5 text-sm font-semibold uppercase tracking-wider text-accent-soft"
             >
-              1 · Conversation
-            </h2>
+              <span class="sec-num">1</span><span>·</span>
+              <h2 class="sec-title">Conversation</h2>
+            </div>
             <span class="text-xs text-ink-3"
               >Channel #general; first assistant turn expanded in the design,
               click the rows to open them.</span
@@ -1355,13 +1362,14 @@
             </div>
           </div>
         </section>
-        <section>
+        <section class="sec">
           <div class="mb-2 flex items-baseline gap-3">
-            <h2
-              class="text-sm font-semibold uppercase tracking-wider text-accent-soft"
+            <div
+              class="flex items-baseline gap-1.5 text-sm font-semibold uppercase tracking-wider text-accent-soft"
             >
-              2 · Empty
-            </h2>
+              <span class="sec-num">2</span><span>·</span>
+              <h2 class="sec-title">Empty</h2>
+            </div>
             <span class="text-xs text-ink-3">Date range has no messages.</span>
           </div>
           <div class="rounded-xl border border-line bg-bg p-4">
@@ -1451,13 +1459,14 @@
             </div>
           </div>
         </section>
-        <section>
+        <section class="sec">
           <div class="mb-2 flex items-baseline gap-3">
-            <h2
-              class="text-sm font-semibold uppercase tracking-wider text-accent-soft"
+            <div
+              class="flex items-baseline gap-1.5 text-sm font-semibold uppercase tracking-wider text-accent-soft"
             >
-              3 · Loading
-            </h2>
+              <span class="sec-num">3</span><span>·</span>
+              <h2 class="sec-title">Loading</h2>
+            </div>
             <span class="text-xs text-ink-3"
               >Skeletons while the channel and totals load.</span
             >
