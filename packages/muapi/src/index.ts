@@ -1,5 +1,4 @@
 import { type Client, createClient, createConfig } from './generated/client'
-import { getPredictionResultApiV1PredictionsIdResultGet } from './generated/sdk.gen'
 
 export * from './generated/sdk.gen'
 export type * from './generated/types.gen'
@@ -17,6 +16,10 @@ export type PredictionStatus =
 /**
  * Shape of `GET /api/v1/predictions/{id}/result`. The OpenAPI spec leaves this
  * response untyped, so only the documented fields are declared here.
+ *
+ * Generation is async and results are delivered by webhook (see README.md).
+ * This endpoint is only meant as a one-off reconciliation fallback for jobs
+ * whose webhook never arrived; do not poll it in a loop.
  */
 export interface PredictionResult {
   id?: string
@@ -33,6 +36,31 @@ export interface SubmitResponse {
   [key: string]: unknown
 }
 
+/**
+ * Body muapi POSTs to the `?webhook=` URL when a job finishes. Documented at
+ * https://muapi.ai/docs/webhooks (not in the OpenAPI spec).
+ *
+ * - `id` is the same value as the `request_id` returned at submit time.
+ * - Only `completed` and `failed` are delivered; `cancelled` is not documented.
+ * - Deliveries are NOT signed, and muapi retries up to 3 times with exponential
+ *   backoff, so receivers must authenticate the URL themselves and be
+ *   idempotent on `id`.
+ */
+export interface WebhookPayload {
+  id: string
+  status: 'completed' | 'failed'
+  /** Present only when `status` is `completed`. */
+  outputs?: string[]
+  /** Present only when `status` is `failed`. */
+  error?: string
+  has_nsfw_contents?: boolean[]
+  created_at?: string
+  urls?: { get: string }
+  executionTime?: number | string
+  timings?: { inference?: number | string }
+  [key: string]: unknown
+}
+
 export interface MuapiClientOptions {
   apiKey: string
   baseUrl?: string
@@ -44,74 +72,4 @@ export function createMuapiClient({
   baseUrl = MUAPI_BASE_URL,
 }: MuapiClientOptions): Client {
   return createClient(createConfig({ baseUrl, auth: () => apiKey }))
-}
-
-export class PredictionError extends Error {
-  constructor(
-    message: string,
-    readonly result: PredictionResult,
-  ) {
-    super(message)
-    this.name = 'PredictionError'
-  }
-}
-
-export interface WaitForPredictionOptions {
-  client: Client
-  requestId: string
-  /** Delay between polls in ms. Defaults to 2000. */
-  intervalMs?: number
-  /** Give up after this many ms. Defaults to 10 minutes. */
-  timeoutMs?: number
-  signal?: AbortSignal
-}
-
-const TERMINAL_STATUSES = new Set<PredictionStatus>([
-  'completed',
-  'failed',
-  'cancelled',
-])
-
-/**
- * Polls a prediction until it reaches a terminal status. Resolves with the
- * completed result; rejects with a `PredictionError` on failure/cancellation.
- */
-export async function waitForPrediction({
-  client,
-  requestId,
-  intervalMs = 2000,
-  timeoutMs = 10 * 60 * 1000,
-  signal,
-}: WaitForPredictionOptions): Promise<PredictionResult> {
-  const deadline = Date.now() + timeoutMs
-
-  for (;;) {
-    signal?.throwIfAborted()
-
-    const { data } = await getPredictionResultApiV1PredictionsIdResultGet({
-      client,
-      path: { id: requestId },
-      throwOnError: true,
-      signal,
-    })
-    const result = data as PredictionResult
-
-    if (TERMINAL_STATUSES.has(result.status)) {
-      if (result.status !== 'completed') {
-        throw new PredictionError(
-          `Prediction ${requestId} ${result.status}${result.error ? `: ${result.error}` : ''}`,
-          result,
-        )
-      }
-      return result
-    }
-
-    if (Date.now() + intervalMs > deadline) {
-      throw new Error(
-        `Timed out waiting for prediction ${requestId} (last status: ${result.status})`,
-      )
-    }
-
-    await new Promise(resolve => setTimeout(resolve, intervalMs))
-  }
 }
