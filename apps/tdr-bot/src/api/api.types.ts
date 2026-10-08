@@ -1,7 +1,8 @@
 import { MessageType } from '@langchain/core/messages'
 
-import type { LlmCallRow } from 'src/db/schema'
+import type { LlmCallRow, ReminderSource, ReminderStatus } from 'src/db/schema'
 import type { Settings } from 'src/llm/settings/settings.schema'
+import type { ReminderActionType } from 'src/reminders/reminder.types'
 import { ImageResponse } from 'src/schemas/graph'
 
 export interface ConversationToolCall {
@@ -65,4 +66,63 @@ export interface TranscriptResponse {
   messages: ConversationMessage[]
   calls: LlmCallRow[]
   totals: TranscriptTotals
+}
+
+export interface ReminderView {
+  id: string
+  status: ReminderStatus
+  source: ReminderSource
+  what: string
+  userId: string
+  userName: string
+  targetUserId: string | null
+  targetUserName: string | null
+  guildId: string
+  channelId: string | null
+  channelName: string | null
+  isRecurring: boolean
+  cronExpression: string | null
+  scheduledAt: string | null
+  endsAt: string | null
+  scheduleDescription: string
+  nextRunAt: string | null
+  lastRunAt: string | null
+  runCount: number
+  actionType: ReminderActionType
+  createdAt: string
+  updatedAt: string
+  cancelledAt: string | null
+}
+
+export interface MemberInfo {
+  id: string
+  username: string
+  displayName: string
+  avatarUrl: string | null
+}
+
+export type ScheduleBody =
+  | { kind: 'once'; at: string }
+  | { kind: 'recurring'; cron: string; endsAt?: string | null }
+
+export interface CreateReminderBody {
+  userId: string
+  what: string
+  schedule: ScheduleBody
+  scheduleDescription?: string
+  channelId?: string | null
+  targetUserId?: string | null
+  actionType?: ReminderActionType
+}
+
+export type UpdateReminderBody = Partial<Omit<CreateReminderBody, 'userId'>>
+
+export interface ReminderFilter {
+  status: ReminderStatus | 'all'
+  userId?: string
+}
+
+export interface ReminderPreview {
+  runs: string[]
+  description: string
 }

@@ -6,8 +6,10 @@ import { LlmCoreModule } from 'src/llm/llm-core.module'
 import { ServicesModule } from 'src/services/services.module'
 
 import { TAVILY_SEARCH_TOKEN } from './reminder.constants'
+import { ReminderRepository } from './reminder.repository'
 import { ReminderService } from './reminder.service'
 import { ReminderDeliveryService } from './reminder-delivery.service'
+import { ReminderSchedulerService } from './reminder-scheduler.service'
 
 const tavilySearchProvider: Provider = {
   provide: TAVILY_SEARCH_TOKEN,
@@ -17,13 +19,25 @@ const tavilySearchProvider: Provider = {
 /**
  * Bundles reminder persistence, scheduling, and delivery.
  *
- * Provides {@link ReminderService} (exported for use by the LLM graph)
- * and {@link ReminderDeliveryService} (handles Discord message sending).
+ * Provides {@link ReminderService} (exported for use by the LLM graph),
+ * {@link ReminderDeliveryService} (Discord message sending) and
+ * {@link ReminderSchedulerService} (DB-polled due-reminder loop).
  * Also registers the Tavily search provider for action-type deliveries.
  */
 @Module({
   imports: [DrizzleModule, LlmCoreModule, ServicesModule],
-  providers: [ReminderService, ReminderDeliveryService, tavilySearchProvider],
-  exports: [ReminderService],
+  providers: [
+    ReminderService,
+    ReminderDeliveryService,
+    ReminderRepository,
+    ReminderSchedulerService,
+    tavilySearchProvider,
+  ],
+  exports: [
+    ReminderService,
+    ReminderRepository,
+    ReminderDeliveryService,
+    ReminderSchedulerService,
+  ],
 })
 export class RemindersModule {}

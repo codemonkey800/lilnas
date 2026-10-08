@@ -1,6 +1,6 @@
 import { HumanMessage } from '@langchain/core/messages'
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common'
+import { Inject, Injectable, Logger } from '@nestjs/common'
 import { Client, EmbedBuilder, type GuildTextBasedChannel } from 'discord.js'
 
 import { TDR_CHAT_CHANNEL } from 'src/constants/chat'
@@ -8,6 +8,7 @@ import { Reminder } from 'src/db/schema'
 import { LlmClient } from 'src/llm/client/llm-client'
 import { GET_MATH_RESPONSE_PROMPT } from 'src/llm/skills/math/prompts'
 import { EquationImageService } from 'src/services/equation-image.service'
+import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
 import { RetryService } from 'src/utils/retry.service'
 
 import {
@@ -19,22 +20,33 @@ import {
   REMINDER_MATH_DELIVERY_PROMPT,
   REMINDER_SEARCH_DELIVERY_PROMPT,
 } from './reminder.prompts'
-import { ReminderService } from './reminder.service'
 import { ReminderActionType } from './reminder.types'
 import { sanitizeReminderForPrompt } from './reminder.utils'
+
+export type DeliveryResult = { ok: true } | { ok: false; reason: string }
+
+/** Delivery failure carrying the metric reason reported to the scheduler. */
+class DeliveryFailure extends Error {
+  constructor(
+    readonly reason: string,
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options)
+  }
+}
 
 /**
  * Handles the Discord-side delivery of due reminders.
  *
- * On module init it registers itself as the delivery callback with
- * {@link ReminderService}. When a reminder fires, the service
- * dispatches to the appropriate strategy based on the reminder's
+ * {@link ReminderSchedulerService} calls {@link deliver} for each due
+ * reminder. The service dispatches to the appropriate strategy based on the reminder's
  * {@link ReminderActionType} (default text, web search, or math
  * equation rendering). Each strategy falls
  * back to default delivery on failure.
  */
 @Injectable()
-export class ReminderDeliveryService implements OnModuleInit {
+export class ReminderDeliveryService {
   private readonly logger = new Logger(ReminderDeliveryService.name)
   /** Guild-ID → channel-ID cache to avoid repeated channel lookups. */
   private readonly channelIdCache = new Map<string, string>()
@@ -43,26 +55,20 @@ export class ReminderDeliveryService implements OnModuleInit {
     private readonly client: Client,
     private readonly llm: LlmClient,
     private readonly retryService: RetryService,
-    private readonly reminderService: ReminderService,
+    private readonly metrics: TdrBotMetricsService,
     private readonly equationImageService: EquationImageService,
     @Inject(TAVILY_SEARCH_TOKEN)
     private readonly tavilySearch: StructuredToolInterface,
   ) {}
 
-  /** Registers the delivery callback so {@link ReminderService} can invoke it. */
-  onModuleInit(): void {
-    this.reminderService.setDeliveryFunction(this.deliver.bind(this))
-  }
-
   /**
    * Routes a due reminder to the correct delivery strategy
    * based on its {@link ReminderActionType}.
    *
-   * Errors from channel/guild resolution or send failures are caught
-   * and logged rather than propagated — the outer {@link ReminderService}
-   * already handles failure recording at a higher level.
+   * Never throws: channel/guild resolution and send failures are logged
+   * and returned as `{ ok: false, reason }` for the scheduler to record.
    */
-  async deliver(reminder: Reminder): Promise<void> {
+  async deliver(reminder: Reminder): Promise<DeliveryResult> {
     this.logger.log(
       {
         id: reminder.id,
@@ -86,11 +92,16 @@ export class ReminderDeliveryService implements OnModuleInit {
       }
 
       this.logger.log({ id: reminder.id }, 'Reminder delivered successfully')
+      return { ok: true }
     } catch (err) {
       this.logger.error(
         { err, id: reminder.id },
         'Reminder delivery failed due to channel or send error',
       )
+      return {
+        ok: false,
+        reason: err instanceof DeliveryFailure ? err.reason : 'delivery_error',
+      }
     }
   }
 
@@ -142,7 +153,7 @@ export class ReminderDeliveryService implements OnModuleInit {
         { err, id: reminder.id },
         'Search delivery failed, falling back to default',
       )
-      this.reminderService.recordDeliveryFailure('search_delivery_error')
+      this.metrics.reminderFailed('search_delivery_error')
       await this.deliverDefault(reminder)
     }
   }
@@ -210,7 +221,7 @@ export class ReminderDeliveryService implements OnModuleInit {
         { err, id: reminder.id },
         'Math delivery failed, falling back to default',
       )
-      this.reminderService.recordDeliveryFailure('math_delivery_error')
+      this.metrics.reminderFailed('math_delivery_error')
       await this.deliverDefault(reminder)
     }
   }
@@ -263,7 +274,10 @@ export class ReminderDeliveryService implements OnModuleInit {
         { userId },
         'No guildId on reminder, cannot deliver to channel',
       )
-      throw new Error('Cannot deliver reminder: missing guildId')
+      throw new DeliveryFailure(
+        'missing_guild',
+        'Cannot deliver reminder: missing guildId',
+      )
     }
 
     const guild = this.client.guilds.cache.get(guildId)
@@ -272,7 +286,10 @@ export class ReminderDeliveryService implements OnModuleInit {
         { guildId, userId },
         'Guild not found, cannot deliver reminder',
       )
-      throw new Error(`Cannot deliver reminder: guild ${guildId} not found`)
+      throw new DeliveryFailure(
+        'guild_not_found',
+        `Cannot deliver reminder: guild ${guildId} not found`,
+      )
     }
 
     let channel: GuildTextBasedChannel | undefined
@@ -298,7 +315,8 @@ export class ReminderDeliveryService implements OnModuleInit {
         { guildId, userId },
         'No tdr-bot-chat channel found in guild, cannot deliver reminder',
       )
-      throw new Error(
+      throw new DeliveryFailure(
+        'channel_not_found',
         `Cannot deliver reminder: no ${TDR_CHAT_CHANNEL} channel found in guild ${guildId}`,
       )
     }
@@ -329,8 +347,9 @@ export class ReminderDeliveryService implements OnModuleInit {
         { channelId: resolvedChannel.id, guildId, err },
         'Failed to send reminder to channel',
       )
-      this.reminderService.recordDeliveryFailure('send_error')
-      throw err
+      throw new DeliveryFailure('send_error', 'Failed to send reminder', {
+        cause: err,
+      })
     }
   }
 

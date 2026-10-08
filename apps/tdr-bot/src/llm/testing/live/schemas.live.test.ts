@@ -5,9 +5,14 @@ import { z } from 'zod'
 import { LlmCall } from 'src/llm/client/llm-call.types'
 import {
   buildExtractReminderPrompt,
-  REMINDER_CONTINUATION_PROMPT,
-} from 'src/reminders/reminder.prompts'
-import { ReminderExtractionSchema } from 'src/reminders/reminder.types'
+  REMINDER_CANCEL_RESOLUTION_PROMPT,
+  REMINDER_TOPIC_SWITCH_PROMPT,
+} from 'src/llm/skills/reminder/prompts'
+import {
+  CancelResolutionSchema,
+  ContinuationSchema,
+  ReminderIntentSchema,
+} from 'src/llm/skills/reminder/schemas'
 import { MediaRequestSchema } from 'src/schemas/graph'
 import { MediaTypeClassificationSchema } from 'src/schemas/media-classification'
 import { SearchSelectionSchema } from 'src/schemas/search-selection'
@@ -40,8 +45,8 @@ const CASES: SchemaCase[] = [
     call: {
       operation: 'reminder.topicSwitch',
       role: 'reasoning',
-      messages: [REMINDER_CONTINUATION_PROMPT, human('tomorrow at 5pm')],
-      schema: z.object({ continuing: z.boolean() }),
+      messages: [REMINDER_TOPIC_SWITCH_PROMPT, human('tomorrow at 5pm')],
+      schema: ContinuationSchema,
     },
   },
   {
@@ -56,7 +61,38 @@ const CASES: SchemaCase[] = [
         ),
         human('remind me to take out the trash tomorrow at 8am'),
       ],
-      schema: ReminderExtractionSchema,
+      schema: ReminderIntentSchema,
+    },
+  },
+  {
+    name: 'reminder.resolveCancel',
+    call: {
+      operation: 'reminder.resolveCancel',
+      role: 'reasoning',
+      messages: [
+        REMINDER_CANCEL_RESOLUTION_PROMPT,
+        human(
+          'Active reminders:\n' +
+            JSON.stringify([
+              {
+                id: 'r1',
+                index: 1,
+                what: 'dentist appointment',
+                scheduleDescription: 'tomorrow at 9:00 AM',
+                isRecurring: false,
+              },
+              {
+                id: 'r2',
+                index: 2,
+                what: 'water the plants',
+                scheduleDescription: 'every Tuesday at 10:00 AM',
+                isRecurring: true,
+              },
+            ]),
+        ),
+        human('cancel the dentist one'),
+      ],
+      schema: CancelResolutionSchema,
     },
   },
   {

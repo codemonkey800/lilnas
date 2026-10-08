@@ -2,16 +2,17 @@ import { AIMessage } from '@langchain/core/messages'
 import { Client } from 'discord.js'
 
 import {
+  createMockMetricsService,
   createMockRetryService,
   createTestingModule,
 } from 'src/__tests__/test-utils'
-import { Reminder } from 'src/db/schema'
 import { LlmClient } from 'src/llm/client/llm-client'
 import { FakeLlmClient } from 'src/llm/testing/fake-llm-client'
+import { createTestReminder } from 'src/reminders/__tests__/factories/reminder'
 import { TAVILY_SEARCH_TOKEN } from 'src/reminders/reminder.constants'
-import { ReminderService } from 'src/reminders/reminder.service'
 import { ReminderDeliveryService } from 'src/reminders/reminder-delivery.service'
 import { EquationImageService } from 'src/services/equation-image.service'
+import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
 import { RetryService } from 'src/utils/retry.service'
 
 // ─── Module mocks ─────────────────────────────────────────────────────────────
@@ -39,25 +40,6 @@ jest.mock('prom-client', () => ({
 }))
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function createTestReminder(overrides: Partial<Reminder> = {}): Reminder {
-  return {
-    id: 'reminder-1',
-    userId: 'user-42',
-    guildId: 'guild-1',
-    what: 'pay the rent',
-    isRecurring: false,
-    cronExpression: null,
-    scheduledAt: new Date(Date.now() + 60_000),
-    channelId: null,
-    targetUserId: null,
-    dayDescription: 'tomorrow',
-    timeDescription: '9:00 AM',
-    actionType: 'default',
-    createdAt: new Date(),
-    ...overrides,
-  }
-}
 
 interface MockChannel {
   id: string
@@ -134,19 +116,6 @@ function makeLlm(responseContent = 'Hey! Reminder time!'): {
   return { factory, mockChatModel, mockReasoningModel }
 }
 
-function makeReminderServiceMock(): jest.Mocked<ReminderService> {
-  return {
-    setDeliveryFunction: jest.fn(),
-    recordDeliveryFailure: jest.fn(),
-    create: jest.fn(),
-    listForUser: jest.fn(),
-    cancel: jest.fn(),
-    deleteAfterDelivery: jest.fn(),
-    scheduleReminder: jest.fn(),
-    onModuleInit: jest.fn(),
-  } as unknown as jest.Mocked<ReminderService>
-}
-
 function makeEquationImageServiceMock(
   url = 'https://equations.example.com/eq.png',
 ): jest.Mocked<EquationImageService> {
@@ -161,7 +130,7 @@ function makeEquationImageServiceMock(
 
 describe('ReminderDeliveryService', () => {
   let service: ReminderDeliveryService
-  let reminderService: jest.Mocked<ReminderService>
+  let metrics: jest.Mocked<TdrBotMetricsService>
   let retryService: jest.Mocked<RetryService>
 
   async function buildService(
@@ -169,7 +138,7 @@ describe('ReminderDeliveryService', () => {
     llm: FakeLlmClient,
     equationImageService: jest.Mocked<EquationImageService> = makeEquationImageServiceMock(),
   ) {
-    reminderService = makeReminderServiceMock()
+    metrics = createMockMetricsService()
     retryService = createMockRetryService()
 
     const module = await createTestingModule([
@@ -177,7 +146,7 @@ describe('ReminderDeliveryService', () => {
       { provide: Client, useValue: client },
       { provide: LlmClient, useValue: llm },
       { provide: RetryService, useValue: retryService },
-      { provide: ReminderService, useValue: reminderService },
+      { provide: TdrBotMetricsService, useValue: metrics },
       { provide: EquationImageService, useValue: equationImageService },
       {
         provide: TAVILY_SEARCH_TOKEN,
@@ -192,36 +161,6 @@ describe('ReminderDeliveryService', () => {
     mockTavilyInvoke.mockClear()
   })
 
-  // ── onModuleInit ────────────────────────────────────────────────────────
-
-  describe('onModuleInit', () => {
-    it('registers the deliver method as the delivery function', async () => {
-      const { factory } = makeLlm()
-      const client = makeDiscordClient([])
-      service = await buildService(client, factory)
-
-      service.onModuleInit()
-
-      expect(reminderService.setDeliveryFunction).toHaveBeenCalledWith(
-        expect.any(Function),
-      )
-    })
-
-    it('registers a bound function that calls deliver on the service instance', async () => {
-      const { factory } = makeLlm()
-      const channel = makeMockTextChannel()
-      const client = makeDiscordClient([channel])
-      service = await buildService(client, factory)
-      service.onModuleInit()
-
-      const registeredFn = reminderService.setDeliveryFunction.mock
-        .calls[0][0] as (r: Reminder) => Promise<void>
-      await registeredFn(createTestReminder())
-
-      expect(channel.send).toHaveBeenCalled()
-    })
-  })
-
   // ── deliver (default) ────────────────────────────────────────────────────
 
   describe('deliver (default action)', () => {
@@ -232,8 +171,9 @@ describe('ReminderDeliveryService', () => {
       const { factory } = makeLlm('Hey, reminder!')
       service = await buildService(client, factory)
 
-      await service.deliver(createTestReminder())
+      const result = await service.deliver(createTestReminder())
 
+      expect(result).toEqual({ ok: true })
       expect(sendFn).toHaveBeenCalledWith(
         expect.objectContaining({ content: 'Hey, reminder!' }),
       )
@@ -246,7 +186,10 @@ describe('ReminderDeliveryService', () => {
       const { factory } = makeLlm()
       service = await buildService(client, factory)
 
-      await expect(service.deliver(createTestReminder())).resolves.not.toThrow()
+      await expect(service.deliver(createTestReminder())).resolves.toEqual({
+        ok: false,
+        reason: 'channel_not_found',
+      })
       expect(nonTextChannel.send).not.toHaveBeenCalled()
     })
 
@@ -256,7 +199,10 @@ describe('ReminderDeliveryService', () => {
       const { factory } = makeLlm()
       service = await buildService(client, factory)
 
-      await expect(service.deliver(createTestReminder())).resolves.not.toThrow()
+      await expect(service.deliver(createTestReminder())).resolves.toEqual({
+        ok: false,
+        reason: 'channel_not_found',
+      })
       expect(nonMatchingChannel.send).not.toHaveBeenCalled()
     })
 
@@ -317,7 +263,7 @@ describe('ReminderDeliveryService', () => {
         { provide: Client, useValue: client },
         { provide: LlmClient, useValue: factory },
         { provide: RetryService, useValue: createMockRetryService() },
-        { provide: ReminderService, useValue: makeReminderServiceMock() },
+        { provide: TdrBotMetricsService, useValue: createMockMetricsService() },
         {
           provide: EquationImageService,
           useValue: makeEquationImageServiceMock(),
@@ -392,7 +338,7 @@ describe('ReminderDeliveryService', () => {
         { provide: Client, useValue: client },
         { provide: LlmClient, useValue: factory },
         { provide: RetryService, useValue: createMockRetryService() },
-        { provide: ReminderService, useValue: makeReminderServiceMock() },
+        { provide: TdrBotMetricsService, useValue: createMockMetricsService() },
         {
           provide: EquationImageService,
           useValue: makeEquationImageServiceMock(),
@@ -484,13 +430,13 @@ describe('ReminderDeliveryService', () => {
         .mockRejectedValueOnce(new Error('Tavily error'))
         .mockImplementation(operation => operation())
 
-      const trackedReminderService = makeReminderServiceMock()
+      const trackedMetrics = createMockMetricsService()
       service = await createTestingModule([
         ReminderDeliveryService,
         { provide: Client, useValue: client },
         { provide: LlmClient, useValue: factory },
         { provide: RetryService, useValue: failingRetry },
-        { provide: ReminderService, useValue: trackedReminderService },
+        { provide: TdrBotMetricsService, useValue: trackedMetrics },
         {
           provide: EquationImageService,
           useValue: makeEquationImageServiceMock(),
@@ -505,7 +451,7 @@ describe('ReminderDeliveryService', () => {
         createTestReminder({ actionType: 'search', what: 'weather' }),
       )
 
-      expect(trackedReminderService.recordDeliveryFailure).toHaveBeenCalledWith(
+      expect(trackedMetrics.reminderFailed).toHaveBeenCalledWith(
         'search_delivery_error',
       )
     })
@@ -526,7 +472,7 @@ describe('ReminderDeliveryService', () => {
         { provide: Client, useValue: client },
         { provide: LlmClient, useValue: factory },
         { provide: RetryService, useValue: failingRetry },
-        { provide: ReminderService, useValue: makeReminderServiceMock() },
+        { provide: TdrBotMetricsService, useValue: createMockMetricsService() },
         {
           provide: EquationImageService,
           useValue: makeEquationImageServiceMock(),
@@ -651,13 +597,13 @@ describe('ReminderDeliveryService', () => {
         new Error('Reasoning model error'),
       )
 
-      const trackedReminderService = makeReminderServiceMock()
+      const trackedMetrics = createMockMetricsService()
       service = await createTestingModule([
         ReminderDeliveryService,
         { provide: Client, useValue: client },
         { provide: LlmClient, useValue: factory },
         { provide: RetryService, useValue: createMockRetryService() },
-        { provide: ReminderService, useValue: trackedReminderService },
+        { provide: TdrBotMetricsService, useValue: trackedMetrics },
         {
           provide: EquationImageService,
           useValue: makeEquationImageServiceMock(),
@@ -672,7 +618,7 @@ describe('ReminderDeliveryService', () => {
         createTestReminder({ actionType: 'math', what: 'an equation' }),
       )
 
-      expect(trackedReminderService.recordDeliveryFailure).toHaveBeenCalledWith(
+      expect(trackedMetrics.reminderFailed).toHaveBeenCalledWith(
         'math_delivery_error',
       )
     })
@@ -692,7 +638,7 @@ describe('ReminderDeliveryService', () => {
         { provide: Client, useValue: client },
         { provide: LlmClient, useValue: factory },
         { provide: RetryService, useValue: createMockRetryService() },
-        { provide: ReminderService, useValue: makeReminderServiceMock() },
+        { provide: TdrBotMetricsService, useValue: createMockMetricsService() },
         {
           provide: EquationImageService,
           useValue: makeEquationImageServiceMock(),
@@ -782,7 +728,7 @@ describe('ReminderDeliveryService', () => {
       const client = makeDiscordClient([channel])
       const { factory } = makeLlm('Reminder message')
 
-      reminderService = makeReminderServiceMock()
+      metrics = createMockMetricsService()
       retryService = createMockRetryService()
       retryService.executeWithRetry.mockRejectedValueOnce(
         new Error('Discord error'),
@@ -793,7 +739,7 @@ describe('ReminderDeliveryService', () => {
         { provide: Client, useValue: client },
         { provide: LlmClient, useValue: factory },
         { provide: RetryService, useValue: retryService },
-        { provide: ReminderService, useValue: reminderService },
+        { provide: TdrBotMetricsService, useValue: metrics },
         {
           provide: EquationImageService,
           useValue: makeEquationImageServiceMock(),
@@ -804,11 +750,9 @@ describe('ReminderDeliveryService', () => {
         },
       ]).then(m => m.get(ReminderDeliveryService))
 
-      await service.deliver(createTestReminder())
+      const result = await service.deliver(createTestReminder())
 
-      expect(reminderService.recordDeliveryFailure).toHaveBeenCalledWith(
-        'send_error',
-      )
+      expect(result).toEqual({ ok: false, reason: 'send_error' })
     })
 
     it('does not throw when the guild is not found', async () => {
@@ -817,7 +761,10 @@ describe('ReminderDeliveryService', () => {
       service = await buildService(client, factory)
 
       // guildId 'guild-1' not in client — should resolve gracefully
-      await expect(service.deliver(createTestReminder())).resolves.not.toThrow()
+      await expect(service.deliver(createTestReminder())).resolves.toEqual({
+        ok: false,
+        reason: 'guild_not_found',
+      })
     })
   })
 })

@@ -14,6 +14,7 @@ import { SadPepeIcon } from './SadPepeIcon'
 const NAV_LINKS = [
   { href: '/settings', label: 'Settings' },
   { href: '/transcript', label: 'Transcript' },
+  { href: '/reminders', label: 'Reminders' },
 ]
 
 interface AppShellProps {

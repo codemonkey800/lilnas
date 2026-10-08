@@ -43,7 +43,7 @@ import {
 import { ChatSkill } from 'src/llm/skills/chat/skill'
 import { MathSkill } from 'src/llm/skills/math/skill'
 import { MediaSkill } from 'src/llm/skills/media.skill'
-import { ReminderSkill } from 'src/llm/skills/reminder.skill'
+import { ReminderSkill } from 'src/llm/skills/reminder/skill'
 import { SKILLS } from 'src/llm/skills/skill.interface'
 import { SkillRegistry } from 'src/llm/skills/skill.registry'
 import { FakeLlmClient } from 'src/llm/testing/fake-llm-client'
@@ -55,6 +55,7 @@ import {
 } from 'src/media-operations/request-handling/types'
 import { LLMOrchestrationService } from 'src/messages/llm/llm-orchestration.service'
 import { PromptService } from 'src/messages/prompts/prompt.service'
+import { createTestReminder } from 'src/reminders/__tests__/factories/reminder'
 import { ReminderService } from 'src/reminders/reminder.service'
 import { EquationImageService } from 'src/services/equation-image.service'
 import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
@@ -62,20 +63,37 @@ import { TDR_SYSTEM_PROMPT_ID } from 'src/utils/prompts'
 
 const TEST_TIMEOUT = 15_000
 
-const REMINDER_EXTRACTION = {
+const REMINDER_INTENT = {
   action: 'create',
   what: null,
   isRecurring: null,
   day: null,
   time: null,
-  recurringPattern: null,
+  scheduleDescription: null,
   scheduledAt: null,
   cronExpression: null,
-  reminderIdToCancel: null,
+  endsAt: null,
   channelId: null,
   targetUserId: null,
   actionType: 'default',
 }
+
+const IN_ONE_DAY = () => new Date(Date.now() + 86_400_000)
+
+const REMINDER_ROWS = [
+  createTestReminder({
+    id: 'r1',
+    userId: 'u-1',
+    what: 'dentist appointment',
+    scheduleDescription: 'tomorrow at 9:00 AM',
+  }),
+  createTestReminder({
+    id: 'r2',
+    userId: 'u-1',
+    what: 'dentist cleaning',
+    scheduleDescription: 'Friday at 2:00 PM',
+  }),
+]
 
 type Responses = Record<string, object | string>
 
@@ -95,7 +113,7 @@ const SCENARIO_SCRIPTS: Record<string, TurnScript[]> = {
     {
       llm: {
         'reminder.extract': {
-          ...REMINDER_EXTRACTION,
+          ...REMINDER_INTENT,
           what: 'call mom',
           time: '5pm',
         },
@@ -105,16 +123,43 @@ const SCENARIO_SCRIPTS: Record<string, TurnScript[]> = {
     {
       llm: {
         'reminder.topicSwitch': { continuing: true },
-        'reminder.extract': { ...REMINDER_EXTRACTION, day: 'tomorrow' },
+        'reminder.extract': {
+          ...REMINDER_INTENT,
+          day: 'tomorrow',
+          isRecurring: false,
+          scheduleDescription: 'tomorrow at 5:00 PM',
+          scheduledAt: IN_ONE_DAY().toISOString(),
+        },
         'reminder.confirm': 'Got it! I will remind you tomorrow at 5pm.',
       },
     },
+  ],
+  'cancel with two matches, then pick by number': [
+    {
+      llm: {
+        'reminder.extract': {
+          ...REMINDER_INTENT,
+          action: 'cancel',
+          what: 'dentist',
+        },
+        'reminder.resolveCancel': { matchIds: ['r1', 'r2'], confident: false },
+      },
+    },
+    { llm: { 'reminder.topicSwitch': { continuing: true } } },
+  ],
+  'cancel all, then yes': [
+    {
+      llm: {
+        'reminder.extract': { ...REMINDER_INTENT, action: 'cancel_all' },
+      },
+    },
+    { llm: { 'reminder.topicSwitch': { continuing: true } } },
   ],
   'reminder then topic switch': [
     {
       llm: {
         'reminder.extract': {
-          ...REMINDER_EXTRACTION,
+          ...REMINDER_INTENT,
           what: 'water the plants',
         },
         'reminder.askMissing': 'Which day should I remind you?',
@@ -233,10 +278,16 @@ describe('LLMOrchestrationService - Integration', () => {
     reminderService = {
       create: jest.fn().mockImplementation(async input => ({
         ...input,
-        scheduledAt: input.scheduledAt ?? null,
+        isRecurring: input.schedule.kind === 'recurring',
+        scheduledAt: input.schedule.kind === 'once' ? input.schedule.at : null,
       })),
-      listForUser: jest.fn().mockResolvedValue([]),
-      cancel: jest.fn(),
+      listForUser: jest.fn().mockResolvedValue(REMINDER_ROWS),
+      cancel: jest
+        .fn()
+        .mockImplementation(async (id: string) =>
+          REMINDER_ROWS.find(r => r.id === id),
+        ),
+      cancelAllForUser: jest.fn().mockResolvedValue(2),
     } as unknown as jest.Mocked<ReminderService>
 
     module = await Test.createTestingModule({
@@ -567,11 +618,13 @@ describe('LLMOrchestrationService - Integration', () => {
       async () => {
         llm
           .script('reminder.extract', {
-            ...REMINDER_EXTRACTION,
+            ...REMINDER_INTENT,
             what: 'pay rent',
+            isRecurring: false,
             day: 'tomorrow',
             time: '9:00 AM',
-            scheduledAt: '2026-03-19T09:00:00',
+            scheduleDescription: 'tomorrow at 9:00 AM',
+            scheduledAt: IN_ONE_DAY().toISOString(),
           })
           .script('reminder.confirm', 'Got it! Reminder set for tomorrow.')
 

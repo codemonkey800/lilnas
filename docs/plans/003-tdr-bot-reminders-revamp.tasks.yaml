@@ -1,0 +1,633 @@
+nexus-tasks: 1
+phases:
+  - key: '1'
+    name: Data model, scheduler, skill, admin API, mockup
+    tasks:
+      - id: T1
+        title: 'Mockup: admin Reminders page'
+        after: []
+        files:
+          - docs/features/tdr-bot/designs/reminders.html
+          - docs/features/tdr-bot/designs/index.html
+          - docs/features/tdr-bot/designs/settings.html
+          - docs/features/tdr-bot/designs/transcript.html
+          - docs/features/tdr-bot/designs/src/
+        status: done
+        commit: 4c284ec17cd285c597846ae3edec6fbdec5068d2
+        body: |-
+          Add `docs/features/tdr-bot/designs/src/pages/reminders.pug`, link it from
+          `src/pages/index.pug`, build with `pnpm mockups` from the repo root, run
+          `pnpm run mockups:lint:fix`, and commit the Pug plus every generated
+          `*.html` the build touched. Imitate `src/pages/settings.pug` and
+          `src/pages/transcript.pug`: `extends ../layout/page.pug`, `include
+          ../mixins/ui.pug`, one `+frame(label, note)` section per state, sample data
+          as Pug locals at the top of the page, Tailwind utilities from `src/theme.css`
+          only (dark purple: `bg`, `surface`, `raised`, `line`, `ink`, `accent`,
+          `ok`, `warn`, `bad`).
+
+          The page is the admin's view of every reminder the bot holds. Show these
+          frames, each a full page frame under the existing app bar (nav: Settings,
+          Transcript, Reminders):
+          - **Populated table** (desktop): status filter toggle (Active · Completed ·
+            Cancelled · Missed · All; Active selected, with counts), a free-text
+            filter ("who or what"), and a "New reminder" primary button. Columns:
+            Status chip (ok=active, muted=completed, warn=missed, bad=cancelled),
+            What, Who ("jeremy → @sam" when a target differs from the creator; "admin"
+            when created from this page), Schedule (human line, e.g. "every Tuesday at
+            10:00 AM", with the cron in monospace under it or "once"), Next run
+            (relative + absolute, e.g. "in 2 h · Oct 8, 9:00 AM"; "—" when not
+            active), Last run / runs ("Oct 1, 9:00 AM · 12 runs"), Ends ("Oct 31" or
+            "never"), Channel (#name or "default"), Type chip (text / search / math),
+            row actions Edit and Cancel (Cancel hidden unless active). Ten rows mixing
+            one-time and recurring, every status, every action type, a targeted
+            reminder, an admin-created one, an ended recurring one.
+          - **Mobile** (narrow frame ≤ 420 px): the same list as stacked cards: what,
+            who, schedule, next run, status chip, actions in a row.
+          - **Empty** (filter Active, no reminders) and **loading** (skeleton rows,
+            use the `skeleton` utility).
+          - **New reminder dialog**: For (member select showing username + display
+            name), What (textarea with 500 counter), Type radio (One-time / Recurring),
+            One-time: a datetime field; Recurring: preset chips (Every day 9 AM ·
+            Weekdays 9 AM · Every Monday 9 AM · Every hour · Custom) with a cron text
+            field, an optional Ends on date, and a "Next runs" preview listing the next
+            three times; Deliver to (channel select, default "tdr-bot-chat"), Remind
+            (same member select, default "the creator"), Action (Text / Web search /
+            Math) as a select. Show the dialog twice: valid with the preview filled,
+            and invalid with the cron error "fires more than once a minute" under the
+            field and Create disabled.
+          - **Edit dialog**: same form prefilled for a recurring reminder, title
+            "Edit reminder", Save button.
+          - **Cancel confirmation**: "Cancel this reminder?" with the what and schedule,
+            Keep / Cancel reminder (bad tone).
+          Also list the page in `src/pages/index.pug` with a one-line description.
+      - id: H1
+        title: Review the Reminders page mockup
+        after:
+          - T1
+        files: []
+        status: approved
+        body: |-
+          Open `docs/features/tdr-bot/designs/reminders.html`. Confirm the table
+          columns are what you want to see (who / schedule / next run / ends /
+          status), the status filter default, the New reminder form fields (member
+          picker, one-time vs recurring with cron presets + preview, ends-on, channel,
+          target, action type), and the mobile card layout. Request changes on the
+          mockup if not; T7 implements the approved version.
+      - id: T2
+        title: Reminder schema v2, repository and schedule helpers
+        after: []
+        files:
+          - apps/tdr-bot/src/db/schema.ts
+          - apps/tdr-bot/drizzle/
+          - apps/tdr-bot/src/reminders/reminder.constants.ts
+          - apps/tdr-bot/src/reminders/reminder.types.ts
+          - apps/tdr-bot/src/reminders/reminder.repository.ts
+          - apps/tdr-bot/src/reminders/schedule.ts
+          - apps/tdr-bot/src/reminders/reminder.service.ts
+          - apps/tdr-bot/src/reminders/__tests__/
+          - apps/tdr-bot/src/llm/skills/reminder.skill.ts
+          - apps/tdr-bot/src/llm/skills/__tests__/reminder.skill.test.ts
+        status: done
+        commit: 1a1ebc62644a1f88fb0da78393aa6fc638873948
+        body: |-
+          Change the `reminders` table in `apps/tdr-bot/src/db/schema.ts` to:
+          ```ts
+          export const REMINDER_STATUSES = ['active', 'completed', 'cancelled', 'missed'] as const
+          export type ReminderStatus = (typeof REMINDER_STATUSES)[number]
+          export const REMINDER_SOURCES = ['discord', 'admin'] as const
+          export type ReminderSource = (typeof REMINDER_SOURCES)[number]
+
+          export const reminders = pgTable('reminder', {
+            id: text('id').primaryKey(),
+            userId: text('user_id').notNull(),                      // creator
+            userName: text('user_name').notNull().default(''),      // creator's Discord username at creation; 'admin' from the admin page
+            guildId: text('guild_id').notNull().default(''),
+            what: text('what').notNull(),
+            isRecurring: boolean('is_recurring').notNull().default(false),
+            cronExpression: text('cron_expression'),                // recurring only
+            scheduledAt: timestamp('scheduled_at', { mode: 'date' }), // one-time only
+            endsAt: timestamp('ends_at', { mode: 'date' }),         // recurring only, optional
+            scheduleDescription: text('schedule_description').notNull().default(''),
+            channelId: text('channel_id'),
+            targetUserId: text('target_user_id'),
+            actionType: text('action_type').notNull().default('default'),
+            status: text('status').$type<ReminderStatus>().notNull().default('active'),
+            source: text('source').$type<ReminderSource>().notNull().default('discord'),
+            nextRunAt: timestamp('next_run_at', { mode: 'date' }),
+            lastRunAt: timestamp('last_run_at', { mode: 'date' }),
+            runCount: integer('run_count').notNull().default(0),
+            createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
+            updatedAt: timestamp('updated_at', { mode: 'date' }).notNull().defaultNow(),
+            cancelledAt: timestamp('cancelled_at', { mode: 'date' }),
+          }, table => [
+            index('reminder_status_next_run_at_idx').on(table.status, table.nextRunAt),
+            index('reminder_user_id_idx').on(table.userId),
+          ])
+          ```
+          `day_description` and `time_description` are dropped. Generate migration
+          `0004` with drizzle-kit (command in Context), then hand-edit the SQL so the
+          backfill runs **before** the two `DROP COLUMN`s:
+          `UPDATE "reminder" SET "schedule_description" = trim(concat_ws(' ', "day_description", "time_description"));`
+          and after the adds: `UPDATE "reminder" SET "next_run_at" = "scheduled_at" WHERE "is_recurring" = false;`
+          (recurring rows keep `next_run_at` NULL; the scheduler computes it at boot).
+          Keep `meta/0004_snapshot.json` and the journal entry drizzle-kit wrote.
+
+          Add to `reminder.constants.ts`: `REMINDER_TIMEZONE = 'America/Los_Angeles'`,
+          `MIN_CRON_INTERVAL_MS = 60_000`, `REMINDER_TICK_MS = 30_000`,
+          `MAX_LATE_DELIVERY_MS = 60 * 60 * 1000`, `DUE_BATCH_SIZE = 50`,
+          `FINISHED_RETENTION_DAYS = 90`. Delete `MAX_TIMEOUT_MS` and
+          `MAX_PENDING_DELIVERIES` (and their uses).
+
+          New `apps/tdr-bot/src/reminders/schedule.ts`, pure functions on `cron`'s
+          `CronTime` with `REMINDER_TIMEZONE`:
+          ```ts
+          export type ReminderSchedule =
+            | { kind: 'once'; at: Date }
+            | { kind: 'recurring'; cron: string; endsAt?: Date | null }
+          export type CronCheck = { ok: true } | { ok: false; reason: 'invalid' | 'too_frequent' }
+          export function validateCron(expr: string): CronCheck          // invalid expression, or two consecutive runs closer than MIN_CRON_INTERVAL_MS
+          export function nextCronRun(expr: string, from: Date, endsAt?: Date | null): Date | null  // strictly after `from`; null once past endsAt
+          export function nextRunFor(r: Pick<Reminder, 'isRecurring' | 'cronExpression' | 'scheduledAt' | 'endsAt'>, from: Date): Date | null
+          export function previewRuns(schedule: ReminderSchedule, from: Date, count: number): Date[]
+          export function scheduleOf(r: Reminder): ReminderSchedule
+          export function describeSchedule(schedule: ReminderSchedule): string  // fallback text: "Oct 8, 2026 at 9:00 AM" / "cron 0 9 * * * until Oct 31, 2026"
+          ```
+          Tests (`__tests__/schedule.test.ts`): `*/1 * * * *` too frequent, `0 9 * * *`
+          ok, garbage invalid, next run respects `endsAt` and the timezone (a DST
+          boundary case), one-time in the past → null, preview count and ordering.
+
+          New `apps/tdr-bot/src/reminders/reminder.repository.ts` (`@Injectable`,
+          Drizzle only, no business rules), exported from `reminders.module.ts`:
+          ```ts
+          export interface ReminderListFilter { status?: ReminderStatus | 'all'; userId?: string; limit?: number }
+          export class ReminderRepository {
+            insert(row: NewReminder): Promise<Reminder>
+            findById(id: string): Promise<Reminder | null>
+            list(filter: ReminderListFilter): Promise<Reminder[]>      // default status 'active'; ORDER BY next_run_at ASC NULLS LAST, created_at DESC
+            listActiveForUser(userId: string): Promise<Reminder[]>     // status active AND (user_id = ? OR target_user_id = ?)
+            countActiveCreatedBy(userId: string): Promise<number>
+            listDue(now: Date, limit: number): Promise<Reminder[]>     // status active AND next_run_at <= now, oldest first
+            listActiveWithoutNextRun(): Promise<Reminder[]>
+            update(id: string, patch: Partial<NewReminder>): Promise<Reminder | null>  // always sets updatedAt
+            countActiveByType(): Promise<{ recurring: number; oneTime: number }>
+            deleteFinishedBefore(cutoff: Date): Promise<number>        // status in (completed, cancelled, missed) AND updated_at < cutoff
+          }
+          ```
+          Test it with the fake-chain + `sqlToQuery` pattern from
+          `src/llm/audit/__tests__/llm-calls.repository.test.ts`: every method's SQL
+          contains the expected predicates and ordering.
+
+          Keep the existing `ReminderService` and `ReminderSkill` compiling with the
+          minimum edits: `dayDescription`/`timeDescription` reads and writes become
+          `scheduleDescription` (join day + time with a space on create), inserts set
+          `userName` from `input.discord.username`, and `listForUser` filters
+          `status = 'active'`. Move the shared `createTestReminder()` factory to
+          `src/reminders/__tests__/factories/reminder.ts` (excluded from test matching)
+          with every new column defaulted, and point the three existing copies in
+          `reminder.service.test.ts`, `reminder-delivery.service.test.ts` and
+          `src/llm/skills/__tests__/reminder.skill.test.ts` at it. Extend
+          `__tests__/reminder.types.test.ts` only if it enumerates columns.
+      - id: T3
+        title: ReminderService, poller scheduler and delivery rewrite
+        after:
+          - T2
+        files:
+          - apps/tdr-bot/src/reminders/
+          - apps/tdr-bot/src/tdr-bot-metrics.service.ts
+          - apps/tdr-bot/src/__tests__/test-utils.ts
+          - apps/tdr-bot/src/llm/skills/reminder.skill.ts
+          - apps/tdr-bot/src/llm/skills/__tests__/reminder.skill.test.ts
+          - apps/tdr-bot/src/messages/llm/__tests__/llm-orchestration.integration.test.ts
+        status: done
+        commit: c6d67eaf4e7e26d9dd9290c0eba151c2b5dbc205
+        body: |-
+          Rewrite `apps/tdr-bot/src/reminders/reminder.service.ts` on top of
+          `ReminderRepository` and `schedule.ts`; no `SchedulerRegistry`, no timers,
+          no delivery callback:
+          ```ts
+          export type ReminderErrorCode =
+            | 'limit_reached' | 'invalid_cron' | 'cron_too_frequent' | 'in_past'
+            | 'ends_before_start' | 'not_found' | 'forbidden' | 'not_active'
+          export class ReminderError extends Error { constructor(readonly code: ReminderErrorCode, message: string) }
+
+          export interface CreateReminderInput {
+            userId: string; userName: string; guildId: string; what: string
+            schedule: ReminderSchedule; scheduleDescription?: string   // empty → describeSchedule()
+            channelId?: string | null; targetUserId?: string | null
+            actionType?: ReminderActionType; source?: ReminderSource    // default 'discord'
+          }
+          export type UpdateReminderInput = Partial<Pick<CreateReminderInput,
+            'what' | 'schedule' | 'scheduleDescription' | 'channelId' | 'targetUserId' | 'actionType'>>
+
+          export class ReminderService {
+            create(input: CreateReminderInput): Promise<Reminder>
+            update(id: string, patch: UpdateReminderInput): Promise<Reminder>   // active rows only, else not_active; recomputes nextRunAt when schedule changes
+            cancel(id: string, opts?: { userId?: string }): Promise<Reminder>  // with userId: must equal userId or targetUserId, else forbidden; not_found / not_active otherwise
+            cancelAllForUser(userId: string): Promise<number>                   // creator or target
+            get(id: string): Promise<Reminder | null>
+            listForUser(userId: string): Promise<Reminder[]>                    // active, creator or target, soonest first
+            list(filter: ReminderListFilter): Promise<Reminder[]>
+            preview(schedule: ReminderSchedule, count?: number): Date[]         // validates like create, throws ReminderError
+          }
+          ```
+          Validation in `create`/`update`/`preview`: `what` trimmed, 1–500 chars;
+          once → `at` must be in the future (`in_past`); recurring → `validateCron`
+          (`invalid_cron` / `cron_too_frequent`), `endsAt` must be in the future and
+          after the first run (`ends_before_start`); `MAX_REMINDERS_PER_USER` counts
+          active rows created by the user and applies to `source: 'discord'` only.
+          `create` sets `nextRunAt = nextRunFor(row, now)`, `status: 'active'`,
+          `scheduleDescription` (given or `describeSchedule`). `cancel` sets
+          `status: 'cancelled'`, `cancelledAt`, `nextRunAt: null`. Metrics:
+          `reminderCreated(type)`, `reminderCancelled(type)` as today.
+
+          New `apps/tdr-bot/src/reminders/reminder-scheduler.service.ts`:
+          ```ts
+          export class ReminderSchedulerService implements OnModuleInit {
+            onModuleInit(): Promise<void>        // reconcile(), then refreshActiveGauge()
+            @Interval(REMINDER_TICK_MS) tick(): Promise<void>
+            reconcile(): Promise<void>
+            prune(): Promise<void>               // @Cron('0 4 * * *'): deleteFinishedBefore(now - FINISHED_RETENTION_DAYS)
+          }
+          ```
+          `reconcile`: for every active row with `nextRunAt` null — recurring →
+          `nextCronRun(cron, now, endsAt)` or `completed` if null; one-time →
+          `scheduledAt` if still future, `missed` (with `reminderFailed('missed')`)
+          if more than `MAX_LATE_DELIVERY_MS` in the past, else `nextRunAt = now`
+          (deliver late on the first tick). `tick`: return at once if a tick is
+          already running or `client.isReady()` is false; otherwise `listDue(now,
+          DUE_BATCH_SIZE)`, and for each row, sequentially: `delivery.deliver(row)`,
+          then advance regardless of delivery outcome — one-time → `status:
+          'completed'`; recurring → `nextRunAt = nextCronRun(cron, now, endsAt)` or
+          `completed` when that is null; both set `lastRunAt: now`, `runCount + 1`.
+          Log one line per delivered row and one per tick with a non-zero count. Call
+          `metrics.reminderDelivered()` on success, `metrics.reminderFailed(reason)`
+          on failure, and `refreshActiveGauge()` (a new
+          `TdrBotMetricsService.setActiveReminders({ recurring, oneTime })` that
+          `set`s the `tdr_reminders_active` gauge per type) at the end of a tick that
+          changed anything. Remove `reminderActiveDecrement` from the metrics service
+          and `createMockMetricsService`; add `setActiveReminders`.
+
+          `reminder-delivery.service.ts`: drop `OnModuleInit`/`setDeliveryFunction`
+          and the `ReminderService` dependency (inject `TdrBotMetricsService` for the
+          failure reasons it records); `deliver(reminder): Promise<DeliveryResult>`
+          with `type DeliveryResult = { ok: true } | { ok: false; reason: string }`,
+          never throws. Strategies (default / search / math), the sanitised
+          `<reminder_topic>` prompting, `channelId` resolution with the
+          `tdr-bot-chat` fallback and the 2000-char truncation stay as they are.
+          Delivery prompts stay in `src/reminders/reminder.prompts.ts`.
+
+          `reminders.module.ts` provides and exports `ReminderService`,
+          `ReminderRepository`, `ReminderDeliveryService`, `ReminderSchedulerService`
+          (import `DiscordModule`/the `Client` provider the way the current module
+          gets the discord `Client`). Update the current `ReminderSkill` and the
+          integration test's `ReminderService` mock to the new signatures with the
+          smallest change (`create` takes `schedule`, `cancel(id, { userId })`).
+
+          Tests: `__tests__/reminder.service.test.ts` (every validation code, cap only
+          for discord source, cancel forbidden/not_active, update recomputes
+          nextRunAt), `__tests__/reminder-scheduler.service.test.ts` (fake clock via
+          `jest.useFakeTimers({ now })`: reconcile cases above, tick delivers due rows
+          in order, advances one-time to completed and recurring to the next cron run,
+          ends at `endsAt`, still advances on a failed delivery, overlapping tick is
+          skipped, not-ready client is skipped, prune cutoff), and the existing
+          delivery tests adjusted to `DeliveryResult`.
+      - id: T4
+        title: 'Reminder skill rewrite: extraction, cancel resolution, follow-ups'
+        after:
+          - T3
+        files:
+          - apps/tdr-bot/src/llm/skills/reminder/
+          - apps/tdr-bot/src/llm/skills/reminder.skill.ts
+          - apps/tdr-bot/src/llm/skills/__tests__/reminder.skill.test.ts
+          - apps/tdr-bot/src/llm/skills/skills.module.ts
+          - apps/tdr-bot/src/reminders/reminder.prompts.ts
+          - apps/tdr-bot/src/reminders/reminder.types.ts
+          - apps/tdr-bot/src/reminders/__tests__/reminder.prompts.test.ts
+          - apps/tdr-bot/src/reminders/__tests__/reminder.types.test.ts
+          - apps/tdr-bot/src/llm/testing/golden/scenarios.ts
+          - apps/tdr-bot/src/llm/testing/golden/router-cases.ts
+          - apps/tdr-bot/src/llm/testing/live/schemas.live.test.ts
+          - apps/tdr-bot/src/llm/testing/live/router.live.test.ts
+          - apps/tdr-bot/src/messages/llm/__tests__/llm-orchestration.integration.test.ts
+        status: done
+        commit: 1a775afcfb2306c0855af66bd94eee62e68f75ea
+        body: |-
+          Replace `apps/tdr-bot/src/llm/skills/reminder.skill.ts` (delete it and its
+          test) with a `src/llm/skills/reminder/` directory laid out like `chat/` and
+          `math/`: `skill.ts` (`ReminderSkill`, id `reminder`), `prompts.ts`
+          (extraction, topic-switch, cancel-resolution, ask-missing and confirm
+          prompts — moved out of `src/reminders/reminder.prompts.ts`, which keeps only
+          the three delivery prompts), `schemas.ts` (LLM output schemas, moved out of
+          `src/reminders/reminder.types.ts`, which keeps `ReminderActionType`),
+          `format.ts` (deterministic reply text) and `__tests__/`. Update every
+          import, including `src/llm/testing/live/*.live.test.ts` and the
+          `reminder.prompts.test.ts` / `reminder.types.test.ts` under
+          `src/reminders/__tests__/`. Register the new class in `skills.module.ts`.
+
+          Schemas (strict-output safe: every field required, nullable not optional):
+          ```ts
+          export const ReminderIntentSchema = z.object({
+            action: z.enum(['create', 'list', 'cancel', 'cancel_all']),
+            what: z.string().max(500).nullable(),
+            isRecurring: z.boolean().nullable(),
+            day: z.string().nullable(),                 // same rules as today's prompt
+            time: z.string().nullable(),
+            scheduleDescription: z.string().nullable(), // "tomorrow at 9:00 AM", "every Tuesday at 10:00 AM until Nov 1"
+            scheduledAt: z.string().nullable(),         // ISO local, one-time only
+            cronExpression: z.string().nullable(),      // recurring only
+            endsAt: z.string().nullable(),              // ISO local, recurring only ("until Friday", "for two weeks")
+            channelId: z.string().nullable(),
+            targetUserId: z.string().nullable(),
+            actionType: z.enum(ReminderActionType),
+          })
+          export const CancelResolutionSchema = z.object({ matchIds: z.array(z.string()), confident: z.boolean() })
+          export const ContinuationSchema = z.object({ continuing: z.boolean() })
+          export type ReminderFollowUp =
+            | { stage: 'create'; partial: Partial<ReminderIntent> }
+            | { stage: 'cancel'; candidateIds: string[]; rounds: number }
+            | { stage: 'cancelAll'; ids: string[] }
+          ```
+          LLM operations: `reminder.extract` (reasoning; prompt built with now +
+          weekday + `REMINDER_TIMEZONE` + existing partial, keep today's examples and
+          add ones for `cancel_all`, `endsAt` and `scheduleDescription`),
+          `reminder.topicSwitch` (reasoning, `ContinuationSchema`, falls back to
+          continuing on error), `reminder.resolveCancel` (reasoning,
+          `CancelResolutionSchema`; input is a numbered JSON list of the user's active
+          reminders `{ id, index, what, scheduleDescription, isRecurring }` plus the
+          message), `reminder.askMissing` and `reminder.confirm` (chat, as today).
+
+          Flow in `run()`:
+          - With a live follow-up: run the topic-switch check first; `continuing:
+            false` → `{ messages: [], followUp: null, reroute: true }`.
+          - `create`: merge non-null fields over the partial; missing `what` or `day`
+            → ask (`reminder.askMissing`) and return `{ stage: 'create', partial }`.
+            Build the `ReminderSchedule` (`isRecurring` ? `{ kind: 'recurring', cron,
+            endsAt }` : `{ kind: 'once', at: new Date(scheduledAt) }`); a one-time
+            `at` that is invalid or in the past replies "that time has already
+            passed, when should I remind you?" and keeps a `create` follow-up with
+            `day`/`time`/`scheduledAt` cleared; an invalid or sub-minute cron replies
+            likewise with `cronExpression` cleared. No `guildId` → the existing
+            DM-refusal text. Call `reminderService.create({ userId, userName:
+            input.discord.username, guildId, what, schedule, scheduleDescription,
+            channelId, targetUserId, actionType })`; a `ReminderError` becomes
+            friendly text from a `code → message` map in `format.ts` (e.g.
+            `limit_reached` → "you already have 25 active reminders — cancel one
+            first"). Confirm via `reminder.confirm` with the details block as today
+            (what, schedule description, next run formatted `MMM D, YYYY [at] h:mm A`,
+            channel, target, ends).
+          - `list`: `formatReminderList(reminders, userId)` — deterministic: "You have
+            N reminders:" then one numbered line each: `**what** — schedule
+            description · next <MMM D, h:mm A>` with "(recurring)", "(for @<target>)"
+            when the user is the target or creator respectively, "in #<channel>" when
+            set, "until <date>" when it ends; "You don't have any reminders right now."
+            when empty. No LLM call.
+          - `cancel_all`: none active → the empty text; otherwise the list plus "Reply
+            **yes** to cancel all N." and `{ stage: 'cancelAll', ids }`. On that
+            follow-up: `/^\s*(y|yes|yep|yeah|yup|sure|do it|confirm)\b/i` →
+            `cancelAllForUser` → "Cancelled N reminders."; any other continuing
+            message → "Okay, I kept them." and clear.
+          - `cancel`: none active → the empty text. Otherwise `reminder.resolveCancel`
+            over the active list; exactly one id and `confident` → `cancel(id, {
+            userId })` → `formatCancelled(reminder)` ("Cancelled: **what** — schedule");
+            zero → "I couldn't tell which one you meant:" + the numbered list and `{
+            stage: 'cancel', candidateIds: all, rounds: 1 }`; several → "Which one?" +
+            the numbered candidates and the same follow-up. On a `cancel` follow-up:
+            a bare number or ordinal in 1..n resolves deterministically, otherwise
+            `reminder.resolveCancel` against the candidates only; still ambiguous
+            after `rounds` reaches 2 → "Let's start over — tell me which reminder to
+            cancel." and clear. A `forbidden`/`not_active` error → "That reminder is
+            already gone." plus the fresh list.
+          - Fast path: `match()` returns true for messages starting with `remind
+            me|us|<@…>`, `set (up )?(a )?reminder`, `list|show|what are|what's|do i
+            have … reminders`, or `cancel|delete|remove|clear … reminder(s)`
+            (case-insensitive, leading whitespace allowed). Keep the id and
+            description text so `router-cases.ts` still routes.
+
+          Golden data: keep every current reminder router case, add "remove my dentist
+          reminder" and "nuke all my reminders"; add scenarios "cancel with two
+          matches, then pick by number" (turn 1 `followUp: true`, turn 2 `followUp:
+          false`, contains "Cancelled") and "cancel all, then yes" (same shape, turn 2
+          contains "Cancelled 2"). Script them in
+          `src/messages/llm/__tests__/llm-orchestration.integration.test.ts`
+          (`SCENARIO_SCRIPTS` must cover every scenario; the `ReminderService` mock
+          there returns the created row from `create`, a two-item list from
+          `listForUser`, and resolves `cancel`/`cancelAllForUser`). Rewrite the two
+          existing reminder scenarios' scripts for the new operation set.
+
+          Unit tests in `src/llm/skills/reminder/__tests__/`: `skill.test.ts` covers
+          each branch above with `FakeLlmClient` and a mocked `ReminderService`
+          (match table, create happy path, missing day follow-up, past time, bad
+          cron, limit error text, list empty/non-empty formatting, cancel one /
+          none / many, number pick, round limit, cancel-all yes/no, topic switch
+          reroute, DM refusal); `format.test.ts` for the list and cancel text;
+          `schemas.test.ts` proves every property is required-nullable (parse a
+          full-null object, reject a missing key).
+      - id: T5
+        title: Admin reminders API
+        after:
+          - T3
+        files:
+          - apps/tdr-bot/src/api/reminders.controller.ts
+          - apps/tdr-bot/src/api/reminders.schema.ts
+          - apps/tdr-bot/src/api/reminder-views.ts
+          - apps/tdr-bot/src/api/api.module.ts
+          - apps/tdr-bot/src/api/api.types.ts
+          - apps/tdr-bot/src/api/__tests__/reminders.controller.test.ts
+          - apps/tdr-bot/src/api/__tests__/reminder-views.test.ts
+        status: done
+        commit: 2ced3b1e87360b7d0ae12e6ca6556817f63e2bd9
+        body: |-
+          Add `apps/tdr-bot/src/api/reminders.controller.ts` (`@Controller('reminders')`,
+          registered in `api.module.ts`, which imports `RemindersModule`) backed by
+          `ReminderService` and the discord `Client`:
+          ```
+          GET    /reminders?status=active|completed|cancelled|missed|all&userId=   → ReminderView[]   (status default active)
+          GET    /reminders/members                                                 → MemberInfo[]
+          POST   /reminders/preview   { schedule }                                  → { runs: string[]; description: string }
+          POST   /reminders           CreateReminderBody                            → ReminderView (201)
+          PATCH  /reminders/:id       UpdateReminderBody                            → ReminderView
+          DELETE /reminders/:id                                                     → ReminderView (now cancelled)
+          ```
+          Types in `api.types.ts`:
+          ```ts
+          export interface ReminderView {
+            id: string; status: ReminderStatus; source: ReminderSource; what: string
+            userId: string; userName: string; targetUserId: string | null; targetUserName: string | null
+            guildId: string; channelId: string | null; channelName: string | null
+            isRecurring: boolean; cronExpression: string | null; scheduledAt: string | null
+            endsAt: string | null; scheduleDescription: string; nextRunAt: string | null
+            lastRunAt: string | null; runCount: number; actionType: ReminderActionType
+            createdAt: string; updatedAt: string; cancelledAt: string | null
+          }
+          export interface MemberInfo { id: string; username: string; displayName: string; avatarUrl: string | null }
+          export type ScheduleBody = { kind: 'once'; at: string } | { kind: 'recurring'; cron: string; endsAt?: string | null }
+          export interface CreateReminderBody { userId: string; what: string; schedule: ScheduleBody; scheduleDescription?: string; channelId?: string | null; targetUserId?: string | null; actionType?: ReminderActionType }
+          export type UpdateReminderBody = Partial<Omit<CreateReminderBody, 'userId'>>
+          ```
+          `reminders.schema.ts` holds the zod schemas for the three bodies (zod 4:
+          `z.iso.datetime({ offset: true })` for dates, `.strict()` objects,
+          `what` trimmed 1–500, cron non-empty) used through `ZodValidationPipe`.
+          `reminder-views.ts` exports `toReminderView(row, resolve)` where `resolve`
+          is `{ userName(id): string | null; channelName(id): string | null }`; the
+          controller builds it from `client.users.cache` / the guild's
+          `members.cache` (display name, falling back to the stored `userName`, then
+          the id) and `client.channels.cache`. Dates are ISO strings.
+
+          Admin-created reminders: `userId` from the body, `userName: 'admin'`,
+          `source: 'admin'`, `guildId` = the first guild in `client.guilds.cache`
+          (503 `ServiceUnavailableException` when the client has no guild yet).
+          `GET /reminders/members` fetches that guild's members
+          (`guild.members.fetch()`, cached by the client), excludes bots, sorts by
+          display name, maps `avatarUrl` from `user.displayAvatarURL()`.
+          `ReminderError` → HTTP: `not_found` 404, `forbidden` 403, `not_active` 409,
+          everything else 400, body `{ message, code }`.
+
+          Tests, Nest app + `fetch` as in `transcript.controller.test.ts`, with
+          `ReminderService` mocked and a `Client` stub exposing `users.cache`,
+          `channels.cache` and one guild with `members.fetch`/`members.cache`:
+          list default status and `status=all`, name/channel resolution with the
+          fallbacks, 201 create maps the body to `CreateReminderInput` with
+          `source: 'admin'`, invalid body 400 with `issues`, preview returns ISO runs,
+          each error code's HTTP status, 503 with no guild, members excludes bots.
+          `reminder-views.test.ts` covers `toReminderView` fallbacks and ISO output.
+  - key: '2'
+    name: Admin page and verification
+    tasks:
+      - id: T6
+        title: Reminders admin page
+        after:
+          - T5
+          - H1
+        files:
+          - apps/tdr-bot/src/app/reminders/
+          - apps/tdr-bot/src/queries/useReminders.ts
+          - apps/tdr-bot/src/queries/useMembers.ts
+          - apps/tdr-bot/src/api/api.client.ts
+          - apps/tdr-bot/src/components/AppShell.tsx
+        status: done
+        commit: c6f56b1324ba37c89438cc7ade06eacb76296eb1
+        body: |-
+          Build `apps/tdr-bot/src/app/reminders/page.tsx` to match the approved mockup
+          `docs/features/tdr-bot/designs/reminders.html` (read its Pug source in
+          `docs/features/tdr-bot/designs/src/pages/reminders.pug` for the exact copy
+          and states) using MUI 7 the way `src/app/settings/page.tsx` and
+          `src/app/transcript/page.tsx` do. Add `{ href: '/reminders', label:
+          'Reminders' }` to `NAV_LINKS` in `AppShell.tsx`.
+
+          API client (`api.client.ts`, using `parseOrThrow`): `getReminders(filter)`,
+          `getMembers()`, `previewReminder(schedule)`, `createReminder(body)`,
+          `updateReminder(id, body)`, `cancelReminder(id)`. Hooks: `useReminders.ts`
+          (`useReminders(filter)` keyed `['reminders', filter]`, `useCreateReminder`,
+          `useUpdateReminder`, `useCancelReminder` invalidating `['reminders']`,
+          `useReminderPreview(schedule)` — a query keyed on the schedule, enabled only
+          when the schedule is complete, `retry: false`), `useMembers.ts`
+          (`staleTime` 5 min like `useChannels`); channels come from the existing
+          `useChannels`.
+
+          Components under `src/app/reminders/`: `ReminderTable.tsx` (desktop table;
+          below the `md` breakpoint render `ReminderCard`s instead), `ReminderDialog.tsx`
+          (create and edit: member autocomplete from `useMembers`, what with counter,
+          one-time `datetime-local` TextField or recurring cron presets + custom cron
+          + optional ends-on date + next-runs preview from `useReminderPreview`, the
+          preview's error message shown under the cron field and disabling submit,
+          channel select, target member, action type select), `CancelDialog.tsx`,
+          and pure helpers in `format.ts` (`relativeTime(iso, now)`, `whoLabel(view)`,
+          `scheduleLines(view)`, `statusTone(status)`) and `cron-presets.ts`
+          (`CRON_PRESETS: { label, cron }[]`, `presetFor(cron)`). Status filter is a
+          `ToggleButtonGroup` with counts from a parallel `status=all` query; the
+          text filter matches what, userName and targetUserName client-side.
+          Mutation errors surface in an `Alert` using `ApiRequestError.message`;
+          validation `issues` map onto fields via `issueFor` as the settings page does.
+
+          Tests (`.ts` only, under `src/app/reminders/__tests__/`): `format.test.ts`
+          (relative times past/future/null, who label for self/target/admin, schedule
+          lines for once/recurring/ends) and `cron-presets.test.ts` (every preset is a
+          valid five-field cron; `presetFor` round-trips and returns `custom` for an
+          unknown cron). Run `pnpm --filter @lilnas/tdr-bot build:frontend` once
+          before finishing and fix anything Next reports.
+      - id: H2
+        title: Verify reminders end to end in the dev Discord and admin page
+        after:
+          - T4
+          - T6
+        files: []
+        status: skipped
+        body: |-
+          From the run branch, start the dev container (`docker compose -f
+          apps/tdr-bot/deploy.dev.yml up -d`; it applies migration 0004 to the dev
+          database on boot) and open https://tdr.dev.lilnas.io/reminders. In the dev
+          guild, as a normal member: "remind me to stretch in 2 minutes" (arrives in
+          tdr-bot-chat about two minutes later, then shows as completed on the admin
+          page); "remind me every 2 minutes to drink water until <10 minutes from
+          now>" (fires at least twice, ends on its own); "show my reminders" (public
+          numbered list); "cancel my water reminder" (cancels by wording); create two
+          similar reminders, "cancel the stretch one" → asked which → reply "2" →
+          cancelled; "delete all my reminders" → "yes" → all cancelled; "remind me to
+          call mom" → asked for the day → "what's the weather?" reroutes to chat. On
+          the admin page: create a reminder for another member with a cron preset,
+          edit its schedule, cancel it, and check the status filters and the mobile
+          layout. Approve, or request changes with what misbehaved.
+  - key: R1
+    name: Mockup review (H1)
+    tasks:
+      - id: R1
+        title: Round 1 · Address 2 review comments on reminders.html
+        after:
+          - T1
+        files:
+          - docs/features/tdr-bot/designs/reminders.html
+        status: done
+        commit: 6bf8b7a62e8c40074cf54aeec9e26ab3b3837780
+        body: |-
+          Design review of `docs/features/tdr-bot/designs/reminders.html`, round 1:
+
+          1. region over <div> "Status What Who Schedule Next run Last run / runs Ends Chan…" in scene "1 · Populated table"
+             - selector: `body > main:nth-of-type(1) > div:nth-of-type(1) > section:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2)` at fx 0.01, fy 0.06, fw 0.99, fh 0.16
+             - **user:** this seems very crowded
+             - screenshot 1 attached
+          2. region over <div> "Next runs Thu Oct 8, 9:00 AM Fri Oct 9, 9:00 AM Mon Oct 12,…" in scene "New reminder"
+             - selector: `body > main:nth-of-type(1) > div:nth-of-type(1) > section:nth-of-type(5) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1)` at fx 0.02, fy 0.56, fw 0.97, fh 0.11
+             - **user:** why doesn't this have a title?
+             - screenshot 2 attached
+
+          Resolve each thread with `nexus_design_review` and a one-line note when it is addressed.
+      - id: R2
+        title: Round 2 · Address 1 review comment on reminders.html
+        after:
+          - T1
+          - R1
+        files:
+          - docs/features/tdr-bot/designs/reminders.html
+        status: done
+        commit: 20b14468aa9338263dfbdb38fea9ed7ffa9710a4
+        body: |-
+          Design review of `docs/features/tdr-bot/designs/reminders.html`, round 2:
+
+          1. region over <div> "Cron expression 0 9 * * 1-5 Ends on (optional) Oct 31, 2026…" in scene "New reminder"
+             - selector: `body > main:nth-of-type(1) > div:nth-of-type(1) > section:nth-of-type(5) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1)` at fx 0.03, fy 0.42, fw 0.95, fh 0.25
+             - **user:** The next three runs' title looks bad. You see how `cron expression` and `ends on` look. Why doesn't the next three runs look like that?
+             - screenshot 1 attached
+
+          Resolve each thread with `nexus_design_review` and a one-line note when it is addressed.
+  - key: R2
+    name: Review remediation
+    tasks:
+      - id: R3
+        title: P1 Tick advance overwrites a concurrent cancel/edit and resurrects the reminder
+        after: []
+        files:
+          - apps/tdr-bot/src/reminders/reminder-scheduler.service.ts
+        status: done
+        commit: c6e039475cb3071903a991902f801fee14f87c5c
+        body: |-
+          Finding: F1 (P1)
+
+          From the review of phase 1 (cycle 1): a P1 finding.
+
+          Where: apps/tdr-bot/src/reminders/reminder-scheduler.service.ts:123
+
+          Why: `process()` calls `repository.update(id, { status: next ? 'active' : 'completed', nextRunAt: next, ... })` with no check that the row is still active. `listDue` read the batch earlier, and delivery of earlier rows (LLM, search) takes seconds. So a cancel (or schedule edit) made after `listDue` but before this update is overwritten. `ReminderRepository.update` is a plain `WHERE id = ?`.
+
+          Failure scenario: A recurring reminder is due in a tick whose batch has several rows. The user says 'cancel it' while earlier rows are still delivering. `ReminderService.cancel` sets status 'cancelled' and nextRunAt null. The tick then runs `process()` for that row, delivers it anyway, and writes status 'active' with a new nextRunAt. The reminder keeps firing after the cancel was confirmed. An edited schedule's nextRunAt is likewise overwritten.
+
+          Suggested fix: Make the advance conditional on the row still being active and unchanged. For example add `repository.advanceIfActive(id, expectedNextRunAt, patch)` using `WHERE id = ? AND status = 'active' AND next_run_at = <the value read>`, and use it in `process()`. Alternatively re-read the row just before delivering and skip it if it is no longer active. Add a scheduler test where the row is cancelled between `listDue` and the advance, and assert it stays cancelled.

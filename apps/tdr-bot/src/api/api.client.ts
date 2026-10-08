@@ -5,10 +5,17 @@ import type { SettingsPatch } from 'src/llm/settings/settings.schema'
 import {
   ChannelInfo,
   ConversationMessage,
+  CreateReminderBody,
+  MemberInfo,
+  ReminderFilter,
+  ReminderPreview,
+  ReminderView,
+  ScheduleBody,
   SendMessageResponse,
   SettingsResponse,
   TranscriptChannel,
   TranscriptResponse,
+  UpdateReminderBody,
 } from './api.types'
 
 const API_URL = '/api'
@@ -122,6 +129,57 @@ export class ApiClient {
     })
 
     return await response.json()
+  }
+
+  async getReminders(filter: ReminderFilter): Promise<ReminderView[]> {
+    const params = new URLSearchParams({ status: filter.status })
+    if (filter.userId) params.set('userId', filter.userId)
+    const response = await this.request(`/reminders?${params}`)
+    return await parseOrThrow<ReminderView[]>(response)
+  }
+
+  async getMembers(): Promise<MemberInfo[]> {
+    const response = await this.request('/reminders/members')
+    return await parseOrThrow<MemberInfo[]>(response)
+  }
+
+  async previewReminder(schedule: ScheduleBody): Promise<ReminderPreview> {
+    const response = await this.request('/reminders/preview', {
+      method: 'POST',
+      body: JSON.stringify({ schedule }),
+    })
+
+    return await parseOrThrow<ReminderPreview>(response)
+  }
+
+  async createReminder(body: CreateReminderBody): Promise<ReminderView> {
+    const response = await this.request('/reminders', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+
+    return await parseOrThrow<ReminderView>(response)
+  }
+
+  async updateReminder(
+    id: string,
+    body: UpdateReminderBody,
+  ): Promise<ReminderView> {
+    const response = await this.request(
+      `/reminders/${encodeURIComponent(id)}`,
+      { method: 'PATCH', body: JSON.stringify(body) },
+    )
+
+    return await parseOrThrow<ReminderView>(response)
+  }
+
+  async cancelReminder(id: string): Promise<ReminderView> {
+    const response = await this.request(
+      `/reminders/${encodeURIComponent(id)}`,
+      { method: 'DELETE' },
+    )
+
+    return await parseOrThrow<ReminderView>(response)
   }
 
   static getInstance(): ApiClient {
