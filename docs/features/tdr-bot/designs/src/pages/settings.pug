@@ -110,10 +110,9 @@ block content
   - const prompt = 'You are tdr-bot, a helpful assistant in a private Discord server. Keep replies short and friendly. Use tools when they help; never invent links.'
   - const base = { chat: 'gpt-4.1-mini', reasoning: 'gpt-5', image: 'gpt-image-1', prompt: prompt, status: 'clean' }
 
-  h1(class='text-2xl font-semibold') Settings
-  p(class='mb-8 mt-1 text-sm text-ink-2') Runtime LLM configuration. Each frame below is the same screen in a different state.
-
-  div(class='grid gap-8 lg:grid-cols-2')
+  div.page(class='grid gap-8 lg:grid-cols-2')
+    h1(class='text-2xl font-semibold lg:col-span-full') Settings
+    p(class='-mb-4 mt-1 text-sm text-ink-2 lg:col-span-full') Runtime LLM configuration. Each frame below is the same screen in a different state.
     +frame('1 · Clean', 'Loaded from the database, nothing edited. Chat select shown open.')
       +settingsPanel(Object.assign({}, base, { open: true }))
     +frame('2 · Dirty', 'Chat model changed and prompt edited; Save and Reset enabled.')

@@ -1,4 +1,4 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -387,6 +387,9 @@
         .mt-8 {
           margin-top: calc(var(--spacing) * 8);
         }
+        .-mb-4 {
+          margin-bottom: calc(var(--spacing) * -4);
+        }
         .mb-0\.5 {
           margin-bottom: calc(var(--spacing) * 0.5);
         }
@@ -398,9 +401,6 @@
         }
         .mb-4 {
           margin-bottom: calc(var(--spacing) * 4);
-        }
-        .mb-8 {
-          margin-bottom: calc(var(--spacing) * 8);
         }
         .ml-10 {
           margin-left: calc(var(--spacing) * 10);
@@ -542,6 +542,9 @@
         }
         .justify-end {
           justify-content: flex-end;
+        }
+        .gap-1\.5 {
+          gap: calc(var(--spacing) * 1.5);
         }
         .gap-2 {
           gap: calc(var(--spacing) * 2);
@@ -931,6 +934,9 @@
           }
         }
         @media (min-width: 64rem) {
+          .lg\:col-span-full {
+            grid-column: 1/-1;
+          }
           .lg\:grid-cols-2 {
             grid-template-columns: repeat(2, minmax(0, 1fr));
           }
@@ -1045,19 +1051,20 @@
   </head>
   <body class="bg-bg text-ink antialiased">
     <main class="mx-auto max-w-6xl px-6 py-10">
-      <h1 class="text-2xl font-semibold">Settings</h1>
-      <p class="mb-8 mt-1 text-sm text-ink-2">
-        Runtime LLM configuration. Each frame below is the same screen in a
-        different state.
-      </p>
-      <div class="grid gap-8 lg:grid-cols-2">
-        <section>
+      <div class="page grid gap-8 lg:grid-cols-2">
+        <h1 class="text-2xl font-semibold lg:col-span-full">Settings</h1>
+        <p class="-mb-4 mt-1 text-sm text-ink-2 lg:col-span-full">
+          Runtime LLM configuration. Each frame below is the same screen in a
+          different state.
+        </p>
+        <section class="sec">
           <div class="mb-2 flex items-baseline gap-3">
-            <h2
-              class="text-sm font-semibold uppercase tracking-wider text-accent-soft"
+            <div
+              class="flex items-baseline gap-1.5 text-sm font-semibold uppercase tracking-wider text-accent-soft"
             >
-              1 · Clean
-            </h2>
+              <span class="sec-num">1</span><span>·</span>
+              <h2 class="sec-title">Clean</h2>
+            </div>
             <span class="text-xs text-ink-3"
               >Loaded from the database, nothing edited. Chat select shown
               open.</span
@@ -1254,13 +1261,14 @@
             </div>
           </div>
         </section>
-        <section>
+        <section class="sec">
           <div class="mb-2 flex items-baseline gap-3">
-            <h2
-              class="text-sm font-semibold uppercase tracking-wider text-accent-soft"
+            <div
+              class="flex items-baseline gap-1.5 text-sm font-semibold uppercase tracking-wider text-accent-soft"
             >
-              2 · Dirty
-            </h2>
+              <span class="sec-num">2</span><span>·</span>
+              <h2 class="sec-title">Dirty</h2>
+            </div>
             <span class="text-xs text-ink-3"
               >Chat model changed and prompt edited; Save and Reset
               enabled.</span
@@ -1413,13 +1421,14 @@
             </div>
           </div>
         </section>
-        <section>
+        <section class="sec">
           <div class="mb-2 flex items-baseline gap-3">
-            <h2
-              class="text-sm font-semibold uppercase tracking-wider text-accent-soft"
+            <div
+              class="flex items-baseline gap-1.5 text-sm font-semibold uppercase tracking-wider text-accent-soft"
             >
-              3 · Saving
-            </h2>
+              <span class="sec-num">3</span><span>·</span>
+              <h2 class="sec-title">Saving</h2>
+            </div>
             <span class="text-xs text-ink-3"
               >Request in flight; controls disabled.</span
             >
@@ -1570,13 +1579,14 @@
             </div>
           </div>
         </section>
-        <section>
+        <section class="sec">
           <div class="mb-2 flex items-baseline gap-3">
-            <h2
-              class="text-sm font-semibold uppercase tracking-wider text-accent-soft"
+            <div
+              class="flex items-baseline gap-1.5 text-sm font-semibold uppercase tracking-wider text-accent-soft"
             >
-              4 · Saved
-            </h2>
+              <span class="sec-num">4</span><span>·</span>
+              <h2 class="sec-title">Saved</h2>
+            </div>
             <span class="text-xs text-ink-3"
               >Confirmation with the saved-at timestamp.</span
             >
@@ -1727,13 +1737,14 @@
             </div>
           </div>
         </section>
-        <section>
+        <section class="sec">
           <div class="mb-2 flex items-baseline gap-3">
-            <h2
-              class="text-sm font-semibold uppercase tracking-wider text-accent-soft"
+            <div
+              class="flex items-baseline gap-1.5 text-sm font-semibold uppercase tracking-wider text-accent-soft"
             >
-              5 · Error
-            </h2>
+              <span class="sec-num">5</span><span>·</span>
+              <h2 class="sec-title">Error</h2>
+            </div>
             <span class="text-xs text-ink-3"
               >Server rejects an unknown model id; the field is flagged
               inline.</span
@@ -1884,13 +1895,14 @@
             </div>
           </div>
         </section>
-        <section>
+        <section class="sec">
           <div class="mb-2 flex items-baseline gap-3">
-            <h2
-              class="text-sm font-semibold uppercase tracking-wider text-accent-soft"
+            <div
+              class="flex items-baseline gap-1.5 text-sm font-semibold uppercase tracking-wider text-accent-soft"
             >
-              6 · Reasoning-model variant
-            </h2>
+              <span class="sec-num">6</span><span>·</span>
+              <h2 class="sec-title">Reasoning-model variant</h2>
+            </div>
             <span class="text-xs text-ink-3"
               >Chat model has no temperature, so Generation shows reasoning
               effort instead.</span

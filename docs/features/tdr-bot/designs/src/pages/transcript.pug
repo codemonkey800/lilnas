@@ -118,10 +118,9 @@ block content
                   block calls
                     +llmCalls(calls.slice(0, 1))
 
-  h1(class='text-2xl font-semibold') Transcript
-  p(class='mb-8 mt-1 text-sm text-ink-2') Per-channel conversation history with LLM call audit. Turn rows and tool calls expand on click.
-
-  div(class='space-y-8')
+  div.page(class='space-y-8')
+    h1(class='text-2xl font-semibold') Transcript
+    p(class='mt-1 text-sm text-ink-2') Per-channel conversation history with LLM call audit. Turn rows and tool calls expand on click.
     +frame('1 · Conversation', 'Channel #general; first assistant turn expanded in the design, click the rows to open them.')
       +shell('default')
     +frame('2 · Empty', 'Date range has no messages.')

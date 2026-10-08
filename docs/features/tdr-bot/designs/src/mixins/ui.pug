@@ -1,9 +1,14 @@
 //- Shared furniture for the tdr-bot mockups. Every mixin ends in &attributes.
 
 mixin frame(label, note)
-  section&attributes(attributes)
+  //- `section.sec` / `.sec-num` / `.sec-title` are what Nexus Design Review reads a frame from.
+  - const [num, ...rest] = label.split(' · ')
+  section.sec&attributes(attributes)
     div(class='mb-2 flex items-baseline gap-3')
-      h2(class='text-sm font-semibold uppercase tracking-wider text-accent-soft')= label
+      div(class='flex items-baseline gap-1.5 text-sm font-semibold uppercase tracking-wider text-accent-soft')
+        span.sec-num= num
+        span ·
+        h2.sec-title= rest.join(' · ')
       if note
         span(class='text-xs text-ink-3')= note
     div(class='rounded-xl border border-line bg-bg p-4')
