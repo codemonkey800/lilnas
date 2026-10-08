@@ -127,6 +127,11 @@ export const SERVICE_META: Record<string, ServiceMeta> = {
     description: 'AI coding agent',
     icon: 'laptop',
   },
+  'work-docs.lilnas.io': {
+    name: 'Work Docs',
+    description: 'Documentation workspace',
+    icon: 'monitor',
+  },
   'traefik.lilnas.io': {
     name: 'Traefik',
     description: 'Reverse proxy dashboard',
