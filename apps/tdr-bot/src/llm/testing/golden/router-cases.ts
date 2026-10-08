@@ -127,4 +127,6 @@ export const ROUTER_CASES: readonly RouterCase[] = [
     input: 'remind me in 30 minutes to check the oven',
     expected: 'reminder',
   },
+  { input: 'remove my dentist reminder', expected: 'reminder' },
+  { input: 'nuke all my reminders', expected: 'reminder' },
 ]

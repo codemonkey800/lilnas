@@ -1,89 +1,149 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
-import { SchedulerRegistry } from '@nestjs/schedule'
-import { CronJob } from 'cron'
-import { and, eq } from 'drizzle-orm'
+import { Injectable, Logger } from '@nestjs/common'
+import { nanoid } from 'nanoid'
 
-import { DrizzleService } from 'src/db/drizzle.service'
-import { NewReminder, Reminder, reminders } from 'src/db/schema'
+import { NewReminder, Reminder, ReminderSource } from 'src/db/schema'
 import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
 
 import {
-  MAX_PENDING_DELIVERIES,
+  MAX_REMINDER_WHAT_LENGTH,
   MAX_REMINDERS_PER_USER,
-  MAX_TIMEOUT_MS,
 } from './reminder.constants'
+import { ReminderListFilter, ReminderRepository } from './reminder.repository'
+import { ReminderActionType } from './reminder.types'
+import {
+  describeSchedule,
+  nextCronRun,
+  nextRunFor,
+  previewRuns,
+  ReminderSchedule,
+  validateCron,
+} from './schedule'
 
-/** Minimum allowed interval for recurring reminders (1 minute). */
-const MIN_CRON_INTERVAL_MS = 60_000
+export type ReminderErrorCode =
+  | 'limit_reached'
+  | 'invalid_cron'
+  | 'cron_too_frequent'
+  | 'in_past'
+  | 'ends_before_start'
+  | 'invalid_what'
+  | 'not_found'
+  | 'forbidden'
+  | 'not_active'
 
-/**
- * Core service responsible for CRUD operations on reminders and
- * their runtime scheduling via `@nestjs/schedule`.
- *
- * On module init, all persisted reminders are reloaded from the
- * database and re-scheduled. Delivery is delegated to a callback
- * registered by {@link ReminderDeliveryService} via
- * {@link setDeliveryFunction}; reminders that fire before the
- * callback is registered are queued in memory.
- */
+export class ReminderError extends Error {
+  constructor(
+    readonly code: ReminderErrorCode,
+    message: string,
+  ) {
+    super(message)
+    this.name = 'ReminderError'
+  }
+}
+
+export interface CreateReminderInput {
+  userId: string
+  userName: string
+  guildId: string
+  what: string
+  schedule: ReminderSchedule
+  /** Empty or omitted falls back to {@link describeSchedule}. */
+  scheduleDescription?: string
+  channelId?: string | null
+  targetUserId?: string | null
+  actionType?: ReminderActionType
+  /** Defaults to `'discord'`. */
+  source?: ReminderSource
+}
+
+export type UpdateReminderInput = Partial<
+  Pick<
+    CreateReminderInput,
+    | 'what'
+    | 'schedule'
+    | 'scheduleDescription'
+    | 'channelId'
+    | 'targetUserId'
+    | 'actionType'
+  >
+>
+
+const DEFAULT_PREVIEW_COUNT = 5
+
+const typeOf = (r: Pick<Reminder, 'isRecurring'>) =>
+  r.isRecurring ? 'recurring' : 'one_time'
+
+function scheduleColumns(
+  schedule: ReminderSchedule,
+): Pick<
+  NewReminder,
+  'isRecurring' | 'cronExpression' | 'scheduledAt' | 'endsAt'
+> {
+  return schedule.kind === 'once'
+    ? {
+        isRecurring: false,
+        cronExpression: null,
+        scheduledAt: schedule.at,
+        endsAt: null,
+      }
+    : {
+        isRecurring: true,
+        cronExpression: schedule.cron,
+        scheduledAt: null,
+        endsAt: schedule.endsAt ?? null,
+      }
+}
+
+/** Validation and CRUD for reminders; delivery is driven by the scheduler. */
 @Injectable()
-export class ReminderService implements OnModuleInit {
+export class ReminderService {
   private readonly logger = new Logger(ReminderService.name)
 
-  private deliverFn: ((reminder: Reminder) => Promise<void>) | null = null
-  private readonly pendingDeliveries: Reminder[] = []
-
   constructor(
-    private readonly schedulerRegistry: SchedulerRegistry,
-    private readonly drizzle: DrizzleService,
+    private readonly repository: ReminderRepository,
     private readonly metrics: TdrBotMetricsService,
   ) {}
 
-  /**
-   * Registers the function used to deliver a reminder to the user.
-   * Any reminders that fired while no callback was registered are
-   * flushed immediately.
-   */
-  setDeliveryFunction(fn: (reminder: Reminder) => Promise<void>): void {
-    this.deliverFn = fn
-    const queued = this.pendingDeliveries.splice(0)
-    for (const reminder of queued) {
-      void this.deliver(reminder)
-    }
-  }
+  async create(input: CreateReminderInput): Promise<Reminder> {
+    const now = new Date()
+    const what = this.validateWhat(input.what)
+    this.validateSchedule(input.schedule, now)
 
-  /** Reloads all persisted reminders from the database and re-schedules them. */
-  async onModuleInit(): Promise<void> {
-    this.logger.log('Loading reminders from database')
-    const all = await this.drizzle.db.select().from(reminders)
-    this.logger.log({ count: all.length }, 'Loaded reminders from database')
-
-    for (const reminder of all) {
-      await this.scheduleReminder(reminder)
+    const source = input.source ?? 'discord'
+    if (source === 'discord') {
+      const active = await this.repository.countActiveCreatedBy(input.userId)
+      if (active >= MAX_REMINDERS_PER_USER) {
+        throw new ReminderError(
+          'limit_reached',
+          `Reminder limit reached (max ${MAX_REMINDERS_PER_USER} per user)`,
+        )
+      }
     }
 
-    this.logger.log('All reminders re-scheduled')
-  }
-
-  /**
-   * Persists a new reminder and schedules it for delivery.
-   *
-   * @param data - The reminder fields to insert.
-   * @returns The created reminder row.
-   * @throws If the user has already reached {@link MAX_REMINDERS_PER_USER}.
-   */
-  async create(data: NewReminder): Promise<Reminder> {
-    const existing = await this.listForUser(data.userId)
-    if (existing.length >= MAX_REMINDERS_PER_USER) {
-      throw new Error(
-        `Reminder limit reached (max ${MAX_REMINDERS_PER_USER} per user)`,
-      )
-    }
-
-    const [created] = await this.drizzle.db
-      .insert(reminders)
-      .values(data)
-      .returning()
+    const columns = scheduleColumns(input.schedule)
+    const created = await this.repository.insert({
+      id: nanoid(),
+      userId: input.userId,
+      userName: input.userName,
+      guildId: input.guildId,
+      what,
+      ...columns,
+      scheduleDescription:
+        input.scheduleDescription?.trim() || describeSchedule(input.schedule),
+      channelId: input.channelId ?? null,
+      targetUserId: input.targetUserId ?? null,
+      actionType: input.actionType ?? ReminderActionType.Default,
+      status: 'active',
+      source,
+      nextRunAt: nextRunFor(
+        {
+          isRecurring: columns.isRecurring ?? false,
+          cronExpression: columns.cronExpression ?? null,
+          scheduledAt: columns.scheduledAt ?? null,
+          endsAt: columns.endsAt ?? null,
+        },
+        now,
+      ),
+    })
 
     this.logger.log(
       {
@@ -94,233 +154,163 @@ export class ReminderService implements OnModuleInit {
       },
       'Reminder created',
     )
-
-    await this.scheduleReminder(created)
-
-    this.metrics.reminderCreated(created.isRecurring ? 'recurring' : 'one_time')
-
+    this.metrics.reminderCreated(typeOf(created))
     return created
   }
 
-  /** Returns all active reminders belonging to the given user. */
-  async listForUser(userId: string): Promise<Reminder[]> {
-    return this.drizzle.db
-      .select()
-      .from(reminders)
-      .where(eq(reminders.userId, userId))
-  }
-
-  /**
-   * Cancels a reminder by deleting it from the database and
-   * removing its cron job or timeout from the scheduler.
-   *
-   * @returns `true` if a matching reminder was found and deleted.
-   */
-  async cancel(id: string, userId: string): Promise<boolean> {
-    const [deleted] = await this.drizzle.db
-      .delete(reminders)
-      .where(and(eq(reminders.id, id), eq(reminders.userId, userId)))
-      .returning()
-
-    if (!deleted) return false
-
-    this.unschedule(id, deleted.isRecurring)
-
-    this.logger.log({ id, userId: deleted.userId }, 'Reminder cancelled')
-
-    this.metrics.reminderCancelled(
-      deleted.isRecurring ? 'recurring' : 'one_time',
-    )
-
-    return true
-  }
-
-  /** Records a delivery failure metric (called by {@link ReminderDeliveryService}). */
-  recordDeliveryFailure(reason: string): void {
-    this.metrics.reminderFailed(reason)
-  }
-
-  private async findById(id: string): Promise<Reminder | null> {
-    const [found] = await this.drizzle.db
-      .select()
-      .from(reminders)
-      .where(eq(reminders.id, id))
-    return found ?? null
-  }
-
-  private async deleteAfterDelivery(
-    id: string,
-    isRecurring: boolean,
-  ): Promise<void> {
-    if (!isRecurring) {
-      await this.drizzle.db.delete(reminders).where(eq(reminders.id, id))
-      this.metrics.reminderActiveDecrement('one_time')
+  /** Active reminders only; recomputes `nextRunAt` when the schedule changes. */
+  async update(id: string, patch: UpdateReminderInput): Promise<Reminder> {
+    const existing = await this.repository.findById(id)
+    if (!existing) throw new ReminderError('not_found', 'Reminder not found')
+    if (existing.status !== 'active') {
+      throw new ReminderError('not_active', 'Reminder is no longer active')
     }
-    this.metrics.reminderDelivered()
-  }
 
-  /**
-   * Validates that a cron expression does not fire more often than
-   * once per minute to prevent runaway scheduling.
-   */
-  private isSafeCronFrequency(cronExpression: string): boolean {
-    try {
-      const job = new CronJob(cronExpression, () => {})
-      const dates = job.nextDates(2)
-      if (dates.length < 2) return false
-      const intervalMs = dates[1].toMillis() - dates[0].toMillis()
-      return intervalMs >= MIN_CRON_INTERVAL_MS
-    } catch {
-      return false
+    const now = new Date()
+    const changes: Partial<NewReminder> = {}
+
+    if (patch.what !== undefined) changes.what = this.validateWhat(patch.what)
+    if (patch.channelId !== undefined) changes.channelId = patch.channelId
+    if (patch.targetUserId !== undefined) {
+      changes.targetUserId = patch.targetUserId
     }
-  }
+    if (patch.actionType !== undefined) changes.actionType = patch.actionType
 
-  /**
-   * Routes a reminder to the correct scheduler: cron for recurring,
-   * chained `setTimeout` for one-time. Past one-time reminders are
-   * deleted immediately.
-   */
-  private async scheduleReminder(reminder: Reminder): Promise<void> {
-    if (reminder.isRecurring && reminder.cronExpression) {
-      if (!this.isSafeCronFrequency(reminder.cronExpression)) {
-        this.logger.warn(
-          { id: reminder.id, cron: reminder.cronExpression },
-          'Rejected recurring reminder with sub-minute cron frequency',
-        )
-        return
-      }
-      try {
-        const id = reminder.id
-        const job = new CronJob(reminder.cronExpression, async () => {
-          try {
-            const fresh = await this.findById(id)
-            if (fresh) await this.deliver(fresh)
-          } catch (err) {
-            this.logger.error({ id, err }, 'Recurring reminder tick failed')
-            this.recordDeliveryFailure('cron_tick_error')
-          }
-        })
-        this.schedulerRegistry.addCronJob(reminder.id, job)
-        job.start()
-        this.logger.log(
-          { id: reminder.id, cron: reminder.cronExpression },
-          'Scheduled recurring reminder',
-        )
-      } catch (err) {
-        this.logger.error(
-          { id: reminder.id, err },
-          'Failed to schedule recurring reminder',
-        )
-      }
-    } else if (!reminder.isRecurring && reminder.scheduledAt) {
-      const delay = reminder.scheduledAt.getTime() - Date.now()
-      if (delay <= 0) {
-        this.logger.warn(
-          { id: reminder.id },
-          'One-time reminder is in the past, deleting',
-        )
-        await this.drizzle.db
-          .delete(reminders)
-          .where(eq(reminders.id, reminder.id))
-        this.metrics.reminderActiveDecrement('one_time')
-        return
-      }
-      this.scheduleTimeout(reminder, delay)
+    if (patch.schedule) {
+      this.validateSchedule(patch.schedule, now)
+      const columns = scheduleColumns(patch.schedule)
+      Object.assign(changes, columns)
+      changes.scheduleDescription =
+        patch.scheduleDescription?.trim() || describeSchedule(patch.schedule)
+      changes.nextRunAt = nextRunFor(
+        {
+          isRecurring: columns.isRecurring ?? false,
+          cronExpression: columns.cronExpression ?? null,
+          scheduledAt: columns.scheduledAt ?? null,
+          endsAt: columns.endsAt ?? null,
+        },
+        now,
+      )
+    } else if (patch.scheduleDescription !== undefined) {
+      changes.scheduleDescription =
+        patch.scheduleDescription.trim() || existing.scheduleDescription || ''
     }
+
+    const updated = await this.repository.update(id, changes)
+    if (!updated) throw new ReminderError('not_found', 'Reminder not found')
+    this.logger.log({ id, fields: Object.keys(changes) }, 'Reminder updated')
+    return updated
   }
 
   /**
-   * Schedules a one-time reminder delivery via `setTimeout`.
-   *
-   * Because Node.js limits `setTimeout` to ~24.8 days ({@link MAX_TIMEOUT_MS}),
-   * delays exceeding that limit are broken into intermediate hops that
-   * re-schedule themselves until the target time is reached.
+   * With `opts.userId` the caller must be the creator or the target,
+   * otherwise `forbidden`.
    */
-  private scheduleTimeout(reminder: Reminder, delay: number): void {
-    const effectiveDelay = Math.min(delay, MAX_TIMEOUT_MS)
-    const isIntermediate = delay > MAX_TIMEOUT_MS
-
-    const t = setTimeout(async () => {
-      try {
-        if (isIntermediate) {
-          try {
-            this.schedulerRegistry.deleteTimeout(reminder.id)
-          } catch {
-            // Expected when timeout hasn't been registered yet during chaining
-          }
-          const remaining = (reminder.scheduledAt?.getTime() ?? 0) - Date.now()
-          if (remaining > 0) {
-            this.scheduleTimeout(reminder, remaining)
-          } else {
-            await this.deliver(reminder)
-          }
-        } else {
-          await this.deliver(reminder)
-        }
-      } catch (err) {
-        this.logger.error({ id: reminder.id, err }, 'Timeout callback failed')
-        this.recordDeliveryFailure('timeout_callback_error')
-      }
-    }, effectiveDelay)
-
-    try {
-      this.schedulerRegistry.deleteTimeout(reminder.id)
-    } catch (err) {
-      this.logger.debug(
-        { id: reminder.id, err },
-        'Timeout not yet registered, skipping delete',
+  async cancel(id: string, opts: { userId?: string } = {}): Promise<Reminder> {
+    const existing = await this.repository.findById(id)
+    if (!existing) throw new ReminderError('not_found', 'Reminder not found')
+    if (
+      opts.userId &&
+      opts.userId !== existing.userId &&
+      opts.userId !== existing.targetUserId
+    ) {
+      throw new ReminderError(
+        'forbidden',
+        'Only the creator or target can cancel this reminder',
       )
     }
-    this.schedulerRegistry.addTimeout(reminder.id, t)
+    if (existing.status !== 'active') {
+      throw new ReminderError('not_active', 'Reminder is no longer active')
+    }
 
-    this.logger.log(
-      { id: reminder.id, delayMs: effectiveDelay, isIntermediate },
-      'Scheduled one-time reminder timeout',
-    )
+    const cancelled = await this.repository.update(id, {
+      status: 'cancelled',
+      cancelledAt: new Date(),
+      nextRunAt: null,
+    })
+    if (!cancelled) throw new ReminderError('not_found', 'Reminder not found')
+
+    this.logger.log({ id, userId: opts.userId }, 'Reminder cancelled')
+    this.metrics.reminderCancelled(typeOf(cancelled))
+    return cancelled
   }
 
-  /**
-   * Invokes the registered delivery function for a reminder.
-   * If no delivery function is registered yet, queues the reminder
-   * (up to {@link MAX_PENDING_DELIVERIES}).
-   */
-  private async deliver(reminder: Reminder): Promise<void> {
-    if (!this.deliverFn) {
-      if (this.pendingDeliveries.length >= MAX_PENDING_DELIVERIES) {
-        this.logger.error(
-          { id: reminder.id },
-          'Pending delivery queue full, dropping reminder',
-        )
-        this.recordDeliveryFailure('pending_queue_full')
-        return
+  /** Cancels every active reminder the user created or is the target of. */
+  async cancelAllForUser(userId: string): Promise<number> {
+    const active = await this.repository.listActiveForUser(userId)
+    let cancelled = 0
+    for (const reminder of active) {
+      try {
+        await this.cancel(reminder.id)
+        cancelled++
+      } catch (err) {
+        if (!(err instanceof ReminderError)) throw err
       }
-      this.logger.warn(
-        { id: reminder.id },
-        'Delivery function not yet registered, queueing reminder',
+    }
+    return cancelled
+  }
+
+  get(id: string): Promise<Reminder | null> {
+    return this.repository.findById(id)
+  }
+
+  /** Active reminders the user created or is the target of, soonest first. */
+  listForUser(userId: string): Promise<Reminder[]> {
+    return this.repository.listActiveForUser(userId)
+  }
+
+  list(filter: ReminderListFilter): Promise<Reminder[]> {
+    return this.repository.list(filter)
+  }
+
+  /** Validates like {@link create} and returns the upcoming run times. */
+  preview(schedule: ReminderSchedule, count = DEFAULT_PREVIEW_COUNT): Date[] {
+    const now = new Date()
+    this.validateSchedule(schedule, now)
+    return previewRuns(schedule, now, count)
+  }
+
+  private validateWhat(what: string): string {
+    const trimmed = what.trim()
+    if (trimmed.length < 1 || trimmed.length > MAX_REMINDER_WHAT_LENGTH) {
+      throw new ReminderError(
+        'invalid_what',
+        `Reminder text must be 1-${MAX_REMINDER_WHAT_LENGTH} characters`,
       )
-      this.pendingDeliveries.push(reminder)
+    }
+    return trimmed
+  }
+
+  private validateSchedule(schedule: ReminderSchedule, now: Date): void {
+    if (schedule.kind === 'once') {
+      if (schedule.at.getTime() <= now.getTime()) {
+        throw new ReminderError('in_past', 'Reminder time is in the past')
+      }
       return
     }
-    try {
-      await this.deliverFn(reminder)
-      await this.deleteAfterDelivery(reminder.id, reminder.isRecurring)
-    } catch (err) {
-      this.logger.error({ id: reminder.id, err }, 'Reminder delivery failed')
-      this.recordDeliveryFailure('delivery_error')
-    }
-  }
 
-  private unschedule(id: string, isRecurring: boolean): void {
-    try {
-      if (isRecurring) {
-        this.schedulerRegistry.deleteCronJob(id)
-      } else {
-        this.schedulerRegistry.deleteTimeout(id)
-      }
-    } catch (err) {
-      this.logger.debug(
-        { id, err },
-        'Schedule entry not found, may have already fired',
+    const check = validateCron(schedule.cron)
+    if (!check.ok) {
+      throw check.reason === 'invalid'
+        ? new ReminderError('invalid_cron', 'Invalid cron expression')
+        : new ReminderError(
+            'cron_too_frequent',
+            'Recurring reminders must be more than a minute apart',
+          )
+    }
+
+    const first = nextCronRun(schedule.cron, now)
+    if (!first) {
+      throw new ReminderError('invalid_cron', 'Cron expression never runs')
+    }
+    if (
+      schedule.endsAt &&
+      (schedule.endsAt.getTime() <= now.getTime() ||
+        schedule.endsAt.getTime() < first.getTime())
+    ) {
+      throw new ReminderError(
+        'ends_before_start',
+        'End date must be in the future and after the first run',
       )
     }
   }

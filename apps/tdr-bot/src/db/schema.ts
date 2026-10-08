@@ -10,22 +10,53 @@ import {
   timestamp,
 } from 'drizzle-orm/pg-core'
 
+export const REMINDER_STATUSES = [
+  'active',
+  'completed',
+  'cancelled',
+  'missed',
+] as const
+export type ReminderStatus = (typeof REMINDER_STATUSES)[number]
+
+export const REMINDER_SOURCES = ['discord', 'admin'] as const
+export type ReminderSource = (typeof REMINDER_SOURCES)[number]
+
 /** Postgres table storing both one-time and recurring reminders. */
-export const reminders = pgTable('reminder', {
-  id: text('id').primaryKey(),
-  userId: text('user_id').notNull(),
-  guildId: text('guild_id').notNull().default(''),
-  what: text('what').notNull(),
-  isRecurring: boolean('is_recurring').notNull().default(false),
-  cronExpression: text('cron_expression'),
-  scheduledAt: timestamp('scheduled_at', { mode: 'date' }),
-  dayDescription: text('day_description').notNull(),
-  timeDescription: text('time_description').notNull(),
-  channelId: text('channel_id'),
-  targetUserId: text('target_user_id'),
-  actionType: text('action_type').notNull().default('default'),
-  createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
-})
+export const reminders = pgTable(
+  'reminder',
+  {
+    id: text('id').primaryKey(),
+    /** Creator of the reminder. */
+    userId: text('user_id').notNull(),
+    /** Creator's Discord username at creation; 'admin' from the admin page. */
+    userName: text('user_name').notNull().default(''),
+    guildId: text('guild_id').notNull().default(''),
+    what: text('what').notNull(),
+    isRecurring: boolean('is_recurring').notNull().default(false),
+    /** Recurring only. */
+    cronExpression: text('cron_expression'),
+    /** One-time only. */
+    scheduledAt: timestamp('scheduled_at', { mode: 'date' }),
+    /** Recurring only, optional. */
+    endsAt: timestamp('ends_at', { mode: 'date' }),
+    scheduleDescription: text('schedule_description').notNull().default(''),
+    channelId: text('channel_id'),
+    targetUserId: text('target_user_id'),
+    actionType: text('action_type').notNull().default('default'),
+    status: text('status').$type<ReminderStatus>().notNull().default('active'),
+    source: text('source').$type<ReminderSource>().notNull().default('discord'),
+    nextRunAt: timestamp('next_run_at', { mode: 'date' }),
+    lastRunAt: timestamp('last_run_at', { mode: 'date' }),
+    runCount: integer('run_count').notNull().default(0),
+    createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).notNull().defaultNow(),
+    cancelledAt: timestamp('cancelled_at', { mode: 'date' }),
+  },
+  table => [
+    index('reminder_status_next_run_at_idx').on(table.status, table.nextRunAt),
+    index('reminder_user_id_idx').on(table.userId),
+  ],
+)
 
 /** Row type returned when selecting from the reminders table. */
 export type Reminder = typeof reminders.$inferSelect

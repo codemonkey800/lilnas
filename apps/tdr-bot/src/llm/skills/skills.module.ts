@@ -7,7 +7,7 @@ import { ServicesModule } from 'src/services/services.module'
 import { ChatSkill } from './chat/skill'
 import { MathSkill } from './math/skill'
 import { MediaSkill } from './media.skill'
-import { ReminderSkill } from './reminder.skill'
+import { ReminderSkill } from './reminder/skill'
 import { Skill, SKILLS } from './skill.interface'
 import { SkillRegistry } from './skill.registry'
 

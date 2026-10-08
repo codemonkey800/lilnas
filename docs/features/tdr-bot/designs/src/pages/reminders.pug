@@ -1,0 +1,192 @@
+extends ../layout/page.pug
+include ../mixins/ui.pug
+
+block title
+  | Reminders — tdr-bot mockups
+
+block content
+  - const rows = [{ status: 'active', what: 'Stand-up notes in #dev', by: 'jeremy', to: null, human: 'every weekday at 9:00 AM', cron: '0 9 * * 1-5', next: 'in 2 h · Oct 8, 9:00 AM', last: 'Oct 7, 9:00 AM', runs: 48, ends: 'never', channel: '#dev', type: 'text' }, { status: 'active', what: 'Take out the trash', by: 'jeremy', to: 'sam', human: 'every Tuesday at 10:00 AM', cron: '0 10 * * 2', next: 'in 6 d · Oct 13, 10:00 AM', last: 'Oct 6, 10:00 AM', runs: 12, ends: 'never', channel: 'default', type: 'text' }, { status: 'active', what: 'Check the weather in Lisbon', by: 'mika', to: null, human: 'every day at 7:30 AM', cron: '30 7 * * *', next: 'in 22 h · Oct 8, 7:30 AM', last: 'Oct 7, 7:30 AM', runs: 31, ends: 'Oct 31', channel: '#general', type: 'search' }, { status: 'active', what: 'Pay rent', by: 'admin', to: 'jeremy', human: 'once', cron: null, next: 'in 5 d · Oct 12, 8:00 AM', last: null, runs: 0, ends: 'never', channel: 'default', type: 'text' }, { status: 'active', what: 'What is 15% of the grocery total, $212.40?', by: 'sam', to: null, human: 'once', cron: null, next: 'in 38 min · Oct 7, 4:30 PM', last: null, runs: 0, ends: 'never', channel: '#general', type: 'math' }, { status: 'completed', what: 'Renew the domain', by: 'jeremy', to: null, human: 'once', cron: null, next: null, last: 'Oct 3, 9:00 AM', runs: 1, ends: 'never', channel: 'default', type: 'text' }, { status: 'completed', what: 'Weekly standings for the fantasy league', by: 'sam', to: 'jeremy', human: 'every Monday at 9:00 AM', cron: '0 9 * * 1', next: null, last: 'Sep 29, 9:00 AM', runs: 8, ends: 'Sep 30', channel: '#general', type: 'search' }, { status: 'missed', what: 'Happy birthday, Mika!', by: 'jeremy', to: 'mika', human: 'once', cron: null, next: null, last: null, runs: 0, ends: 'never', channel: '#general', type: 'text' }, { status: 'cancelled', what: 'Drink water', by: 'sam', to: null, human: 'every hour', cron: '0 * * * *', next: null, last: 'Oct 2, 3:00 PM', runs: 112, ends: 'never', channel: 'default', type: 'text' }, { status: 'cancelled', what: 'Square root of 1764', by: 'mika', to: null, human: 'once', cron: null, next: null, last: null, runs: 0, ends: 'never', channel: '#dev', type: 'math' }]
+  - const tone = { active: 'ok', completed: 'muted', missed: 'warn', cancelled: 'bad' }
+  - const label = s => s[0].toUpperCase() + s.slice(1)
+  - const who = r => (r.by === 'admin' ? 'admin' : r.to ? r.by + ' → @' + r.to : r.by)
+  - const field = 'rounded-lg border bg-bg px-3 py-2 text-sm '
+
+  mixin appbar()
+    div(class='flex items-center gap-6 border-b border-line bg-surface px-4 py-3')
+      span(class='font-semibold') tdr-bot
+      nav(class='flex gap-4 text-sm')
+        a(class='text-ink-2') Settings
+        a(class='text-ink-2') Transcript
+        a(class='border-b-2 border-accent pb-0.5 font-medium text-ink') Reminders
+
+  mixin toolbar(empty)
+    div(class='flex flex-wrap items-center gap-3')
+      div(class='flex overflow-hidden rounded-lg border border-line text-xs')
+        each f in [['Active', empty ? 0 : 5], ['Completed', 2], ['Cancelled', 2], ['Missed', 1], ['All', empty ? 5 : 10]]
+          span(class='px-3 py-1.5 ' + (f[0] === 'Active' ? 'bg-accent/25 font-medium text-ink' : 'text-ink-2'))
+            | #{f[0]}
+            span(class='ml-1 text-ink-3')= f[1]
+      div(class=field + 'w-56 border-line text-ink-3') Who or what…
+      div(class='ml-auto')
+        +btn('primary') + New reminder
+
+  mixin actions(r)
+    div(class='flex gap-3 text-xs')
+      a(class='text-accent-soft') Edit
+      if r.status === 'active'
+        a(class='text-bad') Cancel
+
+  mixin table(list)
+    div(class='overflow-x-auto rounded-xl border border-line')
+      table(class='w-full text-left text-xs')
+        thead(class='bg-surface text-ink-3')
+          tr
+            each h in ['Status', 'What', 'Who', 'Schedule', 'Next run', 'Last run', '']
+              th(class='whitespace-nowrap px-4 py-3 font-medium')= h
+        tbody
+          each r in list
+            tr(class='border-t border-line align-top')
+              td(class='px-4 py-3')
+                +chip(tone[r.status])= label(r.status)
+              td(class='max-w-[16rem] px-4 py-3')
+                div(class='text-sm')= r.what
+                div(class='mt-1.5 flex items-center gap-2 text-ink-3')
+                  +chip('muted')= r.type
+                  span= r.channel
+              td(class='whitespace-nowrap px-4 py-3 text-ink-2')= who(r)
+              td(class='min-w-[10rem] px-4 py-3')
+                div= r.human
+                if r.cron
+                  div(class='mt-0.5 whitespace-nowrap font-mono text-[11px] text-ink-3')= r.cron
+                if r.ends !== 'never'
+                  div(class='mt-0.5 text-ink-3') Ends #{r.ends}
+              td(class='whitespace-nowrap px-4 py-3 text-ink-2')= r.next || '—'
+              td(class='whitespace-nowrap px-4 py-3 text-ink-2')
+                div= r.last || '—'
+                div(class='mt-0.5 text-ink-3') #{r.runs} runs
+              td(class='whitespace-nowrap px-4 py-3')
+                +actions(r)
+
+  mixin cards(list)
+    div(class='space-y-3')
+      each r in list
+        div(class='rounded-xl border border-line bg-surface p-3')
+          div(class='flex items-start justify-between gap-3')
+            div(class='text-sm font-medium')= r.what
+            +chip(tone[r.status])= label(r.status)
+          div(class='mt-1 text-xs text-ink-2')= who(r)
+          div(class='mt-2 text-xs')= r.human
+          if r.cron
+            div(class='font-mono text-[11px] text-ink-3')= r.cron
+          div(class='mt-1 text-xs text-ink-3') Next: #{r.next || '—'}
+          div(class='mt-3 flex items-center justify-between')
+            +chip('muted')= r.type
+            +actions(r)
+
+  mixin page()
+    div(class='overflow-hidden rounded-xl border border-line bg-bg')
+      +appbar
+      div(class='space-y-4 p-5')
+        block
+
+  mixin select(label, value, hint)
+    div
+      label(class='mb-1 block text-xs font-medium text-ink-2')= label
+      div(class='flex items-center justify-between ' + field + 'border-line')
+        span= value
+        span(class='text-xs text-ink-3') ▾
+      if hint
+        p(class='mt-1 text-xs text-ink-3')= hint
+
+  //- d: { title, save, kind, forVal, remind, what, preset, cron, error, ends, next }
+  mixin dialog(d)
+    div(class='grid place-items-center rounded-lg bg-black/50 p-6')
+      div(class='w-full max-w-lg space-y-4 rounded-xl border border-line bg-surface p-5')
+        h3(class='text-base font-semibold')= d.title
+        +select('For', d.forVal, 'Username and display name')
+        div
+          label(class='mb-1 block text-xs font-medium text-ink-2') What
+          div(class=field + 'min-h-20 border-line leading-relaxed')= d.what
+          div(class='mt-1 text-right text-[11px] text-ink-3') #{d.what.length} / 500
+        fieldset
+          legend(class='mb-2 text-xs font-medium text-ink-2') Type
+          div(class='flex gap-3')
+            each k in ['One-time', 'Recurring']
+              label(class='flex flex-1 items-center gap-2 rounded-lg border px-3 py-2 text-sm ' + (k === d.kind ? 'border-accent bg-accent/15' : 'border-line'))
+                span(class='grid size-4 place-items-center rounded-full border ' + (k === d.kind ? 'border-accent-soft' : 'border-line'))
+                  if k === d.kind
+                    span(class='size-2 rounded-full bg-accent-soft')
+                = k
+        if d.kind === 'One-time'
+          div
+            label(class='mb-1 block text-xs font-medium text-ink-2') When
+            div(class=field + 'border-line font-mono') Oct 12, 2026, 8:00 AM
+        else
+          div(class='space-y-3')
+            div(class='flex flex-wrap gap-2')
+              each p in ['Every day 9 AM', 'Weekdays 9 AM', 'Every Monday 9 AM', 'Every hour', 'Custom']
+                span(class='rounded-full border px-3 py-1 text-xs ' + (p === d.preset ? 'border-accent bg-accent/25 text-ink' : 'border-line text-ink-2'))= p
+            div
+              label(class='mb-1 block text-xs font-medium text-ink-2') Cron expression
+              div(class=field + 'font-mono ' + (d.error ? 'border-bad' : 'border-line'))= d.cron
+              if d.error
+                p(class='mt-1 text-xs text-bad')= d.error
+            div
+              label(class='mb-1 block text-xs font-medium text-ink-2') Ends on (optional)
+              div(class=field + 'border-line ' + (d.ends ? 'font-mono' : 'text-ink-3'))= d.ends || 'No end date'
+            if d.next
+              div
+                label(class='mb-1 block text-xs font-medium text-ink-2') Next 3 runs
+                ul(class='space-y-0.5 rounded-lg border border-line bg-bg px-3 py-2 font-mono text-xs text-ink-2')
+                  each n in d.next
+                    li= n
+        +select('Deliver to', '#tdr-bot-chat', 'Default channel')
+        +select('Remind', d.remind || 'the creator', 'Defaults to the creator')
+        +select('Action', 'Text')
+        div(class='flex justify-end gap-3 pt-2')
+          +btn('ghost') Cancel
+          +btn('primary', !!d.error)= d.save
+
+  div.page(class='space-y-8')
+    h1(class='text-2xl font-semibold') Reminders
+    p(class='mt-1 text-sm text-ink-2') Every reminder the bot holds. Each frame below is the same screen in a different state.
+    +frame('1 · Populated table', 'Desktop; Active filter selected, counts per status.')
+      +page
+        +toolbar
+        +table(rows)
+    +frame('2 · Mobile', 'Narrow frame; rows become stacked cards.')
+      div(class='mx-auto w-full max-w-[420px]')
+        div(class='overflow-hidden rounded-xl border border-line bg-bg')
+          +appbar
+          div(class='space-y-4 p-4')
+            +toolbar
+            +cards(rows.slice(0, 4))
+    +frame('3 · Empty', 'Filter Active, nothing scheduled.')
+      +page
+        +toolbar(true)
+        div(class='grid place-items-center rounded-xl border border-dashed border-line py-16 text-center')
+          div
+            div(class='text-3xl') ⏰
+            div(class='mt-2 text-sm font-medium') No active reminders
+            p(class='mt-1 text-xs text-ink-3') Create one, or ask tdr-bot in Discord.
+    +frame('4 · Loading', 'Skeleton rows while the list loads.')
+      +page
+        +toolbar
+        div(class='space-y-2 rounded-xl border border-line p-3')
+          each i in [1, 2, 3, 4, 5]
+            div(class='skeleton h-10 w-full rounded-lg')
+    +frame('5 · New reminder, valid', 'Recurring, with the next three runs previewed.')
+      +dialog({ title: 'New reminder', save: 'Create', kind: 'Recurring', forVal: 'jeremy · Jeremy A.', what: 'Stand-up notes in #dev', preset: 'Weekdays 9 AM', cron: '0 9 * * 1-5', ends: 'Oct 31, 2026', next: ['Thu Oct 8, 9:00 AM', 'Fri Oct 9, 9:00 AM', 'Mon Oct 12, 9:00 AM'] })
+    +frame('6 · New reminder, invalid', 'Cron fires too often; Create disabled.')
+      +dialog({ title: 'New reminder', save: 'Create', kind: 'Recurring', forVal: 'sam · Sam R.', what: 'Drink water', preset: 'Custom', cron: '* * * * *', error: 'Invalid schedule: fires more than once a minute.' })
+    +frame('7 · Edit reminder', 'Prefilled for a recurring reminder.')
+      +dialog({ title: 'Edit reminder', save: 'Save', kind: 'Recurring', forVal: 'sam · Sam R.', remind: 'jeremy · Jeremy A.', what: 'Take out the trash', preset: 'Custom', cron: '0 10 * * 2', next: ['Tue Oct 13, 10:00 AM', 'Tue Oct 20, 10:00 AM', 'Tue Oct 27, 10:00 AM'] })
+    +frame('8 · Cancel confirmation', 'Cancelling stops all future runs.')
+      div(class='grid place-items-center rounded-lg bg-black/50 p-10')
+        div(class='w-full max-w-sm rounded-xl border border-line bg-surface p-5')
+          h3(class='text-base font-semibold') Cancel this reminder?
+          p(class='mt-2 text-sm') Take out the trash
+          p(class='text-xs text-ink-2') every Tuesday at 10:00 AM
+          div(class='mt-5 flex justify-end gap-3')
+            +btn('ghost') Keep
+            button(type='button' class='inline-flex items-center rounded-lg bg-bad px-4 py-2 text-sm font-medium text-bg') Cancel reminder

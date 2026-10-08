@@ -187,8 +187,9 @@ export class TdrBotMetricsService {
     remindersFailedTotal.inc({ reason })
   }
 
-  /** Decrements the active-reminders gauge (e.g. after a one-time reminder fires). */
-  reminderActiveDecrement(type: ReminderType): void {
-    remindersActive.dec({ type })
+  /** Sets the active-reminders gauge from authoritative database counts. */
+  setActiveReminders(counts: { recurring: number; oneTime: number }): void {
+    remindersActive.set({ type: 'recurring' }, counts.recurring)
+    remindersActive.set({ type: 'one_time' }, counts.oneTime)
   }
 }

@@ -38,6 +38,36 @@ export const SCENARIOS: readonly Scenario[] = [
     ],
   },
   {
+    name: 'cancel with two matches, then pick by number',
+    turns: [
+      {
+        input: 'cancel my reminder about the dentist',
+        expect: { skill: 'reminder', followUp: true },
+      },
+      {
+        input: '2',
+        expect: { skill: 'reminder', followUp: false, contains: 'Cancelled' },
+      },
+    ],
+  },
+  {
+    name: 'cancel all, then yes',
+    turns: [
+      {
+        input: 'cancel all my reminders',
+        expect: { skill: 'reminder', followUp: true },
+      },
+      {
+        input: 'yes',
+        expect: {
+          skill: 'reminder',
+          followUp: false,
+          contains: 'Cancelled 2',
+        },
+      },
+    ],
+  },
+  {
     name: 'media search then pick the first one',
     turns: [
       {
