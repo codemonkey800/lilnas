@@ -117,6 +117,11 @@ export function scheduleOf(r: Reminder): ReminderSchedule {
 const formatDate = (d: Date, pattern: string) =>
   dayjs(d).tz(REMINDER_TIMEZONE).format(pattern)
 
+/** "Friday, October 9, 2026 at 9:00 AM" in the reminder timezone. */
+export function formatFireTime(d: Date): string {
+  return formatDate(d, 'dddd, MMMM D, YYYY [at] h:mm A')
+}
+
 /** Fallback human-readable text for a schedule. */
 export function describeSchedule(schedule: ReminderSchedule): string {
   if (schedule.kind === 'once') {

@@ -9,6 +9,7 @@ import {
   ReminderErrorCode,
   ReminderService,
 } from 'src/reminders/reminder.service'
+import { ReminderDeliveryService } from 'src/reminders/reminder-delivery.service'
 
 function row(overrides: Partial<Reminder> = {}): Reminder {
   return {
@@ -58,7 +59,10 @@ describe('RemindersController', () => {
     update: jest.fn(),
     cancel: jest.fn(),
     preview: jest.fn(),
+    runs: jest.fn(),
+    get: jest.fn(),
   }
+  const delivery = { sendTest: jest.fn() }
   const users = new Map<string, unknown>()
   const channels = new Map<string, unknown>()
   const memberCache = new Map<string, unknown>()
@@ -86,6 +90,7 @@ describe('RemindersController', () => {
       controllers: [RemindersController],
       providers: [
         { provide: ReminderService, useValue: service },
+        { provide: ReminderDeliveryService, useValue: delivery },
         {
           provide: Client,
           useValue: {
@@ -350,6 +355,88 @@ describe('RemindersController', () => {
         cancelledAt: '2026-10-07T02:00:00.000Z',
       })
       expect(service.cancel).toHaveBeenCalledWith('r1')
+    })
+  })
+
+  describe('GET /reminders/:id/runs', () => {
+    it('returns runs as ISO strings, defaulting to 10', async () => {
+      service.runs.mockResolvedValue([new Date('2026-10-09T16:00:00Z')])
+
+      const res = await fetch(`${base}/reminders/r1/runs`)
+
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ runs: ['2026-10-09T16:00:00.000Z'] })
+      expect(service.runs).toHaveBeenCalledWith('r1', 10)
+    })
+
+    it('clamps count to 25', async () => {
+      service.runs.mockResolvedValue([])
+
+      await fetch(`${base}/reminders/r1/runs?count=500`)
+
+      expect(service.runs).toHaveBeenCalledWith('r1', 25)
+    })
+
+    it('maps not_found to 404', async () => {
+      service.runs.mockRejectedValue(new ReminderError('not_found', 'gone'))
+
+      const res = await fetch(`${base}/reminders/r1/runs`)
+
+      expect(res.status).toBe(404)
+    })
+  })
+
+  describe('POST /reminders/:id/test', () => {
+    it('sends a test as of the chosen time', async () => {
+      const reminder = row()
+      service.get.mockResolvedValue(reminder)
+      delivery.sendTest.mockResolvedValue({ ok: true })
+
+      const res = await send('POST', '/reminders/r1/test', {
+        at: '2026-10-09T16:00:00.000Z',
+      })
+
+      expect(res.status).toBe(200)
+      expect(delivery.sendTest).toHaveBeenCalledWith(
+        reminder,
+        new Date('2026-10-09T16:00:00.000Z'),
+      )
+    })
+
+    it('rejects a missing or malformed time', async () => {
+      const res = await send('POST', '/reminders/r1/test', { at: 'tomorrow' })
+
+      expect(res.status).toBe(400)
+      expect(delivery.sendTest).not.toHaveBeenCalled()
+    })
+
+    it('returns 404 for an unknown reminder', async () => {
+      service.get.mockResolvedValue(null)
+
+      const res = await send('POST', '/reminders/nope/test', {
+        at: '2026-10-09T16:00:00.000Z',
+      })
+
+      expect(res.status).toBe(404)
+    })
+
+    it('surfaces delivery failures as 502', async () => {
+      service.get.mockResolvedValue(row())
+      delivery.sendTest.mockResolvedValue({
+        ok: false,
+        reason: 'dm_failed',
+        message: 'Could not DM stored',
+      })
+
+      const res = await send('POST', '/reminders/r1/test', {
+        at: '2026-10-09T16:00:00.000Z',
+      })
+
+      expect(res.status).toBe(502)
+      expect(await res.json()).toMatchObject({
+        message: 'Could not DM stored',
+        code: 'dm_failed',
+      })
     })
   })
 

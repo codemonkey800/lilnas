@@ -17,6 +17,8 @@ export const previewReminderBodySchema = z
   .object({ schedule: scheduleBodySchema })
   .strict()
 
+export const testReminderBodySchema = z.strictObject({ at: isoDate })
+
 const reminderFields = {
   what: z.string().trim().min(1).max(500),
   schedule: scheduleBodySchema,

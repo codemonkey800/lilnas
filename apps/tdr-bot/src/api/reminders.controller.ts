@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   BadRequestException,
   Body,
   ConflictException,
@@ -9,6 +10,7 @@ import {
   HttpCode,
   NotFoundException,
   Param,
+  ParseIntPipe,
   Patch,
   Post,
   Query,
@@ -19,6 +21,7 @@ import { Client, Guild } from 'discord.js'
 
 import { REMINDER_STATUSES, ReminderStatus } from 'src/db/schema'
 import { ReminderError, ReminderService } from 'src/reminders/reminder.service'
+import { ReminderDeliveryService } from 'src/reminders/reminder-delivery.service'
 import { describeSchedule, ReminderSchedule } from 'src/reminders/schedule'
 
 import type {
@@ -32,6 +35,7 @@ import { type ReminderResolver, toReminderView } from './reminder-views'
 import {
   createReminderBodySchema,
   previewReminderBodySchema,
+  testReminderBodySchema,
   updateReminderBodySchema,
 } from './reminders.schema'
 import { ZodValidationPipe } from './zod-validation.pipe'
@@ -72,6 +76,7 @@ function toSchedule(body: ScheduleBody): ReminderSchedule {
 export class RemindersController {
   constructor(
     private readonly reminders: ReminderService,
+    private readonly delivery: ReminderDeliveryService,
     private readonly client: Client,
   ) {}
 
@@ -157,6 +162,37 @@ export class RemindersController {
       }),
     )
     return toReminderView(row, this.resolver())
+  }
+
+  @Get(':id/runs')
+  async runs(
+    @Param('id') id: string,
+    @Query('count', new ParseIntPipe({ optional: true })) count?: number,
+  ): Promise<{ runs: string[] }> {
+    const runs = await mapErrors(() =>
+      this.reminders.runs(id, Math.min(Math.max(count ?? 10, 1), 25)),
+    )
+    return { runs: runs.map(run => run.toISOString()) }
+  }
+
+  /** DMs the reminder's creator the message it would send at `at`. */
+  @Post(':id/test')
+  @HttpCode(200)
+  async test(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(testReminderBodySchema)) body: { at: string },
+  ): Promise<{ ok: true }> {
+    const row = await this.reminders.get(id)
+    if (!row) throw new NotFoundException('Reminder not found')
+
+    const result = await this.delivery.sendTest(row, new Date(body.at))
+    if (!result.ok) {
+      throw new BadGatewayException({
+        message: result.message ?? 'Failed to send test reminder',
+        code: result.reason,
+      })
+    }
+    return { ok: true }
   }
 
   @Delete(':id')

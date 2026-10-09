@@ -16,6 +16,7 @@ import {
   nextRunFor,
   previewRuns,
   ReminderSchedule,
+  scheduleOf,
   validateCron,
 } from './schedule'
 
@@ -272,6 +273,23 @@ export class ReminderService {
     const now = new Date()
     this.validateSchedule(schedule, now)
     return previewRuns(schedule, now, count)
+  }
+
+  /**
+   * Up to `count` upcoming runs of a stored reminder. A reminder with none
+   * left (finished, or past its end date) falls back to its last or
+   * scheduled run so there is always a time to test with.
+   */
+  async runs(id: string, count = DEFAULT_PREVIEW_COUNT): Promise<Date[]> {
+    const row = await this.repository.findById(id)
+    if (!row) throw new ReminderError('not_found', 'Reminder not found')
+
+    const runs =
+      row.status === 'active'
+        ? previewRuns(scheduleOf(row), new Date(), count)
+        : []
+    if (runs.length > 0) return runs
+    return [row.lastRunAt ?? row.scheduledAt ?? row.createdAt]
   }
 
   private validateWhat(what: string): string {
