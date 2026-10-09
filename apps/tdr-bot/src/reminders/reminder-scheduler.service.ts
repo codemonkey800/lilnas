@@ -118,7 +118,10 @@ export class ReminderSchedulerService implements OnModuleInit {
 
   /** Delivers one reminder, then advances it whatever the outcome. */
   private async process(reminder: Reminder, now: Date): Promise<boolean> {
-    const result = await this.delivery.deliver(reminder)
+    const result = await this.delivery.deliver(
+      reminder,
+      reminder.nextRunAt ?? now,
+    )
     if (result.ok) {
       this.metrics.reminderDelivered()
       this.logger.log(

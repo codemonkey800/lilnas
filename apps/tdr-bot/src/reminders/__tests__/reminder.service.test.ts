@@ -298,6 +298,37 @@ describe('ReminderService', () => {
     })
   })
 
+  describe('runs', () => {
+    it('returns upcoming runs of an active recurring reminder', async () => {
+      repo.findById.mockResolvedValue(
+        createTestReminder({
+          isRecurring: true,
+          cronExpression: '0 9 * * *',
+          scheduledAt: null,
+        }),
+      )
+
+      const runs = await service.runs('reminder-1', 4)
+
+      expect(runs).toHaveLength(4)
+      expect(runs[0].getTime()).toBeGreaterThan(NOW.getTime())
+    })
+
+    it('falls back to the last run when none are upcoming', async () => {
+      const lastRunAt = new Date('2026-05-30T16:00:00Z')
+      repo.findById.mockResolvedValue(
+        createTestReminder({ status: 'completed', lastRunAt }),
+      )
+
+      expect(await service.runs('reminder-1')).toEqual([lastRunAt])
+    })
+
+    it('throws not_found for an unknown reminder', async () => {
+      repo.findById.mockResolvedValue(null)
+      expect(await codeOf(service.runs('nope'))).toBe('not_found')
+    })
+  })
+
   describe('reads', () => {
     it('delegates get, listForUser and list to the repository', async () => {
       repo.findById.mockResolvedValue(null)

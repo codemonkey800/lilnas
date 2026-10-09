@@ -659,6 +659,94 @@ describe('ReminderDeliveryService', () => {
     })
   })
 
+  // ── fire time ─────────────────────────────────────────────────────────────
+
+  describe('fire time', () => {
+    it('tells the LLM when the reminder is firing', async () => {
+      const client = makeDiscordClient([makeMockTextChannel()])
+      const { factory, mockChatModel } = makeLlm()
+      service = await buildService(client, factory)
+
+      // 16:00 UTC is 9:00 AM in America/Los_Angeles during PDT
+      await service.deliver(
+        createTestReminder(),
+        new Date('2026-10-09T16:00:00Z'),
+      )
+
+      const [, prompt] = mockChatModel.invoke.mock.calls[0][0]
+      expect(prompt.content).toContain(
+        'It is currently Friday, October 9, 2026 at 9:00 AM.',
+      )
+    })
+  })
+
+  // ── sendTest ──────────────────────────────────────────────────────────────
+
+  describe('sendTest', () => {
+    function makeDmClient(dmSend: jest.Mock, channel = makeMockTextChannel()) {
+      const client = makeDiscordClient([channel]) as unknown as {
+        users: { fetch: jest.Mock }
+      }
+      client.users = {
+        fetch: jest
+          .fn()
+          .mockResolvedValue({ username: 'creator', send: dmSend }),
+      }
+      return { client: client as unknown as Client, channel }
+    }
+
+    it('DMs the composed message to the creator, not the channel', async () => {
+      const dmSend = jest.fn().mockResolvedValue({})
+      const { client, channel } = makeDmClient(dmSend)
+      const { factory } = makeLlm('Test reminder!')
+      service = await buildService(client, factory)
+
+      const result = await service.sendTest(
+        createTestReminder({ userId: 'creator-1', targetUserIds: ['t1'] }),
+        new Date('2026-10-09T16:00:00Z'),
+      )
+
+      expect(result).toEqual({ ok: true })
+      expect(client.users.fetch).toHaveBeenCalledWith('creator-1')
+      expect(dmSend).toHaveBeenCalledWith({ content: 'Test reminder!' })
+      expect(channel.send).not.toHaveBeenCalled()
+    })
+
+    it('reports a closed-DM failure with a readable message', async () => {
+      const dmSend = jest.fn().mockRejectedValue(new Error('50007'))
+      const { client } = makeDmClient(dmSend)
+      const { factory } = makeLlm()
+      service = await buildService(client, factory)
+
+      const result = await service.sendTest(createTestReminder(), new Date())
+
+      expect(result).toMatchObject({
+        ok: false,
+        reason: 'dm_failed',
+        message: expect.stringContaining('Could not DM creator'),
+      })
+    })
+
+    it('does not record strategy fallbacks as reminder failures', async () => {
+      const dmSend = jest.fn().mockResolvedValue({})
+      const { client } = makeDmClient(dmSend)
+      const { factory } = makeLlm('Fallback')
+      service = await buildService(client, factory)
+      retryService.executeWithRetry
+        .mockRejectedValueOnce(new Error('Tavily error'))
+        .mockImplementation(operation => operation())
+
+      const result = await service.sendTest(
+        createTestReminder({ actionType: 'search' }),
+        new Date(),
+      )
+
+      expect(result).toEqual({ ok: true })
+      expect(metrics.reminderFailed).not.toHaveBeenCalled()
+      expect(dmSend).toHaveBeenCalledWith({ content: 'Fallback' })
+    })
+  })
+
   // ── sendToChannel edge cases ──────────────────────────────────────────────
 
   describe('sendToChannel edge cases', () => {
