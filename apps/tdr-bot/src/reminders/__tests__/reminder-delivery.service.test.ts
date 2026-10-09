@@ -9,7 +9,11 @@ import {
 import { LlmClient } from 'src/llm/client/llm-client'
 import { FakeLlmClient } from 'src/llm/testing/fake-llm-client'
 import { createTestReminder } from 'src/reminders/__tests__/factories/reminder'
-import { TAVILY_SEARCH_TOKEN } from 'src/reminders/reminder.constants'
+import {
+  REMINDER_DELIVERY_TEMPERATURE,
+  TAVILY_SEARCH_TOKEN,
+} from 'src/reminders/reminder.constants'
+import { REMINDER_TOPIC_GUARD } from 'src/reminders/reminder.utils'
 import { ReminderDeliveryService } from 'src/reminders/reminder-delivery.service'
 import { EquationImageService } from 'src/services/equation-image.service'
 import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
@@ -175,7 +179,7 @@ describe('ReminderDeliveryService', () => {
 
       expect(result).toEqual({ ok: true })
       expect(sendFn).toHaveBeenCalledWith(
-        expect.objectContaining({ content: 'Hey, reminder!' }),
+        expect.objectContaining({ content: '<@user-1> Hey, reminder!' }),
       )
     })
 
@@ -398,7 +402,9 @@ describe('ReminderDeliveryService', () => {
       )
 
       expect(sendFn).toHaveBeenCalledWith(
-        expect.objectContaining({ content: 'Tokyo weather: sunny, 22°C!' }),
+        expect.objectContaining({
+          content: '<@user-1> Tokyo weather: sunny, 22°C!',
+        }),
       )
     })
 
@@ -559,7 +565,7 @@ describe('ReminderDeliveryService', () => {
 
       expect(sendFn).toHaveBeenCalledWith(
         expect.objectContaining({
-          content: 'Here is your daily equation!',
+          content: '<@user-1> Here is your daily equation!',
           embeds: expect.arrayContaining([expect.any(Object)]),
         }),
       )
@@ -581,7 +587,7 @@ describe('ReminderDeliveryService', () => {
 
       // No embed, just content
       expect(sendFn).toHaveBeenCalledWith(
-        expect.objectContaining({ content: 'Here is your math!' }),
+        expect.objectContaining({ content: '<@user-1> Here is your math!' }),
       )
       const callArg = sendFn.mock.calls[0][0] as Record<string, unknown>
       expect(callArg.embeds).toBeUndefined()
@@ -661,6 +667,65 @@ describe('ReminderDeliveryService', () => {
 
   // ── fire time ─────────────────────────────────────────────────────────────
 
+  describe('message variety and mentions', () => {
+    it('writes chat messages at the reminder delivery temperature', async () => {
+      const client = makeDiscordClient([makeMockTextChannel()])
+      const { factory } = makeLlm()
+      service = await buildService(client, factory)
+
+      await service.deliver(createTestReminder())
+
+      expect(factory.calls[0].overrides?.temperature).toBe(
+        REMINDER_DELIVERY_TEMPERATURE,
+      )
+    })
+
+    it("tells the model to follow the creator's directions", async () => {
+      const client = makeDiscordClient([makeMockTextChannel()])
+      const { factory, mockChatModel } = makeLlm()
+      service = await buildService(client, factory)
+
+      await service.deliver(createTestReminder())
+
+      const [, prompt] = mockChatModel.invoke.mock.calls[0][0]
+      expect(prompt.content).toContain(REMINDER_TOPIC_GUARD)
+    })
+
+    it('prefixes every target the model left out', async () => {
+      const sendFn = jest.fn().mockResolvedValue({})
+      const client = makeDiscordClient([
+        makeMockTextChannel('tdr-bot-chat', sendFn),
+      ])
+      const { factory } = makeLlm('Japan soon, <@target-100>!')
+      service = await buildService(client, factory)
+
+      await service.deliver(
+        createTestReminder({ targetUserIds: ['target-99', 'target-100'] }),
+      )
+
+      expect(sendFn).toHaveBeenCalledWith({
+        content: '<@target-99> Japan soon, <@target-100>!',
+      })
+    })
+
+    it('leaves the message alone when the model tagged everyone', async () => {
+      const sendFn = jest.fn().mockResolvedValue({})
+      const client = makeDiscordClient([
+        makeMockTextChannel('tdr-bot-chat', sendFn),
+      ])
+      const { factory } = makeLlm('<@target-99> and <@target-100>, Japan!')
+      service = await buildService(client, factory)
+
+      await service.deliver(
+        createTestReminder({ targetUserIds: ['target-99', 'target-100'] }),
+      )
+
+      expect(sendFn).toHaveBeenCalledWith({
+        content: '<@target-99> and <@target-100>, Japan!',
+      })
+    })
+  })
+
   describe('fire time', () => {
     it('tells the LLM when the reminder is firing', async () => {
       const client = makeDiscordClient([makeMockTextChannel()])
@@ -708,7 +773,7 @@ describe('ReminderDeliveryService', () => {
 
       expect(result).toEqual({ ok: true })
       expect(client.users.fetch).toHaveBeenCalledWith('creator-1')
-      expect(dmSend).toHaveBeenCalledWith({ content: 'Test reminder!' })
+      expect(dmSend).toHaveBeenCalledWith({ content: '<@t1> Test reminder!' })
       expect(channel.send).not.toHaveBeenCalled()
     })
 
@@ -743,7 +808,7 @@ describe('ReminderDeliveryService', () => {
 
       expect(result).toEqual({ ok: true })
       expect(metrics.reminderFailed).not.toHaveBeenCalled()
-      expect(dmSend).toHaveBeenCalledWith({ content: 'Fallback' })
+      expect(dmSend).toHaveBeenCalledWith({ content: '<@user-1> Fallback' })
     })
   })
 

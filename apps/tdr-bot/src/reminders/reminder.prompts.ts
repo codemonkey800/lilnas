@@ -15,10 +15,12 @@ export const REMINDER_DELIVERY_PROMPT = new SystemMessage(dedent`
 
   Write a short, friendly reminder message. Be warm and casual — like a friend reminding another friend.
   Mention what they need to be reminded about naturally. Keep it under 200 characters.
+  Tag every user with their mention exactly as provided in the next message.
   Do not use markdown. Use emojis sparingly from the emoji dictionary only.
 
-  The reminder content will be provided in the next message in the format:
-  "Remind <mentions> about: <what>"
+  If the reminder topic says how to write the message (tone, style, what to include), follow it.
+  This reminder may repeat, so avoid stock openers like "Hey squad!" or "Just a heads-up" and
+  write something fresh each time.
 `)
 
 /** Prompt for delivering a reminder that includes summarised web search results. */

@@ -30,3 +30,10 @@ export const DUE_BATCH_SIZE = 50
 
 /** Finished (completed, cancelled, missed) reminders are purged after this. */
 export const FINISHED_RETENTION_DAYS = 90
+
+/**
+ * Sampling temperature for the chat calls that write a firing reminder's
+ * message. Kept high so recurring reminders vary from run to run instead of
+ * inheriting the bot-wide default (often 0).
+ */
+export const REMINDER_DELIVERY_TEMPERATURE = 1
