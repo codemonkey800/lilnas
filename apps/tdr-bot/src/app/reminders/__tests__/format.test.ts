@@ -17,8 +17,8 @@ function view(overrides: Partial<ReminderView> = {}): ReminderView {
     what: 'Take out the trash',
     userId: 'u1',
     userName: 'jeremy',
-    targetUserId: null,
-    targetUserName: null,
+    targetUserIds: [],
+    targetUserNames: [],
     guildId: 'g1',
     channelId: null,
     channelName: null,
@@ -66,15 +66,21 @@ describe('whoLabel', () => {
   })
 
   it('shows creator and target', () => {
-    expect(whoLabel(view({ userName: 'jeremy', targetUserName: 'sam' }))).toBe(
-      'jeremy → @sam',
+    expect(
+      whoLabel(view({ userName: 'jeremy', targetUserNames: ['sam'] })),
+    ).toBe('jeremy → @sam')
+  })
+
+  it('lists every target', () => {
+    expect(whoLabel(view({ targetUserNames: ['sam', 'mika'] }))).toBe(
+      'jeremy → @sam, @mika',
     )
   })
 
   it('shows admin for admin-created reminders', () => {
-    expect(whoLabel(view({ source: 'admin', targetUserName: 'jeremy' }))).toBe(
-      'admin',
-    )
+    expect(
+      whoLabel(view({ source: 'admin', targetUserNames: ['jeremy'] })),
+    ).toBe('admin')
   })
 })
 

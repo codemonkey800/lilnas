@@ -15,7 +15,7 @@ const FULL_NULL = {
   cronExpression: null,
   endsAt: null,
   channelId: null,
-  targetUserId: null,
+  targetUserIds: null,
   actionType: 'default',
 }
 

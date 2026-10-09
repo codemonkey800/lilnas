@@ -14,7 +14,7 @@ function row(overrides: Partial<Reminder> = {}): Reminder {
     endsAt: null,
     scheduleDescription: 'Oct 8',
     channelId: null,
-    targetUserId: null,
+    targetUserIds: [],
     actionType: 'default',
     status: 'active',
     source: 'discord',
@@ -44,8 +44,8 @@ describe('toReminderView', () => {
       cancelledAt: null,
       channelId: null,
       channelName: null,
-      targetUserId: null,
-      targetUserName: null,
+      targetUserIds: [],
+      targetUserNames: [],
     })
   })
 
@@ -59,21 +59,25 @@ describe('toReminderView', () => {
 
   it('falls back to ids for unresolved target and channel', () => {
     const view = toReminderView(
-      row({ targetUserId: 'u2', channelId: 'c1' }),
+      row({ targetUserIds: ['u2', 'u3'], channelId: 'c1' }),
       none,
     )
 
-    expect(view.targetUserName).toBe('u2')
+    expect(view.targetUserNames).toEqual(['u2', 'u3'])
     expect(view.channelName).toBe('c1')
   })
 
   it('resolves target and channel names', () => {
-    const view = toReminderView(row({ targetUserId: 'u2', channelId: 'c1' }), {
-      userName: id => `name-${id}`,
-      channelName: id => `#${id}`,
-    })
+    const view = toReminderView(
+      row({ targetUserIds: ['u2', 'u3'], channelId: 'c1' }),
+      {
+        userName: id => `name-${id}`,
+        channelName: id => `#${id}`,
+      },
+    )
 
-    expect(view.targetUserName).toBe('name-u2')
+    expect(view.targetUserIds).toEqual(['u2', 'u3'])
+    expect(view.targetUserNames).toEqual(['name-u2', 'name-u3'])
     expect(view.channelName).toBe('#c1')
   })
 })

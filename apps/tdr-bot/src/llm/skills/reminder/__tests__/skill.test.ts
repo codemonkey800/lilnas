@@ -23,7 +23,7 @@ const intent = (overrides: Record<string, unknown> = {}) => ({
   cronExpression: null,
   endsAt: null,
   channelId: null,
-  targetUserId: null,
+  targetUserIds: null,
   actionType: 'default',
   ...overrides,
 })
@@ -126,7 +126,7 @@ describe('ReminderSkill', () => {
         schedule: { kind: 'once', at: new Date(at) },
         scheduleDescription: 'tomorrow at 9:00 AM',
         channelId: null,
-        targetUserId: null,
+        targetUserIds: [],
         actionType: 'default',
       })
       expect(content(out)).toBe('confirmed')
@@ -144,7 +144,7 @@ describe('ReminderSkill', () => {
           cronExpression: '0 10 * * 2',
           endsAt,
           channelId: 'c9',
-          targetUserId: 'u2',
+          targetUserIds: ['222', '<requester ID>'],
           actionType: 'search',
         }),
       )
@@ -159,7 +159,7 @@ describe('ReminderSkill', () => {
             endsAt: new Date(endsAt),
           },
           channelId: 'c9',
-          targetUserId: 'u2',
+          targetUserIds: ['222'],
           actionType: 'search',
         }),
       )
@@ -169,7 +169,7 @@ describe('ReminderSkill', () => {
       const target = row('r9', 'pay rent', {
         nextRunAt: new Date('2026-03-18T17:00:00Z'),
         channelId: 'c9',
-        targetUserId: 'u2',
+        targetUserIds: ['u2', 'u3'],
         endsAt: new Date('2026-11-02T06:00:00Z'),
       })
       const s = setup()
@@ -183,7 +183,7 @@ describe('ReminderSkill', () => {
       expect(details).toContain('pay rent')
       expect(details).toContain('Mar 18, 2026 at 10:00 AM')
       expect(details).toContain('<#c9>')
-      expect(details).toContain('<@u2>')
+      expect(details).toContain('Reminder is for: <@u2> <@u3>')
       expect(details).toContain('Ends: Nov 1, 2026')
     })
 

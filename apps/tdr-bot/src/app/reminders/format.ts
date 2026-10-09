@@ -39,8 +39,9 @@ export function formatWhen(iso: string | null): string {
 
 export function whoLabel(view: ReminderView): string {
   if (view.source === 'admin') return 'admin'
-  if (view.targetUserName) {
-    return `${view.userName} → @${view.targetUserName}`
+  if (view.targetUserNames.length) {
+    const targets = view.targetUserNames.map(name => `@${name}`).join(', ')
+    return `${view.userName} → ${targets}`
   }
 
   return view.userName

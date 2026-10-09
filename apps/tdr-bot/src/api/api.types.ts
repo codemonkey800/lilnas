@@ -75,8 +75,8 @@ export interface ReminderView {
   what: string
   userId: string
   userName: string
-  targetUserId: string | null
-  targetUserName: string | null
+  targetUserIds: string[]
+  targetUserNames: string[]
   guildId: string
   channelId: string | null
   channelName: string | null
@@ -111,7 +111,7 @@ export interface CreateReminderBody {
   schedule: ScheduleBody
   scheduleDescription?: string
   channelId?: string | null
-  targetUserId?: string | null
+  targetUserIds?: string[]
   actionType?: ReminderActionType
 }
 

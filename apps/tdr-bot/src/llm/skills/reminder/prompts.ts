@@ -20,7 +20,7 @@ const NULL_INTENT: ReminderIntent = {
   cronExpression: null,
   endsAt: null,
   channelId: null,
-  targetUserId: null,
+  targetUserIds: null,
   actionType: ReminderActionType.Default,
 }
 
@@ -40,11 +40,13 @@ const example = (
  * @param nowIso - Current local time (`REMINDER_TIMEZONE`) as ISO 8601.
  * @param dayOfWeek - Weekday name for `nowIso`, e.g. "Tuesday".
  * @param existing - Partial intent from a prior turn of the conversation.
+ * @param requesterId - Discord ID of the user asking, for "remind me and @x".
  */
 export function buildExtractReminderPrompt(
   nowIso: string,
   dayOfWeek?: string,
   existing?: Partial<ReminderIntent>,
+  requesterId?: string,
 ) {
   const contextBlock = existing
     ? dedent`
@@ -60,6 +62,8 @@ export function buildExtractReminderPrompt(
       compute the correct scheduledAt.
     `
     : ''
+
+  const requesterLine = requesterId ? ` ("${requesterId}")` : ''
 
   const dayOfWeekLine = dayOfWeek
     ? `Today is ${dayOfWeek}. The current date and time is: ${nowIso} (server local time, ${REMINDER_TIMEZONE}).`
@@ -78,7 +82,7 @@ export function buildExtractReminderPrompt(
 
     For "create", extract all of these fields:
     - what: what they want to be reminded about (string or null if not specified). IMPORTANT: strip any Discord channel mention (e.g. "<#123456789>") AND any Discord user mention (e.g. "<@123456789>") from the what field — it should describe only the reminder topic.
-    - targetUserId: if the message contains a Discord user mention in the format "<@USER_ID>" (e.g. "<@123456789012345678>") referring to someone other than the requester, extract just the numeric user ID as a string. This is the person to remind. Return null if the reminder is for the requester themselves (e.g. "remind me") or if no user is mentioned.
+    - targetUserIds: if the message contains one or more Discord user mentions in the format "<@USER_ID>" (e.g. "<@123456789012345678>") naming people to remind, extract every numeric user ID as a string, in the order mentioned, without duplicates. These are the people to tag when the reminder fires. If the requester wants to be reminded too (e.g. "remind me and <@123>", "remind us"), also include the requester's own ID${requesterLine}. Return null if the reminder is only for the requester (e.g. "remind me") or if no user is mentioned.
     - isRecurring: true if it repeats (e.g. "every week", "every Tuesday", "every X minutes"), false for one-time
     - day: human-readable day description (e.g. "tomorrow", "next Monday", "every Tuesday", or null if truly unspecified).
       Rules for setting day:
@@ -101,12 +105,12 @@ export function buildExtractReminderPrompt(
       * "default" — for all other reminders (standard text reminders)
 
     For "list" and "cancel_all":
-    - All other fields should be null (including channelId and targetUserId)
+    - All other fields should be null (including channelId and targetUserIds)
     - actionType: "default"
 
     For "cancel":
     - what: description of what reminder to cancel (so we can match it)
-    - All other fields should be null (including channelId and targetUserId)
+    - All other fields should be null (including channelId and targetUserIds)
     - actionType: "default"
 
     Examples:
@@ -262,7 +266,7 @@ export function buildExtractReminderPrompt(
           time: 'now',
           scheduleDescription: 'now',
           scheduledAt: '2026-03-17T14:00:00',
-          targetUserId: '123456789012345678',
+          targetUserIds: ['123456789012345678'],
         },
         'current time: 2026-03-17T14:00:00',
       ),
@@ -275,8 +279,33 @@ export function buildExtractReminderPrompt(
           time: '3:00 PM',
           scheduleDescription: 'tomorrow at 3:00 PM',
           scheduledAt: '2026-03-18T15:00:00',
-          targetUserId: '987654321098765432',
+          targetUserIds: ['987654321098765432'],
         },
+      ),
+      example(
+        'remind <@123456789012345678> and <@987654321098765432> to book the cabin on Friday',
+        {
+          what: 'book the cabin',
+          isRecurring: false,
+          day: 'Friday',
+          scheduleDescription: 'Friday at 9:00 AM',
+          scheduledAt: '2026-03-20T09:00:00',
+          targetUserIds: ['123456789012345678', '987654321098765432'],
+        },
+        'today is Tuesday 2026-03-17',
+      ),
+      example(
+        'remind me and <@123456789012345678> about game night every Friday at 8pm',
+        {
+          what: 'game night',
+          isRecurring: true,
+          day: 'every Friday',
+          time: '8:00 PM',
+          scheduleDescription: 'every Friday at 8:00 PM',
+          cronExpression: '0 20 * * 5',
+          targetUserIds: ['<requester ID>', '123456789012345678'],
+        },
+        "<requester ID> is the requester's own ID",
       ),
       example(
         'remind me to water the plants every Tuesday at 10am until Nov 1',

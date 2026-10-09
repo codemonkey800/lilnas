@@ -23,7 +23,7 @@ function row(overrides: Partial<Reminder> = {}): Reminder {
     endsAt: null,
     scheduleDescription: 'Oct 8',
     channelId: null,
-    targetUserId: null,
+    targetUserIds: [],
     actionType: 'default',
     status: 'active',
     source: 'admin',
@@ -147,21 +147,21 @@ describe('RemindersController', () => {
       users.set('u2', { displayName: 'Raze', username: 'raze' })
       channels.set('c1', { name: 'general' })
       service.list.mockResolvedValue([
-        row({ targetUserId: 'u2', channelId: 'c1' }),
-        row({ id: 'r2', userId: 'u3', targetUserId: 'u4', channelId: 'c2' }),
+        row({ targetUserIds: ['u2'], channelId: 'c1' }),
+        row({ id: 'r2', userId: 'u3', targetUserIds: ['u4'], channelId: 'c2' }),
       ])
 
       const json = await (await fetch(`${base}/reminders`)).json()
 
       expect(json[0]).toMatchObject({
         userName: 'Mika',
-        targetUserName: 'Raze',
+        targetUserNames: ['Raze'],
         channelName: 'general',
         scheduledAt: '2026-10-08T12:00:00.000Z',
       })
       expect(json[1]).toMatchObject({
         userName: 'stored',
-        targetUserName: 'u4',
+        targetUserNames: ['u4'],
         channelName: 'c2',
       })
     })
@@ -266,7 +266,7 @@ describe('RemindersController', () => {
         schedule: { kind: 'once', at: new Date('2026-10-08T12:00:00Z') },
         scheduleDescription: undefined,
         channelId: 'c1',
-        targetUserId: undefined,
+        targetUserIds: undefined,
         actionType: 'search',
         source: 'admin',
       })

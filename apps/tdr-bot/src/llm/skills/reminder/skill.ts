@@ -14,7 +14,10 @@ import {
 import { REMINDER_TIMEZONE } from 'src/reminders/reminder.constants'
 import { ReminderError, ReminderService } from 'src/reminders/reminder.service'
 import { ReminderActionType } from 'src/reminders/reminder.types'
-import { sanitizeReminderForPrompt } from 'src/reminders/reminder.utils'
+import {
+  mentionsFor,
+  sanitizeReminderForPrompt,
+} from 'src/reminders/reminder.utils'
 import { ReminderSchedule, validateCron } from 'src/reminders/schedule'
 
 import {
@@ -64,6 +67,9 @@ const REMINDER_MATCH = new RegExp(
     ')',
   'i',
 )
+
+/** Discord snowflake; drops anything else the model returns as a user ID. */
+const DISCORD_ID = /^\d+$/
 
 const CONFIRM_YES = /^\s*(y|yes|yep|yeah|yup|sure|do it|confirm)\b/i
 
@@ -152,7 +158,7 @@ export class ReminderSkill implements Skill {
     }
 
     const partial = followUp?.stage === 'create' ? followUp.partial : undefined
-    const intent = await this.extract(message, partial, ctx)
+    const intent = await this.extract(message, partial, userId, ctx)
     ctx.logger.debug({ intent }, 'Extracted reminder intent')
 
     switch (intent.action) {
@@ -198,6 +204,7 @@ export class ReminderSkill implements Skill {
   private async extract(
     message: HumanMessage,
     partial: Partial<ReminderIntent> | undefined,
+    userId: string,
     ctx: SkillContext,
   ): Promise<ReminderIntent> {
     const now = dayjs().tz(REMINDER_TIMEZONE)
@@ -209,6 +216,7 @@ export class ReminderSkill implements Skill {
           now.format('YYYY-MM-DDTHH:mm:ss'),
           now.format('dddd'),
           partial,
+          userId,
         ),
         message,
       ],
@@ -232,7 +240,9 @@ export class ReminderSkill implements Skill {
     const partial: Partial<ReminderIntent> = {
       ...previous,
       ...Object.fromEntries(
-        Object.entries(intent).filter(([, v]) => v !== null),
+        Object.entries(intent).filter(
+          ([, v]) => v !== null && !(Array.isArray(v) && v.length === 0),
+        ),
       ),
     }
 
@@ -264,7 +274,9 @@ export class ReminderSkill implements Skill {
         schedule: built.schedule,
         scheduleDescription: partial.scheduleDescription ?? undefined,
         channelId: partial.channelId ?? null,
-        targetUserId: partial.targetUserId ?? null,
+        targetUserIds: (partial.targetUserIds ?? []).filter(id =>
+          DISCORD_ID.test(id),
+        ),
         actionType: partial.actionType ?? ReminderActionType.Default,
       })
     } catch (error) {
@@ -356,10 +368,8 @@ export class ReminderSkill implements Skill {
       lines.push(`Next run: ${formatNextRun(reminder.nextRunAt)}`)
     }
     if (reminder.channelId) lines.push(`Channel: <#${reminder.channelId}>`)
-    if (reminder.targetUserId) {
-      lines.push(
-        `Reminder is for: <@${reminder.targetUserId}> (not the requestor)`,
-      )
+    if (reminder.targetUserIds.length) {
+      lines.push(`Reminder is for: ${mentionsFor(reminder)}`)
     }
     if (reminder.endsAt) lines.push(`Ends: ${formatNextRun(reminder.endsAt)}`)
     lines.push(

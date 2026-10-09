@@ -135,7 +135,7 @@ export class RemindersController {
         schedule: toSchedule(body.schedule),
         scheduleDescription: body.scheduleDescription,
         channelId: body.channelId,
-        targetUserId: body.targetUserId,
+        targetUserIds: body.targetUserIds,
         actionType: body.actionType,
         source: 'admin',
       }),

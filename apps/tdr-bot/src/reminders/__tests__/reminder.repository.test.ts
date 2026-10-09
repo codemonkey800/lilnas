@@ -99,9 +99,9 @@ describe('ReminderRepository', () => {
     const where = sqlOf(argOf(calls, 'where'))
     expect(where.sql).toContain('"status" = $1')
     expect(where.sql).toContain('"user_id" = $2')
-    expect(where.sql).toContain('"target_user_id" = $3')
+    expect(where.sql).toContain('"target_user_ids" @> $3')
     expect(where.sql).toContain(' or ')
-    expect(where.params).toEqual(['active', 'u1', 'u1'])
+    expect(where.params).toEqual(['active', 'u1', '{"u1"}'])
   })
 
   it('counts active reminders created by a user', async () => {

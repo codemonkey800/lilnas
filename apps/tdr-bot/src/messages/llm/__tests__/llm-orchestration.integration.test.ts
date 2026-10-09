@@ -74,7 +74,7 @@ const REMINDER_INTENT = {
   cronExpression: null,
   endsAt: null,
   channelId: null,
-  targetUserId: null,
+  targetUserIds: null,
   actionType: 'default',
 }
 
