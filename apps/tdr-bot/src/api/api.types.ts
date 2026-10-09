@@ -122,6 +122,10 @@ export interface ReminderFilter {
   userId?: string
 }
 
+export interface ReminderRuns {
+  runs: string[]
+}
+
 export interface ReminderPreview {
   runs: string[]
   description: string

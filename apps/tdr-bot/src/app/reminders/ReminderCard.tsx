@@ -21,6 +21,7 @@ export interface ReminderRowProps {
   now: Date
   onEdit: (reminder: ReminderView) => void
   onCancel: (reminder: ReminderView) => void
+  onTest: (reminder: ReminderView) => void
 }
 
 export function ReminderCard({
@@ -28,6 +29,7 @@ export function ReminderCard({
   now,
   onEdit,
   onCancel,
+  onTest,
 }: ReminderRowProps) {
   const [description, ...rest] = scheduleLines(reminder)
 
@@ -82,6 +84,9 @@ export function ReminderCard({
             label={ACTION_LABELS[reminder.actionType]}
           />
           <Box>
+            <Button size="small" onClick={() => onTest(reminder)}>
+              Test
+            </Button>
             <Button size="small" onClick={() => onEdit(reminder)}>
               Edit
             </Button>

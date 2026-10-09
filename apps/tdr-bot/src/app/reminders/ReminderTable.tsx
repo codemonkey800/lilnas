@@ -33,7 +33,13 @@ const HEADERS = [
   '',
 ]
 
-function ReminderRow({ reminder, now, onEdit, onCancel }: ReminderRowProps) {
+function ReminderRow({
+  reminder,
+  now,
+  onEdit,
+  onCancel,
+  onTest,
+}: ReminderRowProps) {
   const [description, ...rest] = scheduleLines(reminder)
 
   return (
@@ -91,6 +97,9 @@ function ReminderRow({ reminder, now, onEdit, onCancel }: ReminderRowProps) {
         </Typography>
       </TableCell>
       <TableCell sx={{ whiteSpace: 'nowrap' }}>
+        <Button size="small" onClick={() => onTest(reminder)}>
+          Test
+        </Button>
         <Button size="small" onClick={() => onEdit(reminder)}>
           Edit
         </Button>
@@ -109,6 +118,7 @@ interface ReminderTableProps {
   now: Date
   onEdit: (reminder: ReminderView) => void
   onCancel: (reminder: ReminderView) => void
+  onTest: (reminder: ReminderView) => void
 }
 
 /** A table from the `md` breakpoint up, stacked cards below it. */
@@ -117,6 +127,7 @@ export function ReminderTable({
   now,
   onEdit,
   onCancel,
+  onTest,
 }: ReminderTableProps) {
   return (
     <>
@@ -143,6 +154,7 @@ export function ReminderTable({
                 now={now}
                 onEdit={onEdit}
                 onCancel={onCancel}
+                onTest={onTest}
               />
             ))}
           </TableBody>
@@ -157,6 +169,7 @@ export function ReminderTable({
             now={now}
             onEdit={onEdit}
             onCancel={onCancel}
+            onTest={onTest}
           />
         ))}
       </Stack>
