@@ -52,7 +52,7 @@ interface Draft {
   cron: string
   endsOn: string
   channelId: string
-  targetUserId: string
+  targetUserIds: string[]
   actionType: ReminderActionType
 }
 
@@ -78,7 +78,7 @@ function emptyDraft(): Draft {
     cron: DEFAULT_CRON,
     endsOn: '',
     channelId: NONE,
-    targetUserId: NONE,
+    targetUserIds: [],
     actionType: ReminderActionType.Default,
   }
 }
@@ -92,7 +92,7 @@ function draftFrom(reminder: ReminderView): Draft {
     cron: reminder.cronExpression ?? DEFAULT_CRON,
     endsOn: toLocalDate(reminder.endsAt),
     channelId: reminder.channelId ?? NONE,
-    targetUserId: reminder.targetUserId ?? NONE,
+    targetUserIds: reminder.targetUserIds,
     actionType: reminder.actionType,
   }
 }
@@ -198,7 +198,15 @@ function ReminderForm({
   const settling = schedule !== null && schedule !== debouncedSchedule
 
   const owner = members.find(m => m.id === draft.userId) ?? null
-  const target = members.find(m => m.id === draft.targetUserId) ?? null
+  const targets = draft.targetUserIds.map(
+    id =>
+      members.find(m => m.id === id) ?? {
+        id,
+        username: id,
+        displayName: id,
+        avatarUrl: null,
+      },
+  )
   const presetLabel = presetFor(draft.cron)
 
   const whatError = issueFor(mutation.error, 'what')
@@ -217,7 +225,7 @@ function ReminderForm({
     'schedule.cron',
     'schedule.endsAt',
     'channelId',
-    'targetUserId',
+    'targetUserIds',
     'actionType',
     'userId',
   ])
@@ -236,7 +244,7 @@ function ReminderForm({
       what: draft.what.trim(),
       schedule,
       channelId: draft.channelId || null,
-      targetUserId: draft.targetUserId || null,
+      targetUserIds: draft.targetUserIds,
       actionType: draft.actionType,
     }
     const options = { onSuccess: onClose }
@@ -419,20 +427,24 @@ function ReminderForm({
           </TextField>
 
           <Autocomplete
+            multiple
+            filterSelectedOptions
             options={members}
-            value={target}
+            value={targets}
             disabled={saving}
             getOptionLabel={memberLabel}
             isOptionEqualToValue={(a, b) => a.id === b.id}
-            onChange={(_, m) => edit({ targetUserId: m?.id ?? NONE })}
+            onChange={(_, selected) =>
+              edit({ targetUserIds: selected.map(m => m.id) })
+            }
             renderInput={params => (
               <TextField
                 {...params}
                 label="Remind"
-                error={!!issueFor(mutation.error, 'targetUserId')}
+                error={!!issueFor(mutation.error, 'targetUserIds')}
                 helperText={
-                  issueFor(mutation.error, 'targetUserId') ??
-                  'Defaults to the creator'
+                  issueFor(mutation.error, 'targetUserIds') ??
+                  'Tags everyone selected; defaults to the creator'
                 }
               />
             )}

@@ -39,7 +39,7 @@ describe('buildExtractReminderPrompt', () => {
       'scheduledAt',
       'cronExpression',
       'endsAt',
-      'targetUserId',
+      'targetUserIds',
     ]) {
       expect(text).toContain(word)
     }

@@ -1,0 +1,1 @@
+ALTER TABLE "reminder" DROP COLUMN "target_user_id";

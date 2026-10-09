@@ -89,6 +89,14 @@ describe('ReminderService', () => {
       )
     })
 
+    it('stores every target once, defaulting to none', async () => {
+      await service.create(baseInput({ targetUserIds: ['u2', 'u3', 'u2'] }))
+      await service.create(baseInput())
+
+      expect(repo.insert.mock.calls[0][0].targetUserIds).toEqual(['u2', 'u3'])
+      expect(repo.insert.mock.calls[1][0].targetUserIds).toEqual([])
+    })
+
     it('computes the first cron run for recurring reminders', async () => {
       await service.create(
         baseInput({ schedule: { kind: 'recurring', cron: '0 9 * * *' } }),
@@ -225,7 +233,7 @@ describe('ReminderService', () => {
 
     it('lets the target user cancel', async () => {
       repo.findById.mockResolvedValue(
-        createTestReminder({ targetUserId: 'user-2' }),
+        createTestReminder({ targetUserIds: ['user-3', 'user-2'] }),
       )
       await service.cancel('reminder-1', { userId: 'user-2' })
       expect(repo.update).toHaveBeenCalled()
@@ -262,7 +270,7 @@ describe('ReminderService', () => {
         createTestReminder({
           id: 'b',
           userId: 'other',
-          targetUserId: 'user-1',
+          targetUserIds: ['user-1'],
         }),
       ]
       repo.listActiveForUser.mockResolvedValue(rows)

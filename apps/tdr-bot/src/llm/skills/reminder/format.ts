@@ -5,6 +5,7 @@ import utc from 'dayjs/plugin/utc'
 import type { Reminder } from 'src/db/schema'
 import { REMINDER_TIMEZONE } from 'src/reminders/reminder.constants'
 import type { ReminderErrorCode } from 'src/reminders/reminder.service'
+import { mentionsFor } from 'src/reminders/reminder.utils'
 
 dayjs.extend(utc)
 dayjs.extend(timezone)
@@ -58,9 +59,9 @@ export function formatReminderLine(reminder: Reminder, userId: string): string {
     parts[0] += ` · next ${inZone(reminder.nextRunAt).format('MMM D, h:mm A')}`
   }
   if (reminder.isRecurring) parts.push('(recurring)')
-  if (reminder.targetUserId && reminder.userId === userId) {
-    parts.push(`(for <@${reminder.targetUserId}>)`)
-  } else if (reminder.targetUserId === userId && reminder.userId !== userId) {
+  if (reminder.targetUserIds.length && reminder.userId === userId) {
+    parts.push(`(for ${mentionsFor(reminder)})`)
+  } else if (reminder.userId !== userId) {
     parts.push(`(from @${reminder.userName})`)
   }
   if (reminder.channelId) parts.push(`in <#${reminder.channelId}>`)

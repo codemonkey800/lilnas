@@ -22,7 +22,7 @@ const reminderFields = {
   schedule: scheduleBodySchema,
   scheduleDescription: z.string().optional(),
   channelId: z.string().nullish(),
-  targetUserId: z.string().nullish(),
+  targetUserIds: z.array(z.string().min(1)).max(25).optional(),
   actionType: z.enum(ReminderActionType).optional(),
 }
 

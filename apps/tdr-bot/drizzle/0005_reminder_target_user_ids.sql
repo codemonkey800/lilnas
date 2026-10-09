@@ -1,0 +1,2 @@
+ALTER TABLE "reminder" ADD COLUMN "target_user_ids" text[] DEFAULT '{}' NOT NULL;--> statement-breakpoint
+UPDATE "reminder" SET "target_user_ids" = ARRAY["target_user_id"] WHERE "target_user_id" IS NOT NULL AND "target_user_id" <> '';

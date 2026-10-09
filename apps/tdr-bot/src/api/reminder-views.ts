@@ -22,10 +22,8 @@ export function toReminderView(
     what: row.what,
     userId: row.userId,
     userName: resolve.userName(row.userId) ?? (row.userName || row.userId),
-    targetUserId: row.targetUserId,
-    targetUserName: row.targetUserId
-      ? (resolve.userName(row.targetUserId) ?? row.targetUserId)
-      : null,
+    targetUserIds: row.targetUserIds,
+    targetUserNames: row.targetUserIds.map(id => resolve.userName(id) ?? id),
     guildId: row.guildId,
     channelId: row.channelId,
     channelName: row.channelId

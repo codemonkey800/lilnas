@@ -49,7 +49,7 @@ export interface CreateReminderInput {
   /** Empty or omitted falls back to {@link describeSchedule}. */
   scheduleDescription?: string
   channelId?: string | null
-  targetUserId?: string | null
+  targetUserIds?: string[]
   actionType?: ReminderActionType
   /** Defaults to `'discord'`. */
   source?: ReminderSource
@@ -62,12 +62,16 @@ export type UpdateReminderInput = Partial<
     | 'schedule'
     | 'scheduleDescription'
     | 'channelId'
-    | 'targetUserId'
+    | 'targetUserIds'
     | 'actionType'
   >
 >
 
 const DEFAULT_PREVIEW_COUNT = 5
+
+const uniqueIds = (ids: string[] | undefined) => [
+  ...new Set((ids ?? []).filter(Boolean)),
+]
 
 const typeOf = (r: Pick<Reminder, 'isRecurring'>) =>
   r.isRecurring ? 'recurring' : 'one_time'
@@ -130,7 +134,7 @@ export class ReminderService {
       scheduleDescription:
         input.scheduleDescription?.trim() || describeSchedule(input.schedule),
       channelId: input.channelId ?? null,
-      targetUserId: input.targetUserId ?? null,
+      targetUserIds: uniqueIds(input.targetUserIds),
       actionType: input.actionType ?? ReminderActionType.Default,
       status: 'active',
       source,
@@ -171,8 +175,8 @@ export class ReminderService {
 
     if (patch.what !== undefined) changes.what = this.validateWhat(patch.what)
     if (patch.channelId !== undefined) changes.channelId = patch.channelId
-    if (patch.targetUserId !== undefined) {
-      changes.targetUserId = patch.targetUserId
+    if (patch.targetUserIds !== undefined) {
+      changes.targetUserIds = uniqueIds(patch.targetUserIds)
     }
     if (patch.actionType !== undefined) changes.actionType = patch.actionType
 
@@ -212,7 +216,7 @@ export class ReminderService {
     if (
       opts.userId &&
       opts.userId !== existing.userId &&
-      opts.userId !== existing.targetUserId
+      !existing.targetUserIds.includes(opts.userId)
     ) {
       throw new ReminderError(
         'forbidden',

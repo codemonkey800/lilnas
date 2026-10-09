@@ -33,8 +33,8 @@ function matches(reminder: ReminderView, text: string): boolean {
   const needle = text.trim().toLowerCase()
   if (!needle) return true
 
-  return [reminder.what, reminder.userName, reminder.targetUserName].some(
-    field => field?.toLowerCase().includes(needle),
+  return [reminder.what, reminder.userName, ...reminder.targetUserNames].some(
+    field => field.toLowerCase().includes(needle),
   )
 }
 

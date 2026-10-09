@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import {
   and,
+  arrayContains,
   asc,
   count,
   desc,
@@ -72,7 +73,10 @@ export class ReminderRepository {
       .where(
         and(
           eq(reminders.status, 'active'),
-          or(eq(reminders.userId, userId), eq(reminders.targetUserId, userId)),
+          or(
+            eq(reminders.userId, userId),
+            arrayContains(reminders.targetUserIds, [userId]),
+          ),
         ),
       )
       .orderBy(

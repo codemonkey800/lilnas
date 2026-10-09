@@ -21,7 +21,8 @@ export const ReminderIntentSchema = z.object({
   /** ISO local datetime, recurring reminders only ("until Friday"). */
   endsAt: z.string().nullable(),
   channelId: z.string().nullable(),
-  targetUserId: z.string().nullable(),
+  /** Discord user IDs to tag; null when the reminder is for the requester. */
+  targetUserIds: z.array(z.string()).nullable(),
   actionType: z.enum(ReminderActionType),
 })
 

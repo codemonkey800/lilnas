@@ -36,6 +36,20 @@
       "when": 1791399904884,
       "tag": "0004_previous_prodigy",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791517184662,
+      "tag": "0005_reminder_target_user_ids",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791517187598,
+      "tag": "0006_drop_reminder_target_user_id",
+      "breakpoints": true
     }
   ]
 }

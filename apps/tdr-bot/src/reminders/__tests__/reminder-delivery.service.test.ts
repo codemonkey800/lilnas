@@ -287,7 +287,7 @@ describe('ReminderDeliveryService', () => {
   // ── deliver to target user ───────────────────────────────────────────────
 
   describe('deliver to target user', () => {
-    it('includes the targetUserId mention in the LLM prompt when targetUserId is set', async () => {
+    it('mentions every target in the LLM prompt', async () => {
       const client = makeDiscordClient([makeMockTextChannel()])
       const { factory, mockChatModel } = makeLlm('Reminder for target!')
       service = await buildService(client, factory)
@@ -295,7 +295,7 @@ describe('ReminderDeliveryService', () => {
       await service.deliver(
         createTestReminder({
           userId: 'creator-user',
-          targetUserId: 'target-99',
+          targetUserIds: ['target-99', 'target-100'],
         }),
       )
 
@@ -303,18 +303,18 @@ describe('ReminderDeliveryService', () => {
         content: string
       }>
       const targetMentionPrompt = calls.find(m =>
-        m.content.includes('<@target-99>'),
+        m.content.includes('<@target-99> <@target-100>'),
       )
       expect(targetMentionPrompt).toBeDefined()
     })
 
-    it('falls back to userId mention when targetUserId is null', async () => {
+    it('falls back to userId mention when there are no targets', async () => {
       const client = makeDiscordClient([makeMockTextChannel()])
       const { factory, mockChatModel } = makeLlm('Reminder!')
       service = await buildService(client, factory)
 
       await service.deliver(
-        createTestReminder({ userId: 'user-42', targetUserId: null }),
+        createTestReminder({ userId: 'user-42', targetUserIds: [] }),
       )
 
       const calls = mockChatModel.invoke.mock.calls[0][0] as Array<{
@@ -326,7 +326,7 @@ describe('ReminderDeliveryService', () => {
       expect(userMentionPrompt).toBeDefined()
     })
 
-    it('uses targetUserId in the fallback plain string message when LLM fails', async () => {
+    it('mentions every target in the fallback message when LLM fails', async () => {
       const sendFn = jest.fn().mockResolvedValue({})
       const client = makeDiscordClient([
         makeMockTextChannel('tdr-bot-chat', sendFn),
@@ -352,13 +352,13 @@ describe('ReminderDeliveryService', () => {
       await service.deliver(
         createTestReminder({
           userId: 'creator-user',
-          targetUserId: 'target-99',
+          targetUserIds: ['target-99', 'target-100'],
         }),
       )
 
       expect(sendFn).toHaveBeenCalledWith(
         expect.objectContaining({
-          content: expect.stringContaining('<@target-99>'),
+          content: expect.stringContaining('<@target-99> <@target-100>'),
         }),
       )
     })

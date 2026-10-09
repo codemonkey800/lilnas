@@ -17,7 +17,7 @@ export function createTestReminder(
     endsAt: null,
     scheduleDescription: 'tomorrow 9:00 AM',
     channelId: null,
-    targetUserId: null,
+    targetUserIds: [],
     actionType: 'default',
     status: 'active',
     source: 'discord',

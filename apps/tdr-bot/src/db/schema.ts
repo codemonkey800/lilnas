@@ -41,7 +41,8 @@ export const reminders = pgTable(
     endsAt: timestamp('ends_at', { mode: 'date' }),
     scheduleDescription: text('schedule_description').notNull().default(''),
     channelId: text('channel_id'),
-    targetUserId: text('target_user_id'),
+    /** People to tag on delivery; empty means the creator. */
+    targetUserIds: text('target_user_ids').array().notNull().default([]),
     actionType: text('action_type').notNull().default('default'),
     status: text('status').$type<ReminderStatus>().notNull().default('active'),
     source: text('source').$type<ReminderSource>().notNull().default('discord'),

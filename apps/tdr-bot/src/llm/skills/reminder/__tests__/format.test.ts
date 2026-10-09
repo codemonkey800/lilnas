@@ -56,13 +56,13 @@ describe('formatReminderList', () => {
 
   it('marks the target when the viewer created it', () => {
     const [line] = formatReminderList(
-      [createTestReminder({ userId: 'u1', targetUserId: 'u2' })],
+      [createTestReminder({ userId: 'u1', targetUserIds: ['u2', 'u3'] })],
       'u1',
     )
       .split('\n')
       .slice(1)
 
-    expect(line).toContain('(for <@u2>)')
+    expect(line).toContain('(for <@u2> <@u3>)')
   })
 
   it('marks the creator when the viewer is the target', () => {
@@ -71,7 +71,7 @@ describe('formatReminderList', () => {
         createTestReminder({
           userId: 'u1',
           userName: 'sam',
-          targetUserId: 'u2',
+          targetUserIds: ['u2'],
         }),
       ],
       'u2',

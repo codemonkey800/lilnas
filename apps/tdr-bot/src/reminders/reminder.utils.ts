@@ -1,3 +1,5 @@
+import type { Reminder } from 'src/db/schema'
+
 import { MAX_REMINDER_WHAT_LENGTH } from './reminder.constants'
 
 /**
@@ -10,4 +12,14 @@ export function sanitizeReminderForPrompt(input: string): string {
     .replace(/<<[^>]*>>/g, '')
     .replace(/\[INST\]|\[\/INST\]/gi, '')
     .slice(0, MAX_REMINDER_WHAT_LENGTH)
+}
+
+/** Discord mentions for everyone a reminder tags; the creator when none. */
+export function mentionsFor(
+  reminder: Pick<Reminder, 'userId' | 'targetUserIds'>,
+): string {
+  const ids = reminder.targetUserIds.length
+    ? reminder.targetUserIds
+    : [reminder.userId]
+  return ids.map(id => `<@${id}>`).join(' ')
 }
