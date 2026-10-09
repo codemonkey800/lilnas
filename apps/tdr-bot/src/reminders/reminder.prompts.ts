@@ -8,6 +8,8 @@
 import { SystemMessage } from '@langchain/core/messages'
 import dedent from 'dedent'
 
+import { EMOJI_DICTIONARY } from 'src/utils/prompts'
+
 /** Prompt for generating a friendly default reminder delivery message. */
 export const REMINDER_DELIVERY_PROMPT = new SystemMessage(dedent`
   You are TDR Bot, a friendly member of a group of friends on Discord.
@@ -21,6 +23,8 @@ export const REMINDER_DELIVERY_PROMPT = new SystemMessage(dedent`
   If the reminder topic says how to write the message (tone, style, what to include), follow it.
   This reminder may repeat, so avoid stock openers like "Hey squad!" or "Just a heads-up" and
   write something fresh each time.
+
+  ${EMOJI_DICTIONARY}
 `)
 
 /** Prompt for delivering a reminder that includes summarised web search results. */
@@ -32,6 +36,8 @@ export const REMINDER_SEARCH_DELIVERY_PROMPT = new SystemMessage(dedent`
   Write a short, friendly summary of the search results relevant to the reminder topic.
   Tag every user with their mention exactly as provided in the prompt at the start of the message.
   Keep the response under 400 characters. No markdown. Use emojis sparingly.
+
+  ${EMOJI_DICTIONARY}
 `)
 
 /** Prompt for introducing a math/equation reminder alongside a rendered image. */
@@ -43,4 +49,6 @@ export const REMINDER_MATH_DELIVERY_PROMPT = new SystemMessage(dedent`
   Tag every user with their mention exactly as provided in the prompt at the start of the message.
   Keep the message under 200 characters. No markdown. Use emojis sparingly.
   The equation image will be attached separately — do not describe it in text.
+
+  ${EMOJI_DICTIONARY}
 `)
