@@ -3,6 +3,7 @@ import {
   relativeTime,
   scheduleLines,
   statusTone,
+  testDateBounds,
   whoLabel,
 } from 'src/app/reminders/format'
 import { ReminderActionType } from 'src/reminders/reminder.types'
@@ -121,5 +122,25 @@ describe('statusTone', () => {
     expect(statusTone('completed')).toBe('muted')
     expect(statusTone('missed')).toBe('warn')
     expect(statusTone('cancelled')).toBe('bad')
+  })
+})
+
+describe('testDateBounds', () => {
+  const nineAm = new Date(2026, 9, 1, 9, 0)
+
+  it('allows today while its run time is still ahead', () => {
+    const bounds = testDateBounds(nineAm, null, new Date(2026, 9, 8, 8, 0))
+    expect(bounds).toEqual({ min: '2026-10-08', max: null })
+  })
+
+  it('starts tomorrow once today’s run time has passed', () => {
+    const bounds = testDateBounds(nineAm, null, new Date(2026, 9, 8, 10, 0))
+    expect(bounds.min).toBe('2026-10-09')
+  })
+
+  it('caps the range at the end date', () => {
+    const endsAt = new Date(2026, 9, 31, 23, 59, 59).toISOString()
+    const bounds = testDateBounds(nineAm, endsAt, new Date(2026, 9, 8, 10, 0))
+    expect(bounds).toEqual({ min: '2026-10-09', max: '2026-10-31' })
   })
 })
