@@ -6,7 +6,6 @@ import DialogActions from '@mui/material/DialogActions'
 import DialogContent from '@mui/material/DialogContent'
 import DialogContentText from '@mui/material/DialogContentText'
 import DialogTitle from '@mui/material/DialogTitle'
-import MenuItem from '@mui/material/MenuItem'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import { useState } from 'react'
@@ -14,23 +13,11 @@ import { useState } from 'react'
 import type { ReminderView } from 'src/api/api.types'
 import { useReminderRuns, useTestReminder } from 'src/queries/useReminders'
 
-import { formatWhen } from './format'
+import { atTimeOfDay, formatWhen, testDateBounds, toDateInput } from './format'
 
 interface TestSendDialogProps {
   reminder: ReminderView | null
   onClose: () => void
-}
-
-/** "Fri, Oct 9, 2026, 9:00 AM" — runs can be months out, so keep the year. */
-function formatRun(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
 }
 
 /** DMs the reminder's creator the message it would send at a chosen run. */
@@ -39,7 +26,26 @@ export function TestSendDialog({ reminder, onClose }: TestSendDialogProps) {
   const test = useTestReminder()
   const [picked, setPicked] = useState<string | null>(null)
 
-  const at = picked ?? runs.data?.runs[0] ?? ''
+  // Test sends keep the reminder's time of day; only the date is chosen.
+  const first = runs.data?.runs[0]
+  const timeOfDay = first ? new Date(first) : null
+  const bounds = timeOfDay
+    ? testDateBounds(timeOfDay, reminder?.endsAt ?? null, new Date())
+    : null
+  const exhausted = !!bounds && !!bounds.max && bounds.min > bounds.max
+
+  const date =
+    picked ??
+    (timeOfDay && bounds
+      ? [toDateInput(timeOfDay), bounds.min].reduce((a, b) => (a > b ? a : b))
+      : '')
+  const valid =
+    !!bounds &&
+    !!date &&
+    date >= bounds.min &&
+    (!bounds.max || date <= bounds.max)
+  const at =
+    valid && timeOfDay ? atTimeOfDay(date, timeOfDay).toISOString() : ''
 
   const close = () => {
     test.reset()
@@ -65,35 +71,30 @@ export function TestSendDialog({ reminder, onClose }: TestSendDialogProps) {
         </Typography>
 
         <TextField
-          select
+          type="date"
           fullWidth
           label="Send as if it were"
-          value={at}
-          disabled={!runs.data || test.isPending}
-          error={!!runs.error}
-          helperText={runs.error?.message}
+          value={date}
+          disabled={!runs.data || exhausted || test.isPending}
+          error={!!runs.error || exhausted || (!!date && !valid)}
+          helperText={
+            runs.error?.message ??
+            (exhausted
+              ? 'This reminder has no future dates left to test.'
+              : bounds?.max
+                ? `Future dates up to when it ends (${bounds.max}).`
+                : undefined)
+          }
           onChange={e => {
             setPicked(e.target.value)
             test.reset()
           }}
+          slotProps={{
+            inputLabel: { shrink: true },
+            htmlInput: { min: bounds?.min, max: bounds?.max ?? undefined },
+          }}
           sx={{ mt: 2.5 }}
-        >
-          {(runs.data?.runs ?? []).map((run, i) => (
-            <MenuItem key={run} value={run}>
-              {formatRun(run)}
-              {i === 0 && reminder?.nextRunAt === run && (
-                <Typography
-                  component="span"
-                  variant="caption"
-                  color="text.secondary"
-                  sx={{ ml: 1 }}
-                >
-                  next
-                </Typography>
-              )}
-            </MenuItem>
-          ))}
-        </TextField>
+        />
 
         {test.isSuccess && (
           <Alert severity="success" sx={{ mt: 2 }}>

@@ -63,6 +63,40 @@ export function scheduleLines(view: ReminderView): string[] {
   return lines
 }
 
+const pad = (n: number) => String(n).padStart(2, '0')
+
+/** `YYYY-MM-DD` for a date in the viewer's local time zone. */
+export function toDateInput(date: Date): string {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+/** The local `date` (`YYYY-MM-DD`) at `timeOfDay`'s local wall-clock time. */
+export function atTimeOfDay(date: string, timeOfDay: Date): Date {
+  return new Date(
+    `${date}T${pad(timeOfDay.getHours())}:${pad(timeOfDay.getMinutes())}:00`,
+  )
+}
+
+/**
+ * Pickable local dates (`YYYY-MM-DD`, inclusive) for a test send: only
+ * dates whose run time is still ahead of `now`, and none after the
+ * reminder's end date. `max` is null when the reminder has no end date.
+ */
+export function testDateBounds(
+  timeOfDay: Date,
+  endsAt: string | null,
+  now: Date,
+): { min: string; max: string | null } {
+  const today = toDateInput(now)
+  const tomorrow = new Date(now)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+
+  return {
+    min: atTimeOfDay(today, timeOfDay) > now ? today : toDateInput(tomorrow),
+    max: endsAt ? toDateInput(new Date(endsAt)) : null,
+  }
+}
+
 export function statusTone(status: ReminderView['status']): StatusTone {
   switch (status) {
     case 'active':
