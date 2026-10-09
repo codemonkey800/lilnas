@@ -9,6 +9,7 @@ import {
   MemberInfo,
   ReminderFilter,
   ReminderPreview,
+  ReminderRuns,
   ReminderView,
   ScheduleBody,
   SendMessageResponse,
@@ -171,6 +172,23 @@ export class ApiClient {
     )
 
     return await parseOrThrow<ReminderView>(response)
+  }
+
+  async getReminderRuns(id: string): Promise<ReminderRuns> {
+    const response = await this.request(
+      `/reminders/${encodeURIComponent(id)}/runs`,
+    )
+
+    return await parseOrThrow<ReminderRuns>(response)
+  }
+
+  async testReminder(id: string, at: string): Promise<void> {
+    const response = await this.request(
+      `/reminders/${encodeURIComponent(id)}/test`,
+      { method: 'POST', body: JSON.stringify({ at }) },
+    )
+
+    await parseOrThrow<{ ok: true }>(response)
   }
 
   async cancelReminder(id: string): Promise<ReminderView> {

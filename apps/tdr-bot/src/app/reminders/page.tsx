@@ -18,6 +18,7 @@ import { useReminders } from 'src/queries/useReminders'
 import { CancelDialog } from './CancelDialog'
 import { ReminderDialog } from './ReminderDialog'
 import { ReminderTable } from './ReminderTable'
+import { TestSendDialog } from './TestSendDialog'
 
 type StatusFilter = ReminderStatus | 'all'
 
@@ -46,6 +47,7 @@ export default function RemindersPage() {
     reminder: ReminderView | null
   }>({ open: false, reminder: null })
   const [cancelling, setCancelling] = useState<ReminderView | null>(null)
+  const [testing, setTesting] = useState<ReminderView | null>(null)
 
   const all = useReminders({ status: 'all' })
   const list = useReminders({ status })
@@ -175,6 +177,7 @@ export default function RemindersPage() {
           now={now}
           onEdit={reminder => setDialog({ open: true, reminder })}
           onCancel={setCancelling}
+          onTest={setTesting}
         />
       )}
 
@@ -184,6 +187,7 @@ export default function RemindersPage() {
         onClose={() => setDialog(d => ({ ...d, open: false }))}
       />
       <CancelDialog reminder={cancelling} onClose={() => setCancelling(null)} />
+      <TestSendDialog reminder={testing} onClose={() => setTesting(null)} />
     </Box>
   )
 }

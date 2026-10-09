@@ -58,3 +58,20 @@ export function useReminderPreview(schedule: ScheduleBody | null) {
     retry: false,
   })
 }
+
+/** Upcoming runs of a stored reminder; pass null to skip fetching. */
+export function useReminderRuns(id: string | null) {
+  return useQuery({
+    queryKey: ['reminder-runs', id],
+    queryFn: () => apiClient.getReminderRuns(id as string),
+    enabled: id !== null,
+  })
+}
+
+/** DMs the reminder's creator the message it would send at `at`. */
+export function useTestReminder() {
+  return useMutation({
+    mutationFn: ({ id, at }: { id: string; at: string }) =>
+      apiClient.testReminder(id, at),
+  })
+}
