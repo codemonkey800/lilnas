@@ -61,6 +61,7 @@ services:
       - ../../infra/nexus-code-work.yml:/repo/infra/nexus-code-work.yml:ro
       - ../../infra/nexus-code.yml:/repo/infra/nexus-code.yml:ro
       - ../../infra/palworld.yml:/repo/infra/palworld.yml:ro
+      - ../../infra/penpot.yml:/repo/infra/penpot.yml:ro
       - ../../infra/proxy.yml:/repo/infra/proxy.yml:ro
       - ../../infra/rustdesk.yml:/repo/infra/rustdesk.yml:ro
       - ../../infra/shared.yml:/repo/infra/shared.yml:ro
