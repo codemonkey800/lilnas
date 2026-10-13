@@ -568,6 +568,16 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => {
         return
       }
 
+      // A hard seek is still landing (HLS has to fetch the segment under the
+      // new position first). `currentTime` already reports the requested
+      // position, but a stalled element can't catch up by playbackRate, and
+      // re-issuing `currentTime = target` every tick while the target keeps
+      // advancing would make hls.js restart that fetch each time and never
+      // finish the seek. Let it complete; the next tick re-measures.
+      if (video.seeking) {
+        return
+      }
+
       const { playing, playheadAtAnchor, anchorClockMs } = get()
       const target = playing
         ? playheadAtAnchor + (nowMs - anchorClockMs) / 1000
