@@ -49,6 +49,11 @@ export type VerifyInput = {
   forwardedUri: string | undefined
 }
 
+export type HostAccessDecision =
+  | { outcome: 'allow' }
+  | { outcome: 'blocked'; location: string }
+  | { outcome: 'pending'; location: string }
+
 export type VerifyDecision =
   | { outcome: 'allow'; email: string; userId: string }
   | { outcome: 'redirect'; location: string }
@@ -126,13 +131,37 @@ export class VerifyService {
       }
     }
 
+    const access = this.authorizeHost(session, forwardedHost, originalUrl)
+    if (access.outcome === 'allow') {
+      // Parity with the middleware being replaced (nothing in the repo
+      // reads X-Forwarded-User today (confirmed repo-wide), so this is
+      // free and cannot break a migrating router). VerifyController is
+      // what actually sets the response header; this method only decides
+      // the value.
+      return { outcome: 'allow', email: session.email, userId: session.userId }
+    }
+    return { outcome: 'redirect', location: access.location }
+  }
+
+  /**
+   * The post-session half of decide(): blocked -> admin bypass -> grant ->
+   * pre-auth bind -> pending. Public so the OIDC authorize gate
+   * (src/oidc/oidc-gate.ts) runs THIS code, not a copy — "may this user reach
+   * this lilnas host" has exactly one implementation. The order is
+   * load-bearing; see this file's header comment.
+   */
+  authorizeHost(
+    session: { userId: string; email: string },
+    host: string,
+    originalUrl: string,
+  ): HostAccessDecision {
     // Checked BEFORE the admin bypass AND the grant lookup — see this
     // file's header comment for why this ordering holds even for an
     // ADMIN_EMAILS address. The destination is /blocked, not /pending —
     // see REDIRECT_PATHS.blocked's own comment for why.
     if (this.accessCache.isBlocked(session.userId)) {
       return {
-        outcome: 'redirect',
+        outcome: 'blocked',
         location: this.buildRedirectUrl(REDIRECT_PATHS.blocked, originalUrl),
       }
     }
@@ -150,16 +179,11 @@ export class VerifyService {
     // that (no everGrantedAt, so an admin-only identity never appears in
     // /admin/users).
     if (isAdminBypassEmail(session.email, this.adminEmailsEnv)) {
-      return { outcome: 'allow', email: session.email, userId: session.userId }
+      return { outcome: 'allow' }
     }
 
-    if (this.accessCache.hasGrant(session.userId, forwardedHost)) {
-      // Parity with the middleware being replaced (nothing in the repo
-      // reads X-Forwarded-User today (confirmed repo-wide), so this is
-      // free and cannot break a migrating router). VerifyController is
-      // what actually sets the response header; this method only decides
-      // the value.
-      return { outcome: 'allow', email: session.email, userId: session.userId }
+    if (this.accessCache.hasGrant(session.userId, host)) {
+      return { outcome: 'allow' }
     }
 
     // "the grant binds on first sign-in." Checked only here, on the
@@ -174,17 +198,17 @@ export class VerifyService {
       this.accessCache.bindPreAuthorizedGrant(
         session.userId,
         session.email,
-        forwardedHost,
+        host,
       )
     ) {
-      return { outcome: 'allow', email: session.email, userId: session.userId }
+      return { outcome: 'allow' }
     }
 
     // No grant. requests.service.ts owns turning this into a
     // created-or-absorbed access_request row — this service only
     // redirects, it never writes.
     return {
-      outcome: 'redirect',
+      outcome: 'pending',
       location: this.buildRedirectUrl(REDIRECT_PATHS.pending, originalUrl),
     }
   }

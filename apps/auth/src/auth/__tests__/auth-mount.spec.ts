@@ -262,7 +262,9 @@ describe('Better Auth NestJS mount (U3)', () => {
     // `new URL(baseURL).pathname`) to agree — see src/auth/auth.ts's
     // AUTH_PATH_SEGMENT comment for the full citation trail.
     it('the built instance has basePath and baseURL pathname both exactly "/api/auth"', () => {
-      const auth = buildAuth(testDb.db)
+      const auth = buildAuth(testDb.db, {
+        resolveVerifyService: () => undefined,
+      })
       expect(auth.options.basePath).toBe(AUTH_PATH_SEGMENT)
       expect(auth.options.baseURL).toBeDefined()
       expect(new URL(auth.options.baseURL as string).pathname).toBe(
@@ -497,7 +499,9 @@ describe('onAPIError config points at the login page', () => {
   it("errorURL is this app's own /login, not the library default", () => {
     const testDb = createTestDb()
     try {
-      const auth = buildAuth(testDb.db)
+      const auth = buildAuth(testDb.db, {
+        resolveVerifyService: () => undefined,
+      })
       expect(auth.options.onAPIError?.errorURL).toBe(
         `${process.env.AUTH_HOST}/login`,
       )
@@ -526,7 +530,9 @@ describe("Secure cookie attribute reflects AUTH_HOST's own scheme, not the reque
     process.env.AUTH_HOST = 'https://login.lilnas-auth-test.example'
     const testDb = createTestDb()
     try {
-      const auth = buildAuth(testDb.db)
+      const auth = buildAuth(testDb.db, {
+        resolveVerifyService: () => undefined,
+      })
       expect(auth.options.baseURL?.startsWith('https://')).toBe(true)
 
       const signInResponse = await auth.handler(
@@ -619,7 +625,9 @@ describe('buildAuth() env validation (fail fast at boot)', () => {
     const original = process.env[key]
     delete process.env[key]
     try {
-      expect(() => buildAuth(testDb.db)).toThrow(`${key} not defined`)
+      expect(() =>
+        buildAuth(testDb.db, { resolveVerifyService: () => undefined }),
+      ).toThrow(`${key} not defined`)
     } finally {
       // Node stringifies `undefined` assigned to process.env[key] to the
       // literal string "undefined" rather than deleting it — guard against

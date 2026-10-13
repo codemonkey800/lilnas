@@ -1,10 +1,47 @@
 import { drizzleAdapter } from '@better-auth/drizzle-adapter'
+import { oauthProvider } from '@better-auth/oauth-provider'
 import { env } from '@lilnas/utils/env'
+import { Logger } from '@nestjs/common'
 import { betterAuth } from 'better-auth'
+import {
+  APIError,
+  createAuthMiddleware,
+  getSessionFromCtx,
+} from 'better-auth/api'
+import { jwt } from 'better-auth/plugins'
 
 import type { Db } from 'src/db/database.module'
 import * as schema from 'src/db/schema'
 import { EnvKeys } from 'src/env'
+import { OIDC_CLIENTS } from 'src/oidc/clients'
+import {
+  decideOidcAccess,
+  decideOidcAccessForHost,
+  type OidcGateResult,
+} from 'src/oidc/oidc-gate'
+import type { VerifyService } from 'src/verify/verify.service'
+
+export type AuthDeps = {
+  // Resolved per call, never at construction — see auth.module.ts.
+  resolveVerifyService: () => VerifyService | undefined
+}
+
+const gateLogger = new Logger('OidcGate')
+
+// Claims-callback form of the gate: anything but `allow` throws 403, which
+// fails the token / userinfo request. Returns {} so no claims are added.
+function enforceGate(result: OidcGateResult): Record<string, never> {
+  if (result.outcome === 'allow') return {}
+  gateLogger.warn(
+    `token/userinfo denied: ${
+      result.outcome === 'deny' ? result.reason : result.outcome
+    }`,
+  )
+  throw new APIError('FORBIDDEN', {
+    error: 'access_denied',
+    error_description: 'access denied',
+  })
+}
 
 // The one path segment the browser, Next's rewrite, NestJS's mount gate,
 // and Better Auth's own internal router all have to agree on.
@@ -39,7 +76,8 @@ export const AUTH_PATH_SEGMENT = '/api/auth'
 // app has no guild/membership concept, no second linkable provider, and no
 // dev-only bypass. Don't port that complexity into an app that doesn't have
 // the problem it solves.
-export function buildAuth(db: Db) {
+export function buildAuth(db: Db, deps: AuthDeps) {
+  const { resolveVerifyService } = deps
   const authHost = env(EnvKeys.AUTH_HOST)
   // Parsed once and reused below for trustedOrigins' scheme prefix —
   // AUTH_HOST is trusted deployment config, not user input, so a malformed
@@ -298,10 +336,117 @@ export function buildAuth(db: Db) {
       },
     },
 
-    // No plugins, no databaseHooks, no disabledPaths — none of tdr-code's
-    // guild-gate / GitHub-linking / dev-login machinery applies to this
-    // app. Keep this config exactly as lean as "sign in with Google, get a
-    // cross-subdomain cookie" requires.
+    // Layer 1 of the OIDC grant gate (layer 2 is in oauthProvider below).
+    // Runs before /oauth2/authorize when the browser hits it directly with
+    // an existing session: only a user who may reach the client's lilnas
+    // host (VerifyService.authorizeHost, the /verify decision) gets a code.
+    // No session -> return untouched; the plugin itself redirects to the
+    // login page. Blocked/pending users are sent to the same absolute
+    // /blocked and /pending pages /verify uses; the gate failing closed
+    // (unknown client, no VerifyService) is a 403.
+    hooks: {
+      before: createAuthMiddleware(async ctx => {
+        if (ctx.path !== '/oauth2/authorize') return
+        const session = await getSessionFromCtx(ctx)
+        if (!session) return
+        const clientId = ctx.query?.client_id
+        const result = decideOidcAccess(
+          resolveVerifyService,
+          typeof clientId === 'string' ? clientId : '',
+          { userId: session.user.id, email: session.user.email },
+        )
+        if (result.outcome === 'allow') return
+        if (result.outcome === 'deny') {
+          gateLogger.warn(`authorize denied: ${result.reason}`)
+          throw new APIError('FORBIDDEN', {
+            error: 'access_denied',
+            error_description: 'access denied',
+          })
+        }
+        throw ctx.redirect(result.location)
+      }),
+    },
+
+    // Exactly two plugins, and only because lilnas-auth is also an OpenID
+    // Connect provider now (Penpot signs in through it; T2 seeds its
+    // client): `oauthProvider` serves discovery/authorize/token/userinfo and
+    // `jwt` supplies the JWKS + RS256 signing key it needs to mint id_tokens
+    // (the plugin requires it unless `disableJwtPlugin` is set). Still no
+    // databaseHooks and no disabledPaths — none of tdr-code's guild-gate /
+    // GitHub-linking / dev-login machinery applies to this app. Don't add a
+    // third plugin without the same kind of reason.
+    plugins: [
+      jwt({
+        // RS256 because Penpot (like most OIDC relying parties) verifies
+        // id_tokens with RSA keys; the plugin's default is EdDSA.
+        jwks: { keyPairConfig: { alg: 'RS256' } },
+        // `iss` must equal the discovery document's `issuer`, which is the
+        // bare origin (no /api/auth path) — see next.config.js for why the
+        // issuer lives at the root.
+        jwt: { issuer: authHost },
+        // The jwt plugin otherwise sets a `set-auth-jwt` header on session
+        // reads; nothing here consumes it, so don't leak a bearer JWT there.
+        disableSettingJwtHeader: true,
+      }),
+      oauthProvider({
+        loginPage: `${authHost}/login`,
+        // Never reached: every client is seeded with skip_consent, so the
+        // consent step is skipped. Pointed at the login page so a misseeded
+        // client lands somewhere real instead of a 404.
+        consentPage: `${authHost}/login`,
+        scopes: ['openid', 'profile', 'email'],
+        // Seeded clients are cached by client_id and become immutable
+        // through the plugin's client CRUD endpoints (they reject with
+        // INTERNAL_SERVER_ERROR; oauth-provider dist/index.mjs ~L1521) —
+        // OidcClientsService is their only writer.
+        cachedTrustedClients: new Set(OIDC_CLIENTS.map(c => c.clientId)),
+        grantTypes: ['authorization_code'],
+        // Layer 2 of the OIDC grant gate: a backstop for the post-login
+        // resume path. After Google sign-in the plugin's own `after` hook
+        // (oauth-provider dist/index.mjs ~L3019) calls runOAuth2Authorize()
+        // -> dispatchAuthEndpoint() directly, which skips endpoint hooks, so
+        // the `hooks.before` above never sees that authorize. Rather than
+        // issue a code and hope, the gate runs again when the code is
+        // EXCHANGED (customIdTokenClaims runs inside createIdToken, ~L326,
+        // so a throw fails the token request) and when userinfo is read
+        // (~L253, with the access token's azp/client_id). A user who was
+        // never granted, or whose grant was revoked after the code was
+        // issued, therefore gets no id_token and no userinfo. Returns {} —
+        // no claims are added.
+        customIdTokenClaims: ({ user, metadata }) => {
+          const host =
+            typeof metadata?.lilnasHost === 'string'
+              ? metadata.lilnasHost
+              : undefined
+          return enforceGate(
+            decideOidcAccessForHost(resolveVerifyService, host, {
+              userId: user.id,
+              email: user.email,
+            }),
+          )
+        },
+        customUserInfoClaims: ({ user, jwt }) => {
+          const clientId = jwt.client_id ?? jwt.azp
+          return enforceGate(
+            decideOidcAccess(
+              resolveVerifyService,
+              typeof clientId === 'string' ? clientId : '',
+              { userId: user.id, email: user.email },
+            ),
+          )
+        },
+        // Clients are seeded, never self-registered.
+        allowDynamicClientRegistration: false,
+        allowUnauthenticatedClientRegistration: false,
+        // Denies the client CRUD/list endpoints for everyone (they 401);
+        // there is no admin surface for them, clients live in the seed.
+        clientPrivileges: () => false,
+        // The issuer is the origin, so the path-suffixed well-known URLs
+        // these warnings ask for are intentionally absent; the root ones
+        // are rewritten in next.config.js instead.
+        silenceWarnings: { openidConfig: true, oauthAuthServerConfig: true },
+      }),
+    ],
   })
 }
 

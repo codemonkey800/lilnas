@@ -48,6 +48,11 @@ import {
 //     service registry's second source, for hosts that live outside this
 //     repo's compose files (e.g. a ~/dev project exposed at
 //     *.dev.lilnas.io). See its own comment below.
+//
+//   oauth_client · oauth_refresh_token · oauth_access_token · oauth_consent ·
+//   jwks — storage for the OIDC provider (the `jwt` + `oauthProvider` Better
+//   Auth plugins wired in auth.ts). Models are dictated by the plugins, not
+//   designed here; see the block at the bottom of this file.
 // ──────────────────────────────────────────────────────────────────────────────
 
 export const user = sqliteTable('user', {
@@ -446,3 +451,140 @@ export const gatedHost = sqliteTable('gated_host', {
 })
 
 export type GatedHostRow = typeof gatedHost.$inferSelect
+
+// OIDC provider tables. Field lists are copied from the models declared by
+// the installed plugins — `oauthClient`, `oauthRefreshToken`,
+// `oauthAccessToken`, `oauthConsent` from @better-auth/oauth-provider@1.6.23's
+// dist/index.mjs (`src/schema.ts` region) and `jwks` from better-auth@1.6.23's
+// dist/plugins/jwt/schema.mjs. Conventions follow the Better Auth tables
+// above: snake_case columns, `timestamp_ms` dates, text ids. The SQLite
+// adapter JSON-encodes `string[]` and `json` fields, so those are `text`.
+// A reference with no declared `onDelete` cascades (Better Auth's own
+// generator default); `sessionId` is declared `set null` and is kept so.
+
+// `clientId` (not `id`) is what every other oauth table references, and what
+// the plugin looks clients up by. It is unique, which SQLite requires of a
+// foreign-key parent column.
+export const oauthClient = sqliteTable(
+  'oauth_client',
+  {
+    id: text('id').primaryKey(),
+    clientId: text('client_id').notNull().unique(),
+    clientSecret: text('client_secret'),
+    disabled: integer('disabled', { mode: 'boolean' }).default(false),
+    skipConsent: integer('skip_consent', { mode: 'boolean' }),
+    enableEndSession: integer('enable_end_session', { mode: 'boolean' }),
+    subjectType: text('subject_type'),
+    scopes: text('scopes'),
+    userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }),
+    name: text('name'),
+    uri: text('uri'),
+    icon: text('icon'),
+    contacts: text('contacts'),
+    tos: text('tos'),
+    policy: text('policy'),
+    softwareId: text('software_id'),
+    softwareVersion: text('software_version'),
+    softwareStatement: text('software_statement'),
+    redirectUris: text('redirect_uris').notNull(),
+    postLogoutRedirectUris: text('post_logout_redirect_uris'),
+    tokenEndpointAuthMethod: text('token_endpoint_auth_method'),
+    grantTypes: text('grant_types'),
+    responseTypes: text('response_types'),
+    public: integer('public', { mode: 'boolean' }),
+    type: text('type'),
+    requirePKCE: integer('require_pkce', { mode: 'boolean' }),
+    referenceId: text('reference_id'),
+    metadata: text('metadata'),
+  },
+  t => [index('oauth_client_user_id_idx').on(t.userId)],
+)
+
+export type OauthClientRow = typeof oauthClient.$inferSelect
+
+export const oauthRefreshToken = sqliteTable(
+  'oauth_refresh_token',
+  {
+    id: text('id').primaryKey(),
+    token: text('token').notNull().unique(),
+    clientId: text('client_id')
+      .notNull()
+      .references(() => oauthClient.clientId, { onDelete: 'cascade' }),
+    sessionId: text('session_id').references(() => session.id, {
+      onDelete: 'set null',
+    }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    referenceId: text('reference_id'),
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }),
+    revoked: integer('revoked', { mode: 'timestamp_ms' }),
+    authTime: integer('auth_time', { mode: 'timestamp_ms' }),
+    scopes: text('scopes').notNull(),
+  },
+  t => [
+    index('oauth_refresh_token_client_id_idx').on(t.clientId),
+    index('oauth_refresh_token_session_id_idx').on(t.sessionId),
+    index('oauth_refresh_token_user_id_idx').on(t.userId),
+  ],
+)
+
+export const oauthAccessToken = sqliteTable(
+  'oauth_access_token',
+  {
+    id: text('id').primaryKey(),
+    token: text('token').unique(),
+    clientId: text('client_id')
+      .notNull()
+      .references(() => oauthClient.clientId, { onDelete: 'cascade' }),
+    sessionId: text('session_id').references(() => session.id, {
+      onDelete: 'set null',
+    }),
+    userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
+    referenceId: text('reference_id'),
+    refreshId: text('refresh_id').references(() => oauthRefreshToken.id, {
+      onDelete: 'cascade',
+    }),
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }),
+    scopes: text('scopes').notNull(),
+  },
+  t => [
+    index('oauth_access_token_client_id_idx').on(t.clientId),
+    index('oauth_access_token_session_id_idx').on(t.sessionId),
+    index('oauth_access_token_user_id_idx').on(t.userId),
+    index('oauth_access_token_refresh_id_idx').on(t.refreshId),
+  ],
+)
+
+export const oauthConsent = sqliteTable(
+  'oauth_consent',
+  {
+    id: text('id').primaryKey(),
+    clientId: text('client_id')
+      .notNull()
+      .references(() => oauthClient.clientId, { onDelete: 'cascade' }),
+    userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
+    referenceId: text('reference_id'),
+    scopes: text('scopes').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }),
+  },
+  t => [
+    index('oauth_consent_client_id_idx').on(t.clientId),
+    index('oauth_consent_user_id_idx').on(t.userId),
+  ],
+)
+
+// The jwt plugin's signing keys (private key stored encrypted by the
+// plugin). Not user-scoped, so no references.
+export const jwks = sqliteTable('jwks', {
+  id: text('id').primaryKey(),
+  publicKey: text('public_key').notNull(),
+  privateKey: text('private_key').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  expiresAt: integer('expires_at', { mode: 'timestamp_ms' }),
+})

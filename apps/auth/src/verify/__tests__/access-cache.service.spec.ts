@@ -48,7 +48,7 @@ function fakeLogger(): PinoLogger {
 // needs (verify.service.spec.ts's own "Integration" describe block covers
 // the full NestJS-module-level wiring instead).
 function createHarness(testDb: ReturnType<typeof createTestDb>) {
-  const auth = buildAuth(testDb.db)
+  const auth = buildAuth(testDb.db, { resolveVerifyService: () => undefined })
   const authService = new AuthService({ auth })
   const logger = fakeLogger()
   const cache = new AccessCacheService(testDb.db, authService, logger)

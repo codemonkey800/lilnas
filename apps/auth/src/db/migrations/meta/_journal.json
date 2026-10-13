@@ -29,6 +29,13 @@
       "when": 1790708949190,
       "tag": "0003_gated_host",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1791863585321,
+      "tag": "0004_oidc_provider",
+      "breakpoints": true
     }
   ]
 }

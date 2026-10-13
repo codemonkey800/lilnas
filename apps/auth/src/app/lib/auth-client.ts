@@ -1,3 +1,4 @@
+import { oauthProviderClient } from '@better-auth/oauth-provider/client'
 import { createAuthClient } from 'better-auth/react'
 
 // Not in U3's listed file set, but required by it: the plan's own
@@ -24,6 +25,20 @@ import { createAuthClient } from 'better-auth/react'
 // non-stripping rewrite, unlike tdr-code's app-wide one — but the
 // client-side trap and its fix are identical either way, since both
 // resolve to the same relative '/api/auth' default).
-export const authClient = createAuthClient()
+//
+// `oauthProviderClient()` is what lets an OIDC authorize survive the Google
+// round trip. /oauth2/authorize redirects a session-less user to
+// /login?client_id=…&sig=…; the provider resumes that authorize after
+// sign-in ONLY if the sign-in request body carried the signed query as
+// `oauth_query` (its `hooks.before` stashes it in the OAuth state, its
+// `hooks.after` redirects to the client with a code). The plugin's
+// `oauth-provider-signin` fetch plugin
+// (node_modules/@better-auth/oauth-provider/dist/client.mjs) injects
+// `oauth_query: buildSignedOAuthQuery(window.location.search)` into every
+// non-GET request body, so login-form.tsx needs no change for the resume —
+// and on a plain /login visit (no `sig`) it injects nothing.
+export const authClient = createAuthClient({
+  plugins: [oauthProviderClient()],
+})
 
 export const { signIn, signOut, useSession } = authClient

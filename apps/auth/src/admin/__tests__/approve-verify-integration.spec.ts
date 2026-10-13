@@ -62,7 +62,9 @@ describe("U7 integration: admin approve unblocks a waiting user's /verify withou
   it('a session that was redirected to pending reaches outcome allow immediately after approval, with no further DB read on the grant check', async () => {
     const testDb = createTestDb()
     try {
-      const auth = buildAuth(testDb.db)
+      const auth = buildAuth(testDb.db, {
+        resolveVerifyService: () => undefined,
+      })
       const authService = new AuthService({ auth })
       const accessCache = new AccessCacheService(
         testDb.db,

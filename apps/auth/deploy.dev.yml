@@ -46,6 +46,7 @@ services:
       - ../../apps/swole/deploy.yml:/repo/apps/swole/deploy.yml:ro
       - ../../apps/tdr-bot/deploy.yml:/repo/apps/tdr-bot/deploy.yml:ro
       - ../../apps/tdr-code/deploy.yml:/repo/apps/tdr-code/deploy.yml:ro
+      - ../../apps/theater/deploy.yml:/repo/apps/theater/deploy.yml:ro
     # Not present on apps/swole or apps/download's deploy.dev.yml (neither
     # bothers with a dev-mode healthcheck), but added here deliberately:
     # R20's healthcheck design is the actual point of this app, so proving

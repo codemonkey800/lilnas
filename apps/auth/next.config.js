@@ -51,6 +51,22 @@ module.exports = {
         source: '/api/auth/:path*',
         destination: 'http://localhost:8081/api/auth/:path*',
       },
+      // OIDC discovery at the issuer root. The issuer is the bare origin
+      // (AUTH_HOST, no path) so relying parties like Penpot, which fetch
+      // `<issuer>/.well-known/openid-configuration`, find it; the provider
+      // plugin only answers them at that root path (its onRequest hook
+      // matches the full pathname; under /api/auth they 404), so the
+      // destination keeps the path unchanged and Nest's
+      // OidcWellKnownController hands it to Better Auth. NON-stripping.
+      {
+        source: '/.well-known/openid-configuration',
+        destination: 'http://localhost:8081/.well-known/openid-configuration',
+      },
+      {
+        source: '/.well-known/oauth-authorization-server',
+        destination:
+          'http://localhost:8081/.well-known/oauth-authorization-server',
+      },
       {
         source: '/api/sse/:path*',
         destination: 'http://localhost:8081/sse/:path*',

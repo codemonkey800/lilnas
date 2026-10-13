@@ -82,7 +82,7 @@ function countAccessRequestRows(db: Db): number {
 // exercises the full NestJS + real-HTTP-server wiring this unit's
 // "Integration" test scenario asks for.
 function createHarness(testDb: ReturnType<typeof createTestDb>) {
-  const auth = buildAuth(testDb.db)
+  const auth = buildAuth(testDb.db, { resolveVerifyService: () => undefined })
   const authService = new AuthService({ auth })
   const logger = fakeLogger()
   const cache = new AccessCacheService(testDb.db, authService, logger)
@@ -716,7 +716,9 @@ describe('VerifyController integration (real NestJS app, real HTTP, real DB)', (
         // row, never on which buildAuth() call produced the value, so a
         // cookie minted here is equally valid when presented to the running
         // app's /verify endpoint.
-        const mintingAuth = buildAuth(testDb.db)
+        const mintingAuth = buildAuth(testDb.db, {
+          resolveVerifyService: () => undefined,
+        })
         const cookie = await signInAndGetSessionCookiePair(
           mintingAuth,
           AUTH_HOST,
@@ -768,7 +770,9 @@ describe('VerifyController integration (real NestJS app, real HTTP, real DB)', (
       const { moduleRef, app, port } = await startTestApp(testDb.db)
       try {
         const accessCache = moduleRef.get(AccessCacheService)
-        const mintingAuth = buildAuth(testDb.db)
+        const mintingAuth = buildAuth(testDb.db, {
+          resolveVerifyService: () => undefined,
+        })
         const cookie = await signInAndGetSessionCookiePair(
           mintingAuth,
           AUTH_HOST,
@@ -825,7 +829,9 @@ describe('VerifyController integration (real NestJS app, real HTTP, real DB)', (
       try {
         // See the previous test's comment on why a separate buildAuth()
         // call, sharing the same db + secret, is used to mint the cookie.
-        const mintingAuth = buildAuth(testDb.db)
+        const mintingAuth = buildAuth(testDb.db, {
+          resolveVerifyService: () => undefined,
+        })
         const cookie = await signInAndGetSessionCookiePair(
           mintingAuth,
           AUTH_HOST,

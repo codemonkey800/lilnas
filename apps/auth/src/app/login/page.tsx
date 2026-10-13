@@ -2,13 +2,13 @@ import { env } from '@lilnas/utils/env'
 
 import { resolveRedirectTarget } from 'src/auth/redirect'
 import { EnvKeys } from 'src/env'
+import { findOidcClient } from 'src/oidc/clients'
 
 import { LoginForm } from './login-form'
+import { detectOidcPrompt } from './oidc-prompt'
 
 type LoginPageProps = {
-  searchParams: Promise<{
-    redirect?: string | string[]
-  }>
+  searchParams: Promise<Record<string, string | string[] | undefined>>
 }
 
 // U4: deliberately a Server Component (no 'use client'), NOT the
@@ -35,7 +35,8 @@ type LoginPageProps = {
 // a server-only async component with 'use client' exports, since the
 // directive applies to the whole module, not per-export.
 export default async function LoginPage({ searchParams }: LoginPageProps) {
-  const { redirect } = await searchParams
+  const params = await searchParams
+  const { redirect } = params
 
   const callbackURL = resolveRedirectTarget(
     // Next collapses a repeated `?redirect=a&redirect=b` query key into a
@@ -61,7 +62,19 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   // config.defaultDestination ('/') verbatim, OR the original candidate
   // string verbatim after that candidate already parsed successfully as a
   // URL, never anything in between.
-  const targetHost = callbackURL === '/' ? null : new URL(callbackURL).hostname
+  //
+  // An OIDC authorize (see oidc-prompt.ts) names its target by client, not by
+  // ?redirect=, so the pill shows that client's host instead. callbackURL is
+  // untouched: after sign-in the provider's after-hook overrides the final
+  // redirect with the client's callback + code (the signed query travels via
+  // auth-client.ts's oauthProviderClient). An unknown client_id gets no pill.
+  const prompt = detectOidcPrompt(params)
+  const oidcClient = prompt ? findOidcClient(prompt.clientId) : undefined
+  const targetHost = oidcClient
+    ? oidcClient.host
+    : callbackURL === '/'
+      ? null
+      : new URL(callbackURL).hostname
 
   return <LoginForm callbackURL={callbackURL} targetHost={targetHost} />
 }

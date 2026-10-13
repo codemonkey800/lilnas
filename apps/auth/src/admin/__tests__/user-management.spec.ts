@@ -82,7 +82,7 @@ function fakeServiceRegistry(
 // own publish-signal assertions.
 // ──────────────────────────────────────────────────────────────────────────────
 function createHarness(testDb: ReturnType<typeof createTestDb>) {
-  const auth = buildAuth(testDb.db)
+  const auth = buildAuth(testDb.db, { resolveVerifyService: () => undefined })
   const authService = new AuthService({ auth })
   const accessCache = new AccessCacheService(
     testDb.db,

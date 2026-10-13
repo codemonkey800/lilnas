@@ -3,14 +3,18 @@
 # (https://github.com/penpot/penpot/blob/main/docker/images/docker-compose.yaml)
 # with the bundled Traefik and mailcatcher dropped.
 #
-# Auth: lilnas-auth gates penpot.lilnas.io at the proxy. Penpot has no
-# trusted-header / proxy-auth mode (its only login methods are password,
-# LDAP, OIDC and expiring demo users), so its own login can't be turned
-# off. Instead, public registration is disabled and accounts are created
-# from the CLI; the Penpot session cookie is long-lived, so it's a
-# one-time sign-in per browser behind lilnas-auth:
+# Auth: lilnas-auth still gates penpot.lilnas.io at the proxy (ForwardAuth
+# stays — the browser carries the `.lilnas.io` session cookie to Penpot's
+# /api/auth/oidc/callback, so the callback passes the gate like any other
+# request). Penpot has no trusted-header / proxy-auth mode, so its own login
+# is now a single "Sign in with lilnas" button backed by lilnas-auth's OIDC
+# provider (client `penpot`; secret in .env.penpot). The password form is
+# hidden. The `create-profile` recipe stays for emergencies only:
 #
 #   docker-compose exec penpot-backend python3 manage.py create-profile
+#
+# Penpot fetches <PENPOT_OIDC_BASE_URI>/.well-known/openid-configuration at
+# backend start, so lilnas-auth must be up before penpot-backend.
 #
 # Only penpot-frontend (nginx, :8080) is exposed — it proxies the API,
 # exporter and /ws/notifications websocket to the other containers over
@@ -24,7 +28,16 @@ x-logging: &default-logging
 x-flags: &penpot-flags
   # No SMTP is configured, so email verification must stay off or new
   # profiles could never activate. prepl-server is what manage.py talks to.
-  PENPOT_FLAGS: disable-registration disable-email-verification enable-prepl-server enable-admin-console
+  # login-with-oidc shows the "Sign in with lilnas" button. oidc-registration
+  # lets OIDC create accounts even though disable-registration closes the
+  # public form: a first-time user sees a one-time "create account" form
+  # (pre-filled from the OIDC claims) and registration is possible only that
+  # way. disable-login-with-password hides the password form; manage.py
+  # create-profile still works since it bypasses the login UI.
+  PENPOT_FLAGS: >-
+    disable-registration disable-email-verification enable-prepl-server
+    enable-admin-console enable-login-with-oidc enable-oidc-registration
+    disable-login-with-password
 
 x-uri: &penpot-public-uri
   PENPOT_PUBLIC_URI: https://penpot.lilnas.io
@@ -55,6 +68,7 @@ services:
     environment:
       <<: [*penpot-flags, *penpot-http-body-size, *penpot-public-uri]
       PENPOT_ADMIN_CONSOLE_URI: http://penpot-admin-console:3000
+      PENPOT_OIDC_NAME: lilnas
     labels:
       - traefik.enable=true
       - traefik.docker.network=lilnas-proxy
@@ -77,12 +91,20 @@ services:
         condition: service_healthy
     networks:
       - penpot
-    # PENPOT_SECRET_KEY, PENPOT_DATABASE_PASSWORD
+    # PENPOT_SECRET_KEY, PENPOT_DATABASE_PASSWORD, PENPOT_OIDC_CLIENT_SECRET
     env_file:
       - .env.penpot
     environment:
       <<: [*penpot-flags, *penpot-public-uri, *penpot-http-body-size, *penpot-database]
       PENPOT_ADMIN_CONSOLE_URI: http://penpot-admin-console:3000
+      # Endpoints come from discovery; the trailing slash matters because
+      # Penpot appends `.well-known/openid-configuration` to it. The backend
+      # reaches https://auth.lilnas.io directly, so no SSRF allow-list.
+      # `token`: claims come from the id_token (needs email + name).
+      PENPOT_OIDC_CLIENT_ID: penpot
+      PENPOT_OIDC_BASE_URI: https://auth.lilnas.io/
+      PENPOT_OIDC_SCOPES: openid profile email
+      PENPOT_OIDC_USER_INFO_SOURCE: token
       PENPOT_REDIS_URI: redis://penpot-valkey/0
       PENPOT_OBJECTS_STORAGE_BACKEND: fs
       PENPOT_OBJECTS_STORAGE_FS_DIRECTORY: /opt/data/assets

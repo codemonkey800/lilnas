@@ -15,6 +15,7 @@ import {
   DiscordLinkLookupController,
 } from './internal/discord-internal.controller'
 import { MeController } from './me/me.controller'
+import { OidcClientsService } from './oidc/oidc-clients.service'
 import { RequestsController } from './requests/requests.controller'
 import { RequestsService } from './requests/requests.service'
 import { GatedHostsService } from './services/gated-hosts.service'
@@ -101,6 +102,7 @@ const isProduction = env(EnvKeys.NODE_ENV, 'development') === 'production'
     ServiceRegistryService,
     GatedHostsService,
     UsersService,
+    OidcClientsService,
   ],
 })
 export class AppModule {}

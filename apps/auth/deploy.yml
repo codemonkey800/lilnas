@@ -77,6 +77,7 @@ services:
       - ../../apps/swole/deploy.yml:/repo/apps/swole/deploy.yml:ro
       - ../../apps/tdr-bot/deploy.yml:/repo/apps/tdr-bot/deploy.yml:ro
       - ../../apps/tdr-code/deploy.yml:/repo/apps/tdr-code/deploy.yml:ro
+      - ../../apps/theater/deploy.yml:/repo/apps/theater/deploy.yml:ro
     # Probes Nest's /health on :8081 directly — deliberately NOT Next's
     # :8080. A dead/crashed Next process must never restart this container,
     # because a restart would also interrupt /verify (once U5 exists) for

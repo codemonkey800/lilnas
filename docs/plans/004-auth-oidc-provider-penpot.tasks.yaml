@@ -1,0 +1,499 @@
+nexus-tasks: 1
+phases:
+  - key: '1'
+    name: Provider, gate, client, Penpot config
+    tasks:
+      - id: T1
+        title: OIDC provider plugins, schema, migration, discovery at the root
+        after: []
+        files:
+          - apps/auth/package.json
+          - pnpm-lock.yaml
+          - apps/auth/src/db/schema.ts
+          - apps/auth/src/db/migrations/
+          - apps/auth/src/db/__tests__/schema.spec.ts
+          - apps/auth/src/auth/auth.ts
+          - apps/auth/src/auth/__tests__/auth-mount.spec.ts
+          - apps/auth/src/auth/__tests__/oidc-discovery.spec.ts
+          - apps/auth/next.config.js
+        status: done
+        commit: ad25ee9559fca4318df8de2a7b8dd6ef7c0cc868
+        body: |-
+          Make `apps/auth` serve OpenID Connect discovery, JWKS, authorize, token and
+          userinfo endpoints. No client exists yet (T2 seeds one) and no grant gate yet
+          (T3); this task is plugins + storage + routing.
+
+          1. Dependency: `pnpm --filter @lilnas/auth add @better-auth/oauth-provider@1.6.23`
+             (exact pin, like `better-auth` is). Commit `pnpm-lock.yaml` with it.
+             `jose` and `better-auth/plugins` (`jwt`) are already installed.
+          2. `src/db/schema.ts`: add Drizzle tables for every model the two plugins
+             declare — `oauthClient`, `oauthAccessToken`, `oauthRefreshToken`,
+             `oauthConsent` (read the `src/schema.ts` region of
+             `apps/auth/node_modules/@better-auth/oauth-provider/dist/index.mjs`; copy the
+             field list, required/unique/references flags and `onDelete` exactly) and
+             `jwks` (`apps/auth/node_modules/better-auth/dist/plugins/jwt/schema.mjs`).
+             Export each under the model's camelCase name (`export const oauthClient =
+             sqliteTable('oauth_client', …)`), snake_case columns, `text` for
+             `string[]`/`json` fields (the SQLite adapter JSON-encodes them), `integer
+             { mode: 'timestamp_ms' }` for dates, `integer { mode: 'boolean' }` for
+             booleans, text `id` primary keys, FKs to `user`/`session` as declared.
+             Add a schema-map header comment in the file's style. Then
+             `pnpm --filter @lilnas/auth db:generate --name oidc_provider` and commit the
+             generated SQL, snapshot and journal unedited. Extend `schema.spec.ts`'s
+             table list.
+          3. `src/auth/auth.ts`: add `plugins: [jwt(...), oauthProvider(...)]`.
+             ```ts
+             jwt({
+               jwks: { keyPairConfig: { alg: 'RS256' } },
+               jwt: { issuer: authHost },           // AUTH_HOST, no path
+               disableSettingJwtHeader: true,
+             })
+             oauthProvider({
+               loginPage: `${authHost}/login`,
+               consentPage: `${authHost}/login`,    // never reached: every client is seeded skip_consent
+               scopes: ['openid', 'profile', 'email'],
+               grantTypes: ['authorization_code'],
+               allowDynamicClientRegistration: false,
+               allowUnauthenticatedClientRegistration: false,
+               clientPrivileges: () => false,       // CRUD/list endpoints always 401; clients are seeded (T2)
+               silenceWarnings: { openidConfig: true, oauthAuthServerConfig: true },
+             })
+             ```
+             Rewrite the "No plugins" rationale comment: the config is no longer
+             plugin-free, say why these two and only these two. Keep every existing
+             option. Verify against the installed `.d.mts` that each option name exists
+             in 1.6.23 and drop any that doesn't, noting it.
+          4. `next.config.js`: two more NON-stripping rewrites,
+             `/.well-known/openid-configuration` →
+             `http://localhost:8081/api/auth/.well-known/openid-configuration` and
+             `/.well-known/oauth-authorization-server` →
+             `http://localhost:8081/api/auth/.well-known/oauth-authorization-server`,
+             with a comment explaining the issuer-at-root decision.
+          5. Tests (`src/auth/__tests__/oidc-discovery.spec.ts`, booting the real mount
+             like `auth-mount.spec.ts` does): `GET /api/auth/.well-known/openid-configuration`
+             is 200 JSON with `issuer === process.env.AUTH_HOST`, `authorization_endpoint`
+             `token_endpoint` `userinfo_endpoint` `jwks_uri` all absolute under
+             `${AUTH_HOST}/api/auth/`, `id_token_signing_alg_values_supported` includes
+             `RS256`, `scopes_supported` equals the three scopes; `GET /api/auth/jwks`
+             returns one RSA key (`kty: 'RSA'`, `alg: 'RS256'`) and a `jwks` row now
+             exists; `GET /api/auth/oauth2/authorize?client_id=nope&…` with a signed-in
+             cookie does not 500 (an OAuth error, since no client exists). Update
+             `auth-mount.spec.ts` only if the plugins change an assertion there (e.g.
+             the Google sign-in response shape) — existing assertions must stay true.
+          Edge cases: `pnpm --filter @lilnas/auth exec drizzle-kit check` must stay
+          green; `type-check` must pass with the plugin's inferred types in
+          `AuthService<Auth>` consumers; the Google callback path must still issue the
+          session cookie exactly as before.
+      - id: T2
+        title: Client registry + boot-time seeding of the Penpot client; token exchange test
+        after:
+          - T1
+        files:
+          - apps/auth/src/oidc/clients.ts
+          - apps/auth/src/oidc/oidc-clients.service.ts
+          - apps/auth/src/oidc/__tests__/oidc-clients.spec.ts
+          - apps/auth/src/env.ts
+          - apps/auth/.env.example
+          - apps/auth/src/app.module.ts
+          - apps/auth/src/auth/auth.ts
+        status: done
+        commit: 9cef4df94eb6764a26a3ff39bb55890147b8d2de
+        body: |-
+          Give lilnas-auth a generic "which OIDC clients exist, and which lilnas host
+          does each one correspond to" registry, and make sure the Penpot client is in
+          the database every time the app boots.
+
+          `src/oidc/clients.ts` (pure, no I/O, importable from Next server components):
+          ```ts
+          export type OidcClientDefinition = {
+            clientId: string          // 'penpot'
+            name: string              // 'Penpot' (shown on the login page)
+            host: string              // 'penpot.lilnas.io' — the grant key /verify uses
+            redirectUris: string[]    // ['https://penpot.lilnas.io/api/auth/oidc/callback']
+            secretEnvKey: keyof typeof EnvKeys  // 'OIDC_PENPOT_CLIENT_SECRET'
+          }
+          export const OIDC_CLIENTS: readonly OidcClientDefinition[]
+          export function findOidcClient(clientId: string): OidcClientDefinition | undefined
+          export function hostForOidcClient(clientId: string): string | undefined
+          ```
+          Hosts are already-normalized lowercase literals (see `src/services/normalize-host.ts`).
+          Add `EnvKeys.OIDC_PENPOT_CLIENT_SECRET` with a comment in `env.ts`'s style and a
+          `.env.example` block (dev value `changeme`; prod: generated with
+          `openssl rand -hex 32`, set in `.env.prod`, and the SAME value goes to
+          `infra/.env.penpot` as `PENPOT_OIDC_CLIENT_SECRET`).
+
+          `src/oidc/oidc-clients.service.ts`: an `@Injectable()` with `onModuleInit()`
+          that, for each definition, reads the secret via `env(secretEnvKey)` (throw at
+          boot if unset — misconfiguration must be loud) and upserts a row in
+          `oauth_client` by `client_id` through Drizzle:
+          `client_secret` = `base64url(sha256(secret))` without padding (use
+          `@better-auth/utils/hash` `createHash('SHA-256')` and `@better-auth/utils/base64`
+          `base64Url.encode(…, { padding: false })` — the exact functions the plugin's
+          `defaultHasher` uses; cite the dist path), `name`, `redirect_uris` (JSON
+          array), `scopes` `["openid","profile","email"]`, `type 'web'`,
+          `token_endpoint_auth_method 'client_secret_post'`, `grant_types
+          ["authorization_code"]`, `response_types ["code"]`, `skip_consent true`,
+          `require_pkce false`, `public false`, `disabled false`,
+          `metadata` JSON `{ "lilnasHost": host }`, timestamps. Updating an existing row
+          must refresh everything except `id`/`created_at` (so a rotated secret or a
+          new redirect URI takes effect on restart). Register it in `app.module.ts`
+          providers. In `auth.ts`, pass `cachedTrustedClients: new Set(OIDC_CLIENTS.map(c => c.clientId))`
+          only if that option exists in the installed 1.6.23 `.d.mts` (it does per the
+          plan's research; drop with a note if not).
+
+          Tests (`oidc-clients.spec.ts`, real in-memory DB + real `buildAuth()`):
+          - seeding is idempotent (two `onModuleInit()` calls → one row); a changed
+            secret/redirect URI is applied on the second call; a missing env key throws
+            naming the key.
+          - full happy path through `auth.handler()` with no HTTP server: sign a user in
+            (`signInAndGetSessionCookiePair`), `GET /api/auth/oauth2/authorize?response_type=code
+            &client_id=penpot&redirect_uri=<registered>&scope=openid%20profile%20email&state=xyz`
+            with that cookie → 302 to the registered redirect URI carrying `code`,
+            `state=xyz` (and `iss`); then `POST /api/auth/oauth2/token` as
+            `application/x-www-form-urlencoded` with `grant_type=authorization_code`,
+            `code`, `redirect_uri`, `client_id=penpot`, `client_secret=<plain secret>`,
+            NO `code_verifier` → 200 JSON with `access_token`, `id_token`; decode the
+            id_token (jose `decodeJwt`) and assert `iss === AUTH_HOST`, `aud` contains
+            `penpot`, `email`, `email_verified === true`, `name`; verify its signature
+            against `GET /api/auth/jwks` (jose `createLocalJWKSet` + `jwtVerify`);
+            `GET /api/auth/oauth2/userinfo` with the bearer token returns `sub`, `email`,
+            `email_verified`, `name`.
+          - a wrong `client_secret` → 401, an unregistered `redirect_uri` → error, not a
+            code.
+      - id: T3
+        title: Grant gate on /oauth2/authorize, reusing the /verify decision
+        after:
+          - T2
+        files:
+          - apps/auth/src/auth/auth.ts
+          - apps/auth/src/auth/auth.module.ts
+          - apps/auth/src/verify/verify.service.ts
+          - apps/auth/src/verify/__tests__/verify.service.spec.ts
+          - apps/auth/src/oidc/oidc-gate.ts
+          - apps/auth/src/oidc/__tests__/oidc-gate.spec.ts
+        status: done
+        commit: 7cf676c2a3a6290aa6f0275dd8141d4ea638114c
+        body: |-
+          Only a user who may reach the client's lilnas host may complete the
+          authorize flow for that client. The decision must be THE SAME code `/verify`
+          runs, not a copy.
+
+          1. `verify.service.ts`: extract the post-session part of `decide()` into a
+             public method on the same class, leaving `decide()` behaviourally identical
+             (its spec file must pass with at most mechanical edits):
+             ```ts
+             export type HostAccessDecision =
+               | { outcome: 'allow' }
+               | { outcome: 'blocked'; location: string }   // absolute https://AUTH_HOST/blocked?redirect=…
+               | { outcome: 'pending'; location: string }   // absolute https://AUTH_HOST/pending?redirect=…
+             authorizeHost(session: { userId: string; email: string }, host: string, originalUrl: string): HostAccessDecision
+             ```
+             Order stays blocked → admin bypass → hasGrant → bindPreAuthorizedGrant → pending.
+          2. `src/oidc/oidc-gate.ts`: a pure helper that, given
+             `resolveVerifyService: () => VerifyService | undefined`, a `clientId`, and
+             a session, returns the decision for `hostForOidcClient(clientId)` with
+             `originalUrl = https://<host>/`; unknown client or unresolvable service ⇒
+             a `deny` result (fail closed) with a reason for the log.
+          3. `auth.ts`: `buildAuth(db, deps: { resolveVerifyService })`. Add
+             `hooks.before` (`createAuthMiddleware` from `better-auth/api`) matching
+             `ctx.path === '/oauth2/authorize'`: `getSessionFromCtx(ctx)`; if no session,
+             return (the plugin redirects to the login page itself); else run the gate:
+             `blocked`/`pending` ⇒ `throw ctx.redirect(location)`; `deny` ⇒ log and
+             `throw new APIError('FORBIDDEN', …)`. Backstop for the post-login resume
+             path (the plugin's `after` hook calls `runOAuth2Authorize` directly and
+             skips endpoint hooks): in `oauthProvider` options set
+             `customIdTokenClaims` and `customUserInfoClaims` to run the gate using the
+             client's `metadata.lilnasHost` (id token) / the `azp`/`client_id` claim
+             (userinfo) and `throw new APIError('FORBIDDEN')` unless `allow`; return `{}`
+             otherwise. Explain both layers in comments.
+          4. `auth.module.ts`: `inject: [DB, ModuleRef]`, pass
+             `resolveVerifyService: () => moduleRef.get(VerifyService, { strict: false })`
+             (resolved per request, never at construction — this is what breaks the
+             AuthModule ↔ AccessCacheService cycle; say so in the comment). Fix every
+             existing `buildAuth(db)` call site in specs/helpers by passing a stub
+             `{ resolveVerifyService: () => undefined }` where no gate is exercised.
+          Tests (`oidc-gate.spec.ts`, real DB, real `buildAuth` with a real
+          `VerifyService` built as `verify.service.spec.ts`'s `createHarness` does, the
+          Penpot client seeded via T2's service; set `ADMIN_EMAILS=admin@example.com`):
+          - literal grant for `penpot.lilnas.io` → 302 to Penpot's callback with a code;
+          - admin email, no grant → code;
+          - pattern grant `*.lilnas.io` → code; pattern `*.dev.lilnas.io` only → 302 to
+            `/pending?redirect=https%3A%2F%2Fpenpot.lilnas.io%2F`;
+          - blocked user with a grant → 302 to `/blocked?…`;
+          - no grant → `/pending?…` and NO code issued (verification table unchanged);
+          - pending pre-authorization for the email → binds, code issued, grant row
+            exists afterwards;
+          - unknown `client_id` → no code; `resolveVerifyService` returning undefined →
+            403, nothing issued;
+          - backstop: a user with a grant obtains a code, the grant is then removed from
+            the cache, the token exchange fails (non-2xx) and userinfo with any prior
+            access token fails.
+      - id: T4
+        title: Login page resumes an OIDC authorize after Google sign-in
+        after:
+          - T2
+        files:
+          - apps/auth/src/app/lib/auth-client.ts
+          - apps/auth/src/app/login/page.tsx
+          - apps/auth/src/app/login/login-form.tsx
+          - apps/auth/src/app/login/oidc-prompt.ts
+          - apps/auth/src/app/login/__tests__/oidc-prompt.spec.ts
+          - apps/auth/src/auth/__tests__/oidc-post-login.spec.ts
+        status: done
+        commit: befa7581d2a34d3f92560a467913ea3610445148
+        body: |-
+          When `/oauth2/authorize` finds no lilnas session it redirects to
+          `${AUTH_HOST}/login?client_id=…&redirect_uri=…&state=…&exp=…&sig=…` (a signed
+          query). After the Google round trip the provider resumes the authorize ONLY if
+          the sign-in call carried that query as `oauth_query` in its body
+          (`@better-auth/oauth-provider`'s `hooks.before` stores it in the OAuth state;
+          its `hooks.after` then redirects to the client with a code). Today
+          `login-form.tsx` calls `signIn.social({ provider: 'google', callbackURL })`
+          with nothing else.
+
+          1. `auth-client.ts`: `createAuthClient({ plugins: [oauthProviderClient()] })`
+             from `@better-auth/oauth-provider/client` — read
+             `apps/auth/node_modules/@better-auth/oauth-provider/dist/client.mjs`: its
+             `oauth-provider-signin` fetch plugin injects
+             `oauth_query: buildSignedOAuthQuery(window.location.search)` into every
+             sign-in body, so no form change is needed for the resume itself. Comment
+             why this plugin is on the client.
+          2. `oidc-prompt.ts` (pure): `detectOidcPrompt(searchParams: Record<string, string | string[] | undefined>)`
+             returns `{ clientId }` when `client_id` and `sig` are both single strings,
+             else null. `page.tsx`: when a prompt is detected, look the client up with
+             `findOidcClient` (`src/oidc/clients.ts`) and pass `targetHost = client.host`
+             so the existing "Continuing to <service>" pill shows Penpot; `callbackURL`
+             stays whatever `resolveRedirectTarget` returns (the provider's after-hook
+             overrides the final redirect). Unknown client ⇒ no pill. Do not weaken
+             `resolveRedirectTarget`.
+          3. Tests: `oidc-prompt.spec.ts` for the detector (both params present; one
+             missing; array values; empty strings). `oidc-post-login.spec.ts` drives the
+             real mount (as `auth-mount.spec.ts` does, with the Penpot client seeded via
+             T2's service and `{ resolveVerifyService }` stubbed to allow if T3 has
+             landed, else plain `buildAuth(db)`): request authorize with NO cookie →
+             302 to `${AUTH_HOST}/login?...` containing `client_id=penpot` and `sig=`;
+             POST `/api/auth/sign-in/social` with `{ provider: 'google', callbackURL: '/',
+             oauth_query: <that query string> }`; complete the fake Google callback as
+             the existing spec does → the final redirect is to Penpot's registered
+             callback with `code` and the original `state`, not to `/`. Also: a
+             tampered `sig` → the sign-in is rejected (4xx) and no code is issued.
+      - id: T5
+        title: Mount apps/theater/deploy.yml into lilnas-auth (fixes compose-mount-coverage)
+        after: []
+        files:
+          - apps/auth/deploy.yml
+          - apps/auth/deploy.dev.yml
+        status: done
+        commit: 82a229780326e46bd228e2ecb68232304febb98c
+        body: |-
+          `src/services/__tests__/compose-mount-coverage.spec.ts` fails at base: every
+          `apps/*/deploy.yml` must be bind-mounted read-only into the auth container at
+          `/repo/apps/<name>/deploy.yml` in BOTH `apps/auth/deploy.yml` and
+          `apps/auth/deploy.dev.yml`, and `apps/theater/deploy.yml` is missing. Add
+          `- ../../apps/theater/deploy.yml:/repo/apps/theater/deploy.yml:ro` in
+          alphabetical position in both files (same indentation as the neighbours).
+          Verify with `pnpm --filter @lilnas/auth exec jest --maxWorkers=2
+          src/services/__tests__/compose-mount-coverage.spec.ts` → all passing, and
+          `docker-compose config -q` from the repo root exits 0. Nothing else changes.
+      - id: T6
+        title: 'Penpot: OIDC login through lilnas-auth, password login off'
+        after: []
+        files:
+          - infra/penpot.yml
+          - infra/.env.penpot.example
+        status: done
+        commit: c3739f84fa29cbd7c9119d4d3e0651106fdc798a
+        body: |-
+          Configure Penpot 2.18 (`infra/penpot.yml`, included by the root
+          `docker-compose.yml`; secrets in gitignored `infra/.env.penpot`, template
+          `infra/.env.penpot.example`) to sign in through lilnas-auth. File edits only —
+          do NOT deploy (phase 2 does).
+
+          - `x-flags` `PENPOT_FLAGS` becomes: `disable-registration
+            disable-email-verification enable-prepl-server enable-admin-console
+            enable-login-with-oidc enable-oidc-registration disable-login-with-password`.
+            Explain each new flag in the anchor's comment (registration via OIDC only;
+            the one-time "create account" form a new user sees; password form hidden,
+            `manage.py` still works).
+          - `penpot-backend` `environment`: `PENPOT_OIDC_CLIENT_ID: penpot`,
+            `PENPOT_OIDC_BASE_URI: https://auth.lilnas.io/` (trailing slash — Penpot
+            joins `.well-known/openid-configuration` onto it), `PENPOT_OIDC_SCOPES: openid
+            profile email`, `PENPOT_OIDC_USER_INFO_SOURCE: token`. No
+            `PENPOT_OIDC_AUTH_URI/TOKEN_URI/USER_URI/JWKS_URI`, no
+            `PENPOT_SSRF_ALLOWED_HOSTS` (verified: the backend reaches
+            `https://auth.lilnas.io` directly). The secret comes from `.env.penpot`.
+          - `penpot-frontend` `environment`: `PENPOT_OIDC_NAME: lilnas` (button label).
+          - `.env.penpot.example`: add `PENPOT_OIDC_CLIENT_SECRET=` with a comment: must
+            equal `OIDC_PENPOT_CLIENT_SECRET` in `apps/auth/.env.prod`; generate with
+            `openssl rand -hex 32`.
+          - Rewrite the file's header "Auth:" comment: lilnas-auth still gates the host
+            at the proxy (ForwardAuth stays — the browser carries the `.lilnas.io`
+            cookie to `/api/auth/oidc/callback`), and Penpot's own login is now a single
+            "Sign in with lilnas" button backed by lilnas-auth's OIDC provider; the
+            `create-profile` recipe stays for emergencies only.
+          Validate with `docker-compose config -q` from the repo root (the real
+          `.env.penpot` exists there; if the command fails only because
+          `PENPOT_OIDC_CLIENT_SECRET` is unset, that is expected before phase 2 — say so).
+          YAML must keep the existing anchor/merge style.
+      - id: T7
+        title: 'README: document the OIDC provider'
+        after:
+          - T3
+          - T4
+        files:
+          - apps/auth/README.md
+        status: done
+        commit: da8604f47db0a5ead6327d4358a8ca0493192e18
+        body: |-
+          Add an "OIDC provider" section to `apps/auth/README.md` between "The /verify
+          decision" and "Two-process topology": what it is (issuer
+          `https://auth.lilnas.io`, discovery at the root `/.well-known/openid-configuration`
+          via Next rewrites, endpoints under `/api/auth/oauth2/*`, JWKS at
+          `/api/auth/jwks`, RS256), how a client is added (one entry in
+          `src/oidc/clients.ts` + one `OIDC_<NAME>_CLIENT_SECRET` env var; seeded into
+          `oauth_client` on boot; the client's `host` is the grant key), the gate (a
+          mermaid flowchart like the `/verify` one: no session → login page → Google →
+          resume; session → blocked/admin/grant/pre-auth/pending; backstop at token and
+          userinfo), the post-login resume (`oauth_query`), and the Penpot wiring
+          (`infra/penpot.yml`, flags, `PENPOT_OIDC_*`, the shared secret). Add the new
+          env var to the Environment variables table and the new rows to the
+          Two-process topology table's backend column. Read the final `src/oidc/*.ts`,
+          `src/auth/auth.ts` and `next.config.js` first so every path and name is
+          real. Prettier must pass on the markdown (`pnpm --filter @lilnas/auth exec
+          prettier -c README.md`).
+  - key: '2'
+    name: Deploy and verify on production
+    tasks:
+      - id: T8
+        title: 'Pre-deploy: secrets, DB backup, migration dry run, image build'
+        after: []
+        files: []
+        status: done
+        commit: 42581ad379feee6b31205cce8f7c6eb1472de672
+        body: |-
+          Prepare the production deploy without changing any running container. Work
+          from this run's worktree (the repo root you are in); the production checkout
+          is `/home/jeremy/lilnas`, which holds the gitignored env files. Report every
+          command and its outcome; never print a secret value.
+
+          1. Secrets (idempotent — skip a key that already exists, append otherwise):
+             generate ONE value with `openssl rand -hex 32`; append
+             `OIDC_PENPOT_CLIENT_SECRET=<value>` to `/home/jeremy/lilnas/apps/auth/.env.prod`
+             and `PENPOT_OIDC_CLIENT_SECRET=<value>` to `/home/jeremy/lilnas/infra/.env.penpot`.
+             If one file already has its key and the other doesn't, copy the existing
+             value so both match. Confirm with `grep -c` only.
+          2. Env files into the worktree: for every path printed by
+             `git -C /home/jeremy/lilnas ls-files --others --ignored --exclude-standard -- 'infra/.env*' 'infra/env/.env*' 'apps/*/.env.prod' 'apps/theater/.env' 'apps/tdr-code/.env'`
+             that does not exist in the worktree, create a symlink at the same relative
+             path pointing at the production file. They are gitignored; `git status`
+             must stay clean.
+          3. `docker-compose -p lilnas config -q` from the worktree root must exit 0.
+          4. DB backup + migration dry run: `sqlite3 /storage/app-data/lilnas-auth/lilnas-auth.db ".backup /storage/app-data/lilnas-auth/lilnas-auth.db.bak-$(date +%Y%m%d-%H%M%S)"`
+             (keep it; report the path) and a second copy to `/tmp/lilnas-auth-dryrun.db`;
+             run `DATABASE_PATH=/tmp/lilnas-auth-dryrun.db pnpm --filter @lilnas/auth exec drizzle-kit migrate`
+             and then `sqlite3 /tmp/lilnas-auth-dryrun.db ".tables"` must list
+             `oauth_client oauth_access_token oauth_refresh_token oauth_consent jwks`
+             next to the existing tables, with `select count(*) from user` unchanged.
+             Delete the /tmp copy.
+          5. Build without starting: `docker-compose -p lilnas build auth` from the
+             worktree root (the Dockerfile copies the working tree; `.dockerignore`
+             excludes node_modules). Must succeed.
+          6. Sanity: `curl -s -o /dev/null -w '%{http_code}' https://auth.lilnas.io/api/auth/ok`
+             is 200 and `docker-compose -p lilnas ps auth` is healthy (nothing changed
+             yet). Report the current image id of `lilnas-auth` for rollback.
+      - id: H1
+        title: Approve the production deploy of lilnas-auth + Penpot
+        after:
+          - T8
+        files: []
+        status: approved
+        body: |-
+          Everything in phase 1 is reviewed and T8 has built the new `lilnas-auth`
+          image, backed up the SQLite DB, dry-run the migration, and put the shared
+          client secret in both env files. Approving lets T9 recreate the `auth`
+          container (every gated service depends on it; expected blip: a few seconds
+          while the new container becomes healthy) and then recreate the Penpot
+          containers with OIDC enabled and password login disabled. Rollback recipe
+          (also in T9): from `/home/jeremy/lilnas` run `docker-compose up -d --build auth`
+          to return to `main`'s image and, if needed, restore the `.bak-*` DB copy.
+          Reject if you want to inspect the diff or wait for a quieter moment.
+      - id: T9
+        title: Deploy lilnas-auth, then Penpot; smoke-test the provider
+        after:
+          - H1
+        files: []
+        status: done
+        commit: f910904dde000de1c5f121fd3e3a57e58ce1d3c1
+        body: |-
+          From the worktree root, with the env symlinks T8 created still in place
+          (recreate them the same way if missing). Report each command and output.
+
+          1. `docker-compose -p lilnas up -d --build auth`. Poll
+             `docker-compose -p lilnas ps auth` until healthy (≤ 90 s). Then prove
+             ForwardAuth still works: `curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' https://swole.lilnas.io/`
+             → 302 to `https://auth.lilnas.io/login?...`. If the container is not
+             healthy within 90 s: `docker-compose -p lilnas logs --tail 100 auth`, then
+             roll back with `cd /home/jeremy/lilnas && docker-compose up -d --build auth`,
+             and stop with the logs in your result.
+          2. Provider checks over the public URL:
+             `https://auth.lilnas.io/.well-known/openid-configuration` → 200 JSON,
+             `issuer == https://auth.lilnas.io`, endpoints under `/api/auth/oauth2/`;
+             `https://auth.lilnas.io/api/auth/jwks` → one RS256 key;
+             `https://auth.lilnas.io/api/auth/oauth2/authorize?response_type=code&client_id=penpot&redirect_uri=https%3A%2F%2Fpenpot.lilnas.io%2Fapi%2Fauth%2Foidc%2Fcallback&scope=openid%20profile%20email&state=smoke`
+             with no cookie → 302 to `https://auth.lilnas.io/login?...client_id=penpot...sig=`;
+             `docker-compose -p lilnas logs --since 5m auth` shows no error from the
+             seeder and no `oauth_client` warnings. Also
+             `sqlite3 /storage/app-data/lilnas-auth/lilnas-auth.db "select client_id, skip_consent, require_pkce from oauth_client"`
+             → `penpot|1|0`.
+          3. `docker-compose -p lilnas up -d penpot-frontend` (recreates backend,
+             exporter, admin-console too because the shared flags changed). Wait until
+             `docker-compose -p lilnas logs --since 3m penpot-backend` shows the backend
+             started and contains no `oidc` warning/error (grep -i oidc); if it logs an
+             initialization failure, fix the config, redeploy, and report.
+          4. Penpot-side checks from inside the proxy network (ForwardAuth blocks
+             anonymous public requests):
+             `docker-compose -p lilnas exec -T penpot-frontend sh -c 'wget -qO- http://127.0.0.1:8080/js/config.js'`
+             contains `enable-login-with-oidc`, `disable-login-with-password` and
+             `oidcName`/`lilnas`;
+             `docker run --rm --network lilnas-proxy curlimages/curl -s -X POST -H 'Content-Type: application/json' -d '{}' http://lilnas-penpot-frontend-1:8080/api/auth/oauth/oidc`
+             → JSON whose redirect URI starts with
+             `https://auth.lilnas.io/api/auth/oauth2/authorize?` and carries
+             `client_id=penpot` (this proves Penpot fetched discovery from lilnas);
+             the same POST to `/api/main/methods/login-with-password` with the old
+             credentials shape → an error, not a session (password login disabled).
+          5. Leave the `.bak-*` DB file in place; report its path and the new
+             `lilnas-auth` image id in your result.
+      - id: H2
+        title: 'End-to-end: sign in to Penpot through lilnas as an allowed and a denied user'
+        after:
+          - T9
+        files: []
+        status: approved
+        body: |-
+          Do these in order and record what you saw.
+          1. In your normal browser (signed in to lilnas as jeremyasuncion808@gmail.com,
+             an `ADMIN_EMAILS` address): open https://penpot.lilnas.io. Expect Penpot's
+             login page with one "lilnas" button and no email/password form. Click it.
+             Expect to land in your EXISTING Penpot workspace (the profile created
+             earlier by `manage.py`, with its projects) with no password prompt and no
+             lilnas consent screen. Note: because the profile was created with a
+             password, Penpot links it through lilnas's verified email claim.
+          2. In a private window: sign in to lilnas as fallenskateboarder808@gmail.com
+             (no grants). Open https://penpot.lilnas.io → ForwardAuth should already
+             send you to lilnas-auth's pending page for penpot.lilnas.io; that is the
+             outer gate. To test the OIDC gate itself, open
+             https://auth.lilnas.io/api/auth/oauth2/authorize?response_type=code&client_id=penpot&redirect_uri=https%3A%2F%2Fpenpot.lilnas.io%2Fapi%2Fauth%2Foidc%2Fcallback&scope=openid%20profile%20email&state=e2e
+             in that window: expect a redirect to
+             https://auth.lilnas.io/pending?redirect=https%3A%2F%2Fpenpot.lilnas.io%2F
+             and NO code in any URL.
+          3. In https://auth.lilnas.io/admin grant that account `penpot.lilnas.io`,
+             then in the private window open https://penpot.lilnas.io again and click
+             "lilnas": expect Penpot's one-time "create account" form (name prefilled),
+             then the workspace. Revoke the grant afterwards and confirm a fresh
+             authorize URL (step 2) goes back to /pending.
+          4. Optional: block the account in /admin and repeat step 2 → /blocked.
+          Approve if all of 1–3 behave as described. If something fails, Request
+          changes with what you saw (URL, page, console/network error) so a fix task
+          can be written. After Land, redeploy from `/home/jeremy/lilnas` once
+          (`docker-compose up -d auth penpot-frontend`) so the containers' bind mounts
+          point at the main checkout instead of the run's worktree.

@@ -1,10 +1,13 @@
 import { Module } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core'
 import { AuthModule as BetterAuthNestModule } from '@thallesp/nestjs-better-auth'
 
 import type { Db } from 'src/db/database.module'
 import { DB } from 'src/db/database.module'
+import { VerifyService } from 'src/verify/verify.service'
 
 import { buildAuth } from './auth'
+import { OidcWellKnownController } from './oidc-well-known.controller'
 
 // Mounts the Better Auth handler via @thallesp/nestjs-better-auth.
 //
@@ -40,12 +43,22 @@ import { buildAuth } from './auth'
 // factory's result — same citation apps/tdr-code/src/auth/auth.module.ts
 // makes for the identical option).
 @Module({
+  controllers: [OidcWellKnownController],
   imports: [
     BetterAuthNestModule.forRootAsync({
       disableGlobalAuthGuard: true,
-      inject: [DB],
-      useFactory: (db: Db) => ({
-        auth: buildAuth(db),
+      // ModuleRef, not VerifyService: VerifyService -> AccessCacheService ->
+      // AuthService, and AuthService is provided by this very forRootAsync,
+      // so injecting VerifyService into the factory would be a cycle. The
+      // thunk below is only called per authorize/token/userinfo request,
+      // long after every provider exists (strict: false searches outside
+      // this module), which is what breaks the cycle.
+      inject: [DB, ModuleRef],
+      useFactory: (db: Db, moduleRef: ModuleRef) => ({
+        auth: buildAuth(db, {
+          resolveVerifyService: () =>
+            moduleRef.get(VerifyService, { strict: false }),
+        }),
       }),
     }),
   ],

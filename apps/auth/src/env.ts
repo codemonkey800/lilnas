@@ -71,4 +71,13 @@ export const EnvKeys = {
   // ADMIN_EMAILS default above: this path should degrade to "cross-origin
   // callers get nothing," never take the route down.
   PROFILE_ALLOWED_ORIGINS: 'PROFILE_ALLOWED_ORIGINS',
+  // Plaintext client secret for the seeded `penpot` OIDC client (see
+  // src/oidc/clients.ts). OidcClientsService reads it at boot and THROWS if
+  // unset — a client without a secret would be seeded unusable (or worse,
+  // with a guessable one), so misconfiguration must be loud. Only its
+  // base64url(sha256) is stored in oauth_client.client_secret. The SAME
+  // value must be set as PENPOT_OIDC_CLIENT_SECRET in infra/.env.penpot,
+  // which is what Penpot sends in the token request body. Rotating it is
+  // an env change + restart: the seeder refreshes the stored hash.
+  OIDC_PENPOT_CLIENT_SECRET: 'OIDC_PENPOT_CLIENT_SECRET',
 } as const
