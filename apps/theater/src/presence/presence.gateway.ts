@@ -22,6 +22,7 @@ import {
   SEAT_CLAIM_MIN_INTERVAL_MS,
   TABLET_STATE_MIN_INTERVAL_MS,
   THEATER_ROOM,
+  TIME_PING_MIN_INTERVAL_MS,
   VALID_CHARACTER_IDS,
   VIDEO_COMMAND_MIN_INTERVAL_MS,
 } from './presence.constants'
@@ -55,6 +56,7 @@ interface PresenceSocketData {
   lastRtcSignalAt: number
   lastSeatAt: number
   lastVideoCommandAt: number
+  lastTimePingAt: number
 }
 
 type PresenceSocket = Socket<
@@ -115,6 +117,7 @@ type RateLimitField =
   | 'lastSeatAt'
   | 'lastTabletAt'
   | 'lastVideoCommandAt'
+  | 'lastTimePingAt'
 
 // `seat:claim` ack (ORCHESTRATE.md §1) — the server is the sole arbiter of
 // occupancy, so every claim resolves to exactly one of these two shapes.
@@ -216,6 +219,7 @@ export class PresenceGateway
       lastRtcSignalAt: 0,
       lastSeatAt: 0,
       lastVideoCommandAt: 0,
+      lastTimePingAt: 0,
     }
 
     // Snapshot BEFORE adding this client's own entry, so a joiner never sees
@@ -532,6 +536,27 @@ export class PresenceGateway
     client.emit('queue:state', this.queueStatePayload())
   }
 
+  // Clock-sync probe for `video:state`'s `atServerMs` (see
+  // `videoStatePayload`). Acked, like `seat:claim`, rather than emitted — the
+  // client pairs the reply with the exact `performance.now()` it sent at, so
+  // the round trip is measured on one clock and the server's `Date.now()`
+  // can be placed at its midpoint (src/playback/clock.ts). No payload; a
+  // `{ serverMs }` reply is the whole contract.
+  @SubscribeMessage('time:ping')
+  handleTimePing(@ConnectedSocket() client: PresenceSocket):
+    | {
+        serverMs: number
+      }
+    | undefined {
+    if (
+      !this.roster.has(client.id) ||
+      !this.acceptRate(client, 'lastTimePingAt', TIME_PING_MIN_INTERVAL_MS)
+    ) {
+      return undefined
+    }
+    return { serverMs: Date.now() }
+  }
+
   // The queue-mutation slice of `roomVideo` (`./queue`'s `QueueState`) —
   // `playing` / `playhead` / `atServerMs` are playback-anchor concerns this
   // file owns directly and are never passed to B2's pure queue functions.
@@ -548,31 +573,41 @@ export class PresenceGateway
   // `playing` or jumps to a new position must re-anchor `playhead` /
   // `atServerMs` to this value *before* mutating, so the stored pair is
   // never left momentarily inconsistent with `playing`.
-  private currentPlayhead(): number {
+  private currentPlayhead(nowMs = Date.now()): number {
     if (!this.roomVideo.playing) {
       return this.roomVideo.playhead
     }
-    return (
-      this.roomVideo.playhead + (Date.now() - this.roomVideo.atServerMs) / 1000
-    )
+    return this.roomVideo.playhead + (nowMs - this.roomVideo.atServerMs) / 1000
   }
 
+  // `atServerMs` is the server-clock instant `playhead` was computed at, so a
+  // client can anchor to WHEN the state was true rather than when it happened
+  // to handle the message. Without it, every ms between this emit and the
+  // client's `applyAnchor()` — network latency, a janky main thread, or the
+  // whole `load()` round-trip for a new item — became a permanent offset
+  // between that client and the rest of the room (`playbackRate` correction
+  // can't see it: each client was exactly on its own, wrong, anchor).
+  // Clients translate it through src/playback/clock.ts's `time:ping` offset
+  // estimate; see `handleTimePing` below.
   private videoStatePayload(): {
     currentEntryId: string | null
     currentItemId: string | null
     playing: boolean
     playhead: number
+    atServerMs: number
   } {
     const currentItemId =
       this.roomVideo.queue.find(
         entry => entry.entryId === this.roomVideo.currentEntryId,
       )?.itemId ?? null
+    const nowMs = Date.now()
 
     return {
       currentEntryId: this.roomVideo.currentEntryId,
       currentItemId,
       playing: this.roomVideo.playing,
-      playhead: this.currentPlayhead(),
+      playhead: this.currentPlayhead(nowMs),
+      atServerMs: nowMs,
     }
   }
 

@@ -849,6 +849,7 @@ describe('PresenceGateway.handleVideoCommand — enqueue', () => {
       currentItemId: VALID_ENQUEUE_ENTRY.itemId,
       playing: true,
       playhead: 0,
+      atServerMs: expect.any(Number),
     })
   })
 })

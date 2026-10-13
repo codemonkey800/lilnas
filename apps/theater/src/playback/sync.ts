@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 
 import { getSocket, useMultiplayerStore } from 'src/multiplayer/store'
 
+import { serverMsToClientClockMs, startServerClockSync } from './clock'
 import { type QueueEntry, useQueueStore } from './queue'
 import { usePlaybackStore } from './store'
 
@@ -32,6 +33,9 @@ type VideoStatePayload = {
   currentItemId: string | null
   playing: boolean
   playhead: number
+  // Server-clock instant `playhead` was computed at (presence.gateway.ts's
+  // `videoStatePayload`) — what the anchor is pinned to, via clock.ts.
+  atServerMs: number
 }
 
 type QueueStatePayload = {
@@ -103,7 +107,8 @@ function isVideoStatePayload(value: unknown): value is VideoStatePayload {
     isNullableString(v.currentEntryId) &&
     isNullableString(v.currentItemId) &&
     typeof v.playing === 'boolean' &&
-    isFiniteNumber(v.playhead)
+    isFiniteNumber(v.playhead) &&
+    isFiniteNumber(v.atServerMs)
   )
 }
 
@@ -131,7 +136,8 @@ function handleVideoState(payload: unknown): void {
   if (!isVideoStatePayload(payload)) {
     return
   }
-  const { currentEntryId, currentItemId, playing, playhead } = payload
+  const { currentEntryId, currentItemId, playing, playhead, atServerMs } =
+    payload
 
   // `queue:state` only ever carries `{ queue }` on the wire — this handler
   // (not the queue:state one) is what keeps currentEntryId/currentItemId
@@ -139,14 +145,19 @@ function handleVideoState(payload: unknown): void {
   useQueueStore.setState({ currentEntryId, currentItemId })
 
   function applyIncomingAnchor(): void {
-    // The ONLY place `performance.now()` is read for this purpose
-    // (ORCHESTRATE.md §1 invariant 1 — no timestamp on the wire: the server
-    // advances `playhead` to broadcast time, and each client re-anchors
-    // against its own clock on receipt).
+    // Anchor to WHEN the state was true on the server, translated onto this
+    // client's clock (clock.ts), not to when this handler happened to run.
+    // The original "no timestamp on the wire, re-anchor at receipt" design
+    // (ORCHESTRATE.md §1 invariant 1) turned every ms of delivery delay —
+    // network latency, main-thread jank, and for a new item the entire
+    // `load()` below before this runs — into a permanent per-client offset
+    // that `tick()`'s drift correction could never see, because each client
+    // was exactly on its own anchor. Falls back to receipt time only while
+    // there's no clock estimate yet (first ~250ms after connect).
     usePlaybackStore.getState().applyAnchor({
       playing,
       playhead,
-      atClockMs: performance.now(),
+      atClockMs: serverMsToClientClockMs(atServerMs) ?? performance.now(),
     })
   }
 
@@ -272,6 +283,10 @@ export function useVideoSync(): void {
 
     socket.on('video:state', handleVideoState)
     socket.on('queue:state', handleQueueState)
+    // Start estimating the server clock before pulling state, so the burst's
+    // first probe is already in flight ahead of the `video:state` reply
+    // below (Socket.IO's per-socket ordering means the ack lands first).
+    const stopClockSync = startServerClockSync(socket)
     // Bugfix: pull the room's current video/queue state now that this
     // socket's listeners for both are actually attached (see
     // presence.gateway.ts's `handleConnection`/`handleVideoRequest` comments
@@ -289,6 +304,7 @@ export function useVideoSync(): void {
     video.addEventListener('ended', handleVideoEnded)
 
     return () => {
+      stopClockSync()
       socket.off('video:state', handleVideoState)
       socket.off('queue:state', handleQueueState)
       video.removeEventListener('ended', handleVideoEnded)

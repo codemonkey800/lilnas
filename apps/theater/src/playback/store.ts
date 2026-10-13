@@ -538,8 +538,6 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => {
         anchorClockMs: atClockMs,
       })
 
-      // tick() will reconcile currentTime/playbackRate against the new
-      // anchor on the next frame; this only needs to flip actual playback.
       const video = sharedVideoElement
       if (!video) {
         return
@@ -551,6 +549,14 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => {
       } else if (!nextPlaying && wasPlaying) {
         video.pause()
       }
+
+      // Reconcile against the new anchor right now rather than leaving it to
+      // the next `tick()` — a room seek should land the instant it arrives,
+      // not up to one reconcile interval later (see `reconcile.ts`). Measured
+      // at the current clock, not `atClockMs`: the anchor instant is already
+      // in the past (it's the server's timestamp, see sync.ts), so the
+      // target has moved on by the delivery delay.
+      get().tick(performance.now())
     },
 
     getVideoElement: () => ensureVideoElement(),

@@ -75,3 +75,10 @@ export const SEAT_CLAIM_MIN_INTERVAL_MS = 200
 // pull) — a ninth, spiritually identical video-transport-plane message, so
 // it reuses this same floor/field rather than introducing a dedicated one.
 export const VIDEO_COMMAND_MIN_INTERVAL_MS = 100
+
+// `time:ping` is the clock-sync probe behind video sync (src/playback/clock.ts):
+// each client fires a short burst on connect and then one every ~15s, and the
+// reply is a single `Date.now()` — about the cheapest handler in this file.
+// 50ms caps a scripted client at 20 accepted probes/sec while never dropping
+// one from the real burst cadence (250ms apart).
+export const TIME_PING_MIN_INTERVAL_MS = 50
