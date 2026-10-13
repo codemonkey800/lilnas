@@ -196,7 +196,7 @@ export type VideoProgress = z.infer<typeof VideoProgressSchema>
  */
 export type EmbyStatus = z.infer<typeof EmbyStatusSchema>
 
-// ---- The Media hierarchy (see docs/features/download/plans/001-media-entity-refactor.md §1) ----
+// ---- The Media hierarchy (see docs/archive/features/download/plans/001-media-entity-refactor.md §1) ----
 
 export type MediaBase = z.infer<typeof MediaBaseSchema>
 export type Video = z.infer<typeof VideoSchema>

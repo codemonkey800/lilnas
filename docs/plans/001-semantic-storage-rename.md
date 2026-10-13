@@ -115,7 +115,7 @@ the compose files below.
   identical, no application needs reconfiguring.
 - **The download app depends on that too.** `apps/download/deploy.yml` mounts the library
   at the same `/movies` and `/tv` container paths Radarr/Sonarr report, so path strings need
-  no translation (`docs/features/download/backend.md`, ":ro library mounts"). Only the
+  no translation (`docs/archive/features/download/backend.md`, ":ro library mounts"). Only the
   host side of those mounts changes.
 - **Same-drive moves are free.** `mv` within a btrfs filesystem is a rename — moving
   `/mnt/hdd1/movies/*` to `/mnt/hdd1/` is instant regardless of size.
@@ -437,7 +437,7 @@ to fix here).
       original-library folders, not `library/upload/external`); refresh "Volume Mapping
       Reference" from the real compose files; replace the tier-based "Backup Strategy" with the
       `backups` / `snapshots` / `archive` roles; add a "History" note pointing at this plan.
-- [ ] Update live prose that names `/storage/media-library`: `docs/features/download/backend.md:1390–1403`, `docs/features/download/local-verification.md:39,66`, comments in `apps/download/src/components/detail/delete-confirm.tsx:245,272`, `apps/download/src/app/actions/media-files.ts:358`, and the comment block above the mounts in `apps/download/deploy.dev.yml`. Leave historical plans (`007`, `013`, `023`) and test fixtures alone — the fixtures are mock strings, not real paths.
+- [ ] Update live prose that names `/storage/media-library`: comments in `apps/download/src/components/detail/delete-confirm.tsx:245,272`, `apps/download/src/app/actions/media-files.ts:358`, and the comment block above the mounts in `apps/download/deploy.dev.yml`. Leave the archived download docs (`docs/archive/features/download/`, `docs/archive/runbooks/download-local-verification.md`), historical plans (`007`, `013`, `023`) and test fixtures alone — the fixtures are mock strings, not real paths.
 - [ ] Re-run the Phase 0 grep; the only hits left should be in `docs/archive/`, historical download plans, test fixtures and this file.
 - [ ] Commit; merge `storage-rename` to `main`.
 

@@ -30,7 +30,7 @@ export function resolveMigrationsFolder(): string {
 }
 
 // A database written before a migration-history squash (see
-// docs/context/download-backend-verification-status.md's "migration squash
+// docs/archive/research/download-backend-verification-status.md's "migration squash
 // was a loaded gun") has every table the squashed migration creates, but no
 // `__drizzle_migrations` row recording it as applied. drizzle's migrator
 // decides what to (re-)apply purely by comparing the newest

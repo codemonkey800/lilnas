@@ -8,7 +8,7 @@
 Plans 001–021 and 015 built the download app across ~450 commits. Unit tests cover the
 logic, but most of what a user touches has never been checked against the real Radarr,
 Sonarr, Emby, yt-dlp and a real browser in one pass. This plan is that pass: every
-feature in [`spec.md`](../spec.md) and [`user-stories.md`](../user-stories.md),
+feature in [`spec.md`](../archive/features/download/spec.md) and [`user-stories.md`](../archive/features/download/user-stories.md),
 checked live, with the results recorded in this doc.
 
 It writes **no application code**. Agents run the checks and report ✅/❌ with evidence.

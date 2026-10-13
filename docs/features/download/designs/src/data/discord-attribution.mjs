@@ -1,7 +1,7 @@
 /*
  * Sample data for discord-attribution.pug.
  *
- * Four requester states, per plan 017 (docs/features/download/plans/
+ * Four requester states, per plan 017 (docs/archive/features/download/plans/
  * 017-discord-attribution-and-account-linking.md): `web` (unchanged),
  * `linked` (a Discord job whose snowflake is linked to a lilnas account —
  * resolved at read time, so it renders byte-identical to `web`), `discord`

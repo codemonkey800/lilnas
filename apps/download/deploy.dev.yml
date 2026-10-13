@@ -13,7 +13,7 @@
 #   docker compose -f apps/download/deploy.dev.yml logs -f
 #   docker compose -f apps/download/deploy.dev.yml down
 #
-# Runbook: docs/features/download/local-verification.md
+# Runbook: docs/archive/runbooks/download-local-verification.md
 #
 # Why this is NOT `Host(download.localhost)` via the dev Traefik, like most
 # other apps' deploy.dev.yml:

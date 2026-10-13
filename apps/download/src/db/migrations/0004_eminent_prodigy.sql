@@ -1,4 +1,4 @@
--- HAND-EDITED (plan 021, docs/features/download/plans/021-media-as-source-of-truth.md,
+-- HAND-EDITED (plan 021, docs/archive/features/download/plans/021-media-as-source-of-truth.md,
 -- "The cleanup migration"). drizzle-kit generated only the DROP COLUMN below;
 -- the DELETE is prepended by hand.
 --

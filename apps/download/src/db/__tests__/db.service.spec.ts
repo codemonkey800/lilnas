@@ -28,7 +28,7 @@ describe('DbService', () => {
   })
 
   // The migration-squash landmine (see
-  // docs/context/download-backend-verification-status.md): a database whose
+  // docs/archive/research/download-backend-verification-status.md): a database whose
   // schema already matches the squashed migration, but whose
   // `__drizzle_migrations` bookkeeping never recorded it (because it
   // predates the squash, or was built by hand), used to make the migrator

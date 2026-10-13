@@ -1,8 +1,8 @@
 # download
 
 Video/movie/show download service — yt-dlp for arbitrary video links, Radarr for
-movies, Sonarr for shows — with a web UI and API. Spec: `docs/features/download/spec.md`.
-Frontend build-out: `docs/features/download/plans/013-frontend-rewrite.md`.
+movies, Sonarr for shows — with a web UI and API. Spec: `docs/archive/features/download/spec.md`.
+Frontend build-out: `docs/archive/features/download/plans/013-frontend-rewrite.md`.
 
 ## Running it
 

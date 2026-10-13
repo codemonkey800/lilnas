@@ -132,7 +132,7 @@ const PATH_LIKE_LOOKUP_TERM = /^([\\/]|[A-Za-z]:\\)/
  * name - accepted, ignored, nothing searched. `POST /api/v3/command` echoes
  * the parsed command back in `body`, which is what makes that checkable; see
  * the Phase 4 manual-verification block in
- * `docs/features/download/backend.md`.
+ * `docs/archive/features/download/backend.md`.
  */
 type EpisodeSearchCommand = CommandResourceWritable & { episodeIds?: number[] }
 type SeasonSearchCommand = CommandResourceWritable & {

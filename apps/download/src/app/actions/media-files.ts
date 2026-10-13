@@ -368,7 +368,7 @@ export async function unflagBadFile(
  * downloaded episode of a season unmonitors the season, and removing the last
  * downloaded season removes the series. Whatever is removed can be requested
  * again later, which re-adds it. See "Monitoring cascades and full removal"
- * in `docs/features/download/backend.md`.
+ * in `docs/archive/features/download/backend.md`.
  *
  * Deleting zero files is a success, not an error: the caller asked for a state
  * and that state already held.

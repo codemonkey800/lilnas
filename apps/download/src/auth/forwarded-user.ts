@@ -68,7 +68,7 @@ export function getForwardedUser(req: {
 //      whole Discord attribution path untestable locally.
 // Without this, exercising attribution in dev (which has no lilnas-auth —
 // see infra/proxy.yml) requires setting the X-Forwarded-User headers by hand
-// on every request, per docs/features/download/backend.md's Verification
+// on every request, per docs/archive/features/download/backend.md's Verification
 // section. This is a convenience so browser traffic — which can't set those
 // headers — is attributed too.
 export function resolveForwardedUser(req: {

@@ -1,8 +1,8 @@
 # Functional & E2E Test Plan — `apps/download`
 
 One catalog, three harnesses. The catalog is the durable artifact — the full
-functional surface from [`spec.md`](../spec.md) and
-[`user-stories.md`](../user-stories.md). The harnesses are how each row gets
+functional surface from [`spec.md`](../archive/features/download/spec.md) and
+[`user-stories.md`](../archive/features/download/user-stories.md). The harnesses are how each row gets
 proven.
 
 ```mermaid
@@ -115,7 +115,7 @@ Part 3 rows (added 2026-09-26) carry a coverage marker instead:
 ## Current state — what actually exists
 
 **Backend: Phases 0–8 are all done**, along with the media-entity refactor.
-[`backend.md`](../backend.md) records the full set as complete — "Phase 8
+[`backend.md`](../archive/features/download/backend.md) records the full set as complete — "Phase 8
 closed the set with the audit log."
 
 > ⚠️ **Corrected 2026-08-26 by plan
@@ -2324,7 +2324,7 @@ is production; see the Context Pack), then `pnpm run lint` and
 
 - [ ] **F2. Documentation and handoff**
 
-  **Files:** `docs/features/download/backend.md`, this plan.
+  **Files:** `docs/archive/features/download/backend.md`, this plan.
 
   In `backend.md`'s Verification section, describe the four layers: mocked
   `pnpm test`, the upstream fixture capture and when to re-run it, plan
