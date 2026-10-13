@@ -4,6 +4,13 @@ server {
 
     root /usr/share/nginx/html;
 
+    # nginx's 1 MB default rejects ordinary uploads (e.g. Nexus video
+    # attachments) with a 413 before the backend sees them. Backends enforce
+    # their own size caps, so don't add a second one here — and stream the
+    # body through instead of spooling it, so upload progress is real.
+    client_max_body_size 0;
+    proxy_request_buffering off;
+
     error_page 502 503 504 /unreachable.html;
     location = /unreachable.html {
         internal;
