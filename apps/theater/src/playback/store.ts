@@ -89,7 +89,7 @@ export type PlaybackStore = {
   // integration helpers
   getVideoElement: () => HTMLVideoElement
   getTargetPlayhead: () => number
-  tick: (nowMs: number) => void // reconcile loop; called each frame from useFrame
+  tick: (nowMs: number) => void // reconcile step; driven by reconcile.ts's loop + applyAnchor()
 }
 
 // Raw shape of `GET /theater/playback/:id` (ORCHESTRATE.md § "Backend

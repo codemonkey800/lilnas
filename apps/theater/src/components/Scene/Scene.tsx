@@ -1,7 +1,7 @@
 'use client'
 
 import { KeyboardControls, Stats, useGLTF } from '@react-three/drei'
-import { Canvas, useFrame } from '@react-three/fiber'
+import { Canvas } from '@react-three/fiber'
 import { Physics } from '@react-three/rapier'
 import { Leva } from 'leva'
 import {
@@ -21,6 +21,7 @@ import {
 
 import { FullscreenPlayer } from 'src/components/FullscreenPlayer'
 import { useMultiplayerStore } from 'src/multiplayer/store'
+import { usePlaybackReconcile } from 'src/playback/reconcile'
 import { usePlaybackStore } from 'src/playback/store'
 import { useVideoSync } from 'src/playback/sync'
 import { useVideoAudio } from 'src/playback/useVideoAudio'
@@ -49,9 +50,12 @@ const ZERO_TELEMETRY: Telemetry = {
 // needs R3F context (useThree/useFrame) that only exists for components
 // actually rendered as children of <Canvas>, which Scene() itself is not
 // (it returns the <Canvas>, it isn't inside one). Wires together the
-// in-world screen texture, spatial audio, subtitles, and the iPad browser,
-// plus the per-frame playback reconcile tick — see ORCHESTRATE.md's "Shared
-// contracts" section for each piece's exact contract.
+// in-world screen texture, spatial audio, subtitles, and the iPad browser —
+// see ORCHESTRATE.md's "Shared contracts" section for each piece's exact
+// contract. The playback reconcile tick is deliberately NOT here: this
+// component's useFrame hooks stop with the frameloop in fullscreen, which is
+// exactly when a tick-driven seek must still land (see
+// src/playback/reconcile.ts, mounted from Scene() below).
 function TheaterPlayback() {
   const screenRef = useRef<Mesh>(null)
 
@@ -71,10 +75,6 @@ function TheaterPlayback() {
   }, [])
 
   useVideoAudio(screenRef)
-
-  useFrame(() => {
-    usePlaybackStore.getState().tick(performance.now())
-  })
 
   return (
     <>
@@ -115,6 +115,11 @@ export function Scene({ characterId }: SceneProps) {
   // no need to run inside <Canvas>; called here at the top level for the
   // same "runs for the whole scene's lifetime" reason useViewControls() is.
   useVideoSync()
+  // The reconcile loop that keeps the shared <video> on the room anchor
+  // those listeners set. Same top-level placement, for a stronger reason:
+  // the <Canvas> below stops its frameloop in fullscreen, so this must not
+  // depend on useFrame (src/playback/reconcile.ts).
+  usePlaybackReconcile()
 
   const view = usePlaybackStore(state => state.view)
   const peerCount = useMultiplayerStore(state => state.peerIds.length)
