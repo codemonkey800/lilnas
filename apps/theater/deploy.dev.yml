@@ -1,0 +1,122 @@
+# Full-stack dev container for @lilnas/theater, published at
+# https://theater.dev.lilnas.io through the PRODUCTION Traefik (the standard
+# lilnas-expose pattern, see docs/lilnas-expose.md). Modeled on
+# apps/download/deploy.dev.yml.
+#
+#   docker compose -f apps/theater/deploy.dev.yml up -d
+#   docker compose -f apps/theater/deploy.dev.yml logs -f theater-dev
+#   docker compose -f apps/theater/deploy.dev.yml down
+#
+# Runs BOTH halves in one container via `pnpm --filter=theater dev`
+# (nest start -w on 8081, next dev on 8080), with the repo bind-mounted so hot
+# reload works.
+#
+# ⚠️ Every name here is deliberately different from production's deploy.yml,
+# which runs on this same host and Traefik:
+#   - Service `theater-dev`, not `theater`. This container joins
+#     lilnas_default, and Compose registers every service name as a DNS alias
+#     on each network the service joins.
+#   - Routers `dev-theater`/`dev-theater-ws`, because production already owns
+#     `theater`/`theater-ws`. Traefik does not warn on router-name collisions.
+
+services:
+  theater-dev:
+    image: lilnas-dev
+    container_name: lilnas-theater-dev
+    # The node_modules volumes start empty, so the install has to happen inside
+    # the container. `--frozen-lockfile` also stops it from rewriting the
+    # bind-mounted pnpm-lock.yaml.
+    command: -c "pnpm install --frozen-lockfile && pnpm --filter=theater dev"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+    # Caps a runaway `next dev` to this container's cgroup instead of letting
+    # the host OOM-killer pick a production victim.
+    mem_limit: 6g
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'node -e "require(''http'').get(''http://localhost:8080/'',r=>process.exit(0)).on(''error'',()=>process.exit(1))"',
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+
+    # Matches the host user so .next/ and .turbo/ written into the bind mount
+    # stay owned by jeremy rather than root.
+    user: '1000:1001'
+
+    # ⚠️ `lilnas dev` loadEnvFile()s apps/theater/.env with override: true, so
+    # the authoritative values have to arrive as that file — hence the
+    # .env.dev-remote mount under `volumes:`. This block is the environment
+    # the install step sees.
+    env_file:
+      - .env.dev-remote
+
+    environment:
+      - HOME=/home/node
+
+    networks:
+      # Traefik reaches the container here...
+      - lilnas-proxy
+      # ...and it reaches emby by service name here.
+      - lilnas_default
+
+    ports:
+      # Loopback-only escape hatch for curl and headless-browser checks, which
+      # can't follow the OAuth redirect on the public hostname. 8090 and 8091
+      # are taken by the download and tdr-bot dev containers.
+      - '127.0.0.1:8092:8080'
+
+    volumes:
+      - ../..:/source
+      # Shadows the host's native-dev .env, whose NEXT_PUBLIC_SOCKET_URL points
+      # the browser at localhost:8081 — unreachable from anywhere but the host.
+      - ./.env.dev-remote:/source/apps/theater/.env:ro
+      # The host's node_modules are built for node 24 and this image runs
+      # node 25, so the workspace root gets a container-owned tree. See
+      # infra/base-images/lilnas-dev.Dockerfile.
+      - theater-dev-root-modules:/source/node_modules
+      - theater-dev-pnpm-store:/home/node/.local/share/pnpm
+
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=lilnas-proxy
+      # Two services on one container, so each router must name its own.
+      - traefik.http.routers.dev-theater.rule=Host(`theater.dev.lilnas.io`)
+      - traefik.http.routers.dev-theater.entrypoints=websecure
+      # tls=true reuses the shared *.dev.lilnas.io wildcard cert. Don't use
+      # certresolver=le: it requests a per-host cert and burns Let's Encrypt
+      # quota.
+      - traefik.http.routers.dev-theater.tls=true
+      - traefik.http.routers.dev-theater.middlewares=lilnas-auth
+      - traefik.http.routers.dev-theater.service=dev-theater
+      - traefik.http.services.dev-theater.loadbalancer.server.port=8080
+      # Next.js rewrites don't proxy the WebSocket Upgrade handshake, so
+      # /socket.io goes straight to the NestJS backend — same split as
+      # deploy.yml's `theater-ws` router. With NEXT_PUBLIC_SOCKET_URL unset the
+      # client connects same-origin and lands here.
+      - traefik.http.routers.dev-theater-ws.rule=Host(`theater.dev.lilnas.io`) && PathPrefix(`/socket.io`)
+      - traefik.http.routers.dev-theater-ws.entrypoints=websecure
+      - traefik.http.routers.dev-theater-ws.tls=true
+      - traefik.http.routers.dev-theater-ws.middlewares=lilnas-auth
+      - traefik.http.routers.dev-theater-ws.service=dev-theater-ws
+      - traefik.http.services.dev-theater-ws.loadbalancer.server.port=8081
+      # No lilnas.idle-reap label needed: apps/dev-idle-reaper auto-enrolls
+      # *.dev.lilnas.io routes.
+
+networks:
+  lilnas-proxy:
+    external: true
+  lilnas_default:
+    external: true
+
+volumes:
+  theater-dev-root-modules:
+  theater-dev-pnpm-store:
