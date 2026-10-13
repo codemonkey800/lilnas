@@ -252,6 +252,14 @@ function LibraryImage({
 // input's thumb back to it). `onSeek` only ever fires from the three
 // "gesture ended" DOM events below (mouse/touch/keyboard release) — never
 // from `onChange`, which fires on every drag tick.
+//
+// `step="any"` is load-bearing. A range input snaps its value to `step`
+// (e.g. `1715.93` reads back as `1715.9` with `step={0.1}`), so React's value
+// tracker, which records the raw string it wrote, no longer matches the DOM.
+// The `change` event the browser fires right after release (once `commit()`
+// has already put the pre-seek playhead back) then looks like a user edit.
+// `onChange` stored that old playhead in `dragValue`, freezing the bar there
+// until the tablet remounted.
 function ScrubBar({
   playhead,
   duration,
@@ -280,7 +288,7 @@ function ScrubBar({
         type="range"
         min={0}
         max={max}
-        step={0.1}
+        step="any"
         value={displayValue}
         onChange={event => setDragValue(Number(event.target.value))}
         onMouseUp={event =>
