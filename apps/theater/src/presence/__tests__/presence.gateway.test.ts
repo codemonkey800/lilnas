@@ -12,7 +12,6 @@ import {
   type PeerSnapshot,
   PresenceGateway,
 } from 'src/presence/presence.gateway'
-import type { QueueEntry } from 'src/presence/queue'
 import type { TabletState } from 'src/presence/tablet.schema'
 import type { VideoCommand } from 'src/presence/video.schema'
 
@@ -58,17 +57,16 @@ const VALID_TABLET_STATE: TabletState = {
   scrollTop: 0,
 }
 
-// A well-formed `enqueue` payload (ORCHESTRATE.md §1's `entry` shape) — the
+// A well-formed `load` payload (ORCHESTRATE.md §1's `entry` shape) — the
 // server fills in `entryId` (randomUUID) and `addedBy` (from the session),
 // so neither is client-supplied and neither appears here.
-const VALID_ENQUEUE_ENTRY: Extract<VideoCommand, { kind: 'enqueue' }>['entry'] =
-  {
-    itemId: 'item-1',
-    title: 'Big Movie',
-    subtitle: '2019',
-    imageTag: 'poster-tag-1',
-    runTimeTicks: 72_000_000_000,
-  }
+const VALID_LOAD_ENTRY: Extract<VideoCommand, { kind: 'load' }>['entry'] = {
+  itemId: 'item-1',
+  title: 'Big Movie',
+  subtitle: '2019',
+  imageTag: 'poster-tag-1',
+  runTimeTicks: 72_000_000_000,
+}
 
 // Minimal hand-built Socket.IO `Socket` stand-in. `to` always returns the
 // SAME object (via `mockReturnValue`), so every broadcast a given mock
@@ -556,7 +554,7 @@ describe('PresenceGateway.handleTabletState', () => {
   // tablet.schema.ts's zod enum falls behind, a peer on that page silently
   // stops mirroring rather than erroring — so every member gets asserted.
   it('accepts every view in the union, including player', () => {
-    const views = ['grid', 'seasons', 'episodes', 'queue', 'player'] as const
+    const views = ['grid', 'seasons', 'episodes', 'player'] as const
 
     for (const view of views) {
       const { gateway, socket } = buildConnectedGateway()
@@ -637,7 +635,7 @@ describe('PresenceGateway.handleSeatClaim', () => {
     expect(rosterOf(gateway).get(CLIENT_A_ID)?.seatId).toBe('r0s0')
     // Seat broadcasts mirror the existing peer:presence/peer:mute/peer:tablet
     // convention: `client.to(ROOM)`, i.e. the SENDER is excluded — unlike
-    // video/queue state, which must reach the sender too (see the
+    // video state, which must reach the sender too (see the
     // `handleVideoCommand` describe block below). `server.toEmit` staying
     // uncalled confirms this handler never reaches for the other pattern.
     expect(socket.to).toHaveBeenCalledWith(THEATER_ROOM)
@@ -805,15 +803,15 @@ describe('PresenceGateway.handleDisconnect — seat cleanup', () => {
   })
 })
 
-describe('PresenceGateway.handleVideoCommand — enqueue', () => {
-  it('enqueuing into an empty room sets the cursor, starts playback, and broadcasts video:state + queue:state to the whole room INCLUDING the sender', () => {
+describe('PresenceGateway.handleVideoCommand — load', () => {
+  it('loading a title sets it as the room entry, starts playback from the top, and broadcasts video:state to the whole room INCLUDING the sender', () => {
     const { gateway, server, clientA } = buildGatewayWithTwoPeers()
     const nowSpy = jest.spyOn(Date, 'now')
     nowSpy.mockReturnValue(50_000)
 
     gateway.handleVideoCommand(asClientSocket(clientA), {
-      kind: 'enqueue',
-      entry: VALID_ENQUEUE_ENTRY,
+      kind: 'load',
+      entry: VALID_LOAD_ENTRY,
     })
 
     // The decisive check for "sender included": the broadcast goes out via
@@ -826,68 +824,116 @@ describe('PresenceGateway.handleVideoCommand — enqueue', () => {
     expect(server.to).toHaveBeenCalledWith(THEATER_ROOM)
     expect(clientA.to).not.toHaveBeenCalled()
 
-    const queueStateCall = server.toEmit.mock.calls.find(
-      ([event]) => event === 'queue:state',
-    )
-    expect(queueStateCall).toBeDefined()
-    const queue = (queueStateCall?.[1] as { queue: QueueEntry[] } | undefined)
-      ?.queue
-    expect(queue).toHaveLength(1)
-    const entry = queue?.[0]
-    expect(entry).toEqual({
-      entryId: expect.any(String),
-      itemId: VALID_ENQUEUE_ENTRY.itemId,
-      title: VALID_ENQUEUE_ENTRY.title,
-      subtitle: VALID_ENQUEUE_ENTRY.subtitle,
-      imageTag: VALID_ENQUEUE_ENTRY.imageTag,
-      runTimeTicks: VALID_ENQUEUE_ENTRY.runTimeTicks,
-      addedBy: CLIENT_A_USERNAME,
+    expect(server.toEmit).toHaveBeenCalledWith('video:state', {
+      entry: {
+        entryId: expect.any(String),
+        itemId: VALID_LOAD_ENTRY.itemId,
+        title: VALID_LOAD_ENTRY.title,
+        subtitle: VALID_LOAD_ENTRY.subtitle,
+        imageTag: VALID_LOAD_ENTRY.imageTag,
+        runTimeTicks: VALID_LOAD_ENTRY.runTimeTicks,
+        addedBy: CLIENT_A_USERNAME,
+      },
+      playing: true,
+      playhead: 0,
+      atServerMs: 50_000,
+    })
+  })
+
+  it('loading while something is already playing replaces it with a fresh entryId and restarts from the top', () => {
+    const { gateway, server, clientA, clientB } = buildGatewayWithTwoPeers()
+    const nowSpy = jest.spyOn(Date, 'now')
+
+    nowSpy.mockReturnValue(100_000)
+    gateway.handleVideoCommand(asClientSocket(clientA), {
+      kind: 'load',
+      entry: VALID_LOAD_ENTRY,
+    })
+    const firstEntryId = (
+      server.toEmit.mock.calls.at(-1)?.[1] as { entry: { entryId: string } }
+    ).entry.entryId
+
+    // Past the rate-limit floor, and well into the first title.
+    nowSpy.mockReturnValue(160_000)
+    server.toEmit.mockClear()
+    gateway.handleVideoCommand(asClientSocket(clientB), {
+      kind: 'load',
+      entry: { ...VALID_LOAD_ENTRY, itemId: 'item-2', title: 'Other Movie' },
+    })
+
+    expect(server.toEmit).toHaveBeenCalledTimes(1)
+    const [event, payload] = server.toEmit.mock.calls[0] as [
+      string,
+      {
+        entry: { entryId: string; itemId: string; addedBy: string }
+        playing: boolean
+        playhead: number
+      },
+    ]
+    expect(event).toBe('video:state')
+    expect(payload.entry.itemId).toBe('item-2')
+    expect(payload.entry.addedBy).toBe(CLIENT_B_USERNAME)
+    expect(payload.entry.entryId).not.toBe(firstEntryId)
+    expect(payload.playing).toBe(true)
+    expect(payload.playhead).toBe(0)
+  })
+})
+
+describe('PresenceGateway.handleVideoCommand — ended', () => {
+  function loadAndGetEntryId(
+    gateway: PresenceGateway,
+    server: MockServer,
+    client: MockSocket,
+  ): string {
+    gateway.handleVideoCommand(asClientSocket(client), {
+      kind: 'load',
+      entry: VALID_LOAD_ENTRY,
+    })
+    return (
+      server.toEmit.mock.calls.at(-1)?.[1] as { entry: { entryId: string } }
+    ).entry.entryId
+  }
+
+  it('an ended command for the current entry clears it and stops playback for the whole room', () => {
+    const { gateway, server, clientA } = buildGatewayWithTwoPeers()
+    const nowSpy = jest.spyOn(Date, 'now')
+
+    nowSpy.mockReturnValue(300_000)
+    const entryId = loadAndGetEntryId(gateway, server, clientA)
+    server.toEmit.mockClear()
+
+    nowSpy.mockReturnValue(300_000 + VIDEO_COMMAND_MIN_INTERVAL_MS)
+    gateway.handleVideoCommand(asClientSocket(clientA), {
+      kind: 'ended',
+      entryId,
     })
 
     expect(server.toEmit).toHaveBeenCalledWith('video:state', {
-      currentEntryId: entry?.entryId,
-      currentItemId: VALID_ENQUEUE_ENTRY.itemId,
-      playing: true,
+      entry: null,
+      playing: false,
       playhead: 0,
       atServerMs: expect.any(Number),
     })
   })
-})
 
-describe('PresenceGateway.handleVideoCommand — next dedup', () => {
-  it('a next command whose afterEntryId does not match the current cursor is silently ignored (no state change, no broadcast)', () => {
-    const { gateway, authService, server } = buildGateway()
-    const clientA = connectClient(gateway, authService, {
-      id: CLIENT_A_ID,
-      username: CLIENT_A_USERNAME,
-      characterId: CHARACTER_ID_A,
-    })
+  it('an ended command whose entryId does not match the current entry is silently ignored (no state change, no broadcast)', () => {
+    const { gateway, server, clientA, clientB } = buildGatewayWithTwoPeers()
     const nowSpy = jest.spyOn(Date, 'now')
 
     nowSpy.mockReturnValue(300_000)
-    gateway.handleVideoCommand(asClientSocket(clientA), {
-      kind: 'enqueue',
-      entry: VALID_ENQUEUE_ENTRY,
-    })
-
-    const enqueueQueueCall = server.toEmit.mock.calls.find(
-      ([event]) => event === 'queue:state',
-    )
-    const originalEntryId = (
-      enqueueQueueCall?.[1] as { queue: QueueEntry[] } | undefined
-    )?.queue[0]?.entryId
+    const originalEntryId = loadAndGetEntryId(gateway, server, clientA)
     expect(originalEntryId).toEqual(expect.any(String))
 
     server.to.mockClear()
     server.toEmit.mockClear()
 
     // Advance past VIDEO_COMMAND_MIN_INTERVAL_MS so the rejection below is
-    // provably the gateway's own `afterEntryId` dedup check, not the
-    // rate-limit floor rejecting a too-fast second command.
+    // provably the gateway's own entryId dedup check, not the rate-limit
+    // floor rejecting a too-fast second command.
     nowSpy.mockReturnValue(300_000 + VIDEO_COMMAND_MIN_INTERVAL_MS)
     gateway.handleVideoCommand(asClientSocket(clientA), {
-      kind: 'next',
-      afterEntryId: 'not-the-current-entry-id',
+      kind: 'ended',
+      entryId: 'not-the-current-entry-id',
     })
 
     expect(server.to).not.toHaveBeenCalled()
@@ -895,36 +941,30 @@ describe('PresenceGateway.handleVideoCommand — next dedup', () => {
 
     // No state change either, not just no broadcast: a late joiner
     // (video:request'ing the room's current state, per
-    // handleVideoRequest) still sees the ORIGINAL entry as current —
-    // neither advanced nor cleared.
-    const clientB = connectClient(gateway, authService, {
-      id: CLIENT_B_ID,
-      username: CLIENT_B_USERNAME,
-      characterId: CHARACTER_ID_B,
-    })
+    // handleVideoRequest) still sees the ORIGINAL entry as current.
     gateway.handleVideoRequest(asClientSocket(clientB))
     const videoStateCall = clientB.emit.mock.calls.find(
       ([event]) => event === 'video:state',
     )
     expect(
-      (videoStateCall?.[1] as { currentEntryId: string | null } | undefined)
-        ?.currentEntryId,
+      (videoStateCall?.[1] as { entry: { entryId: string } | null } | undefined)
+        ?.entry?.entryId,
     ).toBe(originalEntryId)
   })
 })
 
-describe('PresenceGateway.handleConnection — no longer pushes video/queue state', () => {
+describe('PresenceGateway.handleConnection — no longer pushes video state', () => {
   // Bugfix regression guard: `handleConnection` used to also
-  // `client.emit('video:state', ...)` / `client.emit('queue:state', ...)`
+  // `client.emit('video:state', ...)`
   // directly, alongside `peers:init` — confirmed (against a real
   // socket.io-client round trip, not just this mocked unit test) to be
   // silently dropped 100% of the time, since the browser client doesn't
-  // attach its `video:state`/`queue:state` listeners until AFTER `connect`
+  // attach its `video:state` listener until AFTER `connect`
   // fires, strictly later than this synchronous emit. `handleVideoRequest`
   // (its own describe block below) is the replacement: the client explicitly
   // pulls once its listeners are actually attached. This test locks in the
   // absence of the old, silently-broken push so it can't quietly come back.
-  it('sends peers:init but NOT video:state or queue:state on connect, even when the room already has queue/video state', () => {
+  it('sends peers:init but NOT video:state on connect, even when the room already has video state', () => {
     const { gateway, authService } = buildGateway()
     const clientA = connectClient(gateway, authService, {
       id: CLIENT_A_ID,
@@ -933,8 +973,8 @@ describe('PresenceGateway.handleConnection — no longer pushes video/queue stat
     })
 
     gateway.handleVideoCommand(asClientSocket(clientA), {
-      kind: 'enqueue',
-      entry: VALID_ENQUEUE_ENTRY,
+      kind: 'load',
+      entry: VALID_LOAD_ENTRY,
     })
 
     const clientB = connectClient(gateway, authService, {
@@ -949,19 +989,16 @@ describe('PresenceGateway.handleConnection — no longer pushes video/queue stat
     expect(
       clientB.emit.mock.calls.find(([event]) => event === 'video:state'),
     ).toBeUndefined()
-    expect(
-      clientB.emit.mock.calls.find(([event]) => event === 'queue:state'),
-    ).toBeUndefined()
   })
 })
 
 describe('PresenceGateway.handleVideoRequest', () => {
-  it("responds with video:state AND queue:state reflecting the room's current state, sent only to the requester", () => {
+  it("responds with video:state reflecting the room's current state, sent only to the requester", () => {
     const { gateway, server, clientA, clientB } = buildGatewayWithTwoPeers()
 
     gateway.handleVideoCommand(asClientSocket(clientA), {
-      kind: 'enqueue',
-      entry: VALID_ENQUEUE_ENTRY,
+      kind: 'load',
+      entry: VALID_LOAD_ENTRY,
     })
     server.to.mockClear()
     server.toEmit.mockClear()
@@ -972,23 +1009,12 @@ describe('PresenceGateway.handleVideoRequest', () => {
     const videoStateCall = clientB.emit.mock.calls.find(
       ([event]) => event === 'video:state',
     )
-    const queueStateCall = clientB.emit.mock.calls.find(
-      ([event]) => event === 'queue:state',
-    )
 
     expect(videoStateCall).toBeDefined()
-    expect(queueStateCall).toBeDefined()
-    expect(
-      (queueStateCall?.[1] as { queue: QueueEntry[] } | undefined)?.queue,
-    ).toHaveLength(1)
     expect(videoStateCall?.[1]).toMatchObject({
-      currentItemId: VALID_ENQUEUE_ENTRY.itemId,
+      entry: { itemId: VALID_LOAD_ENTRY.itemId },
       playing: true,
     })
-    expect(
-      (videoStateCall?.[1] as { currentEntryId: string | null } | undefined)
-        ?.currentEntryId,
-    ).not.toBeNull()
     // Never broadcast — this is a reply to the ONE asking socket, unlike
     // every video:command-driven broadcast above.
     expect(server.to).not.toHaveBeenCalled()

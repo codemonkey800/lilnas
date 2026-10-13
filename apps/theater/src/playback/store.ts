@@ -150,10 +150,10 @@ let subtitleTrackElement: HTMLTrackElement | null = null
 
 // Tracks a `load()` call still resolving its `fetchPlaybackInfo()`/
 // `applySource()` cycle. Without this, two `load()` calls for the same item
-// can run concurrently — e.g. `IpadBrowser.tsx`'s `enqueueEntry()` fires an
+// can run concurrently — e.g. `IpadBrowser.tsx`'s `loadEntry()` fires an
 // optimistic local `load()` for the browser's autoplay-gesture requirement,
 // while the server's echoed `video:state` (a synchronous, no-I/O broadcast —
-// see `presence.gateway.ts`'s `videoEnqueue()`) reliably beats that local
+// see `presence.gateway.ts`'s `videoLoad()`) reliably beats that local
 // load's own HTTP round-trip and `sync.ts`'s `handleVideoState()` doesn't yet
 // see this item as loaded, so it starts a second `load()` for the same id.
 // The second call's `applySource()` reassigns the shared `<video>`'s `.src`,

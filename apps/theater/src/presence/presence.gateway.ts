@@ -31,18 +31,14 @@ import {
   HandshakeSchema,
   PresencePacketSchema,
 } from './presence.schema'
-import {
-  applyEnqueue,
-  applyMove,
-  applyNext,
-  applyRemove,
-  type QueueEntry,
-  type QueueState,
-} from './queue'
 import { PeerMuteSchema, RtcSignalMessageSchema } from './rtc.schema'
 import { SEAT_IDS, SeatClaimSchema } from './seat.schema'
 import { type TabletState, TabletStateSchema } from './tablet.schema'
-import { type VideoCommand, VideoCommandSchema } from './video.schema'
+import {
+  type NowPlayingEntry,
+  type VideoCommand,
+  VideoCommandSchema,
+} from './video.schema'
 
 // Stashed on `client.data` in `handleConnection` once auth + characterId
 // validation succeed. Every `@SubscribeMessage` handler below only reads it
@@ -123,13 +119,12 @@ type RateLimitField =
 // occupancy, so every claim resolves to exactly one of these two shapes.
 type SeatClaimAck = { ok: true } | { ok: false; reason: 'taken' | 'unknown' }
 
-// Room-wide video/queue state (ORCHESTRATE.md §1 / PLAN.md "B3b") — the
+// Room-wide video state (ORCHESTRATE.md §1 / PLAN.md "B3b") — the
 // server-held anchor every client's `applyAnchor()` converges on. Not
 // exported: nothing outside this file needs to name it, mirroring
 // `PeerSnapshot`'s narrower export scope for its own sibling types.
 type RoomVideoState = {
-  queue: QueueEntry[]
-  currentEntryId: string | null
+  current: NowPlayingEntry | null
   playing: boolean
   playhead: number
   atServerMs: number
@@ -137,14 +132,13 @@ type RoomVideoState = {
 
 // Fresh, empty room state — shared by the class field's initial value and
 // by the "last peer left" reset in `handleDisconnect` (PLAN.md "B3b": "so a
-// new session doesn't inherit yesterday's playlist/playhead"). A plain
+// new session doesn't inherit yesterday's playhead"). A plain
 // function rather than a class method since it closes over nothing and
 // needs a fresh `Date.now()` at each call site, not just at construction
 // time.
 function createInitialRoomVideo(): RoomVideoState {
   return {
-    queue: [],
-    currentEntryId: null,
+    current: null,
     playing: false,
     playhead: 0,
     atServerMs: Date.now(),
@@ -175,9 +169,9 @@ export class PresenceGateway
   // this map doesn't also reserve for it.
   private readonly seats = new Map<string, string>()
 
-  // Room-wide video/queue state (ORCHESTRATE.md §1 / PLAN.md "B3b"). `queue`
-  // + `currentEntryId` are B2's `QueueState` shape; `playing` / `playhead` /
-  // `atServerMs` are the playback anchor this file owns directly.
+  // Room-wide video state (ORCHESTRATE.md §1 / PLAN.md "B3b"). `current` is
+  // the one title the room is on — loading another replaces it; `playing` /
+  // `playhead` / `atServerMs` are the playback anchor.
   // `atServerMs` pairs with `playhead`: whenever `playing` is true, the true
   // position right now is always `playhead + (Date.now() - atServerMs) /
   // 1000` (`currentPlayhead()` below). Every transition that changes
@@ -225,7 +219,7 @@ export class PresenceGateway
     // Snapshot BEFORE adding this client's own entry, so a joiner never sees
     // itself in its own `peers:init` list (ORCHESTRATE.md §1).
     client.emit('peers:init', Array.from(this.roster.values()))
-    // Deliberately NOT also emitting `video:state`/`queue:state` here
+    // Deliberately NOT also emitting `video:state` here
     // (bugfix — this used to be "the entire late-join story for video
     // sync"): both are dispatched synchronously, in the same task as this
     // handler, which is BEFORE the browser client's own `connect` handler
@@ -275,8 +269,8 @@ export class PresenceGateway
     client.to(THEATER_ROOM).emit('peer:leave', { id: client.id })
     this.logger.log(`peer left: ${client.id}`)
 
-    // Last peer left — reset the room's video/queue state so tomorrow's
-    // session doesn't inherit today's playlist and playhead (PLAN.md
+    // Last peer left — reset the room's video state so tomorrow's
+    // session doesn't inherit today's title and playhead (PLAN.md
     // "B3b").
     if (this.roster.size === 0) {
       this.roomVideo = createInitialRoomVideo()
@@ -473,24 +467,12 @@ export class PresenceGateway
 
     const command = parsed.data
     switch (command.kind) {
-      case 'enqueue': {
-        this.videoEnqueue(client, command.entry)
+      case 'load': {
+        this.videoLoad(client, command.entry)
         break
       }
-      case 'remove': {
-        this.videoRemove(command.entryId)
-        break
-      }
-      case 'move': {
-        this.videoMove(command.entryId, command.beforeEntryId)
-        break
-      }
-      case 'jump': {
-        this.videoJump(command.entryId)
-        break
-      }
-      case 'next': {
-        this.videoNext(command.afterEntryId)
+      case 'ended': {
+        this.videoEnded(command.entryId)
         break
       }
       case 'play': {
@@ -514,9 +496,8 @@ export class PresenceGateway
   // "send me the current room state" pull, not a mutation, so there's
   // nothing to validate. Rate-limited on the SAME floor/field as
   // `video:command` — it's a video-transport-plane message just like those
-  // eight kinds, and `client.emit` only ever costs the requester their own
-  // bandwidth (never broadcast), but `videoStatePayload()` below does a
-  // linear queue scan per call, so a scripted client spamming this in a
+  // five kinds, and `client.emit` only ever costs the requester their own
+  // bandwidth (never broadcast), but a scripted client spamming this in a
   // loop is still worth the same cheap insurance every other
   // roster-mutating handler in this file already applies.
   @SubscribeMessage('video:request')
@@ -533,7 +514,6 @@ export class PresenceGateway
     }
 
     client.emit('video:state', this.videoStatePayload())
-    client.emit('queue:state', this.queueStatePayload())
   }
 
   // Clock-sync probe for `video:state`'s `atServerMs` (see
@@ -555,16 +535,6 @@ export class PresenceGateway
       return undefined
     }
     return { serverMs: Date.now() }
-  }
-
-  // The queue-mutation slice of `roomVideo` (`./queue`'s `QueueState`) —
-  // `playing` / `playhead` / `atServerMs` are playback-anchor concerns this
-  // file owns directly and are never passed to B2's pure queue functions.
-  private toQueueState(): QueueState {
-    return {
-      queue: this.roomVideo.queue,
-      currentEntryId: this.roomVideo.currentEntryId,
-    }
   }
 
   // The TRUE playhead right now, accounting for elapsed wall-clock time
@@ -590,29 +560,19 @@ export class PresenceGateway
   // Clients translate it through src/playback/clock.ts's `time:ping` offset
   // estimate; see `handleTimePing` below.
   private videoStatePayload(): {
-    currentEntryId: string | null
-    currentItemId: string | null
+    entry: NowPlayingEntry | null
     playing: boolean
     playhead: number
     atServerMs: number
   } {
-    const currentItemId =
-      this.roomVideo.queue.find(
-        entry => entry.entryId === this.roomVideo.currentEntryId,
-      )?.itemId ?? null
     const nowMs = Date.now()
 
     return {
-      currentEntryId: this.roomVideo.currentEntryId,
-      currentItemId,
+      entry: this.roomVideo.current,
       playing: this.roomVideo.playing,
       playhead: this.currentPlayhead(nowMs),
       atServerMs: nowMs,
     }
-  }
-
-  private queueStatePayload(): { queue: QueueEntry[] } {
-    return { queue: this.roomVideo.queue }
   }
 
   // Whole-room broadcast INCLUDING the sender (`this.server.to`, never
@@ -623,20 +583,14 @@ export class PresenceGateway
     this.server.to(THEATER_ROOM).emit('video:state', this.videoStatePayload())
   }
 
-  // Same whole-room-including-sender scope as `broadcastVideoState` — fires
-  // only when the queue array itself changes, not on every transport change
-  // (ORCHESTRATE.md §1).
-  private broadcastQueueState(): void {
-    this.server.to(THEATER_ROOM).emit('queue:state', this.queueStatePayload())
-  }
-
-  private videoEnqueue(
+  // Switches the whole room to `entry`, replacing whatever was on — no
+  // queue, the latest pick wins (D2). Always starts from the top and playing,
+  // even when the same title is already loaded: re-picking it restarts it.
+  private videoLoad(
     client: PresenceSocket,
-    entry: Extract<VideoCommand, { kind: 'enqueue' }>['entry'],
+    entry: Extract<VideoCommand, { kind: 'load' }>['entry'],
   ): void {
-    const wasEmpty = this.roomVideo.currentEntryId === null
-
-    const queueEntry: QueueEntry = {
+    this.roomVideo.current = {
       entryId: randomUUID(),
       itemId: entry.itemId,
       title: entry.title,
@@ -645,86 +599,26 @@ export class PresenceGateway
       runTimeTicks: entry.runTimeTicks,
       addedBy: client.data.username,
     }
-
-    const next = applyEnqueue(this.toQueueState(), queueEntry)
-    this.roomVideo.queue = next.queue
-    this.roomVideo.currentEntryId = next.currentEntryId
-
-    // The queue was empty and this entry became current — start playback,
-    // or adding the very first title does nothing visible (PLAN.md "B3b").
-    if (wasEmpty && next.currentEntryId !== null) {
-      this.roomVideo.playhead = 0
-      this.roomVideo.atServerMs = Date.now()
-      this.roomVideo.playing = true
-    }
+    this.roomVideo.playhead = 0
+    this.roomVideo.atServerMs = Date.now()
+    this.roomVideo.playing = true
 
     this.broadcastVideoState()
-    this.broadcastQueueState()
   }
 
-  private videoRemove(entryId: string): void {
-    const previousCurrentEntryId = this.roomVideo.currentEntryId
-    const next = applyRemove(this.toQueueState(), entryId)
-    this.roomVideo.queue = next.queue
-    this.roomVideo.currentEntryId = next.currentEntryId
-
-    if (next.currentEntryId !== previousCurrentEntryId) {
-      this.roomVideo.playhead = 0
-      this.roomVideo.atServerMs = Date.now()
-      if (next.currentEntryId === null) {
-        this.roomVideo.playing = false
-      }
-      // else: the cursor advanced to the pre-removal follower — mirrors a
-      // `jump` onto the new current entry, leaving `playing` as it was.
-    }
-
-    this.broadcastVideoState()
-    this.broadcastQueueState()
-  }
-
-  private videoMove(entryId: string, beforeEntryId: string | null): void {
-    const next = applyMove(this.toQueueState(), entryId, beforeEntryId)
-    this.roomVideo.queue = next.queue
-    // `applyMove` never changes the cursor (ORCHESTRATE.md §1 invariant 3)
-    // — only the queue array itself changed.
-
-    this.broadcastQueueState()
-  }
-
-  private videoJump(entryId: string): void {
-    const exists = this.roomVideo.queue.some(entry => entry.entryId === entryId)
-    if (!exists) {
-      // Mirrors `applyMove`'s unknown-id no-op — never crash, and never ack
-      // an error since `video:command` is fire-and-forget.
+  // Every client's <video> fires `ended` at roughly the same moment and each
+  // emits this; only the first still matches the current entry (ORCHESTRATE.md
+  // §1 invariant 4) — the dedup. It also drops a late report for a title that
+  // has since been replaced, which must not stop what's playing now.
+  private videoEnded(entryId: string): void {
+    if (entryId !== this.roomVideo.current?.entryId) {
       return
     }
 
-    this.roomVideo.currentEntryId = entryId
+    this.roomVideo.current = null
     this.roomVideo.playhead = 0
     this.roomVideo.atServerMs = Date.now()
-    // `playing` is left exactly as it was.
-
-    this.broadcastVideoState()
-  }
-
-  private videoNext(afterEntryId: string): void {
-    if (afterEntryId !== this.roomVideo.currentEntryId) {
-      // Every client fires `next` on `ended`; only the first to arrive
-      // still matches the current cursor (ORCHESTRATE.md §1 invariant 4) —
-      // the auto-advance dedup. Silently ignore the rest; no ack either
-      // way.
-      return
-    }
-
-    const next = applyNext(this.toQueueState())
-    this.roomVideo.queue = next.queue
-    this.roomVideo.currentEntryId = next.currentEntryId
-    this.roomVideo.playhead = 0
-    this.roomVideo.atServerMs = Date.now()
-    if (next.currentEntryId === null) {
-      this.roomVideo.playing = false
-    }
-    // else: leave `playing` as it was.
+    this.roomVideo.playing = false
 
     this.broadcastVideoState()
   }

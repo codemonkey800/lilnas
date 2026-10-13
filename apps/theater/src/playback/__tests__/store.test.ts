@@ -5,7 +5,7 @@ import { shouldReuseInFlightLoad } from 'src/playback/store'
 // network-heavy (document.createElement, fetch, hls.js) and isn't worth the
 // mocking cost; `shouldReuseInFlightLoad` is the one branch point it makes
 // before touching any of that, so it's the testable surface of the fix for
-// the enqueue/video:state double-load race (see store.ts's `inFlightLoad`
+// the load/video:state double-load race (see store.ts's `inFlightLoad`
 // comment).
 
 describe('shouldReuseInFlightLoad', () => {

@@ -4,7 +4,7 @@ import { Html, RoundedBox } from '@react-three/drei'
 import { useEffect, useState } from 'react'
 
 import { useMultiplayerStore } from 'src/multiplayer/store'
-import { useQueueStore } from 'src/playback/queue'
+import { useNowPlayingStore } from 'src/playback/nowPlayingStore'
 import { usePlaybackStore } from 'src/playback/store'
 
 import {
@@ -77,7 +77,7 @@ export function RemoteIpad({ id }: RemoteIpadProps) {
   // Room-wide state (F7b) — identical for every viewer, unlike everything
   // above (this peer's OWN nav state). Read from the SAME stores
   // IpadBrowser.tsx's local, interactive tablet does, so this mirror shows
-  // the actual room queue/playhead rather than a stale or absent one.
+  // the actual room entry/playhead rather than a stale or absent one.
   // `duration` only changes when a new item loads, so it's read straight
   // from the store, same as IpadBrowser.tsx does. `getTargetPlayhead()` is a
   // derived getter, not stored reactive state, but unlike that file's
@@ -85,8 +85,7 @@ export function RemoteIpad({ id }: RemoteIpadProps) {
   // is enough here — this component runs no per-frame loop of its own, so
   // there's no 60x/s re-render risk to throttle against; it only recomputes
   // on the store's own (comparatively rare) transport-change `set()` calls.
-  const queue = useQueueStore(state => state.queue)
-  const currentEntryId = useQueueStore(state => state.currentEntryId)
+  const nowPlaying = useNowPlayingStore(state => state.entry)
   const playhead = usePlaybackStore(state => state.getTargetPlayhead())
   const duration = usePlaybackStore(state => state.duration)
 
@@ -258,11 +257,9 @@ export function RemoteIpad({ id }: RemoteIpadProps) {
     browse = { view: 'seasons', series }
   } else if (tablet.view === 'episodes' && series && season) {
     browse = { view: 'episodes', series, season }
-  } else if (tablet.view === 'queue') {
-    browse = { view: 'queue' }
   } else if (tablet.view === 'player') {
     // Needs no id from the wire payload: the player page renders the room's
-    // own queue cursor, which is identical for every viewer.
+    // own current entry, which is identical for every viewer.
     browse = { view: 'player' }
   }
 
@@ -312,7 +309,7 @@ export function RemoteIpad({ id }: RemoteIpadProps) {
             // Per-control playback-footer props (itemId/playing/volume/
             // quality/subtitleIndex/subtitles/loading/error) are OUT of
             // this unit's scope (F7b only wires playhead/duration + the
-            // queue, below) -- inert placeholders render IpadBrowserView's
+            // now-playing entry, below) -- inert placeholders render IpadBrowserView's
             // "Pick a title to begin" footer state rather than a
             // half-mirrored attempt at a peer's per-control playback UI.
             itemId={null}
@@ -332,14 +329,10 @@ export function RemoteIpad({ id }: RemoteIpadProps) {
             playhead={playhead}
             duration={duration}
             scrollTop={tablet.scrollTop}
-            // Room-wide queue state (F7b) -- identical for every viewer,
-            // read from the same useQueueStore as the local tablet
-            // (IpadBrowser.tsx). Deliberately NOT passing onQueueJump/
-            // onQueueRemove/onQueueMove: omitting them (leaving them
-            // undefined) is what keeps this mirror's queue view read-only,
-            // exactly like every other on*? callback already omitted above.
-            queue={queue}
-            currentEntryId={currentEntryId}
+            // Room-wide now-playing entry -- identical for every viewer,
+            // read from the same useNowPlayingStore as the local tablet
+            // (IpadBrowser.tsx).
+            nowPlaying={nowPlaying}
           />
         </div>
       </Html>

@@ -60,9 +60,8 @@ const ANIM_STATES = [
 
 export type AnimState = (typeof ANIM_STATES)[number]
 
-// Keep in sync with src/presence/tablet.schema.ts's `TabletState`. `'queue'`
-// (Phase 5) and `'player'` are each one of four independent mirrors of this
-// exact union — `tablet.schema.ts`'s zod enum, this type + `isTabletState`
+// Keep in sync with src/presence/tablet.schema.ts's `TabletState`. `'player'`
+// is one of four independent mirrors of this exact union — `tablet.schema.ts`'s zod enum, this type + `isTabletState`
 // below, `IpadBrowser.tsx`'s `BrowseState` + `buildTabletState`, and
 // `RemoteIpad.tsx`'s `TabletState -> BrowseState` reconstruction
 // (ORCHESTRATE.md §2/§3). A partial edit fails silently — a peer's tablet
@@ -70,7 +69,7 @@ export type AnimState = (typeof ANIM_STATES)[number]
 // union, not by the type checker.
 export type TabletState = {
   open: boolean
-  view: 'grid' | 'seasons' | 'episodes' | 'queue' | 'player'
+  view: 'grid' | 'seasons' | 'episodes' | 'player'
   seriesId: string | null
   seasonId: string | null
   search: string
@@ -228,7 +227,6 @@ export function isTabletState(value: unknown): value is TabletState {
     v.view !== 'grid' &&
     v.view !== 'seasons' &&
     v.view !== 'episodes' &&
-    v.view !== 'queue' &&
     v.view !== 'player'
   ) {
     return false

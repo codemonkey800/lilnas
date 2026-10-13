@@ -4,12 +4,8 @@ import { cns } from '@lilnas/utils/cns'
 import { useEffect, useRef, useState } from 'react'
 
 import { formatRuntime, formatTimecode } from 'src/playback/format'
-import {
-  buildArtworkUrl,
-  findNextEntry,
-  resolveNowPlaying,
-} from 'src/playback/nowPlaying'
-import { type QueueEntry } from 'src/playback/queue'
+import { buildArtworkUrl } from 'src/playback/nowPlaying'
+import { type NowPlayingEntry } from 'src/playback/nowPlayingStore'
 import { type QualityTier, type SubtitleTrack } from 'src/playback/store'
 
 import { filterLibraryItems, type LibraryTypeFilter } from './libraryFilter'
@@ -89,8 +85,8 @@ export type TheaterEpisode = {
 // so it lives here rather than in IpadBrowser.tsx, which just holds one in
 // state and passes it straight through as a prop.
 //
-// `'queue'` (Phase 5/F7b) and `'player'` are each one of four independent
-// mirrors of the wire `TabletState.view` union — `tablet.schema.ts`'s zod enum,
+// `'player'` is one of four independent mirrors of the wire
+// `TabletState.view` union — `tablet.schema.ts`'s zod enum,
 // `multiplayer/store.ts`'s type + `isTabletState`, this union +
 // `IpadBrowser.tsx`'s `buildTabletState`, and `RemoteIpad.tsx`'s
 // `TabletState -> BrowseState` reconstruction are the other three
@@ -98,16 +94,15 @@ export type TheaterEpisode = {
 // just stops validating or renders the wrong view — so grep the union rather
 // than trusting the type checker to connect the copies.
 //
-// Both `'queue'` and `'player'` are shaped like `'grid'` (no extra fields):
-// they're views onto flat, room-wide state read from a store, not drill-down
-// contexts. `'player'` deliberately does NOT carry the item it's showing —
-// what's playing is whatever the room's queue cursor says, and a copy held in
-// browse state could disagree with it the moment someone else jumps the queue.
+// `'player'` is shaped like `'grid'` (no extra fields): it's a view onto flat,
+// room-wide state read from a store, not a drill-down context. It deliberately
+// does NOT carry the item it's showing — what's playing is whatever the room
+// currently has loaded, and a copy held in browse state could disagree with it
+// the moment someone else picks another title.
 export type BrowseState =
   | { view: 'grid' }
   | { view: 'seasons'; series: TheaterItem }
   | { view: 'episodes'; series: TheaterItem; season: TheaterSeason }
-  | { view: 'queue' }
   | { view: 'player' }
 
 const TYPE_FILTER_OPTIONS: { value: LibraryTypeFilter; label: string }[] = [
@@ -327,15 +322,6 @@ function TransportPauseGlyph() {
   )
 }
 
-function TransportNextGlyph() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" aria-hidden="true">
-      <path d="M6 5v14l9-7z" className="fill-current" />
-      <rect x="16.5" y="5" width="2.5" height="14" className="fill-current" />
-    </svg>
-  )
-}
-
 // Wide hero artwork for the player page. Steps down through what Emby may or
 // may not have for an item: a 16:9 Backdrop, then the 2:3 Primary poster
 // (blurred and overscanned, since cropping a poster to a wide banner looks worse
@@ -381,12 +367,12 @@ function PlayerArtwork({ itemId }: { itemId: string }) {
 }
 
 type PlayerPageProps = {
-  // Now-playing metadata, resolved from the ROOM's queue cursor by the caller
-  // (playback/nowPlaying.ts) — never from `browse`, so this page can't disagree
-  // with what's actually on the screen.
-  nowPlaying: QueueEntry | null
-  // The locally-loaded item, used as an artwork fallback while the queue echo is
-  // still in flight (the optimistic load in IpadBrowser.tsx beats `queue:state`).
+  // Now-playing metadata, from the ROOM's current entry (read from
+  // playback/nowPlayingStore.ts by the caller) — never from `browse`, so this
+  // page can't disagree with what's actually on the screen.
+  nowPlaying: NowPlayingEntry | null
+  // The locally-loaded item, used as an artwork fallback while the room echo is
+  // still in flight (the optimistic load in IpadBrowser.tsx beats `video:state`).
   itemId: string | null
 
   playing: boolean
@@ -399,21 +385,16 @@ type PlayerPageProps = {
   quality: QualityTier
   subtitleIndex: number | null
   textSubtitles: SubtitleTrack[]
-  // False on the last queue entry: `commandNext` there clears the room cursor
-  // and stops playback for everyone rather than wrapping (presence/queue.ts's
-  // applyNext), so the button is disabled instead of silently ending the night.
-  hasNext: boolean
 
   onSeek?: (playhead: number) => void
   onPlayPause?: () => void
-  onNext?: () => void
   onVolumeChange?: (volume: number) => void
   onQualityChange?: (quality: QualityTier) => void
   onSubtitleChange?: (index: number | null) => void
 }
 
 // The tablet's "now playing" page — one of the `browse` views, sibling to the
-// grid/seasons/episodes/queue panels. This is where every playback control lives
+// grid/seasons/episodes panels. This is where every playback control lives
 // now; the footer below is reduced to a one-line strip that navigates here.
 function PlayerPage({
   nowPlaying,
@@ -427,10 +408,8 @@ function PlayerPage({
   quality,
   subtitleIndex,
   textSubtitles,
-  hasNext,
   onSeek,
   onPlayPause,
-  onNext,
   onVolumeChange,
   onQualityChange,
   onSubtitleChange,
@@ -468,7 +447,7 @@ function PlayerPage({
 
       {nowPlaying !== null && (
         <p className="text-[9px] text-white/40">
-          Queued by {nowPlaying.addedBy}
+          Started by {nowPlaying.addedBy}
         </p>
       )}
 
@@ -482,21 +461,6 @@ function PlayerPage({
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-black transition hover:bg-white/90"
         >
           {playing ? <TransportPauseGlyph /> : <TransportPlayGlyph />}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => onNext?.()}
-          disabled={!hasNext}
-          aria-label="Next in queue"
-          className={cns(
-            'flex h-7 w-7 shrink-0 items-center justify-center rounded-full border transition',
-            hasNext
-              ? 'border-white/30 text-white/80 hover:border-white/60 hover:text-white'
-              : 'border-white/10 text-white/20',
-          )}
-        >
-          <TransportNextGlyph />
         </button>
 
         <label className="flex min-w-0 flex-1 items-center gap-1.5 text-[9px] text-white/50">
@@ -629,13 +593,12 @@ export type IpadBrowserViewProps = {
   duration: number
   onSeek?: (playhead: number) => void
 
-  // Room-wide, shared queue state (F7b / PLAN.md D6) — the SAME queue for
-  // every viewer, unlike everything above (browse/search/scroll are this
-  // tablet's own local nav). Read from `playback/queue.ts`'s useQueueStore
-  // by the caller; this component never touches that store (or any store)
-  // itself — see the file banner's "never reads a store" rule.
-  queue: QueueEntry[]
-  currentEntryId: string | null
+  // What the room is currently playing — the SAME entry for every viewer,
+  // unlike everything above (browse/search/scroll are this tablet's own local
+  // nav). Read from `playback/nowPlayingStore.ts` by the caller; this
+  // component never touches that store (or any store) itself — see the file
+  // banner's "never reads a store" rule.
+  nowPlaying: NowPlayingEntry | null
 
   // Controlled scroll position for the scrollable grid/list container below
   // — `undefined` (the local/interactive tablet) leaves scrolling entirely
@@ -662,26 +625,9 @@ export type IpadBrowserViewProps = {
   onQualityChange?: (quality: QualityTier) => void
   onSubtitleChange?: (index: number | null) => void
 
-  // Queue-tab navigation + mutation (F7b). `onQueueJump`/`onQueueRemove`/
-  // `onQueueMove` map straight onto `playback/sync.ts`'s `commandJump`/
-  // `commandRemove`/`commandMove` (ORCHESTRATE.md §1) — buttons only, never
-  // drag-and-drop (PLAN.md: reordering inside an <Html>-in-Canvas overlay
-  // with pointer-lock active is "a pointer-event fight not worth having").
-  // `onOpenQueue` is pure local nav (parallels `onBack`) — it only flips
-  // this tablet's own `BrowseState`, never a room command. A future
-  // non-interactive caller (RemoteIpad) supplies none of these four, same
-  // as every other `on*?` prop above, so a peer's mirrored queue view is
-  // read-only.
-  onOpenQueue?: () => void
-  onQueueJump?: (entryId: string) => void
-  onQueueRemove?: (entryId: string) => void
-  onQueueMove?: (entryId: string, beforeEntryId: string | null) => void
-
-  // Player-page navigation + transport. `onOpenPlayer` is pure local nav (it
-  // only flips this tablet's own `BrowseState`, like `onOpenQueue`/`onBack`);
-  // `onNext` maps onto `playback/sync.ts`'s `commandNext` and IS a room command.
+  // Player-page navigation. Pure local nav (it only flips this tablet's own
+  // `BrowseState`, like `onBack`).
   onOpenPlayer?: () => void
-  onNext?: () => void
 }
 
 export function IpadBrowserView({
@@ -709,8 +655,7 @@ export function IpadBrowserView({
   playhead,
   duration,
   onSeek,
-  queue,
-  currentEntryId,
+  nowPlaying,
   scrollTop,
   onSearchChange,
   onTypeFilterChange,
@@ -722,12 +667,7 @@ export function IpadBrowserView({
   onVolumeChange,
   onQualityChange,
   onSubtitleChange,
-  onOpenQueue,
-  onQueueJump,
-  onQueueRemove,
-  onQueueMove,
   onOpenPlayer,
-  onNext,
 }: IpadBrowserViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -758,14 +698,6 @@ export function IpadBrowserView({
 
   const textSubtitles = subtitles.filter(track => track.isText)
   const filteredItems = filterLibraryItems(items, search, typeFilter)
-
-  // Derived from the ROOM's queue + cursor props, not from `browse` — so the
-  // player page, the back-bar title and the now-playing footer strip all name
-  // whatever is actually on the screen, even if a peer jumped the queue while
-  // this tablet sat on some other view. Pure helpers, so importing them doesn't
-  // breach this file's "never reads a store" rule.
-  const nowPlaying = resolveNowPlaying(queue, currentEntryId)
-  const hasNext = findNextEntry(queue, currentEntryId) !== null
 
   return (
     <div
@@ -810,13 +742,6 @@ export function IpadBrowserView({
                 {option.label}
               </button>
             ))}
-            <button
-              type="button"
-              onClick={() => onOpenQueue?.()}
-              className="ml-auto shrink-0 rounded-full border border-white/25 px-2 py-0.5 text-[9px] text-white/60 transition hover:border-white/50 hover:text-white"
-            >
-              Queue ({queue.length})
-            </button>
           </div>
         </div>
       ) : (
@@ -829,7 +754,6 @@ export function IpadBrowserView({
             ← Back
           </button>
           <span className="truncate text-[10px] text-white/50">
-            {browse.view === 'queue' && 'Queue'}
             {browse.view === 'player' && (nowPlaying?.title ?? 'Player')}
             {(browse.view === 'seasons' || browse.view === 'episodes') &&
               `${browsingSeries?.name ?? ''}${browsingSeason ? ` · ${browsingSeason.name}` : ''}`}
@@ -967,110 +891,6 @@ export function IpadBrowserView({
           </>
         )}
 
-        {browse.view === 'queue' && (
-          <>
-            {queue.length === 0 && (
-              <p className="p-2 text-[11px] text-white/50">Queue is empty.</p>
-            )}
-            <div className="flex flex-col gap-1.5">
-              {queue.map((entry, index) => {
-                const isCurrent = entry.entryId === currentEntryId
-                return (
-                  <div
-                    key={entry.entryId}
-                    className={cns(
-                      'flex items-center gap-2 rounded p-1',
-                      isCurrent && 'bg-white/15',
-                    )}
-                  >
-                    <div className="w-14 shrink-0">
-                      <LibraryImage
-                        src={`/api/theater/items/${entry.itemId}/image`}
-                        alt={entry.title}
-                        aspectClassName="aspect-[2/3]"
-                      />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1">
-                        <p
-                          className={cns(
-                            'truncate text-[10px]',
-                            isCurrent
-                              ? 'font-medium text-white'
-                              : 'text-white/80',
-                          )}
-                        >
-                          {entry.title}
-                        </p>
-                        {isCurrent && (
-                          <span className="shrink-0 rounded-full border border-white/40 bg-white/20 px-1 text-[7px] tracking-wide text-white uppercase">
-                            Now playing
-                          </span>
-                        )}
-                      </div>
-                      {entry.subtitle && (
-                        <p className="truncate text-[8px] text-white/40">
-                          {entry.subtitle}
-                        </p>
-                      )}
-                      <p className="truncate text-[8px] text-white/30">
-                        Added by {entry.addedBy}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 flex-col gap-0.5">
-                      <button
-                        type="button"
-                        disabled={index === 0}
-                        aria-label="Move up"
-                        onClick={() => {
-                          const previousEntry = queue[index - 1]
-                          if (previousEntry) {
-                            onQueueMove?.(entry.entryId, previousEntry.entryId)
-                          }
-                        }}
-                        className="rounded border border-white/25 px-1 text-[9px] text-white/60 transition hover:border-white/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        ▲
-                      </button>
-                      <button
-                        type="button"
-                        disabled={index === queue.length - 1}
-                        aria-label="Move down"
-                        onClick={() => {
-                          const afterNext = queue[index + 2]
-                          onQueueMove?.(
-                            entry.entryId,
-                            afterNext ? afterNext.entryId : null,
-                          )
-                        }}
-                        className="rounded border border-white/25 px-1 text-[9px] text-white/60 transition hover:border-white/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        ▼
-                      </button>
-                    </div>
-                    <div className="flex shrink-0 flex-col gap-1">
-                      <button
-                        type="button"
-                        onClick={() => onQueueJump?.(entry.entryId)}
-                        className="rounded-full border border-white/30 bg-white/10 px-2 py-0.5 text-[9px] font-medium text-white transition hover:bg-white/20"
-                      >
-                        Play
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onQueueRemove?.(entry.entryId)}
-                        className="rounded-full border border-white/25 px-2 py-0.5 text-[9px] text-white/60 transition hover:border-white/50 hover:text-white"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </>
-        )}
-
         {browse.view === 'player' && (
           <PlayerPage
             nowPlaying={nowPlaying}
@@ -1084,10 +904,8 @@ export function IpadBrowserView({
             quality={quality}
             subtitleIndex={subtitleIndex}
             textSubtitles={textSubtitles}
-            hasNext={hasNext}
             onSeek={onSeek}
             onPlayPause={onPlayPause}
-            onNext={onNext}
             onVolumeChange={onVolumeChange}
             onQualityChange={onQualityChange}
             onSubtitleChange={onSubtitleChange}

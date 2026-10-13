@@ -63,7 +63,7 @@ export const RTC_ICE_MIN_INTERVAL_MS = 20
 // `kind: 'ice'` branch.
 export const SEAT_CLAIM_MIN_INTERVAL_MS = 200
 
-// `video:command` covers all eight kinds (PLAN.md's B3b), including `seek`
+// `video:command` covers all five kinds (PLAN.md's B3b), including `seek`
 // — the tablet only emits on scrub-bar release, not per drag tick
 // (PLAN.md's F7a), but a scrub UI can still fire several releases in quick
 // succession while someone clicks around the bar. 100ms is a modest floor:

@@ -6,18 +6,14 @@ import { type UIEvent, useEffect, useRef, useState } from 'react'
 import { type Group } from 'three'
 
 import { getSocket } from 'src/multiplayer/store'
-import { useQueueStore } from 'src/playback/queue'
+import { useNowPlayingStore } from 'src/playback/nowPlayingStore'
 import { type QualityTier, usePlaybackStore } from 'src/playback/store'
 import {
-  commandEnqueue,
-  commandJump,
-  commandMove,
-  commandNext,
+  commandLoad,
   commandPause,
   commandPlay,
-  commandRemove,
   commandSeek,
-  type EnqueueEntry,
+  type LoadEntry,
 } from 'src/playback/sync'
 
 import {
@@ -138,13 +134,13 @@ function describeFetchError(err: unknown, fallback: string): string {
 }
 
 // PLAN.md's "F7a — tablet: transport through commands, plus seeking":
-// picking a title now enqueues it (PLAN.md D2/D6's shared, cursor-based
-// queue) instead of loading+playing it directly. `subtitle` composition
-// mirrors this file's own formatItemMeta()/formatEpisodeMeta() labeling in
+// picking a title asks the room to switch to it (replacing whatever was on)
+// instead of loading+playing it directly. `subtitle` composition mirrors this
+// file's own formatItemMeta()/formatEpisodeMeta() labeling in
 // IpadBrowserView.tsx (a movie's year; an episode's series + "S{n}E{n}"),
-// per ORCHESTRATE.md §1's `QueueEntry.subtitle` examples ("2019" /
+// per ORCHESTRATE.md §1's `NowPlayingEntry.subtitle` examples ("2019" /
 // "The Bear · S2E4").
-function buildMovieEntry(item: TheaterItem): EnqueueEntry {
+function buildMovieEntry(item: TheaterItem): LoadEntry {
   return {
     itemId: item.id,
     title: item.name,
@@ -171,7 +167,7 @@ function buildEpisodeEntry(
   series: TheaterItem,
   season: TheaterSeason,
   episode: TheaterEpisode,
-): EnqueueEntry {
+): LoadEntry {
   return {
     itemId: episode.id,
     title: episode.name,
@@ -183,10 +179,11 @@ function buildEpisodeEntry(
 
 // The poster/episode click is also the required user-gesture for the
 // browser's video-autoplay policy (PLAN.md "Gesture" / F6's "Autoplay
-// gesture" mitigation (a)) — but ONLY when this enqueue is what will START
-// playback, i.e. the room has nothing currently playing
-// (`useQueueStore.getState().currentItemId === null`). A click that only
-// appends to an already-playing queue must not touch local playback at all.
+// gesture" mitigation (a)) — but ONLY when this load is what will START
+// playback, i.e. the room has nothing playing yet
+// (`useNowPlayingStore.getState().entry === null`). Replacing a title that's
+// already playing must not touch local playback here: the shared <video> has
+// already been unlocked, and the echoed `video:state` swaps the source.
 // Both the optimistic call and the command emission always happen — the
 // echoed `video:state` this command triggers is what every client (this one
 // included) actually reconciles against via `useVideoSync()`'s
@@ -194,14 +191,14 @@ function buildEpisodeEntry(
 // user gesture for the browser's autoplay policy, load() then play()
 // directly inside the click handler's own async call, nothing else in
 // between (mirrors this file's previous single-player `selectItem()`).
-function enqueueEntry(entry: EnqueueEntry): void {
-  if (useQueueStore.getState().currentItemId === null) {
+function loadEntry(entry: LoadEntry): void {
+  if (useNowPlayingStore.getState().entry === null) {
     void usePlaybackStore
       .getState()
       .load(entry.itemId)
       .then(() => usePlaybackStore.getState().play())
   }
-  commandEnqueue(entry)
+  commandLoad(entry)
 }
 
 // ---------------------------------------------------------------------------
@@ -222,8 +219,8 @@ function enqueueEntry(entry: EnqueueEntry): void {
 // ---------------------------------------------------------------------------
 
 // Keep in sync with src/presence/tablet.schema.ts's `TabletState` /
-// ORCHESTRATE.md §1's frozen wire contract. `'queue'` (Phase 5/F7b) and
-// `'player'` are each one of four independent mirrors of this exact union —
+// ORCHESTRATE.md §1's frozen wire contract. `'player'` is one of four
+// independent mirrors of this exact union —
 // `tablet.schema.ts`'s zod enum, `multiplayer/store.ts`'s type +
 // `isTabletState`, this type + `buildTabletState` below, and
 // `RemoteIpad.tsx`'s `TabletState -> BrowseState` reconstruction are the
@@ -232,7 +229,7 @@ function enqueueEntry(entry: EnqueueEntry): void {
 // the type checker to connect the copies.
 type TabletState = {
   open: boolean
-  view: 'grid' | 'seasons' | 'episodes' | 'queue' | 'player'
+  view: 'grid' | 'seasons' | 'episodes' | 'player'
   seriesId: string | null
   seasonId: string | null
   search: string
@@ -300,11 +297,10 @@ export function IpadBrowser() {
   // below — it's read straight from the store like every other field above.
   const duration = usePlaybackStore(state => state.duration)
 
-  // Room-wide queue state (F6/F7b) — the SAME queue and cursor every peer
-  // sees, distinct from the local browse/search/scroll state below (which
-  // is this tablet's own nav, never synced to anyone).
-  const queue = useQueueStore(state => state.queue)
-  const currentEntryId = useQueueStore(state => state.currentEntryId)
+  // Room-wide now-playing entry (F6/F7b) — the SAME entry every peer sees,
+  // distinct from the local browse/search/scroll state below (which is this
+  // tablet's own nav, never synced to anyone).
+  const nowPlaying = useNowPlayingStore(state => state.entry)
 
   const [items, setItems] = useState<TheaterItem[]>([])
   const [itemsLoading, setItemsLoading] = useState(true)
@@ -545,7 +541,7 @@ export function IpadBrowser() {
 
   function handleItemClick(item: TheaterItem): void {
     if (item.type === 'movie') {
-      enqueueEntry(buildMovieEntry(item))
+      loadEntry(buildMovieEntry(item))
       // Picking a title is the one moment the viewer's attention is on what
       // they just chose, so land them on the player page rather than leaving
       // them staring at the grid. Local nav only — nothing about this is
@@ -562,8 +558,8 @@ export function IpadBrowser() {
       setBrowse({ view: 'seasons', series: browse.series })
       return
     }
-    // 'player' and 'queue' both go straight back to the grid — neither is a
-    // drill-down, so there's no intermediate level to return to.
+    // 'player' goes straight back to the grid — it isn't a drill-down, so
+    // there's no intermediate level to return to.
     setBrowse({ view: 'grid' })
   }
 
@@ -577,7 +573,7 @@ export function IpadBrowser() {
     if (browse.view !== 'episodes') {
       return
     }
-    enqueueEntry(buildEpisodeEntry(browse.series, browse.season, episode))
+    loadEntry(buildEpisodeEntry(browse.series, browse.season, episode))
     // Same as handleItemClick's movie branch — go to the player page. Note this
     // discards the episodes drill-down, so `← Back` from the player lands on the
     // grid rather than back in the season; picking a title is a commit, not a
@@ -585,30 +581,10 @@ export function IpadBrowser() {
     setBrowse({ view: 'player' })
   }
 
-  // Pure local nav (parallels handleBack) — flips this tablet's own
-  // BrowseState into the queue tab. Never a room command; the queue's
-  // CONTENTS come from useQueueStore above regardless of which local tab is
-  // currently showing.
-  function handleOpenQueue(): void {
-    setBrowse({ view: 'queue' })
-  }
-
-  // Also pure local nav (parallels handleOpenQueue) — the now-playing footer
-  // strip's route into the player page.
+  // Pure local nav (parallels handleBack) — the now-playing footer strip's
+  // route into the player page.
   function handleOpenPlayer(): void {
     setBrowse({ view: 'player' })
-  }
-
-  // A room command, unlike the two above. `commandNext` needs the entry it's
-  // advancing FROM so the server can reject a stale click (someone else may
-  // have already advanced the cursor). The button is disabled on the last entry
-  // — see `hasNext` in IpadBrowserView — because applyNext would otherwise
-  // clear the cursor and stop playback for the whole room.
-  function handleNext(): void {
-    const entryId = useQueueStore.getState().currentEntryId
-    if (entryId !== null) {
-      commandNext(entryId)
-    }
   }
 
   function handlePlayPause(): void {
@@ -729,8 +705,7 @@ export function IpadBrowser() {
               error={error}
               playhead={playhead}
               duration={duration}
-              queue={queue}
-              currentEntryId={currentEntryId}
+              nowPlaying={nowPlaying}
               onSearchChange={setSearch}
               onTypeFilterChange={setTypeFilter}
               onItemClick={handleItemClick}
@@ -742,12 +717,7 @@ export function IpadBrowser() {
               onQualityChange={handleQualityChange}
               onSubtitleChange={handleSubtitleChange}
               onSeek={commandSeek}
-              onOpenQueue={handleOpenQueue}
-              onQueueJump={commandJump}
-              onQueueRemove={commandRemove}
-              onQueueMove={commandMove}
               onOpenPlayer={handleOpenPlayer}
-              onNext={handleNext}
             />
           </div>
         </Html>

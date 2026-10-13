@@ -5,7 +5,7 @@ import { useEffect } from 'react'
 import { getSocket, useMultiplayerStore } from 'src/multiplayer/store'
 
 import { serverMsToClientClockMs, startServerClockSync } from './clock'
-import { type QueueEntry, useQueueStore } from './queue'
+import { type NowPlayingEntry, useNowPlayingStore } from './nowPlayingStore'
 import { usePlaybackStore } from './store'
 
 // ---------------------------------------------------------------------------
@@ -29,8 +29,7 @@ import { usePlaybackStore } from './store'
 // ---------------------------------------------------------------------------
 
 type VideoStatePayload = {
-  currentEntryId: string | null
-  currentItemId: string | null
+  entry: NowPlayingEntry | null
   playing: boolean
   playhead: number
   // Server-clock instant `playhead` was computed at (presence.gateway.ts's
@@ -38,15 +37,11 @@ type VideoStatePayload = {
   atServerMs: number
 }
 
-type QueueStatePayload = {
-  queue: QueueEntry[]
-}
-
-// The `enqueue` payload (ORCHESTRATE.md §1) is structurally
-// `Omit<QueueEntry, 'entryId' | 'addedBy'>` — the server fills in both of
+// The `load` payload (ORCHESTRATE.md §1) is structurally
+// `Omit<NowPlayingEntry, 'entryId' | 'addedBy'>` — the server fills in both of
 // those (a fresh `randomUUID()` and the socket's session username), so
 // neither is ever client-supplied.
-export type EnqueueEntry = Omit<QueueEntry, 'entryId' | 'addedBy'>
+export type LoadEntry = Omit<NowPlayingEntry, 'entryId' | 'addedBy'>
 
 // Keep in sync with src/presence/video.schema.ts's `VideoCommandSchema` /
 // ORCHESTRATE.md §1's `video:command` wire contract. Hand-mirrored rather
@@ -54,11 +49,8 @@ export type EnqueueEntry = Omit<QueueEntry, 'entryId' | 'addedBy'>
 // convention (see multiplayer/store.ts's "hand-duplicated wire types"
 // comment).
 type VideoCommand =
-  | { kind: 'enqueue'; entry: EnqueueEntry }
-  | { kind: 'remove'; entryId: string }
-  | { kind: 'move'; entryId: string; beforeEntryId: string | null }
-  | { kind: 'jump'; entryId: string }
-  | { kind: 'next'; afterEntryId: string }
+  | { kind: 'load'; entry: LoadEntry }
+  | { kind: 'ended'; entryId: string }
   | { kind: 'play' }
   | { kind: 'pause' }
   | { kind: 'seek'; playhead: number }
@@ -82,7 +74,7 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
 }
 
-function isQueueEntry(value: unknown): value is QueueEntry {
+function isNowPlayingEntry(value: unknown): value is NowPlayingEntry {
   if (typeof value !== 'object' || value === null) {
     return false
   }
@@ -104,20 +96,11 @@ function isVideoStatePayload(value: unknown): value is VideoStatePayload {
   }
   const v = value as Record<string, unknown>
   return (
-    isNullableString(v.currentEntryId) &&
-    isNullableString(v.currentItemId) &&
+    (v.entry === null || isNowPlayingEntry(v.entry)) &&
     typeof v.playing === 'boolean' &&
     isFiniteNumber(v.playhead) &&
     isFiniteNumber(v.atServerMs)
   )
-}
-
-function isQueueStatePayload(value: unknown): value is QueueStatePayload {
-  if (typeof value !== 'object' || value === null) {
-    return false
-  }
-  const v = value as Record<string, unknown>
-  return Array.isArray(v.queue) && v.queue.every(isQueueEntry)
 }
 
 // ---------------------------------------------------------------------------
@@ -125,8 +108,8 @@ function isQueueStatePayload(value: unknown): value is QueueStatePayload {
 // `.off()` always removes exactly the listener `.on()` added.
 // ---------------------------------------------------------------------------
 
-// `video:state` carries `currentItemId` on every transport change too
-// (play/pause/seek), not just when the queue's cursor actually moves. If
+// `video:state` carries `entry` on every transport change too
+// (play/pause/seek), not just when the room switches titles. If
 // this handler always reloaded on it, every pause would tear down and
 // re-resolve the stream — and on HLS, leak a transcode session per pause
 // (PLAN.md "Risks & gotchas: Re-load() on every pause"). Guard explicitly
@@ -136,13 +119,9 @@ function handleVideoState(payload: unknown): void {
   if (!isVideoStatePayload(payload)) {
     return
   }
-  const { currentEntryId, currentItemId, playing, playhead, atServerMs } =
-    payload
+  const { entry, playing, playhead, atServerMs } = payload
 
-  // `queue:state` only ever carries `{ queue }` on the wire — this handler
-  // (not the queue:state one) is what keeps currentEntryId/currentItemId
-  // current, independent of whether the queue array itself changed.
-  useQueueStore.setState({ currentEntryId, currentItemId })
+  useNowPlayingStore.setState({ entry })
 
   function applyIncomingAnchor(): void {
     // Anchor to WHEN the state was true on the server, translated onto this
@@ -161,17 +140,18 @@ function handleVideoState(payload: unknown): void {
     })
   }
 
-  if (currentItemId === null) {
-    // Nothing queued/playing. There's no valid `load(null)` call — the
+  if (entry === null) {
+    // Nothing playing. There's no valid `load(null)` call — the
     // store's `load` signature takes a non-nullable `id: string` — so just
     // let applyAnchor reflect `playing: false`.
     applyIncomingAnchor()
     return
   }
 
-  if (usePlaybackStore.getState().itemId === currentItemId) {
-    // Already loaded — this is a transport-only change. Re-anchor without
-    // touching the source.
+  if (usePlaybackStore.getState().itemId === entry.itemId) {
+    // Already loaded — a transport-only change, or the same title picked
+    // again (the server restarts it from 0). Re-anchor without touching the
+    // source.
     applyIncomingAnchor()
     return
   }
@@ -179,33 +159,22 @@ function handleVideoState(payload: unknown): void {
   // A genuinely new item. Each client resolves its own quality/subtitles/
   // session — per-client transcode sessions are correct and already how
   // load() works.
-  void usePlaybackStore.getState().load(currentItemId).then(applyIncomingAnchor)
+  void usePlaybackStore.getState().load(entry.itemId).then(applyIncomingAnchor)
 }
 
-// Independent of handleVideoState above by design — never waits on it, and
-// never touches currentEntryId/currentItemId, matching why the backend
-// split queue-array changes (rare) from transport changes (frequent) into
-// two separate events (ORCHESTRATE.md §1).
-function handleQueueState(payload: unknown): void {
-  if (!isQueueStatePayload(payload)) {
-    return
-  }
-  useQueueStore.setState({ queue: payload.queue })
-}
-
-// Auto-advance. Every client's <video> fires `ended` at roughly the same
-// moment and each emits `next`; the server's `afterEntryId` staleness check
+// End of playback. Every client's <video> fires `ended` at roughly the same
+// moment and each emits `ended`; the server's `entryId` staleness check
 // (ORCHESTRATE.md §1 invariant 4) collapses the resulting N commands into a
-// single advance. Reads `currentEntryId` FRESH via `.getState()` rather than
-// closing over a value captured when the listener was attached — this
-// listener lives for the whole time `useVideoSync()` is attached, while the
-// current entry can change many times underneath it.
+// single stop. Reads the entry FRESH via `.getState()` rather than closing
+// over a value captured when the listener was attached — this listener lives
+// for the whole time `useVideoSync()` is attached, while the entry can change
+// many times underneath it.
 function handleVideoEnded(): void {
-  const { currentEntryId } = useQueueStore.getState()
-  if (currentEntryId === null) {
+  const { entry } = useNowPlayingStore.getState()
+  if (entry === null) {
     return
   }
-  commandNext(currentEntryId)
+  commandEnded(entry.entryId)
 }
 
 // ---------------------------------------------------------------------------
@@ -220,27 +189,12 @@ function emitVideoCommand(command: VideoCommand): void {
   getSocket()?.emit('video:command', command)
 }
 
-export function commandEnqueue(entry: EnqueueEntry): void {
-  emitVideoCommand({ kind: 'enqueue', entry })
+export function commandLoad(entry: LoadEntry): void {
+  emitVideoCommand({ kind: 'load', entry })
 }
 
-export function commandRemove(entryId: string): void {
-  emitVideoCommand({ kind: 'remove', entryId })
-}
-
-export function commandMove(
-  entryId: string,
-  beforeEntryId: string | null,
-): void {
-  emitVideoCommand({ kind: 'move', entryId, beforeEntryId })
-}
-
-export function commandJump(entryId: string): void {
-  emitVideoCommand({ kind: 'jump', entryId })
-}
-
-export function commandNext(afterEntryId: string): void {
-  emitVideoCommand({ kind: 'next', afterEntryId })
+export function commandEnded(entryId: string): void {
+  emitVideoCommand({ kind: 'ended', entryId })
 }
 
 export function commandPlay(): void {
@@ -261,8 +215,8 @@ export function commandSeek(playhead: number): void {
 
 /**
  * Attaches this client's room video-sync socket listeners
- * (`video:state`/`queue:state`) and the shared `<video>`'s `ended`
- * auto-advance listener. Re-registers fresh listeners every time
+ * (`video:state`) and the shared `<video>`'s `ended`
+ * end-of-playback listener. Re-registers fresh listeners every time
  * `multiplayer/store.ts`'s connection `status` becomes `'connected'` —
  * fixing `voice/peerConnections.ts`'s documented once-only-registration
  * limitation (tolerable there as "no audio"; not tolerable here, where a
@@ -282,13 +236,12 @@ export function useVideoSync(): void {
     }
 
     socket.on('video:state', handleVideoState)
-    socket.on('queue:state', handleQueueState)
     // Start estimating the server clock before pulling state, so the burst's
     // first probe is already in flight ahead of the `video:state` reply
     // below (Socket.IO's per-socket ordering means the ack lands first).
     const stopClockSync = startServerClockSync(socket)
-    // Bugfix: pull the room's current video/queue state now that this
-    // socket's listeners for both are actually attached (see
+    // Bugfix: pull the room's current video state now that this
+    // socket's listener is actually attached (see
     // presence.gateway.ts's `handleConnection`/`handleVideoRequest` comments
     // for why the server can no longer just push this on connect — it did,
     // and it was silently dropped 100% of the time). Registering the
@@ -306,7 +259,6 @@ export function useVideoSync(): void {
     return () => {
       stopClockSync()
       socket.off('video:state', handleVideoState)
-      socket.off('queue:state', handleQueueState)
       video.removeEventListener('ended', handleVideoEnded)
     }
   }, [status])

@@ -93,8 +93,8 @@ describe('isTabletState', () => {
     ).toBe(true)
   })
 
-  it('accepts the queue view (Phase 5)', () => {
-    expect(isTabletState({ ...VALID_TABLET, view: 'queue' })).toBe(true)
+  it('rejects the removed queue view', () => {
+    expect(isTabletState({ ...VALID_TABLET, view: 'queue' })).toBe(false)
   })
 
   // The `view` union is hand-mirrored in four places (this guard,
