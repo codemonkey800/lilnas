@@ -4,11 +4,10 @@ import { base64Url } from '@better-auth/utils/base64'
 import { createHash } from '@better-auth/utils/hash'
 import { env } from '@lilnas/utils/env'
 import { Inject, Injectable, OnModuleInit } from '@nestjs/common'
-import { eq } from 'drizzle-orm'
+import { eq, notInArray } from 'drizzle-orm'
 
 import { DB, type Db } from 'src/db/database.module'
 import { oauthClient } from 'src/db/schema'
-import { EnvKeys } from 'src/env'
 
 import { OIDC_CLIENTS, type OidcClientDefinition } from './clients'
 
@@ -24,10 +23,12 @@ async function hashClientSecret(secret: string): Promise<string> {
   return base64Url.encode(new Uint8Array(digest), { padding: false })
 }
 
-// Seeds the code-defined OIDC clients (./clients.ts) into oauth_client on
-// every boot. The plugin only reads this table; clients are never
-// self-registered (auth.ts disables dynamic registration), so this is the
-// only writer.
+// Syncs the code-defined OIDC clients (./clients.ts) into oauth_client on
+// every boot: upserts the listed ones and deletes the rest. The plugin only
+// reads this table; clients are never self-registered (auth.ts disables
+// dynamic registration), so this is the only writer. Deleting a client
+// cascades to its tokens and consents (see schema.ts), so removing an entry
+// from clients.ts fully revokes it.
 @Injectable()
 export class OidcClientsService implements OnModuleInit {
   constructor(@Inject(DB) private readonly db: Db) {}
@@ -36,11 +37,17 @@ export class OidcClientsService implements OnModuleInit {
     for (const client of OIDC_CLIENTS) {
       await this.upsert(client)
     }
+    await this.db.delete(oauthClient).where(
+      notInArray(
+        oauthClient.clientId,
+        OIDC_CLIENTS.map(c => c.clientId),
+      ),
+    )
   }
 
   private async upsert(client: OidcClientDefinition): Promise<void> {
     // env() throws naming the key when unset — deliberately fatal at boot.
-    const secret = env(EnvKeys[client.secretEnvKey])
+    const secret = env(client.secretEnvKey)
     const now = new Date()
     // Everything except id/createdAt is refreshed on every boot so a rotated
     // secret or a new redirect URI takes effect on restart. Arrays/JSON are

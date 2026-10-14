@@ -368,7 +368,7 @@ export function buildAuth(db: Db, deps: AuthDeps) {
     },
 
     // Exactly two plugins, and only because lilnas-auth is also an OpenID
-    // Connect provider now (Penpot signs in through it; T2 seeds its
+    // Connect provider now (relying parties sign in through it; T2 seeds its
     // client): `oauthProvider` serves discovery/authorize/token/userinfo and
     // `jwt` supplies the JWKS + RS256 signing key it needs to mint id_tokens
     // (the plugin requires it unless `disableJwtPlugin` is set). Still no
@@ -377,7 +377,7 @@ export function buildAuth(db: Db, deps: AuthDeps) {
     // third plugin without the same kind of reason.
     plugins: [
       jwt({
-        // RS256 because Penpot (like most OIDC relying parties) verifies
+        // RS256 because the relying party (like most OIDC relying parties) verifies
         // id_tokens with RSA keys; the plugin's default is EdDSA.
         jwks: { keyPairConfig: { alg: 'RS256' } },
         // `iss` must equal the discovery document's `issuer`, which is the

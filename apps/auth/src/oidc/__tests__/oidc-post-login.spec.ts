@@ -7,6 +7,22 @@ import * as schema from 'src/db/schema'
 import { OidcClientsService } from 'src/oidc/oidc-clients.service'
 import type { VerifyService } from 'src/verify/verify.service'
 
+// The real registry is empty; swap in the fixture client.
+jest.mock('src/oidc/clients', () => {
+  const actual = jest.requireActual('src/oidc/clients')
+  const { TEST_OIDC_CLIENT } = jest.requireActual(
+    'src/oidc/__tests__/helpers/test-client',
+  )
+  const clients = [TEST_OIDC_CLIENT]
+  return {
+    ...actual,
+    OIDC_CLIENTS: clients,
+    findOidcClient: (id: string) => clients.find(c => c.clientId === id),
+    hostForOidcClient: (id: string) =>
+      clients.find(c => c.clientId === id)?.host,
+  }
+})
+
 // https:// AUTH_HOST for the same reason as oidc-clients.spec.ts: the
 // plugin forces a non-loopback issuer to https.
 process.env.AUTH_HOST = 'https://login.localhost.test'
@@ -15,10 +31,10 @@ process.env.GOOGLE_CLIENT_ID = 'test-google-client-id'
 process.env.GOOGLE_CLIENT_SECRET = 'test-google-client-secret'
 process.env.BETTER_AUTH_SECRET = 'test-better-auth-secret-not-a-real-secret'
 process.env.REDIRECT_ALLOWED_SUFFIX = 'localhost.test'
-process.env.OIDC_PENPOT_CLIENT_SECRET = 'test-penpot-client-secret'
+process.env.OIDC_TEST_APP_CLIENT_SECRET = 'test-app-client-secret'
 
 const AUTH_HOST = process.env.AUTH_HOST
-const REDIRECT_URI = 'https://penpot.lilnas.io/api/auth/oidc/callback'
+const REDIRECT_URI = 'https://test-app.lilnas.io/api/auth/oidc/callback'
 
 function createTestDb() {
   const sqlite = new BetterSqlite3(':memory:')
@@ -109,14 +125,14 @@ describe('OIDC authorize resumes after the Google round trip', () => {
     const res = await auth.handler(
       new Request(
         `${AUTH_HOST}${AUTH_PATH_SEGMENT}/oauth2/authorize?response_type=code` +
-          `&client_id=penpot&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+          `&client_id=test-app&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
           `&scope=openid%20profile%20email&state=xyz`,
       ),
     )
     expect(res.status).toBe(302)
     const location = new URL(res.headers.get('location') ?? '')
     expect(`${location.origin}${location.pathname}`).toBe(`${AUTH_HOST}/login`)
-    expect(location.searchParams.get('client_id')).toBe('penpot')
+    expect(location.searchParams.get('client_id')).toBe('test-app')
     expect(location.searchParams.has('sig')).toBe(true)
     return location.search.slice(1)
   }

@@ -1,5 +1,3 @@
-import type { EnvKeys } from 'src/env'
-
 // The OIDC clients lilnas-auth serves. Pure data, no I/O, so Next server
 // components (e.g. the login page naming the app being signed into) can
 // import it as freely as the Nest side. `host` is the key /verify uses for
@@ -12,20 +10,16 @@ export type OidcClientDefinition = {
   name: string
   host: string
   redirectUris: string[]
-  // Env var holding the PLAINTEXT secret; only its hash is stored.
-  secretEnvKey: keyof typeof EnvKeys
+  // Name of the env var holding the PLAINTEXT secret; only its hash is
+  // stored. Read at boot by OidcClientsService, which throws if it is unset.
+  secretEnvKey: string
 }
 
-export const OIDC_CLIENTS: readonly OidcClientDefinition[] = [
-  {
-    clientId: 'penpot',
-    name: 'Penpot',
-    host: 'penpot.lilnas.io',
-    // Penpot 2.18.3 backend/src/app/auth/oidc.clj fixes the callback here.
-    redirectUris: ['https://penpot.lilnas.io/api/auth/oidc/callback'],
-    secretEnvKey: 'OIDC_PENPOT_CLIENT_SECRET',
-  },
-]
+// No clients are registered right now. To add one: list it here, put its
+// plaintext secret in apps/auth/.env.prod (and .env.example) under
+// `secretEnvKey`, and add the host to src/app/service-meta.ts. OidcClientsService
+// seeds it on the next boot and deletes any stored client not listed here.
+export const OIDC_CLIENTS: readonly OidcClientDefinition[] = []
 
 export function findOidcClient(
   clientId: string,

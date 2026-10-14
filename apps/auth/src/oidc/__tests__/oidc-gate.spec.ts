@@ -13,6 +13,22 @@ import { signInAndGetSessionCookiePair } from 'src/verify/__tests__/helpers/sess
 import { AccessCacheService } from 'src/verify/access-cache.service'
 import { VerifyService } from 'src/verify/verify.service'
 
+// The real registry is empty; swap in the fixture client.
+jest.mock('src/oidc/clients', () => {
+  const actual = jest.requireActual('src/oidc/clients')
+  const { TEST_OIDC_CLIENT } = jest.requireActual(
+    'src/oidc/__tests__/helpers/test-client',
+  )
+  const clients = [TEST_OIDC_CLIENT]
+  return {
+    ...actual,
+    OIDC_CLIENTS: clients,
+    findOidcClient: (id: string) => clients.find(c => c.clientId === id),
+    hostForOidcClient: (id: string) =>
+      clients.find(c => c.clientId === id)?.host,
+  }
+})
+
 // https:// AUTH_HOST so the id_token `iss` / discovery agree, as in
 // oidc-clients.spec.ts.
 process.env.AUTH_HOST = 'https://login.localhost.test'
@@ -24,9 +40,9 @@ process.env.REDIRECT_ALLOWED_SUFFIX = 'localhost.test'
 process.env.ADMIN_EMAILS = 'admin@example.com'
 
 const AUTH_HOST = process.env.AUTH_HOST
-const SECRET = 'test-penpot-client-secret'
-const REDIRECT_URI = 'https://penpot.lilnas.io/api/auth/oidc/callback'
-const PENPOT = 'penpot.lilnas.io'
+const SECRET = 'test-app-client-secret'
+const REDIRECT_URI = 'https://test-app.lilnas.io/api/auth/oidc/callback'
+const TEST_APP = 'test-app.lilnas.io'
 
 function createTestDb() {
   const sqlite = new BetterSqlite3(':memory:')
@@ -82,7 +98,7 @@ async function createHarness(withService = true) {
     return { cookie, userId: row.id }
   }
 
-  function authorize(cookie: string, clientId = 'penpot') {
+  function authorize(cookie: string, clientId = 'test-app') {
     const url =
       `${AUTH_HOST}${AUTH_PATH_SEGMENT}/oauth2/authorize?response_type=code` +
       `&client_id=${clientId}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
@@ -99,7 +115,7 @@ async function createHarness(withService = true) {
           grant_type: 'authorization_code',
           code,
           redirect_uri: REDIRECT_URI,
-          client_id: 'penpot',
+          client_id: 'test-app',
           client_secret: SECRET,
         }).toString(),
       }),
@@ -141,7 +157,7 @@ function expectRedirectTo(res: Response, path: string) {
   expect(res.status).toBe(302)
   const location = new URL(res.headers.get('location') ?? '')
   expect(`${location.origin}${location.pathname}`).toBe(`${AUTH_HOST}${path}`)
-  expect(location.searchParams.get('redirect')).toBe(`https://${PENPOT}/`)
+  expect(location.searchParams.get('redirect')).toBe(`https://${TEST_APP}/`)
   expect(location.searchParams.has('code')).toBe(false)
 }
 
@@ -149,14 +165,14 @@ describe('OIDC grant gate on /oauth2/authorize', () => {
   let h: Awaited<ReturnType<typeof createHarness>>
 
   beforeEach(() => {
-    process.env.OIDC_PENPOT_CLIENT_SECRET = SECRET
+    process.env.OIDC_TEST_APP_CLIENT_SECRET = SECRET
   })
   afterEach(() => h?.t.close())
 
   it('issues a code for a literal grant on the client host', async () => {
     h = await createHarness()
     const { cookie, userId } = await h.signIn('alice@example.com')
-    h.cache.addGrant(userId, PENPOT)
+    h.cache.addGrant(userId, TEST_APP)
     codeFrom(await h.authorize(cookie))
   })
 
@@ -181,7 +197,7 @@ describe('OIDC grant gate on /oauth2/authorize', () => {
     const res = await h.authorize(cookie)
     expectRedirectTo(res, '/pending')
     expect(new URL(res.headers.get('location') ?? '').search).toContain(
-      'redirect=https%3A%2F%2Fpenpot.lilnas.io%2F',
+      'redirect=https%3A%2F%2Ftest-app.lilnas.io%2F',
     )
     expect(h.verificationCount()).toBe(before)
   })
@@ -189,7 +205,7 @@ describe('OIDC grant gate on /oauth2/authorize', () => {
   it('sends a blocked user with a grant to /blocked', async () => {
     h = await createHarness()
     const { cookie, userId } = await h.signIn('alice@example.com')
-    h.cache.addGrant(userId, PENPOT)
+    h.cache.addGrant(userId, TEST_APP)
     h.cache.blockUser(userId)
     expectRedirectTo(await h.authorize(cookie), '/blocked')
   })
@@ -205,7 +221,7 @@ describe('OIDC grant gate on /oauth2/authorize', () => {
   it('binds a pending pre-authorization, issues a code and leaves a grant row', async () => {
     h = await createHarness()
     const { cookie, userId } = await h.signIn('alice@example.com')
-    h.cache.addPreAuthorization('alice@example.com', PENPOT)
+    h.cache.addPreAuthorization('alice@example.com', TEST_APP)
     codeFrom(await h.authorize(cookie))
     expect(
       h.t.db
@@ -219,7 +235,7 @@ describe('OIDC grant gate on /oauth2/authorize', () => {
   it('issues no code for an unknown client_id', async () => {
     h = await createHarness()
     const { cookie, userId } = await h.signIn('alice@example.com')
-    h.cache.addGrant(userId, PENPOT)
+    h.cache.addGrant(userId, TEST_APP)
     const before = h.verificationCount()
     const res = await h.authorize(cookie, 'nope')
     expect(res.headers.get('location') ?? '').not.toContain('code=')
@@ -239,7 +255,7 @@ describe('OIDC grant gate on /oauth2/authorize', () => {
   it('backstop: a revoked grant blocks the token exchange and userinfo', async () => {
     h = await createHarness()
     const { cookie, userId } = await h.signIn('alice@example.com')
-    h.cache.addGrant(userId, PENPOT)
+    h.cache.addGrant(userId, TEST_APP)
 
     // A fully valid first round trip yields a prior access token.
     const first = await h.exchange(codeFrom(await h.authorize(cookie)))
@@ -251,7 +267,7 @@ describe('OIDC grant gate on /oauth2/authorize', () => {
     // post-login resume path is the one that skips the authorize hook, so
     // the claims callbacks must refuse on their own.
     const code = codeFrom(await h.authorize(cookie))
-    h.cache.removeGrant(userId, PENPOT)
+    h.cache.removeGrant(userId, TEST_APP)
 
     const exchanged = await h.exchange(code)
     expect(exchanged.status).toBeGreaterThanOrEqual(400)
@@ -274,7 +290,10 @@ describe('decideOidcAccess', () => {
 
   it('denies when the service is unresolvable', () => {
     expect(
-      decideOidcAccess(() => undefined, 'penpot', { userId: 'u', email: 'e' }),
+      decideOidcAccess(() => undefined, 'test-app', {
+        userId: 'u',
+        email: 'e',
+      }),
     ).toMatchObject({ outcome: 'deny' })
   })
 })

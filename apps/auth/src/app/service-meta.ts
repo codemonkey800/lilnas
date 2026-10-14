@@ -97,11 +97,6 @@ export const SERVICE_META: Record<string, ServiceMeta> = {
     description: 'Collaborative design tool',
     icon: 'monitor',
   },
-  'penpot.lilnas.io': {
-    name: 'Penpot',
-    description: 'Design & prototyping',
-    icon: 'monitor',
-  },
   'yacht.lilnas.io': {
     name: 'Yacht',
     description: 'Container management',

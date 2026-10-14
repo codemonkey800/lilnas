@@ -14,8 +14,8 @@ export type OidcGateResult =
 
 // Decides whether `session` may complete the OIDC flow for `clientId`, by
 // asking VerifyService.authorizeHost() — the very method /verify runs after
-// it has a session — about the client's lilnas host. "May sign in to Penpot"
-// is therefore exactly "may reach penpot.lilnas.io through forward-auth":
+// it has a session — about the client's lilnas host. "May sign in to <app>"
+// is therefore exactly "may reach <app>.lilnas.io through forward-auth":
 // blocked, admin bypass, grant (literal or `*.suffix` pattern),
 // pre-authorization bind, else pending, all with one implementation.
 //

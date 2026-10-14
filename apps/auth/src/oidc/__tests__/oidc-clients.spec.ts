@@ -11,6 +11,22 @@ import { OidcClientsService } from 'src/oidc/oidc-clients.service'
 import { signInAndGetSessionCookiePair } from 'src/verify/__tests__/helpers/session-fixtures'
 import type { VerifyService } from 'src/verify/verify.service'
 
+// The real registry is empty; swap in the fixture client.
+jest.mock('src/oidc/clients', () => {
+  const actual = jest.requireActual('src/oidc/clients')
+  const { TEST_OIDC_CLIENT } = jest.requireActual(
+    'src/oidc/__tests__/helpers/test-client',
+  )
+  const clients = [TEST_OIDC_CLIENT]
+  return {
+    ...actual,
+    OIDC_CLIENTS: clients,
+    findOidcClient: (id: string) => clients.find(c => c.clientId === id),
+    hostForOidcClient: (id: string) =>
+      clients.find(c => c.clientId === id)?.host,
+  }
+})
+
 // https:// AUTH_HOST for the same reason as oidc-discovery.spec.ts: the
 // plugin forces a non-loopback issuer to https, and the id_token's `iss`
 // must equal AUTH_HOST.
@@ -22,8 +38,8 @@ process.env.BETTER_AUTH_SECRET = 'test-better-auth-secret-not-a-real-secret'
 process.env.REDIRECT_ALLOWED_SUFFIX = 'localhost.test'
 
 const AUTH_HOST = process.env.AUTH_HOST
-const SECRET = 'test-penpot-client-secret'
-const REDIRECT_URI = 'https://penpot.lilnas.io/api/auth/oidc/callback'
+const SECRET = 'test-app-client-secret'
+const REDIRECT_URI = 'https://test-app.lilnas.io/api/auth/oidc/callback'
 
 function createTestDb() {
   const sqlite = new BetterSqlite3(':memory:')
@@ -39,8 +55,8 @@ function rows(db: ReturnType<typeof createTestDb>['db']) {
 
 describe('OIDC client registry', () => {
   it('maps client ids to lilnas hosts', () => {
-    expect(findOidcClient('penpot')?.name).toBe('Penpot')
-    expect(hostForOidcClient('penpot')).toBe('penpot.lilnas.io')
+    expect(findOidcClient('test-app')?.name).toBe('Test App')
+    expect(hostForOidcClient('test-app')).toBe('test-app.lilnas.io')
     expect(hostForOidcClient('nope')).toBeUndefined()
   })
 })
@@ -49,17 +65,17 @@ describe('OidcClientsService seeding', () => {
   let t: ReturnType<typeof createTestDb>
 
   beforeEach(() => {
-    process.env.OIDC_PENPOT_CLIENT_SECRET = SECRET
+    process.env.OIDC_TEST_APP_CLIENT_SECRET = SECRET
     t = createTestDb()
   })
   afterEach(() => t.close())
 
-  it('seeds the penpot client with the expected shape', async () => {
+  it('seeds the test-app client with the expected shape', async () => {
     await new OidcClientsService(t.db).onModuleInit()
     const [row] = rows(t.db)
     expect(row).toMatchObject({
-      clientId: 'penpot',
-      name: 'Penpot',
+      clientId: 'test-app',
+      name: 'Test App',
       type: 'web',
       tokenEndpointAuthMethod: 'client_secret_post',
       skipConsent: true,
@@ -78,7 +94,7 @@ describe('OidcClientsService seeding', () => {
     expect(JSON.parse(row?.grantTypes ?? '')).toEqual(['authorization_code'])
     expect(JSON.parse(row?.responseTypes ?? '')).toEqual(['code'])
     expect(JSON.parse(row?.metadata ?? '')).toEqual({
-      lilnasHost: 'penpot.lilnas.io',
+      lilnasHost: 'test-app.lilnas.io',
     })
   })
 
@@ -90,7 +106,7 @@ describe('OidcClientsService seeding', () => {
     expect(rows(t.db)).toHaveLength(1)
     expect(rows(t.db)[0]?.clientSecret).toBe(first?.clientSecret)
 
-    process.env.OIDC_PENPOT_CLIENT_SECRET = 'rotated-secret'
+    process.env.OIDC_TEST_APP_CLIENT_SECRET = 'rotated-secret'
     await service.onModuleInit()
     const [second] = rows(t.db)
     expect(rows(t.db)).toHaveLength(1)
@@ -99,13 +115,33 @@ describe('OidcClientsService seeding', () => {
     expect(second?.clientSecret).not.toBe(first?.clientSecret)
   })
 
+  it('deletes stored clients that are no longer registered', async () => {
+    const service = new OidcClientsService(t.db)
+    await service.onModuleInit()
+    t.db
+      .insert(schema.oauthClient)
+      .values({
+        id: 'retired-row',
+        clientId: 'retired-app',
+        clientSecret: 'x',
+        redirectUris: '[]',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .run()
+    expect(rows(t.db)).toHaveLength(2)
+
+    await service.onModuleInit()
+    expect(rows(t.db).map(r => r.clientId)).toEqual(['test-app'])
+  })
+
   it('refreshes redirect URIs on an existing row', async () => {
     const service = new OidcClientsService(t.db)
     await service.onModuleInit()
     t.db
       .update(schema.oauthClient)
       .set({ redirectUris: JSON.stringify(['https://stale.example/cb']) })
-      .where(eq(schema.oauthClient.clientId, 'penpot'))
+      .where(eq(schema.oauthClient.clientId, 'test-app'))
       .run()
     await service.onModuleInit()
     expect(JSON.parse(rows(t.db)[0]?.redirectUris ?? '')).toEqual([
@@ -114,19 +150,19 @@ describe('OidcClientsService seeding', () => {
   })
 
   it('throws naming the env key when the secret is unset', async () => {
-    delete process.env.OIDC_PENPOT_CLIENT_SECRET
+    delete process.env.OIDC_TEST_APP_CLIENT_SECRET
     await expect(new OidcClientsService(t.db).onModuleInit()).rejects.toThrow(
-      /OIDC_PENPOT_CLIENT_SECRET/,
+      /OIDC_TEST_APP_CLIENT_SECRET/,
     )
   })
 })
 
-describe('authorization-code flow against the seeded penpot client', () => {
+describe('authorization-code flow against the seeded test-app client', () => {
   let t: ReturnType<typeof createTestDb>
   let auth: ReturnType<typeof buildAuth>
 
   beforeEach(async () => {
-    process.env.OIDC_PENPOT_CLIENT_SECRET = SECRET
+    process.env.OIDC_TEST_APP_CLIENT_SECRET = SECRET
     t = createTestDb()
     await new OidcClientsService(t.db).onModuleInit()
     // This block tests the plugin's protocol behaviour, not the grant gate
@@ -141,7 +177,7 @@ describe('authorization-code flow against the seeded penpot client', () => {
   async function authorize(cookie: string, redirectUri = REDIRECT_URI) {
     const url =
       `${AUTH_HOST}${AUTH_PATH_SEGMENT}/oauth2/authorize?response_type=code` +
-      `&client_id=penpot&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `&client_id=test-app&redirect_uri=${encodeURIComponent(redirectUri)}` +
       `&scope=openid%20profile%20email&state=xyz`
     return auth.handler(new Request(url, { headers: { cookie } }))
   }
@@ -155,7 +191,7 @@ describe('authorization-code flow against the seeded penpot client', () => {
           grant_type: 'authorization_code',
           code,
           redirect_uri: REDIRECT_URI,
-          client_id: 'penpot',
+          client_id: 'test-app',
           client_secret: clientSecret,
         }).toString(),
       }),
@@ -190,7 +226,7 @@ describe('authorization-code flow against the seeded penpot client', () => {
 
     const claims = decodeJwt(tokens.id_token)
     expect(claims.iss).toBe(AUTH_HOST)
-    expect([claims.aud].flat()).toContain('penpot')
+    expect([claims.aud].flat()).toContain('test-app')
     expect(claims).toMatchObject({
       email: 'alice@example.com',
       email_verified: true,
