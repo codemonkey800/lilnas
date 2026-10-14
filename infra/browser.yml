@@ -25,7 +25,15 @@ services:
       # Sharing links carry no auth of their own.
       SELKIES_ENABLE_SHARING: 'false'
       SELKIES_ENABLE_COLLAB: 'false'
-      CHROME_CLI: --remote-debugging-port=9222
+      # Pin 2x instead of following the client's pixel ratio: a 3x phone
+      # leaves ~440 logical px of width, narrower than Chromium's minimum
+      # window, so the window spilled off the right edge.
+      SELKIES_SCALING_DPI: '192'
+      # Hides the on-screen touch gamepad overlay on phones.
+      NO_GAMEPAD: 'true'
+      # Power off kills Chromium, so every start would otherwise open with a
+      # "Restore pages?" bubble.
+      CHROME_CLI: --remote-debugging-port=9222 --hide-crash-restore-bubble
     volumes:
       - /storage/app-data/browser:/config
       - ./browser/cdp-proxy.conf:/etc/nginx/conf.d/cdp-proxy.conf:ro
