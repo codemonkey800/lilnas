@@ -20,6 +20,10 @@ export async function AppList() {
           </a>
         ))}
       </div>
+
+      <a className="mt-12 text-xl underline text-gray-400" href="/browser">
+        remote browser controls
+      </a>
     </div>
   )
 }
