@@ -4,7 +4,10 @@ import { LlmCall } from 'src/llm/client/llm-call.types'
 import { LlmClient } from 'src/llm/client/llm-client'
 import { FakeLlmClient } from 'src/llm/testing/fake-llm-client'
 import { createFakeLlmClient } from 'src/media-operations/request-handling/__test-helpers__/mock-services'
-import { ParsingUtilities } from 'src/media-operations/request-handling/utils/parsing.utils'
+import {
+  NoSelectionFoundError,
+  ParsingUtilities,
+} from 'src/media-operations/request-handling/utils/parsing.utils'
 
 describe('ParsingUtilities', () => {
   let service: ParsingUtilities
@@ -133,11 +136,28 @@ describe('ParsingUtilities', () => {
 
       await expect(service.parseSearchSelection('test')).rejects.toThrow()
     })
+
+    it('rejects with NoSelectionFoundError when the message picks nothing', async () => {
+      llm.script('media.parseSelection', { selectionType: null, value: null })
+
+      await expect(
+        service.parseSearchSelection('download the tv show Vision Quest'),
+      ).rejects.toBeInstanceOf(NoSelectionFoundError)
+    })
   })
 
   describe('parseTvShowSelection', () => {
+    it('rejects with NoSelectionFoundError when no seasons or episodes are named', async () => {
+      llm.script('media.parseTvSelection', { found: false, selection: null })
+
+      await expect(
+        service.parseTvShowSelection('download the tv show Vision Quest'),
+      ).rejects.toBeInstanceOf(NoSelectionFoundError)
+    })
+
     it('should parse selection when user specifies specific season', async () => {
       llm.script('media.parseTvSelection', {
+        found: true,
         selection: [{ season: 1, episodes: null }],
       })
 
@@ -149,7 +169,7 @@ describe('ParsingUtilities', () => {
     })
 
     it('should parse selection when user requests entire series', async () => {
-      llm.script('media.parseTvSelection', { selection: null })
+      llm.script('media.parseTvSelection', { found: true, selection: null })
 
       const result = await service.parseTvShowSelection('entire series')
 
@@ -158,6 +178,7 @@ describe('ParsingUtilities', () => {
 
     it('should parse selection when user specifies episodes within season', async () => {
       llm.script('media.parseTvSelection', {
+        found: true,
         selection: [{ season: 1, episodes: [1, 2, 3] }],
       })
 
@@ -185,7 +206,7 @@ describe('ParsingUtilities', () => {
           selectionType: 'ordinal',
           value: '1',
         })
-        .script('media.parseTvSelection', { selection: null })
+        .script('media.parseTvSelection', { found: true, selection: null })
 
       const result = await service.parseInitialSelection(
         'download inception first one',
@@ -212,8 +233,8 @@ describe('ParsingUtilities', () => {
     it('hands the strategies an empty search query when the message names no title', async () => {
       llm
         .script('media.extractQuery', '')
-        .script('media.parseSelection', { error: 'no_selection_found' })
-        .script('media.parseTvSelection', { error: 'no_tv_selection_found' })
+        .script('media.parseSelection', { selectionType: null, value: null })
+        .script('media.parseTvSelection', { found: false, selection: null })
 
       const result = await service.parseInitialSelection(
         'get me that movie with Ryan Gosling',
@@ -428,8 +449,11 @@ describe('ParsingUtilities', () => {
         .script(
           'media.parseTvSelection',
           answers({
-            'season 1': { selection: [{ season: 1, episodes: null }] },
-            'entire series': { selection: null },
+            'season 1': {
+              found: true,
+              selection: [{ season: 1, episodes: null }],
+            },
+            'entire series': { found: true, selection: null },
           }),
         )
 

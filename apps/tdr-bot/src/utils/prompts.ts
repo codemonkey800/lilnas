@@ -91,8 +91,8 @@ export const MOVIE_SELECTION_PARSING_PROMPT = new SystemMessage(dedent`
   The user is selecting from a list of movie search results. Parse their selection into:
 
   {
-    "selectionType": "ordinal" | "year",
-    "value": "extracted value"
+    "selectionType": "ordinal" | "year" | null,
+    "value": "extracted value" | null
   }
 
   Selection Types:
@@ -101,7 +101,7 @@ export const MOVIE_SELECTION_PARSING_PROMPT = new SystemMessage(dedent`
 
   Value: Extract the relevant selection criteria
 
-  IMPORTANT: Only parse explicit ordinal positions or years. Do NOT extract titles, names, or keywords as selections. If no clear ordinal or year is mentioned, return {"error": "no_selection_found"} instead.
+  IMPORTANT: Only parse explicit ordinal positions or years. Do NOT extract titles, names, or keywords as selections. If no clear ordinal or year is mentioned, return {"selectionType": null, "value": null}. A bare title is NOT a selection - never default to the first result.
 
   Examples:
   - "the first one" → {"selectionType": "ordinal", "value": "1"}
@@ -116,8 +116,10 @@ export const MOVIE_SELECTION_PARSING_PROMPT = new SystemMessage(dedent`
   - "download the second one from the results" → {"selectionType": "ordinal", "value": "2"}
   - "the 2008 version" → {"selectionType": "year", "value": "2008"}
   - "I want the one from 1994" → {"selectionType": "year", "value": "1994"}
-  - "download breaking bad season 2?" → {"error": "no_selection_found"}
-  - "get me some action movies" → {"error": "no_selection_found"}
+  - "download breaking bad season 2?" → {"selectionType": null, "value": null}
+  - "get me some action movies" → {"selectionType": null, "value": null}
+  - "download the tv show Vision Quest" → {"selectionType": null, "value": null}
+  - "download the matrix" → {"selectionType": null, "value": null}
 
   Return only valid JSON, no additional text.
 `)
@@ -254,13 +256,15 @@ export const TV_SHOW_SELECTION_PARSING_PROMPT = new SystemMessage(dedent`
   The user is selecting what to download from a TV show. Parse their selection into this format:
 
   {
+    "found": boolean,
     "selection": [
-      { "season": number, "episodes": [number, number, ...] }
-    ]
+      { "season": number, "episodes": [number, number, ...] | null }
+    ] | null
   }
 
   Rules:
-  - If they want the entire series, return an empty object: {}
+  - "found" is true only when the message says what to download: the entire series, or explicit seasons/episodes
+  - If they want the entire series, return {"found": true, "selection": null}
   - If they want entire seasons, omit the "episodes" field: { "season": 1 }
   - If they want specific episodes, include the "episodes" array: { "season": 1, "episodes": [1, 2, 3] }
   - Expand ranges like "episodes 1-5" to [1, 2, 3, 4, 5]
@@ -268,35 +272,36 @@ export const TV_SHOW_SELECTION_PARSING_PROMPT = new SystemMessage(dedent`
   - ONLY extract when explicit keywords are present: "season", "episode", "seasons", "episodes", "s01e05", "s1e1"
   - Handle Roman numerals: "season I" = season 1, "season II" = season 2, etc.
   - IGNORE bare numbers that could be part of show titles, years, or ordinal selections
-  - If no explicit season/episode keywords found, return {"error": "no_tv_selection_found"}
+  - If no explicit season/episode keywords (or entire-series wording) are found, return {"found": false, "selection": null}. Never default to season 1 or episode 1
 
   POSITIVE Examples (WITH explicit season/episode keywords):
-  - "entire series" → {}
-  - "all of it" → {}
-  - "download the whole thing" → {}
-  - "get me everything" → {}
-  - "season 1" → {"selection": [{"season": 1}]}
-  - "season 1 and 3" → {"selection": [{"season": 1}, {"season": 3}]}
-  - "seasons 1-3" → {"selection": [{"season": 1}, {"season": 2}, {"season": 3}]}
-  - "season 1 episodes 1-3" → {"selection": [{"season": 1, "episodes": [1, 2, 3]}]}
-  - "season 1 episodes 1-3 and season 2" → {"selection": [{"season": 1, "episodes": [1, 2, 3]}, {"season": 2}]}
-  - "season 2 episodes 3-4" → {"selection": [{"season": 2, "episodes": [3, 4]}]}
-  - "download season 1 please" → {"selection": [{"season": 1}]}
-  - "get me seasons 2 and 3" → {"selection": [{"season": 2}, {"season": 3}]}
-  - "add the first season" → {"selection": [{"season": 1}]}
-  - "just season 1 episodes 1-5" → {"selection": [{"season": 1, "episodes": [1, 2, 3, 4, 5]}]}
-  - "delete Breaking Bad season I" → {"selection": [{"season": 1}]}
-  - "season II" → {"selection": [{"season": 2}]}
-  - "seasons I-III" → {"selection": [{"season": 1}, {"season": 2}, {"season": 3}]}
+  - "entire series" → {"found": true, "selection": null}
+  - "all of it" → {"found": true, "selection": null}
+  - "download the whole thing" → {"found": true, "selection": null}
+  - "get me everything" → {"found": true, "selection": null}
+  - "season 1" → {"found": true, "selection": [{"season": 1}]}
+  - "season 1 and 3" → {"found": true, "selection": [{"season": 1}, {"season": 3}]}
+  - "seasons 1-3" → {"found": true, "selection": [{"season": 1}, {"season": 2}, {"season": 3}]}
+  - "season 1 episodes 1-3" → {"found": true, "selection": [{"season": 1, "episodes": [1, 2, 3]}]}
+  - "season 1 episodes 1-3 and season 2" → {"found": true, "selection": [{"season": 1, "episodes": [1, 2, 3]}, {"season": 2}]}
+  - "season 2 episodes 3-4" → {"found": true, "selection": [{"season": 2, "episodes": [3, 4]}]}
+  - "download season 1 please" → {"found": true, "selection": [{"season": 1}]}
+  - "get me seasons 2 and 3" → {"found": true, "selection": [{"season": 2}, {"season": 3}]}
+  - "add the first season" → {"found": true, "selection": [{"season": 1}]}
+  - "just season 1 episodes 1-5" → {"found": true, "selection": [{"season": 1, "episodes": [1, 2, 3, 4, 5]}]}
+  - "delete Breaking Bad season I" → {"found": true, "selection": [{"season": 1}]}
+  - "season II" → {"found": true, "selection": [{"season": 2}]}
+  - "seasons I-III" → {"found": true, "selection": [{"season": 1}, {"season": 2}, {"season": 3}]}
 
-  NEGATIVE Examples (WITHOUT explicit keywords - should return error):
-  - "download breaking bad 2, the first one" → {"error": "no_tv_selection_found"}
-  - "fast and furious 8" → {"error": "no_tv_selection_found"}
-  - "the first in the list" → {"error": "no_tv_selection_found"}
-  - "number 2 from search results" → {"error": "no_tv_selection_found"}
-  - "the 2008 version" → {"error": "no_tv_selection_found"}
-  - "breaking bad 2" → {"error": "no_tv_selection_found"}
-  - "get me some action movies" → {"error": "no_tv_selection_found"}
+  NEGATIVE Examples (WITHOUT explicit keywords - should return {"found": false, "selection": null}):
+  - "download breaking bad 2, the first one" → {"found": false, "selection": null}
+  - "fast and furious 8" → {"found": false, "selection": null}
+  - "the first in the list" → {"found": false, "selection": null}
+  - "number 2 from search results" → {"found": false, "selection": null}
+  - "the 2008 version" → {"found": false, "selection": null}
+  - "breaking bad 2" → {"found": false, "selection": null}
+  - "get me some action movies" → {"found": false, "selection": null}
+  - "download the tv show Vision Quest" → {"found": false, "selection": null}
 
   Return only valid JSON, no additional text.
 `)

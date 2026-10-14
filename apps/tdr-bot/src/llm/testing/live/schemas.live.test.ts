@@ -15,7 +15,10 @@ import {
 } from 'src/llm/skills/reminder/schemas'
 import { MediaRequestSchema } from 'src/schemas/graph'
 import { MediaTypeClassificationSchema } from 'src/schemas/media-classification'
-import { SearchSelectionSchema } from 'src/schemas/search-selection'
+import {
+  SearchSelectionLlmSchema,
+  SearchSelectionSchema,
+} from 'src/schemas/search-selection'
 import {
   TvShowSelectionLlmSchema,
   TvShowSelectionSchema,
@@ -127,8 +130,9 @@ const CASES: SchemaCase[] = [
       operation: 'media.parseSelection',
       role: 'reasoning',
       messages: [MOVIE_SELECTION_PARSING_PROMPT, human('the one from 2008')],
-      schema: SearchSelectionSchema,
+      schema: SearchSelectionLlmSchema,
     },
+    outputSchema: SearchSelectionSchema,
   },
   {
     name: 'media.parseTvSelection',

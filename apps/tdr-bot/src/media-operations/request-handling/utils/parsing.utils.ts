@@ -6,7 +6,7 @@ import { nanoid } from 'nanoid'
 import { LlmClient } from 'src/llm/client/llm-client'
 import {
   SearchSelection,
-  SearchSelectionSchema,
+  SearchSelectionLlmSchema,
 } from 'src/schemas/search-selection'
 import { TvShowSelection, TvShowSelectionLlmSchema } from 'src/schemas/tv-show'
 import {
@@ -15,6 +15,21 @@ import {
   MOVIE_SELECTION_PARSING_PROMPT,
   TV_SHOW_SELECTION_PARSING_PROMPT,
 } from 'src/utils/prompts'
+
+/**
+ * The message names no pick (or no seasons/episodes) at all. Thrown rather
+ * than returned so callers keep treating "nothing parsed" one way.
+ */
+export class NoSelectionFoundError extends Error {
+  constructor(kind: 'search' | 'tv') {
+    super(
+      kind === 'search'
+        ? 'No ordinal or year selection in the message'
+        : 'No season or episode selection in the message',
+    )
+    this.name = 'NoSelectionFoundError'
+  }
+}
 
 /**
  * Parsing utilities for extracting structured data from user messages
@@ -175,10 +190,15 @@ export class ParsingUtilities {
           MOVIE_SELECTION_PARSING_PROMPT,
           new HumanMessage({ id: nanoid(), content: selectionText }),
         ],
-        schema: SearchSelectionSchema,
+        schema: SearchSelectionLlmSchema,
       })
 
-      const validated = response.output
+      const { selectionType, value } = response.output
+      if (selectionType === null || value === null || !value.trim()) {
+        throw new NoSelectionFoundError('search')
+      }
+
+      const validated: SearchSelection = { selectionType, value }
       this.logger.log(
         { validated, selectionText },
         'DEBUG: Successfully validated search selection',
@@ -186,6 +206,11 @@ export class ParsingUtilities {
 
       return validated
     } catch (error) {
+      if (error instanceof NoSelectionFoundError) {
+        this.logger.log({ selectionText }, 'No search selection in the message')
+        throw error
+      }
+
       this.logger.error(
         {
           error: getErrorMessage(error),
@@ -220,7 +245,13 @@ export class ParsingUtilities {
         schema: TvShowSelectionLlmSchema,
       })
 
-      const validated = response.output
+      if (!response.output.found) {
+        throw new NoSelectionFoundError('tv')
+      }
+
+      const validated: TvShowSelection = {
+        selection: response.output.selection,
+      }
       this.logger.log(
         { validated, selectionText },
         'DEBUG: Successfully validated TV show selection',
@@ -228,6 +259,14 @@ export class ParsingUtilities {
 
       return validated
     } catch (error) {
+      if (error instanceof NoSelectionFoundError) {
+        this.logger.log(
+          { selectionText },
+          'No TV show selection in the message',
+        )
+        throw error
+      }
+
       this.logger.error(
         {
           error: getErrorMessage(error),

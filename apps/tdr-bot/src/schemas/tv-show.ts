@@ -129,8 +129,13 @@ export type TvShowSelection = z.infer<typeof TvShowSelectionSchema>
  * `TvShowSelectionSchema` as the LLM fills it in. OpenAI strict structured
  * output requires every property, so absent fields come back as `null` and
  * are mapped to `undefined` here.
+ *
+ * `found` is false when the message names no seasons or episodes at all.
+ * A null `selection` alone can't say that - it means the entire series - so
+ * without `found` the model has to make a selection up.
  */
 export const TvShowSelectionLlmSchema = z.object({
+  found: z.boolean(),
   selection: z
     .array(
       z.object({
