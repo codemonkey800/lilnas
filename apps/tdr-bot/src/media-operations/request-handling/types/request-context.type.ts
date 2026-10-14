@@ -66,6 +66,11 @@ export enum MediaContextType {
   TvDownload = 'tv',
   MovieDelete = 'movieDelete',
   TvDelete = 'tvDelete',
+  /**
+   * Nothing is being picked: a request just went through, and the next
+   * message is checked for "that's the wrong one" before routing normally
+   */
+  RecentRequest = 'recentRequest',
 }
 
 /**

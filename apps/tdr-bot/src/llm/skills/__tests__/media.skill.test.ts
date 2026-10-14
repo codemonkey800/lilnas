@@ -62,6 +62,7 @@ describe('MediaSkill', () => {
         tvDelete,
         browsing,
         status,
+        strategy(),
       ),
     )
   })

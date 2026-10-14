@@ -12,6 +12,7 @@ import { MediaRequestHandler } from 'src/media-operations/request-handling/media
 import {
   MovieDeleteContext,
   MovieSelectionContext,
+  RecentRequestContext,
   TvShowDeleteContext,
   TvShowSelectionContext,
 } from 'src/media-operations/request-handling/strategies/base/strategy.types'
@@ -21,6 +22,7 @@ import { MovieDeleteStrategy } from 'src/media-operations/request-handling/strat
 import { MovieDownloadStrategy } from 'src/media-operations/request-handling/strategies/movie-download.strategy'
 import { TvDeleteStrategy } from 'src/media-operations/request-handling/strategies/tv-delete.strategy'
 import { TvDownloadStrategy } from 'src/media-operations/request-handling/strategies/tv-download.strategy'
+import { WrongPickStrategy } from 'src/media-operations/request-handling/strategies/wrong-pick.strategy'
 import { MediaContextType } from 'src/media-operations/request-handling/types/request-context.type'
 import { StrategyResult } from 'src/media-operations/request-handling/types/strategy-result.type'
 import { MediaRequestType, SearchIntent } from 'src/schemas/graph'
@@ -34,6 +36,7 @@ describe('MediaRequestHandler', () => {
   let tvDeleteStrategy: jest.Mocked<TvDeleteStrategy>
   let mediaBrowsingStrategy: jest.Mocked<MediaBrowsingStrategy>
   let downloadStatusStrategy: jest.Mocked<DownloadStatusStrategy>
+  let wrongPickStrategy: jest.Mocked<WrongPickStrategy>
 
   // Mock data
   const mockUserId = 'user123'
@@ -89,6 +92,12 @@ describe('MediaRequestHandler', () => {
             handleRequest: jest.fn(),
           },
         },
+        {
+          provide: WrongPickStrategy,
+          useValue: {
+            handleRequest: jest.fn(),
+          },
+        },
       ],
     }).compile()
 
@@ -99,6 +108,7 @@ describe('MediaRequestHandler', () => {
     tvDeleteStrategy = module.get(TvDeleteStrategy)
     mediaBrowsingStrategy = module.get(MediaBrowsingStrategy)
     downloadStatusStrategy = module.get(DownloadStatusStrategy)
+    wrongPickStrategy = module.get(WrongPickStrategy)
   })
 
   afterEach(() => {
@@ -266,6 +276,76 @@ describe('MediaRequestHandler', () => {
         expect(llm.calls.map(call => call.operation)).not.toContain(
           'media.topicSwitch',
         )
+      })
+    })
+
+    describe('Recent request follow-up', () => {
+      const recent: RecentRequestContext = {
+        type: 'recentRequest',
+        mediaType: 'tv',
+        title: 'Side Quest',
+        mediaId: 'tvdb:428425',
+        externalId: 428425,
+        jobIds: ['job-1'],
+        wasInLibrary: false,
+        query: 'Vision Quest',
+        timestamp: Date.now(),
+      }
+      const wrongShow = new HumanMessage({ content: 'wrong show' })
+
+      it('routes a wrong-pick complaint to the wrong-pick strategy', async () => {
+        llm.script('media.wrongPick', { wrongPick: true })
+        wrongPickStrategy.handleRequest.mockResolvedValue(mockStrategyResult)
+
+        const result = await handler.handleRequest(
+          wrongShow,
+          mockMessages,
+          mockUserId,
+          mockDiscord,
+          { type: MediaContextType.RecentRequest, data: recent },
+        )
+
+        expect(wrongPickStrategy.handleRequest).toHaveBeenCalledWith({
+          message: wrongShow,
+          messages: mockMessages,
+          userId: mockUserId,
+          discord: mockDiscord,
+          context: recent,
+        })
+        expect(result).toBe(mockStrategyResult)
+        expect(llm.calls.map(call => call.operation)).not.toContain(
+          'media.topicSwitch',
+        )
+      })
+
+      it('reroutes any other message without touching the request', async () => {
+        llm.script('media.wrongPick', { wrongPick: false })
+
+        const result = await handler.handleRequest(
+          new HumanMessage({ content: 'thanks!' }),
+          mockMessages,
+          mockUserId,
+          mockDiscord,
+          { type: MediaContextType.RecentRequest, data: recent },
+        )
+
+        expect(result).toEqual({ images: [], messages: [], reroute: true })
+        expect(wrongPickStrategy.handleRequest).not.toHaveBeenCalled()
+      })
+
+      it('reroutes when the wrong-pick check fails', async () => {
+        llm.script('media.wrongPick', new Error('LLM down'))
+
+        const result = await handler.handleRequest(
+          wrongShow,
+          mockMessages,
+          mockUserId,
+          mockDiscord,
+          { type: MediaContextType.RecentRequest, data: recent },
+        )
+
+        expect(result.reroute).toBe(true)
+        expect(wrongPickStrategy.handleRequest).not.toHaveBeenCalled()
       })
     })
 

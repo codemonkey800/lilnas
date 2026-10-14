@@ -27,13 +27,17 @@ import {
 } from 'src/media-operations/request-handling/types'
 import { ParsingUtilities } from 'src/media-operations/request-handling/utils/parsing.utils'
 import { SelectionUtilities } from 'src/media-operations/request-handling/utils/selection.utils'
+import { searchWithCompactFallback } from 'src/media-operations/request-handling/utils/title-search.utils'
 import type { TvShowSelection } from 'src/schemas/tv-show'
 import { downloadApiErrorMessage } from 'src/utils/download-api-error'
 import { withDownloadLinks } from 'src/utils/download-links'
 
 import { BaseMediaStrategy } from './base/base-media-strategy'
 import { MAX_SEARCH_RESULTS } from './base/strategy.constants'
-import type { TvShowSelectionContext } from './base/strategy.types'
+import type {
+  RecentRequestContext,
+  TvShowSelectionContext,
+} from './base/strategy.types'
 
 /**
  * The reply to a show search whose term reads as a file path (`/foo`,
@@ -268,7 +272,11 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
 
     try {
       // Search for TV shows using SonarrService
-      const searchResults = await this.sonarrService.searchShows(searchQuery)
+      const searchResults = await searchWithCompactFallback(
+        searchQuery,
+        term => this.sonarrService.searchShows(term),
+        show => show.tvdbId,
+      )
       this.logger.log(
         {
           userId,
@@ -327,6 +335,7 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
               ...request,
               selectionCriteria: `${selection.selectionType}: ${selection.value}`,
             },
+            searchQuery,
           )
         } else {
           this.logger.warn(
@@ -418,6 +427,7 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
             messages,
             userId,
             request,
+            searchQuery,
           )
         }
 
@@ -598,6 +608,7 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
             messages,
             userId,
             request,
+            tvShowContext.query,
           )
         } else {
           // No stored granular selection or empty selection - ask user for it
@@ -677,6 +688,7 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
         messages,
         userId,
         request,
+        tvShowContext.query,
       )
     } catch (error) {
       this.logger.error(
@@ -713,6 +725,10 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
    * downloaded, or `failed`/`not_found`/`cancelled` when its request went
    * nowhere. One part failing doesn't stop the rest; the reply lists how each
    * went, and links the show's page once whenever any job exists.
+   *
+   * Whenever a job exists, the result holds a {@link RecentRequestContext}
+   * for one follow-up, so "wrong show" can undo it - `query` is the search
+   * the show was picked from, re-offered minus this show.
    */
   private async requestShow(
     show: SeriesSearchResult,
@@ -720,6 +736,7 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
     messages: BaseMessage[],
     userId: string,
     request: ShowRequestOptions,
+    query: string,
   ): Promise<StrategyResult> {
     const units = toShowRequestUnits(
       show.tvdbId,
@@ -738,6 +755,9 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
       'Requesting show from the download app',
     )
 
+    // Checked before the request, which adds the show when it's missing
+    const wasInLibrary = await this.isInLibrary(show.tvdbId, userId)
+
     const outcomes = await this.sendShowRequests(
       this.downloadClientFactory.forDiscord(request.discord),
       units,
@@ -752,17 +772,58 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
       request,
     )
 
+    const jobs = outcomes.flatMap(outcome =>
+      'job' in outcome ? [outcome.job] : [],
+    )
     // Every unit is the same show, so any job's media links the one page
-    const job = outcomes.find(outcome => 'job' in outcome)?.job
+    const [job] = jobs
+
+    // No job was created, so there is nothing to link to or undo
+    if (!job) {
+      return { images: [], messages: messages.concat(response) }
+    }
+
+    const recentRequest: RecentRequestContext = {
+      type: 'recentRequest',
+      mediaType: 'tv',
+      title: show.title,
+      mediaId: job.media.id,
+      externalId: show.tvdbId,
+      jobIds: jobs.map(({ id }) => id),
+      wasInLibrary,
+      query,
+      ...(tvSelection ? { tvSelection } : {}),
+      ...(request.qualityTier ? { qualityTier: request.qualityTier } : {}),
+      timestamp: Date.now(),
+    }
 
     return {
       images: [],
       messages: messages.concat(
-        // No job was created, so there is nothing to link to
-        job
-          ? withDownloadLinks(response, job.media, job.media.title)
-          : response,
+        withDownloadLinks(response, job.media, job.media.title),
       ),
+      pendingContext: {
+        type: MediaContextType.RecentRequest,
+        data: recentRequest,
+      },
+    }
+  }
+
+  /**
+   * Whether Sonarr already has the show. When that can't be told, it counts
+   * as in the library - the answer decides whether an undo may remove the
+   * show, and keeping a show nobody wanted beats deleting one somebody did.
+   */
+  private async isInLibrary(tvdbId: number, userId: string): Promise<boolean> {
+    try {
+      const library = await this.sonarrService.getLibrarySeries()
+      return library.some(series => series.tvdbId === tvdbId)
+    } catch (error) {
+      this.logger.warn(
+        { error: getErrorMessage(error), userId, tvdbId },
+        'Could not check the Sonarr library before requesting, treating the show as already there',
+      )
+      return true
     }
   }
 

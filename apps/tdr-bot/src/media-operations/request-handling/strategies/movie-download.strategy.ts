@@ -20,12 +20,16 @@ import {
 } from 'src/media-operations/request-handling/types'
 import { ParsingUtilities } from 'src/media-operations/request-handling/utils/parsing.utils'
 import { SelectionUtilities } from 'src/media-operations/request-handling/utils/selection.utils'
+import { searchWithCompactFallback } from 'src/media-operations/request-handling/utils/title-search.utils'
 import { downloadApiErrorMessage } from 'src/utils/download-api-error'
 import { withDownloadLinks } from 'src/utils/download-links'
 
 import { BaseMediaStrategy } from './base/base-media-strategy'
 import { MAX_SEARCH_RESULTS } from './base/strategy.constants'
-import type { MovieSelectionContext } from './base/strategy.types'
+import type {
+  MovieSelectionContext,
+  RecentRequestContext,
+} from './base/strategy.types'
 
 /** What a movie request carries besides the movie itself. */
 interface MovieRequestOptions {
@@ -136,7 +140,11 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
     try {
       // Search for movies using RadarrService
       const startTime = Date.now()
-      const searchResults = await this.radarrService.searchMovies(searchQuery)
+      const searchResults = await searchWithCompactFallback(
+        searchQuery,
+        term => this.radarrService.searchMovies(term),
+        movie => movie.tmdbId,
+      )
       this.logger.log(
         {
           userId,
@@ -183,10 +191,16 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
             'Auto-applying movie selection (explicit search selection provided)',
           )
 
-          return await this.downloadMovie(selectedMovie, messages, userId, {
-            ...request,
-            selectionCriteria: `${selection.selectionType}: ${selection.value}`,
-          })
+          return await this.downloadMovie(
+            selectedMovie,
+            messages,
+            userId,
+            {
+              ...request,
+              selectionCriteria: `${selection.selectionType}: ${selection.value}`,
+            },
+            searchQuery,
+          )
         } else {
           this.logger.warn(
             { userId, selection, searchResultsCount: searchResults.length },
@@ -206,6 +220,7 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
           messages,
           userId,
           request,
+          searchQuery,
         )
       }
 
@@ -340,7 +355,13 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
       }
 
       // No pendingContext on the result: the selection is settled
-      return await this.downloadMovie(selectedMovie, messages, userId, request)
+      return await this.downloadMovie(
+        selectedMovie,
+        messages,
+        userId,
+        request,
+        movieContext.query,
+      )
     } catch (error) {
       this.logger.error(
         { error: getErrorMessage(error), userId },
@@ -373,14 +394,22 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
    * terminal: `completed` when the movie was already downloaded, or
    * `failed`/`not_found` when the request went nowhere. Every job reply links
    * the job's title page, where a failed request can be retried.
+   *
+   * A created job is held as a {@link RecentRequestContext} for one
+   * follow-up, so "wrong movie" can undo it - `query` is the search the movie
+   * was picked from, re-offered minus this movie.
    */
   private async downloadMovie(
     movie: MovieSearchResult,
     messages: BaseMessage[],
     userId: string,
     request: MovieRequestOptions,
+    query: string,
   ): Promise<StrategyResult> {
     const { discord, qualityTier } = request
+
+    // Checked before the request, which adds the movie when it's missing
+    const wasInLibrary = await this.isInLibrary(movie.tmdbId, userId)
 
     this.logger.log(
       { userId, movieTitle: movie.title, tmdbId: movie.tmdbId, qualityTier },
@@ -433,11 +462,46 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
 
     const response = await this.replyForJob(job, movie, messages, request)
 
+    const recentRequest: RecentRequestContext = {
+      type: 'recentRequest',
+      mediaType: 'movie',
+      title: movie.title,
+      mediaId: job.media.id,
+      externalId: movie.tmdbId,
+      jobIds: [job.id],
+      wasInLibrary,
+      query,
+      ...(qualityTier ? { qualityTier } : {}),
+      timestamp: Date.now(),
+    }
+
     return {
       images: [],
       messages: messages.concat(
         withDownloadLinks(response, job.media, job.media.title),
       ),
+      pendingContext: {
+        type: MediaContextType.RecentRequest,
+        data: recentRequest,
+      },
+    }
+  }
+
+  /**
+   * Whether Radarr already has the movie. When that can't be told, it counts
+   * as in the library - the answer decides whether an undo may remove the
+   * movie, and keeping a movie nobody wanted beats deleting one somebody did.
+   */
+  private async isInLibrary(tmdbId: number, userId: string): Promise<boolean> {
+    try {
+      const library = await this.radarrService.getLibraryMovies()
+      return library.some(movie => movie.tmdbId === tmdbId)
+    } catch (error) {
+      this.logger.warn(
+        { error: getErrorMessage(error), userId, tmdbId },
+        'Could not check the Radarr library before requesting, treating the movie as already there',
+      )
+      return true
     }
   }
 

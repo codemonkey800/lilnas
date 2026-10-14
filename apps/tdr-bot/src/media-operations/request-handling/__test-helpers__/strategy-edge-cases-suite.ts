@@ -1,5 +1,6 @@
 import { HumanMessage } from '@langchain/core/messages'
 
+import { expectNothingAwaitingAPick } from 'src/media-operations/request-handling/__test-helpers__/assertions'
 import { createMockDiscordIdentity } from 'src/media-operations/request-handling/__test-helpers__/mock-services'
 import { MediaOperationStrategy } from 'src/media-operations/request-handling/strategies/base/media-operation-strategy.interface'
 import { StrategyRequestParams } from 'src/media-operations/request-handling/types/request-context.type'
@@ -894,7 +895,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
 
         const result = await getStrategy().handleRequest(params)
 
-        expect(result.pendingContext).toBeUndefined()
+        expectNothingAwaitingAPick(result)
       })
 
       it('should leave nothing pending when auto-selection succeeds', async () => {
@@ -937,7 +938,7 @@ export function testStrategyEdgeCases<TMediaItem, TOperationResult>(
         const result = await getStrategy().handleRequest(params)
 
         // Auto-selection settles the request, so nothing is left pending
-        expect(result.pendingContext).toBeUndefined()
+        expectNothingAwaitingAPick(result)
       })
 
       it('should leave nothing pending on error during selection handling', async () => {

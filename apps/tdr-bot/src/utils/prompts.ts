@@ -59,6 +59,29 @@ export const GET_MEDIA_TYPE_PROMPT = new SystemMessage(dedent`
   Return only valid JSON, no additional text.
 `)
 
+export const WRONG_PICK_DETECTION_PROMPT = new SystemMessage(dedent`
+  The bot just requested a movie or TV show for the user. Decide whether the
+  user's latest message says the bot picked the WRONG title - a different
+  show or movie than the one they meant.
+
+  Set "wrongPick" to true only for a complaint about which title was picked:
+  - "wrong show" → true
+  - "that's not the right one" → true
+  - "no, I meant the Marvel one" → true
+  - "not that one, the 2026 series" → true
+  - "wrong movie lol" → true
+  - "you got the wrong thing" → true
+
+  Everything else is false - thanks, new requests, questions, other topics,
+  or complaints that aren't about the title itself:
+  - "thanks!" → false
+  - "also download season 2" → false
+  - "how long will it take?" → false
+  - "can you get it in 4k instead?" → false
+  - "what's the weather?" → false
+  - "delete the show Side Quest" → false
+`)
+
 export const TOPIC_SWITCH_DETECTION_PROMPT = new SystemMessage(dedent`
   Determine if the user has switched to a different topic from their previous media selection context.
 

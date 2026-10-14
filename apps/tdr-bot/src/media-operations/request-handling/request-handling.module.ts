@@ -12,6 +12,7 @@ import { MovieDeleteStrategy } from './strategies/movie-delete.strategy'
 import { MovieDownloadStrategy } from './strategies/movie-download.strategy'
 import { TvDeleteStrategy } from './strategies/tv-delete.strategy'
 import { TvDownloadStrategy } from './strategies/tv-download.strategy'
+import { WrongPickStrategy } from './strategies/wrong-pick.strategy'
 import { DataFetchingUtilities } from './utils/data-fetching.utils'
 import { ParsingUtilities } from './utils/parsing.utils'
 import { SelectionUtilities } from './utils/selection.utils'
@@ -21,7 +22,7 @@ import { ValidationUtilities } from './utils/validation.utils'
  * RequestHandlingModule - Phase 5 Integration
  *
  * Provides the MediaRequestHandler service and all its dependencies:
- * - 6 strategy classes for different media operations
+ * - 7 strategy classes for different media operations
  * - 4 utility classes for parsing, selection, validation, and data fetching
  * - DownloadClientFactory, for strategies that call the download app as the
  *   requesting Discord user
@@ -45,13 +46,14 @@ import { ValidationUtilities } from './utils/validation.utils'
     // Download app client, stamped with the requesting Discord user
     DownloadClientFactory,
 
-    // Strategy classes (6 strategies)
+    // Strategy classes (7 strategies)
     MovieDownloadStrategy,
     TvDownloadStrategy,
     MovieDeleteStrategy,
     TvDeleteStrategy,
     MediaBrowsingStrategy,
     DownloadStatusStrategy,
+    WrongPickStrategy,
 
     // Main request handler
     MediaRequestHandler,

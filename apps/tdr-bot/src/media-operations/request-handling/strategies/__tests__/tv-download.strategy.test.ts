@@ -194,6 +194,7 @@ describe('TvDownloadStrategy', () => {
           provide: SonarrService,
           useValue: {
             searchShows: jest.fn(),
+            getLibrarySeries: jest.fn(),
           },
         },
         {
@@ -502,7 +503,8 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(result.pendingContext).toBeUndefined()
+      // A settled request is held for one "wrong one" follow-up
+      expect(result.pendingContext?.type).toBe(MediaContextType.RecentRequest)
       expect(downloadClient.requestShow).toHaveBeenCalledWith({
         tvdbId: mockShow2.tvdbId,
         seasonNumber: 1,
@@ -609,7 +611,8 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(result.pendingContext).toBeUndefined()
+      // A settled request is held for one "wrong one" follow-up
+      expect(result.pendingContext?.type).toBe(MediaContextType.RecentRequest)
     })
   })
 
@@ -829,6 +832,146 @@ describe('TvDownloadStrategy', () => {
     })
   })
 
+  describe('Holding the request for a "wrong one" follow-up', () => {
+    const params = (content: string): StrategyRequestParams => ({
+      message: new HumanMessage({ id: '1', content }),
+      messages: [],
+      userId: 'user123',
+      discord: createMockDiscordIdentity('user123'),
+      state: mockState,
+    })
+
+    beforeEach(() => {
+      downloadClient.requestShow.mockResolvedValue(mockRequestedJob)
+      promptService.generateTvShowChatResponse.mockResolvedValue(
+        mockChatResponse,
+      )
+    })
+
+    it('records a show the request added to the library', async () => {
+      parsingUtilities.parseInitialSelection.mockResolvedValue({
+        searchQuery: 'breaking bad',
+        selection: null,
+        tvSelection: mockSeasonSelection,
+      })
+      sonarrService.searchShows.mockResolvedValue([mockShow1])
+      sonarrService.getLibrarySeries.mockResolvedValue([])
+
+      const result = await strategy.handleRequest(
+        params('download breaking bad season 1'),
+      )
+
+      expect(result.pendingContext).toEqual({
+        type: MediaContextType.RecentRequest,
+        data: expect.objectContaining({
+          type: 'recentRequest',
+          mediaType: 'tv',
+          title: 'Breaking Bad',
+          mediaId: 'tvdb:12345',
+          externalId: 12345,
+          jobIds: ['job-12345'],
+          wasInLibrary: false,
+          query: 'breaking bad',
+          tvSelection: mockSeasonSelection,
+        }),
+      })
+    })
+
+    it('records a show that was already in the library', async () => {
+      parsingUtilities.parseInitialSelection.mockResolvedValue({
+        searchQuery: 'breaking bad',
+        selection: null,
+        tvSelection: mockSeasonSelection,
+      })
+      sonarrService.searchShows.mockResolvedValue([mockShow1])
+      sonarrService.getLibrarySeries.mockResolvedValue([
+        { ...mockShow1, id: 7, monitored: true, path: '/tv/Breaking Bad' },
+      ] as never)
+
+      const result = await strategy.handleRequest(
+        params('download breaking bad season 1'),
+      )
+
+      expect(result.pendingContext?.data).toMatchObject({ wasInLibrary: true })
+    })
+
+    it('counts the show as in the library when Sonarr cannot say', async () => {
+      parsingUtilities.parseInitialSelection.mockResolvedValue({
+        searchQuery: 'breaking bad',
+        selection: null,
+        tvSelection: mockSeasonSelection,
+      })
+      sonarrService.searchShows.mockResolvedValue([mockShow1])
+      sonarrService.getLibrarySeries.mockRejectedValue(new Error('timeout'))
+
+      const result = await strategy.handleRequest(
+        params('download breaking bad season 1'),
+      )
+
+      expect(result.pendingContext?.data).toMatchObject({ wasInLibrary: true })
+    })
+
+    it('holds nothing when no job was created', async () => {
+      parsingUtilities.parseInitialSelection.mockResolvedValue({
+        searchQuery: 'breaking bad',
+        selection: null,
+        tvSelection: mockSeasonSelection,
+      })
+      sonarrService.searchShows.mockResolvedValue([mockShow1])
+      sonarrService.getLibrarySeries.mockResolvedValue([])
+      downloadClient.requestShow.mockRejectedValue(new Error('ECONNREFUSED'))
+
+      const result = await strategy.handleRequest(
+        params('download breaking bad season 1'),
+      )
+
+      expect(result.pendingContext).toBeUndefined()
+    })
+  })
+
+  describe('Search for a title styled as one word', () => {
+    it('lists the one-word title first instead of auto-picking a near miss', async () => {
+      const visionQuest = {
+        ...mockShow3,
+        tvdbId: 426606,
+        title: 'VisionQuest',
+      }
+      parsingUtilities.parseInitialSelection.mockResolvedValue({
+        searchQuery: 'Vision Quest',
+        selection: null,
+        tvSelection: null,
+      })
+      sonarrService.searchShows.mockImplementation(async term =>
+        term === 'VisionQuest' ? [visionQuest] : [mockShow1, mockShow2],
+      )
+      promptService.generateTvShowChatResponse.mockResolvedValue(
+        mockChatResponse,
+      )
+
+      const result = await strategy.handleRequest({
+        message: new HumanMessage({
+          id: '1',
+          content: 'download the tv show Vision Quest',
+        }),
+        messages: [],
+        userId: 'user123',
+        discord: createMockDiscordIdentity('user123'),
+        state: mockState,
+      })
+
+      expect(downloadClient.requestShow).not.toHaveBeenCalled()
+      expect(promptService.generateTvShowChatResponse).toHaveBeenCalledWith(
+        [],
+        'TV_SHOW_SELECTION_NEEDED',
+        {
+          searchQuery: 'Vision Quest',
+          shows: [visionQuest, mockShow1, mockShow2],
+        },
+      )
+      expect(result.pendingContext?.type).toBe(MediaContextType.TvDownload)
+    })
+  })
+
   describe('New TV Show Search - Single Result Scenarios', () => {
     it('should auto-download immediately when single result found with granular selection', async () => {
       const params: StrategyRequestParams = {
@@ -855,7 +998,8 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(result.pendingContext).toBeUndefined()
+      // A settled request is held for one "wrong one" follow-up
+      expect(result.pendingContext?.type).toBe(MediaContextType.RecentRequest)
       expect(result.messages).toHaveLength(1)
     })
 
@@ -1030,7 +1174,8 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(result.pendingContext).toBeUndefined()
+      // A settled request is held for one "wrong one" follow-up
+      expect(result.pendingContext?.type).toBe(MediaContextType.RecentRequest)
       expect(result.messages).toHaveLength(1)
     })
 
@@ -1124,7 +1269,8 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(result.pendingContext).toBeUndefined()
+      // A settled request is held for one "wrong one" follow-up
+      expect(result.pendingContext?.type).toBe(MediaContextType.RecentRequest)
     })
   })
 
@@ -1155,7 +1301,8 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(result.pendingContext).toBeUndefined()
+      // A settled request is held for one "wrong one" follow-up
+      expect(result.pendingContext?.type).toBe(MediaContextType.RecentRequest)
       expect(result.messages).toHaveLength(1)
     })
 
@@ -1185,7 +1332,8 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(result.pendingContext).toBeUndefined()
+      // A settled request is held for one "wrong one" follow-up
+      expect(result.pendingContext?.type).toBe(MediaContextType.RecentRequest)
       expect(result.messages).toHaveLength(1)
     })
 
@@ -1215,7 +1363,8 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(result.pendingContext).toBeUndefined()
+      // A settled request is held for one "wrong one" follow-up
+      expect(result.pendingContext?.type).toBe(MediaContextType.RecentRequest)
       expect(result.messages).toHaveLength(1)
     })
 
@@ -1248,7 +1397,8 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(result.pendingContext).toBeUndefined()
+      // A settled request is held for one "wrong one" follow-up
+      expect(result.pendingContext?.type).toBe(MediaContextType.RecentRequest)
       expect(result.messages).toHaveLength(1)
     })
 
@@ -1308,7 +1458,8 @@ describe('TvDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(result.pendingContext).toBeUndefined()
+      // A settled request is held for one "wrong one" follow-up
+      expect(result.pendingContext?.type).toBe(MediaContextType.RecentRequest)
     })
   })
 

@@ -1,5 +1,6 @@
 import { HumanMessage } from '@langchain/core/messages'
 
+import { expectNothingAwaitingAPick } from 'src/media-operations/request-handling/__test-helpers__/assertions'
 import { createMockDiscordIdentity } from 'src/media-operations/request-handling/__test-helpers__/mock-services'
 import { MediaOperationStrategy } from 'src/media-operations/request-handling/strategies/base/media-operation-strategy.interface'
 import {
@@ -209,7 +210,7 @@ export function testSelectionBehavior<TMediaItem, TOperationResult>(
 
         const result = await getStrategy().handleRequest(params)
 
-        expect(result.pendingContext).toBeUndefined()
+        expectNothingAwaitingAPick(result)
         expect(result.messages).toHaveLength(1)
       })
 
@@ -289,7 +290,7 @@ export function testSelectionBehavior<TMediaItem, TOperationResult>(
 
         const result = await getStrategy().handleRequest(params)
 
-        expect(result.pendingContext).toBeUndefined()
+        expectNothingAwaitingAPick(result)
         expect(result.messages).toHaveLength(1)
       })
 

@@ -274,7 +274,8 @@ describe('MovieDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(result.pendingContext).toBeUndefined()
+      // A settled request is held for one "wrong one" follow-up
+      expect(result.pendingContext?.type).toBe(MediaContextType.RecentRequest)
       expect(result.messages).toHaveLength(1)
       expect(result.messages[0].content).toBe(
         `Here is your movie response...\n\n${matrixLinks}`,
@@ -406,7 +407,8 @@ describe('MovieDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(result.pendingContext).toBeUndefined()
+      // A settled request is held for one "wrong one" follow-up
+      expect(result.pendingContext?.type).toBe(MediaContextType.RecentRequest)
       expect(result.messages).toHaveLength(1)
     })
 
@@ -430,7 +432,8 @@ describe('MovieDownloadStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(result.pendingContext).toBeUndefined()
+      // A settled request is held for one "wrong one" follow-up
+      expect(result.pendingContext?.type).toBe(MediaContextType.RecentRequest)
       expect(result.messages).toHaveLength(1)
     })
 

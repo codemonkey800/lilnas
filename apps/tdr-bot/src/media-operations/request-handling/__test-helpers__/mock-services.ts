@@ -56,6 +56,9 @@ export function createMockDownloadClientFactory(): {
   const client = {
     requestMovie: jest.fn(),
     requestShow: jest.fn(),
+    cancelMovieJob: jest.fn(),
+    cancelShowJob: jest.fn(),
+    deleteMediaFiles: jest.fn(),
   } as unknown as jest.Mocked<DownloadClient>
 
   const factory = {

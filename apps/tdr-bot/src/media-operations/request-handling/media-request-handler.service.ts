@@ -6,6 +6,7 @@ import {
 import { Injectable, Logger } from '@nestjs/common'
 import dedent from 'dedent'
 import { nanoid } from 'nanoid'
+import { z } from 'zod'
 
 import { LlmClient } from 'src/llm/client/llm-client'
 import {
@@ -21,14 +22,17 @@ import {
 import {
   GET_MEDIA_TYPE_PROMPT,
   TOPIC_SWITCH_DETECTION_PROMPT,
+  WRONG_PICK_DETECTION_PROMPT,
 } from 'src/utils/prompts'
 
+import type { RecentRequestContext } from './strategies/base/strategy.types'
 import { DownloadStatusStrategy } from './strategies/download-status.strategy'
 import { MediaBrowsingStrategy } from './strategies/media-browsing.strategy'
 import { MovieDeleteStrategy } from './strategies/movie-delete.strategy'
 import { MovieDownloadStrategy } from './strategies/movie-download.strategy'
 import { TvDeleteStrategy } from './strategies/tv-delete.strategy'
 import { TvDownloadStrategy } from './strategies/tv-download.strategy'
+import { WrongPickStrategy } from './strategies/wrong-pick.strategy'
 import {
   ActiveMediaContext,
   DiscordIdentity,
@@ -40,6 +44,8 @@ import { toQualityTier } from './utils/quality.utils'
 
 /** Classification replies are tiny; cap them. */
 const MAX_CLASSIFICATION_TOKENS = 500
+
+const WrongPickDetectionSchema = z.object({ wrongPick: z.boolean() })
 
 /**
  * MediaRequestHandler - Routes media requests to appropriate strategies
@@ -64,6 +70,7 @@ export class MediaRequestHandler {
     private readonly tvDeleteStrategy: TvDeleteStrategy,
     private readonly mediaBrowsingStrategy: MediaBrowsingStrategy,
     private readonly downloadStatusStrategy: DownloadStatusStrategy,
+    private readonly wrongPickStrategy: WrongPickStrategy,
   ) {
     this.logger.log('MediaRequestHandler initialized')
   }
@@ -89,7 +96,27 @@ export class MediaRequestHandler {
     this.logger.log({ userId }, 'Handling media request')
 
     try {
-      // Step 1: Resume the active context first (multi-turn operations)
+      // Step 1a: A request just went through - the only follow-up it takes is
+      // "that's the wrong one". Anything else is a fresh message.
+      if (activeContext?.type === MediaContextType.RecentRequest) {
+        const recent = activeContext.data as RecentRequestContext
+        if (await this.isWrongPickComplaint(message, recent)) {
+          this.logger.log(
+            { userId, title: recent.title },
+            'User says the last request was the wrong title, routing to undo',
+          )
+          return await this.wrongPickStrategy.handleRequest({
+            message,
+            messages,
+            userId,
+            discord,
+            context: recent,
+          })
+        }
+        return { images: [], messages: [], reroute: true }
+      }
+
+      // Step 1b: Resume the active context first (multi-turn operations)
       if (activeContext) {
         if (await this.detectTopicSwitch(message)) {
           this.logger.log(
@@ -456,6 +483,47 @@ export class MediaRequestHandler {
 
       // Default to movie on error
       return { mediaType: 'movie', reasoning: null }
+    }
+  }
+
+  /**
+   * Whether `message` says the request just made (`recent`) picked the wrong
+   * title. On a failed check it says no - the message is then routed as a
+   * new one, which never deletes anything.
+   */
+  private async isWrongPickComplaint(
+    message: HumanMessage,
+    recent: RecentRequestContext,
+  ): Promise<boolean> {
+    try {
+      const { output } = await this.llm.call({
+        operation: 'media.wrongPick',
+        role: 'reasoning',
+        messages: [
+          WRONG_PICK_DETECTION_PROMPT,
+          new HumanMessage({
+            id: nanoid(),
+            content: `The bot just requested the ${recent.mediaType === 'tv' ? 'TV show' : 'movie'} "${recent.title}" after the user searched for "${recent.query}".\n\nUser's latest message: "${this.getMessageContent(message)}"`,
+          }),
+        ],
+        schema: WrongPickDetectionSchema,
+        overrides: { maxTokens: MAX_CLASSIFICATION_TOKENS },
+      })
+
+      this.logger.log(
+        { title: recent.title, wrongPick: output.wrongPick },
+        'Wrong-pick detection completed',
+      )
+      return output.wrongPick
+    } catch (error) {
+      this.logger.error(
+        {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          message: this.getMessageContent(message),
+        },
+        'Failed to detect a wrong-pick complaint, treating as a new message',
+      )
+      return false
     }
   }
 

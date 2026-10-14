@@ -1,5 +1,6 @@
 import { BaseMessage } from '@langchain/core/messages'
 
+import { MediaContextType } from 'src/media-operations/request-handling/types/request-context.type'
 import { StrategyResult } from 'src/media-operations/request-handling/types/strategy-result.type'
 
 /**
@@ -111,5 +112,16 @@ export function assertPromptGenerated(
       callIndex + 1,
       ...options.expectedArgs,
     )
+  }
+}
+
+/**
+ * The operation settled: nothing waits on a pick. A download that went
+ * through may still hold its {@link MediaContextType.RecentRequest} for a
+ * "wrong one" follow-up - that's not a pick, so it passes too.
+ */
+export function expectNothingAwaitingAPick(result: StrategyResult): void {
+  if (result.pendingContext != null) {
+    expect(result.pendingContext.type).toBe(MediaContextType.RecentRequest)
   }
 }
