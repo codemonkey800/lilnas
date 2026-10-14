@@ -13,7 +13,6 @@ include:
   - path: ./infra/nexus-code.yml
     env_file: ./infra/.env.nexus-code
   - ./infra/palworld.yml
-  - ./infra/penpot.yml
   - ./infra/proxy.yml
   - ./infra/rustdesk.yml
   - ./infra/shared.yml
