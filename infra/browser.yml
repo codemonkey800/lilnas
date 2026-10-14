@@ -1,0 +1,42 @@
+services:
+  # On-demand remote Chromium for signing in to sites from a phone and letting
+  # Claude Code inspect the traffic over the Chrome DevTools Protocol.
+  #
+  # Started and stopped from portal.lilnas.io/browser, which also auto-stops
+  # it when idle (apps/portal/src/utils/browser.ts). Create it once with
+  # `docker-compose up -d browser`; after that the portal only starts/stops
+  # the existing container, so it must keep this fixed container_name.
+  browser:
+    image: lscr.io/linuxserver/chromium:latest
+    container_name: lilnas-browser
+    restart: 'no'
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    shm_size: 1gb
+    environment:
+      PUID: 1000
+      PGID: 1000
+      TZ: America/Los_Angeles
+      # Disables the in-session terminal, passwordless sudo, and xdg-open.
+      HARDEN_DESKTOP: 'true'
+      # Sharing links carry no auth of their own.
+      SELKIES_ENABLE_SHARING: 'false'
+      SELKIES_ENABLE_COLLAB: 'false'
+      CHROME_CLI: --remote-debugging-port=9222
+    volumes:
+      - /storage/app-data/browser:/config
+      - ./browser/cdp-proxy.conf:/etc/nginx/conf.d/cdp-proxy.conf:ro
+    ports:
+      # CDP grants full control of every signed-in session. Loopback only:
+      # never publish this on a public interface or route it through Traefik.
+      - 127.0.0.1:9222:9223
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.browser.rule=Host(`browser.lilnas.io`)
+      - traefik.http.routers.browser.entrypoints=websecure
+      - traefik.http.routers.browser.tls.certresolver=le
+      - traefik.http.routers.browser.middlewares=lilnas-auth
+      - traefik.http.services.browser.loadbalancer.server.port=3000
