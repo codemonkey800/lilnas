@@ -171,3 +171,16 @@ Decisions where the spec was silent or ambiguous:
 - `apps/tdr-bot/README.md` is still untouched. The task that registers `/tldr` must document it for the plan's Done means.
 - `TldrService` is not yet provided in any module. The command task needs to add it to `commands.module.ts`, which will need `LlmCoreModule` and `PromptsModule` imported.
 - Host issue: `/tmp` ran out of inodes (1,048,576 of 1,048,576 used) during the run, mostly from `/tmp/node-compile-cache` (667k files). I did not touch it. I ran the checks with `TMPDIR` under my home directory and removed it afterwards. The harness's own shell output files live in `/tmp`, so later tasks may hit ENOSPC until it is cleared.
+
+### 2026-10-14 · T5 · done
+Decisions where the spec was silent:
+- `empty` text: the window is kept in a variable inside `onTldr`, so the message uses `window.since` and `window.channelName`. If the failure comes before a window exists, it falls back to the parsed `since`, else "your last message".
+- `from` name: `interaction.guild.members.cache.get(from.id)?.displayName ?? from.displayName`.
+- `target`: `channel ?? interaction.channel`. If both are null, it sends an ephemeral `unsupported_channel` text before deferring.
+- A `bad_since` reply names the example forms. A `future_since` reply is "that's in the future".
+- An `editReply` or `followUp` failure after a successful summary falls into the generic Sadge handler. It is not guarded separately.
+- The unknown-error log is `logger.error({ error, requestId }, 'Failed to build /tldr reply')`. All new log calls use (obj, msg).
+- The in-flight Set is released in `finally`, covering the defer and a failed run. Both are covered by tests.
+- The tests mock `discord.js` and `necord` per test. `setup.ts` is untouched and no env vars were added.
+- README has a new `## Slash commands` section before `## LLM service`.
+- Host: /tmp was out of inodes again. I ran checks with TMPDIR and the jest cache under $HOME, then removed them. Heredocs in Bash fail until /tmp is cleared, so use the Write tool for files.

@@ -333,7 +333,8 @@ phases:
           - apps/tdr-bot/src/commands/tldr/__tests__/tldr-command.service.test.ts
           - apps/tdr-bot/src/commands/commands.module.ts
           - apps/tdr-bot/README.md
-        status: todo
+        status: done
+        commit: ccd5befd0afbdc1801f5d090237412bfa6d67582
         body: |-
           Add the necord handler `TldrCommandService` in
           `apps/tdr-bot/src/commands/tldr/tldr-command.service.ts`, register it, and
