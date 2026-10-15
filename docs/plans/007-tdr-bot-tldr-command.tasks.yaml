@@ -114,7 +114,8 @@ phases:
         files:
           - apps/tdr-bot/src/commands/tldr/window.service.ts
           - apps/tdr-bot/src/commands/tldr/__tests__/window.service.test.ts
-        status: todo
+        status: done
+        commit: 08cbcd0fe832c71ff8930be5f4bf7ec3c94477ef
         body: |-
           Add `TldrWindowService` (`@Injectable()`, constructor takes the discord.js
           `Client`) in `apps/tdr-bot/src/commands/tldr/window.service.ts`. It turns a

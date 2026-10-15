@@ -146,3 +146,16 @@ Decisions where the spec was silent:
 - `formatWhen` compares calendar days in `tz`. Future dates use the `MMM D, h:mm A` format.
 - `renderTranscript` takes no `now` parameter, so it uses `new Date()` for the header's relative times.
 - `apps/tdr-bot/README.md` is still untouched. The task that registers `/tldr` still owes that documentation.
+
+### 2026-10-14 · T2 · done
+- `TldrWindowService.fetch({ channel, requester, since })` is as specified. The constructor takes the discord.js `Client`, which necord provides. The service must be added to `providers` in `commands.module.ts` by the task that registers the command.
+- Added beyond the spec: a private thread (a thread target or a thread found under a parent) is read only if the requester is a member or has ManageThreads. This is because `ThreadChannel.permissionsFor` only reflects the parent channel and would leak private threads. The check calls `thread.members.fetch(requester.id)`.
+- Decisions:
+  - The scan cap counts raw messages fetched, 1000 per channel or thread. Hitting it with a full page and no `since` reached sets `clipped` and moves `since` to the oldest kept message.
+  - The fallback keeps the newest 100 messages after skip filtering. If there are none, `since` is `new Date()`.
+  - A thread-as-target window gives `threadName: null`, since `channelName` already carries the thread name.
+  - An embed contributes its title, or its url if it has no title.
+  - A thread that fails to load, or a failed thread listing, is logged with `logger.warn(obj, msg)` and skipped.
+- The test mocks `discord.js` with `Client`, `ChannelType`, `PermissionFlagsBits` and `SnowflakeUtil.timestampFrom` only. `Collection` isn't needed because the service only calls `.values()`, so the fakes use plain `Map`s.
+- `apps/tdr-bot/README.md` is still untouched. The `/tldr` docs belong to the task that registers the command.
+- Host problem: `/tmp` ran out of inodes during the run and made Bash and Jest fail with ENOSPC. I deleted `/tmp/jest_rs` to recover. It was about 94% full again afterwards, so later tasks may hit the same thing. Setting `TMPDIR` and `--cacheDirectory` to a path under `$HOME` avoids it.
