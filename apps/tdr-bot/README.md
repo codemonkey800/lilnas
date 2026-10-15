@@ -6,6 +6,31 @@ Bot for the bois
   <img width="400" src="https://i.guim.co.uk/img/media/327e46c3ab049358fad80575146be9e0e65686e7/0_56_1023_614/master/1023.jpg?width=1200&quality=85&auto=format&fit=max&s=4592a7be8bdbebd0e0b97e5e10a6c433">
 </p>
 
+## Slash commands
+
+### `/tldr`
+
+Catch up on a conversation: a summary of what you missed, in TDR voice.
+
+| Option     | What it does                                                        |
+| ---------- | ------------------------------------------------------------------- |
+| `since`    | How far back: `2h`, `30m`, `3d`, `8:30pm`, `yesterday`, `10/13`     |
+| `from`     | Only summarize what this person said                                |
+| `channel`  | Another channel or thread to catch up on (default: the current one) |
+| `question` | Ask something about the conversation instead of getting a summary   |
+
+- **Default window:** with no `since`, it covers everything since your last
+  message in that channel. If you have not posted there, it falls back to the
+  newest 100 messages.
+- **Cap:** a window reads at most 1,000 messages (the channel plus its
+  threads). When it hits the cap the summary is clipped to the newest 1,000.
+- **Access:** it only reads channels both you and the bot can read.
+- **Visibility:** replies are public. Errors raised before the reply is
+  deferred (not in a server, unreadable `since`, already busy) are ephemeral.
+- **One at a time:** each user can have one `/tldr` running at once.
+- **Cost:** one call on the `chat` role. A full 1,000-message window costs
+  roughly $0.50 on gpt-4-turbo.
+
 ## LLM service
 
 Every model call goes through `src/llm/`. Nothing outside `src/llm/providers/`
