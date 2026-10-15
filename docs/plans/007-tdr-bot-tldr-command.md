@@ -124,3 +124,12 @@ math, media and reminder behaviour unchanged; `apps/tdr-bot/README.md` documents
 
 ## Log
 <!-- Written by Nexus: findings, review cycles, checkpoint verdicts, the final report. -->
+
+### 2026-10-14 · T1 · done
+- `types.ts` matches the spec exactly. `TldrError` sets `name = 'TldrError'`, and its `message` defaults to the code.
+- Decision on the spec conflict: it says a year-less date after now rolls back a year, and also that `10/20` gives `future_since`. I followed the roll-back rule, so `10/20` on 2026-10-14 resolves to 2025-10-20. Tests cover `future_since` with `10/20/2026`, `2026-10-20` and `oct 20 2026`. Later tasks need no change; only a year-less future date behaves differently from the spec's example.
+- `tomorrow` is recognised on purpose so it gives `future_since` and not `bad_since`.
+- Bare numbers like `8` are `bad_since`; a clock time needs `:mm` or am/pm. `10/13/26` is read as 2026.
+- Durations are plain ms subtraction from `now`, so they are not DST-aware.
+- `since.ts` and the test use `import dayjs, { extend } from 'dayjs'` with `extend(...)` to avoid the `import/no-named-as-default-member` warning.
+- `apps/tdr-bot/README.md` is untouched. The `/tldr` docs are still owed; the task that registers the command should add them.

@@ -4,13 +4,14 @@ phases:
     name: /tldr command
     tasks:
       - id: T1
-        title: 'tldr types, limits and the `since` parser'
+        title: tldr types, limits and the `since` parser
         after: []
         files:
           - apps/tdr-bot/src/commands/tldr/types.ts
           - apps/tdr-bot/src/commands/tldr/since.ts
           - apps/tdr-bot/src/commands/tldr/__tests__/since.test.ts
-        status: todo
+        status: done
+        commit: 3a6cadf38549cc5c73aa4553b65bc52e0440656c
         body: |-
           Create the `apps/tdr-bot/src/commands/tldr/` folder with the shared types
           every later tldr file imports, and a deterministic parser for the `since`
