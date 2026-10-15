@@ -159,3 +159,15 @@ Decisions where the spec was silent:
 - The test mocks `discord.js` with `Client`, `ChannelType`, `PermissionFlagsBits` and `SnowflakeUtil.timestampFrom` only. `Collection` isn't needed because the service only calls `.values()`, so the fakes use plain `Map`s.
 - `apps/tdr-bot/README.md` is still untouched. The `/tldr` docs belong to the task that registers the command.
 - Host problem: `/tmp` ran out of inodes during the run and made Bash and Jest fail with ENOSPC. I deleted `/tmp/jest_rs` to recover. It was about 94% full again afterwards, so later tasks may hit the same thing. Setting `TMPDIR` and `--cacheDirectory` to a path under `$HOME` avoids it.
+
+### 2026-10-14 · T4 · done
+Decisions where the spec was silent or ambiguous:
+- `prompts.ts` does `import type { TldrRequest } from './tldr.service'`, so there is a type-only cycle. It is erased at compile time.
+- The header's count wording follows `sinceSource`. For `fallback` it reads `· newest N messages` instead of `· N messages`, so the count is not shown twice. For `lastMessage` it reads `· N messages · since your last message`. The ` in <threadCount> threads` suffix follows the count, and ` · clipped to the newest 1000` comes last.
+- In question mode the header reads `**Re: "<question>"** in #<channel> since <when> · N messages …`. The question text is shown unescaped.
+- `formatWhen(window.since)` and `renderTranscript(window)` use the default timezone (`REMINDER_TIMEZONE`) and `new Date()`.
+- Logging uses `Logger` from `@nestjs/common` with `(obj, msg)`. The first call logs `{ messages, threads, chars, mode }` with mode `'summary'` or `'question'`. The second logs `{ model, usage, durationMs }`.
+- `TldrService` makes no `runWithRequestContext` call. The command task should wrap `summarize()` in it so the `llm_calls` audit row gets requestId, userId, channelId, guildId and skill.
+- `apps/tdr-bot/README.md` is still untouched. The task that registers `/tldr` must document it for the plan's Done means.
+- `TldrService` is not yet provided in any module. The command task needs to add it to `commands.module.ts`, which will need `LlmCoreModule` and `PromptsModule` imported.
+- Host issue: `/tmp` ran out of inodes (1,048,576 of 1,048,576 used) during the run, mostly from `/tmp/node-compile-cache` (667k files). I did not touch it. I ran the checks with `TMPDIR` under my home directory and removed it afterwards. The harness's own shell output files live in `/tmp`, so later tasks may hit ENOSPC until it is cleared.

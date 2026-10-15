@@ -256,7 +256,8 @@ phases:
           - apps/tdr-bot/src/commands/tldr/prompts.ts
           - apps/tdr-bot/src/commands/tldr/tldr.service.ts
           - apps/tdr-bot/src/commands/tldr/__tests__/tldr.service.test.ts
-        status: todo
+        status: done
+        commit: 4752bd3892cf7c43e1827c561c5e9883b3d6de20
         body: |-
           Add `TldrService` (`@Injectable()`, constructor takes `LlmClient` from
           `src/llm/client/llm-client` and `PromptService` from
