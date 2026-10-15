@@ -187,3 +187,16 @@ Decisions where the spec was silent:
 
 ### 2026-10-15 · H1 · approved
 Approved.
+
+### 2026-10-15 · Phase 1 · review cycle 1
+Pass 1 (T1, T3): T1 (types + since parser) and T3 (transcript render, citation linkify, Discord chunking, formatWhen) implement their task bodies correctly with the required table-driven tests; no correctness or seam defects found in this slice. README for /tldr remains owed by T5 (other pass).
+Pass 2 (T2, T4): T2 and T4 implement the window fetcher and summarizer as specified with the required tests; no correctness defects found. Notes only: thread walks drop messages silently when a single thread hits the scan cap, question mode ignores `from`, and the header interpolates the question text unescaped.
+Pass 3 (T5): T5 handler, module wiring, README and tests match the task body; cross-task seams (formatWhen, fetch and summarize signatures, window constants) agree. One note only: a failed deferReply (expired/already-acknowledged interaction) falls into the catch and calls editReply, which rejects too and escapes the handler as an unhandled rejection; the in-flight set is still released.
+Seams pass: Seams pass: every cross-task import, type shape, call-site signature and DI binding between T1–T5 agrees; no disagreements found. Only note: the '1000' in the clipped suffix is hardcoded in both tldr.service.ts and transcript.ts instead of using MAX_WINDOW_MESSAGES.
+
+Notes:
+- F1 · P2 · Year-less future date rolls back a year instead of future_since — apps/tdr-bot/src/commands/tldr/since.ts:199
+- F2 · P2 · Thread scan cap is silent — apps/tdr-bot/src/commands/tldr/window.service.ts:253
+- F3 · P2 · Question mode ignores `from` — apps/tdr-bot/src/commands/tldr/prompts.ts:37
+- F4 · P2 · Header interpolates question text unescaped — apps/tdr-bot/src/commands/tldr/tldr.service.ts:84
+- F5 · P2 · editReply in the catch block can itself reject when deferReply failed — apps/tdr-bot/src/commands/tldr/tldr-command.service.ts:190
