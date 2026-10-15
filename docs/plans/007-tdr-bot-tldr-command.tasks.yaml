@@ -192,7 +192,8 @@ phases:
         files:
           - apps/tdr-bot/src/commands/tldr/transcript.ts
           - apps/tdr-bot/src/commands/tldr/__tests__/transcript.test.ts
-        status: todo
+        status: done
+        commit: f136f9e77e25740e7db63eb47d46afda5a2ca2e9
         body: |-
           Add pure functions in `apps/tdr-bot/src/commands/tldr/transcript.ts` that
           turn a `TldrWindow` (from `src/commands/tldr/types.ts`) into model input

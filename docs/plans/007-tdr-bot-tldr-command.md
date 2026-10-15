@@ -133,3 +133,16 @@ math, media and reminder behaviour unchanged; `apps/tdr-bot/README.md` documents
 - Durations are plain ms subtraction from `now`, so they are not DST-aware.
 - `since.ts` and the test use `import dayjs, { extend } from 'dayjs'` with `extend(...)` to avoid the `import/no-named-as-default-member` warning.
 - `apps/tdr-bot/README.md` is untouched. The `/tldr` docs are still owed; the task that registers the command should add them.
+
+### 2026-10-14 · T3 · done
+Decisions where the spec was silent:
+- A `== ddd MMM D ==` marker is emitted before the first message of every section, not only on a day change. Otherwise the first day is never labelled.
+- Thread sections are grouped by `channelId` (the thread id) and ordered by their first message. Parent messages are those with `threadName === null`.
+- Numbering follows render order: the parent channel first, then each thread.
+- The `(reply)`, `[attachment: …]` and `[embed: …]` markers go on the first (numbered) line of a multi-line message. Continuation lines come after it, indented four spaces. Blank lines in content are dropped.
+- The header's last timestamp is the latest `createdAt` in the window, or `since` if the window is empty. The message count is not pluralised ("1 messages"), as the spec writes it.
+- `linkifyCitations` treats citations separated only by spaces or tabs as one run. It dedupes within a run, drops unknown indexes, then keeps the first three. It also drops the space before a run that ends up empty. `[n](url)` markdown links are left alone.
+- `splitForDiscord` trims whitespace at each break and never cuts through a surrogate pair. Blank input returns `[]`.
+- `formatWhen` compares calendar days in `tz`. Future dates use the `MMM D, h:mm A` format.
+- `renderTranscript` takes no `now` parameter, so it uses `new Date()` for the header's relative times.
+- `apps/tdr-bot/README.md` is still untouched. The task that registers `/tldr` still owes that documentation.
