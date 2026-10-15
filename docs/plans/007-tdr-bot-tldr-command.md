@@ -200,3 +200,32 @@ Notes:
 - F3 · P2 · Question mode ignores `from` — apps/tdr-bot/src/commands/tldr/prompts.ts:37
 - F4 · P2 · Header interpolates question text unescaped — apps/tdr-bot/src/commands/tldr/tldr.service.ts:84
 - F5 · P2 · editReply in the catch block can itself reject when deferReply failed — apps/tdr-bot/src/commands/tldr/tldr-command.service.ts:190
+
+### 2026-10-14 · Final report
+- Outcome: all five tasks done and integrated, H1 approved, review cycle 1 settled clean with five P2 notes left unfixed. Task-level checks exited 0 for every task. Integration re-ran lint, type-check and Jest only for T2 and T4.
+- Tasks:
+  - T1 · tldr types, limits and the `since` parser: done, `3a6cadf3`
+  - T2 · window fetcher with permissions, threads and the cap: done, `08cbcd0f`
+  - T3 · transcript rendering, citation links and Discord chunking: done, `f136f9e7`
+  - T4 · prompts and the summarizer service: done, `4752bd38`
+  - T5 · `/tldr` slash command, module wiring and README: done, `ccd5befd`
+  - H1 · try `/tldr` on the dev bot: approved 2026-10-15 (checkpoint `2b1aa409`)
+- Commits: `git log 381d22a4..HEAD` shows 12 commits. Each task has one `feat(tdr-bot)` squash and one `docs(plans)` check-off, then the review-cycle and H1 log entries.
+- Deviations:
+  - T1 spec conflict: a year-less date after now rolls back a year, so `10/20` on 2026-10-14 resolves to 2025-10-20. The spec's example says `future_since`. T1 followed the roll-back rule, and its tests cover `future_since` for the explicit-year forms. Review F1 flags this for a human decision.
+  - T2 added a private-thread check: a thread is read only if the requester is a member or has ManageThreads, because `permissionsFor` on a thread only reflects the parent channel.
+  - T2's cap counts raw messages fetched, 1,000 per channel or thread. When it is hit with no `since`, `since` moves to the oldest kept message.
+  - T3 emits a `== ddd MMM D ==` marker before the first message of every section, not only on day changes.
+  - T2 and T4 left their services unprovided. T5 added them to `commands.module.ts`, as their notes asked.
+  - T5 added a `## Slash commands` section to the README before `## LLM service`. This covers the README item in Done means.
+- Unfixed review findings (review cycle 1; all status `noted`, none applied):
+  - F1 · P2 · a year-less future date rolls back instead of `future_since` · `apps/tdr-bot/src/commands/tldr/since.ts:199` · needs a human decision: keep the roll-back and drop the `10/20` example, or throw `future_since`.
+  - F2 · P2 · the thread scan cap is silent · `apps/tdr-bot/src/commands/tldr/window.service.ts:253` · a thread that hits the cap drops messages with no note in the reply.
+  - F3 · P2 · question mode ignores `from` · `apps/tdr-bot/src/commands/tldr/prompts.ts:37`.
+  - F4 · P2 · the header interpolates the question text unescaped · `apps/tdr-bot/src/commands/tldr/tldr.service.ts:84`.
+  - F5 · P2 · `editReply` in the catch can reject after a failed `deferReply` · `apps/tdr-bot/src/commands/tldr/tldr-command.service.ts:190` · it escapes the handler as an unhandled rejection; the in-flight slot is still released.
+  - Seams note, not a finding: `1000` is hardcoded in `tldr.service.ts` and `transcript.ts` instead of using `MAX_WINDOW_MESSAGES`.
+- Skipped or unverified:
+  - The Done-means item "lint adds no warnings over the 6 at base" is not confirmed. The check output in the events is truncated and does not include a warning count. The Jest totals (base 84 suites, 1432 tests) are not confirmed either.
+  - Checked from git: `setup.ts` is unchanged, the run adds no `any` under `apps/tdr-bot/src` and no `process.env` lines, and `apps/tdr-bot/README.md` gained the `/tldr` section.
+- Host: `/tmp` ran out of inodes during the run (ENOSPC; T2, T4 and T5 reported it). T2 deleted `/tmp/jest_rs`. T4 found `/tmp/node-compile-cache` at about 667k files and left it in place. The workaround was `TMPDIR` and the Jest cache under `$HOME`. Clear `/tmp` before the next run.
