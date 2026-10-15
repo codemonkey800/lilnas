@@ -229,3 +229,6 @@ Notes:
   - The Done-means item "lint adds no warnings over the 6 at base" is not confirmed. The check output in the events is truncated and does not include a warning count. The Jest totals (base 84 suites, 1432 tests) are not confirmed either.
   - Checked from git: `setup.ts` is unchanged, the run adds no `any` under `apps/tdr-bot/src` and no `process.env` lines, and `apps/tdr-bot/README.md` gained the `/tldr` section.
 - Host: `/tmp` ran out of inodes during the run (ENOSPC; T2, T4 and T5 reported it). T2 deleted `/tmp/jest_rs`. T4 found `/tmp/node-compile-cache` at about 667k files and left it in place. The workaround was `TMPDIR` and the Jest cache under `$HOME`. Clear `/tmp` before the next run.
+
+### 2026-10-14 · Landed
+Pull request from `feat/tdr-bot-tldr-command` to `origin/main` as `feat(tdr-bot): add /tldr command to catch up on a channel`, authored as Jeremy Asuncion.
