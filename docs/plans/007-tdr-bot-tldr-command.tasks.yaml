@@ -413,7 +413,7 @@ phases:
         after:
           - T5
         files: []
-        status: todo
+        status: approved
         body: |-
           Start the dev bot (`docker-compose -f docker-compose.dev.yml up -d
           tdr-bot`; slash commands register in the dev guild on boot) and in a

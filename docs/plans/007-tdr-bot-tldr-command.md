@@ -184,3 +184,6 @@ Decisions where the spec was silent:
 - The tests mock `discord.js` and `necord` per test. `setup.ts` is untouched and no env vars were added.
 - README has a new `## Slash commands` section before `## LLM service`.
 - Host: /tmp was out of inodes again. I ran checks with TMPDIR and the jest cache under $HOME, then removed them. Heredocs in Bash fail until /tmp is cleared, so use the Write tool for files.
+
+### 2026-10-15 · H1 · approved
+Approved.
