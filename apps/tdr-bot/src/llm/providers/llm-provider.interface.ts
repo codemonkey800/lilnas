@@ -1,5 +1,6 @@
 import { BaseChatModel } from '@langchain/core/language_models/chat_models'
 
+import { ReasoningEffort } from 'src/llm/client/llm-call.types'
 import { ModelSpec } from 'src/llm/models/catalog'
 
 export interface ResolvedParams {
@@ -7,7 +8,7 @@ export interface ResolvedParams {
   temperature?: number
   maxTokens?: number
   /** Only set for models that support reasoning effort. */
-  reasoningEffort?: 'low' | 'medium' | 'high'
+  reasoningEffort?: ReasoningEffort
 }
 
 export interface LlmProvider {

@@ -1,37 +1,40 @@
 import {
-  REMINDER_DELIVERY_PROMPT,
-  REMINDER_MATH_DELIVERY_PROMPT,
-  REMINDER_SEARCH_DELIVERY_PROMPT,
+  buildReminderDeliveryPrompt,
+  buildReminderMathDeliveryPrompt,
+  buildReminderSearchDeliveryPrompt,
 } from 'src/reminders/reminder.prompts'
-import { EMOJI_DICTIONARY } from 'src/utils/prompts'
+
+const DICTIONARY = 'FAKE EMOJI DICTIONARY {"<:EZ:1>":"smug"}'
 
 describe('delivery prompts', () => {
-  it('REMINDER_DELIVERY_PROMPT sets TDR Bot persona and character limit', () => {
-    const content = REMINDER_DELIVERY_PROMPT.content as string
+  it('buildReminderDeliveryPrompt sets TDR Bot persona and character limit', () => {
+    const content = buildReminderDeliveryPrompt(DICTIONARY).content as string
 
     expect(content).toContain('TDR Bot')
     expect(content).toContain('200 characters')
   })
 
-  it('REMINDER_SEARCH_DELIVERY_PROMPT summarises search results', () => {
-    const content = REMINDER_SEARCH_DELIVERY_PROMPT.content as string
+  it('buildReminderSearchDeliveryPrompt summarises search results', () => {
+    const content = buildReminderSearchDeliveryPrompt(DICTIONARY)
+      .content as string
 
     expect(content).toContain('search results')
     expect(content).toContain('400 characters')
   })
 
-  it('REMINDER_MATH_DELIVERY_PROMPT introduces the equation', () => {
-    const content = REMINDER_MATH_DELIVERY_PROMPT.content as string
+  it('buildReminderMathDeliveryPrompt introduces the equation', () => {
+    const content = buildReminderMathDeliveryPrompt(DICTIONARY)
+      .content as string
 
     expect(content).toContain('equation')
     expect(content).toContain('200 characters')
   })
 
   it.each([
-    ['REMINDER_DELIVERY_PROMPT', REMINDER_DELIVERY_PROMPT],
-    ['REMINDER_SEARCH_DELIVERY_PROMPT', REMINDER_SEARCH_DELIVERY_PROMPT],
-    ['REMINDER_MATH_DELIVERY_PROMPT', REMINDER_MATH_DELIVERY_PROMPT],
-  ])('%s includes the emoji dictionary', (_name, prompt) => {
-    expect(prompt.content as string).toContain(EMOJI_DICTIONARY)
+    ['buildReminderDeliveryPrompt', buildReminderDeliveryPrompt],
+    ['buildReminderSearchDeliveryPrompt', buildReminderSearchDeliveryPrompt],
+    ['buildReminderMathDeliveryPrompt', buildReminderMathDeliveryPrompt],
+  ])('%s includes the given emoji dictionary', (_name, build) => {
+    expect(build(DICTIONARY).content as string).toContain(DICTIONARY)
   })
 })

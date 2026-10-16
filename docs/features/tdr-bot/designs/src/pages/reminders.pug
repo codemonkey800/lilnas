@@ -11,14 +11,6 @@ block content
   - const who = r => (r.by === 'admin' ? 'admin' : r.to ? r.by + ' → @' + r.to : r.by)
   - const field = 'rounded-lg border bg-bg px-3 py-2 text-sm '
 
-  mixin appbar()
-    div(class='flex items-center gap-6 border-b border-line bg-surface px-4 py-3')
-      span(class='font-semibold') tdr-bot
-      nav(class='flex gap-4 text-sm')
-        a(class='text-ink-2') Settings
-        a(class='text-ink-2') Transcript
-        a(class='border-b-2 border-accent pb-0.5 font-medium text-ink') Reminders
-
   mixin toolbar(empty)
     div(class='flex flex-wrap items-center gap-3')
       div(class='flex overflow-hidden rounded-lg border border-line text-xs')
@@ -85,7 +77,7 @@ block content
 
   mixin page()
     div(class='overflow-hidden rounded-xl border border-line bg-bg')
-      +appbar
+      +appbar('Reminders')
       div(class='space-y-4 p-5')
         block
 
@@ -157,7 +149,7 @@ block content
     +frame('2 · Mobile', 'Narrow frame; rows become stacked cards.')
       div(class='mx-auto w-full max-w-[420px]')
         div(class='overflow-hidden rounded-xl border border-line bg-bg')
-          +appbar
+          +appbar('Reminders')
           div(class='space-y-4 p-4')
             +toolbar
             +cards(rows.slice(0, 4))

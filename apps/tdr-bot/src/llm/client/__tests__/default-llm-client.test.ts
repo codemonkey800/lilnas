@@ -194,6 +194,32 @@ describe('DefaultLlmClient', () => {
         reasoningEffort: 'medium',
       })
     })
+
+    it('lets a reasoningEffort override win for reasoning models', async () => {
+      const t = setup()
+      t.invoke.mockResolvedValue(aiMessage('ok'))
+      await t.client.call({
+        operation: 'x',
+        role: 'reasoning',
+        messages,
+        overrides: { reasoningEffort: 'minimal' },
+      })
+      expect(t.chatModel.mock.calls[0][1]).toEqual({
+        reasoningEffort: 'minimal',
+      })
+    })
+
+    it('ignores a reasoningEffort override for classic models', async () => {
+      const t = setup()
+      t.invoke.mockResolvedValue(aiMessage('ok'))
+      await t.client.call({
+        operation: 'x',
+        role: 'chat',
+        messages,
+        overrides: { reasoningEffort: 'high' },
+      })
+      expect(t.chatModel.mock.calls[0][1]).toEqual({ temperature: 0.7 })
+    })
   })
 
   describe('tools and structured output', () => {

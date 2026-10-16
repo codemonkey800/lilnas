@@ -1,0 +1,665 @@
+nexus-tasks: 1
+phases:
+  - key: '1'
+    name: Models, table, describer and mockup
+    tasks:
+      - id: T1
+        title: 'Mockup: admin Emojis page'
+        after: []
+        files:
+          - docs/features/tdr-bot/designs/emojis.html
+          - docs/features/tdr-bot/designs/
+        status: done
+        commit: fd231f2e73f9572b4d6ce0a6bb4089f9b5248298
+        body: |-
+          Add `docs/features/tdr-bot/designs/src/pages/emojis.pug`, link it from
+          `src/pages/index.pug` with a one-line description, build with `pnpm mockups`
+          from the repo root, run `pnpm run mockups:lint:fix`, and commit the Pug plus
+          every generated `*.html` the build touched. Read
+          `docs/features/tdr-bot/designs/README.md` first. Imitate
+          `src/pages/reminders.pug`: `extends ../layout/page.pug`, `include
+          ../mixins/ui.pug`, one `+frame(label, note)` section per state, sample data
+          as Pug locals at the top (or `src/data/emojis.mjs`), Tailwind utilities from
+          `src/theme.css` only. The app bar nav becomes Settings · Transcript ·
+          Reminders · Emojis; update the nav in the shared layout or mixin so every
+          page shows it.
+
+          The page is the admin's view of the bot's custom-emoji dictionary. Each
+          emoji has an id, name, animated flag, description (or none yet), source
+          (`manual`, `ai`, or none while pending), model (for AI rows), described-at
+          time, and deleted-at time (the emoji was removed from Discord). For sample
+          images use `https://cdn.discordapp.com/emojis/<id>.png` (or `.gif` when
+          animated) with real ids from `apps/tdr-bot/src/utils/emojis.ts`, e.g.
+          HYPERS 564310072822333480, residentsleeper 564330871851712553,
+          peepoWine (animated) 1266528661318926369, Loading 1275667821757464687.
+
+          Frames, each a full page under the app bar:
+          - **Populated (desktop)**: header row with a filter toggle (All · Needs
+            description · AI · Manual · Deleted, with counts), a search box ("name or
+            description"), and a "Run reconcile now" button with a status line under
+            it ("Last reconcile 3 min ago (boot) · 140 synced · 2 described · 0
+            failed"). Table columns: image (32 px), name (`:HYPERS:` with an
+            "animated" chip when animated), description, source chip (manual / ai /
+            pending), model (monospace, "—" for manual), described ("Oct 14, 9:02 AM"),
+            and row actions Edit and Re-describe. Twelve rows mixing manual, AI,
+            pending (no description, shown as muted "Waiting for a description"),
+            animated, and one deleted row (dimmed, "deleted Oct 2" chip, no actions).
+          - **Reconcile running**: the button shows a spinner and "Reconciling…",
+            pending rows show "Describing…".
+          - **Inline edit**: one row's description cell as a textarea with a
+            character counter (max 300) and Save / Cancel; a note that saving marks
+            it manual.
+          - **Re-describe confirmation** for a manual row: "Replace this hand-written
+            description with an AI one?" showing the current text; Keep / Re-describe.
+          - **Mobile** (≤ 420 px): stacked cards with image, name, source chip,
+            description, actions.
+          - **Empty** (no emojis synced yet, with the Run reconcile button) and
+            **loading** (skeleton rows).
+      - id: H1
+        title: Review the Emojis page mockup
+        after:
+          - T1
+        files:
+          - docs/features/tdr-bot/designs/emojis.html
+        status: approved
+        body: |-
+          Open `docs/features/tdr-bot/designs/emojis.html`. Confirm the columns, the
+          filter set and default (All), how pending and deleted rows look, the inline
+          edit, the re-describe confirmation for manual rows, the reconcile button and
+          status line, and the mobile cards. T10 implements the approved version.
+      - id: T2
+        title: GPT-6 Luna and Sol in the catalog, per-call reasoning effort
+        after: []
+        files:
+          - apps/tdr-bot/src/llm/models/catalog.ts
+          - apps/tdr-bot/src/llm/models/__tests__/model-registry.test.ts
+          - apps/tdr-bot/src/llm/client/llm-call.types.ts
+          - apps/tdr-bot/src/llm/client/default-llm-client.ts
+          - apps/tdr-bot/src/llm/client/__tests__/default-llm-client.test.ts
+          - apps/tdr-bot/src/llm/providers/llm-provider.interface.ts
+        status: done
+        commit: fe97cf90be854d3d8f2749922f9edb7135bc8d63
+        body: |-
+          In `apps/tdr-bot/src/llm/models/catalog.ts` add two entries after `o4-mini`,
+          both `provider: 'openai'`, `roles: TEXT_ROLES`, `capabilities: reasoning(true)`:
+
+          ```ts
+          { id: 'gpt-6-luna', label: 'GPT-6 Luna',
+            description: 'Cheapest GPT-6 model for focused, high-volume tasks.',
+            pricing: { inputPer1M: 0.1, outputPer1M: 0.5, cachedInputPer1M: 0.01 } },
+          { id: 'gpt-6.1-sol', label: 'GPT-6.1 Sol',
+            description: 'Strong GPT-6.1 reasoning model.',
+            pricing: { inputPer1M: 2, outputPer1M: 10, cachedInputPer1M: 0.1 } },
+          ```
+          Update the pricing comment to say these two were checked on 2026-10-14.
+          `DEFAULT_MODELS` is unchanged.
+
+          Add a per-call reasoning-effort override:
+          ```ts
+          // llm-call.types.ts, LlmCall.overrides
+          reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high'
+          // llm-provider.interface.ts, ResolvedParams
+          reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high'
+          ```
+          In `DefaultLlmClient.call`, for models with `caps.reasoningEffort`, use
+          `call.overrides?.reasoningEffort ?? settings.reasoningEffort`; models without
+          the capability still get none. `OpenAiProvider` already forwards
+          `reasoning: { effort }`; the `ChatOpenAI` it builds uses `@langchain/openai`'s
+          bundled `openai` whose `ReasoningEffort` accepts all five values. Fix any
+          type error there without casts to `any`. Settings (`settings.schema.ts`)
+          keep `low | medium | high`.
+
+          Tests: the registry knows both ids, both have `vision: true` and the
+          `chat` role, and `costUsd('gpt-6-luna', { input: 1_000_000, output:
+          1_000_000, cached: 500_000 })` is 0.555; in `default-llm-client.test.ts`,
+          the override wins over the settings value for a reasoning model and is
+          ignored for a classic model.
+      - id: T3
+        title: '`emoji_dictionary` table, migration and repository'
+        after: []
+        files:
+          - apps/tdr-bot/src/db/schema.ts
+          - apps/tdr-bot/drizzle/
+          - apps/tdr-bot/src/emojis/emoji-dictionary.repository.ts
+          - apps/tdr-bot/src/emojis/__tests__/emoji-dictionary.repository.test.ts
+        status: done
+        commit: 35e195238de112b79f2c991240dfa3062b42b77b
+        body: |-
+          Add to `apps/tdr-bot/src/db/schema.ts`, after `llmCalls`, with doc
+          comments like the other tables:
+
+          ```ts
+          export const EMOJI_SOURCES = ['manual', 'ai'] as const
+          export type EmojiSource = (typeof EMOJI_SOURCES)[number]
+
+          /** One row per Discord custom emoji the bot has seen; the prompt's emoji dictionary. */
+          export const emojiDictionary = pgTable('emoji_dictionary', {
+            id: text('id').primaryKey(),            // Discord emoji snowflake
+            guildId: text('guild_id').notNull(),
+            name: text('name').notNull(),
+            animated: boolean('animated').notNull().default(false),
+            description: text('description'),        // null until described
+            source: text('source').$type<EmojiSource>(), // null until described
+            model: text('model'),                    // set for source 'ai'
+            describedAt: timestamp('described_at', { mode: 'date' }),
+            deletedAt: timestamp('deleted_at', { mode: 'date' }),
+            createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
+            updatedAt: timestamp('updated_at', { mode: 'date' }).notNull().defaultNow(),
+          }, table => [index('emoji_dictionary_guild_id_idx').on(table.guildId)])
+          export type EmojiRow = typeof emojiDictionary.$inferSelect
+          export type NewEmojiRow = typeof emojiDictionary.$inferInsert
+          ```
+          Then run `pnpm db:generate` in `apps/tdr-bot` and commit the generated
+          `drizzle/0007_*.sql`, `drizzle/meta/0007_snapshot.json` and the
+          `_journal.json` change. Do not hand-edit the SQL; do not apply it anywhere.
+
+          Create `apps/tdr-bot/src/emojis/emoji-dictionary.repository.ts`, an
+          `@Injectable()` taking `DrizzleService` (imitate
+          `src/reminders/reminder.repository.ts`). No module yet; T6 creates it.
+
+          ```ts
+          export interface EmojiMeta { id: string; guildId: string; name: string; animated: boolean }
+          export interface EmojiDescription {
+            description: string
+            source: EmojiSource
+            model: string | null
+          }
+          export class EmojiDictionaryRepository {
+            /** INSERT … ON CONFLICT (id) DO UPDATE guild_id, name, animated,
+             *  deleted_at = NULL, updated_at = now(). Never touches description,
+             *  source, model or described_at. No-op for []. */
+            upsertMeta(rows: EmojiMeta[]): Promise<void>
+            /** Sets deleted_at = now() on live rows whose id is not in keepIds,
+             *  except rows whose guild_id is in skipGuildIds. Returns the count. */
+            softDeleteMissing(keepIds: string[], skipGuildIds: string[]): Promise<number>
+            /** Sets deleted_at = now() if not already deleted. */
+            softDelete(id: string): Promise<void>
+            /** description IS NULL AND deleted_at IS NULL. */
+            listUndescribed(): Promise<EmojiRow[]>
+            /** description IS NOT NULL AND deleted_at IS NULL (the prompt set). */
+            listActiveDescribed(): Promise<EmojiRow[]>
+            /** Every row, for the admin page. */
+            listAll(): Promise<EmojiRow[]>
+            get(id: string): Promise<EmojiRow | undefined>
+            /** Live rows with source 'manual' and a description, ORDER BY id, LIMIT. */
+            listManualExamples(limit: number): Promise<EmojiRow[]>
+            /** UPDATE … SET description, source, model, described_at = now(),
+             *  updated_at = now() WHERE id = ? AND description IS NULL.
+             *  Returns true when a row changed. Used by sync, never clobbers. */
+            fillDescription(id: string, value: EmojiDescription): Promise<boolean>
+            /** Same SET, unconditional. Used by admin edit and re-describe.
+             *  Returns the updated row, or undefined for an unknown id. */
+            setDescription(id: string, value: EmojiDescription): Promise<EmojiRow | undefined>
+          }
+          ```
+          Edge cases: `softDeleteMissing([], [])` soft-deletes every live row (the bot
+          sees no emojis); an empty `skipGuildIds` adds no guild filter.
+
+          Tests (fake Drizzle chain + `PgDialect().sqlToQuery`, as in
+          `src/llm/audit/__tests__/llm-calls.repository.test.ts`): the upsert's
+          conflict target and SET list exclude the description columns and clear
+          `deleted_at`; `fillDescription`'s WHERE includes `description is null` and
+          it returns false when no row is returned; `softDeleteMissing` with and
+          without skip guilds and with empty keepIds; the list filters.
+      - id: T4
+        title: Emoji describer service
+        after:
+          - T2
+        files:
+          - apps/tdr-bot/src/emojis/emoji.constants.ts
+          - apps/tdr-bot/src/emojis/emoji-describer.service.ts
+          - apps/tdr-bot/src/emojis/emoji-describer.prompts.ts
+          - apps/tdr-bot/src/emojis/__tests__/emoji-describer.service.test.ts
+        status: done
+        commit: 9d7f295bbef5a834d12688ec43273184876bd1e4
+        body: |-
+          Create the describer: one vision LLM call that turns an emoji's name and
+          picture into a one-line "when to use it" hint. Not registered in any module
+          yet (T7 does that).
+
+          `apps/tdr-bot/src/emojis/emoji.constants.ts`:
+          ```ts
+          /** Model for emoji descriptions. Must be in the catalog with vision. Switch to 'gpt-6.1-sol' here. */
+          export const EMOJI_DESCRIBER_MODEL = 'gpt-6-luna'
+          export const EMOJI_DESCRIBER_REASONING_EFFORT = 'low'
+          /** Reasoning tokens count against this cap, so keep headroom. */
+          export const EMOJI_DESCRIBE_MAX_TOKENS = 400
+          export const EMOJI_DESCRIPTION_MAX_CHARS = 120
+          export const EMOJI_EXAMPLE_COUNT = 10
+          export const EMOJI_DESCRIBE_CONCURRENCY = 4
+          export const EMOJI_RECONCILE_CRON = '30 4 * * *'
+          ```
+
+          `emoji-describer.prompts.ts`: `buildEmojiDescriberSystemPrompt(examples:
+          EmojiExample[]): SystemMessage` (dedent). It says: you write one-line usage
+          hints for a Discord friend group's custom emojis; describe WHEN to use the
+          emoji (the mood, reaction or situation), not what it looks like; short,
+          imperative, like the examples, at most 120 characters; the name usually
+          carries the meaning, and the picture tells similar names apart; animated
+          emojis are shown as a still frame. Then the examples, one per line as
+          `- <name>[ (animated)]: <description>`. Also export
+          `FALLBACK_EMOJI_EXAMPLES: EmojiExample[]`, these eight entries copied from
+          `src/utils/emojis.ts` (don't import that file): HYPERS, Jebaited,
+          residentsleeper, salute1, gasp, jackded, pathetic, Loading.
+
+          `emoji-describer.service.ts`:
+          ```ts
+          export interface DescribeInput { id: string; name: string; animated: boolean }
+          export interface EmojiExample { name: string; animated: boolean; description: string }
+          export interface DescribeResult { description: string; model: string }
+          export const EmojiDescriptionSchema = z.object({
+            description: z.string().min(1).max(EMOJI_DESCRIPTION_MAX_CHARS),
+          })
+          /** Static PNG on Discord's CDN; a still frame for animated emojis. */
+          export function emojiPngUrl(id: string): string // https://cdn.discordapp.com/emojis/<id>.png
+
+          @Injectable()
+          export class EmojiDescriberService {
+            constructor(llm: LlmClient, registry: ModelRegistry)
+            describe(emoji: DescribeInput, examples: EmojiExample[]): Promise<DescribeResult>
+          }
+          ```
+          `describe` throws before calling the LLM if
+          `registry.get(EMOJI_DESCRIBER_MODEL).capabilities.vision` is false (an
+          unknown id already throws `UnknownModelError`). When fewer than 8 examples
+          are given, top them up from `FALLBACK_EMOJI_EXAMPLES` (skip names already
+          present) and cap at `EMOJI_EXAMPLE_COUNT`. The call:
+          ```ts
+          llm.call({
+            operation: 'emoji.describe', role: 'chat', schema: EmojiDescriptionSchema,
+            overrides: { model: EMOJI_DESCRIBER_MODEL, maxTokens: EMOJI_DESCRIBE_MAX_TOKENS,
+                         reasoningEffort: EMOJI_DESCRIBER_REASONING_EFFORT },
+            messages: [systemPrompt, new HumanMessage({ content: [
+              { type: 'text', text: `Name: ${name}${animated ? ' (animated)' : ''}` },
+              { type: 'image_url', image_url: { url: emojiPngUrl(id), detail: 'low' } },
+            ] })],
+          })
+          ```
+          Return the trimmed description and `result.model`. LLM errors propagate.
+
+          Tests with `FakeLlmClient` and a real `ModelRegistry`: message shape (text
+          block, `.png` URL for an animated emoji too, `detail: 'low'`); model,
+          maxTokens and reasoningEffort overrides; examples rendered in the system
+          prompt and topped up from the fallback when short; a non-vision model is
+          rejected without a call (test by mocking `registry.get`); output trimmed.
+      - id: T5
+        title: Live check of the describer on gpt-6-luna
+        after:
+          - T4
+        files:
+          - apps/tdr-bot/src/llm/testing/live/emoji-describe.live.test.ts
+          - apps/tdr-bot/src/emojis/emoji.constants.ts
+          - apps/tdr-bot/src/emojis/emoji-describer.service.ts
+          - apps/tdr-bot/src/emojis/emoji-describer.prompts.ts
+        status: done
+        commit: 673294eea3e9c0c3ae0786cc0638c48ae41e8f8b
+        body: |-
+          Prove the describer gets clean structured output from the real
+          `gpt-6-luna`. Add `apps/tdr-bot/src/llm/testing/live/emoji-describe.live.test.ts`
+          in the style of `schemas.live.test.ts` (`describeLive`, `LiveLlm`,
+          `recordCost`, `MAX_RUN_COST_USD` from `./live-env`): build
+          `EmojiDescriberService` with `new LiveLlm().client` and `new ModelRegistry()`,
+          describe HYPERS (564310072822333480), peepoWine (1266528661318926369,
+          animated) and Loading (1275667821757464687) with `FALLBACK_EMOJI_EXAMPLES`,
+          and assert each description is 1–120 chars, `model` is `gpt-6-luna`, and the
+          file's cost stays under the ceiling. Log each description with
+          `console.log` so the run output shows them.
+
+          Run it from `apps/tdr-bot` in bash, reading the key from the main
+          checkout's prod env file without ever printing it:
+          ```bash
+          OPENAI_API_KEY="$(grep -m1 '^OPENAI_API_KEY=' /home/jeremy/lilnas/apps/tdr-bot/.env.prod | cut -d= -f2-)" \
+            LIVE_LLM=1 pnpm exec jest --testMatch '**/emoji-describe.live.test.ts' --runInBand
+          ```
+          Note: Luna's docs say function calling on Chat Completions needs reasoning
+          effort `none`. LangChain picks `response_format` JSON schema (not tool
+          calling) by default for non-gpt-3/gpt-4 models, so this should pass as is.
+          If it fails or returns empty output (e.g. `finish_reason: length`), try in
+          order: `EMOJI_DESCRIBER_REASONING_EFFORT = 'none'`, then `'minimal'`, then a
+          higher `EMOJI_DESCRIBE_MAX_TOKENS`; keep the first that passes and update
+          the T4 unit test if it pins the value. If the descriptions describe the
+          picture rather than when to use it, tighten the system prompt.
+
+          The live file is skipped in the normal checks (no `LIVE_LLM`). In the result
+          notes, report pass/fail, the three descriptions, the cost, and any setting
+          you changed. If the key can't be read, say so and leave the test in place.
+  - key: '2'
+    name: Reconcile, prompts, triggers and admin
+    tasks:
+      - id: T6
+        title: DB-backed dictionary cache feeds the system and reminder prompts
+        after:
+          - T3
+        files:
+          - apps/tdr-bot/src/emojis/emoji-dictionary.module.ts
+          - apps/tdr-bot/src/emojis/emoji-dictionary.service.ts
+          - apps/tdr-bot/src/emojis/emoji-key.ts
+          - apps/tdr-bot/src/emojis/__tests__/emoji-dictionary.service.test.ts
+          - apps/tdr-bot/src/emojis/__tests__/emoji-key.test.ts
+          - apps/tdr-bot/src/utils/prompts.ts
+          - apps/tdr-bot/src/utils/__tests__/
+          - apps/tdr-bot/src/messages/prompts/
+          - apps/tdr-bot/src/messages/llm/__tests__/llm-orchestration.integration.test.ts
+          - apps/tdr-bot/src/reminders/reminder.prompts.ts
+          - apps/tdr-bot/src/reminders/reminder-delivery.service.ts
+          - apps/tdr-bot/src/reminders/reminders.module.ts
+          - apps/tdr-bot/src/reminders/__tests__/
+        status: done
+        commit: 905eb9982be0a54dedaa633ead17db2fde7a3e0b
+        body: |-
+          Make every prompt that inlines the emoji dictionary read it from the
+          `emoji_dictionary` table (via an in-memory cache) instead of
+          `src/utils/emojis.ts`. The table is empty until T7's reconcile fills it.
+
+          `src/emojis/emoji-key.ts`:
+          ```ts
+          /** '<a:name:id>' for animated emojis, '<:name:id>' otherwise. */
+          export function emojiKey(e: { id: string; name: string; animated: boolean }): string
+          ```
+
+          `src/utils/prompts.ts`: replace the `EMOJI_DICTIONARY` constant with
+          `export function formatEmojiDictionary(entries: Record<string, string>): string`
+          that returns the same dedent text with `JSON.stringify(entries)` in place of
+          `JSON.stringify(emojis)`, and drop the `./emojis` import. For the same map
+          the output must be byte-identical to the old constant: check by comparing
+          before and after once, then test the key lines.
+
+          `src/emojis/emoji-dictionary.service.ts`:
+          ```ts
+          @Injectable()
+          export class EmojiDictionaryService implements OnModuleInit {
+            constructor(repo: EmojiDictionaryRepository)
+            /** Loads the cache; logs and keeps the empty cache on a DB error, never throws. */
+            onModuleInit(): Promise<void>
+            /** Reloads listActiveDescribed() and rebuilds the prompt text. */
+            refresh(): Promise<void>
+            /** formatEmojiDictionary of { [emojiKey(row)]: description }, rows sorted by BigInt(id) ascending. */
+            promptText(): string
+            size(): number
+          }
+          ```
+          `src/emojis/emoji-dictionary.module.ts`: `EmojiDictionaryModule` imports
+          `DrizzleModule`, provides and exports `EmojiDictionaryRepository` and
+          `EmojiDictionaryService`.
+
+          Callers:
+          - `PromptService` (`src/messages/prompts/prompt.service.ts`) injects
+            `EmojiDictionaryService` and uses `promptText()` where it used
+            `EMOJI_DICTIONARY`; `PromptsModule` imports `EmojiDictionaryModule`.
+          - `src/reminders/reminder.prompts.ts`: turn the three constants into
+            `buildReminderDeliveryPrompt(emojiDictionary: string)`,
+            `buildReminderSearchDeliveryPrompt(…)`, `buildReminderMathDeliveryPrompt(…)`
+            returning the same `SystemMessage` text. `ReminderDeliveryService`
+            injects `EmojiDictionaryService` and builds the prompt per delivery;
+            `RemindersModule` imports `EmojiDictionaryModule`.
+          - Grep `src` for `EMOJI_DICTIONARY`, `REMINDER_DELIVERY_PROMPT`,
+            `REMINDER_SEARCH_DELIVERY_PROMPT`, `REMINDER_MATH_DELIVERY_PROMPT` and
+            migrate every hit, tests included. `llm-orchestration.integration.test.ts`
+            builds the real `PromptService`, so give it a fake
+            `EmojiDictionaryService` provider. Afterwards nothing imports
+            `src/utils/emojis.ts`; leave the file itself unchanged.
+
+          Tests: `emojiKey` both forms; the service builds the map from repository
+          rows with the right keys and order, `refresh` picks up changes, a failing
+          repository at init leaves an empty dictionary without throwing; existing
+          `prompt-service.test.ts`, `reminder.prompts.test.ts` and
+          `reminder-delivery.service.test.ts` updated to provide a fake
+          `EmojiDictionaryService` and assert its text appears in the prompt.
+      - id: T7
+        title: Two-phase reconcile, event upserts and re-describe
+        after:
+          - T4
+          - T6
+        files:
+          - apps/tdr-bot/src/emojis/emoji-sync.service.ts
+          - apps/tdr-bot/src/emojis/emoji-seed.ts
+          - apps/tdr-bot/src/emojis/emojis.module.ts
+          - apps/tdr-bot/src/emojis/__tests__/emoji-sync.service.test.ts
+          - apps/tdr-bot/src/emojis/__tests__/emoji-seed.test.ts
+        status: done
+        commit: 4e743e5c1962698fd8a7d07f91b5196048c31859
+        body: |-
+          Build the one routine that keeps `emoji_dictionary` in step with Discord.
+          T8 wires its triggers and T9 its admin endpoints.
+
+          `src/emojis/emoji-seed.ts`: `export function seedDescriptions(): Map<string,
+          string>` parses the keys of `emojis` from `src/utils/emojis.ts`
+          (`/^<a?:([^:]+):(\d+)>$/`) into `id → description`. This file is the only
+          importer of `emojis.ts`, so the follow-up that deletes it touches one place.
+
+          `src/emojis/emoji-sync.service.ts`:
+          ```ts
+          export type ReconcileTrigger = 'boot' | 'cron' | 'admin' | 'event'
+          export interface ReconcileSummary {
+            trigger: ReconcileTrigger
+            synced: number        // emojis upserted in phase 1
+            softDeleted: number
+            seeded: number        // filled from emojis.ts
+            described: number     // filled by the LLM
+            failed: number
+            durationMs: number
+            finishedAt: string    // ISO
+          }
+          export interface ReconcileStatus { running: boolean; last: ReconcileSummary | null }
+          export class EmojiNotFoundError extends Error {}
+          export class EmojiDeletedError extends Error {}
+
+          @Injectable()
+          export class EmojiSyncService {
+            constructor(client: Client, repo: EmojiDictionaryRepository,
+                        describer: EmojiDescriberService, dictionary: EmojiDictionaryService)
+            /** Both phases under the mutex. A call while a reconcile is running
+             *  returns that run's promise instead of starting another. */
+            reconcile(trigger: ReconcileTrigger): Promise<ReconcileSummary>
+            /** emojiCreate / emojiUpdate: upsert this emoji, then phase 2, under the mutex. */
+            syncEmoji(emoji: GuildEmoji): Promise<void>
+            /** emojiDelete: soft-delete, refresh the dictionary, under the mutex. */
+            removeEmoji(id: string): Promise<void>
+            /** Describe one emoji now with the LLM and overwrite its description
+             *  (source 'ai'), even a manual one. Ignores the seed. */
+            redescribe(id: string): Promise<EmojiRow>
+            status(): ReconcileStatus
+          }
+          ```
+          Use `Mutex` from `async-mutex` (already a dependency).
+
+          Phase 1: if `!client.isReady()`, log and return a zero summary. For each
+          guild in `client.guilds.cache`: if `guild.available` is false, add its id to
+          `skipGuildIds`; else map `guild.emojis.cache` to `EmojiMeta` (skip emojis
+          whose `name` is null). Then `repo.upsertMeta(all)`,
+          `repo.softDeleteMissing(allIds, skipGuildIds)`, `dictionary.refresh()`.
+
+          Phase 2: `rows = repo.listUndescribed()`. First, for every row whose id is in
+          `seedDescriptions()`, `fillDescription(id, { description, source: 'manual',
+          model: null })`, then `dictionary.refresh()`. Next, load
+          `repo.listManualExamples(EMOJI_EXAMPLE_COUNT)` once and describe the
+          remaining rows with at most `EMOJI_DESCRIBE_CONCURRENCY` calls in flight (a
+          small worker pool, no new dependency), storing each with
+          `fillDescription(id, { description, source: 'ai', model })`. A failed
+          describe is logged with `logger.warn({ emojiId, name, error }, …)`, counted
+          in `failed`, and left NULL for the next run. Finish with
+          `dictionary.refresh()` and one `logger.log({ ...summary }, 'emoji.reconcile')`.
+          `fillDescription` returning false (someone edited it meanwhile) is not a
+          failure and isn't counted.
+
+          `redescribe`: unknown id → `EmojiNotFoundError`; `deleted_at` set →
+          `EmojiDeletedError`; else describe with the manual examples, `setDescription`
+          with `source: 'ai'`, refresh, return the row. Errors from the describer
+          propagate.
+
+          `src/emojis/emojis.module.ts`: `EmojisModule` imports
+          `EmojiDictionaryModule` and `LlmCoreModule`, provides `EmojiDescriberService`
+          and `EmojiSyncService`, exports `EmojiSyncService` and
+          `EmojiDictionaryModule`. Not yet imported anywhere (T8 adds it to
+          `AppModule`).
+
+          Tests (fake repository, fake dictionary, `FakeLlmClient` or a mocked
+          describer, a fake client with a `guilds.cache` `Map` of plain guild objects;
+          add a per-file `jest.mock('discord.js', …)` if you import its values):
+          first run on an empty table upserts all, seeds a seed-map id without an
+          LLM call, describes the rest; a second run with everything described makes
+          no LLM calls; a rename upserts the new name and keeps the description; a
+          vanished emoji is soft-deleted and an unavailable guild's rows are not; a
+          describe failure is counted and the run continues; concurrency never
+          exceeds 4; two concurrent `reconcile` calls share one run; `syncEmoji`
+          waits for a running reconcile; `redescribe` overwrites a manual row and
+          throws the two errors; `status()` reports running and the last summary.
+      - id: T8
+        title: Boot, gateway-event and nightly triggers
+        after:
+          - T7
+        files:
+          - apps/tdr-bot/src/emojis/emoji-events.service.ts
+          - apps/tdr-bot/src/emojis/emojis.module.ts
+          - apps/tdr-bot/src/emojis/__tests__/emoji-events.service.test.ts
+          - apps/tdr-bot/src/app.module.ts
+          - apps/tdr-bot/README.md
+        status: done
+        commit: 84aa52838289cce60aef86926de1a92123db48b6
+        body: |-
+          Wire `EmojiSyncService` (in `src/emojis/emoji-sync.service.ts`, exported by
+          `EmojisModule` in `src/emojis/emojis.module.ts`) to its three triggers.
+
+          `src/emojis/emoji-events.service.ts`, an `@Injectable()` added to
+          `EmojisModule`'s providers. Necord decorators as in
+          `src/app-events.service.ts`:
+          - `@Once('clientReady')`: start `sync.reconcile('boot')` without awaiting it
+            (`void …catch(err => logger.error({ error }, 'emoji.reconcile.failed'))`)
+            so startup never waits on it.
+          - `@On('emojiCreate')` and `@On('emojiUpdate')` (use the new emoji):
+            `sync.syncEmoji(emoji)`. `@On('emojiDelete')`: `sync.removeEmoji(emoji.id)`.
+            Each catches and logs its own errors; a handler never throws.
+          - `@Cron(EMOJI_RECONCILE_CRON)` (from `src/emojis/emoji.constants.ts`):
+            `await sync.reconcile('cron')`, catching and logging errors.
+
+          In `src/app.module.ts` add `IntentsBitField.Flags.GuildExpressions` (value
+          8, the current name for `GuildEmojisAndStickers`; not privileged, no portal
+          change) to the Necord intents, and import `EmojisModule`.
+
+          README (`apps/tdr-bot/README.md`): a short "Emoji dictionary" section saying
+          the table is the source of truth, what the reconcile does and when it runs,
+          that the describer model is `EMOJI_DESCRIBER_MODEL` in
+          `src/emojis/emoji.constants.ts`, that the first boot seeds from
+          `src/utils/emojis.ts`, and that the file can be deleted once prod has
+          populated (with `src/emojis/emoji-seed.ts`).
+
+          Tests: the ready handler returns before a pending reconcile resolves and
+          logs a rejection; each event handler calls the right sync method and
+          swallows its error; the cron handler calls `reconcile('cron')`. Add a test
+          (or extend an existing one) that `AppModule`'s intents include 8 only if it
+          can be done without booting the app; otherwise skip that one.
+      - id: T9
+        title: Admin API for the emoji dictionary
+        after:
+          - T7
+        files:
+          - apps/tdr-bot/src/api/emojis.controller.ts
+          - apps/tdr-bot/src/api/emojis.schema.ts
+          - apps/tdr-bot/src/api/emoji-views.ts
+          - apps/tdr-bot/src/api/api.module.ts
+          - apps/tdr-bot/src/api/api.types.ts
+          - apps/tdr-bot/src/api/api.client.ts
+          - apps/tdr-bot/src/api/__tests__/emojis.controller.test.ts
+        status: done
+        commit: be2c9caefcfa600c093361d60954db8a33f166c3
+        body: |-
+          Add the backend for the admin Emojis page. Imitate
+          `src/api/reminders.controller.ts` (error mapping, `ZodValidationPipe`) and
+          `src/api/reminder-views.ts`. Import `EmojisModule`
+          (`src/emojis/emojis.module.ts`; exports `EmojiSyncService` and, through
+          `EmojiDictionaryModule`, `EmojiDictionaryRepository` and
+          `EmojiDictionaryService`) into `ApiModule` and register the controller.
+
+          Types in `src/api/api.types.ts`:
+          ```ts
+          export interface EmojiView {
+            id: string; guildId: string; name: string; animated: boolean
+            key: string            // emojiKey(row) from src/emojis/emoji-key.ts
+            imageUrl: string       // https://cdn.discordapp.com/emojis/<id>.gif when animated, else .png
+            description: string | null
+            source: 'manual' | 'ai' | null
+            model: string | null
+            describedAt: string | null; deletedAt: string | null; updatedAt: string // ISO
+          }
+          export interface EmojiListResponse { emojis: EmojiView[]; reconcile: ReconcileStatus }
+          export interface UpdateEmojiBody { description: string }
+          ```
+          (`ReconcileStatus` from `src/emojis/emoji-sync.service.ts`; re-export it as a
+          type.) `toEmojiView(row: EmojiRow): EmojiView` lives in `emoji-views.ts`.
+
+          Routes:
+          - `GET /emojis` → `EmojiListResponse`; live rows first, then deleted, each by
+            name (case-insensitive).
+          - `PATCH /emojis/:id` body `{ description }`, zod: trimmed, 1–300 chars →
+            `repo.setDescription(id, { description, source: 'manual', model: null })`,
+            `dictionary.refresh()`, return the view; unknown id 404.
+          - `POST /emojis/:id/redescribe` → `sync.redescribe(id)` view;
+            `EmojiNotFoundError` 404, `EmojiDeletedError` 409, any other error 502
+            (`BadGatewayException`) with the message.
+          - `POST /emojis/reconcile`, `@HttpCode(202)` → `{ started: boolean }`:
+            false when `sync.status().running`; otherwise start
+            `sync.reconcile('admin')` in the background (log rejections) and return
+            true.
+
+          `ApiClient` (`src/api/api.client.ts`): `getEmojis()`, `updateEmoji(id,
+          body)`, `redescribeEmoji(id)`, `reconcileEmojis()`, URL-encoding ids.
+
+          Tests (controller with mocked services, as `reminders.controller.test.ts`):
+          list order and view mapping (both image extensions, keys, ISO dates); patch
+          validation (blank, too long), 404, refresh called; redescribe 404/409/502
+          mapping; reconcile 202 when idle and `{ started: false }` when running.
+      - id: T10
+        title: Admin Emojis page
+        after:
+          - H1
+          - T9
+        files:
+          - apps/tdr-bot/src/app/emojis/
+          - apps/tdr-bot/src/queries/useEmojis.ts
+          - apps/tdr-bot/src/components/AppShell.tsx
+        status: done
+        commit: 6a97947c892f39ec42da2c7e58faa7558ad63407
+        body: |-
+          Build `apps/tdr-bot/src/app/emojis/page.tsx` (plus components in that
+          folder) to match the approved mockup `docs/features/tdr-bot/designs/emojis.html`
+          (open it; read H1's verdict for any requested changes). MUI 7 +
+          react-query, imitating `src/app/reminders/` (page, table, card, dialog split;
+          `'use client'`). Add `{ href: '/emojis', label: 'Emojis' }` to `NAV_LINKS` in
+          `src/components/AppShell.tsx`.
+
+          `src/queries/useEmojis.ts` (imitate `src/queries/useReminders.ts`):
+          `useEmojis()` querying `ApiClient.getEmojis()` with `refetchInterval: 3000`
+          while `reconcile.running` is true (else off); `useUpdateEmoji()`,
+          `useRedescribeEmoji()`, `useReconcileEmojis()` invalidating the emojis key.
+          The API: `GET /emojis` → `{ emojis: EmojiView[], reconcile: { running,
+          last } }`, `PATCH /emojis/:id { description }` (1–300 chars, saves as
+          manual), `POST /emojis/:id/redescribe` (409 deleted, 502 LLM failure),
+          `POST /emojis/reconcile` → 202 `{ started }`; types in `src/api/api.types.ts`.
+
+          Behaviour: filters and search are client-side; Edit opens the inline editor
+          with a 300 counter and disabled Save when blank or unchanged; Re-describe on
+          a manual row asks for confirmation first, AI or pending rows re-describe
+          directly; deleted rows have no actions; request errors show an `Alert`; a
+          started reconcile shows the running state until the poll reports it
+          finished. Keep the pure logic (filter matching, counts, status line text,
+          relative time) in a `.ts` module under `src/app/emojis/` with Jest tests
+          in `src/app/emojis/__tests__/` (the `.tsx` itself isn't tested).
+      - id: H2
+        title: Try the emoji dictionary on the dev bot
+        after:
+          - T8
+          - T10
+        files: []
+        status: skipped
+        body: |-
+          Run the dev bot on this branch: check out the run branch in the main
+          checkout (or copy `apps/tdr-bot/.env` and `.env.prod` into the run
+          worktree), then `docker compose -f apps/tdr-bot/deploy.dev.yml up -d` and
+          watch `… logs -f tdr-dev`. Expect migration 0007 to apply, startup not to
+          wait on the reconcile, and an `emoji.reconcile` log with the dev guild's
+          counts. On https://tdr.dev.lilnas.io/emojis check the list, edit a
+          description, re-describe one, and run a reconcile. In the dev guild add,
+          rename and delete an emoji and watch the page follow. Ask the dev bot
+          something and see it use the emojis. Judge whether the Luna descriptions
+          are good enough, or whether `EMOJI_DESCRIBER_MODEL` should be
+          `gpt-6.1-sol`. Approve, or request changes.

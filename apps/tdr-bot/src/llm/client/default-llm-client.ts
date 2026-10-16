@@ -109,7 +109,10 @@ export class DefaultLlmClient extends LlmClient {
     if (caps.temperature) {
       params.temperature = call.overrides?.temperature ?? settings.temperature
     }
-    if (caps.reasoningEffort) params.reasoningEffort = settings.reasoningEffort
+    if (caps.reasoningEffort) {
+      params.reasoningEffort =
+        call.overrides?.reasoningEffort ?? settings.reasoningEffort
+    }
     if (call.overrides?.maxTokens !== undefined) {
       params.maxTokens = call.overrides.maxTokens
     }

@@ -4,6 +4,8 @@ import { z } from 'zod'
 
 import { ModelRole } from 'src/llm/models/roles'
 
+export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high'
+
 export interface LlmCall<T = string> {
   /** Stable label for metrics and logs, e.g. 'router.classify'. */
   operation: string
@@ -18,6 +20,8 @@ export interface LlmCall<T = string> {
     maxTokens?: number
     timeoutMs?: number
     maxAttempts?: number
+    /** Only applied to models that support reasoning effort. */
+    reasoningEffort?: ReasoningEffort
   }
   signal?: AbortSignal
 }

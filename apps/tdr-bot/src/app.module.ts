@@ -12,6 +12,7 @@ import { LoggerModule } from 'nestjs-pino'
 import { ApiModule } from './api/api.module'
 import { AppEventsService } from './app-events.service'
 import { CommandsModule } from './commands/commands.module'
+import { EmojisModule } from './emojis/emojis.module'
 import { EnvKeys } from './env'
 import { requestContextMixin } from './llm/observability/request-context'
 import { MediaModule } from './media/media.module'
@@ -23,6 +24,7 @@ import { ServicesModule } from './services/services.module'
   imports: [
     ApiModule,
     CommandsModule,
+    EmojisModule,
     MediaModule,
     PrometheusModule.register({ defaultMetrics: { enabled: true } }),
     LoggerModule.forRoot(
@@ -95,6 +97,7 @@ import { ServicesModule } from './services/services.module'
         IntentsBitField.Flags.MessageContent,
         IntentsBitField.Flags.GuildMembers,
         IntentsBitField.Flags.DirectMessages,
+        IntentsBitField.Flags.GuildExpressions,
       ],
     }),
     // Sets up scheduling logic:

@@ -2,6 +2,7 @@ import { TavilySearch } from '@langchain/tavily'
 import { Module, type Provider } from '@nestjs/common'
 
 import { DrizzleModule } from 'src/db/drizzle.module'
+import { EmojiDictionaryModule } from 'src/emojis/emoji-dictionary.module'
 import { LlmCoreModule } from 'src/llm/llm-core.module'
 import { ServicesModule } from 'src/services/services.module'
 
@@ -25,7 +26,12 @@ const tavilySearchProvider: Provider = {
  * Also registers the Tavily search provider for action-type deliveries.
  */
 @Module({
-  imports: [DrizzleModule, LlmCoreModule, ServicesModule],
+  imports: [
+    DrizzleModule,
+    EmojiDictionaryModule,
+    LlmCoreModule,
+    ServicesModule,
+  ],
   providers: [
     ReminderService,
     ReminderDeliveryService,

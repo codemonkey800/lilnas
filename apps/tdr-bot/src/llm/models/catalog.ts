@@ -64,7 +64,8 @@ const imageCaps: ModelCapabilities = {
   image: true,
 }
 
-// Pricing in USD per 1M tokens, from OpenAI's public price list as of 2026-10-03.
+// Pricing in USD per 1M tokens, from OpenAI's public price list as of 2026-10-03
+// (gpt-6-luna and gpt-6.1-sol checked on 2026-10-14).
 export const MODEL_CATALOG: readonly ModelSpec[] = [
   {
     id: 'gpt-4-turbo',
@@ -165,6 +166,24 @@ export const MODEL_CATALOG: readonly ModelSpec[] = [
     roles: TEXT_ROLES,
     capabilities: reasoning(true),
     pricing: { inputPer1M: 1.1, outputPer1M: 4.4, cachedInputPer1M: 0.275 },
+  },
+  {
+    id: 'gpt-6-luna',
+    provider: 'openai',
+    label: 'GPT-6 Luna',
+    description: 'Cheapest GPT-6 model for focused, high-volume tasks.',
+    roles: TEXT_ROLES,
+    capabilities: reasoning(true),
+    pricing: { inputPer1M: 0.1, outputPer1M: 0.5, cachedInputPer1M: 0.01 },
+  },
+  {
+    id: 'gpt-6.1-sol',
+    provider: 'openai',
+    label: 'GPT-6.1 Sol',
+    description: 'Strong GPT-6.1 reasoning model.',
+    roles: TEXT_ROLES,
+    capabilities: reasoning(true),
+    pricing: { inputPer1M: 2, outputPer1M: 10, cachedInputPer1M: 0.1 },
   },
   {
     id: 'dall-e-3',

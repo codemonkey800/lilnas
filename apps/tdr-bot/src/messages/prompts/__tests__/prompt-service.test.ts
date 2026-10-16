@@ -1,17 +1,19 @@
 import { SystemMessage } from '@langchain/core/messages'
 
 import { createTestingModule } from 'src/__tests__/test-utils'
+import { EmojiDictionaryService } from 'src/emojis/emoji-dictionary.service'
 import {
   defaultSettings,
   SettingsService,
 } from 'src/llm/settings/settings.service'
 import { PromptService } from 'src/messages/prompts/prompt.service'
 import {
-  EMOJI_DICTIONARY,
   INPUT_FORMAT,
   PROMPT_INTRO,
   TDR_SYSTEM_PROMPT_ID,
 } from 'src/utils/prompts'
+
+const FAKE_EMOJI_DICTIONARY = 'FAKE EMOJI DICTIONARY {"<:EZ:1>":"smug"}'
 
 describe('PromptService', () => {
   let service: PromptService
@@ -28,6 +30,10 @@ describe('PromptService', () => {
     const module = await createTestingModule([
       PromptService,
       { provide: SettingsService, useValue: settings },
+      {
+        provide: EmojiDictionaryService,
+        useValue: { promptText: () => FAKE_EMOJI_DICTIONARY },
+      },
     ])
 
     service = module.get(PromptService)
@@ -64,10 +70,10 @@ describe('PromptService', () => {
       expect(content).toContain(INPUT_FORMAT.trim())
     })
 
-    it('includes EMOJI_DICTIONARY in the content', () => {
+    it('includes the cached emoji dictionary in the content', () => {
       const content = service.getSystemPrompt().content as string
 
-      expect(content).toContain(EMOJI_DICTIONARY.trim())
+      expect(content).toContain(FAKE_EMOJI_DICTIONARY)
     })
 
     it('reflects updated prompt when settings change', () => {

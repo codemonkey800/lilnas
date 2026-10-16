@@ -59,6 +59,14 @@ describe('ModelRegistry', () => {
     expect(registry.isAllowedFor('nope', 'chat')).toBe(false)
   })
 
+  it('knows the GPT-6 Luna and Sol models', () => {
+    for (const id of ['gpt-6-luna', 'gpt-6.1-sol']) {
+      expect(registry.has(id)).toBe(true)
+      expect(registry.get(id).capabilities.vision).toBe(true)
+      expect(registry.isAllowedFor(id, 'chat')).toBe(true)
+    }
+  })
+
   describe('costUsd', () => {
     it('prices input and output', () => {
       expect(
@@ -88,6 +96,17 @@ describe('ModelRegistry', () => {
           output: 0,
         }),
       ).toBeCloseTo(10)
+    })
+
+    it('prices gpt-6-luna with its cached rate', () => {
+      // 500k uncached * 0.1 + 500k cached * 0.01 + 1M out * 0.5
+      expect(
+        registry.costUsd('gpt-6-luna', {
+          input: 1_000_000,
+          output: 1_000_000,
+          cached: 500_000,
+        }),
+      ).toBeCloseTo(0.555)
     })
 
     it('returns 0 for unpriced models', () => {

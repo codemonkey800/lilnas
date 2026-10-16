@@ -32,3 +32,11 @@ mixin chip(tone)
   - const tones = { ok: 'bg-ok/15 text-ok', warn: 'bg-warn/15 text-warn', bad: 'bg-bad/15 text-bad', muted: 'bg-raised text-ink-2' }
   span(class='inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ' + tones[tone || 'muted'])&attributes(attributes)
     block
+
+//- The admin app bar; `active` is the nav label of the current page.
+mixin appbar(active)
+  div(class='flex items-center gap-6 border-b border-line bg-surface px-4 py-3')&attributes(attributes)
+    span(class='font-semibold') tdr-bot
+    nav(class='flex gap-4 text-sm')
+      each item in ['Settings', 'Transcript', 'Reminders', 'Emojis']
+        a(class=item === active ? 'border-b-2 border-accent pb-0.5 font-medium text-ink' : 'text-ink-2')= item

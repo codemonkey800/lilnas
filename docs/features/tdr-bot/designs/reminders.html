@@ -387,6 +387,9 @@
         .mt-3 {
           margin-top: calc(var(--spacing) * 3);
         }
+        .mt-4 {
+          margin-top: calc(var(--spacing) * 4);
+        }
         .mt-5 {
           margin-top: calc(var(--spacing) * 5);
         }
@@ -443,6 +446,14 @@
         .size-4 {
           width: calc(var(--spacing) * 4);
           height: calc(var(--spacing) * 4);
+        }
+        .size-8 {
+          width: calc(var(--spacing) * 8);
+          height: calc(var(--spacing) * 8);
+        }
+        .size-10 {
+          width: calc(var(--spacing) * 10);
+          height: calc(var(--spacing) * 10);
         }
         .h-1\.5 {
           height: calc(var(--spacing) * 1.5);
@@ -507,6 +518,9 @@
         .max-w-\[16rem\] {
           max-width: 16rem;
         }
+        .max-w-\[24rem\] {
+          max-width: 24rem;
+        }
         .max-w-\[75\%\] {
           max-width: 75%;
         }
@@ -522,8 +536,14 @@
         .max-w-sm {
           max-width: var(--container-sm);
         }
+        .min-w-0 {
+          min-width: calc(var(--spacing) * 0);
+        }
         .min-w-\[10rem\] {
           min-width: 10rem;
+        }
+        .min-w-\[18rem\] {
+          min-width: 18rem;
         }
         .flex-1 {
           flex: 1;
@@ -652,6 +672,11 @@
         :where(.divide-line > :not(:last-child)) {
           border-color: var(--color-line);
         }
+        .truncate {
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          overflow: hidden;
+        }
         .overflow-hidden {
           overflow: hidden;
         }
@@ -719,6 +744,9 @@
         .border-bad {
           border-color: var(--color-bad);
         }
+        .border-current {
+          border-color: currentColor;
+        }
         .border-line {
           border-color: var(--color-line);
         }
@@ -733,6 +761,9 @@
               transparent
             );
           }
+        }
+        .border-t-transparent {
+          border-top-color: #0000;
         }
         .border-t-white {
           border-top-color: var(--color-white);
@@ -853,6 +884,9 @@
         }
         .bg-white {
           background-color: var(--color-white);
+        }
+        .object-contain {
+          object-fit: contain;
         }
         .p-3 {
           padding: calc(var(--spacing) * 3);
@@ -1004,12 +1038,21 @@
         .uppercase {
           text-transform: uppercase;
         }
+        .italic {
+          font-style: italic;
+        }
         .antialiased {
           -webkit-font-smoothing: antialiased;
           -moz-osx-font-smoothing: grayscale;
         }
+        .opacity-40 {
+          opacity: 0.4;
+        }
         .opacity-50 {
           opacity: 0.5;
+        }
+        .opacity-60 {
+          opacity: 0.6;
         }
         .filter {
           filter: var(--tw-blur,) var(--tw-brightness,) var(--tw-contrast,)
@@ -1178,7 +1221,7 @@
                   ><a
                     class="border-b-2 border-accent pb-0.5 font-medium text-ink"
                     >Reminders</a
-                  >
+                  ><a class="text-ink-2">Emojis</a>
                 </nav>
               </div>
               <div class="space-y-4 p-5">
@@ -1668,7 +1711,7 @@
                     ><a
                       class="border-b-2 border-accent pb-0.5 font-medium text-ink"
                       >Reminders</a
-                    >
+                    ><a class="text-ink-2">Emojis</a>
                   </nav>
                 </div>
                 <div class="space-y-4 p-4">
@@ -1845,7 +1888,7 @@
                   ><a
                     class="border-b-2 border-accent pb-0.5 font-medium text-ink"
                     >Reminders</a
-                  >
+                  ><a class="text-ink-2">Emojis</a>
                 </nav>
               </div>
               <div class="space-y-4 p-5">
@@ -1920,7 +1963,7 @@
                   ><a
                     class="border-b-2 border-accent pb-0.5 font-medium text-ink"
                     >Reminders</a
-                  >
+                  ><a class="text-ink-2">Emojis</a>
                 </nav>
               </div>
               <div class="space-y-4 p-5">

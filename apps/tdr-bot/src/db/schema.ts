@@ -117,3 +117,32 @@ export type LlmCallRow = typeof llmCalls.$inferSelect
 
 /** Insert payload accepted when recording an LLM call. */
 export type NewLlmCallRow = typeof llmCalls.$inferInsert
+
+/** Who wrote an emoji description: an admin by hand, or the vision model. */
+export const EMOJI_SOURCES = ['manual', 'ai'] as const
+export type EmojiSource = (typeof EMOJI_SOURCES)[number]
+
+/** One row per Discord custom emoji the bot has seen; the prompt's emoji dictionary. */
+export const emojiDictionary = pgTable(
+  'emoji_dictionary',
+  {
+    id: text('id').primaryKey(), // Discord emoji snowflake
+    guildId: text('guild_id').notNull(),
+    name: text('name').notNull(),
+    animated: boolean('animated').notNull().default(false),
+    description: text('description'), // null until described
+    source: text('source').$type<EmojiSource>(), // null until described
+    model: text('model'), // set for source 'ai'
+    describedAt: timestamp('described_at', { mode: 'date' }),
+    deletedAt: timestamp('deleted_at', { mode: 'date' }),
+    createdAt: timestamp('created_at', { mode: 'date' }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).notNull().defaultNow(),
+  },
+  table => [index('emoji_dictionary_guild_id_idx').on(table.guildId)],
+)
+
+/** Row type returned when selecting from the emoji_dictionary table. */
+export type EmojiRow = typeof emojiDictionary.$inferSelect
+
+/** Insert payload accepted when recording an emoji. */
+export type NewEmojiRow = typeof emojiDictionary.$inferInsert

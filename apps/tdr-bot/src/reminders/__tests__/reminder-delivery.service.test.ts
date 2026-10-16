@@ -6,6 +6,7 @@ import {
   createMockRetryService,
   createTestingModule,
 } from 'src/__tests__/test-utils'
+import { EmojiDictionaryService } from 'src/emojis/emoji-dictionary.service'
 import { LlmClient } from 'src/llm/client/llm-client'
 import { FakeLlmClient } from 'src/llm/testing/fake-llm-client'
 import { createTestReminder } from 'src/reminders/__tests__/factories/reminder'
@@ -130,6 +131,13 @@ function makeEquationImageServiceMock(
   } as unknown as jest.Mocked<EquationImageService>
 }
 
+const FAKE_EMOJI_DICTIONARY = 'FAKE EMOJI DICTIONARY {"<:EZ:1>":"smug"}'
+
+const emojiDictionaryProvider = {
+  provide: EmojiDictionaryService,
+  useValue: { promptText: () => FAKE_EMOJI_DICTIONARY },
+}
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('ReminderDeliveryService', () => {
@@ -151,6 +159,7 @@ describe('ReminderDeliveryService', () => {
       { provide: LlmClient, useValue: llm },
       { provide: RetryService, useValue: retryService },
       { provide: TdrBotMetricsService, useValue: metrics },
+      emojiDictionaryProvider,
       { provide: EquationImageService, useValue: equationImageService },
       {
         provide: TAVILY_SEARCH_TOKEN,
@@ -268,6 +277,7 @@ describe('ReminderDeliveryService', () => {
         { provide: LlmClient, useValue: factory },
         { provide: RetryService, useValue: createMockRetryService() },
         { provide: TdrBotMetricsService, useValue: createMockMetricsService() },
+        emojiDictionaryProvider,
         {
           provide: EquationImageService,
           useValue: makeEquationImageServiceMock(),
@@ -343,6 +353,7 @@ describe('ReminderDeliveryService', () => {
         { provide: LlmClient, useValue: factory },
         { provide: RetryService, useValue: createMockRetryService() },
         { provide: TdrBotMetricsService, useValue: createMockMetricsService() },
+        emojiDictionaryProvider,
         {
           provide: EquationImageService,
           useValue: makeEquationImageServiceMock(),
@@ -443,6 +454,7 @@ describe('ReminderDeliveryService', () => {
         { provide: LlmClient, useValue: factory },
         { provide: RetryService, useValue: failingRetry },
         { provide: TdrBotMetricsService, useValue: trackedMetrics },
+        emojiDictionaryProvider,
         {
           provide: EquationImageService,
           useValue: makeEquationImageServiceMock(),
@@ -479,6 +491,7 @@ describe('ReminderDeliveryService', () => {
         { provide: LlmClient, useValue: factory },
         { provide: RetryService, useValue: failingRetry },
         { provide: TdrBotMetricsService, useValue: createMockMetricsService() },
+        emojiDictionaryProvider,
         {
           provide: EquationImageService,
           useValue: makeEquationImageServiceMock(),
@@ -610,6 +623,7 @@ describe('ReminderDeliveryService', () => {
         { provide: LlmClient, useValue: factory },
         { provide: RetryService, useValue: createMockRetryService() },
         { provide: TdrBotMetricsService, useValue: trackedMetrics },
+        emojiDictionaryProvider,
         {
           provide: EquationImageService,
           useValue: makeEquationImageServiceMock(),
@@ -645,6 +659,7 @@ describe('ReminderDeliveryService', () => {
         { provide: LlmClient, useValue: factory },
         { provide: RetryService, useValue: createMockRetryService() },
         { provide: TdrBotMetricsService, useValue: createMockMetricsService() },
+        emojiDictionaryProvider,
         {
           provide: EquationImageService,
           useValue: makeEquationImageServiceMock(),
@@ -742,6 +757,41 @@ describe('ReminderDeliveryService', () => {
       expect(prompt.content).toContain(
         'It is currently Friday, October 9, 2026 at 9:00 AM.',
       )
+    })
+  })
+
+  describe('emoji dictionary', () => {
+    it('puts the cached dictionary in the default delivery prompt', async () => {
+      const client = makeDiscordClient([makeMockTextChannel()])
+      const { factory, mockChatModel } = makeLlm()
+      service = await buildService(client, factory)
+
+      await service.deliver(createTestReminder())
+
+      const [system] = mockChatModel.invoke.mock.calls[0][0]
+      expect(system.content).toContain(FAKE_EMOJI_DICTIONARY)
+    })
+
+    it('puts the cached dictionary in the search delivery prompt', async () => {
+      const client = makeDiscordClient([makeMockTextChannel()])
+      const { factory, mockChatModel } = makeLlm()
+      service = await buildService(client, factory)
+
+      await service.deliver(createTestReminder({ actionType: 'search' }))
+
+      const [system] = mockChatModel.invoke.mock.calls[0][0]
+      expect(system.content).toContain(FAKE_EMOJI_DICTIONARY)
+    })
+
+    it('puts the cached dictionary in the math delivery prompt', async () => {
+      const client = makeDiscordClient([makeMockTextChannel()])
+      const { factory, mockChatModel } = makeLlm()
+      service = await buildService(client, factory)
+
+      await service.deliver(createTestReminder({ actionType: 'math' }))
+
+      const [system] = mockChatModel.invoke.mock.calls[0][0]
+      expect(system.content).toContain(FAKE_EMOJI_DICTIONARY)
     })
   })
 
@@ -893,6 +943,7 @@ describe('ReminderDeliveryService', () => {
         { provide: LlmClient, useValue: factory },
         { provide: RetryService, useValue: retryService },
         { provide: TdrBotMetricsService, useValue: metrics },
+        emojiDictionaryProvider,
         {
           provide: EquationImageService,
           useValue: makeEquationImageServiceMock(),

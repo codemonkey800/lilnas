@@ -1,6 +1,12 @@
 import { MessageType } from '@langchain/core/messages'
 
-import type { LlmCallRow, ReminderSource, ReminderStatus } from 'src/db/schema'
+import type {
+  EmojiSource,
+  LlmCallRow,
+  ReminderSource,
+  ReminderStatus,
+} from 'src/db/schema'
+import type { ReconcileStatus } from 'src/emojis/emoji-sync.service'
 import type { Settings } from 'src/llm/settings/settings.schema'
 import type { ReminderActionType } from 'src/reminders/reminder.types'
 import { ImageResponse } from 'src/schemas/graph'
@@ -128,5 +134,32 @@ export interface ReminderRuns {
 
 export interface ReminderPreview {
   runs: string[]
+  description: string
+}
+
+export type { ReconcileStatus }
+
+export interface EmojiView {
+  id: string
+  guildId: string
+  name: string
+  animated: boolean
+  /** '<:name:id>' or '<a:name:id>'. */
+  key: string
+  imageUrl: string
+  description: string | null
+  source: EmojiSource | null
+  model: string | null
+  describedAt: string | null
+  deletedAt: string | null
+  updatedAt: string
+}
+
+export interface EmojiListResponse {
+  emojis: EmojiView[]
+  reconcile: ReconcileStatus
+}
+
+export interface UpdateEmojiBody {
   description: string
 }

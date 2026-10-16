@@ -131,3 +131,26 @@ default (`src/main.ts`). Conversations are lost on restart.
   `LIVE_LLM=1` and `OPENAI_API_KEY` (see `.env.example`); without them the
   files skip. A run fails if it spends more than `MAX_RUN_COST_USD`
   ($0.50, in `src/llm/testing/live/live-env.ts`).
+
+## Emoji dictionary
+
+The `emoji_dictionary` table (`src/db/schema.ts`) is the source of truth for
+the guild emojis the bot knows and their descriptions. The system and
+reminder prompts read it through the cache in
+`src/emojis/emoji-dictionary.service.ts`.
+
+`EmojiSyncService` (`src/emojis/emoji-sync.service.ts`) reconciles it in two
+phases: phase 1 upserts every guild emoji and soft-deletes ones that are
+gone; phase 2 fills missing descriptions, first from the old static
+dictionary, then with the LLM. It runs:
+
+- on boot (`clientReady`), in the background, so startup never waits on it;
+- nightly at `EMOJI_RECONCILE_CRON` (`src/emojis/emoji.constants.ts`);
+- for a single emoji on `emojiCreate`, `emojiUpdate` and `emojiDelete`
+  (`src/emojis/emoji-events.service.ts`, needs the `GuildExpressions`
+  intent).
+
+The describer model is `EMOJI_DESCRIBER_MODEL` in
+`src/emojis/emoji.constants.ts`. The first boot seeds descriptions from
+`src/utils/emojis.ts`; once prod has populated the table, that file can be
+deleted along with `src/emojis/emoji-seed.ts`.

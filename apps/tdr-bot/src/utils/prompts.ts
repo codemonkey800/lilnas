@@ -4,8 +4,6 @@ import dedent from 'dedent'
 import { VERSION } from 'src/constants/version'
 import { MediaRequestType, SearchIntent } from 'src/schemas/graph'
 
-import { emojis } from './emojis'
-
 export const SHORTEN_RESPONSE_PROMPT = new SystemMessage(dedent`
   Shorten the response to a maximum of 2000 characters.
 `)
@@ -250,18 +248,21 @@ export const INPUT_FORMAT = dedent`
   its author is attached to the message as its name.
 `
 
-export const EMOJI_DICTIONARY = dedent`
-  The emoji dictionary is defined in the below JSON with the following format
-  where the key is the ID of the emoji and the value is a description of what
-  the emoji means. Using the description, send the correct emoji using the key.
-  For example, "<:EZ:758414734805696553>" for a static emoji and
-  "<a:peepoPooPoo:758415960448434217>" for an animated emoji.
+/** The emoji dictionary prompt section for an `emojiKey` → description map. */
+export function formatEmojiDictionary(entries: Record<string, string>): string {
+  return dedent`
+    The emoji dictionary is defined in the below JSON with the following format
+    where the key is the ID of the emoji and the value is a description of what
+    the emoji means. Using the description, send the correct emoji using the key.
+    For example, "<:EZ:758414734805696553>" for a static emoji and
+    "<a:peepoPooPoo:758415960448434217>" for an animated emoji.
 
-  ${JSON.stringify(emojis)}
+    ${JSON.stringify(entries)}
 
-  For every message you send, you must use only the emojis in the dictionary
-  above.
-`
+    For every message you send, you must use only the emojis in the dictionary
+    above.
+  `
+}
 
 export const KAWAII_PROMPT = dedent`
   You are a friendly person that speaks in a cute and kawaii way, and uses a lot of

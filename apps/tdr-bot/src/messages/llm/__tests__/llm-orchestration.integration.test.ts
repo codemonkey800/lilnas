@@ -32,6 +32,7 @@ import { Test, TestingModule } from '@nestjs/testing'
 import { z } from 'zod'
 
 import { createMockMetricsService } from 'src/__tests__/test-utils'
+import { EmojiDictionaryService } from 'src/emojis/emoji-dictionary.service'
 import { LlmClient } from 'src/llm/client/llm-client'
 import { GRAPH_CHECKPOINTER } from 'src/llm/graph/checkpointer'
 import { threadIdFor } from 'src/llm/graph/thread-id'
@@ -59,7 +60,7 @@ import { createTestReminder } from 'src/reminders/__tests__/factories/reminder'
 import { ReminderService } from 'src/reminders/reminder.service'
 import { EquationImageService } from 'src/services/equation-image.service'
 import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
-import { TDR_SYSTEM_PROMPT_ID } from 'src/utils/prompts'
+import { formatEmojiDictionary, TDR_SYSTEM_PROMPT_ID } from 'src/utils/prompts'
 
 const TEST_TIMEOUT = 15_000
 
@@ -312,6 +313,10 @@ describe('LLMOrchestrationService - Integration', () => {
         { provide: LlmMetricsService, useValue: { routerDecision: jest.fn() } },
         { provide: SettingsService, useValue: settings },
         { provide: TdrBotMetricsService, useValue: metrics },
+        {
+          provide: EmojiDictionaryService,
+          useValue: { promptText: () => formatEmojiDictionary({}) },
+        },
       ],
     }).compile()
 

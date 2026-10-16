@@ -10,6 +10,7 @@ import {
 
 import { TDR_CHAT_CHANNEL } from 'src/constants/chat'
 import { Reminder } from 'src/db/schema'
+import { EmojiDictionaryService } from 'src/emojis/emoji-dictionary.service'
 import { LlmClient } from 'src/llm/client/llm-client'
 import { GET_MATH_RESPONSE_PROMPT } from 'src/llm/skills/math/prompts'
 import { EquationImageService } from 'src/services/equation-image.service'
@@ -22,9 +23,9 @@ import {
   TAVILY_SEARCH_TOKEN,
 } from './reminder.constants'
 import {
-  REMINDER_DELIVERY_PROMPT,
-  REMINDER_MATH_DELIVERY_PROMPT,
-  REMINDER_SEARCH_DELIVERY_PROMPT,
+  buildReminderDeliveryPrompt,
+  buildReminderMathDeliveryPrompt,
+  buildReminderSearchDeliveryPrompt,
 } from './reminder.prompts'
 import { ReminderActionType } from './reminder.types'
 import {
@@ -93,6 +94,7 @@ export class ReminderDeliveryService {
     private readonly retryService: RetryService,
     private readonly metrics: TdrBotMetricsService,
     private readonly equationImageService: EquationImageService,
+    private readonly emojiDictionary: EmojiDictionaryService,
     @Inject(TAVILY_SEARCH_TOKEN)
     private readonly tavilySearch: StructuredToolInterface,
   ) {}
@@ -238,7 +240,10 @@ export class ReminderDeliveryService {
       const { output } = await this.llm.call({
         operation: 'reminder.deliverSearch',
         role: 'chat',
-        messages: [REMINDER_SEARCH_DELIVERY_PROMPT, userPrompt],
+        messages: [
+          buildReminderSearchDeliveryPrompt(this.emojiDictionary.promptText()),
+          userPrompt,
+        ],
         overrides: {
           timeoutMs: 20000,
           temperature: REMINDER_DELIVERY_TEMPERATURE,
@@ -282,7 +287,7 @@ export class ReminderDeliveryService {
           operation: 'reminder.deliverMath',
           role: 'chat',
           messages: [
-            REMINDER_MATH_DELIVERY_PROMPT,
+            buildReminderMathDeliveryPrompt(this.emojiDictionary.promptText()),
             new HumanMessage(
               `Math reminder for ${mentions}.\n` +
                 `${currentTimeLine(firedAt)}\n` +
@@ -334,7 +339,10 @@ export class ReminderDeliveryService {
       const { output } = await this.llm.call({
         operation: 'reminder.deliver',
         role: 'chat',
-        messages: [REMINDER_DELIVERY_PROMPT, userPrompt],
+        messages: [
+          buildReminderDeliveryPrompt(this.emojiDictionary.promptText()),
+          userPrompt,
+        ],
         overrides: {
           timeoutMs: 20000,
           temperature: REMINDER_DELIVERY_TEMPERATURE,

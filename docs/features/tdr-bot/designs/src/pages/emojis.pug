@@ -1,0 +1,179 @@
+extends ../layout/page.pug
+include ../mixins/ui.pug
+
+block title
+  | Emojis — tdr-bot mockups
+
+block content
+  - const cdn = e => 'https://cdn.discordapp.com/emojis/' + e.id + (e.animated ? '.gif' : '.png')
+  - const longText = 'Pepe with a wide, nervous grin and sweat beading on his forehead, used when something is about to go wrong or the speaker is anxious.'
+  - const rows = [{ id: '564310072822333480', name: 'HYPERS', animated: false, desc: 'Pepe vibrating with excitement, eyes wide, used for hype.', source: 'manual', model: null, at: 'Oct 14, 9:02 AM' }, { id: '564330871851712553', name: 'residentsleeper', animated: false, desc: 'A sleeping Resident Sleeper face with closed eyes and a droopy head, used when something is boring.', source: 'ai', model: 'gpt-5-mini', at: 'Oct 14, 9:02 AM' }, { id: '1266528661318926369', name: 'peepoWine', animated: true, desc: 'Peepo frog sipping a glass of red wine, swirling it slowly.', source: 'ai', model: 'gpt-5-mini', at: 'Oct 14, 9:03 AM' }, { id: '1275667821757464687', name: 'Loading', animated: true, desc: null, source: null, model: null, at: null }, { id: '564310072822333481', name: 'Sadge', animated: false, desc: longText, source: 'ai', model: 'gpt-5-mini', at: 'Oct 13, 4:41 PM' }, { id: '564310072822333482', name: 'monkaS', animated: false, desc: 'Pepe sweating nervously with a tense, worried expression.', source: 'manual', model: null, at: 'Oct 12, 11:15 AM' }, { id: '564310072822333483', name: 'PepeLaugh', animated: false, desc: 'Pepe laughing smugly with a hand over his mouth.', source: 'ai', model: 'gpt-5-mini', at: 'Oct 13, 4:41 PM' }, { id: '564310072822333484', name: 'catJAM', animated: true, desc: 'A cat bobbing its head to the beat of music.', source: 'ai', model: 'gpt-5-mini', at: 'Oct 13, 4:42 PM' }, { id: '564310072822333485', name: 'Clap', animated: true, desc: null, source: null, model: null, at: null }, { id: '564310072822333486', name: 'widepeepoHappy', animated: false, desc: 'A stretched-wide Peepo frog with a calm, content smile.', source: 'manual', model: null, at: 'Oct 10, 8:30 PM' }, { id: '564310072822333487', name: 'FeelsBadMan', animated: false, desc: 'Sad Pepe with a single tear, used for disappointment.', source: 'ai', model: 'gpt-5-mini', at: 'Oct 9, 2:12 PM' }, { id: '564310072822333488', name: 'OldHype', animated: false, desc: 'An older hype emote of a cheering figure.', source: 'ai', model: 'gpt-5-mini', at: 'Sep 20, 7:05 PM', deleted: 'Oct 2' }]
+  - const tone = { manual: 'ok', ai: 'muted' }
+  - const field = 'rounded-lg border bg-bg px-3 py-2 text-sm '
+  - const filters = [['All', 12], ['Needs description', 2], ['AI', 7], ['Manual', 3], ['Deleted', 1]]
+
+  mixin img(e, size)
+    img(src=cdn(e) alt=':' + e.name + ':' class=(size || 'size-8') + ' shrink-0 object-contain ' + (e.deleted ? 'opacity-40' : ''))
+
+  mixin spinner()
+    span(class='size-3.5 animate-spin rounded-full border-2 border-current border-t-transparent')
+
+  //- state: undefined | 'running'
+  mixin toolbar(state, empty)
+    div(class='flex flex-wrap items-start gap-3')
+      div(class='flex overflow-hidden rounded-lg border border-line text-xs')
+        each f in filters
+          span(class='px-3 py-1.5 ' + (f[0] === 'All' ? 'bg-accent/25 font-medium text-ink' : 'text-ink-2'))
+            | #{f[0]}
+            span(class='ml-1 text-ink-3')= empty ? 0 : f[1]
+      div(class=field + 'w-56 border-line text-ink-3') Search name or description…
+      div(class='ml-auto text-right')
+        +btn('primary', state === 'running')
+          if state === 'running'
+            +spinner
+            | Reconciling…
+          else
+            | Run reconcile now
+        p(class='mt-1.5 text-xs text-ink-3')
+          if empty
+            | No reconcile has run yet
+          else if state === 'running'
+            | Started just now (manual)
+          else
+            | Last reconcile 3 min ago (boot) · 140 synced · 2 described · 0 failed
+
+  mixin sourceChip(e)
+    if e.source
+      +chip(tone[e.source])= e.source
+    else
+      +chip('warn') pending
+
+  mixin actions(e)
+    if !e.deleted
+      div(class='flex gap-3 text-xs')
+        a(class='text-accent-soft') Edit
+        a(class='text-accent-soft') Re-describe
+
+  mixin descCell(e, state)
+    if e.desc
+      span= e.desc
+    else if state === 'running'
+      span(class='flex items-center gap-2 italic text-ink-3')
+        +spinner
+        | Describing…
+    else
+      span(class='italic text-ink-3') Waiting for a description
+
+  //- editId: row whose description is a textarea
+  mixin table(list, state, editId)
+    div(class='overflow-x-auto rounded-xl border border-line')
+      table(class='w-full text-left text-xs')
+        thead(class='bg-surface text-ink-3')
+          tr
+            each h in ['', 'Name', 'Description', 'Source', 'Model', 'Described', '']
+              th(class='whitespace-nowrap px-4 py-3 font-medium')= h
+        tbody
+          each e in list
+            tr(class='border-t border-line align-top ' + (e.deleted ? 'opacity-60' : ''))
+              td(class='px-4 py-3')
+                +img(e)
+              td(class='whitespace-nowrap px-4 py-3')
+                div(class='flex items-center gap-2 text-sm')
+                  span(class='font-mono') :#{e.name}:
+                  if e.animated
+                    +chip('muted') animated
+                if e.deleted
+                  +chip('bad')(class='mt-1.5') deleted #{e.deleted}
+              td(class='min-w-[18rem] max-w-[24rem] px-4 py-3 text-sm')
+                if e.id === editId
+                  div(class=field + 'min-h-20 border-accent leading-relaxed')= e.desc
+                  div(class='mt-1 flex items-center justify-between text-[11px] text-ink-3')
+                    span Saving marks this description as manual.
+                    span #{e.desc.length} / 300
+                  div(class='mt-2 flex gap-2')
+                    +btn('primary') Save
+                    +btn('ghost') Cancel
+                else
+                  +descCell(e, state)
+              td(class='px-4 py-3')
+                +sourceChip(e)
+              td(class='whitespace-nowrap px-4 py-3 font-mono text-ink-2')= e.model || '—'
+              td(class='whitespace-nowrap px-4 py-3 text-ink-2')= e.at || '—'
+              td(class='whitespace-nowrap px-4 py-3')
+                +actions(e)
+
+  mixin cards(list)
+    div(class='space-y-3')
+      each e in list
+        div(class='rounded-xl border border-line bg-surface p-3 ' + (e.deleted ? 'opacity-60' : ''))
+          div(class='flex items-center gap-3')
+            +img(e)
+            div(class='min-w-0 flex-1')
+              div(class='truncate font-mono text-sm') :#{e.name}:
+              if e.animated
+                +chip('muted') animated
+            +sourceChip(e)
+          div(class='mt-2 text-xs')
+            +descCell(e)
+          div(class='mt-3 flex items-center justify-between')
+            if e.deleted
+              +chip('bad') deleted #{e.deleted}
+            else
+              span(class='text-[11px] text-ink-3')= e.at || ''
+            +actions(e)
+
+  mixin page()
+    div(class='overflow-hidden rounded-xl border border-line bg-bg')
+      +appbar('Emojis')
+      div(class='space-y-4 p-5')
+        block
+
+  div.page(class='space-y-8')
+    h1(class='text-2xl font-semibold') Emojis
+    p(class='mt-1 text-sm text-ink-2') The bot's custom-emoji dictionary: what each emoji looks like and means. Each frame below is the same screen in a different state.
+    +frame('1 · Populated (desktop)', 'Twelve rows: manual, AI, pending, animated, and one deleted.')
+      +page
+        +toolbar
+        +table(rows)
+    +frame('2 · Reconcile running', 'Button busy; pending rows show Describing…')
+      +page
+        +toolbar('running')
+        +table(rows, 'running')
+    +frame('3 · Inline edit', 'Description becomes a textarea; max 300 characters.')
+      +page
+        +toolbar
+        +table(rows.slice(0, 4), null, '564330871851712553')
+    +frame('4 · Re-describe confirmation', 'Replacing a manual description.')
+      div(class='grid place-items-center rounded-lg bg-black/50 p-10')
+        div(class='w-full max-w-sm rounded-xl border border-line bg-surface p-5')
+          div(class='flex items-center gap-3')
+            +img(rows[0], 'size-10')
+            h3(class='text-base font-semibold') Re-describe :HYPERS:?
+          p(class='mt-3 text-sm') Replace this hand-written description with an AI one?
+          div(class='mt-3 rounded-lg border border-line bg-bg px-3 py-2 text-sm text-ink-2')= rows[0].desc
+          div(class='mt-5 flex justify-end gap-3')
+            +btn('ghost') Keep
+            +btn('primary') Re-describe
+    +frame('5 · Mobile', 'Narrow frame (≤ 420 px); rows become stacked cards.')
+      div(class='mx-auto w-full max-w-[420px]')
+        div(class='overflow-hidden rounded-xl border border-line bg-bg')
+          +appbar('Emojis')
+          div(class='space-y-4 p-4')
+            +toolbar
+            +cards(rows.slice(0, 5))
+    +frame('6 · Empty', 'No emojis synced yet.')
+      +page
+        +toolbar(null, true)
+        div(class='grid place-items-center rounded-xl border border-dashed border-line py-16 text-center')
+          div
+            div(class='text-3xl') 😶
+            div(class='mt-2 text-sm font-medium') No emojis synced yet
+            p(class='mt-1 text-xs text-ink-3') Run a reconcile to pull the server's custom emojis.
+            div(class='mt-4')
+              +btn('primary') Run reconcile now
+    +frame('7 · Loading', 'Skeleton rows while the list loads.')
+      +page
+        +toolbar
+        div(class='space-y-2 rounded-xl border border-line p-3')
+          each i in [1, 2, 3, 4, 5, 6]
+            div(class='skeleton h-10 w-full rounded-lg')

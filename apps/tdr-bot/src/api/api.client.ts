@@ -6,6 +6,8 @@ import {
   ChannelInfo,
   ConversationMessage,
   CreateReminderBody,
+  EmojiListResponse,
+  EmojiView,
   MemberInfo,
   ReminderFilter,
   ReminderPreview,
@@ -16,6 +18,7 @@ import {
   SettingsResponse,
   TranscriptChannel,
   TranscriptResponse,
+  UpdateEmojiBody,
   UpdateReminderBody,
 } from './api.types'
 
@@ -198,6 +201,37 @@ export class ApiClient {
     )
 
     return await parseOrThrow<ReminderView>(response)
+  }
+
+  async getEmojis(): Promise<EmojiListResponse> {
+    const response = await this.request('/emojis')
+    return await parseOrThrow<EmojiListResponse>(response)
+  }
+
+  async updateEmoji(id: string, body: UpdateEmojiBody): Promise<EmojiView> {
+    const response = await this.request(`/emojis/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    })
+
+    return await parseOrThrow<EmojiView>(response)
+  }
+
+  async redescribeEmoji(id: string): Promise<EmojiView> {
+    const response = await this.request(
+      `/emojis/${encodeURIComponent(id)}/redescribe`,
+      { method: 'POST' },
+    )
+
+    return await parseOrThrow<EmojiView>(response)
+  }
+
+  async reconcileEmojis(): Promise<{ started: boolean }> {
+    const response = await this.request('/emojis/reconcile', {
+      method: 'POST',
+    })
+
+    return await parseOrThrow<{ started: boolean }>(response)
   }
 
   static getInstance(): ApiClient {
