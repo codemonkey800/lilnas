@@ -67,6 +67,20 @@ export class EmojisController {
     return { started: true }
   }
 
+  @Post('redescribe-all')
+  @HttpCode(202)
+  redescribeAll(): { started: boolean } {
+    if (this.sync.status().running) return { started: false }
+
+    this.sync.redescribeAll().catch(err => {
+      this.logger.error(
+        { error: getErrorMessage(err) },
+        'Admin emoji re-describe-all failed',
+      )
+    })
+    return { started: true }
+  }
+
   @Patch(':id')
   async update(
     @Param('id') id: string,

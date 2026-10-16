@@ -48,3 +48,12 @@ export function useReconcileEmojis() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: EMOJIS_KEY }),
   })
 }
+
+export function useRedescribeAllEmojis() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: () => apiClient.redescribeAllEmojis(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: EMOJIS_KEY }),
+  })
+}

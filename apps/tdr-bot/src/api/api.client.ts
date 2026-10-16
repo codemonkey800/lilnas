@@ -234,6 +234,14 @@ export class ApiClient {
     return await parseOrThrow<{ started: boolean }>(response)
   }
 
+  async redescribeAllEmojis(): Promise<{ started: boolean }> {
+    const response = await this.request('/emojis/redescribe-all', {
+      method: 'POST',
+    })
+
+    return await parseOrThrow<{ started: boolean }>(response)
+  }
+
   static getInstance(): ApiClient {
     if (!instance) {
       instance = new ApiClient()

@@ -8,6 +8,7 @@ import {
   matchesSearch,
   needsRedescribeConfirm,
   reconcileStatusLine,
+  redescribeAllScope,
   relativeTime,
   sourceLabel,
   sourceTone,
@@ -166,6 +167,18 @@ describe('reconcileStatusLine', () => {
     )
   })
 
+  it('summarises a re-describe-all run without the synced count', () => {
+    expect(
+      reconcileStatusLine(
+        {
+          running: false,
+          last: { ...last, trigger: 'redescribe-all', synced: 0, described: 9 },
+        },
+        now,
+      ),
+    ).toBe('Last re-describe all 3 min ago · 9 described · 0 failed')
+  })
+
   it('labels the trigger', () => {
     const line = (trigger: typeof last.trigger) =>
       reconcileStatusLine({ running: false, last: { ...last, trigger } }, now)
@@ -183,13 +196,13 @@ describe('reconcileStatusLine', () => {
   it('does not claim a run that started after ours finished', () => {
     const startedAt = new Date('2026-10-14T11:50:00.000Z')
     expect(reconcileStatusLine({ running: true, last }, now, startedAt)).toBe(
-      'Reconcile running…',
+      'Run in progress…',
     )
   })
 
   it('shows a run started elsewhere', () => {
     expect(reconcileStatusLine({ running: true, last: null }, now)).toBe(
-      'Reconcile running…',
+      'Run in progress…',
     )
   })
 })
@@ -226,6 +239,16 @@ describe('canSaveDescription', () => {
   it('accepts a changed draft, including for a pending row', () => {
     expect(canSaveDescription('new', 'old')).toBe(true)
     expect(canSaveDescription('new', null)).toBe(true)
+  })
+})
+
+describe('redescribeAllScope', () => {
+  it('counts live rows and the hand-written ones among them', () => {
+    expect(redescribeAllScope(all)).toEqual({ total: 3, manual: 1 })
+  })
+
+  it('is empty for no emojis', () => {
+    expect(redescribeAllScope([])).toEqual({ total: 0, manual: 0 })
   })
 })
 

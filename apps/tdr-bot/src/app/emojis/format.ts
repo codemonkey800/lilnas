@@ -26,6 +26,7 @@ const TRIGGER_LABELS: Record<ReconcileTrigger, string> = {
   cron: 'nightly',
   admin: 'manual',
   event: 'gateway event',
+  'redescribe-all': 're-describe all',
 }
 
 /** Pending rows have no description yet; deleted rows never get one. */
@@ -110,10 +111,19 @@ export function reconcileStatusLine(
       (!last || new Date(last.finishedAt).getTime() < startedAt.getTime())
     return ours
       ? `Started ${relativeTime(startedAt.toISOString(), now)} (manual)`
-      : 'Reconcile running…'
+      : 'Run in progress…'
   }
 
   if (!last) return 'No reconcile has run yet'
+
+  // A re-describe-all run syncs nothing, so skip that count.
+  if (last.trigger === 'redescribe-all') {
+    return [
+      `Last re-describe all ${relativeTime(last.finishedAt, now)}`,
+      `${last.described} described`,
+      `${last.failed} failed`,
+    ].join(' · ')
+  }
 
   return [
     `Last reconcile ${relativeTime(last.finishedAt, now)} (${TRIGGER_LABELS[last.trigger]})`,
@@ -121,6 +131,18 @@ export function reconcileStatusLine(
     `${last.described} described`,
     `${last.failed} failed`,
   ].join(' · ')
+}
+
+/** What a re-describe-all would touch: every live emoji, hand-written ones included. */
+export function redescribeAllScope(emojis: EmojiView[]): {
+  total: number
+  manual: number
+} {
+  const live = emojis.filter(e => e.deletedAt === null)
+  return {
+    total: live.length,
+    manual: live.filter(e => e.source === 'manual').length,
+  }
 }
 
 /** "Oct 14, 9:02 AM"; an em dash when there is no time. */

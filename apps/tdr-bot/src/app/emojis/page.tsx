@@ -26,8 +26,10 @@ import {
   FILTERS,
   needsRedescribeConfirm,
   reconcileStatusLine,
+  redescribeAllScope,
   visibleEmojis,
 } from './format'
+import { RedescribeAllDialog } from './RedescribeAllDialog'
 import { RedescribeDialog } from './RedescribeDialog'
 
 export default function EmojisPage() {
@@ -35,6 +37,7 @@ export default function EmojisPage() {
   const [text, setText] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [confirming, setConfirming] = useState<EmojiView | null>(null)
+  const [confirmingAll, setConfirmingAll] = useState(false)
   const [startedAt, setStartedAt] = useState<Date | null>(null)
 
   const list = useEmojis()
@@ -43,13 +46,14 @@ export default function EmojisPage() {
 
   const emojis = useMemo(() => list.data?.emojis ?? [], [list.data])
   const counts = useMemo(() => filterCounts(emojis), [emojis])
+  const scope = useMemo(() => redescribeAllScope(emojis), [emojis])
   const visible = useMemo(
     () => visibleEmojis(emojis, filter, text),
     [emojis, filter, text],
   )
 
-  // The POST is pending until the refetch it triggers lands, so the button
-  // stays busy until the poll takes over and reports the run finished.
+  // The POST is pending until the refetch it triggers lands, so the buttons
+  // stay busy until the poll takes over and reports the run finished.
   const running = reconcile.isPending || !!list.data?.reconcile.running
   const now = new Date()
 
@@ -69,6 +73,16 @@ export default function EmojisPage() {
     }
     redescribe.mutate(emoji.id)
   }
+
+  const redescribeAllButton = (
+    <Button
+      variant="outlined"
+      disabled={running || scope.total === 0}
+      onClick={() => setConfirmingAll(true)}
+    >
+      Re-describe all
+    </Button>
+  )
 
   const reconcileButton = (
     <Button
@@ -135,7 +149,14 @@ export default function EmojisPage() {
           sx={{ width: 256 }}
         />
         <Box sx={{ ml: 'auto', textAlign: 'right' }}>
-          {reconcileButton}
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{ justifyContent: 'flex-end' }}
+          >
+            {redescribeAllButton}
+            {reconcileButton}
+          </Stack>
           {list.data && (
             <Typography
               variant="caption"
@@ -233,6 +254,13 @@ export default function EmojisPage() {
       <RedescribeDialog
         emoji={confirming}
         onClose={() => setConfirming(null)}
+      />
+      <RedescribeAllDialog
+        open={confirmingAll}
+        total={scope.total}
+        manual={scope.manual}
+        onClose={() => setConfirmingAll(false)}
+        onStarted={() => setStartedAt(new Date())}
       />
     </Box>
   )

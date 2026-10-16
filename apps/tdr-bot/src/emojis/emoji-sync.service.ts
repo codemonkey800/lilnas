@@ -5,10 +5,12 @@ import { Client, type GuildEmoji } from 'discord.js'
 
 import { EmojiRow } from 'src/db/schema'
 import {
+  EMOJI_BATCH_SIZE,
   EMOJI_DESCRIBE_CONCURRENCY,
   EMOJI_EXAMPLE_COUNT,
 } from 'src/emojis/emoji.constants'
 import {
+  DescribeResult,
   EmojiDescriberService,
   EmojiExample,
 } from 'src/emojis/emoji-describer.service'
@@ -19,16 +21,21 @@ import {
 import { EmojiDictionaryService } from 'src/emojis/emoji-dictionary.service'
 import { seedDescriptions } from 'src/emojis/emoji-seed'
 
-export type ReconcileTrigger = 'boot' | 'cron' | 'admin' | 'event'
+export type ReconcileTrigger =
+  | 'boot'
+  | 'cron'
+  | 'admin'
+  | 'event'
+  | 'redescribe-all'
 
 export interface ReconcileSummary {
   trigger: ReconcileTrigger
-  /** Emojis upserted in phase 1. */
+  /** Emojis upserted in phase 1 (0 for a re-describe-all run). */
   synced: number
   softDeleted: number
   /** Filled from the old static dictionary. */
   seeded: number
-  /** Filled by the LLM. */
+  /** Filled (or, for a re-describe-all run, rewritten) by the LLM. */
   described: number
   failed: number
   durationMs: number
@@ -79,6 +86,14 @@ async function runPool<T>(
   )
 }
 
+function chunk<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = []
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size))
+  }
+  return chunks
+}
+
 function toExample(row: EmojiRow): EmojiExample | null {
   if (row.description === null) return null
   return {
@@ -113,12 +128,25 @@ export class EmojiSyncService {
    * returns that run's promise instead of starting another.
    */
   reconcile(trigger: ReconcileTrigger): Promise<ReconcileSummary> {
+    return this.start(() => this.runReconcile(trigger))
+  }
+
+  /**
+   * Rewrites every live description with the LLM, hand-written ones
+   * included, a batch of emojis per call. Shares the one-run-at-a-time
+   * guard with `reconcile`.
+   */
+  redescribeAll(): Promise<ReconcileSummary> {
+    return this.start(() => this.runRedescribeAll())
+  }
+
+  private start(
+    work: () => Promise<ReconcileSummary>,
+  ): Promise<ReconcileSummary> {
     if (this.current) return this.current
-    const run = this.mutex
-      .runExclusive(() => this.runReconcile(trigger))
-      .finally(() => {
-        this.current = null
-      })
+    const run = this.mutex.runExclusive(work).finally(() => {
+      this.current = null
+    })
     this.current = run
     return run
   }
@@ -181,29 +209,32 @@ export class EmojiSyncService {
     return { running: this.current !== null, last: this.last }
   }
 
+  private finish(
+    trigger: ReconcileTrigger,
+    startedAt: number,
+    counts: Omit<ReconcileSummary, 'trigger' | 'durationMs' | 'finishedAt'>,
+  ): ReconcileSummary {
+    const summary = {
+      trigger,
+      ...counts,
+      durationMs: Date.now() - startedAt,
+      finishedAt: new Date().toISOString(),
+    }
+    this.last = summary
+    return summary
+  }
+
   private async runReconcile(
     trigger: ReconcileTrigger,
   ): Promise<ReconcileSummary> {
     const startedAt = Date.now()
-    const finish = (
-      counts: Omit<ReconcileSummary, 'trigger' | 'durationMs' | 'finishedAt'>,
-    ): ReconcileSummary => {
-      const summary = {
-        trigger,
-        ...counts,
-        durationMs: Date.now() - startedAt,
-        finishedAt: new Date().toISOString(),
-      }
-      this.last = summary
-      return summary
-    }
 
     if (!this.client.isReady()) {
       this.logger.warn(
         { trigger },
         'Discord client not ready; skipping reconcile',
       )
-      return finish({
+      return this.finish(trigger, startedAt, {
         synced: 0,
         softDeleted: 0,
         seeded: 0,
@@ -214,9 +245,102 @@ export class EmojiSyncService {
 
     const { synced, softDeleted } = await this.syncAll()
     const counts = await this.describePending()
-    const summary = finish({ synced, softDeleted, ...counts })
+    const summary = this.finish(trigger, startedAt, {
+      synced,
+      softDeleted,
+      ...counts,
+    })
     this.logger.log({ ...summary }, 'emoji.reconcile')
     return summary
+  }
+
+  private async runRedescribeAll(): Promise<ReconcileSummary> {
+    const startedAt = Date.now()
+    const rows = (await this.repo.listAll()).filter(row => !row.deletedAt)
+    // Snapshot the style examples first: the run overwrites the manual
+    // descriptions they come from.
+    const examples = await this.loadExamples()
+    let described = 0
+    let failed = 0
+
+    await runPool(
+      chunk(rows, EMOJI_BATCH_SIZE),
+      EMOJI_DESCRIBE_CONCURRENCY,
+      async batch => {
+        const results = await this.describeBatchWithFallback(batch, examples)
+        for (const row of batch) {
+          const result = results.get(row.id)
+          if (!result) {
+            failed++
+            continue
+          }
+          try {
+            const updated = await this.repo.setDescription(row.id, {
+              description: result.description,
+              source: 'ai',
+              model: result.model,
+            })
+            if (updated) described++
+          } catch (err) {
+            failed++
+            this.logger.warn(
+              { emojiId: row.id, name: row.name, error: getErrorMessage(err) },
+              'Failed to save re-described emoji',
+            )
+          }
+        }
+      },
+    )
+
+    await this.dictionary.refresh()
+    const summary = this.finish('redescribe-all', startedAt, {
+      synced: 0,
+      softDeleted: 0,
+      seeded: 0,
+      described,
+      failed,
+    })
+    this.logger.log({ ...summary }, 'emoji.redescribe-all')
+    return summary
+  }
+
+  /**
+   * One batched call; any emoji it fails to cover (a skipped entry, or the
+   * whole call erroring on e.g. one dead image URL) is retried on its own,
+   * so a single bad emoji can't sink the batch. Never throws.
+   */
+  private async describeBatchWithFallback(
+    batch: EmojiRow[],
+    examples: EmojiExample[],
+  ): Promise<Map<string, DescribeResult>> {
+    const input = batch.map(row => ({
+      id: row.id,
+      name: row.name,
+      animated: row.animated,
+    }))
+
+    let results = new Map<string, DescribeResult>()
+    try {
+      results = await this.describer.describeBatch(input, examples)
+    } catch (err) {
+      this.logger.warn(
+        { size: batch.length, error: getErrorMessage(err) },
+        'Batched emoji describe failed; retrying one by one',
+      )
+    }
+
+    for (const emoji of input) {
+      if (results.has(emoji.id)) continue
+      try {
+        results.set(emoji.id, await this.describer.describe(emoji, examples))
+      } catch (err) {
+        this.logger.warn(
+          { emojiId: emoji.id, name: emoji.name, error: getErrorMessage(err) },
+          'Failed to describe emoji',
+        )
+      }
+    }
+    return results
   }
 
   /** Phase 1: mirror every available guild's emojis into the table. */

@@ -80,6 +80,10 @@ class FakeRepo {
       .slice(0, limit)
   }
 
+  async listAll(): Promise<EmojiRow[]> {
+    return [...this.rows.values()]
+  }
+
   async get(id: string): Promise<EmojiRow | undefined> {
     return this.rows.get(id)
   }
@@ -163,6 +167,18 @@ function setup(guilds: FakeGuild[] = [], ready = true) {
     description: `AI says ${input.name}`,
     model: 'gpt-6-luna',
   }))
+  const describeBatch = jest.fn<
+    Promise<Map<string, DescribeResult>>,
+    [DescribeInput[], EmojiExample[]]
+  >(
+    async inputs =>
+      new Map(
+        inputs.map(input => [
+          input.id,
+          { description: `Batch says ${input.name}`, model: 'gpt-6-luna' },
+        ]),
+      ),
+  )
   const client = {
     isReady: () => ready,
     guilds: { cache: new Map(guilds.map(g => [g.id, g])) },
@@ -170,10 +186,13 @@ function setup(guilds: FakeGuild[] = [], ready = true) {
   const service = new EmojiSyncService(
     client as unknown as Client,
     repo as unknown as EmojiDictionaryRepository,
-    { describe: describeEmoji } as unknown as EmojiDescriberService,
+    {
+      describe: describeEmoji,
+      describeBatch,
+    } as unknown as EmojiDescriberService,
     dictionary as unknown as EmojiDictionaryService,
   )
-  return { repo, dictionary, describeEmoji, client, service }
+  return { repo, dictionary, describeEmoji, describeBatch, client, service }
 }
 
 describe('EmojiSyncService.reconcile', () => {
@@ -466,6 +485,127 @@ describe('EmojiSyncService.redescribe', () => {
 
     await expect(service.redescribe('1')).rejects.toThrow('llm down')
     expect(repo.rows.get('1')?.description).toBeNull()
+  })
+})
+
+describe('EmojiSyncService.redescribeAll', () => {
+  function seedMany(repo: FakeRepo, count: number) {
+    for (let i = 1; i <= count; i++) {
+      repo.seed({
+        id: String(i),
+        name: `e${i}`,
+        description: `old ${i}`,
+        source: i % 2 ? 'manual' : 'ai',
+      })
+    }
+  }
+
+  it('rewrites every live description, hand-written ones included, in batches', async () => {
+    const { repo, describeBatch, describeEmoji, dictionary, service } = setup()
+    seedMany(repo, 45)
+    repo.seed({ id: 'gone', description: 'keep me', deletedAt: new Date() })
+
+    const summary = await service.redescribeAll()
+
+    expect(describeBatch.mock.calls.map(([batch]) => batch.length)).toEqual([
+      20, 20, 5,
+    ])
+    expect(describeEmoji).not.toHaveBeenCalled()
+    expect(summary).toMatchObject({
+      trigger: 'redescribe-all',
+      described: 45,
+      failed: 0,
+    })
+    expect(repo.rows.get('1')).toMatchObject({
+      description: 'Batch says e1',
+      source: 'ai',
+      model: 'gpt-6-luna',
+    })
+    expect(repo.rows.get('gone')?.description).toBe('keep me')
+    expect(dictionary.refresh).toHaveBeenCalled()
+    expect(service.status().last).toBe(summary)
+  })
+
+  it('uses the manual descriptions as examples, as they were before the run', async () => {
+    const { repo, describeBatch, service } = setup()
+    seedMany(repo, 3)
+
+    await service.redescribeAll()
+
+    expect(describeBatch.mock.calls[0][1]).toEqual([
+      { name: 'e1', animated: false, description: 'old 1' },
+      { name: 'e3', animated: false, description: 'old 3' },
+    ])
+  })
+
+  it('retries emojis the batch skipped one by one', async () => {
+    const { repo, describeBatch, describeEmoji, service } = setup()
+    seedMany(repo, 3)
+    describeBatch.mockImplementation(
+      async inputs =>
+        new Map(
+          inputs
+            .filter(input => input.id !== '2')
+            .map(input => [
+              input.id,
+              { description: 'batched', model: 'gpt-6-luna' },
+            ]),
+        ),
+    )
+
+    const summary = await service.redescribeAll()
+
+    expect(describeEmoji).toHaveBeenCalledTimes(1)
+    expect(describeEmoji.mock.calls[0][0]).toMatchObject({ id: '2' })
+    expect(summary).toMatchObject({ described: 3, failed: 0 })
+    expect(repo.rows.get('2')?.description).toBe('AI says e2')
+    expect(repo.rows.get('1')?.description).toBe('batched')
+  })
+
+  it('falls back to one-by-one when the whole batch call fails', async () => {
+    const { repo, describeBatch, describeEmoji, service } = setup()
+    seedMany(repo, 3)
+    describeBatch.mockRejectedValue(new Error('bad image'))
+    describeEmoji.mockImplementation(async input => {
+      if (input.id === '2') throw new Error('still bad')
+      return { description: `solo ${input.id}`, model: 'gpt-6-luna' }
+    })
+
+    const summary = await service.redescribeAll()
+
+    expect(summary).toMatchObject({ described: 2, failed: 1 })
+    expect(repo.rows.get('1')?.description).toBe('solo 1')
+    expect(repo.rows.get('2')?.description).toBe('old 2')
+  })
+
+  it('shares the one-run guard with reconcile', async () => {
+    const { repo, describeBatch, service } = setup()
+    seedMany(repo, 1)
+    const gate = deferred()
+    describeBatch.mockImplementation(async inputs => {
+      await gate.promise
+      return new Map(
+        inputs.map(i => [i.id, { description: 'x', model: 'gpt-6-luna' }]),
+      )
+    })
+
+    const first = service.redescribeAll()
+    expect(service.status().running).toBe(true)
+    expect(service.reconcile('admin')).toBe(first)
+    expect(service.redescribeAll()).toBe(first)
+    gate.resolve()
+    await first
+
+    expect(describeBatch).toHaveBeenCalledTimes(1)
+  })
+
+  it('does nothing when there are no live emojis', async () => {
+    const { describeBatch, service } = setup()
+
+    const summary = await service.redescribeAll()
+
+    expect(describeBatch).not.toHaveBeenCalled()
+    expect(summary).toMatchObject({ described: 0, failed: 0 })
   })
 })
 

@@ -49,6 +49,7 @@ describe('EmojisController', () => {
     status: jest.fn(),
     reconcile: jest.fn(),
     redescribe: jest.fn(),
+    redescribeAll: jest.fn(),
   }
 
   const send = (method: string, path: string, body?: unknown) =>
@@ -267,6 +268,39 @@ describe('EmojisController', () => {
       expect(res.status).toBe(202)
       expect(await res.json()).toEqual({ started: false })
       expect(sync.reconcile).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('POST /emojis/redescribe-all', () => {
+    it('starts a run when idle', async () => {
+      sync.redescribeAll.mockResolvedValue({
+        ...summary,
+        trigger: 'redescribe-all',
+      })
+
+      const res = await send('POST', '/emojis/redescribe-all')
+
+      expect(res.status).toBe(202)
+      expect(await res.json()).toEqual({ started: true })
+      expect(sync.redescribeAll).toHaveBeenCalledTimes(1)
+    })
+
+    it('still answers when the background run rejects', async () => {
+      sync.redescribeAll.mockRejectedValue(new Error('boom'))
+
+      const res = await send('POST', '/emojis/redescribe-all')
+
+      expect(res.status).toBe(202)
+      expect(await res.json()).toEqual({ started: true })
+    })
+
+    it('does not start another run while one is running', async () => {
+      sync.status.mockReturnValue({ running: true, last: null })
+
+      const res = await send('POST', '/emojis/redescribe-all')
+
+      expect(await res.json()).toEqual({ started: false })
+      expect(sync.redescribeAll).not.toHaveBeenCalled()
     })
   })
 })
