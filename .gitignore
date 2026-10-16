@@ -38,6 +38,7 @@ k8s/charts/*/charts/*.tgz
 # Agent/browser-automation scratch dirs (created and removed mid-run;
 # watching them races the delete and breaks live file watching)
 .playwright-mcp/
+.playwright-cli/
 
 # raw responses from the download backend verification sweep
 # (apps/download/scripts/verify) — these hold real requester emails and the
