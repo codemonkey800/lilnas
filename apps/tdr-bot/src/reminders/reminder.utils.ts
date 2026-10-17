@@ -14,28 +14,52 @@ export function sanitizeReminderForPrompt(input: string): string {
     .slice(0, MAX_REMINDER_WHAT_LENGTH)
 }
 
+/** IDs of everyone a reminder tags; the creator when none. */
+function mentionIds(
+  reminder: Pick<Reminder, 'userId' | 'targetUserIds'>,
+): string[] {
+  return reminder.targetUserIds.length
+    ? reminder.targetUserIds
+    : [reminder.userId]
+}
+
 /** Discord mentions for everyone a reminder tags; the creator when none. */
 export function mentionsFor(
   reminder: Pick<Reminder, 'userId' | 'targetUserIds'>,
 ): string {
-  const ids = reminder.targetUserIds.length
-    ? reminder.targetUserIds
-    : [reminder.userId]
-  return ids.map(id => `<@${id}>`).join(' ')
+  return mentionIds(reminder)
+    .map(id => `<@${id}>`)
+    .join(' ')
 }
 
 /**
- * Prefixes `content` with any of the reminder's mentions the model left out,
- * so every tagged user is pinged no matter what the model wrote.
+ * Rewrites the malformed mentions models write for the reminder's users
+ * (bare `@id`, `<@!id>`) to `<@id>`, which Discord renders as a ping.
+ */
+function normalizeMentions(ids: string[], content: string): string {
+  return ids.reduce((text, id) => {
+    const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return text.replace(
+      new RegExp(`<@!${escaped}>|(?<!<)@${escaped}(?![\\w-])`, 'g'),
+      `<@${id}>`,
+    )
+  }, content)
+}
+
+/**
+ * Fixes malformed mentions, then prefixes `content` with any of the
+ * reminder's mentions the model left out, so every tagged user is pinged
+ * no matter what the model wrote.
  */
 export function withMentions(
   reminder: Pick<Reminder, 'userId' | 'targetUserIds'>,
   content: string,
 ): string {
+  const normalized = normalizeMentions(mentionIds(reminder), content)
   const missing = mentionsFor(reminder)
     .split(' ')
-    .filter(mention => !content.includes(mention))
-  return missing.length ? `${missing.join(' ')} ${content}` : content
+    .filter(mention => !normalized.includes(mention))
+  return missing.length ? `${missing.join(' ')} ${normalized}` : normalized
 }
 
 /**

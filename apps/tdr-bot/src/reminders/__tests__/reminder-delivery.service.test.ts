@@ -723,6 +723,23 @@ describe('ReminderDeliveryService', () => {
       })
     })
 
+    it('rewrites bare @id and <@!id> mentions instead of duplicating them', async () => {
+      const sendFn = jest.fn().mockResolvedValue({})
+      const client = makeDiscordClient([
+        makeMockTextChannel('tdr-bot-chat', sendFn),
+      ])
+      const { factory } = makeLlm('Japan soon! @target-99 <@!target-100>')
+      service = await buildService(client, factory)
+
+      await service.deliver(
+        createTestReminder({ targetUserIds: ['target-99', 'target-100'] }),
+      )
+
+      expect(sendFn).toHaveBeenCalledWith({
+        content: 'Japan soon! <@target-99> <@target-100>',
+      })
+    })
+
     it('leaves the message alone when the model tagged everyone', async () => {
       const sendFn = jest.fn().mockResolvedValue({})
       const client = makeDiscordClient([
