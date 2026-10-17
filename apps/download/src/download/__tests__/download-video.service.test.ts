@@ -612,7 +612,34 @@ describe('DownloadVideoService', () => {
           `https://storage.example.com/videos/${JOB_ID}/part1.mp4`,
         ],
         fileInfo: { fps: 30, resolution: '1920x1080', size: 2000 },
+        posterUrl: `https://storage.example.com/videos/${JOB_ID}/poster.jpg`,
       })
+    })
+
+    it('still records the download when the poster frame cannot be grabbed', async () => {
+      process.env.MINIO_PUBLIC_URL = 'https://storage.example.com'
+      mockStat.mockResolvedValue({ size: 1000 })
+      mockProcessExit({ code: 1, stderr: 'ffmpeg: no frames' })
+
+      try {
+        await service.upload(options)
+      } finally {
+        delete process.env.MINIO_PUBLIC_URL
+      }
+
+      expect(updateVideo).toHaveBeenCalledWith(
+        JOB_ID,
+        expect.not.objectContaining({ posterUrl: expect.anything() }),
+      )
+      expect(updateVideo).toHaveBeenCalledWith(
+        JOB_ID,
+        expect.objectContaining({
+          downloadUrls: [
+            `https://storage.example.com/videos/${JOB_ID}/part0.mp4`,
+          ],
+        }),
+      )
+      expect(warnSpy).toHaveBeenCalled()
     })
   })
 

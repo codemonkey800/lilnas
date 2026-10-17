@@ -88,9 +88,9 @@ export type DetailHeaderProps = Omit<
  * actions. Every slot is optional, so a page renders the subset it has.
  *
  * ⚠️ A video passes no poster label, exactly as `GalleryItemCard` does and for
- * the same reason: the backend never populates `posterUrl` for a video, so
- * every video poster falls through to the gradient, where a centred label and
- * the centred play mark paint on top of each other.
+ * the same reason: a video fetched before poster frames were grabbed, or
+ * whose grab failed, has no `posterUrl` and falls through to the gradient,
+ * where a centred label and the centred play mark paint on top of each other.
  */
 export function DetailHeader({
   actions,

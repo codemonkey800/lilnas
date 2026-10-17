@@ -110,8 +110,8 @@ export type GalleryItemCardProps = {
  * string this card has nowhere to put anyway.
  *
  * ⚠️ A video passes no poster `label`, exactly as the mixin does, and that is
- * load-bearing rather than cosmetic: the backend never populates `posterUrl`
- * for a video, so every video tile falls through to the gradient, and a
+ * load-bearing rather than cosmetic: a video with no grabbed frame (see
+ * `DownloadVideoService.uploadPoster`) falls through to the gradient, and a
  * centred label plus the centred play mark render *on top of each other*. The
  * play mark is the video's stand-in for a poster; the title is already the
  * line directly underneath it.

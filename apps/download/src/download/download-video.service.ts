@@ -38,6 +38,9 @@ type JobLogger = (
 const VIDEO_DIR = '/download/videos'
 const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.webm']
 const MAX_STDERR_BUFFER_CHARS = 8000
+const POSTER_FILE = 'poster.jpg'
+/** Twice the gallery's 158px column, so the tile stays sharp on a 2x screen. */
+const POSTER_WIDTH = 480
 
 async function getVideoFiles(path: string) {
   const dir = `${VIDEO_DIR}/${path}`
@@ -528,13 +531,76 @@ export class DownloadVideoService {
     // Merged into what the metadata step recorded, since the patch replaces
     // the whole column.
     const { fileInfo } = this.downloadStateService.requireVideo(job.mediaId)
+    const posterUrl = await this.uploadPoster(options, files[0]!, log)
 
     log('log', { ...options, downloadUrls }, 'Updating job with download URLs')
 
     this.downloadStateService.updateVideo(job.id, {
       downloadUrls,
       fileInfo: { ...fileInfo, ...(size > 0 ? { size } : {}) },
+      ...(posterUrl ? { posterUrl } : {}),
     })
+  }
+
+  /**
+   * Grabs one representative frame of the rendered file and stores it beside
+   * the video, as the video's `posterUrl`. yt-dlp's own `thumbnail` URL is no
+   * use here: Instagram's and TikTok's are signed CDN links that expire within
+   * days, so a gallery built on them would go blank again a week later.
+   *
+   * ffmpeg's `thumbnail` filter picks the most typical frame of the first
+   * batch rather than frame zero, which is often black or a fade-in. Never
+   * fatal - a video with no poster still has its gradient stand-in.
+   */
+  private async uploadPoster(
+    options: DownloadStepOptions,
+    file: string,
+    log: JobLogger,
+  ): Promise<string | undefined> {
+    const { job } = options
+    const poster = `${VIDEO_DIR}/${job.id}/${POSTER_FILE}`
+
+    try {
+      const { promise } = await this.runProcess({
+        args: [
+          '-y',
+          '-i',
+          file,
+          '-vf',
+          `thumbnail,scale=${POSTER_WIDTH}:-2`,
+          '-frames:v',
+          '1',
+          '-q:v',
+          '3',
+          poster,
+        ],
+        bin: '/usr/bin/ffmpeg',
+        logFile: `${job.id}/poster.log`,
+      })
+      const { code, stderrTail } = await promise
+
+      if (code !== 0) {
+        throw new Error(stderrTail || `ffmpeg exited with code ${code}`)
+      }
+
+      const key = `${job.id}/${POSTER_FILE}`
+      await this.minioClient.fPutObject('videos', key, poster, {
+        'Content-Type': 'image/jpeg',
+      })
+
+      return `${env(EnvKeys.MINIO_PUBLIC_URL)}/videos/${key}`
+    } catch (err) {
+      log(
+        'warn',
+        { ...options, error: getErrorMessage(err) },
+        'Poster extraction failed, continuing without one',
+      )
+
+      return undefined
+    } finally {
+      // `fs-extra`'s `remove` is a no-op for a file ffmpeg never wrote.
+      await remove(poster)
+    }
   }
 
   async clean(options: DownloadStepOptions) {
