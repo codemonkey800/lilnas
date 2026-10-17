@@ -126,7 +126,11 @@ docker compose config -q || die "docker compose config failed; nothing deployed"
 # 3. Apply.
 touched=()
 if [[ "$full" == 1 ]]; then
-  run docker compose pull --ignore-buildable
+  # No --ignore-buildable: every locally built service keeps a `build:` next
+  # to its ghcr.io `image:`, and that flag would skip exactly the images CI
+  # just pushed. A buildable image that fails to pull fails the deploy rather
+  # than leaving the stale local :latest running.
+  run docker compose pull
   run docker compose up -d
 else
   if [[ ${#pull_services[@]} -gt 0 ]]; then

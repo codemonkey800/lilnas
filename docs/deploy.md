@@ -251,7 +251,8 @@ or `deploy --help`; anything else exits 2. It fetches, checks the sha is on an
 `origin/*` ref, checks it out detached, and runs a temp copy of
 `scripts/deploy/lilnas-deploy.sh`, which decrypts (when asked, under `--full`,
 or when any `.decrypted` sibling is missing), runs `docker compose config -q`,
-then pulls / ups / force-recreates, prunes dangling images and prints
+then pulls / ups / force-recreates (`--full` runs a plain `docker compose pull`,
+so the locally built `lilnas-*` images are pulled too), prunes dangling images and prints
 `docker compose ps`. Both log to syslog under `lilnas-deploy-entry` /
 `lilnas-deploy`.
 
