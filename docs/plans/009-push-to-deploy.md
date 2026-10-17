@@ -398,3 +398,8 @@ I checked compose's behaviour in a throwaway project: plain pull does pull image
 I couldn't run an end-to-end --dry-run --full in the worktree: --full always decrypts, and the worktree has no .env.keys.
 docs/deploy.md host-setup paragraph now says --full pulls the lilnas-* images too.
 All plan checks pass.
+
+### 2026-10-17 · Phase 1 · review cycle 2
+Remediation diff fixes F1, F4 and F11 as described: tdr-code no longer loads the gitignored .env and the entrypoint honours the pinned LOCAL_PORT; decrypt temp files end in .decrypted and are covered by the ignore rules (verified with git check-ignore and a new test); --full now runs a plain docker compose pull and every build: service has a ghcr.io image to pull. No new defects in the remediation diff; only a stale comment in infra/local-proxy/entrypoint.sh line 4.
+
+Earlier findings: F1 fixed, F4 fixed, F11 fixed.
