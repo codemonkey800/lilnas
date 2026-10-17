@@ -19,7 +19,7 @@ jest.mock('src/app/lib/auth-client', () => ({
   signOut: jest.fn().mockResolvedValue(undefined),
 }))
 
-const REDIRECT_URL = 'https://swole.lilnas.io/dashboard'
+const REDIRECT_URL = 'https://dashcam.lilnas.io/dashboard'
 const IDENTITY = {
   name: 'Taylor Quinn',
   email: 'taylor.quinn@example.com',
@@ -40,7 +40,7 @@ describe('BlockedClient — static render', () => {
   it('renders the blocked heading, identity, target pill, and both action buttons', () => {
     render(
       <BlockedClient
-        serviceHost="swole.lilnas.io"
+        serviceHost="dashcam.lilnas.io"
         redirectUrl={REDIRECT_URL}
         identity={IDENTITY}
       />,
@@ -49,7 +49,7 @@ describe('BlockedClient — static render', () => {
     expect(screen.getByText('Access blocked')).toBeInTheDocument()
     expect(screen.getByText(IDENTITY.name)).toBeInTheDocument()
     expect(screen.getByText(IDENTITY.email)).toBeInTheDocument()
-    expect(screen.getByText('swole.lilnas.io')).toBeInTheDocument()
+    expect(screen.getByText('dashcam.lilnas.io')).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: /check again/i }),
     ).toBeInTheDocument()
@@ -61,7 +61,7 @@ describe('BlockedClient — static render', () => {
   it('never renders any text hinting at the pending or rejected outcomes', () => {
     render(
       <BlockedClient
-        serviceHost="swole.lilnas.io"
+        serviceHost="dashcam.lilnas.io"
         redirectUrl={REDIRECT_URL}
         identity={IDENTITY}
       />,
@@ -80,7 +80,7 @@ describe('BlockedClient — "Check again"', () => {
 
     render(
       <BlockedClient
-        serviceHost="swole.lilnas.io"
+        serviceHost="dashcam.lilnas.io"
         redirectUrl={REDIRECT_URL}
         identity={IDENTITY}
       />,
@@ -112,7 +112,7 @@ describe('BlockedClient — "Check again"', () => {
     mockCheckRequestStatus.mockResolvedValueOnce({ outcome: 'pending' })
     render(
       <BlockedClient
-        serviceHost="swole.lilnas.io"
+        serviceHost="dashcam.lilnas.io"
         redirectUrl={REDIRECT_URL}
         identity={IDENTITY}
       />,
@@ -147,7 +147,7 @@ describe('BlockedClient — "Check again"', () => {
     mockCheckRequestStatus.mockRejectedValueOnce(new Error('network error'))
     render(
       <BlockedClient
-        serviceHost="swole.lilnas.io"
+        serviceHost="dashcam.lilnas.io"
         redirectUrl={REDIRECT_URL}
         identity={IDENTITY}
       />,

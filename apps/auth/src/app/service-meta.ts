@@ -77,11 +77,6 @@ export const SERVICE_META: Record<string, ServiceMeta> = {
     description: 'LaTeX equation rendering',
     icon: 'monitor',
   },
-  'swole.lilnas.io': {
-    name: 'Swole',
-    description: 'Workout tracker',
-    icon: 'chart',
-  },
   'tdr.lilnas.io': {
     name: 'TDR Bot',
     description: 'Discord bot & admin',

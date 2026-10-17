@@ -73,7 +73,6 @@ services:
       - ../../apps/equations/deploy.yml:/repo/apps/equations/deploy.yml:ro
       - ../../apps/me-token-tracker/deploy.yml:/repo/apps/me-token-tracker/deploy.yml:ro
       - ../../apps/portal/deploy.yml:/repo/apps/portal/deploy.yml:ro
-      - ../../apps/swole/deploy.yml:/repo/apps/swole/deploy.yml:ro
       - ../../apps/tdr-bot/deploy.yml:/repo/apps/tdr-bot/deploy.yml:ro
       - ../../apps/tdr-code/deploy.yml:/repo/apps/tdr-code/deploy.yml:ro
       - ../../apps/theater/deploy.yml:/repo/apps/theater/deploy.yml:ro

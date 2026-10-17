@@ -55,7 +55,7 @@ jest.mock('src/app/lib/auth-client', () => ({
   signOut: jest.fn().mockResolvedValue(undefined),
 }))
 
-const REDIRECT_URL = 'https://swole.lilnas.io/dashboard'
+const REDIRECT_URL = 'https://dashcam.lilnas.io/dashboard'
 const IDENTITY = {
   name: 'Taylor Quinn',
   email: 'taylor.quinn@example.com',
@@ -85,7 +85,7 @@ describe('PendingClient — static render (R7)', () => {
   it('renders the waiting heading, identity, target pill, and both action buttons', () => {
     render(
       <PendingClient
-        serviceHost="swole.lilnas.io"
+        serviceHost="dashcam.lilnas.io"
         redirectUrl={REDIRECT_URL}
         identity={IDENTITY}
         requestedAt={REQUESTED_AT}
@@ -96,7 +96,7 @@ describe('PendingClient — static render (R7)', () => {
     expect(screen.getByText('Waiting for approval')).toBeInTheDocument()
     expect(screen.getByText(IDENTITY.name)).toBeInTheDocument()
     expect(screen.getByText(IDENTITY.email)).toBeInTheDocument()
-    expect(screen.getByText('swole.lilnas.io')).toBeInTheDocument()
+    expect(screen.getByText('dashcam.lilnas.io')).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: /check again/i }),
     ).toBeInTheDocument()
@@ -108,7 +108,7 @@ describe('PendingClient — static render (R7)', () => {
   it('omits the "Requested" caption when requestedAt is null (the narrow admin-decides-mid-load race)', () => {
     render(
       <PendingClient
-        serviceHost="swole.lilnas.io"
+        serviceHost="dashcam.lilnas.io"
         redirectUrl={REDIRECT_URL}
         identity={IDENTITY}
         requestedAt={null}
@@ -122,7 +122,7 @@ describe('PendingClient — static render (R7)', () => {
   it('never renders any text hinting at rejection or blocking while pending', () => {
     render(
       <PendingClient
-        serviceHost="swole.lilnas.io"
+        serviceHost="dashcam.lilnas.io"
         redirectUrl={REDIRECT_URL}
         identity={IDENTITY}
         requestedAt={REQUESTED_AT}
@@ -150,7 +150,7 @@ describe('PendingClient — rejected render and "Request access again" (rejectio
   it('renders the declined heading, copy, and a "Request access again" button in place of "Check again"', () => {
     render(
       <PendingClient
-        serviceHost="swole.lilnas.io"
+        serviceHost="dashcam.lilnas.io"
         redirectUrl={REDIRECT_URL}
         identity={IDENTITY}
         requestedAt={null}
@@ -174,7 +174,7 @@ describe('PendingClient — rejected render and "Request access again" (rejectio
   it('omits the "Requested" caption while rejected, even if requestedAt is non-null', () => {
     render(
       <PendingClient
-        serviceHost="swole.lilnas.io"
+        serviceHost="dashcam.lilnas.io"
         redirectUrl={REDIRECT_URL}
         identity={IDENTITY}
         requestedAt={REQUESTED_AT}
@@ -188,7 +188,7 @@ describe('PendingClient — rejected render and "Request access again" (rejectio
   it('clicking "Request access again" submits a fresh request and returns to the waiting state with a "Requested" caption', async () => {
     render(
       <PendingClient
-        serviceHost="swole.lilnas.io"
+        serviceHost="dashcam.lilnas.io"
         redirectUrl={REDIRECT_URL}
         identity={IDENTITY}
         requestedAt={null}
@@ -227,7 +227,7 @@ describe('PendingClient — SSE-driven redirect (R9, AE3)', () => {
 
     render(
       <PendingClient
-        serviceHost="swole.lilnas.io"
+        serviceHost="dashcam.lilnas.io"
         redirectUrl={REDIRECT_URL}
         identity={IDENTITY}
         requestedAt={REQUESTED_AT}
@@ -237,7 +237,7 @@ describe('PendingClient — SSE-driven redirect (R9, AE3)', () => {
 
     const source = FakeEventSource.instances[0]
     expect(source).toBeDefined()
-    expect(source?.url).toBe('/api/sse/pending?host=swole.lilnas.io')
+    expect(source?.url).toBe('/api/sse/pending?host=dashcam.lilnas.io')
     expect(consoleErrorSpy).not.toHaveBeenCalled()
 
     mockCheckRequestStatus.mockResolvedValueOnce({ outcome: 'granted' })
@@ -262,7 +262,7 @@ describe('PendingClient — SSE-driven redirect (R9, AE3)', () => {
 
     render(
       <PendingClient
-        serviceHost="swole.lilnas.io"
+        serviceHost="dashcam.lilnas.io"
         redirectUrl={REDIRECT_URL}
         identity={IDENTITY}
         requestedAt={REQUESTED_AT}
@@ -299,7 +299,7 @@ describe('PendingClient — SSE-driven redirect (R9, AE3)', () => {
 
     render(
       <PendingClient
-        serviceHost="swole.lilnas.io"
+        serviceHost="dashcam.lilnas.io"
         redirectUrl={REDIRECT_URL}
         identity={IDENTITY}
         requestedAt={REQUESTED_AT}
@@ -334,7 +334,7 @@ describe('PendingClient — SSE-driven redirect (R9, AE3)', () => {
   it('re-checks status on every SSE "open" event (the reconnect-then-recheck property — a decision made during a dropped connection is still caught)', async () => {
     render(
       <PendingClient
-        serviceHost="swole.lilnas.io"
+        serviceHost="dashcam.lilnas.io"
         redirectUrl={REDIRECT_URL}
         identity={IDENTITY}
         requestedAt={REQUESTED_AT}
@@ -362,7 +362,7 @@ describe('PendingClient — SSE-driven redirect (R9, AE3)', () => {
   it('closes the EventSource connection on unmount', () => {
     const { unmount } = render(
       <PendingClient
-        serviceHost="swole.lilnas.io"
+        serviceHost="dashcam.lilnas.io"
         redirectUrl={REDIRECT_URL}
         identity={IDENTITY}
         requestedAt={REQUESTED_AT}
