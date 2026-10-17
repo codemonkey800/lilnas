@@ -37,12 +37,17 @@ services:
     # Caps a runaway `next dev` to this container's cgroup instead of letting
     # the host OOM-killer pick a production victim.
     mem_limit: 6g
+    # Probes the frontend with a TCP connect (an HTTP GET of `/` SSR'd the page
+    # every 30s and leaked `next dev` memory into an OOM kill on 2026-10-16),
+    # and restarts the container when a dev process dies, since `run-p` keeps
+    # the container up when only `next dev` is SIGKILLed. Shared with
+    # download-dev; see apps/download/scripts/dev-healthcheck.cjs.
+    #
+    # `init: true` is what makes that restart possible: the script signals
+    # PID 1, and only an init like tini (not a bare `/bin/sh`) acts on it.
+    init: true
     healthcheck:
-      test:
-        [
-          'CMD-SHELL',
-          'node -e "require(''http'').get(''http://localhost:8080/'',r=>process.exit(0)).on(''error'',()=>process.exit(1))"',
-        ]
+      test: ['CMD', 'node', '/source/apps/download/scripts/dev-healthcheck.cjs']
       interval: 30s
       timeout: 5s
       retries: 3
@@ -51,6 +56,11 @@ services:
     # Matches the host user so .next/ and .turbo/ written into the bind mount
     # stay owned by jeremy rather than root.
     user: '1000:1001'
+
+    # The healthcheck's failure counter lives here so it resets on every
+    # container start (a plain /tmp would survive a restart).
+    tmpfs:
+      - /data:uid=1000,gid=1001,mode=0770,size=1m
 
     # ⚠️ `lilnas dev` loadEnvFile()s apps/theater/.env with override: true, so
     # the authoritative values have to arrive as that file — hence the
