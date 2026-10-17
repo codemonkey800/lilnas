@@ -539,6 +539,38 @@ phases:
           `infra/.env*` are committed encrypted and compose reads `*.decrypted`; the
           "ssh lilnas.io" note stays. Keep it short and point to `docs/deploy.md`.
           Prettier-clean markdown (`pnpm exec prettier -c CLAUDE.md docs/deploy.md`).
+      - id: T10
+        title: '`secrets verify` tolerates inline comments after an encrypted value'
+        after:
+          - T3
+        files:
+          - packages/cli/
+        model: frontier
+        status: todo
+        body: |-
+          Small robustness fix in `packages/cli/src/utils/secrets.ts`. dotenvx keeps a
+          source line's inline comment when it encrypts, so a committed line can look
+          like `KEY="encrypted:…" # why this exists` or `KEY='encrypted:…' # note`.
+          Today `isFullyEncrypted` (via `parseEnvLines` / `isEncryptedValue`) sees the
+          value `"encrypted:…" # note` and reports the key as PLAINTEXT, so a future
+          hand-edited env line with an inline comment would fail `lilnas secrets verify`
+          after encryption. (The 15 committed files pass today: their only ` #` is the
+          `DOTENV_PUBLIC_KEY … # -fk` line, which is skipped by key name.)
+
+          Change: when a value starts with a quote, strip everything after the matching
+          closing quote if the remainder is whitespace followed by `#…`; an unquoted
+          value keeps dotenv's rule (` #` starts a comment). Apply it in one place so
+          `isFullyEncrypted` and the decrypt-side `encryptedKeysIn` agree. Do not
+          change `stripDotenvxHeader` or anything that writes `.decrypted` files —
+          decrypted output must stay byte-identical to dotenvx's.
+
+          Tests in `src/utils/__tests__/secrets.spec.ts`: `KEY="encrypted:x" # c` ok,
+          `KEY='encrypted:x' # c` ok, `KEY=encrypted:x # c` ok, `KEY="plain" # c`
+          PLAINTEXT, `KEY="encrypted:x"#c` (no space) ok, and a value containing a
+          literal `#` inside the quotes stays as-is. `pnpm --filter @lilnas/cli test`,
+          lint, and type-check pass. Then `pnpm install` (the injected CLI copy must
+          re-sync) and `pnpm lilnas secrets verify` in the worktree still exits 0 for
+          all 15 files.
   - key: '2'
     name: Host, tailnet, GitHub, first deploy
     tasks:
