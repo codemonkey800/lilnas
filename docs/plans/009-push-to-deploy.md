@@ -209,3 +209,34 @@ app Dockerfile will try to pull the GHCR tag — run the script once locally fir
 the GHCR-named tags locally without pushing). `apps/*/deploy.dev.yml` still use `image: lilnas-dev`,
 which the script still produces. CLAUDE.md "Docker Base Images" section still lists the short
 names; left for the docs task.
+
+### 2026-10-17 · T5 · done
+Decisions:
+- pnpm dlx works both from /tmp and from inside the repo (inside only emits a
+  harmless "pnpm field no longer read" warning), so decrypt-env.sh runs dotenvx
+  with cwd=$ROOT and COREPACK_ENABLE_STRICT=0 exported.
+- decrypt-env.sh has an extra `--list [root]` mode that prints the discovered
+  files; lilnas-deploy.sh uses it to detect missing .decrypted siblings so the
+  discovery rule lives in one place. Header strip = lines matching `^#/` plus
+  `^DOTENV_PUBLIC_KEY` (dotenvx 2.38.0 writes `DOTENV_PUBLIC_KEY_PROD="…" # -fk …`).
+  Decrypted values came out byte-identical to the plaintext source.
+- Decrypt success is judged by content (non-empty, no `encrypted:` values
+  remaining), not dotenvx's exit code.
+- lilnas-deploy.sh reads DEPLOY_ROOT/KEYS_FILE from the environment with the
+  /opt/lilnas defaults (the entrypoint passes them explicitly); the entrypoint
+  and installer keep them as hard constants.
+- Entrypoint runs the temp copy as a child (not exec) so an EXIT trap removes
+  the mktemp dir; fd 9 holds the flock for the whole deploy either way.
+  Rejections exit 2, deploy failures exit 1.
+- install-host.sh prints `sudo cat <key> | gh secret set DEPLOY_SSH_KEY -R
+  codemonkey800/lilnas` rather than a bare redirect, since gh auth belongs to
+  jeremy, not root. If the sshd drop-in has no AllowUsers line it warns and
+  skips instead of adding one (adding `AllowUsers deploy` alone would lock
+  jeremy out). The sshd unit on this host is `sshd.service`.
+- Only `--decrypt` with no service flags is allowed and runs decrypt +
+  config -q + image prune only.
+For T6 (workflow): invoke as
+`ssh deploy@lilnas.tail77e8b0.ts.net "deploy <sha> --pull a,b --up c,d --force-recreate e,f"`;
+write scripts/deploy/known_hosts to ~/.ssh/known_hosts. For T7 (docs):
+install-host.sh must be run from a checkout (it copies the entrypoint from
+its own directory).

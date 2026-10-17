@@ -257,7 +257,8 @@ phases:
         files:
           - scripts/deploy/
         model: frontier
-        status: todo
+        status: done
+        commit: 6ce525e7513a3e3e1610f6714beaa823940f856f
         body: |-
           Create `scripts/deploy/` with four files. All bash, `set -euo pipefail`,
           `bash -n` clean, no secrets echoed. Paths and users are constants at the top of
