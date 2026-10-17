@@ -326,3 +326,11 @@ Decisions beyond the spec:
 - The deploy step sparse-checks-out `scripts/deploy` only (for `known_hosts`); SSH output is tee'd into the step summary and the ssh exit status is propagated.
 For T7 docs: dispatch inputs are `dry_run` (default true), `full`, `build_base_images`; required secrets are `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`, `DEPLOY_SSH_KEY`; the `production` environment must exist (or be created on first run); the required status check for branch protection is the `summary` job.
 No docker compose lifecycle commands were run; no env file contents were printed.
+
+### 2026-10-17 · T11 · done
+- The task's "T3 commit must show images: []" expectation cannot hold as written: T3 (98fa2dbe) also changed root `package.json` and `pnpm-lock.yaml`, which the task's own global-build-input rule marks as rebuild-everything (and it says that trade-off is accepted). Verified `images: []` instead on the two genuinely CLI-only commits in range (T4 20e3d2b8, which includes a `packages/cli/package.json` change, and 33e1df24). T3's range correctly yields all 10 images with `full: false`.
+- Utils-only range was synthesized with `git commit-tree` on a temp index (dangling commit, no branch/index/working-tree change) and produced exactly the eight apps with `@lilnas/utils` in `dependencies`.
+- `workspacePackages` is optional on `DetectInputs` (defaults to `readWorkspacePackages(root)`), so existing callers/tests that only pass `root`+`changedFiles` keep working; the command passes it explicitly. `listTestPackages` is unchanged in behaviour and now shares the manifest reader.
+- A `dependencies` entry counts as a workspace dep if its spec starts with `workspace:` OR its name matches another workspace package; dev/peer/optional deps are ignored.
+- CLI flags and JSON shape are unchanged, so T6's workflow needs no edits. `pnpm install` left the lockfile unchanged.
+- No docker compose lifecycle commands were run; no env file contents were printed.

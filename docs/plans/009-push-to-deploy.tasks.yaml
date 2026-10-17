@@ -584,7 +584,8 @@ phases:
         files:
           - packages/cli/
         model: frontier
-        status: todo
+        status: done
+        commit: 7d1075a75b7cd2596c4d6ba284bcefe2c76bbbf8
         body: |-
           Today `lilnas ci detect` rebuilds an app image when `turbo ls --affected`
           lists its package. Every app has `"@lilnas/cli": "workspace:*"` in
