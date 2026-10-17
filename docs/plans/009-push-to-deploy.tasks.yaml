@@ -188,7 +188,8 @@ phases:
         files:
           - packages/cli/
         model: frontier
-        status: todo
+        status: done
+        commit: 20e3d2b8f525e327488b33780ff30c4e0a86970e
         body: |-
           Add `lilnas ci detect --base <sha> --head <sha> [--full] [--json]` (topic
           `ci`, logic in `src/utils/ci-detect.ts`, pure and testable; the command only
