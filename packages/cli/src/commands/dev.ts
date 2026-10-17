@@ -18,7 +18,7 @@ export class Dev extends Command {
 
   static override examples = [
     'cd apps/tdr-bot && <%= config.bin %> dev',
-    'cd apps/swole && pnpm dev',
+    'cd apps/auth && pnpm dev',
   ]
 
   async run(): Promise<void> {

@@ -203,7 +203,6 @@ emby:
 - /storage/app-data/lilnas-auth:/data
 - /storage/app-data/tdr-bot-db:/var/lib/postgresql/data
 - /storage/app-data/tdr-code:/data
-- /storage/app-data/swole:/data
 ```
 
 ## Best Practices

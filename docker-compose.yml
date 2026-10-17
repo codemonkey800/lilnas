@@ -26,7 +26,6 @@ include:
   - ./apps/equations/deploy.yml
   - ./apps/auth/deploy.yml
   - ./apps/me-token-tracker/deploy.yml
-  - ./apps/swole/deploy.yml
   - ./apps/tdr-bot/deploy.yml
   - ./apps/tdr-code/deploy.yml
   - ./apps/theater/deploy.yml

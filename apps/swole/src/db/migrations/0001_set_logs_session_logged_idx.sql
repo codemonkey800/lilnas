@@ -1,1 +1,0 @@
-CREATE INDEX `set_logs_session_logged_idx` ON `set_logs` (`session_id`,`logged_at` DESC,`id` DESC);
