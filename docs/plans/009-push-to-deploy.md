@@ -162,7 +162,7 @@ or `lilnas-dev` project; docs updated where the task says so.
 - dotenvx 2.x: `ext precommit` is deprecated in favour of `dotenvx protect`; T3
   documents whichever 2.38.0 ships working. Private key names derive from the
   filename suffix (`.env.prod` → `DOTENV_PRIVATE_KEY_PROD`, `infra/.env` →
-  `DOTENV_PRIVATE_KEY`, `.env.nexus-code` → `DOTENV_PRIVATE_KEY_NEXUS_CODE`), so
+  `DOTENV_PRIVATE_KEY`, `.env.nexus-code` → `DOTENV_PRIVATE_KEY_NEXUS-CODE` — dotenvx 2.38.0 keeps the hyphen; C1 from T3, T8 and T7 wording fixed), so
   the shared `.env.keys` ends with 10 keys for 15 files.
 - Compose recreates a container when its resolved config changes: adding
   `image:` recreates the ten locally built services on the first deploy no
@@ -181,6 +181,33 @@ or `lilnas-dev` project; docs updated where the task says so.
   `lilnas.tail77e8b0.ts.net ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINksAaSTK1UgrlHjsCJ314oQkerOZquHtik8mKu0nGXv`.
 - The user asked for Fable at high effort for every task: each T task sets
   `model: frontier`; effort is run config (verify with `nexus_run_get`).
+
+- Session history (2026-10-17): H1 (host env prep) and H2 (verify encrypted
+  commit + back up keys) were folded into T8 at Jeremy's request — he wants
+  agents to do anything they can; checkpoints only for sudo, admin consoles,
+  GitHub UI, and the go/no-go on prod. Apply the same bar to any new task.
+- Research already done, don't redo: `pnpm --filter @lilnas/cli run --if-present test`
+  exits 0 at base (no test script yet); `@lilnas/utils` jest = 9 suites/593
+  tests, ~3 s; `rhysd/actionlint:1.7.12` image works via docker; `pnpm dlx
+  @dotenvx/dotenvx@latest` works under system pnpm 11 from `/tmp`; npm latest
+  dotenvx is 2.38.0; root `.dockerignore` lacks `.env*` (T1 adds it); no
+  Dockerfile references an env file; `/storage/backups` → `/mnt/hdd3`,
+  `/storage/app-data` → `/mnt/ssd2`, `/home` is on the boot NVMe.
+- `apps/theater/.env.dev-remote` exists with the same key set prod needs
+  (minus `NEXT_PUBLIC_SOCKET_URL`); that is T8's source for theater's prod env.
+- Ruled out: Watchtower-style `:latest` tracking; sops/age (system packages);
+  symlinked secrets; deploying from `/home/jeremy/lilnas`; forced-command key on
+  `jeremy`; compose `profiles:` for l4d2/theater (H6 just stops l4d2 if unwanted);
+  reusable-workflow split of `test.yml` (one `ci.yml` instead); inline-bash
+  change detection (moved into `lilnas ci detect` for tests).
+- Workflow gotchas for T6/T7 follow-ups: `github.event.before` is all zeros on
+  a new branch → `full`; default token permissions are read-only so
+  `permissions:` must be explicit; `needs` on a skipped job needs the
+  `!cancelled() && result != 'failure'` idiom; the `production` environment
+  must exist (H4 creates it) or the deploy job hangs.
+- Open threads: none with Jeremy. Run config: tasks pin `model: frontier`;
+  effort was to be set to high on the run by Jeremy before Start — not
+  verified from this chat.
 
 ## Log
 <!-- Written by Nexus: findings, review cycles, checkpoint verdicts, the final report,

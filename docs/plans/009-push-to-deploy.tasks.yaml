@@ -456,7 +456,7 @@ phases:
              `pnpm exec dotenvx encrypt -fk /home/jeremy/lilnas/.env.keys -f <file>`.
              Afterwards `chmod 600 /home/jeremy/lilnas/.env.keys` and check
              `grep -c '^DOTENV_PRIVATE_KEY' /home/jeremy/lilnas/.env.keys` is 10 (one per
-             suffix: none, PROD, DESIGN, L4D2, NEXUS_CODE, PALWORLD, STORAGE, TRAEFIK,
+             suffix: none, PROD, DESIGN, L4D2, NEXUS-CODE (dotenvx keeps the hyphen; T3 confirmed), PALWORLD, STORAGE, TRAEFIK,
              TURBO, VALHEIM) and the six `.env.prod` files share one `DOTENV_PUBLIC_KEY`
              (`grep -h '^DOTENV_PUBLIC_KEY' apps/*/.env.prod | sort -u | wc -l` → 1).
           4. Verify, three independent ways, all must pass:
@@ -519,6 +519,8 @@ phases:
             `.decrypted`, add the key to `/opt/lilnas/.env.keys` and re-run the
             installer's copy step), `lilnas secrets decrypt` / `verify`, the pre-commit
             guard command T3 recorded, and why `.decrypted` files exist.
+            Spell the key names as dotenvx 2.38.0 writes them: `infra/.env.nexus-code`
+            → `DOTENV_PRIVATE_KEY_NEXUS-CODE` (hyphen kept), never `_NEXUS_CODE`.
           - Dev checkout after this lands: move each plaintext file to its
             `.decrypted` name before pulling main (`git` refuses to overwrite untracked
             files), then `lilnas secrets decrypt` regenerates them from git.
