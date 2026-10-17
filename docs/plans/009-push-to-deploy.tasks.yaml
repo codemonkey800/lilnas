@@ -764,3 +764,60 @@ phases:
           - `gh run list --workflow ci.yml --limit 3` and the deploy job's step summary.
           Report a table of service → image → status and any defect found, with the
           suggested follow-up task if one is needed. Commit nothing.
+  - key: R1
+    name: Review remediation
+    tasks:
+      - id: R1
+        title: 'P0 Every deploy aborts: compose config fails on missing apps/tdr-code/.env in /opt/lilnas'
+        after: []
+        files:
+          - scripts/deploy/lilnas-deploy.sh
+        status: todo
+        body: |-
+          Finding: F1 (P0)
+
+          From the review of phase 1 (cycle 1): a P0 finding.
+
+          Where: scripts/deploy/lilnas-deploy.sh:123
+
+          Why: docker-compose.yml includes apps/tdr-code/deploy.yml, which has `env_file: - .env` (required by default). apps/tdr-code/.env is gitignored (.gitignore:5) and neither T1, install-host.sh nor docs/deploy.md provides it in the /opt/lilnas clone, so step 2 (`docker compose config -q`) fails and `die` exits before any pull/up — including the installer's `--dry-run --full` smoke test.
+
+          Failure scenario: Fresh /opt/lilnas clone after install-host.sh; CI runs `deploy <sha> --pull auth`. decrypt-env succeeds, then `docker compose config -q` errors with `env file /opt/lilnas/apps/tdr-code/.env not found`; the script exits 1 with `docker compose config failed; nothing deployed`. Same for every subsequent push.
+
+          Suggested fix: Make the tdr-code env file optional in apps/tdr-code/deploy.yml (`env_file: - path: .env` / `required: false`), since the proxy only needs LOCAL_PORT and the host-native process owns that file; alternatively have install-host.sh copy /home/jeremy/lilnas/apps/tdr-code/.env into /opt/lilnas (deploy:deploy 0600) and document it in docs/deploy.md. Either way, re-run `docker compose -f docker-compose.yml config -q` in a clean clone with only the 15 .decrypted placeholders present to prove it passes.
+      - id: R2
+        title: P1 Decrypt temp file for infra/ env files is not gitignored
+        after: []
+        files:
+          - packages/cli/src/utils/secrets.ts
+        status: todo
+        body: |-
+          Finding: F4 (P1)
+
+          From the review of phase 1 (cycle 1): a P1 finding.
+
+          Where: packages/cli/src/utils/secrets.ts:258
+
+          Why: writeFileAtomic0600 writes plaintext to `${target}.tmp-${pid}`; for infra files that is `infra/.env.<x>.decrypted.tmp-<pid>`, whose last-matching .gitignore rule is the negation `!infra/.env.*` (`*.decrypted` does not match the `.tmp-<pid>` suffix), so it is trackable. The task requires decrypted siblings never be tracked; the try/finally only cleans up on JS errors, not on signals or power loss.
+
+          Failure scenario: Run `lilnas secrets decrypt` and the process is SIGKILLed (or OOMs) between openSync and renameSync for infra/.env.storage; `infra/.env.storage.decrypted.tmp-1234` with plaintext secrets stays in the tree, `git check-ignore` reports it not ignored, and `git add -A` stages it.
+
+          Suggested fix: Make the temp name match an ignored pattern, e.g. `${target}.tmp-${process.pid}.decrypted` (or `path.join(dir, '.' + base + '.tmp.decrypted')`), and/or add `*.decrypted.tmp-*` after `*.decrypted` in .gitignore; extend the gitignore proof comment and add a check-ignore line for the temp name.
+      - id: R3
+        title: P1 --full deploy skips pulling every locally built image
+        after: []
+        files:
+          - scripts/deploy/lilnas-deploy.sh
+        status: todo
+        body: |-
+          Finding: F11 (P1)
+
+          From the review of phase 1 (cycle 1): a P1 finding.
+
+          Where: scripts/deploy/lilnas-deploy.sh:127
+
+          Why: T1 kept `build:` next to each `image: ghcr.io/codemonkey800/lilnas-<name>` (ci-detect's listImages requires both), and `docker compose pull --ignore-buildable` ignores services that have a `build:` section, so under --full none of auth/dashcam/download/equations/me-token-tracker/portal/tdr-bot/theater/dev-idle-reaper/l4d2 are pulled and `up -d` reuses the stale local :latest. ci-detect marks any `.github/workflows/*` or docker-compose.yml change as full, so the push that merges this branch takes this path.
+
+          Failure scenario: Push to main that touches .github/workflows/ci.yml plus apps/download/src: detect returns full=true, build-images pushes lilnas-download:latest, the host runs `docker compose pull --ignore-buildable` (skips download) then `docker compose up -d`; the download container keeps running the previous image.
+
+          Suggested fix: In the --full branch pull the locally built services explicitly (e.g. `docker compose pull` without --ignore-buildable, or `docker compose pull $(every service with image+build)` followed by `docker compose pull --ignore-buildable` for the rest, or `docker compose up -d --pull always`), and add the equivalent for a dry-run so the printed commands show the pull.

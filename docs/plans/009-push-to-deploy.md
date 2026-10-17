@@ -345,3 +345,27 @@ Decisions:
 - Upstream `:latest` row explains why `up -d` won't upgrade and that a tag bump in `infra/<name>.yml` is needed.
 - The dev-checkout snippet moves plaintext files to `.decrypted` before `git pull`; it is meant to run before pulling (after a pull the same paths are tracked).
 No env file contents were printed; no compose lifecycle commands were run.
+
+### 2026-10-17 · Phase 1 · review cycle 1
+Pass 1 (T1, T2, T5): T1/T2 compose, Dockerfile and base-image changes match their task bodies; T5 scripts are careful about input validation, locking, atomic writes and secret handling. One blocking seam: the prod compose still loads the gitignored apps/tdr-code/.env, so `docker compose config -q` fails in the fresh /opt/lilnas clone and every deploy aborts before touching anything.
+Pass 2 (T3): T3 implements the discovery rule, gitignore flip, secrets decrypt/verify, and tests as specified; gitignore proof list, oclif command mapping, monorepo root resolution, and dotenvx key-name convention all verified. One leak path: the atomic-write temp file for infra/ env files is not gitignored.
+Pass 3 (T8): All 15 committed env files contain only encrypted values or DOTENV_PUBLIC_KEY lines; the six .env.prod files share one PROD public key, the theater file has exactly the keys the task listed, and the dotenvx `# -fk` hint on the public-key line is stripped by both the CLI and the deploy script and ignored because both pass the key file explicitly. No defects; two stale-comment notes only.
+Pass 4 (T4, T10): T4's ci-detect rules and the T10 unquote change are correct and tested against the task's cases; the real tree's Dockerfile FROM lines, volume sources and root compose shape all fit the parser's assumptions. Only two notes for a human, no defects.
+Pass 5 (T6, T11): Pass 5 (T6 ci.yml, T11 runtime-dep detect) is clean. Verified the detect command runs unbuilt with clean JSON stdout, the deploy command string agrees with the T5 entrypoint parser and allowlist, known_hosts exists, and no compose service name would be rejected. Only a note for a human.
+Pass 6 (T7): T7 is docs-only; every command, flag, path, and detect rule in docs/deploy.md and the rewritten CLAUDE.md sections matches the T3–T6/T11 implementation (entrypoint grammar, decrypt-env usage, secrets/ci-detect flags, workflow dispatch inputs and jobs, installer steps, base-image script flags, gitignore). No findings.
+Seams pass: Seams pass over T1–T11: ci.yml consumes the exact DetectResult fields, the SSH command grammar matches lilnas-deploy-entry.sh, the discovery regex is identical in secrets.ts / decrypt-env.sh / .gitignore, every env_file points at a .decrypted sibling, and the docs cite real flags. One real disagreement: the --full deploy path pulls with --ignore-buildable, which skips every service T1 left a build: on, so a full deploy never fetches the app images CI just pushed.
+
+- F1 · P0 · Every deploy aborts: compose config fails on missing apps/tdr-code/.env in /opt/lilnas — scripts/deploy/lilnas-deploy.sh:123 → R1
+- F4 · P1 · Decrypt temp file for infra/ env files is not gitignored — packages/cli/src/utils/secrets.ts:258 → R2
+- F11 · P1 · --full deploy skips pulling every locally built image — scripts/deploy/lilnas-deploy.sh:127 → R3
+
+Notes:
+- F2 · P2 · --full never pulls the GHCR app images — scripts/deploy/lilnas-deploy.sh:128
+- F3 · P2 · Temp-copy script executed via shebang from /tmp — scripts/deploy/lilnas-deploy-entry.sh:99
+- F5 · P2 · DOTENV_PRIVATE_KEY_NEXUS-CODE is not a valid shell identifier — packages/cli/src/utils/secrets.ts:73
+- F6 · P2 · theater .env.prod keeps a dev-specific comment block — apps/theater/.env.prod:24
+- F7 · P2 · auth .env.prod header comment says 'Not committed' — apps/auth/.env.prod:8
+- F8 · P2 · Env-only change rebuilds the app image — packages/cli/src/utils/ci-detect.ts:400
+- F9 · P2 · Unusable-base logic is untested — packages/cli/src/commands/ci/detect.ts:15
+- F10 · P2 · Root tsconfig changes do not rebuild any image — packages/cli/src/utils/ci-detect.ts:109
+- F12 · P2 · Header-strip rules differ between CLI and decrypt-env.sh — scripts/deploy/decrypt-env.sh:64
