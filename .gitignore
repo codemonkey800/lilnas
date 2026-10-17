@@ -1,9 +1,26 @@
 .cache/
+# Env files. The production set is committed encrypted with dotenvx (see
+# `lilnas secrets --help`); dev env files, the key file, and the `.decrypted`
+# siblings the deploy writes next to each encrypted file never are.
 .env
 .env.*
 !.env.*.example
 !.env.example
 !.env.fish
+# the committed, encrypted set — must match listEncryptedEnvFiles() in
+# packages/cli/src/utils/secrets.ts
+!apps/*/.env.prod
+!infra/.env
+!infra/.env.*
+# re-ignored after the negations above, wherever they sit
+.env.keys
+**/.env.keys
+*.decrypted
+# `git check-ignore -v` proof — NOT ignored: apps/tdr-bot/.env.prod,
+# infra/.env, infra/.env.storage, infra/.env.storage.example; ignored:
+# .env.keys, apps/tdr-bot/.env.prod.decrypted, infra/.env.storage.decrypted,
+# apps/tdr-bot/.env, apps/download/.env.dev-remote, apps/tdr-code/.env,
+# .env.turbo
 .next/
 .pnpm-store/
 .turbo/*
