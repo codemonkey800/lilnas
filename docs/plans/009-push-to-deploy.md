@@ -307,3 +307,9 @@ its own directory).
 - Turbo semantics T6 should know: `@lilnas/cli` is a root `package.json` dependency, so turbo marks ALL packages affected (`RootInternalDepChanged`) whenever `packages/cli/package.json` changes — and likewise for root `package.json`/`pnpm-lock.yaml` — producing all 8 app images. Also turbo includes uncommitted working-tree changes; CI checkouts are clean so that is fine.
 - After adding CLI commands run `pnpm install` (inject-workspace quirk from T3) — I did; lockfile unchanged.
 - No docker compose lifecycle commands were run; no env file contents were printed.
+
+### 2026-10-17 · T10 · done
+- The comment handling lives entirely in `unquote()` in `packages/cli/src/utils/secrets.ts`, which `parseEnvLines` calls, so `isFullyEncrypted` (verify) and `encryptedKeysIn` (decrypt's still-encrypted check) agree by construction.
+- Rule: a value starting with `"`, `'` or `` ` `` ends at the next matching quote; if the remainder is `^\s*(#.*)?$` the inner text is the value (so `KEY="encrypted:x"#c` and `KEY="a # b"` both work). If something else follows the closing quote, the raw trimmed string is returned unchanged (previous behavior). Unquoted values strip `\s+#.*$` (dotenv's rule; `KEY=a#b` keeps the `#`).
+- `stripDotenvxHeader` and the `.decrypted` writing path are untouched; decrypted output is still byte-identical to dotenvx's.
+- `pnpm install` made no lockfile change; only the injected CLI copy re-synced.

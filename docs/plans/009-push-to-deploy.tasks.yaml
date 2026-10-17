@@ -550,7 +550,8 @@ phases:
         files:
           - packages/cli/
         model: frontier
-        status: todo
+        status: done
+        commit: 33e1df24fe7a863893f36855a51996b68d999e1a
         body: |-
           Small robustness fix in `packages/cli/src/utils/secrets.ts`. dotenvx keeps a
           source line's inline comment when it encrypts, so a committed line can look
