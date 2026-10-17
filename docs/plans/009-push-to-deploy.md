@@ -391,3 +391,10 @@ writeFileAtomic0600 now writes plaintext to `<target>.tmp-<pid>.decrypted`, via 
 The proof comment lists both temp names; checked by hand with `git check-ignore --no-index`.
 New tests: name format, a git check-ignore of the temp path for all 15 encrypted files (runs real `git` from the repo root), and a writeFileAtomic0600 round-trip that checks mode 0600 and that no temp file is left.
 All six checks pass: cli lint, type-check, 67 cli tests, utils jest 593, bash -n, actionlint.
+
+### 2026-10-17 · R3 · done
+--full now runs `docker compose pull` (no --ignore-buildable) then `up -d`. Dry-run prints both via the existing `run` helper.
+I checked compose's behaviour in a throwaway project: plain pull does pull image+build services, and it exits 1 if one of their images can't be pulled. So a missing GHCR image fails the deploy instead of leaving stale :latest running. This relies on CI's full-mode build matrix (detect's listImages = every image+build service) pushing all of them, which it does.
+I couldn't run an end-to-end --dry-run --full in the worktree: --full always decrypts, and the worktree has no .env.keys.
+docs/deploy.md host-setup paragraph now says --full pulls the lilnas-* images too.
+All plan checks pass.

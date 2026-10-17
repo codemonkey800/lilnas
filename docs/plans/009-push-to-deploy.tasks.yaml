@@ -810,7 +810,8 @@ phases:
         after: []
         files:
           - scripts/deploy/lilnas-deploy.sh
-        status: todo
+        status: done
+        commit: 451a5cb637a4f796166303692e6f34d8cfcfbcc4
         body: |-
           Finding: F11 (P1)
 
