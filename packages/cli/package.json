@@ -55,6 +55,9 @@
     ],
     "topicSeparator": " ",
     "topics": {
+      "ci": {
+        "description": "Helpers for the push-to-deploy GitHub Actions workflow"
+      },
       "mockups": {
         "description": "Build the UI mockups under docs/features/*/designs"
       },
