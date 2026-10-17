@@ -86,7 +86,8 @@ phases:
           - apps/theater/Dockerfile
           - infra/base-images/
         model: frontier
-        status: todo
+        status: done
+        commit: 86dce72ee085af4e76c1c925567f0ffebb8cce98
         body: |-
           Repoint every `FROM lilnas-<x>` to `FROM ghcr.io/codemonkey800/lilnas-<x>:latest`:
           - apps: `auth`, `download`, `me-token-tracker`, `portal`, `tdr-bot`, `theater`

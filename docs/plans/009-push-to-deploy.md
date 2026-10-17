@@ -196,3 +196,16 @@ dev tree needs a decrypted tdr-bot file too. The image tag var is LILNAS_TAG (de
 (apps/*/.env, apps/{download,theater}/.env.dev-remote, apps/tdr-code/.env) since those
 are gitignored and absent there — not caused by this task. .gitignore has no *.decrypted
 rule yet (T3); placeholders were removed before committing.
+
+### 2026-10-17 · T2 · done
+Every `FROM lilnas-*` now resolves to `ghcr.io/codemonkey800/lilnas-<x>:latest`;
+`lilnas-node-base.Dockerfile` still starts from public `node:25.0.0-slim`.
+`build-base-images.sh` usage: `./infra/base-images/build-base-images.sh [--push] [--tag <sha>]`.
+It builds node-base → monorepo-builder → node-runtime → nextjs-runtime with tags
+`ghcr.io/codemonkey800/lilnas-<x>:latest` + local alias `lilnas-<x>` (+ `:<sha>` with --tag),
+then `lilnas-dev` local-only; `--push` pushes only the four GHCR images.
+Until the GHCR packages exist (bootstrap or the T6 CI job), a local `docker build` of any
+app Dockerfile will try to pull the GHCR tag — run the script once locally first (it creates
+the GHCR-named tags locally without pushing). `apps/*/deploy.dev.yml` still use `image: lilnas-dev`,
+which the script still produces. CLAUDE.md "Docker Base Images" section still lists the short
+names; left for the docs task.
