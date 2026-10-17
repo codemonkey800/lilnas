@@ -46,7 +46,8 @@ export interface UpdateVideoPatch {
   /** Replaces the whole column - merge with the row's own first. */
   fileInfo?: VideoFile
   overview?: string
-  posterUrl?: string
+  /** `null` clears it - a poster object that expired with its video. */
+  posterUrl?: string | null
   runtime?: number
   sourceInfo?: VideoSourceInfo
   title?: string

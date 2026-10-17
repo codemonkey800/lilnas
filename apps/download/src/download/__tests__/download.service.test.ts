@@ -112,6 +112,7 @@ function createStateMock() {
     // The real one falls back to the durable `jobs` row and seeds the Map;
     // here the Map *is* the durable store, so a hit is the whole behaviour.
     adoptJob: jest.fn((id: string) => jobs.get(id)),
+    clearVideoFiles: jest.fn(),
     clearInterruption: jest.fn((id: string) => {
       interruptions.delete(id)
     }),
@@ -158,6 +159,7 @@ describe('DownloadService', () => {
 
   const mediaFileService = {
     deleteVideoObjects: jest.fn(() => Promise.resolve(2)),
+    findExpiredVideoIds: jest.fn((): Promise<string[]> => Promise.resolve([])),
   }
 
   const metrics = {
@@ -208,6 +210,29 @@ describe('DownloadService', () => {
     jest.spyOn(Logger.prototype, 'error').mockImplementation()
     jest.spyOn(Logger.prototype, 'log').mockImplementation()
     jest.spyOn(Logger.prototype, 'warn').mockImplementation()
+  })
+
+  describe('clearExpiredVideos', () => {
+    it('clears every video whose file has expired', async () => {
+      mediaFileService.findExpiredVideoIds.mockResolvedValueOnce(['a', 'b'])
+
+      await service.clearExpiredVideos()
+
+      expect(state.clearVideoFiles).toHaveBeenCalledTimes(2)
+      expect(state.clearVideoFiles).toHaveBeenCalledWith('a')
+      expect(state.clearVideoFiles).toHaveBeenCalledWith('b')
+    })
+
+    // A cron tick that throws is an unhandled rejection; a MinIO blip should
+    // just mean this tick changes nothing.
+    it('swallows a failed check and clears nothing', async () => {
+      mediaFileService.findExpiredVideoIds.mockRejectedValueOnce(
+        new Error('minio down'),
+      )
+
+      await expect(service.clearExpiredVideos()).resolves.toBeUndefined()
+      expect(state.clearVideoFiles).not.toHaveBeenCalled()
+    })
   })
 
   describe('pauseVideoDownloadJob', () => {

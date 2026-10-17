@@ -62,6 +62,7 @@ describe('MediaFileService', () => {
   let sonarrService: jest.Mocked<SonarrService>
   let minioClient: {
     getObject: jest.Mock
+    listObjectsV2: jest.Mock
     removeObject: jest.Mock
     statObject: jest.Mock
   }
@@ -126,6 +127,7 @@ describe('MediaFileService', () => {
     resolver = createFakeMediaResolver()
     minioClient = {
       getObject: jest.fn(),
+      listObjectsV2: jest.fn(),
       removeObject: jest.fn(),
       statObject: jest.fn(),
     }
@@ -529,6 +531,63 @@ describe('MediaFileService', () => {
       expect(minioClient.getObject).toHaveBeenCalledWith(
         'videos',
         'job-1/part0.mp4',
+      )
+    })
+  })
+
+  describe('findExpiredVideoIds', () => {
+    /** Makes the `videos` bucket hold exactly these keys. */
+    function bucketHolds(...keys: string[]) {
+      minioClient.listObjectsV2.mockImplementation(() =>
+        Readable.from(keys.map(name => ({ name }))),
+      )
+    }
+
+    it('reports a video whose file the lifecycle rule deleted', async () => {
+      seedVideo({ downloadUrls: [downloadUrl('job-1/part0.mp4')], id: 'gone' })
+      seedVideo({ downloadUrls: [downloadUrl('job-2/part0.mp4')], id: 'kept' })
+      bucketHolds('job-2/part0.mp4', 'job-2/poster.jpg')
+
+      await expect(service.findExpiredVideoIds()).resolves.toEqual(['gone'])
+      expect(minioClient.listObjectsV2).toHaveBeenCalledWith('videos', '', true)
+    })
+
+    // A post missing one of its parts can't be played, so it is not "there".
+    it('counts a video as expired when any one part is gone', async () => {
+      seedVideo({
+        downloadUrls: [
+          downloadUrl('job-1/part0.mp4'),
+          downloadUrl('job-1/part1.mp4'),
+        ],
+      })
+      bucketHolds('job-1/part0.mp4')
+
+      await expect(service.findExpiredVideoIds()).resolves.toEqual(['vid-1'])
+    })
+
+    it('skips a video with no file and lists nothing when none have one', async () => {
+      seedVideo({ downloadUrls: [] })
+
+      await expect(service.findExpiredVideoIds()).resolves.toEqual([])
+      expect(minioClient.listObjectsV2).not.toHaveBeenCalled()
+    })
+
+    // A failed listing must not read as an empty bucket - that would clear
+    // every video in the gallery.
+    it('rejects rather than answering when the listing fails', async () => {
+      seedVideo({ downloadUrls: [downloadUrl('job-1/part0.mp4')] })
+      minioClient.listObjectsV2.mockImplementation(
+        () =>
+          new Readable({
+            objectMode: true,
+            read() {
+              this.destroy(new Error('connection refused'))
+            },
+          }),
+      )
+
+      await expect(service.findExpiredVideoIds()).rejects.toThrow(
+        'connection refused',
       )
     })
   })

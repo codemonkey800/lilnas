@@ -1048,6 +1048,22 @@ describe('DownloadStateService', () => {
       })
     })
 
+    it("clears an expired video's file and poster by video id", () => {
+      const record = seedVideoJob()
+      service.addJob(record)
+      service.updateVideo(record.id, {
+        downloadUrls: ['https://example.com/a.mp4'],
+        posterUrl: 'https://example.com/poster.jpg',
+      })
+
+      service.clearVideoFiles(readVideoRows()[0]!.id)
+
+      expect(readVideoRows()[0]).toMatchObject({
+        downloadUrls: [],
+        posterUrl: null,
+      })
+    })
+
     it('throws rather than silently no-oping when the job is unknown', () => {
       expect(() => service.updateVideo('missing', { title: 'x' })).toThrow(
         "Job with ID 'missing' not found",

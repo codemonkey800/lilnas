@@ -21,7 +21,7 @@ import type { Readable } from 'stream'
 
 import { DbService } from 'src/db/db.service'
 import { mediaIdSuffix, mediaTypeFromKey } from 'src/db/media-id'
-import { getVideoById } from 'src/db/videos.repo'
+import { getVideoById, listVideosWithFiles } from 'src/db/videos.repo'
 
 import { MediaResolverService } from './media-resolver.service'
 import { SonarrService } from './sonarr.service'
@@ -286,6 +286,50 @@ export class MediaFileService {
     this.logger.log({ action, deleted, mediaId }, 'Deleted video objects')
 
     return deleted
+  }
+
+  /**
+   * The ids of every video whose stored file is no longer in MinIO - the
+   * `videos` bucket's lifecycle rule deletes objects a day after upload, and
+   * nothing tells the app when it does. A video counts as expired when any
+   * one of its parts is gone, since a post missing a part can't be played.
+   *
+   * Read-only, like `deleteVideoObjects()` leaves the row to
+   * `DownloadStateService`: the caller clears what this finds. One bucket
+   * listing per call rather than a stat per object, so the cost stays flat
+   * however many videos there are.
+   */
+  async findExpiredVideoIds(): Promise<string[]> {
+    const rows = listVideosWithFiles(this.dbService.db)
+
+    if (rows.length === 0) {
+      return []
+    }
+
+    const present = await this.listVideoObjectKeys()
+
+    return rows
+      .filter(row =>
+        (row.downloadUrls ?? []).some(url => {
+          const key = objectKeyFromUrl(url)
+          return key !== undefined && !present.has(key)
+        }),
+      )
+      .map(row => row.id)
+  }
+
+  /** Every key in the `videos` bucket. Rejects rather than answering short. */
+  private listVideoObjectKeys(): Promise<Set<string>> {
+    return new Promise((resolve, reject) => {
+      const keys = new Set<string>()
+      const stream = this.minioClient.listObjectsV2(VIDEO_BUCKET, '', true)
+
+      stream.on('data', item => {
+        if (item.name) keys.add(item.name)
+      })
+      stream.on('error', reject)
+      stream.on('end', () => resolve(keys))
+    })
   }
 
   private async resolveVideoSource(

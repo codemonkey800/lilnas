@@ -284,6 +284,23 @@ export class DownloadStateService {
   }
 
   /**
+   * Marks a video's file as gone once its MinIO objects have expired, which
+   * drops it out of the gallery (`listVideosWithFiles`). The poster goes too:
+   * it lives in the same bucket and expires with the file.
+   *
+   * Keyed by video id rather than job id, unlike `updateVideo()`: the sweep
+   * that calls this works from `videos` rows, and an expired video's jobs
+   * finished long ago, so there is no live job to re-broadcast. Open pages
+   * pick the change up on their next load.
+   */
+  clearVideoFiles(videoId: string): void {
+    updateVideoById(this.dbService.db, videoId, {
+      downloadUrls: [],
+      posterUrl: null,
+    })
+  }
+
+  /**
    * Inserts a brand-new job and broadcasts its creation. Job creation never
    * goes through `updateJob()` below (there's no existing job in the map to
    * update yet), so without this, a freshly-created job would stay

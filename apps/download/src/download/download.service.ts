@@ -19,6 +19,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common'
+import { Cron, CronExpression } from '@nestjs/schedule'
 import { spawn } from 'child_process'
 import { ensureDir } from 'fs-extra'
 import { nanoid } from 'nanoid'
@@ -47,6 +48,34 @@ export class DownloadService {
     private readonly mediaFileService: MediaFileService,
     private readonly metrics: DownloadMetricsService,
   ) {}
+
+  /**
+   * Hides videos whose files the `videos` bucket's 1-day lifecycle rule has
+   * deleted. MinIO expires the objects on its own schedule and tells nobody,
+   * so without this a gallery tile would keep pointing at a file that is no
+   * longer there.
+   */
+  @Cron(CronExpression.EVERY_10_MINUTES)
+  async clearExpiredVideos(): Promise<void> {
+    const action = 'clearExpiredVideos'
+
+    try {
+      const ids = await this.mediaFileService.findExpiredVideoIds()
+
+      for (const id of ids) {
+        this.downloadStateService.clearVideoFiles(id)
+      }
+
+      if (ids.length > 0) {
+        this.logger.log({ action, ids }, 'Cleared expired video files')
+      }
+    } catch (err) {
+      this.logger.warn(
+        { action, error: getErrorMessage(err) },
+        'Could not check for expired video files',
+      )
+    }
+  }
 
   async getVideoInfo(url: string): Promise<VideoInfo> {
     const action = 'getVideoInfo'
