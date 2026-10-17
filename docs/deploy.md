@@ -220,6 +220,9 @@ docker compose -f docker-compose.yml config -q
 `apps/tdr-bot/deploy.dev.yml` also loads `.env.prod.decrypted`, so the dev
 tree needs the decrypted tdr-bot file even for `lilnas-dev`. Plain dev files
 (`apps/*/.env`, `.env.dev-remote`, `apps/tdr-code/.env`) are untouched.
+Production compose loads none of them: the `tdr-code` nginx proxy pins
+`LOCAL_PORT` in `apps/tdr-code/deploy.yml`, so if you change `PORT` in the
+host-native `apps/tdr-code/.env`, change it there too.
 
 ## Host setup reference
 
