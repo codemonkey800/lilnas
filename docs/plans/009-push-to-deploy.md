@@ -277,3 +277,11 @@ its own directory).
 - Workspace quirk: `.npmrc` has `inject-workspace-packages=true`, so `pnpm lilnas` runs an injected COPY of packages/cli; after adding/changing CLI source files, run `pnpm install` (or the `build` script) to re-sync or new commands show "not found".
 - `pnpm install` also re-resolved some lockfile peer keys (zod/esbuild dedup) — no package version changes beyond dotenvx + the cli jest devDeps.
 - `scripts/deploy/*.sh` doesn't exist yet (check is a no-op); actionlint passes on the current workflows.
+
+### 2026-10-17 · T8 · done
+- dotenvx 2.38.0 does NOT reuse an existing DOTENV_PRIVATE_KEY_PROD from a `-fk` key file: the first pass produced six distinct PROD keypairs (15 key lines). Fixed by keeping auth's keypair, seeding the other five .env.prod plaintexts with auth's `DOTENV_PUBLIC_KEY_PROD` header before encrypting, and removing the five duplicate entries from .env.keys. Final: 10 keys, one shared PROD public key. Anyone re-encrypting a .env.prod later must keep the existing DOTENV_PUBLIC_KEY_PROD line in the file (dotenvx then reuses it).
+- Private key name for infra/.env.nexus-code is `DOTENV_PRIVATE_KEY_NEXUS-CODE` (hyphen), as T3 noted.
+- Seven values were single-quoted in the originals (infra/.env, infra/.env.palworld); dotenvx preserves quote style and writes `KEY='encrypted:…'`. The task's grep pattern (`"?encrypted:`) flags those as plaintext; I used `['"]?encrypted:` and the HEAD-blob re-check is also clean. T3's `isFullyEncrypted` accepts single quotes.
+- infra/.env.palworld originally had `SERVER_PASSWORD='…' # comment`; dotenvx keeps the trailing comment and T3's `isFullyEncrypted` then reports SERVER_PASSWORD as PLAINTEXT. I moved that comment onto its own line in the worktree copy before encrypting (values unchanged; round trip `same`). The host plaintext file is untouched.
+- Host .env.keys lives at /home/jeremy/lilnas/.env.keys (600) with a byte-identical copy at /storage/backups/lilnas-secrets/.env.keys (600, /mnt/hdd3). Later tasks (deploy user / CI) need DOTENV_PRIVATE_KEY* values from it.
+- `secrets verify` and `secrets decrypt` only see git-tracked files; they report "nothing to verify" on untracked copies — stage/commit first.

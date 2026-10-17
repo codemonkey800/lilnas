@@ -421,7 +421,8 @@ phases:
           - infra/.env.turbo
           - infra/.env.valheim
         model: frontier
-        status: todo
+        status: done
+        commit: bba9502f334152b88d345ce278fcb422e8a08103
         body: |-
           This is the only task that handles plaintext secrets. Never `cat`, `echo`,
           `git diff`, or otherwise print the contents of these files, `.env.keys`, or
