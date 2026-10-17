@@ -173,6 +173,35 @@ describe('isFullyEncrypted', () => {
     })
   })
 
+  it('ignores an inline comment after an encrypted value', () => {
+    const content = [
+      header,
+      'A="encrypted:aaa" # why this exists',
+      "B='encrypted:bbb' # note",
+      'C=encrypted:ccc # note',
+      'D="encrypted:ddd"#no space',
+      '',
+    ].join('\n')
+
+    expect(isFullyEncrypted(content)).toEqual({ ok: true, plaintextKeys: [] })
+  })
+
+  it('still flags a plaintext value that carries an inline comment', () => {
+    expect(isFullyEncrypted(`${header}\nA="plain" # c\nB=plain # c\n`)).toEqual(
+      { ok: false, plaintextKeys: ['A', 'B'] },
+    )
+  })
+
+  it('keeps a literal # inside the quotes as part of the value', () => {
+    expect(
+      isFullyEncrypted('A="encrypted:a#b"\nB=\'encrypted:a # b\'\n'),
+    ).toEqual({ ok: true, plaintextKeys: [] })
+    expect(isFullyEncrypted('A="#encrypted:a"\n')).toEqual({
+      ok: false,
+      plaintextKeys: ['A'],
+    })
+  })
+
   it('reports a malformed line by number instead of echoing it', () => {
     expect(
       isFullyEncrypted('A=encrypted:aaa\nthis is not env syntax\n'),

@@ -96,19 +96,35 @@ export function stripDotenvxHeader(decrypted: string): string {
     .join('\n')
 }
 
+/** A trailing inline comment on an unquoted value: whitespace then `#…`. */
+const UNQUOTED_INLINE_COMMENT = /\s+#.*$/
+
+/** What may follow a closing quote: nothing, or an inline `#…` comment. */
+const AFTER_CLOSING_QUOTE = /^\s*(?:#.*)?$/
+
+/**
+ * Reduces a raw `KEY=` right-hand side to the value dotenvx would read.
+ * dotenvx keeps a source line's inline comment when it encrypts, so a
+ * committed line can be `KEY="encrypted:…" # note`: a quoted value ends at
+ * the matching closing quote and whatever follows is a comment, while an
+ * unquoted value follows dotenv's rule that ` #` starts one. A `#` inside
+ * the quotes is part of the value.
+ */
 function unquote(value: string): string {
   const trimmed = value.trim()
   const first = trimmed[0]
 
-  if (
-    trimmed.length >= 2 &&
-    (first === '"' || first === "'" || first === '`') &&
-    trimmed.endsWith(first)
-  ) {
-    return trimmed.slice(1, -1)
+  if (first === '"' || first === "'" || first === '`') {
+    const close = trimmed.indexOf(first, 1)
+
+    if (close !== -1 && AFTER_CLOSING_QUOTE.test(trimmed.slice(close + 1))) {
+      return trimmed.slice(1, close)
+    }
+
+    return trimmed
   }
 
-  return trimmed
+  return trimmed.replace(UNQUOTED_INLINE_COMMENT, '')
 }
 
 interface ParsedEnvLine {
