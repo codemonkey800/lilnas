@@ -79,6 +79,13 @@ into a container.
 - **Change detection lives in the CLI (`lilnas ci detect`)**, not inline bash, so
   it is unit-tested and the service/env-file/bind-mount maps are derived from
   the compose files rather than hand-maintained.
+- **Image affectedness follows runtime workspace deps, not turbo** (C3 from T4,
+  2026-10-17). Every app lists `@lilnas/cli` as a devDependency for `lilnas dev`,
+  so `turbo ls --affected` would rebuild all eight root-context images on any
+  CLI change. T11 replaces it with a `dependencies`-only graph walk in
+  `ci detect`; `pnpm-lock.yaml` / root `package.json` / `pnpm-workspace.yaml` /
+  `.npmrc` / `turbo.json` still rebuild every image. Ruled out: dropping the
+  CLI devDependency from eight apps (bigger change, breaks `pnpm dev`).
 - **The first real deploy happens from the run branch via `workflow_dispatch`**,
   before Land, so the whole path is proven end to end. After Land, the merge
   commit triggers one more full run (rebuilds everything, recreates the ten
@@ -205,6 +212,11 @@ or `lilnas-dev` project; docs updated where the task says so.
   `permissions:` must be explicit; `needs` on a skipped job needs the
   `!cancelled() && result != 'failure'` idiom; the `production` environment
   must exist (H4 creates it) or the deploy job hangs.
+- C3 (T4): turbo `--affected` output can't say *why* a package is listed, so the
+  dev-edge false positive can't be filtered after the fact; hence T11's own walk.
+  Workspace runtime deps in use: `@lilnas/utils` (several apps), `@lilnas/media`
+  (two); `@lilnas/cli`, `@lilnas/eslint`, `@lilnas/prettier` appear only in
+  devDependencies. T6 is unaffected (turbo ran inside the command).
 - Open threads: none with Jeremy. Run config: tasks pin `model: frontier`;
   effort was to be set to high on the run by Jeremy before Start — not
   verified from this chat.

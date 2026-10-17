@@ -493,6 +493,7 @@ phases:
           - T4
           - T5
           - T6
+          - T11
         files:
           - CLAUDE.md
           - docs/deploy.md
@@ -506,7 +507,9 @@ phases:
           `docs/deploy.md` covers, in this order, each with the exact commands:
           - How a push deploys: a mermaid flowchart (push → `lilnas ci detect` → tests →
             base-images → build-images → deploy over Tailscale → `/opt/lilnas`) and the
-            change → action table (apps source / `packages/*` dep via turbo; `deploy.yml`;
+            change → action table (apps source / `packages/*` runtime dep via the
+            workspace `dependencies` graph — devDependencies like `@lilnas/cli` don't
+            rebuild images; lockfile / root `package.json` rebuild all; `deploy.yml`;
             `infra/<name>.yml`; bind-mounted `infra/<name>/**`; encrypted env file;
             `infra/base-images/**`; workflows or root compose → full; `apps/tdr-code/**`
             skipped; upstream `:latest` images need a tag bump).
@@ -572,6 +575,60 @@ phases:
           lint, and type-check pass. Then `pnpm install` (the injected CLI copy must
           re-sync) and `pnpm lilnas secrets verify` in the worktree still exits 0 for
           all 15 files.
+      - id: T11
+        title: '`ci detect`: affected images follow runtime workspace deps, not turbo'
+        after:
+          - T4
+        files:
+          - packages/cli/
+        model: frontier
+        status: todo
+        body: |-
+          Today `lilnas ci detect` rebuilds an app image when `turbo ls --affected`
+          lists its package. Every app has `"@lilnas/cli": "workspace:*"` in
+          `devDependencies` (only for `"dev": "lilnas dev"`; no Dockerfile runs the
+          CLI), and turbo follows dev edges, so a CLI-only change — or any
+          `packages/cli/package.json` bump — rebuilds and recreates all eight
+          root-context app images for nothing. Replace the turbo signal with a
+          runtime-dependency walk done by `ci-detect` itself. Keep the command's
+          flags and JSON output identical so the workflow (T6) is unaffected.
+
+          In `src/utils/ci-detect.ts`:
+          - Drop `affectedPackages` from `DetectInputs`; add
+            `workspacePackages: WorkspacePackage[]` gathered by the command:
+            ```ts
+            interface WorkspacePackage { dir: string /* repo-relative */; name: string; runtimeDeps: string[] /* workspace names from `dependencies` only */ }
+            ```
+            Read every `apps/*/package.json` and `packages/*/package.json`; a workspace
+            dep is any `dependencies` entry whose spec starts with `workspace:` (or
+            whose name matches another workspace package). `devDependencies`,
+            `peerDependencies`, and `optionalDependencies` are ignored on purpose.
+          - An app image is rebuilt when a changed file is under its own package dir
+            or under the dir of any package in its transitive `runtimeDeps` closure
+            (cycle-safe), plus the existing Dockerfile / Dockerfile-dir / non-root
+            build-context rules.
+          - Global dependency inputs rebuild every image (but do not set `full`):
+            `pnpm-lock.yaml`, root `package.json`, `pnpm-workspace.yaml`, `.npmrc`,
+            `turbo.json`. A CLI-only dep bump still rebuilds everything through the
+            lockfile; accepted — the lockfile is a real build input for every image.
+          - `testPackages` keeps its current rule (changed file under a dir with a
+            `test` script); do not extend it to dependents.
+          In `src/commands/ci/detect.ts`: remove the `turbo ls --affected` spawn and
+          the `TURBO_SCM_*` env; gather `workspacePackages` from disk instead.
+          Remove or rewrite the turbo-specific spec and doc comments.
+
+          Tests (`src/utils/__tests__/ci-detect.spec.ts`, extend the fixture with
+          `package.json` files): `packages/utils/src/x.ts` change → only apps whose
+          `dependencies` include `@lilnas/utils` (direct or via another workspace
+          package) rebuild; a `packages/cli/src/x.ts` change → no images, no `up`,
+          `testPackages` = `packages/cli` (it has a test script); `packages/cli/package.json`
+          → same; `pnpm-lock.yaml` → every image, `full: false`; a dependency cycle
+          between two packages terminates. Then run the real command in the worktree:
+          `pnpm install` first (injected CLI copy), then
+          `pnpm lilnas ci detect --json --base <sha of T3's commit>~1 --head <sha of T3's commit>`
+          must show `images: []`, and the same for a range that only touches
+          `packages/utils` must list exactly the apps depending on it. Paste trimmed
+          output in the result. Lint, type-check, and tests pass.
   - key: '2'
     name: Host, tailnet, GitHub, first deploy
     tasks:
