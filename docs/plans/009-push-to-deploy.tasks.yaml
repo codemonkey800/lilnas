@@ -339,7 +339,8 @@ phases:
         files:
           - .github/workflows/
         model: frontier
-        status: todo
+        status: done
+        commit: 623ebf335f288b2023444e8a691f2b9862423fa1
         body: |-
           Replace `.github/workflows/test.yml` with `.github/workflows/ci.yml` (delete
           the old file). Keep the existing test / lint-and-typecheck matrix behaviour

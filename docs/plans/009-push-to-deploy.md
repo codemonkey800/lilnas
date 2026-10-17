@@ -313,3 +313,16 @@ its own directory).
 - Rule: a value starting with `"`, `'` or `` ` `` ends at the next matching quote; if the remainder is `^\s*(#.*)?$` the inner text is the value (so `KEY="encrypted:x"#c` and `KEY="a # b"` both work). If something else follows the closing quote, the raw trimmed string is returned unchanged (previous behavior). Unquoted values strip `\s+#.*$` (dotenv's rule; `KEY=a#b` keeps the `#`).
 - `stripDotenvxHeader` and the `.decrypted` writing path are untouched; decrypted output is still byte-identical to dotenvx's.
 - `pnpm install` made no lockfile change; only the injected CLI copy re-synced.
+
+### 2026-10-17 · T6 · done
+Decisions beyond the spec:
+- `deploy` also `needs` test / lint-and-typecheck / base-images (guarded `!= 'failure'`), not just detect + build-images. Otherwise, with no images to build, `build-images` is skipped and a failing test would not block an `--up`/`--decrypt` deploy.
+- Both `build-images` and `deploy` additionally require `needs.detect.result == 'success'`: if detect fails its outputs are empty strings and `'' != '[]'` would be true.
+- Under `--full` the deploy command omits `--decrypt`/`--pull`/`--up`/`--force-recreate` (lilnas-deploy.sh ignores service lists when full, and full implies decrypt).
+- "Nothing to do" = not full, no decrypt, and empty pull/up/forceRecreate; the job still runs (hits the `production` environment) but writes a summary line and skips Tailscale/SSH entirely. If the environment gets required reviewers, no-op runs will wait for approval too.
+- detect's `images` output is trimmed to `{name, context, dockerfile, image}` so every matrix value is a scalar (the `services` array is dropped). Dispatch BASE is `git rev-parse HEAD~1`.
+- `build-push-action` uses `pull: true` for app images and for the three base images that are FROM a sibling base image, so a freshly pushed `:latest` base is picked up in the same run. Base-image job needs only `detect` (does not wait for tests), as specified.
+- Test artifact names replace `/` with `-` (`test-results-apps-download`), since upload-artifact v4 rejects `/`; added `if-no-files-found: ignore`.
+- The deploy step sparse-checks-out `scripts/deploy` only (for `known_hosts`); SSH output is tee'd into the step summary and the ssh exit status is propagated.
+For T7 docs: dispatch inputs are `dry_run` (default true), `full`, `build_base_images`; required secrets are `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`, `DEPLOY_SSH_KEY`; the `production` environment must exist (or be created on first run); the required status check for branch protection is the `summary` job.
+No docker compose lifecycle commands were run; no env file contents were printed.
