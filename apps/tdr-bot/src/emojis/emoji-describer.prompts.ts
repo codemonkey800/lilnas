@@ -1,7 +1,10 @@
 import { SystemMessage } from '@langchain/core/messages'
 import dedent from 'dedent'
 
-import { EMOJI_DESCRIPTION_MAX_CHARS } from 'src/emojis/emoji.constants'
+import {
+  EMOJI_DESCRIPTION_MAX_CHARS,
+  EMOJI_FRAME_COUNT,
+} from 'src/emojis/emoji.constants'
 import type { EmojiExample } from 'src/emojis/emoji-describer.service'
 
 function formatExample({ name, animated, description }: EmojiExample): string {
@@ -22,7 +25,7 @@ export function buildEmojiDescriberSystemPrompt(
 
     Describe WHEN to use the emoji (the mood, reaction or situation it fits), not what it looks like. Keep it short and imperative, like the examples, and at most ${EMOJI_DESCRIPTION_MAX_CHARS} characters.
 
-    The emoji's name usually carries its meaning; use the picture to tell similar names apart. Animated emojis are shown as a still frame.
+    The emoji's name usually carries its meaning; use the picture to tell similar names apart. An animated emoji marked "${EMOJI_FRAME_COUNT} frames" is shown as a grid of frames sampled evenly across one loop, in play order left to right, top to bottom; its meaning often lies in how it changes from frame to frame. One marked "still frame" is shown as a single frame.
   `
 
   return new SystemMessage(

@@ -9,8 +9,12 @@ import {
 import {
   EmojiDescriberService,
   EmojiExample,
-  emojiPngUrl,
 } from 'src/emojis/emoji-describer.service'
+import {
+  EmojiImage,
+  EmojiImageService,
+  emojiPngUrl,
+} from 'src/emojis/emoji-image.service'
 import { ModelRegistry } from 'src/llm/models/model-registry'
 import { FakeLlmClient } from 'src/llm/testing/fake-llm-client'
 
@@ -20,12 +24,23 @@ function example(name: string, animated = false): EmojiExample {
   return { name, animated, description: `Use for ${name}` }
 }
 
-function setup() {
+/** Frame sheets for animated emojis, except the ids in `stillIds`. */
+function fakeImages(stillIds: string[] = []) {
+  const imageFor = jest.fn(
+    async (emoji: { id: string; animated: boolean }): Promise<EmojiImage> =>
+      emoji.animated && !stillIds.includes(emoji.id)
+        ? { url: `data:sheet-${emoji.id}`, frames: true }
+        : { url: emojiPngUrl(emoji.id), frames: false },
+  )
+  return { imageFor } as unknown as EmojiImageService
+}
+
+function setup(stillIds: string[] = []) {
   const llm = new FakeLlmClient().script('emoji.describe', {
     description: 'Vibe along to a good song',
   })
   const registry = new ModelRegistry()
-  const service = new EmojiDescriberService(llm, registry)
+  const service = new EmojiDescriberService(llm, registry, fakeImages(stillIds))
   return { llm, registry, service }
 }
 
@@ -40,12 +55,6 @@ function exampleLines(llm: FakeLlmClient): string[] {
     .split('\n')
     .filter(line => line.startsWith('- '))
 }
-
-describe('emojiPngUrl', () => {
-  it('points at the static PNG on the Discord CDN', () => {
-    expect(emojiPngUrl('42')).toBe('https://cdn.discordapp.com/emojis/42.png')
-  })
-})
 
 describe('EmojiDescriberService', () => {
   it('sends the name as text and the PNG at low detail', async () => {
@@ -67,21 +76,41 @@ describe('EmojiDescriberService', () => {
     ])
   })
 
-  it('marks animated emojis in the text and still uses the .png URL', async () => {
+  it('sends an animated emoji as its frame sheet, labeled as frames', async () => {
     const { llm, service } = setup()
 
     await service.describe({ ...EMOJI, animated: true }, [])
 
     expect(llm.calls[0].messages[1].content).toEqual([
-      { type: 'text', text: 'Name: catJAM (animated)' },
+      { type: 'text', text: 'Name: catJAM (animated, 4 frames)' },
       {
         type: 'image_url',
-        image_url: {
-          url: 'https://cdn.discordapp.com/emojis/123456789.png',
-          detail: 'low',
-        },
+        image_url: { url: 'data:sheet-123456789', detail: 'low' },
       },
     ])
+  })
+
+  it('labels an animated emoji that fell back to the still frame', async () => {
+    const { llm, service } = setup([EMOJI.id])
+
+    await service.describe({ ...EMOJI, animated: true }, [])
+
+    expect(llm.calls[0].messages[1].content).toEqual([
+      { type: 'text', text: 'Name: catJAM (animated, still frame)' },
+      {
+        type: 'image_url',
+        image_url: { url: emojiPngUrl(EMOJI.id), detail: 'low' },
+      },
+    ])
+  })
+
+  it('explains frame sheets in the system prompt', async () => {
+    const { llm, service } = setup()
+
+    await service.describe(EMOJI, [])
+
+    expect(systemText(llm)).toContain('"4 frames"')
+    expect(systemText(llm)).toContain('left to right, top to bottom')
   })
 
   it('overrides model, max tokens and reasoning effort', async () => {
@@ -164,7 +193,7 @@ describe('EmojiDescriberService.describeBatch', () => {
   const EMOJIS = [
     { id: '11', name: 'catJAM', animated: true },
     { id: '22', name: 'pog', animated: false },
-    { id: '33', name: 'sadge', animated: false },
+    { id: '33', name: 'sadge', animated: true },
   ]
 
   function batchSetup(descriptions: { number: number; description: string }[]) {
@@ -172,10 +201,14 @@ describe('EmojiDescriberService.describeBatch', () => {
       descriptions,
     })
     const registry = new ModelRegistry()
-    return { llm, registry, service: new EmojiDescriberService(llm, registry) }
+    return {
+      llm,
+      registry,
+      service: new EmojiDescriberService(llm, registry, fakeImages(['33'])),
+    }
   }
 
-  it('sends every emoji as numbered text plus its PNG in one call', async () => {
+  it('sends every emoji as numbered text plus its picture in one call', async () => {
     const { llm, service } = batchSetup([])
 
     await service.describeBatch(EMOJIS, [])
@@ -183,17 +216,17 @@ describe('EmojiDescriberService.describeBatch', () => {
     expect(llm.calls).toHaveLength(1)
     const human = llm.calls[0].messages[1]
     expect(human.content).toEqual([
-      { type: 'text', text: '1. Name: catJAM (animated)' },
+      { type: 'text', text: '1. Name: catJAM (animated, 4 frames)' },
       {
         type: 'image_url',
-        image_url: { url: emojiPngUrl('11'), detail: 'low' },
+        image_url: { url: 'data:sheet-11', detail: 'low' },
       },
       { type: 'text', text: '2. Name: pog' },
       {
         type: 'image_url',
         image_url: { url: emojiPngUrl('22'), detail: 'low' },
       },
-      { type: 'text', text: '3. Name: sadge' },
+      { type: 'text', text: '3. Name: sadge (animated, still frame)' },
       {
         type: 'image_url',
         image_url: { url: emojiPngUrl('33'), detail: 'low' },

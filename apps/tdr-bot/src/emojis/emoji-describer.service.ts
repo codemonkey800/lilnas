@@ -9,8 +9,10 @@ import {
   EMOJI_DESCRIBER_REASONING_EFFORT,
   EMOJI_DESCRIPTION_MAX_CHARS,
   EMOJI_EXAMPLE_COUNT,
+  EMOJI_FRAME_COUNT,
 } from 'src/emojis/emoji.constants'
 import { buildEmojiDescriberSystemPrompt } from 'src/emojis/emoji-describer.prompts'
+import { EmojiImage, EmojiImageService } from 'src/emojis/emoji-image.service'
 import { LlmClient } from 'src/llm/client/llm-client'
 import { ModelRegistry } from 'src/llm/models/model-registry'
 
@@ -45,9 +47,11 @@ export const EmojiBatchSchema = z.object({
   ),
 })
 
-/** Static PNG on Discord's CDN; a still frame for animated emojis. */
-export function emojiPngUrl(id: string): string {
-  return `https://cdn.discordapp.com/emojis/${id}.png`
+/** The text line naming an emoji, saying which kind of picture follows. */
+function nameLine(emoji: DescribeInput, image: EmojiImage): string {
+  if (!emoji.animated) return `Name: ${emoji.name}`
+  const shown = image.frames ? `${EMOJI_FRAME_COUNT} frames` : 'still frame'
+  return `Name: ${emoji.name} (animated, ${shown})`
 }
 
 /** Turns an emoji's name and picture into a one-line "when to use it" hint. */
@@ -56,6 +60,7 @@ export class EmojiDescriberService {
   constructor(
     private readonly llm: LlmClient,
     private readonly registry: ModelRegistry,
+    private readonly images: EmojiImageService,
   ) {}
 
   private assertVision(): void {
@@ -75,6 +80,7 @@ export class EmojiDescriberService {
     const systemPrompt = buildEmojiDescriberSystemPrompt(
       examples.slice(0, EMOJI_EXAMPLE_COUNT),
     )
+    const image = await this.images.imageFor(emoji)
     const result = await this.llm.call({
       operation: 'emoji.describe',
       role: 'chat',
@@ -88,13 +94,10 @@ export class EmojiDescriberService {
         systemPrompt,
         new HumanMessage({
           content: [
-            {
-              type: 'text',
-              text: `Name: ${emoji.name}${emoji.animated ? ' (animated)' : ''}`,
-            },
+            { type: 'text', text: nameLine(emoji, image) },
             {
               type: 'image_url',
-              image_url: { url: emojiPngUrl(emoji.id), detail: 'low' },
+              image_url: { url: image.url, detail: 'low' },
             },
           ],
         }),
@@ -118,14 +121,17 @@ export class EmojiDescriberService {
   ): Promise<Map<string, DescribeResult>> {
     this.assertVision()
 
+    const images = await Promise.all(
+      emojis.map(emoji => this.images.imageFor(emoji)),
+    )
     const content = emojis.flatMap((emoji, i) => [
       {
         type: 'text' as const,
-        text: `${i + 1}. Name: ${emoji.name}${emoji.animated ? ' (animated)' : ''}`,
+        text: `${i + 1}. ${nameLine(emoji, images[i])}`,
       },
       {
         type: 'image_url' as const,
-        image_url: { url: emojiPngUrl(emoji.id), detail: 'low' as const },
+        image_url: { url: images[i].url, detail: 'low' as const },
       },
     ])
     const result = await this.llm.call({

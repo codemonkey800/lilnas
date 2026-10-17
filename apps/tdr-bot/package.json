@@ -99,6 +99,7 @@
     "reflect-metadata": "0.2.2",
     "remark": "15.0.1",
     "rxjs": "7.8.1",
+    "sharp": "0.34.5",
     "source-map-support": "0.5.21",
     "ts-pattern": "5.8.0",
     "unist-util-visit": "5.0.0",

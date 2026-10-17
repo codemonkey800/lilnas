@@ -7,6 +7,7 @@ import {
   EmojiDescriberService,
   EmojiExample,
 } from 'src/emojis/emoji-describer.service'
+import { EmojiImageService } from 'src/emojis/emoji-image.service'
 import { ModelRegistry } from 'src/llm/models/model-registry'
 
 import { describeLive, LiveLlm, MAX_RUN_COST_USD, recordCost } from './live-env'
@@ -38,7 +39,11 @@ const EXAMPLES: EmojiExample[] = [
 
 describeLive('live emoji describer', () => {
   const live = new LiveLlm()
-  const describer = new EmojiDescriberService(live.client, new ModelRegistry())
+  const describer = new EmojiDescriberService(
+    live.client,
+    new ModelRegistry(),
+    new EmojiImageService(),
+  )
 
   afterAll(() => {
     const total = recordCost('emoji-describe', live.costUsd)
