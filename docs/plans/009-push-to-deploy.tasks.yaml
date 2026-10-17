@@ -1,0 +1,665 @@
+nexus-tasks: 1
+phases:
+  - key: '1'
+    name: Repo changes (nothing touches the host)
+    tasks:
+      - id: T1
+        title: 'Compose: project name, GHCR image tags, decrypted env_file paths'
+        after: []
+        model: frontier
+        files:
+          - docker-compose.yml
+          - apps/auth/deploy.yml
+          - apps/dashcam/deploy.yml
+          - apps/dev-idle-reaper/deploy.yml
+          - apps/download/deploy.yml
+          - apps/equations/deploy.yml
+          - apps/me-token-tracker/deploy.yml
+          - apps/portal/deploy.yml
+          - apps/tdr-bot/deploy.yml
+          - apps/theater/deploy.yml
+          - apps/tdr-bot/deploy.dev.yml
+          - infra/design.yml
+          - infra/immich.yml
+          - infra/l4d2.yml
+          - infra/palworld.yml
+          - infra/proxy.yml
+          - infra/shared.yml
+          - infra/shared.dev.yml
+          - infra/valheim.yml
+          - .dockerignore
+        status: todo
+        body: |-
+          Three mechanical edits across the compose files, plus `.dockerignore`.
+
+          1. `docker-compose.yml`: add `name: lilnas` as the first key, with a comment
+             explaining it pins the project name so the same project is managed from
+             `/opt/lilnas` (CI) and `/home/jeremy/lilnas` (manual) — mirror the comment
+             style already in `docker-compose.dev.yml` (`name: lilnas-dev`).
+          2. Every locally built service gets an `image:` line directly above its
+             existing `build:` (keep `build:` — emergency `docker compose up -d --build`
+             from the dev tree must still work):
+             ```yaml
+             image: ghcr.io/codemonkey800/lilnas-<name>:${LILNAS_TAG:-latest}
+             ```
+             Services and names: `auth`, `dashcam`, `dev-idle-reaper`, `download`,
+             `equations`, `me-token-tracker`, `portal`, `tdr-bot`, `theater` (in
+             `apps/<name>/deploy.yml`) and `l4d2` (in `infra/l4d2.yml`). Not `tdr-code`
+             (its service is plain nginx), not `tdr-bot-db`.
+          3. Repoint every `env_file:` that names a file T8 will encrypt to its
+             gitignored decrypted sibling, `<file>.decrypted`:
+             - `apps/{auth,download,equations,me-token-tracker,tdr-bot,theater}/deploy.yml`
+               (`tdr-bot` has two services loading `.env.prod`) → `.env.prod.decrypted`
+             - `apps/tdr-bot/deploy.dev.yml`: the `path: .env.prod` entry →
+               `.env.prod.decrypted` (keep `required: true`; `.env` stays as is)
+             - `infra/immich.yml` (two services) `.env` → `.env.decrypted`;
+               `infra/design.yml`, `l4d2.yml`, `palworld.yml`, `proxy.yml`, `shared.yml`
+               (`storage` and `turbo`), `shared.dev.yml` (two services), `valheim.yml` →
+               `<name>.decrypted`
+             - `docker-compose.yml` `include:` entry `env_file: ./infra/.env.nexus-code`
+               → `./infra/.env.nexus-code.decrypted`
+             Leave the commented-out `.env.forward-auth-truereflection` block in
+             `infra/proxy.yml` alone, and leave every plain dev `.env` / `.env.dev-remote`
+             reference alone.
+          4. `.dockerignore` (root): add `**/.env*` and `.env.keys` so neither encrypted
+             nor `.decrypted` files ever enter a build context (no Dockerfile copies an
+             env file — verified at planning time; re-grep to be sure).
+
+          Verify: `grep -rn "env_file" -A2 apps/*/deploy.yml apps/*/deploy.dev.yml infra/*.yml docker-compose.yml`
+          shows no bare reference to an encrypted file; then touch empty placeholders
+          at every `.decrypted` path (gitignored once T3 lands — if `.gitignore` doesn't
+          ignore `*.decrypted` yet in your worktree, delete the placeholders before
+          committing) and run `docker compose -f docker-compose.yml config -q` and
+          `docker compose -f docker-compose.dev.yml config -q`; both must exit 0, and
+          `docker compose -f docker-compose.yml config --format json | jq '.name'` must be
+          `"lilnas"`. Do not run `up`.
+      - id: T2
+        title: Dockerfiles and base-image script point at GHCR
+        after: []
+        model: frontier
+        files:
+          - apps/auth/Dockerfile
+          - apps/download/Dockerfile
+          - apps/me-token-tracker/Dockerfile
+          - apps/portal/Dockerfile
+          - apps/tdr-bot/Dockerfile
+          - apps/theater/Dockerfile
+          - infra/base-images/
+        status: todo
+        body: |-
+          Repoint every `FROM lilnas-<x>` to `FROM ghcr.io/codemonkey800/lilnas-<x>:latest`:
+          - apps: `auth`, `download`, `me-token-tracker`, `portal`, `tdr-bot`, `theater`
+            (`monorepo-builder` and `nextjs-runtime`/`node-runtime` stages). `dashcam`,
+            `equations`, `dev-idle-reaper`, `l4d2` use public bases already — leave them.
+          - `infra/base-images/lilnas-monorepo-builder.Dockerfile`,
+            `lilnas-node-runtime.Dockerfile`, `lilnas-nextjs-runtime.Dockerfile`,
+            and the dev-only `lilnas-dev.Dockerfile` (it stays locally built but its
+            `FROM lilnas-node-base` must resolve too).
+
+          Rewrite `infra/base-images/build-base-images.sh`:
+          - builds the four prod images in order (node-base → monorepo-builder →
+            node-runtime → nextjs-runtime) tagged `ghcr.io/codemonkey800/lilnas-<x>:latest`,
+            and keeps the short local alias tag (`lilnas-<x>`) for anything that still
+            references it; then `lilnas-dev` local-only as today.
+          - `--push` pushes the four GHCR tags (requires a prior `docker login ghcr.io`);
+            `--tag <sha>` additionally tags `:<sha>`. Context stays the repo root.
+          - Comment at the top: CI (`.github/workflows/ci.yml`, job `base-images`) is the
+            normal publisher; this script is for local rebuilds and the one-time bootstrap.
+          Keep `set -e`, the colour helpers, and the exit-on-failure behaviour.
+
+          Verify with `docker build --check` is not available for every stage, so run
+          `bash -n` on the script and `grep -n '^FROM' apps/*/Dockerfile infra/base-images/*.Dockerfile`
+          — every `lilnas-*` base must be the GHCR name. Do not build or push images.
+      - id: T3
+        title: 'dotenvx, gitignore flip, and `lilnas secrets decrypt|verify`'
+        after: []
+        model: frontier
+        files:
+          - package.json
+          - pnpm-lock.yaml
+          - .gitignore
+          - packages/cli/
+        status: todo
+        body: |-
+          1. Add `@dotenvx/dotenvx` `2.38.0` (exact) as a root devDependency;
+             `pnpm install` so `pnpm-lock.yaml` updates and `node_modules/.bin/dotenvx`
+             exists (`pnpm exec dotenvx --version` → 2.38.0).
+          2. `.gitignore`: the encrypted env files become tracked, the key file and
+             decrypted siblings never are. Replace the `.env` / `.env.*` block with rules
+             that produce exactly this:
+             - ignored: `.env`, `.env.*` everywhere **except** the committed set
+               (`apps/*/.env.prod`, `infra/.env`, `infra/.env.*`), plus the existing
+               `!.env.*.example`, `!.env.example`, `!.env.fish` exceptions
+             - ignored again, after the negations: `.env.keys`, `**/.env.keys`,
+               `*.decrypted`, `infra/.env.*.example` stays tracked, and the dev-only
+               `apps/*/.env`, `apps/*/.env.dev-remote`, `apps/tdr-code/.env`, root
+               `.env.turbo` stay ignored
+             Prove it with `git check-ignore -v` on: `apps/tdr-bot/.env.prod` (NOT
+             ignored), `infra/.env.storage` (NOT), `infra/.env` (NOT), `.env.keys`
+             (ignored), `apps/tdr-bot/.env.prod.decrypted` (ignored),
+             `infra/.env.storage.decrypted` (ignored), `apps/tdr-bot/.env` (ignored),
+             `apps/download/.env.dev-remote` (ignored), `apps/tdr-code/.env` (ignored),
+             `infra/.env.storage.example` (NOT ignored). Put that list in a comment
+             beside the rules.
+          3. New oclif topic `secrets` in `packages/cli` (add to `src/index.ts` and the
+             `oclif.topics` map), with the shared logic in `src/utils/secrets.ts`:
+             ```ts
+             // src/utils/secrets.ts
+             export function listEncryptedEnvFiles(root: string, trackedFiles: string[]): string[]
+             //   applies the discovery rule from Context to a `git ls-files` listing; sorted
+             export function decryptedPathFor(file: string): string      // `${file}.decrypted`
+             export function privateKeyNameFor(file: string): string     // 'DOTENV_PRIVATE_KEY' | 'DOTENV_PRIVATE_KEY_PROD' | 'DOTENV_PRIVATE_KEY_NEXUS_CODE' …
+             export function stripDotenvxHeader(decrypted: string): string
+             //   drops the `#/---…/` banner lines and the DOTENV_PUBLIC_KEY line, keeps everything else verbatim
+             export function isFullyEncrypted(content: string): { ok: boolean; plaintextKeys: string[] }
+             //   every non-blank, non-comment line is KEY=encrypted:… (optionally quoted) or DOTENV_PUBLIC_KEY=…
+             ```
+             - `lilnas secrets decrypt [--keys <path>] [--dry-run]`: for each encrypted file
+               runs `<root>/node_modules/.bin/dotenvx decrypt -fk <keys> -f <file> --stdout`
+               (default keys `<root>/.env.keys`; error out with a clear message if the
+               keys file is missing), strips the header, writes `<file>.decrypted`
+               atomically (temp file + rename) with mode 0600, prints one line per file.
+               Never echoes contents. Exit 1 if any file fails to decrypt.
+             - `lilnas secrets verify`: runs `isFullyEncrypted` over every encrypted env
+               file, prints `ok <file>` / `PLAINTEXT <file>: KEY1, KEY2`, exits 1 on any
+               plaintext. This is the guard T8 and the docs rely on.
+          4. Pre-commit guard: with 2.38.0, check which of `pnpm exec dotenvx ext precommit --install`
+             (deprecated) or `pnpm exec dotenvx protect` installs a working hook that
+             refuses to commit a plaintext `.env*` file. Try it in a throwaway git repo,
+             not in the worktree. Record the working command in the `secrets` topic
+             description and in the command's `--help` examples; T7 puts it in the docs.
+          5. Jest for `packages/cli`: copy `packages/utils/jest.config.js` and its
+             `jest`/`ts-jest`/`@types/jest` devDependency versions, add `"test": "jest"`.
+             Tests in `src/utils/__tests__/secrets.spec.ts` must cover: discovery
+             (includes the 15 names, excludes `.example`, `.decrypted`, `apps/x/.env`,
+             `apps/tdr-code/.env`, `infra/env/.env.storage`), `decryptedPathFor`,
+             `privateKeyNameFor` for `.env.prod`, `infra/.env`, `.env.nexus-code`,
+             `.env.turbo`, header stripping (banner + public key removed, comments and
+             blank lines kept, no trailing-newline change), and `isFullyEncrypted` for a
+             clean file, a quoted `encrypted:` value, one plaintext key, and an empty
+             value. `pnpm --filter @lilnas/cli test` must pass.
+      - id: T4
+        title: '`lilnas ci detect`: change → build/deploy plan'
+        after:
+          - T3
+        model: frontier
+        files:
+          - packages/cli/
+        status: todo
+        body: |-
+          Add `lilnas ci detect --base <sha> --head <sha> [--full] [--json]` (topic
+          `ci`, logic in `src/utils/ci-detect.ts`, pure and testable; the command only
+          gathers inputs). It prints one JSON object the workflow feeds to its jobs:
+          ```ts
+          interface DetectResult {
+            full: boolean            // treat as "everything changed"
+            baseImages: boolean      // rebuild+push the four base images first
+            images: ImageBuild[]     // app images to build+push (sorted by name)
+            pull: string[]           // services whose image was rebuilt → `compose pull` then `up -d`
+            up: string[]             // services to `up -d` (compose or env change)
+            forceRecreate: string[]  // services to `up -d --force-recreate` (bind-mounted config changed)
+            decrypt: boolean         // an encrypted env file changed
+            testPackages: string[]   // 'apps/x' | 'packages/y' dirs with a "test" script (same semantics as test.yml today)
+            changedFiles: string[]
+          }
+          interface ImageBuild { name: string; image: string; context: string; dockerfile: string; services: string[] }
+          ```
+          Inputs, gathered by the command: `git diff --name-only <base>..<head>` (if
+          `base` is unset, all zeros, or not an ancestor, set `full: true`),
+          `turbo ls --affected --output json` with `TURBO_SCM_BASE`/`TURBO_SCM_HEAD`
+          set (`packages.items[].path`), and the compose files parsed with js-yaml:
+          root `include:` list (strings or `{path, env_file}`), each included file's
+          `services` map with `build` (string or `{context, dockerfile}`), `env_file`
+          (string or `{path}` or a list), and `volumes` (string `host:container[:ro]`
+          or `{source}`) — resolve every relative path against the compose file's
+          directory and normalise to repo-relative.
+
+          Rules (in this order, union of results, `full` short-circuits to: every
+          image, `up` = every service, `baseImages: true`, every test package):
+          - `.github/workflows/**` or `docker-compose.yml` → `full`.
+          - `infra/base-images/**` except `lilnas-dev.Dockerfile` → `baseImages` and
+            every image whose Dockerfile has a `FROM ghcr.io/codemonkey800/lilnas-` line.
+          - An image is rebuilt when: turbo lists its `apps/<x>` package as affected,
+            or any changed file is under its Dockerfile's directory, or under its build
+            context when that context is not the repo root (`dev-idle-reaper`), or is
+            its Dockerfile. Images are the services with both `image:` starting with
+            `ghcr.io/codemonkey800/lilnas-` and a `build:`; `name` is the image suffix.
+            Never `tdr-code`; never `apps/tdr-code/**` beyond its deploy.yml.
+          - `apps/<x>/deploy.yml` or `infra/<name>.yml` changed → `up` for every service
+            in that file. `*.dev.yml` and `docker-compose.dev.yml` → ignored.
+          - A changed file that a service bind-mounts (exact path or an ancestor
+            directory of a mounted path, or a mounted directory containing the file) →
+            `forceRecreate` for that service.
+          - A changed file that some service loads via `env_file` (match on the
+            encrypted name: the compose file references `<file>.decrypted`) or that the
+            root `include:` lists as `env_file` → `decrypt: true` and `up` for those
+            services (every service in the included file, for the include-level one).
+          - `testPackages`: dirs under `apps/` and `packages/` with a `"test"` script in
+            `package.json` that have a changed file (or all of them when `full`).
+          Services in `pull` are removed from `up`/`forceRecreate`; `forceRecreate`
+          wins over `up`. Output sorted, deterministic.
+
+          Tests (`src/utils/__tests__/ci-detect.spec.ts`) run the pure function over a
+          fixture tree written to a temp dir (a mini root compose including two app
+          deploy files, one infra file with a bind mount and an env file, one include
+          with `env_file`, a `tdr-code`-style service, a `dev-idle-reaper`-style `build: .`)
+          and cover: each rule above, the `full` short-circuit, `pull` removing from `up`,
+          `forceRecreate` beating `up`, `*.dev.yml` ignored, `tdr-code` ignored, unknown
+          base → `full`, and an unrelated file (`README.md`) → everything empty. Also
+          run the real command once in the worktree, e.g.
+          `pnpm lilnas ci detect --base HEAD~3 --head HEAD --json`, and sanity-check the
+          output against the real compose tree (paste a trimmed sample in the result).
+      - id: T5
+        title: Host deploy scripts, entrypoint, and installer
+        after: []
+        model: frontier
+        files:
+          - scripts/deploy/
+        status: todo
+        body: |-
+          Create `scripts/deploy/` with four files. All bash, `set -euo pipefail`,
+          `bash -n` clean, no secrets echoed. Paths and users are constants at the top of
+          each script (`DEPLOY_ROOT=/opt/lilnas`, `KEYS_FILE=$DEPLOY_ROOT/.env.keys`,
+          `DOTENVX=@dotenvx/dotenvx@2.38.0`, `REPO=git@github.com:codemonkey800/lilnas`
+          — use `https://github.com/codemonkey800/lilnas.git` so the deploy user needs no
+          GitHub key).
+
+          `decrypt-env.sh [root] [keys-file]` — the host twin of `lilnas secrets decrypt`
+          (same discovery rule from Context, same header stripping, atomic 0600 write).
+          Decrypts with `pnpm dlx @dotenvx/dotenvx@2.38.0 decrypt -fk "$KEYS" -f "$f" --stdout`
+          (system `/usr/bin/pnpm`; set `COREPACK_ENABLE_STRICT=0` and run from `/tmp`
+          or with `--dir`-free invocation if pnpm complains about the repo's
+          `packageManager` field — test both ways and pick the one that works).
+          Prints one `decrypted <file>` line per file; exit 1 on any failure.
+
+          `lilnas-deploy.sh <sha> [--dry-run] [--full] [--decrypt] [--pull a,b] [--up c,d] [--force-recreate e,f]`
+          — runs inside `$DEPLOY_ROOT` *after* the entrypoint has checked out `<sha>`:
+          1. `decrypt-env.sh` when `--decrypt`, `--full`, or any `.decrypted` file is
+             missing (first run).
+          2. `docker compose config -q` — abort before touching anything if it fails.
+          3. `docker compose pull <pull>` then `docker compose up -d <pull>`;
+             `docker compose up -d <up>`; `docker compose up -d --force-recreate <force>`;
+             `--full` → `docker compose pull --ignore-buildable` then `docker compose up -d`.
+             `LILNAS_TAG` is never set here (`:latest`); it is the manual rollback lever.
+          4. `docker image prune -f` (dangling only), then `docker compose ps` of the
+             touched services as the final output.
+          `--dry-run` prints every command it would run (prefixed `[dry-run]`) instead of
+          running it, but still runs the decrypt and `config -q` steps. Log a one-line
+          summary to `logger -t lilnas-deploy` at start and end.
+
+          `lilnas-deploy-entry.sh` — the forced command. Installed by the installer to
+          `/home/deploy/bin/lilnas-deploy-entry` (outside the repo, so a bad commit can't
+          replace it). Reads `$SSH_ORIGINAL_COMMAND`, accepts exactly
+          `deploy <40-hex-sha> [flags as above]` (reject anything else, including
+          shell metacharacters; service lists match `^[a-z0-9-]+(,[a-z0-9-]+)*$`), takes
+          `flock -w 600 $DEPLOY_ROOT/.deploy.lock`, then `git -C $DEPLOY_ROOT fetch --prune origin`,
+          verifies the sha is reachable from some `origin/*` ref, `git checkout --detach <sha>`,
+          copies `scripts/deploy/lilnas-deploy.sh` and `decrypt-env.sh` from the checkout
+          to a `mktemp -d` and execs the copy (bash reads scripts lazily; never run the
+          one being checked out). Also accepts `deploy --help`.
+
+          `install-host.sh` — run once as root by Jeremy (H3), idempotent:
+          creates system user `deploy` (home `/home/deploy`, shell bash, groups `docker`);
+          clones the repo to `/opt/lilnas` as `deploy` if absent (else leaves it);
+          copies `/home/jeremy/lilnas/.env.keys` to `/opt/lilnas/.env.keys` (deploy:deploy
+          0600) — fail loudly if the source is missing; installs the entrypoint to
+          `/home/deploy/bin/`; generates `/home/deploy/.ssh/ci-deploy-key` (ed25519, no
+          passphrase) if absent and writes `authorized_keys` with
+          `command="/home/deploy/bin/lilnas-deploy-entry",restrict <pubkey>`;
+          appends `deploy` to `AllowUsers` in `/etc/ssh/sshd_config.d/10-hardening.conf`
+          if missing and `sshd -t && systemctl reload sshd`; ends by printing the exact
+          next steps: `gh secret set DEPLOY_SSH_KEY < /home/deploy/.ssh/ci-deploy-key`,
+          then `shred -u` the private key, and the smoke test
+          `ssh -i <key> deploy@lilnas.tail77e8b0.ts.net "deploy $(git rev-parse HEAD) --dry-run --full"`.
+
+          `known_hosts` — one line, the tailnet host key from the plan's Planner notes
+          (public; CI writes it to `~/.ssh/known_hosts`). Regenerate with
+          `ssh-keyscan -t ed25519 127.0.0.1 | sed 's/^127.0.0.1/lilnas.tail77e8b0.ts.net/'`
+          and confirm it matches.
+
+          Test without touching prod: `bash -n` all four; create a throwaway git clone
+          of the worktree under `/tmp`, generate throwaway dotenvx keys there
+          (`pnpm exec dotenvx encrypt -fk .env.keys -f <copy of apps/auth/.env.example>`),
+          run `decrypt-env.sh` against it (expect a `.decrypted` sibling, mode 600, no
+          banner, no `DOTENV_PUBLIC_KEY`), and run `lilnas-deploy.sh <sha> --dry-run --pull auth --up prometheus --force-recreate grafana`
+          with `DEPLOY_ROOT` pointed at the clone — expect the printed compose commands
+          and exit 0. Simulate the entrypoint by exporting `SSH_ORIGINAL_COMMAND` and
+          check it rejects `deploy abc`, `deploy <sha>; id`, and `deploy <sha> --up "a b"`.
+          Clean up `/tmp` afterwards.
+      - id: T6
+        title: '`ci.yml`: detect → test → build images → deploy over Tailscale'
+        after:
+          - T4
+          - T5
+        model: frontier
+        files:
+          - .github/workflows/
+        status: todo
+        body: |-
+          Replace `.github/workflows/test.yml` with `.github/workflows/ci.yml` (delete
+          the old file). Keep the existing test / lint-and-typecheck matrix behaviour
+          (Node `25.0.0`, pnpm `10.18.2`, store cache, `pnpm install --frozen-lockfile`,
+          `pnpm run build`, per-package `pnpm test` / `lint` / `type-check`, artifact
+          upload, `fail-fast: false`) but key the matrices off the detect job's
+          `testPackages`.
+
+          Triggers: `pull_request` (branches main), `push` (branches main), and
+          `workflow_dispatch` with boolean inputs `dry_run` (default true), `full`
+          (default false), `build_base_images` (default false). Top-level
+          `permissions: { contents: read, packages: write }`.
+
+          Jobs:
+          - `detect`: checkout `fetch-depth: 0`, setup pnpm/node + install, then
+            `pnpm lilnas ci detect --json --base "$BASE" --head "$HEAD"` where BASE is
+            `github.event.pull_request.base.sha` on PRs, `github.event.before` on push,
+            and for dispatch the previous commit on the ref (`HEAD~1`); pass `--full`
+            when `inputs.full` is true. `inputs.build_base_images` does not go to
+            detect: it only forces the `base-images` job to run. Expose each field as
+            an output (`fromJson` later). Print the plan as a step summary table.
+          - `test`, `lint-and-typecheck`: as today, over `testPackages`, skipped when empty.
+          - `base-images`: only on push to main or dispatch, when `baseImages` (or
+            `inputs.build_base_images`); `docker/setup-buildx-action`, `docker/login-action`
+            to ghcr.io with `GITHUB_TOKEN`, then `docker/build-push-action` four times in
+            order (node-base → monorepo-builder → node-runtime → nextjs-runtime), each
+            tagged `:latest` and `:${{ github.sha }}`, `cache-from/cache-to:
+            type=registry,ref=ghcr.io/codemonkey800/lilnas-<x>:buildcache,mode=max`,
+            context `.`. Base images always push `:latest` (a dispatch from a branch
+            republishes them; accepted in the plan).
+          - `build-images`: `needs: [detect, test, lint-and-typecheck, base-images]`,
+            `if: !cancelled() && needs.detect.outputs.images != '[]' && needs.test.result != 'failure' && needs.lint-and-typecheck.result != 'failure' && needs.base-images.result != 'failure'`
+            (skipped upstream jobs must not block), only on push to main or dispatch.
+            Matrix over `images` (`name`, `context`, `dockerfile`, `image`), `max-parallel: 4`,
+            `docker/metadata-action` tags `type=sha,format=long,prefix=` (the bare
+            40-hex sha) and `type=raw,value=latest` — the deploy step always deploys
+            `:latest`, so every push-to-main or dispatch build tags it (PR builds never
+            reach this job). Registry cache per image as above. Labels from
+            metadata-action so GHCR links the package to the repo.
+          - `deploy`: `needs: [detect, build-images]`, same `!cancelled()`/no-failure
+            guard, only on push to main or dispatch, `concurrency: { group: deploy, cancel-in-progress: false }`,
+            `environment: production`. Steps: `tailscale/github-action@v4` with
+            `oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}`, `oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}`,
+            `tags: tag:ci`; write `${{ secrets.DEPLOY_SSH_KEY }}` to `~/.ssh/id_ed25519`
+            (0600) and `scripts/deploy/known_hosts` to `~/.ssh/known_hosts`; build the
+            command from detect outputs:
+            `deploy ${{ github.sha }} [--dry-run] [--full] [--decrypt] [--pull …] [--up …] [--force-recreate …]`
+            (`--dry-run` when `inputs.dry_run`; `--full` when `full` or `inputs.full`);
+            skip the SSH entirely (with a summary line) when there is nothing to do;
+            `ssh -o BatchMode=yes -o ConnectTimeout=30 deploy@lilnas.tail77e8b0.ts.net "$CMD"`
+            and append the output to the step summary.
+          - `summary`: `if: always()`, fails the workflow if any needed job failed
+            (replaces `test-summary`).
+
+          Done when `docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12`
+          (shellcheck on) passes with no output, every `run:` block quotes its
+          expansions, and a dry read-through of the three event types (PR, push to
+          main, dispatch with `dry_run=true full=true build_base_images=true`) lands
+          on the intended jobs. You cannot run the workflow here; be precise about
+          `needs`/`if` semantics for skipped jobs.
+      - id: T8
+        title: Encrypt the 15 production env files into the branch
+        after:
+          - T1
+          - T3
+        model: frontier
+        files:
+          - apps/auth/.env.prod
+          - apps/download/.env.prod
+          - apps/equations/.env.prod
+          - apps/me-token-tracker/.env.prod
+          - apps/tdr-bot/.env.prod
+          - apps/theater/.env.prod
+          - infra/.env
+          - infra/.env.design
+          - infra/.env.l4d2
+          - infra/.env.nexus-code
+          - infra/.env.palworld
+          - infra/.env.storage
+          - infra/.env.traefik
+          - infra/.env.turbo
+          - infra/.env.valheim
+        status: todo
+        body: |-
+          This is the only task that handles plaintext secrets. Never `cat`, `echo`,
+          `git diff`, or otherwise print the contents of these files, `.env.keys`, or
+          any `.decrypted` file. Use `cp`, `grep -c`, `wc`, and exit codes.
+
+          0. Host prep in `/home/jeremy/lilnas` (Jeremy's dev checkout; nothing here
+             touches containers), approved in advance by Jeremy on 2026-10-17:
+             - Create `apps/theater/.env.prod` from `apps/theater/.env.dev-remote`
+               (which holds the real Emby credentials and the shared password): copy
+               it, drop the leading dev comment block, drop any `NEXT_PUBLIC_SOCKET_URL`
+               line (prod is same-origin via Traefik), replace the
+               `THEATER_SESSION_SECRET` value with a fresh `openssl rand -hex 32`, keep
+               `BACKEND_PORT=8081`, `FRONTEND_PORT=8080`, `TZ`, `THEATER_PASSWORD`,
+               `EMBY_URL`, `EMBY_API_KEY`, `EMBY_USERNAME`, `NEXT_PUBLIC_STUN_URLS`.
+               Do it with `grep -v`/`sed`, mode 0600; verify only by key names
+               (`sed -E 's/=.*//'`) against `apps/theater/.env.example`.
+             - Delete the env files no compose file loads: `infra/.env.auth`,
+               `infra/.env.forward-auth-truereflection`, `infra/.env.monitoring`,
+               `infra/.env.truereflection-dev-db`, the whole `infra/env/` directory,
+               and the leftover backups `apps/download/.env.prod.bak-20260827-092900`
+               and `apps/tdr-code/.env.bak.1784309293`. List what you deleted in the
+               result (names only).
+             - `docker compose -f /home/jeremy/lilnas/docker-compose.yml config -q`
+               must now exit 0 (it failed before on the missing theater file). Do not
+               run `up`.
+          1. Confirm `.gitignore` in this worktree un-ignores the 15 files and ignores
+             `.env.keys` and `*.decrypted` (`git check-ignore -v`); if not, stop and
+             report — T3 must have landed first.
+          2. `cp` each of the 15 plaintext files from `/home/jeremy/lilnas/<same path>`
+             to the same path in the worktree (all 15 must exist — abort otherwise).
+          3. Encrypt each in place, sharing one key file in the dev checkout:
+             `pnpm exec dotenvx encrypt -fk /home/jeremy/lilnas/.env.keys -f <file>`.
+             Afterwards `chmod 600 /home/jeremy/lilnas/.env.keys` and check
+             `grep -c '^DOTENV_PRIVATE_KEY' /home/jeremy/lilnas/.env.keys` is 10 (one per
+             suffix: none, PROD, DESIGN, L4D2, NEXUS_CODE, PALWORLD, STORAGE, TRAEFIK,
+             TURBO, VALHEIM) and the six `.env.prod` files share one `DOTENV_PUBLIC_KEY`
+             (`grep -h '^DOTENV_PUBLIC_KEY' apps/*/.env.prod | sort -u | wc -l` → 1).
+          4. Verify, three independent ways, all must pass:
+             - `pnpm lilnas secrets verify` exits 0;
+             - `grep -L 'DOTENV_PUBLIC_KEY' <15 files>` prints nothing, and
+               `grep -En '^[A-Za-z_][A-Za-z0-9_]*=' <15 files> | grep -Ev '=("?encrypted:|"?$)' | grep -v DOTENV_PUBLIC_KEY`
+               prints nothing;
+             - round trip: `pnpm lilnas secrets decrypt --keys /home/jeremy/lilnas/.env.keys`
+               then, per file, a node one-liner that parses both the original
+               (`/home/jeremy/lilnas/<path>`) and the `.decrypted` sibling with `dotenv`
+               (available in `packages/cli`) and exits 1 if the key sets or any value
+               differ — printing only the file name and `same`/`DIFFERENT`.
+             Delete the `.decrypted` files from the worktree when done.
+          5. `git status --porcelain` must list exactly the 15 files and nothing else
+             (no `.env.keys`, no `.decrypted`); `git add` them, commit
+             `chore(secrets): commit dotenvx-encrypted production env files`. Then
+             `git show --stat HEAD` must list exactly those 15 paths.
+          6. Back up the key file to a different physical disk:
+             `install -D -m 600 /home/jeremy/lilnas/.env.keys /storage/backups/lilnas-secrets/.env.keys`
+             (`/storage/backups` → `/mnt/hdd3`; `/home` is on the boot NVMe). Confirm
+             with `cmp` and `stat -c '%a %U' …`.
+          Report the counts, the verify output, the commit's `--stat`, and both
+          `.env.keys` locations with their modes. If this file is lost every secret
+          must be re-created; if it leaks every secret must be rotated — the phase
+          reviewer reads this commit's diff as an extra check that nothing is readable.
+      - id: T7
+        title: 'Docs: CLAUDE.md deploy section and `docs/deploy.md` runbook'
+        after:
+          - T1
+          - T2
+          - T3
+          - T4
+          - T5
+          - T6
+        model: frontier
+        files:
+          - CLAUDE.md
+          - docs/deploy.md
+        status: todo
+        body: |-
+          Write `docs/deploy.md`, the runbook, and rewrite the affected `CLAUDE.md`
+          sections to match. Read the results of the earlier tasks for exact command
+          names and flags; don't invent any.
+
+          `docs/deploy.md` covers, in this order, each with the exact commands:
+          - How a push deploys: a mermaid flowchart (push → `lilnas ci detect` → tests →
+            base-images → build-images → deploy over Tailscale → `/opt/lilnas`) and the
+            change → action table (apps source / `packages/*` dep via turbo; `deploy.yml`;
+            `infra/<name>.yml`; bind-mounted `infra/<name>/**`; encrypted env file;
+            `infra/base-images/**`; workflows or root compose → full; `apps/tdr-code/**`
+            skipped; upstream `:latest` images need a tag bump).
+          - Manual deploys: `gh workflow run ci.yml -f dry_run=false -f full=true`, and
+            on-host `sudo -u deploy /home/deploy/bin/lilnas-deploy-entry` with
+            `SSH_ORIGINAL_COMMAND="deploy <sha> …"`; emergency `docker compose up -d --build <svc>`
+            from the dev tree still works. Rollback: `LILNAS_TAG=<sha> docker compose up -d <svc>`
+            in `/opt/lilnas`.
+          - Secrets: the committed-encrypted model, `.env.keys` (location, backup,
+            blast radius), editing a value with `pnpm exec dotenvx set KEY value -fk .env.keys -f <file>`
+            then commit and push, adding a new env file (encrypt, repoint `env_file:` to
+            `.decrypted`, add the key to `/opt/lilnas/.env.keys` and re-run the
+            installer's copy step), `lilnas secrets decrypt` / `verify`, the pre-commit
+            guard command T3 recorded, and why `.decrypted` files exist.
+          - Dev checkout after this lands: move each plaintext file to its
+            `.decrypted` name before pulling main (`git` refuses to overwrite untracked
+            files), then `lilnas secrets decrypt` regenerates them from git.
+          - Host setup reference: what `scripts/deploy/install-host.sh` does, the
+            Tailscale ACL/OAuth client (`tag:ci`, `auth_keys` scope, ACL `tag:ci →
+            100.110.234.82:22`), the three GitHub secrets (`TS_OAUTH_CLIENT_ID`,
+            `TS_OAUTH_SECRET`, `DEPLOY_SSH_KEY`), GHCR packages must be public.
+          - Base images: CI publishes them; `build-base-images.sh --push` for a manual
+            bootstrap.
+
+          `CLAUDE.md`: replace "Important: Deploys Ship the Working Tree" and the
+          "Production Deployment" / "Environment Variables" / "Building Base Images"
+          text so they describe: `/home/jeremy/lilnas` is dev-only; production runs
+          from `/opt/lilnas` and is deployed by pushing to `main`; `.env.prod` and
+          `infra/.env*` are committed encrypted and compose reads `*.decrypted`; the
+          "ssh lilnas.io" note stays. Keep it short and point to `docs/deploy.md`.
+          Prettier-clean markdown (`pnpm exec prettier -c CLAUDE.md docs/deploy.md`).
+  - key: '2'
+    name: Host, tailnet, GitHub, first deploy
+    tasks:
+      - id: H3
+        title: 'Provision the host: `deploy` user, `/opt/lilnas`, forced-command key'
+        after: []
+        files: []
+        status: todo
+        body: |-
+          `.env.keys` now exists at `/home/jeremy/lilnas/.env.keys` and
+          `/storage/backups/lilnas-secrets/.env.keys` (T8). Both are on this machine;
+          if you want a copy that survives the box, paste it into your password
+          manager now — optional, not blocking.
+
+          From the run worktree (path from `nexus_run_get`):
+          1. Push the branch so the host can fetch it: `git push -u origin feat/push-to-deploy`.
+          2. `sudo scripts/deploy/install-host.sh` — creates the `deploy` user (docker
+             group), clones `/opt/lilnas`, copies `/home/jeremy/lilnas/.env.keys` to
+             `/opt/lilnas/.env.keys` (600, deploy), installs
+             `/home/deploy/bin/lilnas-deploy-entry`, generates the CI key, writes the
+             forced-command `authorized_keys`, adds `deploy` to sshd `AllowUsers` and
+             reloads sshd. Read the script first; it is idempotent.
+          3. Follow its printed next steps: `gh secret set DEPLOY_SSH_KEY < /home/deploy/.ssh/ci-deploy-key`
+             (as root or via `sudo cat … | gh secret set DEPLOY_SSH_KEY`), then
+             `sudo shred -u /home/deploy/.ssh/ci-deploy-key`.
+          4. Smoke test the forced command before shredding, using the tailnet name
+             from this machine:
+             `ssh -i /home/deploy/.ssh/ci-deploy-key deploy@lilnas.tail77e8b0.ts.net "deploy $(git rev-parse HEAD) --dry-run --full"`
+             — expect: fetch, checkout of the branch head in `/opt/lilnas`, 15
+             `decrypted …` lines, `docker compose config` ok, a list of `[dry-run]`
+             compose commands, exit 0. Nothing is pulled or started.
+             Also confirm `ssh … "id"` is refused (forced command rejects it).
+          Approve with the dry-run output pasted; reject with the error if any step
+          fails (the installer and scripts can be fixed by a follow-up task).
+      - id: H4
+        title: Tailscale `tag:ci` + OAuth client, GitHub secrets
+        after: []
+        files: []
+        status: todo
+        body: |-
+          In the Tailscale admin console (https://login.tailscale.com/admin):
+          1. Access controls: add `"tagOwners": { "tag:ci": ["autogroup:admin"] }` and an
+             ACL rule `{ "action": "accept", "src": ["tag:ci"], "dst": ["100.110.234.82:22"] }`
+             (if the policy still has the default allow-all rule this is redundant but
+             makes intent explicit).
+          2. Settings → OAuth clients → Generate: scope `auth_keys` (write), tag `tag:ci`.
+          3. `gh secret set TS_OAUTH_CLIENT_ID` and `gh secret set TS_OAUTH_SECRET` with
+             the generated values (repo `codemonkey800/lilnas`).
+          4. Create the `production` environment in the repo (Settings → Environments)
+             with no protection rules; the deploy job references it.
+          Approve with `gh secret list` showing `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`,
+          and `DEPLOY_SSH_KEY` (from H3).
+      - id: H5
+        title: 'Dispatch a dry run from the branch; make GHCR packages public'
+        after:
+          - H3
+          - H4
+        files: []
+        status: todo
+        body: |-
+          1. `gh workflow run ci.yml --ref feat/push-to-deploy -f dry_run=true -f full=true -f build_base_images=true`
+             then `gh run watch`. Expect: tests/lint matrices green, the four base
+             images and all ten app images built and pushed, the deploy job joins the
+             tailnet and runs `deploy <sha> --dry-run --full` — the step summary shows
+             the decrypt lines and `[dry-run]` compose commands, nothing changed on the
+             host (`docker compose ls` still shows 34 running under `lilnas`).
+          2. GHCR creates packages private on first push. In GitHub → your profile →
+             Packages, set each `lilnas-*` package to **public** (14: node-base,
+             monorepo-builder, node-runtime, nextjs-runtime, auth, dashcam,
+             dev-idle-reaper, download, equations, me-token-tracker, portal, tdr-bot,
+             theater, l4d2) and confirm `docker pull ghcr.io/codemonkey800/lilnas-auth:latest`
+             works unauthenticated from this host (`docker logout ghcr.io` first if a
+             login is cached). Pull only; do not `up`.
+          Approve with the run URL. If the workflow fails, reject with the failing
+          job's log excerpt so a follow-up task can fix it; re-run with the same
+          command after the fix lands on the branch.
+      - id: H6
+        title: First real deploy from `/opt/lilnas`
+        after:
+          - H5
+        files: []
+        status: todo
+        body: |-
+          Before: note `docker compose ls` and `docker ps --format '{{.Names}} {{.Image}} {{.Status}}'`
+          output. Expectation for this deploy: the ten locally built services
+          (auth, dashcam, dev-idle-reaper, download, equations, me-token-tracker,
+          portal, tdr-bot, theater, l4d2) are recreated with `ghcr.io/…` images because
+          their `image:` changed; theater and l4d2 start (they were not running);
+          every other container keeps its existing uptime because its resolved config
+          is unchanged. If you don't want l4d2 running, stop it afterwards with
+          `docker compose -p lilnas stop l4d2` — the plan did not add profiles.
+
+          Run: `gh workflow run ci.yml --ref feat/push-to-deploy -f dry_run=false -f full=true`
+          and `gh run watch`. Then check: `docker ps` images for the ten services are
+          `ghcr.io/codemonkey800/lilnas-*:latest`; other containers' `Status` uptimes
+          unchanged; https://auth.lilnas.io, https://portal.lilnas.io,
+          https://download.lilnas.io, https://tdr.lilnas.io respond; tdr-bot is online
+          in Discord.
+
+          Rollback if something is broken: from `/home/jeremy/lilnas` (old config, old
+          local images) `docker compose up -d <svc>` restores that service.
+
+          After approving, Land the run. Then, in `/home/jeremy/lilnas`: move each of
+          the 15 plaintext files to its `.decrypted` name (`mv apps/auth/.env.prod apps/auth/.env.prod.decrypted`, …)
+          so `git pull` can write the encrypted ones, `pnpm install`, install the
+          pre-commit guard (`docs/deploy.md`, Secrets), and `pnpm lilnas secrets decrypt`.
+          The merge commit on `main` will trigger one more full run that rebuilds and
+          redeploys the ten services once more — expected.
+      - id: T9
+        title: Post-deploy verification (read-only)
+        after:
+          - H6
+        model: frontier
+        files: []
+        status: todo
+        body: |-
+          Verify the first deploy without changing anything. Read-only commands only.
+          - `docker ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}'`: list the ten
+            services with `ghcr.io/codemonkey800/lilnas-*` images and every other
+            container's status; flag any container restarting or exited.
+          - `docker inspect` one app container: `com.docker.compose.project.working_dir`
+            is `/opt/lilnas` and `com.docker.compose.project` is `lilnas`.
+          - `curl -sS -o /dev/null -w '%{http_code}\n'` for https://auth.lilnas.io,
+            https://portal.lilnas.io, https://download.lilnas.io, https://tdr.lilnas.io,
+            https://theater.lilnas.io (redirects to auth are fine; 5xx is not).
+          - `sudo` is unavailable: check `/opt/lilnas` from outside (`ls -la /opt/lilnas`,
+            `git -C /opt/lilnas log -1 --oneline` if readable) and that
+            `journalctl -t lilnas-deploy --no-pager | tail` shows the start/end lines.
+          - `gh run list --workflow ci.yml --limit 3` and the deploy job's step summary.
+          Report a table of service → image → status and any defect found, with the
+          suggested follow-up task if one is needed. Commit nothing.
