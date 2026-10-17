@@ -791,7 +791,8 @@ phases:
         after: []
         files:
           - packages/cli/src/utils/secrets.ts
-        status: todo
+        status: done
+        commit: 502553dc2729b2212d7e5afd394f97beefd44186
         body: |-
           Finding: F4 (P1)
 

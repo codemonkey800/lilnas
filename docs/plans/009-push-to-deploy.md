@@ -384,3 +384,10 @@ NEXUS_PROXY_TOKEN, because the placeholder is empty). All plan checks pass.
 docs/deploy.md now says the port is pinned in deploy.yml and must be kept in sync
 with PORT in the host .env. On the next deploy the tdr-code proxy container will be
 recreated (its environment changed) with the same port.
+
+### 2026-10-17 · R2 · done
+writeFileAtomic0600 now writes plaintext to `<target>.tmp-<pid>.decrypted`, via the new exported atomicTempPathFor(target, pid?), so `*.decrypted` covers it.
+.gitignore gains `*.decrypted.*` after `*.decrypted` as a backstop. This also covers scripts/deploy/decrypt-env.sh, whose `mktemp "$dest.XXXXXX"` temp (`infra/.env.x.decrypted.Ab12Cd`) had the same trackable-orphan problem. I left the script unchanged because the ignore rule handles it.
+The proof comment lists both temp names; checked by hand with `git check-ignore --no-index`.
+New tests: name format, a git check-ignore of the temp path for all 15 encrypted files (runs real `git` from the repo root), and a writeFileAtomic0600 round-trip that checks mode 0600 and that no temp file is left.
+All six checks pass: cli lint, type-check, 67 cli tests, utils jest 593, bash -n, actionlint.
