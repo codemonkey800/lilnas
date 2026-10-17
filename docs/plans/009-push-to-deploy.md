@@ -240,3 +240,13 @@ For T6 (workflow): invoke as
 write scripts/deploy/known_hosts to ~/.ssh/known_hosts. For T7 (docs):
 install-host.sh must be run from a checkout (it copies the entrypoint from
 its own directory).
+
+### 2026-10-17 · T3 · done
+- `listEncryptedEnvFiles(root, tracked)` returns ABSOLUTE paths (path.join(root, relPath)), sorted by repo path. Rule: `^(apps/[^/]+/\.env\.prod|infra/\.env(\.[^/]+)?)$` minus `*.example` / `*.decrypted`. The deploy script (T5/T6) must use the same rule; the .gitignore comment points at this function.
+- dotenvx 2.38.0 key names keep hyphens: `infra/.env.nexus-code` -> `DOTENV_PRIVATE_KEY_NEXUS-CODE` (task text said `_NEXUS_CODE`). `privateKeyNameFor` follows dotenvx (`src/lib/conventions/keynames.js`: `environment(filename).toUpperCase()`); the `.env.keys` written by `dotenvx encrypt` uses that spelling. Also: if a file already has a `DOTENV_PUBLIC_KEY_<X>` line, dotenvx derives the private key name from it.
+- `isFullyEncrypted` treats an empty value (`KEY=` / `KEY=""`) as plaintext — dotenvx encrypts empty strings too, so a bare empty value means a hand edit. Non-`KEY=value` lines are reported as `line <n>` rather than echoed.
+- `dotenvx decrypt --stdout` output = file contents + one extra trailing "\n" (console.log); it is written as-is after header stripping. dotenvx's own `# .env.<name>` comment line survives (it is a comment, kept verbatim). On a missing/wrong key dotenvx exits 1 with `[DECRYPTION_FAILED]` and no partial output; decrypt additionally fails if any value is still `encrypted:` after the run.
+- Pre-commit guard for T7 docs: `pnpm exec dotenvx ext precommit --install` (deprecated but repo-local, installs .git/hooks/pre-commit, blocks root + nested plaintext `.env*`, falls back to `npx dotenvx` so the root devDependency suffices). Do NOT document `dotenvx protect`: it writes filters with absolute machine paths into ~/.gitconfig and ~/.config/git/attributes (global). I ran it once on this host during testing and fully reverted it.
+- Workspace quirk: `.npmrc` has `inject-workspace-packages=true`, so `pnpm lilnas` runs an injected COPY of packages/cli; after adding/changing CLI source files, run `pnpm install` (or the `build` script) to re-sync or new commands show "not found".
+- `pnpm install` also re-resolved some lockfile peer keys (zod/esbuild dedup) — no package version changes beyond dotenvx + the cli jest devDeps.
+- `scripts/deploy/*.sh` doesn't exist yet (check is a no-op); actionlint passes on the current workflows.

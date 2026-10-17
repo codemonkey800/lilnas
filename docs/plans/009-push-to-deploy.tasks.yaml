@@ -121,7 +121,8 @@ phases:
           - .gitignore
           - packages/cli/
         model: frontier
-        status: todo
+        status: done
+        commit: 98fa2dbecc08212c65025ea4b0070a69b3357a3b
         body: |-
           1. Add `@dotenvx/dotenvx` `2.38.0` (exact) as a root devDependency;
              `pnpm install` so `pnpm-lock.yaml` updates and `node_modules/.bin/dotenvx`
