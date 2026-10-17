@@ -6,7 +6,6 @@ phases:
       - id: T1
         title: 'Compose: project name, GHCR image tags, decrypted env_file paths'
         after: []
-        model: frontier
         files:
           - docker-compose.yml
           - apps/auth/deploy.yml
@@ -28,7 +27,9 @@ phases:
           - infra/shared.dev.yml
           - infra/valheim.yml
           - .dockerignore
-        status: todo
+        model: frontier
+        status: done
+        commit: e2d2d6ff2b4afbfd9a30d514e2e3b3d490205743
         body: |-
           Three mechanical edits across the compose files, plus `.dockerignore`.
 
@@ -76,7 +77,6 @@ phases:
       - id: T2
         title: Dockerfiles and base-image script point at GHCR
         after: []
-        model: frontier
         files:
           - apps/auth/Dockerfile
           - apps/download/Dockerfile
@@ -85,6 +85,7 @@ phases:
           - apps/tdr-bot/Dockerfile
           - apps/theater/Dockerfile
           - infra/base-images/
+        model: frontier
         status: todo
         body: |-
           Repoint every `FROM lilnas-<x>` to `FROM ghcr.io/codemonkey800/lilnas-<x>:latest`:
@@ -111,14 +112,14 @@ phases:
           `bash -n` on the script and `grep -n '^FROM' apps/*/Dockerfile infra/base-images/*.Dockerfile`
           — every `lilnas-*` base must be the GHCR name. Do not build or push images.
       - id: T3
-        title: 'dotenvx, gitignore flip, and `lilnas secrets decrypt|verify`'
+        title: dotenvx, gitignore flip, and `lilnas secrets decrypt|verify`
         after: []
-        model: frontier
         files:
           - package.json
           - pnpm-lock.yaml
           - .gitignore
           - packages/cli/
+        model: frontier
         status: todo
         body: |-
           1. Add `@dotenvx/dotenvx` `2.38.0` (exact) as a root devDependency;
@@ -182,9 +183,9 @@ phases:
         title: '`lilnas ci detect`: change → build/deploy plan'
         after:
           - T3
-        model: frontier
         files:
           - packages/cli/
+        model: frontier
         status: todo
         body: |-
           Add `lilnas ci detect --base <sha> --head <sha> [--full] [--json]` (topic
@@ -252,9 +253,9 @@ phases:
       - id: T5
         title: Host deploy scripts, entrypoint, and installer
         after: []
-        model: frontier
         files:
           - scripts/deploy/
+        model: frontier
         status: todo
         body: |-
           Create `scripts/deploy/` with four files. All bash, `set -euo pipefail`,
@@ -331,9 +332,9 @@ phases:
         after:
           - T4
           - T5
-        model: frontier
         files:
           - .github/workflows/
+        model: frontier
         status: todo
         body: |-
           Replace `.github/workflows/test.yml` with `.github/workflows/ci.yml` (delete
@@ -400,7 +401,6 @@ phases:
         after:
           - T1
           - T3
-        model: frontier
         files:
           - apps/auth/.env.prod
           - apps/download/.env.prod
@@ -417,6 +417,7 @@ phases:
           - infra/.env.traefik
           - infra/.env.turbo
           - infra/.env.valheim
+        model: frontier
         status: todo
         body: |-
           This is the only task that handles plaintext secrets. Never `cat`, `echo`,
@@ -487,10 +488,10 @@ phases:
           - T4
           - T5
           - T6
-        model: frontier
         files:
           - CLAUDE.md
           - docs/deploy.md
+        model: frontier
         status: todo
         body: |-
           Write `docs/deploy.md`, the runbook, and rewrite the affected `CLAUDE.md`
@@ -585,7 +586,7 @@ phases:
           Approve with `gh secret list` showing `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`,
           and `DEPLOY_SSH_KEY` (from H3).
       - id: H5
-        title: 'Dispatch a dry run from the branch; make GHCR packages public'
+        title: Dispatch a dry run from the branch; make GHCR packages public
         after:
           - H3
           - H4
@@ -644,8 +645,8 @@ phases:
         title: Post-deploy verification (read-only)
         after:
           - H6
-        model: frontier
         files: []
+        model: frontier
         status: todo
         body: |-
           Verify the first deploy without changing anything. Read-only commands only.

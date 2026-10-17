@@ -185,3 +185,14 @@ or `lilnas-dev` project; docs updated where the task says so.
 ## Log
 <!-- Written by Nexus: findings, review cycles, checkpoint verdicts, the final report,
      the rollout record. Humans may add notes here too. -->
+
+### 2026-10-17 · T1 · done
+Compose now expects these 15 decrypted paths to exist before `up`:
+apps/{auth,download,equations,me-token-tracker,tdr-bot,theater}/.env.prod.decrypted,
+infra/.env.decrypted, infra/.env.{design,l4d2,nexus-code,palworld,storage,traefik,turbo,valheim}.decrypted.
+apps/tdr-bot/deploy.dev.yml (lilnas-dev project) also loads .env.prod.decrypted, so the
+dev tree needs a decrypted tdr-bot file too. The image tag var is LILNAS_TAG (default
+`latest`). Validating compose in a worktree also needs placeholder plain dev files
+(apps/*/.env, apps/{download,theater}/.env.dev-remote, apps/tdr-code/.env) since those
+are gitignored and absent there — not caused by this task. .gitignore has no *.decrypted
+rule yet (T3); placeholders were removed before committing.
