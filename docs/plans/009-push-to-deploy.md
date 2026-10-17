@@ -334,3 +334,14 @@ No docker compose lifecycle commands were run; no env file contents were printed
 - A `dependencies` entry counts as a workspace dep if its spec starts with `workspace:` OR its name matches another workspace package; dev/peer/optional deps are ignored.
 - CLI flags and JSON shape are unchanged, so T6's workflow needs no edits. `pnpm install` left the lockfile unchanged.
 - No docker compose lifecycle commands were run; no env file contents were printed.
+
+### 2026-10-17 · T7 · done
+Decisions:
+- On-host manual deploy is documented as `sudo -u deploy env SSH_ORIGINAL_COMMAND="deploy <sha> …" /home/deploy/bin/lilnas-deploy-entry` (`env` rather than `sudo -E`, which depends on sudoers env policy).
+- Rollback written as `sudo -u deploy env LILNAS_TAG=<sha> docker compose up -d <svc>` from /opt/lilnas, since the clone is deploy-owned.
+- "Installer's copy step" for a new key is spelled out as the equivalent `sudo install -o deploy -g deploy -m 0600 /home/jeremy/lilnas/.env.keys /opt/lilnas/.env.keys` (or re-running install-host.sh, which is idempotent).
+- Added the shared-PROD-key caveat from the plan: a new `apps/*/.env.prod` must carry the existing `DOTENV_PUBLIC_KEY_PROD` line before `dotenvx encrypt`, or dotenvx mints a new keypair.
+- Key names use dotenvx's spelling (`DOTENV_PRIVATE_KEY_NEXUS-CODE`), verified against the key names (not values) in /home/jeremy/lilnas/.env.keys.
+- Upstream `:latest` row explains why `up -d` won't upgrade and that a tag bump in `infra/<name>.yml` is needed.
+- The dev-checkout snippet moves plaintext files to `.decrypted` before `git pull`; it is meant to run before pulling (after a pull the same paths are tracked).
+No env file contents were printed; no compose lifecycle commands were run.

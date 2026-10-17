@@ -499,7 +499,8 @@ phases:
           - CLAUDE.md
           - docs/deploy.md
         model: frontier
-        status: todo
+        status: done
+        commit: 551e1220289d50cee8b6ffd6d90045c1d8cb750a
         body: |-
           Write `docs/deploy.md`, the runbook, and rewrite the affected `CLAUDE.md`
           sections to match. Read the results of the earlier tasks for exact command
