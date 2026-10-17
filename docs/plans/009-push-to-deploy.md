@@ -369,3 +369,18 @@ Notes:
 - F9 · P2 · Unusable-base logic is untested — packages/cli/src/commands/ci/detect.ts:15
 - F10 · P2 · Root tsconfig changes do not rebuild any image — packages/cli/src/utils/ci-detect.ts:109
 - F12 · P2 · Header-strip rules differ between CLI and decrypt-env.sh — scripts/deploy/decrypt-env.sh:64
+
+### 2026-10-17 · R1 · done
+Fixed F1 by removing `env_file: - .env` from apps/tdr-code/deploy.yml and setting
+`LOCAL_PORT: '8790'` in the environment (the live value of PORT in the host's
+apps/tdr-code/.env, which entrypoint.sh used as its fallback). I did not use the
+suggested `required: false`: with the file missing, PORT would be unset, nginx would
+render proxy_pass with no port, and the proxy would break the first time it was
+recreated in /opt/lilnas. Removing the file also keeps the host process's
+Discord/GitHub/auth secrets out of the nginx container.
+Verified: in a fresh clone with only the 15 `.decrypted` placeholders touched,
+`docker compose -f docker-compose.yml config -q` passes (one expected warning about
+NEXUS_PROXY_TOKEN, because the placeholder is empty). All plan checks pass.
+docs/deploy.md now says the port is pinned in deploy.yml and must be kept in sync
+with PORT in the host .env. On the next deploy the tdr-code proxy container will be
+recreated (its environment changed) with the same port.
