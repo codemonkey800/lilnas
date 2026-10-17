@@ -1,4 +1,4 @@
-FROM lilnas-node-base
+FROM ghcr.io/codemonkey800/lilnas-node-base:latest
 
 # Dev runtime for every app's deploy.dev.yml. Unlike the other base images this
 # one copies no source: the repo is bind-mounted at /source and each app runs

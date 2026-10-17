@@ -6,7 +6,7 @@
 # lilnas-nextjs-runtime pattern.
 
 # Dependency caching stage
-FROM lilnas-monorepo-builder AS deps
+FROM ghcr.io/codemonkey800/lilnas-monorepo-builder:latest AS deps
 
 # Copy package files for dependency caching
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -73,7 +73,7 @@ RUN mkdir -p /app/src/db && \
 RUN test -f /app/dist/main.js || (echo "ERROR: dist/main.js not found" && exit 1)
 
 # Runtime stage
-FROM lilnas-nextjs-runtime AS runtime
+FROM ghcr.io/codemonkey800/lilnas-nextjs-runtime:latest AS runtime
 
 # Copy the built application with non-root ownership so the node user
 # (UID 1000) can read/execute everything in /app at runtime (matches
