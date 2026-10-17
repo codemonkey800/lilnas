@@ -33,7 +33,6 @@ const summary: ReconcileSummary = {
   trigger: 'boot',
   synced: 2,
   softDeleted: 0,
-  seeded: 0,
   described: 1,
   failed: 0,
   durationMs: 10,

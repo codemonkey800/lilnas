@@ -19,10 +19,6 @@ import {
   EmojiSyncService,
 } from 'src/emojis/emoji-sync.service'
 
-/** HYPERS, present in src/utils/emojis.ts. */
-const SEED_ID = '564310072822333480'
-const SEED_DESCRIPTION = 'Use this when excited about something'
-
 /** In-memory stand-in for the Drizzle repository. */
 class FakeRepo {
   readonly rows = new Map<string, EmojiRow>()
@@ -71,11 +67,11 @@ class FakeRepo {
     )
   }
 
-  async listManualExamples(limit: number): Promise<EmojiRow[]> {
+  async listExamples(limit: number): Promise<EmojiRow[]> {
     return [...this.rows.values()]
-      .filter(
-        row =>
-          row.source === 'manual' && row.description !== null && !row.deletedAt,
+      .filter(row => row.description !== null && !row.deletedAt)
+      .sort(
+        (a, b) => Number(b.source === 'manual') - Number(a.source === 'manual'),
       )
       .slice(0, limit)
   }
@@ -208,7 +204,6 @@ describe('EmojiSyncService.reconcile', () => {
       trigger: 'boot',
       synced: 0,
       softDeleted: 0,
-      seeded: 0,
       described: 0,
       failed: 0,
     })
@@ -216,9 +211,9 @@ describe('EmojiSyncService.reconcile', () => {
     expect(describeEmoji).not.toHaveBeenCalled()
   })
 
-  it('on an empty table upserts all, seeds without the LLM and describes the rest', async () => {
+  it('on an empty table upserts all and describes every emoji with the LLM', async () => {
     const { repo, describeEmoji, dictionary, service } = setup([
-      guild('g1', [emoji(SEED_ID, 'HYPERS'), emoji('1'), emoji('2', null)]),
+      guild('g1', [emoji('1'), emoji('2', null)]),
       guild('g2', [emoji('3')]),
     ])
 
@@ -226,18 +221,12 @@ describe('EmojiSyncService.reconcile', () => {
 
     expect(summary).toMatchObject({
       trigger: 'boot',
-      synced: 3,
+      synced: 2,
       softDeleted: 0,
-      seeded: 1,
       described: 2,
       failed: 0,
     })
     expect(new Date(summary.finishedAt).toISOString()).toBe(summary.finishedAt)
-    expect(repo.rows.get(SEED_ID)).toMatchObject({
-      description: SEED_DESCRIPTION,
-      source: 'manual',
-      model: null,
-    })
     expect(repo.rows.get('1')).toMatchObject({
       description: 'AI says emoji1',
       source: 'ai',
@@ -249,10 +238,8 @@ describe('EmojiSyncService.reconcile', () => {
       '1',
       '3',
     ])
-    // The seeded row is a manual example for the LLM calls
-    expect(describeEmoji.mock.calls[0][1]).toEqual([
-      { name: 'HYPERS', animated: false, description: SEED_DESCRIPTION },
-    ])
+    // Nothing is described yet, so the first calls have no examples
+    expect(describeEmoji.mock.calls[0][1]).toEqual([])
     expect(dictionary.refresh).toHaveBeenCalled()
   })
 
@@ -269,7 +256,6 @@ describe('EmojiSyncService.reconcile', () => {
     expect(summary).toMatchObject({
       trigger: 'cron',
       synced: 2,
-      seeded: 0,
       described: 0,
       failed: 0,
     })
@@ -437,16 +423,16 @@ describe('EmojiSyncService event handlers', () => {
 })
 
 describe('EmojiSyncService.redescribe', () => {
-  it('overwrites a manual description with an AI one, ignoring the seed', async () => {
+  it('overwrites a manual description with an AI one', async () => {
     const { repo, describeEmoji, dictionary, service } = setup()
     repo.seed({
-      id: SEED_ID,
+      id: '1',
       name: 'HYPERS',
       description: 'hand written',
       source: 'manual',
     })
 
-    const row = await service.redescribe(SEED_ID)
+    const row = await service.redescribe('1')
 
     expect(describeEmoji).toHaveBeenCalledTimes(1)
     expect(describeEmoji.mock.calls[0][1]).toEqual([
@@ -526,7 +512,7 @@ describe('EmojiSyncService.redescribeAll', () => {
     expect(service.status().last).toBe(summary)
   })
 
-  it('uses the manual descriptions as examples, as they were before the run', async () => {
+  it('uses the existing descriptions as examples, manual first, as they were before the run', async () => {
     const { repo, describeBatch, service } = setup()
     seedMany(repo, 3)
 
@@ -535,6 +521,7 @@ describe('EmojiSyncService.redescribeAll', () => {
     expect(describeBatch.mock.calls[0][1]).toEqual([
       { name: 'e1', animated: false, description: 'old 1' },
       { name: 'e3', animated: false, description: 'old 3' },
+      { name: 'e2', animated: false, description: 'old 2' },
     ])
   })
 

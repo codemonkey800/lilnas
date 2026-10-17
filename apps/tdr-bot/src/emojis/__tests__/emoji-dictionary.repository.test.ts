@@ -167,15 +167,16 @@ describe('EmojiDictionaryRepository', () => {
       expect(calls.some(c => c.method === 'where')).toBe(false)
     })
 
-    it('listManualExamples filters, orders by id and limits', async () => {
-      const { repo, argOf } = fakeDb([])
-      await repo.listManualExamples(5)
+    it('listExamples takes live described rows, manual first, then by id, and limits', async () => {
+      const { repo, calls, argOf } = fakeDb([])
+      await repo.listExamples(5)
       const where = sqlOf(argOf('where'))
-      expect(where.sql).toContain('"source" = $1')
       expect(where.sql).toContain('"description" is not null')
       expect(where.sql).toContain('"deleted_at" is null')
-      expect(where.params).toEqual(['manual'])
-      expect(sqlOf(argOf('orderBy')).sql).toContain('"id" asc')
+      expect(where.sql).not.toContain('"source"')
+      const orderBy = calls.find(c => c.method === 'orderBy')?.args ?? []
+      expect(sqlOf(orderBy[0]).sql).toContain(`"source" = 'manual'`)
+      expect(sqlOf(orderBy[1]).sql).toContain('"id" asc')
       expect(argOf('limit')).toBe(5)
     })
   })

@@ -148,7 +148,6 @@ describe('reconcileStatusLine', () => {
     trigger: 'boot',
     synced: 140,
     softDeleted: 0,
-    seeded: 0,
     described: 2,
     failed: 0,
     durationMs: 1200,

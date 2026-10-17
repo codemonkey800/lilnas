@@ -10,10 +10,7 @@ import {
   EMOJI_DESCRIPTION_MAX_CHARS,
   EMOJI_EXAMPLE_COUNT,
 } from 'src/emojis/emoji.constants'
-import {
-  buildEmojiDescriberSystemPrompt,
-  FALLBACK_EMOJI_EXAMPLES,
-} from 'src/emojis/emoji-describer.prompts'
+import { buildEmojiDescriberSystemPrompt } from 'src/emojis/emoji-describer.prompts'
 import { LlmClient } from 'src/llm/client/llm-client'
 import { ModelRegistry } from 'src/llm/models/model-registry'
 
@@ -48,23 +45,9 @@ export const EmojiBatchSchema = z.object({
   ),
 })
 
-/** Below this many examples, top up from the hand-written fallbacks. */
-const MIN_EXAMPLES = FALLBACK_EMOJI_EXAMPLES.length
-
 /** Static PNG on Discord's CDN; a still frame for animated emojis. */
 export function emojiPngUrl(id: string): string {
   return `https://cdn.discordapp.com/emojis/${id}.png`
-}
-
-function withFallbackExamples(examples: EmojiExample[]): EmojiExample[] {
-  if (examples.length >= MIN_EXAMPLES) {
-    return examples.slice(0, EMOJI_EXAMPLE_COUNT)
-  }
-  const names = new Set(examples.map(example => example.name))
-  const fallbacks = FALLBACK_EMOJI_EXAMPLES.filter(
-    example => !names.has(example.name),
-  )
-  return [...examples, ...fallbacks].slice(0, EMOJI_EXAMPLE_COUNT)
 }
 
 /** Turns an emoji's name and picture into a one-line "when to use it" hint. */
@@ -90,7 +73,7 @@ export class EmojiDescriberService {
     this.assertVision()
 
     const systemPrompt = buildEmojiDescriberSystemPrompt(
-      withFallbackExamples(examples),
+      examples.slice(0, EMOJI_EXAMPLE_COUNT),
     )
     const result = await this.llm.call({
       operation: 'emoji.describe',
@@ -157,9 +140,12 @@ export class EmojiDescriberService {
         reasoningEffort: EMOJI_DESCRIBER_REASONING_EFFORT,
       },
       messages: [
-        buildEmojiDescriberSystemPrompt(withFallbackExamples(examples), {
-          batch: true,
-        }),
+        buildEmojiDescriberSystemPrompt(
+          examples.slice(0, EMOJI_EXAMPLE_COUNT),
+          {
+            batch: true,
+          },
+        ),
         new HumanMessage({ content }),
       ],
     })

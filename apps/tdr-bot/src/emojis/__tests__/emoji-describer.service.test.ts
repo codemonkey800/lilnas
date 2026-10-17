@@ -6,7 +6,6 @@ import {
   EMOJI_DESCRIBER_MODEL,
   EMOJI_EXAMPLE_COUNT,
 } from 'src/emojis/emoji.constants'
-import { FALLBACK_EMOJI_EXAMPLES } from 'src/emojis/emoji-describer.prompts'
 import {
   EmojiDescriberService,
   EmojiExample,
@@ -112,7 +111,6 @@ describe('EmojiDescriberService', () => {
     expect(lines).toHaveLength(8)
     expect(lines[0]).toBe('- emo0: Use for emo0')
     expect(lines[1]).toBe('- partyParrot (animated): Use for partyParrot')
-    expect(systemText(llm)).not.toContain('HYPERS')
   })
 
   it('caps examples at EMOJI_EXAMPLE_COUNT', async () => {
@@ -124,35 +122,12 @@ describe('EmojiDescriberService', () => {
     expect(exampleLines(llm)).toHaveLength(EMOJI_EXAMPLE_COUNT)
   })
 
-  it('tops up short example lists from the fallbacks, skipping duplicates', async () => {
-    const { llm, service } = setup()
-    const examples = [
-      example('catJAM'),
-      { name: 'gasp', animated: false, description: 'Our own gasp hint' },
-      example('pog'),
-    ]
-
-    await service.describe(EMOJI, examples)
-
-    const lines = exampleLines(llm)
-    expect(lines).toHaveLength(EMOJI_EXAMPLE_COUNT)
-    expect(lines.slice(0, 3)).toEqual([
-      '- catJAM: Use for catJAM',
-      '- gasp: Our own gasp hint',
-      '- pog: Use for pog',
-    ])
-    expect(lines.filter(line => line.startsWith('- gasp:'))).toHaveLength(1)
-    expect(lines[3]).toBe(`- HYPERS: ${FALLBACK_EMOJI_EXAMPLES[0].description}`)
-  })
-
-  it('uses only the fallbacks when there are no examples', async () => {
+  it('omits the examples section when there are no examples', async () => {
     const { llm, service } = setup()
 
     await service.describe(EMOJI, [])
 
-    expect(exampleLines(llm)).toEqual(
-      FALLBACK_EMOJI_EXAMPLES.map(e => `- ${e.name}: ${e.description}`),
-    )
+    expect(systemText(llm)).not.toContain('Examples:')
   })
 
   it('rejects a model without vision before calling the LLM', async () => {

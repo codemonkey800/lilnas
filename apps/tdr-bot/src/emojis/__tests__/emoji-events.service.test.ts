@@ -13,7 +13,6 @@ function makeSummary(trigger: ReconcileTrigger): ReconcileSummary {
     trigger,
     synced: 0,
     softDeleted: 0,
-    seeded: 0,
     described: 0,
     failed: 0,
     durationMs: 0,

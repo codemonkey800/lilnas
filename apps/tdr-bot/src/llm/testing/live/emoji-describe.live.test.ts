@@ -2,21 +2,38 @@ import {
   EMOJI_DESCRIBER_MODEL,
   EMOJI_DESCRIPTION_MAX_CHARS,
 } from 'src/emojis/emoji.constants'
-import { FALLBACK_EMOJI_EXAMPLES } from 'src/emojis/emoji-describer.prompts'
 import {
   DescribeInput,
   EmojiDescriberService,
+  EmojiExample,
 } from 'src/emojis/emoji-describer.service'
 import { ModelRegistry } from 'src/llm/models/model-registry'
 
 import { describeLive, LiveLlm, MAX_RUN_COST_USD, recordCost } from './live-env'
 
-// Real emojis from the server: a static one, an animated one and one whose
-// name is also a fallback example.
+// Real emojis from the server: a static one and an animated one.
 const EMOJIS: DescribeInput[] = [
   { id: '564310072822333480', name: 'HYPERS', animated: false },
   { id: '1266528661318926369', name: 'peepoWine', animated: true },
   { id: '1275667821757464687', name: 'Loading', animated: false },
+]
+
+const EXAMPLES: EmojiExample[] = [
+  {
+    name: 'Jebaited',
+    animated: false,
+    description: 'Express surprise or indicate a successful trick or prank',
+  },
+  {
+    name: 'residentsleeper',
+    animated: false,
+    description: 'Use when something is boring or putting you to sleep',
+  },
+  {
+    name: 'gasp',
+    animated: false,
+    description: 'React to something surprising or shocking',
+  },
 ]
 
 describeLive('live emoji describer', () => {
@@ -31,7 +48,7 @@ describeLive('live emoji describer', () => {
   it.each(EMOJIS)(
     '$name gets a usage hint from the real model',
     async emoji => {
-      const result = await describer.describe(emoji, FALLBACK_EMOJI_EXAMPLES)
+      const result = await describer.describe(emoji, EXAMPLES)
 
       console.log(`[live] ${emoji.name}: ${result.description}`)
       expect(result.description.length).toBeGreaterThanOrEqual(1)

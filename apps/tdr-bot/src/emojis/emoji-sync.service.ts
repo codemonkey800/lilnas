@@ -19,7 +19,6 @@ import {
   EmojiMeta,
 } from 'src/emojis/emoji-dictionary.repository'
 import { EmojiDictionaryService } from 'src/emojis/emoji-dictionary.service'
-import { seedDescriptions } from 'src/emojis/emoji-seed'
 
 export type ReconcileTrigger =
   | 'boot'
@@ -33,8 +32,6 @@ export interface ReconcileSummary {
   /** Emojis upserted in phase 1 (0 for a re-describe-all run). */
   synced: number
   softDeleted: number
-  /** Filled from the old static dictionary. */
-  seeded: number
   /** Filled (or, for a re-describe-all run, rewritten) by the LLM. */
   described: number
   failed: number
@@ -63,7 +60,6 @@ export class EmojiDeletedError extends Error {
 }
 
 interface DescribeCounts {
-  seeded: number
   described: number
   failed: number
 }
@@ -183,7 +179,7 @@ export class EmojiSyncService {
 
   /**
    * Describe one emoji now with the LLM and overwrite its description
-   * (source 'ai'), even a manual one. Ignores the seed.
+   * (source 'ai'), even a manual one.
    */
   async redescribe(id: string): Promise<EmojiRow> {
     const row = await this.repo.get(id)
@@ -237,7 +233,6 @@ export class EmojiSyncService {
       return this.finish(trigger, startedAt, {
         synced: 0,
         softDeleted: 0,
-        seeded: 0,
         described: 0,
         failed: 0,
       })
@@ -257,7 +252,7 @@ export class EmojiSyncService {
   private async runRedescribeAll(): Promise<ReconcileSummary> {
     const startedAt = Date.now()
     const rows = (await this.repo.listAll()).filter(row => !row.deletedAt)
-    // Snapshot the style examples first: the run overwrites the manual
+    // Snapshot the style examples first: the run overwrites the
     // descriptions they come from.
     const examples = await this.loadExamples()
     let described = 0
@@ -296,7 +291,6 @@ export class EmojiSyncService {
     const summary = this.finish('redescribe-all', startedAt, {
       synced: 0,
       softDeleted: 0,
-      seeded: 0,
       described,
       failed,
     })
@@ -372,31 +366,14 @@ export class EmojiSyncService {
     return { synced: all.length, softDeleted }
   }
 
-  /** Phase 2: fill missing descriptions, seed first, then the LLM. */
+  /** Phase 2: fill missing descriptions with the LLM. */
   private async describePending(): Promise<DescribeCounts> {
-    const counts: DescribeCounts = { seeded: 0, described: 0, failed: 0 }
+    const counts: DescribeCounts = { described: 0, failed: 0 }
     const rows = await this.repo.listUndescribed()
 
-    const seeds = seedDescriptions()
-    const remaining: EmojiRow[] = []
-    for (const row of rows) {
-      const description = seeds.get(row.id)
-      if (description === undefined) {
-        remaining.push(row)
-        continue
-      }
-      const filled = await this.repo.fillDescription(row.id, {
-        description,
-        source: 'manual',
-        model: null,
-      })
-      if (filled) counts.seeded++
-    }
-    if (counts.seeded > 0) await this.dictionary.refresh()
-
-    if (remaining.length > 0) {
+    if (rows.length > 0) {
       const examples = await this.loadExamples()
-      await runPool(remaining, EMOJI_DESCRIBE_CONCURRENCY, async row => {
+      await runPool(rows, EMOJI_DESCRIBE_CONCURRENCY, async row => {
         try {
           const result = await this.describer.describe(
             { id: row.id, name: row.name, animated: row.animated },
@@ -423,7 +400,7 @@ export class EmojiSyncService {
   }
 
   private async loadExamples(): Promise<EmojiExample[]> {
-    const rows = await this.repo.listManualExamples(EMOJI_EXAMPLE_COUNT)
+    const rows = await this.repo.listExamples(EMOJI_EXAMPLE_COUNT)
     return rows.flatMap(row => toExample(row) ?? [])
   }
 }

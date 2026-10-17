@@ -4,50 +4,6 @@ import dedent from 'dedent'
 import { EMOJI_DESCRIPTION_MAX_CHARS } from 'src/emojis/emoji.constants'
 import type { EmojiExample } from 'src/emojis/emoji-describer.service'
 
-/** Hand-written hints from src/utils/emojis.ts, used when the dictionary is short. */
-export const FALLBACK_EMOJI_EXAMPLES: EmojiExample[] = [
-  {
-    name: 'HYPERS',
-    animated: false,
-    description: 'Use this when excited about something',
-  },
-  {
-    name: 'Jebaited',
-    animated: false,
-    description: 'Express surprise or indicate a successful trick or prank',
-  },
-  {
-    name: 'residentsleeper',
-    animated: false,
-    description: 'Use when something is boring or putting you to sleep',
-  },
-  {
-    name: 'salute1',
-    animated: false,
-    description: 'Show respect or acknowledgment',
-  },
-  {
-    name: 'gasp',
-    animated: false,
-    description: 'React to something surprising or shocking',
-  },
-  {
-    name: 'jackded',
-    animated: false,
-    description: 'Express feeling drained or exhausted',
-  },
-  {
-    name: 'pathetic',
-    animated: false,
-    description: 'Mock or express disappointment humorously',
-  },
-  {
-    name: 'Loading',
-    animated: false,
-    description: 'Indicate waiting or something in progress',
-  },
-]
-
 function formatExample({ name, animated, description }: EmojiExample): string {
   return `- ${name}${animated ? ' (animated)' : ''}: ${description}`
 }
@@ -70,7 +26,7 @@ export function buildEmojiDescriberSystemPrompt(
   `
 
   return new SystemMessage(
-    [intro, batch ? BATCH_NOTE : null, `Examples:\n${lines}`]
+    [intro, batch ? BATCH_NOTE : null, lines ? `Examples:\n${lines}` : null]
       .filter(part => part !== null)
       .join('\n\n'),
   )

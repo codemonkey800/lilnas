@@ -122,19 +122,24 @@ export class EmojiDictionaryRepository {
     return found
   }
 
-  /** Live hand-written descriptions, used as style examples for the model. */
-  async listManualExamples(limit: number): Promise<EmojiRow[]> {
+  /**
+   * Live described rows, used as style examples for the model. Hand-written
+   * descriptions come first, then the rest by id.
+   */
+  async listExamples(limit: number): Promise<EmojiRow[]> {
     return this.drizzle.db
       .select()
       .from(emojiDictionary)
       .where(
         and(
-          eq(emojiDictionary.source, 'manual'),
           isNotNull(emojiDictionary.description),
           isNull(emojiDictionary.deletedAt),
         ),
       )
-      .orderBy(asc(emojiDictionary.id))
+      .orderBy(
+        sql`(${emojiDictionary.source} = 'manual') desc`,
+        asc(emojiDictionary.id),
+      )
       .limit(limit)
   }
 
