@@ -18,7 +18,7 @@ services:
       - /storage/photos/icloud-mom:/icloud-mom:ro
       - /etc/localtime:/etc/localtime:ro
     env_file:
-      - .env
+      - .env.decrypted
     depends_on:
       - immich-redis
       - immich-database
@@ -40,7 +40,7 @@ services:
     volumes:
       - /storage/photos/immich/model-cache:/cache
     env_file:
-      - .env
+      - .env.decrypted
     restart: unless-stopped
     logging: *default-logging
 

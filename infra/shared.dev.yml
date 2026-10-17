@@ -11,7 +11,7 @@ services:
     logging: *default-logging
     command: server --console-address ":9001" /data
     env_file:
-      - .env.storage
+      - .env.storage.decrypted
     volumes:
       - /storage/app-data/minio:/data
       - ./init-minio.sh:/opt/init-minio.sh
@@ -39,7 +39,7 @@ services:
       storage:
         condition: service_healthy
     env_file:
-      - .env.storage
+      - .env.storage.decrypted
     volumes:
       - ./init-minio.sh:/init-minio.sh
     entrypoint: ["/bin/sh", "/init-minio.sh"]

@@ -20,6 +20,7 @@
 
 services:
   dev-idle-reaper:
+    image: ghcr.io/codemonkey800/lilnas-dev-idle-reaper:${LILNAS_TAG:-latest}
     build: .
     container_name: lilnas-dev-idle-reaper
     restart: unless-stopped

@@ -13,7 +13,7 @@ services:
       - 27015:27015/udp
       # - 8212:8212/tcp  # Port for REST API if REST_API_ENABLED: true
     env_file:
-      - .env.palworld
+      - .env.palworld.decrypted
     volumes:
       - /storage/app-data/palworld/:/palworld/
       - /storage/archive/palworld/v2.7.1/:/palworld/backups/

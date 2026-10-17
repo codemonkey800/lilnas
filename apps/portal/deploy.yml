@@ -1,5 +1,6 @@
 services:
   portal:
+    image: ghcr.io/codemonkey800/lilnas-portal:${LILNAS_TAG:-latest}
     build:
       context: ../..
       dockerfile: apps/portal/Dockerfile

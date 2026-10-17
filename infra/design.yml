@@ -16,7 +16,7 @@ services:
     # .credentials.json back to mode 600.
     user: '1000:1001'
     env_file:
-      - .env.design
+      - .env.design.decrypted
     environment:
       NODE_ENV: production
       OD_BIND_HOST: 0.0.0.0

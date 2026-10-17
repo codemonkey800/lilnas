@@ -1,3 +1,9 @@
+# Explicit project name: pins the Compose project to `lilnas` regardless of the
+# checkout directory, so the same project is managed from `/opt/lilnas` (CI
+# push-to-deploy) and `/home/jeremy/lilnas` (manual) without Compose deriving
+# a different name and recreating every container.
+name: lilnas
+
 include:
   # Infrastructure services
   - ./infra/browser.yml
@@ -11,7 +17,7 @@ include:
   - ./infra/nexus-code-work.yml
   - ./infra/work-docs.yml
   - path: ./infra/nexus-code.yml
-    env_file: ./infra/.env.nexus-code
+    env_file: ./infra/.env.nexus-code.decrypted
   - ./infra/palworld.yml
   - ./infra/proxy.yml
   - ./infra/rustdesk.yml

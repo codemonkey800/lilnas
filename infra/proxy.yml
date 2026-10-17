@@ -35,7 +35,7 @@ services:
       - 80:80
       - 443:443
     env_file:
-      - .env.traefik
+      - .env.traefik.decrypted
     volumes:
       - /storage/app-data/letsencrypt:/letsencrypt
       - /var/run/docker.sock:/var/run/docker.sock:ro

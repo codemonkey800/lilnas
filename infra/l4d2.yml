@@ -1,5 +1,6 @@
 services:
   l4d2:
+    image: ghcr.io/codemonkey800/lilnas-l4d2:${LILNAS_TAG:-latest}
     build:
       context: ../
       dockerfile: infra/l4d2/Dockerfile
@@ -15,7 +16,7 @@ services:
       - 27015:27015/udp
 
     env_file:
-      - .env.l4d2
+      - .env.l4d2.decrypted
 
     volumes:
       - /storage/app-data/l4d2/:/l4d2/server/

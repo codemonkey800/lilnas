@@ -13,7 +13,7 @@ services:
     environment:
       MINIO_PROMETHEUS_AUTH_TYPE: public
     env_file:
-      - .env.storage
+      - .env.storage.decrypted
     volumes:
       - /storage/app-data/minio:/data
     healthcheck:
@@ -43,7 +43,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     env_file:
-      - .env.turbo
+      - .env.turbo.decrypted
     labels:
       - traefik.enable=true
       - traefik.http.routers.turbo.rule=Host(`turbo.lilnas.io`)

@@ -9,3 +9,5 @@ data/
 images/
 packages/*/.turbo/turbo-build.log
 apps/*/.turbo/turbo-build.log
+**/.env*
+.env.keys

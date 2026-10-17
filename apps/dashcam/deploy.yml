@@ -1,5 +1,6 @@
 services:
   dashcam:
+    image: ghcr.io/codemonkey800/lilnas-dashcam:${LILNAS_TAG:-latest}
     build:
       context: ../..
       dockerfile: apps/dashcam/Dockerfile
