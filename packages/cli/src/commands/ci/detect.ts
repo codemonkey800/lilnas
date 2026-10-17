@@ -1,7 +1,11 @@
 import { Command, Flags } from '@oclif/core'
 import { spawnSync } from 'child_process'
 
-import { detect, DetectResult } from '../../utils/ci-detect'
+import {
+  detect,
+  DetectResult,
+  readWorkspacePackages,
+} from '../../utils/ci-detect'
 import { getMonorepoRoot } from '../../utils/paths'
 
 const ZERO_SHA = /^0+$/
@@ -24,43 +28,6 @@ function changedFiles(root: string, base: string, head: string): string[] {
     throw new Error(`git diff --name-only ${base}..${head} failed`)
   }
   return out.split('\n').filter(Boolean)
-}
-
-/** Package dirs from `turbo ls --affected --output json` (`packages.items[].path`). */
-function affectedPackages(root: string, base: string, head: string): string[] {
-  const result = spawnSync(
-    'pnpm',
-    ['exec', 'turbo', 'ls', '--affected', '--output', 'json'],
-    {
-      cwd: root,
-      encoding: 'utf8',
-      env: { ...process.env, TURBO_SCM_BASE: base, TURBO_SCM_HEAD: head },
-    },
-  )
-  if (result.status !== 0) {
-    throw new Error(`turbo ls --affected failed: ${result.stderr.trim()}`)
-  }
-
-  const parsed: unknown = JSON.parse(result.stdout)
-  const items =
-    typeof parsed === 'object' &&
-    parsed !== null &&
-    'packages' in parsed &&
-    typeof parsed.packages === 'object' &&
-    parsed.packages !== null &&
-    'items' in parsed.packages &&
-    Array.isArray(parsed.packages.items)
-      ? (parsed.packages.items as unknown[])
-      : []
-
-  return items.flatMap(item =>
-    typeof item === 'object' &&
-    item !== null &&
-    'path' in item &&
-    typeof item.path === 'string'
-      ? [item.path]
-      : [],
-  )
 }
 
 export class CiDetect extends Command {
@@ -103,7 +70,7 @@ export class CiDetect extends Command {
       root,
       full,
       changedFiles: full || !base ? [] : changedFiles(root, base, head),
-      affectedPackages: full || !base ? [] : affectedPackages(root, base, head),
+      workspacePackages: readWorkspacePackages(root),
     })
 
     if (flags.json) {

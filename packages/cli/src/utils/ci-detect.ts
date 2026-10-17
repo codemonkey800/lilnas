@@ -5,8 +5,13 @@ import * as path from 'path'
 /**
  * Turns a `git diff --name-only` listing into the build/deploy plan the
  * push-to-deploy workflow feeds to its jobs. Everything here is pure: the
- * `ci detect` command gathers the inputs (diff, turbo, root compose path) and
- * `detect()` does the rest from the compose tree on disk.
+ * `ci detect` command gathers the inputs (diff, workspace packages, root
+ * compose path) and `detect()` does the rest from the compose tree on disk.
+ *
+ * App images follow *runtime* workspace dependencies only (`dependencies`,
+ * not `devDependencies`): every app lists `@lilnas/cli` as a dev dependency
+ * for `lilnas dev`, and no Dockerfile runs the CLI, so a CLI-only change must
+ * not rebuild anything.
  */
 
 export interface ImageBuild {
@@ -42,13 +47,22 @@ export interface DetectResult {
   changedFiles: string[]
 }
 
+export interface WorkspacePackage {
+  /** Repo-relative package dir, e.g. `apps/auth`. */
+  dir: string
+  /** `name` from `package.json`, e.g. `@lilnas/auth`. */
+  name: string
+  /** Workspace package names from `dependencies` only. */
+  runtimeDeps: string[]
+}
+
 export interface DetectInputs {
   /** Absolute monorepo root. */
   root: string
   /** Repo-relative changed files (`git diff --name-only base..head`). */
   changedFiles: string[]
-  /** Repo-relative package dirs from `turbo ls --affected`. */
-  affectedPackages?: string[]
+  /** Workspace packages; read from disk via `readWorkspacePackages` when omitted. */
+  workspacePackages?: WorkspacePackage[]
   /** Force the "everything changed" plan (unknown base, `--full`). */
   full?: boolean
   /** Root compose file relative to `root`. */
@@ -90,6 +104,15 @@ const DEFAULT_COMPOSE_FILE = 'docker-compose.yml'
 const HOST_NATIVE_SERVICES = new Set(['tdr-code'])
 const DECRYPTED_SUFFIX = '.decrypted'
 const BASE_IMAGE_FROM = /^\s*FROM\s+ghcr\.io\/codemonkey800\/lilnas-/m
+const WORKSPACE_DIRS = ['apps', 'packages']
+/** Files every image's build reads; a change rebuilds all of them. */
+const GLOBAL_BUILD_INPUTS = new Set([
+  'pnpm-lock.yaml',
+  'package.json',
+  'pnpm-workspace.yaml',
+  '.npmrc',
+  'turbo.json',
+])
 
 type Dict = Record<string, unknown>
 
@@ -294,11 +317,11 @@ export function listImages(tree: ComposeTree): ImageBuild[] {
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
-/** Dirs under `apps/` and `packages/` whose `package.json` has a `test` script. */
-export function listTestPackages(root: string): string[] {
-  const dirs: string[] = []
+/** Parsed `apps/*` / `packages/*` package.json files, keyed by repo-relative dir. */
+function readPackageManifests(root: string): Map<string, Dict> {
+  const manifests = new Map<string, Dict>()
 
-  for (const base of ['apps', 'packages']) {
+  for (const base of WORKSPACE_DIRS) {
     const baseDir = path.join(root, base)
     if (!fs.existsSync(baseDir)) continue
 
@@ -309,16 +332,80 @@ export function listTestPackages(root: string): string[] {
 
       try {
         const pkg: unknown = JSON.parse(fs.readFileSync(pkgFile, 'utf8'))
-        if (isDict(pkg) && isDict(pkg.scripts) && 'test' in pkg.scripts) {
-          dirs.push(`${base}/${entry.name}`)
-        }
+        if (isDict(pkg)) manifests.set(`${base}/${entry.name}`, pkg)
       } catch {
-        // Not valid JSON — not a testable package.
+        // Not valid JSON — not a workspace package.
       }
     }
   }
 
+  return manifests
+}
+
+/** Dirs under `apps/` and `packages/` whose `package.json` has a `test` script. */
+export function listTestPackages(root: string): string[] {
+  const dirs: string[] = []
+  for (const [dir, pkg] of readPackageManifests(root)) {
+    if (isDict(pkg.scripts) && 'test' in pkg.scripts) dirs.push(dir)
+  }
   return dirs.sort()
+}
+
+/**
+ * Every `apps/*` / `packages/*` package with its runtime workspace deps: a
+ * `dependencies` entry whose spec starts with `workspace:` or whose name is
+ * another workspace package. `devDependencies`, `peerDependencies` and
+ * `optionalDependencies` are ignored on purpose — they are not image inputs.
+ */
+export function readWorkspacePackages(root: string): WorkspacePackage[] {
+  const manifests = readPackageManifests(root)
+  const names = new Set<string>()
+  for (const pkg of manifests.values()) {
+    if (typeof pkg.name === 'string') names.add(pkg.name)
+  }
+
+  const packages: WorkspacePackage[] = []
+  for (const [dir, pkg] of manifests) {
+    if (typeof pkg.name !== 'string') continue
+    const runtimeDeps: string[] = []
+    if (isDict(pkg.dependencies)) {
+      for (const [dep, spec] of Object.entries(pkg.dependencies)) {
+        const isWorkspace =
+          (typeof spec === 'string' && spec.startsWith('workspace:')) ||
+          names.has(dep)
+        if (isWorkspace) runtimeDeps.push(dep)
+      }
+    }
+    packages.push({ dir, name: pkg.name, runtimeDeps: runtimeDeps.sort() })
+  }
+
+  return packages.sort((a, b) => a.dir.localeCompare(b.dir))
+}
+
+/**
+ * Dirs whose files are inputs to the package at `dir`: itself plus the
+ * transitive closure of its runtime workspace deps. Cycle-safe.
+ */
+function runtimeInputDirs(dir: string, packages: WorkspacePackage[]): string[] {
+  const byName = new Map(packages.map(pkg => [pkg.name, pkg]))
+  const byDir = new Map(packages.map(pkg => [pkg.dir, pkg]))
+  const seen = new Set<string>([dir])
+  const queue = [byDir.get(dir)].filter(
+    (pkg): pkg is WorkspacePackage => pkg !== undefined,
+  )
+
+  while (queue.length > 0) {
+    const pkg = queue.shift() as WorkspacePackage
+    for (const depName of pkg.runtimeDeps) {
+      const dep = byName.get(depName)
+      if (dep && !seen.has(dep.dir)) {
+        seen.add(dep.dir)
+        queue.push(dep)
+      }
+    }
+  }
+
+  return [...seen]
 }
 
 function dockerfileUsesBaseImage(root: string, dockerfile: string): boolean {
@@ -346,7 +433,7 @@ export function detect(inputs: DetectInputs): DetectResult {
   const {
     root,
     composeFile = DEFAULT_COMPOSE_FILE,
-    affectedPackages = [],
+    workspacePackages = readWorkspacePackages(root),
   } = inputs
   const changedFiles = unique(
     inputs.changedFiles.map(file => file.trim()).filter(Boolean),
@@ -393,17 +480,23 @@ export function detect(inputs: DetectInputs): DetectResult {
     }
   }
 
-  // App images: affected package, Dockerfile, its directory, or a non-root context.
+  // Global build inputs (lockfile, root manifest, …) → every image.
+  if (changedFiles.some(file => GLOBAL_BUILD_INPUTS.has(file))) {
+    for (const image of allImages) images.add(image.name)
+  }
+
+  // App images: own package dir or a runtime workspace dep's dir (transitive),
+  // the Dockerfile, its directory, or a non-root build context.
   for (const image of allImages) {
     const dockerfileDir = path.dirname(image.dockerfile)
-    const hit =
-      affectedPackages.some(pkg => path.normalize(pkg) === dockerfileDir) ||
-      changedFiles.some(
-        file =>
-          file === image.dockerfile ||
-          isUnder(file, dockerfileDir) ||
-          (image.context !== '.' && isUnder(file, image.context)),
-      )
+    const inputDirs = runtimeInputDirs(dockerfileDir, workspacePackages)
+    const hit = changedFiles.some(
+      file =>
+        file === image.dockerfile ||
+        isUnder(file, dockerfileDir) ||
+        (image.context !== '.' && isUnder(file, image.context)) ||
+        inputDirs.some(dir => isUnder(file, dir)),
+    )
     if (hit) images.add(image.name)
   }
 

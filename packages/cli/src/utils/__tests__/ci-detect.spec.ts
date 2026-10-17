@@ -8,13 +8,18 @@ import {
   DetectResult,
   listImages,
   readComposeTree,
+  readWorkspacePackages,
 } from '../ci-detect'
 
 /**
  * A mini repo: a root compose including two app deploy files, one infra file
  * with a bind mount and an env file, one include with an include-level
  * `env_file`, a `tdr-code`-style host-native proxy, a `dev-idle-reaper`-style
- * `build: .`, and packages with and without a `test` script.
+ * `build: .`, and packages with and without a `test` script. Workspace deps:
+ * `auth` → `utils`; `tdr-bot` → `media` → `utils`; `tdr-code` → `utils`;
+ * `dev-idle-reaper` → nothing; `cyc-a` ⇄ `cyc-b` with `dev-idle-reaper`-free
+ * app `auth` untouched by them. Every app lists `@lilnas/cli` as a
+ * devDependency, which must never count.
  */
 const FIXTURE: Record<string, string> = {
   'docker-compose.yml': `
@@ -103,12 +108,60 @@ services:
   'apps/auth/Dockerfile': 'FROM ghcr.io/codemonkey800/lilnas-node-runtime\n',
   'apps/tdr-bot/Dockerfile': 'FROM ghcr.io/codemonkey800/lilnas-node-runtime\n',
   'apps/dev-idle-reaper/Dockerfile': 'FROM docker:cli\n',
-  'apps/auth/package.json': '{"name":"auth","scripts":{"test":"jest"}}',
-  'apps/tdr-bot/package.json': '{"name":"tdr-bot","scripts":{"test":"jest"}}',
-  'apps/tdr-code/package.json': '{"name":"tdr-code","scripts":{"test":"jest"}}',
-  'apps/dev-idle-reaper/package.json': '{"name":"reaper","scripts":{}}',
-  'packages/utils/package.json': '{"name":"utils","scripts":{"test":"jest"}}',
-  'packages/eslint/package.json': '{"name":"eslint","scripts":{"lint":"x"}}',
+  'apps/auth/package.json': JSON.stringify({
+    name: '@lilnas/auth',
+    scripts: { test: 'jest' },
+    dependencies: { '@lilnas/utils': 'workspace:*', express: '^4' },
+    devDependencies: { '@lilnas/cli': 'workspace:*' },
+  }),
+  'apps/tdr-bot/package.json': JSON.stringify({
+    name: '@lilnas/tdr-bot',
+    scripts: { test: 'jest' },
+    dependencies: { '@lilnas/media': 'workspace:*' },
+    devDependencies: { '@lilnas/cli': 'workspace:*' },
+  }),
+  'apps/tdr-code/package.json': JSON.stringify({
+    name: '@lilnas/tdr-code',
+    scripts: { test: 'jest' },
+    dependencies: { '@lilnas/utils': 'workspace:*' },
+    devDependencies: { '@lilnas/cli': 'workspace:*' },
+  }),
+  'apps/dev-idle-reaper/package.json': JSON.stringify({
+    name: '@lilnas/dev-idle-reaper',
+    scripts: {},
+    dependencies: { '@lilnas/cyc-a': 'workspace:*' },
+    devDependencies: { '@lilnas/cli': 'workspace:*' },
+  }),
+  'packages/utils/package.json': JSON.stringify({
+    name: '@lilnas/utils',
+    scripts: { test: 'jest' },
+    dependencies: { zod: '^3' },
+    devDependencies: { '@lilnas/cli': 'workspace:*' },
+  }),
+  // Workspace dep named without the `workspace:` protocol.
+  'packages/media/package.json': JSON.stringify({
+    name: '@lilnas/media',
+    scripts: {},
+    dependencies: { '@lilnas/utils': '*' },
+  }),
+  'packages/cli/package.json': JSON.stringify({
+    name: '@lilnas/cli',
+    scripts: { test: 'jest' },
+    dependencies: { '@oclif/core': '^4' },
+    peerDependencies: { '@lilnas/utils': 'workspace:*' },
+  }),
+  'packages/cyc-a/package.json': JSON.stringify({
+    name: '@lilnas/cyc-a',
+    dependencies: { '@lilnas/cyc-b': 'workspace:*' },
+  }),
+  'packages/cyc-b/package.json': JSON.stringify({
+    name: '@lilnas/cyc-b',
+    dependencies: { '@lilnas/cyc-a': 'workspace:*' },
+  }),
+  'packages/eslint/package.json': JSON.stringify({
+    name: '@lilnas/eslint',
+    scripts: { lint: 'x' },
+  }),
   'README.md': '# fixture\n',
 }
 
@@ -128,6 +181,7 @@ const ALL_TEST_PACKAGES = [
   'apps/auth',
   'apps/tdr-bot',
   'apps/tdr-code',
+  'packages/cli',
   'packages/utils',
 ]
 
@@ -216,6 +270,35 @@ describe('readComposeTree', () => {
     ])
     // Named volumes are not bind mounts.
     expect(service('dev-idle-reaper').binds).toEqual(['/var/run/docker.sock'])
+  })
+})
+
+describe('readWorkspacePackages', () => {
+  it('keeps only runtime workspace deps, sorted by dir', () => {
+    const packages = readWorkspacePackages(root)
+    const byDir = Object.fromEntries(
+      packages.map(pkg => [pkg.dir, pkg.runtimeDeps]),
+    )
+
+    expect(packages.map(pkg => pkg.dir)).toEqual([
+      'apps/auth',
+      'apps/dev-idle-reaper',
+      'apps/tdr-bot',
+      'apps/tdr-code',
+      'packages/cli',
+      'packages/cyc-a',
+      'packages/cyc-b',
+      'packages/eslint',
+      'packages/media',
+      'packages/utils',
+    ])
+    // devDependencies / peerDependencies / external deps are dropped.
+    expect(byDir['apps/auth']).toEqual(['@lilnas/utils'])
+    expect(byDir['packages/utils']).toEqual([])
+    expect(byDir['packages/cli']).toEqual([])
+    // A workspace name without the `workspace:` protocol still counts.
+    expect(byDir['packages/media']).toEqual(['@lilnas/utils'])
+    expect(byDir['packages/cyc-a']).toEqual(['@lilnas/cyc-b'])
   })
 })
 
@@ -321,14 +404,77 @@ describe('detect', () => {
   })
 
   describe('images', () => {
-    it('rebuilds an image when turbo lists its package as affected', () => {
-      const result = run(['packages/utils/src/index.ts'], {
-        affectedPackages: ['packages/utils', 'apps/auth'],
+    it('rebuilds only the images whose runtime deps include the changed package', () => {
+      const result = run(['packages/utils/src/x.ts'])
+
+      // auth → utils directly; tdr-bot → media → utils transitively;
+      // dev-idle-reaper has no path to utils; tdr-code is never built.
+      expect(imageNames(result)).toEqual(['auth', 'tdr-bot'])
+      expect(result.pull).toEqual(['auth', 'tdr-bot'])
+      expect(result.up).toEqual([])
+      expect(result.testPackages).toEqual(['packages/utils'])
+    })
+
+    it('rebuilds dependents of an intermediate workspace package', () => {
+      expect(imageNames(run(['packages/media/src/radarr.ts']))).toEqual([
+        'tdr-bot',
+      ])
+    })
+
+    it('ignores a CLI-only source change (devDependency edge)', () => {
+      const result = run(['packages/cli/src/x.ts'])
+
+      expect(result).toEqual({
+        ...EMPTY,
+        testPackages: ['packages/cli'],
+        changedFiles: ['packages/cli/src/x.ts'],
+      })
+    })
+
+    it('ignores a CLI package.json change', () => {
+      const result = run(['packages/cli/package.json'])
+
+      expect(result).toEqual({
+        ...EMPTY,
+        testPackages: ['packages/cli'],
+        changedFiles: ['packages/cli/package.json'],
+      })
+    })
+
+    it('terminates on a dependency cycle and still rebuilds the dependent', () => {
+      const result = run(['packages/cyc-b/index.ts'])
+
+      expect(imageNames(result)).toEqual(['dev-idle-reaper'])
+      expect(result.testPackages).toEqual([])
+    })
+
+    it('honours explicit workspacePackages over the ones on disk', () => {
+      const result = run(['packages/utils/src/x.ts'], {
+        workspacePackages: [
+          { dir: 'apps/auth', name: '@lilnas/auth', runtimeDeps: [] },
+          { dir: 'packages/utils', name: '@lilnas/utils', runtimeDeps: [] },
+        ],
       })
 
-      expect(imageNames(result)).toEqual(['auth'])
-      expect(result.pull).toEqual(['auth'])
-      expect(result.testPackages).toEqual(['packages/utils'])
+      expect(result.images).toEqual([])
+    })
+
+    it.each([
+      'pnpm-lock.yaml',
+      'package.json',
+      'pnpm-workspace.yaml',
+      '.npmrc',
+      'turbo.json',
+    ])('rebuilds every image for %s without going full', file => {
+      const result = run([file])
+
+      expect(result.full).toBe(false)
+      expect(result.baseImages).toBe(false)
+      expect(imageNames(result)).toEqual(['auth', 'dev-idle-reaper', 'tdr-bot'])
+      expect(result.pull).toEqual(['auth', 'dev-idle-reaper', 'tdr-bot'])
+      expect(result.up).toEqual([])
+      expect(result.decrypt).toBe(false)
+      expect(result.testPackages).toEqual([])
     })
 
     it("rebuilds an image when a file under its Dockerfile's directory changes", () => {
@@ -352,9 +498,7 @@ describe('detect', () => {
     })
 
     it('never builds tdr-code, even when apps/tdr-code changes', () => {
-      const result = run(['apps/tdr-code/src/server.ts'], {
-        affectedPackages: ['apps/tdr-code'],
-      })
+      const result = run(['apps/tdr-code/src/server.ts'])
 
       expect(result.images).toEqual([])
       expect(result.pull).toEqual([])
