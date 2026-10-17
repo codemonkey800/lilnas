@@ -263,12 +263,23 @@ export function decryptEnvFile({
 }
 
 /**
+ * The temp file `writeFileAtomic0600` writes plaintext to before renaming it
+ * over `target`. It ends in `.decrypted` so the `*.decrypted` rule in
+ * `.gitignore` covers it even when a signal or power loss leaves it behind;
+ * a `.tmp-<pid>` suffix alone would fall under the `!infra/.env.*` negation
+ * and be trackable.
+ */
+export function atomicTempPathFor(target: string, pid = process.pid): string {
+  return `${target}.tmp-${pid}.decrypted`
+}
+
+/**
  * Writes `content` to `target` with mode 0600 via a temp file in the same
  * directory and an atomic rename, so a reader never sees a partial file and
  * the plaintext is never world-readable, even briefly.
  */
 export function writeFileAtomic0600(target: string, content: string): void {
-  const tmp = `${target}.tmp-${process.pid}`
+  const tmp = atomicTempPathFor(target)
 
   fs.rmSync(tmp, { force: true })
   const fd = fs.openSync(tmp, 'wx', 0o600)

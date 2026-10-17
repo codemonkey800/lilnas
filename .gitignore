@@ -16,9 +16,13 @@
 .env.keys
 **/.env.keys
 *.decrypted
+# temp files a decrypt writes before its rename (CLI: `.tmp-<pid>.decrypted`,
+# scripts/deploy/decrypt-env.sh: mktemp `.decrypted.XXXXXX`)
+*.decrypted.*
 # `git check-ignore -v` proof — NOT ignored: apps/tdr-bot/.env.prod,
 # infra/.env, infra/.env.storage, infra/.env.storage.example; ignored:
 # .env.keys, apps/tdr-bot/.env.prod.decrypted, infra/.env.storage.decrypted,
+# infra/.env.storage.tmp-1234.decrypted, infra/.env.storage.decrypted.Ab12Cd,
 # apps/tdr-bot/.env, apps/download/.env.dev-remote, apps/tdr-code/.env,
 # .env.turbo
 .next/

@@ -1,9 +1,16 @@
+import { spawnSync } from 'node:child_process'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+
 import {
+  atomicTempPathFor,
   decryptedPathFor,
   isFullyEncrypted,
   listEncryptedEnvFiles,
   privateKeyNameFor,
   stripDotenvxHeader,
+  writeFileAtomic0600,
 } from '../secrets'
 
 const ENCRYPTED_FILES = [
@@ -67,6 +74,50 @@ describe('decryptedPathFor', () => {
       '/repo/apps/tdr-bot/.env.prod.decrypted',
     )
     expect(decryptedPathFor('infra/.env')).toBe('infra/.env.decrypted')
+  })
+})
+
+describe('atomicTempPathFor', () => {
+  it('keeps the .decrypted suffix so an orphaned temp file is gitignored', () => {
+    expect(atomicTempPathFor('infra/.env.storage.decrypted', 1234)).toBe(
+      'infra/.env.storage.decrypted.tmp-1234.decrypted',
+    )
+  })
+
+  it('is ignored by the repo .gitignore for every encrypted file', () => {
+    const repoRoot = path.resolve(__dirname, '../../../../..')
+    const temps = ENCRYPTED_FILES.map(file =>
+      atomicTempPathFor(decryptedPathFor(file), 1234),
+    )
+    const result = spawnSync('git', ['check-ignore', '--no-index', '--stdin'], {
+      cwd: repoRoot,
+      input: temps.join('\n'),
+      encoding: 'utf8',
+    })
+
+    expect(result.stdout.trim().split('\n')).toEqual(temps)
+  })
+})
+
+describe('writeFileAtomic0600', () => {
+  let dir: string
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lilnas-secrets-'))
+  })
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('writes the content with mode 0600 and leaves no temp file', () => {
+    const target = path.join(dir, '.env.prod.decrypted')
+
+    writeFileAtomic0600(target, 'A=1\n')
+
+    expect(fs.readFileSync(target, 'utf8')).toBe('A=1\n')
+    expect(fs.statSync(target).mode & 0o777).toBe(0o600)
+    expect(fs.readdirSync(dir)).toEqual(['.env.prod.decrypted'])
   })
 })
 
