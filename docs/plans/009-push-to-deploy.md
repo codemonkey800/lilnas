@@ -495,3 +495,8 @@ Defects:
   docker inspect lilnas-immich-database-1: created 2026-10-18T20:08:54Z, State unhealthy, 3 Config.Env values '=encrypted:…', health log 'pg_isready: error: invalid connection option "encrypted:…"'. CI run 39168569885 at ff453469 (dry_run=false) deploy step printed 'Nothing to deploy for ff453469…' because workflow_dispatch diffs HEAD~1 (ci.yml:91), which covered only the docs commit. Host HEAD unchanged at bdf7e52e; /opt/lilnas/docker-compose.yml line 12 is still '- ./infra/immich.yml'.
 
 No commits: nothing to integrate.
+
+### 2026-10-18 · T9 · defects → R6
+T9 reported 1 blocking defect at attempt 3, sent to R6; it runs again at round 3 to re-check.
+
+- R6 · immich-database still running with encrypted DB_* env (R4 fix not deployed) (`/opt/lilnas/docker-compose.yml:12 (host at bdf7e52e; fix is 85305904 on origin/feat/push-to-deploy)`): docker inspect lilnas-immich-database-1: created 2026-10-18T20:08:54Z, State unhealthy, 3 Config.Env values '=encrypted:…', health log 'pg_isready: error: invalid connection option "encrypted:…"'. CI run 39168569885 at ff453469 (dry_run=false) deploy step printed 'Nothing to deploy for ff453469…' because workflow_dispatch diffs HEAD~1 (ci.yml:91), which covered only the docs commit. Host HEAD unchanged at bdf7e52e; /opt/lilnas/docker-compose.yml line 12 is still '- ./infra/immich.yml'.
