@@ -818,13 +818,10 @@ phases:
         title: Post-deploy verification (read-only)
         after:
           - H6
-          - R7
         files: []
         model: frontier
-        status: todo
-        round:
-          number: 4
-          after: R7
+        status: done
+        commit: 4b7eca57eb3b4e1248fee21cf51c9dea83362d93
         body: |-
           Verify the first deploy without changing anything. Read-only commands only.
           - `docker ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}'`: list the ten
