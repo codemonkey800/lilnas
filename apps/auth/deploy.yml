@@ -51,6 +51,7 @@ services:
       # /repo/apps/<name>/ and /repo/infra/ directories for these file
       # mounts automatically, so scanServiceRegistry()'s own directory
       # listing needs no code change.
+      - ../../infra/browser.yml:/repo/infra/browser.yml:ro
       - ../../infra/design.yml:/repo/infra/design.yml:ro
       - ../../infra/files.yml:/repo/infra/files.yml:ro
       - ../../infra/immich.yml:/repo/infra/immich.yml:ro
