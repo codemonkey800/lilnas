@@ -17,8 +17,10 @@ on:
         default: false
       base:
         description: >-
-          Commit to diff from (e.g. the sha the host last deployed); empty
-          means HEAD~1, which only covers the dispatched ref's last commit
+          Commit to diff from. Empty = the parent of the dispatched commit,
+          i.e. only the tip commit's changes. For a re-deploy pass the sha
+          currently deployed on the host (`git -C /opt/lilnas rev-parse
+          HEAD`), or use full=true.
         type: string
         default: ''
       build_base_images:
@@ -89,22 +91,29 @@ jobs:
           HEAD: ${{ github.sha }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           PUSH_BEFORE: ${{ github.event.before }}
-          DISPATCH_BASE: ${{ inputs.base }}
           FULL: ${{ inputs.full }}
+          DISPATCH_BASE: ${{ inputs.base }}
         run: |
           case "$EVENT_NAME" in
             pull_request) BASE="$PR_BASE" ;;
             push) BASE="$PUSH_BEFORE" ;;
             *)
               if [ -n "$DISPATCH_BASE" ]; then
-                # Fail on a typo rather than letting detect fall back to --full.
+                # A typo in `base` must fail here, not silently become a full
+                # deploy (`lilnas ci detect` treats a non-ancestor base as full).
                 BASE="$(git rev-parse --verify --end-of-options "${DISPATCH_BASE}^{commit}")" \
-                  || { echo "::error::base '$DISPATCH_BASE' is not a commit"; exit 1; }
+                  || { echo "::error::base '$DISPATCH_BASE' is not a commit in this checkout"; exit 1; }
               else
                 BASE="$(git rev-parse HEAD~1)"
               fi
               ;;
           esac
+
+          TIP_ONLY=false
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -z "$DISPATCH_BASE" ] && [ "$FULL" != "true" ]; then
+            TIP_ONLY=true
+            echo "::warning::only the tip commit ($HEAD) was considered; to redeploy a range, dispatch with base=<deployed sha> or full=true"
+          fi
 
           args=(--json --base "$BASE" --head "$HEAD")
           if [ "$FULL" = "true" ]; then
@@ -137,6 +146,12 @@ jobs:
             echo "| decrypt | $(echo "$PLAN" | jq -r '.decrypt') |"
             echo "| testPackages | $(echo "$PLAN" | jq -r '.testPackages | join(", ") | if . == "" then "(none)" else . end') |"
             echo "| changedFiles | $(echo "$PLAN" | jq -r '.changedFiles | length') |"
+            if [ "$TIP_ONLY" = "true" ]; then
+              echo
+              echo "> **Warning:** only the tip commit was considered (base = parent of head)."
+              echo "> To redeploy a range, dispatch with \`-f base=<sha deployed on the host>\`"
+              echo "> (\`git -C /opt/lilnas rev-parse HEAD\`) or \`-f full=true\`."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
   test:

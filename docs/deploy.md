@@ -52,24 +52,34 @@ pnpm lilnas ci detect --base <sha> --head <sha> --json
 
 ## Manual deploys
 
-Deploy everything from GitHub (what a push would do, but for every service):
+A dispatch runs the same pipeline as a push; what it deploys depends on the
+diff base you give it. Three forms:
 
 ```bash
+# 1. Everything (what a push would do, but for every service)
 gh workflow run ci.yml -f dry_run=false -f full=true
+
+# 2. Exactly what changed since the commit the host is running
+gh workflow run ci.yml -f dry_run=false -f base="$(git -C /opt/lilnas rev-parse HEAD)"
+
+# 3. Default: only the tip commit's changes (HEAD~1..HEAD of the chosen ref)
+gh workflow run ci.yml -f dry_run=false
+
 gh run watch
 ```
 
-Dispatch inputs: `dry_run` (default **true** — the host prints the compose
-commands instead of running them), `full`, `build_base_images`, `base`. A
-dispatch diffs `base..<ref>` (`base` empty → `HEAD~1`, i.e. only the ref's last
-commit) unless `full=true`. When the host is behind by more than one commit,
-pass the sha it last deployed (`git -C /opt/lilnas rev-parse HEAD`) so every
-change since then is planned:
+Prefer form 2 to catch the host up after a multi-commit push or a failed
+deploy: `base` must be a commit in the checkout (CI fails on a typo rather
+than guessing), and `lilnas ci detect` treats a base that isn't an ancestor of
+the head as `full`. Form 3 is the caveat: after a push of several commits it
+diffs only the last one, so if that is a docs commit the deploy step prints
+"Nothing to deploy" and the host never advances — the run's summary carries
+a warning when that is what happened.
 
-```bash
-gh workflow run ci.yml --ref <branch> -f dry_run=false \
-  -f base="$(git -C /opt/lilnas rev-parse HEAD)"
-```
+Dispatch inputs: `dry_run` (default **true** — the host prints the compose
+commands instead of running them), `full`, `base`, `build_base_images`. A
+dispatch diffs `base..<ref>` unless `full=true`; add `--ref <branch>` to
+dispatch from something other than the default branch.
 
 Run the same thing on the host without GitHub (Jeremy, with sudo). The
 entrypoint reads its arguments from `SSH_ORIGINAL_COMMAND`, exactly as sshd
