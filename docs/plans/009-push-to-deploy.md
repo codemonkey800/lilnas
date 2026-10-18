@@ -592,3 +592,19 @@ behaviour was left as is per the task.
 T9 reported 1 blocking defect at attempt 5, sent to R7; it runs again at round 4 to re-check.
 
 - R7 · immich-database still running with encrypted DB_* env (R6 fix not pushed/deployed) (`/opt/lilnas/docker-compose.yml:12 (host HEAD bdf7e52e; fix 85305904 on origin, R6 ci.yml fix bb053723 only on the run branch)`): docker inspect lilnas-immich-database-1: Created 2026-10-18T20:08:54Z, running/unhealthy, 3 Config.Env values '=encrypted:…', health log 'pg_isready: error: invalid connection option "encrypted:…"'. origin/feat/push-to-deploy tip is ff453469 (no `base` input in ci.yml); run 39168720800 at ff453469 in_progress at 21:43Z, no build/deploy jobs yet. Follow-up: push bb053723 to feat/push-to-deploy (or merge to main) and run `gh workflow run ci.yml --ref feat/push-to-deploy -f dry_run=false -f full=true`, then re-run T9.
+
+### 2026-10-18 · R7 · done
+No code change and no new dispatch, as the planner's note asked. I waited for run
+39168720800 (ff453469, dry_run=false full=true). It finished with conclusion=success:
+all build-images jobs (download, dashcam, theater, equations, auth, tdr-bot, portal,
+me-token-tracker, l4d2, dev-idle-reaper) and deploy passed.
+Host check (read-only docker inspect at 21:58Z):
+- lilnas-immich-database-1 was recreated at 2026-10-18T21:57:51Z
+- it is running and healthy (health check exit code 0)
+- 0 Config.Env values match '=encrypted:' (there were 3)
+- compose working_dir is /opt/lilnas
+I couldn't write a test because no code changed; the fix (85305904) was already on
+origin and only needed deploying. T9 can re-run now. The R6 ci.yml `base` fix
+(bb053723) is still only on the run branch, which doesn't affect this defect.
+
+No commits: nothing to integrate.
