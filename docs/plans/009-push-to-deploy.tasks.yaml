@@ -748,7 +748,8 @@ phases:
           - scripts/deploy/install-host.sh
           - docs/deploy.md
         model: frontier
-        status: todo
+        status: done
+        commit: f18feed69bc80ec9dceae41ca186da4972278a53
         body: |-
           T9 found that `journalctl -t lilnas-deploy` shows nothing to `jeremy` because
           the lines are logged by the `deploy` user and `jeremy` is not in the
@@ -885,7 +886,6 @@ phases:
           > 11 unchanged containers still carry working_dir=/home/jeremy/lilnas (harmless).
 
           Fix only this defect. Add a test that fails without the fix where one can; then T9 runs again to re-check.
-
       - id: R5
         title: Redeploy the branch so the immich fix reaches `/opt/lilnas`
         after:

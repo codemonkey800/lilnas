@@ -470,3 +470,6 @@ container's env is fixed at create time, so it needs
 (deploy user / CI). Agents may not do this. If the deploy only recreates
 services whose config hash changed, this change does recreate
 immich-database, because its rendered environment changes.
+
+### 2026-10-18 · T12 · done
+Added `ADMIN_USER=jeremy` beside `DEPLOY_USER` (the script had no admin-user constant; `KEYS_SOURCE` still hardcodes `/home/jeremy/lilnas/.env.keys`, left as-is). The group check reuses the script's existing `id -nG | tr ' ' '\n' | grep -qx` idiom rather than `grep -qw`. Step inserted as #2 (right after the deploy-user step) and steps 2–6 renumbered to 3–7; nothing outside the script referenced the numbers. The printed "next steps" block is not a rerun hint, so it was not changed. Script was not run; takes effect when Jeremy next reruns `sudo scripts/deploy/install-host.sh` and logs in again.
