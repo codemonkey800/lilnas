@@ -20,6 +20,7 @@ services:
       # deploy.yml's comment for the full narrow-mount rationale. Note ../..
       # already covers this content via /source above; these are additive so
       # the mount PATH stays identical between dev and prod.
+      - ../../infra/browser.yml:/repo/infra/browser.yml:ro
       - ../../infra/design.yml:/repo/infra/design.yml:ro
       - ../../infra/files.yml:/repo/infra/files.yml:ro
       - ../../infra/immich.yml:/repo/infra/immich.yml:ro

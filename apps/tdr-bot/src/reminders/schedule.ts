@@ -34,9 +34,13 @@ const CRON_PROBE_RUNS = 10
 export function validateCron(expr: string): CronCheck {
   try {
     const time = new CronTime(expr, REMINDER_TIMEZONE)
-    let previous = time.getNextDateFrom(new Date()).toMillis()
+    let previous = time
+      .getNextDateFrom(new Date(), REMINDER_TIMEZONE)
+      .toMillis()
     for (let i = 1; i < CRON_PROBE_RUNS; i++) {
-      const next = time.getNextDateFrom(new Date(previous)).toMillis()
+      const next = time
+        .getNextDateFrom(new Date(previous), REMINDER_TIMEZONE)
+        .toMillis()
       if (next - previous <= MIN_CRON_INTERVAL_MS) {
         return { ok: false, reason: 'too_frequent' }
       }
@@ -59,7 +63,7 @@ export function nextCronRun(
 ): Date | null {
   try {
     const next = new CronTime(expr, REMINDER_TIMEZONE)
-      .getNextDateFrom(from)
+      .getNextDateFrom(from, REMINDER_TIMEZONE)
       .toJSDate()
     if (next.getTime() <= from.getTime()) return null
     if (endsAt && next.getTime() > endsAt.getTime()) return null
