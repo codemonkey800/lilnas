@@ -587,3 +587,8 @@ the verify branch only runs on dispatch. Used `--quiet` on rev-parse so
 git's own stderr doesn't duplicate the ::error:: line. The workflow was not
 run (cannot be from here); the `lilnas ci detect` non-ancestor → full
 behaviour was left as is per the task.
+
+### 2026-10-18 · T9 · defects → R7
+T9 reported 1 blocking defect at attempt 5, sent to R7; it runs again at round 4 to re-check.
+
+- R7 · immich-database still running with encrypted DB_* env (R6 fix not pushed/deployed) (`/opt/lilnas/docker-compose.yml:12 (host HEAD bdf7e52e; fix 85305904 on origin, R6 ci.yml fix bb053723 only on the run branch)`): docker inspect lilnas-immich-database-1: Created 2026-10-18T20:08:54Z, running/unhealthy, 3 Config.Env values '=encrypted:…', health log 'pg_isready: error: invalid connection option "encrypted:…"'. origin/feat/push-to-deploy tip is ff453469 (no `base` input in ci.yml); run 39168720800 at ff453469 in_progress at 21:43Z, no build/deploy jobs yet. Follow-up: push bb053723 to feat/push-to-deploy (or merge to main) and run `gh workflow run ci.yml --ref feat/push-to-deploy -f dry_run=false -f full=true`, then re-run T9.

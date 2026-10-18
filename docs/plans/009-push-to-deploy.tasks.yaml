@@ -818,10 +818,13 @@ phases:
         title: Post-deploy verification (read-only)
         after:
           - H6
+          - R7
         files: []
         model: frontier
-        status: partial
-        commit: 37624f29117e3355e9ea973a963d3cd183f522d1
+        status: todo
+        round:
+          number: 4
+          after: R7
         body: |-
           Verify the first deploy without changing anything. Read-only commands only.
           - `docker ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}'`: list the ten
@@ -997,3 +1000,28 @@ phases:
           failing job's log excerpt; if immich-database stays unhealthy, report
           `docker logs --tail 50 lilnas-immich-database-1` (no secrets in it). Commit
           nothing.
+      - id: R7
+        title: 'Fix: immich-database still running with encrypted DB_* env (R6 fix not pushed/deployed)'
+        after: []
+        files: []
+        status: todo
+        body: |-
+          T9 · Post-deploy verification (read-only) reported this blocking defect (attempt 5):
+
+          **immich-database still running with encrypted DB_* env (R6 fix not pushed/deployed)**
+
+          - Where: `/opt/lilnas/docker-compose.yml:12 (host HEAD bdf7e52e; fix 85305904 on origin, R6 ci.yml fix bb053723 only on the run branch)`
+          - Observed: docker inspect lilnas-immich-database-1: Created 2026-10-18T20:08:54Z, running/unhealthy, 3 Config.Env values '=encrypted:…', health log 'pg_isready: error: invalid connection option "encrypted:…"'. origin/feat/push-to-deploy tip is ff453469 (no `base` input in ci.yml); run 39168720800 at ff453469 in_progress at 21:43Z, no build/deploy jobs yet. Follow-up: push bb053723 to feat/push-to-deploy (or merge to main) and run `gh workflow run ci.yml --ref feat/push-to-deploy -f dry_run=false -f full=true`, then re-run T9.
+
+          T9's notes:
+
+          > Read-only verification; nothing committed. All ten lilnas-* app images run
+          > from /opt/lilnas under project `lilnas` (l4d2 image built, no container),
+          > public endpoints return 2xx/3xx, host HEAD bdf7e52e. journalctl as jeremy
+          > cannot see today's lilnas-deploy entries (needs adm/systemd-journal group);
+          > the deploy job log confirms start/done at bdf7e52e full=1 instead.
+          > CI run 39168720800 (ff453469, dispatched 21:38Z) was still at lint/test when
+          > I reported; if it was dispatched with full=true it will recreate
+          > immich-database — re-run T9 after it finishes to confirm.
+
+          Fix only this defect. Add a test that fails without the fix where one can; then T9 runs again to re-check.
