@@ -622,3 +622,10 @@ Non-blocking: `docker compose ls` still lists /home/jeremy/lilnas as a second co
 not-yet-recreated containers; `done` journal line lacks the sha.
 
 No commits: nothing to integrate.
+
+### 2026-10-18 · Phase 2 · review cycle 1
+Phase 2 remainder (T12 journal group step, T13 dispatch `base` input with fail-on-typo and tip-only warning, the immich include env_file fix plus its guard test, docs) is correct and matches the task bodies; tests cover the four base-selection cases and the include/encrypted-env seam. Only cosmetic notes.
+
+Notes:
+- F13 · P2 · T13 notes say `--quiet` was used; it wasn't — .github/workflows/ci.yml:103
+- F14 · P2 · Unasked-for compose change is a behaviour fix, not noise — docker-compose.yml:14
