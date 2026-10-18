@@ -36,6 +36,13 @@
       "when": 1791863585321,
       "tag": "0004_oidc_provider",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1792314024031,
+      "tag": "0005_host_visit",
+      "breakpoints": true
     }
   ]
 }
