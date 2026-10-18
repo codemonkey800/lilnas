@@ -671,7 +671,7 @@ phases:
         title: Tailscale `tag:ci` + OAuth client, GitHub secrets
         after: []
         files: []
-        status: todo
+        status: approved
         body: |-
           In the Tailscale admin console (https://login.tailscale.com/admin):
           1. Access controls: add `"tagOwners": { "tag:ci": ["autogroup:admin"] }` and an
