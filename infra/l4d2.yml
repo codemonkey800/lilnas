@@ -1,5 +1,7 @@
 services:
   l4d2:
+    # Opt-in: deploys never start it. Run with `docker compose up -d l4d2`.
+    profiles: [games]
     image: ghcr.io/codemonkey800/lilnas-l4d2:${LILNAS_TAG:-latest}
     build:
       context: ../

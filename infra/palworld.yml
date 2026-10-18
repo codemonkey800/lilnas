@@ -1,5 +1,7 @@
 services:
   palworld:
+    # Opt-in: deploys never start it. Run with `docker compose up -d palworld`.
+    profiles: [games]
     image: thijsvanloef/palworld-server-docker:v2.7.1
     restart: unless-stopped
     logging:

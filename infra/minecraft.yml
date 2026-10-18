@@ -2,6 +2,8 @@
 # Previous SevTech: Ages modpack backed up to: /storage/archive/minecraft-sevtech-backup-20250816.7z
 services:
   minecraft:
+    # Opt-in: deploys never start it. Run with `docker compose up -d minecraft`.
+    profiles: [games]
     image: itzg/minecraft-server:latest
     tty: true
     stdin_open: true
