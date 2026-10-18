@@ -747,7 +747,8 @@ phases:
           - H6
         files: []
         model: frontier
-        status: todo
+        status: partial
+        commit: b17ba80c5e772c407ed87d5e0cf4c5f96a2a5c7e
         body: |-
           Verify the first deploy without changing anything. Read-only commands only.
           - `docker ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}'`: list the ten
