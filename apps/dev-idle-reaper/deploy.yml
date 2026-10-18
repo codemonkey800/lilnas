@@ -12,7 +12,7 @@
 #     or explicitly with lilnas.idle-reap.enabled=true.
 #   - Opt out with lilnas.idle-reap.enabled=false (on any container in the
 #     project, for whole-project units).
-#   - Idle limit per container: lilnas.idle-reap.max-idle-hours (default 6).
+#   - Idle limit per container: lilnas.idle-reap.max-idle-hours (default 2).
 #   - Compose projects under DEV_PROJECTS_ROOT are reaped whole (sidecars
 #     too); everything else, including this repo, one container at a time.
 #   - Never touches lilnas-traefik / lilnas-auth, whatever their labels say.
@@ -28,7 +28,7 @@ services:
     restart: unless-stopped
     environment:
       - POLL_INTERVAL_SECONDS=300
-      - DEFAULT_MAX_IDLE_HOURS=6
+      - DEFAULT_MAX_IDLE_HOURS=2
       - AUTH_URL=http://auth:8081
       - DEV_PROJECTS_ROOT=/home/jeremy/dev
     volumes:

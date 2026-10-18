@@ -48,7 +48,7 @@ The `examples/docker-compose.yml` bundled with this skill ships with `lilnas-aut
 
 ## Idle dev routes are reaped automatically
 
-`apps/dev-idle-reaper` (when running) auto-enrolls every container with a `*.dev.lilnas.io` router rule and stops+removes it once its network I/O has been flat for 6 hours. Projects under `~/dev` are reaped whole — Postgres, Redis, and other sidecars included; volumes and bind mounts are left alone, so `docker compose up -d` brings everything back.
+`apps/dev-idle-reaper` (when running) auto-enrolls every container with a `*.dev.lilnas.io` router rule and stops+removes it once no logged-in user has visited it for 2 hours (judged from the auth service, not network traffic). Projects under `~/dev` are reaped whole — Postgres, Redis, and other sidecars included; volumes and bind mounts are left alone, so `docker compose up -d` brings everything back.
 
 - Change the limit: `lilnas.idle-reap.max-idle-hours=<n>` on the routed container.
 - Opt out: `lilnas.idle-reap.enabled=false` on any container in the project.

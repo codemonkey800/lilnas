@@ -48,7 +48,7 @@ set -u
 # across polls and across the reaper's own restarts.
 
 POLL_INTERVAL_SECONDS="${POLL_INTERVAL_SECONDS:-300}"
-DEFAULT_MAX_IDLE_HOURS="${DEFAULT_MAX_IDLE_HOURS:-6}"
+DEFAULT_MAX_IDLE_HOURS="${DEFAULT_MAX_IDLE_HOURS:-2}"
 AUTH_URL="${AUTH_URL:-http://auth:8081}"
 DEV_PROJECTS_ROOT="${DEV_PROJECTS_ROOT:-/home/jeremy/dev}"
 STATE_DIR="/var/lib/reaper"
