@@ -60,8 +60,16 @@ gh run watch
 ```
 
 Dispatch inputs: `dry_run` (default **true** — the host prints the compose
-commands instead of running them), `full`, `build_base_images`. A dispatch
-diffs against `HEAD~1` of the chosen ref unless `full=true`.
+commands instead of running them), `full`, `build_base_images`, `base`. A
+dispatch diffs `base..<ref>` (`base` empty → `HEAD~1`, i.e. only the ref's last
+commit) unless `full=true`. When the host is behind by more than one commit,
+pass the sha it last deployed (`git -C /opt/lilnas rev-parse HEAD`) so every
+change since then is planned:
+
+```bash
+gh workflow run ci.yml --ref <branch> -f dry_run=false \
+  -f base="$(git -C /opt/lilnas rev-parse HEAD)"
+```
 
 Run the same thing on the host without GitHub (Jeremy, with sudo). The
 entrypoint reads its arguments from `SSH_ORIGINAL_COMMAND`, exactly as sshd
