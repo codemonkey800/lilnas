@@ -2,6 +2,7 @@ import { All, Controller, Req, Res } from '@nestjs/common'
 import type { Request, Response } from 'express'
 
 import { GatedHostsService } from 'src/services/gated-hosts.service'
+import { HostActivityService } from 'src/services/host-activity.service'
 import { normalizeHost } from 'src/services/normalize-host'
 
 import { VerifyService } from './verify.service'
@@ -69,6 +70,7 @@ export class VerifyController {
   constructor(
     private readonly verifyService: VerifyService,
     private readonly gatedHosts: GatedHostsService,
+    private readonly hostActivity: HostActivityService,
   ) {}
 
   @All()
@@ -101,6 +103,14 @@ export class VerifyController {
     })
 
     if (decision.outcome === 'allow') {
+      // A real user was let through to this host. Recorded on every allow —
+      // cache hit or not, since the cache lives inside decide() — so the
+      // dev-idle-reaper can ask "did anyone actually visit this host
+      // recently". See host-activity.service.ts.
+      if (forwardedHost) {
+        this.hostActivity.recordVisit(forwardedHost, decision.userId)
+      }
+
       // Traefik's own (U10-owned) middleware config is what actually copies
       // these response headers onto the request it forwards to the real
       // backend, via authResponseHeaders= — see VERIFY_RESPONSE_HEADERS's
