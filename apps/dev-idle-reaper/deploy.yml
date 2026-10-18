@@ -4,7 +4,10 @@
 #   docker-compose up -d --build dev-idle-reaper
 #   docker-compose logs -f dev-idle-reaper
 #
-# Stops+removes idle dev containers -- see reaper.sh for the full rules:
+# Stops+removes dev containers nobody has visited -- see reaper.sh for the full
+# rules. "Visited" comes from the auth service's /internal/host-activity (the
+# distinct users /verify let through to each host), so this must stay on the
+# same network as auth.
 #   - Enrolled automatically if a Traefik router rule targets *.dev.lilnas.io,
 #     or explicitly with lilnas.idle-reap.enabled=true.
 #   - Opt out with lilnas.idle-reap.enabled=false (on any container in the
@@ -15,7 +18,7 @@
 #   - Never touches lilnas-traefik / lilnas-auth, whatever their labels say.
 #
 # Needs read-write access to the Docker socket to stop/rm containers -- see
-# reaper.sh for exactly what it does with that access (inspect/stats/stop/rm
+# reaper.sh for exactly what it does with that access (inspect/stop/rm
 # against enrolled containers and their project siblings, nothing else).
 
 services:
@@ -26,7 +29,7 @@ services:
     environment:
       - POLL_INTERVAL_SECONDS=300
       - DEFAULT_MAX_IDLE_HOURS=6
-      - ACTIVITY_BYTES_THRESHOLD=1024
+      - AUTH_URL=http://auth:8081
       - DEV_PROJECTS_ROOT=/home/jeremy/dev
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
