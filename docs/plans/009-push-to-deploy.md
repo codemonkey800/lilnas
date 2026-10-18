@@ -416,3 +416,6 @@ Green dry run: https://github.com/codemonkey800/lilnas/actions/runs/39157513703 
 GHCR: all 14 lilnas-* packages already serve manifests anonymously (HTTP 200 with an anonymous token), so no visibility change was needed. An unauthenticated `docker pull ghcr.io/codemonkey800/lilnas-auth:latest` with an empty DOCKER_CONFIG succeeded. Pull only, no `up`.
 
 Fixes needed to get here, already merged to main and then into the branch: tdr-bot cron timezone (b14c25a4), auth infra/browser.yml mount (f97b9ed6), equations @nestjs/testing devDependency (e17ce428), equations Dockerfile bullseye→bookworm because bullseye-security pool files now 404 (93b981d0). Also, ci.yml has a workflow_dispatch-only stub on main (d958d10f) so the workflow can be dispatched; the real ci.yml replaces it when the branch merges.
+
+### 2026-10-18 · H6 · approved
+Approved.

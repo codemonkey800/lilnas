@@ -714,7 +714,7 @@ phases:
         after:
           - H5
         files: []
-        status: todo
+        status: approved
         body: |-
           Before: note `docker compose ls` and `docker ps --format '{{.Names}} {{.Image}} {{.Status}}'`
           output. Expectation for this deploy: the ten locally built services
