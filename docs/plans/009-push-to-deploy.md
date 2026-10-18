@@ -403,3 +403,6 @@ All plan checks pass.
 Remediation diff fixes F1, F4 and F11 as described: tdr-code no longer loads the gitignored .env and the entrypoint honours the pinned LOCAL_PORT; decrypt temp files end in .decrypted and are covered by the ignore rules (verified with git check-ignore and a new test); --full now runs a plain docker compose pull and every build: service has a ghcr.io image to pull. No new defects in the remediation diff; only a stale comment in infra/local-proxy/entrypoint.sh line 4.
 
 Earlier findings: F1 fixed, F4 fixed, F11 fixed.
+
+### 2026-10-18 · H3 · approved
+H3 done. Installer ran (deploy user, /opt/lilnas clone, .env.keys 0600, forced-command entry, CI key, AllowUsers + sshd reload). Branch head 7bcc552c already on origin. Dry-run over tailnet (sudo ssh -i ci-deploy-key deploy@lilnas.tail77e8b0.ts.net "deploy 7bcc552c… --dry-run --full"): checked out 7bcc552c, 15 `decrypted …` lines, [dry-run] docker compose pull / up -d / image prune -f / ps, "lilnas-deploy: done". Forced command rejected `id` ("unknown command: id", exit 2) and `deploy <sha>; id` ("bad characters in command", exit 2). DEPLOY_SSH_KEY set via gh (confirmed in `gh secret list`); host copy of ci-deploy-key shredded.

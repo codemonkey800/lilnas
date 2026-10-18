@@ -640,7 +640,7 @@ phases:
         title: 'Provision the host: `deploy` user, `/opt/lilnas`, forced-command key'
         after: []
         files: []
-        status: todo
+        status: approved
         body: |-
           `.env.keys` now exists at `/home/jeremy/lilnas/.env.keys` and
           `/storage/backups/lilnas-secrets/.env.keys` (T8). Both are on this machine;
