@@ -839,7 +839,8 @@ phases:
           - docker-compose.yml
           - scripts/deploy/install-host.sh
           - packages/cli/src/utils/__tests__/
-        status: todo
+        status: done
+        commit: 85305904c1b66d3861243a7cd1770720a58e6404
         body: |-
           T9 · Post-deploy verification (read-only) reported this blocking defect (attempt 1):
 

@@ -448,3 +448,25 @@ No commits: nothing to integrate.
 T9 reported 1 blocking defect at attempt 1, sent to R4; it runs again at round 2 to re-check.
 
 - R4 · immich-database env interpolated from encrypted infra/.env (`docker-compose.yml:12 (include ./infra/immich.yml) / infra/immich.yml:57-59`): docker inspect lilnas-immich-database-1: 3 env values '=encrypted:…'; health log 'pg_isready: error: invalid connection option "encrypted:…"'; status unhealthy. Worktree `docker compose config` renders 7 'encrypted:' values, all in immich-database (environment + healthcheck). Compose include interpolates ${DB_*} from infra/.env, not infra/.env.decrypted. Fix: add `env_file: ./infra/.env.decrypted` to the immich.yml include entry (like nexus-code) and force-recreate immich-database.
+
+### 2026-10-18 · R4 · done
+Changed the root include `./infra/immich.yml` to
+`{ path: ./infra/immich.yml, env_file: ./infra/.env.decrypted }`. Compose
+interpolates an include from its project dir's `.env` (encrypted infra/.env)
+unless env_file is set.
+Regression test compose-include-env.spec.ts walks every root include, works out
+the env file(s) used for interpolation, and fails if a `${VAR}` in the included
+file matches a key in a tracked encrypted env file. It reads key names only,
+never values. It fails on HEAD~ (DB_DATABASE_NAME, DB_PASSWORD from infra/.env)
+and passes now. Other infra/*.yml string includes still default to infra/.env,
+but none of them interpolate any of its keys, so they pass.
+Verified in the worktree with placeholder .decrypted files (since removed):
+`docker compose config -q` OK, 0 'encrypted:' values, immich-database
+POSTGRES_* and the pg_isready healthcheck take the placeholder values.
+All six plan checks pass.
+Running immich-database is still broken until this is deployed. The
+container's env is fixed at create time, so it needs
+`docker compose up -d --force-recreate immich-database` in /opt/lilnas
+(deploy user / CI). Agents may not do this. If the deploy only recreates
+services whose config hash changed, this change does recreate
+immich-database, because its rendered environment changes.
