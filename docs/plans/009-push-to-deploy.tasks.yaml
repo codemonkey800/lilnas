@@ -1004,7 +1004,8 @@ phases:
         title: 'Fix: immich-database still running with encrypted DB_* env (R6 fix not pushed/deployed)'
         after: []
         files: []
-        status: todo
+        status: done
+        commit: 543ccaf4a5bd6cd799b4a62a79e65cb217b33fbf
         body: |-
           T9 · Post-deploy verification (read-only) reported this blocking defect (attempt 5):
 
