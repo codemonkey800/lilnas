@@ -419,3 +419,20 @@ Fixes needed to get here, already merged to main and then into the branch: tdr-b
 
 ### 2026-10-18 · H6 · approved
 Approved.
+
+### 2026-10-18 · T9 · partial
+Read-only verification; nothing committed. Deploy of bdf7e52e from /opt/lilnas
+succeeded: 9 ghcr app containers up with the right revision/labels, all five
+endpoints 2xx/3xx, 15 .decrypted files present 0600, CI run 39165171151 green.
+journalctl -t lilnas-deploy can't show the deploy user's lines to jeremy (not
+in systemd-journal group); the CI deploy log shows start/done instead.
+11 unchanged containers still carry working_dir=/home/jeremy/lilnas (harmless).
+
+Defects:
+
+- blocking · immich-database env interpolated from encrypted infra/.env · docker-compose.yml:12 (include ./infra/immich.yml) / infra/immich.yml:57-59
+  docker inspect lilnas-immich-database-1: 3 env values '=encrypted:…'; health log 'pg_isready: error: invalid connection option "encrypted:…"'; status unhealthy. Worktree `docker compose config` renders 7 'encrypted:' values, all in immich-database (environment + healthcheck). Compose include interpolates ${DB_*} from infra/.env, not infra/.env.decrypted. Fix: add `env_file: ./infra/.env.decrypted` to the immich.yml include entry (like nexus-code) and force-recreate immich-database.
+- not blocking · games-profile containers exited (minecraft 0, palworld 137) · infra/minecraft.yml, infra/palworld.yml
+  docker ps: lilnas-minecraft-1 Exited (0) 20:27:40Z (log: 'Stopping server'), lilnas-palworld-1 Exited (137) 20:28:10Z (log: 'Save data is corrupted', segfault — pre-existing). Not caused by scripts/deploy/*.sh (no stop/down); deploy leaves inactive-profile services alone by design. Human decision whether to start minecraft.
+
+No commits: nothing to integrate.
