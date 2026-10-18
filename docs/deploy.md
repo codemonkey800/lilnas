@@ -106,6 +106,21 @@ sudo -u deploy env LILNAS_TAG=<sha> docker compose up -d <svc>
 The next CI deploy of that service puts it back on `:latest`. For a lasting
 rollback, revert the commit on `main`.
 
+### Opt-in game servers
+
+Minecraft, Palworld and L4D2 sit behind the `games` compose profile, so no
+deploy starts, updates or stops them — even one that names them (the deploy
+script skips services in an inactive profile). Start and stop them by hand:
+
+```bash
+cd /opt/lilnas
+sudo -u deploy docker compose up -d palworld   # also picks up config changes
+sudo -u deploy docker compose stop palworld
+```
+
+Palworld and L4D2 both publish port 27015, so only one of them can run at a
+time. Valheim has no profile and deploys like any other service.
+
 ## Secrets
 
 The 15 env files compose loads in production are committed, encrypted with

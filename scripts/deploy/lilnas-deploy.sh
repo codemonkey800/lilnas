@@ -123,6 +123,27 @@ fi
 # 2. Validate the whole stack before touching anything.
 docker compose config -q || die "docker compose config failed; nothing deployed"
 
+# Services behind an inactive compose profile (the opt-in game servers) are
+# left alone: naming one in `docker compose up -d <svc>` would start it.
+mapfile -t active_services < <(docker compose config --services)
+keep_active() {
+  local -n _services=$1
+  local kept=() s a
+  for s in "${_services[@]}"; do
+    for a in "${active_services[@]}"; do
+      if [[ "$s" == "$a" ]]; then
+        kept+=("$s")
+        continue 2
+      fi
+    done
+    echo "lilnas-deploy: skipping $s (opt-in profile)"
+  done
+  _services=("${kept[@]}")
+}
+keep_active pull_services
+keep_active up_services
+keep_active force_services
+
 # 3. Apply.
 touched=()
 if [[ "$full" == 1 ]]; then
