@@ -473,3 +473,25 @@ immich-database, because its rendered environment changes.
 
 ### 2026-10-18 · T12 · done
 Added `ADMIN_USER=jeremy` beside `DEPLOY_USER` (the script had no admin-user constant; `KEYS_SOURCE` still hardcodes `/home/jeremy/lilnas/.env.keys`, left as-is). The group check reuses the script's existing `id -nG | tr ' ' '\n' | grep -qx` idiom rather than `grep -qw`. Step inserted as #2 (right after the deploy-user step) and steps 2–6 renumbered to 3–7; nothing outside the script referenced the numbers. The printed "next steps" block is not a rerun hint, so it was not changed. Script was not run; takes effect when Jeremy next reruns `sudo scripts/deploy/install-host.sh` and logs in again.
+
+### 2026-10-18 · T9 · partial
+Read-only; nothing committed. All 9 running lilnas-* app containers are Up
+(auth healthy), l4d2/palworld/minecraft are in the games profile and not
+started (expected). Compose labels: project=lilnas, working_dir=/opt/lilnas.
+HTTP: auth 307, portal 302, download 302, tdr 302, theater 200, immich 200.
+journalctl -t lilnas-deploy is not visible to jeremy for today's entries
+(needs adm/systemd-journal group); the CI deploy step log shows
+'lilnas-deploy: done' instead.
+Follow-up needed (human/CI, agents may not run it): redeploy with a diff
+that includes 85305904, e.g. `gh workflow run ci.yml -f dry_run=false
+-f full=true` on feat/push-to-deploy, or merge to main (push events diff
+against event.before). A full deploy re-renders immich-database's env and
+recreates it; otherwise `docker compose up -d --force-recreate
+immich-database` in /opt/lilnas as deploy.
+
+Defects:
+
+- blocking · immich-database still running with encrypted DB_* env (R4 fix not deployed) · /opt/lilnas/docker-compose.yml:12 (host at bdf7e52e; fix is 85305904 on origin/feat/push-to-deploy)
+  docker inspect lilnas-immich-database-1: created 2026-10-18T20:08:54Z, State unhealthy, 3 Config.Env values '=encrypted:…', health log 'pg_isready: error: invalid connection option "encrypted:…"'. CI run 39168569885 at ff453469 (dry_run=false) deploy step printed 'Nothing to deploy for ff453469…' because workflow_dispatch diffs HEAD~1 (ci.yml:91), which covered only the docs commit. Host HEAD unchanged at bdf7e52e; /opt/lilnas/docker-compose.yml line 12 is still '- ./infra/immich.yml'.
+
+No commits: nothing to integrate.
