@@ -1,0 +1,29 @@
+# Placeholder so GitHub registers this workflow for `gh workflow run ci.yml
+# --ref feat/push-to-deploy`. The real pipeline lives on that branch and
+# replaces this file when it merges.
+name: CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Print the deploy commands on the host instead of running them
+        type: boolean
+        default: true
+      full:
+        description: Plan as if everything changed (build every image, deploy every service)
+        type: boolean
+        default: false
+      build_base_images:
+        description: Rebuild and push the base images first
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Placeholder workflow. Dispatch with --ref feat/push-to-deploy."
