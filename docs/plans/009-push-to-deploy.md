@@ -233,6 +233,26 @@ or `lilnas-dev` project; docs updated where the task says so.
   warning when omitted) and documents the three dispatch forms. Push events
   are unaffected (`github.event.before` spans the whole push). The deployed
   sha is readable without sudo via `git -C /opt/lilnas rev-parse HEAD`.
+- Session state (2026-10-18, before context clear): C1–C5 all resolved.
+  Pending: T13 (`base` dispatch input), R6 (redeploy with `full=true`), then T9
+  round 3 (keyed `round.after: R6` by the runner). T12 done (installer adds
+  jeremy to systemd-journal; takes effect when Jeremy reruns
+  `sudo scripts/deploy/install-host.sh`). Host at bdf7e52e until R6 lands.
+- Nexus plan-format rules learned the hard way: a T task cannot sit in an R
+  phase; a redeploy task that must follow an R task has to be an R task in that
+  phase; `round.after` must name an R task; a task can't `after:` a later
+  phase; the runner creates R tasks itself when T9 reports defects (so check
+  for a runner-made duplicate before adding your own). Edits to a done task's
+  body don't rerun it — move leftover work to a new task instead.
+- R4's test `packages/cli/src/utils/__tests__/compose-include-env.spec.ts`
+  walks every root include and fails if an included file interpolates a key
+  from an encrypted env file; keep it in mind if includes change.
+- If R6 fails or Jeremy wants to gate redeploys: convert R6 to an H task; the
+  user's standing bar is checkpoints only for sudo, admin consoles, GitHub UI,
+  and the go/no-go on prod (H6 already approved the deploy path).
+- Not yet done by any task: `minecraft`/`palworld` containers are exited
+  (pre-existing, palworld save corrupted) — Jeremy's call, not a plan item;
+  `KEYS_SOURCE` in install-host.sh still hardcodes `/home/jeremy/lilnas/.env.keys`.
 - Open threads: none with Jeremy. Run config: tasks pin `model: frontier`;
   effort was to be set to high on the run by Jeremy before Start — not
   verified from this chat.
