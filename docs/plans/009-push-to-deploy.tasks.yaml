@@ -741,18 +741,47 @@ phases:
           pre-commit guard (`docs/deploy.md`, Secrets), and `pnpm lilnas secrets decrypt`.
           The merge commit on `main` will trigger one more full run that rebuilds and
           redeploys the ten services once more — expected.
+      - id: T12
+        title: 'install-host.sh: let jeremy read the deploy journal without sudo'
+        after: []
+        files:
+          - scripts/deploy/install-host.sh
+          - docs/deploy.md
+        model: frontier
+        status: todo
+        body: |-
+          T9 found that `journalctl -t lilnas-deploy` shows nothing to `jeremy` because
+          the lines are logged by the `deploy` user and `jeremy` is not in the
+          `systemd-journal` group. Add one idempotent step to
+          `scripts/deploy/install-host.sh` (run as root by Jeremy; keep its `log`/`die`
+          style and the step numbering), near the user/group steps:
+          ```bash
+          # N. Let the admin user read deploy logs without sudo
+          if id -nG jeremy | grep -qw systemd-journal; then
+            log "jeremy already in systemd-journal"
+          else
+            usermod -aG systemd-journal jeremy
+            log "added jeremy to systemd-journal (takes effect at next login)"
+          fi
+          ```
+          Use the script's existing constant for the admin user if it has one (it
+          already refers to `/home/jeremy/lilnas`); otherwise add `ADMIN_USER=jeremy`
+          beside `DEPLOY_USER`. Mention the step in the header comment list and in the
+          printed "next steps" only if the script prints a rerun hint. Do not run the
+          script. `bash -n` clean; the `scripts/deploy/*.sh` check passes. Also add
+          one line to `docs/deploy.md`'s host-setup section, which lists the
+          installer's steps (around the `install-host.sh` paragraph); prettier-clean. It takes effect whenever
+          Jeremy next reruns the installer; no checkpoint needed.
       - id: T9
         title: Post-deploy verification (read-only)
         after:
           - H6
-          - R4
-          - T12
         files: []
         model: frontier
         status: todo
         round:
           number: 2
-          after: R4
+          after: R5
         body: |-
           Verify the first deploy without changing anything. Read-only commands only.
           - `docker ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}'`: list the ten
@@ -835,10 +864,7 @@ phases:
       - id: R4
         title: 'Fix: immich-database env interpolated from encrypted infra/.env'
         after: []
-        files:
-          - docker-compose.yml
-          - scripts/deploy/install-host.sh
-          - packages/cli/src/utils/__tests__/
+        files: []
         status: done
         commit: 85305904c1b66d3861243a7cd1770720a58e6404
         body: |-
@@ -860,29 +886,7 @@ phases:
 
           Fix only this defect. Add a test that fails without the fix where one can; then T9 runs again to re-check.
 
-          Planner's additions (C4):
-          - Why: Compose interpolates `${VAR}` in an included file from that file's
-            own directory `.env` (here `infra/.env`, now encrypted) unless the include
-            entry sets `env_file`. Only `infra/immich.yml` relies on this; every other
-            `${…}` in the tree is `LILNAS_TAG` or the nexus-code include, which already
-            has `env_file: ./infra/.env.nexus-code.decrypted`. Change the
-            `- ./infra/immich.yml` include to the `path:` + `env_file: ./infra/.env.decrypted`
-            form, mirroring the nexus-code entry, and leave `infra/immich.yml` alone.
-          - Verify in the worktree with placeholder `.decrypted` files containing
-            `DB_PASSWORD=x`, `DB_USERNAME=x`, `DB_DATABASE_NAME=x`:
-            `docker compose -f docker-compose.yml config | grep -c 'encrypted:'` → 0 and
-            the rendered immich-database `POSTGRES_*` values are `x`. Delete the
-            placeholders before committing. Do not touch the running project.
-          - The test: `lilnas ci detect` already parses the root `include:` list; add a
-            spec case asserting the immich include carries `envFile: infra/.env.decrypted`
-            when parsed from the real `docker-compose.yml` (or the fixture updated to
-            match), so a future include-form regression fails CI.
-          - `scripts/deploy/install-host.sh`: add an idempotent step that puts `jeremy`
-            in the `systemd-journal` group (`id -nG jeremy | grep -qw systemd-journal ||
-            usermod -aG systemd-journal jeremy`) so `journalctl -t lilnas-deploy` is
-            readable without sudo; log it like the other steps. It takes effect the
-            next time Jeremy reruns the installer — no checkpoint, not needed for T9.
-      - id: T12
+      - id: R5
         title: Redeploy the branch so the immich fix reaches `/opt/lilnas`
         after:
           - R4

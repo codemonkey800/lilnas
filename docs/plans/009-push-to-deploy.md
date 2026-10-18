@@ -221,8 +221,8 @@ or `lilnas-dev` project; docs updated where the task says so.
   from that file's directory `.env` unless the include entry sets `env_file`;
   encrypting `infra/.env` broke `infra/immich.yml`'s `${DB_*}` (the only file
   relying on it — every other `${…}` is `LILNAS_TAG` or the nexus-code include).
-  R4 fixes the include; T12 pushes + dispatches the redeploy (full run, since a
-  root compose change is `full`); T9 round 2 waits on T12. Journal-group tweak
+  R4 fixes the include; R5 pushes + dispatches the redeploy (full run, since a
+  root compose change is `full`); T9 round 2 waits on R5 (a redeploy task must be an R task to sit in the defects phase). Journal-group tweak
   for jeremy lives in the installer, applied whenever it is rerun.
 - Open threads: none with Jeremy. Run config: tasks pin `model: frontier`;
   effort was to be set to high on the run by Jeremy before Start — not
