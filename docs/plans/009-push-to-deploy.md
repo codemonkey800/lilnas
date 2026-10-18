@@ -608,3 +608,17 @@ origin and only needed deploying. T9 can re-run now. The R6 ci.yml `base` fix
 (bb053723) is still only on the run branch, which doesn't affect this defect.
 
 No commits: nothing to integrate.
+
+### 2026-10-18 · T9 · done
+Read-only verification of deploy ff453469 (run 39168720800, deploy 21:56-21:58Z) passed.
+Round-4 defect resolved: lilnas-immich-database-1 recreated 21:57:51Z, healthy, 0 encrypted env values;
+no lilnas-* container has any `=encrypted:` env. 9 ghcr app containers Up (restarts=0); l4d2 is
+`profiles: [games]` opt-in so no container is expected. minecraft/palworld (also `games` profile)
+exited at 20:27Z, before this deploy — not a deploy effect. compose labels: project lilnas,
+working_dir /opt/lilnas. curl: auth 307, portal 302, download 302, tdr 302, theater 200.
+jeremy cannot read the deploy user's journal entries (no adm/systemd-journal group); the CI deploy
+log shows start/done lines instead. All plan checks pass. Nothing committed, tree clean.
+Non-blocking: `docker compose ls` still lists /home/jeremy/lilnas as a second config file for
+not-yet-recreated containers; `done` journal line lacks the sha.
+
+No commits: nothing to integrate.
