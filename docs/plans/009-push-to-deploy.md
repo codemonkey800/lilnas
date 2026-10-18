@@ -509,3 +509,21 @@ No commits: nothing to integrate.
 T9 reported 1 blocking defect at attempt 3, sent to R6; it runs again at round 3 to re-check.
 
 - R6 · immich-database still running with encrypted DB_* env (R4 fix not deployed) (`/opt/lilnas/docker-compose.yml:12 (host at bdf7e52e; fix is 85305904 on origin/feat/push-to-deploy)`): docker inspect lilnas-immich-database-1: created 2026-10-18T20:08:54Z, State unhealthy, 3 Config.Env values '=encrypted:…', health log 'pg_isready: error: invalid connection option "encrypted:…"'. CI run 39168569885 at ff453469 (dry_run=false) deploy step printed 'Nothing to deploy for ff453469…' because workflow_dispatch diffs HEAD~1 (ci.yml:91), which covered only the docs commit. Host HEAD unchanged at bdf7e52e; /opt/lilnas/docker-compose.yml line 12 is still '- ./infra/immich.yml'.
+
+### 2026-10-18 · R6 · done
+Root cause: a workflow_dispatch always diffed HEAD~1, so dispatching at
+ff453469 (a docs commit) planned nothing and 85305904 never reached the host.
+Fix: a new optional dispatch input `base` (string). The Detect step resolves it
+with `git rev-parse --verify "$base^{commit}"` and fails the run if it isn't a
+commit. Empty still means HEAD~1. push and pull_request are unchanged.
+Test ci-workflow-base.spec.ts runs the step's own `case … esac` from ci.yml in
+bash against a temp repo. 3 of its 5 tests fail on the old ci.yml.
+`pnpm lilnas ci detect --base bdf7e52e --head HEAD` gives full=true (root
+docker-compose.yml changed), so a deploy with that base is a full deploy.
+Agents can't run that deploy, so production is not fixed until a human runs it
+(as jeremy, or anyone who can read /opt/lilnas):
+  gh workflow run ci.yml --ref feat/push-to-deploy -f dry_run=false \
+    -f base="$(git -C /opt/lilnas rev-parse HEAD)"
+`-f full=true` also works, or merging to main (push diffs event.before).
+After that, T9 should find lilnas-immich-database-1 recreated and healthy, with
+no '=encrypted:' values in Config.Env.

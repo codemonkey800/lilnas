@@ -968,7 +968,8 @@ phases:
         title: 'Fix: immich-database still running with encrypted DB_* env (R4 fix not deployed)'
         after: []
         files: []
-        status: todo
+        status: done
+        commit: bb053723effd4c4434982ff1c8ff25336b3c0f30
         body: |-
           T9 (attempt 3) found `lilnas-immich-database-1` still unhealthy with three
           `encrypted:` env values: R4's fix (85305904, immich include now carries
