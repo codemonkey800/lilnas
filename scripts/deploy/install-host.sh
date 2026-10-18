@@ -7,6 +7,7 @@ set -euo pipefail
 #
 # What it sets up:
 #   - system user `deploy` (home /home/deploy, bash, in `docker`)
+#   - `jeremy` in `systemd-journal`, so `journalctl -t lilnas-deploy` works without sudo
 #   - /opt/lilnas: a clone of the repo owned by `deploy` (left alone if present)
 #   - /opt/lilnas/.env.keys copied from Jeremy's checkout (deploy:deploy 0600)
 #   - /home/deploy/bin/lilnas-deploy-entry: the forced SSH command
@@ -15,6 +16,7 @@ set -euo pipefail
 # It never prints key material; the next steps are printed at the end.
 
 DEPLOY_USER=deploy
+ADMIN_USER=jeremy
 DEPLOY_HOME=/home/deploy
 DEPLOY_ROOT=/opt/lilnas
 KEYS_FILE="$DEPLOY_ROOT/.env.keys"
@@ -52,7 +54,15 @@ if ! id -nG "$DEPLOY_USER" | tr ' ' '\n' | grep -qx docker; then
 fi
 install -d -o "$DEPLOY_USER" -g "$DEPLOY_USER" -m 0750 "$DEPLOY_HOME" "$DEPLOY_HOME/bin"
 
-# 2. repo clone
+# 2. Let the admin user read deploy logs without sudo
+if id -nG "$ADMIN_USER" | tr ' ' '\n' | grep -qx systemd-journal; then
+  log "$ADMIN_USER already in systemd-journal"
+else
+  usermod -aG systemd-journal "$ADMIN_USER"
+  log "added $ADMIN_USER to systemd-journal (takes effect at next login)"
+fi
+
+# 3. repo clone
 install -d -o "$DEPLOY_USER" -g "$DEPLOY_USER" -m 0755 "$DEPLOY_ROOT"
 if [[ -d "$DEPLOY_ROOT/.git" ]]; then
   log "$DEPLOY_ROOT already cloned; leaving it alone"
@@ -61,16 +71,16 @@ else
   log "cloned $REPO to $DEPLOY_ROOT"
 fi
 
-# 3. dotenvx private keys (contents never echoed)
+# 4. dotenvx private keys (contents never echoed)
 install -o "$DEPLOY_USER" -g "$DEPLOY_USER" -m 0600 "$KEYS_SOURCE" "$KEYS_FILE"
 log "installed $KEYS_FILE (0600)"
 
-# 4. forced-command entrypoint, outside the repo
+# 5. forced-command entrypoint, outside the repo
 install -o "$DEPLOY_USER" -g "$DEPLOY_USER" -m 0755 "$ENTRY_SRC" "$ENTRY_DEST"
 bash -n "$ENTRY_DEST"
 log "installed $ENTRY_DEST"
 
-# 5. CI key + authorized_keys pinned to the entrypoint
+# 6. CI key + authorized_keys pinned to the entrypoint
 install -d -o "$DEPLOY_USER" -g "$DEPLOY_USER" -m 0700 "$SSH_DIR"
 if [[ -f "$CI_KEY" ]]; then
   log "CI key exists: $CI_KEY"
@@ -89,7 +99,7 @@ chown "$DEPLOY_USER:$DEPLOY_USER" "$SSH_DIR/authorized_keys"
 chmod 0600 "$SSH_DIR/authorized_keys"
 log "wrote $SSH_DIR/authorized_keys (forced command, restrict)"
 
-# 6. sshd AllowUsers
+# 7. sshd AllowUsers
 if [[ -f "$SSHD_DROPIN" ]] && grep -qE '^AllowUsers\b' "$SSHD_DROPIN"; then
   if grep -qE "^AllowUsers\b.*\b$DEPLOY_USER\b" "$SSHD_DROPIN"; then
     log "AllowUsers already includes $DEPLOY_USER"

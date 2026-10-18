@@ -246,6 +246,8 @@ host-native `apps/tdr-code/.env`, change it there too.
 directory), is idempotent and:
 
 - creates the system user `deploy` (home `/home/deploy`, bash, `docker` group);
+- adds `jeremy` to `systemd-journal` so `journalctl -t lilnas-deploy` works
+  without sudo (takes effect at the next login);
 - clones the repo to `/opt/lilnas` owned by `deploy` (left alone if present);
 - installs `/opt/lilnas/.env.keys` from `/home/jeremy/lilnas/.env.keys`
   (`deploy:deploy`, 0600) — this is the "copy step" to re-run after adding a key;
