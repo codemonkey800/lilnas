@@ -629,3 +629,34 @@ Phase 2 remainder (T12 journal group step, T13 dispatch `base` input with fail-o
 Notes:
 - F13 · P2 · T13 notes say `--quiet` was used; it wasn't — .github/workflows/ci.yml:103
 - F14 · P2 · Unasked-for compose change is a behaviour fix, not noise — docker-compose.yml:14
+
+### 2026-10-18 · Final report
+
+Run finished with every task integrated. The host runs ff453469 (deployed by run 39168720800, which recreated lilnas-immich-database-1 healthy with no encrypted env). Commits after ff453469 (`base` input, the R6 ci.yml fix, T13) are on the run branch but not yet pushed or deployed.
+
+Tasks:
+
+- T1–T8, T10, T11: done, per their entries above.
+- T12: done (f18feed6); journal group step added to install-host.sh. Takes effect on the next rerun of install-host.sh plus relogin.
+- T13: done (d8fe7511); `base` input on workflow_dispatch, fails on an unknown base.
+- T9: done on attempt 6 (commit 4b7eca57) against ff453469. Blocking immich defect cleared.
+- R1, R2, R3, R4: done.
+- R5: skipped. Its session ended without a result block (mirrored to skipped). R7 covered the same redeploy by waiting for run 39168720800.
+- R6: done (bb053723). workflow_dispatch can diff from a given base commit instead of HEAD~1.
+- R7: done with no code change (543ccaf4 is log-only). The fix was already on origin and was deployed by 39168720800.
+
+Deviations:
+
+- The immich defect took three rounds (R4 → R6 → R7). The R4 fix was correct but never reached the host: a workflow_dispatch diffed HEAD~1 only, so a docs-only dispatch deployed nothing. R6 and T13 fix that dispatch path.
+
+Unfixed review findings:
+
+- F13 (P2): the T13 entry says `--quiet` was used on rev-parse; ci.yml:103 does not use it. The behaviour is unaffected, but the note is wrong.
+- F14 (P2): the docker-compose.yml immich include change was not in the task list. It is a behaviour fix; kept.
+
+Open:
+
+- Push the run branch (or merge to main), then dispatch `ci.yml` with `-f dry_run=false -f full=true` so the `base` input and later commits reach the host. Do not dispatch from HEAD~1 on a docs-only commit.
+- `git -C /opt/lilnas rev-parse` fails for jeremy with "dubious ownership"; read the deployed sha from the deploy job or compose labels.
+- jeremy cannot read the deploy user's journal (needs adm or systemd-journal group, which T12 adds on the next install-host.sh rerun).
+- `docker compose ls` still lists /home/jeremy/lilnas as a second config file for containers not yet recreated.
