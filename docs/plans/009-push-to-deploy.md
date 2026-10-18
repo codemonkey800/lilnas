@@ -224,6 +224,15 @@ or `lilnas-dev` project; docs updated where the task says so.
   R4 fixes the include; R5 pushes + dispatches the redeploy (full run, since a
   root compose change is `full`); T9 round 2 waits on R5 (a redeploy task must be an R task to sit in the defects phase). Journal-group tweak
   for jeremy lives in the installer, applied whenever it is rerun.
+- C5 (T9, 2026-10-18): `workflow_dispatch` diffs `HEAD~1..HEAD` only, so a
+  dispatch after a multi-commit push (or when the tip is a plan-docs commit)
+  says "Nothing to deploy" and the host stays put — this is why the first
+  redeploy attempt for R4 did nothing. R5 (planned with `full=false`) was
+  skipped as superseded by the runner's R6, which redeploys with `full=true`;
+  T13 adds a `base` dispatch input (verified with `git rev-parse --verify`,
+  warning when omitted) and documents the three dispatch forms. Push events
+  are unaffected (`github.event.before` spans the whole push). The deployed
+  sha is readable without sudo via `git -C /opt/lilnas rev-parse HEAD`.
 - Open threads: none with Jeremy. Run config: tasks pin `model: frontier`;
   effort was to be set to high on the run by Jeremy before Start — not
   verified from this chat.

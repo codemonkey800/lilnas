@@ -773,6 +773,46 @@ phases:
           one line to `docs/deploy.md`'s host-setup section, which lists the
           installer's steps (around the `install-host.sh` paragraph); prettier-clean. It takes effect whenever
           Jeremy next reruns the installer; no checkpoint needed.
+      - id: T13
+        title: '`ci.yml`: `base` input for `workflow_dispatch`, fail on an unknown base'
+        after: []
+        files:
+          - .github/workflows/
+          - docs/deploy.md
+        model: frontier
+        status: todo
+        body: |-
+          In `.github/workflows/ci.yml` the detect step computes the diff base as
+          `github.event.pull_request.base.sha` (PR), `github.event.before` (push), else
+          `git rev-parse HEAD~1`. So a `workflow_dispatch` after a multi-commit push
+          diffs only the tip commit; when that is a docs commit the deploy step prints
+          "Nothing to deploy" and the host never advances (this bit T9 on 2026-10-18).
+
+          Change:
+          - Add a `workflow_dispatch` input `base` (type string, default `''`,
+            description: "Commit to diff from. Empty = the parent of the dispatched
+            commit, i.e. only the tip commit's changes. For a re-deploy pass the sha
+            currently deployed on the host (`git -C /opt/lilnas rev-parse HEAD`), or
+            use full=true.").
+          - Detect step: for dispatch, `BASE="${INPUT_BASE:-$(git rev-parse HEAD~1)}"`
+            (pass `inputs.base` through `env:` as `INPUT_BASE`, never interpolate it
+            into the script). When `INPUT_BASE` is set, `git rev-parse --verify
+            "$BASE^{commit}"` must succeed, else `echo "::error::base $BASE is not a
+            commit in this checkout" && exit 1` — a typo must not silently become
+            `full`. `lilnas ci detect` already turns a non-ancestor base into `full`;
+            leave that.
+          - Step summary: print the resolved base and head; when the event is
+            `workflow_dispatch`, `inputs.base` is empty and `inputs.full` is false,
+            add a `::warning::` and a summary line saying only the tip commit was
+            considered and how to redeploy a range.
+          - `docs/deploy.md`, Manual deploys: document the three dispatch forms —
+            `-f full=true` (everything), `-f base=<deployed sha>` (exact range, with the
+            `git -C /opt/lilnas rev-parse HEAD` one-liner), and the default (tip commit
+            only, with the caveat). Prettier-clean.
+          Verify: `docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12`
+          (shellcheck on) prints nothing; every `run:` expansion quoted; the plan's
+          actionlint check passes. Dry-read the detect step for the four cases (PR,
+          push, dispatch with base, dispatch without). You cannot run the workflow here.
       - id: T9
         title: Post-deploy verification (read-only)
         after:
@@ -893,8 +933,11 @@ phases:
           - R4
         files: []
         model: frontier
-        status: todo
+        status: skipped
         body: |-
+          SUPERSEDED by R6 (planner, C5): `full=false` would have diffed only the
+          branch tip (a plan-docs commit) and printed "Nothing to deploy".
+
           R4 changed `docker-compose.yml` on the run branch; the host still runs the
           previous revision and `lilnas-immich-database-1` is unhealthy with
           `encrypted:` values in its env. Deploy the fix through the pipeline, exactly
@@ -927,27 +970,31 @@ phases:
         files: []
         status: todo
         body: |-
-          T9 · Post-deploy verification (read-only) reported this blocking defect (attempt 3):
+          T9 (attempt 3) found `lilnas-immich-database-1` still unhealthy with three
+          `encrypted:` env values: R4's fix (85305904, immich include now carries
+          `env_file: ./infra/.env.decrypted`) is on `origin/feat/push-to-deploy` but
+          the host checkout is still at bdf7e52e. A `workflow_dispatch` run diffs only
+          `HEAD~1..HEAD` (T13 fixes that), and the branch tip is a plan-docs commit, so
+          the earlier dispatch said "Nothing to deploy". Redeploy through the pipeline
+          with `full=true`; never run `docker compose` against project `lilnas` directly.
 
-          **immich-database still running with encrypted DB_* env (R4 fix not deployed)**
-
-          - Where: `/opt/lilnas/docker-compose.yml:12 (host at bdf7e52e; fix is 85305904 on origin/feat/push-to-deploy)`
-          - Observed: docker inspect lilnas-immich-database-1: created 2026-10-18T20:08:54Z, State unhealthy, 3 Config.Env values '=encrypted:…', health log 'pg_isready: error: invalid connection option "encrypted:…"'. CI run 39168569885 at ff453469 (dry_run=false) deploy step printed 'Nothing to deploy for ff453469…' because workflow_dispatch diffs HEAD~1 (ci.yml:91), which covered only the docs commit. Host HEAD unchanged at bdf7e52e; /opt/lilnas/docker-compose.yml line 12 is still '- ./infra/immich.yml'.
-
-          T9's notes:
-
-          > Read-only; nothing committed. All 9 running lilnas-* app containers are Up
-          > (auth healthy), l4d2/palworld/minecraft are in the games profile and not
-          > started (expected). Compose labels: project=lilnas, working_dir=/opt/lilnas.
-          > HTTP: auth 307, portal 302, download 302, tdr 302, theater 200, immich 200.
-          > journalctl -t lilnas-deploy is not visible to jeremy for today's entries
-          > (needs adm/systemd-journal group); the CI deploy step log shows
-          > 'lilnas-deploy: done' instead.
-          > Follow-up needed (human/CI, agents may not run it): redeploy with a diff
-          > that includes 85305904, e.g. `gh workflow run ci.yml -f dry_run=false
-          > -f full=true` on feat/push-to-deploy, or merge to main (push events diff
-          > against event.before). A full deploy re-renders immich-database's env and
-          > recreates it; otherwise `docker compose up -d --force-recreate
-          > immich-database` in /opt/lilnas as deploy.
-
-          Fix only this defect. Add a test that fails without the fix where one can; then T9 runs again to re-check.
+          1. `git fetch origin && git log --oneline origin/feat/push-to-deploy -1`; if
+             your checkout has commits origin lacks, `git push origin HEAD:feat/push-to-deploy`.
+             Confirm `git merge-base --is-ancestor 85305904 origin/feat/push-to-deploy`.
+          2. `gh workflow run ci.yml --ref feat/push-to-deploy -f dry_run=false -f full=true`
+             then `gh run list --workflow ci.yml --limit 1` and `gh run watch <id> --exit-status`.
+             Expect: base images and the ten app images rebuild, the deploy step runs
+             `deploy <sha> --full`, the host checks out the branch tip. Compose recreates
+             only services whose resolved config changed: immich-database (new env) and
+             apps whose image digest changed. Note the run URL and the deployed sha.
+          3. Poll read-only until healthy (healthcheck `start_period: 5m`, allow 6 min):
+             `docker inspect lilnas-immich-database-1 --format '{{.State.Health.Status}}'`
+             → `healthy`; `docker inspect lilnas-immich-database-1 --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -c encrypted:`
+             → 0 (never print the values); `git -C /opt/lilnas rev-parse HEAD` equals
+             the dispatched sha; `curl -sS -o /dev/null -w '%{http_code}\n' https://immich.lilnas.io`
+             is 2xx/3xx; `docker ps --format '{{.Names}} {{.Status}}'` shows nothing
+             restarting or newly exited (minecraft/palworld were already exited).
+          No test applies (host state, no code). If the workflow fails, report the
+          failing job's log excerpt; if immich-database stays unhealthy, report
+          `docker logs --tail 50 lilnas-immich-database-1` (no secrets in it). Commit
+          nothing.
