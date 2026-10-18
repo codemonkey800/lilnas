@@ -746,6 +746,7 @@ phases:
         after:
           - H6
           - R4
+          - T12
         files: []
         model: frontier
         status: todo
@@ -834,7 +835,10 @@ phases:
       - id: R4
         title: 'Fix: immich-database env interpolated from encrypted infra/.env'
         after: []
-        files: []
+        files:
+          - docker-compose.yml
+          - scripts/deploy/install-host.sh
+          - packages/cli/src/utils/__tests__/
         status: todo
         body: |-
           T9 · Post-deploy verification (read-only) reported this blocking defect (attempt 1):
@@ -854,3 +858,60 @@ phases:
           > 11 unchanged containers still carry working_dir=/home/jeremy/lilnas (harmless).
 
           Fix only this defect. Add a test that fails without the fix where one can; then T9 runs again to re-check.
+
+          Planner's additions (C4):
+          - Why: Compose interpolates `${VAR}` in an included file from that file's
+            own directory `.env` (here `infra/.env`, now encrypted) unless the include
+            entry sets `env_file`. Only `infra/immich.yml` relies on this; every other
+            `${…}` in the tree is `LILNAS_TAG` or the nexus-code include, which already
+            has `env_file: ./infra/.env.nexus-code.decrypted`. Change the
+            `- ./infra/immich.yml` include to the `path:` + `env_file: ./infra/.env.decrypted`
+            form, mirroring the nexus-code entry, and leave `infra/immich.yml` alone.
+          - Verify in the worktree with placeholder `.decrypted` files containing
+            `DB_PASSWORD=x`, `DB_USERNAME=x`, `DB_DATABASE_NAME=x`:
+            `docker compose -f docker-compose.yml config | grep -c 'encrypted:'` → 0 and
+            the rendered immich-database `POSTGRES_*` values are `x`. Delete the
+            placeholders before committing. Do not touch the running project.
+          - The test: `lilnas ci detect` already parses the root `include:` list; add a
+            spec case asserting the immich include carries `envFile: infra/.env.decrypted`
+            when parsed from the real `docker-compose.yml` (or the fixture updated to
+            match), so a future include-form regression fails CI.
+          - `scripts/deploy/install-host.sh`: add an idempotent step that puts `jeremy`
+            in the `systemd-journal` group (`id -nG jeremy | grep -qw systemd-journal ||
+            usermod -aG systemd-journal jeremy`) so `journalctl -t lilnas-deploy` is
+            readable without sudo; log it like the other steps. It takes effect the
+            next time Jeremy reruns the installer — no checkpoint, not needed for T9.
+      - id: T12
+        title: Redeploy the branch so the immich fix reaches `/opt/lilnas`
+        after:
+          - R4
+        files: []
+        model: frontier
+        status: todo
+        body: |-
+          R4 changed `docker-compose.yml` on the run branch; the host still runs the
+          previous revision and `lilnas-immich-database-1` is unhealthy with
+          `encrypted:` values in its env. Deploy the fix through the pipeline, exactly
+          as H5/H6 did. No direct `docker compose` commands against project `lilnas`.
+
+          1. Confirm your checkout includes R4's commit (`git log --oneline -5` shows
+             the immich include fix) and push it: `git push origin HEAD:feat/push-to-deploy`.
+          2. `gh workflow run ci.yml --ref feat/push-to-deploy -f dry_run=false -f full=false`
+             then `gh run list --workflow ci.yml --limit 1` and `gh run watch <id> --exit-status`.
+             Expect a full run anyway: `ci detect` treats a root `docker-compose.yml`
+             change as `full`, so base images and the ten app images rebuild and the
+             deploy step runs `deploy <sha> --full`. Compose only recreates services
+             whose resolved config changed: immich-database (new env) and any app whose
+             image digest changed. Note the run URL.
+          3. After the deploy job finishes, poll read-only until healthy (up to 6 min —
+             the healthcheck has `start_period: 5m`):
+             `docker inspect lilnas-immich-database-1 --format '{{.State.Health.Status}}'`
+             → `healthy`; `docker inspect lilnas-immich-database-1 --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -c encrypted:`
+             → 0 (never print the values); `curl -sS -o /dev/null -w '%{http_code}\n' https://immich.lilnas.io`
+             is 2xx/3xx; `docker compose -p lilnas ps --format '{{.Name}} {{.Status}}'`
+             shows no restarting/exited containers beyond the pre-existing minecraft /
+             palworld exits T9 noted.
+          If the workflow fails, report the failing job's log excerpt; if the deploy
+          succeeds but immich-database stays unhealthy, report `docker logs --tail 50
+          lilnas-immich-database-1` (redact nothing — it holds no secrets) as the
+          finding. Commit nothing.

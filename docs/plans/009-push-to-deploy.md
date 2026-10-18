@@ -217,6 +217,13 @@ or `lilnas-dev` project; docs updated where the task says so.
   Workspace runtime deps in use: `@lilnas/utils` (several apps), `@lilnas/media`
   (two); `@lilnas/cli`, `@lilnas/eslint`, `@lilnas/prettier` appear only in
   devDependencies. T6 is unaffected (turbo ran inside the command).
+- C4 (T9, 2026-10-18): Compose interpolates `${VAR}` inside an included file
+  from that file's directory `.env` unless the include entry sets `env_file`;
+  encrypting `infra/.env` broke `infra/immich.yml`'s `${DB_*}` (the only file
+  relying on it — every other `${…}` is `LILNAS_TAG` or the nexus-code include).
+  R4 fixes the include; T12 pushes + dispatches the redeploy (full run, since a
+  root compose change is `full`); T9 round 2 waits on T12. Journal-group tweak
+  for jeremy lives in the installer, applied whenever it is rerun.
 - Open threads: none with Jeremy. Run config: tasks pin `model: frontier`;
   effort was to be set to high on the run by Jeremy before Start — not
   verified from this chat.
