@@ -256,6 +256,18 @@ or `lilnas-dev` project; docs updated where the task says so.
 - Open threads: none with Jeremy. Run config: tasks pin `model: frontier`;
   effort was to be set to high on the run by Jeremy before Start — not
   verified from this chat.
+- C6 (R6, 2026-10-18): asked for a human checkpoint to push + redeploy. Not
+  needed: the R5 attempt dispatched before R5 was marked skipped and is still
+  live; it pushed ff453469 (contains 85305904) and, after its `full=false`
+  dispatch 39168569885 planned nothing (plan-docs tip), dispatched run
+  39168720800 with `dry_run=false full=true` at 21:38Z (base-images + all app
+  images rebuild, then `deploy ff453469 --full`). Resolved `no_change`; T9
+  round 3 (already dispatched at 21:42Z, racing the deploy) or a later round
+  verifies. If T9 reports the immich defect again before that run lands, the
+  runner-made R7 should just wait on run 39168720800, not dispatch another.
+  `git -C /opt/lilnas rev-parse HEAD` needs `safe.directory` for jeremy
+  (dubious ownership); use `sudo`-less alternatives: the deploy job summary or
+  `docker inspect` labels.
 
 ## Log
 <!-- Written by Nexus: findings, review cycles, checkpoint verdicts, the final report,
