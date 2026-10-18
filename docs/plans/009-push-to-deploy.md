@@ -559,3 +559,20 @@ Agents can't run that deploy, so production is not fixed until a human runs it
 `-f full=true` also works, or merging to main (push diffs event.before).
 After that, T9 should find lilnas-immich-database-1 recreated and healthy, with
 no '=encrypted:' values in Config.Env.
+
+### 2026-10-18 · T9 · partial
+Read-only verification; nothing committed. All ten lilnas-* app images run
+from /opt/lilnas under project `lilnas` (l4d2 image built, no container),
+public endpoints return 2xx/3xx, host HEAD bdf7e52e. journalctl as jeremy
+cannot see today's lilnas-deploy entries (needs adm/systemd-journal group);
+the deploy job log confirms start/done at bdf7e52e full=1 instead.
+CI run 39168720800 (ff453469, dispatched 21:38Z) was still at lint/test when
+I reported; if it was dispatched with full=true it will recreate
+immich-database — re-run T9 after it finishes to confirm.
+
+Defects:
+
+- blocking · immich-database still running with encrypted DB_* env (R6 fix not pushed/deployed) · /opt/lilnas/docker-compose.yml:12 (host HEAD bdf7e52e; fix 85305904 on origin, R6 ci.yml fix bb053723 only on the run branch)
+  docker inspect lilnas-immich-database-1: Created 2026-10-18T20:08:54Z, running/unhealthy, 3 Config.Env values '=encrypted:…', health log 'pg_isready: error: invalid connection option "encrypted:…"'. origin/feat/push-to-deploy tip is ff453469 (no `base` input in ci.yml); run 39168720800 at ff453469 in_progress at 21:43Z, no build/deploy jobs yet. Follow-up: push bb053723 to feat/push-to-deploy (or merge to main) and run `gh workflow run ci.yml --ref feat/push-to-deploy -f dry_run=false -f full=true`, then re-run T9.
+
+No commits: nothing to integrate.
