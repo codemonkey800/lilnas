@@ -436,3 +436,8 @@ Defects:
   docker ps: lilnas-minecraft-1 Exited (0) 20:27:40Z (log: 'Stopping server'), lilnas-palworld-1 Exited (137) 20:28:10Z (log: 'Save data is corrupted', segfault — pre-existing). Not caused by scripts/deploy/*.sh (no stop/down); deploy leaves inactive-profile services alone by design. Human decision whether to start minecraft.
 
 No commits: nothing to integrate.
+
+### 2026-10-18 · T9 · defects → R4
+T9 reported 1 blocking defect at attempt 1, sent to R4; it runs again at round 2 to re-check.
+
+- R4 · immich-database env interpolated from encrypted infra/.env (`docker-compose.yml:12 (include ./infra/immich.yml) / infra/immich.yml:57-59`): docker inspect lilnas-immich-database-1: 3 env values '=encrypted:…'; health log 'pg_isready: error: invalid connection option "encrypted:…"'; status unhealthy. Worktree `docker compose config` renders 7 'encrypted:' values, all in immich-database (environment + healthcheck). Compose include interpolates ${DB_*} from infra/.env, not infra/.env.decrypted. Fix: add `env_file: ./infra/.env.decrypted` to the immich.yml include entry (like nexus-code) and force-recreate immich-database.

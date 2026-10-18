@@ -745,10 +745,13 @@ phases:
         title: Post-deploy verification (read-only)
         after:
           - H6
+          - R4
         files: []
         model: frontier
-        status: partial
-        commit: b17ba80c5e772c407ed87d5e0cf4c5f96a2a5c7e
+        status: todo
+        round:
+          number: 2
+          after: R4
         body: |-
           Verify the first deploy without changing anything. Read-only commands only.
           - `docker ps --format '{{.Names}}\t{{.Image}}\t{{.Status}}'`: list the ten
@@ -825,3 +828,29 @@ phases:
           Failure scenario: Push to main that touches .github/workflows/ci.yml plus apps/download/src: detect returns full=true, build-images pushes lilnas-download:latest, the host runs `docker compose pull --ignore-buildable` (skips download) then `docker compose up -d`; the download container keeps running the previous image.
 
           Suggested fix: In the --full branch pull the locally built services explicitly (e.g. `docker compose pull` without --ignore-buildable, or `docker compose pull $(every service with image+build)` followed by `docker compose pull --ignore-buildable` for the rest, or `docker compose up -d --pull always`), and add the equivalent for a dry-run so the printed commands show the pull.
+  - key: R2
+    name: Defects (T9)
+    tasks:
+      - id: R4
+        title: 'Fix: immich-database env interpolated from encrypted infra/.env'
+        after: []
+        files: []
+        status: todo
+        body: |-
+          T9 · Post-deploy verification (read-only) reported this blocking defect (attempt 1):
+
+          **immich-database env interpolated from encrypted infra/.env**
+
+          - Where: `docker-compose.yml:12 (include ./infra/immich.yml) / infra/immich.yml:57-59`
+          - Observed: docker inspect lilnas-immich-database-1: 3 env values '=encrypted:…'; health log 'pg_isready: error: invalid connection option "encrypted:…"'; status unhealthy. Worktree `docker compose config` renders 7 'encrypted:' values, all in immich-database (environment + healthcheck). Compose include interpolates ${DB_*} from infra/.env, not infra/.env.decrypted. Fix: add `env_file: ./infra/.env.decrypted` to the immich.yml include entry (like nexus-code) and force-recreate immich-database.
+
+          T9's notes:
+
+          > Read-only verification; nothing committed. Deploy of bdf7e52e from /opt/lilnas
+          > succeeded: 9 ghcr app containers up with the right revision/labels, all five
+          > endpoints 2xx/3xx, 15 .decrypted files present 0600, CI run 39165171151 green.
+          > journalctl -t lilnas-deploy can't show the deploy user's lines to jeremy (not
+          > in systemd-journal group); the CI deploy log shows start/done instead.
+          > 11 unchanged containers still carry working_dir=/home/jeremy/lilnas (harmless).
+
+          Fix only this defect. Add a test that fails without the fix where one can; then T9 runs again to re-check.
