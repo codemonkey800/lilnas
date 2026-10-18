@@ -14,11 +14,13 @@ import {
   DiscordIdentityController,
   DiscordLinkLookupController,
 } from './internal/discord-internal.controller'
+import { HostActivityController } from './internal/host-activity.controller'
 import { MeController } from './me/me.controller'
 import { OidcClientsService } from './oidc/oidc-clients.service'
 import { RequestsController } from './requests/requests.controller'
 import { RequestsService } from './requests/requests.service'
 import { GatedHostsService } from './services/gated-hosts.service'
+import { HostActivityService } from './services/host-activity.service'
 import { ServiceRegistryService } from './services/service-registry.service'
 import { SseModule } from './sse/sse.module'
 import { AccessCacheModule } from './verify/access-cache.module'
@@ -94,6 +96,7 @@ const isProduction = env(EnvKeys.NODE_ENV, 'development') === 'production'
     MeController,
     DiscordLinkLookupController,
     DiscordIdentityController,
+    HostActivityController,
   ],
   providers: [
     VerifyService,
@@ -101,6 +104,7 @@ const isProduction = env(EnvKeys.NODE_ENV, 'development') === 'production'
     AdminGuard,
     ServiceRegistryService,
     GatedHostsService,
+    HostActivityService,
     UsersService,
     OidcClientsService,
   ],

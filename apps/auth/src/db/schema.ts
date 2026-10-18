@@ -3,6 +3,7 @@ import {
   check,
   index,
   integer,
+  primaryKey,
   sqliteTable,
   text,
   uniqueIndex,
@@ -48,6 +49,11 @@ import {
 //     service registry's second source, for hosts that live outside this
 //     repo's compose files (e.g. a ~/dev project exposed at
 //     *.dev.lilnas.io). See its own comment below.
+//
+//   host_visit — the last time each user was allowed through /verify to each
+//     host. Backs the host-activity count the dev-idle-reaper asks for
+//     ("how many distinct users visited this host in the last N hours").
+//     See its own comment below.
 //
 //   oauth_client · oauth_refresh_token · oauth_access_token · oauth_consent ·
 //   jwks — storage for the OIDC provider (the `jwt` + `oauthProvider` Better
@@ -451,6 +457,31 @@ export const gatedHost = sqliteTable('gated_host', {
 })
 
 export type GatedHostRow = typeof gatedHost.$inferSelect
+
+// One row per (host, user): the last time /verify let that user through to
+// that host. Only `allow` decisions for a real session are recorded —
+// anonymous, blocked and pending requests are not visits. Counting the rows
+// whose lastSeenAt falls inside a window gives "distinct users who visited in
+// the last N hours"; host-activity.service.ts owns the write throttling.
+// Rows cascade away with their user. A row never ages out on its own: the
+// table is bounded by (hosts x users), which stays tiny.
+export const hostVisit = sqliteTable(
+  'host_visit',
+  {
+    // Lowercase, via normalizeHost() — same form as gated_host.host.
+    host: text('host').notNull(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    lastSeenAt: integer('last_seen_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  t => [
+    primaryKey({ columns: [t.host, t.userId] }),
+    index('host_visit_host_last_seen_idx').on(t.host, t.lastSeenAt),
+  ],
+)
+
+export type HostVisitRow = typeof hostVisit.$inferSelect
 
 // OIDC provider tables. Field lists are copied from the models declared by
 // the installed plugins — `oauthClient`, `oauthRefreshToken`,

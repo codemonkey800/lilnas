@@ -21,6 +21,7 @@ import {
 } from 'src/db/database.module'
 import * as schema from 'src/db/schema'
 import { GatedHostsService } from 'src/services/gated-hosts.service'
+import { HostActivityService } from 'src/services/host-activity.service'
 import { AccessCacheService } from 'src/verify/access-cache.service'
 import { VerifyController } from 'src/verify/verify.controller'
 import { VerifyService } from 'src/verify/verify.service'
@@ -675,6 +676,7 @@ describe('VerifyController integration (real NestJS app, real HTTP, real DB)', (
         VerifyService,
         AccessCacheService,
         GatedHostsService,
+        HostActivityService,
         { provide: PinoLogger, useValue: fakeLogger() },
       ],
     })
@@ -756,6 +758,64 @@ describe('VerifyController integration (real NestJS app, real HTTP, real DB)', (
         // outcomes below (redirect-to-pending, redirect-to-login, 5xx
         // fail-closed) — the complete set of shapes /verify can return.
         expect(res.headers['set-cookie']).toBeUndefined()
+      } finally {
+        await app.close()
+      }
+    } finally {
+      testDb.close()
+    }
+  })
+
+  it('records a host visit for an allowed request, and none for an anonymous one', async () => {
+    const testDb = createTestDb()
+    try {
+      const { moduleRef, app, port } = await startTestApp(testDb.db)
+      try {
+        const accessCache = moduleRef.get(AccessCacheService)
+        const mintingAuth = buildAuth(testDb.db, {
+          resolveVerifyService: () => undefined,
+        })
+        const cookie = await signInAndGetSessionCookiePair(
+          mintingAuth,
+          AUTH_HOST,
+          {
+            sub: 'integration-visitor',
+            email: 'integration-visitor@example.com',
+          },
+        )
+        const userId = getUserIdByEmail(
+          testDb.db,
+          'integration-visitor@example.com',
+        )
+        const host = 'visited.dev.lilnas.io'
+        accessCache.addGrant(userId, host)
+
+        const anonymousRes = await httpRequest(port, {
+          method: 'GET',
+          path: '/verify',
+          headers: {
+            'x-forwarded-host': host,
+            'x-forwarded-proto': 'https',
+            'x-forwarded-uri': '/',
+          },
+        })
+        expect(anonymousRes.status).toBe(302)
+        expect(testDb.db.select().from(schema.hostVisit).all()).toEqual([])
+
+        const allowedRes = await httpRequest(port, {
+          method: 'GET',
+          path: '/verify',
+          headers: {
+            cookie,
+            'x-forwarded-host': host,
+            'x-forwarded-proto': 'https',
+            'x-forwarded-uri': '/',
+          },
+        })
+        expect(allowedRes.status).toBe(200)
+        expect(testDb.db.select().from(schema.hostVisit).all()).toEqual([
+          { host, userId, lastSeenAt: expect.any(Date) },
+        ])
       } finally {
         await app.close()
       }

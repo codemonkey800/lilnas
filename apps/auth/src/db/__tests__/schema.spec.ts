@@ -40,6 +40,7 @@ describe('schema + migrations', () => {
           'discord_link',
           'gated_host',
           'grant',
+          'host_visit',
           'jwks',
           'oauth_access_token',
           'oauth_client',
