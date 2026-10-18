@@ -576,3 +576,14 @@ Defects:
   docker inspect lilnas-immich-database-1: Created 2026-10-18T20:08:54Z, running/unhealthy, 3 Config.Env values '=encrypted:…', health log 'pg_isready: error: invalid connection option "encrypted:…"'. origin/feat/push-to-deploy tip is ff453469 (no `base` input in ci.yml); run 39168720800 at ff453469 in_progress at 21:43Z, no build/deploy jobs yet. Follow-up: push bb053723 to feat/push-to-deploy (or merge to main) and run `gh workflow run ci.yml --ref feat/push-to-deploy -f dry_run=false -f full=true`, then re-run T9.
 
 No commits: nothing to integrate.
+
+### 2026-10-18 · T13 · done
+Detect step dry-read for the four cases: PR → PR_BASE; push → PUSH_BEFORE;
+dispatch with base → that sha, verified as a commit (fetch-depth 0 so the
+full history is present), typo fails the job; dispatch without base →
+HEAD~1 plus ::warning:: and a summary blockquote unless full=true.
+INPUT_BASE is empty on PR/push events (inputs context is empty there), so
+the verify branch only runs on dispatch. Used `--quiet` on rev-parse so
+git's own stderr doesn't duplicate the ::error:: line. The workflow was not
+run (cannot be from here); the `lilnas ci detect` non-ancestor → full
+behaviour was left as is per the task.

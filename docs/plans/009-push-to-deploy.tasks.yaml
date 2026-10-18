@@ -780,7 +780,8 @@ phases:
           - .github/workflows/
           - docs/deploy.md
         model: frontier
-        status: todo
+        status: done
+        commit: d8fe7511f7c2a4b556ea3790252d0501b7194fbb
         body: |-
           In `.github/workflows/ci.yml` the detect step computes the diff base as
           `github.event.pull_request.base.sha` (PR), `github.event.before` (push), else
