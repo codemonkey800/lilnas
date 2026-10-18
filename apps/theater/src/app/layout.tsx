@@ -1,14 +1,16 @@
 import 'src/tailwind.css'
 
 import { cns } from '@lilnas/utils/cns'
-import { Roboto } from 'next/font/google'
+import localFont from 'next/font/local'
 import { ReactNode } from 'react'
 
 import { Layout } from 'src/components/Layout'
 
-const roboto = Roboto({
-  weight: ['300', '400', '500', '700'],
-  subsets: ['latin'],
+// Self-hosted: fetching from Google Fonts at build time intermittently failed
+// in CI. One variable file (latin subset) covers every weight we use.
+const roboto = localFont({
+  src: './fonts/roboto-latin-variable.woff2',
+  weight: '100 900',
   display: 'swap',
   variable: '--font-roboto',
 })
