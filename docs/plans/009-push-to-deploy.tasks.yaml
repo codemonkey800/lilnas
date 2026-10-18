@@ -691,7 +691,7 @@ phases:
           - H3
           - H4
         files: []
-        status: todo
+        status: approved
         body: |-
           1. `gh workflow run ci.yml --ref feat/push-to-deploy -f dry_run=true -f full=true -f build_base_images=true`
              then `gh run watch`. Expect: tests/lint matrices green, the four base

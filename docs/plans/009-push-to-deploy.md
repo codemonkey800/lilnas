@@ -409,3 +409,10 @@ H3 done. Installer ran (deploy user, /opt/lilnas clone, .env.keys 0600, forced-c
 
 ### 2026-10-18 · H4 · approved
 Approved.
+
+### 2026-10-18 · H5 · approved
+Green dry run: https://github.com/codemonkey800/lilnas/actions/runs/39157513703 (sha 740a5a19). All test/lint jobs passed, base-images plus all 10 app images were built and pushed, and the deploy job joined the tailnet and ran `deploy 740a5a19 --dry-run --full`. The host log shows the decrypt lines for all 15 env files, and the only commands were `[dry-run] docker compose pull / up -d / image prune -f / ps`. Host unchanged: `docker compose ls` shows lilnas running(34).
+
+GHCR: all 14 lilnas-* packages already serve manifests anonymously (HTTP 200 with an anonymous token), so no visibility change was needed. An unauthenticated `docker pull ghcr.io/codemonkey800/lilnas-auth:latest` with an empty DOCKER_CONFIG succeeded. Pull only, no `up`.
+
+Fixes needed to get here, already merged to main and then into the branch: tdr-bot cron timezone (b14c25a4), auth infra/browser.yml mount (f97b9ed6), equations @nestjs/testing devDependency (e17ce428), equations Dockerfile bullseye→bookworm because bullseye-security pool files now 404 (93b981d0). Also, ci.yml has a workflow_dispatch-only stub on main (d958d10f) so the workflow can be dispatched; the real ci.yml replaces it when the branch merges.
