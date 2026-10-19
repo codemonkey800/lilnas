@@ -9,10 +9,10 @@ set -eu
 
 APP_DIR=/source/apps/tdr-bot
 
-# deploy.dev.yml layers .env over .env.prod, so a Discord key missing from .env
-# silently falls through to the production bot's value. Two gateway sessions
-# on one token double every reply, and the dev bot would register commands in
-# the production guild. Refuse to boot instead.
+# deploy.dev.yml layers .env.dev over .env.prod, so a Discord key missing from
+# .env.dev silently falls through to the production bot's value. Two gateway
+# sessions on one token double every reply, and the dev bot would register
+# commands in the production guild. Refuse to boot instead.
 prod_value() {
   grep -E "^$1=" "$APP_DIR/.env.prod" | tail -n 1 | cut -d= -f2- |
     sed -e 's/^["'\'']//' -e 's/["'\'']$//'
@@ -22,7 +22,7 @@ for key in DISCORD_API_TOKEN DISCORD_GUILD_ID; do
   eval "current=\${$key:-}"
   if [ -z "$current" ] || [ "$current" = "$(prod_value "$key")" ]; then
     echo "Refusing to start: $key is unset or matches .env.prod." >&2
-    echo "Set the dev bot's $key in apps/tdr-bot/.env (see .env.example)." >&2
+    echo "Set the dev bot's $key in apps/tdr-bot/.env.dev (see .env.example)." >&2
     exit 1
   fi
 done

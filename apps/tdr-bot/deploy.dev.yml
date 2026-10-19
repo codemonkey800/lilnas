@@ -21,7 +21,7 @@
 # Environment layering (later wins):
 #   1. .env.prod: production services and keys (MinIO, equations, Sonarr,
 #      Radarr, Emby, OpenAI, ...), shared by default.
-#   2. .env: the dev Discord bot, plus optional overrides that point any
+#   2. .env.dev: the dev Discord bot, plus optional overrides that point any
 #      service at a dev instance instead. See .env.example.
 #   3. `environment:` below: NODE_ENV and the dev database, always pinned.
 # scripts/dev-container.sh refuses to boot if the Discord credentials fall
@@ -69,7 +69,7 @@ services:
     env_file:
       - path: .env.prod.decrypted
         required: true
-      - path: .env
+      - path: .env.dev
         required: true
 
     environment:
