@@ -3,6 +3,11 @@ import { EmojiDictionaryRepository } from 'src/emojis/emoji-dictionary.repositor
 import { EmojiDictionaryService } from 'src/emojis/emoji-dictionary.service'
 import { formatEmojiDictionary } from 'src/utils/prompts'
 
+// Real-length snowflakes: shorter ids don't parse as emoji tokens.
+const ID_A = '758414734805696553'
+const ID_B = '758414734805696554'
+const ID_C = '1178865973156139009'
+
 function row(overrides: Partial<EmojiRow> & Pick<EmojiRow, 'id'>): EmojiRow {
   return {
     guildId: 'guild-1',
@@ -32,53 +37,120 @@ describe('EmojiDictionaryService', () => {
 
   it('starts with an empty dictionary', () => {
     expect(service.size()).toBe(0)
+    expect(service.keys()).toEqual([])
     expect(service.promptText()).toBe(formatEmojiDictionary({}))
   })
 
-  it('keys rows by emojiKey and orders them by numeric id', async () => {
-    // Lexical order would put '1000' before '999'
+  it('keys rows by :name: and orders them by numeric id', async () => {
+    // Lexical order would put '1000…' before '999…'
     repo.listActiveDescribed.mockResolvedValue([
-      row({ id: '1000', name: 'EZ', description: 'smug' }),
-      row({ id: '999', name: 'peepo', animated: true, description: 'poo' }),
+      row({ id: ID_C, name: 'EZ', description: 'smug' }),
+      row({ id: ID_A, name: 'peepo', animated: true, description: 'poo' }),
     ])
 
     await service.onModuleInit()
 
     expect(service.size()).toBe(2)
     expect(service.promptText()).toBe(
-      formatEmojiDictionary({ '<a:peepo:999>': 'poo', '<:EZ:1000>': 'smug' }),
+      formatEmojiDictionary({ ':peepo:': 'poo', ':EZ:': 'smug' }),
     )
-    expect(service.promptText()).toContain(
-      '{"<a:peepo:999>":"poo","<:EZ:1000>":"smug"}',
-    )
+    expect(service.promptText()).toContain('{":peepo:":"poo",":EZ:":"smug"}')
   })
 
-  it('keys() lists the cached keys in prompt order', async () => {
-    expect(service.keys()).toEqual([])
-
+  it('keys() lists the canonical tokens in prompt order', async () => {
     repo.listActiveDescribed.mockResolvedValue([
-      row({ id: '1000', name: 'EZ' }),
-      row({ id: '999', name: 'peepo', animated: true }),
-      row({ id: '1001', name: 'blank', description: null }),
+      row({ id: ID_C, name: 'EZ' }),
+      row({ id: ID_A, name: 'peepo', animated: true }),
+      row({ id: ID_B, name: 'blank', description: null }),
     ])
     await service.refresh()
 
-    expect(service.keys()).toEqual(['<a:peepo:999>', '<:EZ:1000>'])
+    expect(service.keys()).toEqual([`<a:peepo:${ID_A}>`, `<:EZ:${ID_C}>`])
     expect(service.keys()).toHaveLength(service.size())
+    expect(service.promptText()).not.toContain('blank')
   })
 
-  it('refresh picks up changes in the table', async () => {
-    repo.listActiveDescribed.mockResolvedValue([row({ id: '1', name: 'a' })])
-    await service.onModuleInit()
-
+  it('collapses duplicate exact names to the newest snowflake', async () => {
     repo.listActiveDescribed.mockResolvedValue([
-      row({ id: '1', name: 'a', description: 'edited' }),
-      row({ id: '2', name: 'b', description: 'new' }),
+      row({ id: ID_C, name: 'peepoLeave', description: 'new' }),
+      row({ id: ID_A, name: 'peepoLeave', description: 'old' }),
+      row({ id: ID_B, name: 'EZ', description: 'smug' }),
     ])
     await service.refresh()
 
     expect(service.size()).toBe(2)
-    expect(service.promptText()).toContain('{"<:a:1>":"edited","<:b:2>":"new"}')
+    expect(service.keys()).toEqual([`<:EZ:${ID_B}>`, `<:peepoLeave:${ID_C}>`])
+    expect(service.promptText()).toContain(
+      '{":EZ:":"smug",":peepoLeave:":"new"}',
+    )
+    expect(service.promptText()).not.toContain('old')
+  })
+
+  it('keeps names that differ only in case', async () => {
+    repo.listActiveDescribed.mockResolvedValue([
+      row({ id: ID_A, name: 'Pog', description: 'upper' }),
+      row({ id: ID_B, name: 'pog', description: 'lower' }),
+    ])
+    await service.refresh()
+
+    expect(service.size()).toBe(2)
+    expect(service.keys()).toEqual([`<:Pog:${ID_A}>`, `<:pog:${ID_B}>`])
+    expect(service.promptText()).toContain('{":Pog:":"upper",":pog:":"lower"}')
+  })
+
+  it('shows no ids or tokens in the prompt', async () => {
+    repo.listActiveDescribed.mockResolvedValue([
+      row({ id: ID_A, name: 'EZ', description: 'smug' }),
+      row({ id: ID_C, name: 'peepo', animated: true, description: 'poo' }),
+    ])
+    await service.refresh()
+
+    expect(service.promptText()).not.toMatch(/\d{17}/)
+    expect(service.promptText()).not.toContain('<:')
+    expect(service.promptText()).not.toContain('<a:')
+  })
+
+  it('refresh picks up changes in the table', async () => {
+    repo.listActiveDescribed.mockResolvedValue([row({ id: ID_A, name: 'a' })])
+    await service.onModuleInit()
+
+    repo.listActiveDescribed.mockResolvedValue([
+      row({ id: ID_A, name: 'a', description: 'edited' }),
+      row({ id: ID_B, name: 'b', description: 'new' }),
+    ])
+    await service.refresh()
+
+    expect(service.size()).toBe(2)
+    expect(service.promptText()).toContain('{":a:":"edited",":b:":"new"}')
+  })
+
+  it('resolve() uses the cached keys and follows refresh()', async () => {
+    expect(service.resolve('hi :EZ:')).toEqual({
+      text: 'hi',
+      emojis: [
+        expect.objectContaining({ raw: ':EZ:', key: null, status: 'dropped' }),
+      ],
+    })
+
+    repo.listActiveDescribed.mockResolvedValue([
+      row({ id: ID_A, name: 'EZ' }),
+      row({ id: ID_C, name: 'pog', animated: true }),
+    ])
+    await service.refresh()
+
+    const resolved = service.resolve('hi :EZ: and :pog:')
+    expect(resolved.text).toBe(`hi <:EZ:${ID_A}> and <a:pog:${ID_C}>`)
+    expect(resolved.emojis.map(e => e.status)).toEqual([
+      'dictionary',
+      'dictionary',
+    ])
+
+    repo.listActiveDescribed.mockResolvedValue([row({ id: ID_A, name: 'EZ' })])
+    await service.refresh()
+
+    const after = service.resolve('hi :EZ: and :pog:')
+    expect(after.text).toBe(`hi <:EZ:${ID_A}> and`)
+    expect(after.emojis.map(e => e.status)).toEqual(['dictionary', 'dropped'])
   })
 
   it('keeps an empty dictionary when the repository fails at init', async () => {
@@ -93,7 +165,7 @@ describe('EmojiDictionaryService', () => {
 
 describe('formatEmojiDictionary', () => {
   it('inlines the map as JSON between the instructions', () => {
-    const emojis = { '<:EZ:758414734805696553>': 'smug', '<a:pog:2>': 'hype' }
+    const emojis = { ':EZ:': 'smug', ':pog:': 'hype' }
     const text = formatEmojiDictionary(emojis)
 
     expect(text).toMatch(/^The emoji dictionary is defined in the below JSON/)
@@ -101,5 +173,16 @@ describe('formatEmojiDictionary', () => {
     expect(text).toMatch(
       /For every message you send, you must use only the emojis in the dictionary\nabove\.$/,
     )
+  })
+
+  it('explains shortcodes and never shows an id or token format', () => {
+    const text = formatEmojiDictionary({ ':EZ:': 'smug' })
+
+    expect(text).toContain('shortcode')
+    expect(text).toContain('":EZ:" or ":peepoPooPoo:"')
+    expect(text).toContain('converted automatically')
+    expect(text).not.toMatch(/\d{17}/)
+    expect(text).not.toContain('<:')
+    expect(text).not.toContain('<a:')
   })
 })

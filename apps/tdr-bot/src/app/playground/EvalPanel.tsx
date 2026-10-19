@@ -47,9 +47,9 @@ const COLUMNS = [
   'Model',
   'Replies with ≥1 dictionary emoji',
   'Dictionary',
+  'Repaired',
   'Hallucinated',
   'Unicode',
-  'Shortcode',
   'Avg cost',
   'Avg latency',
 ] as const
@@ -177,13 +177,20 @@ function ResultRow({
         <TableCell
           sx={{
             ...mono,
+            color: row.repaired > 0 ? 'warning.main' : undefined,
+          }}
+        >
+          {row.repaired}
+        </TableCell>
+        <TableCell
+          sx={{
+            ...mono,
             color: row.hallucinated > 0 ? 'error.main' : undefined,
           }}
         >
           {row.hallucinated}
         </TableCell>
         <TableCell sx={mono}>{row.unicode}</TableCell>
-        <TableCell sx={mono}>{row.shortcode}</TableCell>
         <TableCell sx={{ whiteSpace: 'nowrap', ...mono }}>
           ${row.avgCostUsd.toFixed(4)}
         </TableCell>

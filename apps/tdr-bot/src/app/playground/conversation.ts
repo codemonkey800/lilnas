@@ -8,14 +8,30 @@ export interface AssistantMeta {
   emojis: EmojiAnalysis
 }
 
+/**
+ * Assistant turns keep the model's raw output beside the resolved `content`
+ * shown in the thread: the raw text goes back as history, as in production.
+ */
 export type Turn =
   | { id: string; role: 'user'; content: string }
-  | { id: string; role: 'assistant'; content: string; meta: AssistantMeta }
+  | {
+      id: string
+      role: 'assistant'
+      content: string
+      raw: string
+      meta: AssistantMeta
+    }
   | { id: string; role: 'error'; message: string; retryOf: string }
 
 export type ThreadAction =
   | { type: 'user'; id: string; content: string }
-  | { type: 'assistant'; id: string; content: string; meta: AssistantMeta }
+  | {
+      type: 'assistant'
+      id: string
+      content: string
+      raw: string
+      meta: AssistantMeta
+    }
   | { type: 'error'; id: string; message: string; retryOf: string }
   | { type: 'retry'; id: string }
   | { type: 'reset' }
@@ -48,6 +64,7 @@ export function threadReducer(turns: Turn[], action: ThreadAction): Turn[] {
           id: action.id,
           role: 'assistant',
           content: action.content,
+          raw: action.raw,
           meta: action.meta,
         },
       ]
@@ -68,11 +85,22 @@ export function threadReducer(turns: Turn[], action: ThreadAction): Turn[] {
   }
 }
 
-/** The request history: user and assistant turns only, errors dropped. */
+/**
+ * The request history: user and assistant turns only, errors dropped.
+ * Assistant turns send the raw output, matching the checkpointed history in
+ * production.
+ */
 export function toRequestMessages(turns: Turn[]): PlaygroundMessage[] {
-  return turns.flatMap(turn =>
-    turn.role === 'error' ? [] : [{ role: turn.role, content: turn.content }],
-  )
+  return turns.flatMap((turn): PlaygroundMessage[] => {
+    switch (turn.role) {
+      case 'user':
+        return [{ role: turn.role, content: turn.content }]
+      case 'assistant':
+        return [{ role: turn.role, content: turn.raw }]
+      case 'error':
+        return []
+    }
+  })
 }
 
 /** The draft to send: only when it differs from the saved prompt. */
@@ -117,16 +145,23 @@ export const TONE_COLOR = {
 export interface ScoreChip {
   label: string
   tone: ScoreTone
-  /** Raw tokens for the hallucinated chip. */
+  /** Repaired: 'raw → key' per ref; hallucinated: the raw refs. */
   title?: string
 }
 
-/** The score chips under a reply; hallucinated only when there are any. */
+/** The score chips under a reply; repaired and hallucinated only when there are any. */
 export function scoreChips(emojis: EmojiAnalysis): ScoreChip[] {
   const { counts } = emojis
   const chips: ScoreChip[] = [
     { label: `${counts.dictionary} dictionary`, tone: 'ok' },
   ]
+  if (counts.repaired > 0) {
+    chips.push({
+      label: `${counts.repaired} repaired`,
+      tone: 'warn',
+      title: emojis.repaired.map(e => `${e.raw} → ${e.key}`).join(', '),
+    })
+  }
   if (counts.hallucinated > 0) {
     chips.push({
       label: `${counts.hallucinated} hallucinated`,
@@ -134,9 +169,6 @@ export function scoreChips(emojis: EmojiAnalysis): ScoreChip[] {
       title: emojis.hallucinated.map(e => e.raw).join(' '),
     })
   }
-  chips.push(
-    { label: `${counts.unicode} unicode`, tone: 'warn' },
-    { label: `${counts.shortcode} shortcode`, tone: 'muted' },
-  )
+  chips.push({ label: `${counts.unicode} unicode`, tone: 'warn' })
   return chips
 }

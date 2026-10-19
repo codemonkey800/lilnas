@@ -252,10 +252,11 @@ export const INPUT_FORMAT = dedent`
 export function formatEmojiDictionary(entries: Record<string, string>): string {
   return dedent`
     The emoji dictionary is defined in the below JSON with the following format
-    where the key is the ID of the emoji and the value is a description of what
-    the emoji means. Using the description, send the correct emoji using the key.
-    For example, "<:EZ:758414734805696553>" for a static emoji and
-    "<a:peepoPooPoo:758415960448434217>" for an animated emoji.
+    where each key is an emoji's shortcode and each value says what the emoji
+    means. To send an emoji, write its shortcode exactly as the key shows it,
+    colons included, for example ":EZ:" or ":peepoPooPoo:". Never write emoji
+    IDs or Discord's angle-bracket name-and-id format: shortcodes are
+    converted automatically.
 
     ${JSON.stringify(entries)}
 

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common'
 
+import { EmojiDictionaryModule } from 'src/emojis/emoji-dictionary.module'
 import { LlmCoreModule } from 'src/llm/llm-core.module'
 import { ServicesModule } from 'src/services/services.module'
 
@@ -15,7 +16,7 @@ import { ResponseSanitizer } from './response/response-sanitizer'
 import { TypingIndicatorService } from './response/typing-indicator.service'
 
 @Module({
-  imports: [LLMModule, LlmCoreModule, ServicesModule],
+  imports: [LLMModule, LlmCoreModule, ServicesModule, EmojiDictionaryModule],
   providers: [
     MessagesService,
     GuardMiddleware,

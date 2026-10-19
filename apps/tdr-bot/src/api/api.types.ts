@@ -180,6 +180,9 @@ export interface PlaygroundChatBody {
 }
 
 export interface PlaygroundChatResponse {
+  /** The model output as written: shortcodes and whatever tokens it made up. */
+  raw: string
+  /** `raw` after emoji resolution: what Discord would get. */
   reply: string
   model: string
   usage: { input: number; output: number; cached: number; costUsd: number }

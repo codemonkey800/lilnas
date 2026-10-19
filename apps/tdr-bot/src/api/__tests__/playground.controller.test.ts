@@ -9,25 +9,28 @@ import {
 } from 'src/playground/playground.service'
 
 const reply = {
+  raw: 'hi :EZ:',
   reply: 'hi <:EZ:758414734805696553>',
   model: 'gpt-6-luna',
   usage: { input: 10, output: 5, cached: 0, costUsd: 0.001 },
   durationMs: 42,
   emojis: {
-    counts: { dictionary: 1, hallucinated: 0, unicode: 0, shortcode: 0 },
+    counts: { dictionary: 1, repaired: 0, hallucinated: 0, unicode: 0 },
     dictionary: [
       {
-        raw: '<:EZ:758414734805696553>',
+        raw: ':EZ:',
+        form: 'shortcode',
         name: 'EZ',
-        id: '758414734805696553',
-        animated: false,
         start: 3,
-        end: 27,
+        end: 7,
+        key: '<:EZ:758414734805696553>',
+        status: 'dictionary',
+        fixes: [],
       },
     ],
+    repaired: [],
     hallucinated: [],
     unicode: [],
-    shortcodes: [],
   },
   dictionarySize: 12,
 }

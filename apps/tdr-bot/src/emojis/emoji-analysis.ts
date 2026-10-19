@@ -19,36 +19,27 @@ export type ContentSegment =
   | { kind: 'text'; text: string }
   | { kind: 'emoji'; emoji: CustomEmojiRef }
 
-export type HallucinationReason =
-  | 'unknown'
-  | 'name-mismatch'
-  | 'animated-mismatch'
-
 export interface EmojiAnalysis {
   counts: {
     dictionary: number
+    repaired: number
     hallucinated: number
     unicode: number
-    shortcode: number
   }
-  dictionary: CustomEmojiRef[]
-  hallucinated: (CustomEmojiRef & { reason: HallucinationReason })[]
+  /** Refs sent as written. */
+  dictionary: ResolvedEmoji[]
+  /** Refs with a wrong id, animated flag, case or name, fixed before send. */
+  repaired: ResolvedEmoji[]
+  /** Refs the dictionary cannot explain, stripped before send. */
+  hallucinated: ResolvedEmoji[]
   /** Each matched unicode emoji sequence, in order. */
   unicode: string[]
-  /** Bare ':name:' occurrences, name only. */
-  shortcodes: string[]
 }
 
 /** Discord custom emoji token: '<:name:id>' or '<a:name:id>'. */
 const CUSTOM_EMOJI_RE = /<(a?):([A-Za-z0-9_]{2,32}):(\d{17,20})>/g
 /** A whole string that is exactly one custom emoji token (a dictionary key). */
 const CUSTOM_EMOJI_KEY_RE = /^<(a?):([A-Za-z0-9_]{2,32}):(\d{17,20})>$/
-
-/**
- * ':name:' whose colons are not adjacent to another ':' or a word character,
- * so '12:30:45', 'https://x' and '<:EZ:1>' are left alone.
- */
-const SHORTCODE_RE = /(?<![:\w]):([A-Za-z][A-Za-z0-9_]{1,31}):(?![:\w])/g
 
 /**
  * A pictograph with optional skin-tone modifiers / VS16, extended by any
@@ -95,87 +86,306 @@ export function segmentCustomEmojis(text: string): ContentSegment[] {
   return segments
 }
 
-interface Dictionary {
-  raws: Set<string>
-  byId: Map<string, { name: string; animated: boolean }>
+export type EmojiFix = 'id' | 'animated' | 'case' | 'name'
+
+export interface ResolvedEmoji {
+  /** As written: ':name:' or '<a?:name:id>'. */
+  raw: string
+  form: 'shortcode' | 'token'
+  /** Name as written. */
+  name: string
+  /** Offsets of `raw` in the input. */
+  start: number
+  end: number
+  /** Canonical emojiKey sent instead; null = dropped. */
+  key: string | null
+  status: 'dictionary' | 'repaired' | 'dropped'
+  /** [] unless status is 'repaired'. */
+  fixes: EmojiFix[]
 }
 
-/** Parses prompt keys with the token regex; keys that don't parse are ignored. */
-function parseDictionary(keys: Iterable<string>): Dictionary {
-  const raws = new Set<string>()
-  const byId = new Map<string, { name: string; animated: boolean }>()
+export interface EmojiResolution {
+  text: string
+  emojis: ResolvedEmoji[]
+}
+
+/**
+ * ':name:' whose colons are not adjacent to another ':' or a word character,
+ * so '12:30:45', 'https://x' and '<:EZ:1>' are left alone. Any name shape is
+ * matched; a digit/underscore-first name is a ref only when it is in the
+ * dictionary (':50:' stays text, ':5Head:' resolves).
+ */
+const ANY_SHORTCODE_RE = /(?<![:\w]):([A-Za-z0-9_]{2,32}):(?![:\w])/g
+/** Letter-first names: unknown names of this shape are dropped, others stay text. */
+const SHORTCODE_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{1,31}$/
+/** Fenced code blocks and inline code spans, copied through untouched. */
+const CODE_RE = /```[\s\S]*?```|`[^`\n]+`/g
+
+interface DictionaryEntry {
+  key: string
+  name: string
+  id: string
+  animated: boolean
+}
+
+interface ResolverDictionary {
+  byKey: Map<string, DictionaryEntry>
+  byName: Map<string, DictionaryEntry>
+  byLower: Map<string, DictionaryEntry>
+  byId: Map<string, DictionaryEntry>
+}
+
+/** Keeps the entry with the largest snowflake, regardless of key order. */
+function setNewest(
+  map: Map<string, DictionaryEntry>,
+  name: string,
+  entry: DictionaryEntry,
+): void {
+  const current = map.get(name)
+  if (!current || BigInt(entry.id) > BigInt(current.id)) map.set(name, entry)
+}
+
+function parseResolverDictionary(keys: Iterable<string>): ResolverDictionary {
+  const dictionary: ResolverDictionary = {
+    byKey: new Map(),
+    byName: new Map(),
+    byLower: new Map(),
+    byId: new Map(),
+  }
   for (const key of keys) {
     const match = CUSTOM_EMOJI_KEY_RE.exec(key)
     if (!match) continue
     const ref = parseCustomEmoji(match, 0)
-    raws.add(ref.raw)
-    if (!byId.has(ref.id)) {
-      byId.set(ref.id, { name: ref.name, animated: ref.animated })
+    const entry: DictionaryEntry = {
+      key: ref.raw,
+      name: ref.name,
+      id: ref.id,
+      animated: ref.animated,
     }
+    dictionary.byKey.set(entry.key, entry)
+    setNewest(dictionary.byName, entry.name, entry)
+    setNewest(dictionary.byLower, entry.name.toLowerCase(), entry)
+    if (!dictionary.byId.has(entry.id)) dictionary.byId.set(entry.id, entry)
   }
-  return { raws, byId }
+  return dictionary
 }
 
-function hallucinationReason(
+type Resolution = Pick<ResolvedEmoji, 'key' | 'status' | 'fixes'>
+
+function resolveShortcode(
+  name: string,
+  dictionary: ResolverDictionary,
+): Resolution | null {
+  const exact = dictionary.byName.get(name)
+  if (exact) return { key: exact.key, status: 'dictionary', fixes: [] }
+  const lower = dictionary.byLower.get(name.toLowerCase())
+  if (lower) return { key: lower.key, status: 'repaired', fixes: ['case'] }
+  if (SHORTCODE_NAME_RE.test(name)) {
+    return { key: null, status: 'dropped', fixes: [] }
+  }
+  return null
+}
+
+function resolveToken(
   ref: CustomEmojiRef,
-  dictionary: Dictionary,
-): HallucinationReason {
-  const known = dictionary.byId.get(ref.id)
-  if (!known) return 'unknown'
-  if (known.name !== ref.name) return 'name-mismatch'
-  return 'animated-mismatch'
+  dictionary: ResolverDictionary,
+): Resolution {
+  if (dictionary.byKey.has(ref.raw)) {
+    return { key: ref.raw, status: 'dictionary', fixes: [] }
+  }
+  const byName =
+    dictionary.byName.get(ref.name) ??
+    dictionary.byLower.get(ref.name.toLowerCase())
+  if (byName) {
+    const fixes: EmojiFix[] = []
+    if (byName.name !== ref.name) fixes.push('case')
+    if (byName.id !== ref.id) fixes.push('id')
+    if (byName.animated !== ref.animated) fixes.push('animated')
+    return { key: byName.key, status: 'repaired', fixes }
+  }
+  const byId = dictionary.byId.get(ref.id)
+  if (byId) {
+    const fixes: EmojiFix[] = ['name']
+    if (byId.animated !== ref.animated) fixes.push('animated')
+    return { key: byId.key, status: 'repaired', fixes }
+  }
+  return { key: null, status: 'dropped', fixes: [] }
 }
 
-/** dictionaryKeys are the prompt's keys: '<:name:id>' / '<a:name:id>'. */
-export function analyzeEmojis(
+/**
+ * Accumulates the output text. A dropped ref deletes itself and collapses the
+ * spaces/tabs around it to one space, trimmed away at the start or end of a
+ * line; newlines are never removed.
+ */
+class OutputBuilder {
+  private text = ''
+  private dropped = false
+  private removedSpace = false
+
+  append(piece: string): void {
+    if (!this.dropped) {
+      this.text += piece
+      return
+    }
+    const stripped = piece.replace(/^[ \t]+/, '')
+    if (stripped.length < piece.length) this.removedSpace = true
+    if (stripped === '') return
+    this.dropped = false
+    const atLineStart = this.text === '' || this.text.endsWith('\n')
+    if (this.removedSpace && !atLineStart && !stripped.startsWith('\n')) {
+      this.text += ' '
+    }
+    this.text += stripped
+  }
+
+  drop(): void {
+    const trimmed = this.text.replace(/[ \t]+$/, '')
+    if (!this.dropped) this.removedSpace = false
+    if (trimmed.length < this.text.length) this.removedSpace = true
+    this.text = trimmed
+    this.dropped = true
+  }
+
+  toString(): string {
+    return this.text
+  }
+}
+
+/**
+ * Rewrites ':name:' shortcodes and '<a?:name:id>' tokens to the dictionary's
+ * canonical keys, repairing case, id, animated flag and (by id) name, and
+ * dropping refs the dictionary cannot explain. Code spans and fences are left
+ * untouched. Resolving already-resolved text is a no-op.
+ */
+export function resolveEmojis(
   text: string,
   dictionaryKeys: Iterable<string>,
-): EmojiAnalysis {
-  const dictionary = parseDictionary(dictionaryKeys)
-  const analysis: EmojiAnalysis = {
-    counts: { dictionary: 0, hallucinated: 0, unicode: 0, shortcode: 0 },
-    dictionary: [],
-    hallucinated: [],
-    unicode: [],
-    shortcodes: [],
+): EmojiResolution {
+  const dictionary = parseResolverDictionary(dictionaryKeys)
+  const output = new OutputBuilder()
+  const emojis: ResolvedEmoji[] = []
+
+  const emit = (
+    resolution: Resolution,
+    ref: Omit<ResolvedEmoji, keyof Resolution>,
+  ): void => {
+    emojis.push({ ...ref, ...resolution })
+    if (resolution.key === null) output.drop()
+    else output.append(resolution.key)
   }
 
-  for (const segment of segmentCustomEmojis(text)) {
-    if (segment.kind === 'emoji') {
-      const { emoji } = segment
-      if (dictionary.raws.has(emoji.raw)) {
-        analysis.dictionary.push(emoji)
-      } else {
-        analysis.hallucinated.push({
-          ...emoji,
-          reason: hallucinationReason(emoji, dictionary),
-        })
+  const resolveRun = (run: string, offset: number): void => {
+    let cursor = 0
+    for (const match of run.matchAll(ANY_SHORTCODE_RE)) {
+      const [raw, name] = match
+      const resolution = resolveShortcode(name, dictionary)
+      if (!resolution) continue
+      const start = match.index ?? 0
+      output.append(run.slice(cursor, start))
+      emit(resolution, {
+        raw,
+        form: 'shortcode',
+        name,
+        start: offset + start,
+        end: offset + start + raw.length,
+      })
+      cursor = start + raw.length
+    }
+    output.append(run.slice(cursor))
+  }
+
+  const resolveProse = (prose: string, offset: number): void => {
+    let cursor = 0
+    for (const segment of segmentCustomEmojis(prose)) {
+      if (segment.kind === 'text') {
+        resolveRun(segment.text, offset + cursor)
+        cursor += segment.text.length
+        continue
       }
-      continue
-    }
-    for (const match of segment.text.matchAll(SHORTCODE_RE)) {
-      analysis.shortcodes.push(match[1])
-    }
-    for (const match of segment.text.matchAll(UNICODE_EMOJI_RE)) {
-      analysis.unicode.push(match[0])
+      const { emoji } = segment
+      emit(resolveToken(emoji, dictionary), {
+        raw: emoji.raw,
+        form: 'token',
+        name: emoji.name,
+        start: offset + emoji.start,
+        end: offset + emoji.end,
+      })
+      cursor = emoji.end
     }
   }
 
-  analysis.counts = {
-    dictionary: analysis.dictionary.length,
-    hallucinated: analysis.hallucinated.length,
-    unicode: analysis.unicode.length,
-    shortcode: analysis.shortcodes.length,
+  let cursor = 0
+  for (const match of text.matchAll(CODE_RE)) {
+    const start = match.index ?? 0
+    resolveProse(text.slice(cursor, start), cursor)
+    output.append(match[0])
+    cursor = start + match[0].length
   }
-  return analysis
+  resolveProse(text.slice(cursor), cursor)
+
+  return { text: output.toString(), emojis }
 }
 
-/** '5 dictionary · 1 hallucinated · 2 unicode · 0 shortcode' */
+/**
+ * The runs of `text` outside code spans/fences and outside resolved refs, in
+ * order. Unicode emoji are counted per run so a sequence never spans a ref.
+ */
+function proseRuns(text: string, emojis: ResolvedEmoji[]): string[] {
+  const spans = [
+    ...[...text.matchAll(CODE_RE)].map(match => {
+      const start = match.index ?? 0
+      return { start, end: start + match[0].length }
+    }),
+    ...emojis.map(({ start, end }) => ({ start, end })),
+  ].sort((a, b) => a.start - b.start)
+
+  const runs: string[] = []
+  let cursor = 0
+  for (const span of spans) {
+    if (span.start > cursor) runs.push(text.slice(cursor, span.start))
+    cursor = span.end
+  }
+  if (cursor < text.length) runs.push(text.slice(cursor))
+  return runs
+}
+
+/**
+ * Scores the raw model output by what `resolveEmojis` does to each ref:
+ * dictionary refs are sent as written, repaired ones are fixed, hallucinated
+ * ones are dropped. Unicode emoji are counted in the prose between them.
+ */
+export function analyzeEmojis(
+  raw: string,
+  dictionaryKeys: Iterable<string>,
+): EmojiAnalysis {
+  const { emojis } = resolveEmojis(raw, dictionaryKeys)
+  const dictionary = emojis.filter(e => e.status === 'dictionary')
+  const repaired = emojis.filter(e => e.status === 'repaired')
+  const hallucinated = emojis.filter(e => e.status === 'dropped')
+  const unicode = proseRuns(raw, emojis).flatMap(run =>
+    [...run.matchAll(UNICODE_EMOJI_RE)].map(match => match[0]),
+  )
+
+  return {
+    counts: {
+      dictionary: dictionary.length,
+      repaired: repaired.length,
+      hallucinated: hallucinated.length,
+      unicode: unicode.length,
+    },
+    dictionary,
+    repaired,
+    hallucinated,
+    unicode,
+  }
+}
+
+/** '5 dictionary · 1 repaired · 1 hallucinated · 2 unicode' */
 export function formatEmojiScore(counts: EmojiAnalysis['counts']): string {
   return [
     `${counts.dictionary} dictionary`,
+    `${counts.repaired} repaired`,
     `${counts.hallucinated} hallucinated`,
     `${counts.unicode} unicode`,
-    `${counts.shortcode} shortcode`,
   ].join(' · ')
 }

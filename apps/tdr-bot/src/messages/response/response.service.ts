@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common'
 import { EmbedBuilder } from 'discord.js'
 
 import { DISCORD_MAX_MESSAGE_LENGTH } from 'src/constants/chat'
+import { EmojiDictionaryService } from 'src/emojis/emoji-dictionary.service'
 import { LlmClient } from 'src/llm/client/llm-client'
 import { Message } from 'src/messages/types'
 import { MessageResponse } from 'src/schemas/messages'
@@ -22,10 +23,13 @@ export class ResponseService {
     private readonly llm: LlmClient,
     private readonly sanitize: ResponseSanitizer,
     private readonly metrics: TdrBotMetricsService,
+    private readonly emojis: EmojiDictionaryService,
   ) {}
 
   async sendReply(message: Message, response: MessageResponse): Promise<void> {
-    let content = await this.sanitize.sanitizeResponse(response.content)
+    let content = await this.sanitize.sanitizeResponse(
+      this.resolveEmojis(response.content),
+    )
     let responseStatus: Parameters<TdrBotMetricsService['responseSent']>[0] =
       'success'
 
@@ -34,7 +38,7 @@ export class ResponseService {
         { length: content.length },
         'Response exceeds Discord limit, attempting to shorten',
       )
-      content = await this.shortenResponse(content)
+      content = this.resolveEmojis(await this.shortenResponse(content))
       responseStatus = 'shortened'
 
       if (content.length > DISCORD_MAX_MESSAGE_LENGTH) {
@@ -135,6 +139,20 @@ export class ResponseService {
       })
       return this.truncateAtNaturalBreak(content)
     }
+  }
+
+  /**
+   * Turns the model's ':name:' shortcodes and tokens into canonical emoji
+   * tokens. Idempotent, so it also repairs ids the shortening LLM mangled.
+   */
+  private resolveEmojis(content: string): string {
+    const { text, emojis } = this.emojis.resolve(content)
+    const repaired = emojis.filter(e => e.status === 'repaired').length
+    const dropped = emojis.filter(e => e.status === 'dropped').length
+    if (repaired > 0 || dropped > 0) {
+      this.logger.debug({ repaired, dropped }, 'Resolved custom emojis')
+    }
+    return text
   }
 
   private truncateAtNaturalBreak(content: string): string {

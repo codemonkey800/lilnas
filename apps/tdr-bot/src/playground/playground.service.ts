@@ -63,7 +63,9 @@ export class PlaygroundService {
       overrides: { model: body.model, timeoutMs: PLAYGROUND_TIMEOUT_MS },
     })
 
-    const emojis = analyzeEmojis(result.output, this.dictionary.keys())
+    // Score the raw output; Discord gets the resolved text.
+    const raw = result.output
+    const emojis = analyzeEmojis(raw, this.dictionary.keys())
     this.logger.log(
       {
         model: result.model,
@@ -75,7 +77,8 @@ export class PlaygroundService {
     )
 
     return {
-      reply: result.output,
+      raw,
+      reply: this.dictionary.resolve(raw).text,
       model: result.model,
       usage: result.usage,
       durationMs: result.durationMs,

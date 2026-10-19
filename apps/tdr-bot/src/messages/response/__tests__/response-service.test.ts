@@ -5,6 +5,8 @@ import {
   createTestingModule,
 } from 'src/__tests__/test-utils'
 import { DISCORD_MAX_MESSAGE_LENGTH } from 'src/constants/chat'
+import { resolveEmojis } from 'src/emojis/emoji-analysis'
+import { EmojiDictionaryService } from 'src/emojis/emoji-dictionary.service'
 import { LlmClient } from 'src/llm/client/llm-client'
 import { FakeLlmClient } from 'src/llm/testing/fake-llm-client'
 import { ResponseService } from 'src/messages/response/response.service'
@@ -18,6 +20,19 @@ function makeSanitizer(): jest.Mocked<ResponseSanitizer> {
       .fn()
       .mockImplementation((c: string) => Promise.resolve(c)),
   } as unknown as jest.Mocked<ResponseSanitizer>
+}
+
+const EMOJI_KEYS = [
+  '<:Sadge:781403152258826281>',
+  '<a:peepoClap:1178865973156139009>',
+]
+
+function makeEmojis(): EmojiDictionaryService {
+  return {
+    resolve: jest
+      .fn()
+      .mockImplementation((text: string) => resolveEmojis(text, EMOJI_KEYS)),
+  } as unknown as EmojiDictionaryService
 }
 
 function makeLlm(shortenedContent = 'shortened response'): FakeLlmClient {
@@ -41,6 +56,7 @@ describe('ResponseService', () => {
       { provide: LlmClient, useValue: llm },
       { provide: ResponseSanitizer, useValue: sanitizer },
       { provide: TdrBotMetricsService, useValue: createMockMetricsService() },
+      { provide: EmojiDictionaryService, useValue: makeEmojis() },
     ])
 
     service = module.get(ResponseService)
@@ -148,6 +164,84 @@ describe('ResponseService', () => {
         'Discord-sendResponse',
         expect.any(String),
       )
+    })
+  })
+
+  describe('emoji resolution', () => {
+    function replyContent(message: ReturnType<typeof createMockMessage>) {
+      return (message.reply as jest.Mock).mock.calls[0][0].content as string
+    }
+
+    it('sends a dictionary shortcode as its token', async () => {
+      const message = createMockMessage()
+      message.reply = jest.fn().mockResolvedValue({})
+
+      await service.sendReply(message, { content: 'oh no :Sadge:', images: [] })
+
+      expect(replyContent(message)).toBe('oh no <:Sadge:781403152258826281>')
+    })
+
+    it('strips an unknown shortcode', async () => {
+      const message = createMockMessage()
+      message.reply = jest.fn().mockResolvedValue({})
+
+      await service.sendReply(message, {
+        content: 'hello :NotAnEmoji: there',
+        images: [],
+      })
+
+      expect(replyContent(message)).toBe('hello there')
+    })
+
+    it('fixes a token with the wrong id', async () => {
+      const message = createMockMessage()
+      message.reply = jest.fn().mockResolvedValue({})
+
+      await service.sendReply(message, {
+        content: 'rip <:Sadge:12345678901234567>',
+        images: [],
+      })
+
+      expect(replyContent(message)).toBe('rip <:Sadge:781403152258826281>')
+    })
+
+    it('resolves before sanitizing', async () => {
+      const message = createMockMessage()
+      message.reply = jest.fn().mockResolvedValue({})
+
+      await service.sendReply(message, { content: ':Sadge:', images: [] })
+
+      expect(sanitizer.sanitizeResponse).toHaveBeenCalledWith(
+        '<:Sadge:781403152258826281>',
+      )
+    })
+
+    it('shortens the resolved text and resolves the shortened output again', async () => {
+      llm.script('response.shorten', 'short <:Sadge:12345678901234567>')
+      const longContent = ':Sadge: ' + 'a'.repeat(DISCORD_MAX_MESSAGE_LENGTH)
+      const message = createMockMessage()
+      message.reply = jest.fn().mockResolvedValue({})
+
+      await service.sendReply(message, { content: longContent, images: [] })
+
+      expect(llm.calls).toHaveLength(1)
+      const shortenInput = llm.calls[0].messages.at(-1)?.content
+      expect(shortenInput).toBe(
+        '<:Sadge:781403152258826281> ' + 'a'.repeat(DISCORD_MAX_MESSAGE_LENGTH),
+      )
+      expect(replyContent(message)).toBe('short <:Sadge:781403152258826281>')
+    })
+
+    it('leaves text with no emojis unchanged', async () => {
+      const message = createMockMessage()
+      message.reply = jest.fn().mockResolvedValue({})
+
+      await service.sendReply(message, {
+        content: 'plain text, 10:30 am',
+        images: [],
+      })
+
+      expect(replyContent(message)).toBe('plain text, 10:30 am')
     })
   })
 

@@ -4,10 +4,13 @@ import { buildTldrInstruction } from 'src/commands/tldr/prompts'
 import { TldrReplySchema } from 'src/commands/tldr/reply'
 import { TldrRequest, TldrService } from 'src/commands/tldr/tldr.service'
 import { TldrError, TldrWindow, WindowMessage } from 'src/commands/tldr/types'
+import { resolveEmojis } from 'src/emojis/emoji-analysis'
+import { EmojiDictionaryService } from 'src/emojis/emoji-dictionary.service'
 import { FakeLlmClient } from 'src/llm/testing/fake-llm-client'
 import { PromptService } from 'src/messages/prompts/prompt.service'
 
 const SYSTEM = new SystemMessage('persona prompt')
+const EZ = '<:EZ:123456789012345678>'
 
 const reply = (...messages: string[]) => ({ messages })
 
@@ -66,7 +69,10 @@ describe('TldrService', () => {
     const prompts = {
       getSystemPrompt: () => SYSTEM,
     } as unknown as PromptService
-    service = new TldrService(llm, prompts)
+    const emojis = {
+      resolve: (text: string) => resolveEmojis(text, [EZ]),
+    } as unknown as EmojiDictionaryService
+    service = new TldrService(llm, prompts, emojis)
   })
 
   it('throws empty without calling the model for an empty window', async () => {
@@ -159,6 +165,25 @@ describe('TldrService', () => {
     )
     expect(chunk).not.toContain('[3]')
     expect(chunk.split('\n')[1]).toBe('')
+  })
+
+  it('resolves :name: shortcodes in the output to their tokens', async () => {
+    llm.script('tldr.summarize', reply('Agreed :EZ: [1]', 'Done :EZ:'))
+
+    const chunks = await service.summarize(makeRequest())
+
+    expect(chunks[0]).toContain(`Agreed ${EZ} [↗]`)
+    expect(chunks[1]).toBe(`Done ${EZ}`)
+    expect(chunks.join('\n')).not.toMatch(/(^| ):EZ:/)
+  })
+
+  it('strips shortcodes that are not in the dictionary', async () => {
+    llm.script('tldr.summarize', reply('Agreed :nope: and :EZ: [1]'))
+
+    const [chunk] = await service.summarize(makeRequest())
+
+    expect(chunk).toContain(`Agreed and ${EZ} [↗]`)
+    expect(chunk).not.toContain(':nope:')
   })
 
   it('posts one message when the model returns one', async () => {

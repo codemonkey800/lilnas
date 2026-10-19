@@ -18,6 +18,7 @@ const response = (
     durationMs?: number
   } = {},
 ): PlaygroundChatResponse => ({
+  raw: 'hi',
   reply: 'hi',
   model: overrides.model ?? 'gpt-5-mini',
   usage: { input: 10, output: 5, cached: 0, costUsd: overrides.costUsd ?? 0 },
@@ -25,15 +26,15 @@ const response = (
   emojis: {
     counts: {
       dictionary: 0,
+      repaired: 0,
       hallucinated: 0,
       unicode: 0,
-      shortcode: 0,
       ...overrides.counts,
     },
     dictionary: [],
+    repaired: [],
     hallucinated: [],
     unicode: [],
-    shortcodes: [],
   },
   dictionarySize: 10,
 })
@@ -61,9 +62,9 @@ const row = (overrides: Partial<EvalRow>): EvalRow => ({
   failed: 0,
   repliesWithDictionary: 0,
   dictionary: 0,
+  repaired: 0,
   hallucinated: 0,
   unicode: 0,
-  shortcode: 0,
   avgCostUsd: 0,
   avgDurationMs: 0,
   ...overrides,
@@ -87,7 +88,7 @@ describe('summarize', () => {
         model: 'gpt-5-mini',
         prompt: 'a',
         result: response({
-          counts: { dictionary: 2, unicode: 1 },
+          counts: { dictionary: 2, repaired: 1, unicode: 1 },
           costUsd: 0.002,
           durationMs: 1000,
         }),
@@ -97,7 +98,7 @@ describe('summarize', () => {
         model: 'gpt-5-mini',
         prompt: 'c',
         result: response({
-          counts: { dictionary: 0, hallucinated: 1, shortcode: 2 },
+          counts: { dictionary: 0, repaired: 2, hallucinated: 1 },
           costUsd: 0.004,
           durationMs: 3000,
         }),
@@ -118,9 +119,9 @@ describe('summarize', () => {
       failed: 1,
       repliesWithDictionary: 1,
       dictionary: 2,
+      repaired: 3,
       hallucinated: 1,
       unicode: 1,
-      shortcode: 2,
       // averages over the two successes only
       avgCostUsd: 0.003,
       avgDurationMs: 2000,

@@ -2,6 +2,7 @@ import { HumanMessage } from '@langchain/core/messages'
 import { Injectable, Logger } from '@nestjs/common'
 
 import { DISCORD_MAX_MESSAGE_LENGTH } from 'src/constants/chat'
+import { EmojiDictionaryService } from 'src/emojis/emoji-dictionary.service'
 import { LlmClient } from 'src/llm/client/llm-client'
 import { PromptService } from 'src/messages/prompts/prompt.service'
 
@@ -42,6 +43,7 @@ export class TldrService {
   constructor(
     private readonly llm: LlmClient,
     private readonly promptService: PromptService,
+    private readonly emojis: EmojiDictionaryService,
   ) {}
 
   /** Discord-ready chunks, each ≤ 2000 chars, at least one. */
@@ -87,9 +89,9 @@ export class TldrService {
     const budget = createCitationBudget()
     const [first = '', ...rest] = result.output.messages
       .slice(0, MAX_MODEL_MESSAGES)
-      .map(message =>
-        linkifyCitations(message.trim(), transcript.links, budget),
-      )
+      // Resolve shortcodes first so chunking sees the final length.
+      .map(message => this.emojis.resolve(message.trim()).text)
+      .map(message => linkifyCitations(message, transcript.links, budget))
       .filter(message => message.length > 0)
     const chunks = reflowForDiscord([
       `${this.header(request)}\n\n${first}`,

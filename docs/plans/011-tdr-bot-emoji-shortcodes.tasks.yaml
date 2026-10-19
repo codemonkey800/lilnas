@@ -1,0 +1,352 @@
+nexus-tasks: 1
+phases:
+  - key: '1'
+    name: Resolver, prompt, send paths, playground
+    tasks:
+      - id: T1
+        title: Pure `resolveEmojis` resolver
+        after: []
+        files:
+          - apps/tdr-bot/src/emojis/emoji-analysis.ts
+          - apps/tdr-bot/src/emojis/__tests__/emoji-analysis.test.ts
+        model: frontier
+        status: done
+        commit: 10bae3cc3e864c89e7aeaefdbcf102e472395551
+        body: |-
+          Add `resolveEmojis` and its types (exactly the API in Context) to
+          `apps/tdr-bot/src/emojis/emoji-analysis.ts`. Add only: leave `analyzeEmojis`,
+          `formatEmojiScore`, `EmojiAnalysis` and `segmentCustomEmojis` unchanged (another
+          task rewrites the analyzer on top of this). No Nest/Node/discord.js imports.
+
+          Lookup, built per call from `dictionaryKeys` (canonical `<a?:name:id>` strings;
+          parse each with `CUSTOM_EMOJI_KEY_RE`, ignore keys that don't parse):
+          - byKey (exact raw), byName (exact name), byLower (lower-cased name), byId.
+          - Collisions in byName/byLower: the largest `BigInt(id)` wins, regardless of
+            key order.
+
+          Scan order: split the text into fenced code blocks (```…```) and inline code
+          spans (`…`) first; code is copied through untouched and yields no refs. In the
+          rest, use `segmentCustomEmojis` for tokens, then scan the text runs for
+          shortcodes with a broadened regex that keeps `SHORTCODE_RE`'s guards:
+          `/(?<![:\w]):([A-Za-z0-9_]{2,32}):(?![:\w])/g`. So `12:30:45`, `https://x`,
+          `a::b` and the inside of tokens never match.
+
+          Shortcode `:name:`:
+          - byName hit → `dictionary`.
+          - else byLower hit → `repaired`, fixes `['case']`.
+          - else, if the name matches the old letter-first `SHORTCODE_RE` name pattern
+            (`^[A-Za-z][A-Za-z0-9_]{1,31}$`) → `dropped`, key null.
+          - else (digit/underscore-first unknown, e.g. `:50:`) → not a ref; text unchanged.
+
+          Token `<a?:name:id>`:
+          - byKey hit → `dictionary`.
+          - else byName, else byLower → `repaired` to that key. fixes lists what changed,
+            in this order: `case` (name differs only in case), `id`, `animated`.
+          - else byId → `repaired`, fixes `['name']` plus `animated` if it differs.
+          - else → `dropped`.
+
+          Output `text`:
+          - Replace each `dictionary`/`repaired` ref with its key and delete each
+            `dropped` ref.
+          - After a deletion, collapse the resulting run of spaces/tabs to a single
+            space, and trim spaces/tabs left at the end of the line or the start of the
+            text. Never remove a newline.
+          - Resolving already-resolved text is a no-op (idempotent).
+
+          `emojis` lists refs in input order with offsets into the input.
+
+          Tests (in `emoji-analysis.test.ts`, new `describe('resolveEmojis')`, IDs of 17–20
+          digits) must cover:
+          - the incident: `:peepoCozy:` → `<:peepoCozy:781403748580589598>`, and both
+            `<:peepoCozy:758403748580589598>` and `<a:peepoCozy:758403748580589598>`
+            repaired with fixes `['id']` / `['id','animated']`.
+          - an animated shortcode resolving to `<a:…>`.
+          - a case-only repair.
+          - a duplicate name, with the newest snowflake winning in either key order.
+          - ID fallback after a rename.
+          - unknown shortcode and unknown token dropped, with whitespace collapsed
+            (`'hi :nope: there'` → `'hi there'`, `'bye :nope:'` → `'bye'`, newlines kept).
+          - `:50:` kept, and `:5Head:` resolving when it is a key.
+          - the `12:30:45` / URL / adjacent-colon guards.
+          - code spans and fences left untouched.
+          - idempotence.
+          - empty text and empty dictionary.
+          - offsets.
+      - id: T2
+        title: Name-only prompt dictionary and `EmojiDictionaryService.resolve`
+        after:
+          - T1
+        files:
+          - apps/tdr-bot/src/emojis/emoji-dictionary.service.ts
+          - apps/tdr-bot/src/emojis/__tests__/emoji-dictionary.service.test.ts
+          - apps/tdr-bot/src/utils/prompts.ts
+          - apps/tdr-bot/src/utils/__tests__/prompts.test.ts
+          - apps/tdr-bot/src/messages/prompts/__tests__/prompt-service.test.ts
+        model: frontier
+        status: done
+        commit: 89dfc0464b3a8b5dc386c66898eaef91e6a5180d
+        body: |-
+          `apps/tdr-bot/src/emojis/emoji-dictionary.service.ts`, in `refresh()`:
+          - Keep only rows with a description.
+          - Pick one row per exact name: the largest `BigInt(id)`.
+          - Order the chosen rows by snowflake ascending (the existing `bySnowflake`).
+          - Build:
+            - `entries`: `{ [':' + row.name + ':']: row.description }`, the prompt map.
+            - the chosen rows' `emojiKey(row)` list, kept in the same order.
+          - Names differing only in case are separate rows and both stay.
+          ```ts
+          promptText(): string                    // formatEmojiDictionary(entries)
+          keys(): readonly string[]                // canonical emojiKey of each chosen row, prompt order
+          size(): number                           // number of chosen rows (=== keys().length)
+          resolve(text: string): EmojiResolution   // resolveEmojis(text, this.keys())
+          ```
+          Update the JSDoc on `keys()`: "canonical tokens for the names the prompt shows".
+
+          `formatEmojiDictionary` in `apps/tdr-bot/src/utils/prompts.ts`:
+          - Same signature; keys are now `:name:`.
+          - Keep the first line (`The emoji dictionary is defined in the below JSON`)
+            and the last sentence (`For every message you send, you must use only the
+            emojis in the dictionary above.`).
+          - Between them, say: each key is an emoji's shortcode and each value says
+            what it means; to send an emoji, write its shortcode exactly as the key
+            shows it, colons included, for example ":EZ:" or ":peepoPooPoo:"; never
+            write emoji IDs or the `<:name:id>` format, because shortcodes are
+            converted automatically.
+          - No ID digits may remain anywhere in the prompt text.
+
+          Tests:
+          - Update the existing service and `formatEmojiDictionary` tests to the `:name:`
+            keys. Use 17+-digit IDs wherever `keys()`/`resolve` are asserted, because
+            short IDs don't parse as keys.
+          - Duplicate exact names collapse to the newest snowflake, for both the
+            description and the key.
+          - Case-variant names both stay.
+          - `size() === keys().length`.
+          - `resolve()` uses the cached keys and is refreshed by `refresh()`.
+          - The prompt contains no 17-digit run (`/\d{17}/`) and no `<:`.
+          - Update `prompts.test.ts` / `prompt-service.test.ts` only where they assert
+            the old format.
+      - id: T3
+        title: Analyzer on top of the resolver, plus playground chips and eval table
+        after:
+          - T1
+        files:
+          - apps/tdr-bot/src/emojis/emoji-analysis.ts
+          - apps/tdr-bot/src/emojis/__tests__/emoji-analysis.test.ts
+          - apps/tdr-bot/src/app/playground/conversation.ts
+          - apps/tdr-bot/src/app/playground/eval.ts
+          - apps/tdr-bot/src/app/playground/EvalPanel.tsx
+          - apps/tdr-bot/src/app/playground/page.tsx
+          - apps/tdr-bot/src/app/playground/__tests__/conversation.test.ts
+          - apps/tdr-bot/src/app/playground/__tests__/eval.test.ts
+          - apps/tdr-bot/src/playground/__tests__/playground.service.test.ts
+          - apps/tdr-bot/src/api/__tests__/playground.controller.test.ts
+          - apps/tdr-bot/src/llm/testing/live/playground-chat.live.test.ts
+        model: frontier
+        status: done
+        commit: c8b3bf9088521244aae3e8abaea1ea9cf917254c
+        body: |-
+          Rewrite `analyzeEmojis` in `apps/tdr-bot/src/emojis/emoji-analysis.ts` so it
+          scores the **raw** model output using `resolveEmojis`, which is already in that
+          file:
+          ```ts
+          export interface EmojiAnalysis {
+            counts: { dictionary: number; repaired: number; hallucinated: number; unicode: number }
+            dictionary: ResolvedEmoji[]    // status 'dictionary'
+            repaired: ResolvedEmoji[]      // status 'repaired' (wrong id/flag/case/name, fixed before send)
+            hallucinated: ResolvedEmoji[]  // status 'dropped' (unknown, stripped before send)
+            unicode: string[]
+          }
+          export function analyzeEmojis(raw: string, dictionaryKeys: Iterable<string>): EmojiAnalysis
+          /** '5 dictionary · 1 repaired · 1 hallucinated · 2 unicode' */
+          export function formatEmojiScore(counts: EmojiAnalysis['counts']): string
+          ```
+          - Unicode is counted as today: in text outside tokens and code, with the same
+            `UNICODE_EMOJI_RE`.
+          - Remove `HallucinationReason`, the `shortcode` count/list and the now-unused
+            dictionary parsing. Keep `segmentCustomEmojis`/`CustomEmojiRef`, which
+            `DiscordContent` uses.
+
+          Playground UI, `apps/tdr-bot/src/app/playground/`:
+          - `scoreChips(emojis)`:
+            - `N dictionary` (ok).
+            - `N repaired` (warn, only when >0, title = `raw → key` joined by ', ').
+            - `N hallucinated` (bad, only when >0, title = raws joined by ' ').
+            - `N unicode` (warn).
+            - No shortcode chip.
+          - `eval.ts`:
+            - `EvalRow` and `summarize` replace `shortcode` with `repaired`.
+            - `bestDictionaryRate` is unchanged.
+          - `EvalPanel.tsx`:
+            - The table's shortcode column becomes "repaired", tinted `warning.main`
+              when >0, the way hallucinated is tinted `error.main`.
+          - Touch `page.tsx` only if it no longer compiles.
+
+          Migrate fixtures and assertions that use the old shape:
+          - `playground.service.test.ts` (counts),
+          - `playground.controller.test.ts` (the response fixture),
+          - `conversation.test.ts`,
+          - `eval.test.ts`,
+          - `playground-chat.live.test.ts`: only enough to compile; leave its assertions
+            alone.
+
+          Tests must cover:
+          - each status bucket from raw text, including the incident tokens counted as
+            repaired and an unknown `:name:` counted as hallucinated;
+          - unicode beside shortcodes;
+          - zero counts;
+          - `formatEmojiScore`;
+          - each chip's presence, tone and title;
+          - the eval row sums for `repaired`.
+      - id: T4
+        title: Resolve chat replies before the Discord send
+        after:
+          - T2
+        files:
+          - apps/tdr-bot/src/messages/response/response.service.ts
+          - apps/tdr-bot/src/messages/response/__tests__/response-service.test.ts
+          - apps/tdr-bot/src/messages/messages.module.ts
+          - apps/tdr-bot/src/messages/handlers/__tests__/chat-handler.test.ts
+        model: frontier
+        status: done
+        commit: aa6442064bb450540716374c14f245e8c88a7264
+        body: |-
+          `ResponseService.sendReply` (`apps/tdr-bot/src/messages/response/response.service.ts`,
+          the only caller is `ChatHandler`) is the chat path's single resolution point.
+          - Inject `EmojiDictionaryService` and add `EmojiDictionaryModule` to `imports`
+            in `apps/tdr-bot/src/messages/messages.module.ts`.
+          - First line: `content = this.emojis.resolve(response.content).text`. Then
+            sanitize and run the length checks as today. Resolving before remark keeps
+            remark seeing the same `<:name:id>` tokens it sees today.
+          - After `shortenResponse`, resolve again, before its length check: the
+            shortening LLM can mangle IDs, and the resolver repairs them idempotently.
+          - Log at debug, never warn, when any ref was repaired or dropped:
+            `{ repaired, dropped }` counts, with the message 'Resolved custom emojis'.
+          - Leave `LLMOrchestrationService` and the checkpointed history raw.
+
+          Tests in `response-service.test.ts`, using a real `EmojiDictionaryService`
+          shape or a stub whose `resolve` is `resolveEmojis` over fixed 17+-digit keys:
+          - `:name:` is sent as its token.
+          - An unknown shortcode is stripped.
+          - A wrong-ID token is fixed.
+          - The content passed to `shortenResponse` is the resolved text, and the
+            shortened output is resolved again (script the shortener to return a
+            wrong-ID token).
+          - Text with no emojis is unchanged.
+          Fix the `chat-handler.test.ts` module setup only if it breaks.
+      - id: T5
+        title: Resolve `/tldr` and reminder messages
+        after:
+          - T2
+        files:
+          - apps/tdr-bot/src/commands/tldr/tldr.service.ts
+          - apps/tdr-bot/src/commands/tldr/__tests__/tldr.service.test.ts
+          - apps/tdr-bot/src/commands/commands.module.ts
+          - apps/tdr-bot/src/reminders/reminder-delivery.service.ts
+          - apps/tdr-bot/src/reminders/__tests__/reminder-delivery.service.test.ts
+        model: frontier
+        status: done
+        commit: 81aaf9726a17b11809d651a00da77934715fbbb9
+        body: |-
+          Both paths prompt with the emoji dictionary, which now shows `:name:`
+          shortcodes, so their output needs resolving or Discord shows literal `:name:`.
+
+          `/tldr`, in `apps/tdr-bot/src/commands/tldr/tldr.service.ts`:
+          - Add `EmojiDictionaryService` as the third constructor argument and add
+            `EmojiDictionaryModule` to `imports` in `apps/tdr-bot/src/commands/commands.module.ts`.
+          - In `summarize`, resolve each model message
+            (`this.emojis.resolve(message.trim()).text`) **before** `linkifyCitations`
+            and `reflowForDiscord`, so chunking sees the final length.
+          - Update `new TldrService(llm, prompts)` in `tldr.service.test.ts`.
+          - Test that a `:name:` in the model output arrives as its token in the chunks,
+            and that an unknown shortcode is stripped.
+
+          Reminders, in `apps/tdr-bot/src/reminders/reminder-delivery.service.ts`:
+          - In `compose()`, resolve `message.content` with the already-injected
+            `emojiDictionary` before `withMentions`.
+          - `toPayload` truncation keeps working on the resolved text.
+          - The test file's `EmojiDictionaryService` stub (`useValue: { promptText }`)
+            gains a `resolve`.
+          - Test that a composed default/search reminder sends the resolved token, and
+            that mentions are still prefixed.
+      - id: T6
+        title: Playground ships the resolved reply and scores the raw one
+        after:
+          - T2
+          - T3
+        files:
+          - apps/tdr-bot/src/playground/playground.service.ts
+          - apps/tdr-bot/src/playground/__tests__/playground.service.test.ts
+          - apps/tdr-bot/src/api/api.types.ts
+          - apps/tdr-bot/src/api/__tests__/playground.controller.test.ts
+          - apps/tdr-bot/src/app/playground/conversation.ts
+          - apps/tdr-bot/src/app/playground/__tests__/conversation.test.ts
+          - apps/tdr-bot/src/app/playground/page.tsx
+          - apps/tdr-bot/src/llm/testing/live/playground-chat.live.test.ts
+        model: frontier
+        status: done
+        commit: 63047fd38c68d4a12ece7721b2af6a7e2910c671
+        body: |-
+          `PlaygroundService.chat` (`apps/tdr-bot/src/playground/playground.service.ts`):
+          ```ts
+          // PlaygroundChatResponse in src/api/api.types.ts gains:
+          raw: string     // the model output as written
+          reply: string   // this.dictionary.resolve(raw).text: what Discord would get
+          emojis: EmojiAnalysis  // analyzeEmojis(raw, this.dictionary.keys())
+          ```
+          - Keep the existing log line, using the new counts.
+
+          Client, `apps/tdr-bot/src/app/playground/conversation.ts` + `page.tsx`:
+          - Assistant `Turn`/`ThreadAction` carry `raw` beside `content` (resolved,
+            displayed).
+          - `toRequestMessages` sends `raw` for assistant turns, which matches production,
+            where the checkpointed history keeps the model's raw output.
+          - `page.tsx` stores `reply.raw`.
+          - Update the intro copy under "Playground" to say the model writes shortcodes,
+            and that repaired and hallucinated ones are counted against the raw output.
+
+          Live test, `apps/tdr-bot/src/llm/testing/live/playground-chat.live.test.ts`:
+          - Build the fixture from rows (same five emojis and ids).
+          - The stub gives:
+            - `promptText` from `formatEmojiDictionary` with `:name:` keys,
+            - `keys` as their `emojiKey`s,
+            - `resolve` as `resolveEmojis` over those keys.
+          - Assert:
+            - `emojis` equals `analyzeEmojis(result.raw, keys)`;
+            - `reply` equals `resolveEmojis(result.raw, keys).text`;
+            - every custom token in `reply` (via `segmentCustomEmojis`) is one of `keys`.
+          - Log the score and the raw reply.
+
+          Tests:
+          - The service returns `raw`, the resolved `reply` and raw-based counts for a
+            scripted output that mixes `:name:`, a wrong-ID token and an unknown
+            shortcode.
+          - The controller fixture includes `raw`.
+          - `toRequestMessages` uses `raw`.
+          - The reducer keeps `raw`.
+      - id: T7
+        title: Live OpenAI check of the shortcode flow
+        after:
+          - T6
+          - T4
+          - T5
+        files: []
+        model: frontier
+        status: done
+        commit: 0014612dc1e9cf6af6da9b88d0a0bd39806c05d0
+        body: |-
+          Run the live playground test against real OpenAI from the repo root. The key
+          is only in the encrypted `apps/tdr-bot/.env.prod`. Decrypt it into the child
+          process only, and never print or write it:
+          `pnpm exec dotenvx run --quiet -fk /home/jeremy/lilnas/.env.keys -f apps/tdr-bot/.env.prod -- pnpm --filter @lilnas/tdr-bot exec jest --testMatch '**/*.live.test.ts' --runInBand --forceExit src/llm/testing/live/playground-chat.live.test.ts`
+          (`LIVE_LLM=1` must also be set in the env). Run it at most 3 times, which stays
+          well under the $0.50 ceiling.
+
+          Report for each model:
+          - the score line, the raw reply and the resolved reply;
+          - whether the model wrote `:name:` shortcodes or still wrote raw tokens;
+          - any repaired or hallucinated refs.
+
+          Change no code. Report as `defects:` any assertion failure, a reply with a
+          custom token outside the fixture keys, or a stripped emoji that left broken
+          spacing.

@@ -6,6 +6,7 @@ import {
   createMockRetryService,
   createTestingModule,
 } from 'src/__tests__/test-utils'
+import { resolveEmojis } from 'src/emojis/emoji-analysis'
 import { EmojiDictionaryService } from 'src/emojis/emoji-dictionary.service'
 import { LlmClient } from 'src/llm/client/llm-client'
 import { FakeLlmClient } from 'src/llm/testing/fake-llm-client'
@@ -131,11 +132,15 @@ function makeEquationImageServiceMock(
   } as unknown as jest.Mocked<EquationImageService>
 }
 
-const FAKE_EMOJI_DICTIONARY = 'FAKE EMOJI DICTIONARY {"<:EZ:1>":"smug"}'
+const FAKE_EMOJI_DICTIONARY = 'FAKE EMOJI DICTIONARY {":EZ:":"smug"}'
+const EZ = '<:EZ:123456789012345678>'
 
 const emojiDictionaryProvider = {
   provide: EmojiDictionaryService,
-  useValue: { promptText: () => FAKE_EMOJI_DICTIONARY },
+  useValue: {
+    promptText: () => FAKE_EMOJI_DICTIONARY,
+    resolve: (text: string) => resolveEmojis(text, [EZ]),
+  },
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -798,6 +803,40 @@ describe('ReminderDeliveryService', () => {
 
       const [system] = mockChatModel.invoke.mock.calls[0][0]
       expect(system.content).toContain(FAKE_EMOJI_DICTIONARY)
+    })
+
+    it('sends the resolved token for a shortcode in the default message', async () => {
+      const sendFn = jest.fn().mockResolvedValue({})
+      const client = makeDiscordClient([
+        makeMockTextChannel('tdr-bot-chat', sendFn),
+      ])
+      const { factory } = makeLlm('Japan soon :EZ: :nope:')
+      service = await buildService(client, factory)
+
+      await service.deliver(
+        createTestReminder({ targetUserIds: ['target-99'] }),
+      )
+
+      expect(sendFn).toHaveBeenCalledWith({
+        content: `<@target-99> Japan soon ${EZ}`,
+      })
+    })
+
+    it('sends the resolved token for a shortcode in the search message', async () => {
+      const sendFn = jest.fn().mockResolvedValue({})
+      const client = makeDiscordClient([
+        makeMockTextChannel('tdr-bot-chat', sendFn),
+      ])
+      const { factory } = makeLlm('Tokyo is sunny :EZ:')
+      service = await buildService(client, factory)
+
+      await service.deliver(
+        createTestReminder({ actionType: 'search', what: 'weather in tokyo' }),
+      )
+
+      expect(sendFn).toHaveBeenCalledWith(
+        expect.objectContaining({ content: `<@user-1> Tokyo is sunny ${EZ}` }),
+      )
     })
 
     it('puts the cached dictionary in the math delivery prompt', async () => {

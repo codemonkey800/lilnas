@@ -173,7 +173,8 @@ export class ReminderDeliveryService {
 
   /**
    * Builds the reminder message with the strategy for its
-   * {@link ReminderActionType}, then prefixes any mentions the model left
+   * {@link ReminderActionType}, resolves the emoji shortcodes the prompt
+   * dictionary taught the model, then prefixes any mentions the model left
    * out. `recordFailures` controls whether strategy fallbacks count toward
    * the reminder failure metric.
    */
@@ -187,7 +188,8 @@ export class ReminderDeliveryService {
       firedAt,
       recordFailures,
     )
-    return { ...message, content: withMentions(reminder, message.content) }
+    const { text } = this.emojiDictionary.resolve(message.content)
+    return { ...message, content: withMentions(reminder, text) }
   }
 
   /** Dispatches to the compose strategy for the reminder's action type. */

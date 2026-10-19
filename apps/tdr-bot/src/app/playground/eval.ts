@@ -18,9 +18,9 @@ export interface EvalRow {
   /** Replies with counts.dictionary >= 1. */
   repliesWithDictionary: number
   dictionary: number
+  repaired: number
   hallucinated: number
   unicode: number
-  shortcode: number
   /** Averages are over successful calls only; 0 when none succeeded. */
   avgCostUsd: number
   avgDurationMs: number
@@ -40,9 +40,9 @@ const emptyRow = (model: string): EvalRow => ({
   failed: 0,
   repliesWithDictionary: 0,
   dictionary: 0,
+  repaired: 0,
   hallucinated: 0,
   unicode: 0,
-  shortcode: 0,
   avgCostUsd: 0,
   avgDurationMs: 0,
 })
@@ -67,9 +67,9 @@ export function summarize(cells: EvalCell[]): EvalRow[] {
     const { counts } = cell.result.emojis
     if (counts.dictionary >= 1) row.repliesWithDictionary++
     row.dictionary += counts.dictionary
+    row.repaired += counts.repaired
     row.hallucinated += counts.hallucinated
     row.unicode += counts.unicode
-    row.shortcode += counts.shortcode
     const total = totals.get(cell.model)
     if (total) {
       total.costUsd += cell.result.usage.costUsd

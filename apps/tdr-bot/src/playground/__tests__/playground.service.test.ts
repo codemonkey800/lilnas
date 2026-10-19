@@ -5,6 +5,7 @@ import {
 } from '@langchain/core/messages'
 
 import { createTestingModule } from 'src/__tests__/test-utils'
+import { resolveEmojis } from 'src/emojis/emoji-analysis'
 import { EmojiDictionaryService } from 'src/emojis/emoji-dictionary.service'
 import { LlmClient } from 'src/llm/client/llm-client'
 import { ModelRegistry } from 'src/llm/models/model-registry'
@@ -25,6 +26,11 @@ const DICTIONARY_TEXT =
   'FAKE EMOJI DICTIONARY {"<:EZ:758414734805696553>":"smug"}'
 const KEYS = ['<:EZ:758414734805696553>', '<a:pog:758414734805696554>']
 const CHAT_MODEL = 'gpt-6-luna'
+// A dictionary shortcode, a wrong-ID token, an unknown shortcode and unicode.
+const RAW_REPLY = 'hi :EZ: <a:pog:758414734805696599> :fake: 😀'
+// The unknown shortcode is dropped along with its surrounding whitespace.
+const RESOLVED_REPLY =
+  'hi <:EZ:758414734805696553> <a:pog:758414734805696554> 😀'
 
 describe('PlaygroundService', () => {
   let service: PlaygroundService
@@ -32,10 +38,7 @@ describe('PlaygroundService', () => {
   let registry: { isAllowedFor: jest.Mock }
 
   beforeEach(async () => {
-    llm = new FakeLlmClient().script(
-      'playground.chat',
-      'hi <:EZ:758414734805696553> <:fake:758414734805696555> 😀',
-    )
+    llm = new FakeLlmClient().script('playground.chat', RAW_REPLY)
     registry = {
       isAllowedFor: jest.fn(
         (id: string, role: string) => id === CHAT_MODEL && role === 'chat',
@@ -59,6 +62,7 @@ describe('PlaygroundService', () => {
           promptText: () => DICTIONARY_TEXT,
           keys: () => KEYS,
           size: () => KEYS.length,
+          resolve: (text: string) => resolveEmojis(text, KEYS),
         },
       },
     ])
@@ -160,11 +164,12 @@ describe('PlaygroundService', () => {
     expect(llm.calls).toHaveLength(0)
   })
 
-  it('returns the reply with usage and an analysis against keys()', async () => {
+  it('returns the raw output, the resolved reply and raw-based counts', async () => {
     const result = await chat()
 
     expect(result).toMatchObject({
-      reply: 'hi <:EZ:758414734805696553> <:fake:758414734805696555> 😀',
+      raw: RAW_REPLY,
+      reply: RESOLVED_REPLY,
       model: CHAT_MODEL,
       usage: { input: 0, output: 0, cached: 0, costUsd: 0 },
       durationMs: 0,
@@ -172,14 +177,23 @@ describe('PlaygroundService', () => {
     })
     expect(result.emojis.counts).toEqual({
       dictionary: 1,
+      repaired: 1,
       hallucinated: 1,
       unicode: 1,
-      shortcode: 0,
     })
-    expect(result.emojis.dictionary[0].raw).toBe('<:EZ:758414734805696553>')
+    expect(result.emojis.dictionary[0]).toMatchObject({
+      raw: ':EZ:',
+      key: '<:EZ:758414734805696553>',
+    })
+    expect(result.emojis.repaired[0]).toMatchObject({
+      raw: '<a:pog:758414734805696599>',
+      key: '<a:pog:758414734805696554>',
+      fixes: ['id'],
+    })
     expect(result.emojis.hallucinated[0]).toMatchObject({
-      name: 'fake',
-      reason: 'unknown',
+      raw: ':fake:',
+      status: 'dropped',
+      key: null,
     })
   })
 })

@@ -265,6 +265,7 @@ function Playground({ settings }: { settings: SettingsResponse }) {
               type: 'assistant',
               id: newId(),
               content: reply.reply,
+              raw: reply.raw,
               meta: {
                 model: reply.model,
                 costUsd: reply.usage.costUsd,
@@ -517,8 +518,9 @@ export default function PlaygroundPage() {
         sx={{ mb: 3, mt: 0.5 }}
       >
         Chat with the bot’s chat model outside Discord to check it uses the
-        custom-emoji dictionary. Custom emojis render inline; made-up ones are
-        flagged.
+        custom-emoji dictionary. The model writes :shortcodes:, which are
+        resolved to real emojis before display, same as in Discord. Repaired and
+        hallucinated ones are counted against the raw output.
       </Typography>
 
       {isLoading && <CircularProgress aria-label="Loading playground" />}
