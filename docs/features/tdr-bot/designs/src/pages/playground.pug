@@ -1,0 +1,259 @@
+extends ../layout/page.pug
+include ../mixins/ui.pug
+
+block title
+  | Playground — tdr-bot mockups
+
+//-
+  An admin chat with the bot's chat model, to check whether a model actually
+  uses the custom-emoji dictionary. Message text is a list of parts: a plain
+  string, { emoji } for a dictionary emoji (rendered as an inline image) or
+  { fake } for a `<:name:id>` the model made up (rendered as a flagged chip).
+block content
+  - const dict = { HYPERS: { id: '564310072822333480', animated: false }, residentsleeper: { id: '564330871851712553', animated: false }, peepoWine: { id: '1266528661318926369', animated: true }, Loading: { id: '1275667821757464687', animated: true } }
+  - const cdn = name => 'https://cdn.discordapp.com/emojis/' + dict[name].id + (dict[name].animated ? '.gif' : '.png')
+  - const models = [{ id: 'gpt-4.1', label: 'GPT-4.1', desc: 'Flagship non-reasoning model. Fast, strong tool use.', inp: 2.0, out: 8.0 }, { id: 'gpt-4.1-mini', label: 'GPT-4.1 mini', desc: 'Cheaper everyday chat. Good default.', inp: 0.4, out: 1.6 }, { id: 'gpt-5', label: 'GPT-5', desc: 'Best reasoning, used for math and planning.', inp: 1.25, out: 10.0 }, { id: 'gpt-5-mini', label: 'GPT-5 mini', desc: 'Reasoning model. Slower, better on hard questions.', inp: 0.25, out: 2.0 }]
+  - const price = m => '$' + m.inp.toFixed(2) + ' in / $' + m.out.toFixed(2) + ' out per 1M'
+  - const selected = models.find(m => m.id === 'gpt-5-mini')
+  - const savedPrompt = 'You are tdr-bot, a helpful assistant in a private Discord server. Keep replies short and friendly. Use tools when they help; never invent links.'
+  - const draftPrompt = savedPrompt + ' Use the server\'s custom emojis whenever they fit.'
+  //- score: { dict, fake, unicode, shortcode }
+  - const turns = [{ who: 'user', parts: ['yo tdr-bot, hyped for the raid tonight?'] }, { who: 'bot', parts: ['Extremely ', { emoji: 'HYPERS' }, ' ', { emoji: 'HYPERS' }, ' — pulling up the loot tables now.'], meta: 'gpt-5-mini · $0.0038 · 1.6 s', score: { dict: 2, fake: 0, unicode: 0, shortcode: 0 } }, { who: 'user', parts: ['lol last time half the group fell asleep'] }, { who: 'bot', parts: ['Rude but fair ', { emoji: 'residentsleeper' }, ' — I\'ll bring the wine this time ', { emoji: 'peepoWine' }, '. Still loading the plan ', { emoji: 'Loading' }], meta: 'gpt-5-mini · $0.0041 · 1.9 s', score: { dict: 3, fake: 0, unicode: 0, shortcode: 0 } }, { who: 'user', parts: ['nice, can you hype everyone up with emotes?'] }, { who: 'bot', parts: ['LET\'S GO ', { emoji: 'HYPERS' }, ' ', { fake: '<:PogU:564310072822333499>' }, ' 🔥🔥 raid at 9, be there ', { emoji: 'peepoWine' }], meta: 'gpt-5-mini · $0.0042 · 1.8 s', score: { dict: 2, fake: 1, unicode: 2, shortcode: 0 } }, { who: 'user', parts: ['what does residentsleeper mean anyway'] }, { who: 'bot', parts: [{ emoji: 'residentsleeper' }, ' is the sleepy face for when something is boring — the opposite of ', { emoji: 'HYPERS' }, '.'], meta: 'gpt-5-mini · $0.0036 · 1.5 s', score: { dict: 2, fake: 0, unicode: 0, shortcode: 0 } }]
+  - const field = 'rounded-lg border border-line bg-bg px-3 py-2 text-sm'
+  - const evalPrompts = ['Hype everyone up for tonight\'s raid.', 'Someone says the meeting was boring. React.', 'Recommend a wine for movie night.', 'Say good morning to the channel.', 'Celebrate a friend\'s birthday.', 'Tell us the download is still running.', 'React to a bad pun.', 'Someone lost a ranked match. Console them.', 'Announce pizza has arrived.', 'Wish the channel good night.']
+  - const evalRows = [{ model: 'gpt-4.1', rate: 0.6, dict: 9, fake: 3, unicode: 7, shortcode: 1, cost: 0.0031, ms: 1100 }, { model: 'gpt-4.1-mini', rate: 0.7, dict: 11, fake: 2, unicode: 4, shortcode: 0, cost: 0.0009, ms: 820 }, { model: 'gpt-5', rate: 0.8, dict: 14, fake: 0, unicode: 2, shortcode: 0, cost: 0.0124, ms: 4300 }, { model: 'gpt-5-mini', rate: 0.9, dict: 16, fake: 1, unicode: 3, shortcode: 0, cost: 0.0042, ms: 1800 }]
+  - const bestRate = Math.max(...evalRows.map(r => r.rate))
+
+  mixin emoji(name)
+    img(src=cdn(name) alt=':' + name + ':' title=':' + name + ':' class='inline-block size-[1.375em] align-middle object-contain')
+
+  mixin unknown(raw)
+    span(class='inline-flex items-center rounded border border-dashed border-bad px-1 align-middle font-mono text-[0.8em] text-bad' title='not in dictionary')= raw
+
+  mixin rich(parts)
+    each p in parts
+      if typeof p === 'string'
+        = p
+      else if p.emoji
+        +emoji(p.emoji)
+      else
+        +unknown(p.fake)
+
+  mixin spinner()
+    span(class='size-3.5 animate-spin rounded-full border-2 border-current border-t-transparent')
+
+  mixin scoreLine(s)
+    div(class='mt-1.5 flex flex-wrap gap-1.5')
+      +chip('ok') #{s.dict} dictionary
+      if s.fake > 0
+        +chip('bad') #{s.fake} hallucinated
+      +chip('warn') #{s.unicode} unicode
+      +chip('muted') #{s.shortcode} shortcode
+
+  mixin user(parts, mobile)
+    div(class='flex justify-end')
+      div(class=(mobile ? 'w-full' : 'max-w-[75%]') + ' rounded-2xl rounded-br-sm bg-accent/25 px-4 py-2.5')
+        div(class='mb-0.5 text-[11px] font-medium text-accent-soft') paulbeenis420
+        div(class='text-sm leading-relaxed')
+          +rich(parts)
+
+  mixin bot(t, mobile)
+    div(class='flex')
+      div(class=mobile ? 'w-full' : 'max-w-[80%]')
+        div(class='rounded-2xl rounded-bl-sm bg-surface px-4 py-2.5')
+          div(class='mb-0.5 text-[11px] font-medium text-ink-3') tdr-bot
+          div(class='text-sm leading-relaxed')
+            +rich(t.parts)
+        div(class='mt-1 px-1 font-mono text-[11px] text-ink-3')= t.meta
+        div(class='px-1')
+          +scoreLine(t.score)
+
+  mixin pending()
+    div(class='flex')
+      div(class='rounded-2xl rounded-bl-sm bg-surface px-4 py-2.5')
+        div(class='mb-0.5 text-[11px] font-medium text-ink-3') tdr-bot
+        div(class='flex items-center gap-2 text-sm text-ink-3')
+          +spinner
+          | Thinking…
+
+  mixin failed()
+    div(class='flex')
+      div(class='max-w-[80%] rounded-2xl rounded-bl-sm border border-bad/40 bg-bad/10 px-4 py-2.5')
+        div(class='mb-0.5 text-[11px] font-medium text-bad') tdr-bot · failed
+        div(class='flex flex-wrap items-center gap-3 text-sm')
+          span gpt-5 timed out after 90 s
+          +btn('ghost')(class='py-1 text-xs') Retry
+
+  //- state: undefined | 'open' (draft expanded) | 'dirty' (collapsed, modified chip)
+  mixin toolbar(state, mobile)
+    div(class='flex flex-wrap items-end gap-3')
+      div(class='min-w-64 flex-1 sm:max-w-sm')
+        label(class='mb-1 block text-xs font-medium text-ink-2') Model
+        div(class='flex items-start justify-between gap-4 rounded-lg border border-line bg-bg px-3 py-2.5')
+          div
+            div(class='text-sm font-medium')= selected.label
+            div(class='mt-1 text-xs leading-relaxed text-ink-3')= selected.desc
+          div(class='shrink-0 text-right text-xs text-ink-2')
+            div= price(selected)
+            div(class='text-ink-3') ▾
+      +btn('ghost') Reset conversation
+    details(class='rounded-lg border border-line bg-surface text-sm' open=state === 'open')
+      summary(class='flex cursor-pointer select-none flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2')
+        span(class='text-ink-3') ▸
+        span(class='whitespace-nowrap font-medium') System prompt draft
+        if state === 'dirty' || state === 'open'
+          +chip('warn') modified
+        span(class=(mobile ? 'w-full pl-5' : 'ml-auto') + ' text-xs text-ink-3') Overrides the saved prompt for this conversation only
+      if state === 'open'
+        div(class='border-t border-line p-3')
+          div(class='min-h-28 rounded-lg border border-accent bg-bg p-3 font-mono text-xs leading-relaxed text-ink-2')= draftPrompt
+          div(class='mt-1.5 flex flex-wrap items-center justify-between gap-2 text-[11px] text-ink-3')
+            span #{draftPrompt.length} / 20000
+            a(class='text-accent-soft') Reset to saved
+          p(class='mt-2 text-xs text-ink-3') The draft is never saved. The intro, input format and emoji dictionary are always appended, same as in production.
+
+  mixin composer(text, disabled)
+    div(class='rounded-xl border border-line bg-surface p-3')
+      div(class='flex items-end gap-3')
+        div(class=field + ' min-h-16 flex-1 ' + (text ? '' : 'text-ink-3'))= text || 'Message tdr-bot…'
+        +btn('primary', disabled) Send
+      p(class='mt-1.5 text-[11px] text-ink-3') Enter to send · Shift+Enter for a newline
+
+  mixin thread(list, mobile)
+    div(class='space-y-3')
+      each t in list
+        if t.who === 'user'
+          +user(t.parts, mobile)
+        else
+          +bot(t, mobile)
+      block
+
+  mixin evalPanel(mobile)
+    +card('Emoji eval', 'Every ticked model answers every prompt once; replies are scored against the dictionary.')
+      div(class='grid gap-5' + (mobile ? '' : ' lg:grid-cols-[16rem_1fr]'))
+        div(class='space-y-4')
+          div
+            div(class='mb-1.5 text-xs font-medium text-ink-2') Models
+            each m in models
+              label(class='flex items-center gap-2 py-1 text-sm')
+                span(class='grid size-4 place-items-center rounded border border-accent-soft bg-accent/25 text-[10px] text-ink') ✓
+                span(class='font-mono')= m.id
+          details(class='text-sm')
+            summary(class='cursor-pointer select-none text-ink-2') 10 prompts
+            ol(class='mt-1.5 list-decimal space-y-1 pl-5 text-xs text-ink-3')
+              each p in evalPrompts
+                li= p
+          div(class='text-xs text-ink-3') ~$0.35 for 40 calls
+          +btn('primary') Run eval
+        div(class='min-w-0 space-y-3')
+          div
+            div(class='mb-1 flex justify-between text-[11px] text-ink-3')
+              span Running…
+              span(class='font-mono') 12 / 40
+            div(class='h-1.5 rounded-full bg-raised')
+              div(class='h-full w-[30%] rounded-full bg-accent')
+          if mobile
+            //- One card per model: name + meta line, headline rate with a bar, then count chips.
+            div(class='space-y-3')
+              each r in evalRows
+                - const best = r.rate === bestRate
+                div(class='rounded-xl border border-line bg-surface p-4')
+                  div(class='flex items-baseline justify-between gap-3')
+                    span(class='font-mono text-sm text-ink')= r.model
+                    span(class='font-mono text-[11px] text-ink-3') $#{r.cost.toFixed(4)} · #{(r.ms / 1000).toFixed(1)} s
+                  div(class='mt-3 flex items-baseline gap-2')
+                    span(class='font-mono text-xl ' + (best ? 'font-bold text-ink' : 'text-ink-2')) #{Math.round(r.rate * 100)}%
+                    span(class='text-xs text-ink-3') reply with ≥1 dictionary emoji
+                  div(class='mt-1.5 h-1 rounded-full bg-raised')
+                    div(class='h-full rounded-full bg-accent' style='width:' + Math.round(r.rate * 100) + '%')
+                  div(class='mt-3 flex flex-wrap gap-1.5 text-[11px]')
+                    span(class='rounded-full bg-raised px-2 py-0.5 text-ink-2') #{r.dict} dictionary
+                    if r.fake
+                      span(class='rounded-full bg-raised px-2 py-0.5 text-bad') #{r.fake} hallucinated
+                    if r.unicode
+                      span(class='rounded-full bg-raised px-2 py-0.5 text-ink-2') #{r.unicode} unicode
+                    if r.shortcode
+                      span(class='rounded-full bg-raised px-2 py-0.5 text-ink-2') #{r.shortcode} shortcode
+          else
+            //- Scrolls sideways when the columns don't fit; the right-edge scrim signals it.
+            div(class='relative')
+              div(class='overflow-x-auto rounded-xl border border-line')
+                table(class='w-full text-left text-xs')
+                  thead(class='bg-surface align-bottom text-ink-3')
+                    tr
+                      each h in ['Model', 'Replies with ≥1 dictionary emoji', 'Dictionary', 'Hallucinated', 'Unicode', 'Shortcode', 'Avg cost', 'Avg latency']
+                        th(class='px-3 py-2.5 font-medium ' + (h.length > 12 ? 'min-w-28' : 'whitespace-nowrap'))= h
+                  tbody(class='font-mono text-ink-2')
+                    each r in evalRows
+                      tr(class='border-t border-line')
+                        td(class='whitespace-nowrap px-3 py-2.5 text-ink')= r.model
+                        td(class='whitespace-nowrap px-3 py-2.5 ' + (r.rate === bestRate ? 'font-bold text-ink' : '')) #{Math.round(r.rate * 100)}%
+                        td(class='px-3 py-2.5')= r.dict
+                        td(class='px-3 py-2.5 ' + (r.fake ? 'text-bad' : ''))= r.fake
+                        td(class='px-3 py-2.5')= r.unicode
+                        td(class='px-3 py-2.5')= r.shortcode
+                        td(class='whitespace-nowrap px-3 py-2.5') $#{r.cost.toFixed(4)}
+                        td(class='whitespace-nowrap px-3 py-2.5') #{(r.ms / 1000).toFixed(1)} s
+              div(class='pointer-events-none absolute inset-y-px right-px w-10 rounded-r-xl bg-gradient-to-l from-bg to-transparent')
+
+  mixin page()
+    div(class='overflow-hidden rounded-xl border border-line bg-bg')
+      +appbar('Playground')
+      div(class='space-y-4 p-5')
+        block
+
+  div.page(class='space-y-8')
+    h1(class='text-2xl font-semibold') Playground
+    p(class='mt-1 text-sm text-ink-2') Chat with the bot's chat model outside Discord to check it uses the custom-emoji dictionary. Custom emojis render inline; made-up ones are flagged. Each frame below is the same screen in a different state.
+    +frame('1 · Conversation (desktop)', 'Four turns; the third reply has a hallucinated emoji and two unicode ones.')
+      +page
+        +toolbar('dirty')
+        +thread(turns)
+        +composer()
+    +frame('2 · Prompt draft expanded', 'Draft textarea prefilled with the saved prompt; never saved.')
+      +page
+        +toolbar('open')
+        +thread(turns.slice(0, 2))
+        +composer()
+    +frame('3 · Waiting', 'Last user message sent; reply pending, Send disabled.')
+      +page
+        +toolbar
+        +thread(turns.slice(0, 3))
+          +pending
+        +composer(null, true)
+    +frame('4 · Error', 'The last turn failed; the input keeps its text.')
+      +page
+        +toolbar
+        +thread(turns.slice(0, 3))
+          +failed
+        +composer('lol last time half the group fell asleep')
+    +frame('5 · Empty', 'No messages yet.')
+      +page
+        +toolbar
+        div(class='grid place-items-center rounded-xl border border-dashed border-line py-16 text-center')
+          div
+            div(class='text-3xl')
+              +emoji('HYPERS')
+            div(class='mt-2 text-sm font-medium') Pick a model and say something.
+            p(class='mt-1 text-xs text-ink-3') Replies use the real system prompt and emoji dictionary.
+        +composer()
+    +frame('6 · Eval panel', 'Under the thread: four models × ten prompts, run in progress, partial results.')
+      +page
+        +toolbar
+        +thread(turns.slice(0, 2))
+        +evalPanel
+    +frame('7 · Mobile', 'Narrow frame (≤ 420 px); toolbar wraps, bubbles full width, chips wrap.')
+      div(class='mx-auto w-full max-w-[420px]')
+        div(class='overflow-hidden rounded-xl border border-line bg-bg')
+          +appbar('Playground')
+          div(class='space-y-4 p-4')
+            +toolbar('dirty', true)
+            +thread(turns.slice(2, 6), true)
+            +composer()
+    +frame('8 · Eval panel (mobile)', 'Narrow frame (≤ 420 px); results become one card per model instead of a table.')
+      div(class='mx-auto w-full max-w-[420px]')
+        div(class='overflow-hidden rounded-xl border border-line bg-bg')
+          +appbar('Playground')
+          div(class='space-y-4 p-4')
+            +toolbar(null, true)
+            +evalPanel(true)

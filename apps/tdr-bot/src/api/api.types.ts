@@ -6,6 +6,7 @@ import type {
   ReminderSource,
   ReminderStatus,
 } from 'src/db/schema'
+import type { EmojiAnalysis } from 'src/emojis/emoji-analysis'
 import type { ReconcileStatus } from 'src/emojis/emoji-sync.service'
 import type { Settings } from 'src/llm/settings/settings.schema'
 import type { ReminderActionType } from 'src/reminders/reminder.types'
@@ -162,4 +163,27 @@ export interface EmojiListResponse {
 
 export interface UpdateEmojiBody {
   description: string
+}
+
+export interface PlaygroundMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface PlaygroundChatBody {
+  model: string
+  messages: PlaygroundMessage[]
+  /** Replaces the saved system prompt for this call when non-empty. */
+  systemPromptDraft?: string
+  /** Discord-style author name stamped on user messages. */
+  author?: string
+}
+
+export interface PlaygroundChatResponse {
+  reply: string
+  model: string
+  usage: { input: number; output: number; cached: number; costUsd: number }
+  durationMs: number
+  emojis: EmojiAnalysis
+  dictionarySize: number
 }

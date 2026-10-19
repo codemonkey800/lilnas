@@ -1,0 +1,510 @@
+nexus-tasks: 1
+phases:
+  - key: '1'
+    name: Mockup, analyzer, backend, renderer
+    tasks:
+      - id: T1
+        title: 'Mockup: Playground page and rendered emojis in Transcript'
+        after: []
+        files:
+          - docs/features/tdr-bot/designs/playground.html
+          - docs/features/tdr-bot/designs/
+        model: frontier
+        status: done
+        commit: 57a31bfb181065c565f138dad9dc4ef785b41365
+        body: |-
+          Add `docs/features/tdr-bot/designs/src/pages/playground.pug`, link it from
+          `src/pages/index.pug` with a one-line description, add "Playground" after
+          "Emojis" in the `+appbar` nav list in `src/mixins/ui.pug`, add one frame to
+          `src/pages/transcript.pug`, build with `pnpm mockups` from the repo root, run
+          `pnpm run mockups:lint:fix`, and commit the Pug plus every generated `*.html`
+          the build touched. Read `docs/features/tdr-bot/designs/README.md` first and
+          imitate `src/pages/emojis.pug`: `extends ../layout/page.pug`, `include
+          ../mixins/ui.pug`, one `+frame(label, note)` per state, sample data as Pug
+          locals at the top, Tailwind utilities from `src/theme.css` only.
+
+          Playground = an admin chat with the bot's chat model to check whether a
+          model uses the custom-emoji dictionary. Custom emojis render inline as
+          images (`https://cdn.discordapp.com/emojis/<id>.png`, `.gif` when animated;
+          real ids: HYPERS 564310072822333480, residentsleeper 564330871851712553,
+          peepoWine (animated) 1266528661318926369, Loading 1275667821757464687) at
+          about 1.375em, vertically centred with the text. An emoji the model made up
+          (right `<:name:id>` shape, not in the dictionary) renders as its raw text in
+          a red dashed outline chip with a "not in dictionary" tooltip.
+
+          Frames, each a full page under the app bar with "Playground" active:
+          - **Conversation (desktop)**: a toolbar with a model dropdown (same look as
+            the Settings page's model select: label, description, "$x in / $y out per
+            1M"; show "GPT-5 mini" selected), a "Reset conversation" button, and a
+            collapsible "System prompt draft" section (collapsed, with a "modified"
+            chip when the draft differs from the saved prompt). Below, the thread: four
+            turns of user (right, accent bubble, name "paulbeenis420") and assistant
+            (left, paper bubble, "tdr-bot") with rendered emojis; under each assistant
+            bubble a muted meta line "gpt-5-mini · $0.0042 · 1.8 s" and a score line
+            with four chips: "5 dictionary" (ok tone), "1 hallucinated" (bad tone, only
+            when > 0), "2 unicode" (warn tone), "0 shortcode" (muted). One reply
+            includes a hallucinated emoji chip and a unicode emoji so the flags show.
+            At the bottom a multiline input with a Send button and a hint "Enter to
+            send · Shift+Enter for a newline".
+          - **Prompt draft expanded**: the draft section open: a monospace textarea
+            prefilled with the saved prompt, a "N / 20000" counter, "Reset to saved"
+            and a note that the draft is never saved and that the intro, input format
+            and emoji dictionary are always appended.
+          - **Waiting**: the last user message sent, an assistant bubble with a
+            typing/spinner placeholder, Send disabled.
+          - **Error**: the last turn failed: an inline error bubble ("gpt-5 timed out
+            after 90 s") with a Retry button; the input keeps the text.
+          - **Empty**: no messages yet, a short explainer ("Pick a model and say
+            something. Replies use the real system prompt and emoji dictionary.").
+          - **Eval panel**: a card under the thread (or a second tab) titled "Emoji
+            eval": a checklist of chat models (4 ticked), "10 prompts" with a disclosure
+            listing them, an estimated cost line ("~$0.35 for 40 calls"), a "Run eval"
+            button, a progress bar ("12 / 40"), and a results table with columns Model
+            · Replies with ≥1 dictionary emoji · Dictionary · Hallucinated · Unicode ·
+            Shortcode · Avg cost · Avg latency, four rows, best dictionary rate bold.
+          - **Mobile** (≤ 420 px): the conversation frame stacked: toolbar wraps,
+            bubbles full width, score chips wrap.
+
+          Transcript: add one frame to `src/pages/transcript.pug` showing a channel
+          conversation where assistant and user bubbles contain rendered custom emojis
+          (inline images) and one unknown-emoji chip, otherwise identical to the
+          existing populated frame.
+      - id: H1
+        title: Review the Playground mockup
+        after:
+          - T1
+        files:
+          - docs/features/tdr-bot/designs/playground.html
+          - docs/features/tdr-bot/designs/transcript.html
+        status: approved
+        body: |-
+          Open `docs/features/tdr-bot/designs/playground.html` and the new frame in
+          `transcript.html`. Confirm the toolbar layout, the per-reply meta and score
+          lines, how a hallucinated emoji is flagged, the prompt-draft section, and the
+          Eval panel's table columns. Request changes with pin comments; approve to let
+          the page and eval tasks start.
+      - id: T2
+        title: Pure emoji analyzer and tokenizer (`src/emojis/emoji-analysis.ts`)
+        after: []
+        files:
+          - apps/tdr-bot/src/emojis/emoji-analysis.ts
+          - apps/tdr-bot/src/emojis/__tests__/emoji-analysis.test.ts
+        model: frontier
+        status: done
+        commit: 20b453d13263c684c91539f1f8bbd1f9c061f193
+        body: |-
+          Create `apps/tdr-bot/src/emojis/emoji-analysis.ts`: pure functions, no Nest,
+          Node or discord.js imports (the Next.js client bundle imports it too), and a
+          Jest spec `apps/tdr-bot/src/emojis/__tests__/emoji-analysis.test.ts`.
+
+          ```ts
+          export interface CustomEmojiRef {
+            raw: string      // '<a:peepoWine:1266528661318926369>'
+            name: string
+            id: string
+            animated: boolean
+            start: number    // offset of raw in the input
+            end: number
+          }
+          export type ContentSegment =
+            | { kind: 'text'; text: string }
+            | { kind: 'emoji'; emoji: CustomEmojiRef }
+          /** Splits text into plain runs and custom-emoji tokens, in order; no empty text runs. */
+          export function segmentCustomEmojis(text: string): ContentSegment[]
+
+          export type HallucinationReason = 'unknown' | 'name-mismatch' | 'animated-mismatch'
+          export interface EmojiAnalysis {
+            counts: { dictionary: number; hallucinated: number; unicode: number; shortcode: number }
+            dictionary: CustomEmojiRef[]
+            hallucinated: (CustomEmojiRef & { reason: HallucinationReason })[]
+            unicode: string[]     // each matched unicode emoji sequence
+            shortcodes: string[]  // bare ':name:' occurrences, name only
+          }
+          /** dictionaryKeys are the prompt's keys: '<:name:id>' / '<a:name:id>'. */
+          export function analyzeEmojis(text: string, dictionaryKeys: Iterable<string>): EmojiAnalysis
+          /** '5 dictionary · 1 hallucinated · 2 unicode · 0 shortcode' */
+          export function formatEmojiScore(counts: EmojiAnalysis['counts']): string
+          ```
+
+          Rules:
+          - Custom emoji token: `<(a?):([A-Za-z0-9_]{2,32}):(\d{17,20})>`. A token
+            whose exact raw text is a dictionary key is `dictionary`. Otherwise it is
+            `hallucinated` with reason `name-mismatch` when the id exists in the
+            dictionary under another name, `animated-mismatch` when name and id match
+            but the `a` prefix differs, else `unknown`. Parse keys with the same
+            regex; ignore keys that don't parse.
+          - Shortcodes are scanned only in the text segments (never inside a custom
+            token): `:name:` where name is `[A-Za-z][A-Za-z0-9_]{1,31}` and the
+            colons are not adjacent to another `:` or word character, so `12:30:45`,
+            `https://x`, and `<:EZ:1>` are not shortcodes.
+          - Unicode emoji: `\p{Extended_Pictographic}` sequences with optional
+            `\p{Emoji_Modifier}`, U+FE0F, and ZWJ-joined pictographs, plus regional
+            indicator pairs; exclude U+00A9, U+00AE, U+2122 (©®™ are pictographic by
+            property). Count each sequence once (`👨‍👩‍👧` is one, `👍🏽` is one).
+          - Every count equals its list's length; the same emoji used twice counts
+            twice; text with none returns zero counts and empty lists; empty text is
+            fine.
+          Tests cover: each classification with the reason, both animated forms, a
+            reply with all four kinds at once, segment offsets round-trip (joining
+            segments reproduces the input), the shortcode negatives above, the
+            unicode cases above, and `formatEmojiScore` wording for 0/1/many.
+      - id: T3
+        title: Extract `ModelSelect` to `src/components/ModelSelect.tsx`
+        after: []
+        files:
+          - apps/tdr-bot/src/components/ModelSelect.tsx
+          - apps/tdr-bot/src/app/settings/page.tsx
+        model: frontier
+        status: done
+        commit: 1d371784da95d176bba29ec9590b26fb532b0bd7
+        body: |-
+          Move `ModelOption`, `priceLabel`, `usd` and `ModelSelect` out of
+          `apps/tdr-bot/src/app/settings/page.tsx` into a new `'use client'` module
+          `apps/tdr-bot/src/components/ModelSelect.tsx`, exporting `ModelSelect` and
+          `ModelOption` and `priceLabel` with their current props and behaviour
+          (`role`, `label`, `value`, `error?`, `disabled?`, `onChange(id)`; unknown
+          current value shown as a disabled item while the catalog loads). Add
+          optional `size?: 'small' | 'medium'` and `sx?: SxProps<Theme>` props
+          forwarded to the `TextField`. The Settings page imports it and renders
+          exactly as before; no other behaviour change. Keep the imports sorted the
+          way eslint wants (`pnpm --filter @lilnas/tdr-bot lint:fix`).
+      - id: T4
+        title: '`POST /playground/chat`: stateless chat with emoji analysis'
+        after:
+          - T2
+        files:
+          - apps/tdr-bot/src/playground/
+          - apps/tdr-bot/src/api/playground.controller.ts
+          - apps/tdr-bot/src/api/playground.schema.ts
+          - apps/tdr-bot/src/api/api.types.ts
+          - apps/tdr-bot/src/api/api.module.ts
+          - apps/tdr-bot/src/api/__tests__/playground.controller.test.ts
+          - apps/tdr-bot/src/emojis/emoji-dictionary.service.ts
+          - apps/tdr-bot/src/emojis/__tests__/emoji-dictionary.service.test.ts
+          - apps/tdr-bot/src/messages/prompts/prompt.service.ts
+          - apps/tdr-bot/src/messages/prompts/__tests__/prompt-service.test.ts
+        model: frontier
+        status: done
+        commit: a36f29e71c2920d5fd8d6b89ff7cd5363d310deb
+        body: |-
+          Backend for the playground. The analyzer exists at
+          `src/emojis/emoji-analysis.ts` (`analyzeEmojis(text, dictionaryKeys)` →
+          `EmojiAnalysis`; `formatEmojiScore`).
+
+          1. `EmojiDictionaryService` (`src/emojis/emoji-dictionary.service.ts`): add
+             `keys(): readonly string[]` returning the cached entry keys in prompt
+             order (what the model was shown). Test it beside the existing spec.
+          2. `PromptService.getSystemPrompt(options?: { systemPrompt?: string })`
+             (`src/messages/prompts/prompt.service.ts`): an override replaces
+             `settings.systemPrompt` only; intro, input format and dictionary stay.
+             Existing callers pass nothing and are unchanged. Test the override and
+             that an empty options object equals the saved prompt.
+          3. `src/api/playground.schema.ts`, zod 4 (`z.strictObject`, as
+             `emojis.schema.ts`):
+             ```ts
+             export const playgroundChatBodySchema = z.strictObject({
+               model: z.string().min(1),
+               messages: z.array(z.strictObject({
+                 role: z.enum(['user', 'assistant']),
+                 content: z.string().trim().min(1).max(4000),
+               })).min(1).max(40),
+               systemPromptDraft: z.string().max(20_000).optional(),
+               author: z.string().trim().min(1).max(32).optional(), // default 'paulbeenis420'
+             }).refine(b => b.messages.at(-1)?.role === 'user', { path: ['messages'], message: 'The last message must be from the user' })
+             ```
+          4. Types in `src/api/api.types.ts`:
+             ```ts
+             export interface PlaygroundMessage { role: 'user' | 'assistant'; content: string }
+             export interface PlaygroundChatBody { model: string; messages: PlaygroundMessage[]; systemPromptDraft?: string; author?: string }
+             export interface PlaygroundChatResponse {
+               reply: string
+               model: string
+               usage: { input: number; output: number; cached: number; costUsd: number }
+               durationMs: number
+               emojis: EmojiAnalysis            // import type from src/emojis/emoji-analysis
+               dictionarySize: number
+             }
+             ```
+          5. `src/playground/playground.service.ts` + `playground.module.ts`
+             (imports `LlmCoreModule`, `PromptsModule`, `EmojiDictionaryModule`;
+             never `LLMModule`, the graph, or the checkpointer). `chat(body)`:
+             - `registry.isAllowedFor(body.model, 'chat')` else throw
+               `PlaygroundModelError` (class with `name` set) → the controller maps it
+               to 400 `{ message }`.
+             - messages = `[promptService.getSystemPrompt({ systemPrompt: draft })`
+               (only when `systemPromptDraft` is a non-empty trimmed string; an
+               empty/whitespace draft means "use saved"), then each history entry as
+               `HumanMessage({ content, name: toMessageName(author) })`
+               (`src/llm/conversation/message-name.ts`) or `AIMessage(content)`].
+             - `llm.call({ operation: 'playground.chat', role: 'chat', messages,
+               overrides: { model, timeoutMs: 90_000 } })`; no schema, no tools.
+             - returns `{ reply: result.output, model: result.model, usage,
+               durationMs, emojis: analyzeEmojis(result.output, dictionary.keys()),
+               dictionarySize: dictionary.size() }` and logs `({ model, usage,
+               durationMs, counts }, 'playground.chat')`.
+          6. `src/api/playground.controller.ts`: `@Controller('playground')`,
+             `@Post('chat')` with `ZodValidationPipe(playgroundChatBodySchema)`; an
+             `LlmTimeoutError` (`src/llm/client/default-llm-client.ts`) → 504
+             `GatewayTimeoutException`, any other provider error → 502
+             `BadGatewayException(getErrorMessage(err))`. Register the controller in
+             `src/api/api.module.ts` and import `PlaygroundModule` there.
+          Tests: `src/playground/__tests__/playground.service.test.ts` with
+          `FakeLlmClient` (operation `playground.chat`): the system message content
+          starts with `PROMPT_INTRO`, contains the draft instead of the saved prompt
+          when given (and the saved one when the draft is empty), ends with the
+          dictionary text; history maps to Human/AI messages with the author name;
+          `overrides.model` is the requested model; a non-chat or unknown model
+          throws before any call; the analysis is computed against `keys()`.
+          `src/api/__tests__/playground.controller.test.ts` over HTTP like
+          `emojis.controller.test.ts` (provide a mocked `PlaygroundService`): 200
+          shape, 400 for an empty body, an assistant-last history, an unknown field,
+          and a disallowed model; 504 on `LlmTimeoutError`; 502 on a generic error.
+      - id: T5
+        title: '`<DiscordContent>` renderer, used by the Transcript'
+        after:
+          - T2
+        files:
+          - apps/tdr-bot/src/components/DiscordContent.tsx
+          - apps/tdr-bot/src/queries/useEmojiLookup.ts
+          - apps/tdr-bot/src/app/transcript/page.tsx
+        model: frontier
+        status: done
+        commit: c29f71a5375103696ab625d0e1fe6e7ff8bf8aad
+        body: |-
+          Create `apps/tdr-bot/src/components/DiscordContent.tsx` (`'use client'`) and
+          `apps/tdr-bot/src/queries/useEmojiLookup.ts`, then use the renderer in the
+          Transcript's `Item` (`apps/tdr-bot/src/app/transcript/page.tsx`, the
+          `Typography` that prints `item.message.content` with `whiteSpace:
+          'pre-wrap'`), for both human and assistant bubbles. Tool `<pre>` blocks stay
+          as they are. Full Discord markdown is out of scope: emojis only.
+
+          ```ts
+          // useEmojiLookup.ts: wraps useEmojis() (src/queries/useEmojis.ts)
+          export interface EmojiLookup { byId: Map<string, EmojiView>; isLoading: boolean }
+          export function useEmojiLookup(): EmojiLookup
+
+          // DiscordContent.tsx
+          export interface DiscordContentProps { text: string; lookup?: EmojiLookup; sx?: SxProps<Theme>; variant?: TypographyProps['variant'] }
+          export function DiscordContent(props: DiscordContentProps): JSX.Element
+          ```
+          Behaviour: `segmentCustomEmojis(text)` from `src/emojis/emoji-analysis.ts`;
+          text runs render as-is inside a `Typography` with `whiteSpace: 'pre-wrap'`
+          and `overflowWrap: 'anywhere'` (same as today); each emoji token renders a
+          `<Box component="img">` from `https://cdn.discordapp.com/emojis/<id>.<png|gif>`
+          (gif when the token is animated; prefer `lookup.byId.get(id).imageUrl` when
+          known), `height: '1.375em', width: 'auto', verticalAlign: 'middle'`,
+          `alt=':name:'`, `title` = the raw token, `loading="lazy"`. When `lookup` is
+          given and loaded and the id is not in `byId`, render the raw token text in a
+          `Chip`-like inline span with a dashed `error.main` outline and `title="Not in
+          the emoji dictionary"`; a known but deleted row renders the image at 0.5
+          opacity. With no `lookup` (or while loading) every token renders as an
+          image. If the image fails to load (`onError`), fall back to the raw token
+          text. `DiscordContent` calls no hooks that need the lookup itself; the page
+          calls `useEmojiLookup()` once and passes it down. In the Transcript, call
+          `useEmojiLookup()` in `TranscriptPage` and thread it to `Item`.
+          Note `next/no-img-element`: either use `Box component="img"` with an
+          `eslint-disable-next-line` and a comment (the CDN host isn't configured for
+          `next/image`) or whatever the Emojis page's `EmojiImage` already does that
+          lint accepts; the result must lint clean.
+          No Jest test (tsx); the tokenizer is tested in its own spec. Run the
+          Transcript's existing spec to confirm nothing else changed.
+      - id: T6
+        title: Live OpenAI check of the playground service
+        after:
+          - T4
+        files:
+          - apps/tdr-bot/src/llm/testing/live/playground-chat.live.test.ts
+        model: frontier
+        status: done
+        commit: 724aae79ce209bde6f45bfb162ac276a3a5ff90b
+        body: |-
+          Add `apps/tdr-bot/src/llm/testing/live/playground-chat.live.test.ts`
+          mirroring `emoji-describe.live.test.ts` (`describeLive`, `LiveLlm`,
+          `recordCost`, `MAX_RUN_COST_USD`). Build `PlaygroundService` by hand:
+          `live.client`, `new ModelRegistry()`, a `PromptService` made from
+          `{ get: () => defaultSettings() } as SettingsService` and a stub
+          `EmojiDictionaryService` whose `promptText()` is
+          `formatEmojiDictionary(FIXTURE)`, `keys()` the fixture keys and `size()` its
+          length, where `FIXTURE` is five real emojis with short descriptions
+          (HYPERS 564310072822333480, residentsleeper 564330871851712553, peepoWine
+          animated 1266528661318926369, Loading 1275667821757464687, plus one more
+          taken from `git show fd231f2e:apps/tdr-bot/src/utils/emojis.ts`). One
+          `it.each` over
+          `['gpt-4-turbo', 'gpt-5-mini']` sending "say hi to the server and tell me
+          how your day is going" with `maxTokens` left default: assert a non-empty
+          reply, `model` echoes the request, `costUsd > 0`, and log
+          `[live] <model>: <formatEmojiScore(counts)>` plus the reply. Do not assert
+          on emoji counts (that's what the playground measures). Cap: 2 calls, well
+          under the run ceiling.
+
+          Run it: `LIVE_LLM=1 DEBUG=1 pnpm --filter @lilnas/tdr-bot exec jest
+          --runInBand --forceExit src/llm/testing/live/playground-chat.live.test.ts`
+          (the key is loaded from `apps/tdr-bot/.env`; never print it). Report in
+          `notes`: pass/fail per model, the score lines, the cost, and anything that
+          suggests the service or analyzer is wrong (as `defects:`). The file is
+          excluded from the normal jest run by `jest.config.js`; confirm the scoped
+          check still passes.
+  - key: '2'
+    name: Playground page and eval
+    tasks:
+      - id: T7
+        title: '`/playground` page: model, thread, prompt draft, score lines'
+        after:
+          - H1
+          - T3
+          - T4
+          - T5
+        files:
+          - apps/tdr-bot/src/app/playground/
+          - apps/tdr-bot/src/api/api.client.ts
+          - apps/tdr-bot/src/queries/usePlayground.ts
+          - apps/tdr-bot/src/components/AppShell.tsx
+        model: frontier
+        status: done
+        commit: 066926ea7d1d4d3defb5c837dab4da4ea91f5f8e
+        body: |-
+          Build `apps/tdr-bot/src/app/playground/page.tsx` to match the approved
+          mockup `docs/features/tdr-bot/designs/playground.html` (conversation,
+          prompt draft expanded, waiting, error, empty, mobile frames; the Eval panel
+          is a later task: leave a `{/* eval */}` slot under the thread). Add
+          `{ href: '/playground', label: 'Playground' }` after Emojis in `NAV_LINKS`
+          (`src/components/AppShell.tsx`).
+
+          Pieces, in the files named:
+          - `src/api/api.client.ts`: `playgroundChat(body: PlaygroundChatBody):
+            Promise<PlaygroundChatResponse>` → `POST /playground/chat` via
+            `parseOrThrow` (types already in `src/api/api.types.ts`).
+          - `src/queries/usePlayground.ts`: `usePlaygroundChat()` = `useMutation`
+            over `playgroundChat`, no cache invalidation.
+          - `src/app/playground/conversation.ts` (pure, tested in
+            `src/app/playground/__tests__/conversation.test.ts`): the thread state
+            and reducer:
+            ```ts
+            export type Turn =
+              | { id: string; role: 'user'; content: string }
+              | { id: string; role: 'assistant'; content: string; meta: { model: string; costUsd: number; durationMs: number; emojis: EmojiAnalysis } }
+              | { id: string; role: 'error'; message: string; retryOf: string }
+            export function toRequestMessages(turns: Turn[]): PlaygroundMessage[] // user/assistant only, errors dropped
+            export function formatMeta(meta): string  // 'gpt-5-mini · $0.0042 · 1.8 s' (cost 4 dp, seconds 1 dp)
+            ```
+            Tests: error turns are dropped from the request; a retry re-sends the
+            same history; meta formatting for < $0.0001 (show '< $0.0001'), ≥ 1 s, and
+            ms values.
+          - Page state: model id (default = `useSettings().data.models.chat`),
+            `turns`, the input text, the draft (prefilled from
+            `settings.systemPrompt`; "Reset to saved" restores it; a "modified" chip
+            when it differs; the draft is sent only when it differs from the saved
+            prompt, so an untouched draft behaves exactly like production). Send is
+            disabled while a request is pending or the input is blank; Enter sends,
+            Shift+Enter inserts a newline. On success push an assistant turn with the
+            meta; on failure push an error turn (message from `ApiRequestError`) with
+            Retry, keep the input. "Reset conversation" clears the turns (confirm
+            only when there are turns). Use `ModelSelect` from
+            `src/components/ModelSelect.tsx` with `role="chat"` and `size="small"`.
+          - Each assistant bubble renders its content with `DiscordContent`
+            (`src/components/DiscordContent.tsx`, lookup from `useEmojiLookup()`
+            called once in the page), then the meta line, then the score chips: four
+            `Chip`s in the mockup's tones from `meta.emojis.counts`; the hallucinated
+            chip is only shown when > 0 and lists the raw tokens in its `title`.
+            Human bubbles use `DiscordContent` too.
+          - Layout like `src/app/settings/page.tsx` (`maxWidth` ~ 880, `p`
+            responsive), bubbles like the Transcript's `Item`.
+          Keep page logic that can live in `.ts` out of the `.tsx` so it is tested.
+      - id: T8
+        title: 'Eval panel: fixed prompts × models through `/playground/chat`'
+        after:
+          - T7
+        files:
+          - apps/tdr-bot/src/app/playground/
+        model: frontier
+        status: done
+        commit: 37bb4c9c76e44f36c7210742de8bbdeeaab8dc89
+        body: |-
+          Add the "Emoji eval" panel to `apps/tdr-bot/src/app/playground/page.tsx`
+          per the approved mockup's Eval frame, in these new files under
+          `apps/tdr-bot/src/app/playground/`:
+          - `eval-prompts.ts`: `export const EVAL_PROMPTS: readonly string[]`, ten
+            short messages a TDR member would send (a greeting, "how's your day",
+            "rate my new keyboard", a Jack/Kristian/David roast request, "hype me up
+            for the gym", "what should we play tonight", a sad one, a "that's cap"
+            reaction, a food question, a "goodnight"). No emojis in the prompts.
+          - `eval.ts` (pure, tested in `__tests__/eval.test.ts`):
+            ```ts
+            export interface EvalCell { model: string; prompt: string; result?: PlaygroundChatResponse; error?: string }
+            export interface EvalRow {
+              model: string; calls: number; failed: number
+              repliesWithDictionary: number   // replies with counts.dictionary >= 1
+              dictionary: number; hallucinated: number; unicode: number; shortcode: number
+              avgCostUsd: number; avgDurationMs: number
+            }
+            export function summarize(cells: EvalCell[]): EvalRow[]       // one row per model, in input order
+            export function estimateCostUsd(models: ModelSpec[], prompts: number, promptTokens: number, replyTokens: number): number // pricing per 1M; null pricing counts 0
+            export function bestDictionaryRate(rows: EvalRow[]): string | null // model with the highest repliesWithDictionary/calls, ties → first
+            ```
+            Tests: summarize with mixed successes/failures, averages over
+            successes only, zero-call rows, estimate with a null-pricing model, and
+            best-rate ties.
+          - `EvalPanel.tsx`: a checklist of `useModels('chat')` (saved chat model
+            ticked by default), the prompt list in a `details`, the estimate
+            (`estimateCostUsd(ticked, 10, 6000, 150)`, label "~$x for N calls"),
+            "Run eval" which runs each prompt for each ticked model as a fresh
+            one-message conversation (same draft rule as the thread: the draft is
+            sent only when modified) through `playgroundChat`, at most 2 requests in
+            flight, with a `LinearProgress` "k / N" and a Cancel button (an
+            `AbortController` checked between calls; in-flight calls finish). When
+            done, the results table from `summarize` with the mockup's columns, the
+            best row bold, failures shown as "n failed" in the model cell, and an
+            expandable per-prompt view under each row showing the reply via
+            `DiscordContent` and its score line. Results stay until the next run or
+            Reset conversation (which doesn't clear them). Running disables the
+            thread's Send.
+  - key: R1
+    name: Mockup review (H1)
+    tasks:
+      - id: R1
+        title: Round 1 · Address 4 review comments on playground.html
+        after:
+          - T1
+        files:
+          - docs/features/tdr-bot/designs/playground.html
+        status: done
+        commit: 4b5df91749d5d4b72a26ef3c3a661d87240de2a7
+        body: |-
+          Design review of `docs/features/tdr-bot/designs/playground.html`, round 1:
+
+          1. region over <div> "tdr-bot Settings Transcript Reminders Emojis Playground Mod…" in scene "Mobile"
+             - selector: `body > main:nth-of-type(1) > div:nth-of-type(1) > section:nth-of-type(7) > div:nth-of-type(2)` at fx 0.27, fy 0.00, fw 0.45, fh 0.12
+             - **user:** we should fix the mobile top nav, it's broken on here
+             - screenshot 1 attached
+          2. region over <div> "▸ System prompt draft modified Overrides the saved prompt f…" in scene "Mobile"
+             - selector: `body > main:nth-of-type(1) > div:nth-of-type(1) > section:nth-of-type(7) > div:nth-of-type(2)` at fx 0.28, fy 0.27, fw 0.44, fh 0.13
+             - **user:** this is too crowded, we should fix it. too much line wrapping
+             - screenshot 2 attached
+          3. region over <div> "Shortcode Avg cost Avg latency $0.0031 1.1 s $0.0009 0.8 s …" in scene "Eval panel"
+             - selector: `body > main:nth-of-type(1) > div:nth-of-type(1) > section:nth-of-type(6) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2)` at fx 0.88, fy 0.64, fw 0.12, fh 0.31
+             - **user:** is this scrollable for long tables or something? if it is, we should add some kind of shadow scrim. if not, we should fix it so that it fits all items
+             - screenshot 3 attached
+          4. region over <div> "Running… 12 / 40 Model Replies with ≥1 dictionary emoji Dic…" in scene "Eval panel"
+             - selector: `body > main:nth-of-type(1) > div:nth-of-type(1) > section:nth-of-type(6) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2)` at fx 0.27, fy 0.61, fw 0.73, fh 0.35
+             - **user:** we should have mobile designs for this table
+             - screenshot 4 attached
+
+          Resolve each thread with `nexus_design_review` and a one-line note when it is addressed.
+      - id: R2
+        title: Round 2 · Address 1 review comment on playground.html
+        after:
+          - T1
+          - R1
+        files:
+          - docs/features/tdr-bot/designs/playground.html
+        status: done
+        commit: 13adbaa2af250832e4f7eee563396e6510c7aa77
+        body: |-
+          Design review of `docs/features/tdr-bot/designs/playground.html`, round 2:
+
+          1. region over <div> "React to a bad pun. Someone lost a ranked match. Console th…" in scene "Eval panel (mobile)"
+             - selector: `body > main:nth-of-type(1) > div:nth-of-type(1) > section:nth-of-type(8) > div:nth-of-type(2)` at fx 0.26, fy 0.55, fw 0.44, fh 0.43
+             - **user:** these seem very crowded, can we improve this?
+             - screenshot 1 attached
+
+          Resolve each thread with `nexus_design_review` and a one-line note when it is addressed.

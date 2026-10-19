@@ -52,6 +52,11 @@ export class EmojiDictionaryService implements OnModuleInit {
     return this.text
   }
 
+  /** The cached keys in prompt order: exactly what the model was shown. */
+  keys(): readonly string[] {
+    return Object.keys(this.entries)
+  }
+
   size(): number {
     return Object.keys(this.entries).length
   }

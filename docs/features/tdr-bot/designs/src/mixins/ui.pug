@@ -35,8 +35,8 @@ mixin chip(tone)
 
 //- The admin app bar; `active` is the nav label of the current page.
 mixin appbar(active)
-  div(class='flex items-center gap-6 border-b border-line bg-surface px-4 py-3')&attributes(attributes)
-    span(class='font-semibold') tdr-bot
-    nav(class='flex gap-4 text-sm')
-      each item in ['Settings', 'Transcript', 'Reminders', 'Emojis']
-        a(class=item === active ? 'border-b-2 border-accent pb-0.5 font-medium text-ink' : 'text-ink-2')= item
+  div(class='flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-line bg-surface px-4 py-3')&attributes(attributes)
+    span(class='whitespace-nowrap font-semibold') tdr-bot
+    nav(class='flex flex-wrap gap-x-4 gap-y-1.5 text-sm')
+      each item in ['Settings', 'Transcript', 'Reminders', 'Emojis', 'Playground']
+        a(class='whitespace-nowrap ' + (item === active ? 'border-b-2 border-accent pb-0.5 font-medium text-ink' : 'text-ink-2'))= item

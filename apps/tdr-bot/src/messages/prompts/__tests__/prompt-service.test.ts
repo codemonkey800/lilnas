@@ -76,6 +76,24 @@ describe('PromptService', () => {
       expect(content).toContain(FAKE_EMOJI_DICTIONARY)
     })
 
+    it('an empty options object equals the saved prompt', () => {
+      expect(service.getSystemPrompt({}).content).toBe(
+        service.getSystemPrompt().content,
+      )
+    })
+
+    it('a systemPrompt override replaces only the saved prompt', () => {
+      const result = service.getSystemPrompt({ systemPrompt: 'Draft prompt.' })
+      const content = result.content as string
+
+      expect(result.id).toBe(TDR_SYSTEM_PROMPT_ID)
+      expect(content.startsWith(PROMPT_INTRO.trim())).toBe(true)
+      expect(content).toContain(INPUT_FORMAT.trim())
+      expect(content).toContain('Draft prompt.')
+      expect(content).not.toContain('Be a helpful kawaii assistant.')
+      expect(content.endsWith(FAKE_EMOJI_DICTIONARY)).toBe(true)
+    })
+
     it('reflects updated prompt when settings change', () => {
       settings.get.mockReturnValue({
         ...defaultSettings(),

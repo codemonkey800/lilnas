@@ -6,6 +6,7 @@ block title
 
 block content
   - const channels = [{ name: 'general', last: '2 min ago', count: 1284 }, { name: 'media-requests', last: '1 h ago', count: 412 }, { name: 'dev', last: 'Yesterday', count: 96 }, { name: 'bot-testing', last: '29 Sep', count: 37 }]
+  - const cdn = { HYPERS: 'https://cdn.discordapp.com/emojis/564310072822333480.png', residentsleeper: 'https://cdn.discordapp.com/emojis/564330871851712553.png', peepoWine: 'https://cdn.discordapp.com/emojis/1266528661318926369.gif', Loading: 'https://cdn.discordapp.com/emojis/1275667821757464687.gif' }
   - const calls = [{ op: 'chat', model: 'gpt-4.1-mini', inp: 1842, out: 96, cached: 1536, cost: 0.00088, ms: 1120, retries: 0, finish: 'tool_calls' }, { op: 'chat', model: 'gpt-4.1-mini', inp: 2011, out: 212, cached: 1792, cost: 0.00131, ms: 2340, retries: 1, finish: 'stop' }]
 
   mixin llmCalls(list)
@@ -34,6 +35,14 @@ block content
                   else
                     | 0
                 td(class='px-3 py-1.5')= c.finish
+
+  //- Custom emojis in message text render as inline images at ~1.375em.
+  mixin emoji(name)
+    img(src=cdn[name] alt=':' + name + ':' title=':' + name + ':' class='inline-block size-[1.375em] align-middle object-contain')
+
+  //- A `<:name:id>` the model made up: raw text in a dashed red chip.
+  mixin unknown(raw)
+    span(class='inline-flex items-center rounded border border-dashed border-bad px-1 align-middle font-mono text-[0.8em] text-bad' title='not in dictionary')= raw
 
   mixin toolRow(name, summary)
     details(class='ml-10 rounded-lg border border-dashed border-line text-xs text-ink-3')
@@ -103,6 +112,31 @@ block content
                   div(class='text-3xl') 💬
                   div(class='mt-2 text-sm font-medium') No messages in this range
                   p(class='mt-1 text-xs text-ink-3') Widen the date filter or pick another channel.
+            when 'emojis'
+              div(class='space-y-3')
+                +human('Mika (mika_dev)', '21:02')
+                  | raid tonight? 
+                  +emoji('HYPERS')
+                +assistant('21:02')
+                  | Extremely 
+                  +emoji('HYPERS')
+                  |  
+                  +emoji('HYPERS')
+                  |  — pulling up the loot tables now.
+                  block calls
+                    +llmCalls(calls.slice(0, 1))
+                +human('Sam', '21:04')
+                  | last time half the group fell asleep 
+                  +emoji('residentsleeper')
+                +assistant('21:04')
+                  | I'll bring the wine 
+                  +emoji('peepoWine')
+                  |  and hype 
+                  +unknown('<:PogU:564310072822333499>')
+                  | . Plan is still loading 
+                  +emoji('Loading')
+                  block calls
+                    +llmCalls(calls)
             default
               div(class='space-y-3')
                 +human('Mika (mika_dev)', '09:12') What's the weather in Lisbon this weekend?
@@ -123,7 +157,9 @@ block content
     p(class='mt-1 text-sm text-ink-2') Per-channel conversation history with LLM call audit. Turn rows and tool calls expand on click.
     +frame('1 · Conversation', 'Channel #general; first assistant turn expanded in the design, click the rows to open them.')
       +shell('default')
-    +frame('2 · Empty', 'Date range has no messages.')
+    +frame('2 · Conversation with custom emojis', 'Same screen; dictionary emojis render inline, a made-up one is flagged.')
+      +shell('emojis')
+    +frame('3 · Empty', 'Date range has no messages.')
       +shell('empty')
-    +frame('3 · Loading', 'Skeletons while the channel and totals load.')
+    +frame('4 · Loading', 'Skeletons while the channel and totals load.')
       +shell('loading')

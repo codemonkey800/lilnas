@@ -14,7 +14,6 @@ import DialogTitle from '@mui/material/DialogTitle'
 import FormControl from '@mui/material/FormControl'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import FormLabel from '@mui/material/FormLabel'
-import MenuItem from '@mui/material/MenuItem'
 import Radio from '@mui/material/Radio'
 import RadioGroup from '@mui/material/RadioGroup'
 import Slider from '@mui/material/Slider'
@@ -25,8 +24,7 @@ import { useMemo, useState } from 'react'
 
 import { ApiRequestError } from 'src/api/api.client'
 import type { SettingsResponse } from 'src/api/api.types'
-import type { ModelSpec } from 'src/llm/models/catalog'
-import type { ModelRole } from 'src/llm/models/roles'
+import { ModelSelect } from 'src/components/ModelSelect'
 import type { Settings } from 'src/llm/settings/settings.schema'
 import { useModels } from 'src/queries/useModels'
 import {
@@ -39,14 +37,6 @@ const PROMPT_MAX = 20_000
 const EFFORTS = ['low', 'medium', 'high'] as const
 
 type Draft = Settings
-
-const usd = (n: number) => `$${n.toFixed(n < 1 ? 3 : 2).replace(/\.?0+$/, '')}`
-
-function priceLabel(model: ModelSpec): string {
-  if (!model.pricing) return 'per-image pricing'
-  const { inputPer1M, outputPer1M } = model.pricing
-  return `${usd(inputPer1M)} in / ${usd(outputPer1M)} out per 1M`
-}
 
 function formatSavedAt(iso: string): string {
   return new Date(iso).toLocaleString(undefined, {
@@ -81,87 +71,6 @@ function SectionCard({
         {children}
       </CardContent>
     </Card>
-  )
-}
-
-function ModelOption({ model }: { model: ModelSpec }) {
-  return (
-    <Box
-      sx={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        gap: 2,
-        width: '100%',
-        whiteSpace: 'normal',
-      }}
-    >
-      <Box>
-        <Typography variant="body2" fontFamily="monospace">
-          {model.label}
-        </Typography>
-        <Typography variant="caption" color="text.secondary">
-          {model.description}
-        </Typography>
-      </Box>
-      <Typography
-        variant="caption"
-        color="text.secondary"
-        sx={{ flexShrink: 0, textAlign: 'right' }}
-      >
-        {priceLabel(model)}
-      </Typography>
-    </Box>
-  )
-}
-
-function ModelSelect({
-  role,
-  label,
-  value,
-  error,
-  disabled,
-  onChange,
-}: {
-  role: ModelRole
-  label: string
-  value: string
-  error?: string
-  disabled?: boolean
-  onChange: (id: string) => void
-}) {
-  const { data: models = [], isLoading } = useModels(role)
-  const known = models.some(m => m.id === value)
-
-  return (
-    <TextField
-      select
-      fullWidth
-      label={label}
-      value={isLoading ? '' : value}
-      disabled={disabled || isLoading}
-      error={!!error}
-      helperText={error}
-      onChange={e => onChange(e.target.value)}
-      slotProps={{
-        select: {
-          renderValue: selected => {
-            const model = models.find(m => m.id === selected)
-            return model ? <ModelOption model={model} /> : String(selected)
-          },
-        },
-      }}
-    >
-      {!known && !isLoading && (
-        <MenuItem value={value} disabled>
-          {value}
-        </MenuItem>
-      )}
-      {models.map(model => (
-        <MenuItem key={model.id} value={model.id}>
-          <ModelOption model={model} />
-        </MenuItem>
-      ))}
-    </TextField>
   )
 }
 

@@ -17,8 +17,13 @@ export class PromptService {
     private readonly emojiDictionary: EmojiDictionaryService,
   ) {}
 
-  getSystemPrompt(): SystemMessage {
-    const { systemPrompt } = this.settings.get()
+  /**
+   * `options.systemPrompt` replaces only the saved `settings.systemPrompt`;
+   * the intro, input format and emoji dictionary are always included.
+   */
+  getSystemPrompt(options: { systemPrompt?: string } = {}): SystemMessage {
+    const systemPrompt =
+      options.systemPrompt ?? this.settings.get().systemPrompt
 
     return new SystemMessage({
       id: TDR_SYSTEM_PROMPT_ID,

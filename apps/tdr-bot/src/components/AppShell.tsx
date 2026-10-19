@@ -16,6 +16,7 @@ const NAV_LINKS = [
   { href: '/transcript', label: 'Transcript' },
   { href: '/reminders', label: 'Reminders' },
   { href: '/emojis', label: 'Emojis' },
+  { href: '/playground', label: 'Playground' },
 ]
 
 interface AppShellProps {

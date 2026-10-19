@@ -53,6 +53,20 @@ describe('EmojiDictionaryService', () => {
     )
   })
 
+  it('keys() lists the cached keys in prompt order', async () => {
+    expect(service.keys()).toEqual([])
+
+    repo.listActiveDescribed.mockResolvedValue([
+      row({ id: '1000', name: 'EZ' }),
+      row({ id: '999', name: 'peepo', animated: true }),
+      row({ id: '1001', name: 'blank', description: null }),
+    ])
+    await service.refresh()
+
+    expect(service.keys()).toEqual(['<a:peepo:999>', '<:EZ:1000>'])
+    expect(service.keys()).toHaveLength(service.size())
+  })
+
   it('refresh picks up changes in the table', async () => {
     repo.listActiveDescribed.mockResolvedValue([row({ id: '1', name: 'a' })])
     await service.onModuleInit()

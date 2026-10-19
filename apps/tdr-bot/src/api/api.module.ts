@@ -3,11 +3,13 @@ import { Module } from '@nestjs/common'
 import { EmojisModule } from 'src/emojis/emojis.module'
 import { LlmCoreModule } from 'src/llm/llm-core.module'
 import { LLMModule } from 'src/messages/llm/llm.module'
+import { PlaygroundModule } from 'src/playground/playground.module'
 import { RemindersModule } from 'src/reminders/reminders.module'
 import { ServicesModule } from 'src/services/services.module'
 
 import { ApiController } from './api.controller'
 import { EmojisController } from './emojis.controller'
+import { PlaygroundController } from './playground.controller'
 import { RemindersController } from './reminders.controller'
 import { TranscriptController } from './transcript.controller'
 
@@ -15,6 +17,7 @@ import { TranscriptController } from './transcript.controller'
   controllers: [
     ApiController,
     EmojisController,
+    PlaygroundController,
     RemindersController,
     TranscriptController,
   ],
@@ -22,6 +25,7 @@ import { TranscriptController } from './transcript.controller'
     EmojisModule,
     LlmCoreModule,
     LLMModule,
+    PlaygroundModule,
     RemindersModule,
     ServicesModule,
   ],

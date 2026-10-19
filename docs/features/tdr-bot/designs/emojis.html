@@ -23,6 +23,15 @@
             --tw-space-y-reverse: 0;
             --tw-divide-y-reverse: 0;
             --tw-border-style: solid;
+            --tw-gradient-position: initial;
+            --tw-gradient-from: #0000;
+            --tw-gradient-via: #0000;
+            --tw-gradient-to: #0000;
+            --tw-gradient-stops: initial;
+            --tw-gradient-via-stops: initial;
+            --tw-gradient-from-position: 0%;
+            --tw-gradient-via-position: 50%;
+            --tw-gradient-to-position: 100%;
             --tw-leading: initial;
             --tw-font-weight: initial;
             --tw-tracking: initial;
@@ -63,12 +72,15 @@
           --text-sm--line-height: calc(1.25 / 0.875);
           --text-base: 1rem;
           --text-base--line-height: calc(1.5 / 1);
+          --text-xl: 1.25rem;
+          --text-xl--line-height: calc(1.75 / 1.25);
           --text-2xl: 1.5rem;
           --text-2xl--line-height: calc(2 / 1.5);
           --text-3xl: 1.875rem;
           --text-3xl--line-height: calc(2.25 / 1.875);
           --font-weight-medium: 500;
           --font-weight-semibold: 600;
+          --font-weight-bold: 700;
           --tracking-wider: 0.05em;
           --leading-relaxed: 1.625;
           --radius-sm: 0.25rem;
@@ -351,6 +363,9 @@
       }
       @layer components;
       @layer utilities {
+        .pointer-events-none {
+          pointer-events: none;
+        }
         .absolute {
           position: absolute;
         }
@@ -360,8 +375,14 @@
         .inset-y-0 {
           inset-block: calc(var(--spacing) * 0);
         }
+        .inset-y-px {
+          inset-block: 1px;
+        }
         .top-1\/2 {
           top: 50%;
+        }
+        .right-px {
+          right: 1px;
         }
         .left-0 {
           left: calc(var(--spacing) * 0);
@@ -405,6 +426,9 @@
         .mb-1 {
           margin-bottom: calc(var(--spacing) * 1);
         }
+        .mb-1\.5 {
+          margin-bottom: calc(var(--spacing) * 1.5);
+        }
         .mb-2 {
           margin-bottom: calc(var(--spacing) * 2);
         }
@@ -428,6 +452,9 @@
         }
         .grid {
           display: grid;
+        }
+        .inline-block {
+          display: inline-block;
         }
         .inline-flex {
           display: inline-flex;
@@ -455,6 +482,13 @@
           width: calc(var(--spacing) * 10);
           height: calc(var(--spacing) * 10);
         }
+        .size-\[1\.375em\] {
+          width: 1.375em;
+          height: 1.375em;
+        }
+        .h-1 {
+          height: calc(var(--spacing) * 1);
+        }
         .h-1\.5 {
           height: calc(var(--spacing) * 1.5);
         }
@@ -476,8 +510,14 @@
         .h-full {
           height: 100%;
         }
+        .min-h-16 {
+          min-height: calc(var(--spacing) * 16);
+        }
         .min-h-20 {
           min-height: calc(var(--spacing) * 20);
+        }
+        .min-h-28 {
+          min-height: calc(var(--spacing) * 28);
         }
         .min-h-\[34rem\] {
           min-height: 34rem;
@@ -494,6 +534,9 @@
         .w-3\/5 {
           width: 60%;
         }
+        .w-10 {
+          width: calc(var(--spacing) * 10);
+        }
         .w-14 {
           width: calc(var(--spacing) * 14);
         }
@@ -505,6 +548,9 @@
         }
         .w-56 {
           width: calc(var(--spacing) * 56);
+        }
+        .w-\[30\%\] {
+          width: 30%;
         }
         .w-\[35\%\] {
           width: 35%;
@@ -538,6 +584,12 @@
         }
         .min-w-0 {
           min-width: calc(var(--spacing) * 0);
+        }
+        .min-w-28 {
+          min-width: calc(var(--spacing) * 28);
+        }
+        .min-w-64 {
+          min-width: calc(var(--spacing) * 64);
         }
         .min-w-\[10rem\] {
           min-width: 10rem;
@@ -575,6 +627,9 @@
         .cursor-pointer {
           cursor: pointer;
         }
+        .list-decimal {
+          list-style-type: decimal;
+        }
         .grid-cols-\[15rem_1fr\] {
           grid-template-columns: 15rem 1fr;
         }
@@ -589,6 +644,9 @@
         }
         .items-center {
           align-items: center;
+        }
+        .items-end {
+          align-items: flex-end;
         }
         .items-start {
           align-items: flex-start;
@@ -611,6 +669,9 @@
         .gap-4 {
           gap: calc(var(--spacing) * 4);
         }
+        .gap-5 {
+          gap: calc(var(--spacing) * 5);
+        }
         .gap-6 {
           gap: calc(var(--spacing) * 6);
         }
@@ -624,6 +685,15 @@
           );
           margin-block-end: calc(
             calc(var(--spacing) * 0.5) * calc(1 - var(--tw-space-y-reverse))
+          );
+        }
+        :where(.space-y-1 > :not(:last-child)) {
+          --tw-space-y-reverse: 0;
+          margin-block-start: calc(
+            calc(var(--spacing) * 1) * var(--tw-space-y-reverse)
+          );
+          margin-block-end: calc(
+            calc(var(--spacing) * 1) * calc(1 - var(--tw-space-y-reverse))
           );
         }
         :where(.space-y-2 > :not(:last-child)) {
@@ -661,6 +731,24 @@
           margin-block-end: calc(
             calc(var(--spacing) * 8) * calc(1 - var(--tw-space-y-reverse))
           );
+        }
+        .gap-x-2 {
+          column-gap: calc(var(--spacing) * 2);
+        }
+        .gap-x-4 {
+          column-gap: calc(var(--spacing) * 4);
+        }
+        .gap-x-6 {
+          column-gap: calc(var(--spacing) * 6);
+        }
+        .gap-y-1 {
+          row-gap: calc(var(--spacing) * 1);
+        }
+        .gap-y-1\.5 {
+          row-gap: calc(var(--spacing) * 1.5);
+        }
+        .gap-y-2 {
+          row-gap: calc(var(--spacing) * 2);
         }
         :where(.divide-y > :not(:last-child)) {
           --tw-divide-y-reverse: 0;
@@ -700,6 +788,10 @@
         }
         .rounded-xl {
           border-radius: var(--radius-xl);
+        }
+        .rounded-r-xl {
+          border-top-right-radius: var(--radius-xl);
+          border-bottom-right-radius: var(--radius-xl);
         }
         .rounded-br-sm {
           border-bottom-right-radius: var(--radius-sm);
@@ -743,6 +835,18 @@
         }
         .border-bad {
           border-color: var(--color-bad);
+        }
+        .border-bad\/40 {
+          border-color: #f8717166;
+        }
+        @supports (color: color-mix(in lab, red, red)) {
+          .border-bad\/40 {
+            border-color: color-mix(
+              in oklab,
+              var(--color-bad) 40%,
+              transparent
+            );
+          }
         }
         .border-current {
           border-color: currentColor;
@@ -812,6 +916,18 @@
         }
         .bg-bad {
           background-color: var(--color-bad);
+        }
+        .bg-bad\/10 {
+          background-color: #f871711a;
+        }
+        @supports (color: color-mix(in lab, red, red)) {
+          .bg-bad\/10 {
+            background-color: color-mix(
+              in oklab,
+              var(--color-bad) 10%,
+              transparent
+            );
+          }
         }
         .bg-bad\/15 {
           background-color: #f8717126;
@@ -885,6 +1001,28 @@
         .bg-white {
           background-color: var(--color-white);
         }
+        .bg-gradient-to-l {
+          --tw-gradient-position: to left in oklab;
+          background-image: linear-gradient(var(--tw-gradient-stops));
+        }
+        .from-bg {
+          --tw-gradient-from: var(--color-bg);
+          --tw-gradient-stops: var(
+            --tw-gradient-via-stops,
+            var(--tw-gradient-position),
+            var(--tw-gradient-from) var(--tw-gradient-from-position),
+            var(--tw-gradient-to) var(--tw-gradient-to-position)
+          );
+        }
+        .to-transparent {
+          --tw-gradient-to: transparent;
+          --tw-gradient-stops: var(
+            --tw-gradient-via-stops,
+            var(--tw-gradient-position),
+            var(--tw-gradient-from) var(--tw-gradient-from-position),
+            var(--tw-gradient-to) var(--tw-gradient-to-position)
+          );
+        }
         .object-contain {
           object-fit: contain;
         }
@@ -902,6 +1040,9 @@
         }
         .p-10 {
           padding: calc(var(--spacing) * 10);
+        }
+        .px-1 {
+          padding-inline: calc(var(--spacing) * 1);
         }
         .px-2 {
           padding-inline: calc(var(--spacing) * 2);
@@ -951,6 +1092,9 @@
         .pb-2 {
           padding-bottom: calc(var(--spacing) * 2);
         }
+        .pl-5 {
+          padding-left: calc(var(--spacing) * 5);
+        }
         .text-center {
           text-align: center;
         }
@@ -959,6 +1103,12 @@
         }
         .text-right {
           text-align: right;
+        }
+        .align-bottom {
+          vertical-align: bottom;
+        }
+        .align-middle {
+          vertical-align: middle;
         }
         .align-top {
           vertical-align: top;
@@ -982,9 +1132,19 @@
           font-size: var(--text-sm);
           line-height: var(--tw-leading, var(--text-sm--line-height));
         }
+        .text-xl {
+          font-size: var(--text-xl);
+          line-height: var(--tw-leading, var(--text-xl--line-height));
+        }
         .text-xs {
           font-size: var(--text-xs);
           line-height: var(--tw-leading, var(--text-xs--line-height));
+        }
+        .text-\[0\.8em\] {
+          font-size: 0.8em;
+        }
+        .text-\[10px\] {
+          font-size: 10px;
         }
         .text-\[11px\] {
           font-size: 11px;
@@ -992,6 +1152,10 @@
         .leading-relaxed {
           --tw-leading: var(--leading-relaxed);
           line-height: var(--leading-relaxed);
+        }
+        .font-bold {
+          --tw-font-weight: var(--font-weight-bold);
+          font-weight: var(--font-weight-bold);
         }
         .font-medium {
           --tw-font-weight: var(--font-weight-medium);
@@ -1069,6 +1233,9 @@
           }
         }
         @media (min-width: 40rem) {
+          .sm\:max-w-sm {
+            max-width: var(--container-sm);
+          }
           .sm\:grid-cols-2 {
             grid-template-columns: repeat(2, minmax(0, 1fr));
           }
@@ -1079,6 +1246,9 @@
           }
           .lg\:grid-cols-2 {
             grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+          .lg\:grid-cols-\[16rem_1fr\] {
+            grid-template-columns: 16rem 1fr;
           }
         }
       }
@@ -1116,6 +1286,48 @@
         syntax: '*';
         inherits: false;
         initial-value: solid;
+      }
+      @property --tw-gradient-position {
+        syntax: '*';
+        inherits: false;
+      }
+      @property --tw-gradient-from {
+        syntax: '<color>';
+        inherits: false;
+        initial-value: #0000;
+      }
+      @property --tw-gradient-via {
+        syntax: '<color>';
+        inherits: false;
+        initial-value: #0000;
+      }
+      @property --tw-gradient-to {
+        syntax: '<color>';
+        inherits: false;
+        initial-value: #0000;
+      }
+      @property --tw-gradient-stops {
+        syntax: '*';
+        inherits: false;
+      }
+      @property --tw-gradient-via-stops {
+        syntax: '*';
+        inherits: false;
+      }
+      @property --tw-gradient-from-position {
+        syntax: '<length-percentage>';
+        inherits: false;
+        initial-value: 0%;
+      }
+      @property --tw-gradient-via-position {
+        syntax: '<length-percentage>';
+        inherits: false;
+        initial-value: 50%;
+      }
+      @property --tw-gradient-to-position {
+        syntax: '<length-percentage>';
+        inherits: false;
+        initial-value: 100%;
       }
       @property --tw-leading {
         syntax: '*';
@@ -1213,17 +1425,17 @@
           <div class="rounded-xl border border-line bg-bg p-4">
             <div class="overflow-hidden rounded-xl border border-line bg-bg">
               <div
-                class="flex items-center gap-6 border-b border-line bg-surface px-4 py-3"
+                class="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-line bg-surface px-4 py-3"
               >
-                <span class="font-semibold">tdr-bot</span>
-                <nav class="flex gap-4 text-sm">
-                  <a class="text-ink-2">Settings</a
-                  ><a class="text-ink-2">Transcript</a
-                  ><a class="text-ink-2">Reminders</a
+                <span class="whitespace-nowrap font-semibold">tdr-bot</span>
+                <nav class="flex flex-wrap gap-x-4 gap-y-1.5 text-sm">
+                  <a class="whitespace-nowrap text-ink-2">Settings</a
+                  ><a class="whitespace-nowrap text-ink-2">Transcript</a
+                  ><a class="whitespace-nowrap text-ink-2">Reminders</a
                   ><a
-                    class="border-b-2 border-accent pb-0.5 font-medium text-ink"
+                    class="whitespace-nowrap border-b-2 border-accent pb-0.5 font-medium text-ink"
                     >Emojis</a
-                  >
+                  ><a class="whitespace-nowrap text-ink-2">Playground</a>
                 </nav>
               </div>
               <div class="space-y-4 p-5">
@@ -1828,17 +2040,17 @@
           <div class="rounded-xl border border-line bg-bg p-4">
             <div class="overflow-hidden rounded-xl border border-line bg-bg">
               <div
-                class="flex items-center gap-6 border-b border-line bg-surface px-4 py-3"
+                class="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-line bg-surface px-4 py-3"
               >
-                <span class="font-semibold">tdr-bot</span>
-                <nav class="flex gap-4 text-sm">
-                  <a class="text-ink-2">Settings</a
-                  ><a class="text-ink-2">Transcript</a
-                  ><a class="text-ink-2">Reminders</a
+                <span class="whitespace-nowrap font-semibold">tdr-bot</span>
+                <nav class="flex flex-wrap gap-x-4 gap-y-1.5 text-sm">
+                  <a class="whitespace-nowrap text-ink-2">Settings</a
+                  ><a class="whitespace-nowrap text-ink-2">Transcript</a
+                  ><a class="whitespace-nowrap text-ink-2">Reminders</a
                   ><a
-                    class="border-b-2 border-accent pb-0.5 font-medium text-ink"
+                    class="whitespace-nowrap border-b-2 border-accent pb-0.5 font-medium text-ink"
                     >Emojis</a
-                  >
+                  ><a class="whitespace-nowrap text-ink-2">Playground</a>
                 </nav>
               </div>
               <div class="space-y-4 p-5">
@@ -2453,17 +2665,17 @@
           <div class="rounded-xl border border-line bg-bg p-4">
             <div class="overflow-hidden rounded-xl border border-line bg-bg">
               <div
-                class="flex items-center gap-6 border-b border-line bg-surface px-4 py-3"
+                class="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-line bg-surface px-4 py-3"
               >
-                <span class="font-semibold">tdr-bot</span>
-                <nav class="flex gap-4 text-sm">
-                  <a class="text-ink-2">Settings</a
-                  ><a class="text-ink-2">Transcript</a
-                  ><a class="text-ink-2">Reminders</a
+                <span class="whitespace-nowrap font-semibold">tdr-bot</span>
+                <nav class="flex flex-wrap gap-x-4 gap-y-1.5 text-sm">
+                  <a class="whitespace-nowrap text-ink-2">Settings</a
+                  ><a class="whitespace-nowrap text-ink-2">Transcript</a
+                  ><a class="whitespace-nowrap text-ink-2">Reminders</a
                   ><a
-                    class="border-b-2 border-accent pb-0.5 font-medium text-ink"
+                    class="whitespace-nowrap border-b-2 border-accent pb-0.5 font-medium text-ink"
                     >Emojis</a
-                  >
+                  ><a class="whitespace-nowrap text-ink-2">Playground</a>
                 </nav>
               </div>
               <div class="space-y-4 p-5">
@@ -2800,17 +3012,17 @@
             <div class="mx-auto w-full max-w-[420px]">
               <div class="overflow-hidden rounded-xl border border-line bg-bg">
                 <div
-                  class="flex items-center gap-6 border-b border-line bg-surface px-4 py-3"
+                  class="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-line bg-surface px-4 py-3"
                 >
-                  <span class="font-semibold">tdr-bot</span>
-                  <nav class="flex gap-4 text-sm">
-                    <a class="text-ink-2">Settings</a
-                    ><a class="text-ink-2">Transcript</a
-                    ><a class="text-ink-2">Reminders</a
+                  <span class="whitespace-nowrap font-semibold">tdr-bot</span>
+                  <nav class="flex flex-wrap gap-x-4 gap-y-1.5 text-sm">
+                    <a class="whitespace-nowrap text-ink-2">Settings</a
+                    ><a class="whitespace-nowrap text-ink-2">Transcript</a
+                    ><a class="whitespace-nowrap text-ink-2">Reminders</a
                     ><a
-                      class="border-b-2 border-accent pb-0.5 font-medium text-ink"
+                      class="whitespace-nowrap border-b-2 border-accent pb-0.5 font-medium text-ink"
                       >Emojis</a
-                    >
+                    ><a class="whitespace-nowrap text-ink-2">Playground</a>
                   </nav>
                 </div>
                 <div class="space-y-4 p-4">
@@ -3038,17 +3250,17 @@
           <div class="rounded-xl border border-line bg-bg p-4">
             <div class="overflow-hidden rounded-xl border border-line bg-bg">
               <div
-                class="flex items-center gap-6 border-b border-line bg-surface px-4 py-3"
+                class="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-line bg-surface px-4 py-3"
               >
-                <span class="font-semibold">tdr-bot</span>
-                <nav class="flex gap-4 text-sm">
-                  <a class="text-ink-2">Settings</a
-                  ><a class="text-ink-2">Transcript</a
-                  ><a class="text-ink-2">Reminders</a
+                <span class="whitespace-nowrap font-semibold">tdr-bot</span>
+                <nav class="flex flex-wrap gap-x-4 gap-y-1.5 text-sm">
+                  <a class="whitespace-nowrap text-ink-2">Settings</a
+                  ><a class="whitespace-nowrap text-ink-2">Transcript</a
+                  ><a class="whitespace-nowrap text-ink-2">Reminders</a
                   ><a
-                    class="border-b-2 border-accent pb-0.5 font-medium text-ink"
+                    class="whitespace-nowrap border-b-2 border-accent pb-0.5 font-medium text-ink"
                     >Emojis</a
-                  >
+                  ><a class="whitespace-nowrap text-ink-2">Playground</a>
                 </nav>
               </div>
               <div class="space-y-4 p-5">
@@ -3127,17 +3339,17 @@
           <div class="rounded-xl border border-line bg-bg p-4">
             <div class="overflow-hidden rounded-xl border border-line bg-bg">
               <div
-                class="flex items-center gap-6 border-b border-line bg-surface px-4 py-3"
+                class="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-line bg-surface px-4 py-3"
               >
-                <span class="font-semibold">tdr-bot</span>
-                <nav class="flex gap-4 text-sm">
-                  <a class="text-ink-2">Settings</a
-                  ><a class="text-ink-2">Transcript</a
-                  ><a class="text-ink-2">Reminders</a
+                <span class="whitespace-nowrap font-semibold">tdr-bot</span>
+                <nav class="flex flex-wrap gap-x-4 gap-y-1.5 text-sm">
+                  <a class="whitespace-nowrap text-ink-2">Settings</a
+                  ><a class="whitespace-nowrap text-ink-2">Transcript</a
+                  ><a class="whitespace-nowrap text-ink-2">Reminders</a
                   ><a
-                    class="border-b-2 border-accent pb-0.5 font-medium text-ink"
+                    class="whitespace-nowrap border-b-2 border-accent pb-0.5 font-medium text-ink"
                     >Emojis</a
-                  >
+                  ><a class="whitespace-nowrap text-ink-2">Playground</a>
                 </nav>
               </div>
               <div class="space-y-4 p-5">

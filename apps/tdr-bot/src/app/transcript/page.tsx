@@ -12,7 +12,9 @@ import Typography from '@mui/material/Typography'
 import { useMemo, useState } from 'react'
 
 import type { TranscriptTotals } from 'src/api/api.types'
+import { DiscordContent } from 'src/components/DiscordContent'
 import type { LlmCallRow } from 'src/db/schema'
+import { type EmojiLookup, useEmojiLookup } from 'src/queries/useEmojiLookup'
 import { useTranscript, useTranscriptChannels } from 'src/queries/useTranscript'
 
 import { buildTranscriptItems, TranscriptItem } from './group-turns'
@@ -262,7 +264,7 @@ function CallsTable({ calls }: { calls: LlmCallRow[] }) {
   )
 }
 
-function Item({ item }: { item: TranscriptItem }) {
+function Item({ item, lookup }: { item: TranscriptItem; lookup: EmojiLookup }) {
   if (item.kind === 'tool') {
     return (
       <Box
@@ -328,12 +330,7 @@ function Item({ item }: { item: TranscriptItem }) {
           >
             {isHuman ? (item.message.name ?? 'user') : 'tdr-bot'}
           </Typography>
-          <Typography
-            variant="body2"
-            sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
-          >
-            {item.message.content}
-          </Typography>
+          <DiscordContent text={item.message.content} lookup={lookup} />
         </Box>
         {item.kind === 'assistant' && item.calls.length > 0 && (
           <CallsTable calls={item.calls} />
@@ -345,10 +342,12 @@ function Item({ item }: { item: TranscriptItem }) {
 
 function TranscriptBody({
   items,
+  lookup,
   loading,
   error,
 }: {
   items: TranscriptItem[]
+  lookup: EmojiLookup
   loading: boolean
   error: Error | null
 }) {
@@ -398,7 +397,7 @@ function TranscriptBody({
   return (
     <Stack spacing={1.5}>
       {items.map((item, i) => (
-        <Item key={i} item={item} />
+        <Item key={i} item={item} lookup={lookup} />
       ))}
     </Stack>
   )
@@ -414,6 +413,7 @@ export default function TranscriptPage() {
   const channels = useTranscriptChannels()
   const channelId = selected ?? channels.data?.[0]?.channelId
   const transcript = useTranscript(channelId, { from, to })
+  const lookup = useEmojiLookup()
 
   const items = useMemo(
     () =>
@@ -602,6 +602,7 @@ export default function TranscriptPage() {
         >
           <TranscriptBody
             items={items}
+            lookup={lookup}
             loading={
               channels.isLoading || (!!channelId && transcript.isLoading)
             }

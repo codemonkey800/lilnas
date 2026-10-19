@@ -9,6 +9,8 @@ import {
   EmojiListResponse,
   EmojiView,
   MemberInfo,
+  PlaygroundChatBody,
+  PlaygroundChatResponse,
   ReminderFilter,
   ReminderPreview,
   ReminderRuns,
@@ -240,6 +242,17 @@ export class ApiClient {
     })
 
     return await parseOrThrow<{ started: boolean }>(response)
+  }
+
+  async playgroundChat(
+    body: PlaygroundChatBody,
+  ): Promise<PlaygroundChatResponse> {
+    const response = await this.request('/playground/chat', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+
+    return await parseOrThrow<PlaygroundChatResponse>(response)
   }
 
   static getInstance(): ApiClient {
