@@ -62,10 +62,9 @@ services:
     tmpfs:
       - /data:uid=1000,gid=1001,mode=0770,size=1m
 
-    # ⚠️ `lilnas dev` loadEnvFile()s apps/theater/.env with override: true, so
-    # the authoritative values have to arrive as that file — hence the
-    # .env.dev-remote mount under `volumes:`. This block is the environment
-    # the install step sees.
+    # The environment the container starts with. main.ts also dotenv-loads
+    # apps/theater/.env (without overriding), so the .env.dev-remote mount under
+    # `volumes:` keeps the host's native-dev values from filling any gaps.
     env_file:
       - .env.dev-remote
 
@@ -86,7 +85,8 @@ services:
 
     volumes:
       - ../..:/source
-      # Shadows the host's native-dev .env, whose NEXT_PUBLIC_SOCKET_URL points
+      # Shadows the host's native-dev .env (read by main.ts and Next), whose
+      # NEXT_PUBLIC_SOCKET_URL points
       # the browser at localhost:8081 — unreachable from anywhere but the host.
       - ./.env.dev-remote:/source/apps/theater/.env:ro
       # The host's node_modules are built for node 24 and this image runs

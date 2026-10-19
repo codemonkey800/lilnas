@@ -411,7 +411,7 @@ Each app owns its own environment files under `apps/<app>/`:
 
 Infra env files follow the same model: `infra/.env` and `infra/.env.<name>` are committed encrypted and compose reads `infra/.env*.decrypted`. Private keys live in the gitignored `.env.keys` (never commit, never print). Change a value with `pnpm exec dotenvx set KEY value -fk .env.keys -f <file>`, check with `pnpm lilnas secrets verify`, commit and push — the deploy re-decrypts on the host. Full procedure in `docs/deploy.md` (Secrets).
 
-`deploy.dev.yml` loads `.env`; `deploy.yml` loads `.env.prod.decrypted` — both via Docker Compose's `env_file:`, relative to the app's own directory. The `lilnas dev` CLI (`packages/cli/src/commands/dev.ts`) loads the same `.env` for the native (non-Docker) dev flow.
+`deploy.dev.yml` loads `.env`; `deploy.yml` loads `.env.prod.decrypted` — both via Docker Compose's `env_file:`, relative to the app's own directory. Each app's `pnpm dev` script runs the dev server directly and does not load `.env` itself, so run it inside the dev container (or export the variables yourself).
 
 Not every app has environment variables — `portal` and `dashcam` have none. `tdr-code` is a special case: its processes run directly on the deploy host rather than in a container, so it uses a single plain `.env` for both dev and prod (see `docs/archive/runbooks/tdr-code-phase-d-forward-auth-cutover.md`).
 

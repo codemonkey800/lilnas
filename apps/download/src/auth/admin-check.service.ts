@@ -44,7 +44,7 @@ export class AdminCheckService {
     }
 
     // Fail-closed: an unreachable or erroring `auth` container (true for
-    // the native `lilnas dev` flow, where the `auth` hostname doesn't
+    // the native dev flow, where the `auth` hostname doesn't
     // resolve; Docker dev does run apps/auth, so the admin branch IS
     // reachable there — see .env.example's DEV_USER_EMAIL note — and
     // production can hit this during an outage) must never leak hidden

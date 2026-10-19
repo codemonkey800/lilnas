@@ -11,8 +11,7 @@
   "scripts": {
     "build": "tsc && vite build",
     "clean": "rm -rf dist/ .turbo/ tsconfig.tsbuildinfo",
-    "dev": "lilnas dev",
-    "dev:start": "vite --port 8080 --host",
+    "dev": "vite --port 8080 --host",
     "lint": "run-p -l 'lint:!(fix)'",
     "lint:eslint": "eslint src",
     "lint:prettier": "prettier -c src",

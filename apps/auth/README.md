@@ -105,7 +105,7 @@ This app runs as **two separate Node processes** behind one Traefik router:
 | Frontend | Next.js   | 8080 | Public-facing. Serves `/login`, `/pending`, `/blocked`, `/admin`.                                                                    |
 | Backend  | NestJS    | 8081 | Internal only. Owns `/verify`, `/api/auth/*` (Better Auth), `/.well-known/*` (OIDC discovery), `/requests/*`, `/admin/*`, `/health`. |
 
-Both run in the same container (`deploy.yml` / `deploy.dev.yml`), started as concurrent processes via `run-p` — production's `pnpm start` (`ENTRYPOINT` in the `Dockerfile`) races `start:backend`/`start:frontend`; dev goes through the `lilnas dev` CLI (`pnpm --filter=auth dev`), which wraps `dev:backend`/`dev:frontend`. Traefik's health check and its ForwardAuth address both target the **backend** (`:8081`) directly, never the frontend — a crashed Next.js process must not restart the container or interrupt `/verify` for every other gated service.
+Both run in the same container (`deploy.yml` / `deploy.dev.yml`), started as concurrent processes via `run-p` — production's `pnpm start` (`ENTRYPOINT` in the `Dockerfile`) races `start:backend`/`start:frontend`; dev runs `pnpm --filter=auth dev`, which races `dev:backend`/`dev:frontend` the same way. Traefik's health check and its ForwardAuth address both target the **backend** (`:8081`) directly, never the frontend — a crashed Next.js process must not restart the container or interrupt `/verify` for every other gated service.
 
 The frontend reaches the backend three different ways, depending on who's asking:
 

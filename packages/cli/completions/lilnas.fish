@@ -33,7 +33,7 @@ end
 # True when no subcommand has been given yet
 function __lilnas_no_subcommand
     not __fish_seen_subcommand_from \
-        build dev down list ls logs ps redeploy up remote mockups completions help
+        build down list ls logs ps redeploy up remote mockups completions help
 end
 
 # All remote subcommands
@@ -79,7 +79,6 @@ end
 # ---------------------------------------------------------------------------
 
 complete -c lilnas -n __lilnas_no_subcommand -a build       -d "Build Docker images for services"
-complete -c lilnas -n __lilnas_no_subcommand -a dev         -d "Start the dev server for the current app"
 complete -c lilnas -n __lilnas_no_subcommand -a down        -d "Bring down services"
 complete -c lilnas -n __lilnas_no_subcommand -a list        -d "List all services in the monorepo"
 complete -c lilnas -n __lilnas_no_subcommand -a ls          -d "List all services (alias for list)"

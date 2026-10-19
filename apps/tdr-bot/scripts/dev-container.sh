@@ -1,10 +1,8 @@
 #!/bin/sh
 # Entrypoint for the tdr-dev container in deploy.dev.yml.
 #
-# This replaces `pnpm dev` (`lilnas dev`), which can't run inside a container:
-# it starts its own Postgres with `docker run` and connects to it on localhost,
-# and it reloads apps/tdr-bot/.env over the environment compose already built.
-# The compose file supplies a Postgres sidecar and the full environment instead.
+# Compose supplies the Postgres sidecar and the full environment, so this only
+# has to install, build the workspace packages, migrate and start `pnpm dev`.
 set -eu
 
 APP_DIR=/source/apps/tdr-bot
@@ -55,4 +53,4 @@ done
 
 cd "$APP_DIR"
 pnpm run db:migrate
-exec pnpm run dev:start
+exec pnpm run dev

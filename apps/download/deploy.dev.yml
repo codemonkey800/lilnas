@@ -71,12 +71,9 @@ services:
     # instead of root.
     user: '1000:1001'
 
-    # ⚠️ `env_file:` alone is NOT enough, and neither is `environment:`.
-    # `pnpm dev` runs `lilnas dev`, which calls Node's loadEnvFile() on
-    # apps/download/.env (packages/cli/src/commands/dev.ts:48) and OVERRIDES the
-    # container environment with it. So the authoritative values have to arrive
-    # as that file — hence the .env.dev-remote mount under `volumes:` below.
-    # This block stays as the pre-CLI environment the install step sees.
+    # The environment the container starts with. main.ts also dotenv-loads
+    # apps/download/.env (without overriding), so the .env.dev-remote mount under
+    # `volumes:` below keeps the host's native-dev values from filling any gaps.
     env_file:
       - .env.dev-remote
 
@@ -105,7 +102,7 @@ services:
     volumes:
       - ../..:/source
 
-      # Shadows the bind-mounted .env so `lilnas dev`'s loadEnvFile() reads the
+      # Shadows the bind-mounted .env so main.ts and Next read the
       # container's values — the ephemeral /data/download.db path and the
       # lilnas_default service aliases — instead of the host's native-dev ones
       # (/tmp/download-verify.db and hardcoded 172.18.x.x container IPs, which

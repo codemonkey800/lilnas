@@ -84,7 +84,7 @@ export interface PeerSnapshot {
   seatId?: string | null
 }
 
-// Dev-only CORS (PLAN.md "Routing"): native `lilnas dev` serves the browser
+// Dev-only CORS (PLAN.md "Routing"): native `pnpm dev` serves the browser
 // page from FRONTEND_PORT while this gateway listens on BACKEND_PORT, so the
 // handshake is cross-port in dev and needs an explicit allow + credentials.
 // Read from `FRONTEND_PORT` (falling back to the `.env.example` default of

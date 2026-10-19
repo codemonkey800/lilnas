@@ -12,8 +12,7 @@
   "scripts": {
     "build": "nest build -b swc --type-check",
     "clean": "rm -rf dist/ .turbo/",
-    "dev": "lilnas dev",
-    "dev:start": "nest start -w -b swc | pino-pretty",
+    "dev": "nest start -w -b swc | pino-pretty",
     "lint": "run-p -l 'lint:!(fix)'",
     "lint:eslint": "eslint src",
     "lint:prettier": "prettier -c src",

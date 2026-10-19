@@ -9,8 +9,8 @@ import * as path from 'path'
  * compose path) and `detect()` does the rest from the compose tree on disk.
  *
  * App images follow *runtime* workspace dependencies only (`dependencies`,
- * not `devDependencies`): every app lists `@lilnas/cli` as a dev dependency
- * for `lilnas dev`, and no Dockerfile runs the CLI, so a CLI-only change must
+ * not `devDependencies`): apps list `@lilnas/cli` as a dev dependency
+ * and no Dockerfile runs the CLI, so a CLI-only change must
  * not rebuild anything.
  */
 
