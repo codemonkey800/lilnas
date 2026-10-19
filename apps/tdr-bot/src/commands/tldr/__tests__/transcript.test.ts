@@ -187,6 +187,17 @@ describe('linkifyCitations', () => {
       'Lots [↗](<https://x/1>) [↗](<https://x/2>) [↗](<https://x/3>)',
     )
   })
+
+  it('treats comma- and and-joined citations as one spot', () => {
+    expect(linkifyCitations('Lots [1], [2], [3], [4] and [5].', links)).toBe(
+      'Lots [↗](<https://x/1>) [↗](<https://x/2>) [↗](<https://x/3>).',
+    )
+  })
+
+  it('stops linking after 30 citations in a reply', () => {
+    const output = Array(20).fill('Point [1][2][3].').join('\n')
+    expect(linkifyCitations(output, links).match(/↗/g)).toHaveLength(30)
+  })
 })
 
 describe('splitForDiscord', () => {

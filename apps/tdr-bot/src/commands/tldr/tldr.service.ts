@@ -1,6 +1,7 @@
 import { HumanMessage } from '@langchain/core/messages'
 import { Injectable, Logger } from '@nestjs/common'
 
+import { DISCORD_MAX_MESSAGE_LENGTH } from 'src/constants/chat'
 import { LlmClient } from 'src/llm/client/llm-client'
 import { PromptService } from 'src/messages/prompts/prompt.service'
 
@@ -24,6 +25,9 @@ export interface TldrRequest {
 
 const TLDR_TIMEOUT_MS = 90_000
 const TLDR_MAX_TOKENS = 1_200
+/** Most Discord messages one reply may post, so a runaway reply can't flood. */
+const MAX_REPLY_CHUNKS = 2
+const CUT_OFF = '\n… _(cut off)_'
 
 @Injectable()
 export class TldrService {
@@ -68,12 +72,24 @@ export class TldrService {
         model: result.model,
         usage: result.usage,
         durationMs: result.durationMs,
+        finishReason: result.finishReason,
       },
       'Summary generated',
     )
 
     const body = linkifyCitations(result.output.trim(), transcript.links)
-    return splitForDiscord(`${this.header(request)}\n\n${body}`)
+    const chunks = splitForDiscord(`${this.header(request)}\n\n${body}`)
+    if (chunks.length <= MAX_REPLY_CHUNKS) return chunks
+
+    this.logger.warn(
+      { chunks: chunks.length, finishReason: result.finishReason },
+      'Reply too long, cutting it off',
+    )
+    const kept = chunks.slice(0, MAX_REPLY_CHUNKS)
+    const last = kept.length - 1
+    kept[last] =
+      kept[last].slice(0, DISCORD_MAX_MESSAGE_LENGTH - CUT_OFF.length) + CUT_OFF
+    return kept
   }
 
   private header({ window, question }: TldrRequest): string {

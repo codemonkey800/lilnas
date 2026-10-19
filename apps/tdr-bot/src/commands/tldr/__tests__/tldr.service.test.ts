@@ -168,6 +168,29 @@ describe('TldrService', () => {
     expect(chunks.length).toBeGreaterThan(1)
     for (const chunk of chunks) expect(chunk.length).toBeLessThanOrEqual(2000)
   })
+
+  it('cuts a runaway reply off at two messages', async () => {
+    llm.script(
+      'tldr.summarize',
+      Array(1000).fill('A long bullet line.').join('\n'),
+    )
+
+    const chunks = await service.summarize(makeRequest())
+
+    expect(chunks).toHaveLength(2)
+    expect(chunks[1]).toMatch(/_\(cut off\)_$/)
+    for (const chunk of chunks) expect(chunk.length).toBeLessThanOrEqual(2000)
+  })
+
+  it('collapses a runaway citation list', async () => {
+    const indexes = Array.from({ length: 300 }, (_, i) => `[${(i % 3) + 1}]`)
+    llm.script('tldr.summarize', `Booked it ${indexes.join(', ')}`)
+
+    const chunks = await service.summarize(makeRequest())
+
+    expect(chunks).toHaveLength(1)
+    expect(chunks[0].match(/↗/g)).toHaveLength(3)
+  })
 })
 
 describe('buildTldrInstruction', () => {

@@ -19,11 +19,16 @@ export interface Transcript {
 /** Most citation links kept when several sit together. */
 const MAX_CITATIONS_PER_SPOT = 3
 
+/** Most citation links kept in a whole reply; later citations are dropped. */
+const MAX_CITATIONS_TOTAL = 30
+
 const CONTINUATION_INDENT = '    '
 
 const CITATION = String.raw`\[\d+(?:\s*,\s*\d+)*\](?!\()`
+// Citations joined by spaces, commas, or "and" count as one spot, so a
+// runaway "[1], [2], [3], …" list collapses instead of linking every index.
 const CITATION_RUN = new RegExp(
-  `([ \\t]?)${CITATION}(?:[ \\t]*${CITATION})*`,
+  `([ \\t]?)${CITATION}(?:[ \\t]*(?:,|and)?[ \\t]*${CITATION})*`,
   'g',
 )
 
@@ -147,6 +152,7 @@ export function linkifyCitations(
   output: string,
   links: Map<number, string>,
 ): string {
+  let budget = MAX_CITATIONS_TOTAL
   return output.replace(CITATION_RUN, (run: string, lead: string) => {
     const seen = new Set<number>()
     for (const digits of run.match(/\d+/g) ?? []) {
@@ -154,8 +160,9 @@ export function linkifyCitations(
       if (links.has(index)) seen.add(index)
     }
     const kept = [...seen]
-      .slice(0, MAX_CITATIONS_PER_SPOT)
+      .slice(0, Math.min(MAX_CITATIONS_PER_SPOT, budget))
       .map(index => `[↗](<${links.get(index)}>)`)
+    budget -= kept.length
     return kept.length > 0 ? `${lead}${kept.join(' ')}` : ''
   })
 }
