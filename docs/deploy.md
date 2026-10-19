@@ -139,6 +139,10 @@ sudo -u deploy docker compose stop palworld
 Palworld and L4D2 both publish port 27015, so only one of them can run at a
 time. Valheim has no profile and deploys like any other service.
 
+The remote browser sits behind the `on-demand` profile for the same reason: the
+portal starts and stops it, so a deploy must never start it. Create it once
+with `sudo -u deploy docker compose up -d browser`.
+
 ## Secrets
 
 The 15 env files compose loads in production are committed, encrypted with
