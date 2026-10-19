@@ -1,5 +1,5 @@
 # Dependency caching stage
-FROM lilnas-monorepo-builder AS deps
+FROM ghcr.io/codemonkey800/lilnas-monorepo-builder:latest AS deps
 
 # Copy package files for dependency caching
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -44,7 +44,7 @@ RUN if [ -d /app/.next/static ]; then \
 RUN test -f /app/server.js || (echo "ERROR: Standalone server not found" && exit 1)
 
 # Production stage
-FROM lilnas-nextjs-runtime AS production
+FROM ghcr.io/codemonkey800/lilnas-nextjs-runtime:latest AS production
 
 # Copy built application from builder stage
 COPY --from=builder /app /app

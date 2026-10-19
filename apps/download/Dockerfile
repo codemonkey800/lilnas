@@ -1,5 +1,5 @@
 # Dependency caching stage
-FROM lilnas-monorepo-builder AS deps
+FROM ghcr.io/codemonkey800/lilnas-monorepo-builder:latest AS deps
 
 # Copy package files for dependency caching
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -57,7 +57,7 @@ RUN mkdir -p /app/src/db && \
 RUN test -f /app/dist/main.js || (echo "ERROR: dist/main.js not found" && exit 1)
 
 # Production stage
-FROM lilnas-nextjs-runtime AS production
+FROM ghcr.io/codemonkey800/lilnas-nextjs-runtime:latest AS production
 
 # Install ffmpeg and dependencies for yt-dlp
 RUN apt-get update && \

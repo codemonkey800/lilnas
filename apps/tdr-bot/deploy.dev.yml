@@ -67,7 +67,7 @@ services:
     user: '1000:1001'
 
     env_file:
-      - path: .env.prod
+      - path: .env.prod.decrypted
         required: true
       - path: .env
         required: true

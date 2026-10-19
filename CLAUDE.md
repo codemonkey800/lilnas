@@ -315,45 +315,29 @@ The `@lilnas/tdr-bot` package includes sophisticated AI capabilities:
 
 The project uses a layered Docker base image system for consistent environments:
 
-**Image Hierarchy:**
+**Image Hierarchy** (published to `ghcr.io/codemonkey800/lilnas-<x>`):
 
 - `lilnas-node-base` - Base Node.js environment with common dependencies
 - `lilnas-monorepo-builder` - Build environment with pnpm and turbo
 - `lilnas-node-runtime` - Lightweight runtime for Node.js services
 - `lilnas-nextjs-runtime` - Specialized runtime for Next.js applications
+- `lilnas-dev` - Dev container image, local-only, never pushed
 
 **Building Base Images:**
 
+CI (`.github/workflows/ci.yml`, job `base-images`) rebuilds and pushes the four production images whenever `infra/base-images/**` changes. Locally:
+
 ```bash
-# Build all base images (run from project root)
+# Local tags only (also creates the ghcr.io-named tags so app Dockerfiles build offline)
 ./infra/base-images/build-base-images.sh
 
-# Images are used automatically by service Dockerfiles
-# Rebuild base images when:
-# - Updating Node.js version
-# - Changing base dependencies
-# - Updating pnpm version
-# - Making significant changes to the build process
+# One-time GHCR bootstrap (needs `docker login ghcr.io`)
+./infra/base-images/build-base-images.sh --push
 ```
 
-**Important: Deploys Ship the Working Tree**
+**Important: Production Is Not This Checkout**
 
-The base images hold no source code — each app's Dockerfile copies the source from the build context (`COPY . .`), so a plain rebuild picks up code changes without rebuilding base images:
-
-```bash
-docker-compose up -d --build <service>
-```
-
-The build context is the repo checkout as it sits on disk, so **uncommitted changes (including another session's in-progress work) ship too**. To deploy only committed code, build from a clean worktree and then recreate the service without `--build`:
-
-```bash
-git worktree add --detach /tmp/lilnas-deploy HEAD
-docker build -f /tmp/lilnas-deploy/apps/<app>/Dockerfile -t lilnas-<service> /tmp/lilnas-deploy
-docker-compose up -d <service>
-git worktree remove /tmp/lilnas-deploy
-```
-
-Changes to a service's `env_file` (e.g. `apps/<app>/.env.prod`) only need `docker-compose up -d <service>` — Compose recreates the container when the env file changes, no rebuild required.
+`/home/jeremy/lilnas` is dev-only. Production runs the `lilnas` compose project from `/opt/lilnas` (owned by the `deploy` user) and is deployed by pushing to `main`: CI builds the affected images on GitHub runners, pushes them to GHCR, and SSHes over Tailscale to run `docker compose pull`/`up -d` for the affected services. Never run `docker compose up/down/restart/pull/--build` against the `lilnas` project from a dev checkout except as the emergency path in `docs/deploy.md`. Rollback: `LILNAS_TAG=<sha> docker compose up -d <svc>` in `/opt/lilnas`. See `docs/deploy.md` for the change → action table, manual deploys, secrets, and host setup.
 
 ### Build Process
 
@@ -396,42 +380,40 @@ pnpm run build --dry-run
 
 Commands can be run directly on the production server via `ssh lilnas.io`.
 
-**Always deploy from the root `docker-compose.yml`. Never run the individual `apps/*/deploy.yml` or `infra/*.yml` files standalone** (e.g. `cd apps/<app-name> && docker-compose -f deploy.yml up -d`). The root compose file `include`s every app and infra file; invoking one directly isolates it from the `lilnas-proxy` network and other shared config.
+Production deploys happen by pushing to `main` (see `docs/deploy.md`). Manual equivalents:
 
-Each package includes production-ready deployment configuration:
+```bash
+# Everything, from GitHub (dry_run defaults to true)
+gh workflow run ci.yml -f dry_run=false -f full=true
+
+# Read-only checks on the host
+docker compose ls
+docker compose -p lilnas ps
+docker compose -p lilnas logs -f <service-name>
+```
+
+**Always deploy from the root `docker-compose.yml`. Never run the individual `apps/*/deploy.yml` or `infra/*.yml` files standalone** (e.g. `cd apps/<app-name> && docker-compose -f deploy.yml up -d`). The root compose file `include`s every app and infra file; invoking one directly isolates it from the `lilnas-proxy` network and other shared config.
 
 **Deployment Files:**
 
-- `apps/*/deploy.yml` - Production Docker Compose for each app (included by the root `docker-compose.yml`; not meant to be run standalone)
+- `apps/*/deploy.yml` - Production Docker Compose for each app (included by the root `docker-compose.yml`; not meant to be run standalone). Locally built services use `image: ghcr.io/codemonkey800/lilnas-<name>:${LILNAS_TAG:-latest}`
 - Uses `*.lilnas.io` domains with automatic SSL via Let's Encrypt
 - Traefik authentication middleware (`lilnas-auth@docker`)
 - Restart policies: `unless-stopped` for reliability
-
-**Production Commands (from repo root):**
-
-```bash
-# Deploy a specific app
-docker-compose up -d <service-name>
-
-# View production logs
-docker-compose logs -f <service-name>
-
-# Update and redeploy
-docker-compose pull <service-name>
-docker-compose up -d <service-name>
-```
 
 ### Environment Variables
 
 Each app owns its own environment files under `apps/<app>/`:
 
 - **`.env`** — development values (gitignored)
-- **`.env.prod`** — production values (gitignored; populated directly on the deploy host, never committed)
-- **`.env.example`** — committed template showing required variables (copy it to `.env` for dev or `.env.prod` for prod)
+- **`.env.prod`** — production values, **committed encrypted** with dotenvx (`KEY=encrypted:…`); compose reads the gitignored `.env.prod.decrypted` sibling that `pnpm lilnas secrets decrypt` writes
+- **`.env.example`** — committed template showing required variables
 
-`deploy.dev.yml` loads `.env`; `deploy.yml` loads `.env.prod` — both via Docker Compose's `env_file:`, relative to the app's own directory. The `lilnas dev` CLI (`packages/cli/src/commands/dev.ts`) loads the same `.env` for the native (non-Docker) dev flow.
+Infra env files follow the same model: `infra/.env` and `infra/.env.<name>` are committed encrypted and compose reads `infra/.env*.decrypted`. Private keys live in the gitignored `.env.keys` (never commit, never print). Change a value with `pnpm exec dotenvx set KEY value -fk .env.keys -f <file>`, check with `pnpm lilnas secrets verify`, commit and push — the deploy re-decrypts on the host. Full procedure in `docs/deploy.md` (Secrets).
 
-Not every app has environment variables — `portal` and `dashcam` have none. `tdr-code` is a special case: its processes run directly on the deploy host rather than in a container, so it uses a single `.env` for both dev and prod (see `docs/archive/runbooks/tdr-code-phase-d-forward-auth-cutover.md`).
+`deploy.dev.yml` loads `.env`; `deploy.yml` loads `.env.prod.decrypted` — both via Docker Compose's `env_file:`, relative to the app's own directory. The `lilnas dev` CLI (`packages/cli/src/commands/dev.ts`) loads the same `.env` for the native (non-Docker) dev flow.
+
+Not every app has environment variables — `portal` and `dashcam` have none. `tdr-code` is a special case: its processes run directly on the deploy host rather than in a container, so it uses a single plain `.env` for both dev and prod (see `docs/archive/runbooks/tdr-code-phase-d-forward-auth-cutover.md`).
 
 ## Best Practices
 

@@ -18,6 +18,7 @@
     "type-check": "dotenv -e .env.turbo -- turbo run type-check"
   },
   "devDependencies": {
+    "@dotenvx/dotenvx": "2.38.0",
     "@lilnas/cli": "workspace:*",
     "@lilnas/eslint": "workspace:*",
     "@lilnas/prettier": "workspace:*",

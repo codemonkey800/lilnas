@@ -1,9 +1,10 @@
-# Placeholder so GitHub registers this workflow for `gh workflow run ci.yml
-# --ref feat/push-to-deploy`. The real pipeline lives on that branch and
-# replaces this file when it merges.
 name: CI
 
 on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       dry_run:
@@ -14,6 +15,14 @@ on:
         description: Plan as if everything changed (build every image, deploy every service)
         type: boolean
         default: false
+      base:
+        description: >-
+          Commit to diff from. Empty = the parent of the dispatched commit,
+          i.e. only the tip commit's changes. For a re-deploy pass the sha
+          currently deployed on the host (`git -C /opt/lilnas rev-parse
+          HEAD`), or use full=true.
+        type: string
+        default: ''
       build_base_images:
         description: Rebuild and push the base images first
         type: boolean
@@ -21,9 +30,544 @@ on:
 
 permissions:
   contents: read
+  packages: write
+
+env:
+  NODE_VERSION: '25.0.0'
+  PNPM_VERSION: '10.18.2'
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/codemonkey800/lilnas
 
 jobs:
-  placeholder:
+  # Turn the diff into a plan: which packages to test, which images to build,
+  # which services to pull / up / force-recreate on the host.
+  detect:
     runs-on: ubuntu-latest
+    outputs:
+      full: ${{ steps.plan.outputs.full }}
+      baseImages: ${{ steps.plan.outputs.baseImages }}
+      images: ${{ steps.plan.outputs.images }}
+      pull: ${{ steps.plan.outputs.pull }}
+      up: ${{ steps.plan.outputs.up }}
+      forceRecreate: ${{ steps.plan.outputs.forceRecreate }}
+      decrypt: ${{ steps.plan.outputs.decrypt }}
+      testPackages: ${{ steps.plan.outputs.testPackages }}
     steps:
-      - run: echo "Placeholder workflow. Dispatch with --ref feat/push-to-deploy."
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Detect changes
+        id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD: ${{ github.sha }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          FULL: ${{ inputs.full }}
+          DISPATCH_BASE: ${{ inputs.base }}
+        run: |
+          case "$EVENT_NAME" in
+            pull_request) BASE="$PR_BASE" ;;
+            push) BASE="$PUSH_BEFORE" ;;
+            *)
+              if [ -n "$DISPATCH_BASE" ]; then
+                # A typo in `base` must fail here, not silently become a full
+                # deploy (`lilnas ci detect` treats a non-ancestor base as full).
+                BASE="$(git rev-parse --verify --end-of-options "${DISPATCH_BASE}^{commit}")" \
+                  || { echo "::error::base '$DISPATCH_BASE' is not a commit in this checkout"; exit 1; }
+              else
+                BASE="$(git rev-parse HEAD~1)"
+              fi
+              ;;
+          esac
+
+          TIP_ONLY=false
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -z "$DISPATCH_BASE" ] && [ "$FULL" != "true" ]; then
+            TIP_ONLY=true
+            echo "::warning::only the tip commit ($HEAD) was considered; to redeploy a range, dispatch with base=<deployed sha> or full=true"
+          fi
+
+          args=(--json --base "$BASE" --head "$HEAD")
+          if [ "$FULL" = "true" ]; then
+            args+=(--full)
+          fi
+
+          echo "lilnas ci detect ${args[*]}"
+          PLAN="$(pnpm --silent lilnas ci detect "${args[@]}")"
+          echo "$PLAN" | jq .
+
+          # Only the matrix keys build-images uses; keeps every matrix value a scalar.
+          echo "images=$(echo "$PLAN" | jq -c '[.images[] | {name, context, dockerfile, image}]')" >> "$GITHUB_OUTPUT"
+          for field in full baseImages pull up forceRecreate decrypt testPackages; do
+            echo "${field}=$(echo "$PLAN" | jq -c ".${field}")" >> "$GITHUB_OUTPUT"
+          done
+
+          {
+            echo "## Plan"
+            echo
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| base | \`${BASE:-<unset>}\` |"
+            echo "| head | \`$HEAD\` |"
+            echo "| full | $(echo "$PLAN" | jq -r '.full') |"
+            echo "| baseImages | $(echo "$PLAN" | jq -r '.baseImages') |"
+            echo "| images | $(echo "$PLAN" | jq -r '[.images[].name] | join(", ") | if . == "" then "(none)" else . end') |"
+            echo "| pull | $(echo "$PLAN" | jq -r '.pull | join(", ") | if . == "" then "(none)" else . end') |"
+            echo "| up | $(echo "$PLAN" | jq -r '.up | join(", ") | if . == "" then "(none)" else . end') |"
+            echo "| forceRecreate | $(echo "$PLAN" | jq -r '.forceRecreate | join(", ") | if . == "" then "(none)" else . end') |"
+            echo "| decrypt | $(echo "$PLAN" | jq -r '.decrypt') |"
+            echo "| testPackages | $(echo "$PLAN" | jq -r '.testPackages | join(", ") | if . == "" then "(none)" else . end') |"
+            echo "| changedFiles | $(echo "$PLAN" | jq -r '.changedFiles | length') |"
+            if [ "$TIP_ONLY" = "true" ]; then
+              echo
+              echo "> **Warning:** only the tip commit was considered (base = parent of head)."
+              echo "> To redeploy a range, dispatch with \`-f base=<sha deployed on the host>\`"
+              echo "> (\`git -C /opt/lilnas rev-parse HEAD\`) or \`-f full=true\`."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  test:
+    runs-on: ubuntu-latest
+    needs: detect
+    if: ${{ needs.detect.outputs.testPackages != '[]' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJson(needs.detect.outputs.testPackages) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build dependencies
+        run: pnpm run build
+
+      - name: Run tests for ${{ matrix.package }}
+        env:
+          CI: true
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          cd "$PACKAGE"
+          pnpm test
+
+      # upload-artifact v4 rejects "/" in artifact names.
+      - name: Artifact name
+        if: always()
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          echo "ARTIFACT_NAME=test-results-${PACKAGE//\//-}" >> "$GITHUB_ENV"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: |
+            ${{ matrix.package }}/coverage/
+            ${{ matrix.package }}/test-results.xml
+          retention-days: 7
+          if-no-files-found: ignore
+
+  lint-and-typecheck:
+    runs-on: ubuntu-latest
+    needs: detect
+    if: ${{ needs.detect.outputs.testPackages != '[]' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJson(needs.detect.outputs.testPackages) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build dependencies
+        run: pnpm run build
+
+      - name: Run lint for ${{ matrix.package }}
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          cd "$PACKAGE"
+          if grep -q '"lint"' package.json; then
+            pnpm lint
+          else
+            echo "No lint script found for $PACKAGE"
+          fi
+
+      - name: Run type-check for ${{ matrix.package }}
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          cd "$PACKAGE"
+          if grep -q '"type-check"' package.json; then
+            pnpm type-check
+          else
+            echo "No type-check script found for $PACKAGE"
+          fi
+
+  # Base images are FROM each other via ghcr.io, so each push must land before
+  # the next build starts. Always tags :latest (a dispatch from a branch
+  # republishes them; accepted).
+  base-images:
+    runs-on: ubuntu-latest
+    needs: detect
+    if: >-
+      ${{
+        github.event_name != 'pull_request'
+        && (needs.detect.outputs.baseImages == 'true' || inputs.build_base_images)
+      }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push lilnas-node-base
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/base-images/lilnas-node-base.Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-node-base:latest
+            ${{ env.IMAGE_PREFIX }}-node-base:${{ github.sha }}
+          cache-from: type=registry,ref=${{ env.IMAGE_PREFIX }}-node-base:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE_PREFIX }}-node-base:buildcache,mode=max
+
+      - name: Build and push lilnas-monorepo-builder
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/base-images/lilnas-monorepo-builder.Dockerfile
+          push: true
+          pull: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-monorepo-builder:latest
+            ${{ env.IMAGE_PREFIX }}-monorepo-builder:${{ github.sha }}
+          cache-from: type=registry,ref=${{ env.IMAGE_PREFIX }}-monorepo-builder:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE_PREFIX }}-monorepo-builder:buildcache,mode=max
+
+      - name: Build and push lilnas-node-runtime
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/base-images/lilnas-node-runtime.Dockerfile
+          push: true
+          pull: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-node-runtime:latest
+            ${{ env.IMAGE_PREFIX }}-node-runtime:${{ github.sha }}
+          cache-from: type=registry,ref=${{ env.IMAGE_PREFIX }}-node-runtime:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE_PREFIX }}-node-runtime:buildcache,mode=max
+
+      - name: Build and push lilnas-nextjs-runtime
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/base-images/lilnas-nextjs-runtime.Dockerfile
+          push: true
+          pull: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-nextjs-runtime:latest
+            ${{ env.IMAGE_PREFIX }}-nextjs-runtime:${{ github.sha }}
+          cache-from: type=registry,ref=${{ env.IMAGE_PREFIX }}-nextjs-runtime:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE_PREFIX }}-nextjs-runtime:buildcache,mode=max
+
+  # `!cancelled()` lets this run when upstream jobs were skipped (no tests to
+  # run, no base images to build); the explicit `!= 'failure'` checks are what
+  # actually gate it.
+  build-images:
+    runs-on: ubuntu-latest
+    needs: [detect, test, lint-and-typecheck, base-images]
+    if: >-
+      ${{
+        !cancelled()
+        && github.event_name != 'pull_request'
+        && needs.detect.result == 'success'
+        && needs.detect.outputs.images != '[]'
+        && needs.test.result != 'failure'
+        && needs.lint-and-typecheck.result != 'failure'
+        && needs.base-images.result != 'failure'
+      }}
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include: ${{ fromJson(needs.detect.outputs.images) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The deploy step always deploys :latest, so every build here tags it
+      # (PR builds never reach this job).
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ matrix.image }}
+          tags: |
+            type=sha,format=long,prefix=
+            type=raw,value=latest
+
+      - name: Build and push ${{ matrix.name }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          pull: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ matrix.image }}:buildcache
+          cache-to: type=registry,ref=${{ matrix.image }}:buildcache,mode=max
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [detect, test, lint-and-typecheck, base-images, build-images]
+    if: >-
+      ${{
+        !cancelled()
+        && github.event_name != 'pull_request'
+        && needs.detect.result == 'success'
+        && needs.test.result != 'failure'
+        && needs.lint-and-typecheck.result != 'failure'
+        && needs.base-images.result != 'failure'
+        && needs.build-images.result != 'failure'
+      }}
+    concurrency:
+      group: deploy
+      cancel-in-progress: false
+    environment: production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/deploy
+          sparse-checkout-cone-mode: false
+
+      - name: Build deploy command
+        id: cmd
+        env:
+          SHA: ${{ github.sha }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          INPUT_FULL: ${{ inputs.full }}
+          DETECT_FULL: ${{ needs.detect.outputs.full }}
+          DECRYPT: ${{ needs.detect.outputs.decrypt }}
+          PULL: ${{ needs.detect.outputs.pull }}
+          UP: ${{ needs.detect.outputs.up }}
+          FORCE_RECREATE: ${{ needs.detect.outputs.forceRecreate }}
+        run: |
+          pull="$(echo "$PULL" | jq -r 'join(",")')"
+          up="$(echo "$UP" | jq -r 'join(",")')"
+          force="$(echo "$FORCE_RECREATE" | jq -r 'join(",")')"
+
+          full=false
+          if [ "$INPUT_FULL" = "true" ] || [ "$DETECT_FULL" = "true" ]; then
+            full=true
+          fi
+
+          cmd="deploy $SHA"
+          if [ "$DRY_RUN" = "true" ]; then
+            cmd+=" --dry-run"
+          fi
+
+          if [ "$full" = "true" ]; then
+            # The host script ignores service lists under --full.
+            cmd+=" --full"
+          else
+            if [ "$DECRYPT" = "true" ]; then
+              cmd+=" --decrypt"
+            fi
+            if [ -n "$pull" ]; then
+              cmd+=" --pull $pull"
+            fi
+            if [ -n "$up" ]; then
+              cmd+=" --up $up"
+            fi
+            if [ -n "$force" ]; then
+              cmd+=" --force-recreate $force"
+            fi
+          fi
+
+          if [ "$full" = "true" ] || [ "$DECRYPT" = "true" ] \
+            || [ -n "$pull" ] || [ -n "$up" ] || [ -n "$force" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "cmd=$cmd" >> "$GITHUB_OUTPUT"
+            echo "Deploy command: $cmd"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Nothing to deploy for $SHA"
+            {
+              echo "## Deploy"
+              echo
+              echo "Nothing to deploy for \`$SHA\`; skipped."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Connect to Tailscale
+        if: ${{ steps.cmd.outputs.run == 'true' }}
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Install SSH key
+        if: ${{ steps.cmd.outputs.run == 'true' }}
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          cp scripts/deploy/known_hosts ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Deploy
+        if: ${{ steps.cmd.outputs.run == 'true' }}
+        env:
+          CMD: ${{ steps.cmd.outputs.cmd }}
+        run: |
+          {
+            echo "## Deploy"
+            echo
+            echo '```'
+            echo "\$ $CMD"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          set +e
+          ssh -o BatchMode=yes -o ConnectTimeout=30 \
+            deploy@lilnas.tail77e8b0.ts.net "$CMD" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          status=${PIPESTATUS[0]}
+          set -e
+
+          {
+            echo '```'
+            echo
+            echo "exit status: $status"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+  # Single required check: fails if any job failed or was cancelled; skipped
+  # jobs are fine.
+  summary:
+    runs-on: ubuntu-latest
+    needs: [detect, test, lint-and-typecheck, base-images, build-images, deploy]
+    if: always()
+    steps:
+      - name: Summary
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          {
+            echo "## Jobs"
+            echo
+            echo "| Job | Result |"
+            echo "| --- | --- |"
+            echo "$NEEDS" | jq -r 'to_entries[] | "| \(.key) | \(.value.result) |"'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          if echo "$NEEDS" | jq -e '[.[] | .result] | any(. == "failure" or . == "cancelled")' > /dev/null; then
+            echo "::error::a job failed or was cancelled"
+            exit 1
+          fi

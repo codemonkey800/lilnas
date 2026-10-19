@@ -4,9 +4,13 @@ services:
   #
   # Started and stopped from portal.lilnas.io/browser, which also auto-stops
   # it when idle (apps/portal/src/utils/browser.ts). Create it once with
-  # `docker-compose up -d browser`; after that the portal only starts/stops
+  # `docker compose up -d browser`; after that the portal only starts/stops
   # the existing container, so it must keep this fixed container_name.
+  #
+  # Opt-in: the `on-demand` profile keeps deploys from starting it. Naming it
+  # explicitly (as above) still enables the profile.
   browser:
+    profiles: [on-demand]
     image: lscr.io/linuxserver/chromium:latest
     container_name: lilnas-browser
     restart: 'no'

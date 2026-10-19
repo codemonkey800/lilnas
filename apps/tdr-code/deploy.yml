@@ -16,9 +16,11 @@ services:
       - lilnas-proxy
     extra_hosts:
       - 'host.docker.internal:host-gateway'
-    env_file:
-      - .env
+    # No env_file: apps/tdr-code/.env belongs to the host-native process and
+    # is gitignored, so it doesn't exist in the /opt/lilnas deploy clone. The
+    # proxy only needs the frontend port; keep it in sync with PORT there.
     environment:
+      LOCAL_PORT: '8790'
       SERVICE_LABEL: 'tdr-code'
       UNREACHABLE_DESCRIPTION: 'The tdr-code backend is unreachable. Start the tdr-code server and refresh.'
       NGINX_ENVSUBST_TEMPLATE_VARS: LOCAL_PORT
