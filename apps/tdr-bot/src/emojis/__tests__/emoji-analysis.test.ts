@@ -297,6 +297,14 @@ describe('resolveEmojis', () => {
     })
   })
 
+  it('swallows the brackets of an id-less <:name:> token', () => {
+    expect(resolveEmojis('hi <:peepoCozy:> bye', KEYS)).toMatchObject({
+      text: `hi ${COZY} bye`,
+      emojis: [{ raw: '<:peepoCozy:>', form: 'shortcode', name: 'peepoCozy' }],
+    })
+    expect(resolveEmojis('hi <:nope:> bye', KEYS).text).toBe('hi bye')
+  })
+
   it('repairs a token with the wrong id', () => {
     const { text, emojis } = resolveEmojis(
       '<:peepoCozy:758403748580589598>',

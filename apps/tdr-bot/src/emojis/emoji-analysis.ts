@@ -113,9 +113,11 @@ export interface EmojiResolution {
  * ':name:' whose colons are not adjacent to another ':' or a word character,
  * so '12:30:45', 'https://x' and '<:EZ:1>' are left alone. Any name shape is
  * matched; a digit/underscore-first name is a ref only when it is in the
- * dictionary (':50:' stays text, ':5Head:' resolves).
+ * dictionary (':50:' stays text, ':5Head:' resolves). A '<:name:>' (the token
+ * format with its id left off) matches whole, so the brackets go with it.
  */
-const ANY_SHORTCODE_RE = /(?<![:\w]):([A-Za-z0-9_]{2,32}):(?![:\w])/g
+const ANY_SHORTCODE_RE =
+  /<:([A-Za-z0-9_]{2,32}):>|(?<![:\w]):([A-Za-z0-9_]{2,32}):(?![:\w])/g
 /** Letter-first names: unknown names of this shape are dropped, others stay text. */
 const SHORTCODE_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{1,31}$/
 /** Fenced code blocks and inline code spans, copied through untouched. */
@@ -277,7 +279,8 @@ export function resolveEmojis(
   const resolveRun = (run: string, offset: number): void => {
     let cursor = 0
     for (const match of run.matchAll(ANY_SHORTCODE_RE)) {
-      const [raw, name] = match
+      const raw = match[0]
+      const name = match[1] ?? match[2]
       const resolution = resolveShortcode(name, dictionary)
       if (!resolution) continue
       const start = match.index ?? 0
