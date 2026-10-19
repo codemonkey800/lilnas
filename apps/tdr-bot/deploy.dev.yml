@@ -129,8 +129,13 @@ services:
     container_name: lilnas-tdr-dev-db
     environment:
       <<: *dev-db-env
-    volumes:
-      - tdr-dev-db-data:/var/lib/postgresql/data
+    # Ephemeral on purpose, like download-dev's /data: the database is wiped
+    # whenever this container restarts, and the entrypoint's `db:migrate`
+    # rebuilds the schema from scratch. Dev chats, reminders and checkpoints
+    # are scratch data. The postgres image runs as uid 70 (alpine), hence the
+    # uid/gid. Lives in RAM, outside tdr-dev's mem_limit.
+    tmpfs:
+      - /var/lib/postgresql/data:uid=70,gid=70,mode=0700,size=512m
     healthcheck:
       test: pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
       interval: 10s
@@ -149,4 +154,3 @@ networks:
 volumes:
   tdr-dev-root-modules:
   tdr-dev-pnpm-store:
-  tdr-dev-db-data:
