@@ -309,6 +309,13 @@ GitHub (`codemonkey800/lilnas`):
 
 - Secrets: `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`, `DEPLOY_SSH_KEY`
   (`gh secret set <NAME>`).
+- Turbo remote cache (the `turbo` service in `infra/shared.yml`): variables
+  `TURBO_API` (`https://turbo.lilnas.io`) and `TURBO_TEAM` (`lilnas`), secrets
+  `TURBO_TOKEN` and `TURBO_REMOTE_CACHE_SIGNATURE_KEY`. Both secrets are the
+  values in `infra/.env.turbo`; the server needs the same signing key or every
+  signed artifact is a cache miss. To rotate the key, `dotenvx set` it there,
+  then
+  `pnpm dlx @dotenvx/dotenvx get TURBO_REMOTE_CACHE_SIGNATURE_KEY -f infra/.env.turbo -fk .env.keys | gh secret set TURBO_REMOTE_CACHE_SIGNATURE_KEY`.
 - A `production` environment (the deploy job runs under it; protection rules
   are optional — a required reviewer gates every deploy, including no-ops).
 - Branch protection on `main`: required check `summary`.
