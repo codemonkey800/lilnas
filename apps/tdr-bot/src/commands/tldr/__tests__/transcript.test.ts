@@ -1,8 +1,11 @@
 import {
+  createCitationBudget,
   formatWhen,
   linkifyCitations,
+  reflowForDiscord,
   renderTranscript,
   splitForDiscord,
+  stripCitations,
 } from 'src/commands/tldr/transcript'
 import {
   MAX_MESSAGE_CHARS,
@@ -198,6 +201,17 @@ describe('linkifyCitations', () => {
     const output = Array(20).fill('Point [1][2][3].').join('\n')
     expect(linkifyCitations(output, links).match(/↗/g)).toHaveLength(30)
   })
+
+  it('draws on one allowance across several calls', () => {
+    const budget = createCitationBudget()
+    const output = Array(8).fill('Point [1][2][3].').join('\n')
+
+    const first = linkifyCitations(output, links, budget)
+    const second = linkifyCitations(output, links, budget)
+
+    expect(first.match(/↗/g)).toHaveLength(24)
+    expect(second.match(/↗/g)).toHaveLength(6)
+  })
 })
 
 describe('splitForDiscord', () => {
@@ -274,5 +288,82 @@ describe('formatWhen', () => {
     expect(formatWhen(new Date('2026-10-14T03:00:00Z'), now, TZ)).toBe(
       'Tue 8:00 PM',
     )
+  })
+})
+
+describe('stripCitations', () => {
+  it('removes bracketed indexes and keeps the rest', () => {
+    expect(
+      stripCitations('Booked it [3], [4, 5] and [bot] [1](https://a.b)'),
+    ).toBe('Booked it ,  and [bot] [1](https://a.b)')
+  })
+})
+
+describe('reflowForDiscord', () => {
+  const words = (n: number, word = 'word') => Array(n).fill(word).join(' ')
+  const wordCount = (chunks: string[]) =>
+    chunks.join(' ').split(/\s+/).filter(Boolean).length
+
+  it('leaves messages that already fit alone', () => {
+    expect(reflowForDiscord(['one', 'two', 'three'], 100)).toEqual([
+      'one',
+      'two',
+      'three',
+    ])
+  })
+
+  it('joins an overflowing tail to the next message when they fit', () => {
+    const chunks = reflowForDiscord([words(30), 'short'], 100)
+
+    expect(chunks).toHaveLength(2)
+    expect(chunks[1].endsWith('\n\nshort')).toBe(true)
+    for (const chunk of chunks) expect(chunk.length).toBeLessThanOrEqual(100)
+    expect(wordCount(chunks)).toBe(31)
+  })
+
+  it('keeps the tail separate when it will not fit with the next message', () => {
+    const next = 'x'.repeat(90)
+    const chunks = reflowForDiscord([words(30), next], 100)
+
+    expect(chunks).toHaveLength(3)
+    expect(chunks[2]).toBe(next)
+    for (const chunk of chunks) expect(chunk.length).toBeLessThanOrEqual(100)
+    expect(wordCount(chunks)).toBe(31)
+  })
+
+  it('sends the tail of the last message on as its own message', () => {
+    const chunks = reflowForDiscord([words(30)], 100)
+
+    expect(chunks).toHaveLength(2)
+    for (const chunk of chunks) expect(chunk.length).toBeLessThanOrEqual(100)
+    expect(wordCount(chunks)).toBe(30)
+  })
+
+  it('moves each overflow at most one message and loses no text', () => {
+    const chunks = reflowForDiscord(
+      [words(30, 'aaa'), words(30, 'bbb'), words(30, 'ccc')],
+      100,
+    )
+
+    for (const chunk of chunks) expect(chunk.length).toBeLessThanOrEqual(100)
+    expect(wordCount(chunks)).toBe(90)
+    expect(chunks.join(' ').indexOf('bbb')).toBeGreaterThan(
+      chunks.join(' ').lastIndexOf('aaa'),
+    )
+  })
+
+  it('skips empty messages', () => {
+    expect(reflowForDiscord(['', 'one'], 100)).toEqual(['one'])
+  })
+})
+
+describe('splitForDiscord header handling', () => {
+  it('does not strand a short header ahead of one long paragraph', () => {
+    const text = `header\n\n${Array(30).fill('word').join(' ')}`
+
+    const chunks = splitForDiscord(text, 100)
+
+    expect(chunks[0].length).toBeGreaterThan('header'.length)
+    for (const chunk of chunks) expect(chunk.length).toBeLessThanOrEqual(100)
   })
 })

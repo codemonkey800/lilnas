@@ -13,6 +13,15 @@ export const MAX_THREADS = 20
 /** Longest single message content kept in the transcript. */
 export const MAX_MESSAGE_CHARS = 1500
 
+/** Most Discord messages the model may split a reply into. */
+export const MAX_MODEL_MESSAGES = 3
+
+/**
+ * Longest message, in characters, the model is asked to write. Under Discord's
+ * 2000 so the citation links added afterwards still fit.
+ */
+export const MAX_MODEL_MESSAGE_CHARS = 1500
+
 export interface WindowMessage {
   id: string
   /** Channel or thread the message lives in. */

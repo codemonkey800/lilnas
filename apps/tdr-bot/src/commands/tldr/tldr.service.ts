@@ -6,13 +6,15 @@ import { LlmClient } from 'src/llm/client/llm-client'
 import { PromptService } from 'src/messages/prompts/prompt.service'
 
 import { buildTldrInstruction } from './prompts'
+import { TldrReplySchema } from './reply'
 import {
+  createCitationBudget,
   formatWhen,
   linkifyCitations,
+  reflowForDiscord,
   renderTranscript,
-  splitForDiscord,
 } from './transcript'
-import { TldrError, TldrWindow } from './types'
+import { MAX_MODEL_MESSAGES, TldrError, TldrWindow } from './types'
 
 export interface TldrRequest {
   window: TldrWindow
@@ -25,8 +27,12 @@ export interface TldrRequest {
 
 const TLDR_TIMEOUT_MS = 90_000
 const TLDR_MAX_TOKENS = 1_200
-/** Most Discord messages one reply may post, so a runaway reply can't flood. */
-const MAX_REPLY_CHUNKS = 2
+/**
+ * Most Discord messages one reply may post, so a runaway reply can't flood.
+ * One more than the model is asked for, to absorb the tail of a message that
+ * grew past 2000 characters once its links were added.
+ */
+const MAX_REPLY_CHUNKS = MAX_MODEL_MESSAGES + 1
 const CUT_OFF = '\n… _(cut off)_'
 
 @Injectable()
@@ -59,6 +65,7 @@ export class TldrService {
     const result = await this.llm.call({
       operation: question === null ? 'tldr.summarize' : 'tldr.answer',
       role: 'chat',
+      schema: TldrReplySchema,
       messages: [
         this.promptService.getSystemPrompt(),
         buildTldrInstruction(request),
@@ -77,8 +84,17 @@ export class TldrService {
       'Summary generated',
     )
 
-    const body = linkifyCitations(result.output.trim(), transcript.links)
-    const chunks = splitForDiscord(`${this.header(request)}\n\n${body}`)
+    const budget = createCitationBudget()
+    const [first = '', ...rest] = result.output.messages
+      .slice(0, MAX_MODEL_MESSAGES)
+      .map(message =>
+        linkifyCitations(message.trim(), transcript.links, budget),
+      )
+      .filter(message => message.length > 0)
+    const chunks = reflowForDiscord([
+      `${this.header(request)}\n\n${first}`,
+      ...rest,
+    ])
     if (chunks.length <= MAX_REPLY_CHUNKS) return chunks
 
     this.logger.warn(

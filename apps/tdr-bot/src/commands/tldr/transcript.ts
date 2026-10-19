@@ -22,6 +22,15 @@ const MAX_CITATIONS_PER_SPOT = 3
 /** Most citation links kept in a whole reply; later citations are dropped. */
 const MAX_CITATIONS_TOTAL = 30
 
+export interface CitationBudget {
+  remaining: number
+}
+
+/** A fresh whole-reply link allowance, shared across a reply's messages. */
+export function createCitationBudget(): CitationBudget {
+  return { remaining: MAX_CITATIONS_TOTAL }
+}
+
 const CONTINUATION_INDENT = '    '
 
 const CITATION = String.raw`\[\d+(?:\s*,\s*\d+)*\](?!\()`
@@ -31,6 +40,11 @@ const CITATION_RUN = new RegExp(
   `([ \\t]?)${CITATION}(?:[ \\t]*(?:,|and)?[ \\t]*${CITATION})*`,
   'g',
 )
+
+/** `text` without `[n]` citations, for judging how much prose it holds. */
+export function stripCitations(text: string): string {
+  return text.replace(new RegExp(CITATION, 'g'), '')
+}
 
 const DAY_KEY = 'YYYY-MM-DD'
 
@@ -151,8 +165,8 @@ export function renderTranscript(
 export function linkifyCitations(
   output: string,
   links: Map<number, string>,
+  budget: CitationBudget = createCitationBudget(),
 ): string {
-  let budget = MAX_CITATIONS_TOTAL
   return output.replace(CITATION_RUN, (run: string, lead: string) => {
     const seen = new Set<number>()
     for (const digits of run.match(/\d+/g) ?? []) {
@@ -160,18 +174,25 @@ export function linkifyCitations(
       if (links.has(index)) seen.add(index)
     }
     const kept = [...seen]
-      .slice(0, Math.min(MAX_CITATIONS_PER_SPOT, budget))
+      .slice(0, Math.min(MAX_CITATIONS_PER_SPOT, budget.remaining))
       .map(index => `[↗](<${links.get(index)}>)`)
-    budget -= kept.length
+    budget.remaining -= kept.length
     return kept.length > 0 ? `${lead}${kept.join(' ')}` : ''
   })
 }
 
-/** Index to cut `text` at (chunk is `text.slice(0, index)`), or -1. */
+/**
+ * Index to cut `text` at (chunk is `text.slice(0, index)`), or -1. Prefers the
+ * coarsest break in the back half of the limit, so a short header ahead of one
+ * long paragraph is not stranded alone; falls back to any break past the start.
+ */
 function findBreak(text: string, limit: number): number {
-  for (const separator of ['\n\n', '\n', ' ']) {
-    const index = text.lastIndexOf(separator, limit)
-    if (index > 0) return index
+  const separators = ['\n\n', '\n', ' ']
+  for (const min of [limit / 2, 0]) {
+    for (const separator of separators) {
+      const index = text.lastIndexOf(separator, limit)
+      if (index > min) return index
+    }
   }
   return -1
 }
@@ -198,4 +219,36 @@ export function splitForDiscord(
 
   if (rest.trim().length > 0) chunks.push(rest)
   return chunks
+}
+
+/**
+ * Fits `messages` to Discord's limit while keeping the model's own breaks.
+ * A message over `limit` is split at its natural breaks; the leftover tail
+ * joins the next message only when the two fit together, otherwise it stands
+ * alone. Nothing is ever pushed further down, so one long message moves at
+ * most its own tail and never reshuffles the messages after it.
+ */
+export function reflowForDiscord(
+  messages: string[],
+  limit = DISCORD_MAX_MESSAGE_LENGTH,
+): string[] {
+  const out: string[] = []
+  let carry = ''
+
+  for (const message of messages) {
+    let text = message
+    if (carry.length > 0) {
+      const merged = `${carry}\n\n${message}`
+      if (merged.length <= limit) text = merged
+      else out.push(carry)
+      carry = ''
+    }
+
+    const pieces = splitForDiscord(text, limit)
+    if (pieces.length > 1) carry = pieces.pop() ?? ''
+    out.push(...pieces)
+  }
+
+  if (carry.length > 0) out.push(carry)
+  return out
 }
