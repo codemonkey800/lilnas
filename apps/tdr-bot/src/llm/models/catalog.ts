@@ -5,6 +5,11 @@ export interface ModelCapabilities {
   structuredOutput: boolean
   temperature: boolean
   reasoningEffort: boolean
+  /**
+   * False when the model rejects reasoning effort alongside function tools on
+   * /v1/chat/completions; tool-bound calls then send `reasoning_effort: none`.
+   */
+  reasoningEffortWithTools?: boolean
   vision: boolean
   image: boolean
 }
@@ -173,7 +178,7 @@ export const MODEL_CATALOG: readonly ModelSpec[] = [
     label: 'GPT-6 Luna',
     description: 'Cheapest GPT-6 model for focused, high-volume tasks.',
     roles: TEXT_ROLES,
-    capabilities: reasoning(true),
+    capabilities: { ...reasoning(true), reasoningEffortWithTools: false },
     pricing: { inputPer1M: 0.1, outputPer1M: 0.5, cachedInputPer1M: 0.01 },
   },
   {

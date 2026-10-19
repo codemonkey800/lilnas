@@ -111,7 +111,9 @@ export class DefaultLlmClient extends LlmClient {
     }
     if (caps.reasoningEffort) {
       params.reasoningEffort =
-        call.overrides?.reasoningEffort ?? settings.reasoningEffort
+        call.tools?.length && caps.reasoningEffortWithTools === false
+          ? 'none'
+          : (call.overrides?.reasoningEffort ?? settings.reasoningEffort)
     }
     if (call.overrides?.maxTokens !== undefined) {
       params.maxTokens = call.overrides.maxTokens

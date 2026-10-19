@@ -220,6 +220,33 @@ describe('DefaultLlmClient', () => {
       })
       expect(t.chatModel.mock.calls[0][1]).toEqual({ temperature: 0.7 })
     })
+
+    it('sends reasoningEffort none with tools for models that reject both', async () => {
+      const t = setup()
+      t.invoke.mockResolvedValue(aiMessage('ok'))
+      await t.client.call({
+        operation: 'x',
+        role: 'chat',
+        messages,
+        tools: [{ name: 'a' }] as never,
+        overrides: { model: 'gpt-6-luna', reasoningEffort: 'high' },
+      })
+      expect(t.chatModel.mock.calls[0][1]).toEqual({ reasoningEffort: 'none' })
+    })
+
+    it('keeps reasoningEffort without tools for models that reject both', async () => {
+      const t = setup()
+      t.invoke.mockResolvedValue(aiMessage('ok'))
+      await t.client.call({
+        operation: 'x',
+        role: 'chat',
+        messages,
+        overrides: { model: 'gpt-6-luna' },
+      })
+      expect(t.chatModel.mock.calls[0][1]).toEqual({
+        reasoningEffort: 'medium',
+      })
+    })
   })
 
   describe('tools and structured output', () => {
