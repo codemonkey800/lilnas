@@ -281,6 +281,14 @@
   & > *:nth-child(n + 8) {
     animation-delay: 280ms;
   }
+  /* `rise ... forwards` leaves every child with a `transform`, so each one is
+     its own stacking context and a later sibling paints over an earlier one's
+     popover no matter what z-index the popover carries. Lifting the child that
+     holds focus (a popover moves focus into its panel) puts the open one on top. */
+  & > *:focus-within {
+    position: relative;
+    z-index: 10;
+  }
 }
 
 /* The press. "Springs for you, eases for the machine" (DESIGN.md rule 3): the
