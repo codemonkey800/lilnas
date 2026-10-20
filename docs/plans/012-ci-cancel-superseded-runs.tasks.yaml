@@ -77,7 +77,8 @@ phases:
           - .github/workflows/ci.yml
           - scripts/ci/cancel-superseded-runs.sh
           - packages/cli/src/utils/__tests__/ci-cancel-superseded-runs.spec.ts
-        status: todo
+        status: done
+        commit: 584eaa53514a8f8b3e9b345479847069a97cf47c
         body: |-
           Cancel older runs that a new push supersedes, but never one that is already
           deploying (a deploy killed mid-SSH dies on the host at its next write and can
