@@ -37,7 +37,6 @@ import { SabnzbdMonitorService } from 'src/sabnzbd/sabnzbd-monitor.service'
     NestMinioModule.register({
       accessKey: 'test-access-key',
       endPoint: 'test-minio-host',
-      isGlobal: true,
       port: 9000,
       secretKey: 'test-secret-key',
       useSSL: false,

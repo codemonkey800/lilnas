@@ -100,24 +100,19 @@ describe('loadMasterKey', () => {
     const realStatSync = fs.statSync.bind(fs)
     const statSpy = jest
       .spyOn(fs, 'statSync')
-      .mockImplementation(
-        (p: fs.PathLike | number, opts?: { bigint?: boolean }): fs.Stats => {
-          const stat = realStatSync(
-            p,
-            opts as Parameters<typeof fs.statSync>[1],
+      .mockImplementation((p: fs.PathLike): fs.Stats => {
+        const stat = realStatSync(p) as fs.Stats
+        if (p === keyPath) {
+          return Object.assign(
+            Object.create(Object.getPrototypeOf(stat)) as fs.Stats,
+            stat,
+            {
+              uid: process.getuid!() + 1,
+            },
           )
-          if (p === keyPath) {
-            return Object.assign(
-              Object.create(Object.getPrototypeOf(stat)) as fs.Stats,
-              stat,
-              {
-                uid: process.getuid!() + 1,
-              },
-            )
-          }
-          return stat
-        },
-      )
+        }
+        return stat
+      })
     try {
       expect(() => loadMasterKey()).toThrow(/owned by the current uid/)
     } finally {
@@ -131,24 +126,19 @@ describe('loadMasterKey', () => {
     const realStatSync = fs.statSync.bind(fs)
     const statSpy = jest
       .spyOn(fs, 'statSync')
-      .mockImplementation(
-        (p: fs.PathLike | number, opts?: { bigint?: boolean }): fs.Stats => {
-          const stat = realStatSync(
-            p,
-            opts as Parameters<typeof fs.statSync>[1],
+      .mockImplementation((p: fs.PathLike): fs.Stats => {
+        const stat = realStatSync(p) as fs.Stats
+        if (p === path.dirname(keyPath)) {
+          return Object.assign(
+            Object.create(Object.getPrototypeOf(stat)) as fs.Stats,
+            stat,
+            {
+              uid: process.getuid!() + 1,
+            },
           )
-          if (p === path.dirname(keyPath)) {
-            return Object.assign(
-              Object.create(Object.getPrototypeOf(stat)) as fs.Stats,
-              stat,
-              {
-                uid: process.getuid!() + 1,
-              },
-            )
-          }
-          return stat
-        },
-      )
+        }
+        return stat
+      })
     try {
       expect(() => loadMasterKey()).toThrow(/parent directory/)
     } finally {

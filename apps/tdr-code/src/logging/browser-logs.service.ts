@@ -2,7 +2,6 @@ import { Injectable } from '@nestjs/common'
 // pino ships `export =` merged with a same-named namespace — the
 // import-x/no-named-as-default(-member) warnings are known false positives for
 // this pattern (see auth-mount.spec.ts's identical precedent).
-// eslint-disable-next-line import-x/no-named-as-default
 import pino from 'pino'
 
 import { redactionCensor } from 'src/logger'

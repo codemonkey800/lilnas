@@ -24,6 +24,6 @@
     "type-check": "tsc --noEmit"
   },
   "devDependencies": {
-    "@hey-api/openapi-ts": "^0.93.0"
+    "@hey-api/openapi-ts": "^0.99.0"
   }
 }

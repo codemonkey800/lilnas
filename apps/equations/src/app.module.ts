@@ -36,7 +36,6 @@ import { HealthController } from './health.controller'
     NestMinioModule.register({
       accessKey: env(EnvKeys.MINIO_ACCESS_KEY),
       endPoint: env(EnvKeys.MINIO_HOST),
-      isGlobal: true,
       port: +env(EnvKeys.MINIO_PORT),
       secretKey: env(EnvKeys.MINIO_SECRET_KEY),
       useSSL: false,

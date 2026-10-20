@@ -23,9 +23,9 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "zod": "4.1.12"
+    "zod": "4.6.7"
   },
   "devDependencies": {
-    "@hey-api/openapi-ts": "^0.93.0"
+    "@hey-api/openapi-ts": "^0.99.0"
   }
 }

@@ -9,7 +9,6 @@ import { Test } from '@nestjs/testing'
 // pino.DestinationStream, etc.) — the import-x/no-named-as-default warning is
 // a known false positive for this pattern; `pino` is the library's own
 // documented canonical import name (see pino's own README/docs).
-// eslint-disable-next-line import-x/no-named-as-default
 import pino from 'pino'
 
 import { buildAuth } from 'src/auth/auth'
