@@ -3,7 +3,10 @@
   "collection": "@nestjs/schematics",
   "sourceRoot": "src",
   "compilerOptions": {
-    "builder": "swc",
+    "builder": {
+      "type": "swc",
+      "options": { "stripLeadingPaths": true }
+    },
     "deleteOutDir": true,
     "assets": [{ "include": "db/migrations/**/*", "watchAssets": true }]
   }
