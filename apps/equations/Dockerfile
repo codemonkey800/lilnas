@@ -52,6 +52,11 @@ RUN apt-get update && \
 # Install pnpm
 RUN npm install -g pnpm@12.14.0
 
+# Same as lilnas-node-runtime: keep pnpm 12 from writing the lockfile and
+# re-verifying the install on `pnpm start` as the non-root app user.
+ENV pnpm_config_pm_on_fail=ignore
+ENV pnpm_config_verify_deps_before_run=false
+
 # Create app user
 RUN groupadd -r app && useradd -r -g app app
 
