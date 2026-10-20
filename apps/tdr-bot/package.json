@@ -39,7 +39,7 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:live": "LIVE_LLM=1 jest --testMatch '**/*.live.test.ts' --runInBand",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc7 --noEmit"
   },
   "dependencies": {
     "@emotion/cache": "11.14.0",

@@ -16,7 +16,7 @@
     "lint:eslint:fix": "eslint --fix src",
     "lint:prettier:fix": "prettier -w src",
     "start": "NODE_ENV=production node server.js",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc7 --noEmit"
   },
   "dependencies": {
     "@lilnas/utils": "workspace:*",

@@ -32,7 +32,7 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:ytdlp-update": "docker build -f src/ytdlp-update/__tests__/Dockerfile.test -t ytdlp-update-test . && docker run --rm ytdlp-update-test",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc7 --noEmit"
   },
   "dependencies": {
     "@lilnas/media": "workspace:*",
@@ -85,6 +85,6 @@
     "jest": "30.5.2",
     "jest-environment-jsdom": "30.5.2",
     "ts-jest": "29.4.15",
-    "typescript": "5.9.3"
+    "typescript": "6.0.3"
   }
 }

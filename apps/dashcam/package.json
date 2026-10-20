@@ -19,7 +19,7 @@
     "lint:eslint:fix": "eslint --fix src",
     "lint:prettier:fix": "prettier -w src",
     "preview": "vite preview --port 8080",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc7 --noEmit"
   },
   "devDependencies": {
     "@lilnas/cli": "workspace:*"

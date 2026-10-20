@@ -21,7 +21,7 @@
     "lint:fix": "run-p -l lint:*:fix",
     "lint:eslint:fix": "eslint --fix src",
     "lint:prettier:fix": "prettier -w src",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc7 --noEmit"
   },
   "devDependencies": {
     "@hey-api/openapi-ts": "^0.99.0"

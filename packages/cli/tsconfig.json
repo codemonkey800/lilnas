@@ -4,8 +4,8 @@
     "composite": true,
     "rootDir": "./src",
     "outDir": "./dist",
-    "module": "CommonJS",
-    "moduleResolution": "node"
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext"
   },
   "include": ["src/**/*.ts"],
   "exclude": [

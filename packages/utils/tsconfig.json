@@ -4,12 +4,12 @@
     "composite": true,
     "rootDir": "./src",
     "outDir": "./dist",
-    "baseUrl": "./",
-    "module": "CommonJS",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
     "paths": {
-      "src/*": ["src/*"]
+      "src/*": ["./src/*"]
     }
   },
   "include": ["src/**/*.ts"],

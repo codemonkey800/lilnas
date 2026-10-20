@@ -20,7 +20,7 @@
     "lint:eslint:fix": "eslint --fix src",
     "lint:prettier:fix": "prettier -w src",
     "start": "NODE_ENV=production node dist/main",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc7 --noEmit"
   },
   "devDependencies": {
     "@lilnas/cli": "workspace:*"

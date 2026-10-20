@@ -6,7 +6,6 @@
     "declarationMap": false,
     "rootDir": ".",
     "outDir": "./dist",
-    "baseUrl": ".",
     "paths": {
       "src/*": [
         "./src/*"

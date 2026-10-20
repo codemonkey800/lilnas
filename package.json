@@ -22,6 +22,7 @@
     "@lilnas/cli": "workspace:*",
     "@lilnas/eslint": "workspace:*",
     "@lilnas/prettier": "workspace:*",
+    "@lilnas/tsc7": "workspace:*",
     "@nestjs/cli": "11.0.10",
     "@nestjs/common": "11.1.6",
     "@nestjs/core": "11.1.6",
@@ -59,7 +60,7 @@
     "ts-jest": "29.4.15",
     "tsx": "4.23.15",
     "turbo": "2.11.9",
-    "typescript": "5.9.3",
+    "typescript": "6.0.3",
     "vite": "8.3.4",
     "vite-tsconfig-paths": "6.1.1",
     "zx": "8.8.5"

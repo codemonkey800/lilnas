@@ -30,7 +30,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage && node scripts/print-coverage-summary.js",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc7 --noEmit"
   },
   "dependencies": {
     "@better-auth/drizzle-adapter": "1.6.23",
@@ -75,6 +75,6 @@
     "jest-environment-jsdom": "30.5.2",
     "pino-pretty": "13.2.0",
     "ts-jest": "29.4.15",
-    "typescript": "5.9.3"
+    "typescript": "6.0.3"
   }
 }

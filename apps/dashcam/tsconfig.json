@@ -4,7 +4,6 @@
     "composite": true,
     "rootDir": "./src",
     "outDir": "./dist",
-    "baseUrl": ".",
     "paths": {
       "src/*": ["./src/*"],
       "@lilnas/utils/*": ["../utils/dist/*"]
@@ -15,6 +14,7 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
+    "types": ["node", "vite/client", "wicg-file-system-access"],
     "useDefineForClassFields": true,
     "noEmit": false
   },

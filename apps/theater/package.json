@@ -32,8 +32,8 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "type-check": "run-p type-check:*",
-    "type-check:app": "tsc --noEmit",
-    "type-check:scripts": "tsc -p scripts/tsconfig.json"
+    "type-check:app": "tsc7 --noEmit",
+    "type-check:scripts": "tsc7 -p scripts/tsconfig.json"
   },
   "dependencies": {
     "@lilnas/utils": "workspace:*",
@@ -80,6 +80,6 @@
     "jest": "30.5.2",
     "ts-jest": "29.4.15",
     "tsx": "4.23.15",
-    "typescript": "5.9.3"
+    "typescript": "6.0.3"
   }
 }

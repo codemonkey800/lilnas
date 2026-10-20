@@ -1,0 +1,14 @@
+{
+  "name": "@lilnas/tsc7",
+  "version": "0.0.0",
+  "description": "TypeScript 7 (native) compiler, exposed as `tsc7` so it can run beside the TypeScript 6 compiler API that ts-jest, typescript-eslint and Next/Nest still need",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.14.0",
+  "bin": {
+    "tsc7": "./bin/tsc7.mjs"
+  },
+  "dependencies": {
+    "typescript-7": "npm:typescript@7.0.2"
+  }
+}
