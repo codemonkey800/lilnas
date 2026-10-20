@@ -40,7 +40,9 @@ async function getHostsFromDocker(): Promise<string[]> {
 async function getHostsFromFiles(): Promise<string[]> {
   const { parse } = await import('yaml')
 
-  const root = path.resolve(process.cwd(), '../..')
+  // Runtime-only lookup: without the hint, Turbopack's file tracer can't
+  // scope this path and copies the whole monorepo into the standalone build.
+  const root = path.resolve(/* turbopackIgnore: true */ process.cwd(), '../..')
 
   const appsDir = path.join(root, 'apps')
   const appEntries = await fs.readdir(appsDir, { withFileTypes: true })
