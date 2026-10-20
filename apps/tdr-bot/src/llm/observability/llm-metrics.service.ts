@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import { Counter, Gauge, Histogram, register } from 'prom-client'
+import { Counter, Gauge, Histogram, register } from '@prometheus-io/client'
 
 type CallStatus = 'success' | 'error' | 'timeout' | 'schema_failure'
 type RetryReason = 'timeout' | 'rate_limit' | 'server_error' | 'other'

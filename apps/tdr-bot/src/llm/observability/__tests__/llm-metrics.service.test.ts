@@ -1,4 +1,4 @@
-import { register } from 'prom-client'
+import { register } from '@prometheus-io/client'
 
 import { LlmMetricsService } from 'src/llm/observability/llm-metrics.service'
 

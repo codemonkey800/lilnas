@@ -1,6 +1,6 @@
 import type { DownloadType } from '@lilnas/utils/download/types'
 import { Injectable } from '@nestjs/common'
-import { Counter, Gauge, Histogram, register } from 'prom-client'
+import { Counter, Gauge, Histogram, register } from '@prometheus-io/client'
 
 type JobCompletedStatus = 'completed' | 'failed' | 'cancelled'
 type JobPhase = 'download' | 'convert' | 'upload' | 'clean' | 'total'

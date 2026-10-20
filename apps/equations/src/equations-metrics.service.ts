@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import { Counter, Gauge, Histogram, register } from 'prom-client'
+import { Counter, Gauge, Histogram, register } from '@prometheus-io/client'
 
 type CompilationStatus = 'success' | 'failed'
 type ValidationFailureReason = 'schema' | 'safety' | 'auth'

@@ -7,7 +7,7 @@ import type {
   DownloadPage,
 } from '@lilnas/utils/download/types'
 import { BadRequestException, Injectable, Logger } from '@nestjs/common'
-import { Counter, register } from 'prom-client'
+import { Counter, register } from '@prometheus-io/client'
 
 import type { ForwardedUser } from 'src/auth/forwarded-user'
 import {
@@ -27,7 +27,7 @@ import {
 import type { AuditLogRow } from 'src/db/schema'
 
 /**
- * A module-level `prom-client` counter, matching the shape
+ * A module-level `@prometheus-io/client` counter, matching the shape
  * `download-metrics.service.ts` uses for every other `download_*` series -
  * `register` is a process-wide singleton, so declaring it here registers it
  * exactly once and `/metrics` picks it up with no wiring.

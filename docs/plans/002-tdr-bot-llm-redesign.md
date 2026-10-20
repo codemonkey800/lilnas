@@ -78,7 +78,7 @@ image, media (download/delete/browse/status) and reminder behaviour is preserved
   runtime settings + the whole conversation in `src/state/state.service.ts`; multi-turn
   context in `src/message-handler/context/context-management.service.ts`; retries in
   `src/utils/retry.service.ts` (`executeWithRetry(fn, cfg, name)`); metrics in
-  `src/tdr-bot-metrics.service.ts` (prom-client, default registry, scraped at `/metrics`);
+  `src/tdr-bot-metrics.service.ts` (@prometheus-io/client, default registry, scraped at `/metrics`);
   prompts in `src/utils/prompts.ts`, `src/message-handler/services/prompts/prompt.constants.ts`,
   `src/reminders/reminder.prompts.ts`.
 - Postgres via Drizzle: schema `apps/tdr-bot/src/db/schema.ts`, pool in
@@ -301,7 +301,7 @@ all pass (60 suites, 1240 tests).
   export function runWithRequestContext<T>(ctx: RequestContext, fn: () => Promise<T>): Promise<T>
   export function getRequestContext(): RequestContext | undefined
   export function setRequestContextField<K extends keyof RequestContext>(key: K, value: RequestContext[K]): void
-  // apps/tdr-bot/src/llm/observability/llm-metrics.service.ts  (prom-client, default registry)
+  // apps/tdr-bot/src/llm/observability/llm-metrics.service.ts  (@prometheus-io/client, default registry)
   @Injectable() export class LlmMetricsService {
     callStarted(labels: { operation: string; model: string }): () => void   // returns a done() that decrements inflight
     callFinished(l: { operation: string; model: string; role: string; status: 'success' | 'error' | 'timeout' | 'schema_failure'; durationMs: number; retries: number })

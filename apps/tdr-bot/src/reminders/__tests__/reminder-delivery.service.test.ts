@@ -32,9 +32,9 @@ jest.mock('@langchain/tavily', () => ({
     .mockImplementation(() => ({ invoke: mockTavilyInvoke })),
 }))
 
-// ─── Mock prom-client to avoid duplicate metric registration ─────────────────
+// ─── Mock @prometheus-io/client to avoid duplicate metric registration ─────────────────
 
-jest.mock('prom-client', () => ({
+jest.mock('@prometheus-io/client', () => ({
   Counter: jest.fn().mockImplementation(() => ({ inc: jest.fn() })),
   Gauge: jest
     .fn()
