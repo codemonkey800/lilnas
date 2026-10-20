@@ -52,11 +52,11 @@ pnpm test:watch
 
 ### Monitoring & Observability
 
-The monitoring stack (Prometheus, Grafana, Loki, Promtail, Node Exporter, cAdvisor) is defined in `infra/monitoring.yml` and deployed as part of the production `docker-compose.yml`.
+The monitoring stack (Prometheus, Grafana, Loki, Alloy, Node Exporter, cAdvisor) is defined in `infra/monitoring.yml` and deployed as part of the production `docker-compose.yml`.
 
 ```bash
 # Start the monitoring stack
-docker-compose up -d prometheus grafana loki promtail node-exporter cadvisor
+docker-compose up -d prometheus grafana loki alloy node-exporter cadvisor
 
 # View Grafana dashboards (production)
 # https://grafana.lilnas.io
@@ -89,6 +89,7 @@ docker-compose logs -f <service-name>
 - Prometheus data: `/storage/app-data/prometheus`
 - Grafana data: `/storage/app-data/grafana`
 - Loki data: `/storage/app-data/loki`
+- Alloy positions: `/storage/app-data/alloy`
 
 ### Service Management
 

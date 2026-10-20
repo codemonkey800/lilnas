@@ -75,16 +75,19 @@ services:
       - ./monitoring/loki.yml:/etc/loki/loki.yml:ro
       - /storage/app-data/loki:/loki
 
-  promtail:
-    image: grafana/promtail:3.6.8
+  alloy:
+    image: grafana/alloy:v1.21.0
     restart: unless-stopped
     logging: *default-logging
-    command: -config.file=/etc/promtail/promtail.yml
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/var/lib/alloy/data
+      - --disable-reporting
     volumes:
-      - ./monitoring/promtail.yml:/etc/promtail/promtail.yml:ro
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./monitoring/config.alloy:/etc/alloy/config.alloy:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /storage/app-data/promtail:/positions
+      - /storage/app-data/alloy:/var/lib/alloy/data
 
   node-exporter:
     image: prom/node-exporter:v1.12.1

@@ -39,7 +39,7 @@ All data drives are single-device btrfs filesystems mounted at `/mnt/<drive>` vi
 
 - **Purpose:** Configuration, databases and runtime data, one folder per service
 - **Access pattern:** High-frequency read/write
-- **Used by:** MinIO (`minio/`), Traefik/Let's Encrypt (`letsencrypt/`), forward auth (`lilnas-auth/`), Sonarr, Radarr, Emby, SABnzbd, the download app, tdr-bot and its database, Prometheus, Grafana, Loki, Promtail, Yacht, RustDesk, and the game servers (Minecraft, Palworld, Valheim, L4D2)
+- **Used by:** MinIO (`minio/`), Traefik/Let's Encrypt (`letsencrypt/`), forward auth (`lilnas-auth/`), Sonarr, Radarr, Emby, SABnzbd, the download app, tdr-bot and its database, Prometheus, Grafana, Loki, Alloy, Yacht, RustDesk, and the game servers (Minecraft, Palworld, Valheim, L4D2)
 
 #### `/storage/workspace/` (`ssd4`)
 
@@ -174,7 +174,7 @@ emby:
 - /storage/app-data/prometheus:/prometheus
 - /storage/app-data/grafana:/var/lib/grafana
 - /storage/app-data/loki:/loki
-- /storage/app-data/promtail:/positions
+- /storage/app-data/alloy:/var/lib/alloy/data
 - /storage/app-data/yacht:/config
 ```
 
