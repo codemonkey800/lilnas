@@ -201,7 +201,7 @@ emby:
 
 ```yaml
 - /storage/app-data/lilnas-auth:/data
-- /storage/app-data/tdr-bot-db:/var/lib/postgresql/data
+- /storage/app-data/tdr-bot-db-18:/var/lib/postgresql
 - /storage/app-data/tdr-code:/data
 ```
 

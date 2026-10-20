@@ -125,7 +125,7 @@ services:
       # database sidecar (no route) keeps running.
 
   tdr-dev-db:
-    image: postgres:17.11-alpine
+    image: postgres:18.4-alpine
     container_name: lilnas-tdr-dev-db
     environment:
       <<: *dev-db-env
@@ -135,7 +135,7 @@ services:
     # are scratch data. The postgres image runs as uid 70 (alpine), hence the
     # uid/gid. Lives in RAM, outside tdr-dev's mem_limit.
     tmpfs:
-      - /var/lib/postgresql/data:uid=70,gid=70,mode=0700,size=512m
+      - /var/lib/postgresql:uid=70,gid=70,mode=0700,size=512m
     healthcheck:
       test: pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
       interval: 10s

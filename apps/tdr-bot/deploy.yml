@@ -6,14 +6,16 @@ x-logging: &default-logging
 
 services:
   tdr-bot-db:
-    image: postgres:17.11-alpine
+    image: postgres:18.4-alpine
     shm_size: 256m
     environment:
       POSTGRES_INITDB_ARGS: '--data-checksums'
     env_file:
       - .env.prod.decrypted
     volumes:
-      - /storage/app-data/tdr-bot-db:/var/lib/postgresql/data
+      # PG18 images keep PGDATA under /var/lib/postgresql/18/docker, so the
+      # mount moves up a level. tdr-bot-db is the retired PG17 directory.
+      - /storage/app-data/tdr-bot-db-18:/var/lib/postgresql
     healthcheck:
       test: pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
       interval: 30s
