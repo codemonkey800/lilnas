@@ -9,6 +9,7 @@ packages:
 allowBuilds:
   better-sqlite3: true
   '@nestjs/core': false
+  '@parcel/watcher': false
   '@swc/core': false
   '@tailwindcss/oxide': false
   esbuild: false
