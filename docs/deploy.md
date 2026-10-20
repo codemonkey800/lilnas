@@ -19,11 +19,17 @@ flowchart LR
 ```
 
 `.github/workflows/ci.yml` runs on every PR and on pushes to `main`. The
-`detect` job runs `pnpm lilnas ci detect --json --base <before> --head <sha>`
+`detect` job runs `pnpm lilnas ci detect --json --base <base> --head <sha>`
 and turns the diff into a plan: which packages to test, which images to build,
 which services to `pull` / `up` / `--force-recreate`, and whether to re-decrypt
-env files. PRs stop after tests. On `main`, images are built and pushed, then
-the `deploy` job joins the tailnet and runs the forced command
+env files. For a push, `<base>` is the head sha of the newest successful `push`
+run of `ci.yml` on `main` (`scripts/ci/last-deployed-sha.sh`), not
+`github.event.before`, so the newest run deploys every commit no earlier run
+deployed, even when those runs were cancelled or failed. If there is no such
+run, detect warns and falls back to `github.event.before`. A base that is no
+longer an ancestor of the head (a force-push) makes the plan `full`. PRs diff
+from the PR base and stop after tests. On `main`, images are built and pushed,
+then the `deploy` job joins the tailnet and runs the forced command
 `deploy <sha> [--decrypt] [--pull a,b] [--up c,d] [--force-recreate e,f]` on
 the host. The `summary` job is the single required status check.
 
@@ -50,6 +56,39 @@ pnpm lilnas ci detect --base main --head HEAD
 pnpm lilnas ci detect --base <sha> --head <sha> --json
 ```
 
+### Concurrency
+
+A new run does not leave older ones to finish on their own:
+
+- **Pushes and dispatches**: the `detect` job's "Cancel superseded runs" step
+  (`scripts/ci/cancel-superseded-runs.sh`) cancels older in-flight runs of
+  `ci.yml` for the same event on the same branch, unless that run's `deploy`
+  job has already started. Runs of a different event (a dispatch against a
+  push) are left alone.
+- **Pull requests**: a new push to a PR cancels the older runs of the same PR
+  through the workflow-level `concurrency` group. PR runs never reach `deploy`.
+- **Deploys**: a deploy in flight always finishes. The `deploy` job sits in its
+  own `concurrency` group with `cancel-in-progress: false`, so the newer run
+  queues behind it and then redeploys a superset of what the older run was
+  deploying. That is safe to repeat: `compose pull` and `up -d` are idempotent.
+
+A cancel is avoided once `deploy` starts because killing the job mid-SSH does
+not stop the host script at once: it dies at its next write and can leave a
+service stopped or half-updated.
+
+The check and the cancel are not atomic, so there is a small race: an older run
+can start `deploy` just after it was judged safe to cancel and be cancelled
+mid-deploy anyway. It self-heals. A cancelled run is never a successful push
+run, so it is never a base, and the next run diffs from the last run that did
+succeed and redeploys whatever the cancelled one would have.
+
+To see what happened, open the run's summary: `## Superseded runs` lists each
+older run it cancelled or kept (with the reason, e.g. "deploy in_progress"),
+and the `## Plan` table's `base source` row says where the base came from
+(`successful push run <id>`, `event.before (no successful push run)`,
+`dispatch input`, `HEAD~1 (no successful push run)` or `pull request base`). A
+lookup or cancel failure is only a `::warning::`; it never fails the run.
+
 ## Manual deploys
 
 A dispatch runs the same pipeline as a push; what it deploys depends on the
@@ -62,24 +101,30 @@ gh workflow run ci.yml -f dry_run=false -f full=true
 # 2. Exactly what changed since the commit the host is running
 gh workflow run ci.yml -f dry_run=false -f base="$(git -C /opt/lilnas rev-parse HEAD)"
 
-# 3. Default: only the tip commit's changes (HEAD~1..HEAD of the chosen ref)
+# 3. Default: everything since the last successful push run (like a push)
 gh workflow run ci.yml -f dry_run=false
 
 gh run watch
 ```
 
-Prefer form 2 to catch the host up after a multi-commit push or a failed
-deploy: `base` must be a commit in the checkout (CI fails on a typo rather
-than guessing), and `lilnas ci detect` treats a base that isn't an ancestor of
-the head as `full`. Form 3 is the caveat: after a push of several commits it
-diffs only the last one, so if that is a docs commit the deploy step prints
-"Nothing to deploy" and the host never advances — the run's summary carries
-a warning when that is what happened.
+Form 3 on `main` diffs from the head sha of the newest successful `push` run
+of `ci.yml`, the same base a push uses, so it catches up after a multi-commit
+push or a failed deploy. Form 2 is the explicit override: `base` must be a
+commit in the checkout (CI fails on a typo rather than guessing), and
+`lilnas ci detect` treats a base that isn't an ancestor of the head as `full`.
+Prefer it when the host has drifted from what CI last handled, since a
+successful run is not proof the host is at that sha. The tip-only caveat
+applies to a form 3 dispatch from another branch, or when no successful push
+run exists: it then diffs only the last commit (`HEAD~1..HEAD`), so if that is
+a docs commit the deploy step prints "Nothing to deploy" and the host never
+advances — the run's summary carries a warning when that is what happened.
 
 Dispatch inputs: `dry_run` (default **true** — the host prints the compose
 commands instead of running them), `full`, `base`, `build_base_images`. A
-dispatch diffs `base..<ref>` unless `full=true`; add `--ref <branch>` to
-dispatch from something other than the default branch.
+dispatch diffs `base..<ref>` unless `full=true`, with `base` defaulting as
+described above; add `--ref <branch>` to dispatch from something other than
+the default branch. Only `push` runs count as a base, so a dry-run dispatch
+never moves it.
 
 Run the same thing on the host without GitHub (Jeremy, with sudo). The
 entrypoint reads its arguments from `SSH_ORIGINAL_COMMAND`, exactly as sshd
@@ -318,6 +363,9 @@ GitHub (`codemonkey800/lilnas`):
   `pnpm dlx @dotenvx/dotenvx get TURBO_REMOTE_CACHE_SIGNATURE_KEY -f infra/.env.turbo -fk .env.keys | gh secret set TURBO_REMOTE_CACHE_SIGNATURE_KEY`.
 - A `production` environment (the deploy job runs under it; protection rules
   are optional — a required reviewer gates every deploy, including no-ops).
+- Token permissions: the `detect` job needs `actions: write` (to list runs and
+  cancel superseded ones). The workflow declares it on that job; there is
+  nothing to configure.
 - Branch protection on `main`: required check `summary`.
 - GHCR packages are created **private** on first push and the host pulls
   unauthenticated, so flip each `lilnas-*` package to public in the GitHub UI
