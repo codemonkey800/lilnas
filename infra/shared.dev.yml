@@ -6,7 +6,9 @@ x-logging: &default-logging
 
 services:
   storage:
-    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
+    # pgsty/minio was renamed Silo (same S3 API, MINIO_* env vars and on-disk
+    # format); the old name stopped at RELEASE.2026-08-04.
+    image: pgsty/silo:RELEASE.2026-10-18T00-00-00Z
     restart: unless-stopped
     logging: *default-logging
     command: server --console-address ":9001" /data

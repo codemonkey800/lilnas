@@ -15,10 +15,14 @@ mc mb minio/equations --ignore-existing
 # Create videos bucket if it doesn't exist
 mc mb minio/videos --ignore-existing
 
-# Set public read policy for equations bucket
-mc anonymous set public minio/equations
+# Anonymous read of objects only. The canned `public` policy is read-write,
+# and `download` also lets anyone list every key in the bucket.
+set_public_read() {
+  printf '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":["*"]},"Action":["s3:GetObject"],"Resource":["arn:aws:s3:::%s/*"]}]}' "$1" > "/tmp/$1-policy.json"
+  mc anonymous set-json "/tmp/$1-policy.json" "minio/$1"
+}
 
-# Set public read policy for videos bucket
-mc anonymous set public minio/videos
+set_public_read equations
+set_public_read videos
 
 echo "MinIO initialization complete!"
