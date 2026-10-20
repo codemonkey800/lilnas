@@ -17,10 +17,11 @@ on:
         default: false
       base:
         description: >-
-          Commit to diff from. Empty = the parent of the dispatched commit,
-          i.e. only the tip commit's changes. For a re-deploy pass the sha
-          currently deployed on the host (`git -C /opt/lilnas rev-parse
-          HEAD`), or use full=true.
+          Commit to diff from. Empty = the last commit a successful push run
+          handled on this branch, or, when there is none, the parent of the
+          dispatched commit (only the tip commit's changes). For a re-deploy
+          pass the sha currently deployed on the host (`git -C /opt/lilnas
+          rev-parse HEAD`), or use full=true.
         type: string
         default: ''
       build_base_images:
@@ -43,6 +44,10 @@ jobs:
   # which services to pull / up / force-recreate on the host.
   detect:
     runs-on: ubuntu-latest
+    # Replaces the workflow-level set: detect only reads the repo and lists runs.
+    permissions:
+      contents: read
+      actions: read
     outputs:
       full: ${{ steps.plan.outputs.full }}
       baseImages: ${{ steps.plan.outputs.baseImages }}
@@ -87,6 +92,8 @@ jobs:
       - name: Detect changes
         id: plan
         env:
+          GH_TOKEN: ${{ github.token }}
+          REF_NAME: ${{ github.ref_name }}
           EVENT_NAME: ${{ github.event_name }}
           HEAD: ${{ github.sha }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
@@ -94,23 +101,50 @@ jobs:
           FULL: ${{ inputs.full }}
           DISPATCH_BASE: ${{ inputs.base }}
         run: |
+          # A push (and a bare dispatch) diffs from the last commit a successful
+          # push run handled, so this run covers every undeployed commit even
+          # when earlier runs were cancelled or failed. A base that is not an
+          # ancestor of HEAD (force-push) is left for `lilnas ci detect` to
+          # turn into a full plan.
+          BASE_RUN=""
           case "$EVENT_NAME" in
-            pull_request) BASE="$PR_BASE" ;;
-            push) BASE="$PUSH_BEFORE" ;;
+            pull_request)
+              BASE="$PR_BASE"
+              BASE_SOURCE="pull request base"
+              ;;
+            push)
+              BASE=""
+              read -r BASE BASE_RUN < <("$GITHUB_WORKSPACE/scripts/ci/last-deployed-sha.sh" "$REF_NAME") || true
+              if [ -n "$BASE" ]; then
+                BASE_SOURCE="successful push run $BASE_RUN"
+              else
+                echo "::warning::no successful push run on $REF_NAME; diffing from event.before"
+                BASE="$PUSH_BEFORE"
+                BASE_SOURCE="event.before (no successful push run)"
+              fi
+              ;;
             *)
               if [ -n "$DISPATCH_BASE" ]; then
                 # A typo in `base` must fail here, not silently become a full
                 # deploy (`lilnas ci detect` treats a non-ancestor base as full).
                 BASE="$(git rev-parse --verify --end-of-options "${DISPATCH_BASE}^{commit}")" \
                   || { echo "::error::base '$DISPATCH_BASE' is not a commit in this checkout"; exit 1; }
+                BASE_SOURCE="dispatch input"
               else
-                BASE="$(git rev-parse HEAD~1)"
+                BASE=""
+                read -r BASE BASE_RUN < <("$GITHUB_WORKSPACE/scripts/ci/last-deployed-sha.sh" "$REF_NAME") || true
+                if [ -n "$BASE" ]; then
+                  BASE_SOURCE="successful push run $BASE_RUN"
+                else
+                  BASE="$(git rev-parse HEAD~1)"
+                  BASE_SOURCE="HEAD~1 (no successful push run)"
+                fi
               fi
               ;;
           esac
 
           TIP_ONLY=false
-          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -z "$DISPATCH_BASE" ] && [ "$FULL" != "true" ]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -z "$DISPATCH_BASE" ] && [ "$FULL" != "true" ] && [ -z "$BASE_RUN" ]; then
             TIP_ONLY=true
             echo "::warning::only the tip commit ($HEAD) was considered; to redeploy a range, dispatch with base=<deployed sha> or full=true"
           fi
@@ -136,6 +170,7 @@ jobs:
             echo "| Field | Value |"
             echo "| --- | --- |"
             echo "| base | \`${BASE:-<unset>}\` |"
+            echo "| base source | $BASE_SOURCE |"
             echo "| head | \`$HEAD\` |"
             echo "| full | $(echo "$PLAN" | jq -r '.full') |"
             echo "| baseImages | $(echo "$PLAN" | jq -r '.baseImages') |"
