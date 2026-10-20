@@ -42,7 +42,7 @@
     }
   },
   "devDependencies": {
-    "@nestjs/common": "11.1.6",
+    "@nestjs/common": "12.2.0",
     "@types/jest": "30.0.0",
     "@types/ws": "8.18.2",
     "jest": "30.5.2",
