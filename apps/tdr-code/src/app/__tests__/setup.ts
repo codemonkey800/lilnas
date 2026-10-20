@@ -4,7 +4,7 @@
 // concerns that have no bearing on, and should not load for, this
 // component test. See jest.config.js's header comment for why this is a
 // distinct Jest PROJECT rather than a shared environment, and for why
-// middleware.spec.ts (this app's OTHER new U6 test file) deliberately runs
+// proxy.spec.ts (this app's OTHER new U6 test file) deliberately runs
 // under the backend/node project instead of here — it needs the Fetch API
 // globals (Request/Response/Headers) that next/server depends on, which
 // jest-environment-jsdom does not provide, rather than any DOM API this

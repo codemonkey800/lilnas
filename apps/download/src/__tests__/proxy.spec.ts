@@ -1,11 +1,11 @@
 import { NextRequest } from 'next/server'
 
-import { config, middleware, NOT_FOUND_REWRITE } from 'src/middleware'
+import { config, NOT_FOUND_REWRITE, proxy } from 'src/proxy'
 
 const ORIGIN = 'https://download.lilnas.io'
 
 function run(path: string) {
-  return middleware(new NextRequest(`${ORIGIN}${path}`))
+  return proxy(new NextRequest(`${ORIGIN}${path}`))
 }
 
 /** Where Next is told to serve the request from, or `null` to pass it through. */
@@ -13,7 +13,7 @@ function rewriteOf(path: string): string | null {
   return run(path).headers.get('x-middleware-rewrite')
 }
 
-describe('middleware', () => {
+describe('proxy', () => {
   it.each(['/movies/438631', '/shows/121361', '/videos/V1StGXR8_Z5jdHi6B-myT'])(
     'passes a well-formed %s through untouched',
     path => {

@@ -75,11 +75,11 @@ function redirectToLogin() {
 // Base request helper with /api prefix. Throws on non-2xx.
 //
 // 401 handling (this is the redirect-on-401 half of the plan's "three
-// cooperating gates" — middleware.ts's cookie-presence check is the other
+// cooperating gates" — proxy.ts's cookie-presence check is the other
 // page-level gate; the NestJS guard is the authoritative one): a 401
 // specifically means "the session that got this page rendered is no longer
 // valid" — either it expired, or it was revoked, or a stale-but-cookie-
-// present request slipped past middleware.ts's cheap presence check. On a
+// present request slipped past proxy.ts's cheap presence check. On a
 // 401 this redirects to /login?error=session_expired and NEVER resolves or
 // rejects the underlying promise (the redirect is about to tear down the
 // page anyway, so there is nothing useful a caller could do with a settled

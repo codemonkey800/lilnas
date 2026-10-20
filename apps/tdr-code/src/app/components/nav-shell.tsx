@@ -42,7 +42,7 @@ function UserBadge() {
 
   const user = data?.user
   if (!user) {
-    // No session — middleware.ts should already have redirected an
+    // No session — proxy.ts should already have redirected an
     // unauthenticated page visit to /login before NavShell ever renders,
     // and every /api/* call is guarded server-side regardless, so this is
     // a defensive "render nothing" rather than a real reachable UI state.

@@ -4,12 +4,15 @@ import { NextResponse } from 'next/server'
 import { EnvKeys } from 'src/env'
 
 // Cheap COOKIE-PRESENCE page gate (R19: pages deny-by-default). This is
-// deliberately NOT a session validation — Next's edge runtime cannot run
-// better-sqlite3 (the driver Better Auth's session lookup needs), so the
-// only thing this file may ever do is check whether the exact session
-// cookie is present. The REAL enforcement is the NestJS global guard
-// (src/auth/auth.guard.ts, U4), which calls auth.api.getSession() on every
-// /api/* request — this middleware is UX only: it keeps an unauthenticated
+// deliberately NOT a session validation. Next 16's proxy runs on the Node
+// runtime, so better-sqlite3 would technically load here now, but the
+// session store belongs to the Nest process: validating here would mean a
+// second Better Auth instance and a DB lookup on every page request,
+// duplicating the check that already owns the decision. So this file only
+// checks whether the exact session cookie is present. The REAL enforcement
+// is the NestJS global guard (src/auth/auth.guard.ts, U4), which calls
+// auth.api.getSession() on every /api/* request — this proxy is UX only:
+// it keeps an unauthenticated
 // visitor from ever seeing a page shell that would immediately start
 // 401ing. A stale-but-present cookie that fails real validation is caught
 // by src/app/lib/api.ts's redirect-on-401 handler instead.
@@ -55,7 +58,7 @@ export const SESSION_COOKIE_NAME = getSessionCookieName(
   process.env[EnvKeys.BETTER_AUTH_URL] ?? '',
 )
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl
 
   // The matcher below only excludes /api, /_next/static, /_next/image, and
@@ -80,14 +83,14 @@ export function middleware(req: NextRequest) {
 }
 
 // Matcher mirrors apps/yoink/src/proxy.ts's precedent: EXCLUDE all of
-// `/api/*` from ever reaching this middleware at all (rather than reaching
+// `/api/*` from ever reaching this proxy at all (rather than reaching
 // it and allowlisting `/api/auth/*` + `/api/health` individually). Chosen
 // over the "cover /api and allowlist within it" alternative the plan poses
 // as the other option, because:
 //   - It's the simpler, proven shape (this is the plan's own stated
 //     preference: "Mirroring yoink is the simpler, proven choice").
 //   - `/api/health`'s public-ness is then purely a NestJS-side @Public()
-//     concern (U4) — this middleware never needs to know that route exists.
+//     concern (U4) — this proxy never needs to know that route exists.
 //     The Docker healthcheck hits `http://host.docker.internal:8080/api/health`
 //     (deploy.yml) — under this matcher that request never reaches this
 //     file, so there's no risk of a 3xx redirect breaking the probe.

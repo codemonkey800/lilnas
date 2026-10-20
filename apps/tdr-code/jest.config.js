@@ -3,7 +3,7 @@
 // testEnvironment: 'node') and a new frontend project (U6) scoped to
 // exactly ONE file this unit adds: src/app/__tests__/login.spec.tsx.
 //
-// middleware.spec.ts (the other new U6 test file) deliberately runs under
+// proxy.spec.ts (the other new U6 test file) deliberately runs under
 // the BACKEND (node) project, not the frontend (jsdom) one, even though it
 // lives in the same src/app/__tests__/ directory as login.spec.tsx — despite
 // testing a Next.js middleware file, it needs no DOM at all (no
@@ -16,7 +16,7 @@
 // in its own global realm that doesn't inherit Node's outer-process fetch
 // globals). Rather than hand-polyfill Request/Response/Headers into jsdom's
 // realm (fragile, and solves a problem this file doesn't actually have),
-// middleware.spec.ts simply runs where those globals already exist for
+// proxy.spec.ts simply runs where those globals already exist for
 // free. See each project's testMatch below for the exact split.
 //
 // Why a SEPARATE project instead of just switching the global
@@ -60,7 +60,7 @@ const backendProject = {
     // U6: exclude the frontend project's OWN .tsx specs from this
     // .ts-pattern-based testMatch (moot in practice — a .tsx file never
     // matches a '*.ts' glob — but explicit rather than relying on that
-    // alone) while still picking up middleware.spec.ts (a plain .ts file
+    // alone) while still picking up proxy.spec.ts (a plain .ts file
     // under app/__tests__/) via the un-excluded '**/__tests__/**/*.ts'
     // pattern above. login.spec.tsx runs ONLY under frontendProject below.
     '!**/app/__tests__/**/*.tsx',
@@ -97,7 +97,7 @@ const backendProject = {
   },
 }
 
-// U6: frontend project — scoped to login.spec.tsx only (middleware.spec.ts
+// U6: frontend project — scoped to login.spec.tsx only (proxy.spec.ts
 // runs under backendProject above; see that project's header comment for
 // why). jsdom is required here because login.spec.tsx renders actual React
 // components via @testing-library/react, which needs a real DOM to mount

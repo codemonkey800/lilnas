@@ -9,8 +9,10 @@ import { LOG_EVENTS } from './logging/log-events'
 // is the only place to run code at "the frontend process started" time —
 // see next.config.js.
 //
-// register() also fires once for the EDGE runtime (middleware.ts's
-// environment), which has no filesystem access — guard on NEXT_RUNTIME so
+// register() also fires once for the EDGE runtime whenever the app has
+// edge code (proxy.ts ran there before Next 16; it runs on Node now, but
+// the guard keeps any future edge route safe), and edge has no filesystem
+// access — guard on NEXT_RUNTIME so
 // the file-backed logger (and its console.log below) only ever initializes
 // in the real Node process. The dynamic imports (not top-level ones) mean
 // the edge invocation never even evaluates log-paths.ts / frontend-server-
@@ -51,7 +53,7 @@ const MESSAGE_CAP = 300
 // frontend-server mirror of the browser's ErrorReporter. Fires for SSR/RSC
 // render, Route Handler, and Server Action errors in the Node server; never
 // for client React errors (those stay with error-reporter.tsx / the error
-// boundaries) and never for the edge middleware's cookie-gate redirect.
+// boundaries) and never for proxy.ts's cookie-gate redirect.
 //
 // Unlike register(), this export has no top-level runtime branch — Next
 // compiles onRequestError into the EDGE bundle too (it's a general hook, not

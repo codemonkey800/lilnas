@@ -11,7 +11,7 @@ const PAGE_SHELL = cns(
 
 /**
  * ⚠️ Applied **only** when no route matched at all — which, since
- * `src/middleware.ts`, includes a malformed detail id like `/movies/abc`.
+ * `src/proxy.ts`, includes a malformed detail id like `/movies/abc`.
  *
  * A route that reached `notFound()` has already resolved its own metadata, and
  * Next keeps it: an unknown `/videos/…` id still reads `Video · Download`.
@@ -35,17 +35,17 @@ export const metadata = {
  * 1. **A path that matches no route at all** — `/nope`, a stale bookmark, a
  *    mistyped link. Next answers these itself, with a real `404` status.
  * 2. **A malformed detail-route id** — `/movies/abc`, `/shows/abc`,
- *    `/videos/tmdb%3A438631`. `src/middleware.ts` rewrites these to a path no
+ *    `/videos/tmdb%3A438631`. `src/proxy.ts` rewrites these to a path no
  *    route answers, so they arrive here exactly as case 1 does: a real `404`
  *    with this body server-rendered, and the address bar unchanged.
  *
- * ⚠️ **Why the middleware, and not the pages' own `notFound()`.** Confirmed
+ * ⚠️ **Why the proxy, and not the pages' own `notFound()`.** Confirmed
  * against a standalone production build (plan 013, H3): the movie and show
  * routes ship a `loading.tsx`, so Next streams the shell — and commits a `200`
  * — before the page function gets far enough to throw. A `notFound()` from
  * those pages still lands here, but over that `200` (Next adds a
  * `noindex` meta). The page-level `mediaIdFromRoute` guards stay as the
- * security boundary; in practice the middleware has already refused anything
+ * security boundary; in practice the proxy has already refused anything
  * they would.
  *
  * Only `/videos/[videoId]` has a segment-scoped boundary, because only it has

@@ -381,7 +381,7 @@ describe('dev-login mount — gate ON', () => {
 
         // BETTER_AUTH_URL is https:// in this suite (matching every sibling
         // Phase D spec's own fixture), so the session cookie is
-        // __Secure-prefixed — see middleware.ts's getSessionCookieName for
+        // __Secure-prefixed — see proxy.ts's getSessionCookieName for
         // the same derivation this app's own page gate relies on.
         const setCookieHeaders = res.headers['set-cookie'] ?? []
         expect(

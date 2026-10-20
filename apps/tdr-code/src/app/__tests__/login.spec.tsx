@@ -313,7 +313,7 @@ describe('NavShell placement on /login', () => {
   })
 
   // Logs viewer (U4): the /logs nav link. Page-level auth for /logs itself
-  // is the generic middleware.ts cookie-presence gate (no per-page registry
+  // is the generic proxy.ts cookie-presence gate (no per-page registry
   // entry exists or is needed — see protected-routes.ts, which enumerates
   // only /api/* routes) — this test only needs to prove the link is present
   // and points at the right href, matching this describe block's own

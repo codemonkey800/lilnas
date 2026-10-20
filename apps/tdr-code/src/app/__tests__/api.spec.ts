@@ -1,8 +1,8 @@
 // Tests src/app/lib/api.ts's redirect-on-401 handler — kept as its own file
 // (a defensible small deviation from the plan's literal two-file list,
-// login.spec.tsx + middleware.spec.ts) because this logic is a genuinely
+// login.spec.tsx + proxy.spec.ts) because this logic is a genuinely
 // separate concern from the login PAGE component: it's the second of the
-// "three cooperating gates" (middleware.ts's cookie-presence check ->
+// "three cooperating gates" (proxy.ts's cookie-presence check ->
 // api.ts's redirect-on-401 -> the NestJS guard, which is authoritative),
 // and grouping it here keeps login.spec.tsx focused on rendering/DOM
 // behavior rather than mixing in fetch-mocking concerns.
@@ -11,7 +11,7 @@
 // (jsdom) one — api.ts's request() function is plain fetch-wrapping logic
 // with no DOM dependency, and Node's native fetch/Request/Response globals
 // (available without any import) are exactly what a real browser's fetch()
-// call shape looks like, same reasoning as middleware.spec.ts's project
+// call shape looks like, same reasoning as proxy.spec.ts's project
 // placement (see jest.config.js's header comment).
 //
 // Every test below loads api.ts through `jest.isolateModulesAsync` rather

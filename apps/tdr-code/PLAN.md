@@ -26,8 +26,8 @@ Auth is validated in exactly **one authoritative place**:
   `authService.api.getSession({ headers })` and 401s on `null` —
   `src/auth/auth.guard.ts:111`. It is a DB-backed lookup against the `session`
   table.
-- **Frontend page gate (UX only):** `middleware.ts` checks *cookie presence*,
-  not validity — `src/middleware.ts:72`.
+- **Frontend page gate (UX only):** `proxy.ts` checks *cookie presence*,
+  not validity — `src/proxy.ts:72`.
 - **Frontend → backend:** `api.ts` uses same-origin `fetch('/api/...')`, so the
   cookie rides along automatically.
 
@@ -91,7 +91,7 @@ hard:
 
 > Note: in dev the cookie name is the **unprefixed** `better-auth.session_token`
 > (http localhost), while prod uses `__Secure-…` (https) — see
-> `middleware.ts:43-45`. This tool is inherently dev-shaped: the cookie it mints
+> `proxy.ts:43-45`. This tool is inherently dev-shaped: the cookie it mints
 > only works over http/localhost anyway.
 
 ## 5. Design
@@ -114,8 +114,8 @@ Why a Better Auth plugin (vs. a NestJS controller):
   rewrite, the `rewriteAuthRequestUrl` fix, and — importantly — it is **not**
   subject to the NestJS `APP_GUARD` (the auth mount routes aren't Nest route
   handlers; that's why the real OAuth login routes work unauthenticated today).
-- **Naturally public.** `middleware.ts` excludes all of `/api/*`
-  (`middleware.ts:104`), so the page gate never redirects it.
+- **Naturally public.** `proxy.ts` excludes all of `/api/*`
+  (`proxy.ts:104`), so the page gate never redirects it.
 - **Prod-safe by omission.** Not in the array ⇒ endpoint doesn't exist.
 
 It mirrors exactly how Better Auth's own credential sign-in mints a session and

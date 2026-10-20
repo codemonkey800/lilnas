@@ -582,7 +582,7 @@ const AUTH_BOUNDARY_EVENTS = {
   // api.ts's redirectToLogin() 401 latch — fired once per page life (inside
   // the hasRedirectedForSessionExpiry guard) right before the /login
   // navigation. The browser-plane answer to "why was I bounced to login",
-  // complementing middleware.ts's cookie gate and the NestJS auth guard. The
+  // complementing proxy.ts's cookie gate and the NestJS auth guard. The
   // only pre-existing 401 signal was the indirect idle-EventSource fallbacks
   // (sseSessionExpiryFallback / logTailSessionExpiryFallback); a failing fetch
   // logged nothing.

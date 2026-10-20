@@ -23,9 +23,9 @@ export const NOT_FOUND_REWRITE = '/__not-found__'
  * check the pages document and the unit tests exercise.
  *
  * Only the *shape* of the segment is checked. Whether a well-formed id names
- * anything needs a fetch, and middleware is the wrong place for one.
+ * anything needs a fetch, and the proxy is the wrong place for one.
  */
-export function middleware(request: NextRequest): NextResponse {
+export function proxy(request: NextRequest): NextResponse {
   const [, kind = '', segment = ''] = request.nextUrl.pathname.split('/')
 
   if (isMediaRouteKind(kind) && isValidSegment(kind, segment)) {

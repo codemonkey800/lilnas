@@ -1,11 +1,11 @@
 import { NextRequest } from 'next/server'
 
 import {
-  config as middlewareConfig,
+  config as proxyConfig,
   getSessionCookieName,
-  middleware,
+  proxy,
   SESSION_COOKIE_NAME,
-} from 'src/middleware'
+} from 'src/proxy'
 
 const ORIGIN = 'https://tdr-code.lilnas.io'
 
@@ -21,15 +21,15 @@ function makeRequest(path: string, cookieHeader?: string): NextRequest {
   )
 }
 
-describe('middleware (cookie-presence page gate)', () => {
+describe('proxy (cookie-presence page gate)', () => {
   it('redirects to /login when visiting / with no session cookie', () => {
-    const res = middleware(makeRequest('/'))
+    const res = proxy(makeRequest('/'))
     expect(res.status).toBe(307)
     expect(res.headers.get('location')).toBe(`${ORIGIN}/login`)
   })
 
   it('lets a request through when the exact session cookie is present', () => {
-    const res = middleware(
+    const res = proxy(
       makeRequest('/', `${SESSION_COOKIE_NAME}=some-signed-token-value`),
     )
     // NextResponse.next() carries no Location header and (per Next's own
@@ -47,7 +47,7 @@ describe('middleware (cookie-presence page gate)', () => {
     // substring/prefix check against "any better-auth-ish cookie" — a
     // cookie that merely contains "better-auth" must not be treated as a
     // valid session.
-    const res = middleware(
+    const res = proxy(
       makeRequest(
         '/',
         '__Secure-better-auth.dont_remember=true; better-auth.session_data=abc',
@@ -57,7 +57,7 @@ describe('middleware (cookie-presence page gate)', () => {
   })
 
   it('does not redirect a visit to /login itself (no self-redirect loop)', () => {
-    const res = middleware(makeRequest('/login'))
+    const res = proxy(makeRequest('/login'))
     expect(res.headers.get('location')).toBeNull()
   })
 
@@ -113,10 +113,10 @@ describe("getSessionCookieName (mirrors better-auth's own secureCookiePrefix bra
 })
 
 // Next's `config.matcher` is consumed by Next's own build-time routing
-// manifest, not by calling `middleware()` directly — there is no exported
+// manifest, not by calling `proxy()` directly — there is no exported
 // Next API to ask "would the matcher apply to this path" outside a full
 // Next dev/build server. This test instead evaluates the EXACT matcher
-// pattern string that ships in src/middleware.ts's `config.matcher` as a
+// pattern string that ships in src/proxy.ts's `config.matcher` as a
 // plain JavaScript RegExp. That's valid here specifically because this
 // pattern contains no path-to-regexp `:param`-style tokens — it's a single
 // literal negative-lookahead group
@@ -124,11 +124,11 @@ describe("getSessionCookieName (mirrors better-auth's own secureCookiePrefix bra
 // syntactically valid vanilla regex as-is (confirmed by constructing it
 // directly with `new RegExp` and checking it against representative paths —
 // no path-to-regexp-specific compilation step is needed for this
-// particular literal). Reading the pattern from `middlewareConfig.matcher`
+// particular literal). Reading the pattern from `proxyConfig.matcher`
 // itself (not a second hand-typed copy of the literal) means a future edit
 // to the real matcher is exactly what this test would catch.
 function matchesConfiguredMatcher(path: string): boolean {
-  const [pattern] = middlewareConfig.matcher
+  const [pattern] = proxyConfig.matcher
   const regex = new RegExp(`^${pattern}$`)
   return regex.test(path)
 }

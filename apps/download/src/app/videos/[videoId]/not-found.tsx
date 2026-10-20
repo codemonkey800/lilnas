@@ -39,7 +39,7 @@ export const VIDEO_NOT_FOUND_DESCRIPTION =
  *
  * ⚠️ **Only one failure arrives here in practice:** a well-formed id with no
  * row behind it, a 404 from `GET /download/media/:id`. A segment that is not
- * a plain nanoid is refused by `src/middleware.ts` before this route runs and
+ * a plain nanoid is refused by `src/proxy.ts` before this route runs and
  * gets the root 404 instead; the page's own `mediaIdFromRoute` check would
  * send it here, but it no longer gets the chance. This route deliberately has
  * no `loading.tsx` (plan 013, H3): without a Suspense boundary above the page,

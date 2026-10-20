@@ -23,7 +23,7 @@ const infoMock = frontendServerLogger.info as jest.Mock
 const errorMock = frontendServerLogger.error as jest.Mock
 
 // register() branches on this Next-injected magic env var (nodejs vs the edge
-// runtime middleware.ts runs in) — save/restore around each test so setting
+// runtime) — save/restore around each test so setting
 // it here never leaks into the rest of the backend suite.
 const ORIGINAL_NEXT_RUNTIME = process.env.NEXT_RUNTIME
 
