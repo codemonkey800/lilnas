@@ -28,9 +28,9 @@
     "start": "run-p start:*",
     "start:backend": "node dist/main",
     "start:frontend": "node server.js",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:cov": "jest --coverage",
+    "test": "NODE_OPTIONS='--experimental-vm-modules --no-warnings=ExperimentalWarning' jest",
+    "test:watch": "NODE_OPTIONS='--experimental-vm-modules --no-warnings=ExperimentalWarning' jest --watch",
+    "test:cov": "NODE_OPTIONS='--experimental-vm-modules --no-warnings=ExperimentalWarning' jest --coverage",
     "type-check": "run-p type-check:*",
     "type-check:app": "tsc7 --noEmit",
     "type-check:scripts": "tsc7 -p scripts/tsconfig.json"

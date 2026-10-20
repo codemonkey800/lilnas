@@ -44,7 +44,6 @@ module.exports = {
     '^src/(.*)$': '<rootDir>/src/$1',
     '^@lilnas/utils/(.*)$': '<rootDir>/../../packages/utils/src/$1',
   },
-  extensionsToTreatAsEsm: ['.ts'],
   resolver: undefined,
   clearMocks: true,
   restoreMocks: true,

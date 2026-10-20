@@ -14,53 +14,18 @@
 // rather than declared once — `shared` below (M5) is that assembly, split
 // from the two projects' own genuinely-different settings (testEnvironment,
 // roots, testMatch, and each project's own ts-jest transform entry).
-const mjsBabelTransform = {
-  // U3: the Better Auth package family ships pure ESM only
-  // (`"type": "module"`, no CJS build) — Jest's CJS-based require() can't
-  // load their .mjs files directly. ts-jest/tsc CANNOT be used for this
-  // despite `allowJs` + forcing `module: "commonjs"` — TypeScript treats a
-  // `.mjs` file's EXTENSION as authoritative for module kind and preserves
-  // import/export syntax regardless of the module compiler option.
-  // babel-jest doesn't have this extension-based restriction — its
-  // CommonJS transform plugin rewrites import/export based on the SOURCE
-  // SYNTAX, not the file extension. Ported verbatim from
-  // apps/tdr-code/jest.config.js, which hit and solved this exact problem
-  // first for the exact same package family (see that file's own header
-  // comment for the full "why", including the cache-key rationale for
-  // referencing the plugin by path below rather than inline).
-  '^.+\\.m?js$': [
-    'babel-jest',
-    {
-      presets: [['@babel/preset-env', { targets: { node: 'current' } }]],
-      plugins: [require.resolve('./babel-plugin-import-meta-to-commonjs')],
-      babelrc: false,
-      configFile: false,
-    },
-  ],
-}
-
 const shared = {
   transformIgnorePatterns: [
-    // better-auth, its scoped @better-auth/* packages, @thallesp/nestjs-
-    // better-auth, and their own pure-ESM-only dependencies are un-ignored
-    // (transformed) here — Jest's default is to skip transforming anything
-    // under node_modules, but these packages have no CJS build for Jest's
-    // CJS-based module loader to require() directly. lru-cache/nanoid were
-    // already un-ignored by U2 for an unrelated reason and are kept as-is.
+    // The Better Auth package family ships pure ESM only. The test scripts
+    // run Jest with NODE_OPTIONS=--experimental-vm-modules, so it loads them
+    // untransformed through Node's require(esm); only workspace packages
+    // still need transforming.
     //
-    // The lookahead uses a leading `.*` (not just an immediately-following
-    // name) because pnpm's virtual store nests real packages under
-    // `.pnpm/<hash>/node_modules/<pkg>` — a plain `/node_modules/(?!(name))`
-    // check only inspects the characters immediately after the FIRST
-    // /node_modules/ segment, which under pnpm is always `.pnpm/...`, never
-    // the real package name — so it would silently keep ignoring (never
-    // transforming) any scoped/hashed pnpm-nested package regardless of
-    // what's in the allowlist. `.*` lets the lookahead scan past that
-    // intermediate .pnpm/<hash>/node_modules/ segment to find the real
-    // package name deeper in the path. Ported from
-    // apps/tdr-code/jest.config.js's identical, already-proven-correct
-    // pattern.
-    '/node_modules/(?!.*(@lilnas|nanoid|lru-cache|better-auth|@better-auth|@thallesp|better-call|@better-fetch|@noble|nanostores|defu|jose|kysely|rou3)/)',
+    // The lookahead uses a leading `.*` because pnpm's virtual store nests
+    // real packages under `.pnpm/<hash>/node_modules/<pkg>` — without it the
+    // lookahead would only ever see `.pnpm/...` after the first
+    // /node_modules/ segment.
+    '/node_modules/(?!.*(@lilnas)/)',
   ],
   moduleNameMapper: {
     '^src/(.*)$': '<rootDir>/src/$1',
@@ -103,7 +68,6 @@ const backendProject = {
         },
       },
     ],
-    ...mjsBabelTransform,
   },
   ...shared,
 }
@@ -128,7 +92,6 @@ const frontendProject = {
         },
       },
     ],
-    ...mjsBabelTransform,
   },
   ...shared,
 }

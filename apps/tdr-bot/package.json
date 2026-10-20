@@ -35,10 +35,10 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:cov": "jest --coverage",
-    "test:live": "LIVE_LLM=1 jest --testMatch '**/*.live.test.ts' --runInBand",
+    "test": "NODE_OPTIONS='--experimental-vm-modules --no-warnings=ExperimentalWarning' jest",
+    "test:watch": "NODE_OPTIONS='--experimental-vm-modules --no-warnings=ExperimentalWarning' jest --watch",
+    "test:cov": "NODE_OPTIONS='--experimental-vm-modules --no-warnings=ExperimentalWarning' jest --coverage",
+    "test:live": "LIVE_LLM=1 NODE_OPTIONS='--experimental-vm-modules --no-warnings=ExperimentalWarning' jest --testMatch '**/*.live.test.ts' --runInBand",
     "type-check": "tsc7 --noEmit"
   },
   "dependencies": {

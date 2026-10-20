@@ -39,9 +39,9 @@
     "start:main": "node dist/main",
     "start:bot": "node dist/bot-main",
     "start:frontend": "dotenv -- node server.js",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:cov": "jest --coverage",
+    "test": "NODE_OPTIONS='--experimental-vm-modules --no-warnings=ExperimentalWarning' jest",
+    "test:watch": "NODE_OPTIONS='--experimental-vm-modules --no-warnings=ExperimentalWarning' jest --watch",
+    "test:cov": "NODE_OPTIONS='--experimental-vm-modules --no-warnings=ExperimentalWarning' jest --coverage",
     "type-check": "tsc7 --noEmit"
   },
   "dependencies": {

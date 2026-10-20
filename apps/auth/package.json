@@ -27,9 +27,9 @@
     "start": "run-p --race start:*",
     "start:backend": "node dist/main",
     "start:frontend": "node server.js",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:cov": "jest --coverage && node scripts/print-coverage-summary.js",
+    "test": "NODE_OPTIONS='--experimental-vm-modules --no-warnings=ExperimentalWarning' jest",
+    "test:watch": "NODE_OPTIONS='--experimental-vm-modules --no-warnings=ExperimentalWarning' jest --watch",
+    "test:cov": "NODE_OPTIONS='--experimental-vm-modules --no-warnings=ExperimentalWarning' jest --coverage && node scripts/print-coverage-summary.js",
     "type-check": "tsc7 --noEmit"
   },
   "dependencies": {
