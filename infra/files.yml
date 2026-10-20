@@ -1,6 +1,6 @@
 services:
   files:
-    image: copyparty/ac:latest
+    image: copyparty/ac:1.20.26
     restart: unless-stopped
     logging:
       driver: json-file

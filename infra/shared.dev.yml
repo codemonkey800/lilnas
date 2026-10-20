@@ -34,7 +34,7 @@ services:
       - traefik.http.services.storage-admin.loadbalancer.server.port=9001
 
   storage-init:
-    image: pgsty/mc:latest
+    image: pgsty/mc:RELEASE.2026-10-18T00-00-00Z
     depends_on:
       storage:
         condition: service_healthy

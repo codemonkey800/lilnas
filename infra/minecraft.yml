@@ -4,7 +4,7 @@ services:
   minecraft:
     # Opt-in: deploys never start it. Run with `docker compose up -d minecraft`.
     profiles: [games]
-    image: itzg/minecraft-server:latest
+    image: itzg/minecraft-server:2026.10.0-java25
     tty: true
     stdin_open: true
     restart: unless-stopped

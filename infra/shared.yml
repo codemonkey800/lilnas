@@ -39,7 +39,7 @@ services:
       - traefik.http.services.storage-admin.loadbalancer.server.port=9001
 
   turbo:
-    image: ducktors/turborepo-remote-cache
+    image: ducktors/turborepo-remote-cache:2.14.3
     restart: unless-stopped
     logging: *default-logging
     env_file:

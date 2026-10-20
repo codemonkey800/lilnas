@@ -1,6 +1,6 @@
 services:
   work-docs:
-    image: nginx:alpine
+    image: nginx:1.31.7-alpine
     restart: unless-stopped
     entrypoint: ['/bin/sh', '/local-proxy/entrypoint.sh']
     command: ['nginx', '-g', 'daemon off;']

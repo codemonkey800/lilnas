@@ -1,4 +1,4 @@
-FROM alpine:3.20
+FROM alpine:3.24.2
 
 RUN apk add --no-cache docker-cli curl jq
 

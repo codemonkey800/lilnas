@@ -1,6 +1,6 @@
 services:
   valheim:
-    image: lloesche/valheim-server:latest
+    image: lloesche/valheim-server:sha-0ab6cdcc16dd
     restart: unless-stopped
     logging:
       driver: json-file

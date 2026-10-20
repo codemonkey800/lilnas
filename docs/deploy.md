@@ -47,7 +47,7 @@ pulled and dropped from the other lists):
 | `infra/base-images/**` (except `lilnas-dev.Dockerfile`)                              | Rebuild and push the four base images, then every app image `FROM` one                                                                     |
 | `.github/workflows/**` or root `docker-compose.yml`                                  | Full: every image, every service, decrypt all                                                                                              |
 | `apps/tdr-code/**`                                                                   | Tests only. tdr-code is host-native; it is never built or deployed by CI                                                                   |
-| Upstream `:latest` image (immich, traefik, …)                                        | Nothing. `up -d` does not re-pull a tag that is already present; bump the tag in `infra/<name>.yml` to upgrade                             |
+| Upstream third-party image (immich, traefik, …)                                      | Nothing re-pulls on its own. Every upstream tag is pinned to a version; bump it in `infra/<name>.yml` to upgrade                           |
 
 Preview the plan for any range locally:
 

@@ -11,7 +11,7 @@ services:
   # explicitly (as above) still enables the profile.
   browser:
     profiles: [on-demand]
-    image: lscr.io/linuxserver/chromium:latest
+    image: lscr.io/linuxserver/chromium:bf0d07d2-ls59
     container_name: lilnas-browser
     restart: 'no'
     logging:

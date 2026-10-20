@@ -17,7 +17,7 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 RUN pnpm build --filter=@lilnas/dashcam
 
 # Production stage
-FROM nginx:alpine AS dashcam
+FROM nginx:1.31.7-alpine AS dashcam
 
 # Copy built files from builder stage
 COPY --from=dashcam-builder /source/apps/dashcam/dist /usr/share/nginx/html

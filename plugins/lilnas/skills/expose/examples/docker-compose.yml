@@ -15,7 +15,7 @@ networks:
 
 services:
   whoami:
-    image: traefik/whoami
+    image: traefik/whoami:v1.12.0
     # No `ports:` — Traefik reaches this container over lilnas-proxy
     networks:
       - default        # reach sibling services within this project

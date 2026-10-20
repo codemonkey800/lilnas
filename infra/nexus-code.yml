@@ -1,6 +1,6 @@
 services:
   nexus-code:
-    image: nginx:alpine
+    image: nginx:1.31.7-alpine
     restart: unless-stopped
     logging:
       driver: json-file

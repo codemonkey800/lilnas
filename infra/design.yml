@@ -3,7 +3,7 @@
 # source in this repo.
 services:
   design:
-    image: ghcr.io/nexu-io/od:latest
+    image: ghcr.io/nexu-io/od:0.25.0
     restart: unless-stopped
     logging:
       driver: json-file
