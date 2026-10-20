@@ -112,7 +112,7 @@ services:
 
       # The workspace-root node_modules must be container-owned — see
       # lilnas-dev.Dockerfile. It shadows the host's copy, which is built
-      # against node 24 and would fail NODE_MODULE_VERSION under node 25.
+      # against node 24 and would fail NODE_MODULE_VERSION under node 26.
       #
       # Only the ROOT needs shadowing. Each package's own node_modules holds
       # relative symlinks into the root store, so the bind-mounted

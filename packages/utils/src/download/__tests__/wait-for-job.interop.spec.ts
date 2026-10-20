@@ -9,7 +9,7 @@
 //
 // This relies on the global `WebSocket` (undici's, via Node's `fetch`
 // implementation), which needs Node >= 22. The production runtime image is
-// `node:25.0.0-slim` (see `apps/download/Dockerfile`) and local dev runs
+// `node:26.12.0-slim` (see `apps/download/Dockerfile`) and local dev runs
 // Node 24, so both floors clear it comfortably - this is not a concern for CI,
 // only a note for whoever runs this file on an older Node by hand.
 import type { IncomingHttpHeaders } from 'http'

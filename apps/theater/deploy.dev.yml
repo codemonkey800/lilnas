@@ -90,7 +90,7 @@ services:
       # the browser at localhost:8081 — unreachable from anywhere but the host.
       - ./.env.dev-remote:/source/apps/theater/.env:ro
       # The host's node_modules are built for node 24 and this image runs
-      # node 25, so the workspace root gets a container-owned tree. See
+      # node 26, so the workspace root gets a container-owned tree. See
       # infra/base-images/lilnas-dev.Dockerfile.
       - theater-dev-root-modules:/source/node_modules
       - theater-dev-pnpm-store:/home/node/.local/share/pnpm

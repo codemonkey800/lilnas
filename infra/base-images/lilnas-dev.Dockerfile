@@ -9,8 +9,8 @@ FROM ghcr.io/codemonkey800/lilnas-node-base:latest
 # `command: -c "pnpm --filter=<app> dev"`.
 #
 # ⚠️ node_modules must NOT come from the host bind mount. The host runs node 24
-# while this image runs node 25, and the tree contains native modules
-# (better-sqlite3, bcrypt — see pnpm-workspace.yaml's onlyBuiltDependencies).
+# while this image runs node 26, and the tree contains native modules
+# (better-sqlite3 — see pnpm-workspace.yaml's allowBuilds).
 # Host-built binaries fail node's NODE_MODULE_VERSION check. Each compose file
 # shadows the node_modules paths with named volumes and installs inside the
 # container instead.

@@ -42,8 +42,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: '25.0.0'
-  PNPM_VERSION: '10.18.2'
+  NODE_VERSION: '26.12.0'
+  PNPM_VERSION: '12.14.0'
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ghcr.io/codemonkey800/lilnas
 
@@ -68,7 +68,7 @@ jobs:
       testPackages: ${{ steps.plan.outputs.testPackages }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -85,12 +85,12 @@ jobs:
         run: scripts/ci/cancel-superseded-runs.sh "$RUN_ID" "$REF_NAME" "$EVENT_NAME"
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
 
@@ -100,7 +100,7 @@ jobs:
           echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
 
       - name: Setup pnpm cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ env.STORE_PATH }}
           key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
@@ -227,15 +227,15 @@ jobs:
         package: ${{ fromJson(needs.detect.outputs.testPackages) }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
 
@@ -245,7 +245,7 @@ jobs:
           echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
 
       - name: Setup pnpm cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ env.STORE_PATH }}
           key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
@@ -257,7 +257,7 @@ jobs:
 
       # Only the package's workspace dependencies, not the package itself.
       # A cache hit restores dist/ without running the build script, so the
-      # injected workspace copies (.npmrc) never sync; re-installing does.
+      # injected workspace copies (pnpm-workspace.yaml) never sync; re-installing does.
       - name: Build dependencies
         env:
           PACKAGE: ${{ matrix.package }}
@@ -283,7 +283,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.ARTIFACT_NAME }}
           path: |
@@ -309,15 +309,15 @@ jobs:
         package: ${{ fromJson(needs.detect.outputs.testPackages) }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
 
@@ -327,7 +327,7 @@ jobs:
           echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
 
       - name: Setup pnpm cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ env.STORE_PATH }}
           key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
@@ -339,7 +339,7 @@ jobs:
 
       # Only the package's workspace dependencies, not the package itself.
       # A cache hit restores dist/ without running the build script, so the
-      # injected workspace copies (.npmrc) never sync; re-installing does.
+      # injected workspace copies (pnpm-workspace.yaml) never sync; re-installing does.
       - name: Build dependencies
         env:
           PACKAGE: ${{ matrix.package }}
@@ -382,7 +382,7 @@ jobs:
       }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -468,7 +468,7 @@ jobs:
         include: ${{ fromJson(needs.detect.outputs.images) }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -525,7 +525,7 @@ jobs:
     environment: production
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           sparse-checkout: scripts/deploy
           sparse-checkout-cone-mode: false

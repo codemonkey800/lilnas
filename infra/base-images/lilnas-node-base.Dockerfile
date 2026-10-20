@@ -1,5 +1,5 @@
-FROM node:25.0.0-slim
-ENV PNPM_VERSION="10.18.2"
+FROM node:26.12.0-slim
+ENV PNPM_VERSION="12.14.0"
 RUN npm install -g pnpm@${PNPM_VERSION}
 
 # Add OCI image source label
