@@ -1,20 +1,6 @@
 module.exports = {
   output: 'standalone',
 
-  // Scope next build's own built-in ESLint pass to the actual Next-owned
-  // code. Without this, `next build` lints the WHOLE src/ tree (including
-  // the Nest backend, db/, health/, and every __tests__ dir) redundantly —
-  // the dedicated `pnpm lint` script (eslint src, run separately in CI and
-  // by hand) already covers all of that. Discovered because the default,
-  // unscoped behavior made `next build` fail on a pre-existing formatting
-  // issue in apps/auth/src/verify/__tests__/forwardauth-contract.spec.ts
-  // (a U1 file this unit was told not to modify) — scoping to src/app is the
-  // correct fix on its own merits (Next has no business linting backend/test
-  // code), not a workaround specific to that one file.
-  eslint: {
-    dirs: ['src/app'],
-  },
-
   // better-sqlite3 is a native addon and can't survive being bundled by
   // Next's server compiler (matches apps/swole/next.config.ts and
   // apps/tdr-code/next.config.js, which hit this same requirement). Nothing

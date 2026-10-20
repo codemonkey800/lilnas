@@ -7,7 +7,7 @@
   "scripts": {
     "build": "next build",
     "clean": "rm -rf .next/ *.tsbuildinfo .turbo/",
-    "dev": "next dev --turbopack -p 3000",
+    "dev": "next dev -p 3000",
     "dev:prod": "run-s -l build start",
     "lint": "run-p -l 'lint:!(fix)'",
     "lint:eslint": "eslint src",
@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "@lilnas/utils": "workspace:*",
-    "next": "15.5.20",
+    "next": "16.4.2",
     "node-docker-api": "1.1.22",
     "react": "19.3.1",
     "react-dom": "19.3.1"

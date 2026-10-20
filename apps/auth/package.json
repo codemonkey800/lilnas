@@ -47,7 +47,7 @@
     "drizzle-orm": "^0.45.4",
     "jose": "6.2.13",
     "nestjs-pino": "5.3.1",
-    "next": "15.5.20",
+    "next": "16.4.2",
     "npm-run-all": "4.1.5",
     "pino-http": "11.0.0",
     "react": "19.3.1",
