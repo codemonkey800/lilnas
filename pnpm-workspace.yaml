@@ -2,11 +2,39 @@ packages:
   - 'apps/*'
   - 'packages/*'
 
-onlyBuiltDependencies:
-  - bcrypt
-  - better-sqlite3
+# Only better-sqlite3 needs its install script (a native addon compiled
+# against the running Node). The rest were always skipped under pnpm 10 and work
+# without them (prebuilt platform packages, donation banners), so they are
+# listed as reviewed-and-denied to satisfy strictDepBuilds.
+allowBuilds:
+  better-sqlite3: true
+  '@nestjs/core': false
+  '@swc/core': false
+  '@tailwindcss/oxide': false
+  esbuild: false
+  msw: false
+  necord: false
+  sharp: false
+  unrs-resolver: false
+
+injectWorkspacePackages: true
+
+syncInjectedDepsAfterScripts:
+  - build
+
+# "Latest of the latest": pnpm 12 otherwise holds back versions published in
+# the last day.
+minimumReleaseAge: 0
 
 overrides:
+  # Collapse @nestjs/* to a single physical copy. A DI token is the class
+  # object itself, so a second copy of @nestjs/core gives modules a Reflector
+  # the host app's injector never registered (UnknownDependenciesException).
+  '@nestjs/common': 11.1.6
+  '@nestjs/core': 11.1.6
+  '@nestjs/platform-express': 11.1.6
+  '@nestjs/platform-socket.io': 11.1.6
+  '@nestjs/websockets': 11.1.6
   # ecctrl depends on a loose '@types/three' range that resolves to a stale,
   # incompatible copy alongside our pinned version — force one shared copy.
   '@types/three': 0.185.1

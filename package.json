@@ -1,7 +1,7 @@
 {
   "name": "lilnas",
   "version": "0.2.0",
-  "packageManager": "pnpm@10.18.2",
+  "packageManager": "pnpm@12.14.0",
   "prettier": "@lilnas/prettier",
   "scripts": {
     "build": "dotenv -e .env.turbo -- turbo run build mockups",
@@ -26,8 +26,8 @@
     "@nestjs/common": "11.1.6",
     "@nestjs/core": "11.1.6",
     "@nestjs/testing": "11.1.6",
-    "@swc/cli": "0.7.8",
-    "@swc/core": "1.13.5",
+    "@swc/cli": "0.8.1",
+    "@swc/core": "1.16.18",
     "@tailwindcss/postcss": "4.1.14",
     "@types/express": "5.0.3",
     "@types/fs-extra": "11.0.4",
@@ -58,19 +58,10 @@
     "tailwindcss": "4.1.14",
     "ts-jest": "29.4.5",
     "tsx": "4.20.6",
-    "turbo": "^2.5.8",
+    "turbo": "2.11.9",
     "typescript": "5.9.3",
     "vite": "7.1.9",
     "vite-tsconfig-paths": "5.1.4",
     "zx": "8.8.4"
-  },
-  "pnpm": {
-    "overrides": {
-      "@nestjs/common": "11.1.6",
-      "@nestjs/core": "11.1.6",
-      "@nestjs/platform-express": "11.1.6",
-      "@nestjs/platform-socket.io": "11.1.6",
-      "@nestjs/websockets": "11.1.6"
-    }
   }
 }

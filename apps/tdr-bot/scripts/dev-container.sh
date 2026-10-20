@@ -34,7 +34,7 @@ pnpm install --frozen-lockfile
 # Workspace packages (@lilnas/utils, @lilnas/media) export from dist/, which a
 # fresh checkout doesn't have. Changes to them need a container restart.
 #
-# Not `pnpm run build`: .npmrc's sync-injected-deps-after-scripts makes pnpm
+# Not `pnpm run build`: pnpm-workspace.yaml's syncInjectedDepsAfterScripts makes pnpm
 # hard-link each build into its injected copies under node_modules/.pnpm, and
 # that volume is a different device from the bind-mounted packages/, so the
 # sync dies with EXDEV. So compile with tsc directly and copy dist/ into the
