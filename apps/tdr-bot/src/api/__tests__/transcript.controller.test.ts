@@ -1,5 +1,6 @@
 import {
   AIMessage,
+  BaseMessage,
   HumanMessage,
   SystemMessage,
 } from '@langchain/core/messages'
@@ -39,24 +40,47 @@ function call(overrides: Partial<LlmCallRow>): LlmCallRow {
   }
 }
 
+/** System prompt plus `turns` human/AI pairs: h0, a0 (request r0), h1, ... */
+function thread(turns: number): BaseMessage[] {
+  return [
+    new SystemMessage({ id: TDR_SYSTEM_PROMPT_ID, content: 'sys' }),
+    ...Array.from({ length: turns }, (_, i) => [
+      new HumanMessage({ id: `h${i}`, content: `q${i}`, name: 'mika' }),
+      new AIMessage({
+        id: `a${i}`,
+        content: `a${i}`,
+        additional_kwargs: { requestId: `r${i}` },
+      }),
+    ]).flat(),
+  ]
+}
+
+const ids = (json: { messages: { id: string }[] }) =>
+  json.messages.map(m => m.id)
+
+const ZERO_TOTALS = { costUsd: 0, inputTokens: 0, outputTokens: 0 }
+
 describe('TranscriptController', () => {
   let app: INestApplication
   let base: string
   const getThreadMessages = jest.fn()
-  const listByChannel = jest.fn()
+  const listByRequestIds = jest.fn()
+  const totalsByChannel = jest.fn()
   const recentChannels = jest.fn()
   const cache = new Map<string, unknown>()
 
   beforeEach(async () => {
     jest.resetAllMocks()
     cache.clear()
+    listByRequestIds.mockResolvedValue([])
+    totalsByChannel.mockResolvedValue(ZERO_TOTALS)
     const module = await Test.createTestingModule({
       controllers: [TranscriptController],
       providers: [
         { provide: LLMOrchestrationService, useValue: { getThreadMessages } },
         {
           provide: LlmCallsRepository,
-          useValue: { listByChannel, recentChannels },
+          useValue: { listByRequestIds, totalsByChannel, recentChannels },
         },
         { provide: Client, useValue: { channels: { cache } } },
       ],
@@ -108,32 +132,30 @@ describe('TranscriptController', () => {
   })
 
   describe('GET /transcript/:channelId', () => {
-    it('joins the conversation with calls and sums totals', async () => {
-      getThreadMessages.mockResolvedValue([
-        new SystemMessage({ id: TDR_SYSTEM_PROMPT_ID, content: 'sys' }),
-        new HumanMessage({ id: 'h1', content: 'hello', name: 'mika' }),
-        new AIMessage({ id: 'a1', content: 'hi' }),
-      ])
-      listByChannel.mockResolvedValue([
-        call({
-          id: 'c2',
-          costUsd: '0.002500',
-          inputTokens: 50,
-          outputTokens: 5,
-        }),
-        call({ id: 'c1' }),
-      ])
+    const get = async (query = '') => {
+      const res = await fetch(`${base}/transcript/chan-1${query}`)
+      return { status: res.status, json: await res.json() }
+    }
 
-      const res = await fetch(`${base}/transcript/chan-1`)
-      const json = await res.json()
+    it('returns the last 50 messages with the page calls and totals', async () => {
+      getThreadMessages.mockResolvedValue(thread(60))
+      const calls = [call({ id: 'c1', requestId: 'r59' })]
+      listByRequestIds.mockResolvedValue(calls)
+      totalsByChannel.mockResolvedValue({
+        costUsd: 0.0035,
+        inputTokens: 150,
+        outputTokens: 15,
+      })
 
-      expect(res.status).toBe(200)
-      expect(json.messages.map((m: { id: string }) => m.id)).toEqual([
-        'h1',
-        'a1',
-      ])
+      const { status, json } = await get()
+
+      expect(status).toBe(200)
+      expect(json.messages).toHaveLength(50)
+      expect(ids(json)[0]).toBe('h35')
+      expect(ids(json).at(-1)).toBe('a59')
       expect(json.messages[0]).toMatchObject({ type: 'human', name: 'mika' })
-      expect(json.calls).toHaveLength(2)
+      expect(json.nextCursor).toBe(70)
+      expect(json.calls).toHaveLength(1)
       expect(json.totals).toEqual({
         costUsd: 0.0035,
         inputTokens: 150,
@@ -141,47 +163,105 @@ describe('TranscriptController', () => {
       })
     })
 
-    it('passes the date range, treating a date-only `to` as end of day', async () => {
-      getThreadMessages.mockResolvedValue([])
-      listByChannel.mockResolvedValue([])
+    it('slices [before - limit, before)', async () => {
+      getThreadMessages.mockResolvedValue(thread(6))
 
-      const res = await fetch(
-        `${base}/transcript/chan-1?from=2026-09-27&to=2026-10-03`,
-      )
-      const json = await res.json()
+      const { json } = await get('?before=10&limit=4')
 
-      expect(listByChannel).toHaveBeenCalledWith('chan-1', {
+      expect(ids(json)).toEqual(['h3', 'a3', 'h4', 'a4'])
+      expect(json.nextCursor).toBe(6)
+    })
+
+    it("moves the page start back to the turn's human message", async () => {
+      getThreadMessages.mockResolvedValue(thread(6))
+
+      const { json } = await get('?limit=3')
+
+      expect(ids(json)).toEqual(['h4', 'a4', 'h5', 'a5'])
+      expect(json.nextCursor).toBe(8)
+    })
+
+    it('starts at 0 when no earlier human message exists', async () => {
+      getThreadMessages.mockResolvedValue([
+        new AIMessage({ id: 'a0', content: 'greeting' }),
+        new AIMessage({ id: 'a1', content: 'again' }),
+      ])
+
+      const { json } = await get('?limit=1')
+
+      expect(ids(json)).toEqual(['a0', 'a1'])
+      expect(json.nextCursor).toBeNull()
+    })
+
+    it('returns a null cursor at the start of the thread', async () => {
+      getThreadMessages.mockResolvedValue(thread(3))
+
+      const { json } = await get('?before=4')
+
+      expect(ids(json)).toEqual(['h0', 'a0', 'h1', 'a1'])
+      expect(json.nextCursor).toBeNull()
+    })
+
+    it('clamps `before` to the thread length', async () => {
+      getThreadMessages.mockResolvedValue(thread(1))
+
+      const { json } = await get('?before=99')
+
+      expect(ids(json)).toEqual(['h0', 'a0'])
+    })
+
+    it("requests calls for the page's request ids only", async () => {
+      getThreadMessages.mockResolvedValue([
+        ...thread(3),
+        new HumanMessage({ id: 'h3', content: 'legacy' }),
+        new AIMessage({ id: 'a3', content: 'no request id' }),
+      ])
+
+      await get('?before=6&limit=4')
+
+      expect(listByRequestIds).toHaveBeenCalledWith('chan-1', ['r1', 'r2'])
+    })
+
+    it('sends totals for the date range on the first page only', async () => {
+      getThreadMessages.mockResolvedValue(thread(3))
+
+      const first = await get('?from=2026-09-27&to=2026-10-03')
+      expect(totalsByChannel).toHaveBeenCalledWith('chan-1', {
         from: new Date('2026-09-27'),
         to: new Date('2026-10-03T23:59:59.999Z'),
-        limit: 1000,
       })
+      expect(first.json.totals).toEqual(ZERO_TOTALS)
+
+      totalsByChannel.mockClear()
+      const older = await get('?before=2&from=2026-09-27')
+      expect(totalsByChannel).not.toHaveBeenCalled()
+      expect(older.json.totals).toBeNull()
+    })
+
+    it('returns an empty page for an empty thread', async () => {
+      getThreadMessages.mockResolvedValue([])
+
+      const { json } = await get()
+
       expect(json).toEqual({
         messages: [],
         calls: [],
-        totals: { costUsd: 0, inputTokens: 0, outputTokens: 0 },
+        totals: ZERO_TOTALS,
+        nextCursor: null,
       })
     })
 
-    it('treats null usage and cost as zero', async () => {
-      getThreadMessages.mockResolvedValue([])
-      listByChannel.mockResolvedValue([
-        call({ costUsd: null, inputTokens: null, outputTokens: null }),
-      ])
+    it.each([
+      '?from=garbage',
+      '?before=abc',
+      '?before=-1',
+      '?limit=1.5',
+      '?limit=',
+    ])('rejects %s with 400', async query => {
+      const { status } = await get(query)
 
-      const res = await fetch(`${base}/transcript/chan-1`)
-
-      expect((await res.json()).totals).toEqual({
-        costUsd: 0,
-        inputTokens: 0,
-        outputTokens: 0,
-      })
-    })
-
-    it('rejects an invalid date with 400', async () => {
-      const res = await fetch(`${base}/transcript/chan-1?from=garbage`)
-
-      expect(res.status).toBe(400)
-      expect(listByChannel).not.toHaveBeenCalled()
+      expect(status).toBe(400)
+      expect(getThreadMessages).not.toHaveBeenCalled()
     })
   })
 })

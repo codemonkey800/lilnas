@@ -44,8 +44,7 @@ function toolItems(message: ConversationMessage): TranscriptItem[] {
  * next human message).
  *
  * Replies carry the `requestId` of the request that produced them and are
- * joined to that request's calls. Older replies without one fall back to
- * pairing the remaining requests in order from the newest end.
+ * joined to that request's calls. Older replies without one get no calls.
  */
 export function buildTranscriptItems(
   messages: ConversationMessage[],
@@ -77,32 +76,13 @@ export function buildTranscriptItems(
     )
   })
 
-  const groups = groupCallsByRequest(calls)
-  const claimed = new Set<LlmCallRow[]>()
-  const legacyReplies: number[] = []
-
+  const groups = new Map(
+    groupCallsByRequest(calls).map(group => [group[0].requestId, group]),
+  )
   for (const index of turnReplies) {
     const item = items[index]
-    if (item.kind !== 'assistant') continue
-    const { requestId } = item.message
-    if (!requestId) {
-      legacyReplies.push(index)
-      continue
-    }
-    const group = groups.find(g => g[0].requestId === requestId)
-    if (group) {
-      item.calls = group
-      claimed.add(group)
-    }
-  }
-
-  const unclaimed = groups.filter(g => !claimed.has(g))
-  const paired = Math.min(unclaimed.length, legacyReplies.length)
-  for (let i = 1; i <= paired; i++) {
-    const item = items[legacyReplies[legacyReplies.length - i]]
-    if (item.kind === 'assistant') {
-      item.calls = unclaimed[unclaimed.length - i]
-    }
+    if (item.kind !== 'assistant' || !item.message.requestId) continue
+    item.calls = groups.get(item.message.requestId) ?? []
   }
 
   return items

@@ -1,5 +1,17 @@
 import { Injectable } from '@nestjs/common'
-import { and, count, desc, eq, gte, lte, max, SQL, sql } from 'drizzle-orm'
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gte,
+  inArray,
+  lte,
+  max,
+  SQL,
+  sql,
+} from 'drizzle-orm'
 
 import { DrizzleService } from 'src/db/drizzle.service'
 import { LlmCallRow, llmCalls, NewLlmCallRow } from 'src/db/schema'
@@ -15,6 +27,12 @@ export interface LlmCallsTotals {
   outputTokens: number
   cachedTokens: number
   costUsd: number
+}
+
+export interface ChannelTotals {
+  costUsd: number
+  inputTokens: number
+  outputTokens: number
 }
 
 export interface RecentChannel {
@@ -39,17 +57,42 @@ export class LlmCallsRepository {
     await this.drizzle.db.insert(llmCalls).values(row)
   }
 
-  /** Newest first. */
-  async listByChannel(
+  /** A channel's calls for the given requests, oldest first. */
+  async listByRequestIds(
     channelId: string,
-    opts: LlmCallsRange & { limit: number },
+    requestIds: string[],
   ): Promise<LlmCallRow[]> {
+    if (requestIds.length === 0) return []
     return this.drizzle.db
       .select()
       .from(llmCalls)
-      .where(and(eq(llmCalls.channelId, channelId), ...rangeConditions(opts)))
-      .orderBy(desc(llmCalls.createdAt))
-      .limit(opts.limit)
+      .where(
+        and(
+          eq(llmCalls.channelId, channelId),
+          inArray(llmCalls.requestId, requestIds),
+        ),
+      )
+      .orderBy(asc(llmCalls.createdAt))
+  }
+
+  /** Summed usage and cost of a channel's calls within the range. */
+  async totalsByChannel(
+    channelId: string,
+    range: LlmCallsRange,
+  ): Promise<ChannelTotals> {
+    const [row] = await this.drizzle.db
+      .select({
+        inputTokens: sql<string>`coalesce(sum(${llmCalls.inputTokens}), 0)`,
+        outputTokens: sql<string>`coalesce(sum(${llmCalls.outputTokens}), 0)`,
+        costUsd: sql<string>`coalesce(sum(${llmCalls.costUsd}), 0)`,
+      })
+      .from(llmCalls)
+      .where(and(eq(llmCalls.channelId, channelId), ...rangeConditions(range)))
+    return {
+      costUsd: Number(row?.costUsd ?? 0),
+      inputTokens: Number(row?.inputTokens ?? 0),
+      outputTokens: Number(row?.outputTokens ?? 0),
+    }
   }
 
   async totals(range: { from: Date; to: Date }): Promise<LlmCallsTotals> {

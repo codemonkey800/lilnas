@@ -10,15 +10,12 @@ import { Client } from 'discord.js'
 import { LlmCallsRepository } from 'src/llm/audit/llm-calls.repository'
 import { LLMOrchestrationService } from 'src/messages/llm/llm-orchestration.service'
 
-import type {
-  TranscriptChannel,
-  TranscriptResponse,
-  TranscriptTotals,
-} from './api.types'
+import type { TranscriptChannel, TranscriptResponse } from './api.types'
 import { toConversationMessages } from './conversation-messages'
 
 const CHANNEL_LIMIT = 50
-const CALL_LIMIT = 1000
+const PAGE_LIMIT = 50
+const MAX_PAGE_LIMIT = 200
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
 
 function parseDate(
@@ -35,6 +32,18 @@ function parseDate(
   }
 
   return date
+}
+
+function parseIndex(
+  name: string,
+  value: string | undefined,
+): number | undefined {
+  if (value === undefined) return undefined
+  if (!/^\d+$/.test(value)) {
+    throw new BadRequestException(`Invalid "${name}": ${value}`)
+  }
+
+  return Number(value)
 }
 
 @Controller('transcript')
@@ -64,13 +73,18 @@ export class TranscriptController {
   }
 
   /**
-   * The channel's conversation plus its audited LLM calls. Checkpointed
+   * One page of the channel's conversation, newest first, plus the audited
+   * LLM calls for the requests on it. `before` is an index into the thread
+   * (default: its end) and `limit` the page size; a page is widened back to
+   * the turn's human message so it never starts mid-turn. Checkpointed
    * messages carry no timestamps, so `from`/`to` (ISO or `YYYY-MM-DD`,
-   * inclusive) narrow the calls and totals only.
+   * inclusive) scope only the totals, which come with the first page.
    */
   @Get(':channelId')
   async getTranscript(
     @Param('channelId') channelId: string,
+    @Query('before') beforeParam?: string,
+    @Query('limit') limitParam?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
   ): Promise<TranscriptResponse> {
@@ -78,20 +92,34 @@ export class TranscriptController {
       from: parseDate('from', from, false),
       to: parseDate('to', to, true),
     }
-    const [thread, calls] = await Promise.all([
-      this.llm.getThreadMessages(channelId),
-      this.calls.listByChannel(channelId, { ...range, limit: CALL_LIMIT }),
-    ])
-
-    const totals = calls.reduce<TranscriptTotals>(
-      (sum, call) => ({
-        costUsd: sum.costUsd + Number(call.costUsd ?? 0),
-        inputTokens: sum.inputTokens + (call.inputTokens ?? 0),
-        outputTokens: sum.outputTokens + (call.outputTokens ?? 0),
-      }),
-      { costUsd: 0, inputTokens: 0, outputTokens: 0 },
+    const requested = parseIndex('before', beforeParam)
+    const limit = Math.min(
+      MAX_PAGE_LIMIT,
+      Math.max(1, parseIndex('limit', limitParam) ?? PAGE_LIMIT),
     )
+    const firstPage = requested === undefined
 
-    return { messages: toConversationMessages(thread), calls, totals }
+    const [thread, totals] = await Promise.all([
+      this.llm.getThreadMessages(channelId),
+      firstPage ? this.calls.totalsByChannel(channelId, range) : null,
+    ])
+    const all = toConversationMessages(thread)
+    const before = Math.min(requested ?? all.length, all.length)
+
+    let start = Math.max(0, before - limit)
+    while (start > 0 && all[start].type !== 'human') start--
+
+    const messages = all.slice(start, before)
+    const requestIds = [
+      ...new Set(messages.flatMap(m => (m.requestId ? [m.requestId] : []))),
+    ]
+    const calls = await this.calls.listByRequestIds(channelId, requestIds)
+
+    return {
+      messages,
+      calls,
+      totals,
+      nextCursor: start > 0 ? start : null,
+    }
   }
 }

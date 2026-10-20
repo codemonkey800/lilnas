@@ -47,28 +47,39 @@ describe('LlmCallsRepository', () => {
     expect(calls[1].args[0]).toBe(row)
   })
 
-  it('lists a channel newest first with range and limit', async () => {
+  it("lists a channel's calls for the given requests oldest first", async () => {
     const { repo, calls } = fakeDb([{ id: 'a' }])
-    const from = new Date('2026-01-01')
-    const to = new Date('2026-02-01')
-    const rows = await repo.listByChannel('c1', { from, to, limit: 5 })
+    const rows = await repo.listByRequestIds('c1', ['r1', 'r2'])
     expect(rows).toEqual([{ id: 'a' }])
     const where = sqlOf(calls.find(c => c.method === 'where')?.args[0])
     expect(where.sql).toContain('"channel_id" = $1')
-    expect(where.sql).toContain('"created_at" >=')
-    expect(where.sql).toContain('"created_at" <=')
-    expect(where.params).toEqual(['c1', from.toISOString(), to.toISOString()])
+    expect(where.sql).toContain('"request_id" in ($2, $3)')
+    expect(where.params).toEqual(['c1', 'r1', 'r2'])
     expect(sqlOf(calls.find(c => c.method === 'orderBy')?.args[0]).sql).toMatch(
-      /desc/,
+      /asc/,
     )
-    expect(calls.find(c => c.method === 'limit')?.args).toEqual([5])
   })
 
-  it('omits range conditions when none given', async () => {
-    const { repo, calls } = fakeDb([])
-    await repo.listByChannel('c1', { limit: 1 })
+  it('skips the query when there are no request ids', async () => {
+    const { repo, calls } = fakeDb([{ id: 'a' }])
+    expect(await repo.listByRequestIds('c1', [])).toEqual([])
+    expect(calls).toEqual([])
+  })
+
+  it("sums a channel's totals within the range", async () => {
+    const { repo, calls } = fakeDb([
+      { inputTokens: '30', outputTokens: '10', costUsd: '0.012000' },
+    ])
+    const from = new Date('2026-01-01')
+    const totals = await repo.totalsByChannel('c1', { from })
+    expect(totals).toEqual({
+      costUsd: 0.012,
+      inputTokens: 30,
+      outputTokens: 10,
+    })
     const where = sqlOf(calls.find(c => c.method === 'where')?.args[0])
-    expect(where.params).toEqual(['c1'])
+    expect(where.sql).toContain('"channel_id" = $1')
+    expect(where.params).toEqual(['c1', from.toISOString()])
   })
 
   it('aggregates totals into numbers', async () => {

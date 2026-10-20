@@ -69,10 +69,15 @@ export interface TranscriptTotals {
   outputTokens: number
 }
 
+/** One page of a channel's thread, newest page first. */
 export interface TranscriptResponse {
   messages: ConversationMessage[]
+  /** Audited calls for the requests on this page. */
   calls: LlmCallRow[]
-  totals: TranscriptTotals
+  /** Date-scoped channel totals; only on the first (newest) page. */
+  totals: TranscriptTotals | null
+  /** `before` for the next older page, or null at the start of the thread. */
+  nextCursor: number | null
 }
 
 export interface ReminderView {

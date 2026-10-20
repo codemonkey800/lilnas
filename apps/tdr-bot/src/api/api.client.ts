@@ -84,11 +84,13 @@ export class ApiClient {
 
   async getTranscript(
     channelId: string,
-    range: { from?: string; to?: string } = {},
+    page: { before?: number; limit?: number; from?: string; to?: string } = {},
   ): Promise<TranscriptResponse> {
     const params = new URLSearchParams()
-    if (range.from) params.set('from', range.from)
-    if (range.to) params.set('to', range.to)
+    if (page.before !== undefined) params.set('before', String(page.before))
+    if (page.limit !== undefined) params.set('limit', String(page.limit))
+    if (page.from) params.set('from', page.from)
+    if (page.to) params.set('to', page.to)
     const query = params.size ? `?${params}` : ''
     const response = await this.request(
       `/transcript/${encodeURIComponent(channelId)}${query}`,

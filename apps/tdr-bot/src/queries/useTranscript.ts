@@ -1,6 +1,6 @@
 'use client'
 
-import { useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 
 import { ApiClient } from 'src/api/api.client'
 
@@ -13,13 +13,20 @@ export function useTranscriptChannels() {
   })
 }
 
+/** The channel's thread in pages, newest page first; `fetchNextPage` loads older. */
 export function useTranscript(
   channelId: string | undefined,
   range: { from?: string; to?: string },
 ) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ['transcript', channelId, range.from, range.to],
-    queryFn: () => apiClient.getTranscript(channelId as string, range),
+    queryFn: ({ pageParam }) =>
+      apiClient.getTranscript(channelId as string, {
+        ...range,
+        before: pageParam,
+      }),
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: last => last.nextCursor ?? undefined,
     enabled: !!channelId,
   })
 }

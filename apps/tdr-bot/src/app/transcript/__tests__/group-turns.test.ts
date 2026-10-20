@@ -43,7 +43,7 @@ describe('buildTranscriptItems', () => {
         human('h1'),
         ai('a0', '', [{ name: 'web_search', args: { q: 'x' } }]),
         { id: 't1', type: 'tool', name: 'web_search', content: 'results' },
-        ai('a1', 'answer'),
+        { ...ai('a1', 'answer'), requestId: 'r1' },
       ],
       [
         call('c1', 'r1', '2026-10-01T11:00:01Z'),
@@ -64,7 +64,7 @@ describe('buildTranscriptItems', () => {
     ])
   })
 
-  it('pairs requests with turns from the newest end', () => {
+  it('leaves replies without a request id without calls', () => {
     const items = buildTranscriptItems(
       [human('h1'), ai('a1', 'one'), human('h2'), ai('a2', 'two')],
       [call('c1', 'r1', '2026-10-01T11:00:01Z')],
@@ -72,11 +72,11 @@ describe('buildTranscriptItems', () => {
 
     const replies = items.filter(i => i.kind === 'assistant')
     expect(replies.map(r => r.kind === 'assistant' && r.calls.length)).toEqual([
-      0, 1,
+      0, 0,
     ])
   })
 
-  it('joins calls by request id when a turn made no calls and the range is partial', () => {
+  it('joins calls by request id when some turns made no calls', () => {
     const reply = (id: string, requestId: string): ConversationMessage => ({
       ...ai(id, id),
       requestId,

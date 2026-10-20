@@ -2,6 +2,8 @@
 
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
+import CircularProgress from '@mui/material/CircularProgress'
+import Divider from '@mui/material/Divider'
 import List from '@mui/material/List'
 import ListItemButton from '@mui/material/ListItemButton'
 import ListItemText from '@mui/material/ListItemText'
@@ -9,7 +11,14 @@ import Skeleton from '@mui/material/Skeleton'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
-import { useMemo, useState } from 'react'
+import {
+  type RefObject,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 
 import type { TranscriptTotals } from 'src/api/api.types'
 import { DiscordContent } from 'src/components/DiscordContent'
@@ -20,6 +29,9 @@ import { useTranscript, useTranscriptChannels } from 'src/queries/useTranscript'
 import { buildTranscriptItems, TranscriptItem } from './group-turns'
 
 const DAY_MS = 24 * 60 * 60 * 1000
+
+/** How far above the top of the transcript older pages start loading. */
+const PREFETCH_MARGIN = '400px'
 
 const isoDay = (date: Date) => date.toISOString().slice(0, 10)
 
@@ -345,11 +357,17 @@ function TranscriptBody({
   lookup,
   loading,
   error,
+  sentinelRef,
+  hasOlder,
+  loadingOlder,
 }: {
   items: TranscriptItem[]
   lookup: EmojiLookup
   loading: boolean
   error: Error | null
+  sentinelRef: RefObject<HTMLDivElement | null>
+  hasOlder: boolean
+  loadingOlder: boolean
 }) {
   if (error) {
     return <Alert severity="error">{error.message}</Alert>
@@ -385,9 +403,9 @@ function TranscriptBody({
       >
         <Box>
           <Typography fontSize={32}>💬</Typography>
-          <Typography fontWeight={500}>No messages in this range</Typography>
+          <Typography fontWeight={500}>No messages yet</Typography>
           <Typography variant="caption" color="text.secondary">
-            Widen the date filter or pick another channel.
+            Pick another channel.
           </Typography>
         </Box>
       </Box>
@@ -395,11 +413,30 @@ function TranscriptBody({
   }
 
   return (
-    <Stack spacing={1.5}>
-      {items.map((item, i) => (
-        <Item key={i} item={item} lookup={lookup} />
-      ))}
-    </Stack>
+    <>
+      <Box ref={sentinelRef} aria-hidden sx={{ height: 1 }} />
+      {loadingOlder ? (
+        <Box
+          data-testid="transcript-loading-older"
+          sx={{ display: 'flex', justifyContent: 'center', pb: 2 }}
+        >
+          <CircularProgress size={20} />
+        </Box>
+      ) : (
+        !hasOlder && (
+          <Divider
+            sx={{ pb: 2, typography: 'caption', color: 'text.secondary' }}
+          >
+            Start of conversation
+          </Divider>
+        )
+      )}
+      <Stack spacing={1.5}>
+        {items.map((item, i) => (
+          <Item key={i} item={item} lookup={lookup} />
+        ))}
+      </Stack>
+    </>
   )
 }
 
@@ -414,14 +451,65 @@ export default function TranscriptPage() {
   const channelId = selected ?? channels.data?.[0]?.channelId
   const transcript = useTranscript(channelId, { from, to })
   const lookup = useEmojiLookup()
+  const { fetchNextPage, hasNextPage, isFetchingNextPage } = transcript
 
-  const items = useMemo(
-    () =>
-      transcript.data
-        ? buildTranscriptItems(transcript.data.messages, transcript.data.calls)
-        : [],
-    [transcript.data],
-  )
+  // Pages arrive newest first; a request never spans pages because each page
+  // starts on a human message.
+  const pages = transcript.data?.pages
+  const items = useMemo(() => {
+    if (!pages) return []
+    const oldestFirst = pages.slice().reverse()
+    return buildTranscriptItems(
+      oldestFirst.flatMap(p => p.messages),
+      oldestFirst.flatMap(p => p.calls),
+    )
+  }, [pages])
+
+  const scrollRef = useRef<HTMLElement>(null)
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  // Distance from the bottom, kept current so prepending older items can
+  // restore it.
+  const fromBottom = useRef(0)
+  const restoring = useRef(false)
+  const bottomedFor = useRef<string>(undefined)
+  const threadKey = `${channelId}|${from}|${to}`
+
+  const trackScroll = () => {
+    const el = scrollRef.current
+    if (el) fromBottom.current = el.scrollHeight - el.scrollTop
+  }
+
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (!el || items.length === 0) return
+    if (bottomedFor.current !== threadKey) {
+      bottomedFor.current = threadKey
+      restoring.current = false
+      el.scrollTop = el.scrollHeight
+    } else if (restoring.current) {
+      el.scrollTop = el.scrollHeight - fromBottom.current
+      if (!isFetchingNextPage) restoring.current = false
+    }
+    trackScroll()
+  }, [items, isFetchingNextPage, threadKey])
+
+  // Re-created after every fetch so a sentinel that stays in view (short
+  // pages) triggers the next one.
+  useEffect(() => {
+    const root = scrollRef.current
+    const target = sentinelRef.current
+    if (!root || !target || !hasNextPage || isFetchingNextPage) return
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry?.isIntersecting) return
+        restoring.current = true
+        void fetchNextPage()
+      },
+      { root, rootMargin: `${PREFETCH_MARGIN} 0px 0px 0px` },
+    )
+    observer.observe(target)
+    return () => observer.disconnect()
+  }, [items, hasNextPage, isFetchingNextPage, fetchNextPage])
 
   const dateField = (
     label: string,
@@ -487,7 +575,7 @@ export default function TranscriptPage() {
           {dateField('To', to, setTo)}
         </Box>
         <TotalsBar
-          totals={transcript.data?.totals}
+          totals={pages?.[0]?.totals ?? undefined}
           loading={channels.isLoading || transcript.isLoading}
         />
       </Box>
@@ -499,7 +587,7 @@ export default function TranscriptPage() {
             xs: 'minmax(0, 1fr)',
             md: '15rem minmax(0, 1fr)',
           },
-          minHeight: { md: '34rem' },
+          gridTemplateRows: { md: '34rem' },
         }}
       >
         <Box
@@ -565,6 +653,7 @@ export default function TranscriptPage() {
           component="aside"
           sx={{
             display: { xs: 'none', md: 'block' },
+            overflowY: 'auto',
             borderRight: 1,
             borderColor: 'divider',
           }}
@@ -594,10 +683,15 @@ export default function TranscriptPage() {
 
         <Box
           component="section"
+          ref={scrollRef}
+          onScroll={trackScroll}
           sx={{
             p: { xs: 2, md: 2.5 },
             minWidth: 0,
-            minHeight: { xs: '24rem', md: 0 },
+            minHeight: 0,
+            height: { xs: '70dvh', md: 'auto' },
+            overflowY: 'auto',
+            overflowAnchor: 'none',
           }}
         >
           <TranscriptBody
@@ -607,6 +701,9 @@ export default function TranscriptPage() {
               channels.isLoading || (!!channelId && transcript.isLoading)
             }
             error={transcript.error}
+            sentinelRef={sentinelRef}
+            hasOlder={hasNextPage}
+            loadingOlder={isFetchingNextPage}
           />
         </Box>
       </Box>
