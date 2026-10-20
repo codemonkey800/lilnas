@@ -1,0 +1,210 @@
+nexus-tasks: 1
+phases:
+  - key: '1'
+    name: Base selection, cancellation, docs, live check
+    tasks:
+      - id: T1
+        title: 'detect: diff from the last successful push run'
+        after: []
+        files:
+          - .github/workflows/ci.yml
+          - scripts/ci/last-deployed-sha.sh
+          - packages/cli/src/utils/__tests__/ci-workflow-base.spec.ts
+        status: todo
+        body: |-
+          Make a push run (and a bare dispatch) diff from the last sha a successful
+          push run of ci.yml handled, so the newest run covers every undeployed commit.
+
+          Create `scripts/ci/last-deployed-sha.sh` (bash, `set -euo pipefail`, mode 0755):
+          ```
+          usage: last-deployed-sha.sh <branch>
+          # Prints "<headSha> <runId>" of the newest successful `push` run of ci.yml on
+          # <branch>, from:
+          #   gh run list --workflow ci.yml --branch "$1" --event push --status success \
+          #     --limit 1 --json headSha,databaseId
+          # Prints nothing and exits 0 when there is no such run, or when gh fails or
+          # returns unparsable JSON (reason on stderr). Never exits non-zero for a
+          # lookup problem: callers fall back.
+          ```
+          Needs `GH_TOKEN` in the environment (gh infers the repo from the checkout).
+
+          In `.github/workflows/ci.yml`, job `detect`:
+          - add `permissions: { contents: read, actions: read }` to the job (a job-level
+            block replaces the workflow-level set; detect needs no `packages: write`);
+          - in the "Detect changes" step add `GH_TOKEN: ${{ github.token }}` and
+            `REF_NAME: ${{ github.ref_name }}` to `env`, and rewrite the `case`:
+            - `pull_request`: unchanged (`PR_BASE`).
+            - `push`: `read -r BASE BASE_RUN < <("$GITHUB_WORKSPACE/scripts/ci/last-deployed-sha.sh" "$REF_NAME")`
+              (or equivalent); if `BASE` is empty, `BASE="$PUSH_BEFORE"` and
+              `::warning::no successful push run on <branch>; diffing from event.before`.
+              Do not test ancestry: a non-ancestor base makes `lilnas ci detect` go
+              full, which is the intended result after a force-push.
+            - `workflow_dispatch`: explicit `DISPATCH_BASE` unchanged (verified with
+              `git rev-parse --verify`, typo fails the job). With no `DISPATCH_BASE`, run
+              the same lookup on `REF_NAME`; empty → `HEAD~1` plus the existing
+              tip-only warning (keep `TIP_ONLY` only for that fallback).
+          - the `## Plan` summary table gets a `base source` row: `successful push run
+            <id>`, `event.before (no successful push run)`, `dispatch input`, or
+            `HEAD~1 (no successful push run)`.
+          Keep the `case … esac` block self-contained and still extractable: the test
+          slices the step's `run` up to `\nesac`.
+
+          Update `packages/cli/src/utils/__tests__/ci-workflow-base.spec.ts`. Put a stub
+          `gh` first on `PATH` (a bash script written into a temp dir) that handles
+          `run list …` by printing `$STUB_GH_RUN_LIST` and exiting `${STUB_GH_EXIT:-0}`,
+          and records its argv to `$STUB_GH_LOG`; set `GITHUB_WORKSPACE` to the repo
+          root so the step finds the real script. Tests must cover:
+          - push with a successful run whose headSha is commit 0 → BASE = commit 0, and
+            the stub was called with `--branch <REF_NAME> --event push --status success`;
+          - push with an empty list → BASE = PUSH_BEFORE;
+          - push with gh exiting 1 → BASE = PUSH_BEFORE, step exits 0;
+          - push whose found sha is not in the repo (any 40-hex) → BASE is that sha
+            (passed through; detect goes full);
+          - dispatch with no base and a successful run → that run's sha;
+          - dispatch with no base and no run → HEAD~1;
+          - the existing dispatch-with-base, bad-base, and PR cases still pass;
+          - `last-deployed-sha.sh` alone: prints `sha id` on a hit, nothing on `[]`,
+            nothing and exit 0 on gh failure.
+          Keep the existing eslint/prettier style of the spec; `pnpm --filter
+          @lilnas/cli lint` must pass. Run actionlint (`docker run --rm -v "$PWD:/repo"
+          -w /repo rhysd/actionlint:1.7.12`) and fix every finding.
+      - id: T2
+        title: 'detect: cancel superseded runs; PR concurrency'
+        after:
+          - T1
+        files:
+          - .github/workflows/ci.yml
+          - scripts/ci/cancel-superseded-runs.sh
+          - packages/cli/src/utils/__tests__/ci-cancel-superseded-runs.spec.ts
+        status: todo
+        body: |-
+          Cancel older runs that a new push supersedes, but never one that is already
+          deploying (a deploy killed mid-SSH dies on the host at its next write and can
+          leave a service down). PR runs use plain workflow-level cancel-in-progress.
+
+          Create `scripts/ci/cancel-superseded-runs.sh` (bash, `set -euo pipefail`, 0755):
+          ```
+          usage: cancel-superseded-runs.sh <this-run-id> <branch> <event>
+          # 1. gh api "repos/{owner}/{repo}/actions/workflows/ci.yml/runs?branch=<branch>&event=<event>&per_page=50"
+          #    → keep .workflow_runs[] with .status != "completed" and .id < <this-run-id>.
+          # 2. For each: gh api "repos/{owner}/{repo}/actions/runs/<id>/jobs" (--paginate);
+          #    the run is DEPLOYING when a job named exactly "deploy" has
+          #    status == "in_progress", or status == "completed" with conclusion
+          #    "success" or "failure". Deploying → print "keeping <id> (<head_sha>): deploy <status>".
+          #    Otherwise → gh run cancel <id>; print "cancelled <id> (<head_sha>)".
+          # 3. Append the same lines under "## Superseded runs" to $GITHUB_STEP_SUMMARY when set.
+          # Best effort: any gh failure prints "::warning::…" and the script exits 0;
+          # cancellation must never fail or block the new run.
+          ```
+          Wire it into `.github/workflows/ci.yml`:
+          - job `detect` permissions become `{ contents: read, actions: write }`
+            (`gh run cancel` needs write; it also covers T1's read);
+          - a step "Cancel superseded runs" right after "Checkout repository", with
+            `if: ${{ github.event_name != 'pull_request' }}`, env `GH_TOKEN: ${{ github.token }}`,
+            running `scripts/ci/cancel-superseded-runs.sh "$GITHUB_RUN_ID" "$GITHUB_REF_NAME" "$GITHUB_EVENT_NAME"`
+            (pass those through `env:` so actionlint's shellcheck is happy);
+          - a workflow-level block, after `permissions:`:
+            ```yaml
+            concurrency:
+              group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+              cancel-in-progress: true
+            ```
+            so only PR runs share a group; push and dispatch runs each get their own.
+            Leave the `deploy` job's own `concurrency` block as is.
+          - update the comment above `deploy`'s concurrency and the `summary` job
+            comment if they describe the old behaviour.
+
+          Create `packages/cli/src/utils/__tests__/ci-cancel-superseded-runs.spec.ts`
+          in the style of `ci-workflow-base.spec.ts` (spawnSync bash, stub `gh` first on
+          `PATH`). The stub answers `api …/runs?…` with `$STUB_RUNS_JSON`, `api
+          …/runs/<id>/jobs` with the file `$STUB_JOBS_DIR/<id>.json`, records every
+          argv line to `$STUB_GH_LOG`, and exits `${STUB_GH_EXIT:-0}`. Tests must cover:
+          - an older queued run with no `deploy` job → cancelled;
+          - an older run whose `deploy` is `in_progress` → kept, no cancel call;
+          - an older run whose `deploy` is `completed`/`success` → kept;
+          - an older run whose `deploy` is `completed`/`cancelled` or `skipped` (job
+            listed but never ran) → cancelled;
+          - a newer run (id greater than this run's) → untouched;
+          - a completed run → untouched;
+          - gh exits 1 on the list call → script prints a warning, exits 0, cancels nothing;
+          - the summary file gets one line per run when `GITHUB_STEP_SUMMARY` is set;
+          - ci.yml assertions via js-yaml: the workflow-level `concurrency.group`
+            contains `pull_request` and `github.run_id`, `cancel-in-progress` is true,
+            the detect job has the "Cancel superseded runs" step guarded against
+            `pull_request`, and `jobs.detect.permissions.actions` is `write`.
+          Lint and actionlint must pass.
+      - id: T3
+        title: 'docs: concurrency and base selection in docs/deploy.md'
+        after:
+          - T1
+          - T2
+        files:
+          - docs/deploy.md
+        status: todo
+        body: |-
+          Update `docs/deploy.md` to describe the workflow as it now behaves. Read
+          `.github/workflows/ci.yml`, `scripts/ci/last-deployed-sha.sh`, and
+          `scripts/ci/cancel-superseded-runs.sh` first and document only what they do.
+          - "How a push deploys": the `detect` paragraph now says a push diffs from the
+            head sha of the newest successful `push` run of ci.yml on `main` (falling
+            back to `github.event.before` with a warning when there is none), so the
+            newest run deploys every commit no earlier run deployed; a base that is
+            no longer an ancestor (force-push) makes the plan `full`.
+          - New subsection "Concurrency" (after the change table, before "Manual
+            deploys"): a run cancels older in-flight runs of the same event on the same
+            branch unless their `deploy` job has started; a deploy in flight always
+            finishes and the newer run queues behind it on the `deploy` group and
+            redeploys a superset (idempotent); PR runs cancel older runs of the same
+            PR; why a mid-SSH cancel is avoided (the host script dies at its next write,
+            which can leave a service down); the small race and how it self-heals
+            (a cancelled run is never a base). Mention the `## Superseded runs` and
+            `base source` lines in the run summary as the place to look.
+          - "Manual deploys": form 3 (bare dispatch) now diffs from the last successful
+            push run when dispatched on `main`; the tip-only caveat applies only to a
+            dispatch from another branch (or when no push run exists). Keep form 2 as
+            the explicit override and correct the text that says a bare dispatch
+            "diffs only the last one".
+          - "Host setup reference" → GitHub bullet list: the detect job's token needs
+            `actions: write` (declared in the workflow; nothing to configure).
+          Keep the file's voice, tables, and line width; prettier is not run on docs,
+          but match the existing wrapping.
+      - id: T4
+        title: 'Live check: two dry-run dispatches on the run branch'
+        after:
+          - T2
+        files: []
+        status: todo
+        body: |-
+          Prove the cancellation and base-selection paths on GitHub without touching
+          production. Only `dry_run=true` dispatches (the default); never pass
+          `dry_run=false`; never run docker compose against `lilnas`.
+
+          1. Push this worktree's HEAD to the run branch on origin:
+             `git push --force-with-lease origin HEAD:refs/heads/ci/cancel-superseded-runs`
+             (the branch must hold T2's ci.yml for `gh workflow run --ref`).
+          2. Dispatch run A: `gh workflow run ci.yml --ref ci/cancel-superseded-runs`
+             (no `base`, so on this branch detect falls back to `HEAD~1`; ci.yml changed,
+             so the plan is `full` and the run is long). Find its id with
+             `gh run list --workflow ci.yml --branch ci/cancel-superseded-runs --event workflow_dispatch --limit 1 --json databaseId`.
+          3. Poll `gh run view <A> --json jobs` until the `detect` job is `completed`
+             (so A's step summary exists), then immediately dispatch run B with
+             `-f base=$(git rev-parse HEAD)` — an empty diff, so B tests nothing, builds
+             nothing, and its deploy job prints "Nothing to deploy" without SSHing.
+          4. Wait for B to complete (`gh run watch <B>` or polling). Then check and
+             record, with run URLs:
+             - B's "Cancel superseded runs" log and `## Superseded runs` summary name A
+               as cancelled; A's conclusion is `cancelled` (`gh run view <A> --json conclusion`);
+             - A was cancelled before any `build-images` job started (`gh run view <A>
+               --json jobs`): if any image was pushed from the branch, say so — it is
+               a finding, not a failure, since the branch's app sources equal main's;
+             - A's detect summary shows `base source: HEAD~1 (no successful push run)`
+               and B's shows `dispatch input`;
+             - B's deploy job skipped "Connect to Tailscale" and "Deploy" (steps not
+               run) and the summary says "Nothing to deploy";
+             - B's `summary` job succeeded.
+          5. If a dispatch is rejected because the workflow is unknown on the branch,
+             wait a minute after the push and retry once.
+          Report timings, the two run URLs, what each summary said, and any mismatch
+          with the expectations above as `defects:` (blocking when the cancel did not
+          happen, when a deploying run would have been cancelled, or when B reached
+          the host). Nothing to commit.
