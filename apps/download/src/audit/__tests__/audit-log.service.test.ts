@@ -1,7 +1,7 @@
 import type { AuditLogQuery } from '@lilnas/utils/download/types'
 import { BadRequestException, Logger } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
-import { register } from 'prom-client'
+import { register } from '@prometheus-io/client'
 
 import { AuditLogService } from 'src/audit/audit-log.service'
 import { createTestDbService } from 'src/db/__tests__/test-utils'
@@ -14,7 +14,7 @@ const AUDIT_WRITE_FAILURES = 'download_audit_write_failures_total'
 type RowInsert = typeof auditLog.$inferInsert
 
 /**
- * The counter is module-level (a process-wide `prom-client` singleton), so it
+ * The counter is module-level (a process-wide `@prometheus-io/client` singleton), so it
  * is never reset between tests - every assertion below is a delta taken
  * around the call under test rather than an absolute value.
  */

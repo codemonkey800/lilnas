@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import { Counter, Gauge, Histogram, register } from 'prom-client'
+import { Counter, Gauge, Histogram, register } from '@prometheus-io/client'
 
 type MessageHandler = 'chat' | 'keywords'
 type HandledStatus = 'success' | 'error'
@@ -111,7 +111,7 @@ const remindersActive = new Gauge({
  * Thin wrapper around Prometheus counters, gauges, and histograms
  * that exposes domain-specific recording methods for the TDR Bot.
  *
- * All metrics are registered with the default `prom-client` registry
+ * All metrics are registered with the default `@prometheus-io/client` registry
  * and scraped at `/metrics` by Prometheus.
  */
 @Injectable()
