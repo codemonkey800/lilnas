@@ -33,6 +33,14 @@ permissions:
   contents: read
   packages: write
 
+# Only pull request runs share a group, so a new push to a PR cancels the old
+# run. Push and dispatch runs each get their own group: a newer push cancels
+# older ones through the "Cancel superseded runs" step instead, which spares
+# any run already deploying.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: true
+
 env:
   NODE_VERSION: '25.0.0'
   PNPM_VERSION: '10.18.2'
@@ -44,10 +52,11 @@ jobs:
   # which services to pull / up / force-recreate on the host.
   detect:
     runs-on: ubuntu-latest
-    # Replaces the workflow-level set: detect only reads the repo and lists runs.
+    # Replaces the workflow-level set: detect reads the repo, lists runs and
+    # cancels superseded ones (`gh run cancel` needs actions: write).
     permissions:
       contents: read
-      actions: read
+      actions: write
     outputs:
       full: ${{ steps.plan.outputs.full }}
       baseImages: ${{ steps.plan.outputs.baseImages }}
@@ -62,6 +71,18 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      # Older push/dispatch runs on this branch are cancelled unless they are
+      # already deploying (killing a deploy mid-SSH can leave a service down).
+      # Pull requests use the workflow-level concurrency group instead.
+      - name: Cancel superseded runs
+        if: ${{ github.event_name != 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+          REF_NAME: ${{ github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: scripts/ci/cancel-superseded-runs.sh "$RUN_ID" "$REF_NAME" "$EVENT_NAME"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -495,6 +516,9 @@ jobs:
         && needs.base-images.result != 'failure'
         && needs.build-images.result != 'failure'
       }}
+    # Deploys queue behind each other and are never cancelled: a deploy killed
+    # mid-SSH dies on the host at its next write. The workflow-level group does
+    # not apply to push runs, and the detect job spares runs that reached here.
     concurrency:
       group: deploy
       cancel-in-progress: false
@@ -610,8 +634,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
-  # Single required check: fails if any job failed or was cancelled; skipped
-  # jobs are fine.
+  # Single required check: fails if any job failed or was cancelled (including
+  # a run superseded by a newer one); skipped jobs are fine.
   summary:
     runs-on: ubuntu-latest
     needs: [detect, test, lint-and-typecheck, base-images, build-images, deploy]
