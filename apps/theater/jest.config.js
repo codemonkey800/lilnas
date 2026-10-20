@@ -20,8 +20,15 @@ module.exports = {
         },
       },
     ],
+    // three's `require` entry (three.cjs) just re-requires the ESM build
+    // (three.module.js), which Jest's CJS loader rejects, so compile it.
+    '^.+\\.m?js$': ['@swc/jest', { module: { type: 'commonjs' } }],
   },
-  transformIgnorePatterns: ['/node_modules/(?!(@lilnas|nanoid|lru-cache)/)'],
+  // The leading `.*` lets the lookahead see past pnpm's nested
+  // `.pnpm/<hash>/node_modules/<pkg>` path to the real package name.
+  transformIgnorePatterns: [
+    '/node_modules/(?!.*(@lilnas|nanoid|lru-cache|three)/)',
+  ],
   collectCoverageFrom: [
     'src/**/*.ts',
     '!src/**/*.d.ts',

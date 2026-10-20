@@ -74,6 +74,7 @@
   },
   "devDependencies": {
     "@lilnas/cli": "workspace:*",
+    "@swc/jest": "0.2.39",
     "@types/cookie-parser": "1.4.10",
     "@types/jest": "30.0.0",
     "@types/three": "0.186.0",
