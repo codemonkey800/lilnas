@@ -192,7 +192,12 @@ describe('AdminController', () => {
         ...EMPTY_STATS,
         jobsPerDay: [{ count: 3, day: '2026-06-15', type: DownloadType.Video }],
         topRequesters: [
-          { count: 3, discordRequester: null, requesterEmail: 'ada@lilnas.io' },
+          {
+            count: 3,
+            discordRequester: null,
+            linkedDiscord: null,
+            requesterEmail: 'ada@lilnas.io',
+          },
         ],
         totalJobs: 3,
         windowDays: 7,

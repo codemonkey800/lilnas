@@ -138,6 +138,7 @@ export class AdminStatsService {
       add(row.email.toLowerCase(), {
         count: row.count,
         discordRequester: null,
+        linkedDiscord: null,
         requesterEmail: row.email,
       })
     }
@@ -161,23 +162,39 @@ export class AdminStatsService {
         add(actor.email.toLowerCase(), {
           count,
           discordRequester: null,
+          linkedDiscord: null,
           requesterEmail: actor.email,
         })
       } else if (discordActor) {
         add(`discord:${discordActor.discordUserId}`, {
           count,
           discordRequester: discordActor,
+          linkedDiscord: null,
           requesterEmail: null,
         })
       }
     }
 
-    return [...byPerson.values()]
+    const top = [...byPerson.values()]
       .sort(
         (a, b) =>
           b.count - a.count || requesterName(a).localeCompare(requesterName(b)),
       )
       .slice(0, TOP_REQUESTERS_LIMIT)
+
+    // Only the rows that survived the cut, so the lookups stay bounded by
+    // TOP_REQUESTERS_LIMIT rather than by everyone who ever downloaded.
+    const linked =
+      await this.attributionResolutionService.resolveLinkedDiscordByEmail(
+        top.flatMap(row => (row.requesterEmail ? [row.requesterEmail] : [])),
+      )
+
+    return top.map(row => ({
+      ...row,
+      linkedDiscord: row.requesterEmail
+        ? (linked.get(row.requesterEmail.toLowerCase()) ?? null)
+        : null,
+    }))
   }
 }
 

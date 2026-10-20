@@ -2,7 +2,11 @@ import { cns } from '@lilnas/utils/cns'
 import type { AdminStatsResponse } from '@lilnas/utils/download/types'
 import type { JSX } from 'react'
 
-import { discordAvatarTitle } from 'src/components/activity/activity-requester'
+import {
+  discordAvatarTitle,
+  LINKED_DISCORD_TITLE,
+  linkedDiscordLabel,
+} from 'src/components/activity/activity-requester'
 import { DiscordIdentityMark } from 'src/components/activity/discord-identity-mark'
 import { formatCount } from 'src/components/admin/admin-stats'
 import { Avatar } from 'src/components/ui/avatar'
@@ -21,9 +25,12 @@ const ROW = cns(
 const RANK = 'w-4 shrink-0 text-center font-mono text-mono-sm text-ink-4'
 
 const NAME = cns(
-  'min-w-0 flex-1 truncate text-sm',
+  'min-w-0 truncate text-sm',
   'transition-colors duration-200 ease-uv hover:text-ink hover:underline',
 )
+
+/** The email and, when the account has one, its linked handle. */
+const NAME_RUN = 'flex min-w-0 flex-1 items-baseline gap-1.5'
 
 const COUNT = 'font-mono text-mono tabular-nums'
 
@@ -49,7 +56,8 @@ export type AdminLeaderboardProps = {
  * ⚠️ Service jobs are absent by construction: the repo counts drop rows with
  * no person behind them rather than bucketing them, so "everyone who downloaded
  * something" here means every *person* — web requesters and Discord submitters
- * alike, with a linked Discord account already folded into its email's row.
+ * alike, with a linked Discord account already folded into its email's row (which
+ * still names that account's handle beside the email).
  *
  * Every email links, because the whole page is admin-only and therefore every
  * requester on it is someone the viewer is allowed to inspect — and the link
@@ -126,9 +134,24 @@ export function AdminLeaderboard({
                 ring={you}
                 title={you ? `${email} · you` : email}
               />
-              <a className={NAME} href={href}>
-                {email}
-              </a>
+              <span className={NAME_RUN}>
+                <a className={NAME} href={href}>
+                  {email}
+                </a>
+                {/*
+                  Inert text, never a `DiscordIdentityMark` — same call as
+                  `AdminActor`: this says who the person also is, not that
+                  the row is an unclaimed account.
+                */}
+                {entry.linkedDiscord === null ? null : (
+                  <span
+                    className="shrink-0 truncate font-mono text-mono-sm text-ink-4"
+                    title={LINKED_DISCORD_TITLE}
+                  >
+                    {linkedDiscordLabel(entry.linkedDiscord.discordUsername)}
+                  </span>
+                )}
+              </span>
               {countCell(you ? 'text-uv-hi' : 'text-ink-3')}
             </li>
           )

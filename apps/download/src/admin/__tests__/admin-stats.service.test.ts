@@ -19,7 +19,7 @@ const UNLINKED: DiscordLinkLookupResponse = { identity: null, user: null }
 
 /** A web row's shape on the wire - the Discord half is always null. */
 function web(count: number, requesterEmail: string) {
-  return { count, discordRequester: null, requesterEmail }
+  return { count, discordRequester: null, linkedDiscord: null, requesterEmail }
 }
 
 // Frozen so "N days ago" is a fixed calendar day rather than whatever day
@@ -36,6 +36,7 @@ describe('AdminStatsService', () => {
   let dbService: DbService
   let service: AdminStatsService
   let resolveDiscordUser: jest.Mock<Promise<DiscordLinkLookupResponse>>
+  let resolveEmail: jest.Mock<Promise<DiscordLinkLookupResponse>>
 
   // `createdAt` is always explicit: the whole point of most of these tests is
   // where a row falls relative to the window, which the column's
@@ -74,13 +75,17 @@ describe('AdminStatsService', () => {
     jest.spyOn(Date, 'now').mockReturnValue(NOW.getTime())
     dbService = createTestDbService()
     resolveDiscordUser = jest.fn().mockResolvedValue(UNLINKED)
+    resolveEmail = jest.fn().mockResolvedValue(UNLINKED)
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AdminStatsService,
         AttributionResolutionService,
         { provide: DbService, useValue: dbService },
-        { provide: DiscordLinkService, useValue: { resolveDiscordUser } },
+        {
+          provide: DiscordLinkService,
+          useValue: { resolveDiscordUser, resolveEmail },
+        },
       ],
     }).compile()
 
@@ -336,6 +341,7 @@ describe('AdminStatsService', () => {
             discordUserId: BOB_SNOWFLAKE,
             discordUsername: 'bob',
           },
+          linkedDiscord: null,
           requesterEmail: null,
         },
         web(1, 'ada@lilnas.io'),
@@ -366,6 +372,34 @@ describe('AdminStatsService', () => {
 
       expect((await service.getStats({ days: 30 })).topRequesters).toEqual([
         web(4, 'ada@lilnas.io'),
+      ])
+    })
+
+    it("names a web-only requester's linked Discord handle", async () => {
+      resolveEmail.mockImplementation(async (email: string) =>
+        email === 'ada@lilnas.io'
+          ? {
+              identity: {
+                discordUserId: ADA_SNOWFLAKE,
+                displayName: null,
+                username: 'ada_d',
+              },
+              user: { email, name: 'Ada', userId: 'uid-ada' },
+            }
+          : UNLINKED,
+      )
+      seedFor('ada@lilnas.io', 2, 'ada')
+      seedFor('bob@lilnas.io', 1, 'bob')
+
+      expect((await service.getStats({ days: 30 })).topRequesters).toEqual([
+        {
+          ...web(2, 'ada@lilnas.io'),
+          linkedDiscord: {
+            discordUserId: ADA_SNOWFLAKE,
+            discordUsername: 'ada_d',
+          },
+        },
+        web(1, 'bob@lilnas.io'),
       ])
     })
 

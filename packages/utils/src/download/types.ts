@@ -730,10 +730,15 @@ export interface AdminStatsResponse {
    * pair is non-null: `requesterEmail` for a lilnas account (its web jobs plus
    * the Discord jobs of any account linked to it), `discordRequester` for a
    * Discord account no lilnas user has claimed yet.
+   *
+   * `linkedDiscord` is the Discord account linked to `requesterEmail`'s
+   * account, so a linked person's row can still name their handle. Always
+   * `null` on the `discordRequester` arm, where the account is the identity.
    */
   topRequesters: Array<{
     count: number
     discordRequester: DiscordRequester | null
+    linkedDiscord: DiscordIdentity | null
     requesterEmail: string | null
   }>
   totalsByStatus: Array<{ count: number; status: DownloadJobStatus }>

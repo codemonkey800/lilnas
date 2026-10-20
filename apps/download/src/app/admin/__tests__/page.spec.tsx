@@ -63,8 +63,18 @@ const AUDIT_ENTRY: AuditLogEntry = {
 const STATS: AdminStatsResponse = {
   jobsPerDay: [{ count: 4, day: '2026-09-16', type: DownloadType.Movie }],
   topRequesters: [
-    { count: 9, discordRequester: null, requesterEmail: JEREMY },
-    { count: 4, discordRequester: null, requesterEmail: SAM },
+    {
+      count: 9,
+      discordRequester: null,
+      linkedDiscord: null,
+      requesterEmail: JEREMY,
+    },
+    {
+      count: 4,
+      discordRequester: null,
+      linkedDiscord: null,
+      requesterEmail: SAM,
+    },
   ],
   totalJobs: 13,
   totalsByStatus: [{ count: 13, status: DownloadJobStatus.Completed }],
@@ -266,6 +276,29 @@ describe('AdminPage — the requester filter', () => {
     expect(board.getAllByRole('listitem')).toHaveLength(2)
   })
 
+  it("names a linked person's Discord handle beside their email", async () => {
+    getStats.mockResolvedValue({
+      ...STATS,
+      topRequesters: [
+        {
+          count: 8,
+          discordRequester: null,
+          linkedDiscord: {
+            discordUserId: '123456789012345678',
+            discordUsername: 'casserole69',
+          },
+          requesterEmail: JEREMY,
+        },
+      ],
+    })
+
+    await renderPage()
+    const board = within(screen.getByRole('list', { name: 'Top downloaders' }))
+
+    expect(board.getByText(JEREMY)).toBeInTheDocument()
+    expect(board.getByText('@casserole69')).toBeInTheDocument()
+  })
+
   // An unclaimed Discord account has no email for `?requester=` to key on, so
   // it is ranked like anyone else but renders as its handle with no link.
   it('ranks an unlinked Discord submitter without linking it', async () => {
@@ -278,6 +311,7 @@ describe('AdminPage — the requester filter', () => {
             discordUserId: '123456789012345678',
             discordUsername: 'bigkrizz72',
           },
+          linkedDiscord: null,
           requesterEmail: null,
         },
       ],

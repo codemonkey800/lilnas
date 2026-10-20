@@ -233,6 +233,35 @@ export class AttributionResolutionService {
   }
 
   /**
+   * The reverse direction for callers that only have emails: the Discord
+   * account linked to each lilnas account, keyed by lowercased email. An
+   * email with no linked account (or whose lookup failed) is absent.
+   *
+   * Emails rather than user ids because the leaderboard's rows are grouped
+   * by email and carry no id. Served from the same 60s cache as the rest.
+   */
+  async resolveLinkedDiscordByEmail(
+    emails: readonly string[],
+  ): Promise<Map<string, DiscordIdentity>> {
+    const lookups = await lookupAll(
+      new Set(emails.map(email => email.toLowerCase())),
+      email => this.discordLinkService.resolveEmail(email),
+    )
+
+    const linked = new Map<string, DiscordIdentity>()
+    for (const [email, { identity }] of lookups) {
+      if (identity) {
+        linked.set(email, {
+          discordUserId: identity.discordUserId,
+          discordUsername: identity.username,
+        })
+      }
+    }
+
+    return linked
+  }
+
+  /**
    * One pass over the batch collects the keys for **both** directions, and
    * one `Promise.all` issues them together - so a page costs a single round
    * of (mostly cached) lookups rather than one round per direction.
