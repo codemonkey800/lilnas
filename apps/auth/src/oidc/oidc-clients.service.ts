@@ -12,7 +12,7 @@ import { oauthClient } from 'src/db/schema'
 import { OIDC_CLIENTS, type OidcClientDefinition } from './clients'
 
 // Same transform as the plugin's `defaultHasher`
-// (node_modules/@better-auth/oauth-provider/dist/utils-B3Myyglw.mjs ~L163):
+// (node_modules/@better-auth/oauth-provider/dist/utils-BfpTo7XY.mjs ~L451):
 // the token endpoint hashes the presented client_secret this way and
 // constant-time compares it with the stored column, so the seeded value
 // must match byte for byte (base64url, no padding).
@@ -57,13 +57,16 @@ export class OidcClientsService implements OnModuleInit {
       name: client.name,
       redirectUris: JSON.stringify(client.redirectUris),
       scopes: JSON.stringify(['openid', 'profile', 'email']),
-      type: 'web',
+      // No client_credentials grant, so no machine-to-machine scopes.
+      clientCredentialsScopes: JSON.stringify([]),
+      applicationType: 'web',
+      // Confidential client: 1.7 derives "public" from this being 'none' and
+      // rejects token requests that use any other method than this one.
       tokenEndpointAuthMethod: 'client_secret_post',
       grantTypes: JSON.stringify(['authorization_code']),
       responseTypes: JSON.stringify(['code']),
       skipConsent: true,
       requirePKCE: false,
-      public: false,
       disabled: false,
       metadata: JSON.stringify({ lilnasHost: client.host }),
       updatedAt: now,

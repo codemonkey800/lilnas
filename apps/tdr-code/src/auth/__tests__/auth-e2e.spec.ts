@@ -873,17 +873,15 @@ describe('U5 — end-to-end auth verification harness (pre-cutover gate)', () =>
     //     raw 500 to the client.
     //
     // The fix (auth.ts's guild-gate hook, see its own header comment for
-    // the full trace): the rejection branch now THROWS `new
-    // APIError('FORBIDDEN', { message: 'not guild member' })` instead of
-    // `return false`, after the sweep runs. handleOAuthUserInfo wraps its
-    // ENTIRE createOAuthUser(...) call in a try/catch that DOES check
-    // `isAPIError(e)` and returns `{ error: e.message, data: null,
-    // isRegister: false }` — never reaching the later `createSession` call
-    // in the same function at all (that catch sits above/wraps it), so the
-    // FK-violation crash can no longer happen. callback.mjs's `if
-    // (result.error) redirectOnError(...)` then produces a clean redirect
-    // carrying `error=not_guild_member` (byte-identical to the login page's
-    // `not_guild_member` LoginErrorCode after `.split(' ').join('_')`).
+    // the full, current trace): the rejection branch now THROWS an APIError
+    // instead of `return false`, after the sweep runs, so execution never
+    // reaches the later `createSession` call and the FK-violation crash can
+    // no longer happen. In 1.6.23 handleOAuthUserInfo caught that APIError
+    // and turned `e.message` into the redirect's error code; since 1.7 it
+    // re-throws and callback.mjs only redirects an APIError that carries a
+    // `code`, so the throw now sets `code: 'not_guild_member'` explicitly.
+    // Either way the result is a clean redirect carrying
+    // `error=not_guild_member`, the login page's LoginErrorCode.
     //
     // Net effect / why U3's OWN guild-gate.spec.ts suite never caught this
     // originally: AE5's "non-member rejected, no working session" DID still
@@ -969,7 +967,7 @@ describe('U5 — end-to-end auth verification harness (pre-cutover gate)', () =>
   // next guarded request.
   //
   // Better Auth's actual sign-out behavior (verified against the installed
-  // 1.6.23 source at
+  // 1.7.12 source at
   // better-auth/dist/api/routes/sign-out.mjs, not assumed from docs — see
   // this unit's final report for the full citation): the handler does BOTH
   // of the two things "logout clears the session" could mean, not just one:

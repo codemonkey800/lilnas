@@ -46,7 +46,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.15.0",
-    "@better-auth/drizzle-adapter": "1.6.23",
+    "@better-auth/drizzle-adapter": "1.7.12",
     "@lilnas/utils": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@nestjs/common": "12.2.0",
@@ -56,7 +56,7 @@
     "@tanstack/react-query": "5.104.5",
     "@tanstack/react-virtual": "^3.14.21",
     "@thallesp/nestjs-better-auth": "2.8.0",
-    "better-auth": "1.6.23",
+    "better-auth": "1.7.12",
     "better-sqlite3": "^12.10.0",
     "clsx": "2.1.1",
     "commander": "^14.0.3",

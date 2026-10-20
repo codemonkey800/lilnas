@@ -7,12 +7,12 @@ import { user } from './schema'
 // auth-sweep repo — compensating cleanup for U3's guild-gate seam (Option B).
 //
 // databaseHooks.account.create.before (auth.ts) can reject the `account`
-// INSERT for a non-member AFTER Better Auth's internalAdapter.createOAuthUser
-// has already committed the paired `user` row (see guild-gate.ts's long
-// comment for the file:line trace of why: better-auth/dist/db/internal-
-// adapter.mjs's createOAuthUser runs createWithHooks(..., "user", ...)
-// BEFORE createWithHooks(..., "account", ...), and only the latter call is
-// where our hook can return `false`). This repo deletes exactly the ONE
+// INSERT for a non-member AFTER Better Auth's sign-up path has already
+// committed the paired `user` row (see guild-gate.ts's long comment for the
+// file:line trace of why: better-auth/dist/oauth2/link-account.mjs's
+// handleOAuthUserInfo calls internalAdapter.createUser -> createWithHooks(
+// ..., "user", ...) BEFORE createAccount -> createWithHooks(..., "account",
+// ...), and only the latter call is where our hook can reject). This repo deletes exactly the ONE
 // accountless row this rejection orphaned (scoped by userId — see below) so
 // AE5's "no usable rows" holds under Option B: a `user` row with no
 // `account` row can never authenticate (Better Auth's own sign-in paths all
@@ -33,9 +33,9 @@ import { user } from './schema'
 // A `user` row briefly WITHOUT an account row is possible for another
 // reason too: another request racing between the two createWithHooks calls
 // above. This gap is NOT protected by any real SQL transaction on Better
-// Auth's own side, despite internal-adapter.mjs wrapping createOAuthUser in
-// runWithTransaction(adapter, ...) (see @better-auth/core's context/
-// transaction.mjs:53-81 + db/adapter/factory.mjs:18,404-410): with the
+// Auth's own side, despite link-account.mjs wrapping both calls in
+// runWithTransaction(adapter, ...) (see @better-auth/core@1.7.12's context/
+// transaction.mjs + db/adapter/factory.mjs:18,420-428): with the
 // drizzle adapter's transaction: false (this app's own config, required —
 // see the "Do NOT set transaction: true" note in auth.ts), factory.mjs's
 // own transaction method resolves `lazyLoadTransaction` to

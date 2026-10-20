@@ -201,7 +201,7 @@ function mockGoogleTokenExchange(respond: () => Response): jest.SpyInstance {
 }
 
 // Better Auth's DEFAULT "database" OAuth state strategy is not purely
-// server-side: confirmed against installed better-auth@1.6.23's
+// server-side: confirmed against installed better-auth@1.7.12's
 // dist/state.mjs (parseGenericState's non-cookie branch) — alongside the
 // `verification` DB row, it ALSO sets and re-checks a SIGNED `state` cookie
 // as defense-in-depth (`state_security_mismatch` / "State not persisted
@@ -301,8 +301,9 @@ describe('Better Auth NestJS mount (U3)', () => {
       // `${AUTH_HOST}/api/auth/callback/google` — the URL that has to be
       // registered as an authorized redirect URI in the Google Cloud
       // console for a real sign-in to ever succeed. Confirmed against
-      // installed better-auth@1.6.23's dist/api/routes/sign-in.mjs:
-      // `redirectURI: \`${c.context.baseURL}/callback/${provider.id}\``.
+      // installed better-auth@1.7.12's dist/api/routes/sign-in.mjs:
+      // `redirectURI: \`${c.context.baseURL}${getOAuthCallbackPath(provider)}\``
+      // (`/callback/${provider.id}` unless the provider sets callbackPath).
       expect(authorizeURL.searchParams.get('redirect_uri')).toBe(
         `${process.env.AUTH_HOST}${AUTH_PATH_SEGMENT}/callback/google`,
       )
@@ -512,7 +513,7 @@ describe('onAPIError config points at the login page', () => {
 })
 
 describe("Secure cookie attribute reflects AUTH_HOST's own scheme, not the request's", () => {
-  // Verified against installed better-auth@1.6.23's dist/cookies/index.mjs:
+  // Verified against installed better-auth@1.7.12's dist/cookies/index.mjs:
   // the Secure attribute is derived from whether the STATIC `baseURL`
   // string starts with 'https://' — decided once at buildAuth() time from
   // AUTH_HOST's configured scheme — NOT from the incoming request's own

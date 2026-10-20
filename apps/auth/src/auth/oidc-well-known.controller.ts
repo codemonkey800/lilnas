@@ -6,7 +6,7 @@ import { type Auth } from './auth'
 
 // Serves OIDC discovery at the ISSUER ROOT (`/.well-known/...`), outside
 // the /api/auth mount. Why this exists, verified against installed
-// @better-auth/oauth-provider@1.6.23's dist/index.mjs
+// @better-auth/oauth-provider@1.7.12's dist/authorize-D_jy3s-1.mjs ~L4355
 // (`handleIssuerMetadataRequest`): the plugin answers discovery from an
 // onRequest hook that compares the FULL request pathname with
 // `${issuerPath}/.well-known/openid-configuration`, where issuerPath is the

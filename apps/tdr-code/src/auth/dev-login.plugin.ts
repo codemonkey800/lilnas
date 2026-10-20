@@ -19,10 +19,10 @@ import { LOG_EVENTS } from 'src/logging/log-events'
 // Auth's own signInEmail mints a session (installed
 // better-auth/dist/api/routes/sign-in.mjs:
 // `internalAdapter.createSession(user.id, dontRememberMe)` then
-// `setSessionCookie(ctx, { session, user })`) — this endpoint does the same
-// two calls for a fixed synthetic user instead of a real credential check,
-// so the resulting session is byte-for-byte what AuthGuard's
-// auth.api.getSession() already accepts.
+// `setSessionCookie(ctx, { session, user }, dontRememberMe)`) — this
+// endpoint does the same two calls for a fixed synthetic user instead of a
+// real credential check, so the resulting session is byte-for-byte what
+// AuthGuard's auth.api.getSession() already accepts.
 //
 // Deliberately calls internalAdapter.createUser() directly — never
 // createOAuthUser() or anything that inserts an `account` row.
@@ -113,7 +113,7 @@ export function devLoginPlugin(): BetterAuthPlugin {
             )
             // THROW, don't `return ctx.json(body, { status: 403 })` — that
             // status override is a no-op for a normal router-dispatched HTTP
-            // request (confirmed in installed better-call@1.3.7's
+            // request (confirmed in installed better-call@1.4.4's
             // context.mjs: `json: (json, routerResponse) => { if
             // (!context.asResponse) return json; ... }` — asResponse is
             // false at this layer for a real request, so `routerResponse`
@@ -130,11 +130,18 @@ export function devLoginPlugin(): BetterAuthPlugin {
           const existing = await ia.findUserByEmail(SYNTHETIC_USER.email)
           const user =
             existing?.user ??
-            (await ia.createUser({
-              email: SYNTHETIC_USER.email,
-              name: SYNTHETIC_USER.name,
-              emailVerified: false,
-            }))
+            (await ia.createUser(
+              {
+                email: SYNTHETIC_USER.email,
+                name: SYNTHETIC_USER.name,
+                emailVerified: false,
+              },
+              // Required since better-auth 1.7: the provisioning source fed to
+              // the `user.validateUserInfo` gate (only consulted when that
+              // option is set, which auth.ts doesn't). The method union is
+              // open-ended (`string & {}`), so name this path honestly.
+              { method: 'dev-login' },
+            ))
 
           const session = await ia.createSession(user.id, false)
           await setSessionCookie(ctx, { session, user })

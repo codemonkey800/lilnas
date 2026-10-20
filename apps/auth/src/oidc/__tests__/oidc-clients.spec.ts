@@ -76,13 +76,13 @@ describe('OidcClientsService seeding', () => {
     expect(row).toMatchObject({
       clientId: 'test-app',
       name: 'Test App',
-      type: 'web',
+      applicationType: 'web',
       tokenEndpointAuthMethod: 'client_secret_post',
       skipConsent: true,
       requirePKCE: false,
-      public: false,
       disabled: false,
     })
+    expect(JSON.parse(row?.clientCredentialsScopes ?? '')).toEqual([])
     // Never the plaintext.
     expect(row?.clientSecret).not.toBe(SECRET)
     expect(JSON.parse(row?.redirectUris ?? '')).toEqual([REDIRECT_URI])
@@ -227,11 +227,12 @@ describe('authorization-code flow against the seeded test-app client', () => {
     const claims = decodeJwt(tokens.id_token)
     expect(claims.iss).toBe(AUTH_HOST)
     expect([claims.aud].flat()).toContain('test-app')
-    expect(claims).toMatchObject({
-      email: 'alice@example.com',
-      email_verified: true,
-      name: 'Test User',
-    })
+    // Since better-auth 1.7 the id_token carries only protocol claims;
+    // email/profile claims are userinfo-only (asserted below), so relying
+    // parties must read them from there.
+    expect(claims).not.toHaveProperty('email')
+    expect(claims).not.toHaveProperty('email_verified')
+    expect(claims).not.toHaveProperty('name')
 
     const jwksRes = await auth.handler(
       new Request(`${AUTH_HOST}${AUTH_PATH_SEGMENT}/jwks`),
@@ -255,10 +256,14 @@ describe('authorization-code flow against the seeded test-app client', () => {
     })
   })
 
-  it('rejects a wrong client_secret with 401', async () => {
+  // 400, not 401: RFC 6749 §5.2 only requires 401 when the client
+  // authenticated via the Authorization header, and these clients use
+  // client_secret_post.
+  it('rejects a wrong client_secret with invalid_client', async () => {
     const code = await signInAndGetCode()
     const res = await exchange(code, 'wrong-secret')
-    expect(res.status).toBe(401)
+    expect(res.status).toBe(400)
+    expect(await res.json()).toMatchObject({ error: 'invalid_client' })
   })
 
   it('does not issue a code for an unregistered redirect_uri', async () => {

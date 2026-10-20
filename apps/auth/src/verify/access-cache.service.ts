@@ -62,7 +62,7 @@ type CachedSession = {
 
 // Better Auth mints this session cookie as `${cookiePrefix}.session_token`,
 // `__Secure-`-prefixed whenever AUTH_HOST's configured scheme is https —
-// confirmed against installed better-auth@1.6.23's dist/cookies/index.mjs;
+// confirmed against installed better-auth@1.7.12's dist/cookies/index.mjs;
 // src/auth/auth.ts never overrides cookiePrefix, so the default
 // ('better-auth') applies. Both forms are matched by exact cookie name
 // (not a substring marker) so extractSessionCookieValue() below works
@@ -260,7 +260,7 @@ export class AccessCacheService implements OnModuleInit {
    *
    * The "obvious" seam for "bind on first sign-in" is a better-auth
    * `databaseHooks.user.create.after` hook (confirmed against installed
-   * better-auth@1.6.23's dist/db/with-hooks.mjs: `createWithHooks` invokes
+   * better-auth@1.7.12's dist/db/with-hooks.mjs: `createWithHooks` invokes
    * `hooks[model]?.create?.after` with the just-created row, exactly once,
    * only on a genuine INSERT — never on a returning user's sign-in, which
    * only creates a new `session` row, not a new `user` row). That hook
@@ -418,7 +418,7 @@ export class AccessCacheService implements OnModuleInit {
    * Better Auth ever constructs the SIGNED cookie value a browser actually
    * carries (name `better-auth.session_token`, or
    * `__Secure-better-auth.session_token` when AUTH_HOST is https —
-   * confirmed against installed better-auth@1.6.23's dist/cookies/
+   * confirmed against installed better-auth@1.7.12's dist/cookies/
    * index.mjs). The signed wire value is `${rawToken}.${base64Signature}`,
    * produced by `ctx.setSignedCookie` via better-call's HMAC signing
    * (dist/crypto.mjs) — code that is NOT part of that package's public
@@ -456,7 +456,7 @@ export class AccessCacheService implements OnModuleInit {
    * handles cookie verification and the DB read internally; the only
    * contract this method relies on is "resolves `{ session, user } | null`,
    * or throws on a genuine infra failure" — confirmed against installed
-   * better-auth@1.6.23's dist/api/routes/session.mjs, the same source
+   * better-auth@1.7.12's dist/api/routes/session.mjs, the same source
    * apps/tdr-code/src/auth/auth.guard.ts's identical getSession() call
    * documents its own failure contract against. In particular (traced
    * directly, not assumed): a garbage/forged signed-cookie value NEVER
@@ -592,7 +592,7 @@ export class AccessCacheService implements OnModuleInit {
         headers: new Headers({ cookie: cookieHeader }),
         // `disableRefresh: true` is NOT optional polish — without it this
         // "read-only" cache-miss path silently performs a WRITE. Found by
-        // reading installed better-auth@1.6.23's dist/api/routes/
+        // reading installed better-auth@1.7.12's dist/api/routes/
         // session.mjs — not assumed to follow automatically from this
         // cache's zero-I/O design, because it does not follow
         // automatically: getSession() computes `shouldBeUpdated =

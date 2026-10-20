@@ -151,30 +151,38 @@ describe('OIDC authorize resumes after the Google round trip', () => {
     )
   }
 
-  it('redirects to the client callback with a code and the original state, not to /', async () => {
-    const oauthQuery = await authorizeWithoutSession()
-    const signIn = await signInWithOauthQuery(oauthQuery)
+  // Completes the Google round trip a sign-in started, returning the
+  // callback response (whose Location is the resumed authorize's outcome).
+  async function googleCallback(signIn: Response): Promise<Response> {
     expect(signIn.status).toBe(200)
     const state = new URL(
       ((await signIn.json()) as { url: string }).url,
     ).searchParams.get('state')
     expect(state).toBeTruthy()
 
-    const callback = await auth.handler(
+    return auth.handler(
       new Request(
         `${AUTH_HOST}${AUTH_PATH_SEGMENT}/callback/google?state=${encodeURIComponent(state as string)}&code=fake-google-auth-code`,
         {
           headers: {
             cookie: cookieHeader(signIn.headers.getSetCookie()),
             // A real Google callback is a top-level browser navigation. The
-            // plugin's after-hook (oauth-provider dist/index.mjs ~L3030)
-            // only writes the resumed authorize into the 302 Location for
-            // navigations; any other request gets it as a JSON
-            // `{ redirect, url }` body with Location left at callbackURL.
+            // plugin's after-hook (oauth-provider
+            // dist/authorize-D_jy3s-1.mjs ~L4618) only writes the resumed
+            // authorize into the 302 Location for navigations; any other
+            // request gets it as a JSON `{ redirect, url }` body with
+            // Location left at callbackURL.
             'sec-fetch-mode': 'navigate',
           },
         },
       ),
+    )
+  }
+
+  it('redirects to the client callback with a code and the original state, not to /', async () => {
+    const oauthQuery = await authorizeWithoutSession()
+    const callback = await googleCallback(
+      await signInWithOauthQuery(oauthQuery),
     )
     expect(callback.status).toBeGreaterThanOrEqual(300)
     expect(callback.status).toBeLessThan(400)
@@ -182,6 +190,30 @@ describe('OIDC authorize resumes after the Google round trip', () => {
     expect(`${location.origin}${location.pathname}`).toBe(REDIRECT_URI)
     expect(location.searchParams.get('code')).toBeTruthy()
     expect(location.searchParams.get('state')).toBe('xyz')
+  })
+
+  // The resumed authorize runs the app's own hooks.before (layer 1 of the
+  // grant gate, auth.ts), so an ungranted user is turned away here instead of
+  // being handed a code that only the token endpoint (layer 2) would refuse.
+  it('runs the authorize gate on the resumed authorize: a pending user gets /pending, no code', async () => {
+    const pendingUrl = `${AUTH_HOST}/pending?redirect=https%3A%2F%2Ftest-app.lilnas.io%2F`
+    const authorizeHost = jest.fn(() => ({
+      outcome: 'pending',
+      location: pendingUrl,
+    }))
+    auth = buildAuth(t.db, {
+      resolveVerifyService: () =>
+        ({ authorizeHost }) as unknown as VerifyService,
+    })
+
+    const oauthQuery = await authorizeWithoutSession()
+    const callback = await googleCallback(
+      await signInWithOauthQuery(oauthQuery),
+    )
+    expect(authorizeHost).toHaveBeenCalledTimes(1)
+    expect(callback.status).toBe(302)
+    expect(callback.headers.get('location')).toBe(pendingUrl)
+    expect(callback.headers.get('location')).not.toContain('code=')
   })
 
   it('rejects a tampered sig and issues no code', async () => {

@@ -17,7 +17,7 @@ import { EnvKeys } from 'src/env'
 // 401ing. A stale-but-present cookie that fails real validation is caught
 // by src/app/lib/api.ts's redirect-on-401 handler instead.
 //
-// EXACT session cookie name — confirmed from installed better-auth 1.6.23
+// EXACT session cookie name — confirmed from installed better-auth 1.7.12
 // source (better-auth/dist/cookies/index.mjs's createCookieGetter /
 // getCookies), not assumed or guessed:
 //   - `prefix = options.advanced?.cookiePrefix || "better-auth"` — auth.ts
@@ -28,7 +28,7 @@ import { EnvKeys } from 'src/env'
 //      name = "better-auth.session_token".
 //   - The "__Secure-" prefix is NOT a fixed constant — better-auth derives
 //     it PER-DEPLOYMENT from `baseURL`'s own scheme
-//     (dist/cookies/index.mjs:21: `baseURLString.startsWith("https://")`),
+//     (dist/cookies/index.mjs:23: `baseURLString.startsWith("https://")`),
 //     where `baseURL` is built from the SAME `BETTER_AUTH_URL` env var
 //     auth.ts reads (`baseURL: \`${betterAuthUrl}${PUBLIC_AUTH_PATH_SEGMENT}\``).
 //     Confirmed empirically by calling the installed package's own exported

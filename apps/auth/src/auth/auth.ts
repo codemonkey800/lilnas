@@ -91,7 +91,7 @@ export function buildAuth(db: Db, deps: AuthDeps) {
       schema,
       // better-sqlite3 is synchronous; Better Auth's transaction callback
       // is async. The adapter's own default is already `false` (confirmed
-      // against the installed @better-auth/drizzle-adapter@1.6.23's
+      // against the installed @better-auth/drizzle-adapter@1.7.12's
       // compiled dist/index.mjs: `config.transaction ?? false`) — set
       // explicitly rather than relied-upon, matching
       // apps/tdr-code/src/auth/auth.ts's identical rationale and citation
@@ -104,7 +104,7 @@ export function buildAuth(db: Db, deps: AuthDeps) {
     // @thallesp/nestjs-better-auth@2.6.1's dist/index.mjs) AND baseURL's
     // own URL pathname (read by Better Auth's OWN internal router to derive
     // its match/strip prefix and its generated OAuth redirect_uri —
-    // confirmed against installed better-auth@1.6.23's
+    // confirmed against installed better-auth@1.7.12's
     // dist/api/routes/sign-in.mjs) must agree, and must equal the path
     // NestJS actually receives requests at. See AUTH_PATH_SEGMENT's own
     // comment above for why one literal correctly satisfies both here.
@@ -118,7 +118,7 @@ export function buildAuth(db: Db, deps: AuthDeps) {
     // `https://swole.lilnas.io/...`), which is the whole point of
     // returning a user to the originally requested URL post-sign-in.
     // Better Auth's own origin-check middleware (confirmed against
-    // installed better-auth@1.6.23's dist/api/middlewares/origin-check.mjs)
+    // installed better-auth@1.7.12's dist/api/middlewares/origin-check.mjs)
     // validates `callbackURL` against `trustedOrigins` independently of
     // whatever this app's own redirect.ts already decided — without an
     // entry here, a real cross-subdomain callbackURL that redirect.ts
@@ -131,7 +131,7 @@ export function buildAuth(db: Db, deps: AuthDeps) {
     // apex; `*.` prefix on the host segment for subdomains), not bare
     // hostnames — confirmed empirically (not just read from source) that a
     // bare-hostname pattern never matches here: installed
-    // better-auth@1.6.23's dist/auth/trusted-origins.mjs's
+    // better-auth@1.7.12's dist/auth/trusted-origins.mjs's
     // matchesOriginPattern() only enters its host-only wildcard-matching
     // branch when the pattern itself contains `*`/`?`; a plain apex pattern
     // with neither (e.g. just `"lilnas.io"`) falls through to
@@ -216,7 +216,7 @@ export function buildAuth(db: Db, deps: AuthDeps) {
       // Found while testing the trustedOrigins fix below, not merely read
       // from a type declaration: the DOCUMENTED default is NOT the actual
       // runtime default when this option is left unset. Confirmed against
-      // installed better-auth@1.6.23's dist/context/create-context.mjs:
+      // installed better-auth@1.7.12's dist/context/create-context.mjs:
       // `skipOriginCheck: options.advanced?.disableOriginCheck !== void 0 ?
       // options.advanced.disableOriginCheck : isTest() ? true : false` —
       // i.e. leaving this unset makes origin/CSRF checking silently
@@ -238,7 +238,7 @@ export function buildAuth(db: Db, deps: AuthDeps) {
       //     exercise the SAME real code path.
       disableOriginCheck: false,
       // useSecureCookies is also left unset. Confirmed against installed
-      // better-auth@1.6.23's dist/cookies/index.mjs: with it unset, the
+      // better-auth@1.7.12's dist/cookies/index.mjs: with it unset, the
       // Secure attribute is derived from whether the STATIC `baseURL`
       // string starts with 'https://' (`baseURLString.startsWith(
       // "https://")`) — i.e. from AUTH_HOST's own configured scheme,
@@ -337,13 +337,17 @@ export function buildAuth(db: Db, deps: AuthDeps) {
     },
 
     // Layer 1 of the OIDC grant gate (layer 2 is in oauthProvider below).
-    // Runs before /oauth2/authorize when the browser hits it directly with
-    // an existing session: only a user who may reach the client's lilnas
-    // host (VerifyService.authorizeHost, the /verify decision) gets a code.
-    // No session -> return untouched; the plugin itself redirects to the
-    // login page. Blocked/pending users are sent to the same absolute
-    // /blocked and /pending pages /verify uses; the gate failing closed
-    // (unknown client, no VerifyService) is a 403.
+    // Runs before every /oauth2/authorize: when the browser hits it directly
+    // with an existing session, and when the plugin's post-login `after`
+    // hook (oauth-provider@1.7.12 dist/authorize-D_jy3s-1.mjs ~L4605)
+    // resumes the authorize after Google sign-in — that resume goes through
+    // dispatchAuthEndpoint(), which runs this hook (better-auth@1.7.12 dist/api/dispatch.mjs ~L209). Only a user
+    // who may reach the client's lilnas host (VerifyService.authorizeHost,
+    // the /verify decision) gets a code; oidc-post-login.spec.ts pins the
+    // resume case. No session -> return untouched; the plugin itself
+    // redirects to the login page. Blocked/pending users are sent to the
+    // same absolute /blocked and /pending pages /verify uses; the gate
+    // failing closed (unknown client, no VerifyService) is a 403.
     hooks: {
       before: createAuthMiddleware(async ctx => {
         if (ctx.path !== '/oauth2/authorize') return
@@ -397,22 +401,22 @@ export function buildAuth(db: Db, deps: AuthDeps) {
         scopes: ['openid', 'profile', 'email'],
         // Seeded clients are cached by client_id and become immutable
         // through the plugin's client CRUD endpoints (they reject with
-        // INTERNAL_SERVER_ERROR; oauth-provider dist/index.mjs ~L1521) —
+        // 400 invalid_client; oauth-provider@1.7.12
+        // dist/utils-BfpTo7XY.mjs assertNotTrustedClient ~L393) —
         // OidcClientsService is their only writer.
         cachedTrustedClients: new Set(OIDC_CLIENTS.map(c => c.clientId)),
         grantTypes: ['authorization_code'],
-        // Layer 2 of the OIDC grant gate: a backstop for the post-login
-        // resume path. After Google sign-in the plugin's own `after` hook
-        // (oauth-provider dist/index.mjs ~L3019) calls runOAuth2Authorize()
-        // -> dispatchAuthEndpoint() directly, which skips endpoint hooks, so
-        // the `hooks.before` above never sees that authorize. Rather than
-        // issue a code and hope, the gate runs again when the code is
-        // EXCHANGED (customIdTokenClaims runs inside createIdToken, ~L326,
-        // so a throw fails the token request) and when userinfo is read
-        // (~L253, with the access token's azp/client_id). A user who was
-        // never granted, or whose grant was revoked after the code was
-        // issued, therefore gets no id_token and no userinfo. Returns {} —
-        // no claims are added.
+        // Layer 2 of the OIDC grant gate: a backstop behind layer 1. A code
+        // outlives the authorize that issued it, so the gate runs again when
+        // the code is EXCHANGED (customIdTokenClaims runs inside
+        // createIdToken, oauth-provider@1.7.12 dist/introspect-DeWu79D4.mjs
+        // ~L1404, which passes the client's stored `metadata`; a throw fails
+        // the token request) and when userinfo is read (~L1252, with the
+        // access token's azp/client_id). A user whose grant was revoked
+        // after the code was issued, or who somehow got a code past layer 1,
+        // therefore gets no id_token and no userinfo. Returns {} — no claims are added, and
+        // since 1.7 reserved protocol claims returned here would be dropped
+        // anyway.
         customIdTokenClaims: ({ user, metadata }) => {
           const host =
             typeof metadata?.lilnasHost === 'string'
@@ -441,10 +445,6 @@ export function buildAuth(db: Db, deps: AuthDeps) {
         // Denies the client CRUD/list endpoints for everyone (they 401);
         // there is no admin surface for them, clients live in the seed.
         clientPrivileges: () => false,
-        // The issuer is the origin, so the path-suffixed well-known URLs
-        // these warnings ask for are intentionally absent; the root ones
-        // are rewritten in next.config.js instead.
-        silenceWarnings: { openidConfig: true, oauthAuthServerConfig: true },
       }),
     ],
   })

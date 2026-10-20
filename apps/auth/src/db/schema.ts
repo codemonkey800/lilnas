@@ -13,7 +13,7 @@ import {
 // Schema map:
 //
 //   user · session · account · verification — Better Auth's own tables.
-//     Canonical shape per Better Auth 1.6.x's Drizzle/SQLite adapter output,
+//     Canonical shape per Better Auth 1.7.x's Drizzle/SQLite adapter output,
 //     hand-placed here (not machine-generated) so `drizzle-kit generate` —
 //     not Better Auth's own migrate tooling — owns migrations for these
 //     tables, matching apps/tdr-code/src/db/schema.ts's precedent. `user`
@@ -55,10 +55,12 @@ import {
 //     ("how many distinct users visited this host in the last N hours").
 //     See its own comment below.
 //
-//   oauth_client · oauth_refresh_token · oauth_access_token · oauth_consent ·
-//   jwks — storage for the OIDC provider (the `jwt` + `oauthProvider` Better
-//   Auth plugins wired in auth.ts). Models are dictated by the plugins, not
-//   designed here; see the block at the bottom of this file.
+//   oauth_client · oauth_resource · oauth_client_resource ·
+//   oauth_refresh_token · oauth_access_token · oauth_consent ·
+//   oauth_client_assertion · jwks — storage for the OIDC provider (the `jwt` +
+//   `oauthProvider` Better Auth plugins wired in auth.ts). Models are
+//   dictated by the plugins, not designed here; see the block at the bottom
+//   of this file.
 // ──────────────────────────────────────────────────────────────────────────────
 
 export const user = sqliteTable('user', {
@@ -484,14 +486,21 @@ export const hostVisit = sqliteTable(
 export type HostVisitRow = typeof hostVisit.$inferSelect
 
 // OIDC provider tables. Field lists are copied from the models declared by
-// the installed plugins — `oauthClient`, `oauthRefreshToken`,
-// `oauthAccessToken`, `oauthConsent` from @better-auth/oauth-provider@1.6.23's
-// dist/index.mjs (`src/schema.ts` region) and `jwks` from better-auth@1.6.23's
-// dist/plugins/jwt/schema.mjs. Conventions follow the Better Auth tables
-// above: snake_case columns, `timestamp_ms` dates, text ids. The SQLite
-// adapter JSON-encodes `string[]` and `json` fields, so those are `text`.
-// A reference with no declared `onDelete` cascades (Better Auth's own
+// the installed plugins — the seven `oauth*` models from
+// @better-auth/oauth-provider@1.7.12's dist/authorize-*.mjs (`src/schema.ts`
+// region) and `jwks` from better-auth@1.7.12's dist/plugins/jwt/schema.mjs.
+// Every model the plugins declare must exist here, used or not: since 1.7 the
+// Drizzle adapter checks this schema against them and throws a
+// SchemaMismatchError on a missing table or column.
+//
+// Conventions follow the Better Auth tables above: snake_case columns,
+// `timestamp_ms` dates, text ids. The SQLite adapter JSON-encodes `string[]`
+// and `json` fields itself (`supportsJSON`/`supportsArrays` are pg-only), so
+// those are plain `text`, not drizzle's `mode: 'json'` that `auth generate`
+// emits. A reference with no declared `onDelete` cascades (Better Auth's own
 // generator default); `sessionId` is declared `set null` and is kept so.
+// Columns added in 1.7 are all optional in the plugin, so they are nullable,
+// which keeps the 1.7 migration to plain ADD COLUMNs.
 
 // `clientId` (not `id`) is what every other oauth table references, and what
 // the plugin looks clients up by. It is unique, which SQLite requires of a
@@ -502,11 +511,13 @@ export const oauthClient = sqliteTable(
     id: text('id').primaryKey(),
     clientId: text('client_id').notNull().unique(),
     clientSecret: text('client_secret'),
+    clientDiscoveryId: text('client_discovery_id'),
     disabled: integer('disabled', { mode: 'boolean' }).default(false),
     skipConsent: integer('skip_consent', { mode: 'boolean' }),
     enableEndSession: integer('enable_end_session', { mode: 'boolean' }),
     subjectType: text('subject_type'),
     scopes: text('scopes'),
+    clientCredentialsScopes: text('client_credentials_scopes').default('[]'),
     userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }),
     updatedAt: integer('updated_at', { mode: 'timestamp_ms' }),
@@ -521,12 +532,21 @@ export const oauthClient = sqliteTable(
     softwareStatement: text('software_statement'),
     redirectUris: text('redirect_uris').notNull(),
     postLogoutRedirectUris: text('post_logout_redirect_uris'),
+    backchannelLogoutUri: text('backchannel_logout_uri'),
+    backchannelLogoutSessionRequired: integer(
+      'backchannel_logout_session_required',
+      { mode: 'boolean' },
+    ),
     tokenEndpointAuthMethod: text('token_endpoint_auth_method'),
+    applicationType: text('application_type'),
+    jwks: text('jwks'),
+    jwksUri: text('jwks_uri'),
     grantTypes: text('grant_types'),
     responseTypes: text('response_types'),
-    public: integer('public', { mode: 'boolean' }),
-    type: text('type'),
     requirePKCE: integer('require_pkce', { mode: 'boolean' }),
+    dpopBoundAccessTokens: integer('dpop_bound_access_tokens', {
+      mode: 'boolean',
+    }).default(false),
     referenceId: text('reference_id'),
     metadata: text('metadata'),
   },
@@ -534,6 +554,52 @@ export const oauthClient = sqliteTable(
 )
 
 export type OauthClientRow = typeof oauthClient.$inferSelect
+
+// RFC 8707 protected resources (the `resource` parameter) and which clients
+// may request them. Unused here — no resources are registered — but the
+// plugin declares both, so they must exist (see the block comment above).
+export const oauthResource = sqliteTable('oauth_resource', {
+  id: text('id').primaryKey(),
+  identifier: text('identifier').notNull().unique(),
+  name: text('name').notNull(),
+  accessTokenTtl: integer('access_token_ttl'),
+  refreshTokenTtl: integer('refresh_token_ttl'),
+  signingAlgorithm: text('signing_algorithm'),
+  signingKeyId: text('signing_key_id'),
+  allowedScopes: text('allowed_scopes'),
+  customClaims: text('custom_claims'),
+  dpopBoundAccessTokensRequired: integer('dpop_bound_access_tokens_required', {
+    mode: 'boolean',
+  }).default(false),
+  disabled: integer('disabled', { mode: 'boolean' }).default(false),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }),
+  policyVersion: integer('policy_version').default(1),
+  metadata: text('metadata'),
+})
+
+export const oauthClientResource = sqliteTable(
+  'oauth_client_resource',
+  {
+    id: text('id').primaryKey(),
+    clientId: text('client_id')
+      .notNull()
+      .references(() => oauthClient.clientId, { onDelete: 'cascade' }),
+    resourceId: text('resource_id')
+      .notNull()
+      .references(() => oauthResource.identifier, { onDelete: 'cascade' }),
+    metadata: text('metadata'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }),
+  },
+  t => [
+    uniqueIndex('oauth_client_resource_client_id_resource_id_unique_idx').on(
+      t.clientId,
+      t.resourceId,
+    ),
+    index('oauth_client_resource_client_id_idx').on(t.clientId),
+    index('oauth_client_resource_resource_id_idx').on(t.resourceId),
+  ],
+)
 
 export const oauthRefreshToken = sqliteTable(
   'oauth_refresh_token',
@@ -550,16 +616,28 @@ export const oauthRefreshToken = sqliteTable(
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
     referenceId: text('reference_id'),
+    authorizationCodeId: text('authorization_code_id'),
+    resources: text('resources'),
+    requestedUserInfoClaims: text('requested_user_info_claims'),
     expiresAt: integer('expires_at', { mode: 'timestamp_ms' }),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }),
     revoked: integer('revoked', { mode: 'timestamp_ms' }),
+    rotatedAt: integer('rotated_at', { mode: 'timestamp_ms' }),
+    rotationReplayResponse: text('rotation_replay_response'),
+    rotationReplayExpiresAt: integer('rotation_replay_expires_at', {
+      mode: 'timestamp_ms',
+    }),
     authTime: integer('auth_time', { mode: 'timestamp_ms' }),
+    confirmation: text('confirmation'),
     scopes: text('scopes').notNull(),
   },
   t => [
     index('oauth_refresh_token_client_id_idx').on(t.clientId),
     index('oauth_refresh_token_session_id_idx').on(t.sessionId),
     index('oauth_refresh_token_user_id_idx').on(t.userId),
+    index('oauth_refresh_token_authorization_code_id_idx').on(
+      t.authorizationCodeId,
+    ),
   ],
 )
 
@@ -576,17 +654,25 @@ export const oauthAccessToken = sqliteTable(
     }),
     userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
     referenceId: text('reference_id'),
+    authorizationCodeId: text('authorization_code_id'),
+    resources: text('resources'),
+    requestedUserInfoClaims: text('requested_user_info_claims'),
     refreshId: text('refresh_id').references(() => oauthRefreshToken.id, {
       onDelete: 'cascade',
     }),
     expiresAt: integer('expires_at', { mode: 'timestamp_ms' }),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }),
+    revoked: integer('revoked', { mode: 'timestamp_ms' }),
+    confirmation: text('confirmation'),
     scopes: text('scopes').notNull(),
   },
   t => [
     index('oauth_access_token_client_id_idx').on(t.clientId),
     index('oauth_access_token_session_id_idx').on(t.sessionId),
     index('oauth_access_token_user_id_idx').on(t.userId),
+    index('oauth_access_token_authorization_code_id_idx').on(
+      t.authorizationCodeId,
+    ),
     index('oauth_access_token_refresh_id_idx').on(t.refreshId),
   ],
 )
@@ -600,6 +686,8 @@ export const oauthConsent = sqliteTable(
       .references(() => oauthClient.clientId, { onDelete: 'cascade' }),
     userId: text('user_id').references(() => user.id, { onDelete: 'cascade' }),
     referenceId: text('reference_id'),
+    resources: text('resources'),
+    requestedUserInfoClaims: text('requested_user_info_claims'),
     scopes: text('scopes').notNull(),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }),
     updatedAt: integer('updated_at', { mode: 'timestamp_ms' }),
@@ -610,6 +698,13 @@ export const oauthConsent = sqliteTable(
   ],
 )
 
+// Single-use `jti` records for `private_key_jwt` client assertions. No client
+// here uses that auth method, but the plugin declares the model.
+export const oauthClientAssertion = sqliteTable('oauth_client_assertion', {
+  id: text('id').primaryKey(),
+  expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
 // The jwt plugin's signing keys (private key stored encrypted by the
 // plugin). Not user-scoped, so no references.
 export const jwks = sqliteTable('jwks', {
@@ -618,4 +713,6 @@ export const jwks = sqliteTable('jwks', {
   privateKey: text('private_key').notNull(),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   expiresAt: integer('expires_at', { mode: 'timestamp_ms' }),
+  alg: text('alg'),
+  crv: text('crv'),
 })

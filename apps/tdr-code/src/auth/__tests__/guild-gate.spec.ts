@@ -442,9 +442,9 @@ describe('Guild-membership gate (U3) — real OAuth callback, Discord HTTP mocke
   // parseGenericState — even under the DEFAULT `database` storeStateStrategy
   // (which is what U2 configured, per its own comment "Keep the default
   // `database` state strategy") — ALSO requires a SIGNED "state" cookie
-  // (createAuthCookie('state', ...) at state.mjs:57-58, set via
+  // (createAuthCookie('state', ...) at state.mjs:75, set via
   // c.setSignedCookie) to be present and matching, on top of the
-  // `verification` table row (line 105: findVerificationValue(state)).
+  // `verification` table row (line 123: findVerificationValue(...)).
   // This is a second, cookie-bound layer of CSRF defense the `database`
   // strategy does not remove (only the STATE PAYLOAD's storage location —
   // DB vs. an encrypted cookie — changes; the separate signed "state"
@@ -969,9 +969,9 @@ describe('Guild-membership gate (U3) — real OAuth callback, Discord HTTP mocke
         // believes this is an allowed sign-in) but the throw happens
         // synchronously inside databaseHooks.account.create.before, i.e.
         // strictly BEFORE with-hooks.mjs's createWithHooks(..., "account",
-        // ...) can insert the account row — while internal-adapter.mjs's
-        // createOAuthUser has ALREADY run createWithHooks(..., "user", ...)
-        // for this same call (that INSERT is what makes this genuinely
+        // ...) can insert the account row — while link-account.mjs's
+        // handleOAuthUserInfo has ALREADY run createUser -> createWithHooks(
+        // ..., "user", ...) for this same call (that INSERT is what makes this genuinely
         // mid-provisioning, not pre-write).
         throw new Error('injected mid-provisioning failure')
       })
@@ -999,7 +999,7 @@ describe('Guild-membership gate (U3) — real OAuth callback, Discord HTTP mocke
       expectRedirectsToLoginError(res, 'not_guild_member')
 
       // The assertion that actually matters: does the `user` row inserted
-      // by internal-adapter.mjs's createOAuthUser BEFORE our hook even ran
+      // by handleOAuthUserInfo's createUser BEFORE our hook even ran
       // survive as an orphan? It must not — this is exactly what the
       // hook's try/catch exists to guarantee: EVERY non-member outcome
       // (including a gate-internal exception) reaches the same

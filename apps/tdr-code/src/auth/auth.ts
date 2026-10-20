@@ -68,18 +68,19 @@ export const PUBLIC_AUTH_PATH_SEGMENT = '/api/auth'
 // `baseURL` independently carried the public path for link generation. This
 // is only HALF true. Two separate layers consult basePath differently:
 //
-//   1. @thallesp's OWN gate (matchesBasePath in dist/index.mjs:643-645,
+//   1. @thallesp's OWN gate (matchesBasePath in dist/index.mjs:659-662,
 //      driven by `this.basePath = this.options.auth.options.basePath` at
-//      dist/index.mjs:773-775) DOES read the instance's `basePath` field
+//      dist/index.mjs:789-791) DOES read the instance's `basePath` field
 //      directly, and correctly matches '/auth/*' when basePath is '/auth'.
-//   2. Better Auth's OWN internal router (better-auth/dist/api/index.mjs:152:
-//      `const basePath = new URL(ctx.baseURL).pathname`) does NOT consult
-//      `options.basePath` for matching AT ALL — it derives its match/strip
-//      prefix, and the redirect_uri it generates
-//      (better-auth/dist/api/routes/sign-in.mjs:133:
-//      `${c.context.baseURL}/callback/${provider.id}`), BOTH from baseURL's
-//      own URL pathname. `basePath` is only consulted as a fallback when
-//      `baseURL` is unset entirely (better-auth/dist/auth/base.mjs:19-20).
+//   2. Better Auth's OWN internal router (better-auth@1.7.12
+//      dist/api/index.mjs:154: `const basePath = new URL(ctx.baseURL)
+//      .pathname`) does NOT consult `options.basePath` for matching AT ALL —
+//      it derives its match/strip prefix, and the redirect_uri it generates
+//      (dist/api/routes/sign-in.mjs:229: `${c.context.baseURL}${
+//      getOAuthCallbackPath(provider)}`, i.e. `/callback/<id>`), BOTH from
+//      baseURL's own URL pathname. `basePath` is only consulted as a
+//      fallback when `baseURL` is unset entirely
+//      (dist/context/create-context.mjs:64 -> utils/url.mjs `withPath`).
 //
 // Empirically verified (calling auth.handler() directly, and via
 // @thallesp's real toNodeHandler plumbing): with baseURL carrying
@@ -154,7 +155,7 @@ export function buildAuth(db: Db) {
 
     // String array, not a function — @thallesp's AuthModule.configure()
     // throws at boot if trustedOrigins is set and is not an array
-    // (dist/index.mjs:838-841: "Function-based trustedOrigins not supported
+    // (dist/index.mjs:854-857: "Function-based trustedOrigins not supported
     // in NestJS"), even though better-auth's own type permits a function
     // form. Sourced from the same env var the console controllers'
     // requireSameOrigin() checks use, so this can't drift from them.
@@ -162,18 +163,19 @@ export function buildAuth(db: Db) {
 
     // Every OAuth-flow error (guild-gate rejection, a failed token exchange,
     // an unlinked-account conflict, ...) redirects here instead of Better
-    // Auth's own generic error page. Confirmed against 1.6.23's installed
+    // Auth's own generic error page. Confirmed against 1.7.12's installed
     // source that this is a GLOBAL default, not a per-call override: every
     // site that builds an error redirect (dist/api/routes/callback.mjs,
-    // dist/oauth2/state.mjs, dist/oauth2/link-account.mjs, the generic-oauth
-    // and oidc-provider plugins) resolves the same
+    // dist/oauth2/state.mjs, dist/oauth2/link-account.mjs) resolves the
+    // same
     // `options.onAPIError?.errorURL || \`${baseURL}/error\`` fallback chain —
     // so leaving this unset silently sends every OAuth failure to
     // `${baseURL}/error` (i.e. `/api/auth/error`, Better Auth's bare HTML
     // page) instead of the styled `/login?error=<code>` banner U6 built
     // (src/app/login/page.tsx's ERROR_COPY). redirectOnError
-    // (dist/oauth2/errors.mjs) appends `?error=<code>` (or `&error=<code>`
-    // if errorURL already has a query string) unconditionally, so this only
+    // (dist/oauth2/errors.mjs) appends `?error=<code>` (plus
+    // `&error_description=` when there is one; `&` instead of `?` if
+    // errorURL already has a query string) unconditionally, so this only
     // needs to be the bare page path — never build the query string here.
     onAPIError: { errorURL: `${betterAuthUrl}/login` },
 
@@ -202,7 +204,7 @@ export function buildAuth(db: Db) {
     // describe block, which drives a REAL request through a REAL
     // buildAuth(db) instance's handler and asserts a 404 for the disabled
     // routes vs. a working control route). Confirmed against installed
-    // better-auth@1.6.23 source (better-auth/dist/api/index.mjs's `router`
+    // better-auth@1.7.12 source (better-auth/dist/api/index.mjs's `router`
     // function): `const basePath = new URL(ctx.baseURL).pathname` — this is
     // baseURL's OWN pathname ('/api/auth', this app's PUBLIC_AUTH_PATH_
     // SEGMENT), NOT the betterAuth({ basePath: ... }) config option above
@@ -303,17 +305,17 @@ export function buildAuth(db: Db) {
     // layer can see a Discord access token without a hand-rolled second
     // exchange. `databaseHooks.account.create.before` runs from
     // better-auth/dist/db/with-hooks.mjs's `createWithHooks`, called from
-    // internal-adapter.mjs's `createOAuthUser` with the account payload
-    // ALREADY containing the just-exchanged `accessToken` (set at
-    // @better-auth/core's oauth2/link-account.mjs before that call) — this
-    // is a genuine seam, not a workaround.
+    // internal-adapter.mjs's `createAccount` with the account payload
+    // ALREADY containing the just-exchanged `accessToken` (assembled by
+    // better-auth/dist/oauth2/link-account.mjs's handleOAuthUserInfo before
+    // that call, ~L264-287) — this is a genuine seam, not a workaround.
     //
     // This SAME hook also resolves the other TODO(U3) — token persistence —
     // for the FIRST sign-in only (`create`, not `update`; see the sibling
     // `account.updateAccountOnSignIn: false` option below for the re-login
     // write path this hook alone cannot see, added after a re-review found
     // Better Auth re-persisting the token on every RETURNING sign-in).
-    // Confirmed against 1.6.23's installed types
+    // Confirmed against 1.7.12's installed types
     // (@better-auth/core's types/init-options.d.mts): there is no
     // first-class "don't persist OAuth tokens" option — only
     // `account.encryptOAuthTokens` (encrypts at rest, but still persists)
@@ -332,8 +334,8 @@ export function buildAuth(db: Db) {
     // for an existing exposure.)
 
     // Closes the re-login gap the comment above calls out. Confirmed against
-    // 1.6.23's installed source (@better-auth/core's oauth2/link-account.mjs,
-    // handleOAuthUserInfo's "account already linked" branch — i.e. every
+    // 1.7.12's installed source (better-auth/dist/oauth2/link-account.mjs
+    // ~L208, handleOAuthUserInfo's "account already linked" branch — i.e. every
     // sign-in AFTER the first, which never reaches databaseHooks.account
     // .create.before above at all since it's not a create): `const
     // freshTokens = options.account?.updateAccountOnSignIn !== false ? {
@@ -455,17 +457,19 @@ export function buildAuth(db: Db) {
             // this call.
             //
             // The paired `user` row is unavoidably orphaned by the time we
-            // get here regardless of how we reject below: internal-
-            // adapter.mjs's createOAuthUser runs createWithHooks(...,
-            // "user", ...) and that INSERT commits BEFORE createWithHooks(
-            // ..., "account", ...) — where this hook runs — is ever called.
+            // get here regardless of how we reject below: link-account.mjs's
+            // handleOAuthUserInfo calls internalAdapter.createUser (an
+            // INSERT that commits — `transaction: false`) BEFORE
+            // createAccount -> createWithHooks(..., "account", ...) — where
+            // this hook runs — is ever called.
             // That accountless `user` row is what auth-sweep.repo.ts's
             // sweepAccountlessUsers() cleans up immediately below, so
             // AE5's "no usable rows" holds: the row that survives has no
             // account and can never authenticate. Scoped to THIS rejection's
-            // own account.userId (already populated here — internal-
-            // adapter.mjs's createOAuthUser merges `userId: createdUser.id`
-            // onto the account payload before this hook ever runs) rather
+            // own account.userId (already populated here —
+            // handleOAuthUserInfo passes `{ ...accountData, userId:
+            // createdUser.id }` to createAccount before this hook ever
+            // runs) rather
             // than a blanket sweep of every accountless user row: an
             // unscoped sweep can delete a DIFFERENT, concurrently in-flight
             // member's own not-yet-linked user row (the same "user row
@@ -488,81 +492,59 @@ export function buildAuth(db: Db) {
               'Accountless user rows deleted after guild-gate rejection',
             )
 
-            // THROW an APIError here — do NOT `return false`. This was
-            // fixed after `return false` was proven to crash the request
-            // with a raw 500 instead of the intended redirect-to-/login
-            // rejection. Full trace of why `return false` is broken,
-            // verified against the installed better-auth@1.6.23 source
-            // (kept in full so a future "simplification" back to `return
-            // false` doesn't reintroduce this bug):
+            // THROW an APIError carrying a `code` here — do NOT `return
+            // false`, and do NOT drop the `code`. Both were bugs in turn.
+            // Trace verified against the installed better-auth@1.7.12 dist
+            // (kept in full so a future "simplification" doesn't
+            // reintroduce either):
             //
             // `return false` only tells with-hooks.mjs's createWithHooks
             // (`if (result === false) return null`) to skip the `account`
-            // INSERT — it does NOT abort the REQUEST. internal-adapter.mjs's
-            // createOAuthUser then resolves to `{ user: <the already-
-            // committed row>, account: null }` (a resolved value, not a
-            // rejection) and returns normally to its caller,
-            // @better-auth/core's link-account.mjs's handleOAuthUserInfo.
-            // That function destructures `{ user: createdUser, account:
-            // createdAccount }`, sets `user = createdUser` unconditionally,
-            // and NEVER checks `createdAccount` for null before falling
-            // through past its `if (!user) return {error: "unable to create
-            // user", ...}` guard (which passes, since `user` is the real
-            // row) straight to `const session = await
-            // c.context.internalAdapter.createSession(user.id)`. But the
-            // sweep two lines above already deleted THAT EXACT `user.id`
-            // row (at the moment it ran, the row had no `account` yet —
-            // that's the very row being rejected — so
-            // sweepAccountlessUsers()'s own `NOT EXISTS (SELECT 1 FROM
-            // account ...)` correctly matched and deleted it). schema.ts's
-            // `session.userId` has `onDelete: 'cascade'` and
-            // database.module.ts turns on `foreign_keys = ON`, so
-            // createSession's INSERT throws a raw
-            // SqliteError{code:'SQLITE_CONSTRAINT_FOREIGNKEY'} — which
-            // dist/api/routes/callback.mjs's own try/catch around
-            // handleOAuthUserInfo does NOT handle (it only special-cases
-            // `isAPIError(e)` before re-throwing), so it surfaces as an
-            // uncaught 500 instead of AE5's intended redirect.
+            // INSERT — it does NOT abort the REQUEST. The sign-up branch of
+            // dist/oauth2/link-account.mjs's handleOAuthUserInfo (~L274-289)
+            // has already committed the `user` row via createUser (with
+            // `transaction: false` there is no rollback), gets `null` back
+            // from createAccount, and falls through to `createSession(
+            // user.id)` (~L322, outside its try/catch). But the sweep above
+            // already deleted THAT EXACT `user.id` row (it had no `account`
+            // yet, so sweepAccountlessUsers()'s `NOT EXISTS (SELECT 1 FROM
+            // account ...)` matched it). schema.ts's `session.userId` has
+            // `onDelete: 'cascade'` and database.module.ts turns on
+            // `foreign_keys = ON`, so createSession's INSERT throws a raw
+            // SqliteError{code:'SQLITE_CONSTRAINT_FOREIGNKEY'}, which
+            // surfaces as an uncaught 500 instead of AE5's intended redirect.
             //
-            // Throwing an APIError instead works because
-            // handleOAuthUserInfo wraps its ENTIRE createOAuthUser(...)
-            // call (not just the account-hook piece) in its own try/catch
-            // that DOES check `isAPIError(e)`:
-            //   } catch (e) {
-            //     if (isAPIError(e)) return { error: e.message, data: null,
-            //       isRegister: false }
-            //     return { error: "unable to create user", ... }
-            //   }
-            // That catch sits ABOVE (wraps) the later `createSession` call
-            // in the same function — so when createOAuthUser throws instead
-            // of resolving with `account: null`, execution never reaches
-            // the `if (!user)` guard or `createSession` at all; it returns
-            // `{ error: e.message, data: null, isRegister: false }`
-            // straight away. callback.mjs then does:
-            //   if (result.error) {
-            //     redirectOnError(c, resolvedErrorURL,
-            //       result.error.split(" ").join("_"))
-            //   }
-            // — a clean redirect, not a crash. `result.error` is exactly
-            // `e.message` off our thrown APIError, and `better-call`'s base
-            // APIError constructor sets `this.message` straight from
-            // `body.message` (confirmed in better-call/dist/error.mjs:
-            // `super(body?.message, ...)`), so the three-word, space-
-            // separated message below becomes, after
-            // `.split(" ").join("_")`, byte-identical to the login page's
-            // `not_guild_member` LoginErrorCode
-            // (src/app/login/page.tsx) — this is not a coincidence to
-            // re-derive; the exact string 'not guild member' below is
-            // load-bearing.
-            throw new APIError('FORBIDDEN', { message: 'not guild member' })
+            // A thrown APIError instead escapes before createSession:
+            // handleOAuthUserInfo's catch re-throws any APIError
+            // (`if (isAPIError(e)) throw e`, ~L298), and
+            // dist/api/routes/callback.mjs's catch around it (~L150-152)
+            // turns it into a redirect ONLY when it has a `code`:
+            //   if (isAPIError(e) && e.body?.code)
+            //     redirectOnError(e.body.code, e.body.message)
+            //   throw e
+            // redirectOnError appends `?error=<code>&error_description=
+            // <message>` to errorURL. Without a `code` (better-call's
+            // APIError never derives one from `message`), the error is
+            // re-thrown and the user gets a bare 403 JSON body instead of
+            // the login page — which is what happened on the 1.6 -> 1.7
+            // upgrade, where 1.6's handleOAuthUserInfo had instead turned
+            // `e.message` into the code via `.split(" ").join("_")`. So
+            // `code` must stay byte-identical to the login page's
+            // `not_guild_member` LoginErrorCode (src/app/login/page.tsx);
+            // guild-gate.spec.ts asserts the redirect.
+            throw new APIError('FORBIDDEN', {
+              message: 'not guild member',
+              code: 'not_guild_member',
+            })
           },
         },
 
         // GitHub-linking plan (U2, R5-R8): re-linking an ALREADY-linked
         // GitHub account does not reach create.before above at all.
-        // Confirmed by reading better-auth's installed source directly:
-        // linkSocial's callback route (`callback.mjs`'s `link` branch) calls
-        // `internalAdapter.findAccountByProviderId` first, and only calls
+        // Confirmed by reading better-auth@1.7.12's installed source
+        // directly: linkSocial's callback route (`callback.mjs`'s `link`
+        // branch -> link-account.mjs's linkOAuthAccount) calls
+        // `internalAdapter.findAccountByKey` first, and only calls
         // `createAccount` (-> create.before) when NO existing
         // (providerId: 'github', accountId) row matches; when one already
         // does (a re-link — after a revoke-and-relink, a double-click, or a

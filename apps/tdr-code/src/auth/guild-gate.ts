@@ -9,7 +9,7 @@
 // access token (and the identity it unlocks) available at a request-level
 // `hooks.before` seam, or does using that seam require re-implementing
 // Discord's own code→token exchange? The answer, read directly from the
-// installed `better-auth@1.6.23` source (not assumed from docs), is that
+// installed `better-auth@1.7.12` source (not assumed from docs), is that
 // `hooks.before` fires BEFORE Better Auth's own callback handler runs at
 // all — so the token/identity do not exist yet at that seam. Option A is not
 // merely costly, it is structurally impossible without a second, drift-prone
@@ -19,19 +19,19 @@
 //    place `hooks.before`/`hooks.after` are invoked for every route,
 //    confirmed by grepping the full `dist` tree for `runBeforeHooks`/
 //    `hooks?.before` — there is no other call site):
-//      L205  runWithEndpointContext(internalContext, async () => {
-//      L206    const { beforeHooks, afterHooks } = getHooks(...)
-//      L207    const before = await runBeforeHooks(internalContext, beforeHooks, ...)
+//      L208  runWithEndpointContext(internalContext, async () => {
+//      L209    const { beforeHooks, afterHooks } = getHooks(...)
+//      L210    const before = await runBeforeHooks(internalContext, beforeHooks, ...)
 //      ...
-//      L228    const result = await runWithEndpointContext(internalContext, () =>
-//      L228-231  ... () => endpoint(internalContext)) ...
-//    `runBeforeHooks` (L207) resolves and is fully handled (L208-224) BEFORE
+//      L231    const result = await runWithEndpointContext(internalContext, () =>
+//      L231-234  ... () => endpoint(internalContext)) ...
+//    `runBeforeHooks` (L210) resolves and is fully handled (L211-227) BEFORE
 //    `endpoint(internalContext)` — the actual route handler closure — is
-//    ever invoked (L228-231). `hooks.before` is dispatch-layer middleware
+//    ever invoked (L231-234). `hooks.before` is dispatch-layer middleware
 //    that wraps the endpoint call; it cannot run "during" or "after" any
 //    part of the endpoint's own body, only strictly before it starts.
 //
-// 2. `betterAuth/dist/api/dispatch.mjs` `getHooks()` (L135-146): a configured
+// 2. `betterAuth/dist/api/dispatch.mjs` `getHooks()` (L137-148): a configured
 //    `options.hooks.before` is wrapped as `{ matcher: () => true, handler:
 //    beforeHookHandler }` — i.e. Better Auth itself does not scope
 //    `hooks.before` to a route; any per-route filtering would have to be
@@ -40,29 +40,30 @@
 //
 // 3. `betterAuth/dist/api/routes/callback.mjs` (`callbackOAuth`, the actual
 //    `/callback/:id` endpoint that `dispatchAuthEndpoint` invokes as
-//    `endpoint(internalContext)` at dispatch.mjs L228-231):
-//      L68  tokens = await provider.validateAuthorizationCode({ code, ... })
-//      L80  const userInfo = await provider.getUserInfo({ ...tokens, ... })
-//    `tokens` and `userInfo` are LOCAL VARIABLES declared inside this
-//    closure — the code→token exchange (L68) and the Discord profile fetch
-//    (L80) both happen inside the endpoint body, i.e. strictly after
-//    `hooks.before` has already returned control back to
-//    `dispatchAuthEndpoint`. Neither value is ever assigned onto
-//    `c.context` (the object `hooks.before` actually receives) — there is no
-//    field on `internalContext`/`c.context` a `hooks.before` handler could
-//    read to reach them. This is not an oversight to route around; it is the
-//    literal reason the identity exists at all (the exchange is what
-//    *produces* it) — matching the plan's third, mandatory-B outcome
-//    ("the code→token exchange is what produces the identity").
+//    `endpoint(internalContext)` at dispatch.mjs L231-234) calls
+//    `exchangeOAuthCallback` (L94, dist/oauth2/callback.mjs):
+//      L28  tokens = await provider.validateAuthorizationCode({ code, ... })
+//      L39  const result = await provider.getUserInfo({ ...tokens, ... })
+//    `tokens` and the user info are LOCAL VARIABLES inside that call — the
+//    code→token exchange (L28) and the Discord profile fetch (L39) both
+//    happen inside the endpoint body, i.e. strictly after `hooks.before`
+//    has already returned control back to `dispatchAuthEndpoint`. Neither
+//    value is ever assigned onto `c.context` (the object `hooks.before`
+//    actually receives) — there is no field on `internalContext`/
+//    `c.context` a `hooks.before` handler could read to reach them. This is
+//    not an oversight to route around; it is the literal reason the
+//    identity exists at all (the exchange is what *produces* it) — matching
+//    the plan's third, mandatory-B outcome ("the code→token exchange is what
+//    produces the identity").
 //
 // Conclusion: Option A would require a hand-rolled second call to Discord's
 // `POST /api/oauth2/token` inside `hooks.before`, using the OAuth `code` off
 // the query string — a second, independent implementation of exactly what
-// `callbackOAuth` already does at L68, with its own bugs, its own state/PKCE
-// handling, and a second place to drift from the library's behavior on any
-// future better-auth upgrade. The plan explicitly rejects this
-// ("a drift-prone second code path"). Per the pre-committed inversion rule,
-// this is the "A is impossible" branch, not merely "A is costly" — so
+// `exchangeOAuthCallback` already does at L28, with its own bugs, its own
+// state/PKCE handling, and a second place to drift from the library's
+// behavior on any future better-auth upgrade. The plan explicitly rejects
+// this ("a drift-prone second code path"). Per the pre-committed inversion
+// rule, this is the "A is impossible" branch, not merely "A is costly" — so
 // Option B is mandatory, not preferred.
 //
 // ─────────────────────────────────────────────────────────────────────────────
@@ -70,39 +71,37 @@
 // ─────────────────────────────────────────────────────────────────────────────
 //
 // `databaseHooks.account.create.before` is invoked from
-// `betterAuth/dist/db/with-hooks.mjs` (`createWithHooks`, L6-22):
-//      L8   let actualData = data
-//      L9   for (const { source, hooks } of hooksEntries) {
-//      L10    const toRun = hooks[model]?.create?.before
+// `betterAuth/dist/db/with-hooks.mjs` (`createWithHooks`, L7-43):
+//      L9   let actualData = data
+//      L10  for (const { source, hooks } of hooksEntries) {
+//      L11    const toRun = hooks[model]?.create?.before
 //      ...
-//      L16    ... () => toRun(actualData, context)) ...
+//      L17    ... () => toRun(actualData, context)) ...
 // — i.e. the hook receives exactly the `data` argument the CALLER passed to
-// `createWithHooks(data, model, ...)`. For the `"account"` model, that caller
-// is `createOAuthUser` in `betterAuth/dist/db/internal-adapter.mjs` (L59-77):
-//      L61  const createdUser = await createWithHooks({ ... }, "user", ...)
-//      L69  account: await createWithHooks({ ...account, userId:
-//      L69    createdUser.id, ... }, "account", ...)
-// and `account` there is the `accountData` object built in
-// `@better-auth/core/dist/oauth2/link-account.mjs` (`handleOAuthUserInfo`,
-// the sign-up branch, L84-97):
-//      L88    accessToken: await setTokenUtil(account.accessToken, c.context),
-//      L89    refreshToken: await setTokenUtil(account.refreshToken, c.context),
+// `createWithHooks(data, model, ...)`. For the `"account"` model on sign-up,
+// that caller is `internalAdapter.createAccount` (internal-adapter.mjs
+// L171-177), called from `handleOAuthUserInfo`'s sign-up branch in
+// `betterAuth/dist/oauth2/link-account.mjs` (L255-306):
+//      L264  const accountData = {
+//      L265    accessToken: await setTokenUtil(account.accessToken, c.context),
+//      L266    refreshToken: await setTokenUtil(account.refreshToken, c.context),
 //      ...
-//      L97    const { user: createdUser, account: createdAccount } =
-//      L97      await c.context.internalAdapter.createOAuthUser({ ... },
-//      L97      accountData)
+//      L275  const createdUser = await c.context.internalAdapter.createUser({ ... }, source)
+//      L284  createdAccount: await c.context.internalAdapter.createAccount({
+//      L285    ...accountData, userId: createdUser.id })
 // So by the time `databaseHooks.account.create.before` runs, `actualData`
 // genuinely carries the just-exchanged Discord `accessToken` (confirmed:
-// `link-account.mjs` L88 runs strictly before `internal-adapter.mjs` L69
-// calls into `createWithHooks` at all) — this is the seam `isGuildMember`'s
-// caller (auth.ts) uses to make the real Discord guild-membership HTTP call.
+// `link-account.mjs` L265 runs strictly before L284 calls into
+// `createWithHooks` at all) — this is the seam `isGuildMember`'s caller
+// (auth.ts) uses to make the real Discord guild-membership HTTP call.
 //
 // IMPORTANT CAVEAT (the plan's "⚠ accountless `user` may persist"): note
-// `internal-adapter.mjs` L61 (`createWithHooks({...}, "user", ...)`) already
-// ran and its INSERT already committed before L69's `createWithHooks(...,
-// "account", ...)` is even called — so by the time our hook can reject the
-// account row via `return false` (with-hooks.mjs L17: `if (result === false)
-// return null`), the `user` row already exists. This is exactly why U3 also
+// `link-account.mjs` L275 (`createUser`, -> `createWithHooks({...}, "user",
+// ...)`) already ran and its INSERT already committed (the surrounding
+// `runWithTransaction` is a no-op with `transaction: false`) before L284's
+// `createAccount` is even called — so by the time our hook can reject the
+// account row (by throwing, or via `return false` — with-hooks.mjs L18: `if
+// (result === false) return null`), the `user` row already exists. This is exactly why U3 also
 // ships the orphan sweep (`auth-sweep.repo.ts`) and relies on U1's partial
 // unique index as paired defense — "zero rows" under Option B means "no
 // USABLE (accountless) rows survive", not "the INSERT never happened."

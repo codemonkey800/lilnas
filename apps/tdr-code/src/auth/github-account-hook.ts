@@ -8,22 +8,23 @@
 // WHY BOTH HOOK SITES MUST CALL THIS SAME FUNCTION
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// Confirmed by reading the installed better-auth@1.6.23 source directly
+// Confirmed by reading the installed better-auth@1.7.12 source directly
 // (not assumed from docs): `authClient.linkSocial({ provider: 'github', ... })`
 // -> `POST /link-social` only builds the GitHub authorize URL and redirects;
 // the actual `account` row write happens later, when the browser lands back
 // on `GET /callback/github`. `better-auth/dist/api/routes/callback.mjs`'s
 // `callbackOAuth` destructures `link` off `parseState(c)` — present only for
 // a linkSocial-originated callback — and, when `link` is truthy, takes a
-// SEPARATE branch that never calls `handleOAuthUserInfo` at all:
+// SEPARATE branch (~L114-124) that never calls `handleOAuthUserInfo` at all,
+// but `linkOAuthAccount` (dist/oauth2/link-account.mjs ~L22-71):
 //
-//   const existingAccount = await internalAdapter.findAccountByProviderId(providerAccountId, provider.id)
+//   const existingAccount = await internalAdapter.findAccountByKey(account)
 //   if (existingAccount) {
-//     if (existingAccount.userId !== link.userId) redirectOnError(..., 'account_already_linked_to_different_user')
-//     const updateData = { accessToken, refreshToken, idToken, accessTokenExpiresAt, refreshTokenExpiresAt, scope }  // NO userId/providerId/accountId
+//     if (existingAccount.userId !== link.userId) return failure('account_already_linked_to_different_user')
+//     const updateData = { providerId, accessToken, refreshToken, idToken, accessTokenExpiresAt, refreshTokenExpiresAt, scope: mergedScope }  // NO userId/accountId
 //     await internalAdapter.updateAccount(existingAccount.id, updateData)   // -> account.update.before
 //   } else {
-//     await internalAdapter.createAccount({ userId: link.userId, providerId, accountId, ...tokens })  // -> account.create.before
+//     await internalAdapter.createAccount({ userId: link.userId, ...account, ...tokens })  // -> account.create.before
 //   }
 //
 // So a first-time link reaches `create.before` with a full `Account` payload
@@ -36,9 +37,9 @@
 // outcome this whole unit exists to prevent.
 //
 // ─────────────────────────────────────────────────────────────────────────────
-// WHY update.before's PAYLOAD LACKS userId/accountId/providerId (verified
-// against source, not assumed — this is the load-bearing deviation from the
-// plan's Approach text, which describes both hook sites as if they shared one
+// WHY update.before's PAYLOAD LACKS userId/accountId (verified against
+// source, not assumed — this is the load-bearing deviation from the plan's
+// Approach text, which describes both hook sites as if they shared one
 // full-Account shape)
 // ─────────────────────────────────────────────────────────────────────────────
 //
@@ -48,18 +49,19 @@
 // into `data`. `better-auth/dist/db/with-hooks.mjs`'s `updateWithHooks(data,
 // where, model, customUpdateFn)` calls `toRun(data, context)` for the
 // `update.before` hook — `where` (which carries that `id`) is NEVER passed to
-// the hook. Combined with callback.mjs's `updateData` literal above (built
-// with no `userId`/`providerId`/`accountId` keys at all for the re-link
-// path), the ONLY reliable per-request identity signal at this hook site is
-// `context.params.id` — better-call's `EndpointContext.params` for the
-// `/callback/:id` route template resolves to `{ id: 'github' }` for this
-// exact request (confirmed via `dispatch.mjs`'s `internalContext = {
+// the hook. Combined with linkOAuthAccount's `updateData` literal above
+// (built with no `userId`/`accountId` keys at all for the re-link path;
+// since better-auth 1.7 it does carry `providerId`, which isGithubEvent below
+// accepts, but 1.6 did not), the only per-request identity signals at this
+// hook site are that `providerId` and `context.params.id` — better-call's
+// `EndpointContext.params` for the `/callback/:id` route template resolves
+// to `{ id: 'github' }` for this exact request (confirmed via `dispatch.mjs`'s `internalContext = {
 // ...input, ... }`, which is what flows into `getCurrentAuthContext()` and
 // is passed as this hook's second argument — `params` is a sibling of
 // `context`, not nested under it, per `GenericEndpointContext = EndpointContext
 // & { context: AuthContext }`). There is no reachable path from
 // `update.before`'s own two parameters back to `link.userId` (it's a plain
-// local variable inside `callbackOAuth`'s closure, never attached to
+// local passed from `callbackOAuth` into linkOAuthAccount, never attached to
 // `c.context` or otherwise threaded through to a database hook) or to
 // `existingAccount.id`/`accountId` (never merged into `updateData` before the
 // hook fires). This function therefore resolves `accountId`/`userId` itself
@@ -213,8 +215,8 @@ function findConflictingAccountUserId(
 // Resolves the tdr-code `userId` a re-link's `github_credential` write must
 // target, for the `update.before` call site where `account.userId` is not on
 // the hook payload (see this file's header comment). By construction, this
-// row MUST already exist: `callback.mjs`'s `link` branch only calls
-// `internalAdapter.updateAccount` when `findAccountByProviderId` already
+// row MUST already exist: linkOAuthAccount (the `link` branch) only calls
+// `internalAdapter.updateAccount` when `findAccountByKey` already
 // matched an existing `(providerId: 'github', accountId)` row for the SAME
 // user — so "no matching row" here is a should-never-happen state (a
 // same-request TOCTOU on the account row, or this hook somehow firing outside

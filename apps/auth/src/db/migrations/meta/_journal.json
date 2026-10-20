@@ -43,6 +43,13 @@
       "when": 1792314024031,
       "tag": "0005_host_visit",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1792524883510,
+      "tag": "0006_better_auth_1_7",
+      "breakpoints": true
     }
   ]
 }
