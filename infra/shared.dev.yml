@@ -15,7 +15,10 @@ services:
     env_file:
       - .env.storage.decrypted
     volumes:
-      - /storage/app-data/minio:/data
+      # Never prod's /storage/app-data/minio: two servers on one data dir
+      # corrupt it, and storage-init would rewrite prod bucket policies. Dev
+      # apps that need real data reach prod storage over the shared network.
+      - /storage/app-data/minio-dev:/data
       - ./init-minio.sh:/opt/init-minio.sh
     healthcheck:
       test: ['CMD', 'mc', 'ready', 'local']

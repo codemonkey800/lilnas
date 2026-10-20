@@ -146,7 +146,7 @@ emby:
 ### Shared infrastructure
 
 ```yaml
-# infra/shared.yml and infra/shared.dev.yml — MinIO (prod and dev share the same directory)
+# infra/shared.yml — MinIO (Silo); infra/shared.dev.yml uses /storage/app-data/minio-dev
 - /storage/app-data/minio:/data
 
 # infra/proxy.yml — Traefik
