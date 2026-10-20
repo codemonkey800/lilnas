@@ -1,0 +1,107 @@
+name: GHCR cleanup
+
+# GHCR never expires anything, and ci.yml pushes `:<sha>` + `:latest` for every
+# deployed image plus a `:buildcache` that orphans an untagged version each
+# time it moves. This prunes old `:<sha>` rollback tags and the orphans.
+#
+# Starts in dry-run mode: scheduled runs only log what they would delete until
+# the repo variable GHCR_CLEANUP_LIVE is set to `true`:
+#   gh variable set GHCR_CLEANUP_LIVE --body true
+
+on:
+  schedule:
+    - cron: '17 4 * * 0'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Only log what would be deleted
+        type: boolean
+        default: true
+
+permissions:
+  packages: write
+
+concurrency:
+  group: ghcr-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve dry-run
+        id: mode
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+          LIVE: ${{ vars.GHCR_CLEANUP_LIVE }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "dry_run=$INPUT_DRY_RUN" >> "$GITHUB_OUTPUT"
+          elif [ "$LIVE" = "true" ]; then
+            echo "dry_run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "dry_run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Any version carrying `latest` or `buildcache` is protected (a negative
+      # tag filter on any one tag spares the whole version), so only sha-only
+      # versions are candidates. The newest 20 of those per image stay for
+      # `LILNAS_TAG=<sha> docker compose up -d` rollbacks (docs/deploy.md).
+      #
+      # Names are exact because GITHUB_TOKEN can't use wildcards. It also needs
+      # this repo to hold the Admin role on each package; if the run fails with
+      # a 403, either grant that (package settings → Manage Actions access) or
+      # store a classic PAT with `delete:packages` as GHCR_CLEANUP_TOKEN.
+      - name: Prune old sha-tagged versions
+        uses: snok/container-retention-policy@v3.1.0
+        with:
+          account: user
+          token: ${{ secrets.GHCR_CLEANUP_TOKEN || secrets.GITHUB_TOKEN }}
+          image-names: >-
+            lilnas-auth
+            lilnas-dashcam
+            lilnas-dev-idle-reaper
+            lilnas-download
+            lilnas-equations
+            lilnas-l4d2
+            lilnas-me-token-tracker
+            lilnas-portal
+            lilnas-tdr-bot
+            lilnas-theater
+            lilnas-node-base
+            lilnas-monorepo-builder
+            lilnas-node-runtime
+            lilnas-nextjs-runtime
+          image-tags: '!latest !buildcache'
+          tag-selection: tagged
+          keep-n-most-recent: 20
+          cut-off: 2w
+          dry-run: ${{ steps.mode.outputs.dry_run }}
+
+      # Untagged versions are what `:latest` / `:buildcache` leave behind when
+      # they move. The 1d grace avoids racing a push that is still writing its
+      # manifests; multi-arch children of kept images are protected by the action.
+      - name: Prune untagged versions
+        uses: snok/container-retention-policy@v3.1.0
+        with:
+          account: user
+          token: ${{ secrets.GHCR_CLEANUP_TOKEN || secrets.GITHUB_TOKEN }}
+          image-names: >-
+            lilnas-auth
+            lilnas-dashcam
+            lilnas-dev-idle-reaper
+            lilnas-download
+            lilnas-equations
+            lilnas-l4d2
+            lilnas-me-token-tracker
+            lilnas-portal
+            lilnas-tdr-bot
+            lilnas-theater
+            lilnas-node-base
+            lilnas-monorepo-builder
+            lilnas-node-runtime
+            lilnas-nextjs-runtime
+          tag-selection: untagged
+          cut-off: 1d
+          dry-run: ${{ steps.mode.outputs.dry_run }}

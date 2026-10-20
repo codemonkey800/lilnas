@@ -392,3 +392,29 @@ docker login ghcr.io
 Every app Dockerfile is `FROM ghcr.io/codemonkey800/lilnas-<x>:latest`, so a
 local `docker build` pulls from GHCR unless the script has been run once
 locally (it also creates the GHCR-named tags without pushing).
+
+## Registry cleanup
+
+GHCR never expires anything, and every deploy pushes a `:<sha>` tag per image.
+`.github/workflows/ghcr-cleanup.yml` runs weekly (Sunday 04:17 UTC) and deletes:
+
+- sha-only versions older than 2 weeks, keeping the newest 20 per image (the
+  rollback window above). Versions that also carry `:latest` or `:buildcache`
+  are never touched.
+- untagged versions older than 1 day (orphans from `:latest` / `:buildcache`
+  moving).
+
+It ships in dry-run mode: scheduled runs only log what they would delete until
+you flip the switch, after checking a dry run's log:
+
+```bash
+gh workflow run ghcr-cleanup.yml                  # dry run on demand
+gh variable set GHCR_CLEANUP_LIVE --body true     # scheduled runs now delete
+gh workflow run ghcr-cleanup.yml -f dry_run=false # real run on demand
+```
+
+The job uses `GITHUB_TOKEN`, which needs this repo to hold the Admin role on
+each package (package settings → Manage Actions access). If a run fails with a
+403, grant that, or store a classic PAT with `delete:packages` as the
+`GHCR_CLEANUP_TOKEN` secret (picked up automatically). Add new `lilnas-*`
+images to the `image-names` lists in the workflow.
