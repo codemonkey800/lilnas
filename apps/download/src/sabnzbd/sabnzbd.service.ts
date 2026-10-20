@@ -239,6 +239,7 @@ export class SabnzbdService {
     } catch (error) {
       // - Rewrapped with no `cause`: undici's cause carries the URL, and
       //   with it the API key.
+      // eslint-disable-next-line preserve-caught-error
       throw new Error(
         `SABnzbd ${mode} request failed${isTimeout(error) ? ' (timed out)' : ''}`,
       )

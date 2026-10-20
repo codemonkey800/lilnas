@@ -1,7 +1,7 @@
 const tseslint = require('typescript-eslint')
 const eslintConfigPrettier = require('eslint-config-prettier')
 const eslintPluginPrettierRecommended = require('eslint-plugin-prettier/recommended')
-const importPlugin = require('eslint-plugin-import')
+const importPlugin = require('eslint-plugin-import-x')
 const noRelativeImports = require('eslint-plugin-no-relative-import-paths')
 const pluginJs = require('@eslint/js')
 const simpleImportSort = require('eslint-plugin-simple-import-sort')
@@ -25,11 +25,11 @@ module.exports = [
   ...tseslint.configs.recommended,
   {
     settings: {
-      'import/parsers': {
+      'import-x/parsers': {
         '@typescript-eslint/parser': ['.ts', '.tsx'],
       },
 
-      'import/resolver': {
+      'import-x/resolver': {
         typescript: {
           alwaysTryTypes: true,
           project: '.',
@@ -75,7 +75,10 @@ module.exports = [
         },
       ],
 
-      'import/no-unresolved': 'off',
+      'import-x/no-unresolved': 'off',
+      // False positive for default-exported singletons that also expose the
+      // same name as a named export (dayjs.extend, pino.stdSerializers, ...).
+      'import-x/no-named-as-default-member': 'off',
       'no-unused-vars': 'off',
       'unused-imports/no-unused-imports': 'error',
       'unused-imports/no-unused-vars': [

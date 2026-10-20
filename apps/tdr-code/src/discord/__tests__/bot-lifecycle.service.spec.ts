@@ -89,9 +89,8 @@ describe('BotLifecycleService', () => {
     // Give heartbeat time to fire.
     await new Promise(r => setTimeout(r, 100))
 
-    const { generationById: getById } = await import(
-      'src/db/bot-generation.repo'
-    )
+    const { generationById: getById } =
+      await import('src/db/bot-generation.repo')
     const row = getById(testDb.db, gen.id)!
     expect(row.status).toBe('running')
     expect(row.lastHeartbeatAt).not.toBeNull()
@@ -158,9 +157,8 @@ describe('BotLifecycleService', () => {
     svc.markShutdownRequested()
     svc.onReady()
 
-    const { generationById: getById } = await import(
-      'src/db/bot-generation.repo'
-    )
+    const { generationById: getById } =
+      await import('src/db/bot-generation.repo')
     const row = getById(testDb.db, gen.id)!
     // Should still be 'starting' — markRunning was not called.
     expect(row.status).toBe('starting')
@@ -204,9 +202,8 @@ describe('BotLifecycleService', () => {
     // Wait for next heartbeat tick — it should stop.
     await new Promise(r => setTimeout(r, 80))
 
-    const { generationById: getById } = await import(
-      'src/db/bot-generation.repo'
-    )
+    const { generationById: getById } =
+      await import('src/db/bot-generation.repo')
     const row = getById(testDb.db, gen.id)!
     expect(row.status).toBe('stopped')
     // No more heartbeat updates after finalize.
@@ -221,9 +218,8 @@ describe('BotLifecycleService', () => {
     await svc.onModuleInit()
     svc.finalizeGeneration(0)
 
-    const { generationById: getById } = await import(
-      'src/db/bot-generation.repo'
-    )
+    const { generationById: getById } =
+      await import('src/db/bot-generation.repo')
     const row = getById(testDb.db, gen.id)!
     expect(row.status).toBe('stopped')
     expect(row.endedAt).not.toBeNull()

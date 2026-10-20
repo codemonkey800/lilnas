@@ -1252,6 +1252,7 @@ export class RadarrService {
     } catch (error) {
       throw new Error(
         `Could not set up Radarr's "${tierProfileName(tier)}" quality profile: ${getErrorMessage(error)}`,
+        { cause: error },
       )
     }
     const id = this.tierProfileIds.get(tier)

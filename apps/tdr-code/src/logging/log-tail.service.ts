@@ -19,8 +19,7 @@ import type { LogStream, LogTailMessage } from 'src/logging/log-view.types'
 // MessageEvent with no line data" without re-deriving that distinction from
 // shape alone.
 export type LogTailEvent =
-  | { kind: 'append'; message: LogTailMessage }
-  | { kind: 'keepalive' }
+  { kind: 'append'; message: LogTailMessage } | { kind: 'keepalive' }
 
 export interface WatchTailParams {
   stream: LogStream

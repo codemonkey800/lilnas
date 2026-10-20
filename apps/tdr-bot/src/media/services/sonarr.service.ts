@@ -1440,6 +1440,7 @@ export class SonarrService extends BaseMediaService {
       )
       throw new Error(
         `Invalid unmonitor series options: ${error instanceof Error ? error.message : 'Unknown validation error'}`,
+        { cause: error },
       )
     }
   }

@@ -13,7 +13,7 @@ export class HealthController {
     const timestamp = new Date().toISOString()
 
     // Check MinIO connectivity
-    let minioStatus = 'disconnected'
+    let minioStatus: 'connected' | 'disconnected'
     try {
       // Simple connectivity check - list buckets with timeout
       const timeout = new Promise((_, reject) =>

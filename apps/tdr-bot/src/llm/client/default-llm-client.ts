@@ -225,8 +225,7 @@ export class DefaultLlmClient extends LlmClient {
     const cached = meta?.input_token_details?.cache_read ?? 0
     const costUsd = this.registry.costUsd(modelId, { input, output, cached })
     const finishReason = message.response_metadata?.finish_reason as
-      | string
-      | undefined
+      string | undefined
 
     this.recordRetries(call.operation, attemptErrors)
     for (let i = 0; i < schemaRetries; i++) {

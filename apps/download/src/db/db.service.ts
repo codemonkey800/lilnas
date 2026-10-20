@@ -23,6 +23,7 @@ function openSqlite(dbPath: string): BetterSqlite3.Database {
         `download: cannot open ${dbPath} — host directory must be owned ` +
           `by UID 1000 (run: chown 1000:1000 /storage/app-data/download). ` +
           `Original: ${err.message}`,
+        { cause: err },
       )
     }
     throw err

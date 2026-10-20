@@ -44,9 +44,7 @@ export interface DiscordLinkedUser {
  * with a 400 when zero or two-or-more are present.
  */
 export type DiscordLinkLookupParams =
-  | { discordUserId: string }
-  | { userId: string }
-  | { email: string }
+  { discordUserId: string } | { userId: string } | { email: string }
 
 /**
  * `GET /internal/discord-link`'s response.

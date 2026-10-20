@@ -6,10 +6,10 @@ import path from 'node:path'
 import { Global, Module } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 // pino ships `export =` merged with a same-named namespace (for pino.Logger,
-// pino.DestinationStream, etc.) — the import/no-named-as-default warning is
+// pino.DestinationStream, etc.) — the import-x/no-named-as-default warning is
 // a known false positive for this pattern; `pino` is the library's own
 // documented canonical import name (see pino's own README/docs).
-// eslint-disable-next-line import/no-named-as-default
+// eslint-disable-next-line import-x/no-named-as-default
 import pino from 'pino'
 
 import { buildAuth } from 'src/auth/auth'
@@ -141,7 +141,7 @@ function request(
         res.on('data', chunk => chunks.push(chunk as Buffer))
         res.on('end', () => {
           const rawBody = Buffer.concat(chunks).toString('utf8')
-          let body: unknown = undefined
+          let body: unknown
           try {
             body = rawBody.length > 0 ? JSON.parse(rawBody) : undefined
           } catch {

@@ -9,6 +9,7 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
 
 import { insertGeneration } from 'src/db/bot-generation.repo'
 import { resolveMigrationsFolder } from 'src/db/database.module'
+import * as schema from 'src/db/schema'
 import {
   botGeneration,
   type EventContext,
@@ -16,7 +17,6 @@ import {
   liveStatus,
   sessions,
 } from 'src/db/schema'
-import * as schema from 'src/db/schema'
 import { createTestDb } from 'src/db/test-db'
 
 type RawSqlite = InstanceType<typeof BetterSqlite3>

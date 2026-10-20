@@ -12,12 +12,7 @@ import { isFiniteVec3, isOutOfBounds } from './respawn'
 import { seatPhaseRef } from './SeatedCamera'
 
 export type Controls =
-  | 'forward'
-  | 'backward'
-  | 'leftward'
-  | 'rightward'
-  | 'jump'
-  | 'run'
+  'forward' | 'backward' | 'leftward' | 'rightward' | 'jump' | 'run'
 
 export const KEYBOARD_MAP: KeyboardControlsEntry<Controls>[] = [
   { name: 'forward', keys: ['KeyW', 'ArrowUp'] },

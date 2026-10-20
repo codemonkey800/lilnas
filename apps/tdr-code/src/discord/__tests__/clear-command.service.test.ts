@@ -9,12 +9,12 @@ import {
 import { SessionManagerService } from 'src/agent/session-manager.service'
 import { insertGeneration } from 'src/db/bot-generation.repo'
 import { DB } from 'src/db/database.module'
+import * as sessionsRepo from 'src/db/sessions.repo'
 import {
   closeSession,
   getLatestSessionForChannel,
   insertSession,
 } from 'src/db/sessions.repo'
-import * as sessionsRepo from 'src/db/sessions.repo'
 import { createTestDb, type TestDb } from 'src/db/test-db'
 import { ClearCommandService } from 'src/discord/clear-command.service'
 import { ContextUsageService } from 'src/discord/context-usage.service'

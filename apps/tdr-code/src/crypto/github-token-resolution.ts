@@ -46,9 +46,7 @@ export interface GithubDecryptFailedToken {
 }
 
 export type GithubTokenResolution =
-  | ConfiguredGithubToken
-  | UnconfiguredGithubToken
-  | GithubDecryptFailedToken
+  ConfiguredGithubToken | UnconfiguredGithubToken | GithubDecryptFailedToken
 
 export function isGithubConfigured(
   r: GithubTokenResolution,

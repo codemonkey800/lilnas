@@ -260,6 +260,7 @@ function useDrawerPresence(line: LogLine | null): DrawerPresence {
   // scheduling the next.
   useEffect(() => {
     if (line !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- mount/open staging must run after the commit; see the effect comment above
       setRendered(line)
       setMounted(true)
       // Already open (a line swap, or an initial mount that starts open) —

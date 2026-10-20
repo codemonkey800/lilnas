@@ -7,11 +7,7 @@ type LlmStatus = 'success' | 'error'
 type TokenType = 'prompt_tokens' | 'completion_tokens' | 'total_tokens'
 type ImageGenerationStatus = 'success' | 'error'
 type ResponseSentStatus =
-  | 'success'
-  | 'shortened'
-  | 'truncated'
-  | 'error'
-  | 'fallback'
+  'success' | 'shortened' | 'truncated' | 'error' | 'fallback'
 type ReminderType = 'recurring' | 'one_time'
 
 const messagesReceivedTotal = new Counter({

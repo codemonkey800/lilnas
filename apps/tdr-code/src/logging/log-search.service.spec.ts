@@ -209,7 +209,6 @@ describe('LogSearchService (real temp files)', () => {
       bytes += Buffer.byteLength(chunk2, 'utf8')
       const hit2Offset = bytes
       content += special
-      bytes += specialBytes
 
       content += jsonLine({ level: 30, time: 99, msg: 'tail' })
 

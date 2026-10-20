@@ -286,8 +286,7 @@ export type DeleteCascade = 'none' | 'season' | 'series'
 
 /** The delete a cascade is being predicted for - one episode, or one season. */
 export type DeleteCascadeScope =
-  | { episodeId: number; seasonNumber: number }
-  | { seasonNumber: number }
+  { episodeId: number; seasonNumber: number } | { seasonNumber: number }
 
 /**
  * Whether an episode is on disk or on its way. A download in any in-flight

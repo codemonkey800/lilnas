@@ -30,9 +30,8 @@ export async function register() {
     // invites exactly this): a boot marker so an operator can pin "the Next
     // server (re)started at T" in the same frontend-server.<env>.log stream
     // and correlate a burst of client anomalies with a redeploy or crash.
-    const { frontendServerLogger } = await import(
-      './logging/frontend-server-logger'
-    )
+    const { frontendServerLogger } =
+      await import('./logging/frontend-server-logger')
     frontendServerLogger.info(
       { event: LOG_EVENTS.frontendServerBooted, nodeVersion: process.version },
       'frontend server booted',
@@ -79,9 +78,8 @@ export const onRequestError: Instrumentation.onRequestError = async (
   context,
 ) => {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
-    const { frontendServerLogger } = await import(
-      './logging/frontend-server-logger'
-    )
+    const { frontendServerLogger } =
+      await import('./logging/frontend-server-logger')
     const rawMessage = err instanceof Error ? err.message : String(err)
     const cappedMessage =
       rawMessage.length > MESSAGE_CAP

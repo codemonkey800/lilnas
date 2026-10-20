@@ -11,5 +11,4 @@ export interface MessageContext {
 }
 
 export type HandlerResult =
-  | { handled: true; response?: MessageResponse }
-  | { handled: false }
+  { handled: true; response?: MessageResponse } | { handled: false }

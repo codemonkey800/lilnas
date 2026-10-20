@@ -21,11 +21,7 @@ import {
 import { EmojiDictionaryService } from 'src/emojis/emoji-dictionary.service'
 
 export type ReconcileTrigger =
-  | 'boot'
-  | 'cron'
-  | 'admin'
-  | 'event'
-  | 'redescribe-all'
+  'boot' | 'cron' | 'admin' | 'event' | 'redescribe-all'
 
 export interface ReconcileSummary {
   trigger: ReconcileTrigger

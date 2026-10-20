@@ -8,10 +8,7 @@ export type LiveTurnStatus = 'completed' | 'cancelled' | 'errored'
 
 // The EventType subset produced by this mapping.
 export type TurnEventType =
-  | 'turn_started'
-  | 'turn_completed'
-  | 'turn_cancelled'
-  | 'turn_errored'
+  'turn_started' | 'turn_completed' | 'turn_cancelled' | 'turn_errored'
 
 export interface MapStopReasonResult {
   status: LiveTurnStatus

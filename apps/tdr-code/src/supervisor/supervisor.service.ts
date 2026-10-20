@@ -652,11 +652,7 @@ export class SupervisorService implements OnModuleDestroy {
 
   private clearTimer(
     which:
-      | 'startDeadline'
-      | 'grace'
-      | 'backoff'
-      | 'livenessPoll'
-      | 'stableWindow',
+      'startDeadline' | 'grace' | 'backoff' | 'livenessPoll' | 'stableWindow',
   ): void {
     if (which === 'startDeadline' && this.startDeadlineTimer) {
       this.clock.clearTimeout(this.startDeadlineTimer)

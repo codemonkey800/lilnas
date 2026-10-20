@@ -1650,8 +1650,7 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     await Promise.resolve()
     expect(jest.mocked(createAcpClient)).toHaveBeenCalledTimes(1)
     const isReplaying = jest.mocked(createAcpClient).mock.calls[0]![2] as
-      | (() => boolean)
-      | undefined
+      (() => boolean) | undefined
     expect(isReplaying).toBeDefined()
     expect(isReplaying!()).toBe(true)
 

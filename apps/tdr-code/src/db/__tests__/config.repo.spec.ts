@@ -13,8 +13,8 @@ import {
   updateConfig,
 } from 'src/db/config.repo'
 import { resolveMigrationsFolder } from 'src/db/database.module'
-import { config } from 'src/db/schema'
 import * as schema from 'src/db/schema'
+import { config } from 'src/db/schema'
 import { createTestDb } from 'src/db/test-db'
 
 describe('config.repo', () => {

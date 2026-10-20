@@ -51,11 +51,13 @@ export function validateAndFingerprint(pem: string | Buffer): SshKeyValidation {
     if (err instanceof KeyEncryptedError) {
       throw new Error(
         'Passphrase-protected SSH keys are not supported — provide an unencrypted key',
+        { cause: err },
       )
     }
     // KeyParseError, TypeError, or anything else — invalid / not a private key
     throw new Error(
       `Invalid SSH private key: ${(err as Error).message ?? String(err)}`,
+      { cause: err },
     )
   }
 

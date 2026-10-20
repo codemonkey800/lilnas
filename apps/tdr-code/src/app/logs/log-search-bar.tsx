@@ -205,6 +205,7 @@ export function LogSearchBar({
     // (trimmed.length === 0 still means "the composed predicate's text
     // constraint is now empty," which is itself a real, reportable state).
     onQueryTextChange?.(trimmed)
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resets the search session when the debounced query settles
     setCursor(undefined)
     setWrapLoading(false)
     if (trimmed.length === 0) {
@@ -316,6 +317,7 @@ export function LogSearchBar({
         // in a huge file and was never separately "loaded" by the client:
         // the hit's offset comes straight from THIS response, not from
         // anything the windowed view happened to already have on screen.
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- publishes the first page of results for the settled query
         setCurrentIndex(0)
         onHitSelected(response.matches[0]!.byteOffset, trimmedQuery)
       }

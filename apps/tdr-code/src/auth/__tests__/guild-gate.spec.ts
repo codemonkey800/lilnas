@@ -9,9 +9,9 @@ import type { UnhandledRequestStrategy } from 'msw'
 import { http as mswHttp, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 // pino ships `export =` merged with a same-named namespace — the
-// import/no-named-as-default warning is a known false positive for this
+// import-x/no-named-as-default warning is a known false positive for this
 // pattern (see backend-logger.spec.ts's identical precedent).
-// eslint-disable-next-line import/no-named-as-default
+// eslint-disable-next-line import-x/no-named-as-default
 import pino from 'pino'
 
 import { AuthModule } from 'src/auth/auth.module'
@@ -111,7 +111,7 @@ function request(
         res.on('data', chunk => chunks.push(chunk as Buffer))
         res.on('end', () => {
           const rawBody = Buffer.concat(chunks).toString('utf8')
-          let body: unknown = undefined
+          let body: unknown
           try {
             body = rawBody.length > 0 ? JSON.parse(rawBody) : undefined
           } catch {

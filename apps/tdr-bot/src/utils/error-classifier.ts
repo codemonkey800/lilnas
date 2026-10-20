@@ -481,10 +481,7 @@ export class ErrorClassificationService {
    */
   private parseRetryAfter(
     headers:
-      | RawAxiosResponseHeaders
-      | AxiosResponseHeaders
-      | Headers
-      | undefined,
+      RawAxiosResponseHeaders | AxiosResponseHeaders | Headers | undefined,
   ): number | undefined {
     if (!headers) return undefined
 

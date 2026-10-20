@@ -549,7 +549,7 @@ function request(
         res.on('data', chunk => chunks.push(chunk as Buffer))
         res.on('end', () => {
           const rawBody = Buffer.concat(chunks).toString('utf8')
-          let body: unknown = undefined
+          let body: unknown
           try {
             body = rawBody.length > 0 ? JSON.parse(rawBody) : undefined
           } catch {

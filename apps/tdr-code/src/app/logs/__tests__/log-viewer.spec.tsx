@@ -44,8 +44,7 @@ import type {
 // after render) reach the CURRENT instance's real callback rather than a
 // stale one captured at mock-definition time.
 let latestOnHitSelected:
-  | ((byteOffset: number, matchText: string) => void)
-  | null = null
+  ((byteOffset: number, matchText: string) => void) | null = null
 // U12: mirrors latestOnHitSelected's own pattern above, applied to
 // LogSearchBar's OWN onQueryTextChange — this is the ONE seam log-viewer
 // .tsx's U12 tests need to simulate "the user's debounced free-text term

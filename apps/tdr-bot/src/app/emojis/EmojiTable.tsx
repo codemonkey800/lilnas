@@ -83,8 +83,10 @@ function EmojiRow({
   )
 }
 
-interface EmojiTableProps
-  extends Omit<EmojiRowProps, 'emoji' | 'editing' | 'redescribing'> {
+interface EmojiTableProps extends Omit<
+  EmojiRowProps,
+  'emoji' | 'editing' | 'redescribing'
+> {
   emojis: EmojiView[]
   editingId: string | null
   redescribingId: string | null

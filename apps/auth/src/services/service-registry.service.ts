@@ -282,8 +282,7 @@ const LOG_EVENTS = {
 @Injectable()
 export class ServiceRegistryService {
   private cache:
-    | { entries: ServiceRegistryEntry[]; expiresAtMs: number }
-    | undefined
+    { entries: ServiceRegistryEntry[]; expiresAtMs: number } | undefined
 
   constructor(
     private readonly logger: PinoLogger,

@@ -904,6 +904,7 @@ export function LogViewer({
   // wiring per mode.
   const activeLines = isFilteredProjection ? filteredState.matches : state.lines
 
+  // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Virtual returns unmemoizable functions; nothing here is memoized on them
   const virtualizer = useVirtualizer({
     count: activeLines.length,
     getScrollElement: () => scrollElementRef.current,

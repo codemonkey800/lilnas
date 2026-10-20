@@ -58,8 +58,7 @@ function toPayload({ content, embeds }: ReminderMessage) {
 }
 
 export type DeliveryResult =
-  | { ok: true }
-  | { ok: false; reason: string; message?: string }
+  { ok: true } | { ok: false; reason: string; message?: string }
 
 /** Delivery failure carrying the metric reason reported to the scheduler. */
 class DeliveryFailure extends Error {

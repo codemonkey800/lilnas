@@ -4,9 +4,9 @@ import os from 'node:os'
 import path from 'node:path'
 
 // pino ships `export =` merged with a same-named namespace — the
-// import/no-named-as-default warning is a known false positive for this
+// import-x/no-named-as-default warning is a known false positive for this
 // pattern (see backend-logger.spec.ts's identical precedent).
-// eslint-disable-next-line import/no-named-as-default
+// eslint-disable-next-line import-x/no-named-as-default
 import pino from 'pino'
 
 import {

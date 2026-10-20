@@ -15,8 +15,7 @@ export type ReminderSchedule =
   | { kind: 'recurring'; cron: string; endsAt?: Date | null }
 
 export type CronCheck =
-  | { ok: true }
-  | { ok: false; reason: 'invalid' | 'too_frequent' }
+  { ok: true } | { ok: false; reason: 'invalid' | 'too_frequent' }
 
 type ScheduleFields = Pick<
   Reminder,

@@ -202,8 +202,7 @@ export interface DecryptEnvFileOptions {
 }
 
 export type DecryptEnvFileResult =
-  | { ok: true; content: string }
-  | { ok: false; error: string }
+  { ok: true; content: string } | { ok: false; error: string }
 
 /**
  * First meaningful stderr line from dotenvx with every `=value` blanked, so a

@@ -2006,6 +2006,7 @@ export class SonarrService {
     } catch (error) {
       throw new Error(
         `Could not set up Sonarr's "${tierProfileName(tier)}" quality profile: ${getErrorMessage(error)}`,
+        { cause: error },
       )
     }
     const id = this.tierProfileIds.get(tier)

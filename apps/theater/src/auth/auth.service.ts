@@ -72,7 +72,7 @@ export class AuthService {
     // export (matching bootstrap.ts's `import cookieParser from
     // 'cookie-parser'`), not as a real named export — the false positive
     // eslint-plugin-import flags here.
-    // eslint-disable-next-line import/no-named-as-default-member
+
     const value = cookieParser.signedCookie(raw, secret)
 
     return typeof value === 'string' ? value : null

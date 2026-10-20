@@ -251,7 +251,7 @@ export function FilterPanel({
 
       return Boolean(
         panelRef.current?.contains(target) ||
-          triggerRef?.current?.contains(target),
+        triggerRef?.current?.contains(target),
       )
     }
 

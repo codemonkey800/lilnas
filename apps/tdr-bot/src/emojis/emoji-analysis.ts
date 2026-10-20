@@ -16,8 +16,7 @@ export interface CustomEmojiRef {
 }
 
 export type ContentSegment =
-  | { kind: 'text'; text: string }
-  | { kind: 'emoji'; emoji: CustomEmojiRef }
+  { kind: 'text'; text: string } | { kind: 'emoji'; emoji: CustomEmojiRef }
 
 export interface EmojiAnalysis {
   counts: {

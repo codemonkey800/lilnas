@@ -26,11 +26,7 @@ import { historyValue } from './release-history.util'
 export type ArrApp = 'radarr' | 'sonarr'
 
 export type ArrEventKind =
-  | 'grabbed'
-  | 'imported'
-  | 'failed'
-  | 'manualFailed'
-  | 'ignored'
+  'grabbed' | 'imported' | 'failed' | 'manualFailed' | 'ignored'
 
 /** One history record this app acts on, stripped to the fields it reads. */
 export interface ArrEvent {

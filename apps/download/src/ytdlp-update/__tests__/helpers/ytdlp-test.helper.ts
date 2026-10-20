@@ -79,6 +79,7 @@ export class YtdlpTestHelper {
     } catch (error) {
       throw new Error(
         `Failed to create executable test binary: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
       )
     }
   }
@@ -107,6 +108,7 @@ export class YtdlpTestHelper {
     } catch (error) {
       throw new Error(
         `Failed to verify executable at ${path}: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
       )
     }
   }

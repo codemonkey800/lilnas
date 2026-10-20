@@ -346,10 +346,7 @@ export type DiffPayload = {
 }
 
 export type TurnContentPayload =
-  | PromptPayload
-  | AgentTextPayload
-  | ToolCallPayload
-  | DiffPayload
+  PromptPayload | AgentTextPayload | ToolCallPayload | DiffPayload
 
 // Compile-time exhaustiveness pin: bidirectional coverage check ties the TURN_CONTENT_KINDS
 // tuple to TurnContentPayload discriminants. Adding a kind to one without the other fails here.

@@ -733,8 +733,7 @@ describe('LLMOrchestrationService - Integration', () => {
           if (followUp !== undefined) {
             const pending = (
               (await checkpoint('chan-1', 'guild-1')).pendingFollowUps as
-                | Record<string, unknown>
-                | undefined
+                Record<string, unknown> | undefined
             )?.['u-1']
             expect(!!pending).toBe(followUp)
           }

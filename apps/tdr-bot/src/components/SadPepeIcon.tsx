@@ -1,8 +1,10 @@
 import { cns } from '@lilnas/utils/cns'
 import type { SVGProps } from 'react'
 
-interface SadPepeIconProps
-  extends Omit<SVGProps<SVGSVGElement>, 'viewBox' | 'xmlns'> {
+interface SadPepeIconProps extends Omit<
+  SVGProps<SVGSVGElement>,
+  'viewBox' | 'xmlns'
+> {
   className?: string
 }
 

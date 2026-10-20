@@ -6,12 +6,7 @@ export type * from './generated/types.gen'
 export const MUAPI_BASE_URL = 'https://api.muapi.ai'
 
 export type PredictionStatus =
-  | 'queued'
-  | 'pending'
-  | 'processing'
-  | 'completed'
-  | 'failed'
-  | 'cancelled'
+  'queued' | 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled'
 
 /**
  * Shape of `GET /api/v1/predictions/{id}/result`. The OpenAPI spec leaves this

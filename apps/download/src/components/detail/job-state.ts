@@ -35,13 +35,7 @@ import {
  * answering it in two places is how the three detail pages would drift apart.
  */
 export type JobActionKey =
-  | 'cancel'
-  | 'import'
-  | 'pause'
-  | 'resume'
-  | 'retry'
-  | 'save'
-  | 'watch'
+  'cancel' | 'import' | 'pause' | 'resume' | 'retry' | 'save' | 'watch'
 
 /**
  * - `offered` - render the control live.

@@ -46,9 +46,7 @@ export interface DecryptFailedIdentity {
 }
 
 export type IdentityResolution =
-  | ConfiguredIdentity
-  | UnconfiguredIdentity
-  | DecryptFailedIdentity
+  ConfiguredIdentity | UnconfiguredIdentity | DecryptFailedIdentity
 
 export function isConfigured(r: IdentityResolution): r is ConfiguredIdentity {
   return r.kind === 'configured'

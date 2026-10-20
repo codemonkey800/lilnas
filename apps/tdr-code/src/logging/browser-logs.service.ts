@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common'
 // pino ships `export =` merged with a same-named namespace — the
-// import/no-named-as-default(-member) warnings are known false positives for
+// import-x/no-named-as-default(-member) warnings are known false positives for
 // this pattern (see auth-mount.spec.ts's identical precedent).
-// eslint-disable-next-line import/no-named-as-default
+// eslint-disable-next-line import-x/no-named-as-default
 import pino from 'pino'
 
 import { redactionCensor } from 'src/logger'
@@ -54,7 +54,7 @@ export class BrowserLogsService {
       redact: { paths: BROWSER_LOG_REDACT_PATHS, censor: redactionCensor },
     },
     // Same false positive as the import above, for pino's own destination() static.
-    // eslint-disable-next-line import/no-named-as-default-member
+
     pino.destination({
       dest: logFilePath('frontend-browser'),
       mkdir: true,

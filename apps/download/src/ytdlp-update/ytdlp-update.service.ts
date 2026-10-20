@@ -220,7 +220,9 @@ export class YtdlpUpdateService {
     } catch (err) {
       const error = getErrorMessage(err)
       this.logger.error({ action, error }, 'Failed to fetch latest release')
-      throw new Error(`Failed to fetch latest release: ${error}`)
+      throw new Error(`Failed to fetch latest release: ${error}`, {
+        cause: err,
+      })
     }
   }
 
@@ -366,7 +368,7 @@ export class YtdlpUpdateService {
     } catch (err) {
       const error = getErrorMessage(err)
       this.logger.error({ action, error }, 'Failed to download new binary')
-      throw new Error(`Failed to download new binary: ${error}`)
+      throw new Error(`Failed to download new binary: ${error}`, { cause: err })
     }
   }
 
@@ -417,7 +419,9 @@ export class YtdlpUpdateService {
     } catch (err) {
       const error = getErrorMessage(err)
       this.logger.error({ action, error }, 'Failed to backup current binary')
-      throw new Error(`Failed to backup current binary: ${error}`)
+      throw new Error(`Failed to backup current binary: ${error}`, {
+        cause: err,
+      })
     }
   }
 
@@ -432,7 +436,7 @@ export class YtdlpUpdateService {
     } catch (err) {
       const error = getErrorMessage(err)
       this.logger.error({ action, error }, 'Failed to install new binary')
-      throw new Error(`Failed to install new binary: ${error}`)
+      throw new Error(`Failed to install new binary: ${error}`, { cause: err })
     }
   }
 
@@ -487,7 +491,7 @@ export class YtdlpUpdateService {
     } catch (err) {
       const error = getErrorMessage(err)
       this.logger.error({ action, error }, 'Rollback failed')
-      throw new Error(`Rollback failed: ${error}`)
+      throw new Error(`Rollback failed: ${error}`, { cause: err })
     }
   }
 

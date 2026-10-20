@@ -80,13 +80,11 @@ export class SseController {
     const keepaliveMs = parseInt(env(EnvKeys.SSE_KEEPALIVE_MS, '25000'), 10)
 
     const data$ = signals$.pipe(
-      map(
-        (signal): MessageEvent => ({
-          data: signal,
-          id: String(nextId++),
-          type: signal.topic,
-        }),
-      ),
+      map((signal): MessageEvent => ({
+        data: signal,
+        id: String(nextId++),
+        type: signal.topic,
+      })),
     )
 
     // A benign, comment-equivalent event on a steady cadence — chosen over
@@ -98,13 +96,11 @@ export class SseController {
     // and a `type` distinct from any real topic so a client can ignore it
     // without inspecting `data`.
     const keepalive$ = timer(keepaliveMs, keepaliveMs).pipe(
-      map(
-        (): MessageEvent => ({
-          data: {},
-          id: String(nextId++),
-          type: KEEPALIVE_EVENT_TYPE,
-        }),
-      ),
+      map((): MessageEvent => ({
+        data: {},
+        id: String(nextId++),
+        type: KEEPALIVE_EVENT_TYPE,
+      })),
     )
 
     return merge(data$, keepalive$).pipe(

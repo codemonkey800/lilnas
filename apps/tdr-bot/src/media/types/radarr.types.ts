@@ -210,17 +210,16 @@ export interface RadarrCollection {
 /**
  * Radarr movie lookup response (for search)
  */
-export interface RadarrMovieResource
-  extends Omit<
-    RadarrMovie,
-    | 'id'
-    | 'path'
-    | 'pathState'
-    | 'monitored'
-    | 'qualityProfileId'
-    | 'added'
-    | 'tags'
-  > {
+export interface RadarrMovieResource extends Omit<
+  RadarrMovie,
+  | 'id'
+  | 'path'
+  | 'pathState'
+  | 'monitored'
+  | 'qualityProfileId'
+  | 'added'
+  | 'tags'
+> {
   id?: number
   path?: string
   pathState?: RadarrPathState

@@ -93,14 +93,13 @@ export function useLogTail(
   // (registered once per connect() call, potentially long-lived across
   // many renders) must always invoke the CURRENT callback, never the one
   // captured at connect-time, or a `following` flip after connect() would
-  // never be observed by an already-open connection's listener. A plain
-  // assignment on every render (no effect, no dependency array) is
-  // sufficient and correct here: this is intentionally the cheapest
-  // possible way to keep a ref in sync, mirroring the "a tiny effect with
-  // no dependency array guard needed since it's cheap" allowance this
-  // unit's own brief calls out.
+  // never be observed by an already-open connection's listener. A
+  // dependency-less effect re-syncs the ref after every commit; the
+  // listener only fires from async SSE events, never mid-render.
   const onLineRef = useRef(onLine)
-  onLineRef.current = onLine
+  useEffect(() => {
+    onLineRef.current = onLine
+  })
 
   const disconnect = useCallback(() => {
     eventSourceRef.current?.close()

@@ -77,13 +77,11 @@ export class SseController {
 
     const keepaliveMs = parseInt(env(EnvKeys.SSE_KEEPALIVE_MS, '25000'), 10)
     const keepalive$ = timer(keepaliveMs, keepaliveMs).pipe(
-      map(
-        (): MessageEvent => ({
-          data: {},
-          id: String(nextId++),
-          type: KEEPALIVE_EVENT_TYPE,
-        }),
-      ),
+      map((): MessageEvent => ({
+        data: {},
+        id: String(nextId++),
+        type: KEEPALIVE_EVENT_TYPE,
+      })),
     )
 
     if (!topic) return keepalive$
@@ -96,13 +94,11 @@ export class SseController {
     // two.
     const data$ = this.notifyBus.stream$.pipe(
       filter(signal => signal.topic === topic),
-      map(
-        (): MessageEvent => ({
-          data: {},
-          id: String(nextId++),
-          type: STATUS_CHANGED_EVENT_TYPE,
-        }),
-      ),
+      map((): MessageEvent => ({
+        data: {},
+        id: String(nextId++),
+        type: STATUS_CHANGED_EVENT_TYPE,
+      })),
     )
 
     return merge(data$, keepalive$)
@@ -122,13 +118,11 @@ export class SseController {
 
     const keepaliveMs = parseInt(env(EnvKeys.SSE_KEEPALIVE_MS, '25000'), 10)
     const keepalive$ = timer(keepaliveMs, keepaliveMs).pipe(
-      map(
-        (): MessageEvent => ({
-          data: {},
-          id: String(nextId++),
-          type: KEEPALIVE_EVENT_TYPE,
-        }),
-      ),
+      map((): MessageEvent => ({
+        data: {},
+        id: String(nextId++),
+        type: KEEPALIVE_EVENT_TYPE,
+      })),
     )
 
     // Same "carries no data beyond the fact that something changed"
@@ -137,13 +131,11 @@ export class SseController {
     // trusting anything this event claims.
     const data$ = this.notifyBus.stream$.pipe(
       filter(signal => signal.topic === ADMIN_TOPIC),
-      map(
-        (): MessageEvent => ({
-          data: {},
-          id: String(nextId++),
-          type: ADMIN_CHANGED_EVENT_TYPE,
-        }),
-      ),
+      map((): MessageEvent => ({
+        data: {},
+        id: String(nextId++),
+        type: ADMIN_CHANGED_EVENT_TYPE,
+      })),
     )
 
     return merge(data$, keepalive$)

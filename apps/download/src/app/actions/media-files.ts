@@ -45,16 +45,14 @@ export type BadFileActionResult = { badFile: BadFile } | { error: string }
 
 /** What {@link deleteMediaFiles} answers with. */
 export type DeleteMediaFilesResult =
-  | { deletedCount: number }
-  | { error: string }
+  { deletedCount: number } | { error: string }
 
 /** What {@link searchReleases} answers with. */
 export type ReleaseSearchResult = { error: string } | { releases: Release[] }
 
 /** What {@link listImportCandidates} answers with. */
 export type ImportCandidatesResult =
-  | { candidates: ManualImportCandidate[] }
-  | { error: string }
+  { candidates: ManualImportCandidate[] } | { error: string }
 
 /** What {@link importFiles} answers with. */
 export type ImportFilesResult = { error: string } | { importedCount: number }

@@ -79,7 +79,7 @@ export abstract class BaseMediaService {
     } catch (error) {
       const msg = errorMessage(error, 'Unknown validation error')
       this.logger.error({ input, error: msg }, 'Invalid search query input')
-      throw new Error(`Invalid search query: ${msg}`)
+      throw new Error(`Invalid search query: ${msg}`, { cause: error })
     }
   }
 
@@ -99,7 +99,7 @@ export abstract class BaseMediaService {
         { input, error: msg },
         'Invalid optional search query input',
       )
-      throw new Error(`Invalid search query: ${msg}`)
+      throw new Error(`Invalid search query: ${msg}`, { cause: error })
     }
   }
 }

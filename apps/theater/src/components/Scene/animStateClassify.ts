@@ -31,11 +31,7 @@
 // debounceAnimState's body.
 
 export type AnimState =
-  | 'idle'
-  | 'walk_fwd'
-  | 'walk_back'
-  | 'strafe_left'
-  | 'strafe_right'
+  'idle' | 'walk_fwd' | 'walk_back' | 'strafe_left' | 'strafe_right'
 
 // Below this world-space planar (XZ) speed, classify as 'idle' rather than
 // any walk/strafe state -- filters camera/position jitter while genuinely

@@ -156,18 +156,17 @@ export type SonarrSeriesUpdate = Partial<
 /**
  * Sonarr series lookup response (for search)
  */
-export interface SonarrSeriesResource
-  extends Omit<
-    SonarrSeries,
-    | 'id'
-    | 'path'
-    | 'qualityProfileId'
-    | 'languageProfileId'
-    | 'monitored'
-    | 'added'
-    | 'tags'
-    | 'statistics'
-  > {
+export interface SonarrSeriesResource extends Omit<
+  SonarrSeries,
+  | 'id'
+  | 'path'
+  | 'qualityProfileId'
+  | 'languageProfileId'
+  | 'monitored'
+  | 'added'
+  | 'tags'
+  | 'statistics'
+> {
   id?: number
   path?: string
   qualityProfileId?: number
