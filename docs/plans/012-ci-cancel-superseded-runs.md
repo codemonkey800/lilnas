@@ -149,3 +149,6 @@ non-dry-run dispatch; `docs/deploy.md` matches the final workflow behaviour.
 ## Log
 <!-- Written by Nexus: findings, review cycles, checkpoint verdicts, the final report,
      the rollout record. Humans may add notes here too. -->
+
+### 2026-10-19 · T1 · done
+detect's "Detect changes" step now sets BASE, BASE_RUN and BASE_SOURCE inside the case...esac (still extractable). The Plan table has a `base source` row (PRs show "pull request base"). The dispatch `base` input description was updated to describe the new default. `read ... < <(script) || true` is required because the default step shell is `bash -e`. The warning for the push fallback goes to stdout, so tests compare the last stdout line. docs/deploy.md is NOT updated by this task; a later task must document the new base selection (push/bare dispatch diff from last successful push run, fallbacks, detect's actions: read permission).

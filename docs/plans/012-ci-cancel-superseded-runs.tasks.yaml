@@ -10,7 +10,8 @@ phases:
           - .github/workflows/ci.yml
           - scripts/ci/last-deployed-sha.sh
           - packages/cli/src/utils/__tests__/ci-workflow-base.spec.ts
-        status: todo
+        status: done
+        commit: a0ae300f140f05dd185261ff71f215ebcce581ee
         body: |-
           Make a push run (and a bare dispatch) diff from the last sha a successful
           push run of ci.yml handled, so the newest run covers every undeployed commit.
