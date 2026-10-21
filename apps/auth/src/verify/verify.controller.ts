@@ -41,20 +41,18 @@ export const VERIFY_RESPONSE_HEADERS = [
 // Mounted at the raw container port (8081) per the plan's "Process and
 // routing topology" — Traefik's forwardauth.address points here directly,
 // bypassing Next.js and the router's own :8080 listener entirely. U10
-// (infra/proxy.yml's `lilnas-auth` ForwardAuth middleware, additive
-// alongside the legacy `forward-auth` middleware — see that file's own
-// comment) owns the actual Traefik middleware/label wiring; this file is
-// only the NestJS side of that contract.
+// (infra/proxy.yml's `lilnas-auth` ForwardAuth middleware) owns the
+// actual Traefik middleware/label wiring; this file is only the NestJS side
+// of that contract.
 //
 // @All(), not @Get() — verified, not assumed. Traefik v3's ForwardAuth
 // subrequest uses a FIXED method (GET) by default: `preserveRequestMethod`
 // defaults to `false` per Traefik's own documented reference
 // (https://doc.traefik.io/traefik/reference/routing-configuration/http/middlewares/forwardauth/),
-// and neither the legacy forward-auth middleware NOR U10's own lilnas-auth
-// middleware definition (infra/proxy.yml) sets that option — so today's real
-// traffic to either endpoint always arrives as GET. Nothing in this file can
-// guarantee that stays true forever, though: a future edit to either
-// middleware definition could set preserveRequestMethod: true independently
+// and the lilnas-auth middleware definition (infra/proxy.yml) does not set
+// that option — so today's real traffic always arrives as GET. Nothing in
+// this file can guarantee that stays true forever, though: a future edit to
+// the middleware definition could set preserveRequestMethod: true independently
 // of anything this controller sees. @All() costs nothing — this handler
 // never reads a request body (Traefik's own forwardBody defaults false,
 // confirmed in the plan's research) and never branches on method — and

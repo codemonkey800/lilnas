@@ -40,7 +40,7 @@ services:
       # root). Only `labels:` are ever read from these files, but each
       # deploy.yml sits alongside that app's own .env.prod on the deploy
       # host, and infra/ holds several real secret files
-      # (.env.storage, .env.forward-auth, etc.) — a directory-level mount of
+      # (.env.storage, .env.traefik, etc.) — a directory-level mount of
       # either tree would make every one of those readable from inside this
       # container if it were ever compromised (e.g. an admin-UI RCE). Each
       # compose file this app's registry actually scans is mounted
