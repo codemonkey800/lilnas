@@ -77,6 +77,10 @@ const SESSION_EVENTS = {
   agentProcessExitedNonZero: 'agent-process-exited-non-zero',
   procExitBookkeepingFailed: 'proc-exit-bookkeeping-failed',
   syncLiveStatusFailed: 'sync-live-status-failed',
+  // session-manager.service.ts's handleConnectionClosed — the agent's ACP
+  // stdout stream failed (an ndjson line over ACP_MAX_MESSAGE_BYTES) and the
+  // SDK closed the connection.
+  acpConnectionFailed: 'acp-connection-failed',
 } as const
 
 const IDENTITY_EVENTS = {

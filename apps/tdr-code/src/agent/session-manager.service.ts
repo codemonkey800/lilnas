@@ -3,12 +3,15 @@ import path from 'node:path'
 import { Readable, Writable } from 'node:stream'
 
 import type {
+  ClientConnection,
   InitializeResponse,
+  NewSessionResponse,
   PermissionOption,
   RequestPermissionResponse,
 } from '@agentclientprotocol/sdk'
 import {
-  ClientSideConnection,
+  MessageTooLargeError,
+  methods,
   ndJsonStream,
   PROTOCOL_VERSION,
 } from '@agentclientprotocol/sdk'
@@ -62,6 +65,21 @@ import { BASE_SYSTEM_PROMPT } from './system-prompt.constants'
 // the channel behind the U8 pending-guard forever.
 const LOAD_SESSION_TIMEOUT_MS = 30_000
 
+// Per-line cap on the agent's stdout ndjson stream. SDK 2's ndJsonStream
+// buffers each line up to maxMessageBytes (default 32 MiB) and, past it,
+// errors the stream with MessageTooLargeError, which closes the connection.
+// The largest single line we expect is one loadSession replay
+// session/update carrying a whole tool result or image. The Anthropic API
+// caps a request at 32 MB, so no single history item can be bigger than
+// that, but ACP can carry the same payload twice in one line (a
+// tool_call_update's `content` plus its `rawOutput`) and JSON-escapes it.
+// The default 32 MiB could therefore reject a replay line that is legal
+// upstream, so we allow twice that. The cap still bounds what a runaway agent
+// can make us buffer per line, which the pre-2.0 SDK's unbounded line buffer
+// did not. Overflow is handled in spawnAndConnect's connection-close
+// listener: it's logged and the session torn down, never left hanging.
+export const ACP_MAX_MESSAGE_BYTES = 64 * 1024 * 1024
+
 // Plan-mode support: how long a presented plan-approval gate waits for an
 // Accept/Reject click before the underlying session/process is torn down to
 // free its concurrency slot. Deliberately separate from idleTimeoutSec —
@@ -102,10 +120,24 @@ function pickPlanOptionId(
   )
 }
 
+// The model id the ACP wrapper resolved for a new session. Stable ACP v1
+// reports it as the `model` category select in configOptions (claude-agent-
+// acp fills its currentValue from the same models.currentModelId it used to
+// return). The old `result.models` field was unstable-only in SDK 0.15, is
+// gone from SDK 2's schema, and claude-agent-acp 0.59 no longer sends it.
+function readResolvedModel(result: NewSessionResponse): string | undefined {
+  for (const option of result.configOptions ?? []) {
+    if (option.category === 'model' && option.type === 'select') {
+      return option.currentValue
+    }
+  }
+  return undefined
+}
+
 interface ManagedSession {
   channelId: string
   process: ChildProcess
-  connection: ClientSideConnection
+  connection: ClientConnection
   sessionId: string
   // DB sessions.id — null when generationId is null (Decision 4b).
   sessionRowId: number | null
@@ -425,7 +457,11 @@ export class SessionManagerService implements OnApplicationShutdown {
     // hang forever behind an unrelated channel's long-running turn. A no-op
     // if this channel already holds the lock or isn't queued at all.
     globalGitWriteLock.cancelWaiter(channelId, 'stop')
-    void session.connection.cancel({ sessionId: session.sessionId })
+    // session/cancel is a notification; it only rejects if the connection is
+    // already closed, and that path tears the session down on its own.
+    session.connection.agent
+      .notify(methods.agent.session.cancel, { sessionId: session.sessionId })
+      .catch(() => {})
     return logResult(true)
   }
 
@@ -810,10 +846,13 @@ export class SessionManagerService implements OnApplicationShutdown {
         return { kind: 'queued' } // treated as a queued-then-cancelled turn
       }
 
-      const result = await session.connection.prompt({
-        sessionId: session.sessionId,
-        prompt: buildPromptBlocks(text, images),
-      })
+      const result = await session.connection.agent.request(
+        methods.agent.session.prompt,
+        {
+          sessionId: session.sessionId,
+          prompt: buildPromptBlocks(text, images),
+        },
+      )
       this.handlers.onPromptComplete(session.channelId, result.stopReason)
       this.logger.info(
         {
@@ -1021,8 +1060,8 @@ export class SessionManagerService implements OnApplicationShutdown {
     const acpSessionId = latestRow.acpSessionId!
 
     // U3/U4: per-spawn-attempt suppression box, created BEFORE the ACP
-    // connection exists — the SDK's receive loop is live from
-    // ClientSideConnection construction and can stream setup/replay
+    // connection exists — the SDK's receive loop is live from the moment
+    // the client app connects and can stream setup/replay
     // session/update notifications before any session is registered.
     const box = { replaying: true }
 
@@ -1049,7 +1088,7 @@ export class SessionManagerService implements OnApplicationShutdown {
       // Race against LOAD_SESSION_TIMEOUT_MS — see its comment for why an
       // un-timed-out loadSession is a channel-wedge hazard, not just a slow call.
       await Promise.race([
-        connection.loadSession({
+        connection.agent.request(methods.agent.session.load, {
           sessionId: acpSessionId,
           cwd: latestRow.cwd,
           mcpServers: [],
@@ -1275,13 +1314,13 @@ export class SessionManagerService implements OnApplicationShutdown {
     let sessionId: string
     let resolvedModel: string | undefined
     try {
-      const result = await connection.newSession({
+      const result = await connection.agent.request(methods.agent.session.new, {
         cwd: this.claudeCwd,
         mcpServers: [],
         _meta: { systemPrompt: { append: systemPrompt } },
       })
       sessionId = result.sessionId
-      resolvedModel = result.models?.currentModelId
+      resolvedModel = readResolvedModel(result)
     } catch (err) {
       this.killProcessTree(proc)
       throw err
@@ -1374,16 +1413,16 @@ export class SessionManagerService implements OnApplicationShutdown {
   // (channel-keyed and no-op if this channel isn't registered yet, so they
   // give reactivation correct cleanup-on-death semantics for free), building
   // the ndJsonStream, creating the ACP client (with the caller's optional
-  // isReplaying predicate), constructing ClientSideConnection, and calling
-  // initialize(). Does NOT call newSession or loadSession — callers branch
-  // on that afterward. On any failure the process tree is killed and the
-  // error rethrown; callers do not need to duplicate that cleanup.
+  // isReplaying predicate), connecting that client app to the stream, and
+  // calling initialize(). Does NOT call newSession or loadSession — callers
+  // branch on that afterward. On any failure the process tree is killed and
+  // the error rethrown; callers do not need to duplicate that cleanup.
   private async spawnAndConnect(
     channelId: string,
     isReplaying?: () => boolean,
   ): Promise<{
     proc: ChildProcess
-    connection: ClientSideConnection
+    connection: ClientConnection
     initResult: InitializeResponse
   }> {
     const proc = spawn(this.claudeCommand, this.claudeArgs, {
@@ -1545,37 +1584,45 @@ export class SessionManagerService implements OnApplicationShutdown {
       const stream = ndJsonStream(
         Writable.toWeb(proc.stdin!) as WritableStream<Uint8Array>,
         Readable.toWeb(proc.stdout!) as ReadableStream<Uint8Array>,
+        { maxMessageBytes: ACP_MAX_MESSAGE_BYTES },
       )
 
-      const client = createAcpClient(
+      const connection = createAcpClient(
         channelId,
         this.handlers,
         isReplaying,
         args => this.handlePlanApprovalNeeded(args),
+      ).connect(stream)
+      connection.signal.addEventListener(
+        'abort',
+        () => this.handleConnectionClosed(channelId, proc, connection),
+        { once: true },
       )
-      const connection = new ClientSideConnection(() => client, stream)
 
-      const initResult = await connection.initialize({
-        protocolVersion: PROTOCOL_VERSION,
-        clientCapabilities: {
-          fs: { readTextFile: true, writeTextFile: true },
-          terminal: true,
+      const initResult = await connection.agent.request(
+        methods.agent.initialize,
+        {
+          protocolVersion: PROTOCOL_VERSION,
+          clientCapabilities: {
+            fs: { readTextFile: true, writeTextFile: true },
+            terminal: true,
+          },
+          clientInfo: {
+            name: 'tdr-code',
+            title: 'TDR Code Bot',
+            version: '0.1.0',
+          },
         },
-        clientInfo: {
-          name: 'tdr-code',
-          title: 'TDR Code Bot',
-          version: '0.1.0',
-        },
-      })
+      )
 
       const imageCapable =
         initResult.agentCapabilities?.promptCapabilities?.image ?? false
       // U4: production observability — the plan flags SDK-version-vs-wrapper-
       // capability as an open runtime question (installed client SDK is
-      // 0.15.0; the deployed claude-agent-acp wrapper resolves at runtime
-      // via npx). Logging on every spawn (not just reactivation attempts)
-      // lets operators confirm the actual capability before the first
-      // reactivation is ever attempted.
+      // 2.x, speaking stable ACP v1; the deployed claude-agent-acp wrapper
+      // resolves at runtime via npx). Logging on every spawn (not just
+      // reactivation attempts) lets operators confirm the actual capability
+      // before the first reactivation is ever attempted.
       this.logger.debug(
         {
           channelId,
@@ -1590,6 +1637,42 @@ export class SessionManagerService implements OnApplicationShutdown {
     } catch (err) {
       this.killProcessTree(proc)
       throw err
+    }
+  }
+
+  // Fires once, whenever this spawn's ACP connection closes. A normal close
+  // (agent stdout EOF after the process exits or is killed) is owned by the
+  // proc.on('exit'/'error') handlers above, so only a stream-level failure is
+  // handled here. Today that means a line over ACP_MAX_MESSAGE_BYTES: the
+  // SDK errors the stream, closes the connection with MessageTooLargeError
+  // and rejects every pending request with it, while the agent process keeps
+  // running with nothing left reading its stdout.
+  // - Mid-setup (initialize/newSession/loadSession pending) or mid-turn
+  //   (session/prompt pending, including a held plan-approval gate), that
+  //   rejection already reaches the caller's catch, which tears down or
+  //   kills the tree. Only the log line is added here.
+  // - Between turns nothing is pending, so nothing would ever notice the dead
+  //   connection until the next prompt. Tear the session down now.
+  private handleConnectionClosed(
+    channelId: string,
+    proc: ChildProcess,
+    connection: ClientConnection,
+  ): void {
+    const reason: unknown = connection.signal.reason
+    if (!(reason instanceof MessageTooLargeError)) return
+    this.logger.error(
+      {
+        event: LOG_EVENTS.acpConnectionFailed,
+        err: reason,
+        channelId,
+        pid: proc.pid,
+        maxMessageBytes: reason.maxMessageBytes,
+      },
+      'ACP message exceeded size limit — closing agent connection',
+    )
+    const session = this.sessions.get(channelId)
+    if (session?.connection === connection && !session.prompting) {
+      this.teardown(channelId, 'teardown')
     }
   }
 

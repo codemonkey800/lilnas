@@ -30,17 +30,20 @@ export function ModelOption({ model }: { model: ModelSpec }) {
       }}
     >
       <Box>
-        <Typography variant="body2" fontFamily="monospace">
+        <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
           {model.label}
         </Typography>
-        <Typography variant="caption" color="text.secondary">
+        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
           {model.description}
         </Typography>
       </Box>
       <Typography
         variant="caption"
-        color="text.secondary"
-        sx={{ flexShrink: 0, textAlign: 'right' }}
+        sx={{
+          color: 'text.secondary',
+          flexShrink: 0,
+          textAlign: 'right',
+        }}
       >
         {priceLabel(model)}
       </Typography>

@@ -2,7 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto'
 
 import { env } from '@lilnas/utils/env'
 import { Injectable } from '@nestjs/common'
-import { parse } from 'cookie'
+import { parseCookie } from 'cookie'
 import cookieParser from 'cookie-parser'
 import type { CookieOptions, Request, Response } from 'express'
 
@@ -52,7 +52,7 @@ export class AuthService {
       return null
     }
 
-    const raw = parse(cookieHeader)[SESSION_COOKIE_NAME]
+    const raw = parseCookie(cookieHeader)[SESSION_COOKIE_NAME]
 
     // cookie-parser's `signedCookie()` treats a value that does NOT start
     // with the `s:` signing prefix as an already-unsigned passthrough value

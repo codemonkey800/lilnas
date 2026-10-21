@@ -114,11 +114,66 @@ jest.mock('discord.js', () => ({
   MessageFlags: { Ephemeral: 64 },
 }))
 
-jest.mock('@agentclientprotocol/sdk', () => ({
-  ndJsonStream: jest.fn().mockReturnValue({}),
-  PROTOCOL_VERSION: '1.0',
-  ClientSideConnection: jest.fn(),
-}))
+// The slice of SDK 2's stable entrypoint that production code touches.
+// client() returns a recording app: onRequest/onNotification keep their
+// handlers by ACP method name (acp-client.spec drives them from there), and
+// connect() is a bare mock. The session-manager specs mock createAcpClient
+// itself and hand spawnAndConnect their own fake ClientConnection.
+jest.mock('@agentclientprotocol/sdk', () => {
+  class MessageTooLargeError extends Error {
+    constructor(readonly maxMessageBytes: number) {
+      super(
+        `Incoming ACP data exceeds the configured ${maxMessageBytes} byte limit`,
+      )
+      this.name = 'MessageTooLargeError'
+    }
+  }
+  return {
+    ndJsonStream: jest.fn().mockReturnValue({}),
+    PROTOCOL_VERSION: 1,
+    MessageTooLargeError,
+    methods: {
+      agent: {
+        initialize: 'initialize',
+        session: {
+          new: 'session/new',
+          load: 'session/load',
+          prompt: 'session/prompt',
+          cancel: 'session/cancel',
+        },
+      },
+      client: {
+        session: {
+          requestPermission: 'session/request_permission',
+          update: 'session/update',
+        },
+      },
+    },
+    client: jest.fn(() => {
+      type RecordingApp = {
+        requestHandlers: Map<string, unknown>
+        notificationHandlers: Map<string, unknown>
+        onRequest: jest.Mock<RecordingApp, [string, unknown]>
+        onNotification: jest.Mock<RecordingApp, [string, unknown]>
+        connect: jest.Mock
+      }
+      const app: RecordingApp = {
+        requestHandlers: new Map<string, unknown>(),
+        notificationHandlers: new Map<string, unknown>(),
+        onRequest: jest.fn((method: string, handler: unknown) => {
+          app.requestHandlers.set(method, handler)
+          return app
+        }),
+        onNotification: jest.fn((method: string, handler: unknown) => {
+          app.notificationHandlers.set(method, handler)
+          return app
+        }),
+        connect: jest.fn(),
+      }
+      return app
+    }),
+  }
+})
 
 jest.mock('node:child_process', () => ({
   execFileSync: jest.fn().mockReturnValue('/usr/bin/git'),

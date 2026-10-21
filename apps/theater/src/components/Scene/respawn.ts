@@ -1,8 +1,8 @@
 // Shared by isOutOfBounds below (the body) and Player.tsx's per-frame camera
 // guard — ecctrl's floating-capsule physics can produce a NaN position (see
-// Player.tsx's capsule-sizing comment), and THREE.Vector3.lerp never
-// recovers from that on its own (`NaN + anything` stays `NaN`), so both the
-// body and the camera need the same finite check.
+// Player.tsx's capsule-sizing comment), and a camera that picks one up
+// never recovers on its own if anything lerps it (`NaN + anything` stays
+// `NaN`), so both the body and the camera need the same finite check.
 export function isFiniteVec3(v: { x: number; y: number; z: number }): boolean {
   return Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z)
 }

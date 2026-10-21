@@ -55,7 +55,7 @@ function ReminderRow({
             variant="outlined"
             label={ACTION_LABELS[reminder.actionType]}
           />
-          <Typography variant="caption" color="text.secondary">
+          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
             {reminder.channelName ? `#${reminder.channelName}` : 'default'}
           </Typography>
         </Box>
@@ -69,11 +69,13 @@ function ReminderRow({
           <Typography
             key={line}
             variant="caption"
-            color="text.secondary"
-            fontFamily={
-              line === reminder.cronExpression ? 'monospace' : undefined
-            }
-            sx={{ display: 'block', whiteSpace: 'nowrap' }}
+            sx={{
+              color: 'text.secondary',
+              fontFamily:
+                line === reminder.cronExpression ? 'monospace' : undefined,
+              display: 'block',
+              whiteSpace: 'nowrap',
+            }}
           >
             {line}
           </Typography>
@@ -90,8 +92,7 @@ function ReminderRow({
         </Typography>
         <Typography
           variant="caption"
-          color="text.secondary"
-          sx={{ display: 'block' }}
+          sx={{ color: 'text.secondary', display: 'block' }}
         >
           {reminder.runCount} runs
         </Typography>

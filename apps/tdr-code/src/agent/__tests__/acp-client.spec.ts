@@ -1,9 +1,47 @@
+import type {
+  RequestPermissionRequest,
+  RequestPermissionResponse,
+  SessionNotification,
+} from '@agentclientprotocol/sdk'
+import { client } from '@agentclientprotocol/sdk'
+
 import type { AcpEventHandlers } from 'src/agent/agent.types'
 
 // setup.ts mocks 'src/agent/acp-client' globally; use requireActual to test the real implementation
-const { createAcpClient } = jest.requireActual(
+const { createAcpClient: createAcpClientApp } = jest.requireActual(
   '../acp-client',
 ) as typeof import('../acp-client')
+
+// setup.ts's SDK mock makes client() a recording app that keeps each
+// registered handler by ACP method name.
+type RecordingClientApp = {
+  requestHandlers: Map<string, (ctx: { params: unknown }) => Promise<unknown>>
+  notificationHandlers: Map<string, (ctx: { params: unknown }) => Promise<void>>
+}
+
+function recorded(app: ReturnType<typeof createAcpClientApp>) {
+  return app as unknown as RecordingClientApp
+}
+
+// SDK 2: createAcpClient returns a client app with handlers registered on
+// it, not a Client object. Adapt the registered session/request_permission
+// and session/update handlers back to direct calls so every case below can
+// drive them the way the agent's messages would.
+function createAcpClient(...args: Parameters<typeof createAcpClientApp>) {
+  const app = recorded(createAcpClientApp(...args))
+  const requestPermission = app.requestHandlers.get(
+    'session/request_permission',
+  )
+  const sessionUpdate = app.notificationHandlers.get('session/update')
+  if (!requestPermission || !sessionUpdate) {
+    throw new Error('createAcpClient did not register its ACP handlers')
+  }
+  return {
+    requestPermission: (params: RequestPermissionRequest) =>
+      requestPermission({ params }) as Promise<RequestPermissionResponse>,
+    sessionUpdate: (params: SessionNotification) => sessionUpdate({ params }),
+  }
+}
 
 function createMockHandlers(): jest.Mocked<AcpEventHandlers> {
   return {
@@ -29,6 +67,18 @@ function expectNoHandlerCalls(handlers: jest.Mocked<AcpEventHandlers>): void {
   expect(handlers.onAgentMessageImage).not.toHaveBeenCalled()
   expect(handlers.onSessionInfoUpdate).not.toHaveBeenCalled()
 }
+
+describe('createAcpClient — client app registration', () => {
+  it('registers exactly the permission request and session/update notification handlers', () => {
+    const app = recorded(createAcpClientApp('ch1', createMockHandlers()))
+
+    expect(client).toHaveBeenCalledWith({ name: 'tdr-code' })
+    expect([...app.requestHandlers.keys()]).toEqual([
+      'session/request_permission',
+    ])
+    expect([...app.notificationHandlers.keys()]).toEqual(['session/update'])
+  })
+})
 
 describe('createAcpClient — agent_message_chunk routing', () => {
   it('routes text content to onAgentMessageChunk (regression)', async () => {

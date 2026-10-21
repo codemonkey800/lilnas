@@ -42,7 +42,7 @@ export function RedescribeDialog({ emoji, onClose }: RedescribeDialogProps) {
         </Box>
       </DialogTitle>
       <DialogContent>
-        <DialogContentText color="text.primary">
+        <DialogContentText sx={{ color: 'text.primary' }}>
           Replace this hand-written description with an AI one?
         </DialogContentText>
         <Paper

@@ -4,7 +4,7 @@ import * as dotenv from 'dotenv'
 import path from 'path'
 
 const ENV_FILE = path.resolve(__dirname, '../.env')
-dotenv.config({ path: ENV_FILE })
+dotenv.config({ path: ENV_FILE, quiet: true })
 
 interface ParsedArgs {
   channel: string

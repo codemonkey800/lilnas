@@ -1,7 +1,7 @@
 FROM ghcr.io/codemonkey800/lilnas-node-base:latest AS builder
 
 # Install global build tools
-RUN npm install -g turbo@2.11.9
+RUN npm install -g turbo@2.11.10
 
 # Set up working directory
 WORKDIR /source

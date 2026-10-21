@@ -39,12 +39,12 @@ export function ReminderCard({
         <Box
           sx={{ display: 'flex', justifyContent: 'space-between', gap: 1.5 }}
         >
-          <Typography variant="body2" fontWeight={500}>
+          <Typography variant="body2" sx={{ fontWeight: 500 }}>
             {reminder.what}
           </Typography>
           <StatusChip status={reminder.status} />
         </Box>
-        <Typography variant="caption" color="text.secondary">
+        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
           {whoLabel(reminder)}
         </Typography>
         <Typography variant="caption" sx={{ display: 'block', mt: 1 }}>
@@ -54,16 +54,18 @@ export function ReminderCard({
           <Typography
             key={line}
             variant="caption"
-            color="text.secondary"
-            sx={{ display: 'block' }}
+            sx={{ color: 'text.secondary', display: 'block' }}
           >
             {line}
           </Typography>
         ))}
         <Typography
           variant="caption"
-          color="text.secondary"
-          sx={{ display: 'block', mt: 0.5 }}
+          sx={{
+            color: 'text.secondary',
+            display: 'block',
+            mt: 0.5,
+          }}
         >
           Next:{' '}
           {reminder.nextRunAt

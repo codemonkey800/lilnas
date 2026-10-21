@@ -5,8 +5,9 @@ import path from 'node:path'
 
 import { Global, Module } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
-import type { UnhandledRequestStrategy } from 'msw'
+import type { UnhandledFrameHandle } from 'msw'
 import { http as mswHttp, HttpResponse } from 'msw'
+import { HttpNetworkFrame } from 'msw/experimental'
 import { setupServer } from 'msw/node'
 // pino ships `export =` merged with a same-named namespace — the
 // import-x/no-named-as-default warning is a known false positive for this
@@ -51,17 +52,23 @@ const GUILD_ID = process.env.DISCORD_GUILD_ID ?? 'test-guild-id'
 // request too (confirmed empirically: 'error' threw "Cannot bypass a
 // request" on 127.0.0.1 traffic to this test's own server) or silently
 // masks a genuinely-unhandled discord.com call as a mere warning. This
-// scoped function strategy only errors on unhandled discord.com requests
-// (a real gap in test setup) and returns without calling warning()/error()
-// for everything else — onUnhandledRequest's own source confirms that's
-// exactly what makes the interceptor bypass (real network passthrough) —
-// which is the correct behavior for this test's own loopback traffic.
-const discordOnlyUnhandledRequestStrategy: UnhandledRequestStrategy = (
-  request,
-  print,
-) => {
-  if (new URL(request.url).hostname === 'discord.com') {
-    print.error()
+// scoped callback only errors on unhandled discord.com requests (a real gap
+// in test setup) and returns without throwing for everything else — msw 3's
+// executeUnhandledFrameHandle passes the frame through to the real network
+// whenever an onUnhandledFrame callback resolves — which is the correct
+// behavior for this test's own loopback traffic. The callback must throw to
+// fail the frame: defaults.error() only prints the unhandled-frame message
+// and does not error the request by itself.
+const discordOnlyUnhandledFrameStrategy: UnhandledFrameHandle = async ({
+  frame,
+  defaults,
+}) => {
+  if (
+    frame instanceof HttpNetworkFrame &&
+    new URL(frame.data.request.url).hostname === 'discord.com'
+  ) {
+    await defaults.error()
+    throw new Error(await frame.getUnhandledMessage())
   }
 }
 
@@ -206,7 +213,7 @@ describe('Guild-membership gate (U3) — isGuildMember pure predicate', () => {
 describe('Guild-membership gate (U3) — lookupGuildMembership HTTP call', () => {
   const server = setupServer()
 
-  beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
+  beforeAll(() => server.listen({ onUnhandledFrame: 'error' }))
   afterEach(() => server.resetHandlers())
   afterAll(() => server.close())
 
@@ -391,7 +398,7 @@ describe('Guild-membership gate (U3) — real OAuth callback, Discord HTTP mocke
 
   beforeAll(async () => {
     mswServer.listen({
-      onUnhandledRequest: discordOnlyUnhandledRequestStrategy,
+      onUnhandledFrame: discordOnlyUnhandledFrameStrategy,
     })
 
     testDb = createTestDb()

@@ -203,9 +203,10 @@ function buildClip(rawClip: AnimationClip, state: AnimState): AnimationClip {
 // meaningless. There's also no live browser here to tune against -- this
 // app's convention for that situation (e.g. IpadBrowser.tsx's HUD-sizing
 // constants) is to pick a reasonable eyeballed value and document it as a
-// rough starting point for a later manual tuning pass. ecctrl's own walk cap
-// is 2.5 m/s (Player.tsx never overrides maxVelLimit), so this sits inside
-// an ordinary walking pace, comfortably below a full sprint. All four
+// rough starting point for a later manual tuning pass. The local walk cap is
+// 2.5 m/s (Player.tsx's MAX_WALK_VEL, carried over from ecctrl 1.0.97's
+// maxVelLimit default), so this sits inside an ordinary walking pace,
+// comfortably below a full sprint. All four
 // currently share one starting guess -- Mixamo's stock walk-family cycles
 // read as a broadly similar cadence, and there's no way to justify
 // differentiating them without being able to look at the result -- but

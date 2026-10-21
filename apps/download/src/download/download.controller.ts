@@ -66,7 +66,6 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common'
-import contentDisposition from 'content-disposition'
 import type { Response } from 'express'
 import { createZodDto, ZodValidationPipe } from 'nestjs-zod'
 
@@ -1004,7 +1003,9 @@ export class DownloadController {
       // waits out rather than reports.
       const stream = await this.mediaFileService.getObjectStream(source)
 
-      res.setHeader('Content-Disposition', contentDisposition(source.fileName))
+      // `attachment()` also derives a Content-Type from the extension; the
+      // explicit one below must stay after it so the stored type wins.
+      res.attachment(source.fileName)
       res.setHeader('Content-Type', source.contentType)
       res.setHeader('Content-Length', String(source.size))
 
@@ -1018,7 +1019,7 @@ export class DownloadController {
       res.once('close', () => stream.destroy())
       stream.pipe(res)
     } else {
-      res.setHeader('Content-Disposition', contentDisposition(source.fileName))
+      res.attachment(source.fileName)
 
       // `sendFile` rather than a hand-rolled `createReadStream`: it supplies
       // `Range`/206, `Accept-Ranges`, ETag, Last-Modified and an

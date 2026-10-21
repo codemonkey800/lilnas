@@ -1,9 +1,9 @@
 import { spawnSync } from 'child_process'
 import * as fs from 'fs'
-import yaml from 'js-yaml'
 import * as path from 'path'
 
 import { resolveDockerComposeCmd } from './docker'
+import { loadYaml } from './yaml'
 
 /**
  * Returns the list of Docker Compose services defined in the given compose file.
@@ -84,7 +84,7 @@ export function listInfraServices(root: string): string[] {
   }
 
   const content = fs.readFileSync(composeFile, 'utf8')
-  const doc = yaml.load(content)
+  const doc = loadYaml(content)
 
   if (!isComposeDoc(doc) || !Array.isArray(doc.include)) {
     return []

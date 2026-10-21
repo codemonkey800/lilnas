@@ -1,6 +1,6 @@
 import { spawnSync } from 'child_process'
 import * as fs from 'fs'
-import yaml from 'js-yaml'
+import { load } from 'js-yaml'
 import * as os from 'os'
 import * as path from 'path'
 
@@ -45,7 +45,7 @@ interface Workflow {
 }
 
 function loadWorkflow(): Workflow {
-  return yaml.load(fs.readFileSync(WORKFLOW, 'utf8')) as Workflow
+  return load(fs.readFileSync(WORKFLOW, 'utf8')) as Workflow
 }
 
 interface JobState {

@@ -33,10 +33,10 @@ export function CancelDialog({ reminder, onClose }: CancelDialogProps) {
     <Dialog open={!!reminder} onClose={close} fullWidth maxWidth="xs">
       <DialogTitle>Cancel this reminder?</DialogTitle>
       <DialogContent>
-        <DialogContentText color="text.primary">
+        <DialogContentText sx={{ color: 'text.primary' }}>
           {reminder?.what}
         </DialogContentText>
-        <Typography variant="caption" color="text.secondary">
+        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
           {reminder?.scheduleDescription}
         </Typography>
         {cancel.error && (

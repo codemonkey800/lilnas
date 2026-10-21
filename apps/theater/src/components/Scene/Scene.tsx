@@ -153,9 +153,9 @@ export function Scene({ characterId }: SceneProps) {
     return () => useMultiplayerStore.getState().disconnect()
   }, [characterId])
 
-  // ecctrl already rotates the camera on mousemove whenever
-  // document.pointerLockElement is set (no ecctrl props needed) — this just
-  // requests the lock itself, which browsers only grant from a user gesture.
+  // Player.tsx's mousemove listener rotates the camera whenever
+  // document.pointerLockElement is set — this just requests the lock itself,
+  // which browsers only grant from a user gesture.
   const requestLook = useCallback(() => {
     canvasRef.current?.requestPointerLock().catch(() => {
       // Rejected outside a user gesture, or unsupported — ignore.
@@ -179,8 +179,8 @@ export function Scene({ characterId }: SceneProps) {
             // event with ctrlKey set, for both pinch and actual Ctrl+scroll.
             // Must be a native listener: React attaches its own onWheel as
             // passive, which makes preventDefault() inside it a silent
-            // no-op. This only blocks the browser's page-zoom; Player.tsx's
-            // camZoomSpeed={0} already neutralizes ecctrl's own camera zoom.
+            // no-op. This blocks the browser's page-zoom; nothing in the scene
+            // listens for wheel, so the camera never zooms.
             state.gl.domElement.addEventListener(
               'wheel',
               e => {

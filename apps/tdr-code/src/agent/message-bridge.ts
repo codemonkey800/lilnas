@@ -1,5 +1,5 @@
 import type { ContentBlock } from '@agentclientprotocol/sdk'
-import { createTwoFilesPatch } from 'diff'
+import { formatPatch, OMIT_HEADERS, structuredPatch } from 'diff'
 
 import type { DiffContent, ImageAttachment } from './agent.types'
 
@@ -211,19 +211,24 @@ export function formatDiff(
   for (const d of diffs) {
     const fileName = d.path.split('/').pop() ?? d.path
     const oldText = d.oldText ?? ''
-    const patch = createTwoFilesPatch(
-      d.oldText == null ? '/dev/null' : d.path,
-      d.path,
-      oldText,
-      d.newText,
-      undefined,
-      undefined,
-      { context: 3 },
+    const oldName = d.oldText == null ? '/dev/null' : d.path
+    // jsdiff 9 quotes and octal-escapes special-character file names in the
+    // ---/+++ headers (as git does); we want the plain path, so format only the
+    // hunks and write the two header lines ourselves.
+    const hunks = formatPatch(
+      structuredPatch(
+        oldName,
+        d.path,
+        oldText,
+        d.newText,
+        undefined,
+        undefined,
+        { context: 3 },
+      ),
+      OMIT_HEADERS,
     )
-
-    const patchLines = patch.split('\n')
-    const startIdx = patchLines.findIndex(l => l.startsWith('---'))
-    const diffLines = startIdx >= 0 ? patchLines.slice(startIdx) : patchLines
+    const hunkLines = hunks.trim() ? hunks.split('\n') : ['']
+    const diffLines = [`--- ${oldName}`, `+++ ${d.path}`, ...hunkLines]
 
     let truncated = false
     let displayLines = diffLines

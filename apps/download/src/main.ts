@@ -2,7 +2,7 @@ import * as dotenv from 'dotenv'
 import * as sourceMapSupport from 'source-map-support'
 
 async function main() {
-  dotenv.config()
+  dotenv.config({ quiet: true })
   sourceMapSupport.install()
 
   // dynamically import bootstrap so that top level `env()` calls use the values

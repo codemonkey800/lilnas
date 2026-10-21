@@ -80,15 +80,24 @@ function TotalsBar({
         <Box key={label} sx={{ minWidth: 0 }}>
           <Typography
             variant="caption"
-            color="text.secondary"
-            sx={{ display: 'block', whiteSpace: 'nowrap' }}
+            sx={{
+              color: 'text.secondary',
+              display: 'block',
+              whiteSpace: 'nowrap',
+            }}
           >
             {label}
           </Typography>
           {loading || value === undefined ? (
             <Skeleton width={56} />
           ) : (
-            <Typography fontFamily="monospace" fontWeight={600} fontSize={14}>
+            <Typography
+              sx={{
+                fontFamily: 'monospace',
+                fontWeight: 600,
+                fontSize: 14,
+              }}
+            >
               {value}
             </Typography>
           )}
@@ -126,23 +135,28 @@ function CallCard({ call }: { call: LlmCallRow }) {
           minWidth: 0,
         }}
       >
-        <Typography fontSize={12} fontWeight={600} noWrap>
+        <Typography noWrap sx={{ fontSize: 12, fontWeight: 600 }}>
           {call.operation}
         </Typography>
         <Typography
-          fontSize={11}
-          fontFamily="monospace"
-          color="text.secondary"
           noWrap
-          sx={{ minWidth: 0 }}
+          sx={{
+            fontSize: 11,
+            fontFamily: 'monospace',
+            color: 'text.secondary',
+            minWidth: 0,
+          }}
         >
           {call.model}
         </Typography>
         {retries > 0 && (
           <Typography
-            fontSize={11}
-            color="warning.main"
-            sx={{ ml: 'auto', flexShrink: 0 }}
+            sx={{
+              fontSize: 11,
+              color: 'warning.main',
+              ml: 'auto',
+              flexShrink: 0,
+            }}
           >
             {retries} retr{retries === 1 ? 'y' : 'ies'}
           </Typography>
@@ -337,8 +351,10 @@ function Item({ item, lookup }: { item: TranscriptItem; lookup: EmojiLookup }) {
         >
           <Typography
             variant="caption"
-            color={isHuman ? 'primary.light' : 'text.secondary'}
-            fontWeight={500}
+            sx={{
+              color: isHuman ? 'primary.light' : 'text.secondary',
+              fontWeight: 500,
+            }}
           >
             {isHuman ? (item.message.name ?? 'user') : 'tdr-bot'}
           </Typography>
@@ -402,9 +418,9 @@ function TranscriptBody({
         }}
       >
         <Box>
-          <Typography fontSize={32}>💬</Typography>
-          <Typography fontWeight={500}>No messages yet</Typography>
-          <Typography variant="caption" color="text.secondary">
+          <Typography sx={{ fontSize: 32 }}>💬</Typography>
+          <Typography sx={{ fontWeight: 500 }}>No messages yet</Typography>
+          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
             Pick another channel.
           </Typography>
         </Box>
@@ -671,8 +687,8 @@ export default function TranscriptPage() {
                     primary={`# ${ch.name}`}
                     secondary={`${formatTime(ch.lastAt)} · ${ch.calls.toLocaleString('en-US')} calls`}
                     slotProps={{
-                      primary: { fontSize: 14, fontWeight: 500 },
-                      secondary: { fontSize: 11 },
+                      primary: { sx: { fontSize: 14, fontWeight: 500 } },
+                      secondary: { sx: { fontSize: 11 } },
                     }}
                   />
                 </ListItemButton>

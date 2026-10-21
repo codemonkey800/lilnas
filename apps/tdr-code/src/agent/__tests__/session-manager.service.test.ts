@@ -2,10 +2,10 @@ import { execFileSync, spawn } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { Readable, Writable } from 'node:stream'
 
-import { ClientSideConnection } from '@agentclientprotocol/sdk'
 import { Test } from '@nestjs/testing'
 import { PinoLogger } from 'nestjs-pino'
 
+import { createAcpClient } from 'src/agent/acp-client'
 import {
   ACP_EVENT_HANDLERS,
   PLAN_APPROVAL_PRESENTER,
@@ -36,12 +36,7 @@ interface TestSession {
   cancelRequested: boolean
 }
 
-interface TestConnection {
-  prompt: jest.Mock
-  cancel: jest.Mock
-  initialize: jest.Mock
-  newSession: jest.Mock
-}
+type TestConnection = ReturnType<typeof createMockConnection>
 
 interface ServiceInternals {
   sessions: Map<string, TestSession>
@@ -68,13 +63,49 @@ function createMockHandlers(): jest.Mocked<AcpEventHandlers> {
   }
 }
 
-function createMockConnection(stopReason = 'end_turn'): TestConnection {
+// SDK 2 dropped ClientSideConnection: spawnAndConnect now calls
+// createAcpClient(...).connect(stream). This fake stands in for the
+// returned ClientConnection. agent.request/notify dispatch by ACP method
+// name onto the per-method mocks, which stay on the object itself so
+// assertions keep reading them as conn.prompt, conn.cancel and so on.
+// close(err) aborts `signal` the way the SDK does when its stream fails.
+const ACP_METHOD_MOCKS = {
+  initialize: 'initialize',
+  'session/new': 'newSession',
+  'session/load': 'loadSession',
+  'session/prompt': 'prompt',
+  'session/cancel': 'cancel',
+} as const
+type AcpMockName = (typeof ACP_METHOD_MOCKS)[keyof typeof ACP_METHOD_MOCKS]
+
+function fakeAcpConnection<T extends Partial<Record<AcpMockName, jest.Mock>>>(
+  mocks: T,
+) {
+  const abort = new AbortController()
+  const dispatch = (method: string, params: unknown): Promise<unknown> => {
+    const name = ACP_METHOD_MOCKS[method as keyof typeof ACP_METHOD_MOCKS]
+    const mock = name ? mocks[name] : undefined
+    if (!mock) return Promise.reject(new Error(`unmocked ACP method ${method}`))
+    return Promise.resolve(mock(params))
+  }
   return {
+    ...mocks,
+    agent: { request: jest.fn(dispatch), notify: jest.fn(dispatch) },
+    signal: abort.signal,
+    closed: new Promise<void>(resolve =>
+      abort.signal.addEventListener('abort', () => resolve()),
+    ),
+    close: (err?: unknown) => abort.abort(err),
+  }
+}
+
+function createMockConnection(stopReason = 'end_turn') {
+  return fakeAcpConnection({
     prompt: jest.fn().mockResolvedValue({ stopReason }),
     cancel: jest.fn().mockResolvedValue(undefined),
     initialize: jest.fn().mockResolvedValue(undefined),
     newSession: jest.fn().mockResolvedValue({ sessionId: 'session-1' }),
-  }
+  })
 }
 
 // execFileSync is arg-aware (not a flat mockReturnValue) so tests can
@@ -88,12 +119,6 @@ jest.mock('node:child_process', () => ({
     return '/usr/bin/git'
   }),
   spawn: jest.fn(),
-}))
-
-jest.mock('@agentclientprotocol/sdk', () => ({
-  ndJsonStream: jest.fn().mockReturnValue({}),
-  PROTOCOL_VERSION: '1.0',
-  ClientSideConnection: jest.fn(),
 }))
 
 jest.mock('src/agent/acp-client', () => ({
@@ -508,13 +533,21 @@ describe('SessionManagerService', () => {
       mockProc.kill = jest.fn()
 
       jest.mocked(spawn).mockReturnValue(mockProc as never)
-      ;(ClientSideConnection as jest.Mock).mockImplementation(() => ({
-        initialize: jest
-          .fn()
-          .mockResolvedValue({ agentCapabilities: { promptCapabilities: {} } }),
-        newSession: jest.fn().mockResolvedValue({ sessionId: 'test-session' }),
-        prompt: jest.fn().mockResolvedValue({ stopReason: 'end_turn' }),
-      }))
+      jest.mocked(createAcpClient).mockImplementation(
+        () =>
+          ({
+            connect: () =>
+              fakeAcpConnection({
+                initialize: jest.fn().mockResolvedValue({
+                  agentCapabilities: { promptCapabilities: {} },
+                }),
+                newSession: jest
+                  .fn()
+                  .mockResolvedValue({ sessionId: 'test-session' }),
+                prompt: jest.fn().mockResolvedValue({ stopReason: 'end_turn' }),
+              }),
+          }) as never,
+      )
 
       const handlers = createMockHandlers()
       const service = await createService(handlers)
@@ -544,15 +577,21 @@ describe('SessionManagerService', () => {
       mockProc.kill = jest.fn()
 
       jest.mocked(spawn).mockReturnValue(mockProc as never)
-      ;(ClientSideConnection as jest.Mock).mockImplementation(() => ({
-        initialize: jest
-          .fn()
-          .mockResolvedValue({ agentCapabilities: { promptCapabilities: {} } }),
-        newSession: jest
-          .fn()
-          .mockResolvedValue({ sessionId: 'test-session-2' }),
-        prompt: jest.fn().mockResolvedValue({ stopReason: 'end_turn' }),
-      }))
+      jest.mocked(createAcpClient).mockImplementation(
+        () =>
+          ({
+            connect: () =>
+              fakeAcpConnection({
+                initialize: jest.fn().mockResolvedValue({
+                  agentCapabilities: { promptCapabilities: {} },
+                }),
+                newSession: jest
+                  .fn()
+                  .mockResolvedValue({ sessionId: 'test-session-2' }),
+                prompt: jest.fn().mockResolvedValue({ stopReason: 'end_turn' }),
+              }),
+          }) as never,
+      )
 
       const handlers = createMockHandlers()
       const service = await createService(handlers)
@@ -585,15 +624,21 @@ describe('SessionManagerService', () => {
       mockProc.kill = jest.fn()
 
       jest.mocked(spawn).mockReturnValue(mockProc as never)
-      ;(ClientSideConnection as jest.Mock).mockImplementation(() => ({
-        initialize: jest
-          .fn()
-          .mockResolvedValue({ agentCapabilities: { promptCapabilities: {} } }),
-        newSession: jest
-          .fn()
-          .mockResolvedValue({ sessionId: 'test-session-3' }),
-        prompt: jest.fn().mockResolvedValue({ stopReason: 'end_turn' }),
-      }))
+      jest.mocked(createAcpClient).mockImplementation(
+        () =>
+          ({
+            connect: () =>
+              fakeAcpConnection({
+                initialize: jest.fn().mockResolvedValue({
+                  agentCapabilities: { promptCapabilities: {} },
+                }),
+                newSession: jest
+                  .fn()
+                  .mockResolvedValue({ sessionId: 'test-session-3' }),
+                prompt: jest.fn().mockResolvedValue({ stopReason: 'end_turn' }),
+              }),
+          }) as never,
+      )
 
       const handlers = createMockHandlers()
       const service = await createService(handlers)
@@ -776,13 +821,21 @@ describe('SessionManagerService', () => {
       mockProc.stdout = new Readable({ read: () => {} })
       mockProc.kill = jest.fn()
       jest.mocked(spawn).mockReturnValue(mockProc as never)
-      ;(ClientSideConnection as jest.Mock).mockImplementation(() => ({
-        initialize: jest
-          .fn()
-          .mockResolvedValue({ agentCapabilities: { promptCapabilities: {} } }),
-        newSession: jest.fn().mockResolvedValue({ sessionId: 'gh-env-test' }),
-        prompt: jest.fn().mockResolvedValue({ stopReason: 'end_turn' }),
-      }))
+      jest.mocked(createAcpClient).mockImplementation(
+        () =>
+          ({
+            connect: () =>
+              fakeAcpConnection({
+                initialize: jest.fn().mockResolvedValue({
+                  agentCapabilities: { promptCapabilities: {} },
+                }),
+                newSession: jest
+                  .fn()
+                  .mockResolvedValue({ sessionId: 'gh-env-test' }),
+                prompt: jest.fn().mockResolvedValue({ stopReason: 'end_turn' }),
+              }),
+          }) as never,
+      )
 
       await service.prompt('ch-gh-env', 'hello', 'user-1')
 
@@ -816,15 +869,21 @@ describe('SessionManagerService', () => {
       mockProc.stdout = new Readable({ read: () => {} })
       mockProc.kill = jest.fn()
       jest.mocked(spawn).mockReturnValue(mockProc as never)
-      ;(ClientSideConnection as jest.Mock).mockImplementation(() => ({
-        initialize: jest
-          .fn()
-          .mockResolvedValue({ agentCapabilities: { promptCapabilities: {} } }),
-        newSession: jest
-          .fn()
-          .mockResolvedValue({ sessionId: 'gh-env-missing-test' }),
-        prompt: jest.fn().mockResolvedValue({ stopReason: 'end_turn' }),
-      }))
+      jest.mocked(createAcpClient).mockImplementation(
+        () =>
+          ({
+            connect: () =>
+              fakeAcpConnection({
+                initialize: jest.fn().mockResolvedValue({
+                  agentCapabilities: { promptCapabilities: {} },
+                }),
+                newSession: jest
+                  .fn()
+                  .mockResolvedValue({ sessionId: 'gh-env-missing-test' }),
+                prompt: jest.fn().mockResolvedValue({ stopReason: 'end_turn' }),
+              }),
+          }) as never,
+      )
 
       await service.prompt('ch-gh-env-missing', 'hello', 'user-1')
 
@@ -854,15 +913,21 @@ describe('SessionManagerService', () => {
       mockProc.stdout = new Readable({ read: () => {} })
       mockProc.kill = jest.fn()
       jest.mocked(spawn).mockReturnValue(mockProc as never)
-      ;(ClientSideConnection as jest.Mock).mockImplementation(() => ({
-        initialize: jest
-          .fn()
-          .mockResolvedValue({ agentCapabilities: { promptCapabilities: {} } }),
-        newSession: jest
-          .fn()
-          .mockResolvedValue({ sessionId: 'gh-token-env-test' }),
-        prompt: jest.fn().mockResolvedValue({ stopReason: 'end_turn' }),
-      }))
+      jest.mocked(createAcpClient).mockImplementation(
+        () =>
+          ({
+            connect: () =>
+              fakeAcpConnection({
+                initialize: jest.fn().mockResolvedValue({
+                  agentCapabilities: { promptCapabilities: {} },
+                }),
+                newSession: jest
+                  .fn()
+                  .mockResolvedValue({ sessionId: 'gh-token-env-test' }),
+                prompt: jest.fn().mockResolvedValue({ stopReason: 'end_turn' }),
+              }),
+          }) as never,
+      )
 
       await service.prompt('ch-gh-token-env', 'hello', 'user-1')
 

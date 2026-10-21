@@ -2,9 +2,9 @@ import { spawn } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { Readable, Writable } from 'node:stream'
 
-import { ClientSideConnection } from '@agentclientprotocol/sdk'
 import { PinoLogger } from 'nestjs-pino'
 
+import { createAcpClient } from 'src/agent/acp-client'
 import type {
   AcpEventHandlers,
   PlanApprovalPresenter,
@@ -17,12 +17,6 @@ import { EnvKeys } from 'src/env'
 jest.mock('node:child_process', () => ({
   execFileSync: jest.fn().mockReturnValue('/usr/bin/git'),
   spawn: jest.fn(),
-}))
-
-jest.mock('@agentclientprotocol/sdk', () => ({
-  ndJsonStream: jest.fn().mockReturnValue({}),
-  PROTOCOL_VERSION: '1.0',
-  ClientSideConnection: jest.fn(),
 }))
 
 jest.mock('src/agent/acp-client', () => ({
@@ -46,6 +40,42 @@ jest.mock('src/agent/git-write-lock', () => ({
     currentHolder: null,
   },
 }))
+
+// SDK 2 dropped ClientSideConnection: spawnAndConnect now calls
+// createAcpClient(...).connect(stream). This fake stands in for the
+// returned ClientConnection. agent.request/notify dispatch by ACP method
+// name onto the per-method mocks, which stay on the object itself so
+// assertions keep reading them as conn.prompt, conn.cancel and so on.
+// close(err) aborts `signal` the way the SDK does when its stream fails.
+const ACP_METHOD_MOCKS = {
+  initialize: 'initialize',
+  'session/new': 'newSession',
+  'session/load': 'loadSession',
+  'session/prompt': 'prompt',
+  'session/cancel': 'cancel',
+} as const
+type AcpMockName = (typeof ACP_METHOD_MOCKS)[keyof typeof ACP_METHOD_MOCKS]
+
+function fakeAcpConnection<T extends Partial<Record<AcpMockName, jest.Mock>>>(
+  mocks: T,
+) {
+  const abort = new AbortController()
+  const dispatch = (method: string, params: unknown): Promise<unknown> => {
+    const name = ACP_METHOD_MOCKS[method as keyof typeof ACP_METHOD_MOCKS]
+    const mock = name ? mocks[name] : undefined
+    if (!mock) return Promise.reject(new Error(`unmocked ACP method ${method}`))
+    return Promise.resolve(mock(params))
+  }
+  return {
+    ...mocks,
+    agent: { request: jest.fn(dispatch), notify: jest.fn(dispatch) },
+    signal: abort.signal,
+    closed: new Promise<void>(resolve =>
+      abort.signal.addEventListener('abort', () => resolve()),
+    ),
+    close: (err?: unknown) => abort.abort(err),
+  }
+}
 
 function createMockHandlers(): jest.Mocked<AcpEventHandlers> {
   return {
@@ -411,11 +441,19 @@ describe('SessionManagerService — R3 apply-timing behavioral tests (U2)', () =
 
     const mockProc = mockProcess()
     jest.mocked(spawn).mockReturnValue(mockProc as never)
-    ;(ClientSideConnection as jest.Mock).mockImplementation(() => ({
-      initialize: jest.fn().mockResolvedValue({ agentCapabilities: {} }),
-      newSession: jest.fn().mockResolvedValue({ sessionId: 'sess-1' }),
-      prompt: jest.fn().mockResolvedValue({ stopReason: 'end_turn' }),
-    }))
+    jest.mocked(createAcpClient).mockImplementation(
+      () =>
+        ({
+          connect: () =>
+            fakeAcpConnection({
+              initialize: jest
+                .fn()
+                .mockResolvedValue({ agentCapabilities: {} }),
+              newSession: jest.fn().mockResolvedValue({ sessionId: 'sess-1' }),
+              prompt: jest.fn().mockResolvedValue({ stopReason: 'end_turn' }),
+            }),
+        }) as never,
+    )
 
     // Update config: new cwd and args
     const updated = makeConfigRow({
@@ -451,7 +489,10 @@ describe('SessionManagerService — R3 apply-timing behavioral tests (U2)', () =
 
     // An already-open session on another channel, injected directly — proves
     // rereadConfig() never touches this.sessions (no reconnect/re-prompt).
-    const existingConnection = { newSession: jest.fn(), prompt: jest.fn() }
+    const existingConnection = fakeAcpConnection({
+      newSession: jest.fn(),
+      prompt: jest.fn(),
+    })
     const sessionsMap = (
       service as unknown as { sessions: Map<string, unknown> }
     ).sessions
@@ -465,11 +506,19 @@ describe('SessionManagerService — R3 apply-timing behavioral tests (U2)', () =
     const mockProc = mockProcess()
     jest.mocked(spawn).mockReturnValue(mockProc as never)
     const newSessionMock = jest.fn().mockResolvedValue({ sessionId: 'sess-1' })
-    ;(ClientSideConnection as jest.Mock).mockImplementation(() => ({
-      initialize: jest.fn().mockResolvedValue({ agentCapabilities: {} }),
-      newSession: newSessionMock,
-      prompt: jest.fn().mockResolvedValue({ stopReason: 'end_turn' }),
-    }))
+    jest.mocked(createAcpClient).mockImplementation(
+      () =>
+        ({
+          connect: () =>
+            fakeAcpConnection({
+              initialize: jest
+                .fn()
+                .mockResolvedValue({ agentCapabilities: {} }),
+              newSession: newSessionMock,
+              prompt: jest.fn().mockResolvedValue({ stopReason: 'end_turn' }),
+            }),
+        }) as never,
+    )
 
     // Update config: new custom prompt
     const updated = makeConfigRow({ customSystemPrompt: 'new instructions' })
@@ -492,6 +541,7 @@ describe('SessionManagerService — R3 apply-timing behavioral tests (U2)', () =
     // The pre-existing session's connection was never touched.
     expect(existingConnection.newSession).not.toHaveBeenCalled()
     expect(existingConnection.prompt).not.toHaveBeenCalled()
+    expect(existingConnection.agent.request).not.toHaveBeenCalled()
     expect(
       (sessionsMap.get('ch-existing') as { connection: unknown }).connection,
     ).toBe(existingConnection)

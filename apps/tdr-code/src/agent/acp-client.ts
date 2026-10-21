@@ -1,10 +1,11 @@
 import type {
-  Client,
+  ClientApp,
   PermissionOption,
   RequestPermissionRequest,
   RequestPermissionResponse,
   SessionNotification,
 } from '@agentclientprotocol/sdk'
+import { client, methods } from '@agentclientprotocol/sdk'
 
 import { getBackendLogger } from 'src/logging/backend-logger'
 
@@ -38,12 +39,19 @@ export type PlanApprovalCallback = (args: {
 // three call sites here are `debug` (dev-only tracing), which is exempt
 // from carrying a registered `event` slug (R3).
 
+// Returns an unconnected ACP client app (SDK 2's replacement for the old
+// `Client` object handed to ClientSideConnection): session/request_permission
+// and session/update registered as typed handlers, which the SDK runs after
+// parsing their params against the stable v1 schema. The caller owns the
+// transport and calls `.connect(stream)`. fs/* and terminal/* are not
+// registered, so they get the SDK's Method Not Found, as they did when the
+// old Client object left them unimplemented.
 export function createAcpClient(
   channelId: string,
   handlers: AcpEventHandlers,
   isReplaying?: () => boolean,
   onPlanApprovalNeeded?: PlanApprovalCallback,
-): Client {
+): ClientApp {
   // Plan text for the current/most-recent switch_mode tool call, captured
   // off the tool_call(_update) content block that precedes the
   // requestPermission gate by one event on the same ndjson stream. Kept
@@ -54,7 +62,7 @@ export function createAcpClient(
   // physically click anything).
   let lastPlanText = ''
 
-  return {
+  const callbacks = {
     async requestPermission(
       params: RequestPermissionRequest,
     ): Promise<RequestPermissionResponse> {
@@ -182,6 +190,14 @@ export function createAcpClient(
       }
     },
   }
+
+  return client({ name: 'tdr-code' })
+    .onRequest(methods.client.session.requestPermission, ({ params }) =>
+      callbacks.requestPermission(params),
+    )
+    .onNotification(methods.client.session.update, ({ params }) =>
+      callbacks.sessionUpdate(params),
+    )
 }
 
 // Sibling to extractDiffs, pulling `type: 'content'` text blocks instead of

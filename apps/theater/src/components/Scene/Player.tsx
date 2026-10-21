@@ -1,12 +1,19 @@
 'use client'
 
-import { KeyboardControlsEntry } from '@react-three/drei'
+import { KeyboardControlsEntry, useKeyboardControls } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
-import Ecctrl, { CustomEcctrlRigidBody } from 'ecctrl'
-import { useRef, useState } from 'react'
+import { Ecctrl, type EcctrlHandle, type MovementInput } from 'ecctrl'
+import { useEffect, useRef, useState } from 'react'
+import { Vector3 } from 'three'
 
 import { usePlaybackStore } from 'src/playback/store'
 
+import {
+  applyMouseDelta,
+  INITIAL_LOOK,
+  lookFromDirection,
+  lookToEuler,
+} from './firstPersonLook'
 import { playerVelocity } from './playerVelocity'
 import { isFiniteVec3, isOutOfBounds } from './respawn'
 import { seatPhaseRef } from './SeatedCamera'
@@ -33,6 +40,14 @@ const SPAWN_VECTOR = {
   z: SPAWN_POSITION[2],
 }
 const ZERO_VELOCITY = { x: 0, y: 0, z: 0 }
+const NO_MOVEMENT: MovementInput = {
+  forward: false,
+  backward: false,
+  leftward: false,
+  rightward: false,
+  run: false,
+  jump: false,
+}
 
 // Theater.tsx recenters the model so its lowest floor point is always
 // exactly y=0 in world space — so falling this far below is unambiguously
@@ -41,33 +56,61 @@ const ZERO_VELOCITY = { x: 0, y: 0, z: 0 }
 // mode (see the capsule-sizing comment below) regardless of this threshold.
 const RESPAWN_MIN_Y = -2
 
-// Shrinking the actual capsule (capsuleRadius/capsuleHalfHeight) destabilizes
-// ecctrl's floating-capsule physics — the RigidBody's auto-computed mass
-// drops with its volume, but ecctrl's spring/jump force constants stay
-// absolute, so the same forces overpower the lighter body. Confirmed via
-// testing: shrinking the radius alone produces NaN positions within ~1-2s
-// of sustained wall contact + a jump. Keep ecctrl's tested default capsule
-// size, and only lower the camera's look-target height — a pure visual
-// offset with no physics feedback — to make the default eye-height feel
-// less like a looming adult.
-const CAM_TARGET_POS = { x: 0, y: -0.2, z: 0 }
+// The capsule is pinned to ecctrl 1.0.97's defaults rather than 2.0's
+// (half-height 0.3, radius 0.3, float 0.2). 2.0's shape-cast float rests the
+// capsule's bottom `floatHeight` above the ground, so these values keep the
+// centre resting 0.35 + 0.3 + 0.3 = 0.95m up, exactly where 1.0.97 held it:
+// SPAWN_POSITION, the eye height below and LocalPresence.tsx's
+// EYE_TO_FEET_HEIGHT_M all carry over unchanged. Don't shrink it. On 1.0.97,
+// shrinking the radius alone produced NaN positions within ~1-2s of
+// sustained wall contact + a jump: the RigidBody's auto-computed mass drops
+// with its volume, but the float spring's constants stay absolute, so the
+// same forces overpower the lighter body. 2.0's float spring (springK /
+// dampingC) is still mass-independent, and the NaN case hasn't been
+// re-tested on 2.0.
+const CAPSULE_HALF_HEIGHT = 0.35
+const CAPSULE_RADIUS = 0.3
+const FLOAT_HEIGHT = 0.3
 
-// ecctrl's own per-frame loop returns immediately when `disableControl` is
-// true — before it applies the floating-capsule spring force that holds a
-// grounded character up, and before its gravityScale management runs (see
-// node_modules/ecctrl/dist/Ecctrl.js). That leaves gravityScale pinned at
-// whatever it last was (1, ecctrl's own default, for a character standing
-// still) with nothing left to counteract it, so a motionless character
-// starts falling — fast enough to tunnel straight through the floor's thin
-// trimesh collider (ecctrl has no CCD) well before the iPad closes (or the
-// sit/stand transition finishes). Freezing gravity + velocity here for the
-// whole time `frozen` is true (iPad open OR any part of the seated state
-// machine below, per `seatPhaseRef`) is what actually keeps the character
-// "exactly in place", restoring ecctrl's default the instant it unfreezes
-// so its own floor-spring/gravity logic resumes correctly from the next
-// frame.
+// Movement tuning carried over from 1.0.97 so walking, running and jumping
+// feel the same: its maxVelLimit default (2.5 m/s) times its sprintMult
+// default (2), the jumpVel this file always set, its sprintJumpMult default
+// (1.2, applied while run is held) and its fallingGravityScale default (2.5;
+// 2.0's is 3). 2.0's acceleration/drag model is new (accDeltaTime/
+// decDeltaTime have no 1.0.97 equivalent), so those stay at 2.0's defaults.
+const MAX_WALK_VEL = 2.5
+const MAX_RUN_VEL = 5
+const JUMP_VEL = 2.5
+const RUN_JUMP_MULT = 1.2
+const FALLING_GRAVITY_SCALE = 2.5
+
+// Eye height above the capsule centre. ecctrl 2.0 has no camera of its own
+// (see firstPersonLook.ts), so this file now places the camera itself.
+// 1.0.97 put its follow pivot at the centre + camTargetPos.y +
+// capsuleHalfHeight + capsuleRadius / 2 = -0.2 + 0.35 + 0.15 = 0.3m, and
+// camInitDis={-0.01} sat the camera on that pivot. The -0.2 was a pure
+// visual offset (no physics feedback) that made the default eye height feel
+// less like a looming adult, which is why it's kept.
+const EYE_HEIGHT_ABOVE_BODY_M = 0.3
+
+// ecctrl 2.0's per-frame loop returns on its very first line when `enable`
+// is false, before ground detection, the float spring and its gravityScale
+// management (applyDynamicGravity) run. See
+// node_modules/ecctrl/dist/src-*.js. That leaves gravityScale at whatever it
+// last set: 0 for a grounded character (2.0 holds it up with the spring
+// alone), 1 while rising and FALLING_GRAVITY_SCALE while falling. Nothing
+// damps the velocity either. A character frozen mid-jump (iPad opened in the
+// air) would keep falling with no spring to catch it, fast enough to tunnel
+// through the floor's thin trimesh collider (ecctrl has no CCD), and a
+// grounded one would coast on whatever velocity it had. Freezing gravity +
+// velocity here for the whole time `frozen` is true (iPad open OR any part
+// of the seated state machine below, per `seatPhaseRef`) is what keeps the
+// character "exactly in place". On unfreeze, gravityScale goes back to
+// ecctrl's initial value (`props.gravityScale ?? 1`). applyDynamicGravity
+// rewrites it for the actual ground/air state on its next awake frame
+// anyway, so this only makes sure the frozen 0 never outlives the freeze.
 const FROZEN_GRAVITY_SCALE = 0
-const DEFAULT_GRAVITY_SCALE = 1 // matches ecctrl's own unconfigured default
+const DEFAULT_GRAVITY_SCALE = 1 // ecctrl's initialGravityScale with no gravityScale prop
 
 // A debug HUD only needs a human-readable refresh rate — pushing telemetry
 // into React state at useFrame's display-refresh cadence (~60Hz) would mean
@@ -85,28 +128,61 @@ export type PlayerProps = {
 
 export function Player({ onTelemetry }: PlayerProps) {
   const ipadOpen = usePlaybackStore(state => state.ipadOpen)
-  const ecctrlRef = useRef<CustomEcctrlRigidBody>(null)
+  const ecctrlRef = useRef<EcctrlHandle>(null)
+  // ecctrl 2.0 no longer reads drei's <KeyboardControls> itself -- input
+  // only reaches it through `setMovement` (its README's "drive a controller
+  // directly through its ref"). `getKeys` is polled once per frame below.
+  // `runHeld` is the one key this component re-renders on, to switch
+  // jumpVel for the running-jump boost (2.0 has no sprintJumpMult).
+  const [, getKeys] = useKeyboardControls<Controls>()
+  const runHeld = useKeyboardControls<Controls>(state => state.run)
+  const lookRef = useRef(INITIAL_LOOK)
+  const lookDirectionScratchRef = useRef(new Vector3())
   const telemetryElapsedRef = useRef(0)
-  // Tracks "frozen as of the end of the last frame", read/written ONLY
-  // inside useFrame below (never during render -- react-hooks/refs flags
-  // exactly that) so the gravity-restore edge and the frozenState sync
+  // Tracks "frozen as of the end of the last frame", written ONLY inside
+  // useFrame below and read there and by the mousemove handler (never during
+  // render -- react-hooks/refs flags exactly that) so the gravity-restore edge and the frozenState sync
   // below always compare against the previous frame's value, not whatever
   // frozenState happens to still read while a render is pending.
   const wasFrozenRef = useRef(ipadOpen)
-  // The actual value read by the JSX below for <Ecctrl>'s
-  // disableControl/disableFollowCam props -- see the sync comment inside
-  // useFrame for why this can't just be the ref above.
+  // The actual value read by the JSX below for <Ecctrl>'s `enable` prop --
+  // see the sync comment inside useFrame for why this can't just be the ref
+  // above.
   const [frozenState, setFrozenState] = useState(ipadOpen)
 
+  // First-person mouse look, replacing ecctrl 1.0.97's own
+  // onDocumentMouseMove. Gated on pointer lock like that one was (openIpad()
+  // releases the lock but mousemove keeps firing), and also on `frozen`, which
+  // 1.0.97's never was: its listener kept turning a hidden pivot the whole
+  // time the player was seated or the iPad was open. Here nothing accumulates
+  // while frozen, and useFrame re-seeds the look from the camera on unfreeze.
+  // 1.0.97 also turned the view on a mouse drag without pointer lock, and on
+  // a one-finger touch drag. Neither is carried over: clicking the canvas
+  // requests pointer lock (Scene.tsx's requestLook).
+  useEffect(() => {
+    function handleMouseMove(event: MouseEvent): void {
+      if (wasFrozenRef.current || !document.pointerLockElement) return
+      lookRef.current = applyMouseDelta(
+        lookRef.current,
+        event.movementX,
+        event.movementY,
+      )
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    return () => window.removeEventListener('mousemove', handleMouseMove)
+  }, [])
+
   useFrame((state, delta) => {
-    const body = ecctrlRef.current?.group
-    if (!body) return
+    const ecctrl = ecctrlRef.current
+    const body = ecctrl?.body
+    if (!ecctrl || !body) return
 
     // Bugfix: no seat teleport here anymore. The old behavior moved the
     // physics body's ORIGIN (the ecctrl capsule's centre) to the seat's
     // FLOOR position — but ecctrl's floating capsule rests with its centre
     // `capsuleHalfHeight + capsuleRadius + floatHeight` above the ground
-    // (node_modules/ecctrl/dist/Ecctrl.js's own defaults: 0.35 + 0.3 + 0.3 =
+    // (the CAPSULE_* / FLOAT_HEIGHT constants above: 0.35 + 0.3 + 0.3 =
     // 0.95m — matches SPAWN_POSITION.y = 1.13 "resting on the floor" above),
     // so the body ended up buried ~0.95m into the floor collider for the
     // whole seated window. On stand-up, gravity/collision resumed from
@@ -139,11 +215,10 @@ export function Player({ onTelemetry }: PlayerProps) {
     const wasFrozen = wasFrozenRef.current
 
     if (frozen !== wasFrozen) {
-      // <Ecctrl>'s disableControl/disableFollowCam props (below) only take
-      // effect on a fresh render of THIS component -- r3f's useFrame
-      // captures each render's props into a ref via a layout effect
-      // (useMutableCallback), so `frozen` changing here doesn't reach them
-      // on its own. `ipadOpen` toggling already re-renders us via its own
+      // <Ecctrl>'s `enable` prop (below) only takes effect on a fresh render
+      // of THIS component -- r3f's useFrame captures each render's props
+      // into a ref via a layout effect (useMutableCallback), so `frozen`
+      // changing here doesn't reach it on its own. `ipadOpen` toggling already re-renders us via its own
       // zustand subscription above, but the seatPhaseRef-driven edge
       // (specifically stand_up -> standing, a pure timer inside
       // SeatedCamera.tsx with no store change of its own to subscribe to)
@@ -154,21 +229,38 @@ export function Player({ onTelemetry }: PlayerProps) {
       setFrozenState(frozen)
     }
 
-    // Every frame, not just on the frozen edge — a one-time zero would still
-    // leave gravityScale at 1 with nothing opposing it (see the constant's
-    // comment above), so the character would resume falling on the very next
-    // physics step.
+    // Every frame, not just on the frozen edge: `enable` only flips on the
+    // re-render setFrozenState schedules, and until then ecctrl's own loop
+    // (which runs before this one, since child useFrames subscribe first)
+    // keeps rewriting gravityScale and pushing the body. Once it's disabled
+    // nothing else touches either, so this just re-asserts the freeze.
     if (frozen) {
       body.setGravityScale(FROZEN_GRAVITY_SCALE, true)
       body.setLinvel(ZERO_VELOCITY, true)
       body.setAngvel(ZERO_VELOCITY, true)
     } else if (wasFrozen) {
       // Just unfroze — hand gravityScale back so ecctrl's own management
-      // (which only runs while disableControl is false) resumes from a
-      // known-good value instead of the frozen 0 we left it at.
+      // (which only runs while `enable` is true) resumes from its initial
+      // value instead of the frozen 0 we left it at.
       body.setGravityScale(DEFAULT_GRAVITY_SCALE, true)
+      // Pick the look up from wherever the camera actually is now, so the
+      // follow camera below continues it instead of snapping. After
+      // stand_up that's SeatedCamera.tsx's final view. After the iPad it's
+      // the view from before it opened, since nothing turns the camera
+      // while frozen. This is the "seed the controller's camera state on
+      // release" fallback PLAN.md planned for 1.0.97's `rotateCamera()`.
+      lookRef.current = lookFromDirection(
+        state.camera.getWorldDirection(lookDirectionScratchRef.current),
+      )
     }
     wasFrozenRef.current = frozen
+
+    // Read every frame and handed to ecctrl, which applies it on its own next
+    // frame. While frozen, `enable` is false and ecctrl reads no input at
+    // all; feeding it all-false too means no key held through the freeze
+    // (e.g. typed into the iPad's search box) is waiting in its input state
+    // on unfreeze.
+    ecctrl.setMovement(frozen ? NO_MOVEMENT : getKeys())
 
     if (isOutOfBounds(body.translation(), RESPAWN_MIN_Y)) {
       body.setTranslation(SPAWN_VECTOR, true)
@@ -176,12 +268,30 @@ export function Player({ onTelemetry }: PlayerProps) {
       body.setAngvel(ZERO_VELOCITY, true)
     }
 
-    // Backstop alongside the body respawn above: ecctrl's camera-follow
-    // lerp (THREE.Vector3.lerp) never recovers once a component goes
-    // non-finite ("NaN + anything" stays NaN), which otherwise throws
-    // inside AudioListener.updateMatrixWorld the next time positional audio
-    // updates (linearRampToValueAtTime rejects non-finite values). Snap
-    // directly — not via lerp — the instant that happens.
+    // The first-person follow camera, standing only. While frozen the
+    // camera belongs to whoever else holds it (SeatedCamera.tsx while
+    // seated; nobody while the iPad is open, so the view holds still behind
+    // it), which is what 1.0.97's disableFollowCam used to arrange. Placed
+    // straight on the body with no lerp (1.0.97's camFollowMult/camLerpMult
+    // of 1000 made its lerps effectively instant too), and after the respawn
+    // above so a NaN body never reaches it.
+    if (!frozen) {
+      const position = body.translation()
+      state.camera.position.set(
+        position.x,
+        position.y + EYE_HEIGHT_ABOVE_BODY_M,
+        position.z,
+      )
+      const euler = lookToEuler(lookRef.current)
+      state.camera.rotation.set(euler.x, euler.y, 0, 'YXZ')
+    }
+
+    // Backstop alongside the body respawn above: a non-finite camera
+    // position throws inside AudioListener.updateMatrixWorld the next time
+    // positional audio updates (linearRampToValueAtTime rejects non-finite
+    // values), and SeatedCamera.tsx's lerps never recover from one ("NaN +
+    // anything" stays NaN). The follow above can't produce one, but snap
+    // back the instant anything does.
     if (!isFiniteVec3(state.camera.position)) {
       state.camera.position.set(...SPAWN_POSITION)
     }
@@ -198,44 +308,26 @@ export function Player({ onTelemetry }: PlayerProps) {
   return (
     <Ecctrl
       ref={ecctrlRef}
-      // Freezes WASD/jump input (and reading it at all) while frozen —
-      // without this, typing in the iPad's search box (or sitting in a
-      // seat) moves the character, since drei's KeyboardControls listens on
-      // `window` regardless of DOM focus. This also stops ecctrl's own
-      // internal movement/jump handling (see the FROZEN_GRAVITY_SCALE
-      // comment above for why that alone isn't safe for gravity
-      // specifically), so the useFrame above takes over holding the
-      // character in place for as long as this is true.
-      disableControl={frozenState}
-      // ecctrl's OWN camera-follow (`state.camera.position.lerp(...)` +
-      // `.lookAt(...)`, node_modules/ecctrl/dist/Ecctrl.js) is gated on
-      // THIS prop, not disableControl — disableControl's early return
-      // happens AFTER the camera-follow block, so it gates
-      // movement/jump/gravity management but never the camera itself.
-      // Without also disabling this, ecctrl would keep dragging the camera
-      // back toward the character's head every frame, fighting
-      // SeatedCamera.tsx's per-frame camera writes for the entire seated
-      // window rather than just risking a snap at the final handoff. This
-      // prop is what actually gives SeatedCamera.tsx exclusive camera
-      // ownership while frozen.
-      disableFollowCam={frozenState}
-      jumpVel={2.5}
-      camTargetPos={CAM_TARGET_POS}
-      camCollision={false}
-      camInitDis={-0.01}
-      camMinDis={-0.01}
-      // ecctrl's own first-person recipe omits this, but it leaves the
-      // mouse-wheel camera-zoom listener (Ecctrl.js's onDocumentMouseWheel)
-      // active on the canvas — since the cam sits at -0.01 (the character's
-      // head), any scroll zooms it out toward camMaxDis, which reads as the
-      // character/world lurching away. Zeroing zoom speed neutralizes that
-      // handler without touching the rest of the FP camera setup.
-      camZoomSpeed={0}
-      camFollowMult={1000}
-      camLerpMult={1000}
-      turnVelMultiplier={1}
-      turnSpeed={100}
-      mode="CameraBasedMovement"
+      // Stops ecctrl's whole per-frame loop while frozen: no input is read,
+      // so typing in the iPad's search box (or sitting in a seat) can't move
+      // the character, even though drei's KeyboardControls listens on
+      // `window` regardless of DOM focus. It also stops ecctrl's float
+      // spring and gravity handling (see the FROZEN_GRAVITY_SCALE comment
+      // above for why that alone isn't safe), so the useFrame above holds
+      // the character in place for as long as this is false. ecctrl 2.0
+      // has no camera to disable alongside it. The follow camera lives in
+      // this file and checks `frozen` itself.
+      enable={!frozenState}
+      capsuleHalfHeight={CAPSULE_HALF_HEIGHT}
+      capsuleRadius={CAPSULE_RADIUS}
+      floatHeight={FLOAT_HEIGHT}
+      maxWalkVel={MAX_WALK_VEL}
+      maxRunVel={MAX_RUN_VEL}
+      // 2.0 defaults to Shift toggling run on and off. 1.0.97 ran only
+      // while Shift was held.
+      enableToggleRun={false}
+      jumpVel={runHeld ? JUMP_VEL * RUN_JUMP_MULT : JUMP_VEL}
+      fallingGravityScale={FALLING_GRAVITY_SCALE}
       position={SPAWN_POSITION}
     >
       <mesh visible={false}>

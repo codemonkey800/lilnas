@@ -27,7 +27,7 @@ module.exports = {
   // The leading `.*` lets the lookahead see past pnpm's nested
   // `.pnpm/<hash>/node_modules/<pkg>` path to the real package name.
   transformIgnorePatterns: [
-    '/node_modules/(?!.*(@lilnas|nanoid|lru-cache|three)/)',
+    '/node_modules/(?!.*(@lilnas|nanoid|lru-cache|three|cookie)/)',
   ],
   collectCoverageFrom: [
     'src/**/*.ts',

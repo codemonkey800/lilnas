@@ -24,7 +24,7 @@ async function cleanupLogFile() {
 }
 
 async function runApp() {
-  dotenv.config()
+  dotenv.config({ quiet: true })
   sourceMapSupport.install()
 
   await cleanupLogFile()
@@ -36,7 +36,7 @@ async function runApp() {
 }
 
 async function runGraphTest() {
-  dotenv.config()
+  dotenv.config({ quiet: true })
   sourceMapSupport.install()
   // graph-test needs no database: keep its checkpoints in memory
   process.env.GRAPH_CHECKPOINTER ??= 'memory'
@@ -48,7 +48,7 @@ async function runGraphTest() {
 }
 
 async function main() {
-  dotenv.config()
+  dotenv.config({ quiet: true })
   sourceMapSupport.install()
 
   if (env(EnvKeys.GRAPH_TEST, 'false') === 'true') {

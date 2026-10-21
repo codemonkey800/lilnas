@@ -62,7 +62,12 @@ export function AppShell({ children }: AppShellProps) {
               <SadPepeIcon width={40} height={40} aria-label="TDR Bot" />
             </Box>
 
-            <Typography variant="h6" component="span" fontWeight={600} noWrap>
+            <Typography
+              variant="h6"
+              component="span"
+              noWrap
+              sx={{ fontWeight: 600 }}
+            >
               TDR Bot
             </Typography>
           </Box>
@@ -75,6 +80,7 @@ export function AppShell({ children }: AppShellProps) {
               <Button
                 key={href}
                 component={Link}
+                nativeButton={false}
                 href={href}
                 color="inherit"
                 sx={{
@@ -113,6 +119,7 @@ export function AppShell({ children }: AppShellProps) {
               <MenuItem
                 key={href}
                 component={Link}
+                nativeButton={false}
                 href={href}
                 selected={pathname.startsWith(href)}
                 onClick={() => setMenuAnchor(null)}

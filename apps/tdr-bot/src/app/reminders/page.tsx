@@ -77,13 +77,16 @@ export default function RemindersPage() {
 
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', p: { xs: 2, md: 4 } }}>
-      <Typography variant="h4" component="h1" fontWeight={600}>
+      <Typography variant="h4" component="h1" sx={{ fontWeight: 600 }}>
         Reminders
       </Typography>
       <Typography
         variant="body2"
-        color="text.secondary"
-        sx={{ mb: 3, mt: 0.5 }}
+        sx={{
+          color: 'text.secondary',
+          mb: 3,
+          mt: 0.5,
+        }}
       >
         Every reminder the bot holds.
       </Typography>
@@ -112,8 +115,7 @@ export default function RemindersPage() {
               <Typography
                 component="span"
                 variant="caption"
-                color="text.secondary"
-                sx={{ ml: 0.75 }}
+                sx={{ color: 'text.secondary', ml: 0.75 }}
               >
                 {counts[f.value]}
               </Typography>
@@ -160,13 +162,13 @@ export default function RemindersPage() {
             borderRadius: 2,
           }}
         >
-          <Typography fontSize={32}>⏰</Typography>
-          <Typography variant="body2" fontWeight={500} sx={{ mt: 1 }}>
+          <Typography sx={{ fontSize: 32 }}>⏰</Typography>
+          <Typography variant="body2" sx={{ fontWeight: 500, mt: 1 }}>
             {text.trim()
               ? 'No matching reminders'
               : `No ${status === 'all' ? '' : `${label} `}reminders`}
           </Typography>
-          <Typography variant="caption" color="text.secondary">
+          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
             Create one, or ask tdr-bot in Discord.
           </Typography>
         </Box>

@@ -91,7 +91,7 @@ function PromptResults({
     <Stack spacing={1.5} sx={{ py: 1.5 }}>
       {cells.map((cell, i) => (
         <Box key={cell.prompt}>
-          <Typography variant="caption" color="text.secondary">
+          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
             {i + 1}. {cell.prompt}
           </Typography>
           {cell.result ? (
@@ -109,9 +109,12 @@ function PromptResults({
               </Box>
               <Typography
                 variant="caption"
-                fontFamily="monospace"
-                color="text.secondary"
-                sx={{ display: 'block', mt: 0.5 }}
+                sx={{
+                  fontFamily: 'monospace',
+                  color: 'text.secondary',
+                  display: 'block',
+                  mt: 0.5,
+                }}
               >
                 {formatMeta({
                   model: cell.result.model,
@@ -175,10 +178,7 @@ function ResultRow({
         <TableCell sx={mono}>{percent(row)}</TableCell>
         <TableCell sx={mono}>{row.dictionary}</TableCell>
         <TableCell
-          sx={{
-            ...mono,
-            color: row.repaired > 0 ? 'warning.main' : undefined,
-          }}
+          sx={{ ...mono, color: row.repaired > 0 ? 'warning.main' : undefined }}
         >
           {row.repaired}
         </TableCell>
@@ -353,10 +353,10 @@ export function EvalPanel({
         bgcolor: 'background.paper',
       }}
     >
-      <Typography variant="subtitle1" fontWeight={600}>
+      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
         Emoji eval
       </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+      <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2 }}>
         Every ticked model answers every prompt once; replies are scored against
         the dictionary.
       </Typography>
@@ -372,8 +372,11 @@ export function EvalPanel({
           <Box>
             <Typography
               variant="caption"
-              fontWeight={500}
-              sx={{ display: 'block', mb: 0.5 }}
+              sx={{
+                fontWeight: 500,
+                display: 'block',
+                mb: 0.5,
+              }}
             >
               Models
             </Typography>
@@ -391,7 +394,10 @@ export function EvalPanel({
                   }
                   label={model.id}
                   slotProps={{
-                    typography: { variant: 'body2', fontFamily: 'monospace' },
+                    typography: {
+                      variant: 'body2',
+                      sx: { fontFamily: 'monospace' },
+                    },
                   }}
                 />
               ))}
@@ -423,7 +429,7 @@ export function EvalPanel({
             </Box>
           </Box>
 
-          <Typography variant="caption" color="text.secondary">
+          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
             {formatEstimate(estimate)} for {calls} calls
           </Typography>
 
@@ -449,13 +455,12 @@ export function EvalPanel({
                   mb: 0.5,
                 }}
               >
-                <Typography variant="caption" color="text.secondary">
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                   Running…
                 </Typography>
                 <Typography
                   variant="caption"
-                  fontFamily="monospace"
-                  color="text.secondary"
+                  sx={{ fontFamily: 'monospace', color: 'text.secondary' }}
                 >
                   {progress.done} / {progress.total}
                 </Typography>
@@ -475,7 +480,7 @@ export function EvalPanel({
             <ResultsTable cells={cells} lookup={lookup} />
           )}
           {!running && !cells && (
-            <Typography variant="caption" color="text.secondary">
+            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
               No results yet.
             </Typography>
           )}

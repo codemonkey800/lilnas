@@ -45,7 +45,7 @@ export function RedescribeAllDialog({
     <Dialog open={open} onClose={close} fullWidth maxWidth="xs">
       <DialogTitle>Re-describe all {total} emojis?</DialogTitle>
       <DialogContent>
-        <DialogContentText color="text.primary">
+        <DialogContentText sx={{ color: 'text.primary' }}>
           Every emoji gets a new AI description, written in batches so similar
           emojis stay distinct. This runs in the background.
         </DialogContentText>

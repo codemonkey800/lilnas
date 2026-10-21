@@ -85,7 +85,10 @@ function UserBubble({ turn, lookup }: { turn: Turn; lookup: EmojiLookup }) {
   return (
     <BubbleRow isHuman>
       <Box sx={bubbleSx(true)}>
-        <Typography variant="caption" color="primary.light" fontWeight={500}>
+        <Typography
+          variant="caption"
+          sx={{ color: 'primary.light', fontWeight: 500 }}
+        >
           {AUTHOR}
         </Typography>
         <DiscordContent text={turn.content} lookup={lookup} />
@@ -105,16 +108,23 @@ function AssistantBubble({
   return (
     <BubbleRow isHuman={false}>
       <Box sx={bubbleSx(false)}>
-        <Typography variant="caption" color="text.secondary" fontWeight={500}>
+        <Typography
+          variant="caption"
+          sx={{ color: 'text.secondary', fontWeight: 500 }}
+        >
           tdr-bot
         </Typography>
         <DiscordContent text={turn.content} lookup={lookup} />
       </Box>
       <Typography
         variant="caption"
-        fontFamily="monospace"
-        color="text.secondary"
-        sx={{ display: 'block', mt: 0.5, px: 0.5 }}
+        sx={{
+          fontFamily: 'monospace',
+          color: 'text.secondary',
+          display: 'block',
+          mt: 0.5,
+          px: 0.5,
+        }}
       >
         {formatMeta(turn.meta)}
       </Typography>
@@ -154,7 +164,7 @@ function ErrorBubble({
           borderColor: 'error.dark',
         }}
       >
-        <Typography variant="caption" color="error" fontWeight={500}>
+        <Typography variant="caption" color="error" sx={{ fontWeight: 500 }}>
           tdr-bot · failed
         </Typography>
         <Box
@@ -184,7 +194,10 @@ function PendingBubble() {
   return (
     <BubbleRow isHuman={false}>
       <Box sx={bubbleSx(false)}>
-        <Typography variant="caption" color="text.secondary" fontWeight={500}>
+        <Typography
+          variant="caption"
+          sx={{ color: 'text.secondary', fontWeight: 500 }}
+        >
           tdr-bot
         </Typography>
         <Box
@@ -218,11 +231,11 @@ function EmptyThread() {
       }}
     >
       <Box>
-        <Typography fontSize={32}>💬</Typography>
-        <Typography fontWeight={500}>
+        <Typography sx={{ fontSize: 32 }}>💬</Typography>
+        <Typography sx={{ fontWeight: 500 }}>
           Pick a model and say something.
         </Typography>
-        <Typography variant="caption" color="text.secondary">
+        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
           Replies use the real system prompt and emoji dictionary.
         </Typography>
       </Box>
@@ -353,7 +366,7 @@ function Playground({ settings }: { settings: SettingsResponse }) {
               width: '100%',
             }}
           >
-            <Typography variant="body2" fontWeight={500}>
+            <Typography variant="body2" sx={{ fontWeight: 500 }}>
               System prompt draft
             </Typography>
             {modified && (
@@ -366,8 +379,11 @@ function Playground({ settings }: { settings: SettingsResponse }) {
             )}
             <Typography
               variant="caption"
-              color="text.secondary"
-              sx={{ ml: { sm: 'auto' }, width: { xs: '100%', sm: 'auto' } }}
+              sx={{
+                color: 'text.secondary',
+                ml: { sm: 'auto' },
+                width: { xs: '100%', sm: 'auto' },
+              }}
             >
               Overrides the saved prompt for this conversation only
             </Typography>
@@ -397,7 +413,7 @@ function Playground({ settings }: { settings: SettingsResponse }) {
               mt: 0.5,
             }}
           >
-            <Typography variant="caption" color="text.secondary">
+            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
               The draft is never saved. The intro, input format and emoji
               dictionary are always appended, same as in production.
             </Typography>
@@ -477,8 +493,11 @@ function Playground({ settings }: { settings: SettingsResponse }) {
         </Box>
         <Typography
           variant="caption"
-          color="text.secondary"
-          sx={{ display: 'block', mt: 0.75 }}
+          sx={{
+            color: 'text.secondary',
+            display: 'block',
+            mt: 0.75,
+          }}
         >
           Enter to send · Shift+Enter for a newline
         </Typography>
@@ -509,13 +528,16 @@ export default function PlaygroundPage() {
 
   return (
     <Box sx={{ maxWidth: 880, mx: 'auto', p: { xs: 2, md: 4 } }}>
-      <Typography variant="h4" component="h1" fontWeight={600}>
+      <Typography variant="h4" component="h1" sx={{ fontWeight: 600 }}>
         Playground
       </Typography>
       <Typography
         variant="body2"
-        color="text.secondary"
-        sx={{ mb: 3, mt: 0.5 }}
+        sx={{
+          color: 'text.secondary',
+          mb: 3,
+          mt: 0.5,
+        }}
       >
         Chat with the bot’s chat model outside Discord to check it uses the
         custom-emoji dictionary. The model writes :shortcodes:, which are

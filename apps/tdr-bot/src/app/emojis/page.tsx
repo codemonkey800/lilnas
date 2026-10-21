@@ -99,13 +99,16 @@ export default function EmojisPage() {
 
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', p: { xs: 2, md: 4 } }}>
-      <Typography variant="h4" component="h1" fontWeight={600}>
+      <Typography variant="h4" component="h1" sx={{ fontWeight: 600 }}>
         Emojis
       </Typography>
       <Typography
         variant="body2"
-        color="text.secondary"
-        sx={{ mb: 3, mt: 0.5 }}
+        sx={{
+          color: 'text.secondary',
+          mb: 3,
+          mt: 0.5,
+        }}
       >
         The bot’s custom-emoji dictionary: what each emoji looks like and means.
       </Typography>
@@ -132,8 +135,7 @@ export default function EmojisPage() {
               <Typography
                 component="span"
                 variant="caption"
-                color="text.secondary"
-                sx={{ ml: 0.75 }}
+                sx={{ color: 'text.secondary', ml: 0.75 }}
               >
                 {counts[f.value]}
               </Typography>
@@ -160,8 +162,11 @@ export default function EmojisPage() {
           {list.data && (
             <Typography
               variant="caption"
-              color="text.secondary"
-              sx={{ display: 'block', mt: 0.75 }}
+              sx={{
+                color: 'text.secondary',
+                display: 'block',
+                mt: 0.75,
+              }}
             >
               {reconcileStatusLine(
                 { ...list.data.reconcile, running },
@@ -207,14 +212,13 @@ export default function EmojisPage() {
             borderRadius: 2,
           }}
         >
-          <Typography fontSize={32}>😶</Typography>
-          <Typography variant="body2" fontWeight={500} sx={{ mt: 1 }}>
+          <Typography sx={{ fontSize: 32 }}>😶</Typography>
+          <Typography variant="body2" sx={{ fontWeight: 500, mt: 1 }}>
             No emojis synced yet
           </Typography>
           <Typography
             variant="caption"
-            color="text.secondary"
-            sx={{ display: 'block' }}
+            sx={{ color: 'text.secondary', display: 'block' }}
           >
             Run a reconcile to pull the server’s custom emojis.
           </Typography>
@@ -232,7 +236,7 @@ export default function EmojisPage() {
             borderRadius: 2,
           }}
         >
-          <Typography variant="body2" fontWeight={500}>
+          <Typography variant="body2" sx={{ fontWeight: 500 }}>
             No matching emojis
           </Typography>
         </Box>

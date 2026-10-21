@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { Readable, Writable } from 'node:stream'
 
-import { ClientSideConnection } from '@agentclientprotocol/sdk'
+import { MessageTooLargeError, ndJsonStream } from '@agentclientprotocol/sdk'
 import { Test } from '@nestjs/testing'
 import { PinoLogger } from 'nestjs-pino'
 
@@ -16,7 +16,10 @@ import type {
   PlanApprovalPresenter,
 } from 'src/agent/agent.types'
 import { globalGitWriteLock } from 'src/agent/git-write-lock'
-import { SessionManagerService } from 'src/agent/session-manager.service'
+import {
+  ACP_MAX_MESSAGE_BYTES,
+  SessionManagerService,
+} from 'src/agent/session-manager.service'
 import { BASE_SYSTEM_PROMPT } from 'src/agent/system-prompt.constants'
 import { DB } from 'src/db/database.module'
 import * as eventsRepo from 'src/db/events.repo'
@@ -145,6 +148,42 @@ function pendingSessions(
   ).pendingSessions
 }
 
+// SDK 2 dropped ClientSideConnection: spawnAndConnect now calls
+// createAcpClient(...).connect(stream). This fake stands in for the
+// returned ClientConnection. agent.request/notify dispatch by ACP method
+// name onto the per-method mocks, which stay on the object itself so
+// assertions keep reading them as conn.prompt, conn.cancel and so on.
+// close(err) aborts `signal` the way the SDK does when its stream fails.
+const ACP_METHOD_MOCKS = {
+  initialize: 'initialize',
+  'session/new': 'newSession',
+  'session/load': 'loadSession',
+  'session/prompt': 'prompt',
+  'session/cancel': 'cancel',
+} as const
+type AcpMockName = (typeof ACP_METHOD_MOCKS)[keyof typeof ACP_METHOD_MOCKS]
+
+function fakeAcpConnection<T extends Partial<Record<AcpMockName, jest.Mock>>>(
+  mocks: T,
+) {
+  const abort = new AbortController()
+  const dispatch = (method: string, params: unknown): Promise<unknown> => {
+    const name = ACP_METHOD_MOCKS[method as keyof typeof ACP_METHOD_MOCKS]
+    const mock = name ? mocks[name] : undefined
+    if (!mock) return Promise.reject(new Error(`unmocked ACP method ${method}`))
+    return Promise.resolve(mock(params))
+  }
+  return {
+    ...mocks,
+    agent: { request: jest.fn(dispatch), notify: jest.fn(dispatch) },
+    signal: abort.signal,
+    closed: new Promise<void>(resolve =>
+      abort.signal.addEventListener('abort', () => resolve()),
+    ),
+    close: (err?: unknown) => abort.abort(err),
+  }
+}
+
 function injectPromptingSession(
   service: SessionManagerService,
   channelId: string,
@@ -153,12 +192,12 @@ function injectPromptingSession(
   const session = {
     channelId,
     process: mockProc,
-    connection: {
+    connection: fakeAcpConnection({
       prompt: jest.fn(),
       cancel: jest.fn(),
       initialize: jest.fn(),
       newSession: jest.fn(),
-    },
+    }),
     sessionId: 'session-x',
     sessionRowId: null,
     lastActivity: Date.now(),
@@ -182,12 +221,12 @@ function injectSessionWithRowId(
   const session = {
     channelId,
     process: mockProc,
-    connection: {
+    connection: fakeAcpConnection({
       prompt: jest.fn(),
       cancel: jest.fn(),
       initialize: jest.fn(),
       newSession: jest.fn(),
-    },
+    }),
     sessionId: 'session-x',
     sessionRowId,
     lastActivity: Date.now(),
@@ -236,7 +275,7 @@ function makeNotifyEmitterMock(): jest.Mocked<
 
 // Builds a controllable mock child process (real EventEmitter, so proc.on
 // wiring in createSession/reactivateSession's shared spawnAndConnect behaves
-// like production) and wires spawn() / ClientSideConnection to it.
+// like production) and wires spawn() / createAcpClient().connect() to it.
 // `initialize`/`newSession`/`loadSession` resolution is controlled by the
 // caller via the returned deferred-style resolvers, so tests can create a
 // genuine concurrency window (U8) or control replay-completion timing
@@ -284,15 +323,21 @@ function mockSpawnAndConnection() {
   )
 
   const prompt = jest.fn().mockResolvedValue({ stopReason: 'end_turn' })
-  ;(ClientSideConnection as jest.Mock).mockImplementationOnce(() => ({
+  const connection = fakeAcpConnection({
     initialize,
     newSession,
     loadSession,
     prompt,
-  }))
+  })
+  const connect = jest.fn(() => connection)
+  jest
+    .mocked(createAcpClient)
+    .mockImplementationOnce(() => ({ connect }) as never)
 
   return {
     mockProc,
+    connection,
+    connect,
     initialize,
     newSession,
     loadSession,
@@ -767,12 +812,12 @@ describe('SessionManagerService — idle timer safety while parked on the git lo
     const session = {
       channelId,
       process: mockProc,
-      connection: {
+      connection: fakeAcpConnection({
         prompt: jest.fn(),
         cancel: jest.fn(),
         initialize: jest.fn(),
         newSession: jest.fn(),
-      },
+      }),
       sessionId: 'session-b',
       sessionRowId: null,
       lastActivity: Date.now(),
@@ -1200,10 +1245,10 @@ describe('SessionManagerService — per-channel create in-flight guard (U8)', ()
     // jest.clearAllMocks() (global afterEach in setup.ts) clears call/results
     // history but NOT queued mockReturnValueOnce/mockImplementationOnce
     // values — reset explicitly so a test that (correctly) leaves a once-value
-    // unconsumed can never leak into the next test's spawn()/ClientSideConnection
+    // unconsumed can never leak into the next test's spawn()/createAcpClient
     // call.
     jest.mocked(spawn).mockReset()
-    jest.mocked(ClientSideConnection).mockReset()
+    jest.mocked(createAcpClient).mockReset()
     // Spy on insertSession directly (rather than counting raw db.insert calls,
     // which also fire for recordSpawn/insertEvent/the frequent live_status
     // upserts) so "one session row inserted" is asserted precisely — same
@@ -1226,7 +1271,7 @@ describe('SessionManagerService — per-channel create in-flight guard (U8)', ()
       makeLogger(),
       makeNotifyEmitterMock(),
     )
-    const { resolveInitialize } = mockSpawnAndConnection()
+    const { resolveInitialize, connect } = mockSpawnAndConnection()
 
     // Two "mentions" in the same tick, before either has resolved.
     const first = service.prompt('ch-fresh', 'hello', 'user-1')
@@ -1240,7 +1285,8 @@ describe('SessionManagerService — per-channel create in-flight guard (U8)', ()
     // Only one spawn/connection attempt should exist — the second mention
     // joined the first's pending promise instead of starting its own.
     expect(jest.mocked(spawn)).toHaveBeenCalledTimes(1)
-    expect(jest.mocked(ClientSideConnection)).toHaveBeenCalledTimes(1)
+    expect(jest.mocked(createAcpClient)).toHaveBeenCalledTimes(1)
+    expect(connect).toHaveBeenCalledTimes(1)
 
     resolveInitialize()
 
@@ -1498,7 +1544,6 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
     // See U8's beforeEach comment — jest.clearAllMocks() (global afterEach)
     // clears call history but not queued once-values.
     jest.mocked(spawn).mockReset()
-    jest.mocked(ClientSideConnection).mockReset()
     jest.mocked(createAcpClient).mockReset()
     insertSessionSpy = jest.spyOn(sessionsRepo, 'insertSession')
     closeSessionSpy = jest.spyOn(sessionsRepo, 'closeSession')
@@ -1643,10 +1688,10 @@ describe('SessionManagerService — loadSession reactivation (U4)', () => {
 
     const outcome = service.prompt('ch-suppress', 'hello', 'user-1')
 
-    // ClientSideConnection is already constructed synchronously by the time
+    // The client app is already connected synchronously by the time
     // prompt() returns — spawnAndConnect calls createAcpClient (capturing
-    // the predicate as its 3rd arg) immediately before constructing the
-    // connection, both before the first await (connection.initialize).
+    // the predicate as its 3rd arg) and immediately connects it, both
+    // before the first await (the initialize request).
     await Promise.resolve()
     expect(jest.mocked(createAcpClient)).toHaveBeenCalledTimes(1)
     const isReplaying = jest.mocked(createAcpClient).mock.calls[0]![2] as
@@ -2274,7 +2319,7 @@ describe('SessionManagerService — system prompt composition (U2, R4/R5/R6/R7)'
   beforeEach(() => {
     process.env[EnvKeys.BOT_GENERATION_ID] = '1'
     jest.mocked(spawn).mockReset()
-    jest.mocked(ClientSideConnection).mockReset()
+    jest.mocked(createAcpClient).mockReset()
     // Defaults to undefined (no prior row) so fresh-session tests fall
     // through to createSession, matching the U8 describe block's setup.
     getLatestSessionForChannelSpy = jest.spyOn(
@@ -2372,6 +2417,75 @@ describe('SessionManagerService — system prompt composition (U2, R4/R5/R6/R7)'
     expect(context.hasCustom).toBe(true)
   })
 
+  it('records resolvedModel from the model-category config option on the session_created event (SDK 2: no `models` field)', async () => {
+    const db = makeDbMock()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      createMockHandlers(),
+      makePlanPresenter(),
+      db,
+      makeLogger(),
+      makeNotifyEmitterMock(),
+    )
+    const { resolveInitialize, newSession } = mockSpawnAndConnection()
+    newSession.mockResolvedValueOnce({
+      sessionId: 'session-x',
+      configOptions: [
+        {
+          id: 'mode',
+          name: 'Mode',
+          category: 'mode',
+          type: 'select',
+          currentValue: 'default',
+          options: [],
+        },
+        {
+          id: 'model',
+          name: 'Model',
+          category: 'model',
+          type: 'select',
+          currentValue: 'sonnet',
+          options: [],
+        },
+      ],
+    })
+
+    const outcome = service.prompt('ch-model', 'hello', 'user-1')
+    await Promise.resolve()
+    await Promise.resolve()
+    resolveInitialize()
+    await outcome
+
+    const [event] = insertedRowPayloads(db).filter(
+      row => row.type === 'session_created',
+    )
+    expect((event!.context as Record<string, unknown>).resolvedModel).toBe(
+      'sonnet',
+    )
+  })
+
+  it('records a null resolvedModel when newSession reports no model config option', async () => {
+    const db = makeDbMock()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      createMockHandlers(),
+      makePlanPresenter(),
+      db,
+      makeLogger(),
+      makeNotifyEmitterMock(),
+    )
+    const { resolveInitialize } = mockSpawnAndConnection()
+
+    const outcome = service.prompt('ch-no-model', 'hello', 'user-1')
+    await Promise.resolve()
+    await Promise.resolve()
+    resolveInitialize()
+    await outcome
+
+    const [event] = insertedRowPayloads(db).filter(
+      row => row.type === 'session_created',
+    )
+    expect((event!.context as Record<string, unknown>).resolvedModel).toBeNull()
+  })
+
   it('reactivateSession sends the identical _meta.systemPrompt.append that newSession would for the same live config, and records the same event pair', async () => {
     const handlers = createMockHandlers()
     const custom = 'Prefer terse answers.'
@@ -2420,5 +2534,144 @@ describe('SessionManagerService — system prompt composition (U2, R4/R5/R6/R7)'
     const context = events[0]!.context as Record<string, unknown>
     expect(context.promptAppendLength).toBe(expectedAppend.length)
     expect(context.hasCustom).toBe(true)
+  })
+})
+
+describe('SessionManagerService — ACP message size limit (SDK 2 ndJsonStream)', () => {
+  beforeEach(() => {
+    process.env[EnvKeys.BOT_GENERATION_ID] = '1'
+    jest.mocked(spawn).mockReset()
+    jest.mocked(createAcpClient).mockReset()
+    // teardown → killProcessTree signals the (fake) process group; keep that
+    // off the real process table and observable.
+    jest.spyOn(process, 'kill').mockImplementation(() => true)
+  })
+  afterEach(() => {
+    delete process.env[EnvKeys.BOT_GENERATION_ID]
+  })
+
+  async function startSession(channelId: string) {
+    const handlers = createMockHandlers()
+    const logger = makeLogger()
+    const service = new (SessionManagerService as unknown as CtorWith2)(
+      handlers,
+      makePlanPresenter(),
+      makeDbMock(),
+      logger,
+      makeNotifyEmitterMock(),
+    )
+    const mocks = mockSpawnAndConnection()
+    const outcome = service.prompt(channelId, 'hello', 'user-1')
+    await waitFor(() => mocks.initialize.mock.calls.length > 0)
+    mocks.resolveInitialize()
+    return { service, handlers, logger, outcome, ...mocks }
+  }
+
+  it('caps the agent stdout stream at ACP_MAX_MESSAGE_BYTES, above the SDK default', async () => {
+    const { outcome } = await startSession('ch-limit')
+    await outcome
+
+    // Deliberately above SDK 2's 32 MiB default — see the constant's comment.
+    expect(ACP_MAX_MESSAGE_BYTES).toBe(64 * 1024 * 1024)
+    expect(jest.mocked(ndJsonStream)).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      { maxMessageBytes: ACP_MAX_MESSAGE_BYTES },
+    )
+  })
+
+  it('an oversized frame between turns logs acp-connection-failed and tears the session down', async () => {
+    const { service, handlers, logger, outcome, connection, mockProc } =
+      await startSession('ch-idle')
+    await outcome
+    expect(sessions(service).has('ch-idle')).toBe(true)
+
+    connection.close(new MessageTooLargeError(ACP_MAX_MESSAGE_BYTES))
+
+    expect(jest.mocked(logger.error)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'acp-connection-failed',
+        channelId: 'ch-idle',
+        maxMessageBytes: ACP_MAX_MESSAGE_BYTES,
+        err: expect.any(MessageTooLargeError),
+      }),
+      expect.any(String),
+    )
+    expect(sessions(service).has('ch-idle')).toBe(false)
+    expect(handlers.onPromptComplete).toHaveBeenCalledWith('ch-idle', 'aborted')
+    expect(process.kill).toHaveBeenCalledWith(-mockProc.pid, 'SIGTERM')
+  })
+
+  it('an oversized frame mid-turn rejects the in-flight prompt into a single prompt-error teardown instead of hanging', async () => {
+    const { service, handlers, logger, outcome, connection, prompt } =
+      await startSession('ch-turn')
+    await outcome
+
+    // Mirror the SDK: closing the connection rejects every pending request
+    // with the close reason (after the signal's abort listeners run).
+    prompt.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) =>
+          connection.signal.addEventListener('abort', () =>
+            reject(connection.signal.reason),
+          ),
+        ),
+    )
+    const turn = service.prompt('ch-turn', 'big output please', 'user-1')
+    await waitFor(() => prompt.mock.calls.length > 1)
+
+    connection.close(new MessageTooLargeError(ACP_MAX_MESSAGE_BYTES))
+
+    await expect(turn).rejects.toBeInstanceOf(MessageTooLargeError)
+    const errorEvents = jest
+      .mocked(logger.error)
+      .mock.calls.map(([fields]) => (fields as { event?: string }).event)
+    expect(errorEvents).toEqual(['acp-connection-failed', 'prompt-error'])
+    expect(handlers.onPromptComplete).toHaveBeenCalledWith('ch-turn', 'error')
+    const teardowns = jest
+      .mocked(logger.info)
+      .mock.calls.filter(
+        ([fields]) =>
+          (fields as { event?: string }).event === 'session-teardown-requested',
+      )
+    expect(teardowns).toHaveLength(1)
+    expect(sessions(service).has('ch-turn')).toBe(false)
+  })
+
+  it('a normal connection close (agent exited) is left to the process exit handlers', async () => {
+    const { service, logger, outcome, connection } =
+      await startSession('ch-eof')
+    await outcome
+
+    connection.close()
+
+    expect(jest.mocked(logger.error)).not.toHaveBeenCalled()
+    expect(sessions(service).has('ch-eof')).toBe(true)
+  })
+
+  // Pins the real SDK behaviour handleConnectionClosed relies on: an
+  // oversized line closes the connection with MessageTooLargeError as the
+  // signal's reason and rejects the pending request, rather than hanging.
+  it('real SDK: an oversized ndjson line rejects the pending request and closes the connection with MessageTooLargeError', async () => {
+    const sdk = jest.requireActual(
+      '@agentclientprotocol/sdk',
+    ) as typeof import('@agentclientprotocol/sdk')
+    const agentStdout = new TransformStream<Uint8Array, Uint8Array>()
+    const agentStdin = new WritableStream<Uint8Array>()
+    const stream = sdk.ndJsonStream(agentStdin, agentStdout.readable, {
+      maxMessageBytes: 1024,
+    })
+    const connection = sdk.client().connect(stream)
+
+    const pending = connection.agent.request(sdk.methods.agent.initialize, {
+      protocolVersion: sdk.PROTOCOL_VERSION,
+    })
+    const writer = agentStdout.writable.getWriter()
+    void writer.write(new TextEncoder().encode('x'.repeat(2048) + '\n'))
+
+    await expect(pending).rejects.toBeInstanceOf(sdk.MessageTooLargeError)
+    expect(connection.signal.aborted).toBe(true)
+    expect(connection.signal.reason).toBeInstanceOf(sdk.MessageTooLargeError)
+    await connection.closed
   })
 })

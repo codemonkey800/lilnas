@@ -60,11 +60,11 @@ function SectionCard({
   return (
     <Card variant="outlined">
       <CardContent>
-        <Typography variant="subtitle1" fontWeight={600}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
           {title}
         </Typography>
         {subtitle && (
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2 }}>
             {subtitle}
           </Typography>
         )}
@@ -172,7 +172,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               <Typography variant="caption" id="temperature-label">
                 Temperature
               </Typography>
-              <Typography variant="caption" fontFamily="monospace">
+              <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>
                 {draft.temperature.toFixed(1)}
               </Typography>
             </Box>
@@ -188,10 +188,10 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               }
             />
             <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-              <Typography variant="caption" color="text.secondary">
+              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                 0 · precise
               </Typography>
-              <Typography variant="caption" color="text.secondary">
+              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                 2 · creative
               </Typography>
             </Box>
@@ -273,16 +273,16 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
         </Button>
         <Typography
           variant="caption"
-          color={
-            update.isError
-              ? 'error'
+          sx={{
+            color: update.isError
+              ? 'error.main'
               : dirty
                 ? 'warning.main'
                 : justSaved
                   ? 'success.main'
-                  : 'text.secondary'
-          }
-          sx={{ ml: 'auto' }}
+                  : 'text.secondary',
+            ml: 'auto',
+          }}
         >
           {update.isError
             ? "Can't save — fix the highlighted field"
@@ -318,13 +318,16 @@ export default function SettingsPage() {
 
   return (
     <Box sx={{ maxWidth: 720, mx: 'auto', p: { xs: 2, md: 4 } }}>
-      <Typography variant="h4" component="h1" fontWeight={600}>
+      <Typography variant="h4" component="h1" sx={{ fontWeight: 600 }}>
         Settings
       </Typography>
       <Typography
         variant="body2"
-        color="text.secondary"
-        sx={{ mb: 3, mt: 0.5 }}
+        sx={{
+          color: 'text.secondary',
+          mb: 3,
+          mt: 0.5,
+        }}
       >
         Runtime LLM configuration.
       </Typography>

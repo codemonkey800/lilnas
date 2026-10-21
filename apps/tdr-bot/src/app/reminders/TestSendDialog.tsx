@@ -62,10 +62,10 @@ export function TestSendDialog({ reminder, onClose }: TestSendDialogProps) {
     <Dialog open={!!reminder} onClose={close} fullWidth maxWidth="xs">
       <DialogTitle>Send a test</DialogTitle>
       <DialogContent>
-        <DialogContentText color="text.primary">
+        <DialogContentText sx={{ color: 'text.primary' }}>
           {reminder?.what}
         </DialogContentText>
-        <Typography variant="caption" color="text.secondary">
+        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
           DMs @{reminder?.userName} the message this reminder would send at the
           chosen time. Its schedule isn’t touched.
         </Typography>

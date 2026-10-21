@@ -358,7 +358,7 @@ CI (`.github/workflows/ci.yml`, job `base-images`) rebuilds and pushes the four 
 
 ### Turbo Build System
 
-Turbo (v2.5.4) provides intelligent build orchestration with caching:
+Turbo (v2.11.10) provides intelligent build orchestration with caching:
 
 **Configuration (`turbo.json`):**
 

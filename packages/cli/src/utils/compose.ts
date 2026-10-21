@@ -1,8 +1,8 @@
 import * as fs from 'fs'
-import yaml from 'js-yaml'
 import * as path from 'path'
 
 import { getMonorepoRoot } from './paths'
+import { loadYaml } from './yaml'
 
 export interface StorageMount {
   service: string
@@ -71,7 +71,7 @@ function extractMountsFromFile(filePath: string): StorageMount[] {
   if (!fs.existsSync(filePath)) return []
 
   const content = fs.readFileSync(filePath, 'utf8')
-  const doc = yaml.load(content)
+  const doc = loadYaml(content)
 
   if (!isComposeDoc(doc) || !doc.services) return []
 
@@ -121,7 +121,7 @@ function resolveIncludedFiles(root: string): string[] {
   }
 
   const content = fs.readFileSync(mainCompose, 'utf8')
-  const doc = yaml.load(content)
+  const doc = loadYaml(content)
 
   if (!isComposeDoc(doc) || !Array.isArray(doc.include)) return []
 

@@ -49,13 +49,15 @@ export type LocalPresenceProps = {
   characterId: string
 }
 
-// `state.camera.position` is the head/eye position (Player.tsx's ecctrl
-// config: `camInitDis={-0.01}`, so the first-person camera sits essentially
-// at the character's head) -- subtract this to land the broadcast `p` at the
-// feet instead. Approximated from Player.tsx's own invisible capsule
-// collider (`capsuleGeometry args={[0.3, 0.7]}`: radius 0.3, cylinder length
-// 0.7, so total capsule height = 0.7 + 2*0.3 = 1.3m) -- there is no live
-// browser here to measure the camera's actual offset within that capsule.
+// `state.camera.position` is the head/eye position (Player.tsx's
+// first-person follow puts the camera EYE_HEIGHT_ABOVE_BODY_M above the
+// capsule centre every standing frame) -- subtract this to land the
+// broadcast `p` at the feet instead. Approximated from Player.tsx's own
+// invisible capsule collider (`capsuleGeometry args={[0.3, 0.7]}`: radius
+// 0.3, cylinder length 0.7, so total capsule height = 0.7 + 2*0.3 = 1.3m)
+// -- there was no live browser here to measure the camera's actual offset
+// within that capsule. Player.tsx's capsule/float/eye constants work out to
+// 0.95 + 0.3 = 1.25m above the floor, so this lands `p` ~5cm low.
 // Matches this app's established convention for a "no live browser to verify
 // against" constant (IpadBrowser.tsx's HUD-sizing comments): a reasonable,
 // documented approximation, not a measured figure. A few centimeters of

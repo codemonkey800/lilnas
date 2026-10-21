@@ -3,8 +3,9 @@ import http from 'node:http'
 import { Global, Module } from '@nestjs/common'
 import { APP_GUARD } from '@nestjs/core'
 import { Test } from '@nestjs/testing'
-import type { UnhandledRequestStrategy } from 'msw'
+import type { UnhandledFrameHandle } from 'msw'
 import { http as mswHttp, HttpResponse } from 'msw'
+import { HttpNetworkFrame } from 'msw/experimental'
 import { setupServer } from 'msw/node'
 import { PinoLogger } from 'nestjs-pino'
 import { NEVER } from 'rxjs'
@@ -473,12 +474,16 @@ function discordProfileResponse(opts: { id: string }) {
 // comment for why a bare 'error'/'warn' strategy is wrong here and this
 // scoped function strategy (erroring ONLY on unhandled discord.com traffic)
 // is required.
-const discordOnlyUnhandledRequestStrategy: UnhandledRequestStrategy = (
-  req,
-  print,
-) => {
-  if (new URL(req.url).hostname === 'discord.com') {
-    print.error()
+const discordOnlyUnhandledFrameStrategy: UnhandledFrameHandle = async ({
+  frame,
+  defaults,
+}) => {
+  if (
+    frame instanceof HttpNetworkFrame &&
+    new URL(frame.data.request.url).hostname === 'discord.com'
+  ) {
+    await defaults.error()
+    throw new Error(await frame.getUnhandledMessage())
   }
 }
 
@@ -502,7 +507,7 @@ describe('U5 — end-to-end auth verification harness (pre-cutover gate)', () =>
 
   beforeAll(async () => {
     mswServer.listen({
-      onUnhandledRequest: discordOnlyUnhandledRequestStrategy,
+      onUnhandledFrame: discordOnlyUnhandledFrameStrategy,
     })
     testDb = createTestDb()
     const { TestAppModule } = buildTestAppModule(testDb.db)

@@ -47,21 +47,50 @@ import { ReleaseService } from 'src/media/release.service'
 import { ShowService } from 'src/media/show.service'
 
 /**
+ * Express's own response prototype, loaded the way `@nestjs/platform-express`
+ * loads it (`express` is not a direct dependency of this app). Borrowing its
+ * `attachment`/`set`/`type` keeps the Content-Disposition and extension-derived
+ * Content-Type below byte-for-byte what the running server writes, and makes
+ * an express upgrade that changes them fail here.
+ */
+type ExpressResponsePrototype = Pick<Response, 'attachment' | 'set' | 'type'>
+const expressResponse = (
+  jest.requireActual(
+    require.resolve('express', {
+      paths: [require.resolve('@nestjs/platform-express')],
+    }),
+  ) as { response: ExpressResponsePrototype }
+).response
+
+/**
  * The response stand-in. `@Res()` hands the route the raw express response,
  * so the only way to observe what the route did is to record the calls it
  * made - there is no return value to assert on, by design.
  */
 function createFakeResponse() {
+  const headers = new Map<string, string>()
   const res = {
+    // Express's real implementation, driven through the recorded `setHeader`.
+    attachment: jest.fn(),
     destroy: jest.fn(),
     end: jest.fn(),
+    // The header values as last written, keyed by lower-cased name.
+    headers,
     headersSent: false,
     json: jest.fn(),
     once: jest.fn(),
     sendFile: jest.fn(),
-    setHeader: jest.fn(),
+    set: expressResponse.set,
+    setHeader: jest.fn((name: string, value: string) => {
+      headers.set(name.toLowerCase(), value)
+    }),
     status: jest.fn(),
+    type: expressResponse.type,
   }
+
+  res.attachment.mockImplementation((fileName?: string) =>
+    expressResponse.attachment.call(res as unknown as Response, fileName),
+  )
 
   // `res.status(...).json(...)` is the chained form the route writes its
   // pre-header error bodies with.
@@ -234,8 +263,8 @@ describe('DownloadController - GET /media/:id/file', () => {
         'tmdb:1',
         {},
       )
-      expect(res.setHeader).toHaveBeenCalledWith(
-        'Content-Disposition',
+      expect(res.attachment).toHaveBeenCalledWith('A Movie (2020).mkv')
+      expect(res.headers.get('content-disposition')).toBe(
         'attachment; filename="A Movie (2020).mkv"',
       )
       // The whole reason this branch is `sendFile` and not a hand-rolled
@@ -273,11 +302,11 @@ describe('DownloadController - GET /media/:id/file', () => {
       )
     })
 
-    // The reason the header is built by `content-disposition` rather than
+    // The reason the header comes from `res.attachment` rather than being
     // string-concatenated: a title outside Latin-1 needs the RFC 5987 form
     // *and* an ASCII fallback, or the browser saves it under a mangled name.
-    // (A Latin-1 title like `Amélie` is deliberately left inline by the
-    // library - the header charset already covers it.)
+    // Express 5 (content-disposition 2.x) gives a Latin-1 title the same
+    // treatment, since the raw byte is not safe in a header.
     it('RFC 5987-encodes a file name outside Latin-1', async () => {
       mediaFileService.resolveFileSource.mockResolvedValue({
         fileName: '君の名は (2016).mkv',
@@ -287,9 +316,45 @@ describe('DownloadController - GET /media/:id/file', () => {
 
       await controller.getMediaFile('tmdb:2', {}, undefined, asResponse(res))
 
-      const [, value] = res.setHeader.mock.calls[0] as [string, string]
-      expect(value).toContain("filename*=UTF-8''")
-      expect(value).toContain('%E5%90%9B')
+      expect(res.headers.get('content-disposition')).toBe(
+        'attachment; filename="???? (2016).mkv"; ' +
+          "filename*=UTF-8''%E5%90%9B%E3%81%AE%E5%90%8D%E3%81%AF%20%282016%29.mkv",
+      )
+    })
+
+    it('adds an ASCII fallback and RFC 5987 form for a Latin-1 file name', async () => {
+      mediaFileService.resolveFileSource.mockResolvedValue({
+        fileName: 'Amélie.mkv',
+        kind: 'disk',
+        path: '/movies/Amelie/Amélie.mkv',
+      })
+
+      await controller.getMediaFile('tmdb:3', {}, undefined, asResponse(res))
+
+      expect(res.headers.get('content-disposition')).toBe(
+        'attachment; filename="Am?lie.mkv"; filename*=UTF-8\'\'Am%C3%A9lie.mkv',
+      )
+    })
+
+    // `sendFile` leaves a Content-Type that is already set alone, so the type
+    // `attachment()` derives from the file name is the one served. It must
+    // match what `sendFile` would have chosen from the path on its own.
+    it.each([
+      ['mkv', 'video/x-matroska'],
+      ['mp4', 'video/mp4'],
+      ['m4v', 'video/x-m4v'],
+      ['avi', 'video/x-msvideo'],
+      ['srt', 'application/x-subrip'],
+    ])('serves a .%s file as %s', async (extension, contentType) => {
+      mediaFileService.resolveFileSource.mockResolvedValue({
+        fileName: `A Movie.${extension}`,
+        kind: 'disk',
+        path: `/movies/A Movie/A Movie.${extension}`,
+      })
+
+      await controller.getMediaFile('tmdb:1', {}, undefined, asResponse(res))
+
+      expect(res.headers.get('content-type')).toBe(contentType)
     })
   })
 
@@ -306,14 +371,27 @@ describe('DownloadController - GET /media/:id/file', () => {
       await controller.getMediaFile('video:v1', {}, undefined, asResponse(res))
 
       expect(mediaFileService.getObjectStream).toHaveBeenCalledWith(videoSource)
-      expect(res.setHeader).toHaveBeenCalledWith(
-        'Content-Disposition',
+      expect(res.attachment).toHaveBeenCalledWith('A video.mp4')
+      expect(res.headers.get('content-disposition')).toBe(
         'attachment; filename="A video.mp4"',
       )
       expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'video/mp4')
       expect(res.setHeader).toHaveBeenCalledWith('Content-Length', '4096')
       expect(stream.pipe).toHaveBeenCalledWith(res)
       expect(res.sendFile).not.toHaveBeenCalled()
+    })
+
+    // `attachment()` guesses a type from the extension; the stored one is
+    // authoritative, so it has to be written after the guess.
+    it('lets the stored content type win over the one guessed from the name', async () => {
+      mediaFileService.resolveFileSource.mockResolvedValue({
+        ...videoSource,
+        contentType: 'video/webm',
+      })
+
+      await controller.getMediaFile('video:v1', {}, undefined, asResponse(res))
+
+      expect(res.headers.get('content-type')).toBe('video/webm')
     })
 
     it('passes the part scope through to the service', async () => {

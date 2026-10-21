@@ -42,7 +42,7 @@ function EmojiRow({
       </TableCell>
       <TableCell sx={{ whiteSpace: 'nowrap' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Typography variant="body2" fontFamily="monospace">
+          <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
             :{emoji.name}:
           </Typography>
           <AnimatedChip emoji={emoji} />

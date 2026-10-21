@@ -1,5 +1,9 @@
 import type { ImageAttachment } from 'src/agent/agent.types'
-import { buildPromptBlocks, formatToolSummary } from 'src/agent/message-bridge'
+import {
+  buildPromptBlocks,
+  formatDiff,
+  formatToolSummary,
+} from 'src/agent/message-bridge'
 
 const img = (n: number): ImageAttachment => ({
   data: `data${n}`,
@@ -120,4 +124,62 @@ describe('formatToolSummary', () => {
 
     expect(formatToolSummary(tools)).toBe('❌ Task')
   })
+})
+
+describe('formatDiff', () => {
+  it('edits render a plain ---/+++ header pair followed by the hunk', () => {
+    const [message] = formatDiff([
+      { path: 'src/a.ts', oldText: 'x\ny\n', newText: 'x\nz\n' },
+    ])
+
+    expect(message).toBe(
+      [
+        '**a.ts**',
+        '```diff',
+        '--- src/a.ts',
+        '+++ src/a.ts',
+        '@@ -1,2 +1,2 @@',
+        ' x',
+        '-y',
+        '+z',
+        '',
+        '```',
+      ].join('\n'),
+    )
+  })
+
+  it('new files diff against /dev/null', () => {
+    const [message] = formatDiff([{ path: 'src/new.ts', newText: 'a\n' }])
+
+    expect(message).toContain('--- /dev/null\n+++ src/new.ts\n@@ -0,0 +1,1 @@')
+    expect(message).toContain('+a')
+  })
+
+  it('unchanged files render only the header pair', () => {
+    const [message] = formatDiff([
+      { path: 'src/a.ts', oldText: 'same\n', newText: 'same\n' },
+    ])
+
+    expect(message).toBe(
+      ['**a.ts**', '```diff', '--- src/a.ts', '+++ src/a.ts', '', '```'].join(
+        '\n',
+      ),
+    )
+  })
+
+  it.each([
+    ['non-ASCII', 'src/ü.ts'],
+    ['quote', 'src/my "file".ts'],
+    ['tab', 'src/a\tb.ts'],
+    ['backslash', 'src\\b.ts'],
+  ])(
+    'keeps %s characters in file names unquoted and unescaped',
+    (_label, path) => {
+      const [message] = formatDiff([
+        { path, oldText: 'x\ny\n', newText: 'x\nz\n' },
+      ])
+
+      expect(message).toContain(`--- ${path}\n+++ ${path}\n@@`)
+    },
+  )
 })

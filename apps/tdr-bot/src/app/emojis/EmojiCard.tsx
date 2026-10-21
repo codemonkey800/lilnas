@@ -36,9 +36,13 @@ export function Description({
     return (
       <Typography
         variant="body2"
-        color="text.secondary"
-        fontStyle="italic"
-        sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
+        sx={{
+          color: 'text.secondary',
+          fontStyle: 'italic',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1,
+        }}
       >
         <CircularProgress size={12} color="inherit" />
         Describing…
@@ -47,7 +51,10 @@ export function Description({
   }
 
   return (
-    <Typography variant="body2" color="text.secondary" fontStyle="italic">
+    <Typography
+      variant="body2"
+      sx={{ color: 'text.secondary', fontStyle: 'italic' }}
+    >
       Waiting for a description
     </Typography>
   )
@@ -110,7 +117,7 @@ export function EmojiCard({
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
           <EmojiImage emoji={emoji} />
           <Box sx={{ minWidth: 0, flexGrow: 1 }}>
-            <Typography variant="body2" fontFamily="monospace" noWrap>
+            <Typography variant="body2" noWrap sx={{ fontFamily: 'monospace' }}>
               :{emoji.name}:
             </Typography>
             <AnimatedChip emoji={emoji} />
@@ -135,7 +142,7 @@ export function EmojiCard({
           {emoji.deletedAt ? (
             <DeletedChip emoji={emoji} />
           ) : (
-            <Typography variant="caption" color="text.secondary">
+            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
               {emoji.describedAt ? formatWhen(emoji.describedAt) : ''}
             </Typography>
           )}

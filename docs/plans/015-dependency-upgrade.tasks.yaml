@@ -1,0 +1,706 @@
+nexus-tasks: 1
+phases:
+  - key: '1'
+    name: Patch bumps, removals, mechanical majors
+    tasks:
+      - id: T1
+        title: Patch and minor bumps
+        after: []
+        files:
+          - package.json
+          - pnpm-lock.yaml
+          - pnpm-workspace.yaml
+          - apps/tdr-bot/package.json
+          - apps/theater/package.json
+          - apps/equations/package.json
+          - infra/base-images/lilnas-monorepo-builder.Dockerfile
+          - CLAUDE.md
+        status: done
+        commit: 8ea9dd3eeb14989364ab4753851daa1814b5d5cd
+        body: |-
+          Bump, keeping each entry's specifier style:
+          - root `package.json`: `@dotenvx/dotenvx` 2.38.1 → 2.38.2, `@nestjs/cli` 12.0.9 → 12.0.10,
+            `turbo` 2.11.9 → 2.11.10 (all exact pins).
+          - `apps/tdr-bot/package.json`: `@langchain/core` 1.2.18 → 1.2.20, `@langchain/openai`
+            1.6.2 → 1.6.3 (exact).
+          - `apps/equations/package.json`: `@types/supertest` `^6.0.2` → `^7.2.1`.
+          - `@types/three`: `apps/theater/package.json` already says 0.186.0 but the lockfile resolves
+            0.185.1 because the `overrides` entry in `pnpm-workspace.yaml` forces it. Move the override
+            to `0.186.0`. Afterwards `grep -n "@types/three@" pnpm-lock.yaml` must show only 0.186.0.
+          - `infra/base-images/lilnas-monorepo-builder.Dockerfile` line 4 installs `turbo@2.11.9`
+            globally. Make it `turbo@2.11.10` so CI's builder matches the repo.
+          - `CLAUDE.md` says "Turbo (v2.5.4)". Make it v2.11.10.
+
+          Verify: `pnpm --filter @lilnas/theater type-check`, the equations suite (it uses supertest
+          types in `__tests__/e2e/`), and the tdr-bot suite.
+      - id: T2
+        title: Remove unused dependencies
+        after: []
+        files:
+          - package.json
+          - pnpm-lock.yaml
+          - apps/tdr-bot/package.json
+          - apps/tdr-code/package.json
+          - packages/cli/package.json
+        status: done
+        commit: 5df170662f3ef40cb1e00916be8f5e6e1c105db0
+        body: |-
+          Delete these. Research found that nothing imports them:
+          - `apps/tdr-bot`: dependencies `openai`, `framer-motion`, `uuid`, `chokidar`, and devDependency
+            `@types/cron` (cron 4 ships its own types).
+          - `apps/tdr-code`: dependency `commander`, and devDependency `@types/diff` (diff ≥8 ships its
+            own types).
+          - `packages/cli`: dependency `dotenv` (the package uses `@dotenvx/dotenvx`, not dotenv).
+          - root `package.json`: devDependency `@types/uuid`.
+
+          Re-verify each one before deleting it. Grep the package, including `scripts/`, config files and
+          specs, for `from '<name>'`, `require('<name>')`, `import('<name>')` and the bare string. For
+          example, `git grep -nE "['\"](openai|framer-motion|uuid|chokidar)['\"/]" -- apps/tdr-bot`.
+          Ignore `@langchain/openai`, which pulls in its own `openai`.
+
+          If a real import turns up, keep that dependency and say so in the result.
+
+          Verify: type-check and test tdr-bot, tdr-code and cli. tdr-bot's type-check proves cron's own
+          types cover every `cron` import.
+      - id: T3
+        title: better-sqlite3 13
+        after: []
+        files:
+          - pnpm-lock.yaml
+          - pnpm-workspace.yaml
+          - apps/auth/package.json
+          - apps/download/package.json
+          - apps/tdr-code/package.json
+        status: done
+        commit: b2ec18a408be60d530a2f6f34a5977e24f0006c1
+        body: |-
+          In `apps/auth`, `apps/download` and `apps/tdr-code`:
+          - `better-sqlite3` `^12.10.0` → `^13.0.3`
+          - `@types/better-sqlite3` `^7.6.13` → `^9.6.0`
+
+          v13 ships prebuilt N-API binaries and needs Node ≥22. No API break that touches this repo is
+          known, but read its release notes anyway.
+
+          **allowBuilds.** `pnpm-workspace.yaml`'s `allowBuilds` has `better-sqlite3: true`, and the
+          comment above it says better-sqlite3 is the only package that needs its install script.
+          Inspect the installed package's `scripts`. If v13 has no install or postinstall step, delete
+          the entry and rewrite the comment. If it still has one, keep the entry. Either way,
+          `pnpm install` must pass under strictDepBuilds.
+
+          **Binding loads.** From each of the three app dirs, run
+          `node -e "console.log(new (require('better-sqlite3'))(':memory:').prepare('select 1 as x').get())"`.
+
+          **Next standalone tracing.** `apps/auth/next.config.js` and `apps/tdr-code/next.config.js` list
+          better-sqlite3 in `serverExternalPackages`.
+          - Run `pnpm --filter @lilnas/auth build` in your worktree.
+          - Confirm that `apps/auth/.next/standalone/` contains better-sqlite3 and the `.node` binary it
+            loads at runtime. That may be a platform package.
+          - Do the same with `next build` for tdr-code, in your worktree only, never in the main checkout.
+
+          **Docker smoke.** From the worktree root:
+          - Run `docker build -f apps/auth/Dockerfile -t lilnas-auth:plan015 .`.
+          - Then run `docker run --rm --entrypoint node lilnas-auth:plan015 -e "<open an in-memory db
+            through the image's own node_modules>"`. Find the path inside the image first.
+          - Repeat for `apps/download/Dockerfile` (tag `lilnas-download:plan015`).
+          - `docker rmi` both tags afterwards.
+          - If a build can't run here (missing base image, a gitignored file the Dockerfile needs), report
+            exactly why instead of working around it.
+
+          Run the auth, tdr-code and download suites. In the result, report the allowBuilds decision and
+          each smoke's outcome.
+          A smoke that fails is a defect: fix it in this task, or list it under `defects:` with the
+          command and its error.
+      - id: T4
+        title: dotenv 18 with quiet logging
+        after: []
+        files:
+          - pnpm-lock.yaml
+          - apps/auth/package.json
+          - apps/download/package.json
+          - apps/equations/package.json
+          - apps/me-token-tracker/package.json
+          - apps/tdr-bot/package.json
+          - apps/tdr-code/package.json
+          - apps/theater/package.json
+          - apps/dev/package.json
+          - apps/dev/src/main.ts
+          - apps/auth/src/main.ts
+          - apps/download/src/main.ts
+          - apps/equations/src/main.ts
+          - apps/me-token-tracker/src/main.ts
+          - apps/theater/src/main.ts
+          - apps/tdr-bot/src/main.ts
+          - apps/tdr-bot/scripts/clear-chats.ts
+          - apps/tdr-bot/scripts/get-channel-messages.ts
+          - apps/tdr-bot/scripts/get-guild-emojis.ts
+          - apps/tdr-code/src/main.ts
+          - apps/tdr-code/src/bot-main.ts
+        status: done
+        commit: 927fb4a21cd85bf7005f7bbef954b99685f80b9a
+        body: |-
+          Bump `dotenv` 17.2.3 → 18.0.8 (exact) in auth, dev, download, equations, me-token-tracker,
+          tdr-bot, tdr-code and theater. dotenv 18 moves its "injecting env" line from stdout to stderr.
+
+          Pass `quiet: true` to every `dotenv.config(...)` call:
+          - the bare `dotenv.config()` in `apps/{auth,dev,download,equations,me-token-tracker,theater}/src/main.ts`
+          - the three calls in `apps/tdr-bot/src/main.ts`
+          - `apps/tdr-code/src/{main,bot-main}.ts`
+          - the three `apps/tdr-bot/scripts/*.ts` calls, merging `quiet: true` into their existing
+            `{ path }` option
+
+          `apps/tdr-bot/src/llm/testing/live/live-env.ts` already passes `quiet: true`. Leave it alone.
+
+          Read dotenv 18's CHANGELOG for other breaking changes and apply any that touch these call
+          sites. Grep the specs for anything that asserts on dotenv's console output, for example
+          `git grep -n "injecting env" -- apps`. Run the tdr-bot, tdr-code, auth, dev, equations, theater
+          and download suites.
+      - id: T5
+        title: nanoid 6, diff 9, jest-dom 7
+        after: []
+        files:
+          - pnpm-lock.yaml
+          - apps/tdr-bot/package.json
+          - apps/download/package.json
+          - apps/auth/package.json
+          - apps/tdr-code/package.json
+          - apps/dev/package.json
+          - apps/tdr-code/src/agent/
+          - apps/download/jest.config.js
+          - apps/tdr-bot/jest.config.js
+          - apps/auth/src/app/__tests__/setup.ts
+          - apps/tdr-code/src/app/__tests__/setup.ts
+          - apps/download/src/__tests__/setup-dom.ts
+          - apps/dev/src/__tests__/setup-dom.ts
+        status: done
+        commit: 574dd75c842a8806c11c621c2dc7da53a720dea4
+        body: |-
+          **nanoid** 5.1.6 → 6.0.2 (exact) in `apps/tdr-bot` and `apps/download`.
+          - v6 needs Node ≥22. Read its changelog.
+          - Both Jest configs compile nanoid via their `transformIgnorePatterns` allow-list. Confirm v6's
+            exports still load under ts-jest.
+          - Run the specs that exercise ID generation, e.g. `git grep -ln nanoid -- apps/*/src`.
+
+          **diff** `^8.0.3` → `^9.0.0` in `apps/tdr-code`.
+          - Find the uses with `git grep -n "from 'diff'" -- apps/tdr-code/src`.
+          - v9 may emit different `---`/`+++` patch headers for file names with special characters.
+            Check the header assertions in `apps/tdr-code/src/agent/__tests__/message-bridge.spec.ts`.
+          - If v9 changed what users see, update the code so they still see the same thing, or update
+            the assertions and say why in the result.
+
+          **@testing-library/jest-dom** `^6.9.1` → `^7.0.1` in auth, dev, download and tdr-code.
+          - Add `@testing-library/dom` `^10.4.2` as a devDependency of `apps/download` and `apps/dev`.
+            auth and tdr-code already declare it.
+          - Read the v7 changelog and fix the setup files that import it as needed:
+            `apps/auth/src/app/__tests__/setup.ts`, `apps/tdr-code/src/app/__tests__/setup.ts`,
+            `apps/download/src/__tests__/setup-dom.ts` and `apps/dev/src/__tests__/setup-dom.ts`.
+
+          Run the tdr-bot, tdr-code, auth, dev and download suites.
+      - id: T6
+        title: '@oclif/core 5'
+        after: []
+        files:
+          - pnpm-lock.yaml
+          - packages/cli/package.json
+          - packages/cli/bin/
+          - packages/cli/src/
+        status: done
+        commit: 54b9c703c6db78aa5d6e35eb272136906142e69d
+        body: |-
+          Bump `@oclif/core` `^4.8.4` → `^5.1.9` in `packages/cli`. Research found that only the Node
+          floor changed in a way that affects this CLI.
+
+          Diff the v4 and v5 typings for anything this package uses: `Command`, `Flags`, `Args`,
+          `this.parse`, `this.log`, `this.error` and `this.exit`. Also check the `oclif` config block
+          in `packages/cli/package.json` and `packages/cli/bin/run.js`.
+
+          `packages/cli/src/utils/__tests__/ci-detect.spec.ts` has the fixture
+          `'@oclif/core': '^4'`. That is test data, so leave it alone.
+
+          Smoke test:
+          - Run `pnpm --filter @lilnas/cli build`, then `node packages/cli/bin/run.js --help`. It must
+            exit 0 and list the commands.
+          - Run `--help` for two subcommands, e.g. `secrets` and `mockups`.
+          - Run `pnpm exec lilnas --help` from the repo root. The root depends on `@lilnas/cli`.
+          - Put the outputs in the result.
+          - A non-zero exit or a missing command is a defect: fix it, or list it under `defects:`.
+
+          Run the cli suite.
+      - id: T7
+        title: MUI baseline screenshots of tdr-bot (no commit)
+        after: []
+        files: []
+        status: done
+        commit: fda306a08da1630a7400541cbd250d62dfe9c1c2
+        body: |-
+          Capture "before" screenshots of the tdr-bot admin UI on the current MUI 7 so the MUI 9 upgrade
+          can be compared against them. Commit nothing.
+
+          **Harness.** Build a reusable harness in `~/.cache/lilnas-plan-015/mui-harness/`:
+          - JSON fixtures plus a README (or script) listing the exact commands.
+          - The frontend calls `/api/*` (see `apps/tdr-bot/src/api/api.client.ts`). Next rewrites those
+            calls to `localhost:8081`, where nothing listens.
+          - So stub every `/api/**` request in the browser with `playwright-cli route ... --body=...` or
+            `run-code` + `page.route`.
+          - Shape the fixtures from `apps/tdr-bot/src/api/api.types.ts`, with realistic, varied data:
+            several reminders across statuses, emojis with different sources, transcript messages,
+            settings, and a playground state. That way tables, chips, cards and empty/edge states all
+            render.
+
+          **Boot.** `cd apps/tdr-bot && pnpm exec next dev -p <free port in 18700-18799>`. No env vars
+          are needed.
+
+          **Shots.** Save each as `/storage/files/lilnas-plan-015/mui/before/<page>-<state>-<viewport>.png`:
+          - Pages `/`, `/settings`, `/transcript`, `/reminders`, `/emojis` and `/playground`, at a
+            1440×900 desktop and a 390×844 mobile viewport. AppShell switches nav at `md`.
+          - Plus open states: the reminder create/edit dialog (`ReminderDialog`), test-send and cancel
+            dialogs, the emoji redescribe dialogs and the description editor, and a model select opened
+            on settings/playground.
+          - Wait for fonts and network idle before each shot.
+
+          **Cleanup.** Stop `next dev`, run `git checkout apps/tdr-bot/next-env.d.ts`, and delete
+          `apps/tdr-bot/AGENTS.md`.
+
+          **Result.** Report the harness path, the exact reproduce steps (the MUI task re-runs them), and
+          every PNG as a `https://files.lilnas.io/lilnas-plan-015/mui/before/...` URL.
+  - key: '2'
+    name: Majors with small code changes
+    tasks:
+      - id: T8
+        title: jotai 3
+        after: []
+        files:
+          - pnpm-lock.yaml
+          - apps/dashcam/package.json
+          - apps/tdr-bot/package.json
+          - apps/dashcam/src/
+        status: done
+        commit: 2a77e94b4bf41a90bf3ab11b105151f6efd52361
+        body: |-
+          Bump `jotai` 2.15.0 → 3.0.1 (exact) in `apps/dashcam` and `apps/tdr-bot`. Do not use 3.0.0,
+          which has a `useAtomValue` regression.
+
+          Read the v3 migration guide in full:
+          https://raw.githubusercontent.com/pmndrs/jotai/main/docs/guides/migrating-to-v3.mdx. Grep both
+          apps for each API it changes. tdr-bot only uses `atom` (`src/store/nav.ts`) plus the hooks.
+
+          **dashcam's `loadable`.** `apps/dashcam/src/state.ts` wraps `videoUrlsAtom` in `loadable` from
+          `jotai/utils`, which v3 removed.
+          - Replace it with the guide's userland `loadable` helper built on `unwrap`. Put it in
+            `apps/dashcam/src/state.ts` or a small module beside it.
+          - Keep the shape consumers read: `{ state: 'loading' | 'hasData' | 'hasError', data, error }`.
+          - Check every consumer: `git grep -n videoUrlsAtom -- apps/dashcam/src`.
+
+          dashcam has no test setup, and adding one is out of scope. Verify with
+          `pnpm --filter @lilnas/dashcam type-check` and `pnpm --filter @lilnas/dashcam build`, which
+          runs `tsc && vite build`. Also run the tdr-bot suite.
+      - id: T9
+        title: js-yaml 5
+        after: []
+        files:
+          - pnpm-lock.yaml
+          - packages/cli/package.json
+          - packages/cli/src/
+        status: done
+        commit: b5e0e98d698ed2826ae2ac452c91389b2dbd1279
+        body: |-
+          In `packages/cli`, bump `js-yaml` `^4.1.1` → `^5.5.0` and delete `@types/js-yaml`, since v5
+          ships its own types. Read v5's CHANGELOG and README in full.
+
+          **Imports.** v5 has no default export, so `import yaml from 'js-yaml'` must become named
+          imports (or a namespace import, if the CHANGELOG allows it) in:
+          - `src/utils/services.ts`, `src/utils/compose.ts` and `src/utils/ci-detect.ts`
+          - `src/utils/__tests__/ci-cancel-superseded-runs.spec.ts`, `ci-workflow-base.spec.ts`,
+            `ci-workflow-shape.spec.ts` and `compose-include-env.spec.ts`
+
+          **Empty input.** `load('')` now throws, where v4 returned `undefined`.
+          - The production call sites are `compose.ts` (`extractMountsFromFile`,
+            `resolveIncludedFiles`), `services.ts` (~line 87) and `ci-detect.ts` (~line 175).
+          - Each must keep its v4 behaviour for empty or whitespace-only content: no mounts, no
+            includes, and so on.
+          - Add a test per call site with an empty file.
+
+          **Merge keys.** v5 turns `<<` merge keys off by default. The only YAML in the repo that uses
+          them is `apps/tdr-bot/deploy.dev.yml` (lines 76 and 131).
+          - Work out whether any cli parser can read that file. Check what `docker-compose.dev.yml` and
+            `docker-compose.yml` include, and which files ci-detect walks.
+          - If one can, enable merge keys with v5's option at that call site and add a merge-key test.
+          - Either way, say in the result what you found.
+
+          Also check every `dump`/`loadAll` use for v5 changes.
+
+          Verify: the cli suite, then `pnpm --filter @lilnas/cli build && node packages/cli/bin/run.js --help`.
+      - id: T10
+        title: cookie 2 in theater
+        after: []
+        files:
+          - pnpm-lock.yaml
+          - apps/theater/package.json
+          - apps/theater/jest.config.js
+          - apps/theater/src/auth/
+        status: done
+        commit: 497c2723ffd5c53de4aa353e69f14ad003d3977a
+        body: |-
+          Bump `cookie` 1.1.1 → 2.0.1 (exact) in `apps/theater`. Read its `dist/index.d.ts`, README and
+          release notes (https://github.com/jshttp/cookie/releases).
+
+          **Rename.** v2 is ESM-only and renames `parse` to `parseCookie`. Update
+          `apps/theater/src/auth/auth.service.ts` (the import at line 5 and its call sites). Keep the
+          semantics the code relies on, such as missing and duplicate names, decoding, and the shape of
+          the returned object (it may now be null-prototype).
+
+          **Jest.** In `apps/theater/jest.config.js`, add `cookie` to the `transformIgnorePatterns`
+          allow-list `'/node_modules/(?!.*(@lilnas|nanoid|lru-cache|three)/)'`. The existing
+          `'^.+\\.m?js$'` @swc/jest transform then compiles it. The lookahead needs `cookie/`, so
+          `cookie-parser` stays ignored.
+
+          **Tests.** In `apps/theater/src/auth/__tests__/`, add tests for any parse behaviour the code
+          depends on that the existing tests don't cover: several cookies, a missing cookie, and an
+          encoded value.
+
+          **Runtime.** The Nest backend runs as CJS.
+          - Confirm `pnpm --filter @lilnas/theater build` passes.
+          - Then from `apps/theater`, run
+            `node -e "console.log(require('cookie').parseCookie('a=1; b=2'))"` to prove require(esm)
+            works on Node 26.
+
+          Run the theater suite.
+      - id: T11
+        title: msw 3 in tdr-code specs
+        after: []
+        files:
+          - pnpm-lock.yaml
+          - pnpm-workspace.yaml
+          - apps/tdr-code/package.json
+          - apps/tdr-code/src/auth/__tests__/
+          - apps/tdr-code/src/console/__tests__/
+        status: done
+        commit: 82314202d6b260dedd408f93f75a06167a3fbf4a
+        body: |-
+          Bump `msw` 2.14.6 → 3.0.3 (exact, devDependency) in `apps/tdr-code`. Read the v3 release notes
+          (https://github.com/mswjs/msw/releases/tag/v3.0.0) and the installed `lib/**/*.d.ts`.
+
+          `pnpm-workspace.yaml` has `allowBuilds: msw: false`. Keep it unless v3 drops its install
+          script, in which case remove the entry.
+
+          **Rename.** `setupServer().listen({ onUnhandledRequest })` became `onUnhandledFrame`, and the
+          `UnhandledRequestStrategy` type was replaced by a frame-based callback. Update:
+          - the `discordOnlyUnhandledRequestStrategy` helpers in
+            `src/auth/__tests__/auth-e2e.spec.ts` (~476/505), `auth.guard.spec.ts` (~669/693) and
+            `guild-gate.spec.ts` (~59/394)
+          - the `'error'` strategy in `guild-gate.spec.ts:209` and
+            `src/console/__tests__/discord-directory.service.spec.ts:25`
+
+          Keep the semantics: an unhandled request to a Discord host fails the test, and everything else
+          is bypassed. Rewrite the comment at `guild-gate.spec.ts:~56`, which cites msw 2's source.
+
+          Check the other msw APIs these specs use (`http`, `HttpResponse`, `server.use`,
+          `resetHandlers`) for v3 changes.
+
+          **Prove the strategies still fire.** Temporarily delete one Discord handler and confirm the
+          spec fails with the unhandled-frame error. Then restore it, don't commit that change, and
+          report it in the result.
+
+          Run the tdr-code suite with the `GIT_CONFIG_*` unset from Context.
+      - id: T12
+        title: Replace content-disposition with res.attachment
+        after: []
+        files:
+          - pnpm-lock.yaml
+          - apps/download/package.json
+          - apps/download/src/download/download.controller.ts
+          - apps/download/src/media/__tests__/
+          - apps/download/src/download/__tests__/
+        status: done
+        commit: 830d292cb98b7a748bd6114f1504f56d214bfe9b
+        body: |-
+          Decision: drop the direct `content-disposition` dependency rather than upgrade it to 3.x, which
+          is ESM-only, renames the function, and changes the header for Latin-1 names. Express 5's
+          `res.attachment(filename)` builds the header with its own content-disposition 1.x, so the
+          header bytes stay what they are today.
+
+          **Before editing,** record today's exact header for `A video.mp4`, `君の名は (2016).mkv` and
+          `Amélie.mkv`. Use `node -e` against the current dep from `apps/download`.
+
+          **Changes.**
+          - In `apps/download/src/download/download.controller.ts`, remove the import at line 69. Replace
+            both `res.setHeader('Content-Disposition', contentDisposition(source.fileName))` calls
+            (~1007, ~1021) with `res.attachment(source.fileName)`.
+          - Remove `content-disposition` and `@types/content-disposition` from
+            `apps/download/package.json`.
+          - Confirm express 5 is the `Response` in play and that its `content-disposition` resolves to
+            1.x in the lockfile.
+
+          **Content-Type.** `res.attachment` also sets Content-Type from the file extension.
+          - In the object-backed branch, the explicit `setHeader('Content-Type', source.contentType)`
+            comes after it and must still win. Keep that order.
+          - In the disk branch, `sendFile` used to pick the type. Check that send leaves an existing
+            Content-Type alone, and compare the resulting type for .mkv, .mp4, .m4v, .avi and .srt with
+            today's.
+          - If any type differs, keep today's type with an explicit header and test it.
+
+          **Tests.** Update the fake response in `apps/download/src/media/__tests__/download.controller.file.test.ts`,
+          and any other spec that builds one for these routes (`git grep -n "asResponse(" -- apps/download/src`):
+          - give it an `attachment` that reproduces express's behaviour, or wraps express's real
+            implementation
+          - assert the header strings recorded above, including the RFC 5987 case at ~line 283
+          - add an `Amélie.mkv` case
+          - rewrite the comment at ~line 276 that explains why `content-disposition` is used
+
+          Run your specs, then the full download suite once, alone, with `--maxWorkers=2`.
+  - key: '3'
+    name: MUI 9, ACP SDK 2, ecctrl 2
+    tasks:
+      - id: T13
+        title: MUI 9 in tdr-bot
+        after:
+          - T7
+        files:
+          - pnpm-lock.yaml
+          - apps/tdr-bot/package.json
+          - apps/tdr-bot/src/
+        status: done
+        commit: 04c850d98480f4a5b0cddcac75b9a6f975e51694
+        body: |-
+          Bump `@mui/material` and `@mui/icons-material` `^7.1.1` → `^9.5.0` in `apps/tdr-bot`. There is
+          no v8. Read the v9 migration guide (https://mui.com/material-ui/migration/upgrade-to-v9/)
+          in full. Check that the peer ranges for `@emotion/react`, `@emotion/styled` and React 19 are
+          met, and bump the emotion packages if v9 needs it.
+
+          **Codemod.** Run `pnpm dlx @mui/codemod@next v9.0.0/system-props apps/tdr-bot/src`, plus any
+          other v9 codemod the guide lists that applies. Then review every hunk. The `color` and
+          `fontWeight` props on Typography move into `sx`: about 98 props across 18 files.
+
+          **Link buttons.** v9 ButtonBase defaults to native button semantics, so the
+          `Button component={Link}` in `apps/tdr-bot/src/components/AppShell.tsx` (~line 75) needs
+          `nativeButton={false}`. Find every other ButtonBase descendant rendered as a link or non-button
+          element, such as `ListItemButton`, `IconButton`, a clickable `Chip` or `component="a"`, and
+          apply the same fix.
+
+          **Other APIs.** Check `src/theme.ts` (createTheme / palette / typography changes),
+          `src/components/Provider.tsx` (cache provider), `slotProps` and `slots` usage, and Grid.
+
+          **Verify.**
+          - Run type-check, lint and the tdr-bot suite.
+          - Run `pnpm --filter @lilnas/tdr-bot exec next build` in your worktree.
+
+          **Screenshots.** Re-run the screenshot harness from T7's result (its path and steps are in the
+          result) with the same fixtures, states and viewports.
+          - Save the shots to `/storage/files/lilnas-plan-015/mui/after/` under the same file names.
+          - Write `/storage/files/lilnas-plan-015/mui/index.html`, a side-by-side page of every
+            before/after pair.
+          - Compare each pair and fix unintended regressions: spacing, typography colour or weight,
+            button and link styling, dialog layout.
+          - Clean up `next-env.d.ts` and `AGENTS.md`.
+
+          **Result.** Give the index URL (https://files.lilnas.io/lilnas-plan-015/mui/index.html) and
+          list every remaining visual difference with why it is expected.
+      - id: H2
+        title: Review the MUI 9 before/after screenshots
+        after:
+          - T13
+        files: []
+        status: approved
+        body: |-
+          Open https://files.lilnas.io/lilnas-plan-015/mui/index.html and compare every pair. Also
+          read T13's list of expected differences. Approve if the pages look right. Otherwise, request
+          changes with the page and the issue.
+      - id: T14
+        title: ACP SDK 2 in tdr-code
+        after: []
+        files:
+          - pnpm-lock.yaml
+          - apps/tdr-code/package.json
+          - apps/tdr-code/src/agent/
+          - apps/tdr-code/src/__tests__/setup.ts
+        model: strong
+        status: done
+        commit: abfbc197c3119d0bc1974d7e47fb9842ed098a52
+        body: |-
+          Bump `@agentclientprotocol/sdk` `^0.15.0` → `^2.0.0` in `apps/tdr-code`. `ClientSideConnection`
+          and the `Client` interface are gone.
+
+          **Reading.** After installing, read:
+          - `node_modules/@agentclientprotocol/sdk/MIGRATION_STABLE_UNSTABLE.md`. Its
+            `ClientSideConnection` row reads
+            `client().onRequest(...).onNotification(...).connect(...)` or `connectWith(...)`.
+          - `dist/v1/acp.d.ts`, for `client()`, `ClientApp` and `ClientConnection`.
+          - `dist/core/stream.d.ts`.
+
+          Stay on the stable root export (ACP protocol v1, which claude-agent-acp speaks). Don't use
+          `./experimental/v2`.
+
+          **Rewrite onto the client app:**
+          - `src/agent/acp-client.ts`: `createAcpClient` builds a `Client` object with
+            `requestPermission`, `sessionUpdate`, fs and terminal handlers. Register those as
+            `onRequest` and `onNotification` handlers instead.
+          - `src/agent/session-manager.service.ts`: the `connection: ClientSideConnection` fields
+            (~108, ~1386), the wiring at ~1545–1560 (`ndJsonStream` + `new ClientSideConnection(() =>
+            client, stream)`), and every call made through the connection (initialize, newSession,
+            loadSession, prompt, cancel, mode and config setters, …).
+          - `src/agent/message-bridge.ts` imports the `ContentBlock` type. Keep that import working.
+
+          **Behaviour to keep:**
+          - the `isReplaying` predicate during loadSession replay
+          - the ExitPlanMode plan-approval callback
+          - permission handling
+          - idle timers
+          - PGID bookkeeping
+          - teardown on errors
+          - the `initResult` capability logging
+
+          Update the comment at ~1575 that names SDK 0.15.0.
+
+          **Message size limit.** `ndJsonStream` now enforces `maxMessageBytes`, which defaults to
+          32 MiB and throws `MessageTooLargeError`. loadSession replays the whole history as
+          `session/update` notifications, and a single line can be large (big tool output, images).
+          - Choose the limit deliberately and explain the choice in a comment.
+          - Make sure an oversized frame shows up as a logged error and teardown, not a hang.
+          - Add a test for it.
+
+          **Tests.** Rebuild the `@agentclientprotocol/sdk` mocks around the new API in
+          `src/__tests__/setup.ts` (~118–120), `src/agent/__tests__/session-manager.config.spec.ts`,
+          `session-manager.service.spec.ts` and `session-manager.service.test.ts`. Keep every existing
+          assertion's intent. Run the tdr-code suite with the `GIT_CONFIG_*` unset from Context.
+
+          **Real-agent smoke (required).** Put a throwaway script in `/tmp/plan015-acp-smoke/`. Run it
+          with the root `tsx`, and drive the worktree's rewritten `createAcpClient` plus the same
+          SDK wiring. It must spawn the agent command tdr-code uses (the default in
+          `src/db/config.repo.ts`, `@agentclientprotocol/claude-agent-acp@^0.59.0` via npx) in a
+          scratch cwd, using the user's existing Claude login. Exercise and report pass/fail with
+          evidence for:
+          1. initialize, including the capabilities
+          2. newSession
+          3. a prompt whose streamed updates arrive
+          4. a prompt that triggers a permission request (e.g. create a file in the scratch cwd),
+             approved through the handler
+          5. cancelling a long prompt mid-stream, which must end with stopReason `cancelled`
+          6. loadSession of session 2 in a fresh process, where the history replays with
+             `isReplaying` true
+
+          Never touch the prod daemon: ports 8790/8791, `/tmp/tdr-code/`, `scripts/daemon.sh`, and the
+          main checkout. Delete the scratch directory afterwards.
+      - id: H3
+        title: Review the ACP SDK 2 smoke results
+        after:
+          - T14
+        files: []
+        status: approved
+        body: |-
+          Read T14's smoke report: initialize, newSession, streamed prompt, permission approval, cancel,
+          and loadSession replay. Check the chosen `maxMessageBytes`.
+
+          Approve to continue. Prod tdr-code keeps running the old build until you land, rebuild and
+          restart it yourself (the daemon.sh recipe in memory).
+      - id: T16
+        title: ecctrl 2 in theater
+        after: []
+        files:
+          - pnpm-lock.yaml
+          - pnpm-workspace.yaml
+          - apps/theater/package.json
+          - apps/theater/src/components/Scene/
+        model: strong
+        status: done
+        commit: 302ef530bcd8225233866b0a1db467d8379ddd44
+        body: |-
+          Bump `ecctrl` 1.0.97 → 2.0.2 (exact) in `apps/theater`. 2.0 is a ground-up rewrite with no
+          migration notes. Learn it from `node_modules/ecctrl/README.md`, `CHANGELOG.md`,
+          `dist/index.d.ts`, `dist/character/Ecctrl.d.ts`, `dist/camera.d.ts` and the dist source.
+
+          **Known changes:**
+          - the default export becomes the named `Ecctrl`
+          - `CustomEcctrlRigidBody` becomes `EcctrlHandle`
+          - the cam* props (`camInitDis`, `camCollision`, `disableFollowCam`, …) are removed
+          - the follow camera is now a separate component from `ecctrl/camera`
+          - check whether keyboard input (`KeyboardControls`) changed
+
+          **Rewrite** `apps/theater/src/components/Scene/Player.tsx` (import at line 5) and
+          `SeatedCamera.tsx`. Both carry long comments describing ecctrl 1.0.97 internals:
+          - `disableControl` pinning gravityScale
+          - `disableFollowCam` handing camera ownership over while seated
+          - ecctrl's own mousemove listener
+          - the `rotateCamera()` fallback
+
+          Re-verify each one against 2.0.2's source and rewrite the comments to match. Do the same for
+          the ecctrl remarks in `Avatar.tsx:~206` and `LocalPresence.tsx:~27/52`.
+
+          **Behaviour to preserve:**
+          - walk, run and jump with the same tuning
+          - out-of-bounds/NaN respawn (`respawn.ts`, `__tests__/respawn.test.ts`)
+          - sit → frozen seated camera → stand_up returning to the follow camera without a snap
+          - the iPad browser view hand-off (`IpadBrowser*.tsx`)
+          - `viewControls.ts`
+
+          The `@types/three` override comment in `pnpm-workspace.yaml` blames ecctrl's loose `@types/three`
+          range. Check ecctrl 2's dependencies, then update or remove that override and its comment.
+
+          **Verify:**
+          - theater type-check, lint and tests
+          - `pnpm --filter @lilnas/theater build`
+          - add unit tests for any pure logic you extract
+
+          The result must give the human a precise manual test script for H5: what to press and what to
+          expect at each step. It also lists anything you couldn't confirm.
+      - id: H5
+        title: Manually verify theater on ecctrl 2
+        after:
+          - T16
+        files: []
+        status: approved
+        body: |-
+          From the run's worktree, start the theater dev container with
+          `docker compose -f apps/theater/deploy.dev.yml up -d`. This is the separate dev project, not
+          `lilnas`. Open https://theater.dev.lilnas.io and follow T16's manual test script: walk, run,
+          jump, fall out of bounds, sit, look around while seated, stand up, and use the iPad view.
+          Bring the container down afterwards.
+
+          Approve if everything behaves as it does on 1.0.97. Otherwise, request changes with what
+          broke.
+      - id: T17
+        title: Fix stale ecctrl comments in theater's Scene.tsx
+        after:
+          - T16
+        files:
+          - apps/theater/src/components/Scene/Scene.tsx
+        status: done
+        commit: 017abd00cc83950a6a787bc3b832b32e1ccf038e
+        body: |-
+          Comment-only change. theater now runs on ecctrl 2.0.2, and two comments in
+          `apps/theater/src/components/Scene/Scene.tsx` still describe ecctrl 1.0.97:
+          - ~line 156: "ecctrl already rotates the camera on mousemove whenever
+            document.pointerLockElement is set". Mouse look is now handled by the
+            mousemove listener in `apps/theater/src/components/Scene/Player.tsx`.
+          - ~line 183: "camZoomSpeed={0} already neutralizes ecctrl's own camera zoom".
+            ecctrl 2 has no wheel/zoom handler, and the `camZoomSpeed` prop no longer exists.
+
+          Before rewriting, read `Player.tsx` (and `SeatedCamera.tsx` if the comment touches the
+          seated camera) and `node_modules/ecctrl/dist` so the new wording matches what the code
+          does now. Keep the surrounding comment density. Change no code. If the comment existed
+          only to explain something ecctrl no longer does, shorten it to say what this file's own
+          code does. Grep the rest of `Scene.tsx` for other ecctrl 1 claims (`git grep -n ecctrl --
+          apps/theater/src`) and fix any you find in this file.
+
+          Verify: `pnpm --filter @lilnas/theater lint` and prettier on the file.
+  - key: '4'
+    name: Build sweep
+    tasks:
+      - id: T15
+        title: Full build sweep and outdated report (no commit)
+        after: []
+        files: []
+        status: done
+        commit: d2979457a452ff9fe305b605d1aff3fbe2b7a86e
+        body: |-
+          Report only. Change no files and commit nothing.
+
+          In your worktree:
+          - Run `pnpm turbo run build --concurrency=2`. That covers every Next, Nest, Vite and tsc build,
+            including tdr-code. It is safe in the worktree, never in the main checkout.
+          - Run `node packages/cli/bin/run.js --help`.
+          - Run `pnpm outdated -r`.
+
+          Revert any `next-env.d.ts` changes and delete any `AGENTS.md` that the builds left behind.
+
+          Report each build's outcome. List every package `pnpm outdated -r` still shows. Expected:
+          only `typescript` (kept on 6.0.3 on purpose). Anything else, or any
+          build failure, goes under `defects:` with the failing command and its error.

@@ -1,6 +1,7 @@
 import * as fs from 'fs'
-import yaml from 'js-yaml'
 import * as path from 'path'
+
+import { loadYaml } from './yaml'
 
 /**
  * Turns a `git diff --name-only` listing into the build/deploy plan the
@@ -172,7 +173,7 @@ function repoRelative(root: string, fromFile: string, target: string): string {
 }
 
 function readYaml(file: string): Dict {
-  const doc = yaml.load(fs.readFileSync(file, 'utf8'))
+  const doc = loadYaml(fs.readFileSync(file, 'utf8'))
   return isDict(doc) ? doc : {}
 }
 

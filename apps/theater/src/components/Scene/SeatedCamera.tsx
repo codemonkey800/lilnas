@@ -7,6 +7,7 @@ import { type Camera, MathUtils, Vector3 } from 'three'
 import { useSeatStore } from 'src/seats/store'
 
 import { SIT_DOWN_DURATION_S, STAND_UP_DURATION_S } from './clipTimings'
+import { LOOK_SENSITIVITY_RAD_PER_PX } from './firstPersonLook'
 import { getSeat, type Seat, SEATED_EYE_ABOVE_CUSHION } from './seats'
 
 // ---------------------------------------------------------------------------
@@ -72,33 +73,26 @@ import { getSeat, type Seat, SEATED_EYE_ABOVE_CUSHION } from './seats'
 // (`standingReturnPosRef`) rather than a seat-derived one -- there is no
 // longer any seat-relative body placement for either file to coordinate.
 //
-// ecctrl camera ownership while frozen -- READ BEFORE CHANGING ANYTHING
-// HERE: ecctrl 1.0.97's OWN per-frame camera-follow
-// (`state.camera.position.lerp(...)` + `.lookAt(...)`,
-// node_modules/ecctrl/dist/Ecctrl.js) is gated on the `disableFollowCam`
-// prop, NOT `disableControl` -- `disableControl` only early-returns AFTER
-// the camera-follow block runs, gating movement/jump/gravity management but
-// never the camera itself. Player.tsx sets BOTH props from the same
-// `frozen` flag (see its own comment), which is what actually gives this
-// component exclusive camera ownership for the whole sit_down/sitting/
-// stand_up window, not just at the final handoff.
+// Camera ownership while frozen -- READ BEFORE CHANGING ANYTHING HERE:
+// ecctrl 2.0 has no camera of its own (it only reads the camera's direction
+// to orient WASD). The standing first-person camera is Player.tsx's, and its
+// per-frame write is skipped for exactly the frames Player.tsx counts as
+// `frozen`, which includes every phase here except `standing`. That is what
+// gives this component exclusive camera ownership for the whole sit_down/
+// sitting/stand_up window, not just at the final handoff. (Under ecctrl
+// 1.0.97 the same job took the `disableFollowCam` prop, since
+// `disableControl` alone never stopped ecctrl's own camera-follow.)
 //
-// THE PHASE'S BIGGEST UNKNOWN (PLAN.md "Risks & gotchas: ecctrl handoff on
-// stand"), confirmed rather than merely theorized while building this: while
-// `disableFollowCam` is true, ecctrl's OWN mousemove listener
-// (`onDocumentMouseMove`, gated on `document.pointerLockElement` exactly
-// like this file's own listener below) keeps running and keeps accumulating
-// into ITS OWN internal `pivot.rotation.y` / `followCam.rotation.x` --
-// completely unclamped by D3 and totally disconnected from what this file
-// is actually showing, for the whole time the player is seated. The instant
-// `disableFollowCam` flips back to `false` (end of stand_up), ecctrl resumes
-// driving the real camera from that silently-drifted state, very likely
-// producing a visible snap. This is exactly the risk PLAN.md already
-// flags and defers to human sit -> stand -> sit testing, with two documented
-// fallbacks (seed ecctrl's camera state via the ref's `rotateCamera()` on
-// release, or keep `disableControl`/`disableFollowCam` off and override the
-// camera after ecctrl in frame order) to reach for ONLY if it actually
-// snaps. Deliberately not pre-built here -- see this unit's task guardrails.
+// The handoff on stand (PLAN.md "Risks & gotchas: ecctrl handoff on stand")
+// is continuous by construction now. Under 1.0.97 ecctrl's own mousemove
+// listener kept accumulating into its hidden `pivot`/`followCam` rotation
+// the whole time the player was seated, so the follow camera resumed from a
+// drifted view. PLAN.md's first fallback was to seed it via the ref's
+// `rotateCamera()` on release. Player.tsx's replacement builds that in. Its
+// look listener ignores the mouse while frozen, and on the unfreeze edge it
+// re-seeds yaw/pitch from the camera's actual direction, i.e. wherever
+// stand_up's final frame below left it. Position matches too: stand_up ends
+// on `standingReturnPosRef`, and the frozen body never moved from under it.
 // ---------------------------------------------------------------------------
 
 export type SeatPhase = 'standing' | 'sit_down' | 'sitting' | 'stand_up'
@@ -126,13 +120,6 @@ const SEATED_PITCH_LIMIT_RAD = MathUtils.degToRad(45)
 // gimbal singularity at dead vertical.
 const WIDE_OPEN_YAW_RAD = Math.PI
 const WIDE_OPEN_PITCH_RAD = MathUtils.degToRad(89)
-
-// Matches three-stdlib's PointerLockControls default (2e-3 rad/px) -- the
-// de facto reference implementation for this exact mousemove-to-Euler idiom.
-// There's no other camera-look-sensitivity constant already established in
-// this app to reuse instead (ecctrl owns its own internal sensitivity via
-// camMoveSpeed, never exposed to app code).
-const MOUSE_SENSITIVITY_RAD_PER_PX = 0.002
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
@@ -189,7 +176,7 @@ export function SeatedCamera() {
   // (Player.tsx no longer teleports it to the seat -- see this file's header
   // comment), so easing the camera back to the exact position it started
   // from is what keeps the visual camera in sync with where the body
-  // actually is once ecctrl resumes control.
+  // actually is once Player.tsx's follow camera resumes.
   const standingReturnPosRef = useRef(new Vector3())
   const directionScratchRef = useRef(new Vector3())
   const positionTargetScratchRef = useRef(new Vector3())
@@ -204,21 +191,23 @@ export function SeatedCamera() {
   const sitDownFromPitchRef = useRef(0)
 
   useEffect(() => {
+    // Same sensitivity as Player.tsx's standing look (firstPersonLook.ts),
+    // so the seated view turns at the same rate as the standing one.
     function handleMouseMove(event: MouseEvent): void {
       if (seatPhaseRef.current !== 'sitting' || !document.pointerLockElement) {
         // D8: openIpad() releases pointer lock but mousemove keeps firing --
         // without this check, reaching for a tablet button while seated
-        // would swing the seated view. Matches ecctrl's own
-        // onDocumentMouseMove, which gates on this exact same condition.
+        // would swing the seated view. Player.tsx's standing look listener
+        // gates on pointer lock the same way.
         return
       }
       yawOffsetRef.current = clamp(
-        yawOffsetRef.current - event.movementX * MOUSE_SENSITIVITY_RAD_PER_PX,
+        yawOffsetRef.current - event.movementX * LOOK_SENSITIVITY_RAD_PER_PX,
         -SEATED_YAW_LIMIT_RAD,
         SEATED_YAW_LIMIT_RAD,
       )
       pitchOffsetRef.current = clamp(
-        pitchOffsetRef.current - event.movementY * MOUSE_SENSITIVITY_RAD_PER_PX,
+        pitchOffsetRef.current - event.movementY * LOOK_SENSITIVITY_RAD_PER_PX,
         -SEATED_PITCH_LIMIT_RAD,
         SEATED_PITCH_LIMIT_RAD,
       )
@@ -286,8 +275,8 @@ export function SeatedCamera() {
     const seat = activeSeatRef.current
     const phase = seatPhaseRef.current
     if (phase === 'standing' || !seat) {
-      // Inert -- ecctrl owns the camera again (see the header comment for
-      // exactly what makes that safe).
+      // Inert -- Player.tsx's follow camera owns the camera again (see the
+      // header comment for exactly what makes that safe).
       return
     }
 
@@ -365,7 +354,7 @@ export function SeatedCamera() {
       // seat-relative position. Player.tsx no longer teleports the physics
       // body to the seat (see this file's header comment), so the body has
       // been sitting exactly there, motionless, the whole time; landing the
-      // camera back on it is what keeps the eventual ecctrl handoff
+      // camera back on it is what keeps the eventual Player.tsx handoff
       // (header comment) starting from the right place, with no seat
       // geometry or capsule-height math needed here at all.
       camera.position.lerpVectors(

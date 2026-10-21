@@ -2,18 +2,16 @@ packages:
   - 'apps/*'
   - 'packages/*'
 
-# Only better-sqlite3 needs its install script (a native addon compiled
-# against the running Node). The rest were always skipped under pnpm 10 and work
-# without them (prebuilt platform packages, donation banners), so they are
-# listed as reviewed-and-denied to satisfy strictDepBuilds.
+# No dependency needs its install script to run. These were always skipped
+# under pnpm 10 and work without them (prebuilt platform packages, donation
+# banners, better-sqlite3 13 ships its N-API prebuilds in the package), so they
+# are listed as reviewed-and-denied to satisfy strictDepBuilds.
 allowBuilds:
-  better-sqlite3: true
   '@nestjs/core': false
   '@parcel/watcher': false
   '@swc/core': false
   '@tailwindcss/oxide': false
   esbuild: false
-  msw: false
   necord: false
   sharp: false
   unrs-resolver: false
@@ -36,6 +34,3 @@ overrides:
   '@nestjs/platform-express': 12.2.0
   '@nestjs/platform-socket.io': 12.2.0
   '@nestjs/websockets': 12.2.0
-  # ecctrl depends on a loose '@types/three' range that resolves to a stale,
-  # incompatible copy alongside our pinned version — force one shared copy.
-  '@types/three': 0.185.1

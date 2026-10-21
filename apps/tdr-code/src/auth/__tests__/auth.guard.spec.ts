@@ -4,8 +4,9 @@ import { Global, Module } from '@nestjs/common'
 import { APP_GUARD, Reflector } from '@nestjs/core'
 import { Test } from '@nestjs/testing'
 import { AuthService } from '@thallesp/nestjs-better-auth'
-import type { UnhandledRequestStrategy } from 'msw'
+import type { UnhandledFrameHandle } from 'msw'
 import { http as mswHttp, HttpResponse } from 'msw'
+import { HttpNetworkFrame } from 'msw/experimental'
 import { setupServer } from 'msw/node'
 import { PinoLogger } from 'nestjs-pino'
 import { NEVER } from 'rxjs'
@@ -666,12 +667,16 @@ function discordProfileResponse(opts: { id: string }) {
   }
 }
 
-const discordOnlyUnhandledRequestStrategy: UnhandledRequestStrategy = (
-  req,
-  print,
-) => {
-  if (new URL(req.url).hostname === 'discord.com') {
-    print.error()
+const discordOnlyUnhandledFrameStrategy: UnhandledFrameHandle = async ({
+  frame,
+  defaults,
+}) => {
+  if (
+    frame instanceof HttpNetworkFrame &&
+    new URL(frame.data.request.url).hostname === 'discord.com'
+  ) {
+    await defaults.error()
+    throw new Error(await frame.getUnhandledMessage())
   }
 }
 
@@ -690,7 +695,7 @@ describe('AuthGuard — full HTTP integration (deny-by-default across every enum
 
   beforeAll(async () => {
     mswServer.listen({
-      onUnhandledRequest: discordOnlyUnhandledRequestStrategy,
+      onUnhandledFrame: discordOnlyUnhandledFrameStrategy,
     })
     testDb = createTestDb()
     const built = buildTestControllerModule(testDb.db)

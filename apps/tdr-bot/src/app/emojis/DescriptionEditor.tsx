@@ -53,10 +53,10 @@ export function DescriptionEditor({ emoji, onClose }: DescriptionEditorProps) {
           mt: 0.5,
         }}
       >
-        <Typography variant="caption" color="text.secondary">
+        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
           Saving marks this description as manual.
         </Typography>
-        <Typography variant="caption" color="text.secondary">
+        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
           {draft.length} / {DESCRIPTION_MAX}
         </Typography>
       </Box>

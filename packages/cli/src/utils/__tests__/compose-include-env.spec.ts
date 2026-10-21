@@ -1,5 +1,5 @@
 import * as fs from 'fs'
-import yaml from 'js-yaml'
+import { load } from 'js-yaml'
 import * as path from 'path'
 
 import { gitTrackedFiles, listEncryptedEnvFiles } from '../secrets'
@@ -25,7 +25,7 @@ interface IncludeEntry {
  */
 function includeEntries(composeFile: string): IncludeEntry[] {
   const baseDir = path.dirname(composeFile)
-  const doc = yaml.load(fs.readFileSync(composeFile, 'utf8')) as {
+  const doc = load(fs.readFileSync(composeFile, 'utf8')) as {
     include?: unknown[]
   }
 

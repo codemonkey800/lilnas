@@ -83,6 +83,56 @@ describe('AuthService.verifySessionCookie', () => {
 
     expect(authService.verifySessionCookie(header)).toBeNull()
   })
+
+  it('finds the session cookie among several cookies', () => {
+    const signed = buildCookieHeader(
+      SESSION_COOKIE_NAME,
+      signCookieValue(USERNAME, SESSION_SECRET),
+    )
+    const header = `first=1; ${signed}; last=3`
+
+    expect(authService.verifySessionCookie(header)).toBe(USERNAME)
+  })
+
+  it('returns null when other cookies are present but the session cookie is not', () => {
+    expect(authService.verifySessionCookie('a=1; b=2; c=3')).toBeNull()
+  })
+
+  it('percent-decodes the cookie value before verifying the signature', () => {
+    // `signCookieValue` output contains `:` and `/`-class characters that
+    // `encodeURIComponent` escapes (`s%3A…`), so a successful verification
+    // proves the parser decoded the value.
+    const signed = signCookieValue(USERNAME, SESSION_SECRET)
+    const header = `${SESSION_COOKIE_NAME}=${encodeURIComponent(signed)}`
+
+    expect(header).toContain('%3A')
+    expect(authService.verifySessionCookie(header)).toBe(USERNAME)
+  })
+
+  it('uses the first session cookie when the name is duplicated', () => {
+    const valid = buildCookieHeader(
+      SESSION_COOKIE_NAME,
+      signCookieValue(USERNAME, SESSION_SECRET),
+    )
+    const forged = buildCookieHeader(
+      SESSION_COOKIE_NAME,
+      signCookieValue('mallory', 'attacker-secret'),
+    )
+
+    expect(authService.verifySessionCookie(`${valid}; ${forged}`)).toBe(
+      USERNAME,
+    )
+    expect(authService.verifySessionCookie(`${forged}; ${valid}`)).toBeNull()
+  })
+
+  it('returns null for a header that is not a cookie pair', () => {
+    expect(authService.verifySessionCookie('garbage')).toBeNull()
+  })
+
+  it('does not treat inherited object keys as cookies', () => {
+    expect(authService.verifySessionCookie('constructor=x')).toBeNull()
+    expect(authService.verifySessionCookie('__proto__=x')).toBeNull()
+  })
 })
 
 describe('AuthService.readSession', () => {

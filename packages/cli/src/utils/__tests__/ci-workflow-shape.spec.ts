@@ -1,5 +1,5 @@
 import * as fs from 'fs'
-import yaml from 'js-yaml'
+import { load } from 'js-yaml'
 import * as path from 'path'
 
 const ROOT = path.resolve(__dirname, '../../../../..')
@@ -29,7 +29,7 @@ interface Workflow {
   jobs: Record<string, Job>
 }
 
-const workflow = yaml.load(fs.readFileSync(WORKFLOW, 'utf8')) as Workflow
+const workflow = load(fs.readFileSync(WORKFLOW, 'utf8')) as Workflow
 
 function job(name: string): Job {
   const found = workflow.jobs[name]
