@@ -403,6 +403,16 @@ GitHub (`codemonkey800/lilnas`):
   signed artifact is a cache miss. To rotate the key, `dotenvx set` it there,
   then
   `pnpm dlx @dotenvx/dotenvx get TURBO_REMOTE_CACHE_SIGNATURE_KEY -f infra/.env.turbo -fk .env.keys | gh secret set TURBO_REMOTE_CACHE_SIGNATURE_KEY`.
+  The `check` job builds each package and uploads it; `build-images` passes
+  all four values to `docker/build-push-action` as BuildKit secrets, so the
+  app Dockerfiles' `pnpm build` restores the same task instead of compiling.
+  The secrets are optional: a local `docker build` without them compiles as
+  before. A hit needs the same task hash on both sides, so `.dockerignore`
+  keeps every tracked file (including the committed `.env.example` and
+  encrypted `.env.prod` files) in the context; turbo has no git in the image
+  and hashes the files on disk minus `.gitignore`. Compare with
+  `turbo run build --filter=<pkg> --dry=json` on the host and in the builder
+  stage.
 - A `production` environment (the deploy job runs under it; protection rules
   are optional — a required reviewer gates every deploy, including no-ops).
 - Token permissions: the `detect` job needs `actions: write` (to list runs and

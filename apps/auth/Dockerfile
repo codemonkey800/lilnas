@@ -18,46 +18,54 @@ COPY packages/prettier-config-lilnas/package.json packages/prettier-config-lilna
 COPY packages/tsc7/ packages/tsc7/
 
 # Install dependencies (this layer gets cached)
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install
+RUN pnpm install --frozen-lockfile
 
 # Build stage
 FROM deps AS builder
+
+# COPY . . brings in every workspace package.json, so pnpm's verify-deps-before-run
+# would run a full-workspace install before the first build. The deps stage's
+# install already covers this app's subset.
+ENV pnpm_config_verify_deps_before_run=false
 
 # Copy source code (this layer changes frequently)
 COPY . .
 
 # Build the lilnas-auth package — both the NestJS backend and the Next.js
 # frontend (package.json's "build" script runs both via run-p).
-RUN pnpm build --filter=@lilnas/auth
+#
+# Builds go through the self-hosted Turbo remote cache (docs/deploy.md) when
+# CI passes the TURBO_* BuildKit secrets; without them turbo compiles locally.
+# A cache hit restores packages/*/dist but skips pnpm's injected-deps sync, so
+# the dependencies build first and the offline install re-syncs their copies
+# in apps/auth/node_modules/@lilnas/* before the app build reads them.
+RUN --mount=type=secret,id=TURBO_API,env=TURBO_API \
+    --mount=type=secret,id=TURBO_TEAM,env=TURBO_TEAM \
+    --mount=type=secret,id=TURBO_TOKEN,env=TURBO_TOKEN \
+    --mount=type=secret,id=TURBO_REMOTE_CACHE_SIGNATURE_KEY,env=TURBO_REMOTE_CACHE_SIGNATURE_KEY \
+    pnpm build --filter='@lilnas/auth^...' \
+    && pnpm install --frozen-lockfile --offline --filter='@lilnas/auth...' \
+    && pnpm build --filter=@lilnas/auth
 
-# Deploy production dependencies. package.json's "files" field
-# (["./.next", "./dist"]) tells pnpm deploy to include both build outputs.
+# Deploy production dependencies. package.json's "files" field (["./dist"])
+# tells pnpm deploy to include the Nest build output.
 RUN pnpm --filter=auth --prod deploy /app
 
-# Copy the built Next.js application
-RUN cp -r /source/apps/auth/.next /app/.next
-
-# Copy the standalone server to the correct location
-RUN cp /source/apps/auth/.next/standalone/apps/auth/server.js /app/server.js
-
-# Copy public directory if it exists — to /app/public, a SIBLING of
-# server.js (flattened to /app/server.js above, not left at its original
-# nested .next/standalone/apps/auth/server.js path). Next's
-# standalone server resolves public/ relative to its OWN location, so it
-# must land at /app/public, not /app/.next/standalone/public — the latter
-# is silently never served (confirmed live: sad-pepe.svg 404'd until this
-# was fixed, since this app had no public/ directory at all before it).
-RUN if [ -d /source/apps/auth/public ]; then \
-      cp -r /source/apps/auth/public /app/public; \
-    fi
-
-# Copy static files to standalone directory
-RUN if [ -d /app/.next/static ]; then \
-      cp -r /app/.next/static /app/.next/standalone/.next/; \
-    fi
+# Copy the Next standalone build next to the backend. It carries only the
+# frontend's traced node_modules, so next/react/react-dom stay out of /app's
+# prod dependencies (they are devDependencies). static/ and public/ go inside
+# it, beside the standalone server.js: Next's standalone server resolves both
+# relative to its OWN location (frontend/apps/auth/), so public/ anywhere else
+# is silently never served (confirmed live: sad-pepe.svg 404'd until it sat
+# beside server.js).
+RUN cp -a apps/auth/.next/standalone /app/frontend \
+    && cp -a apps/auth/.next/static /app/frontend/apps/auth/.next/static \
+    && if [ -d apps/auth/public ]; then \
+         cp -a apps/auth/public /app/frontend/apps/auth/public; \
+       fi
 
 # Verify the standalone server was copied correctly
-RUN test -f /app/server.js || (echo "ERROR: Standalone server not found" && exit 1)
+RUN test -f /app/frontend/apps/auth/server.js || (echo "ERROR: Standalone server not found" && exit 1)
 
 # Copy migrations into the runtime image so database.module.ts can apply
 # them on boot. resolveMigrationsFolder() resolves the path via

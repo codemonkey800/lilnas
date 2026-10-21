@@ -12,6 +12,7 @@ interface Step {
   name?: string
   if?: string
   uses?: string
+  run?: string
   with?: Record<string, string | boolean>
 }
 
@@ -35,6 +36,14 @@ const workflow = load(fs.readFileSync(WORKFLOW, 'utf8')) as Workflow
 function job(name: string): Job {
   const found = workflow.jobs[name]
   if (!found) throw new Error(`ci.yml has no "${name}" job`)
+  return found
+}
+
+function step(jobName: string, stepName: string): Step {
+  const found = (job(jobName).steps ?? []).find(s =>
+    s.name?.startsWith(stepName),
+  )
+  if (!found) throw new Error(`${jobName} has no "${stepName}" step`)
   return found
 }
 
@@ -112,6 +121,28 @@ describe('ci.yml shape', () => {
     for (const step of buildx) {
       expect(step.with?.cleanup).toBe(false)
     }
+  })
+
+  it('passes the four Turbo remote cache secrets to the image build', () => {
+    const secrets = String(step('build-images', 'Build and push').with?.secrets)
+    const ids = secrets
+      .split('\n')
+      .filter(line => line.trim())
+      .map(line => line.trim().split('=')[0])
+    expect(ids.sort()).toEqual([
+      'TURBO_API',
+      'TURBO_REMOTE_CACHE_SIGNATURE_KEY',
+      'TURBO_TEAM',
+      'TURBO_TOKEN',
+    ])
+  })
+
+  it('builds the checked package itself, not only its dependencies', () => {
+    const run = step('check', 'Build dependencies').run ?? ''
+    const filter = run.match(/--filter="([^"]+)"/)?.[1]
+    expect(filter).not.toContain('^')
+    expect(filter).toBe('{./${PACKAGE}}...')
+    expect(run).toContain('pnpm install --frozen-lockfile --offline')
   })
 
   it('uploads pass markers from check and built markers from build-images', () => {

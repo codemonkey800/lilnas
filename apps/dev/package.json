@@ -6,7 +6,6 @@
   "packageManager": "pnpm@12.14.0",
   "prettier": "@lilnas/prettier",
   "files": [
-    "./.next",
     "./dist"
   ],
   "scripts": {
@@ -25,7 +24,7 @@
     "lint:prettier:fix": "prettier -w src",
     "start": "run-p start:*",
     "start:backend": "node dist/main",
-    "start:frontend": "node server.js",
+    "start:frontend": "node frontend/apps/dev/server.js",
     "test": "NODE_OPTIONS='--experimental-vm-modules --no-warnings=ExperimentalWarning' jest",
     "test:watch": "NODE_OPTIONS='--experimental-vm-modules --no-warnings=ExperimentalWarning' jest --watch",
     "test:cov": "NODE_OPTIONS='--experimental-vm-modules --no-warnings=ExperimentalWarning' jest --coverage",
@@ -38,11 +37,8 @@
     "@nestjs/platform-express": "12.2.0",
     "dotenv": "18.0.8",
     "nestjs-pino": "5.3.1",
-    "next": "16.4.2",
     "npm-run-all": "4.1.5",
     "pino-http": "11.0.0",
-    "react": "19.3.1",
-    "react-dom": "19.3.1",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2",
     "source-map-support": "0.5.21",
@@ -59,6 +55,9 @@
     "@types/jest": "30.0.0",
     "jest": "30.5.2",
     "jest-environment-jsdom": "30.5.2",
+    "next": "16.4.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
     "ts-jest": "29.4.15",
     "typescript": "6.0.3"
   }

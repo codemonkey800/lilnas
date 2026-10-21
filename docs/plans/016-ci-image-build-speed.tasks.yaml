@@ -1,0 +1,587 @@
+nexus-tasks: 1
+phases:
+  - key: '1'
+    name: CI knobs and smaller images
+    tasks:
+      - id: T1
+        title: 'ci.yml: max-parallel 12 and buildx `cleanup: false`'
+        after: []
+        files:
+          - .github/workflows/ci.yml
+          - packages/cli/src/utils/__tests__/ci-workflow-shape.spec.ts
+        status: done
+        commit: a2c622e2de556898e369facc025435cab7b2fad2
+        body: |-
+          Two edits to `.github/workflows/ci.yml`, each with a one-line comment giving the reason:
+          - `build-images` → `strategy.max-parallel: 4` becomes `12`. The repo is public, so the job
+            concurrency limit is 20. The `check` matrix has finished before `build-images` starts.
+          - Every `docker/setup-buildx-action@v4` step gets `with: cleanup: false`. There are two:
+            one in `base-images`, one in `build-images`; keep the existing `if:`. Runners are
+            ephemeral, and the post-step `docker buildx rm` took 24–94 s per image job.
+
+          Change nothing else in the workflow.
+
+          Extend `packages/cli/src/utils/__tests__/ci-workflow-shape.spec.ts`. The `Job`/`Step`
+          interfaces at the top need a `strategy` field and a `with` that allows booleans. Add:
+          - `build-images` has `strategy['max-parallel'] === 12`
+          - every step in every job that `uses` `docker/setup-buildx-action@` has
+            `with.cleanup === false`, and there is at least one such step
+
+          Run the spec. Each new assertion must fail when you revert its yaml line, then pass again.
+      - id: H1
+        title: Push T1 to main and watch the CI run
+        after:
+          - T1
+        files: []
+        status: approved
+        body: |-
+          Cherry-pick T1's commit onto `main` and push it. This deploys. Any `.github/workflows/**`
+          change makes the run full: all 11 images are rebuilt, every service is redeployed, and
+          everything is decrypted.
+
+          In the GitHub run, check three things:
+          - `build-images` runs as a single wave. Baseline: ~9.5 min in three waves of 4.
+          - The "Post Set up Docker Buildx" step takes about 0 s. Baseline: 24–94 s.
+          - `summary` is green.
+
+          Approve if green. Request changes with the failing job's log if not.
+      - id: T2
+        title: 'portal: run from the Next standalone build only'
+        after: []
+        files:
+          - apps/portal/Dockerfile
+        status: done
+        commit: 8b0b191cbaae7b3701af98751a0e422f0443c4f8
+        body: |-
+          `@lilnas/portal` is a pure Next app (`start`: `NODE_ENV=production node server.js`).
+          Today `apps/portal/Dockerfile` copies a full `pnpm deploy --prod` tree (378M
+          `node_modules`) plus the whole `.next` (161M, with 33M of `.next/cache`) into `/app`.
+
+          New layout: `/app` is the contents of `apps/portal/.next/standalone`. Next writes
+          `apps/portal/{server.js,package.json,.next/,node_modules}` there, plus a traced root
+          `node_modules`. Add:
+          - `.next/static` → `/app/apps/portal/.next/static`
+          - `public/` → `/app/apps/portal/public`
+          - `WORKDIR /app/apps/portal`
+          - `ENTRYPOINT ["pnpm","start"]` (keep it)
+
+          Drop the `pnpm deploy` step and the `.next`/`server.js` copies. Copy straight from the
+          builder's `/source/apps/portal/...` paths. Use `cp -a` or `COPY`, both of which keep
+          the standalone tree's relative symlinks. Keep a `test -f` guard on the new `server.js`
+          path. The app runs as root and talks to the Docker socket through `node-docker-api`;
+          keep that.
+
+          Check that `apps/portal/.next/standalone/apps/portal/package.json` still has the
+          `start` script, so `pnpm start` works there. No `apps/portal/package.json` change is
+          expected; if one turns out to be needed, stop and report it.
+
+          Verify, as described in Context:
+          - Build `plan016/portal:after`.
+          - Run it with the default entrypoint. `/` and one `/_next/static/…` asset taken from
+            its HTML must return the same status as the baseline image does.
+          - Report the before/after table.
+      - id: T3
+        title: 'equations: stop duplicating /app with `chown -R`'
+        after: []
+        files:
+          - apps/equations/Dockerfile
+        status: done
+        commit: 36dd26572ed287f8d838a3e170b70dbd284892bc
+        body: |-
+          `apps/equations/Dockerfile` is the outlier: `node:26.12.0-bookworm` builder,
+          `-bookworm-slim` runtime with ~2.5G of texlive. **Keep every apt package exactly as it
+          is.** That is a user decision.
+
+          The runtime stage does `COPY --from=build /app /app` and then `RUN chown -R app:app /app`.
+          That writes a second full copy of `/app` as a new layer. Because it is a RUN after the
+          COPY, BuildKit in CI must also pull and extract the texlive layers under it on every
+          build. Changes:
+          - Create the `app` user before the copy.
+          - `COPY --from=build --chown=app:app` the deploy tree and the ImageMagick policy, as
+            each needs.
+          - Leave no `RUN` after the app COPY.
+          - Keep `USER app`, `WORKDIR /app`, the label and `ENTRYPOINT ["pnpm","start"]`.
+
+          Also look at what `pnpm deploy` puts in `/app`, and drop anything the backend doesn't
+          load at runtime, if any. Do not change `apps/equations/package.json`.
+
+          Verify:
+          - `docker history plan016/equations:after` shows no layer that re-copies `/app`.
+          - `pnpm start` boots no worse than the baseline under the same throwaway env (Context).
+          - `node -e "require('./dist/app.module')"` inside the image throws no module-not-found.
+          - Report the before/after table and the layer list.
+      - id: T4
+        title: 'me-token-tracker: trim the runtime image'
+        after: []
+        files:
+          - apps/me-token-tracker/Dockerfile
+        status: done
+        commit: 95b2d8e84d666b53273607b5220a338c36cda487
+        body: |-
+          `apps/me-token-tracker` is a Nest-only Discord bot (`start`:
+          `NODE_ENV=production node dist/main`) on `lilnas-node-runtime`. Its `/app` is 94M,
+          nearly all `node_modules`.
+
+          Look at what the deploy tree and the image hold, and trim only what isn't loaded at
+          runtime: stray files and duplicate layers. Dockerfile only. Don't change
+          `apps/me-token-tracker/package.json`. If a dependency looks unused, list it in your
+          result instead.
+
+          If you can't cut at least 5% of the image size, leave the Dockerfile unchanged, say so,
+          and commit nothing.
+
+          Otherwise verify:
+          - Build `plan016/me-token-tracker:after`.
+          - `node -e "require('./dist/app.module')"` inside the image throws no module-not-found.
+          - `pnpm start` under the throwaway env fails no worse than the baseline. It will fail
+            at Discord login.
+          - Report the before/after table.
+      - id: T5
+        title: 'dashcam: cached deps layer in the build stage'
+        after: []
+        files:
+          - apps/dashcam/Dockerfile
+        status: done
+        commit: 61fb697886c8548609413a9549ead658cddf8155
+        body: |-
+          `apps/dashcam/Dockerfile` builds on `node:26.12.0`. It runs `COPY ../.. /source`, then
+          `npm install -g pnpm`, then a full-monorepo `pnpm install --frozen-lockfile`. So any
+          source change re-runs the whole install. Its nginx runtime (69M) is already minimal;
+          leave that stage alone.
+
+          Rewrite the build side on the pattern `apps/portal/Dockerfile` uses at `base`:
+          - stage `deps`: `FROM ghcr.io/codemonkey800/lilnas-monorepo-builder:latest`
+          - copy `package.json pnpm-lock.yaml pnpm-workspace.yaml` and the package.json files
+            dashcam's workspace graph needs: `apps/dashcam`, `packages/utils`, `packages/cli`,
+            `packages/eslint-config-lilnas`, `packages/prettier-config-lilnas`, and the whole
+            `packages/tsc7/` dir. Check `apps/dashcam/package.json` and those packages for
+            anything else.
+          - `RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install`
+          - stage `builder`: `FROM deps`, `COPY . .`, `RUN pnpm build --filter=@lilnas/dashcam`
+          - nginx stage: copies `/source/apps/dashcam/dist` as before
+
+          Verify:
+          - Build `plan016/dashcam:after`.
+          - Touch a file in `apps/dashcam/src` and rebuild. The install step must show `CACHED`.
+            Report both build times.
+          - The two images' `/usr/share/nginx/html` file lists match, apart from hashed asset
+            names.
+          - The new image serves `/` with 200 on a random port. Container port 80; use
+            `-p 127.0.0.1::80`.
+          - Report the before/after table.
+      - id: T6
+        title: 'tdr-bot: frontend from Next standalone, frontend deps to devDependencies'
+        after: []
+        files:
+          - apps/tdr-bot/Dockerfile
+          - apps/tdr-bot/package.json
+          - pnpm-lock.yaml
+        status: done
+        commit: a4ef176801bf80a6cd77f5ed7be3caae2a29738d
+        body: |-
+          Today the `/app` of `lilnas-tdr-bot` is 994M:
+          - prod `node_modules`: 762M. next 205M, @next/swc 97M, @mui/icons-material 88M.
+          - the whole `.next`: 225M, including `cache` 58M and an unused `standalone` 42M.
+
+          1. **Deps.** The backend is the Nest app compiled from `src/main.ts` into `dist/`. The
+             frontend is the Next app: `src/app/`, `src/components/`, and code only they import.
+             A dependency is frontend-only when no module the backend loads imports it, directly
+             or through shared code. Grep `from '<pkg>'`, `require('<pkg>')` and `import('<pkg>')`
+             across the backend's files.
+
+             Candidates to check: next, react, react-dom, @mui/material, @mui/icons-material,
+             @emotion/cache, @emotion/react, @emotion/styled, @tanstack/react-query, jotai, clsx.
+
+             Move the frontend-only ones to `devDependencies`, with exact pins and sorted keys.
+             Keep `npm-run-all`, which the start scripts use. Run `pnpm install` at the root.
+          2. **package.json:**
+             - `files` becomes `["./dist", "./drizzle"]`
+             - `start:frontend` becomes `node frontend/apps/tdr-bot/server.js`
+             - leave `start`, `start:migrate` and `start:servers` alone
+          3. **Dockerfile builder**, after `pnpm --filter=@lilnas/tdr-bot --prod deploy /app`:
+             ```sh
+             cp -a apps/tdr-bot/.next/standalone /app/frontend
+             cp -a apps/tdr-bot/.next/static /app/frontend/apps/tdr-bot/.next/static
+             [ -d apps/tdr-bot/public ] && cp -a apps/tdr-bot/public /app/frontend/apps/tdr-bot/public
+             ```
+             Drop the old `/app/.next` and `/app/server.js` copies. Keep `/app/drizzle`. Point the
+             `test -f` guard at `/app/frontend/apps/tdr-bot/server.js` and add one for
+             `/app/dist/main.js`. Keep the runtime stage's ENV/EXPOSE.
+
+          Verify (Context has the rules):
+          - `docker run --rm --env-file <tmp> --entrypoint node <img> -e "require('./dist/app.module')"`
+            on the new and baseline images. The new one throws no module-not-found that the
+            baseline doesn't. Also grep the backend for lazy `import(`/`require(` of the moved
+            packages.
+          - Frontend alone:
+            - new image: `--entrypoint node … frontend/apps/tdr-bot/server.js`
+            - baseline: `--entrypoint node … server.js`
+            - `/` and one `/_next/static/…` asset from the HTML return the same statuses
+          - Default `pnpm start` for ~20 s on both images. It stops at `start:migrate` without
+            Postgres; the logs must match apart from timestamps.
+          - Report the before/after table.
+      - id: T7
+        title: 'download: frontend from Next standalone, frontend deps to devDependencies'
+        after: []
+        files:
+          - apps/download/Dockerfile
+          - apps/download/package.json
+          - pnpm-lock.yaml
+        status: done
+        commit: 2415ee678a6f11189c0075a9fa2d12e511ba0fa6
+        body: |-
+          Today the `/app` of `lilnas-download` is 867M:
+          - prod `node_modules`: 587M
+          - the whole `.next`: 269M, including `cache` 60M and an unused `standalone` 46M
+
+          1. **Deps.** The backend is the Nest app compiled from `src/main.ts` into `dist/`. The
+             frontend is the Next app: `src/app/`, `src/components/`, and code only they import.
+             A dependency is frontend-only when no module the backend loads imports it, directly
+             or through shared code. Grep `from '<pkg>'`, `require('<pkg>')` and `import('<pkg>')`
+             across the backend's files.
+
+             Candidates to check: next, react, react-dom, react-icons.
+
+             Move the frontend-only ones to `devDependencies`, with exact pins and sorted keys.
+             Keep `npm-run-all`. Run `pnpm install` at the root.
+          2. **package.json:**
+             - `files` becomes `["./dist"]`
+             - `start:frontend` becomes `node frontend/apps/download/server.js`
+          3. **Dockerfile builder**, after `pnpm --filter=download --prod deploy /app`:
+             ```sh
+             cp -a apps/download/.next/standalone /app/frontend
+             cp -a apps/download/.next/static /app/frontend/apps/download/.next/static
+             [ -d apps/download/public ] && cp -a apps/download/public /app/frontend/apps/download/public
+             ```
+             Drop the old `/app/.next` and `/app/server.js` copies. Point the `server.js` guard at
+             the new path. Keep the migrations copy to `/app/src/db/migrations` and the
+             `dist/main.js` guard. Keep everything in the production stage: ffmpeg/yt-dlp,
+             `/download/videos`, `COPY --chown=node:node` and `USER node`.
+
+          Verify (Context has the rules):
+          - `docker run --rm --env-file <tmp> --entrypoint node <img> -e "require('./dist/app.module')"`
+            on the new and baseline images. The new one throws no module-not-found that the
+            baseline doesn't. Also grep the backend for lazy `import(`/`require(` of the moved
+            packages.
+          - Frontend alone:
+            - new image: `--entrypoint node … frontend/apps/download/server.js`
+            - baseline: `--entrypoint node … server.js`
+            - `/` and one `/_next/static/…` asset return the same statuses
+          - Default `pnpm start` for ~20 s on both images. Compare the logs.
+          - Report the before/after table.
+      - id: T8
+        title: 'auth: frontend from Next standalone, frontend deps to devDependencies'
+        after: []
+        files:
+          - apps/auth/Dockerfile
+          - apps/auth/package.json
+          - pnpm-lock.yaml
+        status: done
+        commit: 97b74e48fe272f8fc3a0df2ad16955955f544007
+        body: |-
+          Today the `/app` of `lilnas-auth` is 704M:
+          - prod `node_modules`: 511M
+          - the whole `.next`: 192M, including `cache` 43M and an unused `standalone` 42M
+
+          1. **Deps.** The backend is the Nest app compiled from `src/main.ts` into `dist/`. The
+             frontend is the Next app: `src/app/` and code only it imports. A dependency is
+             frontend-only when no module the backend loads imports it, directly or through
+             shared code. Grep `from '<pkg>'`, `require('<pkg>')` and `import('<pkg>')` across
+             the backend's files.
+
+             Candidates to check: next, react, react-dom. `better-sqlite3` stays: the backend
+             uses it, and `next.config.js` lists it in `serverExternalPackages`, so the
+             standalone trace must include it too.
+
+             Move the frontend-only ones to `devDependencies`, with exact pins and sorted keys.
+             Keep `npm-run-all`. Run `pnpm install` at the root.
+          2. **package.json:**
+             - `files` becomes `["./dist"]`
+             - `start:frontend` becomes `node frontend/apps/auth/server.js`
+             - `start` stays `run-p --race start:*`
+          3. **Dockerfile builder**, after `pnpm --filter=auth --prod deploy /app`:
+             ```sh
+             cp -a apps/auth/.next/standalone /app/frontend
+             cp -a apps/auth/.next/static /app/frontend/apps/auth/.next/static
+             [ -d apps/auth/public ] && cp -a apps/auth/public /app/frontend/apps/auth/public
+             ```
+             `public/` must sit beside the standalone `server.js`; the existing comment explains
+             why. Update that comment. Drop the old `.next`, `server.js` and `/app/public` copies.
+             Keep the `/app/src/db/migrations` copy, the guards (with the new `server.js` path),
+             `COPY --chown=node:node` and `USER node`.
+
+          Verify (Context has the rules):
+          - `docker run --rm --env-file <tmp> --entrypoint node <img> -e "require('./dist/app.module')"`
+            on the new and baseline images. The new one throws no module-not-found that the
+            baseline doesn't.
+          - Frontend alone:
+            - new image: `--entrypoint node … frontend/apps/auth/server.js`
+            - baseline: `--entrypoint node … server.js`
+            - `/`, one `/_next/static/…` asset and `/sad-pepe.svg` (served from `public/`)
+              return the same statuses
+          - Run `find /app/frontend -name '*.node'` in the new image and confirm
+            better-sqlite3's native addon is there.
+          - Default `pnpm start` for ~20 s on both images. Compare the logs.
+          - Report the before/after table.
+      - id: T9
+        title: 'theater: frontend from Next standalone, frontend deps to devDependencies'
+        after: []
+        files:
+          - apps/theater/Dockerfile
+          - apps/theater/package.json
+          - pnpm-lock.yaml
+        status: done
+        commit: 6e862f299d4a7baa41c2b1117fb09930508c2ec6
+        body: |-
+          Today the `/app` of `lilnas-theater` is 879M:
+          - prod `node_modules`: 569M
+          - the whole `.next`: 309M, including `cache` 50M and an unused `standalone` 137M
+
+          1. **Deps.** The backend is the Nest app compiled from `src/main.ts` into `dist/`. It
+             includes a socket.io gateway. The frontend is the Next app: `src/app/`,
+             `src/components/`, and code only they import. A dependency is frontend-only when no
+             module the backend loads imports it, directly or through shared code. Grep
+             `from '<pkg>'`, `require('<pkg>')` and `import('<pkg>')` across the backend's files.
+
+             Candidates to check: next, react, react-dom, @react-three/drei, @react-three/fiber,
+             @react-three/rapier, three, three-stdlib, ecctrl, leva, hls.js, socket.io-client,
+             zustand, clsx, tailwind-merge. `socket.io` stays (server).
+
+             Move the frontend-only ones to `devDependencies`, with exact pins and sorted keys.
+             Keep `npm-run-all`. Run `pnpm install` at the root.
+          2. **package.json:**
+             - `files` becomes `["./dist"]`
+             - `start:frontend` becomes `node frontend/apps/theater/server.js`
+          3. **Dockerfile builder**, after `pnpm --filter=theater --prod deploy /app`:
+             ```sh
+             cp -a apps/theater/.next/standalone /app/frontend
+             cp -a apps/theater/.next/static /app/frontend/apps/theater/.next/static
+             [ -d apps/theater/public ] && cp -a apps/theater/public /app/frontend/apps/theater/public
+             ```
+             Drop the old `/app/.next` and `/app/server.js` copies. Point the guard at the new
+             path and add one for `/app/dist/main.js`.
+
+          The standalone tree is 137M, unusually large. Report what fills it
+          (`du` of `frontend/node_modules/.pnpm/*`). Do not try to shrink it in this task.
+
+          Verify (Context has the rules):
+          - `docker run --rm --env-file <tmp> --entrypoint node <img> -e "require('./dist/app.module')"`
+            on the new and baseline images. The new one throws no module-not-found that the
+            baseline doesn't.
+          - Frontend alone:
+            - new image: `--entrypoint node … frontend/apps/theater/server.js`
+            - baseline: `--entrypoint node … server.js`
+            - `/` and one `/_next/static/…` asset return the same statuses
+          - Default `pnpm start` for ~20 s on both images. Compare the logs.
+          - Report the before/after table.
+      - id: T10
+        title: 'dev: frontend from Next standalone, frontend deps to devDependencies'
+        after: []
+        files:
+          - apps/dev/Dockerfile
+          - apps/dev/package.json
+          - pnpm-lock.yaml
+        status: done
+        commit: 20efae7d79f860b2ec62b1206256bae0d498057f
+        body: |-
+          `apps/dev` builds the image `lilnas-dev-dashboard`. Today its `/app` is 568M:
+          - prod `node_modules`: 416M
+          - the whole `.next`: 152M, including `cache` 29M and an unused `standalone` 40M
+
+          1. **Deps.** The backend is the Nest app compiled from `src/main.ts` into `dist/`. The
+             frontend is the Next app: `src/app/` and code only it imports. A dependency is
+             frontend-only when no module the backend loads imports it, directly or through
+             shared code. Grep `from '<pkg>'`, `require('<pkg>')` and `import('<pkg>')` across
+             the backend's files.
+
+             Candidates to check: next, react, react-dom. `yaml` and `zod` are likely backend.
+
+             Move the frontend-only ones to `devDependencies`, with exact pins and sorted keys.
+             Keep `npm-run-all`. Run `pnpm install` at the root.
+          2. **package.json:**
+             - `files` becomes `["./dist"]`
+             - `start:frontend` becomes `node frontend/apps/dev/server.js`
+          3. **Dockerfile builder**, after `pnpm --filter=dev --prod deploy /app`:
+             ```sh
+             cp -a apps/dev/.next/standalone /app/frontend
+             cp -a apps/dev/.next/static /app/frontend/apps/dev/.next/static
+             [ -d apps/dev/public ] && cp -a apps/dev/public /app/frontend/apps/dev/public
+             ```
+             Drop the old `/app/.next` and `/app/server.js` copies. Point the guard at the new
+             path and add one for `/app/dist/main.js`. Keep the docker CLI and compose-plugin
+             copies, and the no-USER comment, in the production stage.
+
+          Verify (Context has the rules). Never mount the Docker socket into the test container.
+          - `docker run --rm --env-file <tmp> --entrypoint node <img> -e "require('./dist/app.module')"`
+            on the new and baseline images. The new one throws no module-not-found that the
+            baseline doesn't.
+          - Frontend alone:
+            - new image: `--entrypoint node … frontend/apps/dev/server.js`
+            - baseline: `--entrypoint node … server.js`
+            - `/` and one `/_next/static/…` asset return the same statuses
+          - Default `pnpm start` for ~20 s on both images. Compare the logs.
+          - Report the before/after table.
+  - key: '2'
+    name: Turbo remote cache in image builds
+    tasks:
+      - id: T11
+        title: Turbo remote cache inside the Docker builds
+        after:
+          - T1
+          - T2
+          - T3
+          - T4
+          - T5
+          - T6
+          - T7
+          - T8
+          - T9
+          - T10
+        files:
+          - .github/workflows/ci.yml
+          - packages/cli/src/utils/__tests__/ci-workflow-shape.spec.ts
+          - apps/auth/Dockerfile
+          - apps/dashcam/Dockerfile
+          - apps/dev/Dockerfile
+          - apps/download/Dockerfile
+          - apps/equations/Dockerfile
+          - apps/me-token-tracker/Dockerfile
+          - apps/portal/Dockerfile
+          - apps/tdr-bot/Dockerfile
+          - apps/theater/Dockerfile
+          - docs/deploy.md
+        model: strong
+        status: done
+        commit: a8607ca6aade099603366fbcb3988c76f8aeeadb
+        body: |-
+          Make the `pnpm build --filter=@lilnas/<x>` step in each Docker build hit the
+          self-hosted Turbo remote cache (`turbo` in `infra/shared.yml`, https://turbo.lilnas.io)
+          instead of compiling. Use one pattern for all nine app Dockerfiles (not
+          `apps/dev-idle-reaper`).
+
+          **Workflow (`.github/workflows/ci.yml`):**
+          - `build-images` → "Build and push" step: pass `TURBO_API`, `TURBO_TEAM` (repo `vars`),
+            `TURBO_TOKEN` and `TURBO_REMOTE_CACHE_SIGNATURE_KEY` (repo `secrets`) as BuildKit
+            secrets via build-push-action's `secrets:` input, one `id=value` line each, ids
+            equal to the env names. The `check` job's `env:` block already reads them this way.
+          - `check` → "Build dependencies": change `--filter="{./${PACKAGE}}^..."` to
+            `--filter="{./${PACKAGE}}..."`, so the package itself is built and pushed to the
+            cache. Keep the `pnpm install --frozen-lockfile --offline` after it, and rewrite
+            the comment above. Confirm the filter with
+            `pnpm turbo run build --filter="{./apps/tdr-bot}..." --dry=json`.
+          - Building the app first must not break the later lint/type-check steps (for example
+            via `next-env.d.ts` or `.next/types`). For each app with a Next frontend (auth, dev,
+            download, portal, tdr-bot, theater): build it, then run its `lint` and
+            `type-check`. Report the results.
+
+          **Dockerfiles:**
+          - Wrap the build in
+            `RUN --mount=type=secret,id=TURBO_API,env=TURBO_API --mount=…` with all four
+            secrets. Add `# syntax=docker/dockerfile:1` if the `env=` option needs it.
+          - Secrets are optional (`required=false` is the default). With none, the build must
+            behave exactly as today: a local compile.
+          - Injected-deps trap: a cache hit restores `packages/*/dist` but does not sync the
+            injected copies in `apps/<x>/node_modules/@lilnas/*`. Sync only happens when the
+            build script runs. A cached `@lilnas/utils` plus an uncached app build therefore
+            sees a stale copy. Build `--filter=@lilnas/<x>^...` first, then re-sync the
+            injected deps, then build `--filter=@lilnas/<x>`.
+          - The re-sync must work on a fresh CI runner, where the `/pnpm/store` cache mount is
+            empty. Test with a brand-new builder: `docker buildx create --name plan016-fresh`,
+            build with `--builder plan016-fresh --load`, then `docker buildx rm plan016-fresh`.
+          - `apps/equations` (no monorepo-builder) and `apps/dashcam` get the same treatment.
+
+          **Live test** (approved by the user):
+          1. Get the creds from `pnpm dlx @dotenvx/dotenvx get <KEY> -f infra/.env.turbo -fk
+             /home/jeremy/lilnas/.env.keys` (keys: `TURBO_TOKEN`,
+             `TURBO_REMOTE_CACHE_SIGNATURE_KEY`), with `TURBO_API=https://turbo.lilnas.io` and
+             `TURBO_TEAM=lilnas`. Write them to 0600 files under a `mktemp -d` dir. Never echo
+             them or write them anywhere else.
+          2. Build from `git clone --depth 1 file://<worktree>`: CI's context has a real `.git`,
+             and a worktree's `.git` file does not survive into the container.
+          3. Use `--secret id=…,src=<file>`. Build tdr-bot once to populate the cache, then again
+             on the fresh builder. The second build's turbo output must say `cached`.
+          4. Build once with no secrets: it must succeed.
+          5. Compare the turbo task hash from `--dry=json` on the host clone with the one inside
+             the container. They must match, or the `check` job's uploads will never be hit.
+          6. Delete the temp dir, the clone, the builder and the `plan016*` images.
+
+          **Docs:** add a short note to the Turbo remote cache bullet in `docs/deploy.md`.
+
+          **Tests** in `ci-workflow-shape.spec.ts`:
+          - the build-images "Build and push" step passes all four secret ids
+          - the "Build dependencies" step's filter has no `^`
+
+          Report the live-test evidence: the cached lines, both hashes, and the no-secret build
+          result.
+      - id: T12
+        title: 'Docker builder stage: skip the full-workspace pre-run install'
+        after:
+          - T11
+        files:
+          - apps/auth/Dockerfile
+          - apps/dashcam/Dockerfile
+          - apps/dev/Dockerfile
+          - apps/download/Dockerfile
+          - apps/equations/Dockerfile
+          - apps/me-token-tracker/Dockerfile
+          - apps/portal/Dockerfile
+          - apps/tdr-bot/Dockerfile
+          - apps/theater/Dockerfile
+        status: done
+        commit: 5a2ff134a9eab513cb8976d6c654503d785ea38e
+        body: |-
+          Each of the nine `apps/*/Dockerfile` files (not `apps/dev-idle-reaper`) has a `deps`
+          stage. That stage copies only the root manifests plus the package.json files of the app's
+          workspace subset, then runs `pnpm install`. The builder stage then runs `COPY . .` and:
+          ```sh
+          pnpm build --filter='@lilnas/<x>^...' \
+            && pnpm install --frozen-lockfile --offline \
+            && pnpm build --filter=@lilnas/<x>
+          ```
+          The `COPY . .` brings in all 18 workspace package.json files. pnpm 12's
+          verify-deps-before-run sees the install as stale, so the first `pnpm build` runs a
+          full-workspace install: "Packages: +394 -124", ~258 downloads, ~5 s plus network on every
+          image build. The offline install after it only works today because that install already
+          fetched every package.
+
+          Fix, in every builder stage:
+          - Set `ENV pnpm_config_verify_deps_before_run=false` (stage-scoped, in the builder stage
+            only; the runtime base images already set it).
+          - Filter the re-sync install to the app's subset:
+            `pnpm install --frozen-lockfile --offline --filter='@lilnas/<x>...'`. Use the package's
+            real name from its package.json. The install's purpose is unchanged: it re-syncs the
+            injected copies in `apps/<x>/node_modules/@lilnas/*` after a Turbo cache hit restored
+            `packages/*/dist`. Update the comment above the RUN if it needs it.
+          - Drop the dead `--mount=type=cache,id=pnpm,target=/pnpm/store` from each deps-stage
+            `pnpm install`. pnpm's store is `/root/.local/share/pnpm/store/v11`, so the mount is
+            never used. Do not move the store: it is hardlinked with `node_modules` inside the deps
+            layer (one 1.16 GB layer, not two), and the builder's offline install needs it there
+            when the deps layer comes from the registry cache on a fresh runner.
+          - Keep everything else: the secret mounts, the build order, `pnpm deploy`, the guards.
+          - `apps/equations` builds on `node:26.12.0-bookworm` with pnpm installed by npm; same
+            change. `apps/dashcam` too.
+
+          Edge cases:
+          - The filtered offline install must not need a package that the deps stage didn't fetch.
+            If an app's install fails offline, its deps stage is missing a package.json the app's
+            graph needs: add that COPY, and report it.
+          - `pnpm deploy --prod` after the build must still succeed with no network fetch beyond
+            what it does today.
+
+          Verify, one build at a time, on a brand-new builder each time
+          (`docker buildx create --name plan016-fresh`, build with `--builder plan016-fresh --load`,
+          `docker buildx rm plan016-fresh` after). Pass no Turbo secrets.
+          - tdr-bot, before and after: report the builder RUN step's time from `--progress=plain`.
+            The after log must show no "Packages: +" line from the first `pnpm build`.
+          - Injected-deps re-sync still works: in the after builder stage (`--target builder`),
+            delete `apps/tdr-bot/node_modules/@lilnas/utils/dist`, run the filtered offline install,
+            and confirm the dir is back and matches `packages/utils/dist` (`diff -r`).
+          - Every one of the nine images builds on the fresh builder.
+          - For tdr-bot and one Nest-only app (me-token-tracker), compare `/app` outside
+            `node_modules` with an image built from the T11 Dockerfile: same file list and bytes.
+            `require('./dist/app.module')` throws no module-not-found.
+          - Report a table of builder-step times for tdr-bot before/after, and the build result
+            of each of the nine images.
+
+          If removing the pre-run install saves under 3 s on tdr-bot's builder step, revert,
+          commit nothing, and say so with the numbers.

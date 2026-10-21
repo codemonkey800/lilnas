@@ -261,14 +261,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Only the package's workspace dependencies, not the package itself.
-      # A cache hit restores dist/ without running the build script, so the
-      # injected workspace copies (pnpm-workspace.yaml) never sync; re-installing does.
+      # The package and its workspace dependencies. Building the package itself
+      # pushes it to the remote cache, where the build-images Docker build for
+      # the same commit picks it up instead of compiling. A cache hit restores
+      # dist/ without running the build script, so the injected workspace
+      # copies (pnpm-workspace.yaml) never sync; re-installing does.
       - name: Build dependencies
         env:
           PACKAGE: ${{ matrix.package }}
         run: |
-          pnpm turbo run build --filter="{./${PACKAGE}}^..."
+          pnpm turbo run build --filter="{./${PACKAGE}}..."
           pnpm install --frozen-lockfile --offline
 
       # upload-artifact v4+ rejects "/" in artifact names.
@@ -509,6 +511,13 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=registry,ref=${{ matrix.image }}:buildcache
           cache-to: type=registry,ref=${{ matrix.image }}:buildcache,mode=max
+          # Turbo remote cache for the Dockerfile's `pnpm build`, as optional
+          # BuildKit secrets (ids match the env names the RUN mounts).
+          secrets: |
+            TURBO_API=${{ vars.TURBO_API }}
+            TURBO_TEAM=${{ vars.TURBO_TEAM }}
+            TURBO_TOKEN=${{ secrets.TURBO_TOKEN }}
+            TURBO_REMOTE_CACHE_SIGNATURE_KEY=${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
 
       # Tells the deploy job this image is on GHCR.
       - name: Write built marker

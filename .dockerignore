@@ -10,4 +10,13 @@ images/
 packages/*/.turbo/turbo-build.log
 apps/*/.turbo/turbo-build.log
 **/.env*
+# Tracked env files (templates, the dotenvx-encrypted prod set) stay in the
+# context: turbo hashes a package's tracked files, so dropping them here would
+# give the Docker build a different task hash than CI's check job and miss the
+# remote cache. Plaintext env files and keys stay out.
+!apps/*/.env.example
+!apps/*/.env.*.example
+!apps/*/.env.prod
+!packages/*/.env.example
+!packages/*/.env.*.example
 .env.keys
