@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common'
 
 import { RequestHandlingModule } from 'src/media-operations/request-handling/request-handling.module'
+import { PromptsModule } from 'src/messages/prompts/prompts.module'
 import { RemindersModule } from 'src/reminders/reminders.module'
 import { ServicesModule } from 'src/services/services.module'
 
@@ -15,7 +16,12 @@ const SKILL_CLASSES = [ChatSkill, MathSkill, MediaSkill, ReminderSkill]
 
 /** Registers every skill under {@link SKILLS} and exposes the registry. */
 @Module({
-  imports: [RequestHandlingModule, RemindersModule, ServicesModule],
+  imports: [
+    PromptsModule,
+    RequestHandlingModule,
+    RemindersModule,
+    ServicesModule,
+  ],
   providers: [
     ...SKILL_CLASSES,
     {

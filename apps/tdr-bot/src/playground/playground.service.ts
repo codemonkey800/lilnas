@@ -47,13 +47,20 @@ export class PlaygroundService {
     // An empty or whitespace-only draft means "use the saved prompt".
     const draft = body.systemPromptDraft?.trim()
     const name = toMessageName(body.author ?? DEFAULT_PLAYGROUND_AUTHOR)
+    const conversation: BaseMessage[] = body.messages.map(message =>
+      message.role === 'user'
+        ? new HumanMessage({ content: message.content, name })
+        : new AIMessage(message.content),
+    )
+    // Mirror the chat skill: the style note goes right before the last user turn.
+    const turn = conversation.findLastIndex(m => HumanMessage.isInstance(m))
+    const history = turn === -1 ? conversation : conversation.slice(0, turn)
+    const styleNote = this.promptService.getStyleNote(history)
     const messages: BaseMessage[] = [
       this.promptService.getSystemPrompt(draft ? { systemPrompt: draft } : {}),
-      ...body.messages.map(message =>
-        message.role === 'user'
-          ? new HumanMessage({ content: message.content, name })
-          : new AIMessage(message.content),
-      ),
+      ...history,
+      ...(styleNote ? [styleNote] : []),
+      ...(turn === -1 ? [] : conversation.slice(turn)),
     ]
 
     const result = await this.llm.call({

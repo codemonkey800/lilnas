@@ -1,3 +1,5 @@
+import { AIMessage, HumanMessage } from '@langchain/core/messages'
+
 import { EmojiRow } from 'src/db/schema'
 import { EmojiDictionaryRepository } from 'src/emojis/emoji-dictionary.repository'
 import { EmojiDictionaryService } from 'src/emojis/emoji-dictionary.service'
@@ -160,6 +162,37 @@ describe('EmojiDictionaryService', () => {
 
     expect(service.size()).toBe(0)
     expect(service.promptText()).toBe(formatEmojiDictionary({}))
+  })
+
+  describe('names and recentlyUsed', () => {
+    beforeEach(async () => {
+      repo.listActiveDescribed.mockResolvedValue([
+        row({ id: ID_C, name: 'EZ', description: 'smug' }),
+        row({ id: ID_A, name: 'pog', animated: true, description: 'hype' }),
+        row({ id: ID_B, name: 'VIBE', description: 'chill' }),
+      ])
+      await service.onModuleInit()
+    })
+
+    it('names() lists the shortcode names in prompt order', () => {
+      expect(service.names()).toEqual(['pog', 'VIBE', 'EZ'])
+    })
+
+    it('collects dictionary emojis from AI messages, most recent first', () => {
+      const history = [
+        new AIMessage(`old <a:pog:${ID_A}>`),
+        new HumanMessage('user said :VIBE:'),
+        new AIMessage('new :EZ: and :ez: and <:VIBE:>'),
+      ]
+
+      expect(service.recentlyUsed(history)).toEqual(['EZ', 'VIBE', 'pog'])
+    })
+
+    it('skips unknown emojis and only scans the last `replies` AI messages', () => {
+      const history = [new AIMessage(':pog:'), new AIMessage(':nope: :VIBE:')]
+
+      expect(service.recentlyUsed(history, 1)).toEqual(['VIBE'])
+    })
   })
 })
 

@@ -19,7 +19,7 @@ import {
   PlaygroundModelError,
   PlaygroundService,
 } from 'src/playground/playground.service'
-import { INPUT_FORMAT, PROMPT_INTRO } from 'src/utils/prompts'
+import { INPUT_FORMAT, PERSONA_REMINDER, PROMPT_INTRO } from 'src/utils/prompts'
 
 const SAVED_PROMPT = 'Be a helpful kawaii assistant.'
 const DICTIONARY_TEXT =
@@ -36,8 +36,11 @@ describe('PlaygroundService', () => {
   let service: PlaygroundService
   let llm: FakeLlmClient
   let registry: { isAllowedFor: jest.Mock }
+  // Empty by default so no style note is added; set before chat() to get one.
+  let names: string[]
 
   beforeEach(async () => {
+    names = []
     llm = new FakeLlmClient().script('playground.chat', RAW_REPLY)
     registry = {
       isAllowedFor: jest.fn(
@@ -63,6 +66,8 @@ describe('PlaygroundService', () => {
           keys: () => KEYS,
           size: () => KEYS.length,
           resolve: (text: string) => resolveEmojis(text, KEYS),
+          names: () => names,
+          recentlyUsed: () => [],
         },
       },
     ])
@@ -90,7 +95,8 @@ describe('PlaygroundService', () => {
     expect(content.startsWith(PROMPT_INTRO.trim())).toBe(true)
     expect(content).toContain(INPUT_FORMAT.trim())
     expect(content).toContain(SAVED_PROMPT)
-    expect(content.endsWith(DICTIONARY_TEXT)).toBe(true)
+    expect(content).toContain(DICTIONARY_TEXT)
+    expect(content.endsWith(PERSONA_REMINDER.trim())).toBe(true)
   })
 
   it('uses the draft instead of the saved prompt when given', async () => {
@@ -100,7 +106,7 @@ describe('PlaygroundService', () => {
     expect(content.startsWith(PROMPT_INTRO.trim())).toBe(true)
     expect(content).toContain('Draft prompt.')
     expect(content).not.toContain(SAVED_PROMPT)
-    expect(content.endsWith(DICTIONARY_TEXT)).toBe(true)
+    expect(content).toContain(DICTIONARY_TEXT)
   })
 
   it.each([
@@ -134,6 +140,21 @@ describe('PlaygroundService', () => {
     expect(history[1].content).toBe('reply')
     expect(history[2]).toBeInstanceOf(HumanMessage)
     expect(history[2].name).toBe('Some_One')
+  })
+
+  it('puts the style note right before the last user message', async () => {
+    names = ['EZ', 'pog']
+    await chat({
+      messages: [
+        { role: 'user', content: 'first' },
+        { role: 'assistant', content: 'reply' },
+        { role: 'user', content: 'second' },
+      ],
+    })
+
+    const types = llm.calls[0].messages.map(m => m.getType())
+    expect(types).toEqual(['system', 'human', 'ai', 'system', 'human'])
+    expect(llm.calls[0].messages[3].content).toContain('Style for this reply')
   })
 
   it('defaults the author to paulbeenis420', async () => {

@@ -1,3 +1,4 @@
+import { AIMessage, BaseMessage } from '@langchain/core/messages'
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
 
 import { EmojiRow } from 'src/db/schema'
@@ -19,6 +20,9 @@ function bySnowflake(a: EmojiRow, b: EmojiRow): number {
   return x < y ? -1 : x > y ? 1 : 0
 }
 
+/** The name inside a canonical token: '<a:name:id>' → 'name'. */
+const TOKEN_NAME_RE = /^<a?:([A-Za-z0-9_]{2,32}):\d+>$/
+
 /**
  * In-memory cache of the live, described emojis and the prompt section built
  * from them. The prompt shows only shortcodes (':name:'); the canonical
@@ -31,6 +35,7 @@ export class EmojiDictionaryService implements OnModuleInit {
   private readonly logger = new Logger(EmojiDictionaryService.name)
   private entries: Record<string, string> = {}
   private tokens: readonly string[] = []
+  private shortcodeNames: readonly string[] = []
   private text = formatEmojiDictionary({})
 
   constructor(private readonly repo: EmojiDictionaryRepository) {}
@@ -67,6 +72,7 @@ export class EmojiDictionaryService implements OnModuleInit {
     }
     this.entries = entries
     this.tokens = chosen.map(emojiKey)
+    this.shortcodeNames = chosen.map(row => row.name)
     this.text = formatEmojiDictionary(entries)
     this.logger.log(
       { count: rows.length, names: chosen.length },
@@ -82,6 +88,30 @@ export class EmojiDictionaryService implements OnModuleInit {
   /** The canonical tokens for the names the prompt shows, in prompt order. */
   keys(): readonly string[] {
     return this.tokens
+  }
+
+  /** The shortcode names the prompt shows, without colons, in prompt order. */
+  names(): readonly string[] {
+    return this.shortcodeNames
+  }
+
+  /**
+   * Dictionary emoji names used in the last `replies` AI messages, most recent
+   * first and without duplicates. Unknown or dropped refs are skipped.
+   */
+  recentlyUsed(messages: readonly BaseMessage[], replies = 5): string[] {
+    const recent = messages
+      .filter(message => AIMessage.isInstance(message))
+      .slice(-replies)
+      .reverse()
+    const names = new Set<string>()
+    for (const message of recent) {
+      for (const emoji of this.resolve(message.text).emojis) {
+        const name = emoji.key?.match(TOKEN_NAME_RE)?.[1]
+        if (name) names.add(name)
+      }
+    }
+    return [...names]
   }
 
   /** Number of chosen rows; always equals keys().length. */

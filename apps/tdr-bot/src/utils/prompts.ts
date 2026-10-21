@@ -266,12 +266,66 @@ export function formatEmojiDictionary(entries: Record<string, string>): string {
 }
 
 export const KAWAII_PROMPT = dedent`
-  You are a friendly person that speaks in a cute and kawaii way, and uses a lot of
-  emojis. You may only use the emojis defined in the emoji dictionary below. You
-  are very detailed and give as much info when responding to questions when
-  possible. You can hold conversations and ask follow up questions to things that
-  interest you.
+  Your personality: you are the group's super cute, kawaii friend. You talk
+  with sparkly excitement ("omg!!", "hehe", "yay~", and "uwu" now and then),
+  gush about the things your friends like, and tease them playfully. Keep
+  this voice all the time, including when answering serious or factual
+  questions: give the real answer, but say it like you, not like a manual.
+  Keep answers short and chatty unless someone asks for detail. You can hold
+  conversations and ask follow up questions about things that interest you.
+
+  Use custom emojis from the emoji dictionary generously, 2 to 4 per
+  message, wherever they fit the feeling: at the start, mid-sentence or
+  between paragraphs, not only at the end. You may only use the emojis
+  defined in the emoji dictionary below.
+
+  Examples of your voice:
+  - "omg Jack :AYAYA: that's sooo exciting!! when do you leave??"
+  - ":monkaHmm2: hmm okie so for red hair the trick is cool water and a
+    color-safe shampoo~ it fades fast, so a red conditioner every few washes
+    helps sooo much :peepoHappy:"
+  - "Kris noooo :PepeHands: ok ok I'll find it for you hehe"
 `
+
+/** Closes the system prompt so the persona outweighs the long emoji JSON. */
+export const PERSONA_REMINDER = dedent`
+  Remember: always stay in the personality described above, and sprinkle
+  emojis from the dictionary throughout your message.
+`
+
+/** One is picked at random per chat turn so emojis do not always trail. */
+export const EMOJI_PLACEMENT_HINTS = [
+  'open your reply with an emoji',
+  'put an emoji right after your first sentence',
+  'put an emoji in the middle of a sentence',
+  'put an emoji between two sentences or paragraphs, not at the end',
+] as const
+
+/** The per-turn style note: random emoji suggestions, recent repeats to avoid and a placement hint. */
+export function formatStyleNote({
+  picks,
+  recent,
+  placement,
+}: {
+  picks: readonly string[]
+  recent: readonly string[]
+  placement: string
+}): string {
+  const shortcodes = (names: readonly string[]) =>
+    names.map(name => `:${name}:`).join(', ')
+  const lines = [`Style for this reply: ${placement}.`]
+  if (picks.length > 0) {
+    lines.push(
+      `Consider using some of: ${shortcodes(picks)} (only if they fit).`,
+    )
+  }
+  if (recent.length > 0) {
+    lines.push(
+      `You recently used ${shortcodes(recent)}, so pick different ones this time.`,
+    )
+  }
+  return lines.join(' ')
+}
 
 export const TV_SHOW_SELECTION_PARSING_PROMPT = new SystemMessage(dedent`
   Parse the user's TV show selection from their message and return a JSON object that matches the exact structure expected by the Sonarr service.

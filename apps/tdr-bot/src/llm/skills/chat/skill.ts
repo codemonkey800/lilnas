@@ -10,6 +10,7 @@ import {
   SkillOutput,
 } from 'src/llm/skills/skill.interface'
 import { getTools } from 'src/messages/llm/tools'
+import { PromptService } from 'src/messages/prompts/prompt.service'
 
 import { CHAT_SKILL_DESCRIPTION } from './prompts'
 
@@ -20,12 +21,17 @@ export class ChatSkill implements Skill {
   readonly id = 'chat'
   readonly description = CHAT_SKILL_DESCRIPTION
 
+  constructor(private readonly prompts: PromptService) {}
+
   async run(
     { message, history }: SkillInput,
     { llm, logger }: SkillContext,
   ): Promise<SkillOutput> {
     const tools = getTools()
     const produced: BaseMessage[] = [message]
+    // Sent to the model each round but never returned, so it is not stored.
+    const styleNote = this.prompts.getStyleNote(history)
+    const context = styleNote ? [...history, styleNote] : history
 
     for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
       // After the last allowed round, ask for a plain answer without tools.
@@ -34,7 +40,7 @@ export class ChatSkill implements Skill {
       const { message: response } = await llm.call({
         operation: 'chat.respond',
         role: 'chat',
-        messages: [...history, ...produced],
+        messages: [...context, ...produced],
         tools: withTools ? tools : undefined,
         overrides: { timeoutMs: 45000 },
       })

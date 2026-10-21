@@ -315,7 +315,11 @@ describe('LLMOrchestrationService - Integration', () => {
         { provide: TdrBotMetricsService, useValue: metrics },
         {
           provide: EmojiDictionaryService,
-          useValue: { promptText: () => formatEmojiDictionary({}) },
+          useValue: {
+            promptText: () => formatEmojiDictionary({}),
+            names: () => [],
+            recentlyUsed: () => [],
+          },
         },
       ],
     }).compile()

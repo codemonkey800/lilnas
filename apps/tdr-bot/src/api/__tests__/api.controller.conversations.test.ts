@@ -29,22 +29,24 @@ describe('ApiController GET /conversations/:channelId', () => {
   let llm: LLMOrchestrationService
 
   beforeEach(async () => {
+    const prompts = {
+      getSystemPrompt: jest
+        .fn()
+        .mockReturnValue(
+          new SystemMessage({ id: TDR_SYSTEM_PROMPT_ID, content: 'sys' }),
+        ),
+      getStyleNote: jest.fn().mockReturnValue(null),
+    }
     const module = await Test.createTestingModule({
       controllers: [ApiController],
       providers: [
         LLMOrchestrationService,
         { provide: GRAPH_CHECKPOINTER, useValue: new MemorySaver() },
+        { provide: PromptService, useValue: prompts },
         {
-          provide: PromptService,
-          useValue: {
-            getSystemPrompt: jest
-              .fn()
-              .mockReturnValue(
-                new SystemMessage({ id: TDR_SYSTEM_PROMPT_ID, content: 'sys' }),
-              ),
-          },
+          provide: SKILLS,
+          useValue: [new ChatSkill(prompts as unknown as PromptService)],
         },
-        { provide: SKILLS, useValue: [new ChatSkill()] },
         SkillRegistry,
         {
           provide: LlmClient,
