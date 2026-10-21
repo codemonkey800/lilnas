@@ -25,6 +25,12 @@ export interface ImageBuild {
   dockerfile: string
   /** Compose services that run this image. */
   services: string[]
+  /**
+   * Check packages this image needs green: its own package plus the
+   * transitive runtime workspace deps, limited to `checkPackages` of this
+   * plan. Sorted. Empty = nothing gates the build.
+   */
+  gates: string[]
 }
 
 export interface DetectResult {
@@ -42,8 +48,17 @@ export interface DetectResult {
   forceRecreate: string[]
   /** An encrypted env file changed. */
   decrypt: boolean
-  /** `apps/x` / `packages/y` dirs with a `test` script that have a change. */
-  testPackages: string[]
+  /**
+   * Services whose env file (service-level or include-level `env_file`)
+   * changed; the reason `decrypt` is true. Every service under `full`.
+   * Sorted, unique.
+   */
+  decryptServices: string[]
+  /**
+   * `apps/x` / `packages/y` dirs with a `test`, `lint` or `type-check` script
+   * that changed, or whose transitive runtime workspace dep changed. Sorted.
+   */
+  checkPackages: string[]
   changedFiles: string[]
 }
 
@@ -105,6 +120,7 @@ const HOST_NATIVE_SERVICES = new Set(['tdr-code'])
 const DECRYPTED_SUFFIX = '.decrypted'
 const BASE_IMAGE_FROM = /^\s*FROM\s+ghcr\.io\/codemonkey800\/lilnas-/m
 const WORKSPACE_DIRS = ['apps', 'packages']
+const CHECK_SCRIPTS = ['test', 'lint', 'type-check']
 /** Files every image's build reads; a change rebuilds all of them. */
 const GLOBAL_BUILD_INPUTS = new Set([
   'pnpm-lock.yaml',
@@ -310,6 +326,7 @@ export function listImages(tree: ComposeTree): ImageBuild[] {
         context: service.build.context,
         dockerfile: service.build.dockerfile,
         services: [service.name],
+        gates: [],
       })
     }
   }
@@ -342,11 +359,16 @@ function readPackageManifests(root: string): Map<string, Dict> {
   return manifests
 }
 
-/** Dirs under `apps/` and `packages/` whose `package.json` has a `test` script. */
-export function listTestPackages(root: string): string[] {
+/** Dirs under `apps/` and `packages/` whose `package.json` has a `test`, `lint` or `type-check` script. */
+export function listCheckPackages(root: string): string[] {
   const dirs: string[] = []
   for (const [dir, pkg] of readPackageManifests(root)) {
-    if (isDict(pkg.scripts) && 'test' in pkg.scripts) dirs.push(dir)
+    if (
+      isDict(pkg.scripts) &&
+      CHECK_SCRIPTS.some(script => script in (pkg.scripts as Dict))
+    ) {
+      dirs.push(dir)
+    }
   }
   return dirs.sort()
 }
@@ -425,9 +447,27 @@ function encryptedNameFor(envFileRef: string): string | null {
     : null
 }
 
+/** `images` with `gates` filled: their input dirs ∩ `checkPackages`. */
+function withGates(
+  images: ImageBuild[],
+  checkPackages: string[],
+  workspacePackages: WorkspacePackage[],
+): ImageBuild[] {
+  return images.map(image => {
+    const inputDirs = runtimeInputDirs(
+      path.dirname(image.dockerfile),
+      workspacePackages,
+    )
+    return {
+      ...image,
+      gates: checkPackages.filter(pkg => inputDirs.includes(pkg)).sort(),
+    }
+  })
+}
+
 /**
  * Builds the plan. Rules are applied in order and unioned; `full` short-
- * circuits to every image, every service and every test package.
+ * circuits to every image, every service and every check package.
  */
 export function detect(inputs: DetectInputs): DetectResult {
   const {
@@ -440,7 +480,7 @@ export function detect(inputs: DetectInputs): DetectResult {
   )
   const tree = readComposeTree(root, composeFile)
   const allImages = listImages(tree)
-  const allTestPackages = listTestPackages(root)
+  const allCheckPackages = listCheckPackages(root)
   const serviceNames = unique(tree.services.map(service => service.name))
 
   const full =
@@ -454,12 +494,13 @@ export function detect(inputs: DetectInputs): DetectResult {
     return {
       full: true,
       baseImages: true,
-      images: allImages,
+      images: withGates(allImages, allCheckPackages, workspacePackages),
       pull,
       up: serviceNames.filter(name => !pull.includes(name)),
       forceRecreate: [],
       decrypt: true,
-      testPackages: allTestPackages,
+      decryptServices: serviceNames,
+      checkPackages: allCheckPackages,
       changedFiles,
     }
   }
@@ -468,6 +509,7 @@ export function detect(inputs: DetectInputs): DetectResult {
   const up = new Set<string>()
   const forceRecreate = new Set<string>()
   let decrypt = false
+  const decryptServices = new Set<string>()
 
   // Base images: rebuild them and every app image built FROM one.
   const baseImages = changedFiles.some(
@@ -525,6 +567,7 @@ export function detect(inputs: DetectInputs): DetectResult {
       const encrypted = encryptedNameFor(ref)
       if (encrypted && changedFiles.includes(encrypted)) {
         decrypt = true
+        decryptServices.add(service.name)
         up.add(service.name)
       } else if (!encrypted && changedFiles.includes(ref)) {
         up.add(service.name)
@@ -536,15 +579,23 @@ export function detect(inputs: DetectInputs): DetectResult {
     const encrypted = encryptedNameFor(include.envFile)
     if (encrypted && changedFiles.includes(encrypted)) {
       decrypt = true
-      for (const service of include.services) up.add(service.name)
+      for (const service of include.services) {
+        decryptServices.add(service.name)
+        up.add(service.name)
+      }
     }
   }
 
-  const testPackages = allTestPackages.filter(pkg =>
-    changedFiles.some(file => isUnder(file, pkg)),
-  )
+  const checkPackages = allCheckPackages.filter(pkg => {
+    const inputDirs = runtimeInputDirs(pkg, workspacePackages)
+    return changedFiles.some(file => inputDirs.some(dir => isUnder(file, dir)))
+  })
 
-  const selectedImages = allImages.filter(image => images.has(image.name))
+  const selectedImages = withGates(
+    allImages.filter(image => images.has(image.name)),
+    checkPackages,
+    workspacePackages,
+  )
   const pull = unique(selectedImages.flatMap(image => image.services))
 
   for (const name of pull) {
@@ -561,7 +612,8 @@ export function detect(inputs: DetectInputs): DetectResult {
     up: unique(up),
     forceRecreate: unique(forceRecreate),
     decrypt,
-    testPackages,
+    decryptServices: unique(decryptServices),
+    checkPackages,
     changedFiles,
   }
 }

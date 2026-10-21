@@ -48,8 +48,9 @@ env:
   IMAGE_PREFIX: ghcr.io/codemonkey800/lilnas
 
 jobs:
-  # Turn the diff into a plan: which packages to test, which images to build,
-  # which services to pull / up / force-recreate on the host.
+  # Turn the diff into a plan: which packages to check, which images to build
+  # (and which checks gate each), which services to pull / up / force-recreate
+  # on the host.
   detect:
     runs-on: ubuntu-latest
     # Replaces the workflow-level set: detect reads the repo, lists runs and
@@ -61,11 +62,8 @@ jobs:
       full: ${{ steps.plan.outputs.full }}
       baseImages: ${{ steps.plan.outputs.baseImages }}
       images: ${{ steps.plan.outputs.images }}
-      pull: ${{ steps.plan.outputs.pull }}
-      up: ${{ steps.plan.outputs.up }}
-      forceRecreate: ${{ steps.plan.outputs.forceRecreate }}
-      decrypt: ${{ steps.plan.outputs.decrypt }}
-      testPackages: ${{ steps.plan.outputs.testPackages }}
+      plan: ${{ steps.plan.outputs.plan }}
+      checkPackages: ${{ steps.plan.outputs.checkPackages }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -179,9 +177,12 @@ jobs:
           PLAN="$(pnpm --silent lilnas ci detect "${args[@]}")"
           echo "$PLAN" | jq .
 
-          # Only the matrix keys build-images uses; keeps every matrix value a scalar.
-          echo "images=$(echo "$PLAN" | jq -c '[.images[] | {name, context, dockerfile, image}]')" >> "$GITHUB_OUTPUT"
-          for field in full baseImages pull up forceRecreate decrypt testPackages; do
+          # Only the matrix keys build-images uses; keeps every matrix value a
+          # scalar (gates become a space-separated string). The deploy job gets
+          # the whole plan instead, minus the file list.
+          echo "images=$(echo "$PLAN" | jq -c '[.images[] | {name, context, dockerfile, image, gates: (.gates | join(" "))}]')" >> "$GITHUB_OUTPUT"
+          echo "plan=$(echo "$PLAN" | jq -c 'del(.changedFiles)')" >> "$GITHUB_OUTPUT"
+          for field in full baseImages checkPackages; do
             echo "${field}=$(echo "$PLAN" | jq -c ".${field}")" >> "$GITHUB_OUTPUT"
           done
 
@@ -195,12 +196,13 @@ jobs:
             echo "| head | \`$HEAD\` |"
             echo "| full | $(echo "$PLAN" | jq -r '.full') |"
             echo "| baseImages | $(echo "$PLAN" | jq -r '.baseImages') |"
-            echo "| images | $(echo "$PLAN" | jq -r '[.images[].name] | join(", ") | if . == "" then "(none)" else . end') |"
+            echo "| images | $(echo "$PLAN" | jq -r '[.images[] | .name + (if (.gates | length) > 0 then "(" + (.gates | join(" ")) + ")" else "" end)] | join(", ") | if . == "" then "(none)" else . end') |"
             echo "| pull | $(echo "$PLAN" | jq -r '.pull | join(", ") | if . == "" then "(none)" else . end') |"
             echo "| up | $(echo "$PLAN" | jq -r '.up | join(", ") | if . == "" then "(none)" else . end') |"
             echo "| forceRecreate | $(echo "$PLAN" | jq -r '.forceRecreate | join(", ") | if . == "" then "(none)" else . end') |"
             echo "| decrypt | $(echo "$PLAN" | jq -r '.decrypt') |"
-            echo "| testPackages | $(echo "$PLAN" | jq -r '.testPackages | join(", ") | if . == "" then "(none)" else . end') |"
+            echo "| decryptServices | $(echo "$PLAN" | jq -r '.decryptServices | join(", ") | if . == "" then "(none)" else . end') |"
+            echo "| checkPackages | $(echo "$PLAN" | jq -r '.checkPackages | join(", ") | if . == "" then "(none)" else . end') |"
             echo "| changedFiles | $(echo "$PLAN" | jq -r '.changedFiles | length') |"
             if [ "$TIP_ONLY" = "true" ]; then
               echo
@@ -210,10 +212,14 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-  test:
+  # One matrix leg per package: tests, lint and type-check in order. The last
+  # step uploads a pass marker only when every earlier step passed; the image
+  # and deploy gates read those markers, so a red package holds back only the
+  # images and services that depend on it.
+  check:
     runs-on: ubuntu-latest
     needs: detect
-    if: ${{ needs.detect.outputs.testPackages != '[]' }}
+    if: ${{ needs.detect.outputs.checkPackages != '[]' }}
     # Self-hosted Turbo remote cache (`turbo` in infra/shared.yml). Fork PRs
     # get no secrets and fall back to an uncached build.
     env:
@@ -224,7 +230,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: ${{ fromJson(needs.detect.outputs.testPackages) }}
+        package: ${{ fromJson(needs.detect.outputs.checkPackages) }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -264,6 +270,13 @@ jobs:
         run: |
           pnpm turbo run build --filter="{./${PACKAGE}}^..."
           pnpm install --frozen-lockfile --offline
+
+      # upload-artifact v4+ rejects "/" in artifact names.
+      - name: Artifact name
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          echo "SLUG=${PACKAGE//\//-}" >> "$GITHUB_ENV"
 
       - name: Run tests for ${{ matrix.package }}
         env:
@@ -271,81 +284,22 @@ jobs:
           PACKAGE: ${{ matrix.package }}
         run: |
           cd "$PACKAGE"
-          pnpm test
-
-      # upload-artifact v4 rejects "/" in artifact names.
-      - name: Artifact name
-        if: always()
-        env:
-          PACKAGE: ${{ matrix.package }}
-        run: |
-          echo "ARTIFACT_NAME=test-results-${PACKAGE//\//-}" >> "$GITHUB_ENV"
+          if grep -q '"test"' package.json; then
+            pnpm test
+          else
+            echo "No test script found for $PACKAGE"
+          fi
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ env.ARTIFACT_NAME }}
+          name: test-results-${{ env.SLUG }}
           path: |
             ${{ matrix.package }}/coverage/
             ${{ matrix.package }}/test-results.xml
           retention-days: 7
           if-no-files-found: ignore
-
-  lint-and-typecheck:
-    runs-on: ubuntu-latest
-    needs: detect
-    if: ${{ needs.detect.outputs.testPackages != '[]' }}
-    # Self-hosted Turbo remote cache (`turbo` in infra/shared.yml). Fork PRs
-    # get no secrets and fall back to an uncached build.
-    env:
-      TURBO_API: ${{ vars.TURBO_API }}
-      TURBO_TEAM: ${{ vars.TURBO_TEAM }}
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
-    strategy:
-      fail-fast: false
-      matrix:
-        package: ${{ fromJson(needs.detect.outputs.testPackages) }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
-        with:
-          version: ${{ env.PNPM_VERSION }}
-
-      - name: Get pnpm store directory
-        shell: bash
-        run: |
-          echo "STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
-
-      - name: Setup pnpm cache
-        uses: actions/cache@v6
-        with:
-          path: ${{ env.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      # Only the package's workspace dependencies, not the package itself.
-      # A cache hit restores dist/ without running the build script, so the
-      # injected workspace copies (pnpm-workspace.yaml) never sync; re-installing does.
-      - name: Build dependencies
-        env:
-          PACKAGE: ${{ matrix.package }}
-        run: |
-          pnpm turbo run build --filter="{./${PACKAGE}}^..."
-          pnpm install --frozen-lockfile --offline
 
       - name: Run lint for ${{ matrix.package }}
         env:
@@ -368,6 +322,19 @@ jobs:
           else
             echo "No type-check script found for $PACKAGE"
           fi
+
+      # Default `if:` (success()): only reached when every step above passed.
+      - name: Write pass marker
+        run: |
+          mkdir -p "$RUNNER_TEMP/markers"
+          : > "$RUNNER_TEMP/markers/pass-$SLUG"
+
+      - name: Upload pass marker
+        uses: actions/upload-artifact@v7
+        with:
+          name: pass-${{ env.SLUG }}
+          path: ${{ runner.temp }}/markers/pass-${{ env.SLUG }}
+          retention-days: 1
 
   # Base images are FROM each other via ghcr.io, so each push must land before
   # the next build starts. Always tags :latest (a dispatch from a branch
@@ -445,20 +412,19 @@ jobs:
           cache-from: type=registry,ref=${{ env.IMAGE_PREFIX }}-nextjs-runtime:buildcache
           cache-to: type=registry,ref=${{ env.IMAGE_PREFIX }}-nextjs-runtime:buildcache,mode=max
 
-  # `!cancelled()` lets this run when upstream jobs were skipped (no tests to
-  # run, no base images to build); the explicit `!= 'failure'` checks are what
-  # actually gate it.
+  # `!cancelled()` lets this run when upstream jobs were skipped (no packages to
+  # check, no base images to build). It does not look at the `check` result:
+  # each leg gates itself on the pass markers of its own check packages, so a
+  # red package holds back only the images that depend on it.
   build-images:
     runs-on: ubuntu-latest
-    needs: [detect, test, lint-and-typecheck, base-images]
+    needs: [detect, check, base-images]
     if: >-
       ${{
         !cancelled()
         && github.event_name != 'pull_request'
         && needs.detect.result == 'success'
         && needs.detect.outputs.images != '[]'
-        && needs.test.result != 'failure'
-        && needs.lint-and-typecheck.result != 'failure'
         && needs.base-images.result != 'failure'
       }}
     strategy:
@@ -470,10 +436,42 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      # Pass markers go outside the checkout, which is the docker build context.
+      - name: Download check markers
+        uses: actions/download-artifact@v8
+        with:
+          pattern: pass-*
+          path: ${{ runner.temp }}/markers
+          merge-multiple: true
+
+      - name: Check gates
+        id: gates
+        env:
+          GATES: ${{ matrix.gates }}
+          IMAGE_NAME: ${{ matrix.name }}
+        run: |
+          # GATES is a space-separated list of package dirs; split it on purpose.
+          # shellcheck disable=SC2086
+          missing="$(scripts/ci/gate-check.sh "$RUNNER_TEMP/markers" $GATES)"
+          if [ -z "$missing" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            missing="$(echo "$missing" | paste -sd, - | sed 's/,/, /g')"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::$IMAGE_NAME skipped: checks failed or missing for $missing"
+            {
+              echo "## Held back"
+              echo
+              echo "- \`$IMAGE_NAME\`: checks failed or missing for $missing"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Set up Docker Buildx
+        if: steps.gates.outputs.ok == 'true'
         uses: docker/setup-buildx-action@v4
 
       - name: Login to GHCR
+        if: steps.gates.outputs.ok == 'true'
         uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
@@ -484,6 +482,7 @@ jobs:
       # (PR builds never reach this job).
       - name: Image metadata
         id: meta
+        if: steps.gates.outputs.ok == 'true'
         uses: docker/metadata-action@v6
         with:
           images: ${{ matrix.image }}
@@ -492,6 +491,7 @@ jobs:
             type=raw,value=latest
 
       - name: Build and push ${{ matrix.name }}
+        if: steps.gates.outputs.ok == 'true'
         uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.context }}
@@ -503,18 +503,35 @@ jobs:
           cache-from: type=registry,ref=${{ matrix.image }}:buildcache
           cache-to: type=registry,ref=${{ matrix.image }}:buildcache,mode=max
 
+      # Tells the deploy job this image is on GHCR.
+      - name: Write built marker
+        if: steps.gates.outputs.ok == 'true'
+        env:
+          IMAGE_NAME: ${{ matrix.name }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/markers"
+          : > "$RUNNER_TEMP/markers/built-$IMAGE_NAME"
+
+      - name: Upload built marker
+        if: steps.gates.outputs.ok == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: built-${{ matrix.name }}
+          path: ${{ runner.temp }}/markers/built-${{ matrix.name }}
+          retention-days: 1
+
   deploy:
     runs-on: ubuntu-latest
-    needs: [detect, test, lint-and-typecheck, base-images, build-images]
+    needs: [detect, check, base-images, build-images]
+    # No check / build-images result here: deploy-command.sh drops every
+    # service whose pass or built marker is missing, so a failed leg holds back
+    # only its own services.
     if: >-
       ${{
         !cancelled()
         && github.event_name != 'pull_request'
         && needs.detect.result == 'success'
-        && needs.test.result != 'failure'
-        && needs.lint-and-typecheck.result != 'failure'
         && needs.base-images.result != 'failure'
-        && needs.build-images.result != 'failure'
       }}
     # Deploys queue behind each other and are never cancelled: a deploy killed
     # mid-SSH dies on the host at its next write. The workflow-level group does
@@ -527,55 +544,29 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
-          sparse-checkout: scripts/deploy
+          sparse-checkout: |
+            scripts/deploy
+            scripts/ci
           sparse-checkout-cone-mode: false
+
+      - name: Download markers
+        uses: actions/download-artifact@v8
+        with:
+          pattern: '{pass,built}-*'
+          path: ${{ runner.temp }}/markers
+          merge-multiple: true
 
       - name: Build deploy command
         id: cmd
         env:
+          PLAN: ${{ needs.detect.outputs.plan }}
           SHA: ${{ github.sha }}
           DRY_RUN: ${{ inputs.dry_run }}
           INPUT_FULL: ${{ inputs.full }}
-          DETECT_FULL: ${{ needs.detect.outputs.full }}
-          DECRYPT: ${{ needs.detect.outputs.decrypt }}
-          PULL: ${{ needs.detect.outputs.pull }}
-          UP: ${{ needs.detect.outputs.up }}
-          FORCE_RECREATE: ${{ needs.detect.outputs.forceRecreate }}
         run: |
-          pull="$(echo "$PULL" | jq -r 'join(",")')"
-          up="$(echo "$UP" | jq -r 'join(",")')"
-          force="$(echo "$FORCE_RECREATE" | jq -r 'join(",")')"
+          cmd="$(scripts/ci/deploy-command.sh "$RUNNER_TEMP/markers")"
 
-          full=false
-          if [ "$INPUT_FULL" = "true" ] || [ "$DETECT_FULL" = "true" ]; then
-            full=true
-          fi
-
-          cmd="deploy $SHA"
-          if [ "$DRY_RUN" = "true" ]; then
-            cmd+=" --dry-run"
-          fi
-
-          if [ "$full" = "true" ]; then
-            # The host script ignores service lists under --full.
-            cmd+=" --full"
-          else
-            if [ "$DECRYPT" = "true" ]; then
-              cmd+=" --decrypt"
-            fi
-            if [ -n "$pull" ]; then
-              cmd+=" --pull $pull"
-            fi
-            if [ -n "$up" ]; then
-              cmd+=" --up $up"
-            fi
-            if [ -n "$force" ]; then
-              cmd+=" --force-recreate $force"
-            fi
-          fi
-
-          if [ "$full" = "true" ] || [ "$DECRYPT" = "true" ] \
-            || [ -n "$pull" ] || [ -n "$up" ] || [ -n "$force" ]; then
+          if [ -n "$cmd" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
             echo "cmd=$cmd" >> "$GITHUB_OUTPUT"
             echo "Deploy command: $cmd"
@@ -638,7 +629,7 @@ jobs:
   # a run superseded by a newer one); skipped jobs are fine.
   summary:
     runs-on: ubuntu-latest
-    needs: [detect, test, lint-and-typecheck, base-images, build-images, deploy]
+    needs: [detect, check, base-images, build-images, deploy]
     if: always()
     steps:
       - name: Summary

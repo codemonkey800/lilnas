@@ -10,28 +10,41 @@ production secrets are committed to git, encrypted with dotenvx.
 ```mermaid
 flowchart LR
   push[push to main] --> detect["lilnas ci detect<br/>(diff → plan)"]
-  detect --> tests[test + lint + type-check<br/>changed packages]
+  detect --> check["check (matrix)<br/>test + lint + type-check per package<br/>uploads pass-&lt;pkg&gt;"]
   detect --> base[base-images<br/>infra/base-images/** changed]
-  tests --> build[build-images<br/>buildx → GHCR :sha + :latest]
+  check --> build["build-images (matrix)<br/>gate-check.sh → buildx → GHCR :sha + :latest<br/>uploads built-&lt;image&gt;"]
   base --> build
-  build --> deploy[deploy job<br/>Tailscale tag:ci → ssh deploy@lilnas]
+  build --> deploy["deploy job<br/>deploy-command.sh drops held-back services<br/>Tailscale tag:ci → ssh deploy@lilnas"]
   deploy --> host["/opt/lilnas<br/>checkout sha · decrypt env · compose pull/up"]
 ```
 
 `.github/workflows/ci.yml` runs on every PR and on pushes to `main`. The
 `detect` job runs `pnpm lilnas ci detect --json --base <base> --head <sha>`
-and turns the diff into a plan: which packages to test, which images to build,
-which services to `pull` / `up` / `--force-recreate`, and whether to re-decrypt
-env files. For a push, `<base>` is the head sha of the newest successful `push`
+and turns the diff into a plan: which packages to check (`checkPackages`),
+which images to build and which packages gate each one, which services to
+`pull` / `up` / `--force-recreate`, and whether to re-decrypt env files. For a push, `<base>` is the head sha of the newest successful `push`
 run of `ci.yml` on `main` (`scripts/ci/last-deployed-sha.sh`), not
 `github.event.before`, so the newest run deploys every commit no earlier run
 deployed, even when those runs were cancelled or failed. If there is no such
 run, detect warns and falls back to `github.event.before`. A base that is no
 longer an ancestor of the head (a force-push) makes the plan `full`. PRs diff
-from the PR base and stop after tests. On `main`, images are built and pushed,
-then the `deploy` job joins the tailnet and runs the forced command
-`deploy <sha> [--decrypt] [--pull a,b] [--up c,d] [--force-recreate e,f]` on
-the host. The `summary` job is the single required status check.
+from the PR base and stop after the checks.
+
+The `check` job is a matrix with one leg per package in `checkPackages`; each
+leg runs test, lint and type-check (a script a package lacks is skipped) and
+uploads an empty `pass-<pkg>` marker artifact (`apps/theater` →
+`pass-apps-theater`) only if all three passed. On `main`, each `build-images`
+leg first runs `scripts/ci/gate-check.sh` against the markers for its image's
+gates (the image's own package plus the workspace packages it depends on at
+runtime). If every gate has a marker, the leg builds and pushes the image and
+uploads a `built-<image>` marker; otherwise it skips the build. A red package
+therefore holds back only the images that depend on it, not the whole run.
+The `deploy` job then downloads all markers and runs
+`scripts/ci/deploy-command.sh`, which builds the forced command
+`deploy <sha> [--decrypt] [--pull a,b] [--up c,d] [--force-recreate e,f]`
+minus every service whose image has a missing `pass-*` or `built-*` marker,
+joins the tailnet and runs it on the host. The `summary` job is the single
+required status check; it is red if any job failed, held-back app included.
 
 What a change does (rules are unioned; a service whose image is rebuilt is
 pulled and dropped from the other lists):
@@ -40,14 +53,20 @@ pulled and dropped from the other lists):
 | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `apps/<x>/**` (source, Dockerfile, `deploy.yml`, `.env.prod`)                        | Rebuild `lilnas-<x>`; `compose pull` + `up -d` its services                                                                                |
 | `packages/<p>/**` that an app lists in `dependencies`                                | Rebuild every app whose workspace `dependencies` graph reaches `<p>` (transitive). `devDependencies` such as `@lilnas/cli` rebuild nothing |
+| `packages/<p>/**` (any package)                                                      | Also check every package whose runtime `dependencies` reach `<p>`; those checks gate the images that depend on them                        |
 | `pnpm-lock.yaml`, root `package.json`, `pnpm-workspace.yaml`, `.npmrc`, `turbo.json` | Rebuild every image                                                                                                                        |
 | `apps/<x>/deploy.yml`, `infra/<name>.yml`                                            | `up -d` every service that compose file defines (compose recreates only what actually changed)                                             |
 | Bind-mounted `infra/<name>/**` (config files mounted into a container)               | `up -d --force-recreate` the services that mount the path                                                                                  |
 | Encrypted env file (`apps/<x>/.env.prod`, `infra/.env*`)                             | Re-decrypt on the host, then `up -d` every service that loads it                                                                           |
 | `infra/base-images/**` (except `lilnas-dev.Dockerfile`)                              | Rebuild and push the four base images, then every app image `FROM` one                                                                     |
 | `.github/workflows/**` or root `docker-compose.yml`                                  | Full: every image, every service, decrypt all                                                                                              |
-| `apps/tdr-code/**`                                                                   | Tests only. tdr-code is host-native; it is never built or deployed by CI                                                                   |
+| `apps/tdr-code/**`                                                                   | Checks only. tdr-code is host-native; it is never built or deployed by CI                                                                  |
 | Upstream third-party image (immich, traefik, …)                                      | Nothing re-pulls on its own. Every upstream tag is pinned to a version; bump it in `infra/<name>.yml` to upgrade                           |
+
+A package is checked if it has a `test`, `lint` or `type-check` script, so
+packages that only have `lint` / `type-check` (portal, dashcam,
+me-token-tracker, media) are checked too, and a red one holds back its image
+like any other.
 
 Preview the plan for any range locally:
 
@@ -88,6 +107,29 @@ and the `## Plan` table's `base source` row says where the base came from
 (`successful push run <id>`, `event.before (no successful push run)`,
 `dispatch input`, `HEAD~1 (no successful push run)` or `pull request base`). A
 lookup or cancel failure is only a `::warning::`; it never fails the run.
+
+### Partial deploys
+
+A red leg no longer fails the whole deploy; it holds back one app.
+
+- **What held back means**: an app is held back when a package gating its image
+  failed its checks, or its image build failed. Its image is not pushed, its
+  services are dropped from `--pull` / `--up` / `--force-recreate`, and the old
+  image keeps running. `--decrypt` is dropped only when every service with a
+  changed env file is held back. A `full` plan (including `full=true`)
+  degrades to explicit lists, because the host ignores them under `--full`.
+- **Where to look**: the build summary has a `## Held back` section per
+  skipped image, the deploy summary has a `### Held back` table (image,
+  services, reason), and the `summary` job stays red, so the run is never a
+  green check.
+- **What stays coupled**: base images (a failed base build stops every app
+  image build), a shared package (a red `packages/<p>` holds back every app that
+  depends on it), and pull requests, which still stop after the checks.
+- **Catching up**: a run with any red leg is not a successful push run, so it
+  never becomes a base. The next push diffs from the older base and rebuilds
+  and redeploys apps that already shipped. That is redundant but idempotent.
+  To ship the held-back app, fix it and push, or dispatch form 2 below with
+  the sha the host is running.
 
 ## Manual deploys
 

@@ -1,0 +1,296 @@
+nexus-tasks: 1
+phases:
+  - key: '1'
+    name: Gates in detect, gate scripts, workflow, docs
+    tasks:
+      - id: T1
+        title: 'detect: checkPackages, per-image gates, decryptServices'
+        after: []
+        files:
+          - packages/cli/src/utils/ci-detect.ts
+          - packages/cli/src/commands/ci/detect.ts
+          - packages/cli/src/utils/__tests__/ci-detect.spec.ts
+        status: done
+        commit: 74c3aa7f6fd90186e411c35afb3272b19bddca94
+        body: |-
+          Extend the pure plan in `packages/cli/src/utils/ci-detect.ts` so the
+          workflow can gate each image build and the deploy per app. The CLI
+          (`packages/cli/src/commands/ci/detect.ts`) and the workflow consume the
+          JSON, so every new field must appear in `--json` output and in
+          `printSummary`.
+
+          Shape changes:
+          ```ts
+          export interface ImageBuild {
+            name: string; image: string; context: string; dockerfile: string
+            services: string[]
+            /** Check packages this image needs green: its own package plus the
+             *  transitive runtime workspace deps, limited to `checkPackages`
+             *  of this plan. Sorted. Empty = nothing gates the build. */
+            gates: string[]
+          }
+          export interface DetectResult {
+            full: boolean; baseImages: boolean; images: ImageBuild[]
+            pull: string[]; up: string[]; forceRecreate: string[]
+            decrypt: boolean
+            /** Services whose env file (service-level or include-level
+             *  `env_file`) changed; the reason `decrypt` is true. Every service
+             *  under `full`. Sorted, unique. */
+            decryptServices: string[]
+            /** Replaces `testPackages`: `apps/x` / `packages/y` dirs with a
+             *  `test`, `lint` or `type-check` script that changed, or whose
+             *  transitive runtime workspace dep changed. Sorted. */
+            checkPackages: string[]
+            changedFiles: string[]
+          }
+          ```
+          - Rename `listTestPackages` → `listCheckPackages` (any of the three
+            scripts). Remove the `testPackages` field entirely (don't keep an alias).
+          - `checkPackages` (non-full): a check package P is in when some changed
+            file is under any dir of `runtimeInputDirs(P.dir, workspacePackages)`
+            (that set includes P itself). `full` → every check package.
+          - `listImages()` returns `gates: []`; `detect()` fills gates on the images
+            it returns: `runtimeInputDirs(dirname(dockerfile), workspacePackages)`
+            ∩ the plan's `checkPackages`, sorted. Under `full` that is ∩ all check
+            packages. Images are still sorted by name.
+          - `decryptServices`: collect the service names in the two env-file loops
+            that set `decrypt = true` (service `env_file` and include-level
+            `env_file`); `unique()`. Under `full`: every service name.
+          - `printSummary` prints `checkPackages`, `decryptServices`, and `gates`
+            per image as `images: auth(apps/auth packages/utils) tdr-bot(…)`
+            (an image with no gates prints just its name).
+
+          Spec `ci-detect.spec.ts`: rename `ALL_TEST_PACKAGES` → `ALL_CHECK_PACKAGES`
+          and `EMPTY.testPackages` → `checkPackages: []`, `decryptServices: []`.
+          Add a lint-only package to the fixture: `packages/media` gets
+          `scripts: { lint: 'x', 'type-check': 'y' }` (no test), so it becomes a
+          check package; `packages/eslint` (lint only) is one too. Tests must cover:
+          - `listImages` returns `gates: []` on every image;
+          - `packages/utils/src/x.ts` → `checkPackages` = utils + every check
+            package whose runtime deps reach utils (`apps/auth`, `apps/tdr-bot`,
+            `apps/tdr-code`, `packages/media`, `packages/utils`), never
+            `packages/cli` (peer dep) and never `apps/dev-idle-reaper` (no scripts);
+            `gates`: auth → `['apps/auth', 'packages/utils']`, tdr-bot →
+            `['apps/tdr-bot', 'packages/media', 'packages/utils']`;
+          - `packages/media/src/radarr.ts` → checkPackages `['apps/tdr-bot',
+            'packages/media']`, tdr-bot gates `['apps/tdr-bot', 'packages/media']`
+            (utils unchanged, so not a gate);
+          - `apps/tdr-bot/src/main.ts` → checkPackages `['apps/tdr-bot']`, gates
+            `['apps/tdr-bot']`;
+          - `packages/eslint/index.js` → checkPackages `['packages/eslint']`,
+            no images;
+          - `pnpm-lock.yaml` → every image, `checkPackages: []`, every `gates: []`;
+          - the cycle case: `packages/cyc-b/index.ts` → dev-idle-reaper builds with
+            `gates: []` (no check scripts on the cycle packages or the app);
+          - `full` → `checkPackages` = ALL_CHECK_PACKAGES, `decryptServices` =
+            every service, auth gates `['apps/auth', 'packages/utils']`;
+          - `infra/.env.storage` → `decryptServices: ['storage']`;
+            `infra/.env.nexus-code` → `['nexus-code', 'nexus-code-db']`;
+            `apps/tdr-bot/.env.prod` → `['tdr-bot', 'tdr-bot-db']`; an unrelated
+            file → `[]`; the pull-precedence test still has `decrypt: true` with
+            `decryptServices: ['auth']`.
+          Update every existing `toEqual` that lists images or `testPackages`.
+          `pnpm --filter @lilnas/cli lint`, `type-check` and jest must pass.
+      - id: T2
+        title: 'scripts/ci: gate-check.sh and deploy-command.sh with tests'
+        after: []
+        files:
+          - scripts/ci/gate-check.sh
+          - scripts/ci/deploy-command.sh
+          - packages/cli/src/utils/__tests__/ci-gate-scripts.spec.ts
+        status: done
+        commit: 93c1accebd75e15d4fc00ac294fa2554f38d7333
+        body: |-
+          Two bash scripts the workflow calls, pure over a markers directory and
+          env, so they can be unit-tested without GitHub. Markers are empty files
+          in one flat directory, named exactly `pass-<slug>` (slug = package dir
+          with `/` → `-`, e.g. `pass-apps-theater`) and `built-<image name>`
+          (e.g. `built-tdr-bot`).
+
+          `scripts/ci/gate-check.sh <markers-dir> [<package-dir>…]`
+          ```
+          # Prints each <package-dir> whose pass marker is missing, one per line,
+          # and exits 0 (also with no package dirs, or a missing markers dir).
+          # Exits 2 with usage when <markers-dir> is absent.
+          ```
+
+          `scripts/ci/deploy-command.sh <markers-dir>`
+          ```
+          # Env: PLAN (the `lilnas ci detect --json` object; images carry
+          #      {name, services, gates}, plus pull, up, forceRecreate, decrypt,
+          #      decryptServices, full), SHA, DRY_RUN ("true" adds --dry-run),
+          #      INPUT_FULL ("true" = the dispatch's full input), optional
+          #      GITHUB_STEP_SUMMARY.
+          # An image is HELD BACK when any of its gates lacks pass-<slug>, or
+          # built-<name> is missing. blocked = the union of held-back images'
+          # services.
+          # full = INPUT_FULL == "true" or PLAN.full == true.
+          #   full and nothing held back → `deploy $SHA [--dry-run] --full`
+          #   else: pull/up/forceRecreate minus blocked; decrypt = full, or
+          #         (PLAN.decrypt and (decryptServices minus blocked) non-empty);
+          #         `deploy $SHA [--dry-run] [--decrypt] [--pull a,b] [--up c,d]
+          #          [--force-recreate e,f]` in that flag order.
+          # Prints the command on stdout, or nothing when there is nothing to
+          # deploy. Exits 0. Exits 2 with usage on a bad argument or no PLAN.
+          # When GITHUB_STEP_SUMMARY is set and something is held back, appends
+          # "### Held back" with a markdown table: image | services | reason
+          # ("checks failed or missing: apps/theater" or "image not built").
+          ```
+          Lists come from PLAN with `jq`; keep the flag order and `join(",")`
+          exactly as the current "Build deploy command" step in ci.yml produces
+          them (the host entrypoint parses that syntax). Marker lookups are plain
+          `[ -f "$dir/$name" ]`.
+
+          Spec `ci-gate-scripts.spec.ts`, after `ci-cancel-superseded-runs.spec.ts`
+          (spawnSync bash, temp dir per test, env limited to `PATH` plus the
+          case's variables). gate-check: no args → exit 2; no packages → empty;
+          all present → empty; two of three missing → the two, in argument order.
+          deploy-command, with a PLAN of two images `auth` (services `[auth]`,
+          gates `[apps/auth, packages/utils]`) and `tdr-bot` (services `[tdr-bot]`,
+          gates `[apps/tdr-bot, packages/utils]`), pull `[auth, tdr-bot]`, up
+          `[tdr-bot-db, storage]`, forceRecreate `[prometheus]`, decrypt true,
+          decryptServices `[tdr-bot, tdr-bot-db]`:
+          - every marker present → `deploy <sha> --decrypt --pull auth,tdr-bot --up storage,tdr-bot-db --force-recreate prometheus`
+            (lists stay in PLAN order);
+          - `pass-apps-tdr-bot` missing → tdr-bot dropped from pull, decrypt kept
+            (tdr-bot-db still needs it), summary table names tdr-bot with the
+            "checks failed or missing: apps/tdr-bot" reason;
+          - `built-auth` missing → auth dropped, reason "image not built";
+          - `pass-packages-utils` missing → both images held back, `--decrypt` kept
+            only because tdr-bot-db is not an image service; with up `[]` and
+            decryptServices `[tdr-bot]` instead, no `--decrypt`;
+          - DRY_RUN=true → `--dry-run` right after the sha;
+          - PLAN.full true, all markers present → `deploy <sha> --full`;
+            INPUT_FULL=true with PLAN.full false → same;
+          - PLAN.full true with `built-auth` missing → explicit lists, `--decrypt`
+            present, no `--full`;
+          - images `[]`, pull/up/force empty, decrypt false → empty stdout, exit 0;
+          - no PLAN env → exit 2.
+          Both scripts pass `bash -n` and shellcheck (actionlint's check covers
+          only ci.yml, so run `docker run --rm -v "$PWD:/repo" -w /repo
+          koalaman/shellcheck:stable scripts/ci/gate-check.sh scripts/ci/deploy-command.sh`
+          once and fix findings). Lint and prettier on the spec must pass.
+      - id: T3
+        title: 'ci.yml: check matrix, per-leg gates, marker-filtered deploy'
+        after:
+          - T1
+          - T2
+        files:
+          - .github/workflows/ci.yml
+          - packages/cli/src/utils/__tests__/ci-workflow-shape.spec.ts
+        status: done
+        commit: 04474b7010f6a8c3233beb438927281661d1d0ad
+        body: |-
+          Rewire `.github/workflows/ci.yml` so one red app holds back only its own
+          image and services. Keep the `detect` job's `Detect changes` step name,
+          its `case … esac` base-selection block, the `Cancel superseded runs`
+          step, `permissions.actions: write` on detect, the `deploy` job name and
+          its `concurrency` block, the `base-images` job, and all four
+          `workflow_dispatch` inputs exactly as they are: existing specs slice and
+          assert them. Run actionlint after every edit.
+
+          detect outputs: replace `testPackages` with
+          `checkPackages: ${{ steps.plan.outputs.checkPackages }}`; add
+          `plan: ${{ steps.plan.outputs.plan }}` = the whole detect JSON minus
+          `changedFiles` (`jq -c 'del(.changedFiles)'`); the `images` matrix output
+          becomes `[.images[] | {name, context, dockerfile, image, gates: (.gates | join(" "))}]`
+          (matrix values must stay scalars). Drop the now-unused per-field outputs
+          (`pull`, `up`, `forceRecreate`, `decrypt`); keep `full`, `baseImages`. The
+          `## Plan` table: rename the testPackages row to `checkPackages`, add a
+          `decryptServices` row and show gates per image as `name(gate gate)`.
+
+          `check` job (replaces `test` and `lint-and-typecheck`): `needs: detect`,
+          `if: needs.detect.outputs.checkPackages != '[]'`, same Turbo remote-cache
+          `env` block (`TURBO_API`, `TURBO_TEAM`, `TURBO_TOKEN`,
+          `TURBO_REMOTE_CACHE_SIGNATURE_KEY`), `fail-fast: false`, matrix
+          `package: fromJson(checkPackages)`, same checkout/node/pnpm/cache/install
+          and "Build dependencies" steps, then in order: tests (only when
+          `grep -q '"test"' package.json`, `CI: true`, upload `test-results-<slug>`
+          as today with `if: always()`), lint and type-check (the existing
+          grep-guarded steps). Last step, default `if:` (runs only when every step
+          passed): `mkdir -p "$RUNNER_TEMP/markers" && : > "$RUNNER_TEMP/markers/pass-$SLUG"`
+          then `actions/upload-artifact@v7` with `name: pass-<slug>`,
+          `path: ${{ runner.temp }}/markers/pass-<slug>`, `retention-days: 1`.
+          Compute the slug once in an "Artifact name" step as the test job does
+          (`${PACKAGE//\//-}`) and reuse it via `$GITHUB_ENV`.
+
+          `build-images`: `needs: [detect, check, base-images]`; `if:` =
+          `!cancelled() && github.event_name != 'pull_request' && needs.detect.result == 'success' && needs.detect.outputs.images != '[]' && needs.base-images.result != 'failure'`
+          — it must no longer mention `needs.check.result`. Per leg, before Docker
+          setup: `actions/download-artifact@v8` with `pattern: pass-*`,
+          `path: ${{ runner.temp }}/markers`, `merge-multiple: true`; then step
+          `id: gates` running `missing="$(scripts/ci/gate-check.sh "$RUNNER_TEMP/markers" $GATES)"`
+          (`GATES: ${{ matrix.gates }}`, word-split on purpose — add a shellcheck
+          `# shellcheck disable=SC2086` comment): empty → `ok=true`; else
+          `ok=false`, a `::warning::<name> skipped: checks failed or missing for <missing>`
+          and a line under `## Held back` in the step summary. Every later step
+          (buildx, login, metadata, build-push) gets
+          `if: steps.gates.outputs.ok == 'true'`. After the build-push: create
+          `$RUNNER_TEMP/markers/built-<name>` and upload it as `built-<name>`,
+          `retention-days: 1`, same `if:`.
+
+          `deploy`: `needs: [detect, check, base-images, build-images]`; `if:` =
+          `!cancelled() && github.event_name != 'pull_request' && needs.detect.result == 'success' && needs.base-images.result != 'failure'`
+          (no `check` / `build-images` result checks). Sparse checkout adds
+          `scripts/ci`. Download markers with `pattern: '{pass,built}-*'`,
+          `path: ${{ runner.temp }}/markers`, `merge-multiple: true` (if the brace
+          pattern turns out unsupported, two download steps). "Build deploy
+          command" becomes: env `PLAN: ${{ needs.detect.outputs.plan }}`, `SHA`,
+          `DRY_RUN: ${{ inputs.dry_run }}`, `INPUT_FULL: ${{ inputs.full }}`; run
+          `cmd="$(scripts/ci/deploy-command.sh "$RUNNER_TEMP/markers")"`; empty →
+          `run=false` plus the existing "Nothing to deploy" summary, else
+          `run=true`, `cmd=…`. The Tailscale, SSH-key and Deploy steps are unchanged.
+
+          `summary`: `needs: [detect, check, base-images, build-images, deploy]`;
+          logic unchanged (red on any failure or cancel). Update the comments
+          above `build-images` and `deploy` to say the gates are per leg.
+
+          New spec `ci-workflow-shape.spec.ts` (js-yaml over ci.yml, like
+          `ci-workflow-base.spec.ts`): jobs `test` and `lint-and-typecheck` are
+          gone and `check` exists with the four `TURBO_*` env keys; `build-images.if`
+          and `deploy.if` contain neither `needs.check.result` nor
+          `needs.build-images.result`, and both `needs` lists include `check`;
+          `summary.needs` equals the five-job list; the `workflow_dispatch` inputs
+          are still `dry_run`, `full`, `base`, `build_base_images`; every
+          `build-images` step after the one with `id: gates` has
+          `if: steps.gates.outputs.ok == 'true'` (the YAML string, after `${{ }}`
+          stripping if you write it that way — pick one form and assert it);
+          `check` uploads an artifact named `pass-…` and `build-images` one named
+          `built-…`. All existing cli specs still pass; actionlint passes.
+      - id: T4
+        title: 'docs/deploy.md: partial deploys, gates, check packages'
+        after:
+          - T3
+        files:
+          - docs/deploy.md
+        status: done
+        commit: 976ee7fa83e80a3d056466283226b3bb04e9e54e
+        body: |-
+          Update `docs/deploy.md` to describe the final `.github/workflows/ci.yml`
+          (read it and the two `scripts/ci/*.sh` scripts; don't describe from
+          memory). Changes:
+          - The mermaid diagram and the "How a push deploys" paragraph: `check`
+            (test + lint + type-check per package) replaces the two jobs; build
+            legs and the deploy gate per app via `pass-<pkg>` / `built-<image>`
+            marker artifacts; name `scripts/ci/gate-check.sh` and
+            `scripts/ci/deploy-command.sh`.
+          - The change table: `packages/<p>/**` also checks every package whose
+            runtime deps reach `<p>`; a new row or note that packages with only
+            `lint` / `type-check` scripts (portal, dashcam, me-token-tracker,
+            media) are now checked and gate their image.
+          - New `### Partial deploys` subsection after `### Concurrency`: what a
+            held-back app means (checks red or image build failed → image not
+            pushed, its services dropped from pull/up/force-recreate, old image
+            keeps running, `--decrypt` dropped only when every env-changed
+            service is held back, a `full` plan degrades to explicit lists);
+            where to look (`## Held back` in the build summary, `### Held back`
+            table in the deploy summary, `summary` still red); what stays coupled
+            (base images, a shared package holds back its dependents, PRs
+            unchanged); and the base rule: a run with any red leg is not a
+            successful push run, so the next push re-diffs from the older base and
+            rebuilds/redeploys apps that already shipped — redundant, idempotent.
+            Mention the manual catch-up: fix the app, push; or dispatch form 2 with
+            the host's sha.
+          - Replace every `testPackages` mention with `checkPackages`.
+          Keep the file's voice and table style; run
+          `pnpm exec prettier -c docs/deploy.md` and fix what it reports.

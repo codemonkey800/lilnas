@@ -32,7 +32,7 @@ function changedFiles(root: string, base: string, head: string): string[] {
 
 export class CiDetect extends Command {
   static override description =
-    'Turn the changes between two commits into the build/deploy plan (images, services to pull/up/force-recreate, env decrypt, test packages) the push-to-deploy workflow runs'
+    'Turn the changes between two commits into the build/deploy plan (images, services to pull/up/force-recreate, env decrypt, check packages) the push-to-deploy workflow runs'
 
   static override examples = [
     '<%= config.bin %> ci detect --base HEAD~1 --head HEAD',
@@ -88,11 +88,20 @@ export class CiDetect extends Command {
     this.log(`full:            ${result.full}`)
     this.log(`baseImages:      ${result.baseImages}`)
     this.log(`decrypt:         ${result.decrypt}`)
-    this.log(`images:          ${list(result.images.map(image => image.name))}`)
+    this.log(
+      `images:          ${list(
+        result.images.map(image =>
+          image.gates.length > 0
+            ? `${image.name}(${image.gates.join(' ')})`
+            : image.name,
+        ),
+      )}`,
+    )
     this.log(`pull:            ${list(result.pull)}`)
     this.log(`up:              ${list(result.up)}`)
     this.log(`forceRecreate:   ${list(result.forceRecreate)}`)
-    this.log(`testPackages:    ${list(result.testPackages)}`)
+    this.log(`decryptServices: ${list(result.decryptServices)}`)
+    this.log(`checkPackages:   ${list(result.checkPackages)}`)
     this.log(`changedFiles:    ${result.changedFiles.length}`)
   }
 }

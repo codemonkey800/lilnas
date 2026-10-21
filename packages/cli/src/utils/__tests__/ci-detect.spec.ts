@@ -15,7 +15,7 @@ import {
  * A mini repo: a root compose including two app deploy files, one infra file
  * with a bind mount and an env file, one include with an include-level
  * `env_file`, a `tdr-code`-style host-native proxy, a `dev-idle-reaper`-style
- * `build: .`, and packages with and without a `test` script. Workspace deps:
+ * `build: .`, and packages with and without `test`/`lint`/`type-check` scripts. Workspace deps:
  * `auth` → `utils`; `tdr-bot` → `media` → `utils`; `tdr-code` → `utils`;
  * `dev-idle-reaper` → nothing; `cyc-a` ⇄ `cyc-b` with `dev-idle-reaper`-free
  * app `auth` untouched by them. Every app lists `@lilnas/cli` as a
@@ -141,7 +141,7 @@ services:
   // Workspace dep named without the `workspace:` protocol.
   'packages/media/package.json': JSON.stringify({
     name: '@lilnas/media',
-    scripts: {},
+    scripts: { lint: 'x', 'type-check': 'y' },
     dependencies: { '@lilnas/utils': '*' },
   }),
   'packages/cli/package.json': JSON.stringify({
@@ -177,11 +177,13 @@ const ALL_SERVICES = [
   'tdr-code',
 ]
 
-const ALL_TEST_PACKAGES = [
+const ALL_CHECK_PACKAGES = [
   'apps/auth',
   'apps/tdr-bot',
   'apps/tdr-code',
   'packages/cli',
+  'packages/eslint',
+  'packages/media',
   'packages/utils',
 ]
 
@@ -193,7 +195,8 @@ const EMPTY: Omit<DetectResult, 'changedFiles'> = {
   up: [],
   forceRecreate: [],
   decrypt: false,
-  testPackages: [],
+  decryptServices: [],
+  checkPackages: [],
 }
 
 let root: string
@@ -216,6 +219,12 @@ function run(
   extra: Partial<DetectInputs> = {},
 ): DetectResult {
   return detect({ root, changedFiles, ...extra })
+}
+
+function gatesByImage(result: DetectResult): Record<string, string[]> {
+  return Object.fromEntries(
+    result.images.map(image => [image.name, image.gates]),
+  )
 }
 
 function imageNames(result: DetectResult): string[] {
@@ -306,6 +315,7 @@ describe('listImages', () => {
   it('lists the locally built ghcr images, sorted, and never tdr-code', () => {
     const images = listImages(readComposeTree(root))
 
+    expect(images.map(image => image.gates)).toEqual([[], [], []])
     expect(images).toEqual([
       {
         name: 'auth',
@@ -313,6 +323,7 @@ describe('listImages', () => {
         context: '.',
         dockerfile: 'apps/auth/Dockerfile',
         services: ['auth'],
+        gates: [],
       },
       {
         name: 'dev-idle-reaper',
@@ -320,6 +331,7 @@ describe('listImages', () => {
         context: 'apps/dev-idle-reaper',
         dockerfile: 'apps/dev-idle-reaper/Dockerfile',
         services: ['dev-idle-reaper'],
+        gates: [],
       },
       {
         name: 'tdr-bot',
@@ -327,6 +339,7 @@ describe('listImages', () => {
         context: '.',
         dockerfile: 'apps/tdr-bot/Dockerfile',
         services: ['tdr-bot'],
+        gates: [],
       },
     ])
   })
@@ -356,7 +369,11 @@ describe('detect', () => {
       expect(result.pull).toEqual(['auth', 'dev-idle-reaper', 'tdr-bot'])
       expect([...result.pull, ...result.up].sort()).toEqual(ALL_SERVICES)
       expect(result.forceRecreate).toEqual([])
-      expect(result.testPackages).toEqual(ALL_TEST_PACKAGES)
+      expect(result.checkPackages).toEqual(ALL_CHECK_PACKAGES)
+      expect(result.decryptServices).toEqual(ALL_SERVICES)
+      expect(result.images.find(image => image.name === 'auth')?.gates).toEqual(
+        ['apps/auth', 'packages/utils'],
+      )
     }
 
     it('is forced by an unknown base (full: true input)', () => {
@@ -412,13 +429,28 @@ describe('detect', () => {
       expect(imageNames(result)).toEqual(['auth', 'tdr-bot'])
       expect(result.pull).toEqual(['auth', 'tdr-bot'])
       expect(result.up).toEqual([])
-      expect(result.testPackages).toEqual(['packages/utils'])
+      expect(result.checkPackages).toEqual([
+        'apps/auth',
+        'apps/tdr-bot',
+        'apps/tdr-code',
+        'packages/media',
+        'packages/utils',
+      ])
+      expect(gatesByImage(result)).toEqual({
+        auth: ['apps/auth', 'packages/utils'],
+        'tdr-bot': ['apps/tdr-bot', 'packages/media', 'packages/utils'],
+      })
     })
 
     it('rebuilds dependents of an intermediate workspace package', () => {
-      expect(imageNames(run(['packages/media/src/radarr.ts']))).toEqual([
-        'tdr-bot',
-      ])
+      const result = run(['packages/media/src/radarr.ts'])
+
+      expect(imageNames(result)).toEqual(['tdr-bot'])
+      // utils is unchanged, so it does not gate.
+      expect(result.checkPackages).toEqual(['apps/tdr-bot', 'packages/media'])
+      expect(gatesByImage(result)).toEqual({
+        'tdr-bot': ['apps/tdr-bot', 'packages/media'],
+      })
     })
 
     it('ignores a CLI-only source change (devDependency edge)', () => {
@@ -426,7 +458,7 @@ describe('detect', () => {
 
       expect(result).toEqual({
         ...EMPTY,
-        testPackages: ['packages/cli'],
+        checkPackages: ['packages/cli'],
         changedFiles: ['packages/cli/src/x.ts'],
       })
     })
@@ -436,7 +468,7 @@ describe('detect', () => {
 
       expect(result).toEqual({
         ...EMPTY,
-        testPackages: ['packages/cli'],
+        checkPackages: ['packages/cli'],
         changedFiles: ['packages/cli/package.json'],
       })
     })
@@ -445,7 +477,8 @@ describe('detect', () => {
       const result = run(['packages/cyc-b/index.ts'])
 
       expect(imageNames(result)).toEqual(['dev-idle-reaper'])
-      expect(result.testPackages).toEqual([])
+      expect(result.checkPackages).toEqual([])
+      expect(gatesByImage(result)).toEqual({ 'dev-idle-reaper': [] })
     })
 
     it('honours explicit workspacePackages over the ones on disk', () => {
@@ -474,7 +507,8 @@ describe('detect', () => {
       expect(result.pull).toEqual(['auth', 'dev-idle-reaper', 'tdr-bot'])
       expect(result.up).toEqual([])
       expect(result.decrypt).toBe(false)
-      expect(result.testPackages).toEqual([])
+      expect(result.checkPackages).toEqual([])
+      expect(result.images.map(image => image.gates)).toEqual([[], [], []])
     })
 
     it("rebuilds an image when a file under its Dockerfile's directory changes", () => {
@@ -483,7 +517,8 @@ describe('detect', () => {
       expect(imageNames(result)).toEqual(['tdr-bot'])
       expect(result.pull).toEqual(['tdr-bot'])
       expect(result.up).toEqual([])
-      expect(result.testPackages).toEqual(['apps/tdr-bot'])
+      expect(result.checkPackages).toEqual(['apps/tdr-bot'])
+      expect(gatesByImage(result)).toEqual({ 'tdr-bot': ['apps/tdr-bot'] })
     })
 
     it('rebuilds an image when its Dockerfile changes', () => {
@@ -504,7 +539,7 @@ describe('detect', () => {
       expect(result.pull).toEqual([])
       expect(result.up).toEqual([])
       expect(result.forceRecreate).toEqual([])
-      expect(result.testPackages).toEqual(['apps/tdr-code'])
+      expect(result.checkPackages).toEqual(['apps/tdr-code'])
     })
   })
 
@@ -586,6 +621,7 @@ describe('detect', () => {
 
       expect(result.decrypt).toBe(true)
       expect(result.up).toEqual(['storage'])
+      expect(result.decryptServices).toEqual(['storage'])
       expect(result.images).toEqual([])
     })
 
@@ -596,6 +632,7 @@ describe('detect', () => {
       // apps/tdr-bot/.env.prod is under the tdr-bot Dockerfile's directory.
       expect(result.pull).toEqual(['tdr-bot'])
       expect(result.up).toEqual(['tdr-bot-db'])
+      expect(result.decryptServices).toEqual(['tdr-bot', 'tdr-bot-db'])
     })
 
     it('decrypts and ups every service of an include with an include-level env_file', () => {
@@ -603,6 +640,7 @@ describe('detect', () => {
 
       expect(result.decrypt).toBe(true)
       expect(result.up).toEqual(['nexus-code', 'nexus-code-db'])
+      expect(result.decryptServices).toEqual(['nexus-code', 'nexus-code-db'])
     })
 
     it('does not match the .decrypted sibling itself', () => {
@@ -625,18 +663,46 @@ describe('detect', () => {
       expect(result.up).toEqual([])
       expect(result.forceRecreate).toEqual([])
       expect(result.decrypt).toBe(true)
+      expect(result.decryptServices).toEqual(['auth'])
     })
   })
 
-  describe('testPackages', () => {
-    it('lists only changed dirs with a test script', () => {
+  describe('checkPackages', () => {
+    it('lists changed dirs with a test, lint or type-check script', () => {
       expect(
         run([
           'packages/utils/src/a.ts',
           'packages/eslint/index.js',
           'apps/dev-idle-reaper/reaper.sh',
-        ]).testPackages,
-      ).toEqual(['packages/utils'])
+        ]).checkPackages,
+      ).toEqual([
+        'apps/auth',
+        'apps/tdr-bot',
+        'apps/tdr-code',
+        'packages/eslint',
+        'packages/media',
+        'packages/utils',
+      ])
+    })
+
+    it('includes a lint-only package and builds no image for it', () => {
+      const result = run(['packages/eslint/index.js'])
+
+      expect(result.checkPackages).toEqual(['packages/eslint'])
+      expect(result.images).toEqual([])
+    })
+
+    it('never includes a peer-dependent package or one without scripts', () => {
+      const result = run(['packages/utils/src/x.ts'])
+
+      expect(result.checkPackages).not.toContain('packages/cli')
+      expect(result.checkPackages).not.toContain('apps/dev-idle-reaper')
+    })
+  })
+
+  describe('decryptServices', () => {
+    it('is empty for an unrelated file', () => {
+      expect(run(['README.md']).decryptServices).toEqual([])
     })
   })
 })
