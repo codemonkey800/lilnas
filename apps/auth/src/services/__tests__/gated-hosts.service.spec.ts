@@ -160,11 +160,11 @@ describe('ServiceRegistryService.getServices — gated-host merge', () => {
   })
 
   it('keeps the compose entry (and its classification) when both sources know a host', async () => {
-    stubComposeScan([{ host: 'swole.lilnas.io', gatedBy: 'forward-auth' }])
+    stubComposeScan([{ host: 'swole.lilnas.io', gatedBy: 'lilnas-auth' }])
     gatedHosts.recordSeen('swole.lilnas.io')
 
     await expect(registry.getServices()).resolves.toEqual([
-      { host: 'swole.lilnas.io', gatedBy: 'forward-auth' },
+      { host: 'swole.lilnas.io', gatedBy: 'lilnas-auth' },
     ])
   })
 

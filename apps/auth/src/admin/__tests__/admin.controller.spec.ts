@@ -261,7 +261,7 @@ describe('AdminController', () => {
   describe('services (U8, R13)', () => {
     it('delegates to ServiceRegistryService.getServices() and returns its result unmodified', async () => {
       const entries: ServiceRegistryEntry[] = [
-        { host: 'swole.lilnas.io', gatedBy: 'forward-auth' },
+        { host: 'swole.lilnas.io', gatedBy: 'lilnas-auth' },
         { host: 'yacht.lilnas.io', gatedBy: 'lilnas-auth' },
       ]
       const registryController = new AdminController(

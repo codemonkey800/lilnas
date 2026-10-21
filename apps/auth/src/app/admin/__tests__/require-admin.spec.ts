@@ -152,7 +152,7 @@ describe('fetchAdminServices', () => {
   it('calls GET /admin/services and returns the parsed registry', async () => {
     mockIncomingCookie('better-auth.session_token=abc123')
     const services = [
-      { host: 'swole.lilnas.io', gatedBy: 'forward-auth' },
+      { host: 'swole.lilnas.io', gatedBy: 'lilnas-auth' },
       { host: 'yacht.lilnas.io', gatedBy: 'lilnas-auth' },
     ]
     const fetchSpy = jest

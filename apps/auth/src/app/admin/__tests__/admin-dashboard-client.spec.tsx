@@ -81,7 +81,7 @@ class FakeEventSource {
 }
 
 const SERVICES: AdminServiceEntry[] = [
-  { host: 'swole.lilnas.io', gatedBy: 'forward-auth' },
+  { host: 'swole.lilnas.io', gatedBy: 'lilnas-auth' },
 ]
 
 // D3 (plan 017): the shape every test below that has nothing to say about
@@ -94,7 +94,7 @@ const SERVICES: AdminServiceEntry[] = [
 const NO_DISCORD: AdminDiscordUnlinked = { people: [], accounts: [] }
 
 const TWO_SERVICES: AdminServiceEntry[] = [
-  { host: 'swole.lilnas.io', gatedBy: 'forward-auth' },
+  { host: 'swole.lilnas.io', gatedBy: 'lilnas-auth' },
   { host: 'tdr.lilnas.io', gatedBy: 'lilnas-auth' },
 ]
 

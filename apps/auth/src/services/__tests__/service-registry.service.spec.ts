@@ -78,28 +78,6 @@ describe('scanServiceRegistry', () => {
     ])
   })
 
-  it('a router carrying middlewares=forward-auth is reported as still on the old one', async () => {
-    await writeFile(
-      path.join(appsDir, 'portal', 'deploy.yml'),
-      [
-        'services:',
-        '  portal:',
-        '    labels:',
-        '      - traefik.enable=true',
-        '      - traefik.http.routers.portal.rule=Host(`portal.lilnas.io`)',
-        '      - traefik.http.routers.portal.middlewares=forward-auth',
-      ].join('\n'),
-    )
-
-    const result = await scanServiceRegistry(appsDir, infraDir, {
-      includeDevHosts: false,
-    })
-
-    expect(result).toEqual([
-      { host: 'portal.lilnas.io', gatedBy: 'forward-auth' },
-    ])
-  })
-
   it('a router with no middlewares label at all is reported as none (e.g. this app is own UI-only router today)', async () => {
     await writeFile(
       path.join(appsDir, 'lilnas-auth', 'deploy.yml'),
@@ -128,7 +106,7 @@ describe('scanServiceRegistry', () => {
         '    labels:',
         '      - traefik.enable=true',
         '      - traefik.http.routers.swole.rule=Host(`swole.lilnas.io`)',
-        '      - traefik.http.routers.swole.middlewares=forward-auth',
+        '      - traefik.http.routers.swole.middlewares=lilnas-auth',
         '      - traefik.http.routers.swole-metrics-deny.rule=Host(`swole.lilnas.io`) && PathPrefix(`/metrics`)',
         '      - traefik.http.routers.swole-metrics-deny.middlewares=swole-metrics-deny',
         '      - traefik.http.middlewares.swole-metrics-deny.ipallowlist.sourcerange=127.0.0.1/32',
@@ -140,7 +118,7 @@ describe('scanServiceRegistry', () => {
     })
 
     expect(result).toEqual([
-      { host: 'swole.lilnas.io', gatedBy: 'forward-auth' },
+      { host: 'swole.lilnas.io', gatedBy: 'lilnas-auth' },
     ])
   })
 
@@ -230,10 +208,10 @@ describe('scanServiceRegistry', () => {
       path.join(infraDir, 'proxy.yml'),
       [
         'services:',
-        '  traefik-forward-auth:',
+        '  auth:',
         '    labels:',
         '      - traefik.http.routers.auth.rule=Host(`auth.lilnas.io`)',
-        '      - traefik.http.routers.auth.middlewares=forward-auth',
+        '      - traefik.http.routers.auth.middlewares=lilnas-auth',
         '      - traefik.http.routers.edge.rule=Host(`edge.lilnas.io`)',
         '      - traefik.http.routers.dashcam.rule=Host(`dashcam.lilnas.io`)',
       ].join('\n'),
@@ -254,7 +232,7 @@ describe('scanServiceRegistry', () => {
         '  grafana:',
         '    labels:',
         '      - traefik.http.routers.grafana.rule=Host(`grafana.lilnas.io`)',
-        '      - traefik.http.routers.grafana.middlewares=forward-auth',
+        '      - traefik.http.routers.grafana.middlewares=lilnas-auth',
       ].join('\n'),
     )
     await writeFile(
@@ -276,7 +254,7 @@ describe('scanServiceRegistry', () => {
     // guards (file-name suffix AND host-suffix) are real, independent
     // checks, not one accidentally standing in for the other.
     expect(result).toEqual([
-      { host: 'grafana.lilnas.io', gatedBy: 'forward-auth' },
+      { host: 'grafana.lilnas.io', gatedBy: 'lilnas-auth' },
     ])
   })
 
@@ -397,7 +375,7 @@ describe('scanServiceRegistry', () => {
         '  swole:',
         '    labels:',
         '      - traefik.http.routers.swole.rule=Host(`swole.lilnas.io`)',
-        '      - traefik.http.routers.swole.middlewares=forward-auth',
+        '      - traefik.http.routers.swole.middlewares=lilnas-auth',
         '      - traefik.http.routers.swole-metrics-deny.rule=Host(`swole.lilnas.io`) && PathPrefix(`/metrics`)',
         '      - traefik.http.routers.swole-metrics-deny.middlewares=swole-metrics-deny',
       ].join('\n'),
@@ -409,7 +387,7 @@ describe('scanServiceRegistry', () => {
         '  tdr-bot:',
         '    labels:',
         '      - traefik.http.routers.tdr.rule=Host(`tdr.lilnas.io`)',
-        '      - traefik.http.routers.tdr.middlewares=forward-auth',
+        '      - traefik.http.routers.tdr.middlewares=lilnas-auth',
       ].join('\n'),
     )
     await writeFile(
@@ -419,7 +397,7 @@ describe('scanServiceRegistry', () => {
         '  portal:',
         '    labels:',
         '      - traefik.http.routers.portal.rule=Host(`portal.lilnas.io`)',
-        '      - traefik.http.routers.portal.middlewares=forward-auth',
+        '      - traefik.http.routers.portal.middlewares=lilnas-auth',
       ].join('\n'),
     )
     await writeFile(
@@ -438,7 +416,7 @@ describe('scanServiceRegistry', () => {
         '  files:',
         '    labels:',
         '      - traefik.http.routers.files.rule=Host(`files.lilnas.io`)',
-        '      - traefik.http.routers.files.middlewares=forward-auth',
+        '      - traefik.http.routers.files.middlewares=lilnas-auth',
       ].join('\n'),
     )
     await writeFile(
@@ -448,15 +426,15 @@ describe('scanServiceRegistry', () => {
         '  yacht:',
         '    labels:',
         '      - traefik.http.routers.yacht.rule=Host(`yacht.lilnas.io`)',
-        '      - traefik.http.routers.yacht.middlewares=forward-auth',
+        '      - traefik.http.routers.yacht.middlewares=lilnas-auth',
         '  prometheus:',
         '    labels:',
         '      - traefik.http.routers.prometheus.rule=Host(`prometheus.lilnas.io`)',
-        '      - traefik.http.routers.prometheus.middlewares=forward-auth',
+        '      - traefik.http.routers.prometheus.middlewares=lilnas-auth',
         '  grafana:',
         '    labels:',
         '      - traefik.http.routers.grafana.rule=Host(`grafana.lilnas.io`)',
-        '      - traefik.http.routers.grafana.middlewares=forward-auth',
+        '      - traefik.http.routers.grafana.middlewares=lilnas-auth',
       ].join('\n'),
     )
     await writeFile(
@@ -466,14 +444,14 @@ describe('scanServiceRegistry', () => {
         '  traefik:',
         '    labels:',
         '      - traefik.http.routers.traefik.rule=Host(`traefik.lilnas.io`)',
-        '      - traefik.http.routers.traefik.middlewares=forward-auth',
-        '  traefik-forward-auth:',
+        '      - traefik.http.routers.traefik.middlewares=lilnas-auth',
+        '  auth:',
         '    labels:',
         // auth.lilnas.io is blocklisted (matches portal precedent) — present
         // here to prove it is EXCLUDED from the result below, not to prove
         // it is one of the "9".
         '      - traefik.http.routers.auth.rule=Host(`auth.lilnas.io`)',
-        '      - traefik.http.routers.auth.middlewares=forward-auth',
+        '      - traefik.http.routers.auth.middlewares=lilnas-auth',
       ].join('\n'),
     )
 
@@ -481,7 +459,7 @@ describe('scanServiceRegistry', () => {
       includeDevHosts: false,
     })
 
-    const protectedHosts = result.filter(r => r.gatedBy === 'forward-auth')
+    const protectedHosts = result.filter(r => r.gatedBy === 'lilnas-auth')
     expect(protectedHosts.map(r => r.host).sort()).toEqual(
       [
         'swole.lilnas.io',
@@ -494,7 +472,7 @@ describe('scanServiceRegistry', () => {
         'traefik.lilnas.io',
       ].sort(),
     )
-    // auth.lilnas.io is blocklisted — the 9th real forward-auth host in the
+    // auth.lilnas.io is blocklisted — the 9th real lilnas-auth host in the
     // live repo is intentionally excluded from THIS admin UI, per the
     // ported portal blocklist.
     expect(result.some(r => r.host === 'auth.lilnas.io')).toBe(false)

@@ -901,7 +901,7 @@ describe('U9: user and grant management', () => {
           testDb.db,
           requestsService,
           fakeServiceRegistry([
-            { host: 'swole.lilnas.io', gatedBy: 'forward-auth' },
+            { host: 'swole.lilnas.io', gatedBy: 'lilnas-auth' },
           ]),
           usersService,
         )
@@ -935,7 +935,7 @@ describe('U9: user and grant management', () => {
           testDb.db,
           requestsService,
           fakeServiceRegistry([
-            { host: 'swole.lilnas.io', gatedBy: 'forward-auth' },
+            { host: 'swole.lilnas.io', gatedBy: 'lilnas-auth' },
           ]),
           usersService,
         )

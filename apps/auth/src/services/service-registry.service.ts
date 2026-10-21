@@ -22,10 +22,8 @@ import { GatedHostsService } from './gated-hosts.service'
 //
 // Extends portal's own extraction with the one thing it does not do:
 // correlating each ROUTER's `rule` (for its Host(...)) with that SAME
-// router's own `middlewares` value, so the admin UI can distinguish a host
-// still on the old `forward-auth` middleware from one already migrated to
-// `lilnas-auth` — what makes the admin UI useful during a staged,
-// per-router migration rather than only after it completes.
+// router's own `middlewares` value, so the admin UI can tell a host gated by
+// `lilnas-auth` from one that isn't.
 //
 // Compose files only cover this repo. Hosts routed from anywhere else (a
 // ~/dev project on `lilnas-proxy`, say) come from GatedHostsService instead
@@ -52,7 +50,7 @@ export const DEFAULT_APPS_DIR = '/repo/apps'
 export const DEFAULT_INFRA_DIR = '/repo/infra'
 const CACHE_TTL_MS = 30_000
 
-export type MiddlewareStatus = 'lilnas-auth' | 'forward-auth' | 'none'
+export type MiddlewareStatus = 'lilnas-auth' | 'none'
 
 export type ServiceRegistryEntry = {
   host: string
@@ -116,20 +114,12 @@ function parseRouters(labels: string[]): Map<string, RouterInfo> {
   return routers
 }
 
-// Per-router migration ordering means a host can, correctly, carry a
-// router still on `forward-auth` — that is the expected, safe steady state
-// for every host not yet migrated, not an error condition. `lilnas-auth`
-// takes precedence whenever present across a host's routers (the
-// security-relevant question this admin UI exists to answer is "has the NEW
-// protection landed here yet", so that signal wins over a same-host
-// unrelated/legacy middleware — e.g. apps/swole/deploy.yml's
-// swole-metrics-deny router, which is neither forward-auth nor lilnas-auth
-// and so never affects a host's classification either way).
+// A host is `lilnas-auth` when any of its routers carries that middleware.
+// Other middlewares never affect the classification — e.g.
+// apps/swole/deploy.yml's swole-metrics-deny router is not lilnas-auth, so
+// it neither gates nor un-gates its host.
 function classify(middlewareSets: string[][]): MiddlewareStatus {
-  const all = middlewareSets.flat()
-  if (all.includes('lilnas-auth')) return 'lilnas-auth'
-  if (all.includes('forward-auth')) return 'forward-auth'
-  return 'none'
+  return middlewareSets.flat().includes('lilnas-auth') ? 'lilnas-auth' : 'none'
 }
 
 async function readComposeLabels(filePath: string): Promise<string[]> {
