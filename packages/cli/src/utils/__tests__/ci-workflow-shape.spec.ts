@@ -12,13 +12,14 @@ interface Step {
   name?: string
   if?: string
   uses?: string
-  with?: Record<string, string>
+  with?: Record<string, string | boolean>
 }
 
 interface Job {
   if?: string
   needs?: string[]
   env?: Record<string, string>
+  strategy?: Record<string, unknown>
   steps?: Step[]
 }
 
@@ -40,7 +41,7 @@ function job(name: string): Job {
 function artifactNames(name: string): string[] {
   return (job(name).steps ?? [])
     .filter(s => s.uses?.startsWith('actions/upload-artifact@'))
-    .map(s => s.with?.name ?? '')
+    .map(s => String(s.with?.name ?? ''))
 }
 
 describe('ci.yml shape', () => {
@@ -96,6 +97,20 @@ describe('ci.yml shape', () => {
         name: step.name,
         if: GATE_IF,
       })
+    }
+  })
+
+  it('builds up to 12 images at once', () => {
+    expect(job('build-images').strategy?.['max-parallel']).toBe(12)
+  })
+
+  it('disables the buildx post-step cleanup on every setup-buildx step', () => {
+    const buildx = Object.values(workflow.jobs)
+      .flatMap(j => j.steps ?? [])
+      .filter(s => s.uses?.startsWith('docker/setup-buildx-action@'))
+    expect(buildx.length).toBeGreaterThan(0)
+    for (const step of buildx) {
+      expect(step.with?.cleanup).toBe(false)
     }
   })
 
