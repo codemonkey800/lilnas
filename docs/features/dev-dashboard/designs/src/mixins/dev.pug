@@ -1,0 +1,185 @@
+//-
+  Dev dashboard components — the pieces both pages share, so the overview card
+  and the stack header can't drift apart on what "unhealthy" looks like.
+
+  Stack states (the chip on a card and on the detail header):
+    healthy      every service is running and passing its healthcheck
+    unhealthy    something is running but failing its healthcheck
+    exited       a container stopped on its own; exit code in the body
+    absent       no containers — reaped, downed, or never brought up
+    busy         an operation (up, restart…) is running right now
+    env-missing  a required env file isn't on this host
+
+//- The state chip. `healthy` is the live one: it carries the breathing dot.
+mixin stateChip(state)
+  case state
+    when 'healthy'
+      +chip({ tone: 'ok' })&attributes(attributes)
+        +dot('live')
+        | running
+    when 'unhealthy'
+      +chip({ tone: 'bad', label: 'unhealthy', icon: 'alert' })&attributes(attributes)
+    when 'exited'
+      +chip({ tone: 'bad', label: 'exited' })&attributes(attributes)
+    when 'absent'
+      +chip({ tone: 'mute', label: 'absent' })&attributes(attributes)
+    when 'busy'
+      +chip({ tone: 'uv' })&attributes(attributes)
+        +spinner()(class='h-[10px] w-[10px] border-[1.5px]')
+        | busy
+    when 'env-missing'
+      +chip({ tone: 'warn', label: 'env missing', icon: 'file' })&attributes(attributes)
+
+//- Where a stack comes from: the compose file the dashboard read it out of.
+mixin sourceBadge(path)
+  span(
+    class='inline-flex max-w-full items-center gap-1.5 rounded-full border border-line bg-bg-sunk py-[3px] pr-2.5 pl-2 font-mono text-mono-sm text-ink-3'
+  )&attributes(attributes)
+    +icon('file')(class='h-[11px] w-[11px] shrink-0 text-ink-4')
+    span(class='truncate')= path
+
+//- A route as a link. Gated by lilnas-auth gets a lock; anything else is open
+    to the whole internet, which is worth a loud word.
+mixin routeLink(route)
+  div(class='flex min-w-0 items-center gap-2')&attributes(attributes)
+    if route.gated
+      span(class='flex shrink-0 text-ink-3' title='Gated by lilnas-auth')
+        +icon('lock')(class='h-[13px] w-[13px]')
+        span(class='sr-only') Gated by lilnas-auth
+    else
+      +chip({ tone: 'warn', label: 'open' })(class='h-[19px] px-2 text-[10.5px]' title='No lilnas-auth middleware — anyone with the link gets in')
+    a(
+      class='group flex min-w-0 items-center gap-1.5 font-mono text-mono text-ink-2 transition-colors duration-200 ease-uv hover:text-uv-hi'
+      href=`https://${route.host}`
+    )
+      span(class='truncate group-hover:underline')= route.host
+      +icon('external')(class='h-[11px] w-[11px] shrink-0 text-ink-4 group-hover:text-uv-hi')
+
+//- Dot tone for one container: status first, then its healthcheck.
+- const svcTone = svc => (svc.status === 'running' ? (svc.health === 'unhealthy' ? 'bad' : 'ok') : svc.status === 'starting' ? 'warn' : svc.status === 'exited' ? (svc.exit ? 'bad' : null) : null)
+
+//- The one-line verdict beside the container name.
+- const svcVerdict = svc => (svc.status === 'running' ? (svc.health === 'none' ? 'running' : svc.health) : svc.status === 'exited' ? `exited (${svc.exit})` : svc.status === 'starting' ? 'starting' : 'no container')
+
+//- The reaper's verdict for one container.
+mixin reapNote(reap)
+  span(
+    class=['inline-flex items-center gap-1.5', reap === 'unknown' ? 'text-warn' : 'text-ink-3']
+    title=reap === 'exempt' ? 'lilnas.idle-reap.enabled=false' : reap === 'unknown' ? 'auth didn’t answer, so the reaper leaves this alone' : null
+  )&attributes(attributes)
+    +icon('clock')(class='h-[11px] w-[11px] shrink-0')
+    if reap === 'exempt'
+      | exempt
+    else if reap === 'unknown'
+      | unknown
+    else
+      | reaps #{reap}
+
+//- One container on a card: dot, name, verdict; then its numbers.
+mixin serviceRow(svc)
+  div(class='flex flex-col gap-1')&attributes(attributes)
+    div(class='flex items-center gap-2')
+      +dot(svcTone(svc))
+      span(class='min-w-0 flex-1 truncate font-mono text-mono text-ink')= svc.container
+      span(class=['shrink-0 font-mono text-mono-sm', svc.health === 'unhealthy' || (svc.status === 'exited' && svc.exit) ? 'text-bad' : 'text-ink-3'])= svcVerdict(svc)
+    if svc.status === 'running'
+      div(class='flex flex-wrap items-center gap-x-3.5 gap-y-0.5 pl-[15px] font-mono text-mono-sm text-ink-3 tabular-nums')
+        span up #{svc.uptime}
+        span cpu #{svc.cpu.toFixed(1)}%
+        span mem #{svc.mem} MB
+        +reapNote(svc.reap)(class='ml-auto')
+    else if svc.status === 'exited' && svc.finished
+      div(class='pl-[15px] font-mono text-mono-sm text-ink-4') stopped #{svc.finished}
+
+//- The five actions. Up/Stop/Restart are the everyday ones and read as
+    buttons; Recreate and Down throw containers away, so they sit quieter.
+    Which are enabled is a pure function of the state.
+mixin stackActions(state)
+  -
+    const on = {
+      healthy: { up: false, stop: true, restart: true, recreate: true, down: true },
+      unhealthy: { up: false, stop: true, restart: true, recreate: true, down: true },
+      exited: { up: true, stop: false, restart: true, recreate: true, down: true },
+      absent: { up: true, stop: false, restart: false, recreate: false, down: false },
+      busy: { up: false, stop: false, restart: false, recreate: false, down: false },
+      'env-missing': { up: false, stop: false, restart: false, recreate: false, down: false },
+    }[state]
+  div(class='flex flex-wrap items-center gap-1.5')&attributes(attributes)
+    +btn({ label: 'Up', icon: 'play', variant: 'outline', size: 'sm', disabled: !on.up })
+    +btn({ label: 'Stop', icon: 'stop', variant: 'outline', size: 'sm', disabled: !on.stop })
+    +btn({ label: 'Restart', icon: 'refresh', variant: 'outline', size: 'sm', disabled: !on.restart })
+    span(class='flex flex-wrap items-center gap-1.5 ml-auto')
+      +btn({ label: 'Recreate', icon: 'recreate', variant: 'ghost', size: 'sm', disabled: !on.recreate })
+      +btn({ label: 'Down', icon: 'trash', variant: 'bad', size: 'sm', disabled: !on.down })
+
+//- Inline code in running text.
+mixin kbd(text)
+  code(class='rounded-xs bg-surface-3 px-[5px] py-px font-mono text-[0.92em] text-ink')&attributes(attributes)= text
+
+//- A tinted aside inside a card. `tone`: 'warn' | 'bad' | 'mute'.
+mixin callout(tone, icon)
+  -
+    const tones = {
+      warn: 'border-warn/30 bg-warn-ghost [&_svg]:text-warn',
+      bad: 'border-bad/32 bg-bad-ghost [&_svg]:text-bad',
+      mute: 'border-line bg-bg-sunk [&_svg]:text-ink-3',
+    }
+  div(class=['flex gap-2.5 rounded-md border px-3 py-2.5 text-sm text-ink-2', tones[tone] || tones.mute])&attributes(attributes)
+    +icon(icon || 'alert')(class='mt-0.5 h-[15px] w-[15px] shrink-0')
+    div(class='min-w-0')
+      block
+
+//-
+  A stack card. `mobile` is passed rather than inferred from a breakpoint:
+  these are drawn in fixed-width frames, so media queries would answer for the
+  browser window instead of the frame.
+mixin stackCard(s, mobile)
+  article(
+    class=[
+      'flex flex-col gap-3.5 rounded-lg border border-line bg-surface transition-[border-color,background-color] duration-200 ease-uv hover:border-uv-dim',
+      mobile ? 'p-4' : 'p-5',
+    ]
+  )&attributes(attributes)
+    div(class='flex flex-col gap-2')
+      div(class='flex items-start justify-between gap-3')
+        h3(class='min-w-0 text-h3 break-words')
+          a(class='hover:text-uv-hi hover:underline' href='stack-detail.html')= s.name
+        +stateChip(s.state)
+      +sourceBadge(s.source)(class='self-start')
+
+    div(class='flex flex-col gap-1.5')
+      each route in s.routes
+        +routeLink(route)
+
+    div(class='flex flex-col gap-3 border-t border-line-soft pt-3.5')
+      each svc in s.services
+        +serviceRow(svc)
+
+    if s.missingEnv
+      +callout('warn', 'file')
+        p
+          +kbd(s.missingEnv)
+          |  isn’t on this host, so #{s.name} can’t start.
+        p(class='mt-1 text-ink-3')
+          | Run
+          +kbd('pnpm lilnas secrets decrypt')(class='mx-1')
+          | on the host, then press Up.
+    else if s.op
+      +callout('mute', 'terminal')
+        p(class='flex items-center gap-2 font-mono text-mono-sm text-ink-3')
+          span #{s.op.name} · #{s.op.elapsed}
+        p(class='mt-0.5 font-mono text-mono-sm break-words text-ink-2')= s.op.last
+    else if s.note
+      +callout(s.note.kind === 'absent' ? 'mute' : 'bad', s.note.kind === 'absent' ? 'clock' : 'alert')
+        p= s.note.text
+        p(class='mt-0.5 text-ink-3')= s.note.detail
+
+    +stackActions(s.state)(class='mt-auto border-t border-line-soft pt-3.5')
+
+//- Section rule with a caption in the middle, splitting the real UI from the
+    states documented below it.
+mixin appendixRule(label)
+  div(class='my-11 mb-7 flex items-center gap-3' aria-hidden='true')
+    span(class='h-px flex-1 bg-line')
+    span(class='font-mono text-label tracking-[0.11em] whitespace-nowrap uppercase text-ink-4')= label
+    span(class='h-px flex-1 bg-line')

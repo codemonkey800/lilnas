@@ -1,0 +1,115 @@
+extends ../layout/page.pug
+
+block title
+  | Overview — dev dashboard UI mockups · lilnas
+
+//-
+  The overview: every compose stack on the dev host, as a card. Two sections —
+  the lilnas apps (apps/*/deploy.dev.yml) and the projects under ~/dev. Same
+  card for both; only the source badge differs.
+
+//- The strip under the app bar: what's on the host, at a glance. Numbers are
+    mono and tabular because they move.
+mixin hostStat(value, label)
+  div(class='flex min-w-0 flex-col gap-0.5')&attributes(attributes)
+    span(class='font-mono text-[22px] leading-[1.15] font-semibold tracking-[-0.02em] tabular-nums')= value
+    span(class='font-mono text-label tracking-[0.11em] uppercase text-ink-4')= label
+
+mixin hostStrip(mobile)
+  div(
+    class=[
+      'rounded-lg border border-line bg-surface',
+      mobile ? 'grid grid-cols-2 gap-x-4 gap-y-4 p-4' : 'flex items-center gap-8 px-6 py-4',
+    ]
+  )
+    +hostStat(host.stacks, 'stacks')
+    +hostStat(host.running, 'running containers')
+    +hostStat(host.memory, 'dev memory')
+    +hostStat(host.reaper, 'reaper')(class=mobile ? '' : 'border-l border-line-soft pl-8')
+    if !mobile
+      span(class='ml-auto flex items-center gap-2 font-mono text-mono-sm text-ink-3')
+        +dot('live')
+        | updated #{host.updated}
+
+mixin sectionHead(title, caption, count)
+  div(class='mb-3.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5')
+    h2(class='text-h2')= title
+    span(class='font-mono text-mono-sm text-ink-4 tabular-nums')= count
+    span(class='font-mono text-mono-sm text-ink-4')= caption
+
+mixin topBar(view)
+  +appBar(view)
+    +doorplate('dev.lilnas.io')(href='https://lilnas.io')
+    +avatar('JA', { ring: true })(class=view === 'mobile' ? 'h-[28px] w-[28px]' : 'h-[30px] w-[30px] text-[11.5px]' title='Jeremy · you')
+
+//- Cards differ a lot in height (one container vs four plus a callout), so a
+    grid either stretches the short ones or leaves holes under them. CSS columns
+    pack them masonry-style instead: each card stacks under the one above with
+    the same gap, and no row has to line up.
+mixin cardFlow(mobile)
+  div(class=['gap-x-4', mobile ? 'flex flex-col' : 'columns-3'])
+    block
+
+mixin overview(view)
+  - const mobile = view === 'mobile'
+  - const apps = stacks.filter(s => s.group === 'apps')
+  - const dev = stacks.filter(s => s.group === 'dev')
+  +appFrame(view)
+    +topBar(view)
+    +appBody(view)
+      div(class='mb-8')
+        +hostStrip(mobile)
+      section(class='mb-9')
+        +sectionHead('lilnas apps', 'apps/*/deploy.dev.yml', apps.length)
+        +cardFlow(mobile)
+          each s in apps
+            div(class='mb-4 break-inside-avoid')
+              +stackCard(s, mobile)
+      section
+        +sectionHead('~/dev projects', '~/dev/*/docker-compose*.yml', dev.length)
+        +cardFlow(mobile)
+          each s in dev
+            div(class='mb-4 break-inside-avoid')
+              +stackCard(s, mobile)
+
+block content
+  +mockHead({ back: false, eyebrow: 'lilnas · dev', title: 'Overview' })
+    p(class='max-w-[62ch] text-sm text-ink-3')
+      | Every compose stack on the dev host, in two groups: the lilnas apps and the projects under
+      | ~/dev. Each card shows its routes, its containers and when the idle reaper will take them.
+      | Open any card for the
+      a(class='mx-1 text-uv-hi hover:underline' href='stack-detail.html') stack detail
+      | page.
+
+  div(class='vp-scope')
+    +viewportToggle('viewport')(class='mb-8' role='radiogroup' aria-label='Viewport')
+
+    +viewportPanel('desktop')
+      +overview('desktop')
+
+    +viewportPanel('mobile')
+      +overview('mobile')
+
+  //- ── states the sample data doesn't reach ───────────────────────────────
+  +appendixRule('Empty and error states')
+  div(class='grid max-w-[1280px] grid-cols-2 gap-4')
+    div(class='flex flex-col gap-2')
+      +frameLabel
+        | No projects under ~/dev
+      +card()(class='flex flex-col items-center gap-3 py-10 text-center')
+        svg(class='h-14 w-14')
+          use(href='#pepe')
+        p(class='text-h3') No dev projects yet
+        p(class='max-w-[40ch] text-sm text-ink-3')
+          | Any folder in ~/dev with a docker-compose file shows up here, ready to bring up.
+        +btn({ label: 'Rescan ~/dev', icon: 'refresh', variant: 'outline' })
+    div(class='flex flex-col gap-2')
+      +frameLabel
+        | Docker didn’t answer
+      +card()(class='flex flex-col gap-3')
+        +callout('bad', 'alert')
+          p(class='font-medium text-ink') Couldn’t reach Docker.
+          p(class='mt-0.5 text-ink-3') The socket didn’t answer, so the stack list may be stale. Retrying in 30s.
+          p(class='mt-1.5 font-mono text-mono-sm text-ink-4') ECONNREFUSED /var/run/docker.sock
+        div(class='flex gap-2')
+          +btn({ label: 'Retry now', icon: 'refresh', variant: 'outline', size: 'sm' })

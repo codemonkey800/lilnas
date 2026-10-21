@@ -1,0 +1,316 @@
+extends ../layout/page.pug
+
+block title
+  | Stack detail — dev dashboard UI mockups · lilnas
+
+//-
+  One stack, in full: what's running, which env files it needs, when the
+  reaper will take it, what the last operation printed, and its container
+  logs. The stack is fitness-pwa — the busiest card on the overview.
+
+//- ── building blocks ─────────────────────────────────────────────────────
+
+mixin panel
+  section(class='overflow-hidden rounded-lg border border-line bg-surface')&attributes(attributes)
+    block
+
+mixin panelHead(title, caption)
+  header(class='flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 border-b border-line-soft px-5 py-3.5')&attributes(attributes)
+    div(class='flex min-w-0 flex-col gap-0.5')
+      h2(class='text-h3')= title
+      if caption
+        p(class='font-mono text-mono-sm text-ink-4')= caption
+    block
+
+//- A label/value row in a definition list.
+mixin kv(label)
+  div(class='flex items-baseline justify-between gap-4 py-2 [&+&]:border-t [&+&]:border-line-soft')&attributes(attributes)
+    dt(class='text-sm text-ink-3')= label
+    dd(class='min-w-0 text-right font-mono text-mono text-ink tabular-nums')
+      block
+
+//- A switch. The track is drawn; the state is aria-checked.
+mixin toggle(label, on)
+  button(
+    type='button'
+    role='switch'
+    aria-checked=on ? 'true' : 'false'
+    class='inline-flex h-[30px] items-center gap-2 rounded-md px-1.5 text-[13px] font-[550] text-ink-2 transition-colors duration-200 ease-uv hover:text-ink'
+  )&attributes(attributes)
+    span(
+      class=[
+        'relative h-[18px] w-[30px] shrink-0 rounded-full border transition-[background-color,border-color] duration-200 ease-uv',
+        on ? 'border-uv bg-uv' : 'border-line-loud bg-bg-sunk',
+      ]
+    )
+      span(
+        class=[
+          'absolute top-px h-[14px] w-[14px] rounded-full transition-[left] duration-[120ms] ease-spring',
+          on ? 'left-[13px] bg-uv-ink' : 'left-px bg-ink-3',
+        ]
+      )
+    = label
+
+//- A short row of exclusive choices — the tail selector.
+mixin segmented(options, active, label)
+  div(class='inline-flex rounded-md border border-line bg-bg-sunk p-0.5' role='radiogroup' aria-label=label)&attributes(attributes)
+    each o in options
+      button(
+        type='button'
+        role='radio'
+        aria-checked=o === active ? 'true' : 'false'
+        class=[
+          'h-[28px] rounded-xs px-3 font-mono text-mono-sm tabular-nums transition-colors duration-200 ease-uv',
+          o === active ? 'bg-uv-ghost font-medium text-uv-hi' : 'text-ink-3 hover:text-ink',
+        ]
+      )= o
+
+mixin stateText(s)
+  if s.status === 'running'
+    +chip({ tone: 'ok', label: 'running' })
+  else
+    +chip({ tone: s.exit ? 'bad' : 'mute', label: 'exited' })
+
+mixin healthText(s)
+  span(class='inline-flex items-center gap-1.5 font-mono text-mono-sm')&attributes(attributes)
+    if s.status === 'running' && s.health !== 'none'
+      +dot(s.health === 'unhealthy' ? 'bad' : 'ok')
+      span(class=s.health === 'unhealthy' ? 'text-bad' : 'text-ink-2')= s.health
+    else
+      span(class='text-ink-4') —
+
+//- ── the sections ────────────────────────────────────────────────────────
+
+mixin stackHeader(mobile)
+  header(class=['flex gap-5', mobile ? 'flex-col' : 'items-start justify-between'])
+    div(class='flex min-w-0 flex-col gap-3')
+      a(class='inline-flex items-center gap-1.5 self-start text-sm text-ink-3 hover:text-ink' href='index.html')
+        +icon('arrow')(class='h-3 w-3 -scale-x-100 text-ink-4')
+        | All stacks
+      div(class='flex flex-wrap items-center gap-x-3 gap-y-2')
+        h1(class='text-h1')= stack.name
+        +stateChip(stack.state)
+      div(class='flex flex-wrap items-center gap-x-3 gap-y-2')
+        +sourceBadge(stack.source)
+        span(class='font-mono text-mono-sm text-ink-4') project #{stack.project}
+      div(class='flex flex-col gap-1.5')
+        each route in stack.routes
+          +routeLink(route)
+    +stackActions(stack.state)(class=mobile ? '' : 'mt-[30px] shrink-0 justify-end')
+
+//- Desktop: a real table. Mobile: one card per container, since nine columns
+    don't fit in 390px.
+mixin servicesTable
+  +panel
+    +panelHead('Services', `${services.length} containers`)
+    div(class='overflow-x-auto')
+      +dataTable
+        thead
+          tr
+            th Container
+            th Image
+            th State
+            th Health
+            th Started
+            th(class='text-right') Exit
+            th(class='text-right') CPU
+            th(class='text-right') Mem
+            th Published
+        tbody
+          each s in services
+            tr
+              td
+                div(class='font-mono text-mono text-ink')= s.container
+                div(class='font-mono text-mono-sm text-ink-4')= s.service
+              td(class='font-mono text-mono-sm text-ink-3')= s.image
+              td
+                +stateText(s)
+              td
+                +healthText(s)
+              td(class='font-mono text-mono-sm whitespace-nowrap text-ink-3')= s.started
+              td(class=['text-right font-mono text-mono-sm tabular-nums', s.exit ? 'text-bad' : 'text-ink-3'])= s.exit === null ? '—' : s.exit
+              td(class='text-right font-mono text-mono-sm text-ink-2 tabular-nums')= s.cpu || '—'
+              td(class='text-right font-mono text-mono-sm whitespace-nowrap text-ink-2 tabular-nums')= s.mem || '—'
+              td(class='font-mono text-mono-sm whitespace-nowrap text-ink-2')= s.port || '—'
+
+mixin servicesCards
+  +panel
+    +panelHead('Services', `${services.length} containers`)
+    div(class='flex flex-col')
+      each s in services
+        div(class='flex flex-col gap-2.5 px-4 py-3.5 [&+&]:border-t [&+&]:border-line-soft')
+          div(class='flex items-start justify-between gap-3')
+            div(class='min-w-0')
+              div(class='font-mono text-mono break-all text-ink')= s.container
+              div(class='font-mono text-mono-sm text-ink-4') #{s.service} · #{s.image}
+            +stateText(s)
+          dl(class='grid grid-cols-2 gap-x-4 gap-y-1.5 font-mono text-mono-sm')
+            each pair in [['health', null], ['started', s.started], ['exit', s.exit === null ? '—' : String(s.exit)], ['cpu', s.cpu || '—'], ['mem', s.mem || '—'], ['port', s.port || '—']]
+              div(class='flex items-baseline justify-between gap-2')
+                dt(class='text-ink-4')= pair[0]
+                dd(class='min-w-0 text-ink-2 tabular-nums')
+                  if pair[0] === 'health'
+                    +healthText(s)
+                  else
+                    = pair[1]
+
+mixin envFiles
+  +panel
+    +panelHead('Env files', 'read from the compose file')
+    ul
+      each f in envFiles
+        li(class='flex items-center gap-3 px-5 py-3 [&+&]:border-t [&+&]:border-line-soft')
+          +icon('file')(class='h-[15px] w-[15px] shrink-0 text-ink-4')
+          span(class='min-w-0 flex-1 truncate font-mono text-mono text-ink')= f.path
+          span(class='font-mono text-mono-sm text-ink-4')= f.required ? 'required' : 'optional'
+          if f.present
+            +chip({ tone: 'ok', label: 'present', icon: 'check' })
+          else
+            +chip({ tone: f.required ? 'bad' : 'mute', label: 'missing', icon: 'x' })
+    p(class='border-t border-line-soft px-5 py-3 text-sm text-ink-3')
+      | Missing a required file? Run
+      +kbd('pnpm lilnas secrets decrypt')(class='mx-1')
+      | on the host, then press Up.
+
+mixin reaperPanel
+  +panel
+    +panelHead('Idle reaper', `stops after ${reaper.maxIdle} without a visit`)
+      +chip({ tone: 'mute', label: 'on', icon: 'clock' })
+    div(class='px-5 pt-1 pb-4')
+      dl
+        +kv('Last visit')
+          = reaper.lastVisit
+        +kv('Active users')
+          | #{reaper.activeUsers}
+          span(class='text-ink-4')  in #{reaper.windowHours}h
+        +kv('Max idle')
+          | #{reaper.maxIdle}
+          span(class='text-ink-4')  #{reaper.maxIdleSource}
+        +kv('Reaps at')
+          | #{reaper.reapsAt}
+          span(class='text-ink-4')  in #{reaper.reapsIn}
+      +bar(reaper.idlePct)(class='mt-2' role='img' aria-label=`Idle for ${reaper.lastVisit} of ${reaper.maxIdle}`)
+      p(class='mt-1.5 flex justify-between font-mono text-mono-sm text-ink-4')
+        span idle #{reaper.lastVisit.replace(' ago', '')}
+        span #{reaper.maxIdle}
+      p(class='mt-3.5 text-sm text-ink-3')
+        span(class='font-[560] text-ink-2') Basis.
+        |  #{reaper.basis}
+
+//- The streaming operation log. `op.status` is 'running' or 'done'.
+mixin opLog(op)
+  +panel
+    +panelHead('Operation log', `${op.title} · ${op.started} · ${op.who}`)
+      if op.status === 'running'
+        +chip({ tone: 'uv' })
+          +spinner()(class='h-[10px] w-[10px] border-[1.5px]')
+          | running
+      else
+        +chip({ tone: op.exit ? 'bad' : 'ok', label: `exit ${op.exit}`, icon: op.exit ? 'x' : 'check' })
+    div(class='bg-bg-sunk px-5 py-4 font-mono text-[12px] leading-[1.7]' role='log' aria-live='polite')
+      p(class='break-all text-ink-3') $ #{op.command}
+      each l in op.lines
+        p(class='break-all text-ink-2')= l.text
+      if op.status === 'running'
+        p(class='flex items-center gap-1.5 text-ink-4')
+          span(class='inline-block h-[14px] w-[7px] bg-uv align-middle')
+      else
+        p(class=['mt-1.5 border-t border-line-soft pt-1.5', op.exit ? 'text-bad' : 'text-ok']) exit #{op.exit} · #{op.took}
+
+mixin logLines(lines, opts)
+  - opts = opts || {}
+  div(class=['font-mono text-[12px] leading-[1.7]', opts.mobile ? 'min-w-[560px]' : ''])
+    each l in lines
+      div(
+        class=[
+          'flex gap-3 border-l-2 px-4',
+          l.t === 'err' ? 'border-bad bg-bad-ghost text-bad' : 'border-transparent text-ink-2',
+        ]
+      )
+        if opts.timestamps !== false
+          span(class='shrink-0 text-ink-4 tabular-nums')= l.ts
+        span(class=['min-w-0 flex-1 break-all', l.indent ? 'pl-4' : ''])= l.text
+
+mixin logViewer(mobile)
+  +panel
+    +panelHead('Container logs', 'stdout and stderr · stderr is tinted')
+      span(class='flex items-center gap-1.5 font-mono text-mono-sm text-ink-3')
+        +dot('live')
+        | following
+    div(class='flex flex-col gap-3 border-b border-line-soft px-5 py-3.5')
+      div(class='flex flex-wrap items-center gap-x-3 gap-y-2.5')
+        div(class=mobile ? 'w-full' : 'w-[250px]')
+          +menuTrigger('fitness-pwa-api-1')(class='font-mono text-mono' aria-label='Container')
+        +segmented(tails, 500, 'Tail lines')
+        +toggle('Follow', true)
+        +toggle('Timestamps', true)
+        span(class=['flex items-center gap-1.5', mobile ? 'w-full [&>button]:flex-1' : 'ml-auto'])
+          +btn({ label: 'Clear', icon: 'x', variant: 'ghost', size: 'sm' })
+          +btn({ label: 'Download', icon: 'download', variant: 'outline', size: 'sm' })
+      div(class='flex items-center gap-2 rounded-md border border-line bg-bg-sunk px-3 transition-[border-color,box-shadow] duration-200 ease-uv focus-within:border-uv focus-within:shadow-[0_0_0_3px_var(--color-uv-ghost)]')
+        +icon('search')(class='h-[14px] w-[14px] shrink-0 text-ink-4')
+        input(
+          class='h-[34px] min-w-0 flex-1 border-none bg-transparent font-mono text-mono text-ink outline-none placeholder:text-ink-4'
+          placeholder='Filter lines'
+          aria-label='Filter lines'
+        )
+    div(class='h-[300px] overflow-x-auto overflow-y-hidden bg-bg-sunk py-3')
+      +logLines(logs, { mobile: mobile })
+    footer(class='flex items-center justify-between gap-3 border-t border-line-soft px-5 py-2.5 font-mono text-mono-sm text-ink-4 tabular-nums')
+      span #{logs.length} of 500 lines
+      span fitness-pwa-api-1
+
+mixin topBar(view)
+  +appBar(view)
+    +doorplate('dev.lilnas.io')(href='https://lilnas.io')
+    +avatar('JA', { ring: true })(class=view === 'mobile' ? 'h-[28px] w-[28px]' : 'h-[30px] w-[30px] text-[11.5px]' title='Jeremy · you')
+
+mixin detail(view)
+  - const mobile = view === 'mobile'
+  +appFrame(view)
+    +topBar(view)
+    +appBody(view)
+      div(class='flex flex-col gap-5')
+        +stackHeader(mobile)
+        if mobile
+          +servicesCards
+        else
+          +servicesTable
+        div(class=['grid gap-5', mobile ? 'grid-cols-1' : 'grid-cols-2'])
+          +envFiles
+          +reaperPanel
+        +opLog(operations.done)
+        +logViewer(mobile)
+
+block content
+  +mockHead({ back: 'index.html', backLabel: 'Overview', eyebrow: 'lilnas · dev', title: 'Stack detail' })
+    p(class='max-w-[62ch] text-sm text-ink-3')
+      | One stack in full: its containers, env files, idle-reaper clock, the last operation’s output
+      | and a live container log. Shown for fitness-pwa — two routes, one of them open, and an api
+      | container failing its healthcheck.
+
+  div(class='vp-scope')
+    +viewportToggle('viewport')(class='mb-8' role='radiogroup' aria-label='Viewport')
+
+    +viewportPanel('desktop')
+      +detail('desktop')
+
+    +viewportPanel('mobile')
+      +detail('mobile')
+
+  +appendixRule('Other states of these panels')
+  div(class='grid max-w-[1280px] grid-cols-2 gap-5')
+    div(class='flex flex-col gap-2')
+      +frameLabel
+        | While an operation runs
+      +opLog(operations.running)
+    div(class='flex flex-col gap-2')
+      +frameLabel
+        | Filter matches nothing
+      +panel
+        +panelHead('Container logs', 'stdout and stderr · stderr is tinted')
+        div(class='flex flex-col items-center gap-1.5 bg-bg-sunk px-6 py-10 text-center')
+          p(class='text-h3') No lines match “timeout”
+          p(class='max-w-[40ch] text-sm text-ink-3')
+            | The last 500 lines of fitness-pwa-api-1 don’t contain it. Try a shorter filter or a longer tail.
+          +btn({ label: 'Clear filter', variant: 'outline', size: 'sm' })(class='mt-2')

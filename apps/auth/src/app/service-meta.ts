@@ -77,6 +77,11 @@ export const SERVICE_META: Record<string, ServiceMeta> = {
     description: 'LaTeX equation rendering',
     icon: 'monitor',
   },
+  'dev.lilnas.io': {
+    name: 'Dev',
+    description: 'Dev server dashboard',
+    icon: 'server',
+  },
   'tdr.lilnas.io': {
     name: 'TDR Bot',
     description: 'Discord bot & admin',

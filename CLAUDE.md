@@ -190,6 +190,7 @@ _Full-Stack Applications (NestJS + Next.js):_
 
 - `@lilnas/tdr-bot` - Discord bot with AI (LangChain, OpenAI) + admin interface (`apps/tdr-bot/`)
 - `@lilnas/download` - Video download service with web UI (yt-dlp, ffmpeg) (`apps/download/`)
+- `@lilnas/dev` - Dev server dashboard at dev.lilnas.io: lists, starts/stops and tails logs of dev stacks (`apps/dev/`)
 
 _Backend Services (NestJS):_
 
@@ -244,6 +245,14 @@ The server uses a semantic directory structure for organizing different types of
 
 - `apps/*/deploy.yml` - Production deployment for each app
 - `apps/*/deploy.dev.yml` - Development deployment for each app
+
+### Dev servers
+
+The dev server dashboard at `https://dev.lilnas.io` (`apps/dev`) lists every dev stack on this host: the lilnas apps' `apps/*/deploy.dev.yml` (`download`, `tdr-bot`, `theater`) and the compose projects under `~/dev/*` (`docker-compose*.yml`). It shows state and last visit, and can start/stop each stack and stream its logs. Idle stacks are still stopped by `apps/dev-idle-reaper`. To start a lilnas dev stack by hand, use the dev project name and the app's own file, since the root dev compose fails on missing env files:
+
+```bash
+docker compose -p lilnas-dev -f apps/<x>/deploy.dev.yml up -d
+```
 
 ### Exposing External Dev Services
 

@@ -77,6 +77,12 @@ The route goes live within ~1 second. `docker compose down` removes it.
 
 ---
 
+## Dashboard
+
+Exposed projects appear automatically on the dev server dashboard at `https://dev.lilnas.io`, alongside the lilnas dev stacks. It discovers them from the compose files under `~/dev/*`, so there is nothing to register. From there you can start and stop a project and follow its logs.
+
+---
+
 ## Naming rules
 
 - `<name>` must be a valid RFC 1123 DNS label: lowercase alphanumeric + hyphens, no leading/trailing hyphen, ≤63 chars.

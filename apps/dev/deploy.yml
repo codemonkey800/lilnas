@@ -1,0 +1,48 @@
+# Dev server dashboard at dev.lilnas.io: lists the lilnas dev stacks and the
+# compose projects under ~/dev, with start/stop and logs. Holds no secrets, so
+# there is no env_file. Deployed from the root docker-compose.yml.
+#
+# Needs read-write access to the Docker socket to start/stop stacks; the
+# project directories are mounted read-only because it only reads them.
+
+services:
+  dev-dashboard:
+    image: ghcr.io/codemonkey800/lilnas-dev-dashboard:${LILNAS_TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: apps/dev/Dockerfile
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_limit: 1g
+    environment:
+      - BACKEND_PORT=8081
+      - LILNAS_REPO=/home/jeremy/lilnas
+      - DEV_PROJECTS_ROOT=/home/jeremy/dev
+      - AUTH_URL=http://auth:8081
+      - DEFAULT_MAX_IDLE_HOURS=2
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Same absolute paths as the host so Compose (in this container) and the
+      # daemon (on the host) agree on every file path. Read-only because the
+      # dashboard only reads these.
+      - /home/jeremy/lilnas:/home/jeremy/lilnas:ro
+      - /home/jeremy/dev:/home/jeremy/dev:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'node -e "const h=require(''http'');h.get(''http://localhost:8081/health'',r=>process.exit(r.statusCode===200?0:1)).on(''error'',()=>process.exit(1))"']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.dev-dashboard.rule=Host(`dev.lilnas.io`)
+      - traefik.http.routers.dev-dashboard.entrypoints=websecure
+      - traefik.http.routers.dev-dashboard.tls.certresolver=le
+      - traefik.http.routers.dev-dashboard.middlewares=lilnas-auth
+      - traefik.http.services.dev-dashboard.loadbalancer.server.port=8080
+      # The dashboard must never be reaped for being idle.
+      - lilnas.idle-reap.enabled=false

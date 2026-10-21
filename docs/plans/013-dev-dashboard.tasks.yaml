@@ -1,0 +1,788 @@
+nexus-tasks: 1
+phases:
+  - key: '1'
+    name: Scaffold, design, backend services, deploy wiring
+    tasks:
+      - id: T1
+        title: 'Scaffold `apps/dev` (@lilnas/dev): Nest + Next hybrid with stub modules'
+        after: []
+        files:
+          - apps/dev/
+          - pnpm-lock.yaml
+        status: done
+        commit: 9f4fa449a95640aa26ca731575f95378497432b3
+        body: |-
+          Create the package `@lilnas/dev` in `apps/dev`, a NestJS (port 8081) + Next.js
+          (port 8080) hybrid copied from `apps/theater`'s shape, so later tasks can fill
+          in modules without touching shared files. Nothing here talks to Docker yet.
+
+          Create:
+          - `package.json`: name `@lilnas/dev`, private, `"prettier": "@lilnas/prettier"`,
+            scripts exactly like `apps/theater/package.json` (`build`, `build:backend`
+            `nest build -b swc --type-check`, `build:frontend` `next build`, `dev`
+            `run-p dev:backend dev:frontend`, `dev:backend` `nest start -w -b swc | pino-pretty`,
+            `dev:frontend` `next dev -p ${FRONTEND_PORT:-8080}`, `start`, `start:backend`
+            `node dist/main`, `start:frontend` `node server.js`, `lint`, `lint:*`,
+            `lint:fix`, `test` `jest`, `test:watch`, `type-check` `tsc --noEmit`), minus
+            theater's `convert`/`seats`/`type-check:*` extras. Dependencies, pinned to the
+            versions `apps/download/package.json` and `apps/theater/package.json` use:
+            `@lilnas/utils workspace:*`, `@nestjs/common`, `@nestjs/core`,
+            `@nestjs/platform-express`, `nestjs-pino`, `pino-http`, `rxjs`, `reflect-metadata`,
+            `dotenv`, `source-map-support`, `next`, `react`, `react-dom`, `npm-run-all`,
+            `zod`, `yaml ^2.8.2`. Dev: `@lilnas/cli workspace:*`, `jest 29.7.0`,
+            `ts-jest 29.2.6`, `@types/jest 29.5.14`, `jest-environment-jsdom 29.7.0`,
+            `@testing-library/react`, `@testing-library/jest-dom`,
+            `@testing-library/user-event`, `typescript 5.9.3`. This is the ONLY task that
+            adds dependencies: run `pnpm install` (not frozen) from the repo root and
+            commit `pnpm-lock.yaml`.
+          - `tsconfig.json` (copy `apps/download/tsconfig.json`), `nest-cli.json` (like
+            theater's, no assets), `next.config.js` (`output: 'standalone'`,
+            `allowedDevOrigins: ['dev.lilnas.io', '*.dev.lilnas.io']`, rewrite
+            `/api/:path*` → `http://localhost:${process.env.BACKEND_PORT ?? 8081}/:path*`),
+            `postcss.config.cjs`, `eslint.config.cjs` (`[...base, ...react]` from
+            `@lilnas/eslint`), `next-env.d.ts`, `jest.config.js` (two projects, node +
+            jsdom, copied from `apps/download/jest.config.js` with its moduleNameMapper
+            fixed to `<rootDir>/../../packages/utils/src/$1`), `.env.example`, a short
+            `README.md` (what it is, how to run `pnpm --filter @lilnas/dev dev` with
+            `BACKEND_PORT`/`FRONTEND_PORT`, the env keys).
+          - `src/tailwind.css`: Tailwind 4 with the Ultraviolet `@theme` block — copy
+            `apps/download/src/tailwind.css` and drop download-specific utilities.
+          - `src/env.ts`:
+            ```ts
+            export const EnvKeys = {
+              BACKEND_PORT: 'BACKEND_PORT',          // default 8081
+              NODE_ENV: 'NODE_ENV',
+              LILNAS_REPO: 'LILNAS_REPO',            // default /home/jeremy/lilnas
+              DEV_PROJECTS_ROOT: 'DEV_PROJECTS_ROOT',// default /home/jeremy/dev
+              AUTH_URL: 'AUTH_URL',                  // default http://auth:8081
+              DEFAULT_MAX_IDLE_HOURS: 'DEFAULT_MAX_IDLE_HOURS', // default 2
+              DOCKER_SOCKET: 'DOCKER_SOCKET',        // default /var/run/docker.sock
+              DOCKER_BIN: 'DOCKER_BIN',              // default docker
+            } as const
+            ```
+            Read with `env()` from `@lilnas/utils/env` (see `apps/download/src/env.ts`).
+          - `src/main.ts` + `src/bootstrap.ts` (dotenv, source-map-support, nestjs-pino
+            logger, listen on `BACKEND_PORT`; pattern: `apps/download/src/main.ts`,
+            `apps/download/src/bootstrap.ts` without the DB steps).
+          - `src/app.module.ts` importing `LoggerModule.forRoot()` from nestjs-pino,
+            `HealthModule`, and five EMPTY stub modules that later tasks fill in place:
+            `src/docker/docker.module.ts` (`DockerModule`), `src/registry/registry.module.ts`
+            (`RegistryModule`), `src/compose/compose.module.ts` (`ComposeModule`),
+            `src/activity/activity.module.ts` (`ActivityModule`),
+            `src/stacks/stacks.module.ts` (`StacksModule`). Each is `@Module({})` with a
+            one-line comment naming what it will hold. Later tasks must not edit
+            `app.module.ts`.
+          - `src/health/health.controller.ts`: `GET /health` → `{ status: 'ok' }`, in
+            `HealthModule`.
+          - `src/app/layout.tsx` (imports `src/tailwind.css`, sets `<html lang="en">`,
+            body classes `bg-bg text-ink`), `src/app/page.tsx` placeholder heading
+            "dev.lilnas.io", `src/__tests__/setup-dom.ts` (jest-dom).
+          - Tests: `src/health/__tests__/health.controller.spec.ts` (node project) and
+            `src/app/__tests__/page.spec.tsx` (jsdom project, renders the heading).
+          Verify: `pnpm --filter @lilnas/dev lint`, `type-check`, `test`, and
+          `pnpm --filter @lilnas/dev build` (both halves) all exit 0. Do not add a
+          `deploy.yml`, `deploy.dev.yml` or `Dockerfile` here.
+      - id: T2
+        title: 'Mockup: dev dashboard overview and stack detail'
+        after: []
+        files:
+          - docs/features/dev-dashboard/designs/
+        status: done
+        commit: 8135c20358c3dd9eb45bb6a5f37c175a97929cd9
+        body: |-
+          Design the dashboard with the repo's mockup pipeline. From the repo root run
+          `pnpm --filter @lilnas/cli build && pnpm exec lilnas mockups new dev-dashboard`,
+          which scaffolds `docs/features/dev-dashboard/designs/src` (Pug + Tailwind,
+          Ultraviolet tokens) and builds it; read
+          `docs/features/download/designs/README.md` for the layout and conventions, and
+          borrow the download mixins (`src/mixins/ui.pug`, `src/layout/`, `src/theme.css`)
+          as the starting point. Read `DESIGN.md`, `docs/designs/foundations.md`,
+          `components.md`, `voice.md` first. Rebuild with `pnpm mockups` after every
+          change and commit the generated `*.html` too.
+
+          Pages (one `.pug` each in `src/pages/`, data in `src/data/*.mjs`):
+          - `index.pug` — the overview. App bar with the doorplate `dev.lilnas.io`, a host
+            strip (N stacks, N running containers, total dev memory, "reaper: 2h idle").
+            Two sections, "lilnas apps" and "~/dev projects", each a grid of stack cards.
+            A card shows: name, source badge (`apps/download/deploy.dev.yml` or
+            `~/dev/hop-road/docker-compose.dev.yml`), state chip, each route as a link
+            (`download.dev.lilnas.io`, lock icon when gated by lilnas-auth, an "open"
+            warning when not), each service's container with health dot, uptime,
+            CPU/mem, "reaps in 1h 20m" / "exempt" / "unknown", and the actions
+            Up / Stop / Restart / Recreate / Down (destructive ones quieter). Show every
+            state at least once across the sample data: running+healthy, running+
+            unhealthy, exited (with exit code), absent (reaped, no container), busy
+            (an operation running, with its last log line inline), env-missing (an
+            inline message naming the file and "run `pnpm lilnas secrets decrypt` on the
+            host"), and a stack with two routed services (fitness-pwa).
+          - `stack-detail.pug` — one stack. Header (name, source path, routes, actions),
+            a services table (container name, image, state, health, started, exit code,
+            CPU, mem, published loopback port like `127.0.0.1:8090`), an env-files list
+            with present/missing marks, the idle-reaper panel (last visit, active users,
+            max idle, reaps at, basis), the operation log panel (monospace, streaming,
+            exit status line), and the container log viewer: container selector, tail
+            selector (100/500/2000), Follow toggle, Timestamps toggle, text filter,
+            Clear and Download buttons, stderr lines tinted. Show a desktop and a mobile
+            viewport (the download mockups' viewport switch).
+          Write the real copy (buttons, empties, errors) per `voice.md`. No behavioural
+          JS. `pnpm mockups:lint` must pass.
+      - id: H1
+        title: Review the dev-dashboard mockup
+        after:
+          - T2
+        files:
+          - docs/features/dev-dashboard/designs/index.html
+          - docs/features/dev-dashboard/designs/stack-detail.html
+        status: approved
+        body: |-
+          Confirm the card layout, the action set and their prominence, the idle-reaper
+          wording, and the log viewer controls. Anything you request changes on becomes
+          the spec for the UI tasks.
+      - id: T3
+        title: 'DockerEngineService: containers, stats, log and event streams'
+        after:
+          - T1
+        files:
+          - apps/dev/src/docker/
+        status: done
+        commit: 18debbe3bf4fe0a48a4c3fb257208d9ce4ba7b88
+        body: |-
+          Fill `apps/dev/src/docker/` (module already stubbed as `DockerModule` in
+          `docker.module.ts`; register and export the service there). Raw HTTP over the
+          Unix socket with Node's `http`, like `apps/portal/src/utils/docker-engine.ts`;
+          socket path from env `DOCKER_SOCKET` (default `/var/run/docker.sock`). No
+          dockerode.
+
+          ```ts
+          export type ContainerState = 'created'|'running'|'paused'|'restarting'|'removing'|'exited'|'dead'
+          export interface ContainerSummary {
+            id: string; name: string            // name without the leading '/'
+            state: ContainerState; status: string // Docker's human "Up 2 hours (healthy)"
+            health?: 'starting'|'healthy'|'unhealthy'
+            image: string; startedAt?: string; finishedAt?: string; exitCode?: number
+            labels: Record<string, string>; tty: boolean
+            ports: { ip?: string; publicPort?: number; privatePort: number }[]
+          }
+          export interface ContainerStats { cpuPercent: number; memoryBytes: number; memoryLimitBytes: number }
+          export interface LogLine { stream: 'stdout'|'stderr'; text: string; ts?: string }
+          export interface DockerEvent { action: string; id: string; name?: string; labels: Record<string,string>; time: number }
+          export class DockerEngineError extends Error { statusCode: number }
+
+          @Injectable() export class DockerEngineService {
+            listContainers(labelFilters?: string[]): Promise<ContainerSummary[]>  // GET /containers/json?all=true&filters={"label":[…]}
+            inspect(idOrName: string): Promise<ContainerSummary | null>           // null on 404
+            stats(id: string): Promise<ContainerStats>                            // ?stream=false&one-shot=true
+            logs(id: string, opts: { tail: number; timestamps: boolean; follow: boolean }): Observable<LogLine>
+            events(): Observable<DockerEvent>                                     // GET /events?filters={"type":["container"]}
+          }
+          ```
+          Details: `listContainers` reads `Names[0]`, `State`, `Status`, `Image`,
+          `Labels`, `Ports`; health, startedAt, finishedAt, exitCode and tty come from
+          `inspect` (`State.Health.Status`, `State.StartedAt`, `Config.Tty`), so
+          `listContainers` leaves them undefined and `inspect` fills them. CPU % uses the
+          `docker stats` formula from `cpu_stats`/`precpu_stats`
+          (`cpu_delta / system_delta * online_cpus * 100`); memory is `usage - (stats.inactive_file ?? 0)`.
+          `logs`: `GET /containers/{id}/logs?stdout=1&stderr=1&tail=&timestamps=&follow=`.
+          When the container is not a TTY the body is multiplexed: 8-byte frame
+          headers (`[type,0,0,0,size(BE u32)]`, type 1 stdout / 2 stderr); frames and
+          lines may split across chunks, so keep a carry buffer. TTY containers send raw
+          text (treat as stdout). With `timestamps`, split the leading RFC3339 stamp into
+          `ts`. Unsubscribing aborts the request. `events` parses one JSON object per
+          line, keeps `Actor.ID`, `Actor.Attributes.name`, `Actor.Attributes` as labels.
+          Non-2xx → `DockerEngineError(statusCode, message)`.
+
+          Tests (`__tests__/docker-engine.service.spec.ts`, node project): start a fake
+          engine with `http.createServer` listening on a socket path under `os.tmpdir()`
+          (this is the real socket path crossing — no mocking `http`), point the service
+          at it via a constructor option or env, and cover: list + inspect mapping; 404 →
+          null; 500 → DockerEngineError; stats formula on fixed numbers; a multiplexed
+          log body delivered in three chunks that split a header and a line, yielding
+          the right stdout/stderr lines; TTY raw mode; timestamps split; unsubscribe
+          ends the request (server sees `close`); events stream parsing. Close servers
+          and unlink sockets in `afterEach`.
+      - id: T4
+        title: 'RegistryService: discover lilnas and ~/dev stacks from compose files'
+        after:
+          - T1
+        files:
+          - apps/dev/src/registry/
+        status: done
+        commit: ef82d3f9c156f90a1c40a6307af8f94c1fed889c
+        body: |-
+          Fill `apps/dev/src/registry/` (`RegistryModule` is stubbed; register and export
+          the service). Parse compose YAML with the `yaml` package — pass `{ merge: true }`
+          so `<<:` merge keys (used by `apps/tdr-bot/deploy.dev.yml`) resolve. Never run
+          `docker compose config`; this is file parsing only. Compose variable
+          interpolation (`${X:-y}`) is left verbatim.
+
+          ```ts
+          export type StackSource = 'lilnas' | 'dev'
+          export interface Route { router: string; host: string; url: string; pathPrefix?: string; gated: boolean; port?: number }
+          export interface EnvFileRef { path: string; required: boolean; exists: boolean }  // absolute path
+          export interface IdleReap { enabled: boolean; maxIdleHours: number; reason: 'label'|'auto'|'none' }
+          export interface StackService {
+            name: string; containerName: string      // container_name or `${project}-${name}-1`
+            routes: Route[]; idleReap: IdleReap
+            loopbackPorts: string[]                  // published ports as written, e.g. '127.0.0.1:8090:8080'
+          }
+          export interface Stack {
+            id: string            // 'lilnas:download' | 'dev:hop-road:docker-compose.dev.yml'
+            source: StackSource; name: string
+            composeFile: string; projectDir: string; projectName: string
+            composeArgs: string[] // lilnas: ['-p','lilnas-dev','-f',composeFile]; dev: ['-f',composeFile]
+            services: StackService[]; envFiles: EnvFileRef[]
+            warnings: string[]    // e.g. "route foo.lilnas.io shadows a production name" (reserved list from docs/lilnas-expose.md)
+          }
+          @Injectable() export class RegistryService {
+            list(): Promise<Stack[]>              // cached 10 s
+            get(id: string): Promise<Stack | undefined>
+            findByContainerName(name: string): Promise<{ stack: Stack; service: StackService } | undefined>
+          }
+          ```
+          Discovery:
+          - lilnas: `${LILNAS_REPO}/apps/*/deploy.dev.yml`, kept only when some service
+            has a `traefik.http.routers.<r>.rule` label whose `Host(\`…\`)` ends in
+            `.dev.lilnas.io`. `name` = app dir, `projectName` = `lilnas-dev`,
+            `projectDir` = the app dir.
+          - dev: `${DEV_PROJECTS_ROOT}/*/` × `compose.yml|compose.yaml|docker-compose.yml|docker-compose.yaml|docker-compose.dev.yml|compose.dev.yml`,
+            kept when any service's `networks` (list or map form) names `lilnas-proxy`.
+            One stack per file (hop-road yields two). `projectName` = top-level `name:`
+            else the directory basename lowercased; `name` = basename plus ` (dev)` when
+            the file is a `*.dev.yml` variant and the dir has another compose file.
+          - Routes from labels (list or map form): per router, `rule` → every
+            `Host(\`h\`)` (and `PathPrefix(\`p\`)` if present), `middlewares` containing
+            `lilnas-auth` → `gated`, `service` label or router name → `traefik.http.services.<s>.loadbalancer.server.port`.
+            `url` = `https://<host><pathPrefix ?? ''>`.
+          - idleReap: label `lilnas.idle-reap.enabled` `false` → disabled (`label`),
+            `true` → enabled (`label`), else enabled (`auto`) when any route host ends in
+            `.dev.lilnas.io`, else `none`. `maxIdleHours` from
+            `lilnas.idle-reap.max-idle-hours`, default env `DEFAULT_MAX_IDLE_HOURS` (2).
+          - envFiles: `env_file` as string, list of strings, or list of
+            `{ path, required }` (default required true), resolved against the compose
+            file's dir, de-duplicated, `exists` by `fs.stat`.
+          - Unreadable or invalid YAML → skip the file and log a warning; never throw.
+          Tests (`__tests__/registry.service.spec.ts`): build a fixture tree in a tmp dir
+          covering: a lilnas app with a `.dev.lilnas.io` route (listed) and one with
+          `*.localhost` only (not listed); a tdr-bot-like file with merge keys and
+          `{path, required}` env files, one missing; a ~/dev project with two compose
+          files (two stacks, correct names/projectNames); `name:` override; map-form
+          labels and networks; a project without `lilnas-proxy` (excluded); gated vs
+          public routes; PathPrefix router; idle-reap label false / auto / custom
+          hours; container_name vs default naming; a shadowing-name warning; a broken
+          YAML file skipped. Run the real scan against this checkout once in a test
+          guarded by `fs.existsSync('/home/jeremy/dev')` and assert download, tdr-bot
+          and theater appear.
+      - id: T5
+        title: 'ComposeRunnerService: allowlisted actions, preflight, operation log stream'
+        after:
+          - T1
+        files:
+          - apps/dev/src/compose/
+        status: done
+        commit: e7b768cf3d32b2cbd1d07a8201c3c2c095b0289d
+        body: |-
+          Fill `apps/dev/src/compose/` (`ComposeModule` is stubbed; register and export
+          the service). Spawns the `docker` binary (env `DOCKER_BIN`, default `docker`)
+          with `['compose', ...composeArgs, ...actionArgs]`, `cwd: stack.projectDir`,
+          env `{ ...process.env, COMPOSE_ANSI: 'never', DOCKER_CLI_HINTS: 'false' }`,
+          `stdio: ['ignore','pipe','pipe']`. The caller passes the stack shape from the
+          registry (`composeArgs: string[]`, `projectDir`, `envFiles: { path, required, exists }[]`,
+          `id`); this service never reads compose files itself.
+
+          ```ts
+          export type StackAction = 'up' | 'stop' | 'restart' | 'down' | 'recreate'
+          export const ACTION_ARGS: Record<StackAction, string[]> = {
+            up: ['up', '-d'], stop: ['stop'], restart: ['restart'],
+            down: ['down'],                 // never --volumes, never --remove-orphans
+            recreate: ['up', '-d', '--force-recreate'],
+          }
+          export interface OpLine { stream: 'stdout'|'stderr'; text: string; ts: string }
+          export interface Operation {
+            id: string; stackId: string; action: StackAction; actor?: string
+            status: 'running'|'succeeded'|'failed'; startedAt: string; finishedAt?: string
+            exitCode?: number; command: string[]; lines: OpLine[]
+          }
+          export type OpEvent = { type: 'line'; line: OpLine } | { type: 'done'; operation: Operation }
+          export interface Preflight { ok: boolean; missing: string[] }  // required env files that do not exist
+          @Injectable() export class ComposeRunnerService {
+            preflight(stack): Preflight
+            start(stack, action: StackAction, actor?: string): Operation  // throws StackBusyError when one is running for stackId
+            get(opId: string): Operation | undefined
+            runningFor(stackId: string): Operation | undefined
+            stream(opId: string): Observable<OpEvent>  // replays existing lines, then live; completes after 'done'
+          }
+          ```
+          Keep the last 50 operations in memory; cap each at 2000 lines (drop oldest,
+          note the drop as a line). Kill the child after 15 minutes with `SIGTERM` and
+          mark failed. Log one pino line per start and per finish with stackId, action,
+          actor, exitCode. `preflight` only checks `required` env files; `start` of
+          `up`/`recreate`/`restart` with a failing preflight throws `PreflightError`
+          (carrying `missing`); `stop`/`down` skip the preflight.
+
+          Tests (`__tests__/compose-runner.service.spec.ts`): write a stub `docker` shell
+          script into a tmp dir (records `"$@"` and `$PWD` to a file, prints the lines in
+          `$STUB_LINES`, exits `${STUB_EXIT:-0}`), point `DOCKER_BIN` at it, and cover:
+          argv and cwd for each of the five actions with lilnas-style and dev-style
+          composeArgs; stdout/stderr captured in order with stream tags; exit 0 →
+          succeeded, exit 2 → failed with exitCode; a second `start` while running →
+          StackBusyError, allowed again after it finishes; `stream` replays lines to a
+          late subscriber and completes with `done`; preflight failure for `up` and the
+          skip for `down`; the line cap.
+      - id: T6
+        title: HostActivityService + reap estimate (auth /internal/host-activity)
+        after:
+          - T1
+        files:
+          - apps/dev/src/activity/
+        status: done
+        commit: 0ef8f5f1cfa1b91d20f8fdcc1aee0285b0bffac9
+        body: |-
+          Fill `apps/dev/src/activity/` (`ActivityModule` is stubbed; register and export
+          the service and the pure function). Mirrors what `apps/dev-idle-reaper/reaper.sh`
+          computes, so the dashboard predicts the reaper rather than guessing.
+
+          ```ts
+          export interface HostActivity { host: string; windowHours: number; activeUsers: number; lastVisitAt: string | null }
+          @Injectable() export class HostActivityService {
+            // GET `${AUTH_URL}/internal/host-activity?host=<h>&hours=<n>` with a 3 s timeout.
+            // Returns null on any non-200, timeout, network error or unexpected body. Cached 30 s per (host, hours).
+            get(host: string, hours: number): Promise<HostActivity | null>
+          }
+          export interface ReapEstimate {
+            enabled: boolean; maxIdleHours: number
+            lastActiveAt?: string; idleHours?: number; reapsAt?: string
+            activeUsers?: number; basis: 'auth' | 'container-start' | 'unknown' | 'disabled'
+          }
+          // startedAt: the running container's StartedAt (undefined when not running);
+          // activities: one entry per routed host, null where the lookup failed.
+          export function estimateReap(idleReap: { enabled: boolean; maxIdleHours: number }, startedAt: string | undefined, activities: (HostActivity | null)[], now?: Date): ReapEstimate
+          ```
+          Rules: disabled → `basis: 'disabled'`. Not running → `enabled` with no times.
+          Any null activity, or no routes → `basis: 'unknown'` (the reaper also refuses
+          to reap on an unknown). Otherwise `lastActiveAt` = max(startedAt, every
+          non-null `lastVisitAt`), `idleHours` = floor((now − lastActiveAt)/3600 s),
+          `reapsAt` = lastActiveAt + maxIdleHours (only when the summed `activeUsers`
+          over the window is 0; with users > 0 the reaper keeps it, so `reapsAt` is
+          undefined and `basis: 'auth'`), `basis` = `'auth'` when some lastVisitAt moved
+          it, else `'container-start'`.
+
+          Tests: `HostActivityService` against a real local `http.createServer` on an
+          ephemeral port (200 body, 404, 500, malformed JSON, a 4 s hang → null within
+          the timeout, cache hit avoids a second request); `estimateReap` table tests for
+          each rule above with fixed `now`.
+      - id: T7
+        title: Dockerfile, deploy.yml, root compose include, auth mounts, docs
+        after:
+          - T1
+        files:
+          - apps/dev/Dockerfile
+          - apps/dev/deploy.yml
+          - docker-compose.yml
+          - apps/auth/deploy.yml
+          - apps/auth/deploy.dev.yml
+          - apps/auth/src/app/service-meta.ts
+          - CLAUDE.md
+          - docs/lilnas-expose.md
+        status: done
+        commit: 19f7b52807a4992905895bb448e8bb56b4410cfb
+        body: |-
+          Wire `apps/dev` into production compose and CI (CI discovers an app from the
+          root compose include and the `ghcr.io/codemonkey800/lilnas-` image prefix —
+          see `packages/cli/src/utils/ci-detect.ts`; nothing else to register).
+
+          - `apps/dev/Dockerfile`: copy `apps/theater/Dockerfile` (deps → builder →
+            runtime on `lilnas-nextjs-runtime`), substituting `dev`/`@lilnas/dev`, and
+            add the Docker CLI + compose plugin to the runtime stage:
+            `COPY --from=docker:29.9.1-cli /usr/local/bin/docker /usr/local/bin/docker` and
+            `COPY --from=docker/compose-bin:v5.6.0 /docker-compose /usr/local/lib/docker/cli-plugins/docker-compose`
+            (if that image's binary lives elsewhere, inspect it with `docker run --rm
+            --entrypoint sh docker/compose-bin:v5.6.0 -c 'ls /'` and adjust; last resort:
+            curl the static binary from the compose GitHub release). No `USER`: it runs
+            as root like `apps/portal`, with a comment saying why (socket group, root-
+            owned compose dirs). Verify locally: `docker build -f apps/dev/Dockerfile -t
+            lilnas-dev-dashboard:check .` then `docker run --rm --entrypoint docker
+            lilnas-dev-dashboard:check compose version` prints 5.6.0, then
+            `docker rmi lilnas-dev-dashboard:check`.
+          - `apps/dev/deploy.yml`, modeled on `apps/portal/deploy.yml` + `apps/auth/deploy.yml`:
+            service `dev-dashboard`, `image: ghcr.io/codemonkey800/lilnas-dev-dashboard:${LILNAS_TAG:-latest}`,
+            `build: { context: ../.., dockerfile: apps/dev/Dockerfile }`, `restart:
+            unless-stopped`, the standard `logging` block, `mem_limit: 1g`, `environment:`
+            `BACKEND_PORT=8081`, `LILNAS_REPO=/home/jeremy/lilnas`,
+            `DEV_PROJECTS_ROOT=/home/jeremy/dev`, `AUTH_URL=http://auth:8081`,
+            `DEFAULT_MAX_IDLE_HOURS=2`; volumes `/var/run/docker.sock:/var/run/docker.sock`,
+            `/home/jeremy/lilnas:/home/jeremy/lilnas:ro`, `/home/jeremy/dev:/home/jeremy/dev:ro`
+            (comment: same absolute paths as the host so Compose and the daemon agree,
+            read-only because the dashboard only reads); healthcheck on
+            `http://localhost:8081/health` (copy auth's node one-liner); labels
+            `traefik.enable=true`, router `dev-dashboard` with
+            ``Host(`dev.lilnas.io`)``, `entrypoints=websecure`, `tls.certresolver=le`,
+            `middlewares=lilnas-auth`, service port 8080, and
+            `lilnas.idle-reap.enabled=false`. No `env_file` (no secrets).
+          - Root `docker-compose.yml`: add `- ./apps/dev/deploy.yml` to the app includes
+            in alphabetical position.
+          - `apps/auth/deploy.yml` and `apps/auth/deploy.dev.yml`: add
+            `- ../../apps/dev/deploy.yml:/repo/apps/dev/deploy.yml:ro` beside the other
+            app mounts (the guard spec `apps/auth/src/services/__tests__/compose-mount-coverage.spec.ts`
+            fails otherwise).
+          - `apps/auth/src/app/service-meta.ts`: add `'dev.lilnas.io': { name: 'Dev',
+            description: 'Dev server dashboard', icon: <an existing IconName, e.g. 'server'> }`.
+          - `CLAUDE.md`: list `@lilnas/dev` under Full-Stack Applications and add a
+            short "Dev servers" note (dashboard at dev.lilnas.io; what it lists; the
+            `-p lilnas-dev -f apps/<x>/deploy.dev.yml` invocation). `docs/lilnas-expose.md`:
+            one paragraph that exposed projects appear on dev.lilnas.io with start/stop
+            and logs.
+          Verify: `docker compose -f apps/dev/deploy.yml config -q`; the auth guard spec
+          (`pnpm --filter @lilnas/auth exec jest src/services/__tests__/compose-mount-coverage.spec.ts --maxWorkers=2`);
+          `pnpm --filter @lilnas/auth lint`; `pnpm lilnas ci detect --base main --head HEAD`
+          lists the `dev-dashboard` image. Do NOT run `docker compose up` for anything.
+  - key: '2'
+    name: API, UI, live check
+    tasks:
+      - id: T8
+        title: 'Stacks API: aggregation, actions, SSE for operations, logs and events'
+        after:
+          - T3
+          - T4
+          - T5
+          - T6
+        files:
+          - apps/dev/src/stacks/
+        status: done
+        commit: 44e912405ea6d3d82eda5166de559abfc32a5502
+        body: |-
+          Fill `apps/dev/src/stacks/` (`StacksModule` is stubbed; import the Docker,
+          Registry, Compose and Activity modules there). The results of the four
+          `after` tasks define the services you compose: `DockerEngineService`
+          (`listContainers`, `inspect`, `stats`, `logs`, `events`), `RegistryService`
+          (`list`, `get`, `findByContainerName`), `ComposeRunnerService` (`preflight`,
+          `start`, `get`, `runningFor`, `stream`, `StackBusyError`, `PreflightError`),
+          `HostActivityService.get` + `estimateReap`.
+
+          ```ts
+          export type StackState = 'running' | 'partial' | 'stopped' | 'absent' | 'busy'
+          export interface ServiceView extends StackService { container?: ContainerSummary; stats?: ContainerStats; reap: ReapEstimate }
+          export interface StackView extends Omit<Stack, 'services'> { state: StackState; services: ServiceView[]; operation?: Operation }
+          export interface Overview { stacks: StackView[]; host: { containers: number; memoryBytes: number; generatedAt: string } }
+          ```
+          `StacksService.overview()` matches containers to services by labels
+          `com.docker.compose.project` = `stack.projectName` and `com.docker.compose.service`
+          = `service.name` (fall back to the container name), inspects running ones for
+          health, fetches stats for running ones in parallel (a failed stats call leaves
+          `stats` undefined), asks activity for each route host with `hours = maxIdleHours`
+          and calls `estimateReap`. `state`: `busy` when `runningFor(stack.id)`, else
+          `running` when every service has a running container, `partial` when some,
+          `stopped` when containers exist but none run, `absent` when none exist.
+
+          Controller routes (Nest, JSON unless noted):
+          - `GET /stacks` → Overview; `GET /stacks/:id` → StackView, 404 unknown.
+          - `POST /stacks/:id/actions/:action` → 202 `{ operation }`; 400 unknown action;
+            404 unknown stack; 409 busy (`{ operation }`); 412 preflight
+            (`{ missing: string[] }`). `actor` = `x-forwarded-user` header when present.
+            Only ids the registry returned can ever reach the runner.
+          - `GET /operations/:opId` → Operation (404); `GET /operations/:opId/stream` →
+            SSE of `OpEvent`s, completes after `done`.
+          - `GET /containers/:name/logs?tail=200&timestamps=0` → SSE of `LogLine`s
+            (`follow: true`), 404 unless `findByContainerName(name)` resolves — never
+            stream a container that is not part of a discovered stack. Clamp `tail` to
+            [1, 5000].
+          - `GET /events` → SSE; on each Docker container event whose
+            `com.docker.compose.project` label matches a discovered stack emit
+            `{ type: 'stacks-changed', stackIds: string[] }` (debounced 500 ms); plus
+            `{ type: 'keepalive' }` every 25 s. Every SSE route assigns an explicit
+            incrementing `id` (see `apps/auth/src/sse/sse.controller.ts` for why).
+          Tests (`__tests__/stacks.controller.spec.ts`, `__tests__/stacks.service.spec.ts`)
+          with `@nestjs/testing` and in-memory fakes of the four services: each state
+          derivation; container matching by labels and by name; stats failure tolerated;
+          every status code above; the 404 for a foreign container name; tail clamping;
+          event debouncing; SSE ids increment from 0.
+      - id: T9
+        title: 'UI: shell, primitives and the overview page'
+        after:
+          - H1
+          - T8
+        files:
+          - apps/dev/src/app/layout.tsx
+          - apps/dev/src/app/page.tsx
+          - apps/dev/src/app/__tests__/
+          - apps/dev/src/components/ui/
+          - apps/dev/src/components/overview/
+          - apps/dev/src/lib/
+          - apps/dev/src/tailwind.css
+        status: done
+        commit: ef4038a619901cc0fbe166d50a5c6e5fec9d6b8e
+        body: |-
+          Build the overview page to the mockup Jeremy approved in H1
+          (`docs/features/dev-dashboard/designs/index.html`; read its `src/pages/index.pug`
+          and `src/mixins/ui.pug` for the exact classes and copy), using the API from the
+          T8 result (`GET /api/stacks`, `POST /api/stacks/:id/actions/:action`,
+          `GET /api/events`; the Next rewrite maps `/api/*` to the backend).
+
+          - `src/lib/api.ts`: typed fetch helpers for the endpoints and the shared view
+            types (import the backend's exported types from `src/stacks/*` rather than
+            redeclaring them). `src/lib/format.ts`: bytes, durations ("2h 14m"),
+            relative times.
+          - `src/components/ui/*`: the primitives the mockup uses (button, chip, status
+            dot, card, icon sprite), ported from `apps/download/src/components/ui/*`
+            with `cns()`; keep names and variants aligned with `docs/designs/components.md`.
+          - `src/components/overview/*`: `HostStrip`, `StackSection`, `StackCard`,
+            `RouteLink` (lock icon when gated, warning tone when public), `ServiceRow`
+            (health dot, uptime, CPU/mem, reap text: "reaps in 1h 20m" / "kept: 1 active
+            user" / "exempt" / "unknown"), `ActionBar` (Up / Stop / Restart / Recreate /
+            Down; disable what the state makes meaningless, confirm Down and Recreate
+            inline, show 409/412 responses as the mockup's inline messages — the 412
+            lists the missing files and the decrypt hint).
+          - `src/app/page.tsx`: a client component tree that loads `/api/stacks`, opens
+            `EventSource('/api/events')` and refetches on `stacks-changed`, and polls
+            every 10 s while visible (stats). Empty state when nothing is discovered.
+          - Update `src/app/layout.tsx` to the mockup's app bar (doorplate `dev.lilnas.io`
+            linking to `https://lilnas.io`).
+          Tests (jsdom project, `src/app/__tests__/`): with `fetch` and `EventSource`
+          stubbed, render each state in the mockup (running, unhealthy, exited, absent,
+          busy with operation line, env-missing, two-route stack); clicking Up posts to
+          the right URL; a 412 renders the missing paths; a `stacks-changed` event
+          triggers a refetch. Lint, type-check and `pnpm --filter @lilnas/dev build` pass.
+      - id: T10
+        title: 'UI: stack detail page with operation log and container log viewer'
+        after:
+          - T9
+        files:
+          - apps/dev/src/app/stacks/
+          - apps/dev/src/components/detail/
+          - apps/dev/src/components/logs/
+        status: done
+        commit: a9226532121a9ada224b1682dcd3edc98315f055
+        body: |-
+          Build `/stacks/[id]` to the approved mockup
+          (`docs/features/dev-dashboard/designs/stack-detail.html`, source
+          `src/pages/stack-detail.pug`). Reuse the primitives in
+          `apps/dev/src/components/ui/` and the helpers in `apps/dev/src/lib/` (they exist
+          from the previous task; do not edit them — if one is missing, add it under
+          `components/detail/`). API: `GET /api/stacks/:id`, the actions endpoint,
+          `GET /api/operations/:opId/stream` (SSE), `GET /api/containers/:name/logs?tail=&timestamps=`
+          (SSE), `GET /api/events`.
+
+          - `src/app/stacks/[id]/page.tsx` (client): header with name, source path,
+            routes and the same ActionBar as the overview; services table (container,
+            image, state, health, started, exit code, CPU, mem, loopback ports); env-files
+            list with present/missing marks; idle-reaper panel (last active, active
+            users, max idle, reaps at, basis); `OperationLog` (opens the operation's
+            stream when one is running or just started, monospace, autoscroll, final
+            exit line); refetch on `stacks-changed` and every 10 s.
+          - `src/components/logs/LogViewer.tsx`: container selector (the stack's
+            containers that exist), tail (100 / 500 / 2000), Follow toggle (autoscroll;
+            turns off when the user scrolls up), Timestamps toggle (reopens the stream),
+            text filter (client-side, case-insensitive), Clear, Download (Blob of the
+            buffered lines as `<container>.log`), stderr lines tinted, a "disconnected —
+            reconnecting" line when the EventSource errors, with reconnect. Buffer cap
+            5000 lines.
+          - 404 from the API → the mockup's not-found state linking back to `/`.
+          Tests (jsdom): renders every panel from a fixture StackView; LogViewer with a
+          stubbed EventSource: lines append, filter hides non-matching lines, Follow
+          autoscrolls (assert `scrollTop` updates) and stops after a manual scroll,
+          Timestamps toggle reopens with `timestamps=1`, Download builds a Blob with the
+          buffered text, buffer cap drops oldest; OperationLog shows the exit line on
+          `done`. Lint, type-check and `pnpm --filter @lilnas/dev build` pass.
+      - id: T11
+        title: 'Live check on the host: real discovery, start/log/down download-dev, screenshots'
+        after:
+          - T8
+          - T10
+        files: []
+        status: done
+        commit: d765d8f4f644c4fd029a66ec607fa8d21de0ccfa
+        body: |-
+          Prove the whole path against the real host, using only the `lilnas-dev`
+          project. Never touch the `lilnas` project. Record every step, output excerpt and
+          defect in your result; fix nothing here — report it as `defects:`.
+
+          1. From the repo root: `pnpm --filter @lilnas/utils build`, then run the
+             backend with `BACKEND_PORT=8181 LILNAS_REPO=/home/jeremy/lilnas
+             DEV_PROJECTS_ROOT=/home/jeremy/dev AUTH_URL=http://127.0.0.1:1 pnpm --filter
+             @lilnas/dev dev:backend` and the frontend with `BACKEND_PORT=8181
+             FRONTEND_PORT=8180 pnpm --filter @lilnas/dev dev:frontend`, each in the
+             background with output to a log file under `/tmp`.
+          2. `curl -s localhost:8181/stacks | jq`: assert `lilnas:download`, `lilnas:tdr-bot`,
+             `lilnas:theater` are present with urls `https://download.dev.lilnas.io`,
+             `https://tdr.dev.lilnas.io`, `https://theater.dev.lilnas.io` (gated), that
+             the `~/dev` stacks appear (hop-road twice, fitness-pwa with two routes,
+             hop-road's `rocky-roads.lilnas.io` route marked exempt), that tdr-bot shows
+             `apps/tdr-bot/.env.prod.decrypted` as missing, and that reap estimates read
+             `unknown` (auth unreachable in this run). Note any stack that looks wrong.
+          3. Start download-dev through the API: `curl -s -X POST
+             localhost:8181/stacks/lilnas:download/actions/up`; follow
+             `/operations/<id>/stream` with `curl -N` until `done`; confirm with
+             `docker compose -p lilnas-dev -f apps/download/deploy.dev.yml ps` that
+             `lilnas-download-dev` is running. Stream `curl -N
+             'localhost:8181/containers/lilnas-download-dev/logs?tail=50&timestamps=1'`
+             for ~20 s and keep an excerpt. Then `POST …/actions/down`, follow its
+             stream to `done`, and confirm `ps -a` shows no container. If `up` fails,
+             capture the operation lines and still run `down`.
+          4. Open `http://localhost:8180/` and `http://localhost:8180/stacks/lilnas:download`
+             with `playwright-cli` (see the `playwright-cli` skill) at 1280×900 and
+             390×844; save screenshots under `/tmp/dev-dashboard-live/` and report their
+             paths; note layout defects against the mockup.
+          5. Kill both dev servers; delete the log files; confirm
+             `docker compose -p lilnas-dev -f apps/download/deploy.dev.yml ps -a` is
+             empty and no `lilnas-dev-dashboard*` image or container was left behind.
+  - key: '3'
+    name: Catch up with main
+    tasks:
+      - id: T12
+        title: Merge main and move apps/dev onto main's toolchain
+        after: []
+        files:
+          - apps/dev/
+          - pnpm-lock.yaml
+        status: done
+        commit: 010cee22d68e63e7351b3171467fbc4544344663
+        body: |-
+          Since this branch forked, local `main` moved the whole workspace to pnpm 12,
+          Node 26, Nest 12.2, Next 16.4, React 19.3, Jest 30.5, TypeScript 6 (type-checks
+          on `tsc7`), ESLint 10 and Prettier 3.9. `apps/dev` still pins the old stack, and
+          the merged lockfile does not install. Bring the branch up to date in ONE commit
+          (the merge commit, with the fixes below included in it).
+
+          1. `git merge --no-ff --no-commit main` (the local `main` branch, not
+             `origin/main`). Git reports no textual conflicts, but the auto-merged
+             `pnpm-lock.yaml` is broken: replace it with main's copy
+             (`git checkout main -- pnpm-lock.yaml`) and regenerate it in step 3.
+          2. `apps/dev/package.json`, copying the exact pins from
+             `apps/download/package.json` / `apps/theater/package.json` on the merged tree:
+             - `packageManager`: `pnpm@12.14.0`
+             - deps: `@nestjs/common`, `@nestjs/core`, `@nestjs/platform-express` `12.2.0`
+               (main's `pnpm-workspace.yaml` overrides force this), `nestjs-pino 5.3.1`,
+               `next 16.4.2`, `react`/`react-dom 19.3.1`, `rxjs 7.8.2`, `zod 4.6.7`
+             - devDeps: `@nestjs/testing 12.2.0`, `@testing-library/react ^16.3.3`,
+               `@testing-library/user-event ^14.6.8`, `@types/jest 30.0.0`,
+               `jest 30.5.2`, `jest-environment-jsdom 30.5.2`, `ts-jest 29.4.15`,
+               `typescript 6.0.3`
+             - scripts: `test`, `test:watch`, `test:cov` prefixed with
+               `NODE_OPTIONS='--experimental-vm-modules --no-warnings=ExperimentalWarning' `
+               (Nest 12 ships ESM; jest fails with "Must use import to load ES Module"
+               without it), and `type-check` → `tsc7 --noEmit`.
+             Add no other dependencies.
+          3. From the repo root: `pnpm install --lockfile-only`, then
+             `pnpm install --frozen-lockfile` must succeed. The lockfile diff against
+             main should only add the `apps/dev` importer and its packages (about 80
+             lines). If it churns unrelated entries, start step 3 again from main's copy.
+          4. `apps/dev/nest-cli.json`: `"builder": { "type": "swc", "options":
+             { "stripLeadingPaths": true } }` (as `apps/theater/nest-cli.json`), so the
+             build still emits `dist/main.js`, which `start:backend` and the Dockerfile run.
+          5. `apps/dev/tsconfig.json`: drop `"baseUrl": "."`, as main did in
+             `apps/download/tsconfig.json`; `paths` stay.
+          6. `apps/dev/Dockerfile`: add `COPY packages/tsc7/ packages/tsc7/` after the
+             `prettier-config-lilnas` package.json COPY in the deps stage, as
+             `apps/theater/Dockerfile` has. Keep the docker CLI/compose COPYs and the
+             no-USER comment.
+          7. `pnpm --filter @lilnas/dev lint:fix`: Prettier 3.9 rewraps
+             `src/compose/compose.types.ts`, `src/lib/stack-display.ts` and
+             `src/stacks/stacks.types.ts`. No other source changes are expected; if a test
+             or type error appears, fix it in `apps/dev` only and say what it was.
+
+          Verify, all exit 0: `pnpm --filter @lilnas/utils build`;
+          `pnpm --filter @lilnas/dev lint`; `pnpm --filter @lilnas/dev type-check`;
+          `pnpm --filter @lilnas/dev test --maxWorkers=2` (203 tests at time of writing);
+          `pnpm --filter @lilnas/dev build` and `ls apps/dev/dist/main.js`;
+          `NODE_OPTIONS='--experimental-vm-modules --no-warnings=ExperimentalWarning' pnpm --filter @lilnas/auth exec jest src/services/__tests__/compose-mount-coverage.spec.ts --maxWorkers=2`;
+          `docker compose -f apps/dev/deploy.yml config -q`; `pnpm mockups:lint`.
+          Never run the full jest suite of any other package (it nearly OOMs the host).
+          Do not build the Docker image or run any `docker compose up`.
+  - key: R1
+    name: Mockup review (H1)
+    tasks:
+      - id: R1
+        title: Round 1 · Address 1 review comment on index.html
+        after: []
+        files:
+          - docs/features/dev-dashboard/designs/index.html
+        status: done
+        commit: 6572763e88283b18eec8a301668cd1de622406f9
+        body: |-
+          Design review of `docs/features/dev-dashboard/designs/index.html`, round 1:
+
+          1. region over <div> "rocky-roads-dev running ~/dev/hop-road/docker-compose.dev.y…" in scene "lilnas apps"
+             - selector: `body > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2)` at fx 0.33, fy 0.01, fw 0.66, fh 0.49
+             - **user:** this seems like a lot of empty space
+             - screenshot 1 attached
+
+          Resolve each thread with `nexus_design_review` and a one-line note when it is addressed.
+      - id: R2
+        title: Round 2 · Address 1 review comment on index.html
+        after:
+          - R1
+        files:
+          - docs/features/dev-dashboard/designs/index.html
+        status: done
+        commit: e3b8af0a5025c3d375ab74bd4fbcd9328245d2b8
+        body: |-
+          Design review of `docs/features/dev-dashboard/designs/index.html`, round 2:
+
+          1. region over <div> "dev.lilnas.io JA ~/dev projects 7 ~/dev/*/docker-compose*.y…" in scene "Overview"
+             - selector: `body > div:nth-of-type(1)` at fx 0.00, fy 0.14, fw 1.00, fh 0.69
+             - **user:** the gaps don’t look good either, is there a different way we can do this?
+             - screenshot 1 attached
+
+          Resolve each thread with `nexus_design_review` and a one-line note when it is addressed.
+  - key: R2
+    name: Review remediation
+    tasks:
+      - id: R3
+        title: P1 env-missing disables Stop/Down on stacks that still have containers
+        after: []
+        files:
+          - apps/dev/src/lib/stack-display.ts
+        status: done
+        commit: 13508d4b4723921933edc337b0ce7a887385e80c
+        body: |-
+          Finding: F7 (P1)
+
+          From the review of phase 2 (cycle 1): a P1 finding.
+
+          Where: apps/dev/src/lib/stack-display.ts:35
+
+          Why: The task says 'disable what the state makes meaningless'. displayState returns env-missing for any non-running, non-busy stack, which includes `partial` (some containers running) and `stopped`. actionAvailability then turns off every action, but the backend's PREFLIGHT_ACTIONS covers only up, recreate and restart, so stop and down still work and still make sense.
+
+          Failure scenario: tdr-bot is `partial` (one container running, another exited) and apps/tdr-bot/.env.prod.decrypted is missing. The card shows 'env missing' with Stop and Down disabled, so the running container can't be stopped or removed from the dashboard.
+
+          Suggested fix: In actionAvailability, for env-missing keep up, restart and recreate off. Set stop to stack.services.some(isRunning) and down to stack.services.some(s => s.container) (or stack.state !== 'absent'). Add a jsdom test with a partial stack plus a missing env file that asserts Stop and Down are enabled and Up is disabled.
+
+          How to fix it:
+          1. First write a test that reproduces the failure scenario and fails on the
+             current code, in the package's test style, beside the tests the file
+             already has. Keep it: it is the regression test.
+          2. Then change the code so it passes, and run the plan's checks.
+          3. If you cannot make the scenario fail — the guard, type, or test that
+             already covers it — change nothing: delete the attempted test, leave the
+             tree clean, commit nothing, and report `status: done` with `commits: []`.
+             Open `notes` with `Not reproduced:` and say where the behaviour is covered.
+             The runner drops the finding on your word.
+      - id: R4
+        title: P1 Log viewer reconnect-loops on exited containers
+        after: []
+        files:
+          - apps/dev/src/components/logs/use-container-logs.ts
+        status: done
+        commit: 5240e47226812b34ab0d04e03a8253591af513ef
+        body: |-
+          Finding: F8 (P1)
+
+          From the review of phase 2 (cycle 1): a P1 finding.
+
+          Where: apps/dev/src/components/logs/use-container-logs.ts:133
+
+          Why: The logs endpoint (stacks.controller.ts) asks Docker for follow=true, and Docker closes the logs body as soon as it has sent the tail of a stopped container, so the SSE response ends normally. onerror treats every end as a dropped connection, and the selector deliberately lists exited containers.
+
+          Failure scenario: Select an exited container such as fitness-pwa-migrate-1. The tail shows, the stream ends, the viewer shows 'disconnected — reconnecting…', reopens after 2 s and replays the tail. This repeats forever, re-fetching up to 2000 lines from Docker every 2 s, and the status never settles.
+
+          Suggested fix: Don't auto-reconnect when the selected container isn't running. Pass its running state into useContainerLogs and, when it isn't running, treat the stream's end as final: status 'ended', no reconnect line. Alternatively have the endpoint send an explicit end event the client honours. Add a LogViewer test where a non-running container's stream fails and no second EventSource opens.
+
+          How to fix it:
+          1. First write a test that reproduces the failure scenario and fails on the
+             current code, in the package's test style, beside the tests the file
+             already has. Keep it: it is the regression test.
+          2. Then change the code so it passes, and run the plan's checks.
+          3. If you cannot make the scenario fail — the guard, type, or test that
+             already covers it — change nothing: delete the attempted test, leave the
+             tree clean, commit nothing, and report `status: done` with `commits: []`.
+             Open `notes` with `Not reproduced:` and say where the behaviour is covered.
+             The runner drops the finding on your word.
