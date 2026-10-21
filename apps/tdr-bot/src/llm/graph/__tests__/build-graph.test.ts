@@ -2,6 +2,7 @@ import {
   AIMessage,
   HumanMessage,
   SystemMessage,
+  ToolMessage,
 } from '@langchain/core/messages'
 import { MemorySaver } from '@langchain/langgraph'
 
@@ -109,6 +110,44 @@ describe('buildGraph', () => {
     const result = await send('something')
 
     expect(result.messages.at(-1)?.content).toBe('chat done')
+  })
+
+  it('never sends the router an orphaned tool result from a cut history window', async () => {
+    const { graph, llm } = setup([echo, other, chat])
+    llm.script('router.classify', { skill: 'other' })
+    // The last four history messages start on the tool result, whose call
+    // falls outside the window.
+    await graph.invoke(
+      {
+        messages: [
+          new HumanMessage('lookup'),
+          new AIMessage({
+            content: '',
+            tool_calls: [{ id: 'c1', name: 'search', args: {} }],
+          }),
+          new ToolMessage({ content: 'found', tool_call_id: 'c1' }),
+          new AIMessage('here it is'),
+          new HumanMessage('thanks'),
+          new AIMessage('np'),
+          new HumanMessage('something'),
+        ],
+        userId: 'u1',
+        channelId: 'c1',
+        guildId: 'g1',
+        discord,
+      },
+      { configurable: { thread_id: 't-orphan' } },
+    )
+
+    const sent = llm.calls[0].messages
+    expect(sent.some(m => ToolMessage.isInstance(m))).toBe(false)
+    expect(sent.map(m => m.content)).toEqual([
+      expect.stringContaining('Pick the skill'),
+      'here it is',
+      'thanks',
+      'np',
+      'something',
+    ])
   })
 
   it('falls back to chat when the router LLM returns an unknown skill', async () => {

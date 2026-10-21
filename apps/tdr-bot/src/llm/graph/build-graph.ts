@@ -16,6 +16,7 @@ import { z } from 'zod'
 import { LlmClient } from 'src/llm/client/llm-client'
 import {
   DEFAULT_TRIM_TOKENS,
+  dropOrphanedToolMessages,
   trimConversation,
 } from 'src/llm/conversation/trim'
 import { LlmMetricsService } from 'src/llm/observability/llm-metrics.service'
@@ -121,7 +122,7 @@ export function buildGraph(deps: BuildGraphDeps) {
           new SystemMessage(
             `Pick the skill that should handle the user's latest message.\n\nSkills:\n${skills}\n\nRespond with the skill id only.`,
           ),
-          ...history.slice(-4),
+          ...dropOrphanedToolMessages(history.slice(-4)),
           message,
         ],
       })

@@ -37,7 +37,9 @@ export const approximateTokenCounter = (messages: BaseMessage[]): number =>
   )
 
 /** Drops AI tool calls whose results were cut, and tool results whose call was cut. */
-function dropOrphanedToolMessages(messages: BaseMessage[]): BaseMessage[] {
+export function dropOrphanedToolMessages(
+  messages: BaseMessage[],
+): BaseMessage[] {
   const resultIds = new Set(
     messages.filter(ToolMessage.isInstance).map(m => m.tool_call_id),
   )

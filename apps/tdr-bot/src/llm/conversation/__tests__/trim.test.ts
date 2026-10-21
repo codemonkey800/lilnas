@@ -7,6 +7,7 @@ import {
 
 import {
   DEFAULT_TRIM_TOKENS,
+  dropOrphanedToolMessages,
   trimConversation,
 } from 'src/llm/conversation/trim'
 
@@ -106,5 +107,28 @@ describe('trimConversation', () => {
       { maxTokens: 5, tokenCounter: perMessage },
     )
     expect(result).toEqual([system, human, call, tool, answer])
+  })
+})
+
+describe('dropOrphanedToolMessages', () => {
+  const call = new AIMessage({
+    content: '',
+    tool_calls: [{ id: 'c1', name: 'search', args: {} }],
+  })
+  const tool = new ToolMessage({ content: 'found', tool_call_id: 'c1' })
+
+  it('drops a leading tool result whose call was cut', () => {
+    const answer = new AIMessage('done')
+    expect(dropOrphanedToolMessages([tool, answer])).toEqual([answer])
+  })
+
+  it('drops a trailing tool call whose result was cut', () => {
+    const human = new HumanMessage('q')
+    expect(dropOrphanedToolMessages([human, call])).toEqual([human])
+  })
+
+  it('keeps a complete tool exchange', () => {
+    const messages = [call, tool]
+    expect(dropOrphanedToolMessages(messages)).toEqual(messages)
   })
 })
