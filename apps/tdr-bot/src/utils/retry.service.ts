@@ -13,6 +13,8 @@ export interface RetryConfig {
   backoffFactor: number
   jitter: boolean
   timeout?: number
+  /** Returns false to stop retrying and rethrow immediately. Default: retry. */
+  shouldRetry?: (error: Error) => boolean
   logRetryAttempts?: boolean
   logSuccessfulRetries?: boolean
   logFailedRetries?: boolean
@@ -69,6 +71,7 @@ export class RetryService {
     const finalConfig = { ...this.defaultConfig, ...config }
     const startTime = Date.now()
     let lastError: Error = new Error('Unknown error')
+    let attemptsMade = finalConfig.maxAttempts
 
     for (let attempt = 1; attempt <= finalConfig.maxAttempts; attempt++) {
       try {
@@ -142,6 +145,11 @@ export class RetryService {
           )
         }
 
+        if (finalConfig.shouldRetry && !finalConfig.shouldRetry(lastError)) {
+          attemptsMade = attempt
+          break
+        }
+
         // Don't wait after the last attempt
         if (attempt < finalConfig.maxAttempts) {
           const delay = this.calculateDelay(attempt - 1, finalConfig)
@@ -173,7 +181,7 @@ export class RetryService {
 
       const logData = {
         operationName,
-        attempts: finalConfig.maxAttempts,
+        attempts: attemptsMade,
         totalTime,
         category: errorCategory,
         errorType: classification.errorType,
@@ -189,7 +197,7 @@ export class RetryService {
       }
 
       this.logger.error(
-        `${operationName} failed after ${finalConfig.maxAttempts} attempts in ${totalTime}ms`,
+        `${operationName} failed after ${attemptsMade} attempts in ${totalTime}ms`,
         logData,
       )
     }

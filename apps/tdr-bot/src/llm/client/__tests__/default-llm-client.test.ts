@@ -387,6 +387,26 @@ describe('DefaultLlmClient', () => {
       })
     })
 
+    it.each([400, 401, 404, 422])(
+      'does not retry a %i response',
+      async status => {
+        const t = setup()
+        t.invoke.mockRejectedValue(
+          Object.assign(new Error('bad request'), { status }),
+        )
+
+        await expect(
+          t.client.call({ operation: 'x', role: 'chat', messages }),
+        ).rejects.toThrow('bad request')
+
+        expect(t.invoke).toHaveBeenCalledTimes(1)
+        expect(t.metrics.retry).not.toHaveBeenCalled()
+        expect(t.metrics.callFinished).toHaveBeenCalledWith(
+          expect.objectContaining({ status: 'error', retries: 0 }),
+        )
+      },
+    )
+
     it('forwards the caller abort signal', async () => {
       const t = setup()
       const caller = new AbortController()

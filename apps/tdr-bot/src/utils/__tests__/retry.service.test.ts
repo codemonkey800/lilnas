@@ -113,6 +113,30 @@ describe('RetryService', () => {
       expect(mockOperation).toHaveBeenCalledTimes(3)
     })
 
+    it('should stop retrying when shouldRetry returns false', async () => {
+      const mockOperation = jest
+        .fn()
+        .mockRejectedValue(new Error('Bad request'))
+
+      await expect(
+        service.executeWithRetry(
+          mockOperation,
+          {
+            maxAttempts: 3,
+            baseDelay: 10,
+            maxDelay: 1000,
+            backoffFactor: 2,
+            jitter: false,
+            shouldRetry: () => false,
+          },
+          'test-operation',
+          ErrorCategory.SYSTEM,
+        ),
+      ).rejects.toThrow('Bad request')
+
+      expect(mockOperation).toHaveBeenCalledTimes(1)
+    })
+
     it('should calculate exponential backoff correctly', async () => {
       const mockOperation = jest.fn().mockRejectedValue(new Error('Failure'))
       const sleepSpy = jest

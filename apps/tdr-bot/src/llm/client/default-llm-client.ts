@@ -60,6 +60,13 @@ function classify(error: unknown): RetryReason {
   return 'other'
 }
 
+/** 4xx responses (bar timeout, conflict and rate limit) fail identically on retry. */
+function isRetryable(error: Error): boolean {
+  const status = (error as { status?: number }).status
+  if (typeof status !== 'number' || status < 400 || status >= 500) return true
+  return status === 408 || status === 409 || status === 429
+}
+
 function auditContent(): boolean {
   return process.env.LLM_AUDIT_CONTENT === 'true'
 }
@@ -184,6 +191,7 @@ export class DefaultLlmClient extends LlmClient {
         {
           ...this.retryConfig.getOpenAIConfig(),
           timeout: timeoutMs * 2 + RETRY_TIMEOUT_BACKSTOP_MS,
+          shouldRetry: isRetryable,
           ...(call.overrides?.maxAttempts !== undefined && {
             maxAttempts: call.overrides.maxAttempts,
           }),
@@ -311,6 +319,7 @@ export class DefaultLlmClient extends LlmClient {
         {
           ...this.retryConfig.getOpenAIConfig(),
           timeout: IMAGE_TIMEOUT_MS,
+          shouldRetry: isRetryable,
         },
         call.operation,
         ErrorCategory.OPENAI_API,
