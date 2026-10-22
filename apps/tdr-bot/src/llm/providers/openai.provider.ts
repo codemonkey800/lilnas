@@ -15,7 +15,25 @@ type ImageSize = NonNullable<
 export class OpenAiProvider implements LlmProvider {
   readonly id = 'openai' as const
 
+  /** Keyed by model id + resolved params; a ChatOpenAI holds no per-call state. */
+  private readonly chatModels = new Map<string, ChatOpenAI>()
+
   chatModel(spec: ModelSpec, params: ResolvedParams): BaseChatModel {
+    const key = JSON.stringify([
+      spec.id,
+      params.temperature,
+      params.maxTokens,
+      params.reasoningEffort,
+    ])
+    let model = this.chatModels.get(key)
+    if (!model) {
+      model = this.createChatModel(spec, params)
+      this.chatModels.set(key, model)
+    }
+    return model
+  }
+
+  private createChatModel(spec: ModelSpec, params: ResolvedParams): ChatOpenAI {
     return new ChatOpenAI({
       model: spec.id,
       // retries and timeouts are owned by RetryService

@@ -10,10 +10,8 @@ import { Logger } from '@nestjs/common'
 import { ChatSkill, MAX_TOOL_ROUNDS } from 'src/llm/skills/chat/skill'
 import { SkillInput } from 'src/llm/skills/skill.interface'
 import { FakeLlmClient } from 'src/llm/testing/fake-llm-client'
-import { getTools } from 'src/messages/llm/tools'
+import { LlmTools } from 'src/llm/tools/tools'
 import { PromptService } from 'src/messages/prompts/prompt.service'
-
-jest.mock('src/messages/llm/tools', () => ({ getTools: jest.fn() }))
 
 const input = (): SkillInput => ({
   message: new HumanMessage('what time is it?'),
@@ -42,13 +40,15 @@ describe('ChatSkill', () => {
   })
   const ctx = (llm: FakeLlmClient) => ({ llm, logger: new Logger('test') })
   let styleNote: SystemMessage | null
+  let tools: LlmTools
   const skill = () =>
-    new ChatSkill({
-      getStyleNote: () => styleNote,
-    } as unknown as PromptService)
+    new ChatSkill(
+      { getStyleNote: () => styleNote } as unknown as PromptService,
+      tools,
+    )
 
   beforeEach(() => {
-    jest.mocked(getTools).mockReturnValue([fakeTool])
+    tools = { all: [fakeTool] }
     styleNote = null
   })
 
@@ -56,8 +56,10 @@ describe('ChatSkill', () => {
     const llm = new FakeLlmClient().script('chat.respond', 'hello')
     const result = await skill().run(input(), ctx(llm))
 
-    expect(result.messages).toHaveLength(2)
-    expect(result.messages[1].content).toBe('hello')
+    expect(result.messages).toHaveLength(1)
+    expect(result.messages[0].content).toBe('hello')
+    // The human message is sent to the model but not returned.
+    expect(llm.calls[0].messages.at(-1)?.content).toBe('what time is it?')
     expect(llm.calls[0].tools).toEqual([fakeTool])
   })
 
@@ -68,16 +70,53 @@ describe('ChatSkill', () => {
     )
     const result = await skill().run(input(), ctx(llm))
 
-    expect(result.messages.map(m => m.getType())).toEqual([
-      'human',
-      'ai',
-      'tool',
-      'ai',
-    ])
-    const toolMessage = result.messages[2] as ToolMessage
+    expect(result.messages.map(m => m.getType())).toEqual(['ai', 'tool', 'ai'])
+    const toolMessage = result.messages[1] as ToolMessage
     expect(toolMessage.content).toBe('result:x')
     expect(toolMessage.tool_call_id).toBe('call-1')
     expect(llm.calls[1].messages).toContain(toolMessage)
+  })
+
+  it('runs one round of tool calls in parallel and keeps their order', async () => {
+    const order: string[] = []
+    const slowTool = tool(
+      async () => {
+        await new Promise(resolve => setTimeout(resolve, 20))
+        order.push('slow')
+        return 'slow result'
+      },
+      { name: 'slow_tool', description: 'slow' },
+    )
+    const fastTool = tool(
+      () => {
+        order.push('fast')
+        return { answer: 42 }
+      },
+      { name: 'fast_tool', description: 'fast' },
+    )
+    tools = { all: [slowTool, fastTool] }
+    let n = 0
+    const llm = new FakeLlmClient().script('chat.respond', () =>
+      n++ === 0
+        ? new AIMessage({
+            content: '',
+            tool_calls: [
+              { id: 's', name: 'slow_tool', args: {}, type: 'tool_call' },
+              { id: 'f', name: 'fast_tool', args: {}, type: 'tool_call' },
+            ],
+          })
+        : new AIMessage('done'),
+    )
+    const result = await skill().run(input(), ctx(llm))
+
+    // Both started before either finished, but results keep call order.
+    expect(order).toEqual(['fast', 'slow'])
+    const toolMessages = result.messages.filter(ToolMessage.isInstance)
+    expect(toolMessages.map(m => m.tool_call_id)).toEqual(['s', 'f'])
+    expect(toolMessages.map(m => m.content)).toEqual([
+      'slow result',
+      '{"answer":42}',
+    ])
   })
 
   it('turns a failing or unknown tool into an error ToolMessage', async () => {
@@ -94,7 +133,7 @@ describe('ChatSkill', () => {
     )
     const result = await skill().run(input(), ctx(llm))
 
-    expect((result.messages[2] as ToolMessage).status).toBe('error')
+    expect((result.messages[1] as ToolMessage).status).toBe('error')
   })
 
   it('stops after the maximum rounds and asks for a plain answer', async () => {

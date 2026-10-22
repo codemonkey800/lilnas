@@ -21,8 +21,6 @@ import { EquationImageService } from 'src/services/equation-image.service'
 import { TdrBotMetricsService } from 'src/tdr-bot-metrics.service'
 import { TDR_SYSTEM_PROMPT_ID } from 'src/utils/prompts'
 
-jest.mock('src/messages/llm/tools', () => ({ getTools: jest.fn(() => []) }))
-
 describe('ApiController GET /conversations/:channelId', () => {
   let app: INestApplication
   let base: string
@@ -45,7 +43,9 @@ describe('ApiController GET /conversations/:channelId', () => {
         { provide: PromptService, useValue: prompts },
         {
           provide: SKILLS,
-          useValue: [new ChatSkill(prompts as unknown as PromptService)],
+          useValue: [
+            new ChatSkill(prompts as unknown as PromptService, { all: [] }),
+          ],
         },
         SkillRegistry,
         {

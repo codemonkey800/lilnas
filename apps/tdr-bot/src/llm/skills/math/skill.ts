@@ -6,7 +6,6 @@ import {
   SkillInput,
   SkillOutput,
 } from 'src/llm/skills/skill.interface'
-import { getTools } from 'src/messages/llm/tools'
 import { EquationImageService } from 'src/services/equation-image.service'
 import { TDR_SYSTEM_PROMPT_ID } from 'src/utils/prompts'
 
@@ -53,7 +52,6 @@ export class MathSkill implements Skill {
           operation: 'math.respond',
           role: 'chat',
           messages: [...history, message, GET_CHAT_MATH_RESPONSE],
-          tools: getTools(),
           overrides: { timeoutMs: 30000 },
         }),
       ])
@@ -68,7 +66,7 @@ export class MathSkill implements Skill {
     )
 
     return {
-      messages: [message, chatResponse],
+      messages: [chatResponse],
       images: equationImageResponse
         ? [
             {

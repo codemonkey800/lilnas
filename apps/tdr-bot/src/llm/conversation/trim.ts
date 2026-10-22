@@ -80,7 +80,6 @@ export async function trimConversation(
     maxTokens: remaining,
     tokenCounter,
     strategy: 'last',
-    includeSystem: true,
     startOn: 'human',
     allowPartial: false,
   })

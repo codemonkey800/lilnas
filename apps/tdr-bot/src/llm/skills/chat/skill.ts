@@ -9,7 +9,7 @@ import {
   SkillInput,
   SkillOutput,
 } from 'src/llm/skills/skill.interface'
-import { getTools } from 'src/messages/llm/tools'
+import { LlmTools } from 'src/llm/tools/tools'
 import { PromptService } from 'src/messages/prompts/prompt.service'
 
 import { CHAT_SKILL_DESCRIPTION } from './prompts'
@@ -21,17 +21,22 @@ export class ChatSkill implements Skill {
   readonly id = 'chat'
   readonly description = CHAT_SKILL_DESCRIPTION
 
-  constructor(private readonly prompts: PromptService) {}
+  constructor(
+    private readonly prompts: PromptService,
+    private readonly tools: LlmTools,
+  ) {}
 
   async run(
     { message, history }: SkillInput,
     { llm, logger }: SkillContext,
   ): Promise<SkillOutput> {
-    const tools = getTools()
-    const produced: BaseMessage[] = [message]
+    const tools = this.tools.all
+    const produced: BaseMessage[] = []
     // Sent to the model each round but never returned, so it is not stored.
     const styleNote = this.prompts.getStyleNote(history)
-    const context = styleNote ? [...history, styleNote] : history
+    const context = styleNote
+      ? [...history, styleNote, message]
+      : [...history, message]
 
     for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
       // After the last allowed round, ask for a plain answer without tools.
@@ -49,9 +54,11 @@ export class ChatSkill implements Skill {
       const toolCalls = withTools ? (response.tool_calls ?? []) : []
       if (toolCalls.length === 0) break
 
-      for (const toolCall of toolCalls) {
-        produced.push(await runTool(tools, toolCall, logger))
-      }
+      produced.push(
+        ...(await Promise.all(
+          toolCalls.map(toolCall => runTool(tools, toolCall, logger)),
+        )),
+      )
     }
 
     return { messages: produced }
@@ -75,12 +82,19 @@ async function runTool(
   }
 
   try {
-    const result = await tool.invoke(toolCall.args)
-    return new ToolMessage({
-      tool_call_id: toolCallId,
-      name: toolCall.name,
-      content: typeof result === 'string' ? result : JSON.stringify(result),
+    // Invoked with the whole ToolCall, a tool returns a ToolMessage that
+    // already carries the call's id and name.
+    const result: ToolMessage = await tool.invoke({
+      ...toolCall,
+      id: toolCallId,
+      type: 'tool_call',
     })
+    // Content blocks are stringified so trimming and the transcript only
+    // ever see text.
+    if (typeof result.content !== 'string') {
+      result.content = JSON.stringify(result.content)
+    }
+    return result
   } catch (err) {
     logger.warn(
       { tool: toolCall.name, error: getErrorMessage(err) },

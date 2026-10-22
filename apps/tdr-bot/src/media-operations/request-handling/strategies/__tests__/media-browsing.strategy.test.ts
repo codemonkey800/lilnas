@@ -279,9 +279,9 @@ describe('MediaBrowsingStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(result.messages).toHaveLength(2)
-      expect(result.messages[0]).toBe(previousMessage)
-      expect(result.messages[1]).toBe(mockChatResponse)
+      expect(llm.calls[0].messages[0]).toBe(previousMessage)
+      // Only the reply comes back; the caller already holds the conversation.
+      expect(result.messages).toEqual([mockChatResponse])
     })
 
     it('should generate contextual prompt with user message and media data when processing request', async () => {
@@ -886,8 +886,12 @@ describe('MediaBrowsingStrategy', () => {
         )
         llm.script('media.browse', mockChatResponse)
 
-        // Should handle or throw
-        await expect(strategy.handleRequest(params)).rejects.toThrow()
+        const result = await strategy.handleRequest(params)
+
+        expect(result.messages).toHaveLength(1)
+        expect(result.messages[0].content).toContain(
+          'Sorry, I encountered an error',
+        )
       })
 
       it('should handle extremely long message content', async () => {

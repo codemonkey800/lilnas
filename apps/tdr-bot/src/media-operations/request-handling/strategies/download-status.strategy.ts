@@ -86,7 +86,7 @@ export class DownloadStatusStrategy extends BaseMediaStrategy {
 
         return {
           images: [],
-          messages: [...messages, message, response],
+          messages: [response],
         }
       }
 
@@ -162,7 +162,7 @@ export class DownloadStatusStrategy extends BaseMediaStrategy {
 
       return {
         images: [],
-        messages: [...messages, message, response],
+        messages: [response],
       }
     } catch (error) {
       this.logger.error(
@@ -188,7 +188,7 @@ export class DownloadStatusStrategy extends BaseMediaStrategy {
 
       return {
         images: [],
-        messages: [...messages, message, errorResponse],
+        messages: [errorResponse],
       }
     }
   }

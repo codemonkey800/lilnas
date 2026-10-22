@@ -3,7 +3,7 @@ import { Counter, Gauge, Histogram, register } from '@prometheus-io/client'
 
 type CallStatus = 'success' | 'error' | 'timeout' | 'schema_failure'
 type RetryReason = 'timeout' | 'rate_limit' | 'server_error' | 'other'
-type RouterSource = 'fastpath' | 'llm' | 'followup'
+type RouterSource = 'fastpath' | 'llm' | 'followup' | 'fallback'
 
 // Registered at module scope against the default registry; module caching
 // makes re-imports safe, and getSingleMetric guards against duplicate loads

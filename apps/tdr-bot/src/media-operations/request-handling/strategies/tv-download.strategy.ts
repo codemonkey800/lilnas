@@ -253,7 +253,7 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
         )
       return {
         images: [],
-        messages: messages.concat(clarificationResponse),
+        messages: [clarificationResponse],
       }
     }
 
@@ -264,9 +264,9 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
       this.logger.log({ userId }, 'TV show search term reads as a path')
       return {
         images: [],
-        messages: messages.concat(
+        messages: [
           new HumanMessage({ id: nanoid(), content: NOT_A_TITLE_REPLY }),
-        ),
+        ],
       }
     }
 
@@ -297,7 +297,7 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
           )
         return {
           images: [],
-          messages: messages.concat(noResultsResponse),
+          messages: [noResultsResponse],
         }
       }
 
@@ -390,7 +390,7 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
 
           return {
             images: [],
-            messages: messages.concat(granularSelectionResponse),
+            messages: [granularSelectionResponse],
             pendingContext: {
               type: MediaContextType.TvDownload,
               data: tvShowContext,
@@ -452,7 +452,7 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
 
         return {
           images: [],
-          messages: messages.concat(selectionResponse),
+          messages: [selectionResponse],
           pendingContext: {
             type: MediaContextType.TvDownload,
             data: tvShowContext,
@@ -485,7 +485,7 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
 
       return {
         images: [],
-        messages: messages.concat(selectionResponse),
+        messages: [selectionResponse],
         pendingContext: {
           type: MediaContextType.TvDownload,
           data: tvShowContext,
@@ -508,7 +508,7 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
 
       return {
         images: [],
-        messages: messages.concat(errorResponse),
+        messages: [errorResponse],
       }
     }
   }
@@ -550,7 +550,7 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
             )
           return {
             images: [],
-            messages: messages.concat(clarificationResponse),
+            messages: [clarificationResponse],
             pendingContext: {
               type: MediaContextType.TvDownload,
               data: tvShowContext,
@@ -575,7 +575,7 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
             )
           return {
             images: [],
-            messages: messages.concat(clarificationResponse),
+            messages: [clarificationResponse],
             pendingContext: {
               type: MediaContextType.TvDownload,
               data: tvShowContext,
@@ -638,7 +638,7 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
 
           return {
             images: [],
-            messages: messages.concat(granularSelectionResponse),
+            messages: [granularSelectionResponse],
             pendingContext: {
               type: MediaContextType.TvDownload,
               data: updatedContext,
@@ -671,7 +671,7 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
           )
         return {
           images: [],
-          messages: messages.concat(granularSelectionResponse),
+          messages: [granularSelectionResponse],
           pendingContext: {
             type: MediaContextType.TvDownload,
             data: tvShowContext,
@@ -708,7 +708,7 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
 
       return {
         images: [],
-        messages: messages.concat(errorResponse),
+        messages: [errorResponse],
       }
     }
   }
@@ -780,7 +780,7 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
 
     // No job was created, so there is nothing to link to or undo
     if (!job) {
-      return { images: [], messages: messages.concat(response) }
+      return { images: [], messages: [response] }
     }
 
     const recentRequest: RecentRequestContext = {
@@ -799,9 +799,7 @@ export class TvDownloadStrategy extends BaseMediaStrategy {
 
     return {
       images: [],
-      messages: messages.concat(
-        withDownloadLinks(response, job.media, job.media.title),
-      ),
+      messages: [withDownloadLinks(response, job.media, job.media.title)],
       pendingContext: {
         type: MediaContextType.RecentRequest,
         data: recentRequest,

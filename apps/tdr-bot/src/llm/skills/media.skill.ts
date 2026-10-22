@@ -1,4 +1,4 @@
-import { AIMessage, BaseMessage, isAIMessage } from '@langchain/core/messages'
+import { AIMessage, isAIMessage } from '@langchain/core/messages'
 import { Injectable } from '@nestjs/common'
 
 import { MediaRequestHandler } from 'src/media-operations/request-handling/media-request-handler.service'
@@ -26,11 +26,10 @@ export class MediaSkill implements Skill {
 
   async run(input: SkillInput): Promise<SkillOutput> {
     const { message, history } = input
-    const base = [...history, message]
 
     const result = await this.handler.handleRequest(
       message,
-      base,
+      [...history, message],
       input.userId,
       input.discord,
       input.followUp as ActiveMediaContext | undefined,
@@ -38,14 +37,10 @@ export class MediaSkill implements Skill {
 
     if (result.reroute) return { messages: [], followUp: null, reroute: true }
 
-    // Strategies hand back the whole conversation they were given plus their
-    // reply; the graph already holds the conversation, so keep what's new.
-    const seen = new Set<BaseMessage>(base)
-    const reply = result.messages
-      .filter(m => !seen.has(m))
-      .map(m =>
-        isAIMessage(m) ? m : new AIMessage({ id: m.id, content: m.content }),
-      )
+    // Strategies return only their reply, some of it built as HumanMessages.
+    const reply = result.messages.map(m =>
+      isAIMessage(m) ? m : new AIMessage({ id: m.id, content: m.content }),
+    )
 
     return {
       messages: reply,

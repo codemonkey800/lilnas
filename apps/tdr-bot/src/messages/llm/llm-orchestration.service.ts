@@ -1,8 +1,4 @@
-import {
-  BaseMessage,
-  HumanMessage,
-  isAIMessage,
-} from '@langchain/core/messages'
+import { BaseMessage, HumanMessage } from '@langchain/core/messages'
 import { BaseCheckpointSaver } from '@langchain/langgraph'
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common'
 import { Mutex } from 'async-mutex'
@@ -32,7 +28,10 @@ const UNKNOWN_SKILL = 'unknown'
  *   Start → router → runSkill → (reroute → router | finalize) → End
  *
  * The router picks a skill (fast path, pending follow-up, or LLM classifier)
- * and the skill produces the reply messages.
+ * and the skill produces the reply messages. A skill may reroute once per
+ * turn; a second reroute goes to the chat fallback. Finalize checks the reply
+ * and prunes the thread to MAX_THREAD_MESSAGES, and the turn is checkpointed
+ * once, when it finishes.
  */
 @Injectable()
 export class LLMOrchestrationService implements OnModuleInit {
@@ -148,7 +147,7 @@ export class LLMOrchestrationService implements OnModuleInit {
       name: toMessageName(user),
       additional_kwargs: { displayName: user },
     })
-    const threadId = threadIdFor({ channelId, guildId })
+    const threadId = threadIdFor({ channelId })
     const startTime = Date.now()
 
     let skill = UNKNOWN_SKILL
@@ -162,7 +161,9 @@ export class LLMOrchestrationService implements OnModuleInit {
             channelId,
             guildId: guildId ?? '',
           },
-          { configurable: { thread_id: threadId } },
+          // Checkpoint once, when the turn finishes: a failed turn leaves
+          // nothing half-saved, and a turn stores one copy of the history.
+          { configurable: { thread_id: threadId }, durability: 'exit' },
         ),
       )
 
@@ -176,25 +177,6 @@ export class LLMOrchestrationService implements OnModuleInit {
         throw new Error('Did not receive a message')
       }
 
-      if (isAIMessage(lastMessage)) {
-        const usage = lastMessage.usage_metadata
-
-        this.logger.log(usage, 'Token count for last message')
-
-        if (usage) {
-          if (usage.input_tokens) {
-            this.metrics.llmTokens('prompt_tokens', usage.input_tokens)
-          }
-          if (usage.output_tokens) {
-            this.metrics.llmTokens('completion_tokens', usage.output_tokens)
-          }
-          if (usage.total_tokens) {
-            this.metrics.llmTokens('total_tokens', usage.total_tokens)
-          }
-        }
-      }
-
-      this.metrics.intentDetected(skill)
       this.metrics.llmRequest(skill, 'success')
       this.metrics.observeLlmDuration(skill, durationMs)
 

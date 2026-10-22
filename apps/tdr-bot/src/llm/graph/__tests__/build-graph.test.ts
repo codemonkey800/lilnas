@@ -6,6 +6,7 @@ import {
 } from '@langchain/core/messages'
 import { MemorySaver } from '@langchain/langgraph'
 
+import { MAX_THREAD_MESSAGES } from 'src/llm/conversation/prune'
 import { trimConversation } from 'src/llm/conversation/trim'
 import { buildGraph, FOLLOW_UP_TTL_MS } from 'src/llm/graph/build-graph'
 import { LlmMetricsService } from 'src/llm/observability/llm-metrics.service'
@@ -296,6 +297,38 @@ describe('buildGraph', () => {
     })
   })
 
+  it('falls back to chat on a second reroute instead of looping', async () => {
+    const rerouteAlways = makeSkill(
+      'loopy',
+      () => Promise.resolve({ messages: [], followUp: null, reroute: true }),
+      input => /^loop/.test(String(input.message.content)),
+    )
+    const { send, metrics } = setup([rerouteAlways, chat])
+
+    const result = await send('loop forever')
+
+    expect(result.messages.at(-1)?.content).toBe('chat done')
+    expect(rerouteAlways.run).toHaveBeenCalledTimes(2)
+    expect(metrics.routerDecision).toHaveBeenLastCalledWith({
+      skill: 'chat',
+      source: 'fallback',
+    })
+  })
+
+  it('resets the reroute count on the next turn', async () => {
+    const rerouteAlways = makeSkill(
+      'loopy',
+      () => Promise.resolve({ messages: [], followUp: null, reroute: true }),
+      input => /^loop/.test(String(input.message.content)),
+    )
+    const { send } = setup([rerouteAlways, chat])
+
+    await send('loop once')
+    await send('loop twice')
+
+    expect(rerouteAlways.run).toHaveBeenCalledTimes(4)
+  })
+
   describe('follow-ups in a shared channel', () => {
     const asksWhich = () =>
       reply('which one?', { followUp: { data: { n: 1 } } })
@@ -392,6 +425,42 @@ describe('buildGraph', () => {
 
       expect(bobs.pendingFollowUps).toEqual({})
     })
+  })
+
+  it('gives skill replies without an id one before storing them', async () => {
+    const { send } = setup([echo, chat])
+    const result = await send('echo hi')
+
+    expect(result.messages.at(-1)?.id).toEqual(expect.any(String))
+  })
+
+  it('prunes the saved thread to the message limit on a human boundary', async () => {
+    const { graph } = setup([echo, chat])
+    const old = Array.from({ length: MAX_THREAD_MESSAGES / 2 }, (_, i) => [
+      new HumanMessage({ id: `h${i}`, content: `old ${i}` }),
+      new AIMessage({ id: `a${i}`, content: `reply ${i}` }),
+    ]).flat()
+
+    const result = await graph.invoke(
+      {
+        messages: [...old, new HumanMessage({ id: 'new', content: 'echo hi' })],
+        userId: 'u1',
+        channelId: 'c1',
+        guildId: 'g1',
+        discord,
+      },
+      { configurable: { thread_id: 't-prune' } },
+    )
+    const saved = await graph.getState({
+      configurable: { thread_id: 't-prune' },
+    })
+
+    expect(result.messages).toHaveLength(MAX_THREAD_MESSAGES)
+    expect(result.messages[0].id).toBe('h1')
+    expect(result.messages.at(-1)?.content).toBe('echoed')
+    expect(saved.values.messages.map((m: AIMessage) => m.id)).toEqual(
+      result.messages.map(m => m.id),
+    )
   })
 
   it('fails finalize when the skill does not end on a non-empty AI message', async () => {

@@ -101,7 +101,7 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
         )
       return {
         images: [],
-        messages: messages.concat(clarificationResponse),
+        messages: [clarificationResponse],
       }
     }
 
@@ -128,7 +128,7 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
           )
         return {
           images: [],
-          messages: messages.concat(noResultsResponse),
+          messages: [noResultsResponse],
         }
       }
 
@@ -207,7 +207,7 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
 
       return {
         images: [],
-        messages: messages.concat(selectionResponse),
+        messages: [selectionResponse],
         pendingContext: {
           type: MediaContextType.MovieDelete,
           data: movieDeleteContext,
@@ -230,7 +230,7 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
 
       return {
         images: [],
-        messages: messages.concat(errorResponse),
+        messages: [errorResponse],
       }
     }
   }
@@ -271,7 +271,7 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
           )
         return {
           images: [],
-          messages: messages.concat(clarificationResponse),
+          messages: [clarificationResponse],
           pendingContext: {
             type: MediaContextType.MovieDelete,
             data: movieDeleteContext,
@@ -298,7 +298,7 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
           )
         return {
           images: [],
-          messages: messages.concat(clarificationResponse),
+          messages: [clarificationResponse],
           pendingContext: {
             type: MediaContextType.MovieDelete,
             data: movieDeleteContext,
@@ -326,7 +326,7 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
 
       return {
         images: [],
-        messages: messages.concat(errorResponse),
+        messages: [errorResponse],
       }
     }
   }
@@ -365,7 +365,7 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
 
         return {
           images: [],
-          messages: messages.concat(successResponse),
+          messages: [successResponse],
         }
       } else {
         const errorResponse =
@@ -380,7 +380,7 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
 
         return {
           images: [],
-          messages: messages.concat(errorResponse),
+          messages: [errorResponse],
         }
       }
     } catch (error) {
@@ -400,7 +400,7 @@ export class MovieDeleteStrategy extends BaseMediaStrategy {
 
       return {
         images: [],
-        messages: messages.concat(errorResponse),
+        messages: [errorResponse],
       }
     }
   }

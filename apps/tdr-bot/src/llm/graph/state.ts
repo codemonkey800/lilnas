@@ -31,6 +31,8 @@ export const LlmGraphState = new StateSchema({
   discord: new UntrackedValue(z.custom<DiscordIdentity>()),
   skill: new UntrackedValue(z.custom<string | undefined>()),
   reroute: new UntrackedValue(z.custom<boolean | undefined>()),
+  /** Reroutes so far this turn; caps rerouting so a turn can't loop. */
+  reroutes: new UntrackedValue(z.custom<number | undefined>()),
   pendingFollowUps: z
     .custom<Record<string, PendingFollowUp>>()
     .default(() => ({})),

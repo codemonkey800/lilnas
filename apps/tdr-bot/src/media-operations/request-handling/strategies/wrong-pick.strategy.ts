@@ -207,7 +207,7 @@ export class WrongPickStrategy extends BaseMediaStrategy {
 
     return {
       images: [],
-      messages: messages.concat(this.withUndoLine(undoLine, response)),
+      messages: [this.withUndoLine(undoLine, response)],
       pendingContext: { type: MediaContextType.TvDownload, data: context },
     }
   }
@@ -246,7 +246,7 @@ export class WrongPickStrategy extends BaseMediaStrategy {
 
     return {
       images: [],
-      messages: messages.concat(this.withUndoLine(undoLine, response)),
+      messages: [this.withUndoLine(undoLine, response)],
       pendingContext: { type: MediaContextType.MovieDownload, data: context },
     }
   }
@@ -276,7 +276,7 @@ export class WrongPickStrategy extends BaseMediaStrategy {
   ): StrategyResult {
     return {
       images: [],
-      messages: messages.concat(new HumanMessage({ id: nanoid(), content })),
+      messages: [new HumanMessage({ id: nanoid(), content })],
     }
   }
 }

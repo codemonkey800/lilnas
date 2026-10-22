@@ -72,7 +72,7 @@ export abstract class BaseMediaStrategy implements MediaOperationStrategy {
 
     return {
       images: [],
-      messages: messages.concat(fallbackMessage),
+      messages: [fallbackMessage],
     }
   }
 

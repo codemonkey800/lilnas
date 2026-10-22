@@ -4,7 +4,6 @@ import { Counter, Gauge, Histogram, register } from '@prometheus-io/client'
 type MessageHandler = 'chat' | 'keywords'
 type HandledStatus = 'success' | 'error'
 type LlmStatus = 'success' | 'error'
-type TokenType = 'prompt_tokens' | 'completion_tokens' | 'total_tokens'
 type ImageGenerationStatus = 'success' | 'error'
 type ResponseSentStatus =
   'success' | 'shortened' | 'truncated' | 'error' | 'fallback'
@@ -36,20 +35,6 @@ const llmRequestDurationSeconds = new Histogram({
   help: 'End-to-end duration of LLM graph invocations by skill',
   labelNames: ['skill'],
   buckets: [0.5, 1, 2.5, 5, 10, 15, 20, 30, 45, 60],
-  registers: [register],
-})
-
-const llmTokensTotal = new Counter({
-  name: 'tdr_bot_llm_tokens_total',
-  help: 'Total number of tokens consumed by LLM calls',
-  labelNames: ['type'],
-  registers: [register],
-})
-
-const intentDetectionsTotal = new Counter({
-  name: 'tdr_bot_intent_detections_total',
-  help: 'Total number of intent detections by routed skill',
-  labelNames: ['skill'],
   registers: [register],
 })
 
@@ -134,16 +119,6 @@ export class TdrBotMetricsService {
   /** Observes the end-to-end duration of an LLM graph invocation (converted to seconds). */
   observeLlmDuration(skill: string, durationMs: number): void {
     llmRequestDurationSeconds.observe({ skill }, durationMs / 1000)
-  }
-
-  /** Increments the token usage counter by the given amount. */
-  llmTokens(type: TokenType, count: number): void {
-    llmTokensTotal.inc({ type }, count)
-  }
-
-  /** Tracks which skill the router picked. */
-  intentDetected(skill: string): void {
-    intentDetectionsTotal.inc({ skill })
   }
 
   /** Records a DALL-E image generation attempt (success or error). */

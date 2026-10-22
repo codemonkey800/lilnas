@@ -342,17 +342,17 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(tdr_bot_llm_tokens_total{type=\"prompt_tokens\"}[5m]))",
-          "legendFormat": "prompt tokens/s",
+          "expr": "sum(rate(tdr_bot_llm_tokens_by_model_total{type=\"input\"}[5m]))",
+          "legendFormat": "input tokens/s",
           "refId": "A"
         },
         {
-          "expr": "sum(rate(tdr_bot_llm_tokens_total{type=\"completion_tokens\"}[5m]))",
-          "legendFormat": "completion tokens/s",
+          "expr": "sum(rate(tdr_bot_llm_tokens_by_model_total{type=\"output\"}[5m]))",
+          "legendFormat": "output tokens/s",
           "refId": "B"
         },
         {
-          "expr": "sum(rate(tdr_bot_llm_tokens_total{type=\"total_tokens\"}[5m]))",
+          "expr": "sum(rate(tdr_bot_llm_tokens_by_model_total{type=~\"input|output\"}[5m]))",
           "legendFormat": "total tokens/s",
           "refId": "C"
         }
@@ -398,7 +398,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(tdr_bot_llm_tokens_total{type=\"total_tokens\"}[1h])) or vector(0)",
+          "expr": "sum(increase(tdr_bot_llm_tokens_by_model_total{type=~\"input|output\"}[1h])) or vector(0)",
           "refId": "A"
         }
       ],
@@ -575,103 +575,6 @@
       }
     },
     {
-      "id": 20,
-      "type": "row",
-      "title": "Intent Routing",
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 22
-      },
-      "collapsed": false
-    },
-    {
-      "id": 21,
-      "type": "piechart",
-      "title": "Skill Distribution (1h)",
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 0,
-        "y": 23
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(increase(tdr_bot_intent_detections_total[1h])) by (skill)",
-          "legendFormat": "{{skill}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      },
-      "options": {
-        "pieType": "pie",
-        "tooltip": {
-          "mode": "single"
-        },
-        "legend": {
-          "displayMode": "table",
-          "placement": "right"
-        }
-      }
-    },
-    {
-      "id": 22,
-      "type": "timeseries",
-      "title": "Intent Detections Over Time",
-      "gridPos": {
-        "h": 8,
-        "w": 16,
-        "x": 8,
-        "y": 23
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(tdr_bot_intent_detections_total[5m])) by (skill)",
-          "legendFormat": "{{skill}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 15,
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "mode": "normal"
-            }
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        },
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": ["mean", "max"]
-        }
-      }
-    },
-    {
       "id": 30,
       "type": "row",
       "title": "Messages and Commands",
@@ -679,7 +582,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 31
+        "y": 22
       },
       "collapsed": false
     },
@@ -691,7 +594,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 32
+        "y": 23
       },
       "datasource": {
         "type": "prometheus",
@@ -737,7 +640,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 32
+        "y": 23
       },
       "datasource": {
         "type": "prometheus",
@@ -783,7 +686,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 40
+        "y": 31
       },
       "datasource": {
         "type": "prometheus",
@@ -832,7 +735,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 40
+        "y": 31
       },
       "datasource": {
         "type": "prometheus",
@@ -874,7 +777,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 40
+        "y": 31
       },
       "datasource": {
         "type": "prometheus",
@@ -916,7 +819,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 44
+        "y": 35
       },
       "collapsed": false
     },
@@ -928,7 +831,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 45
+        "y": 36
       },
       "datasource": {
         "type": "prometheus",
@@ -979,7 +882,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 45
+        "y": 36
       },
       "datasource": {
         "type": "prometheus",
@@ -1035,7 +938,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 53
+        "y": 44
       },
       "datasource": {
         "type": "prometheus",
@@ -1085,7 +988,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 53
+        "y": 44
       },
       "datasource": {
         "type": "prometheus",
@@ -1135,7 +1038,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 53
+        "y": 44
       },
       "datasource": {
         "type": "prometheus",
@@ -1185,7 +1088,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 53
+        "y": 44
       },
       "datasource": {
         "type": "prometheus",
@@ -1235,7 +1138,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 57
+        "y": 48
       },
       "collapsed": false
     },
@@ -1247,7 +1150,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 58
+        "y": 49
       },
       "datasource": {
         "type": "prometheus",
@@ -1293,7 +1196,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 58
+        "y": 49
       },
       "datasource": {
         "type": "prometheus",
@@ -1339,7 +1242,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 66
+        "y": 57
       },
       "datasource": {
         "type": "prometheus",
@@ -1385,7 +1288,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 66
+        "y": 57
       },
       "datasource": {
         "type": "prometheus",
@@ -1431,7 +1334,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 74
+        "y": 65
       },
       "datasource": {
         "type": "prometheus",
@@ -1487,7 +1390,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 82
+        "y": 73
       },
       "collapsed": false
     },
@@ -1499,7 +1402,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 83
+        "y": 74
       },
       "datasource": {
         "type": "prometheus",
@@ -1545,7 +1448,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 83
+        "y": 74
       },
       "datasource": {
         "type": "prometheus",
@@ -1591,7 +1494,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 91
+        "y": 82
       },
       "datasource": {
         "type": "prometheus",
@@ -1633,7 +1536,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 91
+        "y": 82
       },
       "datasource": {
         "type": "prometheus",
@@ -1675,7 +1578,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 95
+        "y": 86
       },
       "collapsed": false
     },
@@ -1687,7 +1590,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 96
+        "y": 87
       },
       "datasource": {
         "type": "prometheus",
@@ -1733,7 +1636,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 96
+        "y": 87
       },
       "datasource": {
         "type": "prometheus",
@@ -1779,7 +1682,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 104
+        "y": 95
       },
       "collapsed": false
     },
@@ -1791,7 +1694,7 @@
         "h": 8,
         "w": 6,
         "x": 0,
-        "y": 105
+        "y": 96
       },
       "datasource": {
         "type": "prometheus",
@@ -1827,7 +1730,7 @@
         "h": 8,
         "w": 6,
         "x": 6,
-        "y": 105
+        "y": 96
       },
       "datasource": {
         "type": "prometheus",
@@ -1863,7 +1766,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 105
+        "y": 96
       },
       "datasource": {
         "type": "prometheus",
@@ -1909,7 +1812,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 113
+        "y": 104
       },
       "datasource": {
         "type": "prometheus",
@@ -1955,7 +1858,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 121
+        "y": 112
       },
       "collapsed": false
     },
@@ -1967,7 +1870,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 122
+        "y": 113
       },
       "datasource": {
         "type": "loki",
@@ -1998,7 +1901,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 132
+        "y": 123
       },
       "datasource": {
         "type": "loki",

@@ -95,8 +95,7 @@ describe('DownloadStatusStrategy', () => {
       expect(
         validationUtilities.validateDownloadResponse,
       ).not.toHaveBeenCalled()
-      expect(result.messages).toHaveLength(2) // original message + response
-      expect(result.messages[1]).toBe(mockChatResponse)
+      expect(result.messages).toEqual([mockChatResponse])
       expect(result.images).toEqual([])
     })
 
@@ -142,8 +141,7 @@ describe('DownloadStatusStrategy', () => {
       expect(llm.calls.map(call => call.operation)).toContain(
         'media.downloadStatus',
       )
-      expect(result.messages).toHaveLength(2)
-      expect(result.messages[1]).toBe(mockChatResponse)
+      expect(result.messages).toEqual([mockChatResponse])
       expect(result.images).toEqual([])
     })
 
@@ -195,7 +193,7 @@ describe('DownloadStatusStrategy', () => {
 
       expect(radarrService.getDownloadingMovies).toHaveBeenCalled()
       expect(sonarrService.getDownloadingEpisodes).toHaveBeenCalled()
-      expect(result.messages).toHaveLength(2)
+      expect(result.messages).toHaveLength(1)
       expect(result.images).toEqual([])
     })
 
@@ -305,7 +303,7 @@ describe('DownloadStatusStrategy', () => {
         ['Breaking Bad'],
         'user123',
       )
-      expect(result.messages).toHaveLength(2)
+      expect(result.messages).toHaveLength(1)
       expect(result.images).toEqual([])
     })
 
@@ -367,8 +365,7 @@ describe('DownloadStatusStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(result.messages).toHaveLength(2)
-      expect(result.messages[1]).toBe(errorResponse)
+      expect(result.messages).toEqual([errorResponse])
       expect(result.images).toEqual([])
     })
 
@@ -398,7 +395,7 @@ describe('DownloadStatusStrategy', () => {
       expect(llm.calls.map(call => call.operation)).toContain(
         'media.downloadStatusError',
       )
-      expect(result.messages[1]).toBe(fallbackResponse)
+      expect(result.messages).toEqual([fallbackResponse])
     })
   })
 
@@ -428,11 +425,13 @@ describe('DownloadStatusStrategy', () => {
 
       const result = await strategy.handleRequest(params)
 
-      expect(result.messages).toHaveLength(4) // 2 previous + current + response
-      expect(result.messages[0]).toBe(previousMessage1)
-      expect(result.messages[1]).toBe(previousMessage2)
-      expect(result.messages[2]).toBe(params.message)
-      expect(result.messages[3]).toBe(mockChatResponse)
+      expect(llm.calls[0].messages.slice(-3)).toEqual([
+        previousMessage1,
+        previousMessage2,
+        params.message,
+      ])
+      // Only the reply comes back; the caller already holds the conversation.
+      expect(result.messages).toEqual([mockChatResponse])
     })
   })
 
@@ -921,8 +920,12 @@ describe('DownloadStatusStrategy', () => {
         sonarrService.getDownloadingEpisodes.mockResolvedValue([])
         scriptLlm(mockChatResponse)
 
-        // Should handle or throw
-        await expect(strategy.handleRequest(params)).rejects.toThrow()
+        const result = await strategy.handleRequest(params)
+
+        expect(result.messages).toHaveLength(1)
+        expect(result.messages[0].content).toContain(
+          'Sorry, I encountered an error',
+        )
       })
 
       it('should handle extremely long message content', async () => {

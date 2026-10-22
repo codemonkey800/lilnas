@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+
 import {
   BaseMessage,
   HumanMessage,
@@ -14,6 +16,7 @@ import { Logger } from '@nestjs/common'
 import { z } from 'zod'
 
 import { LlmClient } from 'src/llm/client/llm-client'
+import { pruneHistory } from 'src/llm/conversation/prune'
 import {
   DEFAULT_TRIM_TOKENS,
   dropOrphanedToolMessages,
@@ -30,6 +33,9 @@ import { SkillRegistry } from 'src/llm/skills/skill.registry'
 import { LlmGraphState, LlmGraphStateType, PendingFollowUp } from './state'
 
 export const FALLBACK_SKILL = 'chat'
+
+/** Reroutes allowed per turn; a further reroute goes to {@link FALLBACK_SKILL}. */
+export const MAX_REROUTES = 1
 
 /** A pending follow-up older than this is stale and ignored. */
 export const FOLLOW_UP_TTL_MS = 5 * 60 * 1000
@@ -69,7 +75,7 @@ export interface BuildGraphDeps {
   checkpointer: BaseCheckpointSaver
 }
 
-type RouterSource = 'fastpath' | 'llm' | 'followup'
+type RouterSource = 'fastpath' | 'llm' | 'followup' | 'fallback'
 
 const logger = new Logger('LlmGraph')
 
@@ -126,9 +132,7 @@ export function buildGraph(deps: BuildGraphDeps) {
           message,
         ],
       })
-      return registry.ids().includes(output.skill)
-        ? output.skill
-        : FALLBACK_SKILL
+      return output.skill
     } catch (error) {
       logger.warn(
         { error, channelId: state.channelId },
@@ -145,7 +149,10 @@ export function buildGraph(deps: BuildGraphDeps) {
     let skill: string
     let source: RouterSource
     const pending = liveFollowUp(state)
-    if (pending && registry.ids().includes(pending.skill)) {
+    if ((state.reroutes ?? 0) > MAX_REROUTES) {
+      skill = FALLBACK_SKILL
+      source = 'fallback'
+    } else if (pending && registry.ids().includes(pending.skill)) {
       skill = pending.skill
       source = 'followup'
     } else {
@@ -179,17 +186,24 @@ export function buildGraph(deps: BuildGraphDeps) {
 
     const output = await skill.run(input, { llm, logger: new Logger(id) })
     if (output.reroute) {
-      return { reroute: true, pendingFollowUps: withFollowUp(state, null) }
+      return {
+        reroute: true,
+        reroutes: (state.reroutes ?? 0) + 1,
+        pendingFollowUps: withFollowUp(state, null),
+      }
     }
     const requestId = getRequestContext()?.requestId
-    if (requestId) {
-      // Lets the transcript join audited LLM calls to the reply they produced.
-      for (const message of output.messages) {
-        if (isAIMessage(message)) {
-          message.additional_kwargs = {
-            ...message.additional_kwargs,
-            requestId,
-          }
+    for (const message of output.messages) {
+      // Pruning removes old messages by id, so every stored message needs one.
+      if (!message.id) {
+        message.id = randomUUID()
+        message.lc_kwargs.id = message.id
+      }
+      if (requestId && isAIMessage(message)) {
+        // Lets the transcript join audited LLM calls to the reply they produced.
+        message.additional_kwargs = {
+          ...message.additional_kwargs,
+          requestId,
         }
       }
     }
@@ -218,18 +232,24 @@ export function buildGraph(deps: BuildGraphDeps) {
         `Skill '${state.skill}' did not end with a non-empty AI message`,
       )
     }
-    return {}
+    return { messages: pruneHistory(state.messages) }
   }
 
-  return new StateGraph(LlmGraphState)
-    .addNode('router', router)
-    .addNode('runSkill', skillNode)
-    .addNode('finalize', finalize)
-    .addEdge(START, 'router')
-    .addEdge('router', 'runSkill')
-    .addConditionalEdges('runSkill', state =>
-      state.reroute ? 'router' : 'finalize',
-    )
-    .addEdge('finalize', END)
-    .compile({ checkpointer })
+  return (
+    new StateGraph(LlmGraphState)
+      .addNode('router', router)
+      .addNode('runSkill', skillNode)
+      .addNode('finalize', finalize)
+      .addEdge(START, 'router')
+      .addEdge('router', 'runSkill')
+      // A reroute past the fallback run has nowhere left to go: finalize fails
+      // the turn instead of looping until the recursion limit.
+      .addConditionalEdges('runSkill', state =>
+        state.reroute && (state.reroutes ?? 0) <= MAX_REROUTES + 1
+          ? 'router'
+          : 'finalize',
+      )
+      .addEdge('finalize', END)
+      .compile({ checkpointer })
+  )
 }

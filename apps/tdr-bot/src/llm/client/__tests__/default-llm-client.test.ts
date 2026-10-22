@@ -63,7 +63,11 @@ function setup() {
   )
   const imageInvoke = jest.fn<Promise<string>, [string]>()
   const imageModel = jest.fn(() => ({ invoke: imageInvoke }))
-  const provider = { id: 'openai', chatModel, imageModel } as OpenAiProvider
+  const provider = {
+    id: 'openai',
+    chatModel,
+    imageModel,
+  } as unknown as OpenAiProvider
 
   const metrics = {
     callStarted: jest.fn(() => jest.fn()),

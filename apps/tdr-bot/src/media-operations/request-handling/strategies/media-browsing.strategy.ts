@@ -111,7 +111,7 @@ export class MediaBrowsingStrategy extends BaseMediaStrategy {
 
     return {
       images: [],
-      messages: messages.concat(chatResponse),
+      messages: [chatResponse],
     }
   }
 }

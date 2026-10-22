@@ -97,9 +97,9 @@ describe('MediaSkill', () => {
     })
     const args = input('download the matrix movie')
     const ask = new AIMessage({ id: 'a-1', content: 'Which Matrix?' })
-    movieDownload.handleRequest.mockImplementation(async ({ messages }) => ({
+    movieDownload.handleRequest.mockImplementation(async () => ({
       images: [],
-      messages: messages.concat(ask),
+      messages: [ask],
       pendingContext,
     }))
 
@@ -115,9 +115,9 @@ describe('MediaSkill', () => {
     const args = input('the first one', { followUp: pendingContext })
     const done = new AIMessage({ id: 'a-2', content: 'Downloading The Matrix' })
     const images = [{ title: 'poster', url: 'https://x/p.png' }]
-    movieDownload.handleRequest.mockImplementation(async ({ messages }) => ({
+    movieDownload.handleRequest.mockImplementation(async () => ({
       images,
-      messages: messages.concat(done),
+      messages: [done],
     }))
 
     const out = await skill.run(args)
@@ -138,9 +138,9 @@ describe('MediaSkill', () => {
   it('re-emits the follow-up when the pick needs clarifying', async () => {
     llm.script('media.topicSwitch', 'CONTINUE')
     const ask = new AIMessage({ id: 'a-3', content: 'Which one?' })
-    movieDownload.handleRequest.mockImplementation(async ({ messages }) => ({
+    movieDownload.handleRequest.mockImplementation(async () => ({
       images: [],
-      messages: messages.concat(ask),
+      messages: [ask],
       pendingContext,
     }))
 
@@ -173,9 +173,9 @@ describe('MediaSkill', () => {
     const args = input("what's downloading?")
     expect(skill.match(args)).toBe(true)
     const reply = new AIMessage({ id: 'a-4', content: 'Nothing right now' })
-    status.handleRequest.mockImplementation(async ({ message, messages }) => ({
+    status.handleRequest.mockImplementation(async () => ({
       images: [],
-      messages: [...messages, message, reply],
+      messages: [reply],
     }))
 
     const out = await skill.run(args)
@@ -191,11 +191,11 @@ describe('MediaSkill', () => {
       searchIntent: SearchIntent.External,
       searchTerms: 'matrix',
     })
-    movieDownload.handleRequest.mockImplementation(async ({ messages }) => ({
+    movieDownload.handleRequest.mockImplementation(async () => ({
       images: [],
-      messages: messages.concat(
+      messages: [
         new HumanMessage({ id: 'err', content: 'Sorry, I hit an error' }),
-      ),
+      ],
     }))
 
     const out = await skill.run(input('download the matrix movie'))

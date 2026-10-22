@@ -108,7 +108,7 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
           )
         return {
           images: [],
-          messages: messages.concat(clarificationResponse),
+          messages: [clarificationResponse],
         }
       }
 
@@ -155,7 +155,7 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
           )
         return {
           images: [],
-          messages: messages.concat(noResultsResponse),
+          messages: [noResultsResponse],
         }
       }
 
@@ -226,7 +226,7 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
             )
           return {
             images: [],
-            messages: messages.concat(needSeriesResponse),
+            messages: [needSeriesResponse],
             pendingContext: {
               type: MediaContextType.TvDelete,
               data: tvShowDeleteContext,
@@ -307,7 +307,7 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
             )
           return {
             images: [],
-            messages: messages.concat(response),
+            messages: [response],
             pendingContext: {
               type: MediaContextType.TvDelete,
               data: tvShowDeleteContext,
@@ -326,7 +326,7 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
             )
           return {
             images: [],
-            messages: messages.concat(response),
+            messages: [response],
             pendingContext: {
               type: MediaContextType.TvDelete,
               data: tvShowDeleteContext,
@@ -345,7 +345,7 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
             )
           return {
             images: [],
-            messages: messages.concat(response),
+            messages: [response],
             pendingContext: {
               type: MediaContextType.TvDelete,
               data: tvShowDeleteContext,
@@ -370,7 +370,7 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
 
       return {
         images: [],
-        messages: messages.concat(errorResponse),
+        messages: [errorResponse],
       }
     }
   }
@@ -434,7 +434,7 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
           )
         return {
           images: [],
-          messages: messages.concat(response),
+          messages: [response],
           pendingContext: {
             type: MediaContextType.TvDelete,
             data: tvShowDeleteContext,
@@ -472,7 +472,7 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
           )
         return {
           images: [],
-          messages: messages.concat(response),
+          messages: [response],
           pendingContext: {
             type: MediaContextType.TvDelete,
             data: tvShowDeleteContext,
@@ -503,7 +503,7 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
           )
         return {
           images: [],
-          messages: messages.concat(response),
+          messages: [response],
           pendingContext: {
             type: MediaContextType.TvDelete,
             data: tvShowDeleteContext,
@@ -538,7 +538,7 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
 
       return {
         images: [],
-        messages: messages.concat(errorResponse),
+        messages: [errorResponse],
       }
     }
   }
@@ -583,7 +583,7 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
 
       return {
         images: [],
-        messages: messages.concat(errorResponse),
+        messages: [errorResponse],
       }
     }
 
@@ -630,7 +630,7 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
 
         return {
           images: [],
-          messages: messages.concat(successResponse),
+          messages: [successResponse],
         }
       } else {
         const errorResponse =
@@ -645,7 +645,7 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
 
         return {
           images: [],
-          messages: messages.concat(errorResponse),
+          messages: [errorResponse],
         }
       }
     } catch (error) {
@@ -666,7 +666,7 @@ export class TvDeleteStrategy extends BaseMediaStrategy {
 
       return {
         images: [],
-        messages: messages.concat(errorResponse),
+        messages: [errorResponse],
       }
     }
   }

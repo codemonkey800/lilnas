@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common'
 
+import { LlmTools } from 'src/llm/tools/tools'
 import { RequestHandlingModule } from 'src/media-operations/request-handling/request-handling.module'
 import { PromptsModule } from 'src/messages/prompts/prompts.module'
 import { RemindersModule } from 'src/reminders/reminders.module'
@@ -24,6 +25,7 @@ const SKILL_CLASSES = [ChatSkill, MathSkill, MediaSkill, ReminderSkill]
   ],
   providers: [
     ...SKILL_CLASSES,
+    LlmTools,
     {
       provide: SKILLS,
       useFactory: (...skills: Skill[]) => skills,

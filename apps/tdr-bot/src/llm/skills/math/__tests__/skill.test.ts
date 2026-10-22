@@ -6,8 +6,6 @@ import { SkillInput } from 'src/llm/skills/skill.interface'
 import { FakeLlmClient } from 'src/llm/testing/fake-llm-client'
 import { EquationImageService } from 'src/services/equation-image.service'
 
-jest.mock('src/messages/llm/tools', () => ({ getTools: () => [] }))
-
 const input = (): SkillInput => ({
   message: new HumanMessage('integrate x^2'),
   history: [],
@@ -34,12 +32,12 @@ describe('MathSkill', () => {
     const client = llm()
     const result = await run(client, { url: 'https://img/eq.png' })
 
-    expect(result.messages).toHaveLength(2)
+    expect(result.messages).toHaveLength(1)
     expect(result.images).toEqual([
       {
         title: 'the solution',
         url: 'https://img/eq.png',
-        parentId: result.messages[1].id,
+        parentId: result.messages[0].id,
       },
     ])
     expect(client.calls.find(c => c.operation === 'math.latex')?.role).toBe(
@@ -47,10 +45,18 @@ describe('MathSkill', () => {
     )
   })
 
+  it('asks for the chat reply without tools, since it never runs tool calls', async () => {
+    const client = llm()
+    await run(client, null)
+
+    const respond = client.calls.find(c => c.operation === 'math.respond')
+    expect(respond?.tools).toBeUndefined()
+  })
+
   it('omits the image when the equation service returns null', async () => {
     const result = await run(llm(), null)
 
     expect(result.images).toEqual([])
-    expect(result.messages[1].content).toBe('The solution is below')
+    expect(result.messages[0].content).toBe('The solution is below')
   })
 })

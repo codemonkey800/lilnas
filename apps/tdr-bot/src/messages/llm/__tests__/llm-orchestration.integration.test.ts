@@ -15,10 +15,6 @@ jest.mock('nanoid', () => ({
   nanoid: jest.fn(() => `nano-${++nanoidCounter}`),
 }))
 jest.mock('@langchain/tavily')
-const mockTools: StructuredToolInterface[] = []
-jest.mock('src/messages/llm/tools', () => ({
-  getTools: jest.fn(() => mockTools),
-}))
 
 import {
   AIMessage,
@@ -49,6 +45,7 @@ import { SKILLS } from 'src/llm/skills/skill.interface'
 import { SkillRegistry } from 'src/llm/skills/skill.registry'
 import { FakeLlmClient } from 'src/llm/testing/fake-llm-client'
 import { SCENARIOS } from 'src/llm/testing/golden/scenarios'
+import { LlmTools } from 'src/llm/tools/tools'
 import { MediaRequestHandler } from 'src/media-operations/request-handling/media-request-handler.service'
 import {
   type ActiveMediaContext,
@@ -219,10 +216,9 @@ describe('LLMOrchestrationService - Integration', () => {
   /** The checkpointed state values for a channel's thread. */
   async function checkpoint(
     channelId: string,
-    guildId?: string,
   ): Promise<Record<string, unknown>> {
     const tuple = await checkpointer.getTuple({
-      configurable: { thread_id: threadIdFor({ channelId, guildId }) },
+      configurable: { thread_id: threadIdFor({ channelId }) },
     })
     return tuple?.checkpoint.channel_values ?? {}
   }
@@ -233,7 +229,7 @@ describe('LLMOrchestrationService - Integration', () => {
 
   /** The skill the router picked for the latest turn. */
   function lastSkill(): string | undefined {
-    return metrics.intentDetected.mock.calls.at(-1)?.[0]
+    return routerDecision.mock.calls.at(-1)?.[0].skill
   }
 
   let module: TestingModule
@@ -241,18 +237,21 @@ describe('LLMOrchestrationService - Integration', () => {
   let checkpointer: MemorySaver
   let llm: FakeLlmClient
   let metrics: jest.Mocked<TdrBotMetricsService>
+  let routerDecision: jest.Mock
   let equationImageService: jest.Mocked<EquationImageService>
   let mediaRequestHandler: jest.Mocked<MediaRequestHandler>
   let reminderService: jest.Mocked<ReminderService>
   let settings: { get: jest.Mock }
+  let mockTools: StructuredToolInterface[]
 
   beforeEach(async () => {
     jest.clearAllMocks()
 
-    mockTools.length = 0
+    mockTools = []
     checkpointer = new MemorySaver()
     llm = new FakeLlmClient()
     metrics = createMockMetricsService()
+    routerDecision = jest.fn()
 
     settings = {
       get: jest.fn().mockReturnValue({
@@ -310,7 +309,8 @@ describe('LLMOrchestrationService - Integration', () => {
         { provide: MediaRequestHandler, useValue: mediaRequestHandler },
         { provide: ReminderService, useValue: reminderService },
         { provide: LlmClient, useValue: llm },
-        { provide: LlmMetricsService, useValue: { routerDecision: jest.fn() } },
+        { provide: LlmTools, useValue: { all: mockTools } },
+        { provide: LlmMetricsService, useValue: { routerDecision } },
         { provide: SettingsService, useValue: settings },
         { provide: TdrBotMetricsService, useValue: metrics },
         {
@@ -471,6 +471,34 @@ describe('LLMOrchestrationService - Integration', () => {
     )
 
     it(
+      'saves one checkpoint per turn',
+      async () => {
+        llm
+          .script('router.classify', { skill: 'chat' })
+          .script('chat.respond', 'hey')
+        const thread = {
+          configurable: { thread_id: threadIdFor({ channelId: 'chan-1' }) },
+        }
+
+        for (const message of ['one', 'two']) {
+          await service.sendMessage({
+            message,
+            user: 'Alice',
+            userId: 'u-1',
+            channelId: 'chan-1',
+          })
+        }
+
+        const checkpoints = []
+        for await (const tuple of checkpointer.list(thread)) {
+          checkpoints.push(tuple)
+        }
+        expect(checkpoints).toHaveLength(2)
+      },
+      TEST_TIMEOUT,
+    )
+
+    it(
       'stamps the human message with the Discord display name',
       async () => {
         llm
@@ -540,7 +568,7 @@ describe('LLMOrchestrationService - Integration', () => {
 
   describe('failures', () => {
     it(
-      'records an error metric under the skill label and rethrows',
+      'records an error metric, rethrows and saves none of the failed skill output',
       async () => {
         llm
           .script('router.classify', { skill: 'chat' })
@@ -555,6 +583,10 @@ describe('LLMOrchestrationService - Integration', () => {
           }),
         ).rejects.toThrow('model down')
 
+        // Exit durability saves once at the end; a failed turn keeps only
+        // its human message, never half a skill's output.
+        const saved = await service.getThreadMessages('chan-1')
+        expect(saved.map(m => m.getType())).toEqual(['human'])
         expect(metrics.llmRequest).toHaveBeenCalledWith('unknown', 'error')
         expect(metrics.observeLlmDuration).toHaveBeenCalledWith(
           'unknown',
@@ -736,7 +768,7 @@ describe('LLMOrchestrationService - Integration', () => {
           if (skill !== undefined) expect(lastSkill()).toBe(skill)
           if (followUp !== undefined) {
             const pending = (
-              (await checkpoint('chan-1', 'guild-1')).pendingFollowUps as
+              (await checkpoint('chan-1')).pendingFollowUps as
                 Record<string, unknown> | undefined
             )?.['u-1']
             expect(!!pending).toBe(followUp)

@@ -133,7 +133,7 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
         await this.promptService.generateMoviePrompt(messages, 'clarification')
       return {
         images: [],
-        messages: messages.concat(clarificationResponse),
+        messages: [clarificationResponse],
       }
     }
 
@@ -164,7 +164,7 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
         )
         return {
           images: [],
-          messages: messages.concat(noResultsResponse),
+          messages: [noResultsResponse],
         }
       }
 
@@ -255,7 +255,7 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
 
       return {
         images: [],
-        messages: messages.concat(selectionResponse),
+        messages: [selectionResponse],
         pendingContext: {
           type: MediaContextType.MovieDownload,
           data: movieContext,
@@ -278,7 +278,7 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
 
       return {
         images: [],
-        messages: messages.concat(errorResponse),
+        messages: [errorResponse],
       }
     }
   }
@@ -320,7 +320,7 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
           )
         return {
           images: [],
-          messages: messages.concat(clarificationResponse),
+          messages: [clarificationResponse],
           pendingContext: {
             type: MediaContextType.MovieDownload,
             data: movieContext,
@@ -346,7 +346,7 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
           )
         return {
           images: [],
-          messages: messages.concat(clarificationResponse),
+          messages: [clarificationResponse],
           pendingContext: {
             type: MediaContextType.MovieDownload,
             data: movieContext,
@@ -380,7 +380,7 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
 
       return {
         images: [],
-        messages: messages.concat(errorResponse),
+        messages: [errorResponse],
       }
     }
   }
@@ -456,7 +456,7 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
 
       return {
         images: [],
-        messages: messages.concat(errorResponse),
+        messages: [errorResponse],
       }
     }
 
@@ -477,9 +477,7 @@ export class MovieDownloadStrategy extends BaseMediaStrategy {
 
     return {
       images: [],
-      messages: messages.concat(
-        withDownloadLinks(response, job.media, job.media.title),
-      ),
+      messages: [withDownloadLinks(response, job.media, job.media.title)],
       pendingContext: {
         type: MediaContextType.RecentRequest,
         data: recentRequest,

@@ -16,7 +16,8 @@ export interface StrategyResult {
   }>
 
   /**
-   * Messages to append to conversation history
+   * The reply messages this strategy produced; the caller already holds the
+   * conversation it was given, so it is never echoed back.
    */
   messages: BaseMessage[]
 
