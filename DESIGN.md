@@ -1,88 +1,100 @@
-# Ultraviolet
+# lilnas design system
 
 The design system for every app at `*.lilnas.io`.
 
 > **See it first:** open `docs/designs/preview/index.html` in a browser. It is a
-> single self-contained file that renders the whole system — palette, type,
-> components, motion, and three apps mocked up in it. Read this doc after.
+> single self-contained file that renders every component in the system. Read
+> this doc after.
+
+**Direction: Category Standard.** Chosen on 2026-10-23 from six dark-purple
+candidates (five sketches plus the earlier "Ultraviolet" system, now retired).
+The comparison pages live in `.impeccable/mocks/components/`. This replaces
+Ultraviolet everywhere; the token names that carried over are listed in
+[`docs/designs/adoption.md`](docs/designs/adoption.md).
 
 ---
 
 ## The thesis
 
 lilnas isn't a product suite. It's a house with rooms — a front door (`auth`), a
-hallway (`portal`), a gym (`swole`), a cinema (`theater`), a workshop
-(`tdr-code`), a mail slot (`download`), a garage (`dashcam`). The apps have
-nothing in common functionally and never will.
+hallway (`portal`), a cinema (`theater`), a workshop (`tdr-code`), a mail slot
+(`download`), a garage (`dashcam`). The apps have nothing in common
+functionally and never will.
 
-Ultraviolet's only job is to make moving between them feel like walking through
-a doorway instead of launching a different product.
+The system's only job is to make moving between them feel like walking through a
+doorway instead of launching a different product.
 
-**One hue. All the chroma.** Most dark-purple interfaces are a neutral grey UI
-with a violet button glued on. Ultraviolet inverts that: background, surfaces,
-borders, text and accent are all hue `300`. Only the _chroma_ changes — from
-`0.008` in body copy to `0.21` in the accent. Nothing in the system is grey.
-Everything is purple; most of it is just very quiet.
+**Quiet, conventional, and consistent.** The category standard is the look of
+good modern dev tools: dark surfaces, hairline borders, 6–8px corners, soft
+tinted status pills, one accent. It has no gimmick. That is the point: eight
+unrelated apps read as one place when none of them is trying to be memorable on
+its own, and the one memorable thing (the doorplate) is identical in all of them.
 
-That one decision is what makes eight unrelated apps read as one place, and it's
-why the accent never looks stuck on.
+**Purple is the only colour that isn't a status.** Every neutral is tinted
+slightly toward violet, the accent is violet, and nothing else on screen is
+allowed to be a hue unless it is telling you how something is going.
 
 ---
 
-## The three rules
+## The four rules
 
-Every rule below is the same idea in a different material: **separate what the
-machine asserts from what a person does.** Learn these three and you can style a
-screen that nobody has specced.
+### 1. Colour — one accent, tinted neutrals, status means status
 
-### 1. Colour — chroma is energy
+| Colour          | Means                                                        |
+| --------------- | ------------------------------------------------------------ |
+| Accent (violet) | The primary action, the active thing, links, focus, progress |
+| Green `ok`      | Running, live, succeeded, granted, connected                 |
+| Amber `warn`    | Degraded, pending, queued, stale, needs attention            |
+| Red `bad`       | Failed, error, blocked, destructive                          |
+| Everything else | Violet-tinted greys. There is no neutral grey and no blue.   |
 
-Quiet things don't change colour when you interact with them. They get _more
-purple_.
+Any hue that isn't violet is news. Never introduce a fourth hue "for variety" or
+"for info" — info is the accent, decoration is nothing.
 
-| State         | What changes                                              |
-| ------------- | --------------------------------------------------------- |
-| Rest          | Low chroma (`0.021`–`0.038`)                              |
-| Hover         | Border and fill gain chroma; a tile goes `0.027` → `0.06` |
-| Focus         | Gains chroma **and** a 3px `uv-ghost` ring                |
-| Live / active | Maximum chroma, plus the pulse                            |
-| Pressed       | Accent only — drops lightness, gains chroma               |
+**Dark ink on the accent, never white.** White on the accent is about 3:1 and
+fails WCAG AA; `accent-ink` gives 5.9:1.
 
-The accent is the one exception: it already sits at maximum chroma, so on hover
-it brightens instead (`68%` → `75%`). It has nowhere left to go.
+### 2. Type — Geist for people, Geist Mono for identifiers
 
-**Corollary — any hue that isn't 300 is news.** Green, amber and red are the
-only non-purple colours that exist. They mean status and nothing else. That's
-why they read so loudly on a page where everything else is one wavelength. Never
-introduce a fourth hue "for variety."
+One family does nearly everything. Geist Mono is reserved for strings a process
+emitted that you might copy: hostnames, IDs, paths, keys, commands and log
+lines. Numbers are never mono by default — they are Geist with
+`font-variant-numeric: tabular-nums`, which is on for the whole body so columns
+and counters never jitter.
 
-### 2. Type — mono is the machine, sans is the interface talking to you
+When you can't decide, ask: **would someone copy-paste this?** `download.lilnas.io`
+yes; `64% · 12.1 MB/s` no.
 
-| Voice    | Face                | What it carries                                                                            |
-| -------- | ------------------- | ------------------------------------------------------------------------------------------ |
-| Machine  | IBM Plex Mono       | subdomains, IDs, statuses, counts, timestamps, paths, keys, log lines, `tabular-nums` data |
-| Human    | Figtree             | descriptions, empty states, errors, help, button labels, anything phrased as a sentence    |
-| The door | Bricolage Grotesque | page titles at ≥24px only, and the one big number on a screen                              |
+### 3. Shape and elevation — hairlines, not shadows
 
-When you can't decide which a string is, ask: **did a human write it, or did a
-process emit it?** `4h ago` is emitted. `Last seen four hours ago` is written.
+Radius encodes what a thing is: **6px controls** (buttons, inputs), **8px
+containers** (cards, panels, menus, dialogs), **full round for labels** (badges,
+avatars, dots, the doorplate). Surfaces stack by lightness plus a 1px border.
+One shadow exists, for things that genuinely float: menus, dialogs, drawers,
+tooltips and toasts.
 
-This is the rule that saves the most work. Eight apps built months apart drift
-because every new screen re-decides what a timestamp looks like. One question
-settles that everywhere, forever, without shipping a component.
+### 4. Motion — springs for you, eases for the machine
 
-### 3. Motion — springs for you, eases for the machine
+Things you cause (press, toggle, drag) use a short spring. Things the system
+causes (data arrived, route changed, toast appeared) use one soft ease-out. There
+is one entry motion in the whole system — fade up 6px — and "lots of animation"
+comes from staggering it, never from inventing new gestures. Details in
+[`docs/designs/motion.md`](docs/designs/motion.md).
 
-| Cause                                                           | Curve       | Duration      |
-| --------------------------------------------------------------- | ----------- | ------------- |
-| You pressed, dragged, toggled it                                | spring      | 120ms         |
-| The system did it (data arrived, route changed, toast appeared) | `--ease-uv` | 200ms / 380ms |
+---
 
-There is **one** entry motion in the whole system: fade up 6px. "Lots of
-animation" comes from _staggering_ that one motion across a list at 40ms, not
-from inventing new ones. A screen that slides, spins, bounces and fades is
-noise; a screen where forty things arrive in sequence with the same gesture
-feels alive.
+## Density follows the job
+
+Two modes, same tokens:
+
+| Mode                  | Used by                         | Control height | Body text |
+| --------------------- | ------------------------------- | -------------- | --------- |
+| Comfortable (default) | `download`, `portal`, `dashcam` | 36px           | 14px      |
+| Compact               | `dev`, `tdr-code`, admin tables | 30px           | 13px      |
+
+On touch screens every tappable thing is at least 44px tall regardless of mode.
+Phone and desktop are equals: a layout that only works at one width is
+unfinished.
 
 ---
 
@@ -95,31 +107,30 @@ badge and its subdomain in mono:
 ( 🐸 ) swole.lilnas.io
 ```
 
-It is byte-for-byte identical in all eight apps — same size, same position, same
-radius, same type. It's the only element that never varies. That sameness is
-what turns eight tabs into one building.
+It is identical in every app — same size, position, radius and type. It's the
+only element that never varies, and that sameness is what turns eight tabs into
+one building.
 
-**The live dot.** 7px, hue 300 or `--ok`, with a slow 2.4s expanding ring.
-Anything alive anywhere in the system wears it: a running session, an active
-download, a player in the theater, a workout in progress.
+**The live dot.** 8px, accent or `ok`, with a slow 2.4s expanding ring. Anything
+alive anywhere in the system wears it: a running session, an active download, a
+workout in progress. Problems never pulse.
 
 ---
 
 ## Where delight lives
 
-"Delightful" is mostly not animation. Budget it deliberately:
+Category Standard is deliberately restrained, so spend delight in four places
+and nowhere else:
 
-1. **Empty states** — the only place the mascot is allowed out, plus one line in
-   the interface's voice and exactly one thing to press.
-2. **Completion** — finishing a workout, a download landing, access being
-   granted. These earn a real moment.
-3. **Micro-feedback** — every press springs. Not decoration; it's the interface
-   feeling physical.
+1. **Empty states** — the only place the mascot appears in normal UI, with one
+   line in the interface's voice and exactly one thing to press.
+2. **Completion** — a download landing, access being granted. These earn a real
+   moment.
+3. **Micro-feedback** — every press springs.
 4. **Writing** — see [`docs/designs/voice.md`](docs/designs/voice.md). Most of
    "friendly" is not being weird at people.
 
-**One delight per screen, maximum.** If two things on a screen are competing to
-be charming, cut one.
+**One delight per screen, maximum.**
 
 ---
 
@@ -127,54 +138,52 @@ be charming, cut one.
 
 ```css
 /* surfaces — stack by lightness, never by shadow */
---color-bg: oklch(14% 0.021 300);
---color-bg-sunk: oklch(11% 0.018 300);
---color-surface: oklch(18.5% 0.027 300);
---color-surface-2: oklch(23% 0.032 300);
---color-surface-3: oklch(28% 0.038 300);
+--color-bg-sunk: #09080e;
+--color-bg: #0e0c14;
+--color-surface: #181520;
+--color-surface-2: #211d2c;
+--color-surface-3: #2b2638;
 
-/* lines do the work shadows would */
---color-line: oklch(29% 0.038 300);
---color-line-soft: oklch(23.5% 0.031 300);
---color-line-loud: oklch(41% 0.055 300);
+/* lines */
+--color-line-soft: #231f2f;
+--color-line: #2e2a3c;
+--color-line-loud: #4a4460; /* floating things */
+--color-line-control: #6f688a; /* input and checkbox boundaries, 3:1+ */
 
 /* text */
---color-ink: oklch(97% 0.008 300);
---color-ink-2: oklch(79% 0.02 300);
---color-ink-3: oklch(63% 0.026 300);
---color-ink-4: oklch(50% 0.028 300);
+--color-ink: #ebe8f2;
+--color-ink-2: #c4bfd3;
+--color-ink-3: #a29cb4;
+--color-ink-4: #736d88; /* disabled and decoration only */
 
 /* the accent */
---color-uv: oklch(68% 0.21 300);
---color-uv-hi: oklch(75% 0.195 300); /* hover */
---color-uv-press: oklch(62% 0.225 300); /* active */
---color-uv-dim: oklch(42% 0.14 300);
---color-uv-ghost: oklch(68% 0.21 300 / 0.13);
---color-uv-ink: oklch(15% 0.045 300); /* text ON the accent */
+--color-accent: #9b7bf5;
+--color-accent-hi: #ae92f8; /* hover, and accent-coloured text */
+--color-accent-press: #8a67ee;
+--color-accent-ghost: rgb(155 123 245 / 0.16);
+--color-accent-ink: #120a2a; /* text ON the accent */
 
 /* status — the only other hues that exist */
---color-ok: oklch(76% 0.17 155);
---color-warn: oklch(82% 0.15 85);
---color-bad: oklch(66% 0.2 22);
+--color-ok: #3fb27f;
+--color-warn: #e0a43a;
+--color-bad: #ef5b5b;
 ```
-
-Full token set, the copy-pasteable `@theme` block, and the reasoning behind each
-value: [`docs/designs/foundations.md`](docs/designs/foundations.md).
 
 ### Non-negotiables
 
-- **Dark ink on the accent, never white.** White on `--color-uv` is ~3:1 and
-  fails WCAG AA. `--color-uv-ink` gives ~7:1. The accessible choice is also the
-  flatter, more poster-like one.
-- **Elevation is lightness + a border. Not shadow.** The system is flat. The one
-  shadow (`--shadow-lift`) is reserved for things that genuinely float above the
-  page: modal, drawer, popover, toast.
-- **Focus rings are always visible.** 2px `--color-uv`, 2px offset. Never
+- **Dark ink on the accent.** `accent-ink`, not white.
+- **Elevation is lightness + a border, not shadow.** The one shadow
+  (`--shadow-lift`) is for menus, dialogs, drawers, tooltips and toasts.
+- **Control boundaries are visible.** Inputs, checkboxes and switches use
+  `line-control` (3:1+). Decorative card borders use `line`.
+- **Placeholders are `ink-3`.** `ink-4` is below AA and never carries a word
+  someone needs to read.
+- **Focus rings are always visible.** 2px `accent`, 2px offset. Never
   `outline: none` without a replacement.
 - **`prefers-reduced-motion` is respected everywhere.** Entry animations resolve
   to their end state; loops stop.
-- **Round means label, rectangular means control.** Chips, badges, avatars and
-  status pills are `rounded-full`. Buttons, inputs and cards are not.
+- **Round means label, rectangular means control.** Badges, avatars, dots and the
+  doorplate are `rounded-full`. Buttons, inputs and cards are not.
 
 ---
 
@@ -182,18 +191,18 @@ value: [`docs/designs/foundations.md`](docs/designs/foundations.md).
 
 | Doc                                                                  | What's in it                                                                     |
 | -------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| [`docs/designs/preview/index.html`](docs/designs/preview/index.html) | **Start here.** The whole system, rendered.                                      |
-| [`docs/designs/foundations.md`](docs/designs/foundations.md)         | Colour, type, space, shape, elevation. Tokens + the `@theme` block.              |
+| [`docs/designs/preview/index.html`](docs/designs/preview/index.html) | **Start here.** Every component, rendered.                                       |
+| [`docs/designs/foundations.md`](docs/designs/foundations.md)         | Colour, type, space, shape, elevation. Tokens, contrast, and the `@theme` block. |
 | [`docs/designs/motion.md`](docs/designs/motion.md)                   | Durations, curves, the entry motion, stagger, reduced motion.                    |
 | [`docs/designs/components.md`](docs/designs/components.md)           | Anatomy, variants and states for every primitive.                                |
 | [`docs/designs/voice.md`](docs/designs/voice.md)                     | How the interface talks. Buttons, errors, empty states.                          |
-| [`docs/designs/adoption.md`](docs/designs/adoption.md)               | Rollout order, the `@lilnas/ui` package, and the MUI→Tailwind migration per app. |
+| [`docs/designs/adoption.md`](docs/designs/adoption.md)               | Current state of every app, the `@lilnas/ui` package, migration order.           |
 
 ---
 
 ## Status
 
-**v0.1 — direction agreed, nothing built yet.** No app has adopted this. The
-`@lilnas/ui` package doesn't exist. See
-[`docs/designs/adoption.md`](docs/designs/adoption.md) for the proposed order and
-the real per-app cost.
+**Direction agreed; implementation partial.** `apps/download` and `apps/dev`
+already ship a local copy of the previous (Ultraviolet) system under the same
+token names, so the first step is a values swap, not a rewrite. `@lilnas/ui`
+doesn't exist yet. See [`docs/designs/adoption.md`](docs/designs/adoption.md).

@@ -8,6 +8,14 @@ What exists today, what it costs to move each app, and the order to do it in.
 
 Eight apps have a UI. They share almost nothing.
 
+> **Status (2026-10-23).** The survey below predates adoption. Since then
+> `apps/download` and `apps/dev` have been built on a local copy of the previous
+> design system ("Ultraviolet", now retired): their own `@theme` block in
+> `src/tailwind.css` and their own `src/components/ui/`. They are the first
+> apps to migrate to Category Standard — see
+> [Migrating the apps already on Ultraviolet](#migrating-the-apps-already-on-ultraviolet).
+> The other rows are unchanged unless noted.
+
 | App        | Stack             | Accent today              | Neutrals        | Notes                                                                         |
 | ---------- | ----------------- | ------------------------- | --------------- | ----------------------------------------------------------------------------- |
 | `portal`   | Next RSC          | `purple-500`              | `gray-*`        | ~20 lines total. One component.                                               |
@@ -51,30 +59,112 @@ packages/ui/
 Apps opt in with two lines:
 
 ```css
-@import "@lilnas/ui/theme.css";
+@import '@lilnas/ui/theme.css';
 @source '../../../node_modules/@lilnas/ui/dist';
 ```
 
 The `@source` line is mandatory — Tailwind skips `node_modules` by default, so
 without it none of the library's classNames get generated.
 
-### Headless layer: Radix
+### Headless layer: Base UI
 
-Recommended over the alternatives:
+Decided in `PRODUCT.md`; recommended over the alternatives:
 
-- **Radix** — mature, accessible, unstyled, and `tdr-bot` already has a
-  `components.json` configured for shadcn (`utils: "@lilnas/utils/cns"`), so
-  the convention is half-adopted.
-- **Base UI** — MUI's own successor, conceptually the smoothest migration path
-  off MUI, but younger and still moving.
+- **Base UI** (`@base-ui/react`) — unstyled and accessible, with the full set
+  this system needs (Dialog, Menu, Select, Combobox, Popover, Tabs, Tooltip,
+  Switch). It is MUI's own successor, so its structure is the smoothest
+  migration path off MUI. It reached 1.x and has shipped a minor release
+  roughly monthly since May 2026; pin the version and read release notes on
+  upgrade, since minors can still change APIs.
+- **Radix** — also mature and accessible, and `tdr-bot` already has a
+  `components.json` configured for shadcn (`utils: "@lilnas/utils/cns"`), but
+  it is not what MUI users already know and the decision went the other way.
 - **Headless UI** — too narrow; no combobox good enough for `swole`.
 
-Take Radix. Copy shadcn's _structure_ where it helps, but not its visual
-defaults — the shadcn look is precisely the generic dark-dashboard look this
+Take Base UI. Build the simple components (button, badge, card, input, table,
+progress) directly in Tailwind; use Base UI only where focus management,
+keyboard navigation, positioning or ARIA are hard to get right. Copy shadcn's
+_structure_ where it helps, but not its visual defaults — the shadcn look is precisely the generic dark-dashboard look this
 system exists to avoid.
 
 Build in the tiers from [`components.md`](components.md#build-order). Tier 1
 unblocks `portal` and `auth`; tier 3 exists only for `swole`.
+
+---
+
+## Migrating the apps already on Ultraviolet
+
+`apps/download` and `apps/dev` use the previous system's token names. Most of
+those names are semantic and carry over; only the values and a handful of names
+change, so this is a values swap plus a rename, not a rewrite.
+
+### Measured surface
+
+| Count                                    | `download` | `dev` |
+| ---------------------------------------- | ---------- | ----- |
+| `uv-*` utility classes                   | 154        | 27    |
+| Files containing them                    | 64         | 13    |
+| `ease-uv` references                     | 52         | 18    |
+| `font-mono` uses to review               | 112        | 50    |
+| `<Chip>` usages (become `<Badge>`)       | 44         | 13    |
+| Font references (Figtree/Plex/Bricolage) | 12         | 11    |
+| `oklch(` literals outside `tailwind.css` | 0          | 0     |
+
+The last row is the good news: neither app has an `oklch()` literal outside its
+`tailwind.css`, so colour appears to flow through tokens. (Hex values and
+arbitrary-value classes were not counted; check for them in step 3.)
+
+### Token map
+
+| Previous                                                  | Now                                                                               |
+| --------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `bg`, `bg-sunk`, `surface`, `surface-2`, `-3`             | Same names, new values                                                            |
+| `line-soft`, `line`, `line-loud`                          | Same names, new values                                                            |
+| —                                                         | `line-control` (new): input / checkbox / switch borders                           |
+| `ink`, `ink-2`, `ink-3`                                   | Same names, new values                                                            |
+| `ink-4`                                                   | Same name, **narrower job**: disabled and decoration only                         |
+| `uv`, `uv-hi`, `uv-press`, `uv-dim`, `uv-ghost`, `uv-ink` | `accent`, `accent-hi`, `accent-press`, `accent-dim`, `accent-ghost`, `accent-ink` |
+| `ok`, `warn`, `bad` and their `-ghost`                    | Same names, new values                                                            |
+| `ease-uv`                                                 | `ease-standard`                                                                   |
+| `radius-xs` / `md` / `lg` / `xl` = 6 / 10 / 14 / 20       | Same names, now 4 / 6 / 8 / 12                                                    |
+| `Chip`                                                    | `Badge`                                                                           |
+| Figtree / IBM Plex Mono / Bricolage Grotesque             | Geist / Geist Mono; no display face                                               |
+
+### Order of work, per app
+
+1. **Swap the values.** Replace the `@theme` block with the one in
+   [`foundations.md`](foundations.md). It includes deprecated `uv-*` and `ease-uv`
+   aliases, so nothing else has to change for the app to build and render in the
+   new palette. Do this first and look at every screen: it will already be 80% of
+   the way there.
+2. **Swap the fonts** in `layout.tsx` (`next/font/google`: `Geist`, `Geist_Mono`)
+   and delete the Bricolage loader.
+3. **Fix what the values swap can't.** Search for these, in this order:
+   - `hover:-translate-y-*` and any hover `shadow-*` on cards (hover now steps a
+     surface; it does not lift) — 4 hits across both apps today.
+   - `placeholder:text-ink-4` → `placeholder:text-ink-3`, and any readable
+     sentence set in `ink-4`.
+   - Input / checkbox / switch borders → `border-line-control`.
+   - `font-mono` on things that are not identifiers: statuses, counts, sizes,
+     timestamps, percentages. Those become plain Geist (tabular figures are on
+     globally). Keep it on hostnames, IDs, paths, commands and log lines.
+   - Lowercase "machine voice" chip text (`running`, `4h ago`) → sentence-case
+     `Badge` text (`Running`) where it is a status; keep derived times as plain
+     text.
+4. **Rename** `uv-*` → `accent-*` and `ease-uv` → `ease-standard` with a single
+   `sed` per app, then delete the alias block. Run `pnpm lint`, `type-check` and
+   the app's tests.
+5. **`Chip` → `Badge`.** The component keeps its API; only the look (borderless,
+   leading dot) and the name change.
+
+**Cost (estimate):** about half a day for `dev`; about a day for `download`,
+mostly step 3 because of its 112 `font-mono` call sites.
+
+When `@lilnas/ui` exists, these apps delete their local `@theme` block and
+`src/components/ui/` copies and import the package instead. Building `@lilnas/ui`
+from the components already written in `download` and `dev` (rather than from
+scratch) is the cheapest route, and is what the build order in
+[`components.md`](components.md) assumes.
 
 ---
 
@@ -86,10 +176,10 @@ the expensive app goes last against a mature library.
 ### 1. `portal` — the proof
 
 ~20 lines of JSX. It's the hallway everybody passes through, and it exercises
-exactly tier 1: `Doorplate`, `Tile`, `Chip`, `StatusDot`, `EmptyState`, plus the
+exactly tier 1: `Doorplate`, `Tile`, `Badge`, `StatusDot`, `EmptyState`, plus the
 stagger.
 
-If Ultraviolet doesn't look right here, stop and fix the system before touching
+If the system doesn't look right here, stop and fix the system before touching
 anything else.
 
 **Cost:** an afternoon, most of it building tier 1.
@@ -98,8 +188,8 @@ anything else.
 
 Mostly a **token swap**, not a rewrite. `design-tokens.css` already has the
 right shape: `--bg`, `--surface`, `--fg`, `--muted`, `--border`, `--accent`,
-`--radius`, in OKLCH. Repoint those at the Ultraviolet values (accent hue
-255 → 300) and the whole app moves at once.
+`--radius`, in OKLCH. Repoint those at the Category Standard values (accent
+blue → violet `#9b7bf5`) and the whole app moves at once.
 
 Then, incrementally:
 
@@ -113,7 +203,7 @@ Then, incrementally:
   `<Button variant="bad" size="sm">`.
 - Replace the duplicated desktop-table / mobile-card renderings of the people
   list with one `<DataList>`.
-- Swap `Inter` → `Figtree` in `layout.tsx` (the one place fonts are wired).
+- Swap `Inter` → `Geist` in `layout.tsx` (the one place fonts are wired).
 - Keep `pulse-ring` — it's already the live pulse, just retimed to 2.4s.
 
 **Cost:** 1–2 days. High visibility for the effort.
@@ -123,22 +213,22 @@ Then, incrementally:
 10 MUI components, 17 JSX instances, 8 files, 2 icons, **zero `sx` props** — all
 styling already goes through `className` and `slotProps`.
 
-| MUI                                  | Replacement                                                                         |
-| ------------------------------------ | ----------------------------------------------------------------------------------- |
-| `Tabs` / `Tab` ×2                    | `<Tabs>` (the only one with real behaviour)                                         |
-| `TextField` ×4                       | `<Input>` / `<Field>`                                                               |
-| `CircularProgress` ×3                | `<Spinner>`                                                                         |
-| `LinearProgress`                     | `<Progress>`                                                                        |
-| `Chip` ×2                            | `<Chip>` — and the `ts-pattern` status map moves from `!bg-green-700` to tone names |
-| `IconButton` ×2                      | `<Button variant="ghost">`                                                          |
-| `Paper`, `Checkbox`, `ThemeProvider` | `<Card>`, `<Checkbox>`, delete                                                      |
+| MUI                                  | Replacement                                                                          |
+| ------------------------------------ | ------------------------------------------------------------------------------------ |
+| `Tabs` / `Tab` ×2                    | `<Tabs>` (the only one with real behaviour)                                          |
+| `TextField` ×4                       | `<Input>` / `<Field>`                                                                |
+| `CircularProgress` ×3                | `<Spinner>`                                                                          |
+| `LinearProgress`                     | `<Progress>`                                                                         |
+| `Chip` ×2                            | `<Badge>` — and the `ts-pattern` status map moves from `!bg-green-700` to tone names |
+| `IconButton` ×2                      | `<Button variant="ghost">`                                                           |
+| `Paper`, `Checkbox`, `ThemeProvider` | `<Card>`, `<Checkbox>`, delete                                                       |
 
 Also deletes 12 `!` classes, `src/theme.ts`, `@emotion/*` and
 `@mui/material-nextjs`.
 
 Keep the giant single-input hero — a `md:text-6xl` heading over one huge field
-is a genuinely good, characterful screen. It just needs `font-display` and the
-new tokens.
+is a genuinely good, characterful screen. It just needs the new tokens and a
+larger Geist 600 in place of a display face.
 
 **Cost:** ~1 day.
 
@@ -152,7 +242,7 @@ Removing MUI also deletes the hand-rolled `@emotion/cache` +
 `useServerInsertedHTML` SSR shim in `Provider.tsx` (~50 lines).
 
 The `eminence` / `lavender` scales in `tailwind.config.ts` get deleted — they're
-a duplicate of `theme.ts` and both are superseded by `uv`.
+a duplicate of `theme.ts` and both are superseded by the accent token.
 
 Do this before building the real admin UI those unused `src/queries/` hooks
 imply, not after.
@@ -164,16 +254,16 @@ imply, not after.
 No MUI at all. This is a find-and-replace of a hardcoded `gray-*` ladder onto
 semantic tokens:
 
-| Today                                               | Becomes                    |
-| --------------------------------------------------- | -------------------------- |
-| `bg-gray-950` (×26 as `gray-900`+)                  | `bg-bg`                    |
-| `bg-gray-900`                                       | `bg-surface`               |
-| `bg-gray-800` (×40)                                 | `bg-surface-2`             |
-| `bg-gray-700` (×22)                                 | `bg-surface-3`             |
-| `border-gray-800` (×20)                             | `border-line`              |
-| `text-gray-500` (×70) / `-400` (×43) / `-300` (×49) | `text-ink-4` / `-3` / `-2` |
-| `bg-blue-700 text-blue-100`                         | `<Button variant="uv">`    |
-| `bg-green-900 text-green-300` etc.                  | `<Chip tone="ok">` etc.    |
+| Today                                               | Becomes                     |
+| --------------------------------------------------- | --------------------------- |
+| `bg-gray-950` (×26 as `gray-900`+)                  | `bg-bg`                     |
+| `bg-gray-900`                                       | `bg-surface`                |
+| `bg-gray-800` (×40)                                 | `bg-surface-2`              |
+| `bg-gray-700` (×22)                                 | `bg-surface-3`              |
+| `border-gray-800` (×20)                             | `border-line`               |
+| `text-gray-500` (×70) / `-400` (×43) / `-300` (×49) | `text-ink-3` / `-3` / `-2`  |
+| `bg-blue-700 text-blue-100`                         | `<Button variant="accent">` |
+| `bg-green-900 text-green-300` etc.                  | `<Badge tone="ok">` etc.    |
 
 The app is already philosophically aligned — dense, mono-heavy, `tabular-nums`,
 a `tracking-[0.15em] uppercase` wordmark, `StatusDot`, and a dependency-free
@@ -211,12 +301,13 @@ Three things to handle deliberately:
 
 1. **`MuiButtonBase.defaultProps.LinkComponent`** in `theme.tsx` wires
    `next/link` into `<Button href>` as an RSC-boundary workaround. `@lilnas/ui`
-   `<Button>` needs an `asChild` prop (Radix `Slot`) to replace it.
+   `<Button>` needs a `render` prop (Base UI's polymorphism mechanism, the
+   counterpart of Radix's `asChild`) to replace it.
 2. **`RoutineCard.tsx`** has a 300ms exit-animation hack tied to MUI's `Menu`
-   close lifecycle. Rebuild it on the Radix close callback rather than porting
+   close lifecycle. Rebuild it on Base UI's open-change / exit-transition support rather than porting
    the timeout.
 3. **`recharts`** in `WeightTrendChart.tsx` is MUI-independent and survives, but
-   has hardcoded hex (`stroke="#f97316"`, grid `#262626`). Retoken to `uv` and
+   has hardcoded hex (`stroke="#f97316"`, grid `#262626`). Retoken to the accent and
    `line-soft`. `@dnd-kit` needs no changes at all.
 
 The accent moves orange → purple. That's the biggest visual change of any app,
@@ -248,7 +339,7 @@ Three options:
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **A — Doorplate only** _(recommended)_ | Keep the black/white HUD aesthetic. Adopt only the `Doorplate`, the type families, and the voice rules. The room is dark because it's a cinema; that's a legitimate reason to differ. |
 | **B — Full adoption**                  | Retint the HUD purple. Risk: purple chrome over projected video competes with the film and hurts the immersion the app is built around.                                               |
-| **C — Landing only**                   | Landing + CharacterSelect become full Ultraviolet; the in-world HUD stays black/white. A clean boundary at the moment you enter the room.                                             |
+| **C — Landing only**                   | Landing + CharacterSelect become the full system; the in-world HUD stays black/white. A clean boundary at the moment you enter the room.                                              |
 
 **A** is the recommendation, with **C** as a good compromise if the login screen
 feeling disconnected bothers you. Either way `theater` is on branch
@@ -267,7 +358,7 @@ Removing MUI from all three apps deletes:
 - 173 `!`-prefixed Tailwind classes
 - 14 `sx` props
 
-Add `@radix-ui/*` (per-primitive), and `motion` only where enter/exit on unmount
+Add `@base-ui/react`, and `motion` only where enter/exit on unmount
 genuinely needs it.
 
 ### Delete the theme block from every `tailwind.config.ts`

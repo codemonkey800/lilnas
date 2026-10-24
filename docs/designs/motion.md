@@ -16,23 +16,24 @@ the same gesture to many elements in sequence, never from inventing new gestures
 | You caused it                               | The machine caused it                                                    |
 | ------------------------------------------- | ------------------------------------------------------------------------ |
 | Button press, toggle, drag, swipe, checkbox | Data arrived, route changed, toast appeared, list loaded, status flipped |
-| `--ease-spring`, 120ms                      | `--ease-uv`, 200–380ms                                                   |
+| `--ease-spring`, 120ms                      | `--ease-standard`, 200–380ms                                             |
 | Feels physical — it pushes back             | Feels delivered — it glides in                                           |
 
-This mirrors the type rule (`mono` = machine, `sans` = interface) and the colour
-rule (hue 300 = system, other hues = events). Three materials, one idea:
-distinguish what the machine asserts from what a person does.
+This mirrors the type rule (Geist Mono = identifiers a process emitted, Geist =
+the interface) and the colour rule (violet = the system, green/amber/red =
+events). Three materials, one idea: distinguish what the machine asserts from
+what a person does.
 
 ---
 
 ## Curves
 
 ```css
---ease-uv: cubic-bezier(0.32, 0.72, 0, 1);
+--ease-standard: cubic-bezier(0.32, 0.72, 0, 1);
 --ease-spring: linear(0, 0.006, 0.025 2.8%, …, 1.015 60%, 1.006 76.2%, 1);
 ```
 
-`--ease-uv` is a strong ease-out: fast start, long settle. It's the curve for
+`--ease-standard` is a strong ease-out: fast start, long settle. It's the curve for
 everything the system does.
 
 `--ease-spring` is a CSS `linear()` spring with a small overshoot (peaks at
@@ -73,7 +74,7 @@ Anything above 400ms in a UI transition is a mistake unless it's ambient
 }
 ```
 
-`animate-rise` — fade up 6px over 380ms on `--ease-uv`.
+`animate-rise` — fade up 6px over 380ms on `--ease-standard`.
 
 Six pixels, not twenty. A big travel distance reads as a slideshow; a small one
 reads as the thing settling into place. Nothing in the system slides in from off
@@ -106,7 +107,7 @@ export function StaggeredList({ items }: { items: Item[] }) {
       className="animate-rise"
       style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}
     />
-  ));
+  ))
 }
 ```
 
@@ -126,20 +127,19 @@ should arrive as one object.
 
 ---
 
-## Hover: chroma, not colour
+## Hover: one step up
 
-The signature interaction. A quiet surface doesn't change hue when you point at
-it — it gains chroma.
+A quiet surface doesn't change colour when you point at it — it steps up one
+level in lightness, and its border steps up one level in strength.
 
 ```
-rest   bg-surface       (18.5% 0.027 300)   border-line      (29% 0.038 300)
-hover  oklch(22% .055 300)                  border-uv        (68% 0.21  300)
-       + translateY(-2px)
+rest   bg-surface     border-line
+hover  bg-surface-2   border-line-loud
 ```
 
-Only the accent behaves differently: it's already at maximum chroma, so hover
-brightens it (`uv` → `uv-hi`) and press darkens-and-saturates it
-(`uv` → `uv-press`).
+The accent behaves differently: hover brightens it (`accent` → `accent-hi`) and
+press darkens it (`accent` → `accent-press`). Cards and tiles do not lift or gain
+a shadow on hover.
 
 Transition `background-color`, `border-color`, `color` and `transform` — never
 `all`. `transition-all` will animate `height` and `width` during layout and
@@ -189,7 +189,7 @@ progress, tailing logs.
 
 It's slow on purpose. A fast pulse is an alarm; a slow one is a heartbeat.
 
-Only ever one hue per dot — `ok` for healthy-and-live, `uv` for
+Only ever one hue per dot — `ok` for healthy-and-live, `accent` for
 system-is-doing-something. A `warn` or `bad` dot does **not** pulse; a problem
 that blinks at you is stressful and you can't triage a wall of them.
 
@@ -205,15 +205,14 @@ already visible.
 background: linear-gradient(
   100deg,
   var(--color-surface-2) 30%,
-  oklch(30% 0.055 300) 50%,
+  var(--color-line) 50%,
   var(--color-surface-2) 70%
 );
 background-size: 300% 100%;
 animation: shimmer 1.5s linear infinite;
 ```
 
-The shimmer highlight is the one gradient in the system, and it's a chroma bump
-— consistent with the hover rule.
+The shimmer highlight is the one gradient in the system.
 
 Use a spinner only when you genuinely can't know the shape of the result:
 inside a button mid-submit, or a full-page boot. Use a progress bar whenever a
@@ -223,7 +222,7 @@ real percentage exists (`download` always has one).
 
 ## Route transitions
 
-380ms, `--ease-uv`, `animate-rise` on the incoming page. Nothing on the
+380ms, `--ease-standard`, `animate-rise` on the incoming page. Nothing on the
 outgoing page — animating an exit means the user waits to leave, which always
 feels slower than it is.
 
@@ -263,7 +262,7 @@ Two things need explicit handling:
 | Always                        | Once per screen            | Never                                                  |
 | ----------------------------- | -------------------------- | ------------------------------------------------------ |
 | Press springs                 | One staggered reveal       | Parallax                                               |
-| Hover chroma                  | One celebration, if earned | Anything looping that isn't a status                   |
+| Hover steps                   | One celebration, if earned | Anything looping that isn't a status                   |
 | Focus rings                   |                            | Entrance animations on scroll for content already read |
 | The live pulse on live things |                            | Two competing focal animations                         |
 
