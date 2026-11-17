@@ -1,7 +1,6 @@
 import { render } from '@testing-library/react'
 
 import AppLayout from 'src/app/layout'
-import { iconSymbolId, PEPE_SYMBOL_ID } from 'src/components/ui/icon'
 import type { Viewer } from 'src/lib/viewer'
 import { getViewer } from 'src/lib/viewer'
 
@@ -19,19 +18,18 @@ jest.mock('src/tailwind.css', () => ({}))
 // conflicting font-family utilities and drop the first. Real next/font
 // variables are hashed (`__variable_e8ce0c`) and hit no such group.
 jest.mock('next/font/google', () => ({
-  Figtree: () => ({ variable: 'stub-sans-var' }),
-  IBM_Plex_Mono: () => ({ variable: 'stub-mono-var' }),
+  Geist: () => ({ variable: 'stub-sans-var' }),
+  Geist_Mono: () => ({ variable: 'stub-mono-var' }),
 }))
 
 // The bar's nav-search slot now holds a client component that reads the App
 // Router (`usePathname` to know whether it is on /search, `useRouter` to push a
 // title query at it). A unit render has no router mounted, and `useRouter`
-// throws rather than degrading, so both are stubbed at the route the shell is
-// most often on. The real field's own behaviour is covered in
+// throws rather than degrading, so both are stubbed on a route that is not one of the two heroes. The real field's own behaviour is covered in
 // src/components/shell/__tests__/nav-search.spec.tsx; what this file still
 // asserts is that the slot is filled at all.
 jest.mock('next/navigation', () => ({
-  usePathname: () => '/',
+  usePathname: () => '/gallery',
   useRouter: () => ({ push: jest.fn() }),
 }))
 
@@ -53,7 +51,7 @@ const VIEWER: Viewer = {
  * React 19 knows how to render a document root outside a document: `<html>`'s
  * and `<body>`'s props are applied to the real `document.documentElement` /
  * `document.body`, and their *children* land in RTL's container. So the
- * container below holds the sprite, the bar and the page — exactly the three
+ * container below holds the bar and the page — exactly the two
  * things this file is about — with no DOM-nesting complaints to suppress.
  */
 async function renderLayout(viewer: Viewer | null): Promise<HTMLElement> {
@@ -69,27 +67,13 @@ function follows(first: Element, second: Element): boolean {
 }
 
 describe('AppLayout', () => {
-  it('renders the icon sprite exactly once', async () => {
+  it('draws the doorplate badge inline, with no sprite to resolve', async () => {
     const container = await renderLayout(VIEWER)
-
-    expect(
-      container.querySelectorAll(`symbol[id="${PEPE_SYMBOL_ID}"]`),
-    ).toHaveLength(1)
-    expect(
-      container.querySelectorAll(`symbol[id="${iconSymbolId('search')}"]`),
-    ).toHaveLength(1)
-  })
-
-  it('renders the sprite before the app bar, so the pepe badge resolves', async () => {
-    const container = await renderLayout(VIEWER)
-    const sprite = container.querySelector(`symbol[id="${PEPE_SYMBOL_ID}"]`)
     const bar = container.querySelector('header')
-    const badge = bar?.querySelector('use')
 
-    expect(sprite).not.toBeNull()
-    expect(bar).not.toBeNull()
-    expect(follows(sprite as Element, bar as Element)).toBe(true)
-    expect(badge).toHaveAttribute('href', `#${PEPE_SYMBOL_ID}`)
+    expect(container.querySelector('symbol')).toBeNull()
+    expect(bar?.querySelector('use')).toBeNull()
+    expect(bar?.querySelector('a[aria-label$="lilnas.io"] svg')).not.toBeNull()
   })
 
   it('renders the app bar above the page', async () => {
@@ -106,7 +90,7 @@ describe('AppLayout', () => {
 
     expect(mockGetViewer).toHaveBeenCalledTimes(1)
     expect(
-      container.querySelector('a[aria-label="Your account"]'),
+      container.querySelector('button[aria-label="Your account"]'),
     ).not.toBeNull()
   })
 
@@ -123,7 +107,9 @@ describe('AppLayout', () => {
   it('still renders the shell when there is no viewer', async () => {
     const container = await renderLayout(null)
 
-    expect(container.querySelector('a[aria-label="Your account"]')).toBeNull()
+    expect(
+      container.querySelector('button[aria-label="Your account"]'),
+    ).toBeNull()
     expect(container.querySelector('header')).not.toBeNull()
     expect(container.querySelector('p')).toHaveTextContent('page')
   })

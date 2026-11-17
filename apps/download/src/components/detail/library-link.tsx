@@ -1,7 +1,6 @@
+import { Icon } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { ComponentPropsWithoutRef, JSX } from 'react'
-
-import { Icon } from 'src/components/ui/icon'
 
 /** Where "Library" goes - the unified gallery, `src/app/gallery/page.tsx`. */
 export const LIBRARY_HREF = '/gallery'

@@ -153,14 +153,14 @@ describe('ProfilePage identity header', () => {
 
     expect(screen.getByText('jeremy@lilnas.io')).toBeInTheDocument()
     expect(
-      screen.getByText('First download Jun 14, 2025 · last 2m ago'),
+      screen.getByText('first Jun 14, 2025 · last 2m ago'),
     ).toBeInTheDocument()
   })
 
   it('marks your own profile as yours', async () => {
     await renderPage()
 
-    expect(screen.getByText('you')).toBeInTheDocument()
+    expect(screen.getByText('You')).toBeInTheDocument()
   })
 
   it('does not call somebody else’s profile yours', async () => {
@@ -211,14 +211,14 @@ describe('ProfilePage aggregates', () => {
   it('emits no chip for a type or status that never occurred', async () => {
     await renderPage()
 
-    expect(chipsIn('by type')).toEqual(['video · 41', 'movie · 9'])
-    expect(chipsIn('by status')).toEqual(['completed · 46', 'failed · 2'])
+    expect(chipsIn('By type')).toEqual(['video · 41', 'movie · 9'])
+    expect(chipsIn('By status')).toEqual(['completed · 46', 'failed · 2'])
   })
 
   it('renders the window the API actually applied, not an assumed 30', async () => {
     await renderPage()
 
-    expect(screen.getByText(/downloads per day · last 7/)).toBeInTheDocument()
+    expect(screen.getByText('Last 7 days')).toBeInTheDocument()
     expect(
       screen.getByRole('img', { name: /over the last 7 days/ }),
     ).toBeInTheDocument()
@@ -240,9 +240,7 @@ describe('ProfilePage aggregates', () => {
 
     await renderPage()
 
-    expect(
-      screen.getByText('No activity in the selected window.'),
-    ).toBeInTheDocument()
+    expect(screen.getByText('No activity in this window.')).toBeInTheDocument()
   })
 })
 
@@ -255,8 +253,8 @@ describe('ProfilePage chips as filters', () => {
     await renderPage({ status: 'failed', type: 'movie' })
 
     // The history below is empty, and the counts have not moved an inch.
-    expect(chipsIn('by type')).toEqual(['video · 41', 'movie · 9'])
-    expect(chipsIn('by status')).toEqual(['completed · 46', 'failed · 2'])
+    expect(chipsIn('By type')).toEqual(['video · 41', 'movie · 9'])
+    expect(chipsIn('By status')).toEqual(['completed · 46', 'failed · 2'])
   })
 
   it('marks an applied chip pressed, and only that one', async () => {
@@ -279,8 +277,11 @@ describe('ProfilePage chips as filters', () => {
     // always reads as "applied".
     const chip = screen.getByRole('button', { name: 'failed · 2' })
 
-    expect(chip.getAttribute('class')).toContain('bg-uv-ghost')
-    expect(chip.getAttribute('class')).not.toContain('bg-bad-ghost')
+    const badge = chip.querySelector('span')
+
+    expect(chip).toHaveAttribute('aria-pressed', 'true')
+    expect(badge?.getAttribute('class')).toContain('bg-accent-ghost')
+    expect(badge?.getAttribute('class')).not.toContain('bg-bad-ghost')
   })
 
   it('puts the filter in the URL, so a filtered profile is a link', async () => {
@@ -371,12 +372,16 @@ describe('ProfilePage history', () => {
   it('renders the rows without a requester column', async () => {
     await renderPage()
 
+    const table = within(
+      screen.getByRole('table', { name: 'Download history' }),
+    )
+
     expect(
-      screen.getByText('Sourdough starter, day one to seven'),
+      table.getByText('Sourdough starter, day one to seven'),
     ).toBeInTheDocument()
     expect(
-      screen.getAllByRole('columnheader').map(cell => cell.textContent),
-    ).toEqual(['item', 'type', 'status', 'progress', 'started'])
+      table.getAllByRole('columnheader').map(cell => cell.textContent),
+    ).toEqual(['Item', 'Type', 'Status', 'Started'])
     // The page is already scoped to one person; the email appears once, in the
     // header, and never once per row.
     expect(screen.getAllByText('jeremy@lilnas.io')).toHaveLength(1)
@@ -395,7 +400,8 @@ describe('ProfilePage history', () => {
 
     await renderPage()
 
-    expect(screen.getByTitle('Hidden from other users')).toBeInTheDocument()
+    // One in the table and one in the card list, both in the tree under jsdom.
+    expect(screen.getAllByTitle('Hidden from other users')).toHaveLength(2)
   })
 
   // The two empty states are different facts and must never share copy.
@@ -407,9 +413,9 @@ describe('ProfilePage history', () => {
     await renderPage({ status: 'failed', type: 'movie' })
 
     expect(
-      screen.getByText('No downloads match these filters.'),
+      screen.getByText('No downloads match these filters'),
     ).toBeInTheDocument()
-    expect(screen.queryByText('No downloads yet.')).not.toBeInTheDocument()
+    expect(screen.queryByText('No downloads yet')).not.toBeInTheDocument()
   })
 
   it('tells a profile with no jobs at all that it has none, not that a filter hid them', async () => {
@@ -429,9 +435,9 @@ describe('ProfilePage history', () => {
 
     await renderPage()
 
-    expect(screen.getByText('No downloads yet.')).toBeInTheDocument()
+    expect(screen.getByText('No downloads yet')).toBeInTheDocument()
     expect(
-      screen.queryByText('No downloads match these filters.'),
+      screen.queryByText('No downloads match these filters'),
     ).not.toBeInTheDocument()
   })
 })

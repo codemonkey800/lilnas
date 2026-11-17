@@ -69,10 +69,26 @@ async function openPanel(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe('GalleryControls tab strip', () => {
+  it('counts each tab from the facets, with All as their sum', () => {
+    renderControls()
+
+    expect(screen.getByRole('tab', { name: 'All 42' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Movies 1' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Shows 1' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Videos 40' })).toBeInTheDocument()
+  })
+
+  it('counts a type the facets omit as 0 rather than dropping its tab', () => {
+    renderControls({}, { facets: { ...FACETS, types: [FACETS.types[2]!] } })
+
+    expect(screen.getByRole('tab', { name: 'Movies 0' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'All 40' })).toBeInTheDocument()
+  })
+
   it('selects All when nothing is filtered by type', () => {
     renderControls()
 
-    expect(screen.getByRole('tab', { name: 'All' })).toHaveAttribute(
+    expect(screen.getByRole('tab', { name: /^All/ })).toHaveAttribute(
       'aria-selected',
       'true',
     )
@@ -81,7 +97,7 @@ describe('GalleryControls tab strip', () => {
   it('selects the one tab a single-type filter names', () => {
     renderControls({ types: [DownloadType.Movie] })
 
-    expect(screen.getByRole('tab', { name: 'Movies' })).toHaveAttribute(
+    expect(screen.getByRole('tab', { name: /^Movies/ })).toHaveAttribute(
       'aria-selected',
       'true',
     )
@@ -91,7 +107,7 @@ describe('GalleryControls tab strip', () => {
     const user = userEvent.setup()
     renderControls()
 
-    await user.click(screen.getByRole('tab', { name: 'Shows' }))
+    await user.click(screen.getByRole('tab', { name: /^Shows/ }))
 
     expect(pushedFilters().types).toEqual([DownloadType.Show])
   })
@@ -100,7 +116,7 @@ describe('GalleryControls tab strip', () => {
     const user = userEvent.setup()
     renderControls({ types: [DownloadType.Show] })
 
-    await user.click(screen.getByRole('tab', { name: 'All' }))
+    await user.click(screen.getByRole('tab', { name: /^All/ }))
 
     expect(push).toHaveBeenLastCalledWith('/gallery', { scroll: false })
   })
@@ -128,7 +144,7 @@ describe('GalleryControls tab strip', () => {
     renderControls({ types: [DownloadType.Movie] })
 
     expect(screen.getByRole('tablist')).not.toHaveAttribute('tabindex')
-    expect(screen.getByRole('tab', { name: 'Movies' })).toHaveAttribute(
+    expect(screen.getByRole('tab', { name: /^Movies/ })).toHaveAttribute(
       'tabindex',
       '0',
     )
@@ -164,7 +180,7 @@ describe('GalleryControls filter panel', () => {
     renderControls()
     const panel = await openPanel(user)
 
-    const group = within(panel).getByRole('group', { name: 'media type' })
+    const group = within(panel).getByRole('group', { name: 'Media type' })
 
     expect(
       within(group).getByRole('checkbox', { name: 'Videos 40' }),
@@ -182,7 +198,7 @@ describe('GalleryControls filter panel', () => {
     renderControls()
     const panel = await openPanel(user)
 
-    const group = within(panel).getByRole('group', { name: 'uploaded by' })
+    const group = within(panel).getByRole('group', { name: 'Uploaded by' })
 
     // Order, membership and counts are all the server's. The attribution-oracle
     // guard is already applied to this list, so anything dropped, re-sorted or
@@ -210,7 +226,7 @@ describe('GalleryControls filter panel', () => {
     )
     const panel = await openPanel(user)
 
-    const group = within(panel).getByRole('group', { name: 'media type' })
+    const group = within(panel).getByRole('group', { name: 'Media type' })
 
     expect(within(group).getAllByRole('checkbox')).toHaveLength(1)
     expect(within(group).queryByText('0')).not.toBeInTheDocument()

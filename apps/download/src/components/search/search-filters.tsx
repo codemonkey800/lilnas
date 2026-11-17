@@ -1,5 +1,6 @@
 'use client'
 
+import { Button, Icon, Input } from '@lilnas/ui'
 import type { DiscoveryFacets } from '@lilnas/utils/download/types'
 import type { JSX } from 'react'
 import { useState } from 'react'
@@ -10,20 +11,11 @@ import {
   YEAR_RANGE_ERROR,
   YEAR_RANGE_SEPARATOR,
 } from 'src/components/search/search-params'
-import { Button } from 'src/components/ui/button'
 import { FilterFoot, FilterGrid, FilterGroup } from 'src/components/ui/filters'
-import { Icon } from 'src/components/ui/icon'
-import { Input } from 'src/components/ui/input'
 import { ToggleChip } from 'src/components/ui/toggle-chip'
 
-/**
- * `search.pug:96` — a fixed 76px field, reddened while the range is impossible.
- * Two mutually exclusive strings rather than a base plus an override: `border-bad!`
- * and the base border are the same property, and `!` utilities are resolved by
- * output order, not source order.
- */
-const YEAR_FIELD = 'w-[76px]!'
-const YEAR_FIELD_INVALID = 'w-[76px]! border-bad!'
+/** A fixed 96px field; `Input` reddens itself when `invalid`. */
+const YEAR_FIELD = 'w-24'
 
 /** The subset of {@link SearchState} this panel edits. */
 export interface SearchFilterDraft {
@@ -109,7 +101,7 @@ export function SearchFilters({
   return (
     <>
       <FilterGrid>
-        <FilterGroup label="genre" wide>
+        <FilterGroup label="Genre" wide>
           {options.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {options.map(genre => (
@@ -126,12 +118,12 @@ export function SearchFilters({
             <p className="text-sm text-ink-3">No genres in these results.</p>
           )}
         </FilterGroup>
-        <FilterGroup label="release year">
+        <FilterGroup label="Release year" wide>
           <div className="flex items-center gap-2">
             <Input
-              aria-invalid={invalid || undefined}
               aria-label="Start year"
-              className={invalid ? YEAR_FIELD_INVALID : YEAR_FIELD}
+              className={YEAR_FIELD}
+              invalid={invalid}
               inputMode="numeric"
               maxLength={4}
               mono
@@ -141,9 +133,9 @@ export function SearchFilters({
             />
             <span className="text-ink-3">{YEAR_RANGE_SEPARATOR}</span>
             <Input
-              aria-invalid={invalid || undefined}
               aria-label="End year"
-              className={invalid ? YEAR_FIELD_INVALID : YEAR_FIELD}
+              className={YEAR_FIELD}
+              invalid={invalid}
               inputMode="numeric"
               maxLength={4}
               mono
@@ -153,8 +145,8 @@ export function SearchFilters({
             />
           </div>
           {invalid ? (
-            <span className="flex items-center gap-[5px] font-mono text-[11px] text-bad">
-              <Icon className="h-[11px] w-[11px] shrink-0" name="alert" />
+            <span className="flex items-center gap-1.5 text-xs text-bad">
+              <Icon className="size-3 shrink-0" name="alert" />
               {YEAR_RANGE_ERROR}
             </span>
           ) : null}
@@ -168,7 +160,7 @@ export function SearchFilters({
           disabled={invalid}
           onClick={() => onApply({ genres, yearFrom, yearTo })}
           size="sm"
-          variant="uv"
+          variant="accent"
         >
           Show results
         </Button>

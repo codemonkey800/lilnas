@@ -10,13 +10,14 @@ import { DownloadType } from '@lilnas/utils/download/types'
 import type { JSX } from 'react'
 
 import { DiscordIdentityMark } from 'src/components/activity/discord-identity-mark'
-import { Avatar } from 'src/components/ui/avatar'
+import type { PersonAvatarSize } from 'src/components/ui/person-avatar'
+import { PersonAvatar } from 'src/components/ui/person-avatar'
 import { initials } from 'src/lib/format'
 import { PROFILE_HREF, profileHrefForEmail } from 'src/lib/profile-filters'
 import type { Viewer } from 'src/lib/viewer'
 
 /** What a masked requester's name cell says, per `downloads-activity.pug`. */
-export const MASKED_REQUESTER_LABEL = 'hidden'
+export const MASKED_REQUESTER_LABEL = 'Hidden'
 
 /**
  * The service a download adopted from Radarr's or Sonarr's own UI is credited
@@ -134,8 +135,8 @@ export function requesterProfileHref(
     : profileHrefForEmail(requester.email)
 }
 
-const NAME = 'font-mono text-mono-sm'
-const NAME_LINK = 'text-ink-3 transition-colors duration-200 ease-uv'
+const NAME = 'text-cap'
+const NAME_LINK = 'text-ink-3 transition-colors duration-200 ease-standard'
 
 /**
  * The run that holds a name and whatever mark sits beside it.
@@ -166,6 +167,10 @@ export function linkedDiscordLabel(discordUsername: string): string {
 export type ActivityRequesterProps = {
   /** Avatar size utilities — the two layouts size their mark differently. */
   avatarClassName?: string
+  /** The avatar's size, from `PersonAvatar`'s scale; wins over nothing in `avatarClassName`. */
+  avatarSize?: PersonAvatarSize
+  /** Overrides the name's register — the feed sets its names in `text-sm`. */
+  nameClassName?: string
   /**
    * The Discord account this job was **submitted from** — populated for
    * `origin: 'discord'` jobs whose snowflake no lilnas account claims yet.
@@ -230,6 +235,8 @@ export type ActivityRequesterProps = {
  */
 export function ActivityRequester({
   avatarClassName,
+  avatarSize,
+  nameClassName,
   discordRequester = null,
   linkedDiscord = null,
   nameless = false,
@@ -242,7 +249,11 @@ export function ActivityRequester({
     // the nameless row too: with no avatar to fall back on, the name is the
     // whole cell, and six characters fit where an email does not.
     if (discordRequester === null && upstreamSource !== undefined) {
-      return <span className={cns(NAME, 'text-ink-4')}>{upstreamSource}</span>
+      return (
+        <span className={cns(NAME, 'text-ink-3', nameClassName)}>
+          {upstreamSource}
+        </span>
+      )
     }
 
     // ⚠️ Masking outranks everything below, and it is spelled as one branch
@@ -257,13 +268,14 @@ export function ActivityRequester({
             `hidden` excludes both `href` and `initials` at the type level, so a
             masked identity cannot leak through this branch even by accident.
           */}
-          <Avatar
+          <PersonAvatar
             className={avatarClassName}
+            size={avatarSize}
             hidden
             title="Attribution hidden"
           />
           {nameless ? null : (
-            <span className={cns(NAME, 'text-ink-4')}>
+            <span className={cns(NAME, 'text-ink-3', nameClassName)}>
               {MASKED_REQUESTER_LABEL}
             </span>
           )}
@@ -281,14 +293,15 @@ export function ActivityRequester({
           open — and once an admin links one, this branch is never reached again
           because the server resolves it into `requester` instead.
         */}
-        <Avatar
+        <PersonAvatar
           className={avatarClassName}
+          size={avatarSize}
           initials={initials(discordUsername)}
           title={discordAvatarTitle(discordUsername)}
         />
         <span className={NAME_RUN}>
           {nameless ? null : (
-            <span className={cns(NAME, 'truncate text-ink-3')}>
+            <span className={cns(NAME, 'truncate text-ink-3', nameClassName)}>
               {discordUsername}
             </span>
           )}
@@ -312,8 +325,9 @@ export function ActivityRequester({
 
   return (
     <span className="flex min-w-0 items-center gap-1.5">
-      <Avatar
+      <PersonAvatar
         className={avatarClassName}
+        size={avatarSize}
         href={href}
         initials={initials(requester.email)}
         title={requester.email}
@@ -321,7 +335,7 @@ export function ActivityRequester({
       {nameless ? null : (
         <span className={NAME_RUN}>
           {href === undefined ? (
-            <span className={cns(NAME, 'truncate text-ink-3')}>
+            <span className={cns(NAME, 'truncate text-ink-3', nameClassName)}>
               {requester.email}
             </span>
           ) : (
@@ -330,6 +344,7 @@ export function ActivityRequester({
                 NAME,
                 NAME_LINK,
                 'truncate hover:text-ink hover:underline',
+                nameClassName,
               )}
               href={href}
             >
@@ -347,7 +362,7 @@ export function ActivityRequester({
           */}
           {linkedDiscord === null ? null : (
             <span
-              className={cns(NAME, 'truncate text-ink-4')}
+              className={cns(NAME, 'truncate text-ink-3')}
               title={LINKED_DISCORD_TITLE}
             >
               {linkedDiscordLabel(linkedDiscord.discordUsername)}

@@ -39,7 +39,7 @@ describe('LogRow — happy path', () => {
 
     const level = screen.getByText('INFO')
     expect(level).toBeInTheDocument()
-    expect(level).toHaveClass('text-gray-300')
+    expect(level).toHaveClass('text-accent-hi')
 
     expect(screen.getByText('main')).toBeInTheDocument()
     expect(screen.getByText('generation-inserted')).toBeInTheDocument()
@@ -47,7 +47,7 @@ describe('LogRow — happy path', () => {
     expect(screen.getByText('generationId=424')).toBeInTheDocument()
   })
 
-  it('renders a warn (40) line in amber/yellow', () => {
+  it('renders a warn (40) line as a warn badge', () => {
     const line = makeLine({
       level: 40,
       time: 1783247968175,
@@ -57,10 +57,10 @@ describe('LogRow — happy path', () => {
     })
     render(<LogRow line={line} stream="backend" onSelect={jest.fn()} />)
     const level = screen.getByText('WARN')
-    expect(level).toHaveClass('text-yellow-400')
+    expect(level).toHaveClass('text-warn')
   })
 
-  it('renders an error (50) line in red', () => {
+  it('renders an error (50) line as a bad badge', () => {
     const line = makeLine({
       level: 50,
       time: 1783247968175,
@@ -68,10 +68,10 @@ describe('LogRow — happy path', () => {
       msg: 'boom',
     })
     render(<LogRow line={line} stream="backend" onSelect={jest.fn()} />)
-    expect(screen.getByText('ERROR')).toHaveClass('text-red-400')
+    expect(screen.getByText('ERROR')).toHaveClass('text-bad')
   })
 
-  it('renders a fatal (60) line in red', () => {
+  it('renders a fatal (60) line as a bad badge', () => {
     const line = makeLine({
       level: 60,
       time: 1783247968175,
@@ -79,10 +79,10 @@ describe('LogRow — happy path', () => {
       msg: 'dead',
     })
     render(<LogRow line={line} stream="backend" onSelect={jest.fn()} />)
-    expect(screen.getByText('FATAL')).toHaveClass('text-red-400')
+    expect(screen.getByText('FATAL')).toHaveClass('text-bad')
   })
 
-  it('renders a debug (20) line dim, with no event shown, and does NOT flag it as malformed', () => {
+  it('renders a debug (20) line in ink-3, with no event shown, and does NOT flag it as malformed', () => {
     const line = makeLine({
       level: 20,
       time: 1783247968175,
@@ -92,7 +92,7 @@ describe('LogRow — happy path', () => {
     render(<LogRow line={line} stream="backend" onSelect={jest.fn()} />)
 
     const level = screen.getByText('DEBUG')
-    expect(level).toHaveClass('text-gray-500')
+    expect(level).toHaveClass('text-ink-3')
     // Absent event renders a dim placeholder, not an error/malformed marker.
     expect(screen.getByText('no-event')).toBeInTheDocument()
     expect(screen.queryByText(/malformed/i)).not.toBeInTheDocument()
@@ -476,5 +476,36 @@ describe('LogRow — highlightText (U11)', () => {
     expect(
       document.querySelector('[data-track-id="log-row-highlight"]'),
     ).not.toBeInTheDocument()
+  })
+})
+
+describe('LogRow — virtualised rows never animate in', () => {
+  it('carries no animate-rise class on the row or any descendant, for parsed, WARN/ERROR and malformed lines alike', () => {
+    const lines = [
+      makeLine({ level: 30, time: 1, process: 'main', msg: 'info line' }),
+      makeLine({ level: 40, time: 2, process: 'main', msg: 'warn line' }),
+      makeLine({ level: 50, time: 3, process: 'bot', msg: 'error line' }),
+      makeLine(null),
+    ]
+    const { container } = render(
+      <>
+        {lines.map((line, i) => (
+          <LogRow
+            key={i}
+            line={{ ...line, byteOffset: i }}
+            stream="backend"
+            onSelect={jest.fn()}
+          />
+        ))}
+      </>,
+    )
+
+    // Virtualiser rows are recycled as they scroll; an entrance animation on
+    // a recycled row replays and flickers, so none may carry one.
+    expect(
+      container.querySelectorAll('[data-track-id="log-row-select"]'),
+    ).toHaveLength(4)
+    expect(container.querySelector('.animate-rise')).toBeNull()
+    expect(container.innerHTML).not.toContain('animate-rise')
   })
 })

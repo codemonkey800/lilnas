@@ -25,13 +25,14 @@ export default function GlobalError({
     <html lang="en">
       <body
         style={{
-          background: '#030712',
-          color: '#fff',
+          margin: 0,
+          background: '#0e0c14',
+          color: '#ebe8f2',
           fontFamily: 'system-ui, sans-serif',
           padding: '2rem',
         }}
       >
-        <p>Something went wrong.</p>
+        <p style={{ margin: 0 }}>Something went wrong.</p>
         <button
           type="button"
           onClick={reset}
@@ -39,10 +40,12 @@ export default function GlobalError({
           style={{
             marginTop: '1rem',
             padding: '0.5rem 1rem',
-            background: '#1f2937',
-            color: '#d1d5db',
+            background: '#9b7bf5',
+            color: '#120a2a',
             border: 'none',
-            borderRadius: '0.25rem',
+            borderRadius: '6px',
+            font: 'inherit',
+            fontWeight: 500,
           }}
         >
           Try again

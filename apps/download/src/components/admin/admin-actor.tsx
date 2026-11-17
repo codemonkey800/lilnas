@@ -1,3 +1,4 @@
+import { Icon } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type {
   DiscordIdentity,
@@ -13,18 +14,18 @@ import {
   requesterProfileHref,
 } from 'src/components/activity/activity-requester'
 import { DiscordIdentityMark } from 'src/components/activity/discord-identity-mark'
-import { Avatar } from 'src/components/ui/avatar'
-import { Icon } from 'src/components/ui/icon'
 import { MChip } from 'src/components/ui/mchip'
+import type { PersonAvatarSize } from 'src/components/ui/person-avatar'
+import { PersonAvatar } from 'src/components/ui/person-avatar'
 import { AUDIT_SERVICE_LABEL } from 'src/lib/admin-audit'
 import { initials } from 'src/lib/format'
 import type { Viewer } from 'src/lib/viewer'
 
-const NAME = 'font-mono text-mono-sm'
-const NAME_LINK = 'text-ink-3 transition-colors duration-200 ease-uv'
+const NAME = 'text-cap'
+const NAME_LINK = 'text-ink-3 transition-colors duration-200 ease-standard'
 
 /** The service reads in the same mono/`ink-3` register every machine fact does. */
-const SERVICE = 'font-mono text-mono-sm text-ink-3'
+const SERVICE = 'text-cap text-ink-3'
 
 /**
  * The profile link is `ink-4` against the name's `ink-3` — one step quieter, so
@@ -40,7 +41,7 @@ const SERVICE = 'font-mono text-mono-sm text-ink-3'
  */
 const PROFILE_LINK = cns(
   'relative inline-flex shrink-0 items-center text-ink-4',
-  'transition-colors duration-200 ease-uv hover:text-ink-2',
+  'transition-colors duration-200 ease-standard hover:text-ink-2',
   'before:absolute before:-inset-1.5',
 )
 
@@ -49,6 +50,10 @@ export type AdminActorProps = {
   actor: JobRequester | null
   /** Avatar size utilities — the two layouts size their mark differently. */
   avatarClassName?: string
+  /** The avatar's size, from `PersonAvatar`'s scale. */
+  avatarSize?: PersonAvatarSize
+  /** Overrides the name's register — the history table sets names in `text-sm`. */
+  nameClassName?: string
   /**
    * The Discord identity behind an `origin: 'discord'` row whose snowflake no
    * lilnas account claims yet.
@@ -127,6 +132,8 @@ export type AdminActorProps = {
 export function AdminActor({
   actor,
   avatarClassName,
+  avatarSize,
+  nameClassName,
   discordActor = null,
   href,
   linkedDiscord = null,
@@ -151,14 +158,15 @@ export function AdminActor({
             neither. The mark is the only affordance it gets, and what it opens
             is the id an admin pastes into `apps/auth` to link the account.
           */}
-          <Avatar
+          <PersonAvatar
             className={avatarClassName}
+            size={avatarSize}
             initials={initials(discordUsername)}
             title={discordAvatarTitle(discordUsername)}
           />
           <span className="flex min-w-0 items-center gap-1">
             {nameless ? null : (
-              <span className={cns(NAME, 'truncate text-ink-3')}>
+              <span className={cns(NAME, 'truncate text-ink-3', nameClassName)}>
                 {discordUsername}
               </span>
             )}
@@ -188,8 +196,9 @@ export function AdminActor({
 
   return (
     <span className="flex min-w-0 items-center gap-1.5">
-      <Avatar
+      <PersonAvatar
         className={avatarClassName}
+        size={avatarSize}
         href={href}
         initials={initials(actor.email)}
         ring={you}
@@ -198,7 +207,7 @@ export function AdminActor({
       {nameless ? null : (
         <span className="flex min-w-0 items-center gap-1">
           {href === undefined ? (
-            <span className={cns(NAME, 'truncate text-ink-3')}>
+            <span className={cns(NAME, 'truncate text-ink-3', nameClassName)}>
               {actor.email}
             </span>
           ) : (
@@ -207,6 +216,7 @@ export function AdminActor({
                 NAME,
                 NAME_LINK,
                 'truncate hover:text-ink hover:underline',
+                nameClassName,
               )}
               href={href}
             >
@@ -222,7 +232,7 @@ export function AdminActor({
           */}
           {linkedDiscord === null ? null : (
             <span
-              className={cns(NAME, 'truncate text-ink-4')}
+              className={cns(NAME, 'truncate text-ink-3')}
               title={LINKED_DISCORD_TITLE}
             >
               {linkedDiscordLabel(linkedDiscord.discordUsername)}

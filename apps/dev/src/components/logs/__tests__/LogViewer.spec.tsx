@@ -36,7 +36,18 @@ async function emit(stream: FakeEventSource, ...lines: unknown[]) {
 
 const web = () => FakeEventSource.latest('fitness-pwa-web-1/logs')
 const logEl = () => screen.getByRole('log')
-const rows = () => logEl().querySelectorAll('[data-stream]')
+// The package's log row is a `div`; the stream's own notes ("Connecting…",
+// "disconnected — reconnecting…") are `p`s, so they don't count as rows.
+const rows = () => logEl().querySelectorAll(':scope > div')
+
+/** Opens the container Select and picks `name`. */
+async function pickContainer(
+  user: ReturnType<typeof userEvent.setup>,
+  name: string,
+) {
+  await user.click(screen.getByRole('combobox', { name: 'Container' }))
+  await user.click(await screen.findByRole('option', { name }))
+}
 
 /** jsdom does no layout, so give the log a scrollable box we can inspect. */
 function giveBox(
@@ -69,9 +80,9 @@ describe('LogViewer', () => {
     expect(web().url).toBe(
       '/api/containers/fitness-pwa-web-1/logs?tail=500&timestamps=1',
     )
-    expect(screen.getByRole('combobox', { name: 'Container' })).toHaveValue(
-      'fitness-pwa-web-1',
-    )
+    expect(
+      screen.getByRole('combobox', { name: 'Container' }),
+    ).toHaveTextContent('fitness-pwa-web-1')
     expect(screen.getByRole('radio', { name: '500' })).toHaveAttribute(
       'aria-checked',
       'true',
@@ -87,12 +98,17 @@ describe('LogViewer', () => {
     await emit(web(), line('Error: boom', 'stderr'), line('POST /x 201'))
     expect(rows()).toHaveLength(3)
     expect(screen.getByText('GET /health 200')).toBeInTheDocument()
-    expect(
-      screen.getByText('Error: boom').closest('[data-stream]'),
-    ).toHaveClass('text-bad', 'bg-bad-ghost')
-    expect(
-      screen.getByText('POST /x 201').closest('[data-stream]'),
-    ).not.toHaveClass('text-bad')
+    expect(screen.getByText('Error: boom').parentElement).toHaveClass(
+      'text-bad',
+      'bg-bad-ghost',
+    )
+    expect(screen.getByText('Error: boom').parentElement).toHaveAttribute(
+      'data-stream',
+      'stderr',
+    )
+    expect(screen.getByText('POST /x 201').parentElement).not.toHaveClass(
+      'text-bad',
+    )
     expect(screen.getByText('3 lines')).toBeInTheDocument()
   })
 
@@ -211,10 +227,7 @@ describe('LogViewer', () => {
     expect(web().url).toContain('tail=2000')
     expect(rows()).toHaveLength(0)
 
-    await user.selectOptions(
-      screen.getByRole('combobox', { name: 'Container' }),
-      'fitness-pwa-api-1',
-    )
+    await pickContainer(user, 'fitness-pwa-api-1')
     expect(FakeEventSource.latest('/logs').url).toBe(
       '/api/containers/fitness-pwa-api-1/logs?tail=2000&timestamps=1',
     )
@@ -307,10 +320,7 @@ describe('LogViewer', () => {
     it('names the file after the selected container', async () => {
       const user = userEvent.setup()
       render(<LogViewer containers={CONTAINERS} />)
-      await user.selectOptions(
-        screen.getByRole('combobox', { name: 'Container' }),
-        'fitness-pwa-api-1',
-      )
+      await pickContainer(user, 'fitness-pwa-api-1')
 
       await user.click(screen.getByRole('button', { name: 'Download' }))
 
@@ -335,7 +345,9 @@ describe('LogViewer', () => {
         expect(
           screen.getByText(/disconnected — reconnecting/),
         ).toBeInTheDocument()
-        expect(screen.getByText('reconnecting')).toBeInTheDocument()
+        expect(
+          screen.getByText('reconnecting', { selector: 'span' }),
+        ).toBeInTheDocument()
         expect(first.close).toHaveBeenCalled()
         // Lines stay readable while it is down.
         expect(screen.getByText('old')).toBeInTheDocument()
@@ -440,10 +452,7 @@ describe('LogViewer', () => {
   it('falls back to the first container when the selected one goes away', async () => {
     const user = userEvent.setup()
     const { rerender } = render(<LogViewer containers={CONTAINERS} />)
-    await user.selectOptions(
-      screen.getByRole('combobox', { name: 'Container' }),
-      'fitness-pwa-api-1',
-    )
+    await pickContainer(user, 'fitness-pwa-api-1')
 
     rerender(<LogViewer containers={['fitness-pwa-web-1']} />)
 

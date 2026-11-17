@@ -1,6 +1,6 @@
 'use client'
 
-import { cns } from '@lilnas/utils/cns'
+import { Button } from '@lilnas/ui'
 import { useVirtualizer, type Virtualizer } from '@tanstack/react-virtual'
 import {
   useCallback,
@@ -10,6 +10,10 @@ import {
   useState,
 } from 'react'
 
+import { EmptyState } from 'src/app/components/empty-state'
+import { ErrorState } from 'src/app/components/error-state'
+import { LoadingState } from 'src/app/components/loading-state'
+import { StatusDot } from 'src/app/components/status-dot'
 import { api } from 'src/app/lib/api'
 import { LogFilters, type LogFiltersValue } from 'src/app/logs/log-filters'
 import { LogRow, ROW_PX } from 'src/app/logs/log-row'
@@ -23,6 +27,15 @@ import {
   type LogWindowResponse,
   parseLogLine,
 } from 'src/logging/log-view.types'
+
+// Shared chrome for the viewer's three bands. The status banner is a quiet
+// card; the well is the package `LogViewer` surface (sunk, line border) on
+// the virtualiser's own scroller; edge markers are caption lines in the well.
+const STATUS_BANNER =
+  'flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg border border-line bg-surface px-3 py-1.5 text-cap text-ink-3'
+const LOG_WELL =
+  'h-[32rem] overflow-y-auto rounded-lg border border-line bg-bg-sunk py-1'
+const EDGE_MARKER = 'px-3 py-1 text-center text-cap text-ink-4 italic'
 
 // Comfortably more than any realistic viewport + overscan (a 1080p screen at
 // ROW_PX=24 shows ~45 rows; OVERSCAN adds ~24 more either side) so eviction
@@ -1367,39 +1380,24 @@ export function LogViewer({
   }, [state.windowStart, state.windowEnd])
 
   if (initialLoad === 'error') {
-    // U14: dashed-border treatment matches src/app/components/error-state.tsx
-    // — this viewer's OWN error state renders inline (with a Retry action
-    // wired to this component's handleRefresh, which the shared ErrorState
-    // component has no way to offer), but there's no reason its container
-    // should look visually unrelated to every other error surface in the
-    // app just because it's hand-rolled rather than the shared component.
+    // This viewer's OWN error state renders inline with a Retry wired to
+    // handleRefresh, which the page-level error has no way to offer.
     return (
-      <div
-        data-track-id="log-viewer-error"
-        className="flex min-h-32 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-red-800 p-8 text-center text-sm text-red-400"
-      >
-        <span>
-          Failed to load {stream} log.{' '}
-          <button
-            type="button"
-            data-track-id="log-viewer-retry"
-            onClick={handleRefresh}
-            className="ml-1 underline hover:text-red-300"
-          >
-            Retry
-          </button>
-        </span>
+      <div data-track-id="log-viewer-error">
+        <ErrorState
+          lead={`Failed to load ${stream} log.`}
+          message="The log reader didn't answer."
+          onRetry={handleRefresh}
+          retryTrackId="log-viewer-retry"
+        />
       </div>
     )
   }
 
   if (initialLoad === 'pending') {
     return (
-      <div
-        data-track-id="log-viewer-loading"
-        className="flex min-h-32 items-center justify-center text-sm text-gray-500"
-      >
-        Loading {stream} log…
+      <div data-track-id="log-viewer-loading">
+        <LoadingState message={`Loading ${stream} log…`} />
       </div>
     )
   }
@@ -1454,26 +1452,21 @@ export function LogViewer({
   return (
     <div className="flex flex-col gap-2">
       {/*
-        U14: LogFilters + LogSearchBar composed into ONE visual toolbar —
-        no gap between them, and each squares off the edge touching the
-        other (see their own components' header comments on the matching
-        rounded-t/rounded-b + border-b-0 pairing) — so structured filters
-        and free-text search read as two rows of a single coherent control
-        strip rather than two independently-floating boxes stacked with
-        daylight between them, per this unit's own "filter-bar density"
-        brief. `onFiltersChange`/`onClearFilters` fall back to no-ops when
-        the caller doesn't provide them (a pre-U12 test/call site that
-        never passes filter props at all) — filters is likewise defaulted
-        to DEFAULT_FILTERS above, so LogFilters always receives a real
-        (possibly empty) value regardless of what page.tsx does.
-        hideNavigation suppresses LogSearchBar's own hit-count/prev/next UI
-        + auto-select while isFilteredProjection is true (see that prop's
-        own header comment in log-search-bar.tsx) — the input itself and
-        onQueryTextChange keep firing regardless, which is how a lone free-
-        text term still composes into the filtered predicate (AE6) even
-        though this component's own hit-navigator UI is hidden.
+        LogFilters + LogSearchBar are the two rows of ONE toolbar surface:
+        each draws only its own padding and the search row's top divider, and
+        this wrapper owns the border, fill and rounding. `onFiltersChange`/
+        `onClearFilters` fall back to no-ops when the caller doesn't provide
+        them (a pre-U12 test/call site that never passes filter props at
+        all) — filters is likewise defaulted to DEFAULT_FILTERS above, so
+        LogFilters always receives a real (possibly empty) value regardless
+        of what page.tsx does. hideNavigation suppresses LogSearchBar's own
+        hit-count/prev/next UI + auto-select while isFilteredProjection is
+        true (see that prop's own header comment in log-search-bar.tsx) — the
+        input itself and onQueryTextChange keep firing regardless, which is
+        how a lone free-text term still composes into the filtered predicate
+        (AE6) even though this component's own hit-navigator UI is hidden.
       */}
-      <div className="flex flex-col">
+      <div className="overflow-hidden rounded-lg border border-line bg-surface">
         <LogFilters
           stream={stream}
           filters={filters}
@@ -1501,77 +1494,74 @@ export function LogViewer({
         // filtered count itself.
         <div
           data-track-id="log-viewer-filtered-banner"
-          className="flex items-center justify-between gap-3 rounded border border-gray-800 bg-gray-900/50 px-3 py-1.5 text-xs text-gray-500"
+          className={STATUS_BANNER}
+          role="status"
         >
-          <span data-track-id="log-viewer-filtered-count">
+          <span
+            data-track-id="log-viewer-filtered-count"
+            className="tabular-nums"
+          >
             {filteredState.total} matching line
-            {filteredState.total === 1 ? '' : 's'}.
+            {filteredState.total === 1 ? '' : 's'}
           </span>
         </div>
       ) : (
-        // U10: reflects live follow/pause state instead of Phase 1's static
-        // "Snapshot — refresh for newer entries" framing, now that the tail
-        // is actually wired in.
-        //
-        // U14: a small filled status dot (green while following, amber
-        // while paused) gives this banner an at-a-glance signal that plain
-        // text alone doesn't — an operator scanning several tabs can tell
-        // "is this one live" from the dot's color without reading the
-        // label. The badge count and the paused/following swap both get a
-        // `transition-colors`/`key`-remount-free color/opacity nudge rather
-        // than a layout-shifting animation, per this unit's own "subtle
-        // motion, no jank" brief — the DOM structure each state's text
-        // sits in is otherwise UNCHANGED from before U14 (still one leaf
-        // span per data-track-id, textContent unchanged), so every
-        // existing screen.getByText(/paused/i)-style assertion keeps
-        // matching exactly as before.
+        // U10: reflects live follow/pause state. The dot carries the state's
+        // colour (ok + pulse while following, warn while paused) but the
+        // label always spells it out, and each leaf span keeps its own
+        // data-track-id.
         <div
           data-track-id="log-viewer-snapshot-banner"
-          className="flex items-center justify-between gap-3 rounded border border-gray-800 bg-gray-900/50 px-3 py-1.5 text-xs text-gray-500"
+          className={STATUS_BANNER}
+          role="status"
         >
-          <span className="flex items-center gap-2">
-            <span
-              aria-hidden="true"
-              className={cns(
-                'h-1.5 w-1.5 shrink-0 rounded-full transition-colors',
-                following ? 'bg-green-500' : 'bg-yellow-500',
-              )}
-            />
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
             {following ? (
-              <span data-track-id="log-viewer-following-indicator">
-                Following live.
+              <span className="flex items-center gap-2 text-ink-2">
+                <StatusDot variant="green" pulse />
+                <span data-track-id="log-viewer-following-indicator">
+                  Following live
+                </span>
               </span>
             ) : (
-              <span className="flex items-center gap-2">
-                <span data-track-id="log-viewer-paused-indicator">Paused</span>
+              <>
+                <span className="flex items-center gap-2 text-ink-2">
+                  <StatusDot variant="yellow" />
+                  <span data-track-id="log-viewer-paused-indicator">
+                    Paused
+                  </span>
+                </span>
                 <span
                   data-track-id="log-viewer-new-line-badge"
-                  className="rounded bg-gray-800 px-1.5 py-0.5 tabular-nums text-gray-300 transition-colors"
+                  className="rounded-full bg-surface-2 px-2 py-px text-ink tabular-nums"
                 >
                   {newLineCount} new
                 </span>
-                <button
-                  type="button"
+                <Button
                   data-track-id="log-viewer-jump-to-latest"
+                  icon="arrow"
+                  className="[&>svg]:rotate-90"
                   onClick={() => void handleJumpToLatest()}
-                  className="rounded px-2 py-0.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+                  size="sm"
+                  variant="accent"
                 >
                   Jump to latest
-                </button>
-              </span>
+                </Button>
+              </>
             )}
             <span className="tabular-nums">
-              {percentThroughFile}% through file.
+              {percentThroughFile}% through file
             </span>
           </span>
-          <button
-            type="button"
+          <Button
             data-track-id="log-viewer-refresh"
+            icon="refresh"
             onClick={handleRefresh}
-            className="shrink-0 rounded px-2 py-0.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+            size="sm"
+            variant="ghost"
           >
-            Refresh
-          </button>
+            <span className="max-md:sr-only">Refresh</span>
+          </Button>
         </div>
       )}
 
@@ -1585,11 +1575,8 @@ export function LogViewer({
           // is not the same fact as "the file genuinely contains zero
           // matching lines," and conflating the two would flash a false
           // negative on every filter change.
-          <div
-            data-track-id="log-viewer-filtered-loading"
-            className="flex min-h-32 items-center justify-center text-sm text-gray-500"
-          >
-            Scanning for matches…
+          <div data-track-id="log-viewer-filtered-loading">
+            <LoadingState message="Scanning for matches…" />
           </div>
         ) : filteredState.matches.length === 0 ? (
           // U12: a DISTINCT empty state from raw mode's own per-tab
@@ -1599,83 +1586,88 @@ export function LogViewer({
           // NOT in right now) — deliberately different copy/track-id so a
           // test (or an operator glancing at the DOM) can never confuse
           // "this file is empty" with "these filters matched nothing."
-          // U14: dashed-border treatment matches
-          // src/app/components/empty-state.tsx's own container, so every
-          // "there's genuinely nothing here" state in this app looks like
-          // the same kind of thing regardless of which component renders
-          // it.
-          <div
-            data-track-id="log-viewer-filtered-empty"
-            className="flex min-h-32 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-gray-700 p-8 text-center text-sm text-gray-500"
-          >
-            No lines match these filters
+          <div data-track-id="log-viewer-filtered-empty">
+            <EmptyState
+              message="No lines match these filters"
+              body="Loosen the level or clear the event slug."
+              action={
+                onClearFilters ? (
+                  <Button
+                    data-track-id="log-viewer-filtered-clear"
+                    onClick={onClearFilters}
+                    size="sm"
+                  >
+                    Clear filters
+                  </Button>
+                ) : undefined
+              }
+            />
           </div>
         ) : (
           <div
             ref={scrollElementRef}
             data-track-id="log-viewer-scroll"
-            className="h-[32rem] overflow-y-auto"
+            className={LOG_WELL}
+            role="log"
+            aria-label={`${stream} log`}
+            aria-live="off"
           >
             {virtualRowList}
             {filteredPageLoading && (
-              <div
+              <p
                 data-track-id="log-viewer-loading-after"
-                className="py-1 text-center text-xs text-gray-500"
+                className={EDGE_MARKER}
               >
                 Loading more matches…
-              </div>
+              </p>
             )}
           </div>
         )
       ) : state.lines.length === 0 ? (
-        // U14: same dashed-border treatment as log-viewer-filtered-empty
-        // above and src/app/components/empty-state.tsx.
-        <div
-          data-track-id="log-viewer-empty"
-          className="flex min-h-32 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-gray-700 p-8 text-center text-sm text-gray-500"
-        >
-          No log entries found
+        <div data-track-id="log-viewer-empty">
+          <EmptyState
+            message="No log entries found"
+            body="Nothing has been written, or the file doesn't exist yet."
+          />
         </div>
       ) : (
+        // The scroller IS the package `LogViewer` well (sunk fill, line
+        // border, role="log"): the package component can't wrap this list
+        // because the virtualiser needs `scrollElementRef` on the element
+        // that owns the scroll, so its classes are applied here instead.
         <div
           ref={scrollElementRef}
           data-track-id="log-viewer-scroll"
-          className="h-[32rem] overflow-y-auto"
+          className={LOG_WELL}
+          role="log"
+          aria-label={`${stream} log`}
+          aria-live="off"
         >
           {edgeLoading.before && (
-            <div
+            <p
               data-track-id="log-viewer-loading-before"
-              className="py-1 text-center text-xs text-gray-500"
+              className={EDGE_MARKER}
             >
               Loading earlier entries…
-            </div>
+            </p>
           )}
           {state.atStart && (
-            <div
-              data-track-id="log-viewer-top-of-file"
-              className="py-1 text-center text-xs text-gray-600 italic"
-            >
+            <p data-track-id="log-viewer-top-of-file" className={EDGE_MARKER}>
               Top of file
-            </div>
+            </p>
           )}
 
           {virtualRowList}
 
           {edgeLoading.after && (
-            <div
-              data-track-id="log-viewer-loading-after"
-              className="py-1 text-center text-xs text-gray-500"
-            >
+            <p data-track-id="log-viewer-loading-after" className={EDGE_MARKER}>
               Loading newer entries…
-            </div>
+            </p>
           )}
           {state.atEnd && (
-            <div
-              data-track-id="log-viewer-end-of-file"
-              className="py-1 text-center text-xs text-gray-600 italic"
-            >
+            <p data-track-id="log-viewer-end-of-file" className={EDGE_MARKER}>
               End of file
-            </div>
+            </p>
           )}
         </div>
       )}

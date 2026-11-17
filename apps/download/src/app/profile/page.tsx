@@ -10,10 +10,7 @@ import {
   ProfileHeader,
 } from 'src/components/profile/profile-header'
 import { ProfileHistory } from 'src/components/profile/profile-history'
-import {
-  PROFILE_TITLE,
-  ProfilePageShell,
-} from 'src/components/profile/profile-page-shell'
+import { ProfilePageShell } from 'src/components/profile/profile-page-shell'
 import { ProfileTrend } from 'src/components/profile/profile-trend'
 import { NotAuthorized } from 'src/components/shell/not-authorized'
 import { fillJobsPerDay } from 'src/lib/jobs-per-day'
@@ -23,9 +20,11 @@ import {
 } from 'src/lib/profile-data'
 import type { ProfileSearchParams } from 'src/lib/profile-filters'
 import {
+  clearProfileFilters,
   hasProfileFilters,
   parseProfileFilters,
   profileFiltersToSearch,
+  profileHref,
 } from 'src/lib/profile-filters'
 import { sumProfileTotals } from 'src/lib/profile-totals'
 
@@ -79,7 +78,7 @@ export default async function ProfilePage({
     return (
       <ProfilePageShell>
         {/*
-          `NotAuthorized` renders an `<h2>`, so the route still owes the
+          `NotAuthorized` renders an `<h3>`, so the route still owes the
           document its own heading — and it is not worth showing twice.
         */}
         <h1 className="sr-only">User profile</h1>
@@ -97,7 +96,7 @@ export default async function ProfilePage({
 
   return (
     <ProfilePageShell>
-      <h1 className={PROFILE_TITLE}>User profile</h1>
+      <h1 className="sr-only">User profile</h1>
       <ProfileHeader
         email={profile.user.email}
         firstDownloadAt={profile.firstDownloadAt}
@@ -111,6 +110,7 @@ export default async function ProfilePage({
           totalsByStatus={profile.totalsByStatus}
           totalsByType={profile.totalsByType}
         />
+        <ProfileAppliedFilters />
         {/*
           Server-rendered and passed straight through the provider — it sits
           between the two controls in the layout, not inside either of them.
@@ -123,10 +123,10 @@ export default async function ProfilePage({
           })}
           windowDays={profile.windowDays}
         />
-        <h2 className="mb-3 text-h2">Download history</h2>
-        <ProfileAppliedFilters />
       </ProfileFilterProvider>
+      <h2 className="mb-3 text-h2">Download history</h2>
       <ProfileHistory
+        clearHref={profileHref(clearProfileFilters(filters))}
         filtered={hasProfileFilters(filters)}
         initialJobs={history.items}
         initialNextCursor={history.nextCursor}

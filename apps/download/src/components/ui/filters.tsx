@@ -1,5 +1,6 @@
 'use client'
 
+import { Badge, Button, type ButtonProps, Icon } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type {
   ComponentPropsWithoutRef,
@@ -10,10 +11,6 @@ import type {
   RefObject,
 } from 'react'
 import { useCallback, useEffect, useId, useRef } from 'react'
-
-import type { ButtonProps } from 'src/components/ui/button'
-import { Button } from 'src/components/ui/button'
-import { Icon } from 'src/components/ui/icon'
 
 /**
  * The open tint. `ui.pug` leaves this on the call site — every `+filtersBtn`
@@ -26,14 +23,14 @@ import { Icon } from 'src/components/ui/icon'
  * and tailwind-merge resolves here. A caller's own `className` still wins over
  * it, because it is merged last.
  */
-const FILTERS_BUTTON_OPEN = 'border-uv/35 bg-uv-ghost text-uv-hi'
+const FILTERS_BUTTON_OPEN = 'border-line-loud bg-surface'
 
 const FILTERS_BUTTON_COUNT = cns(
-  'inline-flex h-4 min-w-4 items-center justify-center rounded-full',
-  'bg-uv px-1 font-mono text-[10px] font-bold text-uv-ink',
+  'grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1',
+  'text-[11px] leading-none font-semibold text-accent-ink',
 )
 
-const FILTERS_BUTTON_CHEVRON = 'h-[13px] w-[13px] shrink-0 text-ink-3'
+const FILTERS_BUTTON_CHEVRON = 'size-3.5 shrink-0 text-ink-3'
 
 export type FiltersButtonProps = Omit<
   ButtonProps,
@@ -89,19 +86,15 @@ export function FiltersButton({
   )
 }
 
-const APPLIED_FILTER_CHIP = cns(
-  'inline-flex h-[27px] items-center gap-[7px] rounded-full border',
-  'border-uv/30 bg-uv-ghost py-0 pr-2 pl-[11px]',
-  'text-[12.5px] font-[550] text-uv-hi',
-)
+const APPLIED_FILTER_CHIP = 'gap-1 pr-1'
 
 const APPLIED_FILTER_CHIP_REMOVE = cns(
-  'flex opacity-70 transition-opacity duration-200 ease-uv',
-  'hover:opacity-100',
+  'grid size-4 place-items-center rounded-full',
+  'transition-colors duration-200 ease-standard hover:bg-accent-ghost',
 )
 
 export type AppliedFilterChipProps = Omit<
-  ComponentPropsWithoutRef<'span'>,
+  ComponentPropsWithoutRef<typeof Badge>,
   'children'
 > & {
   /** What the filter is currently set to — `Comedy`, `2019–2024`. */
@@ -134,7 +127,11 @@ export function AppliedFilterChip({
   ...props
 }: AppliedFilterChipProps): JSX.Element {
   return (
-    <span {...props} className={cns(APPLIED_FILTER_CHIP, className)}>
+    <Badge
+      {...props}
+      className={cns(APPLIED_FILTER_CHIP, className)}
+      tone="accent"
+    >
       {label}
       <button
         type="button"
@@ -146,9 +143,9 @@ export function AppliedFilterChip({
         )}
         onClick={onRemove}
       >
-        <Icon className="h-3 w-3" name="x" />
+        <Icon className="size-3" name="x" />
       </button>
-    </span>
+    </Badge>
   )
 }
 
@@ -158,8 +155,7 @@ export function AppliedFilterChip({
  * 340px mobile popover and a 480px desktop one.
  */
 const FILTER_PANEL = cns(
-  '@container rounded-lg border border-line bg-surface',
-  'px-[22px] pt-5 pb-[18px] shadow-lift',
+  '@container rounded-lg border border-line-loud bg-surface p-5 shadow-lift',
 )
 
 type FilterPanelBaseProps = ComponentPropsWithoutRef<'div'>
@@ -200,8 +196,8 @@ export type FilterPanelProps = FilterPanelStaticProps | FilterPanelPopoverProps
  * - `Escape` closes and returns focus to the trigger. The listener is on the
  *   document, not the panel, so it fires even when the pointer left focus on
  *   a non-focusable part of the panel; a nested popup that already handled
- *   the key (`Menu` calls `preventDefault`) is skipped, so Escape peels one
- *   layer at a time.
+ *   the key (calling `preventDefault`) is skipped, so Escape peels one layer
+ *   at a time.
  * - A pointer press outside the panel and outside the trigger closes it,
  *   deliberately leaving focus where the pointer put it.
  * - Tabbing out closes it. A `focusout` with no `relatedTarget` does not:
@@ -336,8 +332,8 @@ export function FilterPanel({
  * at the same viewport width.
  */
 const FILTER_GRID = cns(
-  'grid grid-cols-1 gap-x-7 gap-y-[22px]',
-  '@min-[400px]:grid-cols-[repeat(auto-fill,minmax(190px,1fr))]',
+  'grid grid-cols-1 gap-x-6 gap-y-5',
+  '@min-[400px]:grid-cols-2',
 )
 
 export type FilterGridProps = ComponentPropsWithoutRef<'div'>
@@ -355,7 +351,7 @@ export function FilterGrid({
   )
 }
 
-const FILTER_GROUP = 'flex flex-col gap-[9px]'
+const FILTER_GROUP = 'flex flex-col gap-2'
 
 /**
  * The same 400px container threshold `FilterGrid` switches on. Kept next to it
@@ -363,12 +359,7 @@ const FILTER_GROUP = 'flex flex-col gap-[9px]'
  */
 const FILTER_GROUP_WIDE = '@min-[400px]:col-span-2'
 
-const FILTER_GROUP_LABEL = cns(
-  'font-mono text-label uppercase',
-  // After the `text-label` token, which carries its own tracking: a font-size
-  // utility clears a preceding `tracking-*` through tailwind-merge.
-  'tracking-[0.11em] text-ink-4',
-)
+const FILTER_GROUP_LABEL = 'text-label text-ink-3 uppercase'
 
 export type FilterGroupProps = ComponentPropsWithoutRef<'div'> & {
   /** The facet's name — `uploaded by`, `release year`. */
@@ -413,7 +404,7 @@ export function FilterGroup({
 }
 
 const FILTER_FOOT = cns(
-  'mt-5 flex items-center justify-between gap-[14px]',
+  'mt-5 flex items-center justify-between gap-3',
   'border-t border-line-soft pt-4',
 )
 

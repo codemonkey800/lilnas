@@ -1,5 +1,6 @@
 'use client'
 
+import { Badge, Button, Card } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { DownloadJob, ShowScope } from '@lilnas/utils/download/types'
 import {
@@ -41,12 +42,9 @@ import {
   jobTransferLine,
   queueTimeLeft,
 } from 'src/components/detail/job-state'
-import { Avatar } from 'src/components/ui/avatar'
-import { Button } from 'src/components/ui/button'
-import { Card } from 'src/components/ui/card'
-import { Chip } from 'src/components/ui/chip'
+import { PersonAvatar } from 'src/components/ui/person-avatar'
+import { SettlingProgress } from 'src/components/ui/settling-progress'
 import { StateLine } from 'src/components/ui/state-line'
-import { Bar, Dot } from 'src/components/ui/status'
 import { formatRelative, initials, statusTone } from 'src/lib/format'
 
 /**
@@ -197,7 +195,7 @@ export function AttemptList({
         />
       ))}
       {terminal.length > 0 ? (
-        <Card className={cns('px-[14px] py-1 sm:px-4')} sunk>
+        <Card className={cns('px-[14px] py-1 sm:px-4')} variant="sunk">
           {terminal.map(job => (
             <AttemptLine
               job={job}
@@ -271,10 +269,10 @@ function AttemptCard({
   const [pending, startTransition] = useTransition()
 
   const tone = statusTone(job.status)
-  // Derived from the tone rather than a second list of statuses: `uv` is the
+  // Derived from the tone rather than a second list of statuses: `accent` is the
   // tone of work the machine is actively doing, which is what the breathing
   // dot means.
-  const live = tone === 'uv'
+  const live = tone === 'accent'
   const isVideo = job.media.type === DownloadType.Video
   const progress = jobProgress(job)
   // A video whose total yt-dlp does not know yet: bytes and a rate, but no
@@ -362,28 +360,23 @@ function AttemptCard({
 
   return (
     <Card
-      className={cns('border-uv/35 bg-uv-ghost/30 p-4 sm:p-5')}
+      className={cns('border-accent-dim')}
       data-job-id={job.id}
       data-status={job.status}
     >
       <div className={cns('flex items-center justify-between gap-3')}>
-        <Chip className={cns('w-fit')} tone={tone}>
-          {live ? <Dot tone="live" /> : null}
+        <Badge className={cns('w-fit')} tone={tone} live={live}>
           {label}
-        </Chip>
+        </Badge>
         {counter ? (
-          <span
-            className={cns(
-              'min-w-0 flex-1 truncate font-mono text-mono-sm text-ink-3',
-            )}
-          >
+          <span className={cns('min-w-0 flex-1 truncate text-cap text-ink-3')}>
             {counter}
           </span>
         ) : null}
         {progress ? (
           <span
             aria-hidden="true"
-            className={cns('font-mono text-mono-sm tabular-nums text-uv-hi')}
+            className={cns('text-sm font-medium text-accent-hi tabular-nums')}
           >
             {`${Math.round(progress.pct)}%`}
           </span>
@@ -393,7 +386,7 @@ function AttemptCard({
         <p className={cns('mt-2', STATUS_NOTE)}>{statusNote}</p>
       ) : null}
       {progress ? (
-        <Bar
+        <SettlingProgress
           aria-label="Download progress"
           aria-valuetext={
             handoff ? `${Math.round(progress.pct)}%, ${label}` : undefined
@@ -405,11 +398,7 @@ function AttemptCard({
       ) : null}
       {note ? <p className={cns('mt-3 text-sm text-ink-3')}>{note}</p> : null}
       {aside ? (
-        <p
-          className={cns('mt-2 font-mono text-mono-sm tabular-nums text-ink-3')}
-        >
-          {aside}
-        </p>
+        <p className={cns('mt-2 text-cap text-ink-3 tabular-nums')}>{aside}</p>
       ) : null}
       {controls.length > 0 ? (
         <div className={cns('mt-3')}>
@@ -499,18 +488,19 @@ function AttemptLine({ job, now, onRetry }: AttemptLineProps): JSX.Element {
       data-job-id={job.id}
       data-status={job.status}
     >
-      <Chip
-        className={cns('sm:w-[132px] sm:justify-center')}
-        label={jobStatusLabel(job.status)}
+      <Badge
+        className={cns('sm:w-[148px] sm:shrink-0 sm:justify-center')}
         tone={statusTone(job.status)}
-      />
+      >
+        {jobStatusLabel(job.status)}
+      </Badge>
       <span
         className={cns(
           'flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-ink-3',
         )}
       >
         {scope ? <span className={cns('text-ink-2')}>{scope}</span> : null}
-        <span className={cns('font-mono text-mono-sm text-ink-4')}>
+        <span className={cns('text-cap text-ink-3')}>
           {formatRelative(job.completedAt ?? job.createdAt, now)}
         </span>
         <AttemptRequester job={job} />
@@ -539,8 +529,8 @@ function AttemptLine({ job, now, onRetry }: AttemptLineProps): JSX.Element {
   )
 }
 
-const REQUESTER_AVATAR = 'h-5 w-5 shrink-0 text-[9px]'
-const REQUESTER_NAME = 'truncate font-mono text-mono-sm text-ink-3'
+const REQUESTER_AVATAR = 'size-6 shrink-0 text-[10px]'
+const REQUESTER_NAME = 'truncate text-cap text-ink-3'
 
 /**
  * Who asked for an attempt, masked exactly as `DetailAttribution` masks the
@@ -561,7 +551,7 @@ function AttemptRequester({ job }: { job: DownloadJob }): JSX.Element {
   if (requester !== null) {
     return (
       <span className={cns('flex min-w-0 items-center gap-1.5')}>
-        <Avatar
+        <PersonAvatar
           className={cns(REQUESTER_AVATAR)}
           initials={initials(requester.email)}
           title={requester.email}
@@ -571,7 +561,7 @@ function AttemptRequester({ job }: { job: DownloadJob }): JSX.Element {
         </span>
         {linkedDiscord === null ? null : (
           <span
-            className={cns('truncate font-mono text-mono-sm text-ink-4')}
+            className={cns('truncate text-cap text-ink-3')}
             title={LINKED_DISCORD_TITLE}
           >
             {linkedDiscordLabel(linkedDiscord.discordUsername)}
@@ -584,7 +574,7 @@ function AttemptRequester({ job }: { job: DownloadJob }): JSX.Element {
   if (discordRequester !== null) {
     return (
       <span className={cns('flex min-w-0 items-center gap-1.5')}>
-        <Avatar
+        <PersonAvatar
           className={cns(REQUESTER_AVATAR)}
           initials={initials(discordRequester.discordUsername)}
           title={discordAvatarTitle(discordRequester.discordUsername)}
@@ -603,21 +593,17 @@ function AttemptRequester({ job }: { job: DownloadJob }): JSX.Element {
   const upstream = jobUpstreamSource(job)
 
   if (upstream !== undefined) {
-    return (
-      <span className={cns('font-mono text-mono-sm text-ink-4')}>
-        {upstream}
-      </span>
-    )
+    return <span className={cns('text-cap text-ink-3')}>{upstream}</span>
   }
 
   return (
     <span className={cns('flex items-center gap-1.5')}>
-      <Avatar
+      <PersonAvatar
         className={cns(REQUESTER_AVATAR)}
         hidden
         title="Attribution hidden"
       />
-      <span className={cns('font-mono text-mono-sm text-ink-4')}>
+      <span className={cns('text-cap text-ink-3')}>
         {MASKED_REQUESTER_LABEL}
       </span>
     </span>

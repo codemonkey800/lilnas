@@ -32,11 +32,6 @@ function field(): HTMLInputElement {
   }) as HTMLInputElement
 }
 
-/** The spinner is decorative, so it is found by its class, not by a role. */
-function spinner(): Element | null {
-  return document.querySelector('.animate-spin')
-}
-
 function setup() {
   return userEvent.setup({ advanceTimers: jest.advanceTimersByTime })
 }
@@ -189,26 +184,10 @@ describe('SearchHero', () => {
     })
   })
 
-  describe('the in-flight state', () => {
-    it('shows the search glyph while the field matches the URL', () => {
-      withUrl('q=star')
-      render(<SearchHero />)
-
-      expect(spinner()).toBeNull()
-    })
-
-    it('swaps the glyph for a spinner from the first keystroke', async () => {
-      const user = setup()
-      render(<SearchHero />)
-
-      await user.type(field(), 'st')
-
-      expect(spinner()).not.toBeNull()
-    })
-
+  describe('the field', () => {
     // The mockup marks the input `readonly` while loading. A field you cannot
     // type into for 300ms after every keystroke is unusable.
-    it('leaves the field editable while in flight', async () => {
+    it('stays editable while a query is in flight', async () => {
       const user = setup()
       render(<SearchHero />)
 
@@ -217,16 +196,49 @@ describe('SearchHero', () => {
       expect(field()).not.toHaveAttribute('readonly')
       expect(field()).toBeEnabled()
     })
+
+    // A submit button that is `disabled` or `aria-disabled` swallows the
+    // implicit submission Enter makes, so the button never goes inert.
+    it('keeps the Search button live through the debounce window', async () => {
+      const user = setup()
+      render(<SearchHero />)
+
+      await user.type(field(), 'st')
+
+      const button = screen.getByRole('button', { name: 'Search' })
+
+      expect(button).not.toHaveAttribute('aria-disabled')
+      expect(button).toBeEnabled()
+    })
   })
 
-  it('is a search landmark with no submit button to disable', () => {
+  it('is the page’s headline: one h1, then the field', () => {
     render(<SearchHero />)
 
-    const form = screen.getByRole('search')
-
-    expect(form).toBeInTheDocument()
     expect(
-      screen.queryByRole('button', { name: /search/i }),
-    ).not.toBeInTheDocument()
+      screen.getByRole('heading', {
+        level: 1,
+        name: 'Search movies and shows',
+      }),
+    ).toBeInTheDocument()
+  })
+
+  it('is a search landmark whose Search button submits it', async () => {
+    const user = setup()
+    render(<SearchHero />)
+
+    expect(screen.getByRole('search')).toBeInTheDocument()
+
+    await user.type(field(), 'star')
+    await user.click(screen.getByRole('button', { name: 'Search' }))
+
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(replace).toHaveBeenCalledWith('/search?q=star', { scroll: false })
+  })
+
+  it('scopes the hint to titles, years, cast and genres', () => {
+    render(<SearchHero />)
+
+    expect(screen.getByText(/Title, year, cast or genre/)).toBeInTheDocument()
   })
 })

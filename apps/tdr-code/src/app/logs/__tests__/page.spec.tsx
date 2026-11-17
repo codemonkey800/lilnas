@@ -407,9 +407,7 @@ describe('LogsPage — empty source (R2)', () => {
 
     await user.click(screen.getByRole('tab', { name: 'frontend-server' }))
 
-    expect(
-      screen.getByText(/empty or has not been created/i),
-    ).toBeInTheDocument()
+    expect(screen.getByText(/this log is empty/i)).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(
       document.querySelector(
@@ -438,9 +436,7 @@ describe('LogsPage — empty source (R2)', () => {
     await screen.findAllByRole('tab')
     await user.click(screen.getByRole('tab', { name: 'frontend-server' }))
 
-    expect(
-      screen.getByText(/empty or has not been created/i),
-    ).toBeInTheDocument()
+    expect(screen.getByText(/this log is empty/i)).toBeInTheDocument()
   })
 })
 

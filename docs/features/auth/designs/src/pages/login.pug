@@ -1,0 +1,41 @@
+extends ../../../../../designs/mockup-kit/page.pug
+
+include ../mixins/auth.pug
+
+block title
+  | auth — Login · UI mockups
+
+//-
+  The sign-in screen at 1280 and 390, one captioned row per state. Copy and
+  states are in src/data/login.mjs.
+
+mixin loginCard(view, st)
+  +gate(view, { narrow: true, doorplate: false, toast: st.toast ? { tone: 'accent', title: st.toast } : null })
+    +mark
+    if st.error
+      +note('bad', st.error.lead)
+        | #{st.error.body}#{' '}
+        +code(st.error.code)
+    +gateHeading(st.heading)(class='-mt-1')
+    if st.target
+      +targetPill(st.target)
+    +btn({ variant: 'outline', size: 'lg', full: true, icon: 'google', label: st.redirecting ? copy.buttonBusy : copy.button, loading: st.redirecting })
+
+block content
+  +mockHead({ eyebrow: 'auth · login', title: 'Login', back: true })
+    p A centred 380px card: the pepe, one heading, one button. Someone sent here from another service sees where they were headed.
+
+  div(class='vp-scope flex flex-col items-center gap-6')
+    +viewportToggle('login-viewport')
+    +viewportPanel('desktop')
+      each st in states
+        +stateRow(st.label, { stack: true })(class='w-full')
+          div(class='flex w-full flex-col gap-2')
+            +loginCard('desktop', st)
+            +frameLabel Desktop · 1280
+    +viewportPanel('mobile')
+      each st in states
+        +stateRow(st.label, { stack: true })(class='w-full')
+          div(class='flex w-full flex-col items-center gap-2')
+            +loginCard('mobile', st)
+            +frameLabel Mobile · 390

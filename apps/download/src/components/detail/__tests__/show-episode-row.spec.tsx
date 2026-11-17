@@ -144,18 +144,18 @@ describe('the row itself', () => {
     expect(screen.getByText('—')).toBeInTheDocument()
   })
 
-  it('reads "in library" when the file is on disk', () => {
+  it('reads "In library" when the file is on disk', () => {
     renderRow({ episode: episode({ hasFile: true }) })
 
-    expect(screen.getByText('in library')).toBeInTheDocument()
+    expect(screen.getByText('In library')).toBeInTheDocument()
   })
 
   it.each<[MediaState, string]>([
-    ['needs_attention', 'needs your decision'],
-    ['downloading', 'downloading'],
-    ['importing', 'importing…'],
-    ['wanted', 'wanted'],
-    ['absent', 'not downloaded'],
+    ['needs_attention', 'Needs your decision'],
+    ['downloading', 'Downloading'],
+    ['importing', 'Importing…'],
+    ['wanted', 'Wanted'],
+    ['absent', 'Not downloaded'],
   ])(
     'reads its own %s state as "%s", with no job behind it',
     (state, label) => {
@@ -204,7 +204,7 @@ describe('the progress bar', () => {
   it('draws nothing for a snapshot with no finite percentage', () => {
     renderRow({
       episode: episode({
-        queueSnapshot: { status: 'queued' },
+        queueSnapshot: { status: 'Queued' },
         state: 'downloading',
       }),
     })
@@ -296,7 +296,7 @@ describe('the scoped download control', () => {
     ).not.toBeInTheDocument()
     // The chip reads the episode's own state, not the job's: a search has not
     // queued anything yet, so Sonarr still has it as wanted.
-    expect(screen.getByText('wanted')).toBeInTheDocument()
+    expect(screen.getByText('Wanted')).toBeInTheDocument()
   })
 })
 
@@ -609,7 +609,7 @@ describe('the import control', () => {
     expect(
       screen.getByRole('button', { name: IMPORT_TRIGGER_LABEL }),
     ).toBeInTheDocument()
-    expect(screen.getByText('needs your decision')).toBeInTheDocument()
+    expect(screen.getByText('Needs your decision')).toBeInTheDocument()
   })
 
   it('⚠️ offers it for a stuck grab this app never started', () => {
@@ -707,7 +707,7 @@ describe('the import control', () => {
       screen.queryByRole('button', { name: IMPORT_TRIGGER_LABEL }),
     ).not.toBeInTheDocument()
     // The chip still says why the row is stuck - only the control is absent.
-    expect(screen.getByText('needs your decision')).toBeInTheDocument()
+    expect(screen.getByText('Needs your decision')).toBeInTheDocument()
   })
 
   it('⚠️ leaves the request branch alone - a stuck job is still a job', () => {

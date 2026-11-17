@@ -1,9 +1,8 @@
 import '@testing-library/jest-dom'
 
+import { Button } from '@lilnas/ui'
 import { render, screen } from '@testing-library/react'
 
-import { Avatar } from 'src/components/ui/avatar'
-import { Button } from 'src/components/ui/button'
 import {
   GalleryCard,
   GalleryCardAttrib,
@@ -11,10 +10,11 @@ import {
   GalleryCardRow,
   GalleryCardTitle,
 } from 'src/components/ui/gallery-card'
+import { PersonAvatar } from 'src/components/ui/person-avatar'
 import { Poster } from 'src/components/ui/poster'
 
 describe('GalleryCard', () => {
-  it('is a div that stacks its rows and lifts on hover', () => {
+  it('is a div that stacks its rows and steps its surface on hover', () => {
     render(<GalleryCard data-testid="card">body</GalleryCard>)
     const card = screen.getByTestId('card')
 
@@ -22,18 +22,16 @@ describe('GalleryCard', () => {
     expect(card).toHaveClass(
       'flex',
       'flex-col',
-      'gap-[9px]',
+      'gap-2',
       'rounded-lg',
       'border',
       'border-line',
       'bg-surface',
-      'p-[9px]',
+      'p-2.5',
     )
-    expect(card).toHaveClass(
-      'hover:-translate-y-[2px]',
-      'hover:border-uv',
-      'hover:bg-surface-uv',
-    )
+    // Hover steps the surface; it does not lift.
+    expect(card).toHaveClass('hover:border-line-loud', 'hover:bg-surface-2')
+    expect(card.className).not.toContain('translate')
   })
 
   it('lets a call site pin its width', () => {
@@ -62,7 +60,7 @@ describe('GalleryCardLink', () => {
 
     expect(link.tagName).toBe('A')
     expect(link).toHaveAttribute('href', '/movies/m1')
-    expect(link).toHaveClass('flex', 'flex-col', 'gap-[9px]')
+    expect(link).toHaveClass('flex', 'flex-col', 'gap-2')
     expect(link).not.toHaveClass('border')
   })
 })
@@ -110,7 +108,6 @@ describe('GalleryCardRow', () => {
       'items-center',
       'justify-between',
       'gap-1.5',
-      'px-px',
     )
   })
 
@@ -149,8 +146,8 @@ describe('the assembled card', () => {
         </GalleryCardLink>
         <GalleryCardRow className="mt-auto">
           <GalleryCardAttrib>
-            <Avatar initials="JA" size="xs" />
-            <span className="font-mono text-mono-sm text-ink-4">12m ago</span>
+            <PersonAvatar initials="JA" size="xs" />
+            <span className="font-mono text-mono-sm text-ink-3">12m ago</span>
           </GalleryCardAttrib>
           <Button variant="ghost">Watch</Button>
         </GalleryCardRow>

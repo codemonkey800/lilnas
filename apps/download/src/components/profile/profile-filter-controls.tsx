@@ -1,6 +1,6 @@
 'use client'
 
-import { cns } from '@lilnas/utils/cns'
+import { Badge, Button } from '@lilnas/ui'
 import type { ProfileResponse } from '@lilnas/utils/download/types'
 import { useRouter } from 'next/navigation'
 import type { JSX, ReactNode } from 'react'
@@ -13,9 +13,7 @@ import {
 } from 'react'
 
 import { PROFILE_GROUP_LABEL } from 'src/components/profile/profile-page-shell'
-import { Button } from 'src/components/ui/button'
-import { Chip } from 'src/components/ui/chip'
-import { AppliedFilterChip } from 'src/components/ui/filters'
+import { FilterBadge } from 'src/components/ui/filter-badge'
 import { UNKNOWN_VALUE } from 'src/lib/format'
 import type { ProfileFilters } from 'src/lib/profile-filters'
 import {
@@ -28,8 +26,6 @@ import type { ProfileTotalChip } from 'src/lib/profile-totals'
 import { profileStatusChips, profileTypeChips } from 'src/lib/profile-totals'
 
 /** `profile.pug`'s Clear all beside the applied chips — a 27px ghost button. */
-const CLEAR_ALL_INLINE = 'h-[27px] px-2.5 text-[12px]'
-
 type ProfileFilterState = {
   /** The filter as it should look *right now*, including an unlanded press. */
   applied: ProfileFilters
@@ -152,14 +148,14 @@ export function ProfileTotals({
   const { applied } = useProfileFilterState()
 
   return (
-    <div className="mb-7 grid grid-cols-1 gap-5 sm:grid-cols-2">
+    <div className="mb-6 grid grid-cols-1 gap-5 sm:grid-cols-2">
       <TotalsGroup
         chips={profileTypeChips(totalsByType, applied)}
-        label="by type"
+        label="By type"
       />
       <TotalsGroup
         chips={profileStatusChips(totalsByStatus, applied)}
-        label="by status"
+        label="By status"
       />
     </div>
   )
@@ -175,24 +171,27 @@ function TotalsGroup({ chips, label }: TotalsGroupProps): JSX.Element {
 
   return (
     <div className="flex flex-col gap-2">
-      <span className={cns(PROFILE_GROUP_LABEL)}>{label}</span>
+      <span className={PROFILE_GROUP_LABEL}>{label}</span>
       {chips.length === 0 ? (
-        <span className="text-sm text-ink-4">{UNKNOWN_VALUE}</span>
+        <span className="text-sm text-ink-3">{UNKNOWN_VALUE}</span>
       ) : (
         <div className="flex flex-wrap gap-2" role="group">
           {chips.map(chip => (
-            <Chip
-              active={chip.active}
-              interactive
+            <button
+              aria-pressed={chip.active}
+              className="rounded-full transition-[filter] duration-200 ease-standard hover:brightness-125"
               key={chip.key}
-              label={chip.label}
+              type="button"
               onClick={() => apply(chip.next)}
-              // `Chip` gives `active` precedence over `tone`, which is what
-              // makes a pressed chip read as "applied" rather than as its own
-              // status colour — the tone is still passed so releasing it
-              // restores the right tint with no second source of truth.
-              tone={chip.tone}
-            />
+            >
+              {/* `active` wins over the chip's own tone, which is what makes a
+                  pressed chip read as "applied" rather than as its status
+                  colour — the tone is still computed so releasing it restores
+                  the right tint with no second source of truth. */}
+              <Badge tone={chip.active ? 'accent' : chip.tone}>
+                {chip.label}
+              </Badge>
+            </button>
           ))}
         </div>
       )}
@@ -220,11 +219,11 @@ export function ProfileAppliedFilters(): JSX.Element | null {
   return (
     <div
       aria-label="Active filters"
-      className="mb-3 flex flex-wrap items-center gap-2"
+      className="mb-5 flex flex-wrap items-center gap-2"
       role="group"
     >
       {chips.map(chip => (
-        <AppliedFilterChip
+        <FilterBadge
           key={chip.key}
           label={chip.label}
           onRemove={() => apply(chip.next)}
@@ -232,7 +231,6 @@ export function ProfileAppliedFilters(): JSX.Element | null {
         />
       ))}
       <Button
-        className={cns(CLEAR_ALL_INLINE)}
         onClick={() => apply(clearProfileFilters(applied))}
         size="sm"
         variant="ghost"

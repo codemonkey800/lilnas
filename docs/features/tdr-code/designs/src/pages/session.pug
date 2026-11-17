@@ -1,0 +1,99 @@
+extends ../../../../../designs/mockup-kit/page.pug
+
+include ../mixins/tdr-code.pug
+
+block title
+  | tdr-code — session · UI mockups
+
+//-
+  /sessions/[id]: one session's meta, its turn transcript and the reconcile
+  panel; a bad id renders not-found.tsx. Copy and sample data are in
+  src/data/session.mjs.
+
+mixin metaItem(label, wide)
+  div(class=['min-w-0', wide ? 'col-span-2' : ''])
+    dt(class='mb-0.5 text-label text-ink-3 uppercase')= label
+    dd(class='truncate text-[13.5px]')
+      block
+
+mixin sessionHead(view, session)
+  - const phone = view === 'mobile'
+  div(class='flex flex-col gap-2')
+    a(href='#' class='inline-flex w-fit items-center gap-1.5 text-sm text-ink-3 hover:text-ink')
+      +icon('arrow', 12)(class='-scale-x-100 text-ink-4')
+      | Sessions
+    div(class='flex flex-wrap items-center gap-x-3 gap-y-1')
+      h1(class='text-h2')
+        | Session 
+        span(class='font-mono') #{'#' + session.id}
+      if session.active
+        +badge({ tone: 'ok', label: 'Active', live: true })
+      else
+        span(class='font-mono text-mono-sm text-ink-3')= session.reason
+  +card()
+    dl(class=['grid gap-x-4 gap-y-3', phone ? 'grid-cols-2' : 'grid-cols-4'])
+      +metaItem('Channel')
+        span(class='font-mono text-mono-sm text-ink' title=session.channelId)= session.channel
+      +metaItem('User')= session.user
+      +metaItem('Created')
+        span(class='tabular-nums')= session.created
+      if session.ended
+        +metaItem('Ended')
+          span(class='tabular-nums')= session.ended
+
+mixin sessionBody(view, s)
+  if s.body === 'loading'
+    +loadingBlock(copy.loading)
+  else if s.body === 'error'
+    +errorBlock(view, copy.error.lead, copy.error.detail, copy.error.code, false)
+  else if s.body === 'not-found'
+    //- not-found.tsx: a centred line and a way back (the mascot is the empty state's)
+    +card()
+      +emptyState(copy.notFound.title, copy.notFound.body, copy.notFound.action)
+  else
+    +sessionHead(view, s.session)
+    if s.dropped
+      +note('warn', copy.dropped)
+    section(class='flex flex-col gap-3')
+      h2(class='text-h3')= s.turns.length + (s.turns.length === 1 ? ' turn' : ' turns')
+      if s.turns.length === 0
+        +card()
+          +emptyState(copy.emptyTurns.title, copy.emptyTurns.body)
+      else
+        each turn in s.turns
+          +turnCard(turn)
+    +reconcilePanel(view, s.reconcile)
+
+mixin sessionScreen(view, s)
+  +shell(view, 'Sessions', { width: 'max-w-3xl' })
+    +sessionBody(view, s)
+
+//- Just the panel, in the same frame, for the reconcile states.
+mixin reconcileScreen(view, r)
+  +shell(view, 'Sessions', { width: 'max-w-3xl' })
+    +reconcilePanel(view, r)
+
+block content
+  +mockHead({ eyebrow: 'tdr-code · /sessions/[id]', title: 'Session', back: true })
+    p The transcript, newest turn last. A turn card holds blocks on three surfaces so it scans: the person's prompt is a raised well, the agent's text a sunk one, a tool call an outlined row with its kind and status in mono, and a diff a sunk block with its path. A running turn carries a live badge; a plan-mode gate says how it was settled. The reconcile panel compares the DB transcript against claude's own JSONL and colours a count only when it's non-zero. A phone keeps the same stack at one column.
+
+  div(class='vp-scope flex flex-col items-center gap-8')
+    +viewportToggle('session-viewport')
+    +viewportPanel('desktop')
+      each s in states
+        +stateRow(s.label + ' · ' + s.caption, { stack: true })(class='w-full')
+          +sessionScreen('desktop', s)
+      each s in reconcileStates
+        +stateRow(s.label + ' · ' + s.caption, { stack: true })(class='w-full')
+          +reconcileScreen('desktop', s.r)
+      +frameLabel Desktop · 1280
+    +viewportPanel('mobile')
+      +stateRow('States', { stack: true })(class='w-full')
+        each s in states
+          +stateCell(s.label + ' · ' + s.caption)
+            +sessionScreen('mobile', s)
+      +stateRow('Reconcile', { stack: true })(class='w-full')
+        each s in reconcileStates
+          +stateCell(s.label + ' · ' + s.caption)
+            +reconcileScreen('mobile', s.r)
+      +frameLabel Mobile · 390

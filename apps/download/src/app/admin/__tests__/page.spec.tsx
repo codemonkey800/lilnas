@@ -91,6 +91,11 @@ const getHistory = jest.fn<
   [HistoryQueryish | undefined]
 >()
 
+/** The history's table: the page also holds the leaderboard's and the audit log's. */
+function historyTable(): HTMLElement {
+  return screen.getByRole('table', { name: 'Download history' })
+}
+
 async function renderPage(searchParams: AdminSearchParams = {}) {
   return render(
     await AdminPage({ searchParams: Promise.resolve(searchParams) }),
@@ -137,7 +142,9 @@ describe('AdminPage — the gate', () => {
     await renderPage()
 
     expect(screen.getByText(NOT_AUTHORIZED_TITLE)).toBeInTheDocument()
-    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('table', { name: 'Download history' }),
+    ).not.toBeInTheDocument()
     expect(screen.queryByText('Top downloaders')).not.toBeInTheDocument()
   })
 
@@ -173,7 +180,7 @@ describe('AdminPage — the gate', () => {
     await renderPage()
 
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Admin dashboard' }),
+      screen.getByRole('heading', { level: 1, name: 'Admin' }),
     ).toBeInTheDocument()
   })
 
@@ -181,9 +188,9 @@ describe('AdminPage — the gate', () => {
     await renderPage()
 
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Admin dashboard' }),
+      screen.getByRole('heading', { level: 1, name: 'Admin' }),
     ).toBeInTheDocument()
-    expect(screen.getByRole('table')).toBeInTheDocument()
+    expect(historyTable()).toBeInTheDocument()
     expect(screen.getByText('Top downloaders')).toBeInTheDocument()
     expect(screen.getByText('Audit log')).toBeInTheDocument()
     expect(screen.queryByText(NOT_AUTHORIZED_TITLE)).not.toBeInTheDocument()
@@ -207,11 +214,9 @@ describe('AdminPage — the requester filter', () => {
     expect(getHistory).toHaveBeenCalledWith(
       expect.objectContaining({ requester: SAM }),
     )
+    expect(within(historyTable()).getByText('Paper Weather')).toBeVisible()
     expect(
-      within(screen.getByRole('table')).getByText('Paper Weather'),
-    ).toBeVisible()
-    expect(
-      within(screen.getByRole('table')).queryByText('Salt & Ceremony'),
+      within(historyTable()).queryByText('Salt & Ceremony'),
     ).not.toBeInTheDocument()
   })
 
@@ -263,7 +268,7 @@ describe('AdminPage — the requester filter', () => {
   // profile route that would answer a different question.
   it('links every leaderboard row into its own filtered view', async () => {
     await renderPage()
-    const board = within(screen.getByRole('list', { name: 'Top downloaders' }))
+    const board = within(screen.getByRole('table', { name: 'Top downloaders' }))
 
     expect(
       board.getAllByRole('link').map(link => link.getAttribute('href')),
@@ -273,7 +278,8 @@ describe('AdminPage — the requester filter', () => {
         '/admin?requester=sam%40lilnas.io',
       ]),
     )
-    expect(board.getAllByRole('listitem')).toHaveLength(2)
+    // The header row, then one row per downloader.
+    expect(board.getAllByRole('row')).toHaveLength(3)
   })
 
   it("names a linked person's Discord handle beside their email", async () => {
@@ -293,7 +299,7 @@ describe('AdminPage — the requester filter', () => {
     })
 
     await renderPage()
-    const board = within(screen.getByRole('list', { name: 'Top downloaders' }))
+    const board = within(screen.getByRole('table', { name: 'Top downloaders' }))
 
     expect(board.getByText(JEREMY)).toBeInTheDocument()
     expect(board.getByText('@casserole69')).toBeInTheDocument()
@@ -318,7 +324,7 @@ describe('AdminPage — the requester filter', () => {
     })
 
     await renderPage()
-    const board = within(screen.getByRole('list', { name: 'Top downloaders' }))
+    const board = within(screen.getByRole('table', { name: 'Top downloaders' }))
 
     expect(board.getByText('bigkrizz72')).toBeInTheDocument()
     expect(board.queryAllByRole('link')).toHaveLength(0)
@@ -345,8 +351,8 @@ describe('AdminPage — the stats window', () => {
 
     await renderPage({ days: '365' })
 
-    expect(screen.getByText('last 30 days')).toBeInTheDocument()
-    expect(screen.queryByText('last 365 days')).not.toBeInTheDocument()
+    expect(screen.getByText('Last 30 days')).toBeInTheDocument()
+    expect(screen.queryByText('Last 365 days')).not.toBeInTheDocument()
   })
 })
 
@@ -367,10 +373,10 @@ describe('AdminPage — attribution', () => {
     })
 
     await renderPage({ requester: SAM })
-    const table = within(screen.getByRole('table'))
+    const table = within(historyTable())
 
     expect(table.getByText(SAM)).toBeInTheDocument()
-    expect(table.queryByText('hidden')).not.toBeInTheDocument()
+    expect(table.queryByText('Hidden')).not.toBeInTheDocument()
     expect(table.getByLabelText('Hidden from other users')).toBeInTheDocument()
   })
 
@@ -384,10 +390,10 @@ describe('AdminPage — attribution', () => {
     })
 
     await renderPage({ requester: SAM })
-    const table = within(screen.getByRole('table'))
+    const table = within(historyTable())
 
     expect(table.getByText('service')).toBeInTheDocument()
-    expect(table.queryByText('hidden')).not.toBeInTheDocument()
+    expect(table.queryByText('Hidden')).not.toBeInTheDocument()
   })
 })
 
@@ -415,11 +421,11 @@ describe('AdminPage — the history table', () => {
     })
 
     await renderPage({ requester: JEREMY })
-    const table = within(screen.getByRole('table'))
+    const table = within(historyTable())
 
-    expect(table.getByText('completed')).toBeInTheDocument()
-    expect(table.getByText('failed')).toBeInTheDocument()
-    expect(table.getByText('cancelled')).toBeInTheDocument()
+    expect(table.getByText('Completed')).toBeInTheDocument()
+    expect(table.getByText('Failed')).toBeInTheDocument()
+    expect(table.getByText('Cancelled')).toBeInTheDocument()
   })
 
   it('has its own empty state, split by whether anything is filtered', async () => {

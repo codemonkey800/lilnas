@@ -161,7 +161,7 @@ describe('releaseBlockReason', () => {
 
   it('still blocks a flagged release that is also the current one', () => {
     // This app's own refusal, asked for by the user — and the chip reads
-    // `bad file` rather than `current` for it.
+    // `Bad file` rather than `current` for it.
     expect(releaseBlockReason(FLAGGED, true)).toBe(RELEASE_FLAGGED_REASON)
   })
 
@@ -383,7 +383,7 @@ describe('ReleasePicker — a flagged release is disabled WITH A REASON', () => 
     )
   }
 
-  it('chips it `bad file` and strikes the row through', () => {
+  it('chips it `Bad file` and strikes the row through', () => {
     renderFlagged()
 
     const flagged = row(FLAGGED)
@@ -805,7 +805,7 @@ describe('ReleasePicker — reporting from the list', () => {
         name: 'Report a problem',
       }),
     )
-    await user.click(screen.getByRole('button', { name: 'Submit report' }))
+    await user.click(screen.getByRole('button', { name: 'Report problem' }))
 
     await waitFor(() => {
       expect(onFlag).toHaveBeenCalledTimes(1)
@@ -829,7 +829,7 @@ describe('ReleasePicker — reporting from the list', () => {
       />,
     )
 
-    expect(within(row(FLAGGED)).getByText('reported')).toBeInTheDocument()
+    expect(within(row(FLAGGED)).getByText('Reported')).toBeInTheDocument()
     expect(
       within(row(FLAGGED)).queryByRole('button', { name: 'Report a problem' }),
     ).not.toBeInTheDocument()

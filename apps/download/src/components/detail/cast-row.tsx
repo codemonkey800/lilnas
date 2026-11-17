@@ -1,7 +1,8 @@
 import { cns } from '@lilnas/utils/cns'
 import type { ComponentPropsWithoutRef, JSX } from 'react'
+import { useId } from 'react'
 
-import { Avatar, CastPerson } from 'src/components/ui/avatar'
+import { CastPerson } from 'src/components/ui/person-avatar'
 
 /**
  * One credited name.
@@ -22,6 +23,8 @@ export type CastMember = {
   initials?: string
   name: string
 }
+
+export const CAST_HEADING = 'Cast'
 
 /**
  * How many names are drawn before the rest collapse into a count. Four, from
@@ -60,7 +63,10 @@ export function castInitials(name: string): string {
   return letters.toUpperCase()
 }
 
-export type CastRowProps = Omit<ComponentPropsWithoutRef<'div'>, 'children'> & {
+export type CastRowProps = Omit<
+  ComponentPropsWithoutRef<'section'>,
+  'children'
+> & {
   /** How many names to draw before the count. Defaults to {@link CAST_VISIBLE_LIMIT}. */
   limit?: number
   /** In credited order. An empty list renders nothing at all. */
@@ -68,24 +74,16 @@ export type CastRowProps = Omit<ComponentPropsWithoutRef<'div'>, 'children'> & {
 }
 
 /**
- * The credited-cast row on a movie or show header - a bounded number of
- * portraits, then a count for the rest.
+ * The Cast section - a heading over a sideways-scrolling row of portraits, then
+ * `+6 more` for the rest. `castRow` in `download.pug`.
  *
- * Ported from the `castPerson` run in `movie-detail.pug` / `show-detail.pug`
- * plus their shared cast-overflow appendix. Two deliberate deviations:
+ * The overflow marker is the word rather than a bare `+6` circle, with the
+ * remaining names in a `title`: a hover-only tooltip is invisible on a touch
+ * device. `limit` bounds the row, so the scroll is only ever a narrow phone's.
  *
- * - The overflow marker reads `+6 more` rather than the mockups' bare `+6`
- *   circle. The circle carries the remaining names in a `title`, which is
- *   invisible on a touch device and to anyone who does not hover; the word
- *   makes the affordance legible and the `title` stays as the detail.
- * - It wraps at every width rather than turning into a masked sideways
- *   scroller below `sm`. The scroller is the appendix's own demonstration of
- *   an *unbounded* list; `limit` already bounds this one to five items, which
- *   wraps to three rows at 390px without a gesture nobody was told about.
- *
- * Returns `null` for an empty cast rather than an empty flex row, so a page
- * can render it unconditionally without leaving a gap where a title has no
- * cast (which, today, is every show - see {@link CastMember}).
+ * Returns `null` for an empty cast rather than an empty section, so a page can
+ * render it unconditionally without leaving a gap or a heading over nothing
+ * (which, today, is every show - see {@link CastMember}).
  */
 export function CastRow({
   className,
@@ -93,6 +91,8 @@ export function CastRow({
   people,
   ...props
 }: CastRowProps): JSX.Element | null {
+  const headingId = useId()
+
   if (people.length === 0) {
     return null
   }
@@ -101,30 +101,33 @@ export function CastRow({
   const overflow = people.slice(shown.length)
 
   return (
-    <div
+    <section
       {...props}
-      className={cns('flex flex-wrap items-center gap-4', className)}
+      aria-labelledby={headingId}
+      className={cns('min-w-0', className)}
     >
-      {shown.map(person => (
-        <CastPerson
-          imageUrl={person.imageUrl}
-          initials={person.initials ?? castInitials(person.name)}
-          key={person.name}
-          name={person.name}
-          role={person.character}
-        />
-      ))}
-      {overflow.length > 0 ? (
-        <div className={cns('flex shrink-0 items-center gap-2')}>
-          <Avatar
-            className={cns('text-[10px]')}
-            initials={`+${overflow.length}`}
-            size="md"
-            title={overflow.map(person => person.name).join(', ')}
+      <h2 className={cns('mb-3 text-h2')} id={headingId}>
+        {CAST_HEADING}
+      </h2>
+      <div className={cns('flex items-center gap-5 overflow-x-auto pb-1')}>
+        {shown.map(person => (
+          <CastPerson
+            imageUrl={person.imageUrl}
+            initials={person.initials ?? castInitials(person.name)}
+            key={person.name}
+            name={person.name}
+            role={person.character}
           />
-          <span className={cns('text-sm text-ink-3')}>more</span>
-        </div>
-      ) : null}
-    </div>
+        ))}
+        {overflow.length > 0 ? (
+          <span
+            className={cns('shrink-0 text-sm text-ink-3')}
+            title={overflow.map(person => person.name).join(', ')}
+          >
+            {`+${overflow.length} more`}
+          </span>
+        ) : null}
+      </div>
+    </section>
   )
 }

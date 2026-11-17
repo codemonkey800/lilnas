@@ -1,32 +1,29 @@
 'use client'
 
+import {
+  Badge,
+  Card,
+  type LogLine,
+  LogViewer as LogPane,
+  Progress,
+} from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { JSX } from 'react'
-import { useLayoutEffect, useRef } from 'react'
+import { useMemo } from 'react'
 
-import { Panel, PanelHead } from 'src/components/detail/panel'
+import { CardHead } from 'src/components/detail/card-head'
 import { formatClock, formatTook } from 'src/components/detail/time'
 import { useOperationStream } from 'src/components/logs/use-operation-stream'
-import { Chip } from 'src/components/ui/chip'
-import { Spinner } from 'src/components/ui/feedback'
 import type { Operation } from 'src/lib/api'
 
-/** A little slack so a sub-pixel gap still counts as "at the bottom". */
-const BOTTOM_SLACK_PX = 24
-
 /** What a finished operation says about itself on the right of the head. */
-function ExitChip({ operation }: { operation: Operation }): JSX.Element {
-  const failed = operation.status === 'failed'
+function ExitBadge({ operation }: { operation: Operation }): JSX.Element {
   const label =
     operation.exitCode === undefined
       ? operation.status
-      : `exit ${operation.exitCode}`
+      : `Exit ${operation.exitCode}`
   return (
-    <Chip
-      icon={failed ? 'x' : 'check'}
-      label={label}
-      tone={failed ? 'bad' : 'ok'}
-    />
+    <Badge tone={operation.status === 'failed' ? 'bad' : 'ok'}>{label}</Badge>
   )
 }
 
@@ -43,13 +40,16 @@ export function OperationLog({
 }): JSX.Element {
   const { lines, done } = useOperationStream(operation.id)
   const finished = done ?? (operation.status === 'running' ? null : operation)
-  const scroller = useRef<HTMLDivElement>(null)
-  const stuck = useRef(true)
 
-  useLayoutEffect(() => {
-    const el = scroller.current
-    if (el && stuck.current) el.scrollTop = el.scrollHeight
-  }, [lines, done])
+  const rows = useMemo<LogLine[]>(
+    () =>
+      lines.map((line, i) => ({
+        id: i,
+        message: line.text,
+        stderr: line.stream === 'stderr',
+      })),
+    [lines],
+  )
 
   const failed = finished?.status === 'failed'
   const took =
@@ -60,8 +60,8 @@ export function OperationLog({
       : null
 
   return (
-    <Panel aria-label="Operation log">
-      <PanelHead
+    <Card aria-label="Operation log" role="region">
+      <CardHead
         caption={[
           operation.action,
           formatClock(operation.startedAt),
@@ -70,47 +70,43 @@ export function OperationLog({
         title="Operation log"
       >
         {finished ? (
-          <ExitChip operation={finished} />
+          <ExitBadge operation={finished} />
         ) : (
-          <Chip tone="uv">
-            <Spinner className="h-[10px] w-[10px] border-[1.5px]" />
-            running
-          </Chip>
+          <Badge live tone="accent">
+            Running
+          </Badge>
         )}
-      </PanelHead>
-      <div
-        aria-live="polite"
-        className="max-h-[320px] overflow-y-auto bg-bg-sunk px-5 py-4 font-mono text-[12px] leading-[1.7]"
-        onScroll={event => {
-          const el = event.currentTarget
-          stuck.current =
-            el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_SLACK_PX
-        }}
-        ref={scroller}
-        role="log"
-      >
-        <p className="break-all text-ink-3">$ {operation.command.join(' ')}</p>
-        {lines.map((line, i) => (
-          <p className="break-all text-ink-2" key={i}>
-            {line.text}
-          </p>
-        ))}
-        {finished ? (
-          <p
-            className={cns(
-              'mt-1.5 border-t border-line-soft pt-1.5',
-              failed ? 'text-bad' : 'text-ok',
-            )}
-          >
-            exit {finished.exitCode ?? finished.status}
-            {took ? ` · ${took}` : ''}
-          </p>
-        ) : (
-          <p className="flex items-center gap-1.5 text-ink-4">
-            <span className="inline-block h-[14px] w-[7px] bg-uv align-middle" />
-          </p>
-        )}
-      </div>
-    </Panel>
+      </CardHead>
+      <p className="mb-2 font-mono text-mono-sm break-all text-ink-3">
+        $ {operation.command.join(' ')}
+      </p>
+      {/* `follow` stays on: the well only sticks while the reader is at the
+          bottom, so scrolling up to read doesn't get yanked back. */}
+      <LogPane
+        aria-label="Operation output"
+        className="max-h-80"
+        follow
+        height="auto"
+        lines={rows}
+      />
+      {finished ? (
+        <p
+          className={cns(
+            'mt-3 font-mono text-mono-sm',
+            failed ? 'text-bad' : 'text-ok',
+          )}
+        >
+          exit {finished.exitCode ?? finished.status}
+          {took ? ` · ${took}` : ''}
+        </p>
+      ) : (
+        <Progress
+          className="mt-3"
+          indeterminate
+          label="Operation running"
+          tone="accent"
+        />
+      )}
+    </Card>
   )
 }

@@ -1,0 +1,171 @@
+extends ../../../../../designs/mockup-kit/page.pug
+
+include ../mixins/tdr-code.pug
+
+block title
+  | tdr-code — logs · UI mockups
+
+//-
+  /logs: three tailed log files, one tab each. Filters and search compose into
+  one toolbar; a status banner says whether the viewer is following the end of
+  the file; a row opens the detail sheet. Copy and sample data are in
+  src/data/logs.mjs.
+
+mixin logTabs(view, stream)
+  +tabs()(class='overflow-x-auto' aria-label='Log source')
+    each t in tabs
+      +tab(t, t === stream)(class='shrink-0 font-mono')
+
+//- Filters row over the search row: one strip, two rows.
+mixin logToolbar(view, s)
+  - const phone = view === 'mobile'
+  - const filtersActive = !!(s.level || s.process || s.event)
+  - const tall = phone ? '*:h-11!' : ''
+  - const search = s.search || {}
+  - const count = search.count
+  - const filteredView = s.status && s.status.kind === 'filtered'
+  div(class='overflow-hidden rounded-lg border border-line bg-surface')
+    div(class=['flex items-center gap-2 px-3 py-2', phone ? 'overflow-x-auto' : 'flex-wrap'])
+      span(class='shrink-0 text-label text-ink-3 uppercase') Filters
+      +select({ value: s.level || 'Any level' })(class=['w-32 shrink-0', tall])
+      if s.stream === 'backend'
+        +select({ value: s.process || 'Any process' })(class=['w-36 shrink-0', tall])
+      +input({ value: s.event, placeholder: copy.eventPlaceholder, mono: !!s.event })(class=['w-44! shrink-0', phone ? 'h-11!' : ''])
+      if filtersActive
+        +btn({ variant: 'ghost', size: 'sm', touch: phone, label: 'Clear filters' })(class='ml-auto shrink-0')
+    div(class='flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-line-soft px-3 py-2')
+      span(class=[phone ? 'sr-only' : 'shrink-0 text-label text-ink-3 uppercase']) Search
+      +input({ value: search.value, placeholder: copy.searchPlaceholder })(class=phone ? 'h-11! basis-full' : 'max-w-56 min-w-0 flex-1')
+      unless filteredView
+        if count
+          if count.n === 0
+            span(class='text-cap text-ink-4 italic') No results
+          else
+            span(class='text-cap text-ink-2 tabular-nums')= 'Hit ' + count.i + ' of ' + count.n
+              
+            span(class='flex items-center gap-1')
+              +btn({ variant: 'ghost', size: 'sm', touch: phone, label: 'Prev', icon: 'chevron', iconOnly: false })(class='*:rotate-90')
+              +btn({ variant: 'ghost', size: 'sm', touch: phone, label: 'Next', iconEnd: 'chevron' })(class='*:-rotate-90')
+        if search.searching
+          span(class='flex items-center gap-1.5 text-cap text-ink-3' role='status')
+            span(class='size-3 shrink-0 animate-spin rounded-full border-2 border-accent border-t-transparent' aria-hidden='true')
+            | Searching…
+        if search.grew
+          +btn({ variant: 'ghost', size: 'sm', touch: phone, label: 'File grew — re-run', icon: 'refresh' })
+
+mixin logStatus(view, st)
+  - const phone = view === 'mobile'
+  div(
+    class='flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg border border-line bg-surface px-3 py-1.5 text-cap text-ink-3'
+    role='status'
+  )
+    if st.kind === 'filtered'
+      span(class='tabular-nums')= st.count + (st.count === 1 ? ' matching line' : ' matching lines')
+    else
+      span(class='flex flex-wrap items-center gap-x-3 gap-y-1')
+        if st.kind === 'following'
+          span(class='flex items-center gap-2 text-ink-2')
+            +statusDot('ok', true)
+            | Following live
+        else
+          span(class='flex items-center gap-2 text-ink-2')
+            +statusDot('warn')
+            | Paused
+          span(class='rounded-full bg-surface-2 px-2 py-px tabular-nums text-ink')= st.n + ' new'
+          +btn({ variant: 'ghost', size: 'sm', touch: phone, label: 'Jump to latest', icon: 'arrow' })(class='*:rotate-90')
+        span(class='tabular-nums')= st.pct + '% through file'
+      +btn({ variant: 'ghost', size: 'sm', touch: phone, label: 'Refresh', icon: 'refresh', iconOnly: phone })
+
+mixin logMarker(text)
+  p(class='px-3 py-1 text-center text-cap text-ink-4 italic')= text
+
+mixin logPane(view, s)
+  - const edge = s.edge || {}
+  div(class='overflow-hidden rounded-lg border border-line bg-bg-sunk')
+    div(role='log' class='flex max-h-[32rem] flex-col overflow-y-auto py-1')
+      if edge.before
+        +logMarker('Loading earlier entries…')
+      if edge.top
+        +logMarker('Top of file')
+      each line, i in s.lines
+        +logRow(line, { view: view, hit: s.hit, selected: i === s.selected })
+      if edge.end
+        +logMarker('End of file')
+
+//- The right sheet. A phone gets it full width (the kit's sheet is max 480px).
+mixin logDetail(view, s)
+  - const phone = view === 'mobile'
+  - const raw = s.sheet === 'raw'
+  - const head = raw ? detail.raw.header : detail.header
+  +sheet('right')
+    div(class='flex shrink-0 items-start justify-between gap-3 border-b border-line pb-3')
+      div(class='min-w-0')
+        p(class='truncate font-mono text-sm font-medium')= head.process
+        if head.timestamp
+          p(class='truncate font-mono text-mono-sm text-ink-3')= head.timestamp
+      div(class='flex shrink-0 items-center gap-1')
+        if s.copy === 'copied'
+          +btn({ variant: 'ghost', size: 'sm', touch: phone, label: 'Copied', icon: 'check' })(class='text-ok!')
+        else
+          +btn({ variant: 'ghost', size: 'sm', touch: phone, label: 'Copy' })
+        +btn({ variant: 'ghost', size: 'sm', touch: phone, label: 'Close', icon: 'x', iconOnly: true })
+    div(class='flex min-h-0 flex-1 flex-col gap-3 overflow-auto')
+      unless raw
+        div(class='flex flex-wrap items-center gap-2 border-b border-line pb-3')
+          span(class='text-cap text-ink-3') Filter
+          each f in detail.filters
+            +btn({ variant: 'outline', size: 'sm', touch: phone, label: f })(class='font-mono')
+      if raw
+        pre(class='font-mono text-mono-sm leading-relaxed break-words whitespace-pre-wrap text-ink')= detail.raw.text
+      else
+        +jsonView(detail.json)
+
+mixin logScreen(view, s)
+  +shell(view, 'Logs', { height: s.sheet ? 760 : undefined })
+    h1(class='text-h2') Logs
+    +logTabs(view, s.stream)
+    if s.body === 'loading'
+      +loadingBlock('Loading ' + s.stream + ' log…')
+    else if s.body === 'error'
+      +errorBlock(view, copy.error.lead, copy.error.detail, copy.error.code)
+    else if s.body === 'empty'
+      +card()
+        +emptyState(copy.empty.title, copy.empty.body)
+    else
+      div(class='flex flex-col gap-2')
+        +logToolbar(view, s)
+        +logStatus(view, s.status)
+        if s.body === 'scanning'
+          +loadingBlock('Scanning for matches…')
+        else if s.body === 'filtered-empty'
+          +card()
+            +emptyState(copy.filteredEmpty.title, copy.filteredEmpty.body, copy.filteredEmpty.action)
+        else
+          +logPane(view, s)
+    if s.sheet
+      +logDetail(view, s)
+
+block content
+  +mockHead({ eyebrow: 'tdr-code · /logs', title: 'Logs', back: true })
+    p Three tails, one tab each. Filters and search are one toolbar of two rows; the banner under it says Following live (green, pulsing) or Paused with how many new lines are waiting. Rows are 24px mono: time, a level coloured by severity (warn and error also tint the cell), process, event slug, the message and the line's context as #[+code('key=value')]. A search hit is the accent. Opening a row slides in a right sheet with Copy, filter-by buttons and the line as JSON in four inks: keys accent, strings green, values ink, punctuation quiet. On a phone rows drop to time, level and message, the filter row scrolls sideways, and the sheet takes the full width.
+
+  div(class='vp-scope flex flex-col items-center gap-8')
+    +viewportToggle('logs-viewport')
+    +viewportPanel('desktop')
+      each s in states
+        +stateRow(s.label + ' · ' + s.caption, { stack: true })(class='w-full')
+          +logScreen('desktop', s)
+      +stateRow('Copy button · the three states the detail sheet can show')(class='w-full')
+        +stateCell('Idle')
+          +btn({ variant: 'ghost', size: 'sm', label: 'Copy' })
+        +stateCell('Copied')
+          +btn({ variant: 'ghost', size: 'sm', label: 'Copied', icon: 'check' })(class='text-ok!')
+        +stateCell('Clipboard blocked')
+          +btn({ variant: 'outline', size: 'sm', label: 'Copy unavailable', disabled: true })
+      +frameLabel Desktop · 1280
+    +viewportPanel('mobile')
+      +stateRow('States', { stack: true })(class='w-full')
+        each s in states
+          +stateCell(s.label + ' · ' + s.caption)
+            +logScreen('mobile', s)
+      +frameLabel Mobile · 390

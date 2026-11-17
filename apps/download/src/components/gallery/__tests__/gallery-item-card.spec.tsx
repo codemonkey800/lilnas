@@ -11,7 +11,7 @@ import userEvent from '@testing-library/user-event'
 
 import { DISCORD_UNLINKED_NOTE } from 'src/components/activity/discord-identity-mark'
 import { GalleryItemCard } from 'src/components/gallery/gallery-item-card'
-import { MASKED_INITIALS } from 'src/components/ui/avatar'
+import { MASKED_INITIALS } from 'src/components/ui/person-avatar'
 import { PROFILE_HREF, profileHrefForEmail } from 'src/lib/profile-filters'
 import type { Viewer } from 'src/lib/viewer'
 
@@ -265,7 +265,7 @@ describe('GalleryItemCard', () => {
       />,
     )
 
-    expect(screen.getByText('indexing…')).toBeInTheDocument()
+    expect(screen.getByText('Indexing…')).toBeInTheDocument()
   })
 
   it('labels a poster that has no art so the tile is not blank', () => {
@@ -286,13 +286,13 @@ describe('GalleryItemCard', () => {
     ).toHaveLength(1)
   })
 
-  it('gives every card the same width at each breakpoint', () => {
+  it('fills its grid cell and leaves the column count to the grid', () => {
     const { container } = render(
       <GalleryItemCard item={item()} now={NOW} viewer={null} />,
     )
 
     expect(container.firstElementChild?.getAttribute('class')).toContain(
-      'w-[calc(50%-8px)] sm:w-[158px]',
+      'w-full',
     )
   })
 

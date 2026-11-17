@@ -94,6 +94,7 @@ const backendProject = {
   moduleNameMapper: {
     '^src/(.*)$': '<rootDir>/src/$1',
     '^@lilnas/utils/(.*)$': '<rootDir>/../../packages/utils/src/$1',
+    '^@lilnas/ui$': '<rootDir>/../../packages/ui/src/index.ts',
   },
 }
 
@@ -136,6 +137,7 @@ const frontendProject = {
   moduleNameMapper: {
     '^src/(.*)$': '<rootDir>/src/$1',
     '^@lilnas/utils/(.*)$': '<rootDir>/../../packages/utils/src/$1',
+    '^@lilnas/ui$': '<rootDir>/../../packages/ui/src/index.ts',
   },
 }
 

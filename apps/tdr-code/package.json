@@ -47,6 +47,7 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "^2.0.0",
     "@better-auth/drizzle-adapter": "1.7.12",
+    "@lilnas/ui": "workspace:*",
     "@lilnas/utils": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@nestjs/common": "12.2.0",

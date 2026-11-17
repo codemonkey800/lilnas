@@ -1,22 +1,21 @@
 'use client'
 
-import { cns } from '@lilnas/utils/cns'
+import { Icon, Note } from '@lilnas/ui'
 import type { DownloadJob } from '@lilnas/utils/download/types'
 import type { JSX } from 'react'
 import { useState, useTransition } from 'react'
 
 import { loadAdminHistoryPage } from 'src/app/actions/load-admin-history'
+import { AdminHistoryDataList } from 'src/components/admin/admin-history-data-list'
 import { AdminHistoryEmpty } from 'src/components/admin/admin-history-empty'
-import { AdminHistoryList } from 'src/components/admin/admin-history-list'
-import { AdminHistoryTable } from 'src/components/admin/admin-history-table'
-import { Note } from 'src/components/ui/card'
 import { LoadMore } from 'src/components/ui/load-more'
 import type { AdminFilters } from 'src/lib/admin-filters'
-import { hasAdminFilters } from 'src/lib/admin-filters'
+import {
+  adminHref,
+  EMPTY_ADMIN_FILTERS,
+  hasAdminFilters,
+} from 'src/lib/admin-filters'
 import type { Viewer } from 'src/lib/viewer'
-
-/** The loud `Note` from `ui.pug`'s call sites — `Note` itself has no tone. */
-const HISTORY_ERROR_NOTE = 'mt-6 border-bad/35! bg-bad-ghost! [&>svg]:text-bad!'
 
 export type AdminHistoryProps = {
   /** The filter the URL currently describes. */
@@ -101,39 +100,29 @@ export function AdminHistory({
   }
 
   if (jobs.length === 0) {
-    return <AdminHistoryEmpty filtered={hasAdminFilters(filters)} />
+    return (
+      <AdminHistoryEmpty
+        clearHref={adminHref({ ...EMPTY_ADMIN_FILTERS, days: filters.days })}
+        filtered={hasAdminFilters(filters)}
+      />
+    )
   }
 
   return (
     <>
-      {/*
-        Two layouts, one of them `display: none` at any given width — which
-        removes it from the accessible tree too, so assistive technology sees
-        exactly one copy of every row. Six columns do not fit at 390px and the
-        mobile row is a genuine re-ordering of the facts rather than a reflow of
-        the same cells, so this is two renders rather than a table that
-        collapses.
-      */}
-      <div className="hidden sm:block">
-        <AdminHistoryTable
-          filters={filters}
-          jobs={jobs}
-          now={now}
-          viewer={viewer}
-        />
-      </div>
-      <div className="sm:hidden">
-        <AdminHistoryList
-          filters={filters}
-          jobs={jobs}
-          now={now}
-          viewer={viewer}
-        />
-      </div>
+      <AdminHistoryDataList
+        filters={filters}
+        jobs={jobs}
+        now={now}
+        viewer={viewer}
+      />
       {error ? (
-        <Note className={cns(HISTORY_ERROR_NOTE)} icon="alert" role="alert">
-          {error}
-        </Note>
+        <Note
+          className="mt-6"
+          icon={<Icon name="alert" />}
+          lead={error}
+          tone="bad"
+        />
       ) : null}
       <LoadMore
         className="mt-6"

@@ -1,5 +1,6 @@
 'use client'
 
+import { Badge, type BadgeTone } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import { memo } from 'react'
 
@@ -25,38 +26,24 @@ const LEVEL_LABELS: Record<number, string> = {
   60: 'FATAL',
 }
 
-// Extends events/page.tsx's LEVEL_COLORS (string-keyed error/warn/info) to
-// the full numeric pino scale rather than reusing it directly — that map is
-// owned by a different feature and keyed by label string, not level number,
-// and this unit's own spec calls for `text-gray-300` on info (that page uses
-// `text-gray-400`), so duplicating locally avoids fighting either owner.
-//
-// U14: kept EXACTLY as the text-color-only map log-row.spec.tsx asserts
-// against (`toHaveClass('text-yellow-400')` etc. on the level span itself) —
-// the WARN/ERROR/FATAL background-pill treatment added below in
-// `levelBadgeBackground` is layered on TOP of this same span via `cns()`,
-// never replacing these classes, so every existing color assertion still
-// passes unchanged.
+// Level ink per pino level, from the package `LogLineRow` palette: INFO is
+// accent-hi, WARN warn, ERROR/FATAL bad; TRACE/DEBUG and anything unknown
+// stay in ink-3. WARN/ERROR/FATAL are the severities an operator scans for,
+// so they render as a `Badge` pill (below) whose tone supplies the same
+// colour; the plain-text levels carry it on the span itself.
 const LEVEL_COLORS: Record<number, string> = {
-  10: 'text-gray-500',
-  20: 'text-gray-500',
-  30: 'text-gray-300',
-  40: 'text-yellow-400',
-  50: 'text-red-400',
-  60: 'text-red-400',
+  10: 'text-ink-3',
+  20: 'text-ink-3',
+  30: 'text-accent-hi',
+  40: 'text-warn',
+  50: 'text-bad',
+  60: 'text-bad',
 }
 
-// U14: a subtle background pill for the levels an operator actually scans
-// for (warn/error/fatal) — plain colored text alone reads as "yet another
-// gray-ish column" at a glance in a dense monospace grid; a filled pill on
-// exactly the three severities that matter is what makes them pop without
-// adding visual noise to the overwhelmingly common info/debug/trace rows
-// (which stay plain text, matching sessions/[id]'s own TurnCard status pill
-// idiom of reserving a filled background for states worth flagging).
-const LEVEL_BADGE_BG: Record<number, string> = {
-  40: 'bg-yellow-950/60',
-  50: 'bg-red-950/60',
-  60: 'bg-red-950/60',
+const LEVEL_BADGE_TONES: Record<number, BadgeTone> = {
+  40: 'warn',
+  50: 'bad',
+  60: 'bad',
 }
 
 function levelLabel(level: unknown): string {
@@ -65,13 +52,13 @@ function levelLabel(level: unknown): string {
 }
 
 function levelColor(level: unknown): string {
-  if (typeof level !== 'number') return 'text-gray-400'
-  return LEVEL_COLORS[level] ?? 'text-gray-400'
+  if (typeof level !== 'number') return 'text-ink-3'
+  return LEVEL_COLORS[level] ?? 'text-ink-3'
 }
 
-function levelBadgeBackground(level: unknown): string | undefined {
+function levelBadgeTone(level: unknown): BadgeTone | undefined {
   if (typeof level !== 'number') return undefined
-  return LEVEL_BADGE_BG[level]
+  return LEVEL_BADGE_TONES[level]
 }
 
 // `time` is epoch-ms (confirmed against real dev-log lines). Manual field
@@ -170,9 +157,7 @@ export function highlightSegments(
 // sequence of <mark>-wrapped/plain spans otherwise. A real <mark> element
 // (not just a styled <span>) is used for the highlighted run — it is the
 // semantically-correct element for "text highlighted for reference
-// purposes" and gets a highlight-yellow background for free in most
-// browsers' default stylesheets, which this codebase's own dark theme
-// override below builds on rather than fights.
+// purposes" and carries the accent tint (the colour of "the thing you're on") below.
 function Highlightable({
   text,
   highlightText,
@@ -198,7 +183,7 @@ function Highlightable({
           <mark
             key={i}
             data-track-id="log-row-highlight"
-            className="rounded-sm bg-yellow-500/40 text-yellow-100"
+            className="rounded-xs bg-accent/40 text-ink"
           >
             {segment.text}
           </mark>
@@ -281,8 +266,13 @@ export const LogRow = memo(function LogRow({
     }
   }
 
+  // The package `LogLineRow` styling (border-l-2 rail, mono-sm, ink inks) as
+  // a 24px single-line row. Deliberately no `animate-rise`: rows are
+  // recycled by the virtualiser, and an entrance animation on a recycled row
+  // flickers.
   const rowClassName = cns(
-    'flex w-full cursor-pointer items-center gap-3 whitespace-nowrap px-2 font-mono text-xs text-gray-300 transition-colors hover:bg-gray-900',
+    'flex h-6 w-full cursor-pointer items-center gap-3 border-l-2 px-2 font-mono text-mono-sm whitespace-nowrap',
+    'text-ink-2 transition-colors duration-200 ease-standard hover:bg-surface-2',
   )
 
   // R14: parsed === null → a single raw cell, no column structure at all.
@@ -298,10 +288,10 @@ export const LogRow = memo(function LogRow({
         data-track-id="log-row-select"
         onClick={handleSelect}
         onKeyDown={handleKeyDown}
-        className={cns(rowClassName, 'border-l-2 border-gray-700')}
+        className={cns(rowClassName, 'border-line-loud')}
         style={{ height: ROW_PX }}
       >
-        <span className="truncate italic text-gray-500">
+        <span className="truncate text-ink-3 italic">
           <Highlightable text={raw} highlightText={highlightText} />
         </span>
       </div>
@@ -317,6 +307,7 @@ export const LogRow = memo(function LogRow({
   const eventSlug = typeof parsed.event === 'string' ? parsed.event : null
   const msg = typeof parsed.msg === 'string' ? parsed.msg : ''
   const chips = contextChips(parsed)
+  const badgeTone = levelBadgeTone(level)
 
   return (
     <div
@@ -325,45 +316,50 @@ export const LogRow = memo(function LogRow({
       data-track-id="log-row-select"
       onClick={handleSelect}
       onKeyDown={handleKeyDown}
-      className={rowClassName}
+      className={cns(rowClassName, 'border-transparent')}
       style={{ height: ROW_PX }}
     >
       <span
-        className="shrink-0 tabular-nums text-gray-500"
+        className="shrink-0 text-ink-3 tabular-nums"
         title={formatUtcTitle(time)}
       >
         {formatLocalTime(time)}
       </span>
 
-      <span
-        className={cns(
-          'w-12 shrink-0 rounded px-1 text-center font-semibold',
-          levelColor(level),
-          levelBadgeBackground(level),
+      <span className="flex w-16 shrink-0 justify-center">
+        {badgeTone ? (
+          <Badge
+            className="h-5 px-1.5 text-mono-sm font-semibold"
+            tone={badgeTone}
+          >
+            {levelLabel(level)}
+          </Badge>
+        ) : (
+          <span className={cns('font-semibold', levelColor(level))}>
+            {levelLabel(level)}
+          </span>
         )}
-      >
-        {levelLabel(level)}
       </span>
 
-      <span className="shrink-0 rounded bg-gray-800 px-1.5 py-0.5 text-gray-300">
+      <span className="shrink-0 rounded-xs bg-surface-2 px-1.5 text-ink max-md:hidden">
         {badgeLabel}
       </span>
 
       <span
         className={cns(
-          'max-w-48 shrink-0 truncate',
-          eventSlug ? 'text-gray-400' : 'italic text-gray-600',
+          'max-w-48 shrink-0 truncate max-md:hidden',
+          eventSlug ? 'text-ink-3' : 'text-ink-4 italic',
         )}
       >
         {eventSlug ?? 'no-event'}
       </span>
 
-      <span className="min-w-0 flex-1 truncate text-gray-200">
+      <span className="min-w-0 flex-1 truncate text-ink">
         <Highlightable text={msg} highlightText={highlightText} />
       </span>
 
       {chips.length > 0 && (
-        <span className="flex min-w-0 shrink gap-2 overflow-hidden text-gray-600">
+        <span className="flex min-w-0 shrink gap-2 overflow-hidden text-ink-4 max-md:hidden">
           {chips.map(chip => (
             <span key={chip.key} className="shrink-0 truncate">
               {chip.key}={chip.value}

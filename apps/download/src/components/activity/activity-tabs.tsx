@@ -1,9 +1,9 @@
 'use client'
 
+import { Tabs } from '@lilnas/ui'
 import type { JSX } from 'react'
 import { useOptimistic, useTransition } from 'react'
 
-import { Tab, Tabs } from 'src/components/ui/tabs'
 import type { ActivityFilters } from 'src/lib/activity-filters'
 import {
   ACTIVITY_ALL_TYPES_TAB,
@@ -30,6 +30,12 @@ const TABS: Array<{ label: string; value: string }> = [
 ]
 
 export type ActivityTabsProps = {
+  /**
+   * How many rows the selected tab is showing. Only the selected tab carries a
+   * count: the feed fetches one filter at a time, so a figure for a tab nobody
+   * has opened would be a second query or a guess.
+   */
+  count?: number
   /** The filter the URL currently describes. */
   filters: ActivityFilters
   /** Pushes the new address. Injected so the feed can own the transition. */
@@ -57,6 +63,7 @@ export type ActivityTabsProps = {
  * same as `GalleryControls`, which makes the same trade for the same reason.
  */
 export function ActivityTabs({
+  count,
   filters,
   onNavigate,
 }: ActivityTabsProps): JSX.Element {
@@ -75,24 +82,29 @@ export function ActivityTabs({
   const value = activityTabValue(applied)
 
   return (
-    <Tabs
-      activationMode="manual"
-      aria-label="Media type"
-      className="w-full sm:w-auto"
-      onValueChange={selectTab}
-      // A two-type selection is reachable from a shared link and no single tab
-      // can report it, so none is selected — and `Tab`'s roving `tabIndex`
-      // would then leave the whole strip out of the tab order. The strip takes
-      // the stop instead; an arrow key from there lands on a tab exactly as it
-      // does from a selected one.
-      tabIndex={value === ACTIVITY_MIXED_TYPES_TAB ? 0 : undefined}
-      value={value}
-    >
-      {TABS.map(tab => (
-        <Tab key={tab.value} value={tab.value}>
-          {tab.label}
-        </Tab>
-      ))}
-    </Tabs>
+    <Tabs.Root className="mb-5" onValueChange={selectTab} value={value}>
+      <Tabs.List
+        activationMode="manual"
+        aria-label="Media type"
+        scroll
+        // A two-type selection is reachable from a shared link and no single
+        // tab can report it, so none is selected — and the roving `tabIndex`
+        // would then leave the whole strip out of the tab order. The strip
+        // takes the stop instead; an arrow key from there lands on a tab
+        // exactly as it does from a selected one.
+        tabIndex={value === ACTIVITY_MIXED_TYPES_TAB ? 0 : undefined}
+      >
+        {TABS.map(tab => (
+          <Tabs.Tab
+            count={tab.value === value ? count : undefined}
+            key={tab.value}
+            value={tab.value}
+          >
+            {tab.label}
+          </Tabs.Tab>
+        ))}
+        <Tabs.Indicator />
+      </Tabs.List>
+    </Tabs.Root>
   )
 }

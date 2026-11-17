@@ -1,10 +1,8 @@
+import { Button, type ButtonSize, type ButtonVariant } from '@lilnas/ui'
 import { DownloadClient } from '@lilnas/utils/download/client'
 import type { Media } from '@lilnas/utils/download/types'
 import { DownloadType } from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX } from 'react'
-
-import { ButtonLink } from 'src/components/ui/button-link'
-import type { ButtonSize, ButtonVariant } from 'src/components/ui/button-recipe'
 
 /**
  * The label, in the one place it is spelled.
@@ -151,6 +149,7 @@ export type SaveLocalProps = Omit<
  *   but not for videos would be worse than none.
  */
 export function SaveLocal({
+  className,
   episodeId,
   label = SAVE_LOCAL_LABEL,
   media,
@@ -174,14 +173,14 @@ export function SaveLocal({
   }
 
   return (
-    <ButtonLink
-      {...props}
-      href={mediaFileHref(media.id, query)}
+    <Button
+      className={className}
       iconEnd="device"
+      render={<a {...props} href={mediaFileHref(media.id, query)} />}
       size={size}
       variant={variant}
     >
       {label}
-    </ButtonLink>
+    </Button>
   )
 }

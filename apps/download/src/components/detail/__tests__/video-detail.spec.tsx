@@ -344,13 +344,13 @@ describe('VideoDetail', () => {
   describe('a completed attempt whose file was later deleted', () => {
     const deleted = video({ downloadUrls: [], state: 'absent' })
 
-    it('reads "not downloaded", not "completed"', () => {
+    it('reads "Not downloaded", not "completed"', () => {
       renderDetail({ jobs: [completedJob()], media: deleted })
 
       expect(mediaPanel()).toHaveAttribute('data-state', 'absent')
-      expect(within(mediaPanel()).getByText('not downloaded')).toBeVisible()
+      expect(within(mediaPanel()).getByText('Not downloaded')).toBeVisible()
       expect(
-        within(mediaPanel()).queryByText('completed'),
+        within(mediaPanel()).queryByText('Completed'),
       ).not.toBeInTheDocument()
     })
 
@@ -358,7 +358,7 @@ describe('VideoDetail', () => {
     it('still lists the attempt as completed', () => {
       renderDetail({ jobs: [completedJob()], media: deleted })
 
-      expect(within(attempts()).getByText('completed')).toBeInTheDocument()
+      expect(within(attempts()).getByText('Completed')).toBeInTheDocument()
     })
 
     it('shows no player, no Save and no Delete', () => {
@@ -430,7 +430,7 @@ describe('VideoDetail', () => {
     })
   })
 
-  describe('downloaded', () => {
+  describe('Downloaded', () => {
     const jobs = [completedJob()]
 
     it('offers no Download — the file is already here', () => {
@@ -439,11 +439,11 @@ describe('VideoDetail', () => {
       expect(downloadButton()).not.toBeInTheDocument()
     })
 
-    it('reads "downloaded"', () => {
+    it('reads "Downloaded"', () => {
       renderDetail({ jobs, media: downloaded() })
 
-      expect(within(mediaPanel()).getByText('downloaded')).toBeInTheDocument()
-      expect(mediaPanel().querySelector('.dot-live')).toBeNull()
+      expect(within(mediaPanel()).getByText('Downloaded')).toBeInTheDocument()
+      expect(mediaPanel().querySelector('[data-pulse]')).toBeNull()
     })
 
     it('plays in app, from the object the download produced', () => {
@@ -495,16 +495,16 @@ describe('VideoDetail', () => {
     it('lists the attempt that produced it', () => {
       renderDetail({ jobs, media: downloaded() })
 
-      expect(within(attempts()).getByText('completed')).toBeInTheDocument()
+      expect(within(attempts()).getByText('Completed')).toBeInTheDocument()
     })
 
     describe('Delete', () => {
       it('sits in one row with Save to device, Save first', () => {
         renderDetail({ jobs, media: downloaded(), onDelete: jest.fn() })
 
-        // `video-detail.pug`'s completed frame — the two controls, in that
-        // order, in one `ActionRow`. `DeleteConfirm` renders its own `<div>`
-        // root, so the row is `Save to device`'s parent.
+        // `video-detail.pug`'s `videoActions('available')` — Save, Delete, then
+        // the link to the original post, in one `ActionRow`. `DeleteConfirm`
+        // renders its own `<div>` root, so the row is `Save to device`'s parent.
         const row = screen.getByRole('link', {
           name: 'Save to device',
         }).parentElement
@@ -514,7 +514,7 @@ describe('VideoDetail', () => {
           Array.from(row?.querySelectorAll('button, a') ?? []).map(
             element => element.textContent,
           ),
-        ).toEqual(['Save to device', 'Delete'])
+        ).toEqual(['Save to device', 'Delete', 'View original post'])
       })
 
       it('raises no dialog until it is pressed', () => {
@@ -530,11 +530,11 @@ describe('VideoDetail', () => {
 
         const dialog = screen.getByRole('dialog')
 
-        expect(dialog).toHaveAccessibleName(`Delete "${downloaded().title}"?`)
+        expect(dialog).toHaveAccessibleName(`Delete “${downloaded().title}”?`)
         // ⚠️ The copy is the `video` scope's own. A video's file was never in
         // the media library and no arr ever knew about it.
         expect(dialog).toHaveAccessibleDescription(
-          expect.stringContaining("this video's downloaded file"),
+          expect.stringContaining('this video’s downloaded file'),
         )
         expect(dialog).toHaveAccessibleDescription(
           expect.not.stringMatching(/library|radarr/i),
@@ -584,8 +584,8 @@ describe('VideoDetail', () => {
     it('reads "downloading" with the live dot', () => {
       renderDetail()
 
-      expect(within(mediaPanel()).getByText('downloading')).toBeInTheDocument()
-      expect(mediaPanel().querySelector('.dot-live')).not.toBeNull()
+      expect(within(mediaPanel()).getByText('Downloading')).toBeInTheDocument()
+      expect(mediaPanel().querySelector('[data-pulse]')).not.toBeNull()
     })
 
     it('draws the in-flight attempt as a card with Pause and Cancel', () => {
@@ -686,15 +686,15 @@ describe('VideoDetail', () => {
     })
   })
 
-  it('reads "processing…" while yt-dlp converts, uploads or cleans up', () => {
+  it('reads "Processing…" while yt-dlp converts, uploads or cleans up', () => {
     renderDetail({
       jobs: [job({ status: DownloadJobStatus.Converting })],
       media: video({ state: 'importing' }),
     })
 
-    expect(within(mediaPanel()).getByText('processing…')).toBeInTheDocument()
-    expect(mediaPanel().querySelector('.dot-live')).not.toBeNull()
-    expect(within(attempts()).getByText('converting')).toBeInTheDocument()
+    expect(within(mediaPanel()).getByText('Processing…')).toBeInTheDocument()
+    expect(mediaPanel().querySelector('[data-pulse]')).not.toBeNull()
+    expect(within(attempts()).getByText('Converting')).toBeInTheDocument()
   })
 
   describe('paused', () => {
@@ -706,8 +706,8 @@ describe('VideoDetail', () => {
     it('reads "paused", with no live dot', () => {
       renderDetail(props)
 
-      expect(within(mediaPanel()).getByText('paused')).toBeInTheDocument()
-      expect(mediaPanel().querySelector('.dot-live')).toBeNull()
+      expect(within(mediaPanel()).getByText('Paused')).toBeInTheDocument()
+      expect(mediaPanel().querySelector('[data-pulse]')).toBeNull()
     })
 
     it('offers Resume on the attempt, by job id', async () => {
@@ -739,8 +739,8 @@ describe('VideoDetail', () => {
         onRetry,
       })
 
-      expect(within(mediaPanel()).getByText('not downloaded')).toBeVisible()
-      expect(within(attempts()).getByText('failed')).toBeInTheDocument()
+      expect(within(mediaPanel()).getByText('Not downloaded')).toBeVisible()
+      expect(within(attempts()).getByText('Failed')).toBeInTheDocument()
       expect(within(attempts()).getByText('ETIMEDOUT')).toBeInTheDocument()
       expect(
         screen.queryByRole('button', { name: 'Retry' }),
@@ -776,7 +776,7 @@ describe('VideoDetail', () => {
         onRetry: jest.fn(),
       })
 
-      expect(within(mediaPanel()).getByText('downloaded')).toBeInTheDocument()
+      expect(within(mediaPanel()).getByText('Downloaded')).toBeInTheDocument()
       expect(container.querySelector('video')).not.toBeNull()
       expect(
         screen.queryByRole('button', { name: 'Retry' }),
@@ -798,7 +798,7 @@ describe('VideoDetail', () => {
       })
 
       expect(
-        screen.getByText('downloaded by jeremy.asuncion · 12m ago'),
+        screen.getByText('Added by jeremy.asuncion · 12m ago'),
       ).toBeInTheDocument()
     })
   })
@@ -853,7 +853,7 @@ describe('VideoDetail', () => {
     renderDetail()
 
     expect(
-      screen.getByText('downloaded by jeremy.asuncion · 12m ago'),
+      screen.getByText('Added by jeremy.asuncion · 12m ago'),
     ).toBeInTheDocument()
   })
 
@@ -861,9 +861,7 @@ describe('VideoDetail', () => {
   it('renders a masked requester as hidden rather than re-deriving the rule', () => {
     renderDetail({ jobs: [job({ requester: null })] })
 
-    expect(
-      screen.getByText('downloaded by hidden · 12m ago'),
-    ).toBeInTheDocument()
+    expect(screen.getByText('Added by hidden · 12m ago')).toBeInTheDocument()
   })
 
   it('lists earlier attempts under the in-flight one', () => {
@@ -886,7 +884,7 @@ describe('VideoDetail', () => {
         el.getAttribute('data-job-id'),
       ),
     ).toEqual(['job_2', 'job_1'])
-    expect(within(list).getByText('failed')).toBeInTheDocument()
+    expect(within(list).getByText('Failed')).toBeInTheDocument()
   })
 
   it('renders only the chip when nothing has ever been fetched', () => {
@@ -896,7 +894,7 @@ describe('VideoDetail', () => {
       onRetry: jest.fn(),
     })
 
-    expect(within(mediaPanel()).getByText('not downloaded')).toBeVisible()
+    expect(within(mediaPanel()).getByText('Not downloaded')).toBeVisible()
     expect(within(mediaPanel()).getByText(VIDEO_EMPTY_NOTE)).toBeVisible()
     expect(
       screen.queryByRole('region', { name: 'Attempts' }),
@@ -915,9 +913,11 @@ describe('VideoDetail', () => {
   it('keeps the media chip intrinsic rather than stretching it', () => {
     renderDetail()
 
-    const chip = within(mediaPanel()).getByText('downloading').closest('span')
+    const chip = within(mediaPanel()).getByText('Downloading').closest('span')
 
-    expect(chip?.getAttribute('class')).toContain('w-fit')
+    // The badge sits in a column that aligns it to the start, so it never
+    // stretches to the width of the sentence beside it.
+    expect(chip?.parentElement?.getAttribute('class')).toContain('items-start')
   })
 
   /**
@@ -1045,7 +1045,7 @@ describe('VideoDetailLive', () => {
   it('renders the server’s video and attempts before any frame arrives', () => {
     renderLive()
 
-    expect(within(mediaPanel()).getByText('downloading')).toBeInTheDocument()
+    expect(within(mediaPanel()).getByText('Downloading')).toBeInTheDocument()
     expect(
       attempts().querySelector('[data-job-id="job_1"]'),
     ).toBeInTheDocument()
@@ -1069,7 +1069,7 @@ describe('VideoDetailLive', () => {
 
     emitMedia(recorder, video({ state: 'importing' }))
 
-    expect(within(mediaPanel()).getByText('processing…')).toBeInTheDocument()
+    expect(within(mediaPanel()).getByText('Processing…')).toBeInTheDocument()
   })
 
   // The whole point: the page follows the media frame that lands with the
@@ -1082,7 +1082,7 @@ describe('VideoDetailLive', () => {
     emitJob(recorder, completedJob())
     emitMedia(recorder, downloaded())
 
-    expect(within(mediaPanel()).getByText('downloaded')).toBeInTheDocument()
+    expect(within(mediaPanel()).getByText('Downloaded')).toBeInTheDocument()
     expect(container.querySelector('video')).toHaveAttribute('src', OBJECT_URL)
   })
 
@@ -1092,8 +1092,8 @@ describe('VideoDetailLive', () => {
 
     emitJob(recorder, completedJob())
 
-    expect(within(mediaPanel()).getByText('downloading')).toBeInTheDocument()
-    expect(within(attempts()).getByText('completed')).toBeInTheDocument()
+    expect(within(mediaPanel()).getByText('Downloading')).toBeInTheDocument()
+    expect(within(attempts()).getByText('Completed')).toBeInTheDocument()
     expect(container.querySelector('video')).toBeNull()
   })
 
@@ -1102,7 +1102,7 @@ describe('VideoDetailLive', () => {
 
     emitMedia(recorder, video({ id: 'video:other', state: 'available' }))
 
-    expect(within(mediaPanel()).getByText('downloading')).toBeInTheDocument()
+    expect(within(mediaPanel()).getByText('Downloading')).toBeInTheDocument()
   })
 
   /**
@@ -1219,7 +1219,7 @@ describe('VideoDetailLive', () => {
       emitMedia(recorder, video({ state: 'importing' }))
       act(() => recorder.latest().emitClose())
 
-      expect(within(mediaPanel()).getByText('processing…')).toBeInTheDocument()
+      expect(within(mediaPanel()).getByText('Processing…')).toBeInTheDocument()
     })
 
     it('clears the marker once a socket is open again', () => {

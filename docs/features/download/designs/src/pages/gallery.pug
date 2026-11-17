@@ -1,163 +1,135 @@
-extends ../layout/page.pug
+extends ../../../../../designs/mockup-kit/page.pug
+
+include ../mixins/download.pug
 
 block title
-  | Unified gallery — download UI mockups · lilnas
+  | download — gallery · UI mockups
 
 //-
-  Videos, movies and shows in one filterable grid. Filters live in a panel
-  below the header; the closed and open states are mocked as separate frames
-  so each is reviewable on its own rather than as one composite.
+  /gallery: videos, movies and shows in one filterable grid. The filter panel
+  hangs under the Filters button; its states are separate rows so each is
+  reviewable on its own. Copy and sample data are in src/data/gallery.mjs.
 
-//-
-  A grid card — the one card every media type and both breakpoints use.
-  Videos take the same 2:3 poster crop as a movie or show, with a play mark
-  standing in for the label. `width` is the only thing that varies: desktop's
-  fixed column vs. mobile's 2-up grid.
-mixin item(entry, opts)
-  - opts = opts || {}
-  +gcard()(class=['flex flex-col', opts.width || 'w-[158px]'])
-    +gcardLink(entry.href)
-      +poster({
-        shape: 'tall',
-        v: entry.v,
-        src: entry.art,
-        label: entry.video ? null : entry.title,
-        play: entry.video,
-      })
-      +gcardRow
-        +gcardTitle(entry.title)(class='min-h-[2.7em] flex-1')
-      +gcardRow
-        +mchip(entry.icon, `${entry.kind} · ${entry.meta}`)(class='font-mono text-mono-sm text-ink-3')
-    +gcardRow()(class='mt-auto')
-      +gcardAttrib
-        +avatar(entry.who || '–', { hidden: !entry.who, href: entry.who === 'JA' ? 'profile.html' : undefined })
-        span(class='font-mono text-mono-sm text-ink-4')= entry.when
-      if entry.watch
-        +btn({ label: 'Watch', variant: 'ghost' })(class='h-6 px-2 text-[11.5px]')
-    if entry.indexing
-      +gcardRow
-        +chip({ label: 'indexing…', tone: 'warn' })(class='h-5 text-[10px]')
-
-//- Tab strip + search + Filters, and the chips for what's currently applied.
+//- Tabs, then Filters. On a phone the tabs take the row and Filters drops under.
 mixin controls(view, opts)
   - opts = opts || {}
-  - const mobile = view === 'mobile'
-  if mobile
-    +tabs()(class='mb-4')
+  - const phone = view === 'mobile'
+  div(class=['relative mb-5 flex gap-3', phone ? 'flex-col' : 'items-end justify-between border-b border-line'])
+    +tabs()(class=phone ? 'overflow-x-auto' : 'border-b-0!')
       each label, i in TABS
-        +tab(label, i === 0)
-    div(class=['flex items-center gap-2', opts.open ? 'relative mb-[18px]' : 'mb-[18px]'])
-      +input({ placeholder: 'Search the library…' })(class='flex-1' name='q')
-      +btn({ variant: 'ghost', icon: 'filter' })(
-        class=['w-[38px] p-0', opts.open ? 'border-uv/35 bg-uv-ghost text-uv-hi' : '']
-        aria-label='Filters'
-      )
-      if opts.open
-        div(class='absolute inset-x-0 top-[calc(100%+10px)] z-20')
-          +filters
-    div(class='mb-5 flex flex-wrap gap-2' aria-label='Active filters')
-      +afchip('2019–2024', 'Remove year filter')
-      +afchip('Jeremy', 'Remove uploaded by filter')
-  else
-    div(class='mb-[18px] flex flex-wrap items-center justify-between gap-4')
-      +tabs
-        each label, i in TABS
-          +tab(label, i === 0)
-      div(class='flex items-center gap-2.5')
-        +input({ placeholder: 'Search the library…' })(class='w-[240px]!' name='q')
-        +btn({ variant: 'ghost', icon: 'search' })(aria-label='Search')
-        if opts.open
-          div(class='relative z-20')
-            +filtersBtn({ count: 2, open: true })(class='border-uv/35 bg-uv-ghost text-uv-hi')
-            div(class='absolute top-[calc(100%+10px)] right-0 w-[480px]')
-              +filters
-        else
-          +filtersBtn({ count: 2 })
-    div(class='mb-[22px] flex flex-wrap gap-[9px]' aria-label='Active filters')
-      +afchip('2019–2024', 'Remove year filter')
-      +afchip('Jeremy', 'Remove uploaded by filter')
-      +btn({ label: 'Clear all', variant: 'ghost', size: 'sm' })(class='h-[27px] px-2.5 text-[12px]')
+        +tab(label, i === (opts.tab || 0))
+    div(class=['relative', opts.open ? 'z-20' : '', phone ? 'self-end' : 'mb-2'])
+      +filtersBtn({ count: opts.applied, open: opts.open })
+      if opts.open && !phone
+        div(class='absolute top-[calc(100%+8px)] right-0 w-[480px]')
+          +filters(opts)
+    if opts.open && phone
+      div(class='absolute inset-x-0 top-full z-20 mt-2')
+        +filters(opts)
 
-//- The filter panel's contents — identical at both widths.
-mixin filters
+//- The filter panel: date range, media type, uploaded by. `rangeError` shows the note.
+mixin filters(opts)
+  - opts = opts || {}
   +filterPanel
     +filterGrid
-      +filterGroup('date added')(class='@min-[400px]:col-span-2')
+      +filterGroup('Date added')(class='@min-[400px]:col-span-2')
         div(class='flex items-center gap-2')
-          +input({ type: 'date', mono: true })(class='min-w-0 flex-1')
+          +input({ type: 'date', mono: true, value: opts.rangeError ? '2026-10-20' : '2026-10-01', error: opts.rangeError })(class='min-w-0 flex-1' aria-label='Start date')
           span(class='text-ink-3') –
-          +input({ type: 'date', mono: true })(class='min-w-0 flex-1')
-      +filterGroup('year')
-        div(class='flex items-center gap-2')
-          +input({ value: '2019', mono: true })(class='w-[76px]!')
-          span(class='text-ink-3') –
-          +input({ value: '2024', mono: true })(class='w-[76px]!')
-      +filterGroup('uploaded by')
+          +input({ type: 'date', mono: true, value: opts.rangeError ? '2026-10-05' : '2026-10-24', error: opts.rangeError })(class='min-w-0 flex-1' aria-label='End date')
+        if opts.rangeError
+          +note('bad', 'Start date must be before end date.')
+            | Swap them and the results will come back.
+      +filterGroup('Media type')(class='@min-[400px]:col-span-2')
+        div(class='flex flex-wrap gap-2')
+          each type in TYPES
+            +toggleChip(type[0], type[0] === 'Movies')
+              span(class='text-ink-3 order-last')= type[1]
+      +filterGroup('Uploaded by')(class='@min-[400px]:col-span-2')
         div(class='flex flex-wrap gap-2')
           each person in PEOPLE
-            +toggleChip(person[0], person[1], person[2])
-              +avatar(person[0], { size: 'xs' })
-      +filterGroup('sort by')
-        +menuTrigger('Recently added')
+            +toggleChip(person[1], person[2])
+              +avatar(person[0], { size: 24 })
     +filterFoot
-      +btn({ label: 'Clear all', variant: 'ghost', size: 'sm' })
-      +btn({ label: 'Show 128 results', variant: 'uv', size: 'sm' })
+      +btn({ variant: 'ghost', size: 'sm', label: 'Clear all' })
+      +btn({ variant: 'accent', size: 'sm', label: opts.rangeError ? 'Close' : 'Show 41 results' })
+
+//- The grid; a phone is two-up and shows the first six.
+mixin grid(view)
+  - const phone = view === 'mobile'
+  div(class=['grid gap-4 stagger', phone ? 'grid-cols-2' : 'grid-cols-[repeat(auto-fill,minmax(158px,1fr))]'])
+    each entry in (phone ? ITEMS.filter(e => e.mobileHalf).slice(0, 4) : ITEMS)
+      +galleryCard(entry)
+
+mixin gallerySkeleton(view)
+  - const phone = view === 'mobile'
+  div(aria-busy='true')
+    div(class='mb-4 flex items-center justify-between gap-4 border-b border-line pb-3')
+      div(class='flex gap-6')
+        each w in [28, 48, 52, 44]
+          +skeleton()(class='h-4' style=`width: ${w}px`)
+      +skeleton()(class='h-9 w-24 rounded-md')
+    div(class=['grid gap-4', phone ? 'grid-cols-2' : 'grid-cols-[repeat(auto-fill,minmax(158px,1fr))]'])
+      each n in (phone ? [1, 2, 3, 4] : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+        div(class='flex flex-col gap-2 rounded-lg border border-line bg-surface p-2.5')
+          +skeleton()(class='aspect-[2/3] w-full rounded-md')
+          +skeleton()(class='h-3.5 w-full')
+          +skeleton()(class='h-3.5 w-3/5')
+          +skeleton()(class='mt-1 h-3 w-2/3')
+
+mixin galleryState(view, label, opts)
+  - opts = opts || {}
+  +screenRow(label)
+    +appFrame(view)
+      +dlBar(view, { active: 'library' })
+      +dlMain(view)
+        block
+      if opts.scrim
+        +frameScrim
 
 block content
-  +mockHead({ eyebrow: 'lilnas · download', title: 'Unified gallery' })
-    p(class='max-w-[62ch] text-sm text-ink-3')
-      | Videos, movies and shows in one grid, all on the same 2:3 tile at every breakpoint so the grid stays
-      | even regardless of a clip's native aspect ratio — a video's thumbnail crops to fit, same as a poster,
-      | with a play mark to tell it apart. Filters open into a panel below the header; both the closed and
-      | open states are mocked separately below so each is reviewable on its own.
+  +mockHead({ back: true, eyebrow: 'download · /gallery', title: 'Gallery' })
+    p Videos, movies and shows in one grid, all on the same 2:3 tile so the grid stays even whatever a clip’s native shape. The tabs pick a type; the Filters panel narrows by date, type and who uploaded it, and each applied filter stays visible as a chip.
 
-  div(class='vp-scope')
-    +viewportToggle('viewport')(class='mb-8' role='radiogroup' aria-label='Viewport')
+  +mockSection('gallery', 'Gallery', 'Filters hang under the button and dim the page behind them.')
+    +viewports('gallery-viewport')
+      each view in ['desktop', 'mobile']
+        - const chips = [['Movies', 'Remove movies filter'], ['Oct 1 – Oct 24', 'Remove date filter'], ['Jeremy', 'Remove uploaded by filter']]
+        +viewportPanel(view)
+          +galleryState(view, 'Default · all types')
+            +controls(view)
+            +grid(view)
+            div(class='mt-6 flex justify-center')
+              +btn({ variant: 'outline', label: 'Load more' })
 
-    //- ── desktop ────────────────────────────────────────────────────────
-    +viewportPanel('desktop')
-      each open, i in [false, true]
-        +frameLabel()(class=i ? 'mt-3' : '')= open ? 'Filters open' : 'Filters closed'
-        +appFrame('desktop')
-          +navBar('desktop', { placeholder: 'Search or paste a link…' })
-          +appBody('desktop')
-            div(class='mx-auto max-w-[1080px]')
-              +controls('desktop', { open: open })
-              div(class='flex flex-wrap items-stretch gap-4 stagger')
-                each entry in ITEMS
-                  +item(entry)
-          if open
-            +filterScrim
+          +galleryState(view, 'Tab selected · movies')
+            +controls(view, { tab: 2 })
+            +grid(view)
 
-    //- ── mobile ─────────────────────────────────────────────────────────
-    +viewportPanel('mobile')
-      each open, i in [false, true]
-        +frameLabel()(class=i ? 'mt-3' : '')= open ? 'Filters open' : 'Filters closed'
-        +appFrame('mobile')
-          +appBar('mobile')
-            +doorplate('Download')(href='https://lilnas.io')
-            span(class='flex shrink-0 items-center gap-1.5')
-              +chip({ tone: 'ok' })
-                +dot('live')
-                | 2
-              +btn({ variant: 'ghost', icon: 'search' })(class='h-[30px] w-[30px] p-0' aria-label='Search')
-              +accountLink('JA')
-          +appBody('mobile')
-            +controls('mobile', { open: open })
-            div(class='flex flex-wrap items-stretch gap-4 stagger')
-              each entry in ITEMS.filter((e) => e.mobileHalf)
-                +item(entry, { width: 'w-[calc(50%-8px)]' })
-          if open
-            +filterScrim
+          +galleryState(view, 'Filter panel open', { scrim: true })
+            +controls(view, { open: true, applied: 3 })
+            +grid(view)
 
-  //- The sort menu open, which no frame above can show without covering the
-      grid it sorts.
-  section(class='mt-12')
-    p(class='mb-4 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Sort by — all options
-    +card()(class='w-[240px] p-4')
-      div(class='flex flex-col gap-2')
-        span(class='font-mono text-label tracking-[0.11em] uppercase text-ink-4') sort by
-        +menuTrigger('Recently added', { open: true })
-        +menu()(class='mt-0.5')
-          each label, i in SORTS
-            +menuItem(label, i === 0)
+          +galleryState(view, 'Applied filters · chips under the tabs')
+            +controls(view, { applied: 3 })
+            +appliedFilters(chips)(class='mb-5')
+            +grid(view)
+
+          +galleryState(view, 'Date range error · inverted dates', { scrim: true })
+            +controls(view, { open: true, applied: 3, rangeError: true })
+            +grid(view)
+
+          +galleryState(view, 'Empty · the library has nothing yet')
+            +controls(view)
+            +emptyState('Nothing in the library yet', 'Paste a link in the search field and it’ll queue up, or search for a movie or show by name.', 'Search for a title')
+
+          +galleryState(view, 'Empty · filtered to nothing')
+            +controls(view, { applied: 3 })
+            +appliedFilters(chips)(class='mb-5')
+            +emptyState('No titles match these filters', 'The library isn’t empty — nothing in it matches this combination. Clear a filter to widen it.', 'Clear filters')
+
+          +galleryState(view, 'Loading · the grid’s own geometry')
+            +gallerySkeleton(view)
+
+          +galleryState(view, 'Error · the gallery didn’t load')
+            +boundaryError(view, { title: 'The gallery didn’t load', lead: 'The download service didn’t answer.', detail: 'Your library is safe — this page just couldn’t read it. Try again in a minute.' })

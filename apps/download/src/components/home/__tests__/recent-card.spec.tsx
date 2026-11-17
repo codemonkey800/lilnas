@@ -13,7 +13,7 @@ import userEvent from '@testing-library/user-event'
 
 import { DISCORD_UNLINKED_NOTE } from 'src/components/activity/discord-identity-mark'
 import { RecentCard, recentCardMeta } from 'src/components/home/recent-card'
-import { MASKED_INITIALS } from 'src/components/ui/avatar'
+import { MASKED_INITIALS } from 'src/components/ui/person-avatar'
 import { UNKNOWN_VALUE } from 'src/lib/format'
 import { PROFILE_HREF, profileHrefForEmail } from 'src/lib/profile-filters'
 import type { Viewer } from 'src/lib/viewer'
@@ -437,7 +437,7 @@ describe('RecentCard', () => {
         'href',
         'https://emby.lilnas.io/web/#!/item?id=9',
       )
-      expect(screen.queryByText('indexing…')).not.toBeInTheDocument()
+      expect(screen.queryByText('Indexing…')).not.toBeInTheDocument()
     })
 
     it('swaps Watch for the indexing chip while Emby is still scanning', () => {
@@ -449,7 +449,7 @@ describe('RecentCard', () => {
         />,
       )
 
-      expect(screen.getByText('indexing…')).toBeInTheDocument()
+      expect(screen.getByText('Indexing…')).toBeInTheDocument()
       expect(
         screen.queryByRole('link', { name: 'Watch' }),
       ).not.toBeInTheDocument()
@@ -463,7 +463,7 @@ describe('RecentCard', () => {
       expect(
         screen.queryByRole('link', { name: 'Watch' }),
       ).not.toBeInTheDocument()
-      expect(screen.queryByText('indexing…')).not.toBeInTheDocument()
+      expect(screen.queryByText('Indexing…')).not.toBeInTheDocument()
       expect(screen.getByText('2026')).toBeInTheDocument()
     })
 

@@ -190,7 +190,7 @@ describe('SaveLocal', () => {
 
     const rendered = screen.getByRole('link', { name: 'Save episode' })
 
-    expect(rendered.getAttribute('class')).toContain('h-[30px]')
+    expect(rendered.getAttribute('class')).toContain('h-(--control-h-sm)')
   })
 
   it('offers no resume affordance for either storage branch', () => {

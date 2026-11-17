@@ -22,7 +22,7 @@ const EPISODE: ShowRequestTarget = { episodeId: 4823, kind: 'episode' }
 
 /** The tier picker's trigger, whatever tier it reads. */
 function tierTrigger(): HTMLElement {
-  return screen.getByRole('button', { name: /^Quality:/ })
+  return screen.getByRole('combobox', { name: /^Quality:/ })
 }
 
 function renderButton(
@@ -114,7 +114,7 @@ describe('ShowRequestButton', () => {
       // Sonarr keeps one profile per series — a picker per row would be a
       // choice that silently rewrites the whole show.
       expect(
-        screen.queryByRole('button', { name: /^Quality:/ }),
+        screen.queryByRole('combobox', { name: /^Quality:/ }),
       ).not.toBeInTheDocument()
       expect(screen.queryByText(SHOW_QUALITY_TIER_HINT)).not.toBeInTheDocument()
       expect(screen.getAllByRole('button')).toHaveLength(1)
@@ -168,7 +168,7 @@ describe('ShowRequestButton', () => {
       const user = userEvent.setup()
 
       await user.click(tierTrigger())
-      await user.click(screen.getByRole('option', { name: 'Up to 4K' }))
+      await user.click(await screen.findByRole('option', { name: 'Up to 4K' }))
 
       expect(onQualityTierChange).toHaveBeenCalledWith(QualityTier.UpTo4k)
       expect(onRequest).not.toHaveBeenCalled()

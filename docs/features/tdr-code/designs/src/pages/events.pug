@@ -1,0 +1,62 @@
+extends ../../../../../designs/mockup-kit/page.pug
+
+include ../mixins/tdr-code.pug
+
+block title
+  | tdr-code — events · UI mockups
+
+//-
+  /events: the bot's event feed, filtered by type, level and channel. Copy and
+  sample data are in src/data/events.mjs.
+
+mixin eventsBody(view, s)
+  - const phone = view === 'mobile'
+  if s.body === 'loading'
+    +loadingBlock(copy.loading)
+  else if s.body === 'error'
+    +errorBlock(view, copy.error.lead, copy.error.detail, copy.error.code, false)
+  else if s.body === 'empty'
+    +card()
+      +emptyState(copy.empty.title, copy.empty.body)
+  else if s.body === 'filtered-empty'
+    +card()
+      +emptyState(copy.filteredEmpty.title, copy.filteredEmpty.body, copy.filteredEmpty.action)
+  else
+    +tdrList(columns, s.body === 'filtered' ? filteredRows : rows, view)
+    unless s.body === 'filtered'
+      div
+        +btn({ variant: 'outline', touch: phone, label: 'Load more', full: phone })
+
+mixin eventsScreen(view, s)
+  - const phone = view === 'mobile'
+  - const filtered = !!(s.type || s.level || s.channel)
+  //- the closed select's own box is 30px; on a phone its button grows to 44
+  - const tall = phone ? '*:h-11!' : ''
+  +shell(view, 'Events', { height: s.openType && !phone ? 520 : undefined })
+    h1(class='text-h2') Events
+    div(class=['flex gap-3', phone ? 'flex-col' : 'flex-wrap items-start'])
+      +select({ value: s.type || 'All types', open: s.openType, items: ['All types'].concat(copy.typeOptions.slice(0, 8)) })(class=[phone ? 'w-full' : 'w-56', tall])
+      +select({ value: s.level || 'All levels' })(class=[phone ? 'w-full' : 'w-36', tall])
+      +input({ value: s.channel, placeholder: copy.channelPlaceholder, mono: !!s.channel })(class=[phone ? 'h-11!' : 'max-w-52'])
+      if filtered
+        +btn({ variant: 'ghost', size: 'sm', touch: phone, label: 'Clear filters' })
+    +eventsBody(view, s)
+
+block content
+  +mockHead({ eyebrow: 'tdr-code · /events', title: 'Events', back: true })
+    p What the bot did, newest first: three filters (a type, a level, a channel) and a table. Level is a badge: error red, warn amber, info quiet. Type and session are mono because they're slugs and ids. A bot-wide event (a restart) has no channel or session, so those cells are a dash. On a phone each event is a card headed by its type.
+
+  div(class='vp-scope flex flex-col items-center gap-8')
+    +viewportToggle('events-viewport')
+    +viewportPanel('desktop')
+      each s in states
+        +stateRow(s.label + ' · ' + s.caption, { stack: true })(class='w-full')
+          +eventsScreen('desktop', s)
+      +frameLabel Desktop · 1280
+    +viewportPanel('mobile')
+      +stateRow('States', { stack: true })(class='w-full')
+        each s in states
+          unless s.openType
+            +stateCell(s.label + ' · ' + s.caption)
+              +eventsScreen('mobile', s)
+      +frameLabel Mobile · 390

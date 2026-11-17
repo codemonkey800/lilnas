@@ -16,7 +16,7 @@ describe('MovieError', () => {
     expect(
       screen.getByRole('heading', {
         level: 1,
-        name: 'This movie could not be loaded',
+        name: 'This movie couldn’t be loaded',
       }),
     ).toBeInTheDocument()
   })
@@ -40,7 +40,7 @@ describe('MovieError', () => {
   it('renders no reference line when there is no digest', () => {
     render(<MovieError error={boundaryError()} reset={jest.fn()} />)
 
-    expect(screen.queryByText(/Reference/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/digest/)).not.toBeInTheDocument()
   })
 
   it('re-runs the segment on "Try again"', async () => {

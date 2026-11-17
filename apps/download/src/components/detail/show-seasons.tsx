@@ -1,5 +1,6 @@
 'use client'
 
+import { Card, Note, StatusDot, Tabs } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type {
   BadFile,
@@ -48,13 +49,13 @@ import {
   seasonState,
   seasonTabValue,
 } from 'src/components/detail/show-state'
-import { Card } from 'src/components/ui/card'
-import { Dot } from 'src/components/ui/status'
-import { Tab, Tabs } from 'src/components/ui/tabs'
 
-/** What the panel says when Sonarr has never heard of this series. */
+/** The lead of the note a show with no seasons yet draws - `show-detail.pug`'s "Not in the library yet" row. */
+export const SEASONS_EMPTY_LEAD = 'No seasons yet.'
+
+/** What follows it: why, and what changes that. */
 export const SEASONS_EMPTY_NOTE =
-  'Not in the library yet, so there are no seasons to list. Downloading the series adds it to Sonarr and the episode list appears here.'
+  'Downloading the series adds it to Sonarr, and the episode list appears here.'
 
 /** The accessible name of the season strip. */
 export const SEASONS_TABLIST_LABEL = 'Season'
@@ -206,18 +207,12 @@ export function ShowSeasons({
 
   if (seasons.length === 0) {
     return (
-      <Card className={cns('px-[14px] py-4 sm:px-4 sm:py-[18px]')} sunk>
-        <p className={cns('max-w-[62ch] text-sm text-ink-3')}>
-          {SEASONS_EMPTY_NOTE}
-        </p>
-      </Card>
+      <Note className={cns('mt-8')} lead={SEASONS_EMPTY_LEAD} tone="accent">
+        {SEASONS_EMPTY_NOTE}
+      </Note>
     )
   }
 
-  // A season the URL never named cannot go stale, but a revalidate *can* hand
-  // back a series whose seasons changed under an open tab. Falling back to the
-  // default is a render-time read of props, not a state write - there is
-  // nothing to sync and no effect involved.
   const season = seasonByTabValue(seasons, value) ?? seasons[0]
 
   if (!season) {
@@ -235,21 +230,21 @@ export function ShowSeasons({
   }
 
   return (
-    <div className={cns('flex flex-col')}>
-      <Tabs
-        // ⚠️ Deliberate, and the opposite of what the other two strips chose.
-        // See this component's own doc comment for the whole argument.
-        activationMode="automatic"
-        aria-label={SEASONS_TABLIST_LABEL}
-        className={cns('mb-4 sm:mb-5')}
-        scroll
-        value={value}
-        onValueChange={setValue}
-      >
-        {seasons.map(entry => (
-          <SeasonTab key={entry.seasonNumber} season={entry} />
-        ))}
-      </Tabs>
+    <div className={cns('mt-8 flex flex-col')}>
+      <Tabs.Root className={cns('mb-4')} value={value} onValueChange={setValue}>
+        <Tabs.List
+          // ⚠️ Deliberate, and the opposite of what the other two strips
+          // chose. See this component's own doc comment for the whole argument.
+          activationMode="automatic"
+          aria-label={SEASONS_TABLIST_LABEL}
+          scroll
+        >
+          {seasons.map(entry => (
+            <SeasonTab key={entry.seasonNumber} season={entry} />
+          ))}
+          <Tabs.Indicator />
+        </Tabs.List>
+      </Tabs.Root>
 
       <div
         className={cns(
@@ -304,7 +299,7 @@ export function ShowSeasons({
           // The count beside a settled chip; while the season is in flight
           // it moves under the bar instead, and a stuck one keeps the reason.
           inFlight || progress.total === 0 ? undefined : (
-            <span className={cns('font-mono text-mono-sm')}>
+            <span className={cns('text-cap')}>
               {episodeProgressLabel(progress)}
             </span>
           )
@@ -332,7 +327,7 @@ export function ShowSeasons({
         retryable={isDownloadableState(state)}
       />
 
-      <Card className={cns('px-[14px] py-1 sm:px-4')} sunk>
+      <Card className={cns('px-3 py-0')}>
         {season.episodes.length === 0 ? (
           <p className={cns('py-[13px] text-sm text-ink-3')}>
             Sonarr has not listed any episodes for this season yet.
@@ -416,7 +411,7 @@ function SeasonTab({ season }: SeasonTabProps): JSX.Element {
   const progress = seasonProgress(season)
 
   return (
-    <Tab value={seasonTabValue(season.seasonNumber)}>
+    <Tabs.Tab value={seasonTabValue(season.seasonNumber)}>
       <span className={cns('inline-flex items-center gap-1.5')}>
         {seasonLabel(season.seasonNumber)}
         {mediaStateIsLive(state) ? (
@@ -428,18 +423,16 @@ function SeasonTab({ season }: SeasonTabProps): JSX.Element {
               accessible name reads `Season 24 · 100%` instead of
               `Season 24100%`, which is the form the defect was found in.
             */}
-            <span className={cns('text-ink-4')}>{TAB_SEPARATOR}</span>
-            <Dot tone="live" />
-            <span
-              className={cns('font-mono text-mono-sm tabular-nums text-uv-hi')}
-            >
+            <span className={cns('text-ink-3')}>{TAB_SEPARATOR}</span>
+            <StatusDot pulse tone="ok" />
+            <span className={cns('text-cap text-accent-hi tabular-nums')}>
               {`${Math.round(progress.pct)}%`}
             </span>
           </>
         ) : null}
         {WARN_TAB_STATES.has(state) ? (
           <>
-            <Dot tone="warn" />
+            <StatusDot tone="warn" />
             {/*
               The dot is `aria-hidden`, so the state it marks is spelled out
               for assistive technology: `Season 4 · needs your decision`.
@@ -450,6 +443,6 @@ function SeasonTab({ season }: SeasonTabProps): JSX.Element {
           </>
         ) : null}
       </span>
-    </Tab>
+    </Tabs.Tab>
   )
 }

@@ -1,0 +1,367 @@
+/*
+ * CATEGORY STANDARD — the Tailwind theme every lilnas mockup is drawn with.
+ *
+ * Shared by every mockup project (`docs/features/<feature>/designs`). A project's own
+ * `src/theme.css` is three lines:
+ *
+ *   @import 'tailwindcss' source(none);
+ *   @source '../.build/html';
+ *   @import '../../../../designs/mockup-kit/theme.css';
+ *
+ * The first two are per-project: `source(none)` plus `@source` points
+ * Tailwind at the compiled pages in .build/html instead of the .pug sources,
+ * so its extractor sees ordinary class="..." attributes rather than Pug's
+ * `.foo.bar` shorthand and utilities containing `.` or `/` (`text-[13.5px]`,
+ * `w-1/2`) survive.
+ *
+ * The @theme block is the one from docs/designs/foundations.md ("The @theme
+ * block"), which is canonical and is what @lilnas/ui ships. Anything below it
+ * that ISN'T in foundations.md is marked as a mockup addition: the named type
+ * scale (from foundations.md's "Scale" table), the utilities Tailwind can't
+ * compose, and the harness for switching viewports.
+ */
+
+@theme {
+  /* ── surfaces ─────────────────────────────────────────────────────── */
+  --color-bg-sunk: #09080e;
+  --color-bg: #0e0c14;
+  --color-surface: #181520;
+  --color-surface-2: #211d2c;
+  --color-surface-3: #2b2638;
+
+  /* ── lines ────────────────────────────────────────────────────────── */
+  --color-line-soft: #231f2f;
+  --color-line: #2e2a3c;
+  --color-line-loud: #4a4460;
+  --color-line-control: #6f688a;
+
+  /* ── text ─────────────────────────────────────────────────────────── */
+  --color-ink: #ebe8f2;
+  --color-ink-2: #c4bfd3;
+  --color-ink-3: #a29cb4;
+  --color-ink-4: #736d88;
+
+  /* ── accent ───────────────────────────────────────────────────────── */
+  --color-accent: #9b7bf5;
+  --color-accent-hi: #ae92f8;
+  --color-accent-press: #8a67ee;
+  --color-accent-dim: #5a4a96;
+  --color-accent-ghost: rgb(155 123 245 / 0.16);
+  --color-accent-ink: #120a2a;
+
+  /* ── status ───────────────────────────────────────────────────────── */
+  --color-ok: #3fb27f;
+  --color-ok-ghost: rgb(63 178 127 / 0.14);
+  --color-warn: #e0a43a;
+  --color-warn-ghost: rgb(224 164 58 / 0.14);
+  --color-bad: #ef5b5b;
+  --color-bad-ghost: rgb(239 91 91 / 0.14);
+
+  /* ── type ─────────────────────────────────────────────────────────── */
+  --font-sans: 'Geist', system-ui, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, monospace;
+
+  /* ── shape ────────────────────────────────────────────────────────── */
+  --radius-xs: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  /* ── elevation — the only shadow ──────────────────────────────────── */
+  --shadow-lift: 0 12px 32px -8px rgb(0 0 0 / 0.55);
+
+  /* ── motion ───────────────────────────────────────────────────────── */
+  --ease-standard: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-spring: linear(
+    0,
+    0.006,
+    0.025 2.8%,
+    0.101 6.1%,
+    0.539 18.9%,
+    0.721 25.3%,
+    0.849 31.5%,
+    0.937 38.1%,
+    0.968 41.8%,
+    0.991 45.7%,
+    1.006 50.1%,
+    1.015 60%,
+    1.006 76.2%,
+    1
+  );
+
+  --animate-rise: rise 380ms var(--ease-standard) both;
+  --animate-breathe: breathe 2.4s var(--ease-standard) infinite;
+  --animate-shimmer: shimmer 1.5s linear infinite;
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes breathe {
+    0% {
+      transform: scale(0.7);
+      opacity: 0.9;
+    }
+    70% {
+      transform: scale(2.1);
+      opacity: 0;
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+  @keyframes shimmer {
+    to {
+      background-position: -200% 0;
+    }
+  }
+
+  /* ══════════════════════════════════════════════════════════════════
+     Mockup addition — not in foundations.md's @theme block
+
+     The type scale from its "Scale" table as real utilities: `text-h2`
+     carries size, line-height, weight and tracking together, so a heading is
+     one class instead of four. `sm` shadows Tailwind's default (13px here,
+     not 14px). `label` is also uppercase, which a theme variable can't say:
+     write `text-label uppercase`. @lilnas/utils' cns() registers these same
+     names — keep the two lists in sync.
+     ══════════════════════════════════════════════════════════════════ */
+  --text-h1: 24px;
+  --text-h1--line-height: 32px;
+  --text-h1--font-weight: 600;
+  --text-h1--letter-spacing: -0.02em;
+
+  --text-h2: 18px;
+  --text-h2--line-height: 26px;
+  --text-h2--font-weight: 600;
+  --text-h2--letter-spacing: -0.01em;
+
+  --text-h3: 15px;
+  --text-h3--line-height: 22px;
+  --text-h3--font-weight: 600;
+
+  --text-body: 14px;
+  --text-body--line-height: 20px;
+
+  --text-sm: 13px;
+  --text-sm--line-height: 18px;
+
+  --text-cap: 12px;
+  --text-cap--line-height: 16px;
+
+  --text-label: 11px;
+  --text-label--line-height: 16px;
+  --text-label--font-weight: 500;
+  --text-label--letter-spacing: 0.06em;
+
+  --text-mono: 13px;
+  --text-mono--line-height: 20px;
+
+  --text-mono-sm: 12px;
+  --text-mono-sm--line-height: 20px;
+}
+
+/* ── base ───────────────────────────────────────────────────────────── */
+@layer base {
+  html {
+    scrollbar-gutter: stable;
+  }
+  body {
+    background: var(--color-bg);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 20px;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+  }
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+  button {
+    cursor: pointer;
+  }
+  svg {
+    display: block;
+  }
+  :focus-visible,
+  [data-force~='focus'] {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-xs);
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Mockup addition — utilities Tailwind can't compose from what it ships.
+   Everything else in these mockups is plain utilities in the markup; if a
+   thing can be written as `flex items-center gap-2`, it is.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* Forced states. A mockup has to show hover, press and focus without anyone
+   hovering, so these variants match the real pseudo-class OR a `data-force`
+   attribute: `+btn({...})(data-force='hover')`. They replace Tailwind's
+   built-ins of the same names, so every `hover:` / `active:` / `focus:` /
+   `focus-visible:` in the kit can be pinned on. */
+@custom-variant hover (&:hover, &[data-force~='hover']);
+@custom-variant active (&:active, &[data-force~='active']);
+@custom-variant focus (&:focus, &[data-force~='focus']);
+@custom-variant focus-visible (&:focus-visible, &[data-force~='focus']);
+
+/* The system's single entry motion (motion.md): fade up 6px. `reveal` is one
+   element; `stagger` is the same motion dealt out across the children of a
+   list or grid, 40ms apart, capped at 8 steps so a long list doesn't take
+   forever to arrive. Per-child delays can't be written on the parent with
+   utilities alone. */
+@utility reveal {
+  animation: var(--animate-rise);
+}
+
+@utility stagger {
+  & > * {
+    animation: var(--animate-rise);
+  }
+  & > *:nth-child(2) {
+    animation-delay: 40ms;
+  }
+  & > *:nth-child(3) {
+    animation-delay: 80ms;
+  }
+  & > *:nth-child(4) {
+    animation-delay: 120ms;
+  }
+  & > *:nth-child(5) {
+    animation-delay: 160ms;
+  }
+  & > *:nth-child(6) {
+    animation-delay: 200ms;
+  }
+  & > *:nth-child(7) {
+    animation-delay: 240ms;
+  }
+  & > *:nth-child(8) {
+    animation-delay: 280ms;
+  }
+  & > *:nth-child(n + 9) {
+    animation-delay: 320ms;
+  }
+}
+
+/* The press (motion.md): the colour change is the machine acknowledging you
+   and rides the ease; the squash is the surface reacting to your finger and
+   rides the spring. Tailwind's transition utilities apply one duration and one
+   easing to every property at once, so the pairing has to be spelled out. */
+@utility transition-press {
+  transition:
+    background-color 200ms var(--ease-standard),
+    border-color 200ms var(--ease-standard),
+    color 200ms var(--ease-standard),
+    transform 120ms var(--ease-spring);
+}
+
+/* The live pulse: a ring that breathes outward from a status dot. The ring is
+   a pseudo-element, so it can't be a utility stack on the dot itself. It takes
+   the dot's colour (`text-ok`, `text-accent`), and the dot fills with the same
+   (`bg-current`). Only things that are alive wear it; problems never pulse. */
+@utility dot-live {
+  position: relative;
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    border-radius: 999px;
+    border: 1.5px solid currentColor;
+    animation: var(--animate-breathe);
+  }
+}
+
+/* Loading placeholder: a moving gradient, which needs background-size and an
+   animation together. The only gradient on a surface in the system. The
+   gradient is flat at both ends, and 0 → -200% on a 200%-wide image shifts it
+   by exactly one period, so the loop has no seam. Radius is the caller's
+   (`rounded-xs` for bars, `rounded-full` for avatars). */
+@utility skeleton {
+  background: linear-gradient(
+    100deg,
+    var(--color-surface-2) 30%,
+    var(--color-surface-3) 50%,
+    var(--color-surface-2) 70%
+  );
+  background-size: 200% 100%;
+  animation: var(--animate-shimmer);
+}
+
+/* Indeterminate progress (components.md): a 30%-wide fill sliding along the
+   track on a 1.4s loop. */
+@keyframes progress-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(333%);
+  }
+}
+
+@utility progress-indeterminate {
+  animation: progress-slide 1.4s var(--ease-standard) infinite;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Mockup harness — not part of the design system.
+
+   Every screen is shown at desktop and mobile width behind a segmented
+   control. The control is a pair of hidden radios read with `:has()` rather
+   than a click handler, because these files get opened through wrappers
+   (iframe srcdoc among them) where a page's own <script> never runs. CSS
+   always runs.
+   ══════════════════════════════════════════════════════════════════════ */
+@layer components {
+  .vp-scope [data-viewport-panel] {
+    display: none;
+  }
+  .vp-scope:has(.vp-radio[value='desktop']:checked)
+    [data-viewport-panel='desktop'] {
+    display: flex;
+  }
+  .vp-scope:has(.vp-radio[value='mobile']:checked)
+    [data-viewport-panel='mobile'] {
+    display: flex;
+  }
+}
+
+/* Reduced motion (motion.md): entries resolve to their end state, loops stop.
+   Animation durations collapse and `both` fill leaves the end state; the
+   skeleton becomes a flat surface-2. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .skeleton {
+    animation: none !important;
+    background: var(--color-surface-2);
+  }
+  .progress-indeterminate {
+    animation: none !important;
+    transform: none;
+    width: 100%;
+  }
+}

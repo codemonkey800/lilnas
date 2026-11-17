@@ -1,17 +1,19 @@
 'use client'
 
+import { Button } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { JSX } from 'react'
 import { useTransition } from 'react'
 
 import type { JobAction } from 'src/components/detail/job-actions'
-import { Button } from 'src/components/ui/button'
 
 /** `video-detail.pug`'s `not downloaded` frame. */
 export const VIDEO_DOWNLOAD_LABEL = 'Download'
 
 export type VideoDownloadButtonProps = {
   className?: string
+  /** `accent` when this is the page's one primary action, `outline` otherwise. */
+  variant?: 'accent' | 'outline'
   /**
    * The attempt whose source is asked for again — the newest one. Every
    * attempt at a video names the same `sourceUrl` and `timeRange`, so which
@@ -45,6 +47,7 @@ export function VideoDownloadButton({
   className,
   jobId,
   onDownload,
+  variant = 'outline',
 }: VideoDownloadButtonProps): JSX.Element {
   const [pending, startTransition] = useTransition()
 
@@ -60,7 +63,7 @@ export function VideoDownloadButton({
       className={cns(className)}
       iconEnd="download"
       onClick={download}
-      variant="outline"
+      variant={variant}
     >
       {VIDEO_DOWNLOAD_LABEL}
     </Button>

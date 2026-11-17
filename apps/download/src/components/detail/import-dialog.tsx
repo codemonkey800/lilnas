@@ -1,5 +1,16 @@
 'use client'
 
+import {
+  Button,
+  type ButtonSize,
+  type ButtonVariant,
+  Checkbox,
+  ConfirmDialog,
+  Dialog,
+  Icon,
+  Note,
+  Spinner,
+} from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import {
   type DiscardImportQuery,
@@ -19,14 +30,7 @@ import type {
 } from 'src/app/actions/media-files'
 import { formatRejection } from 'src/components/detail/release-picker'
 import { episodeCode } from 'src/components/detail/show-state'
-import { Button } from 'src/components/ui/button'
-import type { ButtonSize, ButtonVariant } from 'src/components/ui/button-recipe'
-import { buttonRecipeClassName } from 'src/components/ui/button-recipe'
-import { Note } from 'src/components/ui/card'
-import { Spinner } from 'src/components/ui/feedback'
-import { Icon } from 'src/components/ui/icon'
-import { MChip } from 'src/components/ui/mchip'
-import { DeleteButton, Modal, ReasonGroup } from 'src/components/ui/modal'
+import { Reason, ReasonGroup } from 'src/components/ui/reason'
 import { mediaTypeFromKey } from 'src/db/media-id'
 import { formatBytes, UNKNOWN_VALUE } from 'src/lib/format'
 
@@ -98,18 +102,6 @@ export const IMPORT_DISCARD_NOTE =
 export const IMPORT_DISCARD_KEEP_LABEL = 'Keep it'
 
 /**
- * The line under upstream's own rejections. `movie-detail.pug:161`.
- *
- * ⚠️ Load-bearing, not decorative. Upstream's `ManualImport` command builds a
- * **fresh** decision with no rejections, so everything in that note is a reason
- * the *automatic* import declined — a manual one ignores all of it. Without
- * this line the note reads as a blocker, and the user is looking at a row they
- * are perfectly able to import.
- */
-export const IMPORT_REJECTION_NOTE =
-  'Informational only — a manual import ignores it.'
-
-/**
  * Why a row cannot be taken, when the server said `importable: false` and gave
  * no reason of its own.
  */
@@ -172,6 +164,16 @@ export function importRejections(
  */
 export const IMPORT_MOVIE_GROUP_LABEL = 'File to import'
 
+/** The same list for a show, which takes every file it can: checkboxes, not radios. */
+export const IMPORT_FILES_GROUP_LABEL = 'Files to import'
+
+/** The note's lead. The one word that differs is whoever refused the file. */
+export const IMPORT_REJECTION_LEAD_RADARR = 'Radarr said:'
+export const IMPORT_REJECTION_LEAD_SONARR = 'Sonarr said:'
+
+/** The `label` caption over the file list, as the mockup's `legend`. */
+const LEGEND = 'text-label text-ink-3 uppercase'
+
 /**
  * Whether upstream flagged this file as a sample — any rejection mentioning
  * "sample", case-insensitively. A sample is never what anyone came to import,
@@ -213,55 +215,30 @@ export function defaultImportSelection(
 }
 
 /**
- * The mockup's selected-file row: a bordered block that tints `uv` when it is
- * chosen. `movie-detail.pug:146`, plus `[&+&]:mt-2` from the `reason` mixin,
- * which is what spaces a *list* of them.
+ * The mockup's file row: a sunk, bordered block with the name, then one mono
+ * line of what it is. `movie-detail.pug`'s import dialog. The radio or box and
+ * its label come from the package; this is only the row around them.
  */
-const ROW_BASE = cns(
-  'flex w-full items-start gap-2.5 rounded-md border px-3 py-[11px] text-left',
-  'transition-[border-color,background-color] duration-200 ease-uv',
-  '[&+&]:mt-2',
-)
+const ROW =
+  'flex w-full items-start gap-2.5 rounded-md border border-line bg-bg-sunk p-2.5 has-data-checked:border-accent-dim has-data-checked:bg-accent-ghost'
 
-const ROW_CHECKED = 'border-uv/40 bg-uv-ghost'
-const ROW_IDLE = 'border-line'
-
-/** The dimming `movie-detail.pug` gives a row that cannot be acted on. */
+/** The dimming a row that cannot be acted on gets. */
 const ROW_BLOCKED = 'opacity-55'
 
-/**
- * The indicator follows the selection model. A movie takes one file, so its
- * rows are a radio group and wear the mockup's round dot — `Reason`'s, in
- * `modal.tsx`. A show's rows can be committed together, so they wear a square
- * box instead: a dot there would be promising a radio group. The geometry, the
- * border weight and the `uv` are the mixin's either way.
- */
-const BOX_BASE = 'mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-[5px]'
+/** The file's own name - the only line that identifies it. */
+const ROW_TITLE = 'font-mono text-mono-sm break-all text-ink'
 
-const BOX_CHECKED = 'border-[1.5px] border-uv bg-uv-ghost text-uv'
-const BOX_IDLE = 'border-[1.5px] border-line-loud'
+/** What it is: size, quality, what it resolved to, language. */
+const ROW_META = 'font-mono text-mono-sm text-ink-3'
 
-const DOT_BASE =
-  'mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border-[1.5px]'
+/** A sentence, so Geist and `ink-3`. */
+const ROW_NOTE = 'text-cap text-ink-3'
 
-const DOT_CHECKED = cns(
-  'border-uv',
-  "after:h-2 after:w-2 after:rounded-full after:bg-uv after:content-['']",
-)
+/** Shown under a file Radarr or Sonarr marked as a sample. */
+export const IMPORT_SAMPLE_NOTE =
+  'Marked as a sample. Informational only — a manual import ignores it.'
 
-const DOT_IDLE = 'border-line-loud'
-
-/** The file's own name — the only column that identifies it. `ink`, not `ink-3`. */
-const ROW_TITLE = 'truncate font-mono text-mono-sm text-ink'
-
-/** The metadata run under the name. `movie-detail.pug:155`. */
-const ROW_META =
-  'flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-mono-sm text-ink-3'
-
-/** A sentence, so `ink-3` — and its own line, as in `ReleaseRow`. */
-const ROW_REASON = 'text-cap text-ink-3'
-
-const ERROR_LINE = 'font-mono text-[11px] text-bad'
+const ERROR_LINE = 'text-cap text-bad'
 
 /**
  * The three calls this dialog makes, supplied by the page.
@@ -300,8 +277,6 @@ export type ImportDialogProps = Omit<
   label?: ReactNode
   /** The `mediaId()` key — `tmdb:438631`, `tvdb:121361`. */
   mediaId: string
-  /** Stack the footer and stretch its buttons, as `DeleteConfirm` does. */
-  mobile?: boolean
   /** Called after a successful import or discard, once the dialog has closed. */
   onDone?: (outcome: 'discarded' | 'imported') => void
   /**
@@ -361,7 +336,6 @@ export function ImportDialog({
   full = false,
   label,
   mediaId,
-  mobile = false,
   onDone,
   scope,
   size = 'sm',
@@ -518,107 +492,9 @@ export function ImportDialog({
   // is a queue item with no files, and the only honest control left is Discard.
   const importable = (candidates?.length ?? 0) > 0
 
-  const cancel = (
-    <button
-      ref={cancelRef}
-      type="button"
-      className={buttonRecipeClassName({
-        className: mobile ? 'w-full' : undefined,
-        size: 'sm',
-        variant: 'ghost',
-      })}
-      onClick={close}
-    >
-      {IMPORT_CANCEL_LABEL}
-    </button>
-  )
-
-  const discardButton = (
-    <DeleteButton
-      aria-disabled={pending || undefined}
-      full={mobile}
-      onClick={() => setConfirmingDiscard(true)}
-    >
-      {IMPORT_DISCARD_LABEL}
-    </DeleteButton>
-  )
-
-  const confirmButton = importable ? (
-    <Button
-      aria-disabled={pending || selected.size === 0 || undefined}
-      full={mobile}
-      iconEnd="check"
-      size="sm"
-      variant="uv"
-      onClick={commit}
-    >
-      {IMPORT_CONFIRM_LABEL}
-    </Button>
-  ) : null
-
-  const footer = confirmingDiscard ? (
-    <div>
-      <p className={cns('mb-1.5 text-h3')}>{IMPORT_DISCARD_TITLE}</p>
-      <p className={cns('mb-4 text-sm text-ink-3')}>{IMPORT_DISCARD_NOTE}</p>
-      <div className={cns('flex gap-2', mobile ? 'flex-col' : 'justify-end')}>
-        {mobile ? (
-          <>
-            <DeleteButton
-              aria-disabled={pending || undefined}
-              full
-              onClick={discard}
-            >
-              {IMPORT_DISCARD_LABEL}
-            </DeleteButton>
-            <button
-              type="button"
-              className={buttonRecipeClassName({
-                className: 'w-full',
-                size: 'sm',
-                variant: 'ghost',
-              })}
-              onClick={() => setConfirmingDiscard(false)}
-            >
-              {IMPORT_DISCARD_KEEP_LABEL}
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              type="button"
-              className={buttonRecipeClassName({
-                size: 'sm',
-                variant: 'ghost',
-              })}
-              onClick={() => setConfirmingDiscard(false)}
-            >
-              {IMPORT_DISCARD_KEEP_LABEL}
-            </button>
-            <DeleteButton
-              aria-disabled={pending || undefined}
-              onClick={discard}
-            >
-              {IMPORT_DISCARD_LABEL}
-            </DeleteButton>
-          </>
-        )}
-      </div>
-    </div>
-  ) : mobile ? (
-    <div className={cns('flex flex-col gap-2')}>
-      {confirmButton}
-      {cancel}
-      {discardButton}
-    </div>
-  ) : (
-    <div className={cns('flex items-center justify-between gap-2')}>
-      {discardButton}
-      <div className={cns('flex gap-2')}>
-        {cancel}
-        {confirmButton}
-      </div>
-    </div>
-  )
+  const rejectionLead = single
+    ? IMPORT_REJECTION_LEAD_RADARR
+    : IMPORT_REJECTION_LEAD_SONARR
 
   return (
     <div {...props} className={cns(full && 'w-full', className)}>
@@ -631,79 +507,133 @@ export function ImportDialog({
       >
         {label ?? IMPORT_TRIGGER_LABEL}
       </Button>
-      <Modal
-        description={IMPORT_DESCRIPTION}
-        initialFocusRef={cancelRef}
+      <Dialog.Root
         open={open}
-        title={importDialogTitle(title)}
-        onClose={close}
+        onOpenChange={next => {
+          if (!next) {
+            close()
+          }
+        }}
       >
-        {candidates === null ? (
-          <div className={cns('mb-3 flex items-center gap-2.5')}>
-            <Spinner className={cns('h-4 w-4')} />
-            <p className={cns('text-sm text-ink-3')}>{IMPORT_LOADING_NOTE}</p>
-          </div>
-        ) : candidates.length === 0 ? (
-          <p className={cns('mb-3 text-sm text-ink-3')}>{IMPORT_EMPTY_NOTE}</p>
-        ) : single ? (
-          // `ReasonGroup` brings the APG radio keyboard model — arrows move and
-          // choose, one tab stop — and reads each row's `data-value` back off
-          // the DOM, so the path is the value.
-          <ReasonGroup
-            aria-label={IMPORT_MOVIE_GROUP_LABEL}
-            className={cns('mb-3')}
-            value={[...selected][0]}
-            onValueChange={path => {
-              const candidate = candidates.find(entry => entry.path === path)
+        <Dialog.Popup initialFocus={cancelRef}>
+          <Dialog.Title>{importDialogTitle(title)}</Dialog.Title>
+          <Dialog.Description>{IMPORT_DESCRIPTION}</Dialog.Description>
+          {candidates === null ? (
+            <div className={cns('flex items-center gap-2.5')}>
+              <Spinner className={cns('size-4')} />
+              <p className={cns('text-sm text-ink-3')}>{IMPORT_LOADING_NOTE}</p>
+            </div>
+          ) : candidates.length === 0 ? (
+            <p className={cns('text-sm text-ink-3')}>{IMPORT_EMPTY_NOTE}</p>
+          ) : single ? (
+            <ReasonGroup
+              aria-label={IMPORT_MOVIE_GROUP_LABEL}
+              value={[...selected][0] ?? ''}
+              onValueChange={path => {
+                const candidate = candidates.find(entry => entry.path === path)
 
-              if (candidate) {
-                toggle(candidate)
+                if (candidate) {
+                  toggle(candidate)
+                }
+              }}
+            >
+              <span className={cns(LEGEND)}>{IMPORT_MOVIE_GROUP_LABEL}</span>
+              {candidates.map((candidate, index) => (
+                <ImportRow
+                  candidate={candidate}
+                  checked={selected.has(candidate.path)}
+                  key={candidate.path}
+                  reasonId={`${rowIdBase}-${index}`}
+                  single
+                  onToggle={toggle}
+                />
+              ))}
+            </ReasonGroup>
+          ) : (
+            <div
+              aria-label={IMPORT_FILES_GROUP_LABEL}
+              className={cns('flex flex-col gap-2')}
+              role="group"
+            >
+              <span className={cns(LEGEND)}>{IMPORT_FILES_GROUP_LABEL}</span>
+              {candidates.map((candidate, index) => (
+                <ImportRow
+                  candidate={candidate}
+                  checked={selected.has(candidate.path)}
+                  key={candidate.path}
+                  reasonId={`${rowIdBase}-${index}`}
+                  onToggle={toggle}
+                />
+              ))}
+            </div>
+          )}
+          {rejections.length > 0 ? (
+            <Note icon={<Icon name="alert" />} lead={rejectionLead} tone="warn">
+              {rejections.map(rejection => (
+                <span className={cns('block')} key={rejection}>
+                  {rejection}
+                </span>
+              ))}
+            </Note>
+          ) : null}
+          <div>
+            <Button
+              aria-disabled={pending || undefined}
+              icon="trash"
+              size="sm"
+              variant="bad"
+              onClick={() => setConfirmingDiscard(true)}
+            >
+              {IMPORT_DISCARD_LABEL}
+            </Button>
+          </div>
+          {error && !confirmingDiscard ? (
+            <p className={cns(ERROR_LINE)} role="alert">
+              {error}
+            </p>
+          ) : null}
+          <Dialog.Actions>
+            <Button ref={cancelRef} size="sm" variant="ghost" onClick={close}>
+              {IMPORT_CANCEL_LABEL}
+            </Button>
+            {importable ? (
+              <Button
+                aria-disabled={pending || selected.size === 0 || undefined}
+                iconEnd="check"
+                size="sm"
+                variant="accent"
+                onClick={commit}
+              >
+                {IMPORT_CONFIRM_LABEL}
+              </Button>
+            ) : null}
+          </Dialog.Actions>
+          <ConfirmDialog
+            body={
+              <>
+                {IMPORT_DISCARD_NOTE}
+                {error ? (
+                  <span className={cns(ERROR_LINE, 'mt-3 block')} role="alert">
+                    {error}
+                  </span>
+                ) : null}
+              </>
+            }
+            cancelLabel={IMPORT_DISCARD_KEEP_LABEL}
+            confirmLabel={IMPORT_DISCARD_LABEL}
+            open={confirmingDiscard}
+            pending={working}
+            title={IMPORT_DISCARD_TITLE}
+            onConfirm={discard}
+            onOpenChange={next => {
+              if (!next) {
+                setConfirmingDiscard(false)
+                setError(null)
               }
             }}
-          >
-            {candidates.map((candidate, index) => (
-              <ImportRow
-                candidate={candidate}
-                checked={selected.has(candidate.path)}
-                key={candidate.path}
-                reasonId={`${rowIdBase}-${index}`}
-                single
-                onToggle={toggle}
-              />
-            ))}
-          </ReasonGroup>
-        ) : (
-          <div className={cns('mb-3')}>
-            {candidates.map((candidate, index) => (
-              <ImportRow
-                candidate={candidate}
-                checked={selected.has(candidate.path)}
-                key={candidate.path}
-                reasonId={`${rowIdBase}-${index}`}
-                onToggle={toggle}
-              />
-            ))}
-          </div>
-        )}
-        {rejections.length > 0 ? (
-          <Note className={cns('mb-3')}>
-            {rejections.map(rejection => (
-              <p className={cns('text-sm text-ink-2')} key={rejection}>
-                {rejection}
-              </p>
-            ))}
-            <p className={cns('mt-1 text-xs text-ink-4')}>
-              {IMPORT_REJECTION_NOTE}
-            </p>
-          </Note>
-        ) : null}
-        {footer}
-        {error ? (
-          <p className={cns('mt-2', ERROR_LINE)} role="alert">
-            {error}
-          </p>
-        ) : null}
-      </Modal>
+          />
+        </Dialog.Popup>
+      </Dialog.Root>
     </div>
   )
 }
@@ -723,7 +653,7 @@ type ImportRowProps = {
  *
  * A real `<button role="checkbox">` — or `role="radio"` for a movie's row,
  * inside `ReasonGroup` — rather than the mockup's `<div>`, for the same reason
- * `Reason` in `modal.tsx` is a `<button role="radio">`: the row is genuinely
+ * `Reason` in `reason.tsx` is a `<button role="radio">`: the row is genuinely
  * activatable, and a button brings its own activation, its own keyboard
  * handling and the theme's `:focus-visible` ring with it.
  *
@@ -751,50 +681,52 @@ function ImportRow({
   const languages = candidate.languages?.length
     ? candidate.languages.join(', ')
     : null
+  const meta = [primary, secondary, languages].filter(Boolean).join(' · ')
 
   const blocked = !candidate.importable
   const reason = blocked
     ? (candidate.blockedReason ?? IMPORT_BLOCKED_REASON)
     : null
 
-  return (
-    <button
-      type="button"
-      aria-checked={checked}
-      aria-describedby={blocked ? reasonId : undefined}
-      aria-disabled={blocked || undefined}
-      className={cns(
-        ROW_BASE,
-        checked ? ROW_CHECKED : ROW_IDLE,
-        blocked && ROW_BLOCKED,
-      )}
-      data-value={single ? candidate.path : undefined}
-      role={single ? 'radio' : 'checkbox'}
+  // One label, so a screen reader reads the file, what it is and why it is
+  // greyed out as one thing.
+  const body = (
+    <span
+      className={cns('flex min-w-0 flex-col gap-0.5')}
       title={candidate.path}
-      onClick={() => onToggle(candidate)}
     >
-      {single ? (
-        <span className={cns(DOT_BASE, checked ? DOT_CHECKED : DOT_IDLE)} />
-      ) : (
-        <span className={cns(BOX_BASE, checked ? BOX_CHECKED : BOX_IDLE)}>
-          {checked ? (
-            <Icon className={cns('h-[11px] w-[11px]')} name="check" />
-          ) : null}
+      <span className={cns(ROW_TITLE)}>{name}</span>
+      <span className={cns(ROW_META)}>{meta}</span>
+      {isSampleCandidate(candidate) ? (
+        <span className={cns(ROW_NOTE)}>{IMPORT_SAMPLE_NOTE}</span>
+      ) : null}
+      {reason ? (
+        <span className={cns(ROW_NOTE)} id={reasonId}>
+          {reason}
         </span>
-      )}
-      <span className={cns('flex min-w-0 flex-1 flex-col gap-1.5')}>
-        <span className={cns(ROW_TITLE)}>{name}</span>
-        <span className={cns(ROW_META)}>
-          <MChip label={primary} />
-          <MChip label={secondary} />
-          {languages ? <MChip label={languages} /> : null}
-        </span>
-        {reason ? (
-          <span className={cns(ROW_REASON)} id={reasonId}>
-            {reason}
-          </span>
-        ) : null}
-      </span>
-    </button>
+      ) : null}
+    </span>
+  )
+  const className = cns(ROW, blocked && ROW_BLOCKED)
+
+  // ⚠️ `disabled`, not `aria-disabled`: the package's radio and checkbox have
+  // no inert-but-focusable state, and the reason is part of the row's own
+  // label rather than a description hanging off it, so nothing is lost when
+  // the control leaves the tab order.
+  return single ? (
+    <Reason
+      className={className}
+      disabled={blocked}
+      label={body}
+      value={candidate.path}
+    />
+  ) : (
+    <Checkbox
+      checked={checked}
+      className={className}
+      disabled={blocked}
+      label={body}
+      onCheckedChange={() => onToggle(candidate)}
+    />
   )
 }

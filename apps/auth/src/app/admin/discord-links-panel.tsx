@@ -1,17 +1,29 @@
 'use client'
 
-import { cns } from '@lilnas/utils/cns'
+import type { Column } from '@lilnas/ui'
+import {
+  Button,
+  ConfirmDialog,
+  DataList,
+  EmptyState,
+  Input,
+  Note,
+  Panel,
+  Radio,
+  RadioGroup,
+} from '@lilnas/ui'
 import type { TransitionStartFunction } from 'react'
 import { useMemo, useState } from 'react'
 
 import { linkDiscordAccount, unlinkDiscordAccount } from 'src/app/admin/actions'
+import { DiscordBadge } from 'src/app/admin/people-list'
 import type {
   AdminDiscordLinkEntry,
   AdminDiscordUnlinked,
   AdminDiscordUnlinkedAccount,
   AdminDiscordUnlinkedPerson,
 } from 'src/app/admin/require-admin'
-import { Icon } from 'src/app/components/icons'
+import { SectionHead } from 'src/app/admin/section-head'
 import { timeAgo } from 'src/app/lib/time-ago'
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -30,15 +42,15 @@ import { timeAgo } from 'src/app/lib/time-ago'
 // comment for that 404) — this UI and that check defend the same property
 // from both ends.
 //
-// The two filter `input`s below are the ONLY inputs in the panel, and they
+// The two filter inputs below are the ONLY inputs in the panel, and they
 // only ever narrow an already-observed list; neither can contribute a value
 // to the link call.
 //
-// Mutations follow the same shape as the two modals (add-person-modal.tsx,
+// Mutations follow the same shape as the two dialogs (add-person-modal.tsx,
 // edit-access-modal.tsx): the parent hands down `isPending`/
 // `startTransition`/`showToast`, and this component wraps its own calls in
 // runPanelAction() below so a backend failure lands in THIS panel's own
-// role="alert" line rather than the dashboard's page-level notice — the
+// `Note` rather than the dashboard's page-level one — the
 // message ("Discord account already linked to someone@example.com") is
 // about the pair the admin just picked, and belongs next to the picker.
 // Refreshing the lists afterwards is NOT this component's job: every
@@ -55,6 +67,10 @@ import { timeAgo } from 'src/app/lib/time-ago'
 // side by side, and a filter appearing over one but not the other purely
 // because they crossed different thresholds reads as a bug.
 const FILTER_MIN_ROWS = 8
+
+// A whole choice row is the tap target; the selected one takes the accent.
+const CHOICE_ROW =
+  'w-full rounded-md border border-line px-3 py-2 hover:border-line-loud has-data-checked:border-accent-dim has-data-checked:bg-accent-ghost'
 
 function matchesFilter(haystacks: (string | null)[], term: string): boolean {
   if (term === '') return true
@@ -83,6 +99,11 @@ export function DiscordLinksPanel({
   const [peopleFilter, setPeopleFilter] = useState('')
   const [accountsFilter, setAccountsFilter] = useState('')
   const [panelError, setPanelError] = useState<string | null>(null)
+  // The link an Unlink confirm is about. Kept after the dialog closes so its
+  // title doesn't change while it fades out.
+  const [unlinkTarget, setUnlinkTarget] =
+    useState<AdminDiscordLinkEntry | null>(null)
+  const [isUnlinkOpen, setIsUnlinkOpen] = useState(false)
 
   const { people, accounts } = unlinked
 
@@ -151,114 +172,162 @@ export function DiscordLinksPanel({
     })
   }
 
-  // Confirmed like every other destructive action on this dashboard (Remove
-  // access, Sign out everywhere, blocking an admin). A 404 from this call is
-  // a GENUINE error, deliberately not swallowed into a success — see
-  // actions.ts's unlinkDiscordAccount() comment: reaching it means this view
-  // is stale, and surfacing the message is what prompts the refresh that
-  // makes the screen honest again.
-  function handleUnlink(entry: AdminDiscordLinkEntry) {
-    if (
-      !window.confirm(
-        `Unlink ${entry.email} from @${entry.username}? Their future Discord downloads will no longer be attributed to them until they are linked again.`,
-      )
-    ) {
-      return
-    }
+  // Confirmed like every other destructive action on this dashboard (Block,
+  // Remove access, Sign out everywhere). A 404 from this call is a GENUINE
+  // error, deliberately not swallowed into a success — see actions.ts's
+  // unlinkDiscordAccount() comment: reaching it means this view is stale, and
+  // surfacing the message is what prompts the refresh that makes the screen
+  // honest again.
+  function handleUnlinkClick(entry: AdminDiscordLinkEntry) {
+    setUnlinkTarget(entry)
+    setIsUnlinkOpen(true)
+  }
+
+  function handleUnlinkConfirm() {
+    if (!unlinkTarget) return
+    const { userId, username } = unlinkTarget
+    setIsUnlinkOpen(false)
     runPanelAction(async () => {
-      await unlinkDiscordAccount(entry.userId)
-      showToast(`Unlinked @${entry.username}`)
+      await unlinkDiscordAccount(userId)
+      showToast(`Unlinked @${username}`)
     })
   }
 
-  return (
-    <div className="stack gap-3.5">
-      <div className="panel-head">
-        <div className="row gap-2">
-          <h2 className="h2">Discord links</h2>
-          <span className="tab-count">{links.length}</span>
+  const linkColumns: Column<AdminDiscordLinkEntry>[] = [
+    {
+      key: 'person',
+      header: 'Person',
+      primary: true,
+      render: entry => (
+        <span className="flex min-w-0 flex-col">
+          <span className="truncate font-medium">{entry.name}</span>
+          <span className="truncate font-mono text-mono-sm text-ink-3">
+            {entry.email}
+          </span>
+        </span>
+      ),
+    },
+    {
+      key: 'discord',
+      header: 'Discord',
+      render: entry => <DiscordBadge handle={entry.username} />,
+    },
+    {
+      key: 'linked',
+      header: 'Linked',
+      // Same hydration caveat as the last-seen line below —
+      // toLocaleDateString() resolves against the renderer's own locale and
+      // timezone, which the server and the browser need not share.
+      render: entry => (
+        <span className="text-cap text-ink-3" suppressHydrationWarning>
+          {new Date(entry.createdAt).toLocaleDateString()}
+        </span>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      render: entry => (
+        <div className="flex md:justify-end">
+          <Button
+            disabled={isPending}
+            size="sm"
+            variant="bad"
+            onClick={() => handleUnlinkClick(entry)}
+          >
+            Unlink
+          </Button>
         </div>
-      </div>
+      ),
+    },
+  ]
 
-      <p className="body-text muted">
+  return (
+    <section className="flex flex-col gap-3">
+      <SectionHead title="Discord links" count={links.length} />
+
+      <p className="max-w-[74ch] text-sm text-ink-3">
         Pair a person with a Discord account so their downloads are attributed
         to them. Both sides are picked from what this system has already seen —
         nothing here is typed by hand.
       </p>
 
       {panelError ? (
-        <p role="alert" className="text-sm text-red-400">
+        <Note
+          tone="bad"
+          lead="Couldn’t link."
+          onDismiss={() => setPanelError(null)}
+        >
           {panelError}
-        </p>
+        </Note>
       ) : null}
 
       {/* Side by side on a normal screen, stacked on a narrow one — the two
           lists are read together (pick a row on the left, pick its partner
           on the right), so they stay adjacent wherever there is room. */}
-      <div className="card grid gap-5 p-4 md:grid-cols-2">
-        <div className="field">
-          <label id="discord-people-label">People without a Discord link</label>
+      <div className="grid gap-5 rounded-lg border border-line bg-surface p-4 md:grid-cols-2">
+        <div className="flex min-w-0 flex-col gap-2">
+          <p
+            className="text-sm font-medium text-ink-2"
+            id="discord-people-label"
+          >
+            People without a Discord link
+          </p>
           {people.length >= FILTER_MIN_ROWS ? (
-            <input
-              className="input"
-              type="text"
-              placeholder="Filter people…"
+            <Input
               aria-label="Filter people without a Discord link"
+              placeholder="Filter people…"
               value={peopleFilter}
               onChange={event => setPeopleFilter(event.target.value)}
             />
           ) : null}
           {people.length === 0 ? (
-            <div className="empty-state px-2 py-6">
-              <Icon name="check" />
-              <p className="body-text">
-                Everyone who has signed in is already linked.
+            <div className="rounded-md border border-dashed border-line px-4 py-8 text-center">
+              <p className="text-sm font-medium">Everyone is linked</p>
+              <p className="mt-1 text-cap text-ink-3">
+                People who sign in without a link show up here.
               </p>
             </div>
           ) : (
-            <div
-              className="max-h-[280px] overflow-y-auto pr-0.5"
-              role="radiogroup"
+            <RadioGroup
               aria-labelledby="discord-people-label"
+              className="max-h-[280px] gap-1.5 overflow-y-auto pr-0.5"
+              disabled={isPending}
+              value={selectedUserId ?? ''}
+              onValueChange={value => setSelectedUserId(value)}
             >
               {visiblePeople.map(person => (
-                <label
+                <Radio
                   key={person.userId}
-                  className={cns(
-                    'checkbox-row',
-                    person.userId === selectedUserId &&
-                      'border-accent bg-white/5',
-                  )}
-                >
-                  <input
-                    type="radio"
-                    name="discord-link-person"
-                    checked={person.userId === selectedUserId}
-                    onChange={() => setSelectedUserId(person.userId)}
-                    disabled={isPending}
-                  />
-                  <span className="stack min-w-0">
-                    <span className="small truncate font-medium">
-                      {person.name}
+                  className={CHOICE_ROW}
+                  value={person.userId}
+                  label={
+                    <span className="flex min-w-0 flex-col">
+                      <span className="truncate text-sm font-medium text-ink">
+                        {person.name}
+                      </span>
+                      <span className="truncate font-mono text-mono-sm text-ink-3">
+                        {person.email}
+                      </span>
                     </span>
-                    <span className="caption truncate">{person.email}</span>
-                  </span>
-                </label>
+                  }
+                />
               ))}
-            </div>
+            </RadioGroup>
           )}
         </div>
 
-        <div className="field">
-          <label id="discord-accounts-label">
+        <div className="flex min-w-0 flex-col gap-2">
+          <p
+            className="text-sm font-medium text-ink-2"
+            id="discord-accounts-label"
+          >
             Discord accounts without a lilnas link
-          </label>
+          </p>
           {accounts.length >= FILTER_MIN_ROWS ? (
-            <input
-              className="input"
-              type="text"
-              placeholder="Filter accounts…"
+            <Input
               aria-label="Filter Discord accounts without a lilnas link"
+              placeholder="Filter accounts…"
               value={accountsFilter}
               onChange={event => setAccountsFilter(event.target.value)}
             />
@@ -269,134 +338,88 @@ export function DiscordLinksPanel({
             // empty until somebody actually uses the bot. The copy says so
             // plainly rather than leaving an admin wondering what they
             // misconfigured.
-            <div className="empty-state px-2 py-6">
-              <Icon name="inbox" />
-              <p className="body-text">
-                Discord accounts show up here the first time someone runs
-                /download
+            <div className="rounded-md border border-dashed border-line px-4 py-8 text-center">
+              <p className="text-sm font-medium">No Discord accounts yet</p>
+              <p className="mt-1 text-cap text-ink-3">
+                They appear the first time someone runs{' '}
+                <code className="font-mono text-mono-sm">/download</code>.
               </p>
             </div>
           ) : (
-            <div
-              className="max-h-[280px] overflow-y-auto pr-0.5"
-              role="radiogroup"
+            <RadioGroup
               aria-labelledby="discord-accounts-label"
+              className="max-h-[280px] gap-1.5 overflow-y-auto pr-0.5"
+              disabled={isPending}
+              value={selectedDiscordUserId ?? ''}
+              onValueChange={value => setSelectedDiscordUserId(value)}
             >
               {visibleAccounts.map(account => (
-                <label
+                <Radio
                   key={account.discordUserId}
-                  className={cns(
-                    'checkbox-row',
-                    account.discordUserId === selectedDiscordUserId &&
-                      'border-accent bg-white/5',
-                  )}
-                >
-                  <input
-                    type="radio"
-                    name="discord-link-account"
-                    checked={account.discordUserId === selectedDiscordUserId}
-                    onChange={() =>
-                      setSelectedDiscordUserId(account.discordUserId)
-                    }
-                    disabled={isPending}
-                  />
-                  <span className="stack min-w-0">
-                    <span className="small truncate font-medium">
-                      @{account.username}
-                    </span>
-                    {account.displayName ? (
-                      <span className="caption truncate">
-                        {account.displayName}
+                  className={CHOICE_ROW}
+                  value={account.discordUserId}
+                  label={
+                    <span className="flex min-w-0 flex-col">
+                      <span className="truncate font-mono text-mono-sm font-medium text-ink">
+                        @{account.username}
                       </span>
-                    ) : null}
-                    {/* suppressHydrationWarning for the same reason the
-                        dashboard's request cards use it: timeAgo() reads
-                        Date.now(), so the server's string and the client's
-                        first render legitimately differ. */}
-                    <span className="caption" suppressHydrationWarning>
-                      last seen {timeAgo(account.lastSeenAt)}
+                      {/* suppressHydrationWarning for the same reason the
+                          dashboard's request cards use it: timeAgo() reads
+                          Date.now(), so the server's string and the client's
+                          first render legitimately differ. */}
+                      <span
+                        className="truncate text-cap text-ink-3"
+                        suppressHydrationWarning
+                      >
+                        {account.displayName ? `${account.displayName} · ` : ''}
+                        last seen {timeAgo(account.lastSeenAt)}
+                      </span>
                     </span>
-                  </span>
-                </label>
+                  }
+                />
               ))}
-            </div>
+            </RadioGroup>
           )}
         </div>
       </div>
 
-      <div className="row justify-end">
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={handleLink}
+      <div className="flex justify-end">
+        <Button
           disabled={!selectedPerson || !selectedAccount || isPending}
+          variant="accent"
+          className="max-md:w-full"
+          onClick={handleLink}
         >
           {selectedPerson && selectedAccount
             ? `Link ${selectedPerson.email} ↔ @${selectedAccount.username}`
             : 'Link'}
-        </button>
+        </Button>
       </div>
 
-      {links.length === 0 ? (
-        <div className="empty-state">
-          <Icon name="users" />
-          <p className="body-text">No Discord accounts are linked yet.</p>
-        </div>
-      ) : (
-        // Deliberately NOT wrapped in `people-table-wrap`: that class hides
-        // the table outright below 768px and relies on a hand-written
-        // `.person-card` list as the mobile rendering. This table has four
-        // short columns and no such twin, so it scrolls horizontally on a
-        // narrow screen instead of disappearing.
-        <div className="card overflow-x-auto">
-          <table className="table min-w-[560px]">
-            <thead>
-              <tr>
-                <th>Person</th>
-                <th>Discord</th>
-                <th>Linked</th>
-                <th>
-                  <span className="visually-hidden">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {links.map(entry => (
-                <tr key={entry.userId}>
-                  <td>
-                    <div className="row-user__text">
-                      <span className="row-user__name">{entry.name}</span>
-                      <span className="row-user__email">{entry.email}</span>
-                    </div>
-                  </td>
-                  <td>
-                    <span className="chip chip-neutral">@{entry.username}</span>
-                  </td>
-                  {/* Same hydration caveat as the last-seen line above —
-                      toLocaleDateString() resolves against the renderer's own
-                      locale and timezone, which the server and the browser
-                      need not share. */}
-                  <td className="caption" suppressHydrationWarning>
-                    {new Date(entry.createdAt).toLocaleDateString()}
-                  </td>
-                  <td>
-                    <div className="table-row-actions">
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-sm text-red-400 hover:bg-red-950/30 hover:text-red-300"
-                        onClick={() => handleUnlink(entry)}
-                        disabled={isPending}
-                      >
-                        Unlink
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
+      <Panel>
+        <DataList
+          caption="Discord links"
+          columns={linkColumns}
+          rowKey={entry => entry.userId}
+          rows={links}
+          empty={
+            <EmptyState
+              title="No Discord links yet"
+              body="Pick a person and an account above and they’ll show up here."
+            />
+          }
+        />
+      </Panel>
+
+      <ConfirmDialog
+        open={isUnlinkOpen}
+        onOpenChange={setIsUnlinkOpen}
+        title={`Unlink ${unlinkTarget?.email ?? 'this person'} from @${unlinkTarget?.username ?? ''}?`}
+        body="Their Discord downloads stop being attributed to them until you link them again."
+        confirmLabel="Unlink"
+        cancelLabel="Keep link"
+        onConfirm={handleUnlinkConfirm}
+      />
+    </section>
   )
 }

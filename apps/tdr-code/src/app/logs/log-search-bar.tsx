@@ -1,5 +1,6 @@
 'use client'
 
+import { Button, Input } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
@@ -537,22 +538,23 @@ export function LogSearchBar({
   return (
     <div
       data-track-id="log-search-bar"
-      // U14: square top corners, no top border — this sits directly below
-      // LogFilters with zero gap (see log-viewer.tsx's own toolbar wrapper)
-      // so the pair reads as ONE bordered strip with a single internal
-      // divider, matching LogFilters' own header comment on the same
-      // pairing from the other side.
-      className="flex flex-wrap items-center gap-2 rounded-b border border-gray-800 bg-gray-900/50 px-3 py-1.5 text-xs"
+      // The second row of the toolbar surface log-viewer.tsx draws around
+      // this and LogFilters; the divider is this row's own top border.
+      className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-line-soft px-3 py-2"
     >
-      <span className="shrink-0 text-gray-500">Search</span>
+      <span className="text-label text-ink-3 uppercase max-md:sr-only">
+        Search
+      </span>
 
-      <input
-        type="text"
+      <Input
+        aria-label="Search this file"
+        className="max-md:h-11"
         data-track-id="log-search-input"
-        value={inputValue}
+        icon="search"
         onChange={e => handleInputChange(e.target.value)}
         placeholder="Search this file…"
-        className="w-56 rounded bg-gray-800 px-2 py-1 text-gray-200 placeholder-gray-600 focus:outline-none"
+        value={inputValue}
+        wrapperClassName="min-w-0 flex-1 max-md:basis-full md:max-w-56"
       />
 
       {/*
@@ -569,8 +571,8 @@ export function LogSearchBar({
         <span
           data-track-id="log-search-count"
           className={cns(
-            'text-gray-400',
-            accumulator.total === 0 && 'italic text-gray-600',
+            'text-cap tabular-nums',
+            accumulator.total === 0 ? 'text-ink-4 italic' : 'text-ink-2',
           )}
         >
           {accumulator.total === 0
@@ -581,42 +583,53 @@ export function LogSearchBar({
 
       {searchEnabled && !hideNavigation && accumulator.total > 0 && (
         <span className="flex items-center gap-1">
-          <button
-            type="button"
+          <Button
+            aria-label="Prev"
+            className="*:rotate-90"
             data-track-id="log-search-prev"
             disabled={!hasHit}
+            icon="chevron"
             onClick={() => void prev()}
-            className="rounded px-1.5 py-0.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:opacity-50"
-          >
-            Prev
-          </button>
-          <button
-            type="button"
+            size="sm"
+            variant="ghost"
+          />
+          <Button
+            aria-label="Next"
+            className="*:-rotate-90"
             data-track-id="log-search-next"
             disabled={!hasHit}
+            icon="chevron"
             onClick={() => void next()}
-            className="rounded px-1.5 py-0.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200 disabled:opacity-50"
-          >
-            Next
-          </button>
+            size="sm"
+            variant="ghost"
+          />
         </span>
       )}
 
       {showSearchingIndicator && (
-        <span data-track-id="log-search-loading" className="text-gray-500">
+        <span
+          className="flex items-center gap-1.5 text-cap text-ink-3"
+          data-track-id="log-search-loading"
+          role="status"
+        >
+          <span
+            aria-hidden="true"
+            className="size-3 shrink-0 animate-spin rounded-full border-2 border-accent border-t-transparent"
+          />
           Searching…
         </span>
       )}
 
       {fileGrew && (
-        <button
-          type="button"
+        <Button
           data-track-id="log-search-rerun"
+          icon="refresh"
           onClick={handleRerun}
-          className="rounded px-1.5 py-0.5 text-gray-400 underline transition-colors hover:bg-gray-800 hover:text-gray-200"
+          size="sm"
+          variant="ghost"
         >
           File grew — re-run
-        </button>
+        </Button>
       )}
     </div>
   )

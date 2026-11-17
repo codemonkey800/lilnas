@@ -39,9 +39,9 @@ describe('AUDIT_ACTION_LEVELS / AUDIT_ACTION_PHRASES', () => {
   })
 
   it('tints destruction bad and housekeeping mute', () => {
-    expect(auditLevel('video.delete')).toEqual({ label: 'DELETE', tone: 'bad' })
+    expect(auditLevel('video.delete')).toEqual({ label: 'Delete', tone: 'bad' })
     expect(auditLevel('ytdlp.check_update')).toEqual({
-      label: 'UPDATE',
+      label: 'Update',
       tone: 'mute',
     })
   })
@@ -51,11 +51,11 @@ describe('AUDIT_ACTION_LEVELS / AUDIT_ACTION_PHRASES', () => {
   // opposite tones despite arriving together.
   it('separates a manual import from the discard it is offered beside', () => {
     expect(auditLevel('media.manual_import')).toEqual({
-      label: 'IMPORT',
-      tone: 'uv',
+      label: 'Import',
+      tone: 'accent',
     })
     expect(auditLevel('media.discard_download')).toEqual({
-      label: 'DISCARD',
+      label: 'Discard',
       tone: 'bad',
     })
     expect(AUDIT_ACTION_PHRASES['media.manual_import']).toBe(

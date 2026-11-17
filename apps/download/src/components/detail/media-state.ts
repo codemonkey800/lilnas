@@ -18,13 +18,13 @@ import { FINISHED_PCT } from 'src/components/detail/job-state'
  * into a library, so `importing` and `available` say so.
  */
 const MANAGED_MEDIA_STATE_LABELS: Record<MediaState, string> = {
-  absent: 'not downloaded',
-  available: 'in library',
-  downloading: 'downloading',
-  importing: 'importing…',
-  needs_attention: 'needs your decision',
-  paused: 'paused',
-  wanted: 'wanted',
+  absent: 'Not downloaded',
+  available: 'In library',
+  downloading: 'Downloading',
+  importing: 'Importing…',
+  needs_attention: 'Needs your decision',
+  paused: 'Paused',
+  wanted: 'Wanted',
 }
 
 /**
@@ -34,8 +34,8 @@ const MANAGED_MEDIA_STATE_LABELS: Record<MediaState, string> = {
  */
 const VIDEO_MEDIA_STATE_LABELS: Record<MediaState, string> = {
   ...MANAGED_MEDIA_STATE_LABELS,
-  available: 'downloaded',
-  importing: 'processing…',
+  available: 'Downloaded',
+  importing: 'Processing…',
 }
 
 /**

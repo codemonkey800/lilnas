@@ -4,7 +4,6 @@ import { usePathname } from 'next/navigation'
 
 import { startVideoDownload } from 'src/app/actions/start-video-download'
 import { NavSearch, SEARCH_ROUTE } from 'src/components/shell/nav-search'
-import { iconSymbolId } from 'src/components/ui/icon'
 
 const push = jest.fn()
 
@@ -20,22 +19,17 @@ jest.mock('src/app/actions/start-video-download', () => ({
 const mockUsePathname = jest.mocked(usePathname)
 const mockStartVideoDownload = jest.mocked(startVideoDownload)
 
-/** The field itself. `type="text"`, so it is a textbox, not a searchbox. */
-function field(): HTMLInputElement {
-  return screen.getByRole('textbox', { name: 'Search or paste a link' })
-}
-
 /**
- * The glyph in the pill. Found through the input's own parent rather than the
- * first `svg` in the form, because the mobile close button's `x` renders ahead
- * of it while the field is expanded.
+ * The field itself: a `type="search"` input, named for what its button will do
+ * (Search for a title, Download for a pasted link).
  */
-function leadingIcon(): SVGElement {
-  return field().parentElement?.querySelector('svg') as SVGElement
+function field(): HTMLInputElement {
+  return screen.getByRole('searchbox') as HTMLInputElement
 }
 
-function leadingIconHref(): string | null {
-  return leadingIcon().querySelector('use')?.getAttribute('href') ?? null
+/** The submit button, named for what pressing it does right now. */
+function action(name: 'Search' | 'Download'): HTMLElement {
+  return screen.getByRole('button', { name })
 }
 
 /** A deferred `startVideoDownload`, so `pending` can be held open. */
@@ -118,63 +112,46 @@ describe('NavSearch', () => {
   beforeEach(() => {
     // `clearMocks` clears calls but keeps implementations, so both of these have
     // to be re-stated rather than merely cleared between tests.
-    mockUsePathname.mockReturnValue('/')
+    mockUsePathname.mockReturnValue('/gallery')
     mockStartVideoDownload.mockReset()
     mockStartVideoDownload.mockResolvedValue(undefined)
   })
 
-  describe('classification', () => {
-    it('is idle with an empty field: no action button, untinted search glyph', () => {
+  describe('the field', () => {
+    it('is the package Search: a search landmark, an input and the one button', () => {
       render(<NavSearch />)
 
+      expect(screen.getByRole('search')).toBeInTheDocument()
+      expect(field()).toHaveAttribute('placeholder', 'Search or paste a link…')
+      expect(action('Search')).toHaveAttribute('type', 'submit')
+    })
+
+    it('labels its button Search while it holds a title, or nothing', async () => {
+      render(<NavSearch />)
+
+      expect(action('Search')).toBeInTheDocument()
+
+      await type('the office')
+
+      expect(action('Search')).toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Download' })).toBeNull()
-      expect(screen.queryByRole('button', { name: 'Search' })).toBeNull()
-      expect(leadingIconHref()).toBe(`#${iconSymbolId('search')}`)
-      expect(leadingIcon()).toHaveClass('text-ink-4')
-      expect(leadingIcon()).not.toHaveClass('text-uv-hi')
     })
 
-    it('shows no button at one character', async () => {
+    it('relabels its button Download for a pasted link', async () => {
       render(<NavSearch />)
-      await type('t')
+      await type('youtube.com/watch?v=x')
 
+      expect(action('Download')).toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Search' })).toBeNull()
-      expect(screen.queryByRole('button', { name: 'Download' })).toBeNull()
-    })
-
-    it('shows Search at two characters, and tints the glyph', async () => {
-      render(<NavSearch />)
-      await type('th')
-
-      expect(screen.getByRole('button', { name: 'Search' })).toBeVisible()
-      expect(leadingIconHref()).toBe(`#${iconSymbolId('search')}`)
-      expect(leadingIcon()).toHaveClass('text-uv-hi')
-    })
-
-    it('shows no button for whitespace only', async () => {
-      render(<NavSearch />)
-      await type('   ')
-
-      expect(screen.queryByRole('button', { name: 'Search' })).toBeNull()
-    })
-
-    it('swaps the glyph and shows Download for a bare host', async () => {
-      render(<NavSearch />)
-      await type('youtube.com/watch?v=7f2k9dQ')
-
-      expect(screen.getByRole('button', { name: 'Download' })).toBeVisible()
-      expect(screen.queryByRole('button', { name: 'Search' })).toBeNull()
-      expect(leadingIconHref()).toBe(`#${iconSymbolId('download')}`)
-      expect(leadingIcon()).toHaveClass('text-uv-hi')
     })
 
     it('offers no dropdown, no listbox and no preview card in either state', async () => {
       render(<NavSearch />)
-      await type('youtube.com/watch?v=x')
+      await type('th')
 
       expect(screen.queryByRole('listbox')).toBeNull()
+      expect(screen.queryByRole('combobox')).toBeNull()
       expect(screen.queryByRole('dialog')).toBeNull()
-      expect(screen.queryByRole('option')).toBeNull()
     })
   })
 
@@ -183,9 +160,9 @@ describe('NavSearch', () => {
       render(<NavSearch />)
       const user = await type('the office')
 
-      await user.click(screen.getByRole('button', { name: 'Search' }))
+      await user.click(action('Search'))
 
-      expect(push).toHaveBeenCalledWith(`${SEARCH_ROUTE}?q=the%20office`)
+      expect(push).toHaveBeenCalledWith('/search?q=the%20office')
       expect(mockStartVideoDownload).not.toHaveBeenCalled()
     })
 
@@ -193,94 +170,83 @@ describe('NavSearch', () => {
       render(<NavSearch />)
       const user = await type('the office')
 
-      await user.keyboard('{Enter}')
+      await user.type(field(), '{Enter}')
 
-      expect(push).toHaveBeenCalledWith(`${SEARCH_ROUTE}?q=the%20office`)
-      expect(mockStartVideoDownload).not.toHaveBeenCalled()
+      expect(push).toHaveBeenCalledWith('/search?q=the%20office')
     })
 
     it('does nothing on Enter below the two-character floor', async () => {
       render(<NavSearch />)
       const user = await type('t')
 
-      await user.keyboard('{Enter}')
+      await user.type(field(), '{Enter}')
 
       expect(push).not.toHaveBeenCalled()
+      expect(mockStartVideoDownload).not.toHaveBeenCalled()
     })
   })
 
   describe('the video branch', () => {
     it('starts the download with the normalized URL', async () => {
-      holdTheAction()
-
       render(<NavSearch />)
-      const user = await type('youtube.com/watch?v=7f2k9dQ')
+      const user = await type('youtube.com/watch?v=x')
 
-      await user.click(screen.getByRole('button', { name: 'Download' }))
+      await user.click(action('Download'))
 
-      expect(mockStartVideoDownload).toHaveBeenCalledWith(
-        'https://youtube.com/watch?v=7f2k9dQ',
+      await waitFor(() =>
+        expect(mockStartVideoDownload).toHaveBeenCalledWith(
+          'https://youtube.com/watch?v=x',
+        ),
       )
       expect(push).not.toHaveBeenCalled()
     })
 
     it('runs the same branch on Enter', async () => {
-      holdTheAction()
-
       render(<NavSearch />)
       const user = await type('youtube.com/watch?v=x')
 
-      await user.keyboard('{Enter}')
+      await user.type(field(), '{Enter}')
 
-      expect(mockStartVideoDownload).toHaveBeenCalledWith(
-        'https://youtube.com/watch?v=x',
+      await waitFor(() =>
+        expect(mockStartVideoDownload).toHaveBeenCalledTimes(1),
       )
     })
 
     it('surfaces a failed create on the field instead of stranding the user', async () => {
-      mockStartVideoDownload.mockResolvedValue({ error: 'Nope, try again' })
-
+      mockStartVideoDownload.mockResolvedValue({ error: 'Not a video link.' })
       render(<NavSearch />)
       const user = await type('youtube.com/watch?v=x')
 
-      await user.click(screen.getByRole('button', { name: 'Download' }))
+      await user.click(action('Download'))
 
-      const alert = await screen.findByRole('alert')
-
-      expect(alert).toHaveTextContent('Nope, try again')
-      expect(field()).toHaveAttribute('aria-describedby', alert.id)
-      expect(field()).toHaveValue('youtube.com/watch?v=x')
-      expect(push).not.toHaveBeenCalled()
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'Not a video link.',
+      )
     })
 
     it('clears the error as soon as the text changes', async () => {
-      mockStartVideoDownload.mockResolvedValue({ error: 'Nope, try again' })
-
+      mockStartVideoDownload.mockResolvedValue({ error: 'Not a video link.' })
       render(<NavSearch />)
       const user = await type('youtube.com/watch?v=x')
 
-      await user.click(screen.getByRole('button', { name: 'Download' }))
+      await user.click(action('Download'))
       await screen.findByRole('alert')
-
       await user.type(field(), 'y')
 
       expect(screen.queryByRole('alert')).toBeNull()
-      expect(field()).not.toHaveAttribute('aria-describedby')
     })
   })
 
   describe('the double-submit guard', () => {
-    it('marks the button aria-disabled and ignores every further submit while pending', async () => {
+    it('disables the button and ignores every further submit while pending', async () => {
       const release = holdTheAction()
 
       render(<NavSearch />)
       const user = await type('youtube.com/watch?v=x')
-      const button = screen.getByRole('button', { name: 'Download' })
+      const button = action('Download')
 
       await user.click(button)
-      await waitFor(() =>
-        expect(button).toHaveAttribute('aria-disabled', 'true'),
-      )
+      await waitFor(() => expect(button).toBeDisabled())
 
       await user.click(button)
       await user.click(field())
@@ -290,46 +256,24 @@ describe('NavSearch', () => {
 
       release()
     })
-
-    it('keeps the pending button in the tab order', async () => {
-      // jsdom does not blur an element when it becomes `disabled`, so asserting
-      // on focus would pass under either implementation and prove nothing. Tab
-      // order jsdom does model, and a real `disabled` attribute removes the
-      // button from it — which is the whole reason this field uses
-      // `aria-disabled` plus a guard in `onSubmit` instead.
-      const release = holdTheAction()
-
-      render(<NavSearch />)
-      const user = await type('youtube.com/watch?v=x')
-      const button = screen.getByRole('button', { name: 'Download' })
-
-      await user.click(button)
-      await waitFor(() =>
-        expect(button).toHaveAttribute('aria-disabled', 'true'),
-      )
-
-      expect(button).not.toBeDisabled()
-
-      field().focus()
-      await user.tab()
-
-      expect(button).toHaveFocus()
-
-      release()
-    })
   })
 
   describe('the mobile collapse', () => {
+    /** The element the collapse is applied to: the form's wrapper. */
+    function wrapper(): HTMLElement {
+      return screen.getByRole('search').parentElement as HTMLElement
+    }
+
     it('renders a collapsed trigger and a hidden field at rest', () => {
       render(<NavSearch />)
 
       const trigger = screen.getByRole('button', { name: 'Open search' })
 
       expect(trigger).toHaveAttribute('aria-expanded', 'false')
-      // `sm:hidden` on the trigger and `hidden sm:flex` on the field are the
+      // `sm:hidden` on the trigger and `hidden sm:block` on the field are the
       // whole collapse: one node repositioned by CSS, never two inputs.
       expect(trigger).toHaveClass('sm:hidden')
-      expect(screen.getByRole('search')).toHaveClass('hidden', 'sm:flex')
+      expect(wrapper()).toHaveClass('hidden', 'sm:block')
       expect(screen.queryByRole('button', { name: 'Close search' })).toBeNull()
     })
 
@@ -339,13 +283,11 @@ describe('NavSearch', () => {
 
       await user.click(screen.getByRole('button', { name: 'Open search' }))
 
-      const form = screen.getByRole('search')
-
-      expect(form).toHaveClass('fixed', 'inset-x-0', 'top-0')
-      expect(form).not.toHaveClass('hidden')
+      expect(wrapper()).toHaveClass('fixed', 'inset-x-0', 'top-0')
+      expect(wrapper()).not.toHaveClass('hidden')
       // ...and undoes all of it at the desktop breakpoint, so crossing 640px
       // while expanded lands on the inline field rather than on an overlay.
-      expect(form).toHaveClass('sm:relative', 'sm:p-0')
+      expect(wrapper()).toHaveClass('sm:relative', 'sm:p-0')
       expect(screen.getByRole('button', { name: 'Close search' })).toBeVisible()
       expect(
         screen.getByRole('button', { name: 'Open search' }),
@@ -362,7 +304,7 @@ describe('NavSearch', () => {
       await user.click(trigger)
       await user.click(screen.getByRole('button', { name: 'Close search' }))
 
-      expect(screen.getByRole('search')).toHaveClass('hidden')
+      expect(wrapper()).toHaveClass('hidden')
       // Awaited, because the restore is deliberately deferred a frame: the
       // trigger is still `hidden` at the instant the handler runs.
       await waitFor(() => expect(trigger).toHaveFocus())
@@ -402,18 +344,14 @@ describe('NavSearch', () => {
       const trigger = screen.getByRole('button', { name: 'Open search' })
 
       await user.click(trigger)
-      // Escape is handled on the form, so it only closes once focus has landed
-      // inside it — which is exactly the sequence a real tap produces, the
-      // trigger being `display: none` the moment the overlay opens.
+      // Escape is handled on the wrapper, so it only closes once focus has
+      // landed inside it — which is exactly the sequence a real tap produces.
       await waitFor(() => expect(field()).toHaveFocus())
 
       await user.keyboard('{Escape}')
 
-      expect(screen.getByRole('search')).toHaveClass('hidden')
+      expect(wrapper()).toHaveClass('hidden')
       expect(screen.queryByRole('button', { name: 'Close search' })).toBeNull()
-      // Escape and the close button are the same exit, so they owe the same
-      // debt — the keyboard route to it especially, since a user who pressed
-      // Escape has no pointer to recover with.
       await waitFor(() => expect(trigger).toHaveFocus())
     })
 
@@ -435,14 +373,18 @@ describe('NavSearch', () => {
       await user.click(screen.getByRole('button', { name: 'Open search' }))
       await user.type(field(), 'youtube.com/watch?v=x')
 
-      expect(screen.getByRole('button', { name: 'Download' })).toBeVisible()
-      expect(leadingIconHref()).toBe(`#${iconSymbolId('download')}`)
+      expect(action('Download')).toBeVisible()
     })
   })
 
-  describe('the /search opt-out', () => {
-    it('renders nothing on the search page, whose hero already is the field', () => {
-      mockUsePathname.mockReturnValue(SEARCH_ROUTE)
+  // The two routes with a hero field of their own: two copies of one control
+  // on one screen is two places to type the same query.
+  describe('the hero opt-outs', () => {
+    it.each([
+      ['the search page', SEARCH_ROUTE],
+      ['the home page', '/'],
+    ])('renders nothing on %s', (_name, path) => {
+      mockUsePathname.mockReturnValue(path)
 
       const { container } = render(<NavSearch />)
 

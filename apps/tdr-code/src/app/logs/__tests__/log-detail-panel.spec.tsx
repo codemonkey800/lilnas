@@ -1,5 +1,4 @@
 import {
-  act,
   createEvent,
   fireEvent,
   render,
@@ -90,6 +89,29 @@ describe('LogDetailPanel — happy path (parsed line)', () => {
     await user.click(screen.getByRole('button', { name: /^copy$/i }))
 
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(expectedText))
+  })
+})
+
+describe('LogDetailPanel — JSON highlighting inks', () => {
+  it('uses only ink / ink-2 / accent-hi / ok: keys accent-hi, strings ok, numbers and literals ink, punctuation ink-2', () => {
+    const line = makeLine({
+      level: 30,
+      msg: 'hello',
+      ok: true,
+      none: null,
+    })
+
+    render(<LogDetailPanel line={line} stream="backend" onClose={jest.fn()} />)
+
+    const dialog = screen.getByRole('dialog')
+    expect(screen.getByText('"msg"')).toHaveClass('text-accent-hi')
+    expect(screen.getByText('"hello"')).toHaveClass('text-ok')
+    expect(screen.getByText('30')).toHaveClass('text-ink')
+    expect(screen.getByText('true')).toHaveClass('text-ink')
+    expect(screen.getByText('null')).toHaveClass('text-ink')
+    expect(dialog.innerHTML).not.toMatch(
+      /text-(sky|emerald|amber|purple|gray)-/,
+    )
   })
 })
 
@@ -390,13 +412,17 @@ describe('LogDetailPanel — dismissal', () => {
 })
 
 describe('LogDetailPanel — accessibility: focus management', () => {
-  it('opening the panel moves focus into it', () => {
+  it('opening the panel moves focus into it', async () => {
     const line = makeLine({ level: 30, time: 1, msg: 'hi' })
 
     render(<LogDetailPanel line={line} stream="backend" onClose={jest.fn()} />)
 
+    // The Sheet is a Base UI dialog: it moves focus in on its own tick, not
+    // synchronously with the commit.
     const dialog = screen.getByRole('dialog')
-    expect(dialog).toContainElement(document.activeElement as HTMLElement)
+    await waitFor(() =>
+      expect(dialog).toContainElement(document.activeElement as HTMLElement),
+    )
   })
 
   it('Tab from the last focusable element cycles to the first, and Shift+Tab from the first cycles to the last', async () => {
@@ -408,9 +434,6 @@ describe('LogDetailPanel — accessibility: focus management', () => {
     const copyButton = screen.getByRole('button', { name: /^copy$/i })
     const closeButton = screen.getByRole('button', { name: /close/i })
 
-    // The panel root itself is focused on open (not one of the two
-    // buttons), so the first Tab press moves to the first REAL focusable
-    // descendant before the wrap-around logic is exercised.
     copyButton.focus()
     expect(document.activeElement).toBe(copyButton)
 
@@ -419,15 +442,15 @@ describe('LogDetailPanel — accessibility: focus management', () => {
 
     // Forward wrap: Tab from the last focusable element goes to the first.
     await user.tab()
-    expect(document.activeElement).toBe(copyButton)
+    await waitFor(() => expect(document.activeElement).toBe(copyButton))
 
     // Backward wrap: Shift+Tab from the first focusable element goes to the
     // last.
     await user.tab({ shift: true })
-    expect(document.activeElement).toBe(closeButton)
+    await waitFor(() => expect(document.activeElement).toBe(closeButton))
   })
 
-  it('Shift+Tab as the very first keystroke after open (focus still on the panel root) wraps to the last focusable element instead of escaping the trap', async () => {
+  it('Shift+Tab as the very first keystroke after open wraps to the last focusable element instead of escaping the trap', async () => {
     const user = userEvent.setup()
     const line = makeLine({ level: 30, time: 1, msg: 'hi' })
 
@@ -435,15 +458,14 @@ describe('LogDetailPanel — accessibility: focus management', () => {
 
     const dialog = screen.getByRole('dialog')
     const closeButton = screen.getByRole('button', { name: /close/i })
-    // Confirms the premise this test is guarding: focus opens on the panel
-    // root itself, not on either button — so the wrap-around check must
-    // handle "active is the root" as its own case, not just "active is
-    // first/last", or a reverse-tab here would escape to whatever the page
-    // puts before this panel in document order.
-    expect(document.activeElement).toBe(dialog)
+    await waitFor(() =>
+      expect(dialog).toContainElement(document.activeElement as HTMLElement),
+    )
 
+    // Reverse-tabbing out of the first control must stay in the sheet, not
+    // escape to whatever the page puts before it in document order.
     await user.tab({ shift: true })
-    expect(document.activeElement).toBe(closeButton)
+    await waitFor(() => expect(document.activeElement).toBe(closeButton))
   })
 })
 
@@ -458,23 +480,21 @@ describe('LogDetailPanel — accessibility: focus restore', () => {
     expect(document.activeElement).toBe(trigger)
 
     const line = makeLine({ level: 30, time: 1, msg: 'hi' })
+    const onClose = jest.fn()
     const { rerender } = render(
-      <LogDetailPanel line={line} stream="backend" onClose={jest.fn()} />,
+      <LogDetailPanel line={line} stream="backend" onClose={onClose} />,
     )
     // Sanity: opening did move focus away from the trigger into the panel.
-    expect(document.activeElement).not.toBe(trigger)
+    await waitFor(() => expect(document.activeElement).not.toBe(trigger))
 
     await user.keyboard('{Escape}')
     // Esc only calls onClose (the caller decides what happens next); the
     // host is responsible for actually setting line back to null. Simulate
-    // that here — focus returns to the trigger on the close edge (the panel
-    // then slides out and unmounts on its own timer, but focus restore does
-    // not wait for that; see the slide-lifecycle describe below).
-    rerender(
-      <LogDetailPanel line={null} stream="backend" onClose={jest.fn()} />,
-    )
+    // that here — focus returns to the trigger once the sheet has closed.
+    expect(onClose).toHaveBeenCalledTimes(1)
+    rerender(<LogDetailPanel line={null} stream="backend" onClose={onClose} />)
 
-    expect(document.activeElement).toBe(trigger)
+    await waitFor(() => expect(document.activeElement).toBe(trigger))
 
     document.body.removeChild(trigger)
   })
@@ -497,7 +517,7 @@ describe('LogDetailPanel — accessibility: focus restore', () => {
       <LogDetailPanel line={null} stream="backend" onClose={jest.fn()} />,
     )
 
-    expect(document.activeElement).toBe(trigger)
+    await waitFor(() => expect(document.activeElement).toBe(trigger))
 
     document.body.removeChild(trigger)
   })
@@ -547,7 +567,7 @@ describe('LogDetailPanel — copy affordance', () => {
   })
 })
 
-describe('LogDetailPanel — overlay drawer (no layout shift, click-outside to close)', () => {
+describe('LogDetailPanel — overlay sheet (no layout shift, click-outside to close)', () => {
   it('overlays rather than reserving a column — the panel is fixed-positioned', () => {
     const line = makeLine({ level: 30, time: 1, msg: 'hi' })
 
@@ -558,60 +578,48 @@ describe('LogDetailPanel — overlay drawer (no layout shift, click-outside to c
     expect(screen.getByRole('dialog')).toHaveClass('fixed')
   })
 
-  it('renders a backdrop while open, and clicking it closes the drawer', () => {
+  it('renders a scrim while open, and clicking it closes the sheet', async () => {
+    const user = userEvent.setup()
     const onClose = jest.fn()
     const line = makeLine({ level: 30, time: 1, msg: 'hi' })
 
     render(<LogDetailPanel line={line} stream="backend" onClose={onClose} />)
 
-    const overlay = document.querySelector(
-      '[data-track-id="log-detail-overlay"]',
-    )
-    expect(overlay).toBeInTheDocument()
+    const scrim = document.querySelector('[role="presentation"][data-open]')
+    expect(scrim).toBeInTheDocument()
 
-    // A click on the backdrop (anywhere outside the panel) closes the drawer.
-    fireEvent.click(overlay as HTMLElement)
+    // A click on the scrim (anywhere outside the panel) closes the sheet.
+    await user.click(scrim as HTMLElement)
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 })
 
 describe('LogDetailPanel — slide lifecycle', () => {
-  it('marks the panel open (data-state) while a line is selected', () => {
+  it('marks the panel open (data-open) while a line is selected', () => {
     const line = makeLine({ level: 30, time: 1, msg: 'hi' })
 
     render(<LogDetailPanel line={line} stream="backend" onClose={jest.fn()} />)
 
-    expect(screen.getByRole('dialog')).toHaveAttribute('data-state', 'open')
+    expect(screen.getByRole('dialog')).toHaveAttribute('data-open')
   })
 
-  it('keeps the panel mounted through the exit slide, then removes it from the DOM once the slide completes', () => {
-    jest.useFakeTimers()
-    try {
-      const line = makeLine({ level: 30, time: 1, msg: 'hi' })
-      const { rerender, container } = render(
-        <LogDetailPanel line={line} stream="backend" onClose={jest.fn()} />,
-      )
-      expect(screen.getByRole('dialog')).toBeInTheDocument()
+  it('removes the panel from the DOM once the selection is cleared and the exit has finished', async () => {
+    const line = makeLine({ level: 30, time: 1, msg: 'hi' })
+    const { rerender } = render(
+      <LogDetailPanel line={line} stream="backend" onClose={jest.fn()} />,
+    )
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
 
-      // Host clears the selection (this is what onClose ultimately drives).
-      rerender(
-        <LogDetailPanel line={null} stream="backend" onClose={jest.fn()} />,
-      )
+    // Host clears the selection (this is what onClose ultimately drives).
+    // The slide-out is the Sheet's own CSS transition; jsdom runs none, so
+    // the popup leaves as soon as Base UI has unmounted it.
+    rerender(
+      <LogDetailPanel line={null} stream="backend" onClose={jest.fn()} />,
+    )
 
-      // Still mounted, now animating out (so the slide can actually play).
-      const dialog = screen.getByRole('dialog')
-      expect(dialog).toBeInTheDocument()
-      expect(dialog).toHaveAttribute('data-state', 'closed')
-
-      // Once the slide duration elapses it leaves the DOM entirely — nothing
-      // lingers behind the (now-gone) backdrop.
-      act(() => {
-        jest.advanceTimersByTime(200)
-      })
-      expect(container).toBeEmptyDOMElement()
-    } finally {
-      jest.useRealTimers()
-    }
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+    )
   })
 })
 

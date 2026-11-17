@@ -6,7 +6,8 @@
   "prettier": "@lilnas/prettier",
   "scripts": {
     "lint": "prettier -c .",
-    "lint:fix": "prettier -w ."
+    "lint:fix": "prettier -w .",
+    "test": "node --test rules/"
   },
   "dependencies": {
     "@eslint/compat": "^2.1.1",

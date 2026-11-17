@@ -1,18 +1,19 @@
 'use client'
 
+import { Button, type ButtonSize, type ButtonVariant } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { DownloadJob, QualityTier } from '@lilnas/utils/download/types'
 import { DEFAULT_QUALITY_TIER } from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX } from 'react'
-import { useState, useTransition } from 'react'
+import { useId, useState, useTransition } from 'react'
 
 import {
+  QUALITY_TIER_HINT,
+  QUALITY_TIER_HINT_CLASS,
   QUALITY_TIER_PICKER,
   QUALITY_TIER_ROW,
   QualityTierSelect,
 } from 'src/components/detail/quality-tier-select'
-import { Button } from 'src/components/ui/button'
-import type { ButtonSize, ButtonVariant } from 'src/components/ui/button-recipe'
 
 /** What {@link MovieRequestButton} answers with. A result, never a throw — the same shape `ShowRequestButton` and `grabRelease` both use. */
 export type MovieRequestResult = { error: string } | { job: DownloadJob }
@@ -35,7 +36,7 @@ export type MovieRequestAction = (
 export const MOVIE_REQUEST_LABEL = 'Download'
 
 /** The mono error clause `show-request-button.tsx` and `delete-confirm.tsx` both write. */
-const ERROR_LINE = 'mt-2 font-mono text-[11px] text-bad'
+const ERROR_LINE = 'mt-2 text-cap text-bad'
 
 export type MovieRequestButtonProps = Omit<
   ComponentPropsWithoutRef<'div'>,
@@ -85,9 +86,10 @@ export function MovieRequestButton({
   mediaId,
   onRequest,
   size,
-  variant = 'outline',
+  variant = 'accent',
   ...props
 }: MovieRequestButtonProps): JSX.Element {
+  const hintId = useId()
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
   const [qualityTier, setQualityTier] = useState<QualityTier>(
@@ -115,6 +117,7 @@ export function MovieRequestButton({
       <div className={cns(QUALITY_TIER_ROW)}>
         <QualityTierSelect
           className={cns(QUALITY_TIER_PICKER)}
+          describedBy={hintId}
           disabled={pending}
           value={qualityTier}
           onChange={setQualityTier}
@@ -130,6 +133,9 @@ export function MovieRequestButton({
           {MOVIE_REQUEST_LABEL}
         </Button>
       </div>
+      <p className={cns('mt-2', QUALITY_TIER_HINT_CLASS)} id={hintId}>
+        {QUALITY_TIER_HINT}
+      </p>
       {error ? (
         <p className={cns(ERROR_LINE)} role="alert">
           {error}

@@ -1,6 +1,6 @@
 'use client'
 
-import { cns } from '@lilnas/utils/cns'
+import { AppBar, Button, ConfirmDialog, Note } from '@lilnas/ui'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 
@@ -15,8 +15,11 @@ import {
   unlinkDiscordAccount,
 } from 'src/app/admin/actions'
 import { AddPersonModal } from 'src/app/admin/add-person-modal'
+import { BlockedPanel } from 'src/app/admin/blocked-panel'
 import { DiscordLinksPanel } from 'src/app/admin/discord-links-panel'
 import { EditAccessModal } from 'src/app/admin/edit-access-modal'
+import { PeopleList } from 'src/app/admin/people-list'
+import { RequestCards } from 'src/app/admin/request-cards'
 import type {
   AdminDiscordLinkEntry,
   AdminDiscordUnlinked,
@@ -24,14 +27,10 @@ import type {
   AdminServiceEntry,
   AdminUserEntry,
 } from 'src/app/admin/require-admin'
-import { Brandmark } from 'src/app/components/brandmark'
-import { Icon } from 'src/app/components/icons'
-import { Toast, useToast } from 'src/app/components/toast'
-import { getInitials } from 'src/app/lib/initials'
-import { timeAgo } from 'src/app/lib/time-ago'
+import { StatTiles } from 'src/app/admin/stat-tiles'
+import { useToast } from 'src/app/components/toast'
+import { signOut } from 'src/app/lib/auth-client'
 import { toggleInSet } from 'src/app/lib/toggle-in-set'
-import { getServiceMeta } from 'src/app/service-meta'
-import { isHostPattern } from 'src/grants/host-matcher'
 
 export type AdminDashboardClientProps = {
   initialQueue: AdminQueueEntry[]
@@ -51,101 +50,14 @@ export type AdminDashboardClientProps = {
   discordLinks: AdminDiscordLinkEntry[]
 }
 
-// D3 (plan 017): the linked Discord handle, shown on a People row so an
-// admin can see at a glance who is already attributed without opening
-// anything. `discordUsername` is the HANDLE, not a display name — the
-// People row carries no display name at all (the Discord links panel's own
-// picker is where a display name appears, to help tell two similar handles
-// apart). `discordUserId`/`discordUsername` are always both null or both
-// non-null, so this one check covers the pair.
-function DiscordChip({ user }: { user: AdminUserEntry }) {
-  if (!user.discordUsername) return null
-  return <span className="chip chip-neutral">@{user.discordUsername}</span>
-}
-
-function ServiceChips({ hosts }: { hosts: string[] }) {
-  if (hosts.length === 0) {
-    return <span className="caption">No services granted</span>
-  }
-  const visible = hosts.slice(0, 4)
-  const remaining = hosts.length - visible.length
-  return (
-    <div className="service-chip-list">
-      {visible.map(host => {
-        const meta = getServiceMeta(host)
-        return (
-          <span key={host} className="chip chip-neutral">
-            {/* Only access rules carry an icon — it's what sets "All
-             *.dev.lilnas.io sites" apart from a single service. */}
-            {isHostPattern(host) ? <Icon name={meta.icon} /> : null}
-            {meta.name}
-          </span>
-        )
-      })}
-      {remaining > 0 ? (
-        <span className="chip chip-neutral">+{remaining}</span>
-      ) : null}
-    </div>
-  )
-}
-
-function PersonStatusChip({ user }: { user: AdminUserEntry }) {
-  // Priority: Admin > Blocked > Granted > No access. Used in BOTH the
-  // People and Blocked panels — Admin still takes priority over the
-  // Blocked branch below even though S2a made blocking an admin a real
-  // /verify-level action: a blocked admin keeps full, unrestricted /admin
-  // access via AdminGuard's own independent check (see verify.service.ts's
-  // header comment), which is the more decision-relevant fact for an
-  // operator scanning this list. The Blocked branch is what a non-admin
-  // blocked row falls into instead — restored so the Blocked panel can
-  // distinguish "still has admin access" from "has no access anywhere,"
-  // a distinction that didn't exist before S2a, when a blocked admin could
-  // never reach the Blocked panel at all.
-  if (user.isAdmin) {
-    return (
-      <span className="chip chip-admin">
-        <Icon name="shield" />
-        <span>Admin</span>
-      </span>
-    )
-  }
-  if (user.blockedAt) {
-    return (
-      <span className="chip chip-revoked">
-        <Icon name="x" />
-        <span>Blocked</span>
-      </span>
-    )
-  }
-  if (user.services.length > 0) {
-    return (
-      <span className="chip chip-granted">
-        <Icon name="check" />
-        <span>Granted</span>
-      </span>
-    )
-  }
-  // Deliberately not labeled "Pending" — this list has no relationship to
-  // an active queue row (a person can have "no access" simply because they
-  // were pre-authorized for a service and haven't signed in yet, or were
-  // fully un-authorized, not because they're waiting in the queue below).
-  return (
-    <span className="chip chip-revoked">
-      <Icon name="x" />
-      <span>No access</span>
-    </span>
-  )
-}
-
 // ──────────────────────────────────────────────────────────────────────────────
 // The merged admin dashboard — replaces the pre-redesign /admin,
 // /admin/queue, and /admin/users pages with one screen (stat tiles,
 // pending requests, and people), matching the design mockups' own
 // single-page layout. The services/gated-by table the mockups also have
-// was deliberately dropped — it duplicated the "Gated services" stat tile
-// above with no admin action attached, and `services` itself stays a
-// required prop purely as the source list for the Add-person/Edit-access
-// modals' checkbox grids. Every mutation still goes through the EXISTING
+// was deliberately dropped — it had no admin action attached, and `services`
+// stays a required prop purely as the source list for the Add-person/
+// Edit-access dialogs' checkbox grids. Every mutation still goes through the EXISTING
 // Server Actions in actions.ts, unchanged — this file only reorganizes how
 // they're presented and composed:
 //
@@ -155,17 +67,21 @@ function PersonStatusChip({ user }: { user: AdminUserEntry }) {
 //     happens afterward via Edit access.
 //   - The bulk-dismiss checkbox + "Dismiss selected" button on request
 //     cards is a deliberate ADDITION beyond the mockups (which have no
-//     bulk affordance at all) — preserving a feature the pre-merge
-//     queue-client.tsx already had.
-//   - M2: the Add-person and Edit-access modals live in their own sibling
+//     bulk affordance beyond the Decline button) — preserving a feature the
+//     pre-merge queue-client.tsx already had.
+//   - M2: the Add-person and Edit-access dialogs live in their own sibling
 //     files (add-person-modal.tsx, edit-access-modal.tsx) — each owns its
 //     own form state and submit handler, mounted below with a `key` that
 //     changes whenever it should reset (see each file's own header comment
 //     for why `key` rather than an effect). This component still owns
-//     `isAddModalOpen`/`accessModalUser` themselves, since both the
-//     Escape-key handler below and each modal's trigger points need to
-//     know which modal (if any) is open independently of the modal's own
-//     internals.
+//     `isAddModalOpen`/`accessModalUser` themselves, since the trigger
+//     points (the toolbar, each row, the empty states) live outside the
+//     dialogs. Escape, the focus trap and the scrim come from `Dialog`.
+//   - Every destructive action asks first in a `ConfirmDialog` that names
+//     the person and what they lose: Block is confirmed here; Remove access,
+//     Sign out everywhere and Unlink live in the Edit-access dialog, which
+//     owns their confirms (a dialog opened from a dialog nests under it, so
+//     focus returns there rather than to the page).
 //   - The Edit-access modal diffs against its own OPENING snapshot and
 //     sends only the boxes that actually changed as one batched
 //     setUserServices() call — never a full-set resubmit. This is
@@ -205,7 +121,7 @@ function PersonStatusChip({ user }: { user: AdminUserEntry }) {
 //     while AdminGuard's own, deliberately independent check leaves their
 //     /admin access untouched (see that file's own header comment for the
 //     no-lockout rationale) — so a blocked admin still shows up here able
-//     to unblock themselves. PersonStatusChip's restored "Blocked" branch
+//     to unblock themselves. PersonStatusBadge's "Blocked" branch
 //     is what makes that admin-vs-ordinary-user distinction visible in this
 //     panel, rather than every blocked row looking the same. "Remove
 //     access" (handleRemove, calling the already-existing but previously-
@@ -239,9 +155,13 @@ export function AdminDashboardClient({
   const [searchTerm, setSearchTerm] = useState('')
   const [isPending, startTransition] = useTransition()
   const [actionError, setActionError] = useState<string | null>(null)
-  const { message, showToast } = useToast()
+  const { showToast } = useToast()
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
+  // The person a Block confirm is about. Kept after the dialog closes so its
+  // title doesn't change while it fades out.
+  const [blockTarget, setBlockTarget] = useState<AdminUserEntry | null>(null)
+  const [isBlockConfirmOpen, setIsBlockConfirmOpen] = useState(false)
   const [accessModalUser, setAccessModalUser] = useState<AdminUserEntry | null>(
     null,
   )
@@ -399,30 +319,24 @@ export function AdminDashboardClient({
     [filteredUsers],
   )
 
-  function handleBlock(userId: string) {
-    runAction(async () => {
-      await blockUser(userId)
-      showToast('Access blocked')
-    })
+  // Blocking asks first, for everyone: it revokes the person's /verify access
+  // to every gated service. For an admin the confirm says they keep this
+  // dashboard — they keep /admin access via AdminGuard's own, deliberately
+  // independent check (see verify.service.ts's header comment for the
+  // no-lockout rationale).
+  function handleBlockClick(user: AdminUserEntry) {
+    setBlockTarget(user)
+    setIsBlockConfirmOpen(true)
   }
 
-  // Blocking an admin is higher-consequence than blocking an ordinary user:
-  // since S2a, it actually revokes their /verify access to every gated
-  // service (they keep /admin access via AdminGuard's own, deliberately
-  // independent check — see verify.service.ts's header comment for the
-  // no-lockout rationale), where blocking a non-admin has always meant the
-  // same thing. Row actions route Block through this confirmation gate only
-  // for an admin row; an ordinary Block stays a single click, unchanged.
-  function handleBlockClick(user: AdminUserEntry) {
-    if (
-      user.isAdmin &&
-      !window.confirm(
-        `Block ${user.email} from every gated service? They will keep access to this admin dashboard, but lose access everywhere else until unblocked.`,
-      )
-    ) {
-      return
-    }
-    handleBlock(user.id)
+  function handleBlockConfirm() {
+    if (!blockTarget) return
+    const { id } = blockTarget
+    setIsBlockConfirmOpen(false)
+    runAction(async () => {
+      await blockUser(id)
+      showToast('Access blocked')
+    })
   }
 
   function handleUnblock(userId: string) {
@@ -432,18 +346,11 @@ export function AdminDashboardClient({
     })
   }
 
-  // More consequential than a single Block toggle — revokes EVERY service
-  // this person currently has at once — so this is always confirmed,
-  // regardless of isAdmin (unlike Block, which is confirmed only for an
-  // admin row — see handleBlockClick above).
+  // The Edit-access dialog confirms Remove access, Sign out everywhere and
+  // Unlink itself (see edit-access-modal.tsx), then calls these.
+  //
+  // Remove revokes EVERY service this person currently has at once.
   function handleRemove(userId: string) {
-    if (
-      !window.confirm(
-        'Remove all access for this person? This revokes every service they currently have.',
-      )
-    ) {
-      return
-    }
     runAction(async () => {
       await removeUser(userId)
       showToast('Access removed')
@@ -453,17 +360,7 @@ export function AdminDashboardClient({
 
   // S2b: the "revoke all sessions" break-glass action — see
   // UsersService.revokeSessions()'s own comment for the full rationale.
-  // Confirmed like Remove access above: unlike a single Block toggle, this
-  // immediately signs the person out of every device they're currently
-  // signed in on.
   function handleSignOutEverywhere(userId: string) {
-    if (
-      !window.confirm(
-        "Sign this person out everywhere? Their current sessions are revoked immediately — they can sign back in right away, so this doesn't otherwise restrict their access.",
-      )
-    ) {
-      return
-    }
     runAction(async () => {
       const result = await revokeSessions(userId)
       showToast(
@@ -474,28 +371,20 @@ export function AdminDashboardClient({
     })
   }
 
-  // D3 (plan 017): the Edit-access modal's Unlink action. The modal shows a
+  // D3 (plan 017): the Edit-access dialog's Unlink action. The dialog shows a
   // person's current Discord link READ-ONLY — linking itself happens only in
   // the Discord links panel, where both sides are picked from observed lists
   // (see discord-links-panel.tsx's header comment for why that constraint is
   // the whole design) — but unlinking needs no picker, so it is available
-  // wherever the link is visible. Confirmed like the modal's other
-  // destructive actions, and handled HERE rather than inside the modal for
-  // the same reason onRemove/onSignOutEverywhere are: the modal delegates
-  // anything that outlives it (this one closes nothing, but its error and
-  // toast belong to the dashboard, which stays mounted).
+  // wherever the link is visible. Handled HERE rather than inside the dialog
+  // for the same reason onRemove/onSignOutEverywhere are: the dialog
+  // delegates anything that outlives it (its error and toast belong to the
+  // dashboard, which stays mounted).
   //
   // A 404 from this call is a genuine error, not an idempotent success — see
   // actions.ts's unlinkDiscordAccount() comment. runAction surfaces it in the
-  // page-level notice and the SSE refresh corrects the stale view.
+  // page-level note and the SSE refresh corrects the stale view.
   function handleUnlinkDiscord(user: AdminUserEntry) {
-    if (
-      !window.confirm(
-        `Unlink ${user.email} from @${user.discordUsername}? Their future Discord downloads will no longer be attributed to them until they are linked again.`,
-      )
-    ) {
-      return
-    }
     runAction(async () => {
       await unlinkDiscordAccount(user.id)
       showToast('Discord account unlinked')
@@ -520,272 +409,73 @@ export function AdminDashboardClient({
     setAccessModalUser(null)
   }
 
-  // Escape closes whichever modal is open — mirrors the design mockups'
-  // own keyboard-dismiss behavior.
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key !== 'Escape') return
-      if (isAddModalOpen) closeAddModal()
-      else if (accessModalUser) closeAccessModal()
-    }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [isAddModalOpen, accessModalUser])
+  function handleSignOut() {
+    void signOut().then(() => {
+      window.location.href = '/login'
+    })
+  }
 
   const grantedUsersCount = users.filter(u => u.services.length > 0).length
 
   return (
     <>
-      <header className="topbar">
-        <Brandmark href="/" label="admin" />
-      </header>
+      <AppBar
+        app="auth"
+        links={[
+          { href: '/', label: 'Home' },
+          { href: '/admin', label: 'Admin', active: true },
+        ]}
+        end={
+          <Button variant="ghost" size="sm" onClick={handleSignOut}>
+            Sign out
+          </Button>
+        }
+      />
 
-      <div className="shell">
-        <div className="stack gap-1">
-          <h1 className="h1">Access control</h1>
-          <p className="body-text muted">
+      <main className="mx-auto flex w-full max-w-[1040px] flex-col gap-8 px-4 py-6 md:gap-10 md:px-8 md:py-10">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-h1">Access control</h1>
+          <p className="text-body text-ink-3">
             Review requests and manage who can reach what behind the gate.
           </p>
         </div>
 
         {actionError ? (
-          <div className="notice" role="alert">
-            <Icon name="x" />
-            <span>{actionError}</span>
-          </div>
+          <Note
+            tone="bad"
+            lead="That didn’t go through."
+            onDismiss={() => setActionError(null)}
+          >
+            {actionError}
+          </Note>
         ) : null}
 
-        <div className="stat-row">
-          <div className={cns('stat-tile', queue.length > 0 && 'is-flagged')}>
-            <span className="stat-tile__value">{queue.length}</span>
-            <span className="stat-tile__label">Pending requests</span>
-          </div>
-          <div className="stat-tile">
-            <span className="stat-tile__value">{grantedUsersCount}</span>
-            <span className="stat-tile__label">Granted users</span>
-          </div>
-          <div className="stat-tile">
-            <span className="stat-tile__value">{services.length}</span>
-            <span className="stat-tile__label">Gated services</span>
-          </div>
-        </div>
+        <StatTiles
+          people={users.length}
+          granted={grantedUsersCount}
+          pending={queue.length}
+        />
 
-        <div className="stack gap-3.5">
-          <div className="panel-head">
-            <div className="row gap-2">
-              <h2 className="h2">Pending requests</h2>
-              <span className="tab-count">{queue.length}</span>
-            </div>
-            {selectedRequestIds.size > 0 ? (
-              <button
-                type="button"
-                className="btn btn-outline btn-sm"
-                onClick={handleBulkDismiss}
-                disabled={isPending}
-              >
-                Dismiss selected ({selectedRequestIds.size})
-              </button>
-            ) : null}
-          </div>
+        <RequestCards
+          queue={queue}
+          selectedIds={selectedRequestIds}
+          isPending={isPending}
+          onToggle={toggleSelectedRequest}
+          onApprove={handleApprove}
+          onReject={handleReject}
+          onBulkDismiss={handleBulkDismiss}
+          onAddPerson={openAddModal}
+        />
 
-          {queue.length === 0 ? (
-            <div className="empty-state">
-              <Icon name="check" />
-              <p className="body-text">No pending requests right now.</p>
-            </div>
-          ) : (
-            <div>
-              {queue.map(entry => (
-                <div key={entry.id} className="req-card">
-                  <input
-                    type="checkbox"
-                    checked={selectedRequestIds.has(entry.id)}
-                    onChange={() => toggleSelectedRequest(entry.id)}
-                    aria-label={`Select request from ${entry.email}`}
-                  />
-                  <span className="avatar">{getInitials(entry.email)}</span>
-                  <div className="req-card__text">
-                    <span className="req-card__name">{entry.email}</span>
-                    <span className="req-card__meta" suppressHydrationWarning>
-                      {entry.serviceHost} · requested {timeAgo(entry.createdAt)}
-                      {entry.priorDecisions > 0
-                        ? ` · rejected ${entry.priorDecisions}x before`
-                        : ''}
-                    </span>
-                  </div>
-                  <div className="req-card__actions">
-                    <button
-                      type="button"
-                      className="btn btn-outline btn-sm"
-                      onClick={() => handleReject(entry.id)}
-                      disabled={isPending}
-                    >
-                      Reject
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-primary btn-sm"
-                      onClick={() => handleApprove(entry.id)}
-                      disabled={isPending}
-                    >
-                      Approve
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="stack gap-3.5">
-          <div className="panel-head">
-            <h2 className="h2">People</h2>
-            <div className="people-toolbar">
-              <div className="search-input">
-                <Icon name="search" />
-                <input
-                  className="input"
-                  type="text"
-                  placeholder="Search people…"
-                  aria-label="Search people"
-                  value={searchTerm}
-                  onChange={event => setSearchTerm(event.target.value)}
-                />
-              </div>
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                onClick={openAddModal}
-              >
-                <Icon name="plus" />
-                <span>Add person</span>
-              </button>
-            </div>
-          </div>
-
-          {activeUsers.length === 0 ? (
-            <div className="empty-state">
-              <Icon name="search" />
-              <p className="body-text">No one matches your search.</p>
-            </div>
-          ) : (
-            <>
-              <div className="card people-table-wrap overflow-x-auto">
-                <table className="table min-w-[560px]">
-                  <thead>
-                    <tr>
-                      <th>Person</th>
-                      <th>Status</th>
-                      <th>Access</th>
-                      <th>
-                        <span className="visually-hidden">Actions</span>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {activeUsers.map(user => (
-                      <tr key={user.id}>
-                        <td>
-                          <div className="row-user">
-                            <span className="avatar">
-                              {getInitials(user.email)}
-                            </span>
-                            <div className="row-user__text">
-                              <span className="row-user__name">
-                                {user.email}
-                              </span>
-                            </div>
-                            {/* Sibling of row-user__text, not a child of it:
-                                .row-user is the flex ROW (align-items:
-                                center), while .row-user__text is a column
-                                whose default stretch would blow the chip out
-                                to the cell's full width. */}
-                            <DiscordChip user={user} />
-                          </div>
-                        </td>
-                        <td>
-                          <PersonStatusChip user={user} />
-                        </td>
-                        <td>
-                          <ServiceChips hosts={user.services} />
-                        </td>
-                        <td>
-                          <div className="table-row-actions">
-                            {user.isAdmin ? null : (
-                              <button
-                                type="button"
-                                className="btn btn-outline btn-sm"
-                                onClick={() => openAccessModal(user)}
-                              >
-                                Edit access
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              className="btn btn-ghost btn-sm text-red-400 hover:bg-red-950/30 hover:text-red-300"
-                              onClick={() => handleBlockClick(user)}
-                              disabled={isPending}
-                            >
-                              Block
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="people-card-list">
-                {activeUsers.map(user => (
-                  <div key={user.id} className="person-card">
-                    <div className="person-card__top">
-                      <span className="avatar">{getInitials(user.email)}</span>
-                      <div className="person-card__text">
-                        <span className="person-card__name">{user.email}</span>
-                        <PersonStatusChip user={user} />
-                      </div>
-                    </div>
-                    <div className="person-card__row">
-                      <span className="person-card__row-label">Access</span>
-                      <ServiceChips hosts={user.services} />
-                    </div>
-                    {/* The mobile twin of the desktop table's DiscordChip —
-                        rendered as its own labelled row rather than crammed
-                        into person-card__top beside the status chip, which
-                        would push the (more decision-relevant) status chip
-                        off a narrow screen. */}
-                    {user.discordUsername ? (
-                      <div className="person-card__row">
-                        <span className="person-card__row-label">Discord</span>
-                        <DiscordChip user={user} />
-                      </div>
-                    ) : null}
-                    <div className="person-card__actions">
-                      {user.isAdmin ? null : (
-                        <button
-                          type="button"
-                          className="btn btn-outline btn-sm"
-                          onClick={() => openAccessModal(user)}
-                        >
-                          Edit access
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-sm text-red-400 hover:bg-red-950/30 hover:text-red-300"
-                        onClick={() => handleBlockClick(user)}
-                        disabled={isPending}
-                      >
-                        Block
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
+        <PeopleList
+          users={activeUsers}
+          searchTerm={searchTerm}
+          isPending={isPending}
+          onSearchChange={setSearchTerm}
+          onAddPerson={openAddModal}
+          onEdit={openAccessModal}
+          onBlock={handleBlockClick}
+        />
 
         {/* D3 (plan 017). Sits directly under People, above Blocked: it is
             read as a continuation of the People list (who is this person on
@@ -801,117 +491,13 @@ export function AdminDashboardClient({
           showToast={showToast}
         />
 
-        <div className="stack gap-3.5">
-          <div className="panel-head">
-            <div className="row gap-2">
-              <h2 className="h2">Blocked</h2>
-              <span className="tab-count">{blockedUsers.length}</span>
-            </div>
-          </div>
-
-          {blockedUsers.length === 0 ? (
-            <div className="empty-state">
-              <Icon name="check" />
-              <p className="body-text">No blocked users.</p>
-            </div>
-          ) : (
-            <>
-              <div className="card people-table-wrap overflow-x-auto">
-                <table className="table min-w-[560px]">
-                  <thead>
-                    <tr>
-                      <th>Person</th>
-                      <th>Status</th>
-                      <th>Access</th>
-                      <th>
-                        <span className="visually-hidden">Actions</span>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {blockedUsers.map(user => (
-                      <tr key={user.id}>
-                        <td>
-                          <div className="row-user">
-                            <span className="avatar">
-                              {getInitials(user.email)}
-                            </span>
-                            <div className="row-user__text">
-                              <span className="row-user__name">
-                                {user.email}
-                              </span>
-                            </div>
-                          </div>
-                        </td>
-                        <td>
-                          <PersonStatusChip user={user} />
-                        </td>
-                        <td>
-                          <ServiceChips hosts={user.services} />
-                        </td>
-                        <td>
-                          <div className="table-row-actions">
-                            <button
-                              type="button"
-                              className="btn btn-ghost btn-sm"
-                              onClick={() => handleUnblock(user.id)}
-                              disabled={isPending}
-                            >
-                              Unblock
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-outline btn-sm"
-                              onClick={() => openAccessModal(user)}
-                            >
-                              Edit access
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="people-card-list">
-                {blockedUsers.map(user => (
-                  <div key={user.id} className="person-card">
-                    <div className="person-card__top">
-                      <span className="avatar">{getInitials(user.email)}</span>
-                      <div className="person-card__text">
-                        <span className="person-card__name">{user.email}</span>
-                        <PersonStatusChip user={user} />
-                      </div>
-                    </div>
-                    <div className="person-card__row">
-                      <span className="person-card__row-label">Access</span>
-                      <ServiceChips hosts={user.services} />
-                    </div>
-                    <div className="person-card__actions">
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-sm"
-                        onClick={() => handleUnblock(user.id)}
-                        disabled={isPending}
-                      >
-                        Unblock
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-outline btn-sm"
-                        onClick={() => openAccessModal(user)}
-                      >
-                        Edit access
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
+        <BlockedPanel
+          users={blockedUsers}
+          isPending={isPending}
+          onUnblock={handleUnblock}
+          onEdit={openAccessModal}
+        />
+      </main>
 
       <AddPersonModal
         key={isAddModalOpen ? 'open' : 'closed'}
@@ -936,7 +522,19 @@ export function AdminDashboardClient({
         onUnlinkDiscord={handleUnlinkDiscord}
       />
 
-      <Toast message={message} />
+      <ConfirmDialog
+        open={isBlockConfirmOpen}
+        onOpenChange={setIsBlockConfirmOpen}
+        title={`Block ${blockTarget?.email ?? 'this person'}?`}
+        body={
+          blockTarget?.isAdmin
+            ? 'They lose every service until you unblock them. They keep this dashboard, because they’re an admin.'
+            : 'They lose every service until you unblock them.'
+        }
+        confirmLabel="Block"
+        cancelLabel="Keep access"
+        onConfirm={handleBlockConfirm}
+      />
     </>
   )
 }

@@ -22,10 +22,9 @@
  * combination that matches zero rows, which reads as "no downloads match
  * these filters", not the zero-jobs-ever empty profile above.
  *
- * History rows reuse titles/art already attributed to the same person on
- * other mockups (downloads-activity.mjs, admin-dashboard.mjs, gallery.mjs)
- * where the pairing already exists, per assets/README.md's fixed
- * title -> asset mapping; new rows use unused art from the same asset set.
+ * History rows reuse titles already attributed to the same person on the
+ * other mockups (activity.mjs, admin.mjs, gallery.mjs). They are shaped for the
+ * kit's dataList: `status` is a badge's options ({ tone, label, live }).
  */
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -63,8 +62,8 @@ function sum(items) {
 function filterHistory(rows, { types, statuses } = {}) {
   return rows.filter(
     row =>
-      (!types || types.includes(row.kind)) &&
-      (!statuses || statuses.includes(row.state)),
+      (!types || types.includes(row.type)) &&
+      (!statuses || statuses.includes(row.status.label)),
   )
 }
 
@@ -104,83 +103,75 @@ const ADMIN_SPIKES = {
   29: 3,
 }
 
+// Totals are sparse: a type or status that never occurred has no entry.
+// `tone` colours the status dot (accent in progress, ok completed, warn queued
+// or paused, bad failed, idle cancelled).
 const SELF_TOTALS_BY_TYPE = [
-  { name: 'video', count: 41 },
-  { name: 'movie', count: 9 },
-  { name: 'show', count: 2 },
+  { name: 'Video', count: 41 },
+  { name: 'Movie', count: 9 },
+  { name: 'Show', count: 2 },
 ]
 const SELF_TOTALS_BY_STATUS = [
-  { name: 'completed', count: 46, tone: 'ok' },
-  { name: 'downloading', count: 1, tone: 'ok' },
-  { name: 'queued', count: 1, tone: 'mute' },
-  { name: 'paused', count: 1, tone: 'mute' },
-  { name: 'failed', count: 2, tone: 'bad' },
-  { name: 'cancelled', count: 1, tone: 'mute' },
+  { name: 'Completed', count: 46, tone: 'ok' },
+  { name: 'Downloading', count: 1, tone: 'accent' },
+  { name: 'Queued', count: 1, tone: 'warn' },
+  { name: 'Paused', count: 1, tone: 'warn' },
+  { name: 'Failed', count: 2, tone: 'bad' },
+  { name: 'Cancelled', count: 1, tone: 'idle' },
 ]
 
 const ADMIN_TOTALS_BY_TYPE = [
-  { name: 'video', count: 12 },
-  { name: 'movie', count: 15 },
-  { name: 'show', count: 4 },
+  { name: 'Video', count: 12 },
+  { name: 'Movie', count: 15 },
+  { name: 'Show', count: 4 },
 ]
 const ADMIN_TOTALS_BY_STATUS = [
-  { name: 'completed', count: 26, tone: 'ok' },
-  { name: 'queued', count: 1, tone: 'mute' },
-  { name: 'paused', count: 1, tone: 'mute' },
-  { name: 'failed', count: 2, tone: 'bad' },
-  { name: 'cancelled', count: 1, tone: 'mute' },
+  { name: 'Completed', count: 26, tone: 'ok' },
+  { name: 'Queued', count: 1, tone: 'warn' },
+  { name: 'Paused', count: 1, tone: 'warn' },
+  { name: 'Failed', count: 2, tone: 'bad' },
+  { name: 'Cancelled', count: 1, tone: 'idle' },
+]
+
+const HISTORY_COLS = [
+  { key: 'item', label: 'Item' },
+  { key: 'type', label: 'Type' },
+  { key: 'status', label: 'Status', type: 'badge' },
+  { key: 'started', label: 'Started', align: 'right' },
 ]
 
 const SELF_HISTORY = [
   {
-    title: 'Sourdough starter, day one to seven',
-    kind: 'video',
-    icon: 'play',
-    art: 'assets/video/video-3.jpg',
-    v: 2,
-    state: 'downloading',
-    tone: 'ok',
-    live: true,
-    progress: 64,
+    item: 'Sourdough starter, day one to seven',
+    type: 'Video',
+    status: { tone: 'accent', label: 'Downloading', live: true },
     started: '2m ago',
   },
   {
-    title: 'Kitchen prep, mise en place',
-    kind: 'video',
-    icon: 'play',
-    art: 'assets/video/video-4.jpg',
-    v: 1,
-    state: 'completed',
-    tone: 'ok',
-    hiddenFromOthers: true,
+    item: 'Kitchen prep, mise en place (hidden from others)',
+    type: 'Video',
+    status: { tone: 'ok', label: 'Completed' },
     started: '1h ago',
   },
   {
-    title: 'Late Kitchen',
-    kind: 'show',
-    icon: 'tv',
-    art: 'assets/emby/show-2.jpg',
-    v: 5,
-    state: 'completed',
-    tone: 'ok',
+    item: 'Late Kitchen',
+    type: 'Show',
+    status: { tone: 'ok', label: 'Completed' },
     started: '6h ago',
   },
   {
-    title: 'Paper Weather',
-    kind: 'movie',
-    icon: 'film',
-    art: 'assets/emby/movie-3.jpg',
-    v: 1,
-    state: 'failed',
-    tone: 'bad',
+    item: 'Paper Weather',
+    type: 'Movie',
+    status: { tone: 'bad', label: 'Failed' },
     started: '5m ago',
   },
 ]
 
 export default {
+  HISTORY_COLS,
   PROFILES: [
     {
-      label: 'Self view — no filters (start here)',
+      label: 'Your profile · no filters',
       you: true,
       admin: false,
       initials: 'JA',
@@ -200,7 +191,7 @@ export default {
       // what the page looks like right after clicking "video · 41", before
       // any second chip narrows it further. Narrows SELF_HISTORY's four
       // rows to the two that are actually `video`.
-      label: "Self view — clicked 'video' (single chip, one dimension)",
+      label: 'Your profile · one type chip applied',
       you: true,
       admin: false,
       initials: 'JA',
@@ -212,8 +203,8 @@ export default {
       total: sum(SELF_TOTALS_BY_TYPE),
       windowDays: 30,
       trend: trend(30, i => SELF_SPIKES[i] ?? 0),
-      activeTypes: ['video'],
-      history: filterHistory(SELF_HISTORY, { types: ['video'] }),
+      activeTypes: ['Video'],
+      history: filterHistory(SELF_HISTORY, { types: ['Video'] }),
     },
     {
       // The flow's second step: a second type chip (`show`, multi-select —
@@ -223,7 +214,7 @@ export default {
       // Chip counts stay SELF_TOTALS_BY_TYPE/STATUS's lifetime totals
       // unchanged; only the table below is scoped.
       label:
-        "Self view — added 'show' + status 'completed' (multi-select, AND across groups)",
+        'Your profile · two types and a status (OR within a group, AND across)',
       you: true,
       admin: false,
       initials: 'JA',
@@ -235,11 +226,11 @@ export default {
       total: sum(SELF_TOTALS_BY_TYPE),
       windowDays: 30,
       trend: trend(30, i => SELF_SPIKES[i] ?? 0),
-      activeTypes: ['video', 'show'],
-      activeStatuses: ['completed'],
+      activeTypes: ['Video', 'Show'],
+      activeStatuses: ['Completed'],
       history: filterHistory(SELF_HISTORY, {
-        types: ['video', 'show'],
-        statuses: ['completed'],
+        types: ['Video', 'Show'],
+        statuses: ['Completed'],
       }),
     },
     {
@@ -247,7 +238,7 @@ export default {
       // `failed`, not `completed` — the "no downloads match these filters"
       // state (user story 79), distinct from the zero-jobs-ever empty
       // profile below.
-      label: 'Self view — no downloads match these filters',
+      label: 'Your profile · filters that match nothing',
       you: true,
       admin: false,
       initials: 'JA',
@@ -259,15 +250,15 @@ export default {
       total: sum(SELF_TOTALS_BY_TYPE),
       windowDays: 30,
       trend: trend(30, i => SELF_SPIKES[i] ?? 0),
-      activeTypes: ['movie'],
-      activeStatuses: ['completed'],
+      activeTypes: ['Movie'],
+      activeStatuses: ['Completed'],
       history: filterHistory(SELF_HISTORY, {
-        types: ['movie'],
-        statuses: ['completed'],
+        types: ['Movie'],
+        statuses: ['Completed'],
       }),
     },
     {
-      label: "Admin view — Jeremy (admin) viewing Sam's profile",
+      label: 'Admin viewing Sam’s profile',
       you: false,
       admin: true,
       initials: 'SR',
@@ -281,46 +272,31 @@ export default {
       trend: trend(30, i => ADMIN_SPIKES[i] ?? 0),
       history: [
         {
-          title: 'Salt & Ceremony',
-          kind: 'movie',
-          icon: 'film',
-          art: 'assets/emby/movie-1.jpg',
-          v: 1,
-          state: 'queued',
-          tone: 'mute',
+          item: 'Salt & Ceremony',
+          type: 'Movie',
+          status: { tone: 'warn', label: 'Queued' },
           started: '12s ago',
         },
         {
-          title: 'the only kettlebell move you need',
-          kind: 'video',
-          icon: 'play',
-          art: 'assets/video/video-1.jpg',
-          v: 4,
-          state: 'paused',
-          tone: 'mute',
-          progress: 18,
-          quietProgress: true,
-          hiddenFromOthers: true,
+          item: 'the only kettlebell move you need (hidden from others)',
+          type: 'Video',
+          status: { tone: 'warn', label: 'Paused' },
           started: '3m ago',
         },
         {
-          title: 'Municipal',
-          kind: 'show',
-          icon: 'tv',
-          art: 'assets/emby/show-3.jpg',
-          v: 2,
-          state: 'completed',
-          tone: 'ok',
+          item: 'Municipal',
+          type: 'Show',
+          status: { tone: 'ok', label: 'Completed' },
           started: '8h ago',
         },
       ],
     },
     {
-      label: 'Empty profile — an email with no downloads yet',
+      label: 'Empty profile · no downloads yet',
       you: false,
       admin: true,
       empty: true,
-      initials: '–',
+      initials: 'NU',
       email: 'newuser@lilnas.io',
       firstDownloadAt: null,
       lastDownloadAt: null,

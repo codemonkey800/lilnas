@@ -1,9 +1,4 @@
-import Alert from '@mui/material/Alert'
-import Box from '@mui/material/Box'
-import Button from '@mui/material/Button'
-import CircularProgress from '@mui/material/CircularProgress'
-import TextField from '@mui/material/TextField'
-import Typography from '@mui/material/Typography'
+import { Button, Note, Textarea } from '@lilnas/ui'
 import { useState } from 'react'
 
 import type { EmojiView } from 'src/api/api.types'
@@ -29,60 +24,46 @@ export function DescriptionEditor({ emoji, onClose }: DescriptionEditorProps) {
   }
 
   return (
-    <Box>
-      <TextField
-        multiline
-        fullWidth
+    <div className="flex flex-col gap-2">
+      <Textarea
         autoFocus
-        minRows={3}
-        size="small"
+        aria-label={`Description of :${emoji.name}:`}
+        className="border-accent"
+        maxLength={DESCRIPTION_MAX}
+        rows={4}
         value={draft}
         onChange={e => setDraft(e.target.value)}
-        slotProps={{
-          htmlInput: {
-            maxLength: DESCRIPTION_MAX,
-            'aria-label': `Description of :${emoji.name}:`,
-          },
-        }}
       />
-      <Box
-        sx={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          gap: 1,
-          mt: 0.5,
-        }}
-      >
-        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-          Saving marks this description as manual.
-        </Typography>
-        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+      <div className="flex items-start justify-between gap-3 text-xs text-ink-3">
+        <span>Saving marks this description as manual.</span>
+        <span className="shrink-0 font-mono tabular-nums">
           {draft.length} / {DESCRIPTION_MAX}
-        </Typography>
-      </Box>
+        </span>
+      </div>
       {update.error && (
-        <Alert severity="error" sx={{ mt: 1 }}>
+        <Note lead="Couldn’t save." tone="bad">
           {update.error.message}
-        </Alert>
+        </Note>
       )}
-      <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+      <div className="flex gap-2">
         <Button
-          size="small"
-          variant="contained"
-          disabled={
-            !canSaveDescription(draft, emoji.description) || update.isPending
-          }
+          disabled={!canSaveDescription(draft, emoji.description)}
+          loading={update.isPending}
+          size="sm"
+          variant="accent"
           onClick={save}
-          startIcon={
-            update.isPending ? <CircularProgress size={14} /> : undefined
-          }
         >
           Save
         </Button>
-        <Button size="small" color="inherit" onClick={onClose}>
+        <Button
+          disabled={update.isPending}
+          size="sm"
+          variant="ghost"
+          onClick={onClose}
+        >
           Cancel
         </Button>
-      </Box>
-    </Box>
+      </div>
+    </div>
   )
 }

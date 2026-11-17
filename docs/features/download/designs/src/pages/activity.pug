@@ -1,0 +1,174 @@
+extends ../../../../../designs/mockup-kit/page.pug
+
+include ../mixins/download.pug
+
+block title
+  | download — activity · UI mockups
+
+//-
+  /activity: every download in flight, across every user, live. Desktop gets a
+  table (machine output being scanned wants columns); a phone gets a card per
+  row carrying the same facts in the same order. Copy and sample data are in
+  src/data/activity.mjs.
+
+//- The requester: avatar and name. A name links to a profile only for an admin, or for you.
+mixin requester(row, admin)
+  - const linkable = !!row.who && (admin || row.who[0] === 'JA')
+  span(class='flex items-center gap-2')&attributes(attributes)
+    if row.who
+      +avatar(row.who[0], { size: 24, you: row.who[0] === 'JA' })
+      if linkable
+        a(class='text-sm text-ink-2 hover:text-ink hover:underline' href='profile.html')= row.who[1]
+      else
+        span(class='text-sm text-ink-2')= row.who[1]
+    else
+      +maskedAvatar(24)
+      span(class='text-sm text-ink-3') Hidden
+
+//- A row's progress cell: a bar and its percentage, a settling bar, or a dash.
+mixin rowProgress(row)
+  if row.settling
+    +settlingProgress()(class='w-40')
+  else if row.progress !== undefined
+    +progress(row.progress, row.status === 'paused' ? 'warn' : undefined)(class='w-40')
+  else
+    span(class='text-ink-3') —
+
+mixin rowArt(row)
+  +poster({ shape: 'tall', v: row.v, src: row.art, radius: 'rounded-xs' })(class='w-8')
+    if row.icon === 'play'
+      +icon('play', 12)(class='relative text-ink-3')
+
+//-
+  The feed: a table on desktop, a card per row on a phone. A local list rather
+  than the kit's dataList because a row needs a progress bar in a cell, which
+  cellValue doesn't draw.
+mixin feed(view, admin)
+  - const phone = view === 'mobile'
+  if phone
+    ul(class='flex flex-col gap-2 stagger')
+      each row in ROWS
+        li(class='flex flex-col gap-2.5 rounded-lg border border-line bg-surface p-3')
+          div(class='flex items-center gap-3')
+            +rowArt(row)
+            div(class='flex min-w-0 flex-1 flex-col gap-0.5')
+              a(class='truncate text-[13.5px] font-medium hover:text-accent-hi' href='#')= row.title
+              span(class='text-cap text-ink-3')= `${row.kind} · ${row.started}`
+            +jobBadge(row.status)
+          div(class='flex items-center justify-between gap-3')
+            +requester(row, admin)
+          if row.settling || row.progress !== undefined
+            +rowProgress(row)(class='w-full')
+  else
+    div(class='overflow-hidden rounded-lg border border-line bg-surface')
+      table(class='w-full border-collapse')
+        thead
+          tr
+            each col in ['Item', 'Type', 'Requested by', 'Status', 'Progress', 'Started']
+              th(scope='col' class=['border-b border-line-loud px-3 pt-3 pb-2.5 text-label text-ink-3 uppercase', col === 'Started' ? 'text-right' : 'text-left'])= col
+        tbody(class='stagger')
+          each row in ROWS
+            tr(class='transition-colors duration-[120ms] ease-standard hover:bg-surface-2 [&:last-child>td]:border-b-0')
+              td(class='w-[38%] border-b border-line-soft px-3 py-2.5')
+                div(class='flex items-center gap-3')
+                  +rowArt(row)
+                  a(class='text-[13.5px] hover:text-accent-hi' href='#')= row.title
+              td(class='border-b border-line-soft px-3 py-2.5 text-[13.5px]')
+                +kindMeta(row.icon, row.kind)(class='text-[13.5px] text-ink')
+              td(class='border-b border-line-soft px-3 py-2.5')
+                +requester(row, admin)
+              td(class='border-b border-line-soft px-3 py-2.5')
+                +jobBadge(row.status)
+              td(class='border-b border-line-soft px-3 py-2.5')
+                +rowProgress(row)
+              td(class='border-b border-line-soft px-3 py-2.5 text-right text-[13.5px] tabular-nums text-ink-3')= row.started
+
+mixin activityHead(view, count)
+  div(class=['mb-4 flex items-baseline justify-between gap-3'])
+    h1(class='text-h1') Activity
+    span(class='flex items-center gap-2 text-sm text-ink-3')
+      +statusDot('accent', true)
+      = count
+
+mixin activityTabs(view)
+  +tabs()(class=['mb-5', view === 'mobile' ? 'overflow-x-auto' : ''])
+    each label, i in TABS
+      +tab(label, i === 0)
+
+mixin activityLoading(view)
+  - const phone = view === 'mobile'
+  div(aria-busy='true')
+    div(class='mb-4 flex items-baseline justify-between')
+      h1(class='text-h1') Activity
+      +skeleton()(class='h-3.5 w-20')
+    div(class='mb-5 flex gap-6 border-b border-line pb-3')
+      each w in [20, 48, 48, 40]
+        +skeleton()(class='h-4' style=`width: ${w}px`)
+    div(class='flex flex-col gap-2')
+      each n in [1, 2, 3, 4, 5]
+        div(class='flex items-center gap-3 rounded-lg border border-line bg-surface p-3')
+          +skeleton()(class='h-12 w-8 shrink-0 rounded-xs')
+          div(class='flex flex-1 flex-col gap-2')
+            +skeleton()(class='h-3.5 w-3/5')
+            +skeleton()(class='h-3 w-2/5')
+          if !phone
+            +skeleton()(class='h-6 w-24 rounded-full')
+
+mixin activityState(view, label, opts)
+  - opts = opts || {}
+  +screenRow(label)
+    +appFrame(view)
+      +dlBar(view, { active: 'activity', admin: opts.admin })
+      +dlMain(view)
+        block
+
+block content
+  +mockHead({ back: true, eyebrow: 'download · /activity', title: 'Activity' })
+    p Everything in flight, across every user, live — visible to anyone. A video with hidden attribution shows the same dashed avatar here as everywhere else; only the admin dashboard unmasks it. A regular user can open their own profile from here; an admin can open anyone’s.
+
+  +mockSection('activity', 'Activity', 'A table on desktop, a card per row on a phone: the same facts in the same order.')
+    +viewports('activity-viewport')
+      each view in ['desktop', 'mobile']
+        - const phone = view === 'mobile'
+        +viewportPanel(view)
+          +activityState(view, 'Viewed by a regular user')
+            +activityHead(view, '2 running')
+            +activityTabs(view)
+            +feed(view, false)
+
+          +activityState(view, 'Viewed by an admin', { admin: true })
+            +activityHead(view, '2 running')
+            +activityTabs(view)
+            +feed(view, true)
+
+          +stateRow('Progress bars', { stack: true })(class='w-full')
+            +stateCell('Downloading', { fill: true })(class='max-w-sm')
+              +progress(64)
+            +stateCell('Queued · not started', { fill: true })(class='max-w-sm')
+              +progress(0)
+            +stateCell('Paused', { fill: true })(class='max-w-sm')
+              +progress(18, 'warn')
+            +stateCell('Settling · every byte down, import pending', { fill: true })(class='max-w-sm')
+              +settlingProgress()
+            +stateCell('Searching · no number yet', { fill: true })(class='max-w-sm')
+              +progress(null)
+            +stateCell('Failed', { fill: true })(class='max-w-sm')
+              +progress(41, 'bad')
+            +stateCell('Completed', { fill: true })(class='max-w-sm')
+              +progress(100)
+
+          +stateRow('Job statuses · all 16', { stack: true })(class='w-full')
+            each key in STATUSES
+              +stateCell(key)
+                +jobBadge(key)
+
+          +activityState(view, 'Empty · nothing running')
+            +activityHead(view, 'Nothing running')
+            +activityTabs(view)
+            +emptyState('Nothing downloading', 'Paste a link in the search field and it’ll show up here while it runs.', 'Search or paste a link')
+
+          +activityState(view, 'Loading · the feed’s own geometry')
+            +activityLoading(view)
+
+          +activityState(view, 'Error · the feed didn’t load')
+            +boundaryError(view, { title: 'The feed didn’t load', lead: 'The download service didn’t answer.', detail: 'Running downloads aren’t affected — this page just couldn’t read them. Try again in a minute.' })

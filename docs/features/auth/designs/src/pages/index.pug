@@ -1,0 +1,21 @@
+extends ../../../../../designs/mockup-kit/page.pug
+
+block title
+  | auth — UI mockups
+
+block content
+  +mockHead({ eyebrow: 'auth', title: 'Auth screens' })
+    p The front door of lilnas.io: sign in, your account, the waiting room, the blocked screen and the admin dashboard. Drawn on Category Standard with the shared kit, each at 1280 and 390.
+
+  ul(class='grid max-w-[880px] gap-3 sm:grid-cols-2')
+    each page in pages
+      li
+        a(
+          class='flex h-full items-start gap-3 rounded-lg border border-line bg-surface p-4 transition-[background-color,border-color] duration-200 ease-standard hover:border-line-loud hover:bg-surface-2'
+          href=page.href
+        )
+          span(class='grid size-[30px] shrink-0 place-items-center rounded-md bg-accent-ghost text-accent-hi')
+            +icon(page.icon, 16)
+          span(class='flex min-w-0 flex-col gap-1')
+            span(class='text-h3')= page.title
+            span(class='text-sm text-ink-3')= page.desc

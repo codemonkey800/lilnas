@@ -1,15 +1,16 @@
 'use client'
 
-import Alert from '@mui/material/Alert'
-import Box from '@mui/material/Box'
-import Button from '@mui/material/Button'
-import CircularProgress from '@mui/material/CircularProgress'
-import Skeleton from '@mui/material/Skeleton'
-import Stack from '@mui/material/Stack'
-import TextField from '@mui/material/TextField'
-import ToggleButton from '@mui/material/ToggleButton'
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
-import Typography from '@mui/material/Typography'
+import {
+  Badge,
+  Button,
+  EmptyState,
+  Icon,
+  Input,
+  Note,
+  Skeleton,
+  Tabs,
+} from '@lilnas/ui'
+import { cns } from '@lilnas/utils/cns'
 import { useMemo, useState } from 'react'
 
 import type { EmojiView } from 'src/api/api.types'
@@ -19,7 +20,7 @@ import {
   useRedescribeEmoji,
 } from 'src/queries/useEmojis'
 
-import { EmojiTable } from './EmojiTable'
+import { EmojiCard } from './EmojiCard'
 import {
   type EmojiFilter,
   filterCounts,
@@ -31,6 +32,33 @@ import {
 } from './format'
 import { RedescribeAllDialog } from './RedescribeAllDialog'
 import { RedescribeDialog } from './RedescribeDialog'
+
+const GRID =
+  'grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
+
+function EmojiSkeleton() {
+  return (
+    <div aria-label="Loading emojis" className={cns(GRID)} role="status">
+      {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
+        <div
+          key={i}
+          className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-3"
+        >
+          <div className="flex items-center gap-3">
+            <Skeleton className="size-12 rounded-md" />
+            <div className="flex flex-1 flex-col gap-2">
+              <Skeleton className="h-3.5 w-24 rounded-xs" />
+              <Skeleton className="h-5 w-14 rounded-full" />
+            </div>
+          </div>
+          <Skeleton className="h-3 w-full rounded-xs" />
+          <Skeleton className="h-3 w-11/12 rounded-xs" />
+          <Skeleton className="h-3 w-2/3 rounded-xs" />
+        </div>
+      ))}
+    </div>
+  )
+}
 
 export default function EmojisPage() {
   const [filter, setFilter] = useState<EmojiFilter>('all')
@@ -74,185 +102,174 @@ export default function EmojisPage() {
     redescribe.mutate(emoji.id)
   }
 
-  const redescribeAllButton = (
-    <Button
-      variant="outlined"
-      disabled={running || scope.total === 0}
-      onClick={() => setConfirmingAll(true)}
-    >
-      Re-describe all
-    </Button>
-  )
-
-  const reconcileButton = (
-    <Button
-      variant="contained"
-      disabled={running}
-      onClick={startReconcile}
-      startIcon={
-        running ? <CircularProgress size={14} color="inherit" /> : undefined
-      }
-    >
-      {running ? 'Reconciling…' : 'Run reconcile now'}
-    </Button>
-  )
+  const clearFilters = () => {
+    setText('')
+    setFilter('all')
+  }
 
   return (
-    <Box sx={{ maxWidth: 1200, mx: 'auto', p: { xs: 2, md: 4 } }}>
-      <Typography variant="h4" component="h1" sx={{ fontWeight: 600 }}>
-        Emojis
-      </Typography>
-      <Typography
-        variant="body2"
-        sx={{
-          color: 'text.secondary',
-          mb: 3,
-          mt: 0.5,
-        }}
-      >
-        The bot’s custom-emoji dictionary: what each emoji looks like and means.
-      </Typography>
+    <div className="mx-auto flex w-full max-w-[1136px] flex-col gap-6 px-4 py-5 md:px-8 md:py-8">
+      <header className="flex flex-col gap-1">
+        <h1 className="text-h1">Emojis</h1>
+        <p className="text-sm text-ink-3">
+          What each custom emoji looks like and means, so the bot can use them.
+        </p>
+      </header>
 
-      <Box
-        sx={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          alignItems: 'flex-start',
-          gap: 1.5,
-          mb: 2,
-        }}
-      >
-        <ToggleButtonGroup
-          exclusive
-          size="small"
+      <div className="flex flex-col gap-4">
+        <Tabs.Root
           value={filter}
-          aria-label="Emoji filter"
-          onChange={(_, value: EmojiFilter | null) => value && setFilter(value)}
+          onValueChange={value => setFilter(value as EmojiFilter)}
         >
-          {FILTERS.map(f => (
-            <ToggleButton key={f.value} value={f.value}>
-              {f.label}
-              <Typography
-                component="span"
-                variant="caption"
-                sx={{ color: 'text.secondary', ml: 0.75 }}
+          <Tabs.List aria-label="Emoji filter" scroll>
+            {FILTERS.map(f => (
+              <Tabs.Tab
+                key={f.value}
+                className="shrink-0"
+                count={counts[f.value]}
+                value={f.value}
               >
-                {counts[f.value]}
-              </Typography>
-            </ToggleButton>
-          ))}
-        </ToggleButtonGroup>
-        <TextField
-          size="small"
-          placeholder="Search name or description…"
-          value={text}
-          onChange={e => setText(e.target.value)}
-          slotProps={{ htmlInput: { 'aria-label': 'Search emojis' } }}
-          sx={{ width: 256 }}
-        />
-        <Box sx={{ ml: 'auto', textAlign: 'right' }}>
-          <Stack
-            direction="row"
-            spacing={1}
-            sx={{ justifyContent: 'flex-end' }}
-          >
-            {redescribeAllButton}
-            {reconcileButton}
-          </Stack>
-          {list.data && (
-            <Typography
-              variant="caption"
-              sx={{
-                color: 'text.secondary',
-                display: 'block',
-                mt: 0.75,
-              }}
-            >
-              {reconcileStatusLine(
-                { ...list.data.reconcile, running },
-                now,
-                startedAt,
-              )}
-            </Typography>
-          )}
-        </Box>
-      </Box>
+                {f.label}
+              </Tabs.Tab>
+            ))}
+            <Tabs.Indicator />
+          </Tabs.List>
+        </Tabs.Root>
+
+        <div className="flex flex-col gap-3 md:flex-row md:items-start">
+          <Input
+            aria-label="Search emojis"
+            className="min-w-0"
+            icon="search"
+            placeholder="Search name or description…"
+            type="search"
+            value={text}
+            wrapperClassName="w-full md:max-w-xs"
+            onChange={e => setText(e.target.value)}
+          />
+          <div className="flex flex-col gap-2 md:ml-auto md:items-end">
+            <div className="flex gap-2">
+              <Button
+                className="max-md:flex-1"
+                disabled={running || scope.total === 0}
+                variant="outline"
+                onClick={() => setConfirmingAll(true)}
+              >
+                Re-describe all
+              </Button>
+              <Button
+                className="max-md:flex-1"
+                disabled={running}
+                loading={running}
+                variant="outline"
+                onClick={startReconcile}
+              >
+                {running ? 'Reconciling…' : 'Run reconcile now'}
+              </Button>
+            </div>
+            {list.data && (
+              <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-cap text-ink-3">
+                {running && (
+                  <Badge live tone="accent">
+                    Reconciling
+                  </Badge>
+                )}
+                <span>
+                  {reconcileStatusLine(
+                    { ...list.data.reconcile, running },
+                    now,
+                    startedAt,
+                  )}
+                </span>
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
 
       {reconcile.error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={reconcile.reset}>
-          Couldn’t start a reconcile: {reconcile.error.message}
-        </Alert>
+        <Note
+          icon={<Icon name="alert" />}
+          lead="Couldn’t start a reconcile."
+          tone="bad"
+          onDismiss={reconcile.reset}
+        >
+          {reconcile.error.message}
+        </Note>
       )}
       {redescribe.error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={redescribe.reset}>
-          Couldn’t re-describe :{failedName}: — {redescribe.error.message}
-        </Alert>
+        <Note
+          icon={<Icon name="alert" />}
+          lead={`Couldn’t re-describe :${failedName}:.`}
+          tone="bad"
+          onDismiss={redescribe.reset}
+        >
+          {redescribe.error.message}
+        </Note>
       )}
 
-      {list.isLoading && (
-        <Stack spacing={1} aria-label="Loading emojis">
-          {[1, 2, 3, 4, 5, 6].map(i => (
-            <Skeleton key={i} variant="rounded" height={40} />
-          ))}
-        </Stack>
-      )}
+      {list.isLoading && <EmojiSkeleton />}
       {list.error && (
-        <Alert severity="error">
-          Couldn’t load emojis: {list.error.message}
-        </Alert>
+        <Note
+          icon={<Icon name="alert" />}
+          lead="Couldn’t load the emojis."
+          tone="bad"
+        >
+          {list.error.message}
+        </Note>
       )}
       {list.data && emojis.length === 0 && (
-        <Box
-          sx={{
-            py: 8,
-            textAlign: 'center',
-            border: 1,
-            borderStyle: 'dashed',
-            borderColor: 'divider',
-            borderRadius: 2,
-          }}
-        >
-          <Typography sx={{ fontSize: 32 }}>😶</Typography>
-          <Typography variant="body2" sx={{ fontWeight: 500, mt: 1 }}>
-            No emojis synced yet
-          </Typography>
-          <Typography
-            variant="caption"
-            sx={{ color: 'text.secondary', display: 'block' }}
-          >
-            Run a reconcile to pull the server’s custom emojis.
-          </Typography>
-          <Box sx={{ mt: 2 }}>{reconcileButton}</Box>
-        </Box>
+        <div className="rounded-lg border border-line bg-surface">
+          <EmptyState
+            action={
+              <Button
+                disabled={running}
+                loading={running}
+                variant="accent"
+                onClick={startReconcile}
+              >
+                {running ? 'Reconciling…' : 'Run reconcile now'}
+              </Button>
+            }
+            body="Run a reconcile and the server’s custom emojis will show up here."
+            title="No emojis synced yet"
+          />
+        </div>
       )}
       {emojis.length > 0 && visible.length === 0 && (
-        <Box
-          sx={{
-            py: 8,
-            textAlign: 'center',
-            border: 1,
-            borderStyle: 'dashed',
-            borderColor: 'divider',
-            borderRadius: 2,
-          }}
-        >
-          <Typography variant="body2" sx={{ fontWeight: 500 }}>
-            No matching emojis
-          </Typography>
-        </Box>
+        <div className="rounded-lg border border-line bg-surface">
+          <EmptyState
+            action={
+              <Button variant="outline" onClick={clearFilters}>
+                {text.trim() ? 'Clear search' : 'Show all'}
+              </Button>
+            }
+            body={
+              text.trim()
+                ? `Nothing matches “${text.trim()}”. Check the spelling, or search by what the emoji looks like.`
+                : 'No emoji is in this filter yet.'
+            }
+            title="No matching emojis"
+          />
+        </div>
       )}
       {visible.length > 0 && (
-        <EmojiTable
-          emojis={visible}
-          editingId={editingId}
-          redescribingId={
-            redescribe.isPending ? (redescribe.variables ?? null) : null
-          }
-          reconciling={running}
-          onEdit={emoji => setEditingId(emoji.id)}
-          onCloseEdit={() => setEditingId(null)}
-          onRedescribe={onRedescribe}
-        />
+        <ul className={GRID}>
+          {visible.map(emoji => (
+            <EmojiCard
+              key={emoji.id}
+              editing={emoji.id === editingId}
+              emoji={emoji}
+              reconciling={running}
+              redescribing={
+                redescribe.isPending && redescribe.variables === emoji.id
+              }
+              onCloseEdit={() => setEditingId(null)}
+              onEdit={e => setEditingId(e.id)}
+              onRedescribe={onRedescribe}
+            />
+          ))}
+        </ul>
       )}
 
       <RedescribeDialog
@@ -260,12 +277,12 @@ export default function EmojisPage() {
         onClose={() => setConfirming(null)}
       />
       <RedescribeAllDialog
+        manual={scope.manual}
         open={confirmingAll}
         total={scope.total}
-        manual={scope.manual}
         onClose={() => setConfirmingAll(false)}
         onStarted={() => setStartedAt(new Date())}
       />
-    </Box>
+    </div>
   )
 }

@@ -1,26 +1,22 @@
 'use client'
 
+import { Icon } from '@lilnas/ui'
 import type { DiscoveryPage } from '@lilnas/utils/download/types'
-import { usePathname, useRouter } from 'next/navigation'
 import type { JSX } from 'react'
 import { useState, useTransition } from 'react'
 
 import { loadMoreDiscoverResults } from 'src/app/search/actions'
 import { ResultGrid } from 'src/components/search/result-grid'
-import { ResultTable } from 'src/components/search/result-table'
-import type {
-  SearchSort,
-  SearchState,
-} from 'src/components/search/search-params'
+import { ResultList } from 'src/components/search/result-list'
+import type { SearchState } from 'src/components/search/search-params'
 import { searchStateToQueryString } from 'src/components/search/search-params'
-import { Icon } from 'src/components/ui/icon'
 import { LoadMore } from 'src/components/ui/load-more'
 
-/** `search.pug:105`'s only error idiom — alert glyph, mono, `text-bad`. */
+/** The one error idiom under a button: alert glyph, `text-xs`, `text-bad`. */
 const LOAD_ERROR =
-  'mt-3 flex items-center justify-center gap-[5px] font-mono text-[11px] text-bad'
+  'mt-2 flex items-center justify-center gap-1.5 text-xs text-bad'
 
-const LOAD_FAILED = 'Could not load more results — try again'
+const LOAD_FAILED = 'Couldn’t load more results — try again'
 
 export type SearchResultsProps = {
   /** The page the server rendered for the URL as it currently stands. */
@@ -54,9 +50,6 @@ export function SearchResults({
   initialPage,
   state,
 }: SearchResultsProps): JSX.Element {
-  const router = useRouter()
-  const pathname = usePathname()
-
   const [items, setItems] = useState(initialPage.items)
   const [cursor, setCursor] = useState(initialPage.nextCursor)
   const [total, setTotal] = useState(initialPage.total)
@@ -87,20 +80,10 @@ export function SearchResults({
     })
   }
 
-  function changeSort(sort: SearchSort): void {
-    router.push(`${pathname}${searchStateToQueryString({ ...state, sort })}`, {
-      scroll: false,
-    })
-  }
-
   return (
     <div>
       {state.view === 'list' ? (
-        <ResultTable
-          items={items}
-          onSortChange={changeSort}
-          sort={state.sort}
-        />
+        <ResultList items={items} />
       ) : (
         <ResultGrid items={items} />
       )}
@@ -117,7 +100,7 @@ export function SearchResults({
       />
       {failed ? (
         <p className={LOAD_ERROR} role="alert">
-          <Icon className="h-[11px] w-[11px] shrink-0" name="alert" />
+          <Icon className="size-3 shrink-0" name="alert" />
           {LOAD_FAILED}
         </p>
       ) : null}

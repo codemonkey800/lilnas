@@ -1,16 +1,7 @@
 'use client'
 
-import Alert from '@mui/material/Alert'
-import Box from '@mui/material/Box'
-import CircularProgress from '@mui/material/CircularProgress'
-import Divider from '@mui/material/Divider'
-import List from '@mui/material/List'
-import ListItemButton from '@mui/material/ListItemButton'
-import ListItemText from '@mui/material/ListItemText'
-import Skeleton from '@mui/material/Skeleton'
-import Stack from '@mui/material/Stack'
-import TextField from '@mui/material/TextField'
-import Typography from '@mui/material/Typography'
+import { EmptyState, Field, Input, Note, Skeleton, Spinner } from '@lilnas/ui'
+import { cns } from '@lilnas/utils/cns'
 import {
   type RefObject,
   useEffect,
@@ -21,12 +12,13 @@ import {
 } from 'react'
 
 import type { TranscriptTotals } from 'src/api/api.types'
-import { DiscordContent } from 'src/components/DiscordContent'
-import type { LlmCallRow } from 'src/db/schema'
 import { type EmojiLookup, useEmojiLookup } from 'src/queries/useEmojiLookup'
 import { useTranscript, useTranscriptChannels } from 'src/queries/useTranscript'
 
+import { ChannelList } from './channel-list'
+import { usd } from './format'
 import { buildTranscriptItems, TranscriptItem } from './group-turns'
+import { TranscriptTurn } from './turn'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -40,19 +32,7 @@ const compact = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 2,
 })
 
-const usd = (n: number, digits = 5) => `$${n.toFixed(digits)}`
-
-const formatTime = (iso: string | Date | null) =>
-  iso
-    ? new Date(iso).toLocaleString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      })
-    : ''
-
-function TotalsBar({
+function TotalsStrip({
   totals,
   loading,
 }: {
@@ -66,305 +46,24 @@ function TotalsBar({
   ]
 
   return (
-    <Box
-      sx={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(3, auto)',
-        columnGap: 3,
-        ml: { md: 'auto' },
-        textAlign: { md: 'right' },
-        justifyContent: { xs: 'space-between', md: 'end' },
-      }}
-    >
+    <dl className="grid grid-cols-3 gap-x-6 md:text-right">
       {stats.map(([label, value]) => (
-        <Box key={label} sx={{ minWidth: 0 }}>
-          <Typography
-            variant="caption"
-            sx={{
-              color: 'text.secondary',
-              display: 'block',
-              whiteSpace: 'nowrap',
-            }}
-          >
+        <div key={label} className="flex min-w-0 flex-col gap-0.5">
+          <dt className="text-label whitespace-nowrap text-ink-3 uppercase">
             {label}
-          </Typography>
-          {loading || value === undefined ? (
-            <Skeleton width={56} />
-          ) : (
-            <Typography
-              sx={{
-                fontFamily: 'monospace',
-                fontWeight: 600,
-                fontSize: 14,
-              }}
-            >
-              {value}
-            </Typography>
-          )}
-        </Box>
+          </dt>
+          <dd>
+            {loading || value === undefined ? (
+              <Skeleton className="mt-1 h-4 w-14 rounded-xs" />
+            ) : (
+              <span className="font-mono text-mono font-semibold tabular-nums">
+                {value}
+              </span>
+            )}
+          </dd>
+        </div>
       ))}
-    </Box>
-  )
-}
-
-const fmtInt = (n: number | null) => (n ?? 0).toLocaleString('en-US')
-const fmtCost = (c: LlmCallRow) =>
-  c.costUsd === null ? '—' : usd(Number(c.costUsd))
-const fmtDuration = (c: LlmCallRow) =>
-  c.durationMs === null ? '—' : `${(c.durationMs / 1000).toFixed(2)}s`
-
-function CallCard({ call }: { call: LlmCallRow }) {
-  const metrics: [string, string][] = [
-    ['In', fmtInt(call.inputTokens)],
-    ['Out', fmtInt(call.outputTokens)],
-    ['Cached', fmtInt(call.cachedTokens)],
-    ['Cost', fmtCost(call)],
-    ['Time', fmtDuration(call)],
-    ['Finish', call.finishReason ?? call.status],
-  ]
-  const retries = call.retries ?? 0
-
-  return (
-    <Box sx={{ px: 1.5, py: 1, borderTop: 1, borderColor: 'divider' }}>
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'baseline',
-          gap: 1,
-          mb: 0.75,
-          minWidth: 0,
-        }}
-      >
-        <Typography noWrap sx={{ fontSize: 12, fontWeight: 600 }}>
-          {call.operation}
-        </Typography>
-        <Typography
-          noWrap
-          sx={{
-            fontSize: 11,
-            fontFamily: 'monospace',
-            color: 'text.secondary',
-            minWidth: 0,
-          }}
-        >
-          {call.model}
-        </Typography>
-        {retries > 0 && (
-          <Typography
-            sx={{
-              fontSize: 11,
-              color: 'warning.main',
-              ml: 'auto',
-              flexShrink: 0,
-            }}
-          >
-            {retries} retr{retries === 1 ? 'y' : 'ies'}
-          </Typography>
-        )}
-      </Box>
-      <Box
-        component="dl"
-        sx={{
-          m: 0,
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-          rowGap: 0.75,
-          columnGap: 1.5,
-        }}
-      >
-        {metrics.map(([label, value]) => (
-          <Box key={label} sx={{ minWidth: 0 }}>
-            <Box
-              component="dt"
-              sx={{ fontSize: 10, color: 'text.secondary', lineHeight: 1.4 }}
-            >
-              {label}
-            </Box>
-            <Box
-              component="dd"
-              sx={{
-                m: 0,
-                fontFamily: 'monospace',
-                fontSize: 12,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {value}
-            </Box>
-          </Box>
-        ))}
-      </Box>
-    </Box>
-  )
-}
-
-function CallsTable({ calls }: { calls: LlmCallRow[] }) {
-  const cost = calls.reduce((sum, c) => sum + Number(c.costUsd ?? 0), 0)
-  const headers = [
-    'Operation',
-    'Model',
-    'In',
-    'Out',
-    'Cached',
-    'Cost (USD)',
-    'Duration',
-    'Retries',
-    'Finish',
-  ]
-
-  return (
-    <Box
-      component="details"
-      sx={{
-        mt: 1,
-        border: 1,
-        borderColor: 'divider',
-        borderRadius: 2,
-        fontSize: 12,
-        minWidth: 0,
-      }}
-    >
-      <Box
-        component="summary"
-        sx={{ cursor: 'pointer', px: 1.5, py: 0.75, color: 'text.secondary' }}
-      >
-        {calls.length} LLM call{calls.length === 1 ? '' : 's'} · {usd(cost)}
-      </Box>
-      <Box sx={{ display: { xs: 'block', md: 'none' } }}>
-        {calls.map(c => (
-          <CallCard key={c.id} call={c} />
-        ))}
-      </Box>
-      <Box sx={{ display: { xs: 'none', md: 'block' }, overflowX: 'auto' }}>
-        <Box component="table" sx={{ width: '100%', textAlign: 'left' }}>
-          <thead>
-            <tr>
-              {headers.map(h => (
-                <Box component="th" key={h} sx={{ px: 1.5, py: 0.75 }}>
-                  {h}
-                </Box>
-              ))}
-            </tr>
-          </thead>
-          <Box component="tbody" sx={{ fontFamily: 'monospace' }}>
-            {calls.map(c => (
-              <Box
-                component="tr"
-                key={c.id}
-                sx={{ borderTop: 1, borderColor: 'divider' }}
-              >
-                {[
-                  c.operation,
-                  c.model,
-                  fmtInt(c.inputTokens),
-                  fmtInt(c.outputTokens),
-                  fmtInt(c.cachedTokens),
-                  fmtCost(c),
-                  fmtDuration(c),
-                  String(c.retries ?? 0),
-                  c.finishReason ?? c.status,
-                ].map((value, i) => (
-                  <Box
-                    component="td"
-                    key={headers[i]}
-                    sx={{
-                      px: 1.5,
-                      py: 0.75,
-                      color:
-                        i === 7 && Number(value) > 0
-                          ? 'warning.main'
-                          : undefined,
-                    }}
-                  >
-                    {value}
-                  </Box>
-                ))}
-              </Box>
-            ))}
-          </Box>
-        </Box>
-      </Box>
-    </Box>
-  )
-}
-
-function Item({ item, lookup }: { item: TranscriptItem; lookup: EmojiLookup }) {
-  if (item.kind === 'tool') {
-    return (
-      <Box
-        component="details"
-        sx={{
-          ml: { xs: 2, md: 5 },
-          minWidth: 0,
-          border: 1,
-          borderStyle: 'dashed',
-          borderColor: 'divider',
-          borderRadius: 2,
-          fontSize: 12,
-          color: 'text.secondary',
-        }}
-      >
-        <Box
-          component="summary"
-          sx={{ cursor: 'pointer', px: 1.5, py: 0.5, fontFamily: 'monospace' }}
-        >
-          {item.name}
-        </Box>
-        <Box
-          component="pre"
-          sx={{ m: 0, px: 1.5, pb: 1, overflowX: 'auto', fontSize: 12 }}
-        >
-          {item.detail}
-        </Box>
-      </Box>
-    )
-  }
-
-  const isHuman = item.kind === 'human'
-  return (
-    <Box
-      sx={{
-        display: 'flex',
-        justifyContent: isHuman ? 'flex-end' : 'flex-start',
-      }}
-    >
-      <Box
-        sx={{
-          maxWidth: isHuman
-            ? { xs: '88%', md: '75%' }
-            : { xs: '100%', md: '80%' },
-          flex: isHuman ? undefined : 1,
-          minWidth: 0,
-        }}
-      >
-        <Box
-          sx={{
-            px: 2,
-            py: 1.25,
-            borderRadius: 4,
-            ...(isHuman
-              ? { bgcolor: 'primary.dark', borderBottomRightRadius: 4 }
-              : { bgcolor: 'background.paper', borderBottomLeftRadius: 4 }),
-          }}
-        >
-          <Typography
-            variant="caption"
-            sx={{
-              color: isHuman ? 'primary.light' : 'text.secondary',
-              fontWeight: 500,
-            }}
-          >
-            {isHuman ? (item.message.name ?? 'user') : 'tdr-bot'}
-          </Typography>
-          <DiscordContent text={item.message.content} lookup={lookup} />
-        </Box>
-        {item.kind === 'assistant' && item.calls.length > 0 && (
-          <CallsTable calls={item.calls} />
-        )}
-      </Box>
-    </Box>
+    </dl>
   )
 }
 
@@ -386,72 +85,63 @@ function TranscriptBody({
   loadingOlder: boolean
 }) {
   if (error) {
-    return <Alert severity="error">{error.message}</Alert>
+    return (
+      <Note lead="Couldn’t load this channel." tone="bad">
+        The API didn’t answer, so there’s nothing to show yet. Pick the channel
+        again to retry.{' '}
+        <code className="font-mono text-mono-sm">{error.message}</code>
+      </Note>
+    )
   }
 
   if (loading) {
     return (
-      <Stack spacing={2} data-testid="transcript-loading">
-        {[0.5, 0.66, 0.4, 0.6].map((w, i) => (
-          <Box
-            key={w}
-            sx={{
-              display: 'flex',
-              justifyContent: i % 2 === 0 ? 'flex-end' : 'flex-start',
-            }}
-          >
-            <Skeleton variant="rounded" height={64} width={`${w * 100}%`} />
-          </Box>
+      <div className="flex flex-col gap-4" data-testid="transcript-loading">
+        {['w-1/2', 'w-2/3', 'w-2/5', 'w-3/5'].map((w, i) => (
+          <div key={w} className={cns('flex', i % 2 === 0 && 'justify-end')}>
+            <Skeleton className={cns('h-16 rounded-xl', w)} />
+          </div>
         ))}
-      </Stack>
+      </div>
     )
   }
 
   if (items.length === 0) {
     return (
-      <Box
-        sx={{
-          display: 'grid',
-          placeItems: 'center',
-          height: '100%',
-          textAlign: 'center',
-        }}
-      >
-        <Box>
-          <Typography sx={{ fontSize: 32 }}>💬</Typography>
-          <Typography sx={{ fontWeight: 500 }}>No messages yet</Typography>
-          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-            Pick another channel.
-          </Typography>
-        </Box>
-      </Box>
+      <div className="flex flex-1 items-center justify-center">
+        <EmptyState
+          body="Messages in this range show up here, with what each reply cost. Pick another channel or widen the dates."
+          title="No messages yet"
+        />
+      </div>
     )
   }
 
   return (
     <>
-      <Box ref={sentinelRef} aria-hidden sx={{ height: 1 }} />
+      <div ref={sentinelRef} aria-hidden="true" className="h-px shrink-0" />
       {loadingOlder ? (
-        <Box
+        <div
+          className="flex justify-center pb-1"
           data-testid="transcript-loading-older"
-          sx={{ display: 'flex', justifyContent: 'center', pb: 2 }}
         >
-          <CircularProgress size={20} />
-        </Box>
+          <span className="flex items-center gap-2 text-cap text-ink-3">
+            <Spinner size={14} />
+            Loading older messages…
+          </span>
+        </div>
       ) : (
         !hasOlder && (
-          <Divider
-            sx={{ pb: 2, typography: 'caption', color: 'text.secondary' }}
-          >
+          <div className="flex items-center gap-3 text-cap text-ink-3">
+            <span className="h-px flex-1 bg-line" />
             Start of conversation
-          </Divider>
+            <span className="h-px flex-1 bg-line" />
+          </div>
         )
       )}
-      <Stack spacing={1.5}>
-        {items.map((item, i) => (
-          <Item key={i} item={item} lookup={lookup} />
-        ))}
-      </Stack>
+      {items.map((item, i) => (
+        <TranscriptTurn key={i} item={item} lookup={lookup} />
+      ))}
     </>
   )
 }
@@ -527,202 +217,65 @@ export default function TranscriptPage() {
     return () => observer.disconnect()
   }, [items, hasNextPage, isFetchingNextPage, fetchNextPage])
 
-  const dateField = (
-    label: string,
-    value: string,
-    onChange: (v: string) => void,
-  ) => (
-    <TextField
-      label={label}
-      type="date"
-      size="small"
-      value={value}
-      onChange={e => onChange(e.target.value)}
-      slotProps={{ inputLabel: { shrink: true } }}
-      sx={{ minWidth: 0, '& input': { minWidth: 0 } }}
-    />
-  )
-
-  const channelList = channels.isLoading ? (
-    [0, 1, 2, 3].map(i => (
-      <Box key={i} sx={{ px: 2, py: 1.5, flexShrink: 0 }}>
-        <Skeleton width={96} />
-        <Skeleton width={128} />
-      </Box>
-    ))
-  ) : channels.error ? (
-    <Alert severity="error">{channels.error.message}</Alert>
-  ) : null
-
   return (
-    <Box
-      sx={{
-        border: { md: 1 },
-        borderColor: { md: 'divider' },
-        borderRadius: { md: 3 },
-        m: { xs: 0, md: 3 },
-        overflow: 'hidden',
-      }}
-    >
-      <Box
-        sx={{
-          display: 'flex',
-          flexDirection: { xs: 'column', md: 'row' },
-          alignItems: { xs: 'stretch', md: 'center' },
-          gap: 2,
-          px: 2,
-          py: 1.5,
-          bgcolor: 'background.paper',
-          borderBottom: 1,
-          borderColor: 'divider',
-        }}
-      >
-        <Box
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: {
-              xs: 'repeat(2, minmax(0, 1fr))',
-              md: 'repeat(2, 11rem)',
-            },
-            gap: 1.5,
-          }}
-        >
-          {dateField('From', from, setFrom)}
-          {dateField('To', to, setTo)}
-        </Box>
-        <TotalsBar
-          totals={pages?.[0]?.totals ?? undefined}
-          loading={channels.isLoading || transcript.isLoading}
-        />
-      </Box>
-
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: {
-            xs: 'minmax(0, 1fr)',
-            md: '15rem minmax(0, 1fr)',
-          },
-          gridTemplateRows: { md: '34rem' },
-        }}
-      >
-        <Box
-          component="nav"
-          aria-label="Channels"
-          sx={{
-            display: { xs: 'flex', md: 'none' },
-            gap: 1,
-            px: 2,
-            py: 1.25,
-            overflowX: 'auto',
-            borderBottom: 1,
-            borderColor: 'divider',
-            scrollbarWidth: 'none',
-          }}
-        >
-          {channelList ??
-            channels.data?.map(ch => {
-              const active = ch.channelId === channelId
-              return (
-                <Box
-                  component="button"
-                  type="button"
-                  key={ch.channelId}
-                  aria-pressed={active}
-                  onClick={() => setSelected(ch.channelId)}
-                  sx={{
-                    flexShrink: 0,
-                    display: 'flex',
-                    alignItems: 'baseline',
-                    gap: 0.75,
-                    px: 1.5,
-                    py: 0.75,
-                    border: 1,
-                    borderRadius: 999,
-                    borderColor: active ? 'primary.main' : 'divider',
-                    bgcolor: active ? 'action.selected' : 'transparent',
-                    color: 'text.primary',
-                    font: 'inherit',
-                    fontSize: 13,
-                    fontWeight: 500,
-                    cursor: 'pointer',
-                    '&:focus-visible': {
-                      outline: 2,
-                      outlineColor: 'primary.light',
-                      outlineOffset: 2,
-                    },
-                  }}
-                >
-                  # {ch.name}
-                  <Box
-                    component="span"
-                    sx={{ fontSize: 11, color: 'text.secondary' }}
-                  >
-                    {ch.calls.toLocaleString('en-US')}
-                  </Box>
-                </Box>
-              )
-            })}
-        </Box>
-
-        <Box
-          component="aside"
-          sx={{
-            display: { xs: 'none', md: 'block' },
-            overflowY: 'auto',
-            borderRight: 1,
-            borderColor: 'divider',
-          }}
-        >
-          {channelList ?? (
-            <List disablePadding>
-              {channels.data?.map(ch => (
-                <ListItemButton
-                  key={ch.channelId}
-                  selected={ch.channelId === channelId}
-                  onClick={() => setSelected(ch.channelId)}
-                  sx={{ borderBottom: 1, borderColor: 'divider' }}
-                >
-                  <ListItemText
-                    primary={`# ${ch.name}`}
-                    secondary={`${formatTime(ch.lastAt)} · ${ch.calls.toLocaleString('en-US')} calls`}
-                    slotProps={{
-                      primary: { sx: { fontSize: 14, fontWeight: 500 } },
-                      secondary: { sx: { fontSize: 11 } },
-                    }}
-                  />
-                </ListItemButton>
-              ))}
-            </List>
-          )}
-        </Box>
-
-        <Box
-          component="section"
-          ref={scrollRef}
-          onScroll={trackScroll}
-          sx={{
-            p: { xs: 2, md: 2.5 },
-            minWidth: 0,
-            minHeight: 0,
-            height: { xs: '70dvh', md: 'auto' },
-            overflowY: 'auto',
-            overflowAnchor: 'none',
-          }}
-        >
-          <TranscriptBody
-            items={items}
-            lookup={lookup}
-            loading={
-              channels.isLoading || (!!channelId && transcript.isLoading)
-            }
-            error={transcript.error}
-            sentinelRef={sentinelRef}
-            hasOlder={hasNextPage}
-            loadingOlder={isFetchingNextPage}
+    <div className="mx-auto flex w-full max-w-[1216px] flex-col gap-6 px-4 py-5 md:px-8 md:py-8">
+      <h1 className="sr-only">Transcript</h1>
+      <div className="overflow-hidden rounded-lg border border-line bg-surface">
+        <div className="flex flex-col gap-4 border-b border-line p-3 md:flex-row md:items-end md:justify-between">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-[176px_176px]">
+            <Field label="From">
+              <Input
+                mono
+                max={to || undefined}
+                type="date"
+                value={from}
+                onChange={e => setFrom(e.target.value)}
+              />
+            </Field>
+            <Field label="To">
+              <Input
+                mono
+                min={from || undefined}
+                type="date"
+                value={to}
+                onChange={e => setTo(e.target.value)}
+              />
+            </Field>
+          </div>
+          <TotalsStrip
+            loading={channels.isLoading || transcript.isLoading}
+            totals={pages?.[0]?.totals ?? undefined}
           />
-        </Box>
-      </Box>
-    </Box>
+        </div>
+
+        <div className="flex flex-col md:grid md:grid-cols-[232px_minmax(0,1fr)] md:grid-rows-[640px]">
+          <ChannelList
+            channels={channels.data}
+            error={channels.error}
+            loading={channels.isLoading}
+            selectedId={channelId}
+            onSelect={setSelected}
+          />
+          <section
+            ref={scrollRef}
+            aria-label="Conversation"
+            className="flex h-[70dvh] min-h-0 min-w-0 flex-col gap-3 overflow-y-auto bg-bg p-4 [overflow-anchor:none] md:h-auto md:p-5"
+            onScroll={trackScroll}
+          >
+            <TranscriptBody
+              error={transcript.error}
+              hasOlder={hasNextPage}
+              items={items}
+              loading={
+                channels.isLoading || (!!channelId && transcript.isLoading)
+              }
+              loadingOlder={isFetchingNextPage}
+              lookup={lookup}
+              sentinelRef={sentinelRef}
+            />
+          </section>
+        </div>
+      </div>
+    </div>
   )
 }

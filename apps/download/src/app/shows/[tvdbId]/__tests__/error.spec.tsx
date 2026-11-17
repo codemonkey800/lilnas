@@ -19,7 +19,10 @@ describe('ShowError', () => {
     renderError(new Error('boom'))
 
     expect(
-      screen.getByText('This show could not be loaded'),
+      screen.getByRole('heading', {
+        level: 1,
+        name: 'This show couldn’t be loaded',
+      }),
     ).toBeInTheDocument()
     expect(screen.getByText(/trying again is safe/)).toBeInTheDocument()
   })
@@ -34,13 +37,13 @@ describe('ShowError', () => {
     )
 
     expect(screen.queryByText(/ECONNREFUSED/)).not.toBeInTheDocument()
-    expect(screen.getByText('Reference 1234567890')).toBeInTheDocument()
+    expect(screen.getByText('digest 1234567890')).toBeInTheDocument()
   })
 
-  it('omits the reference line when there is no digest', () => {
+  it('omits the digest when there is no digest', () => {
     renderError(new Error('boom'))
 
-    expect(screen.queryByText(/^Reference /)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^digest /)).not.toBeInTheDocument()
   })
 
   it('leaves a way out rather than stranding the reader', () => {

@@ -1,17 +1,9 @@
 'use client'
 
-import { cns } from '@lilnas/utils/cns'
+import { Button, Icon, Note } from '@lilnas/ui'
 import type { JSX } from 'react'
 
-import {
-  PROFILE_TITLE,
-  ProfilePageShell,
-} from 'src/components/profile/profile-page-shell'
-import { Button } from 'src/components/ui/button'
-import { Note } from 'src/components/ui/card'
-
-/** The loud `Note`, assembled at the call site the way `ui.pug` does it. */
-const ERROR_NOTE = 'border-bad/35! bg-bad-ghost! [&>svg]:text-bad!'
+import { ProfilePageShell } from 'src/components/profile/profile-page-shell'
 
 export type ProfileErrorProps = {
   /** Next hands the boundary the thrown error, with a `digest` in production. */
@@ -40,28 +32,25 @@ export default function ProfileError({
 }: ProfileErrorProps): JSX.Element {
   return (
     <ProfilePageShell>
-      <h1 className={PROFILE_TITLE}>User profile</h1>
-      <Note className={cns(ERROR_NOTE)} icon="alert">
-        <p className="font-[620] text-ink">This profile could not be loaded</p>
-        <p className="mt-1">
-          The download service did not answer. Nothing has been lost — every
-          download this profile counts is still exactly where it was.
-        </p>
-        {error.digest ? (
-          <p className="mt-2 font-mono text-mono-sm text-ink-4">
-            Reference {error.digest}
-          </p>
-        ) : null}
-        <Button
-          className="mt-3.5"
-          icon="activity"
-          onClick={reset}
-          size="sm"
-          variant="outline"
-        >
+      <h1 className="mb-4 text-h2">This profile didn’t load</h1>
+      <Note
+        icon={<Icon name="alert" />}
+        lead="The download service didn’t answer."
+        tone="bad"
+      >
+        Nothing has changed — the numbers just couldn’t be read. Try again in a
+        minute.
+      </Note>
+      <div className="mt-3 flex items-center gap-3">
+        <Button icon="refresh" onClick={reset} size="sm" variant="outline">
           Try again
         </Button>
-      </Note>
+        {error.digest ? (
+          <span className="font-mono text-mono-sm text-ink-3">
+            digest {error.digest}
+          </span>
+        ) : null}
+      </div>
     </ProfilePageShell>
   )
 }

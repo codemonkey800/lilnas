@@ -404,9 +404,9 @@ export function deleteCascade(
 
 /** How an episode row's chip reads. */
 export type EpisodeState = {
-  /** Draw the breathing `Dot` - true exactly when the machine is working. */
+  /** Pulse the badge's dot - true exactly when the machine is working. */
   live: boolean
-  /** Chip text. */
+  /** Badge text. */
   label: string
   tone: StatusTone
 }

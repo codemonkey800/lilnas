@@ -45,8 +45,9 @@ describe('RootNotFound', () => {
     const main = screen.getByRole('main')
 
     expect(main.getAttribute('class')).toContain('flex-auto')
+    // The boundaries' own narrow column, as the mockups' `dlMain` draws it.
     expect(
-      container.querySelector('.mx-auto.max-w-\\[1080px\\]'),
+      container.querySelector('.mx-auto.max-w-\\[720px\\]'),
     ).toBeInTheDocument()
   })
 

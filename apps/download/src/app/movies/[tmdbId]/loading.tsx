@@ -1,7 +1,6 @@
+import { Skeleton } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { JSX } from 'react'
-
-import { Skeleton } from 'src/components/ui/feedback'
 
 /** `mock.pug`'s `appBody` at both widths, spelled the way `src/app/(home)/page.tsx` does. */
 const PAGE_SHELL = cns(
@@ -11,8 +10,8 @@ const PAGE_SHELL = cns(
 
 /** `DetailHeader`'s own poster column, so the real art lands exactly here. */
 const POSTER = cns(
-  'mx-auto mb-4 aspect-[2/3] w-full max-w-[220px] rounded-md',
-  'sm:mx-0 sm:mb-0 sm:w-[200px] sm:max-w-none',
+  'mb-4 aspect-[2/3] w-[132px] rounded-md',
+  'sm:mb-0 sm:w-[200px]',
 )
 
 /** Three credited names on a desktop row, two on a phone — `movie-detail.pug:285,313`. */

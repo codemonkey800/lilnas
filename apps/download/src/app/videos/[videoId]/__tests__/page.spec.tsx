@@ -196,7 +196,7 @@ describe('VideoDetailPage', () => {
   it('mounts the live feed at the page root, so the panel updates itself', async () => {
     await renderPage()
 
-    expect(screen.getByText('downloading')).toBeInTheDocument()
+    expect(screen.getByText('Downloading')).toBeInTheDocument()
   })
 
   /**
@@ -253,7 +253,7 @@ describe('VideoDetailPage', () => {
         el.getAttribute('data-job-id'),
       ),
     ).toEqual([JOB.id, 'job_0'])
-    expect(screen.getByText('failed')).toBeInTheDocument()
+    expect(screen.getByText('Failed')).toBeInTheDocument()
   })
 })
 
@@ -289,7 +289,7 @@ describe('VideoDetailError', () => {
       />,
     )
 
-    expect(screen.getByText('Reference 2381947123')).toBeInTheDocument()
+    expect(screen.getByText('digest 2381947123')).toBeInTheDocument()
     expect(screen.queryByText(/ECONNREFUSED/)).not.toBeInTheDocument()
   })
 })

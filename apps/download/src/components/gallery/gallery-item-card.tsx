@@ -1,3 +1,4 @@
+import { Badge, Button, type IconName } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { GalleryItem, Media } from '@lilnas/utils/download/types'
 import { DownloadType, isManagedMedia } from '@lilnas/utils/download/types'
@@ -7,8 +8,6 @@ import {
   ActivityRequester,
   galleryUpstreamSource,
 } from 'src/components/activity/activity-requester'
-import { ButtonLink } from 'src/components/ui/button-link'
-import { Chip } from 'src/components/ui/chip'
 import {
   GalleryCard,
   GalleryCardAttrib,
@@ -16,7 +15,6 @@ import {
   GalleryCardRow,
   GalleryCardTitle,
 } from 'src/components/ui/gallery-card'
-import type { IconName } from 'src/components/ui/icon'
 import { MChip } from 'src/components/ui/mchip'
 import { Poster } from 'src/components/ui/poster'
 import { formatRelative, formatRuntime, UNKNOWN_VALUE } from 'src/lib/format'
@@ -60,18 +58,14 @@ function metaLabel(media: Media): string {
 }
 
 /** Both mono-annotation runs under a card, in the one place they are spelled. */
-const CARD_ANNOTATION = 'font-mono text-mono-sm'
+const CARD_ANNOTATION = 'text-cap'
 
 /**
- * The 2-up / fixed-column split, straight from the two frames `gallery.pug`
- * draws: `w-[calc(50%-8px)]` inside the 390px frame (two cards and one 16px
- * gap), `w-[158px]` inside the 1280px one.
- *
- * 640px is the switch, matching the shell's own threshold — a fixed 158px
- * column on a 500px phone would leave a third of the row empty, and the 2-up
- * grid keeps filling the width until there is genuinely room for three.
+ * Cards fill their grid cell: the grid ("two-up on a phone, auto-fill from
+ * 158px" — see `GALLERY_GRID`) owns the column count, and the card owns none
+ * of the width.
  */
-export const GALLERY_CARD_WIDTH = 'w-[calc(50%-8px)] sm:w-[158px]'
+export const GALLERY_CARD_WIDTH = 'w-full min-w-0'
 
 export type GalleryItemCardProps = {
   /** One row of `GET /download/gallery`. */
@@ -204,7 +198,7 @@ export function GalleryItemCard({
           {/* `added` for a screen reader only — the mockup draws a bare
               `3h ago`, and without the verb it reads as a download time. */}
           <time
-            className={cns(CARD_ANNOTATION, 'truncate text-ink-4')}
+            className={cns(CARD_ANNOTATION, 'truncate text-ink-3')}
             dateTime={item.addedAt}
           >
             {masked ? 'hidden · ' : null}
@@ -213,21 +207,21 @@ export function GalleryItemCard({
           </time>
         </GalleryCardAttrib>
         {watchUrl ? (
-          <ButtonLink
+          <Button
             className="h-6 shrink-0 px-2 text-[11.5px]"
-            href={watchUrl}
-            rel="noreferrer"
             size="sm"
-            target="_blank"
             variant="ghost"
+            render={<a href={watchUrl} rel="noreferrer" target="_blank" />}
           >
             Watch
-          </ButtonLink>
+          </Button>
         ) : null}
       </GalleryCardRow>
       {indexing ? (
         <GalleryCardRow>
-          <Chip className="h-5 text-[10px]" label="indexing…" tone="warn" />
+          <Badge className="h-5 text-[10px]" tone="warn">
+            Indexing…
+          </Badge>
         </GalleryCardRow>
       ) : null}
     </GalleryCard>

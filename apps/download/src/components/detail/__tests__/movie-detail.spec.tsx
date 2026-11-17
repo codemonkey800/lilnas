@@ -606,15 +606,15 @@ describe('MovieDetail — attribution', () => {
       ],
     })
 
-    expect(screen.getByText(/^sam · /)).toBeInTheDocument()
+    expect(screen.getByText(/^Added by sam · /)).toBeInTheDocument()
   })
 })
 
 describe('MovieDetail — media state', () => {
-  it('chips a library movie with no attempts "in library", with no Download and no Attempts', () => {
+  it('chips a library movie with no attempts "In library", with no Download and no Attempts', () => {
     renderDetail({ jobs: [] })
 
-    expect(screen.getByText('in library')).toBeInTheDocument()
+    expect(screen.getByText('In library')).toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: MOVIE_REQUEST_LABEL }),
     ).not.toBeInTheDocument()
@@ -629,14 +629,14 @@ describe('MovieDetail — media state', () => {
     // `state`; Watch, Save and Delete still read the file witnesses.
     renderDetail({ jobs: [], media: INDEXED_NO_PATH })
 
-    expect(screen.getByText('in library')).toBeInTheDocument()
+    expect(screen.getByText('In library')).toBeInTheDocument()
     expect(firstButton(/^delete$/i)).toBeInTheDocument()
   })
 
-  it('chips a movie with nothing grabbed "not downloaded" and offers Download', () => {
+  it('chips a movie with nothing grabbed "Not downloaded" and offers Download', () => {
     renderDetail({ jobs: [], media: UNFETCHED })
 
-    expect(screen.getByText('not downloaded')).toBeInTheDocument()
+    expect(screen.getByText('Not downloaded')).toBeInTheDocument()
     expect(downloadButton()).toBeInTheDocument()
     expect(attempts()).not.toBeInTheDocument()
   })
@@ -644,7 +644,7 @@ describe('MovieDetail — media state', () => {
   it('offers Download for a wanted movie', () => {
     renderDetail({ jobs: [], media: WANTED })
 
-    expect(screen.getByText('wanted')).toBeInTheDocument()
+    expect(screen.getByText('Wanted')).toBeInTheDocument()
     expect(downloadButton()).toBeInTheDocument()
   })
 
@@ -683,7 +683,7 @@ describe('MovieDetail — media state', () => {
       },
     })
 
-    expect(screen.getByText('needs your decision')).toBeInTheDocument()
+    expect(screen.getByText('Needs your decision')).toBeInTheDocument()
     expect(
       screen.getByText('No files found are eligible for import'),
     ).toBeInTheDocument()
@@ -697,24 +697,24 @@ describe('MovieDetail — media state', () => {
       media: { ...WANTED, stateReason: 'Not released yet' },
     })
 
-    expect(screen.getByText('wanted')).toBeInTheDocument()
+    expect(screen.getByText('Wanted')).toBeInTheDocument()
     expect(screen.getByText('Not released yet')).toBeInTheDocument()
   })
 
-  it('⚠️ Cars: a failed newest attempt over a movie on disk still reads "in library"', () => {
+  it('⚠️ Cars: a failed newest attempt over a movie on disk still reads "In library"', () => {
     // The motivating bug. A restart failed the newest job for a movie that was
     // perfectly playable, and the page — reading the job — chipped it
     // `failed`. The chip reads the movie; the failure is an attempt.
     renderDetail({ jobs: [FAILED, JOB], onRetry: jest.fn() })
 
-    expect(screen.getByText('in library')).toBeInTheDocument()
+    expect(screen.getByText('In library')).toBeInTheDocument()
     expect(
       screen.getByRole('link', { name: MOVIE_WATCH_LABEL }),
     ).toBeInTheDocument()
 
     const list = attempts()
     expect(list).toBeInTheDocument()
-    expect(within(list as HTMLElement).getByText('failed')).toBeInTheDocument()
+    expect(within(list as HTMLElement).getByText('Failed')).toBeInTheDocument()
     expect(
       within(list as HTMLElement).getByText(FAILED.error ?? ''),
     ).toBeInTheDocument()
@@ -734,14 +734,14 @@ describe('MovieDetail — media state', () => {
     expect(onRetry).toHaveBeenCalledWith(FAILED.id)
   })
 
-  it('chips a deleted movie "not downloaded" and keeps its old run as an attempt', () => {
+  it('chips a deleted movie "Not downloaded" and keeps its old run as an attempt', () => {
     // Delete leaves a completed job row as history. It is an attempt that
     // happened, not a claim that the file is there.
     renderDetail({ jobs: [JOB], media: UNFETCHED })
 
-    expect(screen.getByText('not downloaded')).toBeInTheDocument()
+    expect(screen.getByText('Not downloaded')).toBeInTheDocument()
     expect(
-      within(attempts() as HTMLElement).getByText('completed'),
+      within(attempts() as HTMLElement).getByText('Completed'),
     ).toBeInTheDocument()
     expect(downloadButton()).toBeInTheDocument()
     expect(
@@ -819,8 +819,8 @@ describe('MovieDetail — attempts', () => {
 
     const card = document.querySelector(`[data-job-id="${PENDING.id}"]`)
     expect(card).toBeInstanceOf(HTMLElement)
-    expect(card).toHaveClass('border-uv/35')
-    expect(within(attempts() as HTMLElement).getByText('queued')).toBeVisible()
+    expect(card).toHaveClass('border-accent-dim')
+    expect(within(attempts() as HTMLElement).getByText('Queued')).toBeVisible()
     // A press beside a grab already in flight would race it.
     expect(
       screen.queryByRole('button', { name: MOVIE_REQUEST_LABEL }),
@@ -881,10 +881,10 @@ describe('MovieDetail — attempts', () => {
     renderDetail({ jobs: [JOB, { ...FAILED, createdAt: EARLIER }] })
 
     const rows = within(attempts() as HTMLElement)
-      .getAllByText(/^(completed|failed)$/)
+      .getAllByText(/^(Completed|Failed)$/)
       .map(chip => chip.textContent)
 
-    expect(rows).toEqual(['completed', 'failed'])
+    expect(rows).toEqual(['Completed', 'Failed'])
   })
 })
 
@@ -920,7 +920,7 @@ describe('MovieDetail — the download shortcut', () => {
     })
 
     expect(
-      screen.getByRole('button', { name: 'Quality: Up to 720p' }),
+      screen.getByRole('combobox', { name: 'Quality: Up to 720p' }),
     ).toBeInTheDocument()
   })
 
@@ -929,8 +929,8 @@ describe('MovieDetail — the download shortcut', () => {
     const user = userEvent.setup()
     renderDetail({ jobs: [], media: WANTED, onRequest })
 
-    await user.click(screen.getByRole('button', { name: /^Quality:/ }))
-    await user.click(screen.getByRole('option', { name: 'Up to 4K' }))
+    await user.click(screen.getByRole('combobox', { name: /^Quality:/ }))
+    await user.click(await screen.findByRole('option', { name: 'Up to 4K' }))
     await user.click(downloadButton())
 
     expect(onRequest).toHaveBeenCalledWith(MOVIE_ID, QualityTier.UpTo4k)
@@ -940,7 +940,7 @@ describe('MovieDetail — the download shortcut', () => {
     renderDetail({ jobs: [], media: RADARR_GRAB })
 
     expect(
-      screen.queryByRole('button', { name: /^Quality:/ }),
+      screen.queryByRole('combobox', { name: /^Quality:/ }),
     ).not.toBeInTheDocument()
   })
 
@@ -1112,7 +1112,7 @@ describe('MovieDetail — the release picker', () => {
     renderDetail({ badFiles: [FLAG], onSearch })
     await user.click(firstButton(RELEASE_SEARCH_LABEL))
 
-    expect(await screen.findByText('bad file')).toBeInTheDocument()
+    expect(await screen.findByText('Bad file')).toBeInTheDocument()
   })
 
   it('⚠️ renders exactly as before when the file traces back to no release', async () => {

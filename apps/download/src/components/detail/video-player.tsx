@@ -1,5 +1,6 @@
 'use client'
 
+import { Icon } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type {
   ChangeEvent,
@@ -33,7 +34,6 @@ import {
   seekValueText,
   shortcutOrigin,
 } from 'src/components/detail/video-player-state'
-import { Icon } from 'src/components/ui/icon'
 
 /** The player region's accessible name when the caller gives no title. */
 export const VIDEO_PLAYER_LABEL = 'Video player'
@@ -64,8 +64,8 @@ export const EXIT_FULLSCREEN_LABEL = 'Exit fullscreen'
  */
 const PLAYER_FRAME = cns(
   'group/player relative flex aspect-video shrink-0 items-center justify-center',
-  'overflow-hidden rounded-md bg-bg-sunk',
-  '[&:fullscreen]:aspect-auto [&:fullscreen]:rounded-none',
+  'overflow-hidden rounded-lg border border-line bg-bg-sunk',
+  '[&:fullscreen]:aspect-auto [&:fullscreen]:rounded-none [&:fullscreen]:border-0',
 )
 
 /**
@@ -77,8 +77,8 @@ const PLAYER_VIDEO = 'absolute inset-0 h-full w-full object-contain'
 /** `playerControls` from `designs/src/pages/video-detail.pug:51`. */
 const CONTROL_BAR = cns(
   'absolute inset-x-0 bottom-0 flex flex-col gap-2',
-  'bg-linear-to-t from-scrim/85 from-0% to-transparent to-80%',
-  'px-3 pt-9 pb-2.5',
+  'bg-linear-to-t from-black/70 to-transparent',
+  'px-4 pt-8 pb-3',
 )
 
 /**
@@ -98,18 +98,17 @@ const CONTROL_BAR = cns(
  * sibling's favour. That is a boundary that moves by 3px, not a dead zone.
  */
 const CONTROL_BUTTON = cns(
-  'relative flex text-ink/90 transition-colors duration-150 ease-uv hover:text-ink',
+  'relative flex text-ink transition-colors duration-150 ease-standard hover:text-ink-2',
   "after:absolute after:-inset-2 after:content-['']",
 )
 
 /** `scrubber` from `designs/src/pages/video-detail.pug:32`. */
 const SCRUBBER = 'relative flex h-3 w-full items-center'
 const SCRUBBER_TRACK = 'h-[3px] w-full overflow-hidden rounded-full bg-ink/25'
-const SCRUBBER_FILL = 'block h-full rounded-full bg-uv'
+const SCRUBBER_FILL = 'block h-full rounded-full bg-accent'
 const SCRUBBER_THUMB = cns(
   'pointer-events-none absolute top-1/2 h-[11px] w-[11px]',
-  '-translate-x-1/2 -translate-y-1/2 rounded-full bg-uv',
-  'shadow-[0_0_0_2px_var(--color-scrim)]',
+  '-translate-x-1/2 -translate-y-1/2 rounded-full bg-ink',
 )
 
 /**
@@ -159,7 +158,7 @@ const SCRUBBER_STEP = 0.1
  * the smallest size in the app, and the half-pixel is a deliberate choice of
  * the design rather than a slip.
  */
-const TIMECODE = 'font-mono text-[11px] tabular-nums text-ink-2'
+const TIMECODE = 'font-mono text-mono-sm tabular-nums text-ink'
 
 /**
  * The muted glyph, built from the 27-name icon set rather than added to it.

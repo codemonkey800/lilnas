@@ -1,11 +1,8 @@
+import { Button, Card, Icon } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { ComponentPropsWithoutRef, JSX } from 'react'
 
 import { LIBRARY_HREF } from 'src/components/detail/library-link'
-import { ButtonLink } from 'src/components/ui/button-link'
-import { Card } from 'src/components/ui/card'
-import type { IconName } from 'src/components/ui/icon'
-import { Icon } from 'src/components/ui/icon'
 
 /**
  * The heading. Deliberately about the *address* rather than about the thing
@@ -23,20 +20,7 @@ export const NOT_FOUND_DESCRIPTION =
   'Nothing in the app answers to this address. Nothing has gone wrong — the link was probably mistyped, or it points at something that has since been removed.'
 
 /** The label on the back link. */
-export const NOT_FOUND_BACK_LABEL = 'Library'
-
-/**
- * `search` rather than `alert`.
- *
- * `alert` is this system's **error** register — it is `Note`'s default, and the
- * icon the loud `border-bad/35!` override pairs with. A 404 is not a fault: the
- * app looked, and there is nothing at this address. `shield` is equally wrong
- * and already spoken for; it is `NotAuthorized`'s, and it means "a rule applies
- * to you", which is a different answer that a reader must never confuse with
- * this one. `search` is the register of a lookup that came back empty, and it
- * is also the affordance the copy sends people to.
- */
-export const NOT_FOUND_ICON: IconName = 'search'
+export const NOT_FOUND_BACK_LABEL = 'Back to library'
 
 export type NotFoundProps = Omit<
   ComponentPropsWithoutRef<'div'>,
@@ -53,30 +37,22 @@ export type NotFoundProps = Omit<
 }
 
 /**
- * "There is nothing here", as a page's whole body.
+ * "There is nothing here", as a page's whole body: a search icon, a heading,
+ * one sentence and one way out, in a sunk `Card`. No mascot — that belongs to
+ * empty states only, and a 404 is not one.
  *
  * Shared on purpose, and a deliberate sibling of
- * `src/components/shell/not-authorized.tsx` — same centred sunk panel, same
- * icon/heading/sentence/back-link order, same `<h2>`. The two states are
- * adjacent answers to the same press ("I asked for a page and did not get it"),
- * and two unrelated designs for them is exactly the drift that put four copies
- * of the library breadcrumb in the mockups before `LibraryLink` absorbed them.
- *
- * Two routes render it: `src/app/not-found.tsx` (the app's global 404, which
- * catches both an unmatched path and any `notFound()` thrown outside a segment
- * that has its own boundary) and `src/app/videos/[videoId]/not-found.tsx`,
- * which keeps its own copy because a missing *video* is a materially different
- * fact from a missing page — see that file.
+ * `src/components/shell/not-authorized.tsx` — the same quiet panel in the same
+ * order. The two states are adjacent answers to the same press ("I asked for a
+ * page and did not get it"), and two unrelated designs for them is exactly the
+ * drift the shared panel exists to prevent.
  *
  * Quiet, not loud, and specifically **not** the error boundary's register: no
  * `bad` ink, no `role="alert"`. Nothing has failed.
  *
- * Presentational and server-safe: no `'use client'`, no hooks, no handlers, so
- * a `not-found.tsx` (which Next renders on the server) can use it directly.
- *
- * The heading is an `<h2>`, not an `<h1>`. The panel is page *content*, and
- * every route in this app titles itself — usually with an `sr-only` `<h1>`.
- * Pair it with one:
+ * Presentational and server-safe: no `'use client'`, no hooks, no handlers.
+ * The heading is an `<h2>`, so the route still owes the document an `<h1>` —
+ * pair it with an `sr-only` one:
  *
  * ```tsx
  * <h1 className="sr-only">{NOT_FOUND_TITLE}</h1>
@@ -93,26 +69,25 @@ export function NotFound({
 }: NotFoundProps): JSX.Element {
   return (
     <Card
-      sunk
       {...props}
       className={cns(
-        'mx-auto flex max-w-[560px] flex-col items-center gap-2.5',
-        'px-6 py-12 text-center',
+        'mx-auto flex max-w-[560px] flex-col items-center gap-2.5 px-6 py-12 text-center',
         className,
       )}
+      variant="sunk"
     >
-      <Icon className={cns('h-6 w-6 text-ink-4')} name={NOT_FOUND_ICON} />
-      <h2 className={cns('text-h2')}>{title}</h2>
-      <p className={cns('max-w-[52ch] text-sm text-ink-3')}>{description}</p>
-      <ButtonLink
-        className={cns('mt-2.5')}
-        href={backHref}
+      <Icon className="text-ink-3" name="search" size={24} />
+      <h2 className="text-h2">{title}</h2>
+      <p className="max-w-[52ch] text-sm text-ink-3">{description}</p>
+      <Button
+        className="mt-2"
         icon="grid"
+        render={<a href={backHref} />}
         size="sm"
         variant="outline"
       >
         {backLabel}
-      </ButtonLink>
+      </Button>
     </Card>
   )
 }

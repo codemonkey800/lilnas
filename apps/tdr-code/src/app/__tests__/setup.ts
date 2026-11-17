@@ -25,3 +25,26 @@ import { TextDecoder, TextEncoder } from 'util'
 // node project's) own identical polyfill for the same two globals.
 global.TextEncoder = TextEncoder as unknown as typeof globalThis.TextEncoder
 global.TextDecoder = TextDecoder as unknown as typeof globalThis.TextDecoder
+
+// jsdom ships no PointerEvent, and Base UI (behind `@lilnas/ui`'s Select)
+// builds one to dispatch the click behind a pointer or keyboard activation.
+// A MouseEvent carries everything it reads.
+if (typeof window.PointerEvent === 'undefined') {
+  class PointerEventStub extends MouseEvent {
+    readonly pointerId: number
+    readonly pointerType: string
+    readonly isPrimary: boolean
+
+    constructor(type: string, init: PointerEventInit = {}) {
+      super(type, init)
+      this.pointerId = init.pointerId ?? 0
+      this.pointerType = init.pointerType ?? ''
+      this.isPrimary = init.isPrimary ?? false
+    }
+  }
+
+  Object.defineProperty(window, 'PointerEvent', {
+    configurable: true,
+    value: PointerEventStub,
+  })
+}

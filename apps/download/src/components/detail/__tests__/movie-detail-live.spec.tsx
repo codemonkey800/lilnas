@@ -113,7 +113,7 @@ describe('MovieDetailLive', () => {
     expect(attempts()).not.toBeInTheDocument()
   })
 
-  it('flips the chip to "in library" off a media frame, with no server re-render', () => {
+  it('flips the chip to "In library" off a media frame, with no server re-render', () => {
     const { send } = setup()
 
     send(
@@ -128,7 +128,7 @@ describe('MovieDetailLive', () => {
 
     expect(mediaStatus()).toHaveAttribute('data-state', 'available')
     expect(
-      within(mediaStatus() as HTMLElement).getByText('in library'),
+      within(mediaStatus() as HTMLElement).getByText('In library'),
     ).toBeInTheDocument()
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
     // The file and the Watch link ride in on the same frame.

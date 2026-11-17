@@ -1,0 +1,110 @@
+extends ../../../../../designs/mockup-kit/page.pug
+
+include ../mixins/download.pug
+
+block title
+  | download — admin · UI mockups
+
+//-
+  /admin: admin-only. Not the feed regular users see — that one is in-flight
+  only and live; this is the full history, every status and every user, with
+  attribution unmasked. Per-user history is a filter on the same table. Copy
+  and sample data are in src/data/admin.mjs.
+
+mixin adminHead(view)
+  h1(class='mb-5 text-h1') Admin
+
+mixin stats(view)
+  div(class=['mb-8 grid gap-3', view === 'mobile' ? 'grid-cols-2' : 'grid-cols-4'])
+    each stat in STATS
+      +statCard(stat)
+
+//- The history: a table on desktop, a card per row on a phone, plus Download history's heading.
+mixin history(view, rows)
+  div(class='mb-3 flex items-center justify-between gap-3')
+    h2(class='text-h2') Download history
+    +badge({ tone: 'mute', label: 'Unmasked' })
+  +dataList(HISTORY_COLS, rows, { view: view })(class='mb-8')
+
+mixin leaderboard
+  h2(class='mb-3 text-h2') Top downloaders
+  +card()(class='py-1')
+    ol(class='flex flex-col')
+      each entry, i in LEADERBOARD
+        li(class='flex items-center gap-3 px-1 py-2.5 not-first:border-t not-first:border-line-soft')
+          span(class='w-4 shrink-0 text-center text-cap text-ink-3 tabular-nums')= i + 1
+          +avatar(entry.initials, { size: 32, you: entry.you })
+          a(class='flex-1 text-sm hover:underline' href='profile.html')= entry.name
+          span(class='text-sm tabular-nums text-ink-2')= entry.count
+
+mixin auditLog(view)
+  h2(class='mb-3 text-h2') Audit log
+  +dataList(AUDIT_COLS, AUDIT, { view: view })
+
+mixin adminLoading(view)
+  - const phone = view === 'mobile'
+  div(aria-busy='true')
+    h1(class='mb-5 text-h1') Admin
+    div(class=['mb-8 grid gap-3', phone ? 'grid-cols-2' : 'grid-cols-4'])
+      each n in [1, 2, 3, 4]
+        +card()(class='flex flex-col gap-3')
+          +skeleton()(class='h-3 w-24')
+          +skeleton()(class='h-8 w-20')
+          +skeleton()(class='h-3 w-28')
+    h2(class='mb-3 text-h2') Download history
+    div(class='flex flex-col gap-2')
+      each n in [1, 2, 3, 4, 5]
+        div(class='flex items-center gap-4 rounded-lg border border-line bg-surface p-3')
+          +skeleton()(class='h-3.5 w-2/5')
+          +skeleton()(class='ml-auto h-6 w-24 rounded-full')
+
+mixin adminState(view, label, opts)
+  - opts = opts || {}
+  +screenRow(label)
+    +appFrame(view)
+      +dlBar(view, { active: 'admin', admin: opts.admin !== false })
+      +dlMain(view)
+        block
+
+block content
+  +mockHead({ back: true, eyebrow: 'download · /admin', title: 'Admin' })
+    p System-wide numbers, the complete download history — every user, every status, with every attribution unmasked — a top-downloaders list, and the audit trail. Admin-only: anyone else gets the not-authorized page.
+
+  +mockSection('admin', 'Admin', 'Numbers up top, then history, then who and what.')
+    +viewports('admin-viewport')
+      each view in ['desktop', 'mobile']
+        - const phone = view === 'mobile'
+        +viewportPanel(view)
+          +adminState(view, 'Not authorized · not on the list', { admin: false })
+            +notAuthorized(view, { page: 'Admin' })
+
+          +adminState(view, 'Default · stats, history, leaderboard, audit log')
+            +adminHead(view)
+            +stats(view)
+            +history(view, HISTORY)
+            div(class=['flex gap-5', phone ? 'flex-col' : 'items-start'])
+              div(class=phone ? '' : 'w-[320px] shrink-0')
+                +leaderboard
+              div(class='min-w-0 flex-1')
+                +auditLog(view)
+
+          +adminState(view, 'Filter chips · requester, type and date applied')
+            +adminHead(view)
+            +appliedFilters(CHIPS)(class='mb-5')
+            +history(view, [HISTORY[1], HISTORY[5]])
+
+          +adminState(view, 'Empty · nothing recorded yet')
+            +adminHead(view)
+            +stats(view)
+            +emptyState('No downloads yet', 'Once anyone downloads something, every job they run — finished, failed or cancelled — appears here.', 'Search or paste a link')
+
+          +adminState(view, 'Empty · filtered to nothing')
+            +adminHead(view)
+            +appliedFilters(CHIPS)(class='mb-5')
+            +emptyState('Nothing matches these filters', 'Other downloads exist — this combination just has no rows. Clear a filter to widen the view.', 'Clear filters')
+
+          +adminState(view, 'Loading · the dashboard’s own geometry')
+            +adminLoading(view)
+
+          +adminState(view, 'Error · the dashboard didn’t load')
+            +boundaryError(view, { title: 'The dashboard didn’t load', lead: 'The download service didn’t answer.', detail: 'Nothing was lost — the numbers just couldn’t be read. Try again in a minute.' })

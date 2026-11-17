@@ -1,5 +1,6 @@
 'use client'
 
+import { Button, Icon, Menu, Segmented } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { DiscoveryFacets } from '@lilnas/utils/download/types'
 import { usePathname, useRouter } from 'next/navigation'
@@ -9,7 +10,6 @@ import { useRef, useState } from 'react'
 import type { SearchFilterDraft } from 'src/components/search/search-filters'
 import { SearchFilters } from 'src/components/search/search-filters'
 import type {
-  SearchSort,
   SearchState,
   SearchView,
 } from 'src/components/search/search-params'
@@ -21,55 +21,18 @@ import {
   SEARCH_SORTS,
   searchStateToQueryString,
 } from 'src/components/search/search-params'
-import { Button } from 'src/components/ui/button'
 import {
   AppliedFilterChip,
   FilterPanel,
   FiltersButton,
   FilterScrim,
 } from 'src/components/ui/filters'
-import type { IconName } from 'src/components/ui/icon'
-import { Icon } from 'src/components/ui/icon'
-import { Menu, MenuItem } from 'src/components/ui/menu'
 
-/**
- * `search.pug:76`. Two mutually exclusive appearance strings, not a base plus
- * an override — `bg-uv-ghost` and `hover:bg-surface-2` are the same property.
- */
-const VIEW_BUTTON = cns(
-  'inline-flex h-[30px] w-[30px] items-center justify-center rounded-[7px]',
-  'transition-[background-color,color] duration-200 ease-uv',
-)
-
-const VIEW_BUTTON_ACTIVE = 'bg-uv-ghost text-uv-hi'
-const VIEW_BUTTON_IDLE = 'text-ink-3 hover:bg-surface-2 hover:text-ink'
-
-/**
- * `search.pug:67` sizes the toolbar's controls `sm` on mobile and default on
- * desktop. `size` is a single value, so the responsive pair is expressed as
- * classes — which land last through `cns` and therefore win over whichever
- * size the component picked.
- */
-const TOOLBAR_CONTROL = cns(
-  'h-[30px] px-[11px] text-[13px]',
-  'sm:h-[38px] sm:px-[15px] sm:text-[14px]',
-)
-
-const SORT_TRIGGER = cns(
-  'h-[30px] px-[11px] text-[13px]',
-  'sm:h-[38px] sm:px-3 sm:text-[14px]',
-)
-
-const VIEW_OPTIONS: ReadonlyArray<{
-  icon: IconName
-  label: string
-  value: SearchView
-}> = [
-  // ⚠️ `grid-fill`, not `grid`: they are different glyphs, and the toolbar's
-  // switch uses the filled one.
-  { icon: 'grid-fill', label: 'Grid view', value: 'grid' },
-  { icon: 'list', label: 'List view', value: 'list' },
-]
+/** The grid / list switch: `Segmented`, one radio each. */
+const VIEW_OPTIONS = [
+  { label: 'Grid', value: 'grid' },
+  { label: 'List', value: 'list' },
+] as const satisfies ReadonlyArray<{ label: string; value: SearchView }>
 
 export type SearchToolbarProps = {
   /** The genre vocabulary for the current query, for the filter panel. */
@@ -146,8 +109,8 @@ export function SearchToolbar({
     <>
       <div
         className={cns(
-          'relative mt-[22px] mb-4 flex flex-wrap items-center justify-between gap-2.5',
-          'sm:mt-[30px] sm:mb-[18px] sm:gap-4',
+          'relative mb-4 flex items-center justify-between',
+          'flex-wrap gap-2 sm:flex-nowrap sm:gap-4',
           open && 'z-20',
         )}
       >
@@ -155,60 +118,57 @@ export function SearchToolbar({
           {`${total} ${plural}`}
           <span className="hidden sm:inline">{` for “${state.query}”`}</span>
         </span>
-        <div className="flex shrink-0 items-center gap-2 sm:gap-2.5">
+        <div className="flex shrink-0 items-center gap-2">
           {showViewToggle ? (
-            <div
-              aria-label="Result view"
-              className="inline-flex shrink-0 gap-0.5 rounded-md border border-line bg-surface p-[3px]"
-              role="group"
-            >
-              {VIEW_OPTIONS.map(option => (
-                <button
-                  aria-label={option.label}
-                  aria-pressed={state.view === option.value}
-                  className={cns(
-                    VIEW_BUTTON,
-                    state.view === option.value
-                      ? VIEW_BUTTON_ACTIVE
-                      : VIEW_BUTTON_IDLE,
-                  )}
-                  key={option.value}
-                  onClick={() => navigate({ ...state, view: option.value })}
-                  type="button"
-                >
-                  <Icon className="h-[15px] w-[15px]" name={option.icon} />
-                </button>
-              ))}
-            </div>
+            <Segmented
+              label="Result view"
+              options={VIEW_OPTIONS}
+              size="sm"
+              value={state.view}
+              onValueChange={view => navigate({ ...state, view })}
+            />
           ) : null}
-          <Menu
-            className="w-[150px] shrink-0 sm:w-[168px]"
-            label={SEARCH_SORT_LABELS[state.sort]}
-            onValueChange={value =>
-              navigate({ ...state, sort: value as SearchSort })
-            }
-            triggerClassName={SORT_TRIGGER}
-            triggerProps={{
-              'aria-label': `Sort by ${SEARCH_SORT_LABELS[state.sort]}`,
-            }}
-            value={state.sort}
-          >
-            {SEARCH_SORTS.map(sort => (
-              <MenuItem key={sort} value={sort}>
-                {SEARCH_SORT_LABELS[sort]}
-              </MenuItem>
-            ))}
-          </Menu>
+          <Menu.Root>
+            <Menu.Trigger
+              render={
+                <Button
+                  aria-label={`Sort by ${SEARCH_SORT_LABELS[state.sort]}`}
+                  icon="sort"
+                  iconEnd="chevron"
+                  variant="outline"
+                />
+              }
+            >
+              <span className="max-sm:hidden">
+                Sort: {SEARCH_SORT_LABELS[state.sort]}
+              </span>
+              <span className="sm:hidden">Sort</span>
+            </Menu.Trigger>
+            <Menu.Popup align="end">
+              {SEARCH_SORTS.map(sort => (
+                <Menu.Item
+                  aria-checked={state.sort === sort}
+                  key={sort}
+                  role="menuitemradio"
+                  onClick={() => navigate({ ...state, sort })}
+                >
+                  <span className="flex-1">{SEARCH_SORT_LABELS[sort]}</span>
+                  {state.sort === sort ? (
+                    <Icon className="size-3.5 text-accent-hi" name="check" />
+                  ) : null}
+                </Menu.Item>
+              ))}
+            </Menu.Popup>
+          </Menu.Root>
           <FiltersButton
-            className={TOOLBAR_CONTROL}
             count={count}
-            onClick={() => setOpen(!open)}
             open={open}
             ref={triggerRef}
+            onClick={() => setOpen(!open)}
           />
         </div>
         <FilterPanel
-          className="absolute top-[calc(100%+10px)] right-0 left-0 sm:left-auto sm:w-[460px]"
+          className="absolute inset-x-0 top-[calc(100%+8px)] sm:left-auto sm:w-[460px]"
           onOpenChange={setOpen}
           open={open}
           triggerRef={triggerRef}
@@ -229,7 +189,7 @@ export function SearchToolbar({
       {hasAppliedFilters(state) ? (
         <div
           aria-label="Active filters"
-          className="mb-5 flex flex-wrap gap-2 sm:mb-[22px] sm:gap-[9px]"
+          className="mb-4 flex flex-wrap items-center gap-2"
           role="group"
         >
           {state.genres.map(genre => (
@@ -254,12 +214,7 @@ export function SearchToolbar({
               removeLabel="Remove release year filter"
             />
           ) : null}
-          <Button
-            className="hidden h-[27px] px-2.5 text-[12px] sm:inline-flex"
-            onClick={clearFilters}
-            size="sm"
-            variant="ghost"
-          >
+          <Button onClick={clearFilters} size="sm" variant="ghost">
             Clear all
           </Button>
         </div>

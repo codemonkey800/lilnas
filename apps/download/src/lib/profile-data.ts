@@ -20,7 +20,7 @@ import { getViewer } from 'src/lib/viewer'
  * reader's own profile is one click away.
  */
 export const FOREIGN_PROFILE_DESCRIPTION =
-  'This profile belongs to someone else. You can only see your own, unless you’re an admin.'
+  'Only an admin can open another person’s profile. Nothing has gone wrong — yours is under your avatar.'
 
 /** What the pagination action says when the same refusal arrives mid-scroll. */
 export const FOREIGN_PROFILE_ERROR =

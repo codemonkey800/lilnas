@@ -25,6 +25,15 @@ jest.mock('src/lib/viewer', () => ({
   getViewer: jest.fn(),
 }))
 
+// The hero is a client field: it reads the router and posts a link download.
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn() }),
+}))
+
+jest.mock('src/app/actions/start-video-download', () => ({
+  startVideoDownload: jest.fn(),
+}))
+
 const mockGetClient = jest.mocked(getIdentifiedDownloadClient)
 const mockGetViewer = jest.mocked(getViewer)
 
@@ -122,9 +131,9 @@ describe('HomePage', () => {
 
     // One row fetched, seven in flight. `items.length` would say 1.
     expect(client.getActivity).toHaveBeenCalledWith({ limit: 1 })
-    expect(
-      screen.getByRole('link', { name: /Downloads activity/ }),
-    ).toHaveTextContent('7 running now')
+    expect(screen.getByRole('link', { name: /Activity/ })).toHaveTextContent(
+      '7 running',
+    )
   })
 
   it('takes the library counts from the facets, absent types included', async () => {
@@ -132,13 +141,11 @@ describe('HomePage', () => {
 
     render(await HomePage())
 
-    expect(
-      screen.getByRole('link', { name: /Browse movies/ }),
-    ).toHaveTextContent('318 in the library')
+    expect(screen.getByRole('link', { name: /Movies/ })).toHaveTextContent(
+      '318',
+    )
     // `show` is missing from the facets entirely.
-    expect(
-      screen.getByRole('link', { name: /Browse shows/ }),
-    ).toHaveTextContent('0 in the library')
+    expect(screen.getByRole('link', { name: /Shows/ })).toHaveTextContent('0')
   })
 
   it('reads sensibly with nothing downloaded and nothing running', async () => {
@@ -150,9 +157,9 @@ describe('HomePage', () => {
 
     render(await HomePage())
 
-    expect(
-      screen.getByRole('link', { name: /Downloads activity/ }),
-    ).toHaveTextContent('Nothing running')
+    expect(screen.getByRole('link', { name: /Activity/ })).toHaveTextContent(
+      'Nothing running',
+    )
     expect(screen.getByText(/Nothing in the library yet/)).toBeInTheDocument()
   })
 
@@ -173,12 +180,35 @@ describe('HomePage', () => {
     expect(container.querySelector(`a[href="${PROFILE_HREF}"]`)).toBeNull()
   })
 
-  it('mounts no search field of its own — the nav bar owns that', async () => {
+  it('leads with the hero: one h1, then the one field', async () => {
     stubClient()
 
     const { container } = render(await HomePage())
 
-    expect(container.querySelector('input')).toBeNull()
-    expect(container.querySelector('form')).toBeNull()
+    expect(
+      screen.getByRole('heading', {
+        level: 1,
+        name: 'What are we downloading?',
+      }),
+    ).toBeInTheDocument()
+    expect(container.querySelectorAll('input')).toHaveLength(1)
+    expect(screen.getByRole('search')).toBeInTheDocument()
+  })
+
+  it('puts the hero before quick access, and quick access before the grid', async () => {
+    stubClient()
+
+    render(await HomePage())
+
+    const hero = screen.getByRole('heading', { level: 1 })
+    const quick = screen.getByRole('region', { name: 'Quick access' })
+    const recent = screen.getByRole('region', { name: 'Recently added' })
+
+    expect(
+      hero.compareDocumentPosition(quick) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(
+      quick.compareDocumentPosition(recent) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
   })
 })

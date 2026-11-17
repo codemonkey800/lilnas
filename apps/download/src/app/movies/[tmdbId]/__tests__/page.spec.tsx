@@ -297,8 +297,8 @@ describe('MoviePage — the request action it wires', () => {
     await renderPage()
     const user = userEvent.setup()
 
-    await user.click(screen.getByRole('button', { name: /^Quality:/ }))
-    await user.click(screen.getByRole('option', { name: 'Up to 720p' }))
+    await user.click(screen.getByRole('combobox', { name: /^Quality:/ }))
+    await user.click(await screen.findByRole('option', { name: 'Up to 720p' }))
     await user.click(screen.getByRole('button', { name: MOVIE_REQUEST_LABEL }))
 
     expect(requestMovie).toHaveBeenCalledWith({

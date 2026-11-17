@@ -180,8 +180,7 @@ If a message needs more than about six words, it's a `Note`, not a toast.
 - Sentence case everywhere: headings, buttons, labels, menu items.
 - No terminal period on labels, buttons, chips, table headers, or single-line
   toasts. Full sentences in body copy, notes and errors do get periods.
-- App names lowercase as they appear in their subdomain: `swole`, `tdr-code`,
-  `theater`. It's `lilnas`, never `LilNAS`.
+- App names lowercase as they appear in their subdomain: `tdr-code`, `theater`. It's `lilnas`, never `LilNAS`.
 - Numbers: numerals always (`3 sets`, not `three sets`). Units unspaced for
   time (`4h`, `30s`), spaced for weight (`185 lb`).
 - Use a real em dash — like this — not `--`.
@@ -195,7 +194,6 @@ just in a different room.
 
 | App        | Pace                                                                   | Example                                                                |
 | ---------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `swole`    | Short, encouraging, glanceable. The user is mid-set and sweaty.        | "Beat the last one."                                                   |
 | `tdr-code` | Terse and factual. The user is debugging and wants signal.             | "Session ended. 3 tool calls, 41s."                                    |
 | `auth`     | Reassuring and clear about status. The user is locked out and anxious. | "You're in the queue. We'll let you in as soon as Jeremy approves it." |
 | `download` | Brisk, transactional.                                                  | "Queued. It'll show up in the library when it's done."                 |

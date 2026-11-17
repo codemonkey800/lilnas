@@ -1,12 +1,10 @@
+import { Badge, Card, Icon, Kbd, Note } from '@lilnas/ui'
 import type { JSX } from 'react'
 
 import { ActionBar } from 'src/components/overview/action-bar'
 import { RouteLink } from 'src/components/overview/route-link'
 import { ServiceRow } from 'src/components/overview/service-row'
-import { StateChip } from 'src/components/overview/state-chip'
-import { Callout } from 'src/components/ui/callout'
-import { Icon } from 'src/components/ui/icon'
-import { Kbd } from 'src/components/ui/kbd'
+import { StateBadge } from 'src/components/overview/state-badge'
 import { formatDuration } from 'src/lib/format'
 import {
   displayState,
@@ -25,13 +23,9 @@ export function stackHref(stack: StackView): string {
 /** Where a stack comes from: the compose file the dashboard read it out of. */
 export function SourceBadge({ path }: { path: string }): JSX.Element {
   return (
-    <span
-      className="inline-flex max-w-full items-center gap-1.5 self-start rounded-full border border-line bg-bg-sunk py-[3px] pr-2.5 pl-2 font-mono text-mono-sm text-ink-3"
-      title={path}
-    >
-      <Icon className="h-[11px] w-[11px] shrink-0 text-ink-4" name="file" />
-      <span className="truncate">{shortPath(path)}</span>
-    </span>
+    <Badge className="max-w-full self-start font-mono" title={path}>
+      <span className="min-w-0 truncate">{shortPath(path)}</span>
+    </Badge>
   )
 }
 
@@ -42,8 +36,8 @@ export function uniqueRoutes(stack: StackView): Route[] {
     .filter(route => !seen.has(route.url) && seen.add(route.url))
 }
 
-/** The callout under the containers: what's missing, what's running, or why. */
-function CardCallout({
+/** The note under the containers: what's missing, what's running, or why. */
+function CardNote({
   stack,
   now,
 }: {
@@ -55,51 +49,52 @@ function CardCallout({
 
   if (state === 'env-missing') {
     return (
-      <Callout icon="file" tone="warn">
-        <p>
-          {missing.map((path, i) => (
-            <span key={path}>
-              {i > 0 ? ', ' : null}
-              <Kbd title={path}>{shortPath(path)}</Kbd>
-            </span>
-          ))}{' '}
-          {missing.length === 1 ? 'isn’t' : 'aren’t'} on this host, so{' '}
-          {stack.name} can’t start.
-        </p>
-        <p className="mt-1 text-ink-3">
-          Run <Kbd className="mx-1">pnpm lilnas secrets decrypt</Kbd> on the
-          host, then press Up.
-        </p>
-      </Callout>
+      <Note
+        icon={<Icon name="file" />}
+        lead={`${stack.name} can’t start: ${
+          missing.length === 1
+            ? 'a required env file isn’t'
+            : 'required env files aren’t'
+        } on this host.`}
+        tone="warn"
+      >
+        {missing.map(path => (
+          <span className="mt-1 block" key={path}>
+            <Kbd title={path}>{shortPath(path)}</Kbd>
+          </span>
+        ))}
+        Run <Kbd>pnpm lilnas secrets decrypt</Kbd> there, then press Up.
+      </Note>
     )
   }
 
   if (state === 'busy') {
     const op = stack.operation
     const last = op?.lines.at(-1)?.text
+    const action = op?.action ?? 'working'
     return (
-      <Callout icon="terminal" tone="mute">
-        <p className="flex items-center gap-2 font-mono text-mono-sm text-ink-3">
-          <span>
-            {op?.action ?? 'working'}
-            {op ? ` · ${formatDuration(now - Date.parse(op.startedAt))}` : null}
-          </span>
-        </p>
+      <Note
+        icon={<Icon name="terminal" />}
+        lead={`${action.charAt(0).toUpperCase()}${action.slice(1)} is running.`}
+        tone="accent"
+      >
+        {op
+          ? `${formatDuration(now - Date.parse(op.startedAt))} so far.`
+          : null}
         {last ? (
-          <p className="mt-0.5 font-mono text-mono-sm break-words text-ink-2">
+          <span className="mt-1 block font-mono text-mono-sm break-words text-ink-3">
             {last}
-          </p>
+          </span>
         ) : null}
-      </Callout>
+      </Note>
     )
   }
 
   const note = stackNote(stack, now)
   return note ? (
-    <Callout icon={note.icon} tone={note.tone}>
-      <p>{note.text}</p>
-      {note.detail ? <p className="mt-0.5 text-ink-3">{note.detail}</p> : null}
-    </Callout>
+    <Note icon={<Icon name={note.icon} />} lead={note.text} tone={note.tone}>
+      {note.detail}
+    </Note>
   ) : null
 }
 
@@ -116,39 +111,46 @@ export function StackCard({
   const routes = uniqueRoutes(stack)
 
   return (
-    <article className="flex flex-col gap-3.5 rounded-lg border border-line bg-surface p-4 transition-[border-color,background-color] duration-200 ease-uv hover:border-uv-dim sm:p-5">
-      <div className="flex flex-col gap-2">
-        <div className="flex items-start justify-between gap-3">
-          <h3 className="min-w-0 text-h3 break-words">
-            <a
-              className="hover:text-uv-hi hover:underline"
-              href={stackHref(stack)}
-            >
-              {stack.name}
-            </a>
-          </h3>
-          <StateChip state={displayState(stack)} />
+    <article>
+      <Card className="flex flex-col gap-3 transition-[border-color] duration-200 ease-standard hover:border-line-loud">
+        <div className="flex flex-col gap-2">
+          <div className="flex items-start justify-between gap-3">
+            <h3 className="min-w-0 text-h3 break-words">
+              <a
+                className="hover:text-accent-hi hover:underline"
+                href={stackHref(stack)}
+              >
+                {stack.name}
+              </a>
+            </h3>
+            <StateBadge state={displayState(stack)} />
+          </div>
+          <SourceBadge path={stack.composeFile} />
         </div>
-        <SourceBadge path={stack.composeFile} />
-      </div>
 
-      {routes.length > 0 ? (
-        <div className="flex flex-col gap-1.5">
-          {routes.map(route => (
-            <RouteLink key={route.url} route={route} />
+        {routes.length > 0 ? (
+          <div className="flex flex-col gap-1.5">
+            {routes.map(route => (
+              <RouteLink key={route.url} route={route} />
+            ))}
+          </div>
+        ) : null}
+
+        <div className="flex flex-col gap-3 border-t border-line-soft pt-3">
+          {stack.services.map(service => (
+            <ServiceRow key={service.name} now={now} service={service} />
           ))}
         </div>
-      ) : null}
 
-      <div className="flex flex-col gap-3 border-t border-line-soft pt-3.5">
-        {stack.services.map(service => (
-          <ServiceRow key={service.name} now={now} service={service} />
-        ))}
-      </div>
+        <CardNote now={now} stack={stack} />
 
-      <CardCallout now={now} stack={stack} />
-
-      <ActionBar onActed={onChanged} stack={stack} />
+        <ActionBar
+          className="mt-auto border-t border-line-soft pt-3"
+          onActed={onChanged}
+          split
+          stack={stack}
+        />
+      </Card>
     </article>
   )
 }

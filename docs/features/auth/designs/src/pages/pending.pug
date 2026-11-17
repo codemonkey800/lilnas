@@ -1,0 +1,44 @@
+extends ../../../../../designs/mockup-kit/page.pug
+
+include ../mixins/auth.pug
+
+block title
+  | auth — Pending · UI mockups
+
+//-
+  The waiting room and the declined screen at 1280 and 390. Copy and states
+  are in src/data/pending.mjs.
+
+mixin pendingCard(view, st)
+  +gate(view)
+    +statusRing(st.kind)
+    +gateHeading(st.heading, st.body)
+    +identityRow(identity)
+    +targetPill(target)
+    if st.requested
+      p(class='text-center text-cap text-ink-3')= st.requested
+    div(class='flex flex-col gap-2')
+      -
+        const primary = Object.assign({ variant: st.primary.accent ? 'accent' : 'outline', size: 'lg', full: true }, st.primary)
+      +btn(primary)(class=st.primary.spin ? '[&_svg]:animate-spin' : '')
+      +btn({ variant: 'ghost', size: 'lg', full: true, label: 'Sign out' })
+    +note(st.note.tone, st.note.lead)= st.note.body
+
+block content
+  +mockHead({ eyebrow: 'auth · pending', title: 'Pending', back: true })
+    p Someone asked for a service and an admin hasn’t answered. The page listens for the decision and sends them on the moment it lands, so Check again is a nudge, not a chore.
+
+  div(class='vp-scope flex flex-col items-center gap-6')
+    +viewportToggle('pending-viewport')
+    +viewportPanel('desktop')
+      each st in states
+        +stateRow(st.label, { stack: true })(class='w-full')
+          div(class='flex w-full flex-col gap-2')
+            +pendingCard('desktop', st)
+            +frameLabel Desktop · 1280
+    +viewportPanel('mobile')
+      each st in states
+        +stateRow(st.label, { stack: true })(class='w-full')
+          div(class='flex w-full flex-col items-center gap-2')
+            +pendingCard('mobile', st)
+            +frameLabel Mobile · 390

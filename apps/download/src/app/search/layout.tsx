@@ -1,6 +1,7 @@
 import type { JSX, ReactNode } from 'react'
 
 import { SearchHero } from 'src/components/search/search-hero'
+import { PageMain } from 'src/components/shell/page-main'
 
 /**
  * `/search`'s own shell.
@@ -25,11 +26,9 @@ export default function SearchLayout({
   children: ReactNode
 }): JSX.Element {
   return (
-    <main className="flex-auto px-6 pt-[18px] pb-[30px] sm:px-8 sm:pt-[30px] sm:pb-11">
-      <div className="mx-auto max-w-[1080px]">
-        <SearchHero />
-        {children}
-      </div>
-    </main>
+    <PageMain>
+      <SearchHero />
+      {children}
+    </PageMain>
   )
 }

@@ -1,0 +1,59 @@
+extends ../../../../../designs/mockup-kit/page.pug
+
+include ../mixins/tdr-code.pug
+
+block title
+  | tdr-code — error boundaries · UI mockups
+
+//-
+  error.tsx renders inside the root layout (the nav stays); global-error.tsx
+  renders when the layout itself failed. The global one is drawn with inline
+  styles only, on purpose: it must not depend on anything that can be broken.
+  Copy and sample data are in src/data/boundaries.mjs.
+
+mixin segmentScreen(view)
+  - const phone = view === 'mobile'
+  +shell(view, 'Logs', { width: 'max-w-xl' })
+    div(class='flex flex-col gap-4 py-6')
+      +errorBlock(view, segment.lead, segment.detail, segment.code + ' · ' + segment.digest, segment.action)
+
+//- Inline styles only: no class, no kit mixin, no Tailwind, no sprite.
+mixin globalScreen(view)
+  - const phone = view === 'mobile'
+  +appFrame(view, { height: phone ? 300 : 200 })
+    div(style='flex:1;background:#0e0c14;color:#ebe8f2;font-family:system-ui,sans-serif;padding:2rem;font-size:14px;line-height:1.5')
+      p(style='margin:0;font-size:16px;font-weight:600')= global.heading
+      p(style='margin:0.5rem 0 0;color:#a29cb4')= global.body
+      button(type='button' style='margin-top:1rem;padding:0.5rem 1rem;background:#9b7bf5;color:#120a2a;border:none;border-radius:6px;font:inherit;font-weight:500')= global.action
+
+mixin inlineValuesTable
+  +card()(class='w-full max-w-[640px]')
+    h3(class='mb-3 text-h3') What global-error.tsx inlines
+    dl(class='flex flex-col')
+      each v in inlineValues
+        div(class='flex flex-wrap items-baseline justify-between gap-x-4 border-t border-line-soft py-2 first:border-t-0 first:pt-0')
+          dt(class='text-sm text-ink-2')= v[0]
+          dd(class='flex items-baseline gap-3')
+            span(class='font-mono text-mono-sm text-ink')= v[1]
+            span(class='font-mono text-mono-sm text-ink-4')= v[2]
+
+block content
+  +mockHead({ eyebrow: 'tdr-code · error.tsx · global-error.tsx', title: 'Error boundaries', back: true })
+    p Two boundaries, two jobs. The segment error (#[+code('error.tsx')]) catches a render failure inside one page: the nav shell stays, so you can leave. It says what broke, what still works and what to press, with the machine message in mono after it. The global error (#[+code('global-error.tsx')]) catches a failure in the root layout, so it can't use Tailwind, the Geist font, the icon sprite or any component: it stays inline-styled, with the design system's values copied in by hand.
+
+  div(class='vp-scope flex flex-col items-center gap-8')
+    +viewportToggle('boundaries-viewport')
+    +viewportPanel('desktop')
+      +stateRow('Segment error · the page failed, the nav stays', { stack: true })(class='w-full')
+        +segmentScreen('desktop')
+      +stateRow('Global error · the layout failed, inline styles only', { stack: true })(class='w-full')
+        +globalScreen('desktop')
+        +inlineValuesTable
+      +frameLabel Desktop · 1280
+    +viewportPanel('mobile')
+      +stateRow('Segment error', { stack: true })(class='w-full')
+        +segmentScreen('mobile')
+      +stateRow('Global error', { stack: true })(class='w-full')
+        +globalScreen('mobile')
+        +inlineValuesTable
+      +frameLabel Mobile · 390

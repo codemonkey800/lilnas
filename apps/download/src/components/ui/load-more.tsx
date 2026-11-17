@@ -1,10 +1,8 @@
 'use client'
 
+import { Button } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { ComponentPropsWithoutRef, JSX } from 'react'
-
-import { Button } from 'src/components/ui/button'
-import { Spinner } from 'src/components/ui/feedback'
 
 export type LoadMoreProps = Omit<
   ComponentPropsWithoutRef<'div'>,
@@ -61,7 +59,8 @@ export type LoadMoreProps = Omit<
  * meant Tabbing from the top of the document, past every row that had just
  * been appended. `aria-disabled` keeps the button focusable and still
  * announces it as disabled, and `Button` swallows `onClick` while it is set,
- * so a double-press cannot fire a second fetch.
+ * so a double-press cannot fire a second fetch. `loading` sets both and swaps
+ * the label's width-neutral ring in.
  */
 export function LoadMore({
   loaded,
@@ -81,18 +80,14 @@ export function LoadMore({
   return (
     <div
       {...props}
-      className={cns('flex flex-col items-center gap-[13px]', className)}
+      className={cns('flex flex-col items-center gap-2', className)}
     >
-      <p
-        aria-live="polite"
-        className="font-mono text-mono-sm tabular-nums text-ink-4"
-      >
+      <p aria-live="polite" className="text-cap text-ink-3">
         Showing {loaded} of {total}
       </p>
       {hasMore ? (
-        <Button aria-disabled={pending} onClick={onLoadMore} variant="outline">
-          {pending ? <Spinner /> : null}
-          Load more
+        <Button loading={pending} onClick={onLoadMore} variant="outline">
+          {pending ? 'Loading more' : 'Load more'}
         </Button>
       ) : null}
     </div>

@@ -272,8 +272,8 @@ function requestStub(): jest.Mock {
 
 describe('the request action it wires', () => {
   async function pickTier(label: string): Promise<void> {
-    await userEvent.click(screen.getByRole('button', { name: /^Quality:/ }))
-    await userEvent.click(screen.getByRole('option', { name: label }))
+    await userEvent.click(screen.getByRole('combobox', { name: /^Quality:/ }))
+    await userEvent.click(await screen.findByRole('option', { name: label }))
   }
 
   it('forwards the picked tier with the whole-series request', async () => {

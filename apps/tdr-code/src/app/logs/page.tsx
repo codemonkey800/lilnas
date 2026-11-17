@@ -1,5 +1,6 @@
 'use client'
 
+import { Tabs } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -99,86 +100,85 @@ export default function LogsPage() {
   const sourceByStream = new Map(sources.map(s => [s.stream, s]))
 
   return (
-    // The detail panel now OVERLAYS the row grid (fixed, with a backdrop that
-    // closes it on outside click — see LogDetailPanel), so this container no
-    // longer reserves a right-hand column: it stays full-width whether or not
-    // a line is selected, and nothing shifts when the drawer opens/closes.
+    // The detail sheet OVERLAYS the row grid (fixed, with a scrim that closes
+    // it on outside click — see LogDetailPanel), so this container never
+    // reserves a right-hand column: it stays full-width whether or not a line
+    // is selected, and nothing shifts when the sheet opens/closes.
     <PageContainer title="Logs">
-      <div
-        role="tablist"
-        aria-label="Log source"
-        className="flex items-center gap-1 border-b border-gray-800"
+      <Tabs.Root
+        value={activeTab}
+        onValueChange={value => handleTabChange(value as LogStream)}
+        className="flex flex-col gap-4"
       >
-        {TABS.map(({ stream, label }) => (
-          <button
-            key={stream}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === stream}
-            data-track-id={`logs-tab-${stream}`}
-            onClick={() => handleTabChange(stream)}
-            className={cns(
-              'rounded-t-md px-3 py-1.5 text-sm font-medium transition-colors',
-              activeTab === stream
-                ? 'bg-gray-800 text-white'
-                : 'text-gray-500 hover:bg-gray-900 hover:text-gray-300',
-            )}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {/*
-        Decision #1 (mount-all-hide-inactive): every stream that HAS content
-        gets its own permanently-mounted LogViewer instance, toggled via a
-        CSS display class rather than conditional rendering — LogViewer
-        resets all internal state (window, scroll, eviction) whenever its
-        `stream` prop's identity changes, so swapping ONE shared instance's
-        `stream` on tab click would blow away scroll position on every
-        switch (violates R2). A stream with no content yet (decision #2)
-        renders EmptyState only while active — there is nothing to mount,
-        and no LogViewer means no wasted fetch.
-      */}
-      {TABS.map(({ stream }) => {
-        const source = sourceByStream.get(stream)
-        const hasContent = source && source.exists && source.size > 0
-        const isActive = activeTab === stream
-
-        if (!hasContent) {
-          return isActive ? (
-            <EmptyState
+        <Tabs.List aria-label="Log source" scroll>
+          {TABS.map(({ stream, label }) => (
+            <Tabs.Tab
               key={stream}
-              message="This log file is empty or has not been created."
-            />
-          ) : null
-        }
+              value={stream}
+              data-track-id={`logs-tab-${stream}`}
+              className="shrink-0 font-mono"
+            >
+              {label}
+            </Tabs.Tab>
+          ))}
+          <Tabs.Indicator />
+        </Tabs.List>
 
-        return (
-          <div
-            key={stream}
-            className={cns(isActive ? 'block' : 'hidden')}
-            data-track-id={`logs-panel-${stream}`}
-          >
-            <LogViewer
-              stream={stream}
-              readWindow={api.readLogWindow}
-              onSelectLine={setSelectedLine}
-              isActive={isActive}
-              // U12: each instance gets its OWN slice of filtersByStream —
-              // this (not anything LogViewer itself does) is what makes
-              // filter state genuinely per-tab/preserved-across-switches
-              // (R2), the identical reasoning that already makes each
-              // instance's own internal windowed-view state survive a tab
-              // switch (this page's own state object never resets, and
-              // every stream's slice is independent of every other's).
-              filters={filtersByStream[stream]}
-              onFiltersChange={patch => patchFilters(stream, patch)}
-              onClearFilters={() => clearFilters(stream)}
-            />
-          </div>
-        )
-      })}
+        {/*
+          Decision #1 (mount-all-hide-inactive): every stream that HAS content
+          gets its own permanently-mounted LogViewer instance, kept in the DOM
+          by `keepMounted` and toggled via a CSS display class —
+          LogViewer resets all internal state (window, scroll, eviction)
+          whenever its `stream` prop's identity changes, so swapping ONE
+          shared instance's `stream` on tab click would blow away scroll
+          position on every switch (violates R2). A stream with no content yet
+          (decision #2) renders EmptyState only while active — there is
+          nothing to mount, and no LogViewer means no wasted fetch.
+        */}
+        {TABS.map(({ stream }) => {
+          const source = sourceByStream.get(stream)
+          const hasContent = source && source.exists && source.size > 0
+          const isActive = activeTab === stream
+
+          if (!hasContent) {
+            return (
+              <Tabs.Panel key={stream} value={stream}>
+                <EmptyState
+                  message="This log is empty"
+                  body="Nothing has been written, or the file doesn't exist yet."
+                />
+              </Tabs.Panel>
+            )
+          }
+
+          return (
+            <Tabs.Panel
+              key={stream}
+              value={stream}
+              keepMounted
+              className={cns(isActive ? 'block' : 'hidden')}
+              data-track-id={`logs-panel-${stream}`}
+            >
+              <LogViewer
+                stream={stream}
+                readWindow={api.readLogWindow}
+                onSelectLine={setSelectedLine}
+                isActive={isActive}
+                // U12: each instance gets its OWN slice of filtersByStream —
+                // this (not anything LogViewer itself does) is what makes
+                // filter state genuinely per-tab/preserved-across-switches
+                // (R2), the identical reasoning that already makes each
+                // instance's own internal windowed-view state survive a tab
+                // switch (this page's own state object never resets, and
+                // every stream's slice is independent of every other's).
+                filters={filtersByStream[stream]}
+                onFiltersChange={patch => patchFilters(stream, patch)}
+                onClearFilters={() => clearFilters(stream)}
+              />
+            </Tabs.Panel>
+          )
+        })}
+      </Tabs.Root>
 
       <LogDetailPanel
         line={selectedLine}

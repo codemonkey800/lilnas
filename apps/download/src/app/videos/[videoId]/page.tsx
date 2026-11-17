@@ -138,12 +138,6 @@ export default async function VideoDetailPage({
 
   return (
     <VideoDetailShell>
-      {/*
-        `DetailHeader` renders the title as a `<p class="text-h1">` — the
-        mockups' own markup — so the document's one heading is here, for a
-        screen reader only. The same split `/gallery` makes.
-      */}
-      <h1 className="sr-only">{media.title}</h1>
       <LibraryLink />
       <JobEventsProvider>
         <VideoDetailLive

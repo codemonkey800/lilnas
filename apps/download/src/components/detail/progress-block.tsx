@@ -1,8 +1,8 @@
+import { Card } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { JSX, ReactNode } from 'react'
 
-import { Card } from 'src/components/ui/card'
-import { Bar } from 'src/components/ui/status'
+import { SettlingProgress } from 'src/components/ui/settling-progress'
 
 export type ProgressBlockProps = {
   detail: ReactNode
@@ -41,39 +41,31 @@ export function ProgressBlock({
   settling = false,
 }: ProgressBlockProps): JSX.Element {
   return (
-    <Card className={cns('max-w-[480px] p-4 sm:p-5')}>
-      <div className={cns('flex flex-col gap-[14px] sm:gap-4')}>
-        <div>
-          <div
-            className={cns('mb-2 flex items-center justify-between gap-2.5')}
-          >
-            <span className={cns('font-mono text-mono-sm text-ink-3')}>
-              {note}
-            </span>
-            <span
-              aria-hidden="true"
-              className={cns('font-mono text-mono-sm tabular-nums text-uv-hi')}
-            >
-              {`${Math.round(pct)}%`}
-            </span>
-          </div>
-          <Bar
-            aria-label="Download progress"
-            aria-valuetext={
-              settling && typeof note === 'string'
-                ? `${Math.round(pct)}%, ${note}`
-                : undefined
-            }
-            pct={pct}
-            settling={settling}
-          />
-        </div>
-        {detail ? (
-          <p className={cns('font-mono text-mono-sm tabular-nums text-ink-3')}>
-            {detail}
-          </p>
-        ) : null}
+    <Card
+      className={cns('flex max-w-[480px] flex-col gap-3 border-accent-dim')}
+    >
+      <div className={cns('flex items-center justify-between gap-2.5')}>
+        <span className={cns('text-cap text-ink-3')}>{note}</span>
+        <span
+          aria-hidden="true"
+          className={cns('text-sm font-medium text-accent-hi tabular-nums')}
+        >
+          {`${Math.round(pct)}%`}
+        </span>
       </div>
+      <SettlingProgress
+        aria-label="Download progress"
+        aria-valuetext={
+          settling && typeof note === 'string'
+            ? `${Math.round(pct)}%, ${note}`
+            : undefined
+        }
+        pct={pct}
+        settling={settling}
+      />
+      {detail ? (
+        <p className={cns('text-cap text-ink-3 tabular-nums')}>{detail}</p>
+      ) : null}
     </Card>
   )
 }

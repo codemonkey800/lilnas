@@ -1,20 +1,16 @@
 import '@testing-library/jest-dom'
 
+import { Icon } from '@lilnas/ui'
 import { render, screen } from '@testing-library/react'
 
 import { LIBRARY_HREF } from 'src/components/detail/library-link'
-import {
-  NOT_AUTHORIZED_ICON,
-  NotAuthorized,
-} from 'src/components/shell/not-authorized'
+import { NotAuthorized } from 'src/components/shell/not-authorized'
 import {
   NOT_FOUND_BACK_LABEL,
   NOT_FOUND_DESCRIPTION,
-  NOT_FOUND_ICON,
   NOT_FOUND_TITLE,
   NotFound,
 } from 'src/components/shell/not-found'
-import { iconSymbolId } from 'src/components/ui/icon'
 
 /** The rendered class list, which is the only place `cns` output is real. */
 function classesOf(element: Element): string[] {
@@ -41,14 +37,13 @@ describe('NotFound', () => {
     expect(screen.getByText(NOT_FOUND_DESCRIPTION)).toBeInTheDocument()
   })
 
-  it('gives the page a real heading rather than styled prose', () => {
+  it('gives the page a real h2 heading rather than styled prose', () => {
     render(<NotFound />)
     const heading = screen.getByRole('heading', { name: NOT_FOUND_TITLE })
 
-    // An <h2>, not an <h1>: the route supplies its own title (usually
-    // `sr-only`), and this panel is content underneath it.
+    // An <h2>, not an <h1>: the route supplies its own
+    // title (usually `sr-only`), and this panel is content underneath it.
     expect(heading.tagName).toBe('H2')
-    expect(classesOf(heading)).toContain('text-h2')
   })
 
   it('specialises its heading and sentence for a call site', () => {
@@ -68,12 +63,15 @@ describe('NotFound', () => {
     expect(screen.queryByText(NOT_FOUND_DESCRIPTION)).toBeNull()
   })
 
-  it('sends "back" to the library by default, through a real anchor', () => {
+  // An empty state is never a dead end, and never offers a second way out.
+  it('offers exactly one action: back to the library, as a real anchor', () => {
     render(<NotFound />)
     const link = screen.getByRole('link', { name: NOT_FOUND_BACK_LABEL })
 
+    expect(NOT_FOUND_BACK_LABEL).toBe('Back to library')
     expect(link.tagName).toBe('A')
     expect(link).toHaveAttribute('href', LIBRARY_HREF)
+    expect(screen.getAllByRole('link')).toHaveLength(1)
     expect(screen.queryByRole('button')).toBeNull()
   })
 
@@ -90,8 +88,7 @@ describe('NotFound', () => {
     const { container } = render(<NotFound />)
     const panel = panelOf(container)
 
-    // A 404 is not a fault. The shipped video not-found used to wear `Note`'s
-    // `alert` icon, which is this system's error register.
+    // A 404 is not a fault: it is an `EmptyState`, never a `bad` `Note`.
     expect(screen.queryByRole('alert')).toBeNull()
     expect(panel).not.toHaveAttribute('role')
     expect(
@@ -99,22 +96,27 @@ describe('NotFound', () => {
     ).toHaveLength(0)
   })
 
-  it('⚠️ wears the search icon, not alert and not the shield', () => {
+  it('draws a decorative search icon and no mascot', () => {
     const { container } = render(<NotFound />)
-    const icon = container.querySelector('svg')
+    const link = screen.getByRole('link')
+    // Every svg outside the back link: the icon, and nothing else.
+    const outside = Array.from(container.querySelectorAll('svg')).filter(
+      svg => !link.contains(svg),
+    )
 
-    expect(icon?.querySelector('use')).toHaveAttribute(
-      'href',
-      `#${iconSymbolId(NOT_FOUND_ICON)}`,
-    )
-    expect(NOT_FOUND_ICON).not.toBe('alert')
-    // `shield` is `NotAuthorized`'s, and means "a rule applies to you" — a
-    // different answer a reader must never confuse with this one.
-    expect(NOT_FOUND_ICON).not.toBe(NOT_AUTHORIZED_ICON)
+    expect(outside).toHaveLength(1)
+    const icon = outside[0]
+    if (!icon) throw new Error('expected the icon')
     expect(icon).toHaveAttribute('aria-hidden', 'true')
-    expect(classesOf(icon as Element)).toEqual(
-      expect.arrayContaining(['h-6', 'w-6', 'text-ink-4']),
-    )
+    expect(icon).toHaveAttribute('width', '24')
+    expect(icon).toHaveAttribute('height', '24')
+    expect(classesOf(icon)).toContain('text-ink-3')
+
+    // The glyph is the search one, not just any 24px mark.
+    const expected = render(<Icon name="search" size={24} />).container
+    expect(icon.innerHTML).toBe(expected.querySelector('svg')?.innerHTML)
+    // The pepe mark is a filled, much larger svg; none of that is here.
+    expect(container.querySelector('svg[width="46"]')).toBeNull()
   })
 
   it('is the centred sunk panel, not a raised card', () => {
@@ -129,9 +131,6 @@ describe('NotFound', () => {
         'border-line',
         'mx-auto',
         'max-w-[560px]',
-        'flex',
-        'flex-col',
-        'items-center',
         'text-center',
         'py-12',
       ]),
@@ -155,7 +154,6 @@ describe('NotFound', () => {
     const classes = classesOf(screen.getByText(NOT_FOUND_DESCRIPTION))
 
     expect(classes).toContain('text-ink-3')
-    expect(classes).toContain('text-sm')
     expect(classes).not.toContain('text-ink-4')
   })
 

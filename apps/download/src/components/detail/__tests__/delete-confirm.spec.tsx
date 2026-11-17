@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import type {
@@ -68,10 +68,10 @@ function episodeScope(cascadesTo?: DeleteCascade): MediaFilesScope {
  * guarantee that keeps a prediction from rewriting the base copy.
  */
 const EPISODE_PLAIN =
-  "Removes the file for this one episode from the library. The rest of the season is left alone. This can't be undone."
+  'Removes the file for this one episode from the library. The rest of the season is left alone.'
 
 const SEASON_PLAIN =
-  "Removes the file for every episode in season 2 from the library. Other seasons are left alone. This can't be undone."
+  'Removes the file for every episode in season 2 from the library. Other seasons are left alone.'
 
 const EVERY_SCOPE: readonly DeleteScope[] = [
   MOVIE,
@@ -203,8 +203,8 @@ describe('deleteConfirmCopy — the dialog names its scope', () => {
   it('a movie says it is this movie', () => {
     const copy = deleteConfirmCopy(MOVIE, { title: MOVIE_TITLE })
 
-    expect(copy.title).toBe('Delete "Salt & Ceremony"?')
-    expect(copy.description).toContain("this movie's file")
+    expect(copy.title).toBe('Delete “Salt & Ceremony”?')
+    expect(copy.description).toContain('this movie’s file')
     expect(copy.description).toContain('removes the movie from Radarr')
     expect(copy.description).toContain('requested again')
     expect(copy.description).not.toContain('stays in')
@@ -213,7 +213,7 @@ describe('deleteConfirmCopy — the dialog names its scope', () => {
   it('a series says it is every season', () => {
     const copy = deleteConfirmCopy(SERIES, { title: SHOW_TITLE })
 
-    expect(copy.title).toBe('Delete "Harbor Watch"?')
+    expect(copy.title).toBe('Delete “Harbor Watch”?')
     expect(copy.description).toContain('every episode of every season')
     expect(copy.description).toContain('removes the series from Sonarr')
     expect(copy.description).toContain('requested again')
@@ -223,7 +223,7 @@ describe('deleteConfirmCopy — the dialog names its scope', () => {
   it('a season names the season, and says the others survive', () => {
     const copy = deleteConfirmCopy(SEASON, { title: SHOW_TITLE })
 
-    expect(copy.title).toBe('Delete season 2 of "Harbor Watch"?')
+    expect(copy.title).toBe('Delete season 2 of “Harbor Watch”?')
     expect(copy.description).toContain('every episode in season 2')
     expect(copy.description).toContain('Other seasons are left alone')
   })
@@ -231,7 +231,7 @@ describe('deleteConfirmCopy — the dialog names its scope', () => {
   it('an episode names the episode, and says the season survives', () => {
     const copy = deleteConfirmCopy(EPISODE, { title: SHOW_TITLE })
 
-    expect(copy.title).toBe('Delete S02E05 of "Harbor Watch"?')
+    expect(copy.title).toBe('Delete S02E05 of “Harbor Watch”?')
     expect(copy.description).toContain('this one episode')
     expect(copy.description).toContain('rest of the season is left alone')
   })
@@ -242,14 +242,14 @@ describe('deleteConfirmCopy — the dialog names its scope', () => {
         { episodeId: 4823, kind: 'episode' },
         { title: SHOW_TITLE },
       ).title,
-    ).toBe('Delete this episode of "Harbor Watch"?')
+    ).toBe('Delete this episode of “Harbor Watch”?')
   })
 
   it('a video says it is the download, and that the link survives', () => {
     const copy = deleteConfirmCopy(VIDEO, { title: VIDEO_TITLE })
 
-    expect(copy.title).toBe(`Delete "${VIDEO_TITLE}"?`)
-    expect(copy.description).toContain("this video's downloaded file")
+    expect(copy.title).toBe(`Delete “${VIDEO_TITLE}”?`)
+    expect(copy.description).toContain('this video’s downloaded file')
     expect(copy.description).toContain('The source link stays on this page')
   })
 
@@ -266,10 +266,11 @@ describe('deleteConfirmCopy — the dialog names its scope', () => {
     expect(description).not.toMatch(/radarr|sonarr|emby/i)
   })
 
-  it('every scope says it cannot be undone', () => {
+  it('no scope pads itself with a generic warning', () => {
+    // voice.md: name the object and the consequence, never "this can't be undone".
     for (const scope of EVERY_SCOPE) {
-      expect(deleteConfirmCopy(scope, { title: 'X' }).description).toContain(
-        "This can't be undone",
+      expect(deleteConfirmCopy(scope, { title: 'X' }).description).not.toMatch(
+        /undone|are you sure/i,
       )
     }
   })
@@ -294,13 +295,13 @@ describe('deleteConfirmCopy — the dialog names its scope', () => {
 
 describe('deleteConfirmCopy — the cascade warning', () => {
   const SEASON_WARNING =
-    "It's the last downloaded episode of the season, so the season is unmonitored too."
+    'It’s the last downloaded episode of the season, so the season is unmonitored too.'
 
   const SERIES_WARNING_FROM_EPISODE =
-    "It's the last downloaded episode of the series, so the series is removed from Sonarr."
+    'It’s the last downloaded episode of the series, so the series is removed from Sonarr.'
 
   const SERIES_WARNING_FROM_SEASON =
-    "It's the last downloaded season of the series, so the series is removed from Sonarr."
+    'It’s the last downloaded season of the series, so the series is removed from Sonarr.'
 
   it.each([['absent', undefined], ['none', 'none'] as const])(
     'leaves the episode sentence untouched when the cascade is %s',
@@ -327,7 +328,7 @@ describe('deleteConfirmCopy — the cascade warning', () => {
       deleteConfirmCopy(episodeScope('season'), { title: SHOW_TITLE })
         .description,
     ).toBe(
-      `Removes the file for this one episode from the library. ${SEASON_WARNING} This can't be undone.`,
+      `Removes the file for this one episode from the library. ${SEASON_WARNING}`,
     )
   })
 
@@ -377,12 +378,12 @@ describe('deleteConfirmCopy — the cascade warning', () => {
     ).toBe(SEASON_PLAIN)
   })
 
-  it('⚠️ keeps "This can\'t be undone" last, so the warning never trails it', () => {
+  it('⚠️ ends on the cascade warning, so nothing trails it', () => {
     for (const cascade of ['season', 'series'] as const) {
       expect(
         deleteConfirmCopy(episodeScope(cascade), { title: SHOW_TITLE })
           .description,
-      ).toMatch(/so the (season|series) is [^.]+\. This can't be undone\.$/)
+      ).toMatch(/so the (season|series) is [^.]+\.$/)
     }
   })
 
@@ -424,7 +425,7 @@ describe('deleteConfirmCopy — a multi-episode file', () => {
     )
 
     expect(copy.description).toBe(
-      "Removes this episode's file from the library. This file also holds S02E06 — it will be removed too. The rest of the season is left alone. This can't be undone.",
+      'Removes this episode’s file from the library. This file also holds S02E06 — it will be removed too. The rest of the season is left alone.',
     )
   })
 
@@ -456,7 +457,7 @@ describe('deleteConfirmCopy — a multi-episode file', () => {
       { title: SHOW_TITLE },
     )
 
-    expect(copy.title).toBe('Delete S00E01 of "Harbor Watch"?')
+    expect(copy.title).toBe('Delete S00E01 of “Harbor Watch”?')
     expect(copy.description).toContain('This file also holds S00E02')
   })
 
@@ -474,9 +475,9 @@ describe('deleteConfirmCopy — a multi-episode file', () => {
     )
 
     expect(description).toMatch(
-      /^Removes this episode's file from the library and frees 2\.1 GB\. This file also holds S02E06 — it will be removed too\. It's the last downloaded episode of the season/,
+      /^Removes this episode’s file from the library and frees 2\.1 GB\. This file also holds S02E06 — it will be removed too\. It’s the last downloaded episode of the season/,
     )
-    expect(description.endsWith("This can't be undone.")).toBe(true)
+    expect(description.endsWith('unmonitored too.')).toBe(true)
   })
 
   it('⚠️ never puts the siblings on the wire', () => {
@@ -539,23 +540,25 @@ describe('DeleteConfirm — the dialog', () => {
 
     const dialog = screen.getByRole('dialog')
 
-    expect(dialog).toHaveAccessibleName('Delete season 2 of "Harbor Watch"?')
+    expect(dialog).toHaveAccessibleName('Delete season 2 of “Harbor Watch”?')
     expect(dialog).toHaveAccessibleDescription(
       deleteConfirmCopy(SEASON, { title: SHOW_TITLE }).description,
     )
   })
 
-  it('puts the initial focus on Cancel, not on the destructive button', async () => {
+  it('puts the initial focus on Keep it, not on the destructive button', async () => {
     // APG's rule for a destructive confirm: the dialog opens on the way OUT.
     await open(MOVIE)
 
-    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Keep it' })).toHaveFocus(),
+    )
   })
 
   it('cancels without deleting anything', async () => {
     const { onDelete, user } = await open(MOVIE)
 
-    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    await user.click(screen.getByRole('button', { name: 'Keep it' }))
 
     expect(onDelete).not.toHaveBeenCalled()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
@@ -793,7 +796,7 @@ describe('DeleteConfirm — focus containment', () => {
   }
 
   function cancel(): HTMLElement {
-    return screen.getByRole('button', { name: 'Cancel' })
+    return screen.getByRole('button', { name: 'Keep it' })
   }
 
   it('takes the page behind out of the tab order and out of the a11y tree', async () => {
@@ -803,38 +806,40 @@ describe('DeleteConfirm — focus containment', () => {
     // each level's *siblings* on the walk up to the root, so what gets marked
     // is the subtree containing the trigger, not the trigger itself. Both
     // attributes travel down to it either way.
-    const shut = trigger.closest('[inert]')
+    const shut = trigger.closest('[data-base-ui-inert]')
 
     expect(shut).not.toBeNull()
     expect(shut).toHaveAttribute('aria-hidden', 'true')
     // Only the dialog's own two buttons are reachable at all.
     expect(
       screen.getAllByRole('button').map(entry => entry.textContent),
-    ).toEqual(['Cancel', 'Delete'])
+    ).toEqual(['Keep it', 'Delete'])
   })
 
-  it('cycles Tab between Cancel and Delete without ever leaving', async () => {
+  it('cycles Tab between Keep it and Delete without ever leaving', async () => {
     const { user } = await raise()
 
-    expect(cancel()).toHaveFocus()
+    await waitFor(() => expect(cancel()).toHaveFocus())
 
     await user.tab()
-    expect(confirmButton()).toHaveFocus()
+    await waitFor(() => expect(confirmButton()).toHaveFocus())
 
     // The wrap is the trap: off the end of the last control, back to the
     // first, rather than out onto the page underneath.
     await user.tab()
-    expect(cancel()).toHaveFocus()
+    await waitFor(() => expect(cancel()).toHaveFocus())
   })
 
   it('cycles Shift+Tab the other way, wrapping off the start', async () => {
     const { user } = await raise()
 
-    await user.tab({ shift: true })
-    expect(confirmButton()).toHaveFocus()
+    await waitFor(() => expect(cancel()).toHaveFocus())
 
     await user.tab({ shift: true })
-    expect(cancel()).toHaveFocus()
+    await waitFor(() => expect(confirmButton()).toHaveFocus())
+
+    await user.tab({ shift: true })
+    await waitFor(() => expect(cancel()).toHaveFocus())
   })
 
   it('hands focus back to the trigger on Escape', async () => {
@@ -846,11 +851,104 @@ describe('DeleteConfirm — focus containment', () => {
     expect(trigger).toHaveFocus()
   })
 
-  it('hands focus back to the trigger on Cancel too', async () => {
+  it('hands focus back to the trigger on Keep it too', async () => {
     const { trigger, user } = await raise()
 
     await user.click(cancel())
 
     expect(trigger).toHaveFocus()
+  })
+})
+
+/**
+ * The dialog is `ConfirmDialog`'s, so what the person reads is the title and
+ * body they are handed. These render each variant and read it back off the
+ * open dialog rather than off `deleteConfirmCopy`, so a refactor that stopped
+ * passing either would fail here.
+ */
+describe('DeleteConfirm — the open dialog names the object and the consequence', () => {
+  it('names a movie by title, with the bytes that come off the disk', async () => {
+    await open(MOVIE, { freesBytes: 2.1 * 1024 ** 3 })
+
+    const dialog = screen.getByRole('dialog')
+
+    expect(dialog).toHaveAccessibleName('Delete “Salt & Ceremony”?')
+    expect(dialog).toHaveAccessibleDescription(
+      expect.stringContaining(
+        'Removes this movie’s file from the library and frees 2.1 GB',
+      ),
+    )
+    expect(dialog).toHaveAccessibleDescription(
+      expect.stringContaining('It can be requested again later.'),
+    )
+  })
+
+  it('names a video by title and says what stays', async () => {
+    await open(VIDEO, { freesBytes: 86 * 1024 ** 2 })
+
+    const dialog = screen.getByRole('dialog')
+
+    expect(dialog).toHaveAccessibleName(`Delete “${VIDEO_TITLE}”?`)
+    expect(dialog).toHaveAccessibleDescription(
+      expect.stringContaining('The source link stays on this page'),
+    )
+  })
+
+  it('keeps the destructive cancel as “Keep it”, never “Cancel”', async () => {
+    await open(MOVIE)
+
+    expect(screen.getByRole('button', { name: 'Keep it' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Cancel' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('names the series in a season delete that will take the series', async () => {
+    await open(seasonScope('series'))
+
+    const dialog = screen.getByRole('dialog')
+
+    expect(dialog).toHaveAccessibleName('Delete season 2 of “Harbor Watch”?')
+    expect(dialog).toHaveAccessibleDescription(
+      expect.stringContaining(
+        'It’s the last downloaded season of the series, so the series is removed from Sonarr.',
+      ),
+    )
+    expect(dialog).not.toHaveAccessibleDescription(
+      expect.stringContaining('Other seasons are left alone'),
+    )
+  })
+
+  it('warns an episode delete will unmonitor the season', async () => {
+    await open(episodeScope('season'))
+
+    expect(screen.getByRole('dialog')).toHaveAccessibleDescription(
+      expect.stringContaining(
+        'It’s the last downloaded episode of the season, so the season is unmonitored too.',
+      ),
+    )
+  })
+
+  it('warns an episode delete will remove the series from Sonarr', async () => {
+    await open(episodeScope('series'))
+
+    const dialog = screen.getByRole('dialog')
+
+    expect(dialog).toHaveAccessibleDescription(
+      expect.stringContaining(
+        'It’s the last downloaded episode of the series, so the series is removed from Sonarr.',
+      ),
+    )
+    expect(dialog).not.toHaveAccessibleDescription(
+      expect.stringContaining('The rest of the season is left alone'),
+    )
+  })
+
+  it('says the plain thing when nothing cascades', async () => {
+    await open(episodeScope('none'))
+
+    expect(screen.getByRole('dialog')).toHaveAccessibleDescription(
+      expect.stringContaining('The rest of the season is left alone.'),
+    )
   })
 })

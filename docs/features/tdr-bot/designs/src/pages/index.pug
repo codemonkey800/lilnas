@@ -1,22 +1,21 @@
-extends ../layout/page.pug
+extends ../../../../../designs/mockup-kit/page.pug
 
 block title
-  | tdr-bot — UI mockups · lilnas
-
-//-
-  Pug's `.foo.bar` shorthand can't express a utility containing a . or a /
-  — `.px-1.5` parses as a class `px-1` followed by a broken `.5`. Write
-  those as class='…' instead, like the <code> below. Everything else can use
-  the shorthand.
+  | tdr-bot — UI mockups
 
 block content
-  h1.text-3xl.font-semibold tdr-bot — UI mockups
+  +mockHead({ eyebrow: 'tdr-bot', title: 'Admin screens' })
+    p The tdr-bot admin at tdr.lilnas.io: settings, transcripts, reminders, the emoji dictionary and the playground. Drawn on Category Standard with the shared kit, each at 1280 and 390.
 
-  p(class='mt-3 text-ink-2') Admin screens for the LLM redesign.
-
-  ul(class='mt-8 grid gap-4 sm:grid-cols-2')
-    each page in [{ href: 'settings.html', title: 'Settings', desc: 'Models, generation, system prompt; six states.' }, { href: 'transcript.html', title: 'Transcript', desc: 'Channel conversations with per-call LLM usage and cost.' }, { href: 'reminders.html', title: 'Reminders', desc: 'Every reminder the bot holds: filter, create, edit and cancel.' }, { href: 'emojis.html', title: 'Emojis', desc: 'The custom-emoji dictionary: search, edit descriptions, re-describe, reconcile.' }, { href: 'playground.html', title: 'Playground', desc: 'Chat with the bot\'s model outside Discord to check it uses the custom-emoji dictionary.' }]
+  ul(class='grid max-w-[880px] gap-3 sm:grid-cols-2')
+    each page in pages
       li
-        a(href=page.href class='block rounded-xl border border-line bg-surface p-5 hover:border-accent')
-          div(class='font-semibold')= page.title
-          div(class='mt-1 text-sm text-ink-2')= page.desc
+        a(
+          class='flex h-full items-start gap-3 rounded-lg border border-line bg-surface p-4 transition-[background-color,border-color] duration-200 ease-standard hover:border-line-loud hover:bg-surface-2'
+          href=page.href
+        )
+          span(class='grid size-[30px] shrink-0 place-items-center rounded-md bg-accent-ghost text-accent-hi')
+            +icon(page.icon, 16)
+          span(class='flex min-w-0 flex-col gap-1')
+            span(class='text-h3')= page.title
+            span(class='text-sm text-ink-3')= page.desc

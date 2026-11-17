@@ -1,7 +1,6 @@
+import { Icon, type IconName } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { ComponentPropsWithoutRef, JSX, ReactNode } from 'react'
-
-import { Icon, type IconName } from 'src/components/ui/icon'
 
 export type MChipProps = Omit<ComponentPropsWithoutRef<'span'>, 'children'> & {
   /**

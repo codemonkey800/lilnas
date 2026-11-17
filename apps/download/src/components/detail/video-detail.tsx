@@ -1,3 +1,4 @@
+import { Badge, Button, Icon, Note } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { DownloadJob, Video } from '@lilnas/utils/download/types'
 import {
@@ -31,10 +32,6 @@ import {
 import { VideoDownloadButton } from 'src/components/detail/video-detail-download'
 import { VideoFacts } from 'src/components/detail/video-facts'
 import { VideoPlayer } from 'src/components/detail/video-player'
-import { ButtonLink } from 'src/components/ui/button-link'
-import { Note } from 'src/components/ui/card'
-import { Chip } from 'src/components/ui/chip'
-import { Dot } from 'src/components/ui/status'
 import { formatRuntime, isInProgress, UNKNOWN_VALUE } from 'src/lib/format'
 
 /**
@@ -104,10 +101,7 @@ export const VIDEO_UNRECOGNIZED_GUIDANCE =
  * two pages read the same `connected` flag off the same socket, and giving one
  * state two names across two screens is how a vocabulary rots.
  */
-export const VIDEO_STALE_LABEL = 'reconnecting…'
-
-/** The loud `Note`, assembled at the call site the way `ui.pug` does it. */
-const UNRECOGNIZED_NOTE = 'border-bad/35! bg-bad-ghost! [&>svg]:text-bad!'
+export const VIDEO_STALE_LABEL = 'Reconnecting…'
 
 /**
  * Full-width on a phone, intrinsic from `sm` — `ACTION_BUTTON`'s shape, which
@@ -429,23 +423,65 @@ export function VideoDetail({
       ? { jobId: source.id, kind: 'video' }
       : null
 
+  const actions =
+    downloadFrom || saveable || href !== null ? (
+      <ActionRow>
+        {downloadFrom && onRetry ? (
+          <VideoDownloadButton
+            className={cns(ACTION_BUTTON)}
+            jobId={downloadFrom.id}
+            // The one accent button on a page that has nothing downloaded yet.
+            variant={state === 'absent' ? 'accent' : 'outline'}
+            onDownload={onRetry}
+          />
+        ) : null}
+        {saveable ? (
+          <SaveLocal
+            className={cns(ACTION_BUTTON)}
+            media={media}
+            variant="accent"
+          />
+        ) : null}
+        {saveable && deleteScope ? (
+          <DeleteConfirm
+            className={cns(DELETE_BUTTON)}
+            full
+            mediaId={media.id}
+            onDeleteVideo={onDelete}
+            scope={deleteScope}
+            title={media.title}
+          />
+        ) : null}
+        {href === null ? null : (
+          <Button
+            className={cns(ACTION_BUTTON)}
+            iconEnd="external"
+            variant="ghost"
+            render={<a href={href} rel="noreferrer" target="_blank" />}
+          >
+            {VIDEO_SOURCE_LABEL}
+          </Button>
+        )}
+      </ActionRow>
+    ) : null
+
   return (
     <div {...props} className={className}>
       <DetailHeader
+        actions={actions}
         attribution={
           source ? (
             <DetailAttribution
               discordRequester={source.discordRequester}
               linkedDiscord={source.linkedDiscord}
               now={now}
-              prefix="downloaded by "
               requester={source.requester}
               timestamp={source.createdAt}
             />
           ) : null
         }
         lifecycle={
-          <div className={cns('flex flex-col gap-[14px]')}>
+          <div className={cns('flex flex-col gap-4')}>
             <MediaStatus
               explain={
                 unrecognized
@@ -457,108 +493,41 @@ export function VideoDetail({
               media={media}
             />
             {reconnecting ? (
-              // `w-fit` because this is a flex column: an `inline-flex` chip
-              // is still stretched to the column's width by the default
-              // `align-items: stretch`, and the chip is a badge rather than a
-              // banner. The same intrinsic sizing `MediaStatus` gives the
-              // chip it sits under.
-              //
-              // Not a live region, matching `/activity`, which keeps its one
-              // polite region for row departures and leaves this marker
-              // visual. A socket flapping through the backoff ladder would
-              // otherwise announce itself once per window.
-              <Chip className={cns('w-fit')} tone="warn">
-                <Dot tone="warn" />
+              <Badge className={cns('w-fit')} tone="warn">
                 {VIDEO_STALE_LABEL}
-              </Chip>
+              </Badge>
             ) : null}
             {unrecognized ? (
-              // The refusal itself is on the attempt's own row below; this is
-              // only what to do about it.
               <Note
-                className={cns('max-w-[480px]', UNRECOGNIZED_NOTE)}
-                icon="alert"
-              >
-                <p>{VIDEO_UNRECOGNIZED_GUIDANCE}</p>
-              </Note>
-            ) : null}
-            <AttemptList
-              className={cns('mt-1.5 max-w-[480px]')}
-              jobs={jobs}
-              now={now}
-              onCancel={onCancel}
-              onPause={onPause}
-              onResume={onResume}
-            />
-            {downloadFrom && onRetry ? (
-              // The same media-actions slot Save and Delete take once there
-              // is a file — the two never show together.
-              <ActionRow>
-                <VideoDownloadButton
-                  className={cns(ACTION_BUTTON)}
-                  jobId={downloadFrom.id}
-                  onDownload={onRetry}
-                />
-              </ActionRow>
-            ) : null}
-            {saveable ? (
-              // Media actions, under the attempts — `video-detail.pug`'s
-              // completed frame, Save then Delete in one row.
-              <ActionRow>
-                <SaveLocal className={cns(ACTION_BUTTON)} media={media} />
-                {deleteScope ? (
-                  <DeleteConfirm
-                    className={cns(DELETE_BUTTON)}
-                    full
-                    mediaId={media.id}
-                    onDeleteVideo={onDelete}
-                    scope={deleteScope}
-                    title={media.title}
-                  />
-                ) : null}
-              </ActionRow>
+                className={cns('max-w-[480px]')}
+                icon={<Icon name="alert" />}
+                lead={VIDEO_UNRECOGNIZED_GUIDANCE}
+                tone="bad"
+              />
             ) : null}
           </div>
         }
-        links={
-          href === null ? null : (
-            // `ButtonLink`, not a fourth hand-rolled anchor wearing the
-            // button recipe. `ghost` is the quietest weight the recipe has and
-            // the negative margin cancels its padding, so the label still
-            // lines up with the title above it the way the mockup's bare link
-            // does.
-            <ButtonLink
-              className={cns('-ml-[11px] w-fit')}
-              href={href}
-              icon="external"
-              rel="noreferrer"
-              size="sm"
-              target="_blank"
-              variant="ghost"
-            >
-              {VIDEO_SOURCE_LABEL}
-            </ButtonLink>
-          )
-        }
         media={media}
-        meta={
-          <span className={cns('font-mono text-mono-sm')}>
-            {videoMetaLabel(media)}
-          </span>
-        }
-        posterOverlay={
-          complete ? (
-            <VideoPlayer
-              className={cns('absolute inset-0')}
-              poster={media.posterUrl}
-              src={videoPlayerSrc(media)}
-              title={media.title}
-            />
-          ) : null
-        }
-        posterShape="wide"
+        meta={videoMetaLabel(media)}
+        posterShape="none"
       />
-      <VideoFacts className={cns('mt-7 sm:mt-8')} media={media} />
+      {complete ? (
+        <VideoPlayer
+          className={cns('mt-8')}
+          poster={media.posterUrl}
+          src={videoPlayerSrc(media)}
+          title={media.title}
+        />
+      ) : null}
+      <VideoFacts className={cns('mt-8')} media={media} />
+      <AttemptList
+        className={cns('mt-8')}
+        jobs={jobs}
+        now={now}
+        onCancel={onCancel}
+        onPause={onPause}
+        onResume={onResume}
+      />
     </div>
   )
 }

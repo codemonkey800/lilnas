@@ -1,16 +1,7 @@
+import { Icon, Note } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { DiscoverySource } from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX } from 'react'
-
-import { Note } from 'src/components/ui/card'
-
-/**
- * `search.pug:320`'s loud override. `Note` has no `tone` prop — `ui.pug` gives
- * it exactly one appearance — so the two mockup screens that need a louder one
- * override it from the call site with `!` utilities. The icon is a direct child
- * `<svg>`, which is what lets the `[&>svg]:` selector reach it.
- */
-const LOUD_NOTE = 'border-bad/35! bg-bad-ghost! [&>svg]:text-bad!'
 
 /** Which service stands behind each discovery source. */
 const SOURCE_SERVICE: Record<DiscoverySource, string> = {
@@ -63,15 +54,24 @@ export function DegradedSourcesNote({
     .join(' and ')
 
   return (
-    <Note {...props} className={cns(LOUD_NOTE, className)} role="status">
+    <Note
+      {...props}
+      className={className}
+      icon={<Icon name="alert" />}
+      lead={
+        survivor === undefined
+          ? 'These results are incomplete.'
+          : `Showing ${SOURCE_CONTENT[survivor]} only.`
+      }
+      tone="warn"
+    >
       {survivor === undefined ? (
         <>
-          <b className="text-ink">These results are incomplete.</b> Neither{' '}
-          {failed} answered, so nothing could be searched. Try again shortly.
+          Neither {failed} answered, so nothing could be searched. Try again
+          shortly.
         </>
       ) : (
         <>
-          <b className="text-ink">Showing {SOURCE_CONTENT[survivor]} only.</b>{' '}
           {failed} didn&apos;t answer, so these results come from{' '}
           {SOURCE_SERVICE[survivor]} alone. Try again shortly for the full set.
         </>
@@ -104,9 +104,12 @@ export function NoMatchesNote({
   ...props
 }: NoMatchesNoteProps): JSX.Element {
   return (
-    <Note {...props} className={cns('reveal', className)} role="status">
-      <b className="text-ink">{`No matches for “${query}.”`}</b> Double-check
-      the spelling, or try browsing the{' '}
+    <Note
+      {...props}
+      className={cns('animate-rise', className)}
+      lead={`No matches for “${query}.”`}
+    >
+      Double-check the spelling, or try browsing the{' '}
       <a className="text-ink underline" href="/gallery">
         gallery
       </a>{' '}
@@ -129,8 +132,13 @@ export function ShortQueryNote({
   ...props
 }: ShortQueryNoteProps): JSX.Element {
   return (
-    <Note {...props} className={className} icon="search" role="status">
-      Keep typing — a search needs at least two characters.
+    <Note
+      {...props}
+      className={cns('animate-rise', className)}
+      icon={<Icon name="search" />}
+      lead="Keep typing."
+    >
+      A search needs at least two characters.
     </Note>
   )
 }

@@ -24,7 +24,7 @@ function classes(element: Element): string[] {
 /**
  * Every font-size utility on the element. An allow-list of arbitrary values
  * plus this theme's `--text-*` token names, exactly as `button.spec.tsx` does
- * it: a loose `text-` prefix would count `text-ink-4` as a size and report one
+ * it: a loose `text-` prefix would count `text-ink-3` as a size and report one
  * that isn't there.
  */
 function fontSizeClasses(element: Element): string[] {
@@ -137,11 +137,30 @@ describe('LoadMore', () => {
         />,
       )
 
-      const button = screen.getByRole('button', { name: 'Load more' })
+      const button = screen.getByRole('button', { name: 'Loading more' })
 
       expect(button).toHaveAttribute('aria-disabled', 'true')
       expect(button).not.toBeDisabled()
       expect(button).not.toHaveAttribute('disabled')
+    })
+
+    it('says Loading more while the next page is on its way', () => {
+      render(
+        <LoadMore
+          hasMore
+          loaded={24}
+          onLoadMore={onLoadMore}
+          pending
+          total={340}
+        />,
+      )
+
+      expect(
+        screen.getByRole('button', { name: 'Loading more' }),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Load more' }),
+      ).not.toBeInTheDocument()
     })
 
     it('carries no aria-disabled at rest', () => {
@@ -181,7 +200,7 @@ describe('LoadMore', () => {
 
       await user.tab()
 
-      expect(screen.getByRole('button', { name: 'Load more' })).toHaveFocus()
+      expect(screen.getByRole('button', { name: 'Loading more' })).toHaveFocus()
     })
 
     /**
@@ -204,7 +223,7 @@ describe('LoadMore', () => {
         />,
       )
 
-      const button = screen.getByRole('button', { name: 'Load more' })
+      const button = screen.getByRole('button', { name: 'Loading more' })
 
       await user.click(button)
 
@@ -215,7 +234,7 @@ describe('LoadMore', () => {
       expect(onLoadMore).not.toHaveBeenCalled()
     })
 
-    it('shows the spinner before the label', () => {
+    it('shows the package ring while pending, and marks the button busy', () => {
       render(
         <LoadMore
           hasMore
@@ -226,20 +245,24 @@ describe('LoadMore', () => {
         />,
       )
 
-      const button = screen.getByRole('button', { name: 'Load more' })
+      const button = screen.getByRole('button', { name: 'Loading more' })
 
-      expect(button.firstElementChild).toHaveClass('animate-spin')
-      expect(button.firstElementChild).toHaveAttribute('aria-hidden', 'true')
+      expect(button).toHaveAttribute('aria-busy', 'true')
+      expect(button.querySelector('.animate-spin')).toHaveAttribute(
+        'aria-hidden',
+        'true',
+      )
     })
 
-    it('renders no spinner at rest', () => {
+    it('renders no ring at rest', () => {
       render(
         <LoadMore hasMore loaded={24} onLoadMore={onLoadMore} total={340} />,
       )
 
-      expect(
-        screen.getByRole('button', { name: 'Load more' }).firstElementChild,
-      ).toBeNull()
+      const button = screen.getByRole('button', { name: 'Load more' })
+
+      expect(button.querySelector('.animate-spin')).toBeNull()
+      expect(button).not.toHaveAttribute('aria-busy')
     })
 
     it('does not move the count until the page lands', () => {
@@ -357,26 +380,27 @@ describe('LoadMore', () => {
      * Regression: `cns` is `twMerge(clsx(...))`, and this theme's `--text-*`
      * tokens are only font sizes to tailwind-merge because
      * `packages/utils/src/cns.ts` registers them. Unregistered, `text-mono-sm`
-     * and `text-ink-4` share a conflict group and one of the two is silently
+     * and `text-ink-3` share a conflict group and one of the two is silently
      * dropped on the way to the DOM. Asserted off the rendered `class`
      * attribute for that reason.
      */
-    it('keeps both the mono size token and the ink-4 colour', () => {
+    it('keeps both the caption size token and the ink-3 colour', () => {
       render(
         <LoadMore hasMore loaded={24} onLoadMore={onLoadMore} total={340} />,
       )
 
-      expect(fontSizeClasses(count())).toEqual(['text-mono-sm'])
-      expect(count()).toHaveClass('font-mono', 'text-ink-4')
+      expect(fontSizeClasses(count())).toEqual(['text-cap'])
+      expect(count()).toHaveClass('text-ink-3')
+      expect(count()).not.toHaveClass('font-mono')
     })
 
-    /** A count that changes must not reflow as digits change width. */
-    it('sets the count in tabular figures', () => {
+    /** Figures are tabular on `body`, so the count needs no opt-in of its own. */
+    it('sets the count in plain Geist, tabular figures inherited from body', () => {
       render(
         <LoadMore hasMore loaded={24} onLoadMore={onLoadMore} total={340} />,
       )
 
-      expect(count()).toHaveClass('tabular-nums')
+      expect(count()).not.toHaveClass('tabular-nums')
     })
 
     it('carries no line-height utility beside the size token', () => {
@@ -396,8 +420,8 @@ describe('LoadMore', () => {
 
       const button = screen.getByRole('button', { name: 'Load more' })
 
-      expect(button).toHaveClass('border-line', 'bg-surface', 'text-ink')
-      expect(button).not.toHaveClass('bg-uv')
+      expect(button).toHaveClass('border-line', 'bg-surface-2', 'text-ink')
+      expect(button).not.toHaveClass('bg-accent')
     })
   })
 

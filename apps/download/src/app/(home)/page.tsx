@@ -1,12 +1,13 @@
-import { cns } from '@lilnas/utils/cns'
 import type { JSX } from 'react'
 
+import { HomeHero } from 'src/components/home/home-hero'
 import { QuickAccess } from 'src/components/home/quick-access'
 import {
   RECENTLY_ADDED_LIMIT,
   RecentlyAdded,
 } from 'src/components/home/recently-added'
 import { JobEventsProvider } from 'src/components/live/job-events'
+import { PageMain } from 'src/components/shell/page-main'
 import { getIdentifiedDownloadClient } from 'src/lib/download-client'
 import { getRequestInstant } from 'src/lib/request-instant'
 import { getViewer } from 'src/lib/viewer'
@@ -14,10 +15,9 @@ import { getViewer } from 'src/lib/viewer'
 /**
  * The library overview: quick access, then recently added.
  *
- * Note what is *not* here — an input of its own. Pasting a link and searching
- * for a title both happen in the nav-bar field, which `layout.tsx` mounts on
- * every route, so a hero field here would be a second copy of the same control
- * with the same two behaviours.
+ * The hero is the page's field, so the nav bar's own is omitted here: pasting a
+ * link and searching for a title are the same field, and two copies of one
+ * control on one screen is two places to type.
  *
  * Nothing is caught: `getIdentifiedDownloadClient()` reads `headers()` (which
  * makes this route dynamic, correctly — the counts are per-request truth, not
@@ -45,24 +45,18 @@ export default async function HomePage(): Promise<JSX.Element> {
   const now = getRequestInstant()
 
   return (
-    <main
-      className={cns(
-        'flex-auto px-6 pt-[18px] pb-[30px]',
-        'sm:px-8 sm:pt-[30px] sm:pb-11',
-      )}
-    >
-      <div className="mx-auto max-w-[1080px]">
-        <QuickAccess facets={facets} running={activity.total} />
-        {/* The live feed drops a card whose title leaves the library. */}
-        <JobEventsProvider>
-          <RecentlyAdded
-            className="mt-[34px] sm:mt-10"
-            items={recent.items}
-            now={now}
-            viewer={viewer}
-          />
-        </JobEventsProvider>
-      </div>
-    </main>
+    <PageMain>
+      <HomeHero />
+      <QuickAccess facets={facets} running={activity.total} />
+      {/* The live feed drops a card whose title leaves the library. */}
+      <JobEventsProvider>
+        <RecentlyAdded
+          className="mt-10"
+          items={recent.items}
+          now={now}
+          viewer={viewer}
+        />
+      </JobEventsProvider>
+    </PageMain>
   )
 }

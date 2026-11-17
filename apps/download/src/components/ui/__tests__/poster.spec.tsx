@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { fireEvent, render, screen } from '@testing-library/react'
 
-import { iconSymbolId } from 'src/components/ui/icon'
+import { iconBody } from 'src/__tests__/helpers/icon'
 import {
   Poster,
   POSTER_DEFAULT_PLAY_SIZE,
@@ -298,10 +298,7 @@ describe('Poster', () => {
       render(<Poster data-testid="poster" play seed="video-1" shape="wide" />)
       const svg = screen.getByTestId('poster').querySelector('svg')
 
-      expect(svg?.querySelector('use')).toHaveAttribute(
-        'href',
-        `#${iconSymbolId('play')}`,
-      )
+      expect(svg?.innerHTML).toBe(iconBody('play'))
       expect(svg).toHaveClass(
         ...POSTER_DEFAULT_PLAY_SIZE.split(' '),
         'text-ink',

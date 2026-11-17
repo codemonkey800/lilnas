@@ -648,11 +648,11 @@ describe('fileSiblings', () => {
 })
 
 describe('episodeState', () => {
-  it.each<[MediaState, string, 'mute' | 'ok' | 'uv' | 'warn', boolean]>([
+  it.each<[MediaState, string, 'mute' | 'ok' | 'accent' | 'warn', boolean]>([
     ['available', 'in library', 'ok', false],
     ['wanted', 'wanted', 'mute', false],
-    ['downloading', 'downloading', 'uv', true],
-    ['importing', 'importing…', 'uv', true],
+    ['downloading', 'downloading', 'accent', true],
+    ['importing', 'importing…', 'accent', true],
     ['needs_attention', 'needs your decision', 'warn', false],
     ['paused', 'paused', 'warn', false],
     ['absent', 'not downloaded', 'mute', false],
@@ -665,7 +665,7 @@ describe('episodeState', () => {
     // the row says what the server said.
     expect(
       episodeState(episode({ hasFile: true, state: 'downloading' })),
-    ).toEqual({ label: 'downloading', live: true, tone: 'uv' })
+    ).toEqual({ label: 'downloading', live: true, tone: 'accent' })
   })
 
   it('reads an episode with no state on the wire as not downloaded', () => {

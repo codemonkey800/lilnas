@@ -1,17 +1,9 @@
-import Alert from '@mui/material/Alert'
-import Box from '@mui/material/Box'
-import Button from '@mui/material/Button'
-import CircularProgress from '@mui/material/CircularProgress'
-import Dialog from '@mui/material/Dialog'
-import DialogActions from '@mui/material/DialogActions'
-import DialogContent from '@mui/material/DialogContent'
-import DialogContentText from '@mui/material/DialogContentText'
-import DialogTitle from '@mui/material/DialogTitle'
-import Paper from '@mui/material/Paper'
+import { ConfirmDialog } from '@lilnas/ui'
 
 import type { EmojiView } from 'src/api/api.types'
 import { useRedescribeEmoji } from 'src/queries/useEmojis'
 
+import { DialogNote } from './DialogNote'
 import { EmojiImage } from './EmojiImage'
 
 interface RedescribeDialogProps {
@@ -34,50 +26,36 @@ export function RedescribeDialog({ emoji, onClose }: RedescribeDialogProps) {
   }
 
   return (
-    <Dialog open={!!emoji} onClose={close} fullWidth maxWidth="xs">
-      <DialogTitle>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-          {emoji && <EmojiImage emoji={emoji} size={40} />}
-          Re-describe :{emoji?.name}:?
-        </Box>
-      </DialogTitle>
-      <DialogContent>
-        <DialogContentText sx={{ color: 'text.primary' }}>
-          Replace this hand-written description with an AI one?
-        </DialogContentText>
-        <Paper
-          variant="outlined"
-          sx={{
-            mt: 1.5,
-            px: 1.5,
-            py: 1,
-            typography: 'body2',
-            color: 'text.secondary',
-          }}
-        >
-          {emoji?.description}
-        </Paper>
-        {redescribe.error && (
-          <Alert severity="error" sx={{ mt: 2 }}>
-            {redescribe.error.message}
-          </Alert>
-        )}
-      </DialogContent>
-      <DialogActions>
-        <Button color="inherit" onClick={close}>
-          Keep
-        </Button>
-        <Button
-          variant="contained"
-          disabled={redescribe.isPending}
-          onClick={confirm}
-          startIcon={
-            redescribe.isPending ? <CircularProgress size={14} /> : undefined
-          }
-        >
-          Re-describe
-        </Button>
-      </DialogActions>
-    </Dialog>
+    <ConfirmDialog
+      body={
+        <>
+          <span className="block">
+            Replace this hand-written description with an AI one? The old text
+            isn’t kept.
+          </span>
+          {emoji && (
+            <span className="mt-3 flex items-start gap-3 rounded-md border border-line bg-bg-sunk p-3">
+              <EmojiImage emoji={emoji} />
+              <span className="text-sm text-ink-2">{emoji.description}</span>
+            </span>
+          )}
+          {redescribe.error && (
+            <DialogNote lead="Couldn’t re-describe." tone="bad">
+              {redescribe.error.message}
+            </DialogNote>
+          )}
+        </>
+      }
+      cancelLabel="Keep it"
+      confirmLabel="Re-describe"
+      open={!!emoji}
+      pending={redescribe.isPending}
+      title={`Re-describe :${emoji?.name ?? ''}:?`}
+      tone="accent"
+      onConfirm={confirm}
+      onOpenChange={open => {
+        if (!open) close()
+      }}
+    />
   )
 }

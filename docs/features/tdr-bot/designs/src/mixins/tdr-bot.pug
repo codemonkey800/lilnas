@@ -1,0 +1,931 @@
+//-
+  tdr-bot's own mixins: the screens' furniture that isn't a design-system
+  component. The kit (docs/designs/mockup-kit) is the design system and nothing
+  else, so the chat bubble, emoji card, reminder row, LLM-call strip and cost
+  strip live here. Pages `include` this file.
+
+  Everything is drawn at an explicit viewport — `view` is 'desktop' (1280) or
+  'mobile' (390) — rather than with responsive utilities: Tailwind's `md:`
+  answers to the browser window, not to the frame a screen is drawn in.
+
+//- ── Harness ────────────────────────────────────────────────────────────────
+//- One state row at one viewport: the caption above a framed screen.
+mixin screen(view, label, anchor)
+  +stateRow(label, { stack: true })(class='w-full' id=anchor + '-' + view)
+    div(class=['flex w-full flex-col gap-2', view === 'mobile' ? 'items-center' : ''])
+      block
+      +frameLabel= view === 'mobile' ? 'Mobile · 390' : 'Desktop · 1280'
+
+//-
+  A skeleton block of any size. The kit's `skeleton` carries its own w-full and
+  h-3, which fight a width or height passed from the call site, so the pieces
+  that need a specific size use this: the shimmer and nothing else.
+mixin bone()
+  div(class='skeleton')&attributes(attributes)
+
+//- ── Frame ──────────────────────────────────────────────────────────────────
+//-
+  The admin app's window: app bar (doorplate, the five nav links, phone menu),
+  then the padded column the block fills. `active` is the current nav label.
+    opts  bare    drop the app bar, for a frame that shows one section
+          height  clip to a fixed height (a dialog's backdrop)
+          nav     draw the phone's navigation sheet open
+          width   max-w class for the column (default 1136px)
+mixin tdrFrame(view, active, opts)
+  - opts = opts || {}
+  - const phone = view === 'mobile'
+  - const links = navLinks.map(l => ({ label: l, active: l === active }))
+  +appFrame(view, { height: opts.height })
+    unless opts.bare
+      if phone
+        +appBar('mobile', { app: 'tdr', initials: 'JA' })
+      else
+        +appBar('desktop', { app: 'tdr', links: links, initials: 'JA' })
+    div(class=['flex w-full flex-1 flex-col gap-6', phone ? 'px-4 py-5' : ['mx-auto px-8 py-8', opts.width || 'max-w-[1136px]']])
+      block
+    if opts.nav
+      +navSheet(links)
+
+//- The phone's navigation: a bottom sheet of the five links, current one marked.
+mixin navSheet(links)
+  +sheet('bottom')
+    nav(class='flex flex-col gap-1 pb-3' aria-label='Primary')
+      each link in links
+        a(
+          class=['flex h-11 items-center justify-between rounded-md px-3 text-body', link.active ? 'bg-accent-ghost font-medium text-accent-hi' : 'text-ink-2']
+          href='#'
+          aria-current=link.active ? 'page' : undefined
+        )
+          = link.label
+          if link.active
+            +icon('check', 14)
+
+mixin pageHead(title, lede)
+  header(class='flex flex-col gap-1')&attributes(attributes)
+    h1(class='text-h1')= title
+    if lede
+      p(class='text-sm text-ink-3')= lede
+
+//- A well-labelled stat for the cost strip: the label above, the figure below.
+mixin costStrip(stats, loading)
+  dl(class='grid grid-cols-3 gap-x-6')&attributes(attributes)
+    each s in stats
+      div(class='flex min-w-0 flex-col gap-0.5')
+        dt(class='text-label whitespace-nowrap text-ink-3 uppercase')= s.label
+        dd
+          if loading
+            +bone()(class='mt-1 h-4 w-14 rounded-xs')
+          else
+            span(class='font-mono text-mono font-semibold tabular-nums')= s.value
+
+//- An inline notice with a dismiss button beside it.
+mixin dismissNote(tone, lead)
+  div(class='flex items-start gap-2')&attributes(attributes)
+    +note(tone, lead)(class='min-w-0 flex-1')
+      block
+    +btn({ variant: 'ghost', size: 'sm', icon: 'x', iconOnly: true, label: 'Dismiss' })(class='text-ink-3')
+
+//- ── Model select ───────────────────────────────────────────────────────────
+//-
+  A select whose rows say more than a name: the id, the price per 1M tokens
+  and a line on what it's for. Drawn closed, or open (`options` are the rows).
+    m     { id, desc, inp, out }        opts  label, open, options, error, disabled
+mixin modelPrice(m)
+  unless m.unknown
+    span(class='font-mono text-mono-sm whitespace-nowrap text-ink-3 tabular-nums')
+      if m.inp || m.out
+        | $#{m.inp.toFixed(2)} in · $#{m.out.toFixed(2)} out
+      else
+        | per image
+
+mixin modelSelect(m, opts)
+  - opts = opts || {}
+  div(class='flex flex-col')&attributes(attributes)
+    if opts.label
+      span(class='mb-1.5 text-sm font-medium text-ink-2')= opts.label
+    button(
+      type='button'
+      role='combobox'
+      data-control
+      disabled=opts.disabled
+      aria-expanded=opts.open ? 'true' : 'false'
+      aria-invalid=opts.error ? 'true' : undefined
+      class=[
+        'flex w-full items-start justify-between gap-3 rounded-md border bg-bg-sunk px-3 py-2.5 text-left disabled:opacity-40',
+        opts.open ? 'border-accent ring-2 ring-accent-ghost' : opts.error ? 'border-bad' : 'border-line-control',
+      ]
+    )
+      span(class='flex min-w-0 flex-1 flex-col gap-1')
+        span(class='flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5')
+          span(class='font-mono text-mono')= m.id
+          +modelPrice(m)
+        if m.desc
+          span(class='text-cap text-ink-3')= m.desc
+      +icon('chevron', 14)(class='mt-1 text-ink-3')
+    if opts.error
+      p(class='mt-[5px] text-xs text-bad')= opts.error
+    if opts.open
+      +floatPanel()(class='mt-1.5')
+        each o in opts.options
+          div(
+            role='option'
+            aria-selected=o.id === m.id ? 'true' : 'false'
+            class=['flex items-start justify-between gap-3 rounded-md px-2.5 py-2', o.id === m.id ? 'bg-surface-2' : 'hover:bg-surface-2']
+          )
+            span(class='flex min-w-0 flex-1 flex-col gap-0.5')
+              span(class='flex flex-wrap items-baseline justify-between gap-x-3')
+                span(class='font-mono text-mono')= o.id
+                +modelPrice(o)
+              span(class='text-cap text-ink-3')= o.desc
+            if o.id === m.id
+              +icon('check', 14)(class='mt-1 text-accent-hi')
+            else
+              span(class='size-3.5 shrink-0')
+
+//- ── Settings ───────────────────────────────────────────────────────────────
+//- The line beside Save: unsaved / saving / saved / error, each with its own tone.
+mixin settingsStatus(status, savedAt)
+  -
+    const states = {
+      clean: { tone: 'text-ink-3', text: 'Saved ' + savedAt },
+      dirty: { tone: 'text-warn', text: 'Unsaved changes', dot: 'warn' },
+      saving: { tone: 'text-ink-3', text: 'Saving…' },
+      saved: { tone: 'text-ok', text: 'Saved ' + savedAt, icon: 'check' },
+      error: { tone: 'text-bad', text: 'Can’t save — fix the highlighted field', icon: 'alert' },
+    }
+    const s = states[status]
+  span(class=['inline-flex items-center gap-1.5 text-cap', s.tone] role='status')&attributes(attributes)
+    if s.dot
+      +statusDot(s.dot)
+    if s.icon
+      +icon(s.icon, 14)
+    = s.text
+
+//-
+  The whole settings form. `s`: { chat, reasoning, image (ids), prompt, status,
+  savedAt, open (chat select drawn open), errorModel, errorPrompt }.
+mixin settingsForm(view, s)
+  - const phone = view === 'mobile'
+  - const find = (role, id) => models[role].find(m => m.id === id)
+  - const chat = find('chat', s.chat)
+  - const busy = s.status === 'saving'
+  - const off = s.status === 'clean' || s.status === 'saved' || busy
+  - const effort = s.effort || 'medium'
+  - const effortGroup = 'effort-' + view + '-' + s.key
+  - const unknown = { id: s.errorModel, unknown: true }
+  div(class='flex flex-col gap-4')&attributes(attributes)
+    +panel('Models', 'One model per role. Prices are USD per 1M tokens.')
+      div(class='flex flex-col gap-4')
+        if s.errorModel
+          +modelSelect(unknown, { label: 'Chat', error: `${s.errorModel} isn’t on the allow-list. Pick one of the listed models.` })
+        else
+          +modelSelect(chat, { label: 'Chat', open: s.open, options: models.chat, disabled: busy })
+        +modelSelect(find('reasoning', s.reasoning), { label: 'Reasoning', disabled: busy })
+        +modelSelect(find('image', s.image), { label: 'Image', disabled: busy })
+
+    +panel('Generation', chat.temp ? 'Temperature applies to this chat model.' : chat.id + ' is a reasoning model and has no temperature.')
+      if chat.temp
+        div(class='flex flex-col gap-1.5')
+          +slider({ label: 'Temperature', value: s.temperature || 0.7, min: 0, max: 2, unit: '' })
+          div(class='flex justify-between text-cap text-ink-3')
+            span 0 · precise
+            span 2 · creative
+      else
+        fieldset(class='flex flex-col gap-2')
+          legend(class='mb-2 text-sm font-medium text-ink-2') Reasoning effort
+          div(class=['flex', phone ? 'flex-col gap-3' : 'gap-6'])
+            each level in ['low', 'medium', 'high']
+              +radio({ name: effortGroup, label: level, checked: level === effort, disabled: busy })
+
+    +panel('System prompt', 'Prepended to every conversation.')
+      +textarea({ mono: true, rows: 7, long: true, error: !!s.errorPrompt, disabled: busy, value: s.prompt })
+      div(class='mt-[5px] flex items-start justify-between gap-4 text-xs')
+        if s.errorPrompt
+          p(class='text-bad')= s.errorPrompt
+        else
+          span
+        span(class=['shrink-0 font-mono tabular-nums', s.errorPrompt ? 'text-bad' : 'text-ink-3']) #{s.promptLength || s.prompt.length} / 20000
+
+    div(class=['flex gap-3', phone ? 'flex-col' : 'items-center'])
+      div(class='flex gap-3')
+        +btn({ variant: 'accent', label: busy ? 'Saving…' : 'Save', loading: busy, disabled: off, touch: phone })(class=phone ? 'flex-1' : '')
+        +btn({ variant: 'outline', label: 'Reset', disabled: busy, touch: phone })(class=phone ? 'flex-1' : '')
+      +settingsStatus(s.status, s.savedAt)(class=phone ? '' : 'ml-auto')
+
+//- ── Chat bubbles ───────────────────────────────────────────────────────────
+//-
+  A custom emoji from the dictionary, inline at 1.375em. An emoji whose CDN
+  image isn't a real one (`fallback`) is drawn as the pepe mark instead of a
+  broken image.
+mixin emojiImg(name)
+  - const e = dict[name]
+  if e.fallback
+    svg(class='inline-block size-[1.375em] align-middle' role='img' aria-label=':' + name + ':')
+      title= ':' + name + ':'
+      use(href='#pepe-badge')
+  else
+    img(src=emojiUrl(e) alt=':' + name + ':' title=':' + name + ':' class='inline-block size-[1.375em] align-middle object-contain')
+
+//- A `<:name:id>` the model made up: raw text in a dashed red chip.
+mixin fakeEmoji(raw)
+  span(class='inline-flex items-center rounded-xs border border-dashed border-bad px-1 align-middle font-mono text-mono-sm text-bad' title='Not in the dictionary')= raw
+
+//- Message text as parts: a string, { emoji } or { fake }.
+mixin rich(parts)
+  each part in parts
+    if typeof part === 'string'
+      = part
+    else if part.emoji
+      +emojiImg(part.emoji)
+    else
+      +fakeEmoji(part.fake)
+
+//-
+  The person's side: right-aligned, accent-tinted. The block is the text.
+mixin userBubble(view, who, time)
+  div(class='flex justify-end')&attributes(attributes)
+    div(class=['flex flex-col gap-1 rounded-xl rounded-br-xs bg-accent-ghost px-3.5 py-2.5', view === 'mobile' ? 'max-w-[90%]' : 'max-w-[72%]'])
+      p(class='flex items-baseline gap-2')
+        span(class='text-cap font-medium text-accent-hi')= who
+        if time
+          span(class='font-mono text-mono-sm text-ink-3')= time
+      p(class='text-body')
+        block
+
+//- The bot's side: left-aligned on the surface. The block is the text; `calls` follows it.
+mixin botBubble(view, time)
+  div(class='flex')&attributes(attributes)
+    div(class=['flex min-w-0 flex-col', view === 'mobile' ? 'w-full' : 'max-w-[80%] flex-1'])
+      div(class='flex flex-col gap-1 rounded-xl rounded-bl-xs border border-line bg-surface px-3.5 py-2.5')
+        p(class='flex items-baseline gap-2')
+          span(class='text-cap font-medium text-ink-3') tdr-bot
+          if time
+            span(class='font-mono text-mono-sm text-ink-3')= time
+        p(class='text-body')
+          block
+
+//- A tool call between turns: dashed, collapsed, the arguments one click away.
+mixin toolRow(view, name, summary, args)
+  details(class=['group rounded-lg border border-dashed border-line text-cap text-ink-3', view === 'mobile' ? 'ml-4' : 'ml-10'])&attributes(attributes)
+    summary(class='flex cursor-pointer list-none items-center gap-2 px-3 py-1.5 [&::-webkit-details-marker]:hidden')
+      +icon('chevron', 12)(class='-rotate-90 transition-transform duration-200 ease-standard group-open:rotate-0')
+      span(class='font-mono text-mono-sm text-accent-hi')= name
+      span · #{summary}
+    pre(class='overflow-x-auto px-3 pb-2 font-mono text-mono-sm text-ink-2')= args
+
+//- A pending reply: say whose.
+mixin thinking(model)
+  div(class='flex')&attributes(attributes)
+    div(class='flex flex-col gap-1 rounded-xl rounded-bl-xs border border-line bg-surface px-3.5 py-2.5')
+      span(class='text-cap font-medium text-ink-3') tdr-bot
+      span(class='flex items-center gap-2 text-body text-ink-3')
+        span(class='size-3.5 animate-spin rounded-full border-2 border-current border-t-transparent' aria-hidden='true')
+        = model + ' is thinking…'
+
+//- ── Transcript ─────────────────────────────────────────────────────────────
+//-
+  The LLM calls behind one reply: a disclosure whose body is the kit's dataList
+  (a table at 1280, cards at 390) from one column definition.
+mixin llmCalls(view, calls, open)
+  - const total = calls.reduce((a, c) => a + c.costValue, 0)
+  details(class='group mt-2' open=open)&attributes(attributes)
+    summary(class='flex cursor-pointer list-none items-center gap-1.5 px-1 text-cap text-ink-3 transition-colors duration-200 ease-standard hover:text-ink [&::-webkit-details-marker]:hidden')
+      +icon('chevron', 12)(class='-rotate-90 transition-transform duration-200 ease-standard group-open:rotate-0')
+      | #{calls.length} LLM #{calls.length === 1 ? 'call' : 'calls'} ·
+      span(class='font-mono text-mono-sm tabular-nums') $#{total.toFixed(5)}
+    div(class='mt-2')
+      +dataList(callCols, calls, { view: view })
+
+//-
+  The transcript panel: date range and totals on top, then the channel list
+  (a 232px sidebar at 1280, a scroller of pills at 390) beside the thread.
+    opts  mode      'default' | 'emojis' | 'older' | 'empty' | 'loading' | 'error'
+          active    index of the selected channel
+mixin transcriptPanel(view, opts)
+  - opts = opts || {}
+  - const phone = view === 'mobile'
+  - const mode = opts.mode || 'default'
+  - const loading = mode === 'loading'
+  - const active = opts.active || 0
+  div(class='overflow-hidden rounded-lg border border-line bg-surface')&attributes(attributes)
+    div(class=['flex gap-4 border-b border-line p-3', phone ? 'flex-col' : 'items-end justify-between'])
+      div(class=['grid gap-3', phone ? 'grid-cols-2' : 'grid-cols-[176px_176px]'])
+        +field('From')
+          +input({ value: '2026-10-18', mono: true })
+        +field('To')
+          +input({ value: '2026-10-24', mono: true })
+      +costStrip(totals, loading)(class=phone ? '' : 'text-right')
+    div(class=phone ? 'flex flex-col' : 'grid grid-cols-[232px_minmax(0,1fr)]')
+      if phone
+        nav(class='flex gap-2 overflow-x-auto border-b border-line px-3 py-2.5' aria-label='Channels')
+          each ch, i in channels
+            if loading
+              +bone()(class='h-8 w-24 shrink-0 rounded-full')
+            else
+              button(
+                type='button'
+                aria-pressed=i === active ? 'true' : 'false'
+                class=[
+                  'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-sm font-medium',
+                  i === active ? 'border-accent bg-accent-ghost text-ink' : 'border-line text-ink-2',
+                ]
+              )
+                | # #{ch.name}
+                span(class='font-mono text-mono-sm text-ink-3 tabular-nums')= ch.calls
+      else
+        aside(class='border-r border-line' aria-label='Channels')
+          each ch, i in channels
+            if loading
+              div(class='flex flex-col gap-2 border-b border-line-soft px-4 py-3')
+                +bone()(class='h-3.5 w-24 rounded-xs')
+                +bone()(class='h-3 w-32 rounded-xs')
+            else
+              a(
+                href='#'
+                aria-current=i === active ? 'true' : undefined
+                class=[
+                  'flex flex-col gap-0.5 border-b border-line-soft px-4 py-3 transition-colors duration-200 ease-standard',
+                  i === active ? 'bg-accent-ghost shadow-[inset_2px_0_0_var(--color-accent)]' : 'hover:bg-surface-2',
+                ]
+              )
+                span(class='text-[13.5px] font-medium') # #{ch.name}
+                span(class='flex items-baseline gap-1.5 text-cap text-ink-3')
+                  span= ch.last
+                  span(aria-hidden='true') ·
+                  span(class='font-mono text-mono-sm tabular-nums') #{ch.calls} calls
+      section(class='flex h-[640px] min-w-0 flex-col gap-3 overflow-hidden bg-bg p-5' aria-label='Conversation')
+        case mode
+          when 'loading'
+            div(class='flex flex-col gap-4' data-testid='transcript-loading')
+              each w, i in ['w-1/2', 'w-2/3', 'w-2/5', 'w-3/5']
+                div(class=['flex', i % 2 === 0 ? 'justify-end' : ''])
+                  +bone()(class=['h-16 rounded-xl', w])
+          when 'empty'
+            div(class='flex flex-1 items-center justify-center')
+              +emptyState('No messages yet', 'Messages in this range show up here, with what each reply cost. Pick another channel or widen the dates.')
+          when 'error'
+            +note('bad', 'Couldn’t load this channel.')
+              | The API didn’t answer, so there’s nothing to show yet. Pick the channel again to retry.#{' '}
+              +code('GET /api/transcript 502')
+          when 'older'
+            div(class='flex justify-center pb-1' data-testid='transcript-loading-older')
+              span(class='flex items-center gap-2 text-cap text-ink-3')
+                span(class='size-3.5 animate-spin rounded-full border-2 border-current border-t-transparent' aria-hidden='true')
+                | Loading older messages…
+            +thread(view, 'default')
+          default
+            +thread(view, mode)
+
+//- The turns in a transcript: the default conversation, or the emoji one.
+mixin thread(view, mode)
+  if mode === 'emojis'
+    each turn in emojiTurns
+      if turn.who === 'user'
+        +userBubble(view, turn.name, turn.time)
+          +rich(turn.parts)
+      else
+        +botBubble(view, turn.time)
+          +rich(turn.parts)
+        +llmCalls(view, callRows.slice(0, turn.calls), turn.open)
+  else
+    div(class='flex items-center gap-3 text-cap text-ink-3')
+      span(class='h-px flex-1 bg-line')
+      | Start of conversation
+      span(class='h-px flex-1 bg-line')
+    +userBubble(view, 'Mika', '09:12') What’s the weather in Lisbon this weekend?
+    +toolRow(view, 'web_search', 'Tavily · 5 results', '{ "query": "weather in Lisbon this weekend" }')
+    +botBubble(view, '09:12') Looks sunny: highs around 24°C Saturday, a bit of cloud Sunday.
+    +llmCalls(view, callRows, true)
+    +userBubble(view, 'Sam', '09:14') thanks! can you render ∫ x² dx
+    +botBubble(view, '09:14') Here you go: ∫x² dx = x³/3 + C.
+    +llmCalls(view, callRows.slice(0, 1))
+
+//- ── Reminders ──────────────────────────────────────────────────────────────
+//- Active is the live one; the rest are quiet.
+mixin reminderStatus(status)
+  -
+    const states = {
+      active: { tone: 'accent', label: 'Active', live: true },
+      completed: { tone: 'ok', label: 'Completed' },
+      cancelled: { tone: 'mute', label: 'Cancelled' },
+      missed: { tone: 'warn', label: 'Missed' },
+    }
+  +badge(states[status])&attributes(attributes)
+
+//- Test / Edit / Cancel (Cancel only while the reminder is active).
+mixin reminderActions(r, phone)
+  div(class=['flex gap-2', phone ? '' : 'justify-end'])&attributes(attributes)
+    +btn({ variant: 'ghost', size: phone ? 'md' : 'sm', label: 'Test', touch: phone })(class=phone ? 'flex-1' : '')
+    +btn({ variant: 'outline', size: phone ? 'md' : 'sm', label: 'Edit', touch: phone })(class=phone ? 'flex-1' : '')
+    if r.status === 'active'
+      +btn({ variant: 'bad', size: phone ? 'md' : 'sm', label: 'Cancel', touch: phone })(class=phone ? 'flex-1' : '')
+
+//- The reminder's schedule: the sentence, the cron in mono, and when it ends.
+mixin reminderSchedule(r)
+  div(class='flex flex-col gap-0.5')&attributes(attributes)
+    span(class='text-[13.5px]')= r.human
+    if r.cron
+      span(class='font-mono text-mono-sm text-ink-3')= r.cron
+    if r.ends
+      span(class='text-cap text-ink-3') Ends #{r.ends}
+
+//- When it next runs, relative first (the fact you act on), then the date.
+mixin reminderNext(r)
+  if r.next
+    div(class='flex flex-col')&attributes(attributes)
+      span(class='font-mono text-mono-sm') #{r.next.rel}
+      span(class='text-cap text-ink-3')= r.next.at
+  else
+    span(class='text-ink-4') —
+
+mixin reminderTable(rows)
+  div(class='overflow-hidden rounded-lg border border-line bg-surface')&attributes(attributes)
+    table(class='w-full border-collapse')
+      thead
+        tr
+          each h in ['What', 'Status', 'Who', 'Schedule', 'Next run', 'Last run']
+            th(scope='col' class='border-b border-line-loud px-3 pt-3 pb-2.5 text-left text-label text-ink-3 uppercase')= h
+          th(scope='col' class='border-b border-line-loud px-3 pt-3 pb-2.5')
+            span(class='sr-only') Actions
+      tbody
+        each r in rows
+          tr(class='transition-colors duration-[120ms] ease-standard hover:bg-surface-2 [&:last-child>td]:border-b-0')
+            td(class='max-w-[260px] border-b border-line-soft px-3 py-3 align-top')
+              p(class='text-[13.5px] font-medium')= r.what
+              p(class='mt-1.5 flex items-center gap-2')
+                +badge({ tone: 'mute', label: r.type })
+                span(class='font-mono text-mono-sm text-ink-3')= r.channel
+            td(class='border-b border-line-soft px-3 py-3 align-top')
+              +reminderStatus(r.status)
+            td(class='border-b border-line-soft px-3 py-3 align-top text-[13.5px] whitespace-nowrap')= r.who
+            td(class='border-b border-line-soft px-3 py-3 align-top')
+              +reminderSchedule(r)
+            td(class='border-b border-line-soft px-3 py-3 align-top whitespace-nowrap')
+              +reminderNext(r)
+            td(class='border-b border-line-soft px-3 py-3 align-top whitespace-nowrap')
+              if r.last
+                span(class='flex flex-col')
+                  span(class='text-[13.5px]')= r.last
+                  span(class='text-cap text-ink-3 tabular-nums') #{r.runs} #{r.runs === 1 ? 'run' : 'runs'}
+              else
+                span(class='text-ink-4') —
+            td(class='border-b border-line-soft px-3 py-3 align-top')
+              +reminderActions(r, false)
+
+mixin reminderCards(rows)
+  ul(class='flex flex-col gap-2')&attributes(attributes)
+    each r in rows
+      li(class='flex flex-col gap-3 rounded-lg border border-line bg-surface p-3')
+        div(class='flex items-start justify-between gap-3')
+          p(class='min-w-0 text-[13.5px] font-medium')= r.what
+          +reminderStatus(r.status)
+        p(class='flex items-center gap-2')
+          +badge({ tone: 'mute', label: r.type })
+          span(class='font-mono text-mono-sm text-ink-3')= r.channel
+        dl(class='grid grid-cols-2 gap-x-4 gap-y-2.5')
+          div(class='min-w-0')
+            dt(class='text-label text-ink-3 uppercase') Who
+            dd(class='truncate text-[13.5px]')= r.who
+          div(class='min-w-0')
+            dt(class='text-label text-ink-3 uppercase') Next run
+            dd
+              +reminderNext(r)
+          div(class='col-span-2 min-w-0')
+            dt(class='text-label text-ink-3 uppercase') Schedule
+            dd
+              +reminderSchedule(r)
+        +reminderActions(r, true)
+
+//- One rendering per viewport, from the same rows.
+mixin reminderList(view, rows)
+  if view === 'mobile'
+    +reminderCards(rows)
+  else
+    +reminderTable(rows)
+
+//-
+  Status tabs with counts, the filter field and New reminder.
+    opts  active  the selected status        counts  { active, completed, … }
+mixin reminderToolbar(view, opts)
+  - opts = opts || {}
+  - const phone = view === 'mobile'
+  - const active = opts.active || 'Active'
+  - const counts = opts.counts || reminderCounts
+  div(class='flex flex-col gap-4')&attributes(attributes)
+    div(class=phone ? '-mx-4 overflow-x-auto px-4' : '')
+      +tabs()(class='min-w-max')
+        each label in ['Active', 'Completed', 'Cancelled', 'Missed', 'All']
+          +tab(label, label === active, counts[label.toLowerCase()])(class='shrink-0')
+    div(class=['flex gap-3', phone ? 'flex-col' : 'items-center'])
+      +input({ placeholder: 'Who or what…', value: opts.query })(class=phone ? '' : 'max-w-xs')
+      +btn({ variant: 'accent', icon: 'plus', label: 'New reminder', touch: phone })(class=phone ? '' : 'ml-auto')
+
+//- A bare panel for empties and skeletons that sit where the list would.
+mixin listShell
+  div(class='rounded-lg border border-line bg-surface')&attributes(attributes)
+    block
+
+mixin reminderSkeleton(view)
+  +listShell()(class='flex flex-col gap-3 p-3')
+    each i in [1, 2, 3, 4, 5]
+      div(class='flex items-center gap-4')
+        +bone()(class='h-4 flex-1 rounded-xs')
+        +bone()(class=['h-6 rounded-full', view === 'mobile' ? 'w-16' : 'w-20'])
+        if view !== 'mobile'
+          +bone()(class='h-4 w-40 rounded-xs')
+          +bone()(class='h-4 w-28 rounded-xs')
+
+//- A small pill that picks a cron preset; the selected one is accent.
+mixin preset(label, selected)
+  span(
+    class=[
+      'inline-flex h-7 items-center rounded-full border px-3 text-cap font-medium',
+      selected ? 'border-accent bg-accent-ghost text-ink' : 'border-line-control text-ink-2',
+    ]
+  )&attributes(attributes)= label
+
+//-
+  The create / edit dialog. It's wider than the kit's 440px confirm, so it
+  draws its own scrim and panel in the same classes.
+    d  title, save, forValue, forOpen (member combobox open), what, kind
+       ('One-time' | 'Recurring'), at, preset, cron, cronError, ends,
+       next (array), channel, remind, action
+mixin reminderDialog(view, d)
+  - const phone = view === 'mobile'
+  div(class=['absolute inset-0 z-10 flex items-start justify-center overflow-hidden bg-black/55', phone ? 'p-3' : 'p-6'])&attributes(attributes)
+    div(
+      role='dialog'
+      aria-modal='true'
+      class='flex w-full max-w-[520px] animate-rise flex-col gap-4 rounded-lg border border-line-loud bg-surface p-5 shadow-lift'
+    )
+      h2(class='text-h2')= d.title
+      if d.forOpen
+        +field('For', 'Username and display name')
+          +combobox({ value: d.forValue, placeholder: 'Pick a member', query: 'sa', groups: members })
+      else
+        +field('For', 'Username and display name')
+          +select({ value: d.forValue })
+      +field('What', undefined)
+        +textarea({ rows: 3, value: d.what })
+        p(class='mt-[5px] text-right font-mono text-xs text-ink-3 tabular-nums') #{d.what.length} / 500
+      div(class='flex flex-col gap-1.5')
+        span(class='text-sm font-medium text-ink-2') Type
+        +segmented(['One-time', 'Recurring'], d.kind)(class='self-start')
+      if d.kind === 'One-time'
+        +field('When')
+          +input({ value: d.at, mono: true })
+      else
+        div(class='flex flex-col gap-3')
+          div(class='flex flex-wrap gap-2')
+            each p in presets
+              +preset(p, p === d.preset)
+          +field('Cron expression', undefined, d.cronError)
+            +input({ value: d.cron, mono: true, error: !!d.cronError })
+          +field('Ends on (optional)')
+            +input({ value: d.ends, placeholder: 'No end date', mono: !!d.ends })
+          if d.next
+            div(class='flex flex-col gap-1.5')
+              span(class='text-sm font-medium text-ink-2') Next 3 runs
+              ul(class='flex flex-col rounded-md border border-line bg-bg-sunk px-3 py-2 font-mono text-mono-sm text-ink-2')
+                each n in d.next
+                  li= n
+      +field('Deliver to', 'Default channel')
+        +select({ value: d.channel || '#tdr-bot-chat' })
+      +field('Remind', 'Tags everyone selected; defaults to the creator')
+        +select({ value: d.remind || 'The creator' })
+      +field('Action')
+        +select({ value: d.action || 'Text' })
+      div(class='flex justify-end gap-2 pt-1')
+        +btn({ variant: 'ghost', label: 'Cancel' })
+        +btn({ variant: 'accent', label: d.save, disabled: !!d.cronError })
+
+//- The body of the test-send dialog: the reminder, what the test does, the date.
+//- `state` is undefined | 'sent' | 'exhausted'.
+mixin testSendBody(t, state)
+  div(class='flex flex-col gap-3')&attributes(attributes)
+    div(class='flex flex-col gap-1')
+      p(class='text-body font-medium text-ink')= t.reminder
+      p(class='text-cap text-ink-3')= t.lede
+    if state === 'exhausted'
+      +field(t.field, undefined, t.exhausted)
+        +input({ value: '', placeholder: 'No dates left', mono: true, disabled: true, error: true })
+    else
+      +field(t.field, t.hint)
+        +input({ value: t.value, mono: true })
+    if state === 'sent'
+      +note('ok')= t.sent
+
+//- ── Emojis ─────────────────────────────────────────────────────────────────
+//- The emoji's image on a sunk tile. Deleted ones fade.
+mixin emojiTile(e, size)
+  span(class=['grid shrink-0 place-items-center rounded-md bg-bg-sunk', size === 'lg' ? 'size-12' : 'size-10', e.deleted ? 'opacity-40' : ''])
+    if e.fallback
+      svg(class=size === 'lg' ? 'size-8' : 'size-6' role='img' aria-label=':' + e.name + ':')
+        use(href='#pepe-badge')
+    else
+      img(src=emojiUrl(e) alt=':' + e.name + ':' class=size === 'lg' ? 'size-9 object-contain' : 'size-7 object-contain')
+
+//- AI / Manual / Deleted — and Pending while a description is still coming.
+mixin sourceBadge(e)
+  if e.deleted
+    +badge({ tone: 'bad', label: 'Deleted' })
+  else if e.source === 'manual'
+    +badge({ tone: 'ok', label: 'Manual' })
+  else if e.source === 'ai'
+    +badge({ tone: 'mute', label: 'AI' })
+  else
+    +badge({ tone: 'warn', label: 'Pending' })
+
+//- What the emoji means: its text, or why there isn't one yet.
+mixin emojiDescription(e, reconciling)
+  if e.desc
+    p(class='text-sm text-ink-2')= e.desc
+  else if reconciling
+    p(class='flex items-center gap-2 text-sm text-ink-3 italic')
+      span(class='size-3.5 animate-spin rounded-full border-2 border-current border-t-transparent' aria-hidden='true')
+      | Describing…
+  else
+    p(class='text-sm text-ink-3 italic') Waiting for a description
+
+//-
+  One emoji in the grid: image, name in mono, source, the description (or its
+  inline editor), then who wrote it and when.
+    opts  editing      the description is a textarea     reconciling  pending rows spin
+mixin emojiCard(e, opts)
+  - opts = opts || {}
+  div(class=['flex flex-col gap-3 rounded-lg border border-line bg-surface p-3', e.deleted ? 'opacity-60' : ''])&attributes(attributes)
+    div(class='flex items-center gap-3')
+      +emojiTile(e, 'lg')
+      div(class='flex min-w-0 flex-1 flex-col gap-1')
+        p(class='truncate font-mono text-mono') :#{e.name}:
+        div(class='flex flex-wrap items-center gap-1.5')
+          +sourceBadge(e)
+          if e.animated
+            +badge({ tone: 'mute', label: 'Animated' })
+    if opts.editing
+      div(class='flex flex-col gap-2')
+        +textarea({ rows: 4, value: e.desc })(class='border-accent')
+        div(class='flex items-start justify-between gap-3 text-xs text-ink-3')
+          span Saving marks this description as manual.
+          span(class='shrink-0 font-mono tabular-nums') #{e.desc.length} / 300
+        div(class='flex gap-2')
+          +btn({ variant: 'accent', size: 'sm', label: 'Save' })
+          +btn({ variant: 'ghost', size: 'sm', label: 'Cancel' })
+    else
+      +emojiDescription(e, opts.reconciling)
+    div(class='mt-auto flex flex-col gap-1.5 border-t border-line-soft pt-2.5')
+      p(class='truncate text-cap text-ink-3')
+        if e.deleted
+          | Deleted #{e.deleted}
+        else if e.at
+          span(class='font-mono text-mono-sm') #{e.model || 'by hand'} · #{e.at}
+        else
+          | Not described yet
+      unless e.deleted
+        div(class='-mx-1 flex gap-1')
+          +btn({ variant: 'ghost', size: 'sm', label: 'Edit' })
+          +btn({ variant: 'ghost', size: 'sm', label: 'Re-describe' })
+
+mixin emojiGrid(view, list, opts)
+  div(class=['grid gap-3', view === 'mobile' ? 'grid-cols-1' : 'grid-cols-4'])&attributes(attributes)
+    each e in list
+      +emojiCard(e, { editing: opts && opts.editId === e.id, reconciling: opts && opts.reconciling })
+
+//- The reconcile line: when it last ran and what it did, or that it's running.
+mixin reconcileStatus(state)
+  p(class='flex flex-wrap items-center gap-x-2 gap-y-1 text-cap text-ink-3')&attributes(attributes)
+    case state
+      when 'running'
+        +badge({ tone: 'accent', live: true, label: 'Reconciling' })
+        | Started just now (manual)
+      when 'never'
+        | No reconcile has run yet
+      default
+        | Last reconcile
+        span(class='font-mono text-mono-sm') 3 min ago (boot) · 140 synced · 2 described · 0 failed
+
+//-
+  Filter tabs with counts, the search field, and the two bulk actions with the
+  reconcile status under them.
+    opts  active    selected filter           state  'running' | 'never'
+          query     search text               counts  override the counts
+mixin emojiToolbar(view, opts)
+  - opts = opts || {}
+  - const phone = view === 'mobile'
+  - const active = opts.active || 'All'
+  - const counts = opts.counts || emojiCounts
+  - const running = opts.state === 'running'
+  div(class='flex flex-col gap-4')&attributes(attributes)
+    div(class=phone ? '-mx-4 overflow-x-auto px-4' : '')
+      +tabs()(class='min-w-max')
+        each label in ['All', 'Needs description', 'AI', 'Manual', 'Deleted']
+          +tab(label, label === active, counts[label])(class='shrink-0')
+    div(class=['flex gap-3', phone ? 'flex-col' : 'items-start'])
+      +input({ placeholder: 'Search name or description…', value: opts.query })(class=phone ? '' : 'max-w-xs')
+      div(class=['flex flex-col gap-2', phone ? '' : 'ml-auto items-end'])
+        div(class='flex gap-2')
+          +btn({ variant: 'outline', label: 'Re-describe all', touch: phone, disabled: running })(class=phone ? 'flex-1' : '')
+          +btn({ variant: 'outline', label: running ? 'Reconciling…' : 'Run reconcile', loading: running, touch: phone, disabled: running })(class=phone ? 'flex-1' : '')
+        +reconcileStatus(opts.state)
+
+mixin emojiSkeleton(view)
+  div(class=['grid gap-3', view === 'mobile' ? 'grid-cols-1' : 'grid-cols-4'])
+    each i in (view === 'mobile' ? [1, 2, 3] : [1, 2, 3, 4, 5, 6, 7, 8])
+      +card()(class='flex flex-col gap-3')
+        div(class='flex items-center gap-3')
+          +bone()(class='size-12 rounded-md')
+          div(class='flex flex-1 flex-col gap-2')
+            +bone()(class='h-3.5 w-24 rounded-xs')
+            +bone()(class='h-5 w-14 rounded-full')
+        +skeleton('lines')
+
+//- ── Playground ─────────────────────────────────────────────────────────────
+//- The emoji score under a reply: how many came from where.
+mixin scoreBadges(s)
+  div(class='mt-1.5 flex flex-wrap gap-1.5 px-1')&attributes(attributes)
+    +badge({ tone: 'ok', label: s.dictionary + ' dictionary' })
+    if s.repaired
+      +badge({ tone: 'warn', label: s.repaired + ' repaired' })
+    if s.hallucinated
+      +badge({ tone: 'bad', label: s.hallucinated + ' hallucinated' })
+    +badge({ tone: 'warn', label: s.unicode + ' unicode' })
+
+//- A reply from the model: the bubble, then model · cost · latency, then the score.
+mixin playgroundBot(view, t)
+  div(class='flex flex-col')&attributes(attributes)
+    +botBubble(view)
+      +rich(t.parts)
+    p(class='mt-1 px-1 font-mono text-mono-sm text-ink-3')= t.meta
+    +scoreBadges(t.score)
+
+mixin playgroundThread(view, list)
+  div(class='flex flex-col gap-3')&attributes(attributes)
+    each t in list
+      if t.who === 'user'
+        +userBubble(view, 'paulbeenis420')
+          +rich(t.parts)
+      else
+        +playgroundBot(view, t)
+    block
+
+mixin failedReply(view, model, reason)
+  div(class='flex')&attributes(attributes)
+    div(class=['flex flex-col gap-2 rounded-xl rounded-bl-xs border border-bad/40 bg-bad-ghost px-3.5 py-2.5', view === 'mobile' ? 'w-full' : 'max-w-[80%]'])
+      span(class='text-cap font-medium text-bad') tdr-bot · failed
+      p(class='text-body')
+        = reason
+      +btn({ variant: 'outline', size: 'sm', icon: 'refresh', label: 'Retry' })(class='self-start')
+
+//-
+  Model, Reset conversation and the system-prompt draft disclosure.
+    opts  draft  undefined | 'dirty' (collapsed, modified badge) | 'open'
+          modelOpen  draw the model select open
+mixin playgroundToolbar(view, opts)
+  - opts = opts || {}
+  - const phone = view === 'mobile'
+  - const selected = playgroundModels.find(m => m.id === 'gpt-5-mini')
+  div(class='flex flex-col gap-4')&attributes(attributes)
+    div(class=['flex gap-3', phone ? 'flex-col' : 'items-end'])
+      +modelSelect(selected, { label: 'Model', open: opts.modelOpen, options: playgroundModels })(class=phone ? '' : 'w-full max-w-md')
+      +btn({ variant: 'outline', label: 'Reset conversation', touch: phone })(class=phone ? '' : 'ml-auto')
+    details(class='group rounded-lg border border-line bg-surface' open=opts.draft === 'open')
+      summary(class='flex cursor-pointer list-none flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2.5 text-sm [&::-webkit-details-marker]:hidden')
+        +icon('chevron', 14)(class='-rotate-90 text-ink-3 transition-transform duration-200 ease-standard group-open:rotate-0')
+        span(class='font-medium') System prompt draft
+        if opts.draft
+          +badge({ tone: 'warn', label: 'modified' })
+        span(class=['text-cap text-ink-3', phone ? 'w-full pl-6' : 'ml-auto']) Overrides the saved prompt for this conversation only
+      if opts.draft === 'open'
+        div(class='flex flex-col gap-2 border-t border-line p-3')
+          +textarea({ mono: true, rows: 5, long: true, value: draftPrompt })(class='border-accent')
+          div(class='flex items-center justify-between gap-2 text-xs text-ink-3')
+            span(class='font-mono tabular-nums') #{draftPrompt.length} / 20000
+            +btn({ variant: 'ghost', size: 'sm', label: 'Reset to saved' })
+          p(class='text-xs text-ink-3') The draft is never saved. The intro, input format and emoji dictionary are always appended, as in production.
+
+mixin composer(view, text, disabled)
+  div(class='flex flex-col gap-1.5')&attributes(attributes)
+    div(class='flex items-end gap-3')
+      +textarea({ rows: 2, placeholder: 'Message tdr-bot…', value: text })(class='flex-1')
+      +btn({ variant: 'accent', label: 'Send', disabled: disabled, touch: view === 'mobile' })
+    p(class='flex items-center gap-1.5 text-cap text-ink-3')
+      +kbd('Enter')
+      | to send ·
+      +kbd('Shift')
+      | +
+      +kbd('Enter')
+      | for a newline
+
+//- One checkbox per model, in mono.
+mixin evalModels(checked)
+  div(class='flex flex-col gap-2')&attributes(attributes)
+    span(class='text-sm font-medium text-ink-2') Models
+    each m in playgroundModels
+      +checkbox({ label: m.id, checked: checked.includes(m.id) })(class='font-mono')
+
+//-
+  Results, one per model: the headline rate with the counts beside it, and a
+  disclosure of every prompt's reply. Native <details>, so it opens with no JS.
+    opts  open  the model id whose replies are drawn open
+mixin evalRow(view, r, best, open)
+  - const phone = view === 'mobile'
+  details(class='group border-b border-line-soft last:border-b-0' open=open)
+    summary(
+      class=[
+        'cursor-pointer list-none px-3 py-2.5 transition-colors duration-[120ms] ease-standard hover:bg-surface-2 [&::-webkit-details-marker]:hidden',
+        phone ? 'flex flex-col gap-2' : 'grid grid-cols-[minmax(150px,1.4fr)_minmax(90px,.8fr)_repeat(4,minmax(84px,.6fr))_minmax(64px,.7fr)_minmax(64px,.7fr)] items-center gap-2',
+      ]
+    )
+      span(class='flex items-center gap-2')
+        +icon('chevron', 14)(class='-rotate-90 text-ink-3 transition-transform duration-200 ease-standard group-open:rotate-0')
+        span(class=['font-mono text-mono', best ? 'font-semibold' : ''])= r.model
+        if r.failed
+          +badge({ tone: 'bad', label: r.failed + ' failed' })
+      if phone
+        span(class='flex items-baseline gap-2 pl-6')
+          span(class=['font-mono text-h2 tabular-nums', best ? 'font-semibold' : 'text-ink-2'])= r.rate
+          span(class='text-cap text-ink-3') reply with ≥1 dictionary emoji
+        span(class='flex flex-wrap gap-1.5 pl-6')
+          +badge({ tone: 'ok', label: r.dictionary + ' dictionary' })
+          if r.repaired
+            +badge({ tone: 'warn', label: r.repaired + ' repaired' })
+          if r.hallucinated
+            +badge({ tone: 'bad', label: r.hallucinated + ' hallucinated' })
+          +badge({ tone: 'warn', label: r.unicode + ' unicode' })
+        span(class='pl-6 font-mono text-mono-sm text-ink-3') #{r.cost} · #{r.latency}
+      else
+        span(class=['font-mono text-mono tabular-nums', best ? 'font-semibold' : ''])= r.rate
+        span(class='font-mono text-mono tabular-nums')= r.dictionary
+        span(class=['font-mono text-mono tabular-nums', r.repaired ? 'text-warn' : ''])= r.repaired
+        span(class=['font-mono text-mono tabular-nums', r.hallucinated ? 'text-bad' : ''])= r.hallucinated
+        span(class='font-mono text-mono tabular-nums')= r.unicode
+        span(class='font-mono text-mono whitespace-nowrap tabular-nums')= r.cost
+        span(class='font-mono text-mono whitespace-nowrap tabular-nums')= r.latency
+    div(class=['flex flex-col gap-4 border-t border-line-soft bg-bg-sunk py-3 pr-3', phone ? 'pl-3' : 'pl-9'])
+      each cell, i in r.replies
+        div(class='flex flex-col gap-1.5')
+          p(class='text-cap text-ink-3') #{i + 1}. #{cell.prompt}
+          if cell.error
+            p(class='text-sm text-bad') failed: #{cell.error}
+          else
+            div(class='rounded-lg bg-surface px-3 py-2 text-sm')
+              +rich(cell.parts)
+            p(class='font-mono text-mono-sm text-ink-3')= cell.meta
+            div(class='flex flex-wrap gap-1.5')
+              +badge({ tone: 'ok', label: cell.score.dictionary + ' dictionary' })
+              if cell.score.hallucinated
+                +badge({ tone: 'bad', label: cell.score.hallucinated + ' hallucinated' })
+              +badge({ tone: 'warn', label: cell.score.unicode + ' unicode' })
+
+mixin evalResults(view, rows, open)
+  - const phone = view === 'mobile'
+  - const bestRate = Math.max(...rows.map(r => r.ratePct))
+  div(class='overflow-hidden rounded-lg border border-line bg-surface')&attributes(attributes)
+    unless phone
+      div(
+        class='grid grid-cols-[minmax(150px,1.4fr)_minmax(90px,.8fr)_repeat(4,minmax(84px,.6fr))_minmax(64px,.7fr)_minmax(64px,.7fr)] items-end gap-2 border-b border-line-loud px-3 pt-3 pb-2.5 text-label text-ink-3 uppercase'
+      )
+        each h in evalColumns
+          span= h
+    each r in rows
+      +evalRow(view, r, r.ratePct === bestRate, r.model === open)
+
+//-
+  The eval panel: model checkboxes, the cost estimate, Run eval, progress and
+  the results. `opts`: { state: 'idle' | 'running' | 'done', checked, open }.
+mixin evalPanel(view, opts)
+  - opts = opts || {}
+  - const phone = view === 'mobile'
+  - const state = opts.state || 'idle'
+  - const running = state === 'running'
+  - const checked = opts.checked || playgroundModels.map(m => m.id)
+  - const calls = checked.length * evalPrompts.length
+  - const estimate = '~$' + (calls * 0.0088).toFixed(2)
+  +panel('Emoji eval', 'Every ticked model answers every prompt once. Replies are scored against the dictionary.')&attributes(attributes)
+    div(class=['flex gap-5', phone ? 'flex-col' : 'items-start'])
+      div(class=['flex shrink-0 flex-col gap-4', phone ? '' : 'w-56'])
+        +evalModels(checked)
+        details(class='group text-sm')
+          summary(class='flex cursor-pointer list-none items-center gap-1.5 text-ink-2 [&::-webkit-details-marker]:hidden')
+            +icon('chevron', 12)(class='-rotate-90 text-ink-3 transition-transform duration-200 ease-standard group-open:rotate-0')
+            | #{evalPrompts.length} prompts
+          ol(class='mt-2 list-decimal space-y-1 pl-6 text-cap text-ink-3')
+            each p in evalPrompts
+              li= p
+        p(class='text-cap text-ink-3')
+          span(class='font-mono text-mono-sm tabular-nums') #{estimate} for #{calls} calls
+        div(class='flex gap-2')
+          +btn({ variant: 'accent', label: running ? 'Running…' : 'Run eval', loading: running, disabled: running || !checked.length, touch: phone })
+          if running
+            +btn({ variant: 'outline', label: 'Cancel', touch: phone })
+      div(class='flex min-w-0 flex-1 flex-col gap-4')
+        if running
+          div(class='flex flex-col gap-1.5')
+            div(class='flex justify-between text-cap text-ink-3')
+              span Running…
+              span(class='font-mono tabular-nums') 12 / 40
+            +progress(30, 'accent', { bare: true })
+        if state !== 'idle'
+          +evalResults(view, evalRows, opts.open)
+        else
+          p(class='text-sm text-ink-3') Tick the models to compare and run the eval. Results land here as each reply comes back.

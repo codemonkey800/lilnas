@@ -86,9 +86,10 @@ describe('VideoFacts', () => {
     )
 
     expect(rows(VIDEO_FILE_HEADING)).toEqual([
-      ['Video', '1920×1080 · 30 fps'],
+      ['Video', '1920×1080 · 30\u00a0fps'],
       ['Size', '5.0 MB'],
       ['Parts', '2'],
+      ['Source', 'youtube.com/watch?v=abc'],
     ])
     expect(rows(VIDEO_DETAILS_HEADING)).toEqual([
       ['Channel', 'slowferment'],
@@ -104,10 +105,36 @@ describe('VideoFacts', () => {
     )
   })
 
-  it('renders nothing for a video fetched before metadata was kept', () => {
-    const { container } = render(<VideoFacts media={video()} />)
+  it('draws details before the file, as the mockup does', () => {
+    render(
+      <VideoFacts
+        media={video({ channel: 'slowferment', file: { size: 5 * 1024 ** 2 } })}
+      />,
+    )
 
-    expect(container).toBeEmptyDOMElement()
+    const headings = screen
+      .getAllByRole('heading', { level: 2 })
+      .map(heading => heading.textContent)
+
+    expect(headings).toEqual([VIDEO_DETAILS_HEADING, VIDEO_FILE_HEADING])
+  })
+
+  it('still names the source for a video fetched before metadata was kept', () => {
+    render(<VideoFacts media={video()} />)
+
+    // Only the link it came from: no file facts, no details.
+    expect(
+      screen.queryByRole('region', { name: VIDEO_DETAILS_HEADING }),
+    ).not.toBeInTheDocument()
+    expect(rows(VIDEO_FILE_HEADING)).toEqual([
+      ['Source', 'youtube.com/watch?v=abc'],
+    ])
+  })
+
+  it('sets the source in mono, since it is something to copy', () => {
+    render(<VideoFacts media={video()} />)
+
+    expect(screen.getByText('youtube.com/watch?v=abc')).toHaveClass('font-mono')
   })
 })
 

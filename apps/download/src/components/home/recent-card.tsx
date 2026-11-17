@@ -1,3 +1,4 @@
+import { Badge, Button, type IconName } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type {
   EmbyStatus,
@@ -11,8 +12,6 @@ import {
   ActivityRequester,
   galleryUpstreamSource,
 } from 'src/components/activity/activity-requester'
-import { ButtonLink } from 'src/components/ui/button-link'
-import { Chip } from 'src/components/ui/chip'
 import {
   GalleryCard,
   GalleryCardAttrib,
@@ -20,7 +19,6 @@ import {
   GalleryCardRow,
   GalleryCardTitle,
 } from 'src/components/ui/gallery-card'
-import type { IconName } from 'src/components/ui/icon'
 import { MChip } from 'src/components/ui/mchip'
 import { Poster } from 'src/components/ui/poster'
 import { formatRelative, formatRuntime, UNKNOWN_VALUE } from 'src/lib/format'
@@ -140,10 +138,7 @@ export function RecentCard({
   const watchUrl = emby?.state === 'indexed' ? emby.watchUrl : undefined
 
   return (
-    <GalleryCard
-      {...props}
-      className={cns('w-[calc(50%-8px)] sm:w-[158px]', className)}
-    >
+    <GalleryCard {...props} className={cns('min-w-0', className)}>
       <GalleryCardLink href={mediaHref(media)}>
         <Poster
           label={media.title}
@@ -156,20 +151,16 @@ export function RecentCard({
         <GalleryCardTitle>{media.title}</GalleryCardTitle>
         <GalleryCardRow>
           <MChip
-            className="font-mono text-mono-sm text-ink-3"
+            className="text-cap text-ink-3"
             icon={KIND_ICONS[media.type]}
             label={KIND_LABELS[media.type]}
           />
           {indexing ? (
-            <Chip
-              className="h-[19px] text-[10px]"
-              label="indexing…"
-              tone="warn"
-            />
+            <Badge className="h-[19px] text-[10px]" tone="warn">
+              Indexing…
+            </Badge>
           ) : (
-            <span className="font-mono text-mono-sm text-ink-4">
-              {recentCardMeta(media)}
-            </span>
+            <span className="text-cap text-ink-3">{recentCardMeta(media)}</span>
           )}
         </GalleryCardRow>
       </GalleryCardLink>
@@ -200,23 +191,20 @@ export function RecentCard({
           {/* When the title landed in the library, not when anyone downloaded
               it. `added` is for a screen reader only — the mockup draws a bare
               `3h ago`, and without the verb it reads as a download time. */}
-          <time
-            className="font-mono text-mono-sm text-ink-4"
-            dateTime={addedAt}
-          >
+          <time className="text-cap text-ink-3" dateTime={addedAt}>
             <span className="sr-only">added </span>
             {formatRelative(addedAt, now)}
           </time>
         </GalleryCardAttrib>
         {watchUrl === undefined ? null : (
-          <ButtonLink
+          <Button
             className="h-6 px-2 text-[11.5px]"
-            href={watchUrl}
             size="sm"
             variant="ghost"
+            render={<a href={watchUrl} />}
           >
             Watch
-          </ButtonLink>
+          </Button>
         )}
       </GalleryCardRow>
     </GalleryCard>

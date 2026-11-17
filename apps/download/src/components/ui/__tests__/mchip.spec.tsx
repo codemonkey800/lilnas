@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { render, screen } from '@testing-library/react'
 
-import { iconSymbolId } from 'src/components/ui/icon'
+import { iconBody } from 'src/__tests__/helpers/icon'
 import { MChip } from 'src/components/ui/mchip'
 
 describe('MChip', () => {
@@ -13,10 +13,7 @@ describe('MChip', () => {
     expect(chip.tagName).toBe('SPAN')
     expect(chip).toHaveClass('inline-flex', 'items-center', 'gap-[5px]')
     expect(chip).toHaveTextContent('Movie')
-    expect(chip.querySelector('svg use')).toHaveAttribute(
-      'href',
-      `#${iconSymbolId('film')}`,
-    )
+    expect(chip.querySelector('svg')?.innerHTML).toBe(iconBody('film'))
   })
 
   it('sizes the icon at the call site rather than leaving it intrinsic', () => {

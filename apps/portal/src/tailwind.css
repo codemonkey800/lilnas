@@ -1,1 +1,7 @@
-@import 'tailwindcss';
+@import '@lilnas/ui/theme.css';
+@source '../node_modules/@lilnas/ui/dist';
+
+@theme inline {
+  --font-sans: var(--font-geist), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}

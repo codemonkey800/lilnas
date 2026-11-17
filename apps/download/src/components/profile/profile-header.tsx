@@ -1,10 +1,8 @@
-import { cns } from '@lilnas/utils/cns'
+import { Badge, Card } from '@lilnas/ui'
 import type { JSX } from 'react'
 
 import { PROFILE_GROUP_LABEL } from 'src/components/profile/profile-page-shell'
-import { Avatar } from 'src/components/ui/avatar'
-import { Card } from 'src/components/ui/card'
-import { Chip } from 'src/components/ui/chip'
+import { PersonAvatar } from 'src/components/ui/person-avatar'
 import { formatRelative, initials } from 'src/lib/format'
 
 /**
@@ -25,15 +23,7 @@ const FIRST_DOWNLOAD_DATE = new Intl.DateTimeFormat('en-US', {
 })
 
 /** What the header's second line says for a profile with no jobs at all. */
-export const NO_DOWNLOADS_YET = 'No downloads yet'
-
-/**
- * 52px, the one size this mark is ever drawn at. Spelled as utilities rather
- * than an `AvatarSize` because `md` is 30px and this is the only call site in
- * the app that wants a portrait — `avatar.tsx`'s own doc comment names this
- * exact string as the expected override.
- */
-const HEADER_AVATAR = 'h-[52px] w-[52px] text-[18px]'
+export const NO_DOWNLOADS_YET = 'no downloads yet'
 
 export type ProfileHeaderProps = {
   /** The resolved target, echoed by `ProfileResponse.user.email`. */
@@ -71,13 +61,9 @@ export function ProfileHeader({
   return (
     <div className="mb-6 flex items-center gap-4">
       {empty ? (
-        <Avatar className={cns(HEADER_AVATAR)} hidden />
+        <PersonAvatar hidden size={64} />
       ) : (
-        <Avatar
-          className={cns(HEADER_AVATAR)}
-          initials={initials(email)}
-          ring={you}
-        />
+        <PersonAvatar initials={initials(email)} ring={you} size={64} />
       )}
       <div className="min-w-0">
         {/*
@@ -95,14 +81,12 @@ export function ProfileHeader({
             runs off the right edge of a phone.
           */}
           <span className="break-all">{email}</span>
-          {you ? (
-            <Chip className="h-5 text-[10px]" label="you" tone="uv" />
-          ) : null}
+          {you ? <Badge tone="accent">You</Badge> : null}
         </p>
-        <p className="font-mono text-mono-sm text-ink-4">
+        <p className="font-mono text-mono-sm text-ink-3">
           {firstDownloadAt === null || lastDownloadAt === null
             ? NO_DOWNLOADS_YET
-            : `First download ${FIRST_DOWNLOAD_DATE.format(
+            : `first ${FIRST_DOWNLOAD_DATE.format(
                 new Date(firstDownloadAt),
               )} · last ${formatRelative(lastDownloadAt, now)}`}
         </p>
@@ -125,14 +109,10 @@ export type LifetimeTileProps = {
  */
 export function LifetimeTile({ total }: LifetimeTileProps): JSX.Element {
   return (
-    <Card className="mb-6 flex w-fit min-w-[168px] flex-col gap-[7px] px-5 pt-[18px] pb-5">
-      <span className={cns(PROFILE_GROUP_LABEL)}>lifetime downloads</span>
-      <span
-        className={cns(
-          'font-mono text-[32px] leading-[1.1] font-semibold',
-          'tracking-[-0.02em] tabular-nums',
-        )}
-      >
+    <Card className="mb-6 flex w-fit min-w-[168px] flex-col gap-1.5">
+      <span className={PROFILE_GROUP_LABEL}>Lifetime downloads</span>
+      {/* A quantity, so Geist with tabular figures — never mono. */}
+      <span className="text-[32px] leading-[1.1] font-semibold tracking-tight tabular-nums">
         {total}
       </span>
     </Card>

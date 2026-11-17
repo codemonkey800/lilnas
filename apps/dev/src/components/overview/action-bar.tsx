@@ -1,13 +1,10 @@
 'use client'
 
+import { Button, Icon, Kbd, Note } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { JSX } from 'react'
 import { useState } from 'react'
 
-import { Button } from 'src/components/ui/button'
-import { Callout } from 'src/components/ui/callout'
-import type { IconName } from 'src/components/ui/icon'
-import { Kbd } from 'src/components/ui/kbd'
 import {
   type ActionResult,
   type Operation,
@@ -25,25 +22,26 @@ const ACTION_LABEL: Record<StackAction, string> = {
   down: 'Down',
 }
 
-const ACTION_ICON: Record<StackAction, IconName> = {
-  up: 'play',
-  stop: 'stop',
-  restart: 'refresh',
-  recreate: 'recreate',
-  down: 'trash',
-}
-
 /** Actions that throw containers away, so they ask first. */
 const CONFIRMED: readonly StackAction[] = ['recreate', 'down']
 
-const CONFIRM_COPY: Record<'recreate' | 'down', (name: string) => string> = {
-  recreate: name =>
-    `Recreate rebuilds the containers of ${name} from its compose file. Volumes are kept.`,
-  down: name =>
-    `Down removes the containers and networks of ${name}. Volumes are kept.`,
+/** What survives, said before the user commits (voice.md). */
+const CONFIRM_COPY: Record<'recreate' | 'down', string> = {
+  recreate:
+    'Its containers are rebuilt from the compose file. Volumes are kept.',
+  down: 'Its containers and networks are removed. Volumes are kept.',
 }
 
 type Failure = Exclude<ActionResult, { ok: true }>
+
+/** The API's refusal codes, shown in mono after the sentence. */
+function Code({ children }: { children: string | number }): JSX.Element {
+  return (
+    <span className="mt-1 block font-mono text-mono-sm text-ink-3">
+      {children}
+    </span>
+  )
+}
 
 function FailureNote({
   action,
@@ -59,59 +57,60 @@ function FailureNote({
   if (failure.kind === 'busy') {
     const running = failure.operation?.action
     return (
-      <Callout icon="terminal" tone="warn">
-        <p className="font-medium text-ink">
-          {running
+      <Note
+        icon={<Icon name="alert" />}
+        lead={
+          running
             ? `${ACTION_LABEL[running]} is still running on ${stack.name}.`
-            : `Another operation is still running on ${stack.name}.`}
-        </p>
-        <p className="mt-0.5 text-ink-3">
-          Wait for it to finish, then press {label} again.
-        </p>
-      </Callout>
+            : `Another operation is still running on ${stack.name}.`
+        }
+        tone="warn"
+      >
+        Wait for it to finish, then press {label} again.
+        <Code>409</Code>
+      </Note>
     )
   }
 
   if (failure.kind === 'preflight') {
     return (
-      <Callout icon="file" tone="warn">
-        <p className="font-medium text-ink">
-          {label} can’t start {stack.name}: a required env file isn’t on this
-          host.
-        </p>
-        <ul className="mt-1 flex flex-col gap-0.5">
-          {failure.missing.map(path => (
-            <li key={path}>
-              <Kbd title={path}>{shortPath(path)}</Kbd>
-            </li>
-          ))}
-        </ul>
-        <p className="mt-1 text-ink-3">
-          Run <Kbd className="mx-1">pnpm lilnas secrets decrypt</Kbd> on the
-          host, then press {label} again.
-        </p>
-      </Callout>
+      <Note
+        icon={<Icon name="alert" />}
+        lead={`${label} can’t start ${stack.name}: a required env file isn’t on this host.`}
+        tone="warn"
+      >
+        {failure.missing.map(path => (
+          <span className="mt-1 block" key={path}>
+            <Kbd title={path}>{shortPath(path)}</Kbd>
+          </span>
+        ))}
+        Run <Kbd>pnpm lilnas secrets decrypt</Kbd> on the host, then press{' '}
+        {label} again.
+        <Code>412</Code>
+      </Note>
     )
   }
 
   return (
-    <Callout icon="alert" tone="bad">
-      <p className="font-medium text-ink">
-        {label} didn’t start on {stack.name}.
-      </p>
-      <p className="mt-1 font-mono text-mono-sm break-words text-ink-4">
+    <Note
+      icon={<Icon name="alert" />}
+      lead={`${label} didn’t start on ${stack.name}.`}
+      tone="bad"
+    >
+      <span className="block font-mono text-mono-sm break-words text-ink-3">
         {failure.status ? `${failure.status} ` : ''}
         {failure.message}
-      </p>
-    </Callout>
+      </span>
+    </Note>
   )
 }
 
 /**
- * The five actions. Up, Stop and Restart are the everyday ones and read as
- * buttons; Recreate and Down throw containers away, so they sit quieter and
- * ask first. Which are enabled is a pure function of the stack's state
- * (`actionAvailability`).
+ * The five actions. Up is the one accent; Recreate and Down throw containers
+ * away, so they sit apart (`split` pushes them to the right edge on a card),
+ * Down in red outline, and both ask first with an inline confirm that names
+ * the object and what survives. Which are enabled is a pure function of the
+ * stack's state (`actionAvailability`).
  *
  * The API refuses an action with 409 (another operation owns the stack) or 412
  * (a required env file is missing); both show up under the buttons. Whatever
@@ -123,11 +122,13 @@ export function ActionBar({
   stack,
   onActed,
   onStarted,
+  split = false,
   className,
 }: {
   stack: StackView
   onActed: () => void
   onStarted?: (operation: Operation) => void
+  split?: boolean
   className?: string
 }): JSX.Element {
   const [pending, setPending] = useState<StackAction | null>(null)
@@ -161,11 +162,16 @@ export function ActionBar({
     }
   }
 
-  function button(action: StackAction, variant: 'outline' | 'ghost' | 'bad') {
+  function button(
+    action: StackAction,
+    variant: 'accent' | 'outline' | 'bad',
+    extra?: string,
+  ) {
     return (
       <Button
+        className={extra}
         disabled={!available[action] || pending !== null}
-        icon={ACTION_ICON[action]}
+        loading={pending === action}
         onClick={() => press(action)}
         size="sm"
         variant={variant}
@@ -176,30 +182,33 @@ export function ActionBar({
   }
 
   return (
-    <div
-      className={cns(
-        'mt-auto flex flex-col gap-3 border-t border-line-soft pt-3.5',
-        className,
-      )}
-    >
+    <div className={cns('flex flex-col gap-3', className)}>
       <div className="flex flex-wrap items-center gap-1.5">
-        {button('up', 'outline')}
+        {button('up', 'accent')}
         {button('stop', 'outline')}
         {button('restart', 'outline')}
-        <span className="ml-auto flex flex-wrap items-center gap-1.5">
-          {button('recreate', 'ghost')}
-          {button('down', 'bad')}
-        </span>
+        {button('recreate', 'outline', split ? 'sm:ml-auto' : undefined)}
+        {button('down', 'bad')}
       </div>
 
       {confirming === 'recreate' || confirming === 'down' ? (
-        <Callout icon="alert" tone="warn">
-          <p className="text-ink">{CONFIRM_COPY[confirming](stack.name)}</p>
-          <div className="mt-2 flex gap-1.5">
+        <div className="flex flex-col gap-2">
+          <Note
+            icon={<Icon name="alert" />}
+            lead={`${ACTION_LABEL[confirming]} ${stack.name}?`}
+            tone="warn"
+          >
+            {CONFIRM_COPY[confirming]}
+          </Note>
+          <div className="flex flex-wrap gap-1.5">
             <Button
+              className={cns(
+                confirming === 'down' &&
+                  'bg-bad text-bg-sunk hover:bg-bad/85 active:bg-bad/75',
+              )}
               onClick={() => void run(confirming)}
               size="sm"
-              variant={confirming === 'down' ? 'bad' : 'outline'}
+              variant="accent"
             >
               {ACTION_LABEL[confirming]} {stack.name}
             </Button>
@@ -207,7 +216,7 @@ export function ActionBar({
               Keep it
             </Button>
           </div>
-        </Callout>
+        </div>
       ) : null}
 
       {outcome ? (

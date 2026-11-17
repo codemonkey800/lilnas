@@ -210,6 +210,112 @@ describe('PendingClient — rejected render and "Request access again" (rejectio
   })
 })
 
+describe('PendingClient — markup', () => {
+  it('draws a labelled waiting ring with a live accent dot, and the target service in the target pill', () => {
+    const { container } = render(
+      <PendingClient
+        serviceHost="dashcam.lilnas.io"
+        redirectUrl={REDIRECT_URL}
+        identity={IDENTITY}
+        requestedAt={REQUESTED_AT}
+        initialOutcome="pending"
+      />,
+    )
+
+    expect(screen.getByRole('img', { name: 'Waiting' })).toBeInTheDocument()
+    expect(container.querySelector('[data-pulse]')).toBeInTheDocument()
+    expect(screen.getByText('Dashcam')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: IDENTITY.initials })).toHaveClass(
+      'bg-accent',
+    )
+    expect(
+      screen.getByText(/you'll be sent to dashcam\.lilnas\.io/i),
+    ).toBeInTheDocument()
+  })
+
+  it('swaps the ring for a declined x (no pulse) and the note for the ask-again copy when rejected', () => {
+    const { container } = render(
+      <PendingClient
+        serviceHost="dashcam.lilnas.io"
+        redirectUrl={REDIRECT_URL}
+        identity={IDENTITY}
+        requestedAt={null}
+        initialOutcome="rejected"
+      />,
+    )
+
+    expect(screen.getByRole('img', { name: 'Declined' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('img', { name: 'Waiting' }),
+    ).not.toBeInTheDocument()
+    expect(container.querySelector('[data-pulse]')).not.toBeInTheDocument()
+    expect(
+      screen.getByText('Asking again notifies an admin.'),
+    ).toBeInTheDocument()
+  })
+
+  it('announces the heading in a polite status region', () => {
+    render(
+      <PendingClient
+        serviceHost="dashcam.lilnas.io"
+        redirectUrl={REDIRECT_URL}
+        identity={IDENTITY}
+        requestedAt={REQUESTED_AT}
+        initialOutcome="pending"
+      />,
+    )
+
+    expect(
+      screen
+        .getAllByRole('status')
+        .some(
+          region =>
+            region.querySelector('h1')?.textContent === 'Waiting for approval',
+        ),
+    ).toBe(true)
+  })
+
+  it('spins the Check again icon while a manual re-check runs', async () => {
+    render(
+      <PendingClient
+        serviceHost="dashcam.lilnas.io"
+        redirectUrl={REDIRECT_URL}
+        identity={IDENTITY}
+        requestedAt={REQUESTED_AT}
+        initialOutcome="pending"
+      />,
+    )
+    const button = screen.getByRole('button', { name: /check again/i })
+    expect(button).not.toHaveClass('[&_svg]:animate-spin')
+
+    fireEvent.click(button)
+
+    await waitFor(() => {
+      expect(button).toHaveClass('[&_svg]:animate-spin')
+    })
+  })
+
+  it('marks "Request access again" busy while the new request is submitting', async () => {
+    mockSubmitReRequest.mockReturnValueOnce(new Promise(() => {}))
+    render(
+      <PendingClient
+        serviceHost="dashcam.lilnas.io"
+        redirectUrl={REDIRECT_URL}
+        identity={IDENTITY}
+        requestedAt={null}
+        initialOutcome="rejected"
+      />,
+    )
+
+    const button = screen.getByRole('button', { name: /request access again/i })
+    fireEvent.click(button)
+
+    await waitFor(() => {
+      expect(button).toHaveAttribute('aria-busy', 'true')
+    })
+  })
+})
+
 describe('PendingClient — SSE-driven redirect (R9, AE3)', () => {
   it('covers AE3: opening the SSE connection and receiving status-changed re-checks status and redirects on grant', async () => {
     // jsdom's window.location cannot be intercepted or reassigned (a

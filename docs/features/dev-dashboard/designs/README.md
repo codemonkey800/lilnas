@@ -9,26 +9,27 @@ Those `*.html` files are **generated**. Don't edit them — edit the Pug in
 ```bash
 pnpm mockups        # src/ -> ./*.html
 pnpm mockups:watch  # same, rebuilding on every save
+pnpm mockups:lint   # prettier check on src/
 ```
 
 This directory is not an npm package — no `package.json`, no `node_modules`.
 The builder is `lilnas mockups build`, from `@lilnas/cli`.
 
-## Layout
+Drawn in **Category Standard** at **compact** density (dev is a compact app),
+from the shared kit in [`docs/designs/mockup-kit`](../../../designs/mockup-kit/README.md).
+Two screens, each at 1280 and 390: the overview (`index`) and one stack in full
+(`stack-detail`), with every state the app shows below them.
 
-Only `src/pages/` is required; everything else is picked up if present.
+## Layout
 
 ```
 src/
-  theme.css        design tokens as a Tailwind @theme, plus any @utility rules
-  runtime.js       optional — inlined into every page as a <script>
-  layout/
-    page.pug       the shell pages extend
-  mixins/*.pug     optional — shared components
-  pages/*.pug      one per screen; layout only
-  data/*.mjs       optional — copy and sample data, keyed by page name
+  theme.css        three lines: Tailwind, its source, the kit's theme
+  mixins/dev.pug   dev-only components: stack card, host strip, service row,
+                   reaper panel, container logs…
+  pages/*.pug      one per screen; they extend the kit's page.pug
+  data/*.mjs       copy and sample data, keyed by page name
 ```
 
-`data/<page>.mjs` default-exports an object that becomes that page's template
-locals. It's `.mjs` rather than `.js` because there's no `package.json` here
-to tell Node these are ES modules.
+Everything generic (button, badge, note, meter, dataList, logViewer…) comes
+from the kit; don't copy it back in here.

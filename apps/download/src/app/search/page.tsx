@@ -1,4 +1,4 @@
-import { cns } from '@lilnas/utils/cns'
+import { Icon, Note } from '@lilnas/ui'
 import type { JSX } from 'react'
 
 import {
@@ -17,7 +17,6 @@ import {
 } from 'src/components/search/search-params'
 import { SearchResults } from 'src/components/search/search-results'
 import { SearchToolbar } from 'src/components/search/search-toolbar'
-import { Note } from 'src/components/ui/card'
 import { getIdentifiedDownloadClient } from 'src/lib/download-client'
 
 /**
@@ -27,8 +26,6 @@ import { getIdentifiedDownloadClient } from 'src/lib/download-client'
  * bailout at build time.
  */
 export const dynamic = 'force-dynamic'
-
-const LOUD_NOTE = 'border-bad/35! bg-bad-ghost! [&>svg]:text-bad!'
 
 type SearchPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>
@@ -63,11 +60,7 @@ export default async function SearchPage({
     // Nothing typed yet is not a state worth narrating — the hero above is
     // already the whole invitation. One character is, because the field looks
     // like it should be working.
-    return state.query.length === 0 ? (
-      <></>
-    ) : (
-      <ShortQueryNote className="mt-[22px] sm:mt-[30px]" />
-    )
+    return state.query.length === 0 ? <></> : <ShortQueryNote />
   }
 
   if (!hasValidYearRange(state)) {
@@ -75,9 +68,13 @@ export default async function SearchPage({
     // own confirm on an inverted range. The API refines this and 400s, so it
     // is caught before the call rather than through the error boundary.
     return (
-      <Note className={cns('mt-[22px] sm:mt-[30px]', LOUD_NOTE)} role="status">
-        <b className="text-ink">{YEAR_RANGE_ERROR}.</b> Widen the release-year
-        range and the results will come back.
+      <Note
+        className="animate-rise"
+        icon={<Icon name="alert" />}
+        lead={`${YEAR_RANGE_ERROR}.`}
+        tone="bad"
+      >
+        Widen the release-year range and the results will come back.
       </Note>
     )
   }
@@ -89,7 +86,7 @@ export default async function SearchPage({
     <>
       {/* Above the count, because it is the count that it qualifies. */}
       <DegradedSourcesNote
-        className="mt-[22px] sm:mt-[30px]"
+        className="mb-4"
         degradedSources={page.degradedSources}
       />
       <SearchToolbar

@@ -1,17 +1,26 @@
-import { cns } from '@lilnas/utils/cns'
+import { StatusDot as UiStatusDot, type StatusDotTone } from '@lilnas/ui'
+import type { JSX } from 'react'
 
+/**
+ * The pre-redesign colour names, kept so existing call sites don't churn:
+ * green is ok, yellow warn, red bad, gray idle.
+ */
 type Variant = 'green' | 'yellow' | 'red' | 'gray'
 
-export function StatusDot({ variant }: { variant: Variant }) {
-  return (
-    <span
-      className={cns(
-        'inline-block h-2.5 w-2.5 rounded-full',
-        variant === 'green' && 'bg-green-400',
-        variant === 'yellow' && 'bg-yellow-400',
-        variant === 'red' && 'bg-red-400',
-        variant === 'gray' && 'bg-gray-400',
-      )}
-    />
-  )
+const TONES: Record<Variant, StatusDotTone> = {
+  green: 'ok',
+  yellow: 'warn',
+  red: 'bad',
+  gray: 'idle',
+}
+
+/** `@lilnas/ui`'s `StatusDot`, addressed by the old variant names. */
+export function StatusDot({
+  variant,
+  pulse,
+}: {
+  variant: Variant
+  pulse?: boolean
+}): JSX.Element {
+  return <UiStatusDot pulse={pulse} tone={TONES[variant]} />
 }

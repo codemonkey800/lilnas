@@ -30,6 +30,18 @@
     })
   }
 
-  var images = document.querySelectorAll('img[data-poster]')
-  for (var i = 0; i < images.length; i++) dropIfBroken(images[i])
+  /*
+   * The builder inlines this into <head>, which runs before the <img>s are
+   * parsed, so wait for the document.
+   */
+  function run() {
+    var images = document.querySelectorAll('img[data-poster]')
+    for (var i = 0; i < images.length; i++) dropIfBroken(images[i])
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', run)
+  } else {
+    run()
+  }
 })()

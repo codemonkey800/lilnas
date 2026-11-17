@@ -22,16 +22,19 @@ export default function PageError({
   }, [error])
 
   return (
-    <div className="mx-auto max-w-xl space-y-4 py-10">
-      <ErrorState message={error.message} />
-      <button
-        type="button"
-        onClick={reset}
-        data-track-id="error-boundary-retry"
-        className="rounded bg-gray-800 px-4 py-2 text-sm text-gray-300 hover:bg-gray-700"
-      >
-        Try again
-      </button>
+    <div className="mx-auto max-w-xl px-4 py-6">
+      <ErrorState
+        code={
+          error.digest
+            ? `${error.message} · digest ${error.digest}`
+            : error.message
+        }
+        lead="This page hit an error."
+        message="The nav still works. Try again, or open another page."
+        onRetry={reset}
+        retryLabel="Try again"
+        retryTrackId="error-boundary-retry"
+      />
     </div>
   )
 }

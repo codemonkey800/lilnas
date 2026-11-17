@@ -1,11 +1,11 @@
 'use client'
 
+import { Button } from '@lilnas/ui'
 import { useRouter } from 'next/navigation'
 import type { JSX } from 'react'
 import { useOptimistic, useTransition } from 'react'
 
-import { Button } from 'src/components/ui/button'
-import { AppliedFilterChip } from 'src/components/ui/filters'
+import { FilterBadge } from 'src/components/ui/filter-badge'
 import type { AdminFilters } from 'src/lib/admin-filters'
 import {
   adminFilterChips,
@@ -13,9 +13,6 @@ import {
   EMPTY_ADMIN_FILTERS,
   hasAdminFilters,
 } from 'src/lib/admin-filters'
-
-/** `gallery.pug`'s Clear all beside the applied chips — a 27px ghost button. */
-const CLEAR_ALL_INLINE = 'h-[27px] px-2.5 text-[12px]'
 
 export type AdminFilterChipsProps = {
   filters: AdminFilters
@@ -69,11 +66,11 @@ export function AdminFilterChips({
   return (
     <div
       aria-label="Active filters"
-      className="mb-[14px] flex flex-wrap items-center gap-2 sm:gap-[9px]"
+      className="mb-5 flex flex-wrap items-center gap-2"
       role="group"
     >
       {chips.map(chip => (
-        <AppliedFilterChip
+        <FilterBadge
           key={chip.key}
           label={chip.label}
           onRemove={() => apply(chip.next)}
@@ -82,7 +79,6 @@ export function AdminFilterChips({
       ))}
       {chips.length > 1 && hasAdminFilters(applied) ? (
         <Button
-          className={CLEAR_ALL_INLINE}
           onClick={() => apply({ ...EMPTY_ADMIN_FILTERS, days: applied.days })}
           size="sm"
           variant="ghost"

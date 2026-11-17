@@ -27,11 +27,13 @@ describe('OperationLog', () => {
       stream.emit(line('Container blabla-web-1  Started'))
     })
 
+    // The command sits above the well; the lines are in it.
+    expect(screen.getByText('$ docker compose up -d')).toBeInTheDocument()
     const log = screen.getByRole('log')
-    expect(log).toHaveTextContent('$ docker compose up -d')
     expect(log).toHaveTextContent('Container blabla-web-1 Starting')
     expect(log).toHaveTextContent('Container blabla-web-1 Started')
-    expect(screen.getByText('running')).toBeInTheDocument()
+    expect(screen.getByText('Running')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar')).not.toHaveAttribute('aria-valuenow')
     expect(screen.getByText(/Jeremy/)).toBeInTheDocument()
   })
 
@@ -55,9 +57,10 @@ describe('OperationLog', () => {
       })
     })
 
-    expect(screen.getByRole('log')).toHaveTextContent('exit 0 · 4.1s')
-    expect(screen.getByText('exit 0', { selector: 'span' })).toBeInTheDocument()
-    expect(screen.queryByText('running')).not.toBeInTheDocument()
+    expect(screen.getByText('exit 0 · 4.1s')).toHaveClass('text-ok')
+    expect(screen.getByText('Exit 0')).toBeInTheDocument()
+    expect(screen.queryByText('Running')).not.toBeInTheDocument()
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
     expect(stream.close).toHaveBeenCalled()
   })
 
@@ -80,8 +83,8 @@ describe('OperationLog', () => {
         jest.advanceTimersByTime(OP_RECONNECT_MS * 2)
       })
 
-      expect(screen.getByRole('log')).toHaveTextContent('exit 1')
-      expect(screen.getByRole('log').lastElementChild).toHaveClass('text-bad')
+      expect(screen.getByText('exit 1')).toHaveClass('text-bad')
+      expect(screen.getByText('Exit 1')).toBeInTheDocument()
       expect(FakeEventSource.matching('/operations/op-8/stream')).toHaveLength(
         1,
       )

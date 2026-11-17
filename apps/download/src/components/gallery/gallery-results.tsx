@@ -1,5 +1,6 @@
 'use client'
 
+import { Icon, Note } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { GalleryItem } from '@lilnas/utils/download/types'
 import type { JSX } from 'react'
@@ -8,23 +9,20 @@ import { useState, useTransition } from 'react'
 import { loadGalleryPage } from 'src/app/actions/load-gallery-page'
 import { GalleryEmpty } from 'src/components/gallery/gallery-empty'
 import { GalleryItemCard } from 'src/components/gallery/gallery-item-card'
-import { Note } from 'src/components/ui/card'
 import { LoadMore } from 'src/components/ui/load-more'
 import { useLiveLibraryItems } from 'src/lib/use-live-library-items'
 import type { Viewer } from 'src/lib/viewer'
 
 /**
- * `gallery.pug`'s grid, verbatim: a wrapping flex row rather than a CSS grid,
- * because the cards set their own width at each breakpoint and a trailing row
- * of two should sit left-aligned at that width rather than stretch to fill
- * columns. `items-stretch` is what makes every card in a row the height of the
- * tallest, which is in turn what the cards' `mt-auto` attribution row hangs
- * off.
+ * `gallery.pug`'s grid: two-up on a phone, then as many 158px-minimum columns
+ * as fit. `items-stretch` (the grid default) makes every card in a row the
+ * height of the tallest, which is what the cards' `mt-auto` attribution row
+ * hangs off.
  */
-const GALLERY_GRID = 'flex flex-wrap items-stretch gap-4 stagger'
-
-/** The loud `Note` from `ui.pug`'s call sites — `Note` itself has no tone. */
-const GALLERY_ERROR_NOTE = 'mt-6 border-bad/35! bg-bad-ghost! [&>svg]:text-bad!'
+const GALLERY_GRID = cns(
+  'stagger grid grid-cols-2 gap-4',
+  'sm:grid-cols-[repeat(auto-fill,minmax(158px,1fr))]',
+)
 
 export type GalleryResultsProps = {
   /**
@@ -132,9 +130,12 @@ export function GalleryResults({
         ))}
       </div>
       {error ? (
-        <Note className={cns(GALLERY_ERROR_NOTE)} icon="alert" role="alert">
-          {error}
-        </Note>
+        <Note
+          className="mt-6"
+          icon={<Icon name="alert" />}
+          lead={error}
+          tone="bad"
+        />
       ) : null}
       <LoadMore
         className="mt-6"

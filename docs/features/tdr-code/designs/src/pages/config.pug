@@ -1,0 +1,85 @@
+extends ../../../../../designs/mockup-kit/page.pug
+
+include ../mixins/tdr-code.pug
+
+block title
+  | tdr-code — config · UI mockups
+
+//-
+  /config: the global config as one form. Each field carries how far a change
+  reaches (the app's "takes effect" line). Copy and sample data are in
+  src/data/config.mjs.
+
+mixin fmt(n)
+  = n.toLocaleString('en-US')
+
+mixin configForm(view, s)
+  - const phone = view === 'mobile'
+  - const args = s.args || values.claudeArgs
+  - const count = s.promptCount || values.customSystemPrompt.length
+  - const near = count >= copy.max * 0.9
+  - const saving = s.save === 'saving'
+  +card()(class='flex flex-col gap-5')
+    +cfgField(fields.cwd.label, fields.cwd.effect)
+      +input({ value: values.cwd, mono: true })(class=phone ? 'h-11!' : '')
+    +cfgField(fields.claudeCommand.label, fields.claudeCommand.effect)
+      +input({ value: values.claudeCommand, mono: true })(class=phone ? 'h-11!' : '')
+    +cfgField(fields.claudeArgs.label, fields.claudeArgs.effect, null, s.argsError)
+      +textarea({ value: args, mono: true, rows: 2, error: !!s.argsError })
+    div(class=['grid gap-5', phone ? 'grid-cols-1' : 'grid-cols-2'])
+      +cfgField(fields.idleTimeoutSec.label, fields.idleTimeoutSec.effect)
+        +input({ type: 'number', value: values.idleTimeoutSec })(class=phone ? 'h-11!' : '')
+      +cfgField(fields.maxConcurrentSessions.label, fields.maxConcurrentSessions.effect)
+        +input({ type: 'number', value: values.maxConcurrentSessions })(class=phone ? 'h-11!' : '')
+    +cfgField(fields.customSystemPrompt.label, fields.customSystemPrompt.effect)
+      +textarea({ value: values.customSystemPrompt, mono: true, rows: 7, long: true })
+      p(class=['mt-1 text-right text-cap tabular-nums', near ? 'text-warn' : 'text-ink-3'])
+        +fmt(count)
+        |  / 
+        +fmt(copy.max)
+      if near
+        +note('warn', copy.nearCap.lead)(class='mt-2')
+          = copy.nearCap.detail
+    +cfgField(fields.autoPostDiffs.label, fields.autoPostDiffs.effect)
+      +checkbox({ label: fields.autoPostDiffs.check, checked: values.autoPostDiffs })
+    div(class=['flex items-center gap-3 border-t border-line pt-4', phone ? 'flex-col items-stretch' : ''])
+      +btn({ variant: 'accent', touch: phone, label: saving ? 'Saving…' : 'Save', loading: saving, disabled: saving, full: phone })
+      if s.save === 'saved'
+        span(class='inline-flex items-center gap-1.5 text-sm text-ok' role='status')
+          +icon('check', 14)
+          | Saved
+    if s.save === 'error'
+      +note('bad', copy.saveError.lead)
+        = copy.saveError.detail
+        span(class='mt-0.5 block font-mono text-mono-sm text-ink-3')= copy.saveError.code
+
+mixin configScreen(view, s)
+  +shell(view, 'Config', { width: 'max-w-xl' })
+    h1(class='text-h2') Global config
+    if s.body === 'loading'
+      +loadingBlock(copy.loading)
+    else if s.body === 'error'
+      +errorBlock(view, copy.error.lead, copy.error.detail, copy.error.code, false)
+    else
+      if s.offline
+        +note('warn', copy.offline.lead)
+          = copy.offline.detail
+      +configForm(view, s)
+
+block content
+  +mockHead({ eyebrow: 'tdr-code · /config', title: 'Config', back: true })
+    p One form for the settings every new session starts with. Paths, commands and args are mono; each field says how far a change reaches on its label line. Save is the one accent button. A save that can't happen yet (the bot is offline) still works, and the note says when it will apply. Validation sits under the field it's about and says what a valid value looks like. The prompt's character count turns amber from 90% of the 20,000 limit.
+
+  div(class='vp-scope flex flex-col items-center gap-8')
+    +viewportToggle('config-viewport')
+    +viewportPanel('desktop')
+      each s in states
+        +stateRow(s.label + ' · ' + s.caption, { stack: true })(class='w-full')
+          +configScreen('desktop', s)
+      +frameLabel Desktop · 1280
+    +viewportPanel('mobile')
+      +stateRow('States', { stack: true })(class='w-full')
+        each s in states
+          +stateCell(s.label + ' · ' + s.caption)
+            +configScreen('mobile', s)
+      +frameLabel Mobile · 390

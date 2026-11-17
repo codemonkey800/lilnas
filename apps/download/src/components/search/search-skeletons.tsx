@@ -1,13 +1,11 @@
 'use client'
 
+import { Skeleton } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import { useSearchParams } from 'next/navigation'
 import type { JSX } from 'react'
 
 import { parseSearchState } from 'src/components/search/search-params'
-import { Card } from 'src/components/ui/card'
-import { DataTable } from 'src/components/ui/data-table'
-import { Skeleton } from 'src/components/ui/feedback'
 
 /**
  * `search.mjs`'s `GRID_SKELETONS` — title and metadata widths, varied so the
@@ -54,8 +52,8 @@ const LIST_SKELETONS: readonly string[] = [
 
 /** Matches `ResultGrid`'s own track sizing exactly, so nothing shifts. */
 const SKELETON_GRID = cns(
-  'stagger grid gap-3 grid-cols-[repeat(auto-fill,minmax(128px,1fr))]',
-  'sm:gap-4 sm:grid-cols-[repeat(auto-fill,minmax(148px,1fr))]',
+  'stagger grid grid-cols-2 gap-4',
+  'sm:grid-cols-[repeat(auto-fill,minmax(148px,1fr))]',
 )
 
 function LoadingGrid(): JSX.Element {
@@ -63,79 +61,47 @@ function LoadingGrid(): JSX.Element {
     <div className={SKELETON_GRID}>
       {GRID_SKELETONS.map(([title, meta], index) => (
         <div
-          className="flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px]"
+          className="flex flex-col gap-2 rounded-lg border border-line bg-surface p-2.5"
           key={index}
         >
           <Skeleton className="aspect-[2/3] w-full rounded-md" />
-          <Skeleton className="h-[13px]" style={{ width: title }} />
-          <Skeleton className="h-2.5" style={{ width: meta }} />
+          <Skeleton className="h-3.5" style={{ width: title }} />
+          <Skeleton className="h-3" style={{ width: meta }} />
         </div>
       ))}
     </div>
   )
 }
 
-function LoadingTable(): JSX.Element {
+function LoadingList(): JSX.Element {
   return (
-    <Card className="overflow-x-auto px-1.5 pt-1 pb-1.5">
-      <DataTable className="min-w-[480px] sm:min-w-0">
-        <thead>
-          <tr>
-            <th className="w-[42%] sm:w-[36%]">title</th>
-            <th className="hidden sm:table-cell">type</th>
-            <th>year</th>
-            <th>genre</th>
-            <th className="text-right!">runtime</th>
-          </tr>
-        </thead>
-        <tbody>
-          {LIST_SKELETONS.map((width, index) => (
-            <tr key={index}>
-              <td>
-                <div className="flex items-center gap-3">
-                  <Skeleton className="h-[50px] w-[34px] shrink-0" />
-                  <Skeleton className="h-[13px]" style={{ width }} />
-                </div>
-              </td>
-              <td className="hidden sm:table-cell">
-                <Skeleton className="h-[11px] w-[46px]" />
-              </td>
-              <td>
-                <Skeleton className="h-[11px] w-8" />
-              </td>
-              <td>
-                <Skeleton className="h-[11px] w-16" />
-              </td>
-              <td className="text-right!">
-                <Skeleton className="ml-auto h-[11px] w-[18px]" />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </DataTable>
-    </Card>
+    <div className="flex flex-col gap-2">
+      {LIST_SKELETONS.map((width, index) => (
+        <div
+          className="flex items-center gap-3 rounded-lg border border-line bg-surface p-2.5"
+          key={index}
+        >
+          <Skeleton className="h-[72px] w-12 shrink-0" />
+          <div className="flex flex-1 flex-col gap-2">
+            <Skeleton className="h-3.5" style={{ width }} />
+            <Skeleton className="h-3 w-24" />
+          </div>
+        </div>
+      ))}
+    </div>
   )
 }
 
 /**
- * The shape of the answer before the answer arrives — `/search`'s route-level
- * `loading.tsx`.
- *
- * A client component purely so it can read `?view=` and put up the skeleton
- * for the view you are actually in: `loading.tsx` is handed no props and has
- * no access to `searchParams`, and a grid of poster tiles flashing in front of
- * a table is a worse frame than no frame at all.
- *
- * The hero is *not* here, and does not need to be: it lives in
- * `src/app/search/layout.tsx`, above this boundary, so the field you are
- * typing into is never unmounted and re-mounted by its own keystrokes.
+ * The shape of the answer before the answer arrives: the grid or the list the
+ * URL asks for. The hero above it is the page layout's, so it stays put.
  */
 export function SearchLoadingSkeleton(): JSX.Element {
   const { view } = parseSearchState(useSearchParams())
 
   return (
-    <div className="mt-[22px] sm:mt-[30px]">
-      {view === 'list' ? <LoadingTable /> : <LoadingGrid />}
+    <div aria-busy="true">
+      {view === 'list' ? <LoadingList /> : <LoadingGrid />}
     </div>
   )
 }

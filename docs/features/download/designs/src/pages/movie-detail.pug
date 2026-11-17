@@ -1,897 +1,259 @@
-extends ../layout/page.pug
+extends ../../../../../designs/mockup-kit/page.pug
+
+include ../mixins/download.pug
 
 block title
-  | Movie detail — download UI mockups · lilnas
+  | download — movie detail · UI mockups
 
 //-
-  The movie a card leads to. The screen is drawn several times per viewport —
-  primary, not-downloaded, started-from-Radarr, the three modals, and the
-  loading state — so everything that repeats between them (the header block,
-  the release list, the media-state chip, the Attempts list) is a mixin here
-  rather than hand-kept copies.
+  /movies/[tmdbId]: one movie and everything you can do about it. The page
+  is a state machine over the seven media states (media-state.ts) and the
+  job's sixteen statuses (job-state.ts); each media state is a row below, then
+  the request flow, the release picker, the dialogs and the two boundaries.
+  Copy and sample data are in src/data/movie-detail.mjs.
 
-//- Back-to-library breadcrumb inside the app body.
-mixin libraryLink
-  a(class='mb-[22px] flex items-center gap-1.5' href='#')
-    +icon('arrow')(class='h-[13px] w-[13px] -scale-x-100 text-ink-4')
-    span(class='text-sm text-ink-3') Library
-
-//-
-  The media-state chip — the seven-value vocabulary shared with the show and
-  video pages (plan 021), not a second "downloaded" boolean. `available` is
-  what the old "in library" chip already was; there's one rendering path now,
-  not two.
-mixin mediaChip(state)
-  - const s = MEDIA_STATE[state] || MEDIA_STATE.absent
-  +chip({ label: s.live ? null : s.label, tone: s.tone })&attributes(attributes)
-    if s.live
-      +dot('live')
-      = s.label
-
-//-
-  Poster + title + metadata + actions.
-    synopsis / attribution / cast — each omitted in the cropped modal frames,
-    which only need enough of the page for the scrim to sit over something.
-    state — the media state driving both the chip and which action row shows
-    (Watch/Delete once available, a plain Download shortcut otherwise).
-    Default 'available': every existing call site is a downloaded movie, so
-    this stays opt-in rather than needing a flag everywhere. The header's
-    Download stays outline weight, not the primary `uv` variant, on purpose —
-    the release picker below is still the better path (the user picks), and
-    this is a shortcut next to it, not competing advice. Plan 024 puts the
-    quality tier picker right before it — it's what the shortcut will ask
-    Radarr for, so it sits where the press is.
-    attribution — `true` draws the person who asked (avatar, linked to their
-    profile); a string draws that name as a plain label instead, for an
-    attempt Radarr started itself (no avatar, no link — Radarr has no profile).
-mixin movieHeader(view, opts)
-  - opts = opts || {}
-  - const mobile = view === 'mobile'
-  - const state = opts.state || 'available'
-  - const downloaded = state === 'available'
-  if mobile
-    +poster({ shape: 'tall', v: 1, src: 'assets/emby/movie-1.jpg', label: TITLE })(
-      class='mx-auto mb-4 w-full max-w-[220px]'
-    )
-    p(class='mb-1.5 text-h1')= TITLE
-    p(class='mb-2 text-sm text-ink-3')= META
-    +mediaChip(state)(class='mb-4 flex w-fit')
-    if opts.synopsis
-      p(class='mb-4 text-sm text-ink-3')= SYNOPSIS
-    if opts.cast
-      div(class='mb-4 flex flex-wrap gap-4')
-        each person in LEAD_CAST
-          +castPerson(person[0], person[1])
-    if opts.attribution
-      div(class='mb-4 flex items-center gap-2')
-        +attribution(opts.attribution)
-    div(class='mb-7 flex flex-col gap-2')
-      if downloaded
-        +btn({ label: 'Watch', variant: 'uv', iconEnd: 'eye', full: true })
-        +btn({ label: 'Delete', variant: 'bad', iconEnd: 'trash', full: true })
-      else
-        +tierSelect({ tiers: QUALITY_TIERS, selected: DEFAULT_QUALITY_TIER, full: true })
-        +btn({ label: 'Download', variant: 'outline', iconEnd: 'download', full: true })
-  else
-    div(class='mb-7 flex items-start gap-6')
-      +poster({ shape: 'tall', v: 1, src: 'assets/emby/movie-1.jpg', label: TITLE })(class='w-[200px]')
-      div(class='flex flex-1 flex-col gap-[14px] pt-0.5')
-        div
-          p(class='mb-1.5 text-h1')= TITLE
-          p(class='mb-2 text-sm text-ink-3')= META
-          +mediaChip(state)(class='w-fit')
-        if opts.synopsis
-          p(class='max-w-[62ch] text-sm text-ink-3')= SYNOPSIS
-        if opts.cast
-          div(class='flex flex-wrap gap-4')
-            each person in LEAD_CAST
-              +castPerson(person[0], person[1])
-        if opts.attribution
-          div(class='flex items-center gap-2')
-            +attribution(opts.attribution)
-        div(class='mt-1 flex items-center gap-2.5')
-          if downloaded
-            +btn({ label: 'Watch', variant: 'uv', iconEnd: 'eye' })
-            +btn({ label: 'Delete', variant: 'bad', iconEnd: 'trash' })
-          else
-            +tierSelect({ tiers: QUALITY_TIERS, selected: DEFAULT_QUALITY_TIER })
-            +btn({ label: 'Download', variant: 'outline', iconEnd: 'download' })
-
-//- The header's "who asked, when" line — see `attribution` on +movieHeader.
-mixin attribution(by)
-  if typeof by === 'string'
-    span(class='font-mono text-mono-sm text-ink-4')= `${by} · 12m ago`
-  else
-    +avatar('JA', { href: 'profile.html' })(class='h-5 w-5 text-[9px]')
-    span(class='font-mono text-mono-sm text-ink-4') Jeremy · 12m ago
-
-//-
-  Attempts — replaces the old lifecycle panel + "Earlier attempts" list.
-  Newest first: an in-flight attempt is highlighted with its own progress and
-  actions; terminal ones are StateLines (chip, relative time, requester,
-  error). An empty list renders nothing — the chip above already says
-  "not downloaded".
-
-  `cancelling` is the card after Cancel was pressed and taken: the chip is the
-  job's status (`cancelling…`, warn), not a media state, so it's a plain
-  +chip rather than +mediaChip. The queue row is already gone — no bar, no
-  throughput — and Cancel stays, inert, instead of vanishing. Pause isn't
-  offered on a job that's winding down.
-
-  `status` (plan 024) draws the job's own status chip for an attempt with no
-  queue row yet — `searching` — with `statusNote` as a small secondary line
-  right under it saying why it's still searching. No bar: nothing's queued.
-
-  Plan 025: `status` with a `progress` keeps the bar — the job's own chip
-  (`unpacking`, `finishing up`, `paused`) over a queued download, with
-  `statusNote` under the chip as above. `throughput` is the mono line under
-  the bar either way: bytes, speed and estimate, or what happens next.
-mixin statusChip(status)
-  +chip({ label: status.live ? null : status.label, tone: status.tone })&attributes(attributes)
-    if status.live
-      +dot('live')
-      = status.label
-
-mixin attemptInFlight(a, mobile)
-  +card()(class=['border-uv/35 bg-uv-ghost/30', mobile ? 'p-4' : 'p-5'])&attributes(attributes)
-    if a.cancelling
-      +chip({ label: 'cancelling…', tone: 'warn' })(class='mb-3 w-fit')
-      div(class=['flex items-center gap-2', mobile ? 'flex-col' : ''])
-        +btn({ label: 'Cancel', variant: 'bad', iconEnd: 'x', full: mobile, disabled: true })
-    else if a.status && a.progress === undefined
-      +statusChip(a.status)(class='w-fit')
-      if a.statusNote
-        p(class='mt-2 text-cap text-ink-3')= a.statusNote
-      div(class=['mt-3 flex items-center gap-2', mobile ? 'flex-col' : ''])
-        each act in a.actions
-          +btn({ label: act.label, variant: act.variant, iconEnd: act.icon, full: mobile })
-    else
-      div(class=[a.statusNote ? '' : 'mb-3', 'flex items-center justify-between gap-3'])
-        if a.status
-          +statusChip(a.status)
-        else
-          +mediaChip(a.state)
-        span(class='font-mono text-mono-sm tabular-nums text-uv-hi')= `${a.progress}%`
-      if a.statusNote
-        p(class='mt-2 mb-3 text-cap text-ink-3')= a.statusNote
-      +bar(a.progress)(class='mb-2')
-      p(class='mb-3 font-mono text-mono-sm tabular-nums text-ink-3')= a.throughput
-      div(class=['flex items-center gap-2', mobile ? 'flex-col' : ''])
-        each act in a.actions
-          +btn({ label: act.label, variant: act.variant, iconEnd: act.icon, full: mobile })
-
-//-
-  A finished attempt. `a.retry` draws Retry at the end of the row — only ever
-  on the newest attempt overall, and only once nothing is in flight (the
-  app's `sorted[0]` rule), so a fixture sets it on one row at most.
-
-  `statusNote` (plan 024) is a neutral line under the when/who run — never
-  red, unlike `error`. The chip column is 132px so `no release found` fits
-  on one line; every row shares it so the column stays straight.
-mixin attemptLine(a, mobile)
-  +stline({ mobile: mobile })
-    +chip({ label: a.label, tone: a.tone })(class=mobile ? '' : 'w-[132px] justify-center')
-    span(
-      class=[mobile ? '' : 'min-w-0 flex-1', 'flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-ink-3']
-    )
-      span(class='font-mono text-mono-sm text-ink-4')= a.when
-      span(class='flex items-center gap-1.5')
-        +avatar(a.who[0])(class='h-5 w-5 text-[9px]')
-        span(class='font-mono text-mono-sm text-ink-3')= a.who[1]
-      if a.error
-        span(class='text-bad')= a.error
-      if a.statusNote
-        span(class='basis-full text-cap text-ink-3')= a.statusNote
-    if a.retry
-      if mobile
-        +stlineActions
-          +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
-      else
-        +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
-
-mixin attemptsList(view, items)
-  - const mobile = view === 'mobile'
-  if items && items.length
-    p(class='mb-3 text-h2') Attempts
-    - const inFlight = items.find(a => a.inFlight)
-    - const terminal = items.filter(a => !a.inFlight)
-    if inFlight
-      +attemptInFlight(inFlight, mobile)(class='mb-3')
-    if terminal.length
-      +card({ sunk: true })(class=[mobile ? 'px-[14px] py-1' : 'px-4 py-1', mobile ? 'mb-7' : 'mb-8'])
-        each a in terminal
-          +attemptLine(a, mobile)
-
-//-
-  What Radarr found, rather than just what it auto-picked. `flagged` adds the
-  third, bad-file row — omitted in the cropped modal frames.
-mixin releaseList(view, opts)
-  - opts = opts || {}
-  - const mobile = view === 'mobile'
-  p(class='mb-3 text-h2') Release
-  +card({ sunk: true })(class=mobile ? 'px-[14px] py-1' : 'px-4 py-1')
-    if mobile
-      +release(true)
-        span(class='flex items-center gap-2')
-          span(class='font-mono text-mono-sm text-ink-3') 1080p WEB-DL · 2.1 GB
-          +chip({ label: 'current', tone: 'ok' })
-        span(class='font-mono text-mono-sm text-ink-4') yts-verified
-        +stlineActions
-          +btn({ label: 'Report a problem', variant: 'ghost', size: 'sm', iconEnd: 'flag' })
-      +release(true)
-        span(class='font-mono text-mono-sm text-ink-3') 2160p WEB-DL · 5.8 GB
-        span(class='font-mono text-mono-sm text-ink-4') nyaa-hd
-        +stlineActions
-          +btn({ label: 'Download this', variant: 'outline', size: 'sm', iconEnd: 'download' })
-      if opts.flagged
-        +release(true)
-          span(class='font-mono text-mono-sm text-ink-3 line-through') 720p HDTV · 900 MB
-          span(class='flex items-center gap-2')
-            span(class='font-mono text-mono-sm text-ink-4') low-seed-source
-            +chip({ label: 'bad file', tone: 'bad' })
-    else
-      +release
-        span(class='w-[200px] font-mono text-mono-sm text-ink-3') 1080p WEB-DL · 2.1 GB
-        span(class='flex-1 font-mono text-mono-sm text-ink-4') yts-verified
-        +chip({ label: 'current', tone: 'ok' })
-        +btn({ label: 'Report a problem', variant: 'ghost', size: 'sm', iconEnd: 'flag' })
-      +release
-        span(class='w-[200px] font-mono text-mono-sm text-ink-3') 2160p WEB-DL · 5.8 GB
-        span(class='flex-1 font-mono text-mono-sm text-ink-4') nyaa-hd
-        +btn({ label: 'Download this', variant: 'outline', size: 'sm', iconEnd: 'download' })
-      if opts.flagged
-        +release(false, true)
-          span(class='w-[200px] font-mono text-mono-sm text-ink-3 line-through') 720p HDTV · 900 MB
-          span(class='flex-1 font-mono text-mono-sm text-ink-4') low-seed-source
-          +chip({ label: 'bad file', tone: 'bad' })
-
-mixin release(mobile, dimmed)
-  div(
-    class=[
-      'flex px-1 py-[13px] [&+&]:border-t [&+&]:border-line-soft',
-      mobile ? 'flex-col items-start gap-[9px]' : 'items-center gap-[14px]',
-      dimmed ? 'opacity-55' : '',
-    ]
-  )
+//- The header, with the lifecycle badge for `state` and whatever the block adds.
+mixin movieHeader(view, state, note)
+  +detailHead(view, MOVIE)&attributes(attributes)
+    +lifecycle(note)
+      +mediaBadge(state)
     block
 
-//- The two dialogs this page can raise, over a cropped copy of the page.
-mixin reportModal(view)
-  +modalScrim
-    +modal
-      p(class='mb-2.5 text-h3') What's wrong with this file?
-      each label, i in REASONS
-        +reason(label, i === 0)
-      if view === 'mobile'
-        div(class='mt-4 flex flex-col gap-2')
-          +btn({ label: 'Submit report', variant: 'uv', size: 'sm', full: true })
-          +btn({ label: 'Cancel', variant: 'ghost', size: 'sm', full: true })
-      else
-        div(class='mt-4 flex justify-end gap-2')
-          +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
-          +btn({ label: 'Submit report', variant: 'uv', size: 'sm' })
+//- Quality tier and Download, side by side on desktop, stacked on a phone.
+mixin requestRow(view, opts)
+  - opts = opts || {}
+  - const phone = view === 'mobile'
+  div(class='flex flex-col gap-2')
+    +actionRow(view)(class=phone ? '' : 'items-end')
+      +tierSelect({ tiers: QUALITY_TIERS, selected: opts.selected || 'hd', open: opts.open, full: phone })
+      +btn({ variant: 'accent', label: 'Download', icon: 'download' })
+    p(class='max-w-[56ch] text-cap text-ink-3')= TIER_HINT
 
-//-
-  One file in the import dialog — a radio, since a movie takes exactly one
-  file (plan 024 · 1·D1). The chosen row tints uv and fills its dot.
-mixin importRow(file)
-  div(
-    role='radio'
-    aria-checked=file.checked ? 'true' : 'false'
-    class=[
-      'flex items-start gap-2.5 rounded-md border px-3 py-[11px] [&+&]:mt-2',
-      file.checked ? 'border-uv/40 bg-uv-ghost' : 'border-line',
-    ]
-  )&attributes(attributes)
-    span(
-      class=[
-        'mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border-[1.5px]',
-        file.checked
-          ? "border-uv after:h-2 after:w-2 after:rounded-full after:bg-uv after:content-['']"
-          : 'border-line-loud',
-      ]
-    )
-    div(class='flex min-w-0 flex-1 flex-col gap-1.5')
-      p(class='truncate font-mono text-mono-sm text-ink')= file.name
-      div(class='flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-mono-sm text-ink-3')
-        +mchip(null, file.size)
-        +mchip(null, file.quality)
-        +mchip(null, file.language)
+//- The actions on a movie that is in the library.
+mixin libraryActions(view)
+  +actionRow(view)
+    +btn({ variant: 'accent', label: 'Watch', iconEnd: 'eye' })
+    +btn({ variant: 'outline', label: 'Save to device', iconEnd: 'device' })
+    +btn({ variant: 'bad', label: 'Delete', iconEnd: 'trash' })
 
-//- Every file the download folder held, as one radio group.
-mixin importFiles
-  div(role='radiogroup' aria-label='File to import')&attributes(attributes)
-    each file in IMPORT_FILES
-      +importRow(file)
+//- Every fact the header doesn't already say, then the cast.
+mixin movieFacts(view)
+  +facts(view, 'Details', FACTS)
+  +castRow(CAST, CAST_MORE)
 
-//-
-  Radarr's own manual-import picker, mirrored: every file it found, what each
-  resolved to, and the informational rejections that blocked the auto-pick.
-  One file goes in — the rows are radios, the largest non-sample file starts
-  chosen, and the sample is listed but left unchosen. Discard sits opposite
-  Import rather than in the page's own Delete flow — this is "I don't want
-  this download", not "remove the title from the library".
-mixin importModal(view)
-  - const mobile = view === 'mobile'
-  +modalScrim
-    +modal
-      p(class='mb-1.5 text-h3')= `Import "${TITLE}"`
-      p(class='mb-3 text-sm text-ink-3')
-        | The bytes are already down — Radarr just couldn't match the file. Pick one to import, or discard.
-      +importFiles()(class='mb-3')
-      +note('alert')(class='mb-3')
-        each rejection in IMPORT_REJECTIONS
-          p(class='text-sm text-ink-2')= rejection
-        p(class='mt-1 text-xs text-ink-4') Informational only — a manual import ignores it.
-      if mobile
+//- One media state as a bare frame: the header, then the attempts it explains.
+mixin stateFrame(view, key, opts)
+  - opts = opts || {}
+  - const s = STATES[key]
+  +appFrame(view)
+    +dlMain(view)
+      +movieHeader(view, key, opts.note)
+        if key === 'absent' || key === 'wanted'
+          +requestRow(view)
+      if s
+        +attempts(view, s.attempts)
+      if key === 'wanted'
+        +releasePicker(view, { state: 'none' })
+
+//- The skeleton is the page's own geometry: poster, title, meta, synopsis, an action, facts.
+mixin movieSkeleton(view)
+  - const phone = view === 'mobile'
+  div(aria-busy='true')
+    div(class=['flex gap-6', phone ? 'flex-col' : 'items-start'])
+      +skeleton('poster')(class=['aspect-[2/3] h-auto', phone ? 'w-[132px]' : 'w-[200px]'])
+      div(class='flex flex-1 flex-col gap-4')
+        +skeleton()(class='h-6 w-2/5')
+        +skeleton()(class='h-3.5 w-3/5')
+        +skeleton('lines')(class='max-w-[64ch]')
+        +skeleton()(class='mt-2 h-6 w-28 rounded-full')
+        +skeleton()(class='h-9 w-40 rounded-md')
+    div(class=['mt-8 grid gap-x-6 gap-y-4', phone ? 'grid-cols-2' : 'grid-cols-4'])
+      each n in [1, 2, 3, 4, 5, 6, 7, 8]
         div(class='flex flex-col gap-2')
-          +btn({ label: 'Import', variant: 'uv', size: 'sm', iconEnd: 'check', full: true })
-          +btn({ label: 'Cancel', variant: 'ghost', size: 'sm', full: true })
-          +discardBtn(true)
-      else
-        div(class='flex items-center justify-between gap-2')
-          +discardBtn
-          div(class='flex gap-2')
-            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
-            +btn({ label: 'Import', variant: 'uv', size: 'sm', iconEnd: 'check' })
-
-//- The Discard button that lives inside +importModal, styled like +deleteBtn
-    but distinct: it means "give the download back", not "erase the title".
-mixin discardBtn(full)
-  +btn({ label: 'Discard', iconEnd: 'trash', size: 'sm', full: full })(class='border-bad/40 bg-bad-ghost text-bad')
-
-mixin deleteModal(view)
-  +modalScrim
-    +modal
-      p(class='mb-1.5 text-h3')= `Delete "${TITLE}"?`
-      p(class='mb-[18px] text-sm text-ink-3')= DELETE_WARNING
-      if view === 'mobile'
-        div(class='flex flex-col gap-2')
-          +deleteBtn(true)
-          +btn({ label: 'Cancel', variant: 'ghost', size: 'sm', full: true })
-      else
-        div(class='flex justify-end gap-2')
-          +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
-          +deleteBtn
-
-//- A cropped frame: enough of the page for a modal to sit over, faded off at
-    the bottom so it reads as "this continues".
-mixin modalFrame(view, label, id, tall)
-  +modalPreview(view, label, id, tall)
-    if view === 'mobile'
-      +movieHeader(view, {})
-      +releaseList(view, {})
-    else
-      div(class='mx-auto max-w-[1080px]')
-        +libraryLink
-        +movieHeader(view, { cast: true })
-        +releaseList(view, {})
-    block
-
-//-
-  The page before anything's been grabbed: no Watch, no Delete, just the
-  header's Download shortcut sitting above the same release picker the
-  downloaded frame has — the picker doesn't go away just because the
-  shortcut exists. No Attempts section either: nothing's been tried, and the
-  chip already says so.
-mixin notDownloadedFrame(view)
-  - const suffix = view === 'mobile' ? 'm' : 'd'
-  +frameLabel()(class='mt-1' id='not-downloaded-' + suffix)
-    | Not downloaded yet
-  +appFrame(view)
-    +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
-    +appBody(view)
-      if view === 'mobile'
-        +movieHeader(view, { state: 'absent' })
-        +releaseList(view, {})
-      else
-        div(class='mx-auto max-w-[1080px]')
-          +libraryLink
-          +movieHeader(view, { state: 'absent' })
-          +releaseList(view, {})
-
-//-
-  A download started in Radarr's own UI — not an upgrade. The app adopts it as
-  an ordinary attempt: the same in-flight card as one this app started, with
-  Cancel and no Pause, attributed to Radarr as a plain label where a person's
-  name and avatar would be.
-mixin startedFromRadarrFrame(view)
-  - const suffix = view === 'mobile' ? 'm' : 'd'
-  +frameLabel()(class='mt-1' id='started-from-radarr-' + suffix)
-    | Started from Radarr
-  +appFrame(view)
-    +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
-    +appBody(view)
-      if view === 'mobile'
-        +movieHeader(view, { state: 'downloading', attribution: 'Radarr' })
-        +attemptsList(view, [ADOPTED_ATTEMPT])
-      else
-        div(class='mx-auto max-w-[1080px]')
-          +libraryLink
-          +movieHeader(view, { state: 'downloading', attribution: 'Radarr' })
-          +attemptsList(view, [ADOPTED_ATTEMPT])
-
-//-
-  Radarr upgrading a file that's already on disk. That one isn't adopted —
-  it's not a download anybody asked this app for — so it stays a queue
-  snapshot: a bar, the throughput, and a note saying it can't be cancelled
-  from here.
-mixin radarrUpgradeFrame(view)
-  - const suffix = view === 'mobile' ? 'm' : 'd'
-  +frameLabel()(class='mt-1' id='radarr-upgrade-' + suffix)
-    | Radarr upgrading the file on disk
-  +appFrame(view)
-    +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
-    +appBody(view)
-      if view === 'mobile'
-        +movieHeader(view, { state: 'downloading' })
-        +card()(class='mb-7 p-4')
-          div(class='mb-2 flex items-center justify-between')
-            span(class='font-mono text-mono-sm text-ink-3') queue snapshot
-            span(class='font-mono text-mono-sm tabular-nums text-uv-hi')= `${EXTERNAL_QUEUE.progress}%`
-          +bar(EXTERNAL_QUEUE.progress)(class='mb-3')
-          p(class='mb-3 font-mono text-mono-sm tabular-nums text-ink-3')= EXTERNAL_QUEUE.throughput
-          +note('alert')
-            p(class='text-sm text-ink-2')
-              | Radarr is upgrading the file already on disk — it can't be cancelled here.
-      else
-        div(class='mx-auto max-w-[1080px]')
-          +libraryLink
-          +movieHeader(view, { state: 'downloading' })
-          +card()(class='mb-8 max-w-[480px] p-5')
-            div(class='mb-2 flex items-center justify-between')
-              span(class='font-mono text-mono-sm text-ink-3') queue snapshot
-              span(class='font-mono text-mono-sm tabular-nums text-uv-hi')= `${EXTERNAL_QUEUE.progress}%`
-            +bar(EXTERNAL_QUEUE.progress)(class='mb-3')
-            p(class='mb-3 font-mono text-mono-sm tabular-nums text-ink-3')= EXTERNAL_QUEUE.throughput
-            +note('alert')
-              p(class='text-sm text-ink-2')
-                | Radarr is upgrading the file already on disk — it can't be cancelled here.
-
-//- Everything below the fold on the primary frame: state legend, cast
-    overflow, and the two flows as storyboards.
-mixin appendix(view)
-  - const mobile = view === 'mobile'
-  +appendixRule(mobile ? 'Appendix' : 'Appendix — states & flows', mobile ? 'states-m' : 'states-d')
-
-  p(class='mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Other states on this page
-  +card({ sunk: true })(class=mobile ? 'px-[14px] py-1' : 'px-4 py-1')
-    +stline({ mobile: mobile })
-      +chip({ label: 'not downloaded', tone: 'mute' })(class=mobile ? '' : 'w-[168px] justify-center')
-      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3']) Nothing grabbed yet.
-      if mobile
-        +stlineActions
-          +btn({ label: 'Download', variant: 'outline', size: 'sm', iconEnd: 'download' })
-      else
-        +btn({ label: 'Download', variant: 'outline', size: 'sm', iconEnd: 'download' })
-    +stline({ mobile: mobile })
-      +chip({ label: 'wanted', tone: 'mute' })(class=mobile ? '' : 'w-[168px] justify-center')
-      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3']) Monitored — nothing queued yet.
-    +stline({ mobile: mobile })
-      +chip({ tone: 'uv' })(class=mobile ? '' : 'w-[168px] justify-center')
-        +dot('live')
-        | downloading
-      div(class=['flex items-center gap-2', mobile ? 'w-full' : 'w-[140px]'])
-        +bar(47)(class='flex-1')
-        span(class='font-mono text-mono-sm tabular-nums text-uv-hi') 47%
-      span(class=[mobile ? '' : 'min-w-0 flex-1', 'font-mono text-mono-sm tabular-nums text-ink-3'])
-        | 1.2&nbsp;GB / 2.6&nbsp;GB &nbsp;·&nbsp; 8.4&nbsp;MB/s
-      if mobile
-        +stlineActions
-          +btn({ label: 'Cancel', variant: 'bad', size: 'sm', iconEnd: 'x' })
-      else
-        +btn({ label: 'Cancel', variant: 'bad', size: 'sm', iconEnd: 'x' })
-    +stline({ mobile: mobile })
-      +chip({ label: 'cancelling…', tone: 'warn' })(class=mobile ? '' : 'w-[168px] justify-center')
-      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3'])
-        | Cancel pressed — Radarr is dropping the download. The button stays, inert, until it's gone.
-      if mobile
-        +stlineActions
-          +btn({ label: 'Cancel', variant: 'bad', size: 'sm', iconEnd: 'x', disabled: true })
-      else
-        +btn({ label: 'Cancel', variant: 'bad', size: 'sm', iconEnd: 'x', disabled: true })
-    +stline({ mobile: mobile })
-      +chip({ label: 'cancelled', tone: 'mute' })(class=mobile ? '' : 'w-[168px] justify-center')
-      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3'])
-        | The newest attempt was cancelled — back to not downloaded; Retry grabs it again.
-      if mobile
-        +stlineActions
-          +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
-      else
-        +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
-    +stline({ mobile: mobile })
-      +chip({ label: 'no release found', tone: 'warn' })(class=mobile ? '' : 'w-[168px] justify-center')
-      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3'])
-        | The search finished and grabbed nothing. Still monitored, so Radarr may grab it later; Retry searches now.
-      if mobile
-        +stlineActions
-          +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
-      else
-        +btn({ label: 'Retry', variant: 'outline', size: 'sm' })
-    +stline({ mobile: mobile })
-      +chip({ tone: 'uv' })(class=mobile ? '' : 'w-[168px] justify-center')
-        +dot('live')
-        | importing…
-      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3']) Bytes are down — Radarr's finishing the import.
-    +stline({ mobile: mobile })
-      +chip({ label: 'needs your decision', tone: 'warn' })(class=mobile ? '' : 'w-[168px] justify-center')
-      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3'])
-        | The file's on disk, but Radarr couldn't match it automatically — pick it yourself.
-      if mobile
-        +stlineActions
-          +btn({ label: 'Import', variant: 'outline', size: 'sm', iconEnd: 'check' })
-      else
-        +btn({ label: 'Import', variant: 'outline', size: 'sm', iconEnd: 'check' })
-    +stline({ mobile: mobile })
-      +chip({ label: 'in library', tone: 'ok' })(class=mobile ? '' : 'w-[168px] justify-center')
-      span(class=[mobile ? '' : 'min-w-0 flex-1', 'text-sm text-ink-3']) On disk and ready to watch.
-
-  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Attempts — empty state
-  p(class='mb-3 text-sm text-ink-3')
-    | No attempts yet: the Attempts heading, the in-flight card and the terminal list are all omitted —
-    | the "not downloaded" chip above is the only signal.
-  +card({ sunk: true })(class=[mobile ? 'px-[14px]' : 'px-4', 'py-[13px] text-center text-sm text-ink-4'])
-    | (nothing renders here)
-
-  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Attempts — cancelling
-  p(class='mb-3 text-sm text-ink-3')
-    | Cancel was pressed and taken. The queue row is gone, so the card loses its bar; Pause goes, and Cancel
-    | stays put but inert until Radarr lets go.
-  div(class=mobile ? '' : 'max-w-[480px]')
-    +attemptInFlight(CANCELLING_ATTEMPT, mobile)
-
-  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Attempts — after a cancel
-  p(class='mb-3 text-sm text-ink-3')
-    | The cancelled attempt is the newest, nothing's in flight and the movie is back to "not downloaded" — so
-    | that row, and only that row, offers Retry.
-  div(class=mobile ? '' : 'max-w-[480px]')
-    +attemptsList(view, ATTEMPTS_AFTER_CANCEL)
-
-  +plan024(view)
-
-  +plan025(view)
-
-  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Cast — overflow
-  if mobile
-    +card({ sunk: true })(class='py-4 pr-0 pl-[14px]')
-      p(class='mx-[14px] mb-[14px] text-sm text-ink-3')
-        | Scrolls sideways past the fold instead of wrapping into a wall of names.
-      div(
-        class!='-mx-[14px] flex flex-nowrap gap-4 overflow-x-auto px-[14px] py-0.5 [mask-image:linear-gradient(90deg,#000_calc(100%-28px),transparent)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
-      )
-        each person in FULL_CAST
-          +castPerson(person[0], person[1])
-  else
-    +card({ sunk: true })(class='px-4 py-[18px]')
-      p(class='mb-[14px] text-sm text-ink-3')
-        | Past the fourth credited actor, names collapse into a count — hover shows the rest.
-      div(class='flex flex-wrap gap-4')
-        each person in FULL_CAST.slice(0, 4)
-          +castPerson(person[0], person[1])
-        div(class='flex shrink-0 items-center gap-2')
-          +avatar('+6', { size: 'md' })(
-            class='text-[10px]'
-            title=OVERFLOW_CAST
-          )
-
-  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Report a problem — flow
-  +storyboard(mobile)
-    +storyboardStep('1 · Trigger')
-      +storyboardFrame(mobile ? 96 : 128)
-        +btn({ label: 'Report a problem', variant: 'ghost', size: 'sm', iconEnd: 'flag' })
-    +storyboardStep('2 · Pick a reason', !mobile)
-      div(class='rounded-lg border border-line bg-surface p-4')
-        p(class='mb-2.5 text-h3') What's wrong with this file?
-        each label, i in REASONS
-          +reason(label, i === 0)
-        if mobile
-          div(class='mt-[14px] flex flex-col gap-2')
-            +btn({ label: 'Submit report', variant: 'uv', size: 'sm', full: true })
-            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm', full: true })
-        else
-          div(class='mt-[14px] flex justify-end gap-2')
-            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
-            +btn({ label: 'Submit report', variant: 'uv', size: 'sm' })
-    +storyboardStep('3 · Confirmed')
-      +storyboardFrame(mobile ? 96 : 128)
-        +chip({ label: 'reported', tone: 'mute' })
-        p(class='text-cap text-ink-3') This release won't be auto-picked again.
-
-  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Import — flow
-  +storyboard(mobile)
-    +storyboardStep('1 · Trigger')
-      +storyboardFrame(mobile ? 96 : 128)
-        +chip({ label: 'needs your decision', tone: 'warn' })
-        +btn({ label: 'Import', variant: 'outline', size: 'sm', iconEnd: 'check' })
-    +storyboardStep('2 · Pick and import', !mobile)
-      div(class='rounded-lg border border-line bg-surface p-4')
-        p(class='mb-2.5 text-h3')= `Import "${TITLE}"`
-        +importFiles()(class='mb-3')
-        if mobile
-          div(class='flex flex-col gap-2')
-            +btn({ label: 'Import', variant: 'uv', size: 'sm', iconEnd: 'check', full: true })
-            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm', full: true })
-        else
-          div(class='flex justify-end gap-2')
-            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
-            +btn({ label: 'Import', variant: 'uv', size: 'sm', iconEnd: 'check' })
-    +storyboardStep('3 · Importing')
-      +storyboardFrame(mobile ? 96 : 128)
-        +chip({ tone: 'uv' })
-          +dot('live')
-          | importing…
-        p(class='text-cap text-ink-3') Same job — the queue row is just gone now.
-
-  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Discard — flow
-  +storyboard(mobile)
-    +storyboardStep('1 · Trigger, inside the dialog')
-      +storyboardFrame(mobile ? 96 : 128)
-        +discardBtn
-    +storyboardStep('2 · Confirm inline', !mobile)
-      div(class='rounded-lg border border-line bg-surface p-[18px]')
-        p(class='mb-1.5 text-h3') Discard this download?
-        p(class='mb-4 text-sm text-ink-3')
-          | Removes it from the download client, files and all, and cancels the job. Nothing is blocklisted, so
-          | a Retry afterwards can grab the same release again.
-        if mobile
-          div(class='flex flex-col gap-2')
-            +discardBtn(true)
-            +btn({ label: 'Keep it', variant: 'ghost', size: 'sm', full: true })
-        else
-          div(class='flex justify-end gap-2')
-            +btn({ label: 'Keep it', variant: 'ghost', size: 'sm' })
-            +discardBtn
-    +storyboardStep('3 · Cancelled')
-      +storyboardFrame(mobile ? 96 : 128)
-        +chip({ label: 'cancelled', tone: 'mute' })(class='w-[118px] justify-center')
-
-  p(class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Delete — confirm flow
-  +storyboard(mobile)
-    +storyboardStep('1 · Trigger')
-      +storyboardFrame(mobile ? 96 : 128)
-        +btn({ label: 'Delete', variant: 'bad', iconEnd: 'trash' })
-    +storyboardStep('2 · Confirm', !mobile)
-      div(class='rounded-lg border border-line bg-surface p-[18px]')
-        p(class='mb-1.5 text-h3')= `Delete "${TITLE}"?`
-        p(class='mb-4 text-sm text-ink-3')= DELETE_WARNING
-        if mobile
-          div(class='flex flex-col gap-2')
-            +deleteBtn(true)
-            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm', full: true })
-        else
-          div(class='flex justify-end gap-2')
-            +btn({ label: 'Cancel', variant: 'ghost', size: 'sm' })
-            +deleteBtn
-    +storyboardStep('3 · Removed')
-      +storyboardFrame(mobile ? 96 : 128)
-        +chip({ label: 'not downloaded', tone: 'mute' })(class='w-[118px] justify-center')
-
-//-
-  Plan 024's visible changes, gathered under one rule so a reviewer can find
-  them: the quality tier picker (in context on the not-downloaded frame
-  above; here closed and open), a `no release found` attempt with Retry, and
-  `searching` with each of its status notes. The one-file import dialog is
-  its own frame further down ("Import — as a modal").
-mixin plan024(view)
-  - const mobile = view === 'mobile'
-  - const suffix = mobile ? 'm' : 'd'
-  +appendixRule('Plan 024 — tiers, statuses, dialogs', 'plan-024-' + suffix)
-
-  p(
-    class='mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4'
-    id='tier-picker-' + suffix
-  ) Quality tier — beside Download
-  p(class='mb-3 text-sm text-ink-3')
-    | Three app-managed tiers. They're caps, not exact matches — "Up to 4K" falls back to 1080p when there's no
-    | 4K. It preselects the movie's own tier when its Radarr profile is one of these, and HD otherwise.
-    | Downloading writes the chosen tier to the movie; a pick from the release list below ignores it.
-  div(class=['flex gap-6', mobile ? 'flex-col' : 'items-start'])
-    div(class=['flex flex-col gap-2', mobile ? '' : 'flex-1'])
-      p(class='text-cap text-ink-3') Closed
-      div(class=['flex gap-2', mobile ? 'flex-col' : 'items-start'])
-        +tierSelect({ tiers: QUALITY_TIERS, selected: DEFAULT_QUALITY_TIER, full: mobile })
-        +btn({ label: 'Download', variant: 'outline', iconEnd: 'download', full: mobile })
-    div(class=['flex flex-col gap-2', mobile ? '' : 'flex-1'])
-      p(class='text-cap text-ink-3') Open
-      +tierSelect({ tiers: QUALITY_TIERS, selected: DEFAULT_QUALITY_TIER, open: true, full: mobile })
-
-  p(
-    class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4'
-    id='not-found-' + suffix
-  ) Attempts — no release found
-  p(class='mb-3 text-sm text-ink-3')
-    | The search finished without grabbing anything. It's terminal but not an error — warn, not red. The movie
-    | stays monitored and reads "wanted", so the newest row offers Retry. A status note, when there is one, is
-    | neutral text under the row.
-  div(class=mobile ? '' : 'max-w-[560px]')
-    +attemptsList(view, ATTEMPTS_NOT_FOUND)
-
-  p(
-    class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4'
-    id='status-note-' + suffix
-  ) Attempts — searching, with a status note
-  p(class='mb-3 text-sm text-ink-3')
-    | Still searching, and why: Radarr retrying after a failed download, a freshly added movie Radarr is still
-    | refreshing, or a release Radarr is holding back. One small line under the status; Cancel only.
-  div(class=['flex flex-col gap-3', mobile ? '' : 'max-w-[480px]'])
-    each a in SEARCHING_WITH_NOTE
-      +attemptInFlight(a, mobile)
-
-//-
-  Two or more in-flight cards side by side on desktop, stacked on mobile,
-  each under a small caption naming the case it draws.
-mixin cardPair(cards, mobile)
-  div(class=['flex gap-6', mobile ? 'flex-col' : 'items-start'])
-    each a in cards
-      div(class=['flex flex-col gap-2', mobile ? '' : 'min-w-0 flex-1'])
-        p(class='text-cap text-ink-3')= a.caption
-        +attemptInFlight(a, mobile)
-
-//-
-  Plan 025's visible changes: what reading SABnzbd directly adds to an
-  attempt. Every state is the ordinary in-flight card or attempt row — only
-  the chip, the note under it and the mono line under the bar change.
-mixin plan025(view)
-  - const mobile = view === 'mobile'
-  - const suffix = mobile ? 'm' : 'd'
-  +appendixRule('Plan 025 — SABnzbd progress, unpacking, disk full', 'plan-025-' + suffix)
-
-  p(
-    class='mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4'
-    id='sab-throughput-' + suffix
-  ) Attempts — downloading, with the live speed
-  p(class='mb-3 text-sm text-ink-3')
-    | While SABnzbd is fetching the release, the line under the bar reads its own queue: bytes, the live speed,
-    | and the time left — the same line a video already gets. Before, a movie only showed Radarr's bare
-    | "~00:03:00 left". Paused, there's no speed and nothing to estimate, so the line keeps just the bytes.
-  +cardPair(SAB_THROUGHPUT, mobile)
-
-  p(
-    class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4'
-    id='sab-pp-' + suffix
-  ) Attempts — every byte down, SABnzbd post-processing
-  p(class='mb-3 text-sm text-ink-3')
-    | The bar sits at 100 % while SABnzbd verifies, repairs and unpacks. Read directly, the chip names the stage
-    | and the line quotes SABnzbd's own progress text. With SABnzbd not configured, the chip stays plan 024's
-    | "finishing up" and the line says SABnzbd still has work to do before Radarr imports it.
-  +cardPair(SAB_POST_PROCESSING, mobile)
-
-  p(
-    class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4'
-    id='sab-disk-' + suffix
-  ) Attempts — the NAS ran out of disk space
-  p(class='mb-3 text-sm text-ink-3')
-    | A disk-full failure reads as one, with SABnzbd's own message kept in brackets. Once the attempt has ended
-    | failed, it's the row's red error; the newest row offers Retry, which is only worth pressing after freeing
-    | space.
-  div(class=mobile ? '' : 'max-w-[560px]')
-    +attemptsList(view, SAB_DISK_FULL_FAILED)
-  p(class='mt-5 mb-3 text-sm text-ink-3')
-    | While Radarr is still retrying on its own, the attempt is back to searching and the status note warns that
-    | the next release will hit the same wall.
-  div(class=mobile ? '' : 'max-w-[480px]')
-    +attemptInFlight(SAB_DISK_FULL_SEARCHING, mobile)
-
-  p(
-    class='mt-8 mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4'
-    id='sab-paused-' + suffix
-  ) Attempts — paused in SABnzbd
-  p(class='mb-3 text-sm text-ink-3')
-    | SABnzbd's whole queue is paused — it pauses itself when the disk fills or a quota runs out, or someone
-    | paused it in SABnzbd's UI. This app didn't pause it, so there's no Resume here. When SABnzbd reports under
-    | 5 GB free, the note says the disk is the likely reason.
-  +cardPair(SAB_PAUSED, mobile)
-
-//- Skeleton stand-in for the whole page, while Radarr is still answering.
-mixin loadingState(view)
-  - const mobile = view === 'mobile'
-  +frameLabel()(class='mt-1' id=mobile ? 'loading-m' : 'loading-d') Loading state
-  +appFrame(view)
-    +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
-    +appBody(view)
-      if mobile
-        +skeleton()(class='mx-auto mb-4 aspect-[2/3] w-full max-w-[220px] rounded-md')
-        +skeleton()(class='mx-auto mb-2 h-[23px] w-[70%]')
-        +skeleton()(class='mx-auto mb-4 h-[13px] w-[45%]')
-        div(class='mb-4 flex flex-col gap-[7px]')
-          +skeleton()(class='h-[13px] w-full')
-          +skeleton()(class='h-[13px] w-[82%]')
-        div(class='mb-4 flex items-center gap-4')
-          each n in [1, 2]
-            div(class='flex items-center gap-2')
-              +skeleton()(class='h-[30px] w-[30px] rounded-full')
-              +skeleton()(class='h-3 w-[60px]')
-        div(class='mb-7 flex flex-col gap-2')
-          +skeleton()(class='h-[38px] w-full rounded-md')
-          +skeleton()(class='h-[38px] w-full rounded-md')
-        +skeleton()(class='mb-2.5 h-[11px] w-[58px]')
-        +skeleton()(class='mb-7 aspect-video w-full rounded-md')
-        +skeleton()(class='mb-3 h-[15px] w-[74px]')
-        +card({ sunk: true })(class='p-4')
-          div(class='flex flex-col gap-4')
-            each w in SKELETON_RELEASES
-              div(class='flex flex-col gap-1.5')
-                +skeleton()(class='h-[13px]' style=`width: ${w[0]}`)
-                +skeleton()(class='h-[13px]' style=`width: ${w[1]}`)
-      else
-        div(class='mx-auto max-w-[1080px]')
-          +skeleton()(class='mb-[22px] h-3 w-16')
-          div(class='mb-7 flex items-start gap-6')
-            +skeleton()(class='aspect-[2/3] w-[200px] rounded-md')
-            div(class='flex flex-1 flex-col gap-[14px] pt-0.5')
-              +skeleton()(class='h-[23px] w-[55%]')
-              +skeleton()(class='h-[13px] w-[32%]')
-              div(class='flex flex-col gap-[7px]')
-                +skeleton()(class='h-[13px] w-full')
-                +skeleton()(class='h-[13px] w-[78%]')
-              div(class='flex items-center gap-4')
-                each n in [1, 2, 3]
-                  div(class='flex items-center gap-2')
-                    +skeleton()(class='h-[30px] w-[30px] rounded-full')
-                    +skeleton()(class='h-3 w-16')
-              div(class='mt-1 flex items-center gap-2.5')
-                +skeleton()(class='h-[38px] w-[108px] rounded-md')
-                +skeleton()(class='h-[38px] w-[100px] rounded-md')
-          +skeleton()(class='mb-2.5 h-[11px] w-[58px]')
-          +skeleton()(class='mb-8 aspect-video w-full max-w-[480px] rounded-md')
-          +skeleton()(class='mb-3 h-[15px] w-[74px]')
-          +card({ sunk: true })(class='p-4')
-            div(class='flex flex-col gap-4')
-              each n in [1, 2, 3]
-                div(class='flex items-center gap-[14px]')
-                  +skeleton()(class='h-[13px] w-[190px]')
-                  +skeleton()(class='h-[13px] flex-1')
+          +skeleton()(class='h-3 w-16')
+          +skeleton()(class='h-3.5 w-24')
 
 block content
-  +mockHead({ eyebrow: 'lilnas · download', title: 'Movie detail' })
-    p(class='max-w-[62ch] text-sm text-ink-3')
-      | Everything a movie card leads to: cast and metadata, the Emby handoff, the release picker, and — since
-      | plan 021 — a status chip driven by media state instead of the newest job, plus an Attempts list where the
-      | lifecycle panel used to be. Browse what Radarr found instead of being stuck with its auto-pick, with a
-      | bad-file flag that blocks a release from being auto-selected again. When Radarr grabs a file but can't
-      | match it, the chip reads "needs your decision" instead of pretending it's still importing — an Import
-      | dialog mirrors Radarr's own manual picker, with Discard as the way out that doesn't just re-grab the same
-      | file.
+  +mockHead({ back: true, eyebrow: 'download · /movies/[tmdbId]', title: 'Movie detail' })
+    p The movie page, drawn once per media state. The badge under the title says where the movie is; the actions beside it are the ones that make sense there, and the Attempts list underneath is the history of getting it.
+    +jumpNav([['Default', 'default'], ['Media states', 'states'], ['Request', 'request'], ['Releases', 'releases'], ['Dialogs', 'dialogs'], ['Boundaries', 'boundaries']])(class='mt-4')
 
-  div(class='vp-scope')
-    +viewportToggle('viewport')(class='mb-8' role='radiogroup' aria-label='Viewport')
+  +mockSection('default', 'In the library', 'The page at rest: watch it, keep a copy, or delete it. Below the header, the facts, the cast and what happened to get it here.')
+    +viewports('movie-default-viewport')
+      each view in ['desktop', 'mobile']
+        +viewportPanel(view)
+          +screenRow('Default · in library')
+            +appFrame(view)
+              +dlBar(view, { active: 'library' })
+              +dlMain(view)
+                +movieHeader(view, 'available')
+                  +libraryActions(view)
+                  p(class='flex items-center gap-2 text-cap text-ink-3')
+                    +avatar(ADDED.who[0], { size: 24, you: true })
+                    | Added by #{ADDED.who[1]} · #{ADDED.when}
+                +movieFacts(view)
+                +attempts(view, ATTEMPTS_DEFAULT)
+                +releasePicker(view, { state: 'results', releases: RELEASES })
 
-    each view in VIEWS
-      - const suffix = view === 'mobile' ? 'm' : 'd'
-      +viewportPanel(view)
-        +jumpNav(JUMP, suffix)
+  +mockSection('states', 'The seven media states', 'Not downloaded, wanted, downloading, importing, needs attention, paused, in library. The badge colour follows the tone map: accent in progress, ok available, warn queued or stuck.')
+    +viewports('movie-states-viewport')
+      each view in ['desktop', 'mobile']
+        +viewportPanel(view)
+          +screenRow('State · not downloaded')
+            +stateFrame(view, 'absent', { note: 'Nothing is on disk and nothing has been asked for.' })
+          +screenRow('State · wanted')
+            +stateFrame(view, 'wanted', { note: 'Radarr is watching for a release. It’ll download when one appears.' })
+          +screenRow('State · downloading')
+            +stateFrame(view, 'downloading')
+          +screenRow('State · importing')
+            +stateFrame(view, 'importing')
+          +screenRow('State · needs attention')
+            +stateFrame(view, 'needs_attention', { note: 'Radarr stopped and is waiting for you.' })
+          +screenRow('State · paused')
+            +stateFrame(view, 'paused')
+          +screenRow('State · in library')
+            +appFrame(view)
+              +dlMain(view)
+                +movieHeader(view, 'available')
+                  +libraryActions(view)
+          +screenRow('Started from Radarr · adopted, attributed to Radarr')
+            +appFrame(view)
+              +dlMain(view)
+                +movieHeader(view, 'downloading')
+                +attempts(view, ADOPTED)
+          +screenRow('Radarr upgrade · a file already on disk, not ours to cancel')
+            +appFrame(view)
+              +dlMain(view)
+                +movieHeader(view, 'available')
+                  +libraryActions(view)
+                +progressBlock(view, EXTERNAL)(class='mt-8')
 
-        +appFrame(view)(id='primary-' + suffix)
-          +navBar(view, { back: true, placeholder: 'Search or paste a link…' })
-          +appBody(view)
-            if view === 'mobile'
-              +movieHeader(view, { synopsis: true, cast: true, attribution: true })
-              +attemptsList(view, ATTEMPTS)
-              p(class='mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Trailer
-              +poster({ shape: 'wide', v: 2, src: 'assets/video/video-2.jpg', play: true })(class='mb-7')
-              +releaseList(view, { flagged: true })
-            else
-              div(class='mx-auto max-w-[1080px]')
-                +libraryLink
-                +movieHeader(view, { synopsis: true, cast: true, attribution: true })
-                +attemptsList(view, ATTEMPTS)
-                p(class='mb-2.5 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Trailer
-                +poster({ shape: 'wide', v: 2, src: 'assets/video/video-2.jpg', play: true })(
-                  class='mb-8 w-full max-w-[480px]'
-                )
-                +releaseList(view, { flagged: true })
+  +mockSection('request', 'Request', 'A quality tier and one Download. The tier is a cap: Up to 4K falls back to 1080p when no 4K release exists.')
+    +viewports('movie-request-viewport')
+      each view in ['desktop', 'mobile']
+        +viewportPanel(view)
+          +screenRow('Quality tier · closed')
+            +appFrame(view)
+              +dlMain(view)
+                +requestRow(view)
+          +screenRow('Quality tier · open')
+            +appFrame(view)
+              +dlMain(view)
+                +requestRow(view, { open: true, selected: 'hd' })
 
-        div(class=view === 'desktop' ? 'mx-auto max-w-[1080px]' : 'w-full max-w-[390px]')
-          +appendix(view)
+  +mockSection('releases', 'Release picker', 'Ask every indexer, then choose. Flagged and rejected releases stay in the list with the reason beside them.')
+    +viewports('movie-releases-viewport')
+      each view in ['desktop', 'mobile']
+        +viewportPanel(view)
+          +screenRow('Not searched yet')
+            +appFrame(view)
+              +dlMain(view)
+                +releasePicker(view, { state: 'idle' })
+          +screenRow('Searching')
+            +appFrame(view)
+              +dlMain(view)
+                +releasePicker(view, { state: 'searching' })
+          +screenRow('Results · nothing on disk yet')
+            +appFrame(view)
+              +dlMain(view)
+                +releasePicker(view, { state: 'results', releases: RELEASES_ABSENT })
+          +screenRow('Results · replacing the current file')
+            +appFrame(view)
+              +dlMain(view)
+                +releasePicker(view, { state: 'results', releases: RELEASES })
+          +screenRow('No release found')
+            +appFrame(view)
+              +dlMain(view)
+                +releasePicker(view, { state: 'none' })
+          +screenRow('Nothing downloadable · every result flagged or rejected')
+            +appFrame(view)
+              +dlMain(view)
+                +releasePicker(view, { state: 'rejected', releases: ALL_REJECTED })
 
-        +notDownloadedFrame(view)
-        +startedFromRadarrFrame(view)
-        +radarrUpgradeFrame(view)
+  +mockSection('dialogs', 'Dialogs', 'Each one names the object and the consequence. The destructive one keeps its cancel as “Keep it”.')
+    +viewports('movie-dialogs-viewport')
+      each view in ['desktop', 'mobile']
+        - const phone = view === 'mobile'
+        - const height = phone ? 760 : 640
+        +viewportPanel(view)
+          +screenRow('Import dialog · needs attention')
+            +appFrame(view, { height: height })
+              +dlBar(view, { active: 'library' })
+              +dlMain(view)
+                +movieHeader(view, 'needs_attention')
+              +dialog({ title: 'Import this download', confirm: 'Import', cancel: 'Cancel' })
+                p(class='mb-3') The bytes are already down — Radarr just couldn’t match the file to the title. Pick what to import, or discard.
+                fieldset(class='flex flex-col gap-2')
+                  legend(class='mb-1 text-label text-ink-3 uppercase') File to import
+                  each file in IMPORT_FILES
+                    div(class='flex flex-col gap-0.5 rounded-md border border-line bg-bg-sunk p-2.5')
+                      +radio({ name: `import-${view}`, label: file.name, checked: file.checked })(class='break-all')
+                      span(class='pl-[26px] font-mono text-mono-sm text-ink-3')= file.detail
+                      if file.sample
+                        span(class='pl-[26px] text-cap text-ink-3') Marked as a sample. Informational only — a manual import ignores it.
+                +note('warn', 'Radarr said:')(class='mt-3')
+                  = IMPORT_REJECTION
+                div(class='mt-3')
+                  +btn({ variant: 'bad', size: 'sm', label: 'Discard', icon: 'trash' })
+          +screenRow('Discard confirm · from the import dialog')
+            +appFrame(view, { height: 420 })
+              +dlBar(view, { active: 'library' })
+              +dlMain(view)
+                +movieHeader(view, 'needs_attention')
+              +dialog({ title: 'Discard this download?', confirm: 'Discard', cancel: 'Keep it', destructive: true })
+                | Removes it from the download client, files and all, and cancels the job. Nothing is blocklisted, so a Retry afterwards can grab the same release again.
+          +screenRow('Delete confirm')
+            +appFrame(view, { height: 420 })
+              +dlBar(view, { active: 'library' })
+              +dlMain(view)
+                +movieHeader(view, 'available')
+                  +libraryActions(view)
+              +dialog({ title: 'Delete “Salt & Ceremony”?', confirm: 'Delete', cancel: 'Keep it', destructive: true })
+                | Removes this movie’s file from the library and frees 2.1 GB, and removes the movie from Radarr. It can be requested again later.
+          +screenRow('Report a bad file')
+            +appFrame(view, { height: height })
+              +dlBar(view, { active: 'library' })
+              +dlMain(view)
+                +movieHeader(view, 'available')
+                  +libraryActions(view)
+                +releasePicker(view, { state: 'results', releases: RELEASES })
+              +dialog({ title: 'What’s wrong with this file?', confirm: 'Report problem', cancel: 'Cancel' })
+                fieldset(class='flex flex-col gap-2.5')
+                  legend(class='sr-only') What’s wrong with this file?
+                  each reason, i in REASONS
+                    +radio({ name: `report-${view}`, label: reason, checked: i === 0 })
+                p(class='mt-3 text-cap text-ink-3') This app won’t pick this release again. Radarr and Sonarr can still grab it from their own interfaces.
+          +screenRow('Reported · the release row after')
+            +appFrame(view)
+              +dlMain(view)
+                +card()(class='flex flex-wrap items-center gap-x-3 gap-y-2')
+                  +badge({ tone: 'mute', label: 'Reported' })
+                  span(class='min-w-0 flex-1 text-cap text-ink-3') This app won’t pick this release again. Radarr and Sonarr can still grab it from their own interfaces.
+                  +btn({ variant: 'ghost', size: 'sm', label: 'Undo report' })
 
-        +modalFrame(view, 'Report a problem — as a modal')
-          +reportModal(view)
-        +modalFrame(view, 'Import — as a modal · pick one file', 'import-modal-' + suffix, true)
-          +importModal(view)
-        +modalFrame(view, 'Delete — as a modal')
-          +deleteModal(view)
-        +loadingState(view)
+  +mockSection('boundaries', 'Loading, not found, error', 'The route’s own loading skeleton, a movie Radarr has never heard of, and the error boundary.')
+    +viewports('movie-boundaries-viewport')
+      each view in ['desktop', 'mobile']
+        +viewportPanel(view)
+          +screenRow('Loading · the page’s own geometry')
+            +appFrame(view)
+              +dlBar(view, { active: 'library' })
+              +dlMain(view)
+                +movieSkeleton(view)
+          +screenRow('Degraded · Radarr didn’t answer')
+            +appFrame(view)
+              +dlBar(view, { active: 'library' })
+              +dlMain(view)
+                +note('warn', 'Radarr didn’t answer.')(class='mb-4')
+                  | This movie’s title and details are missing — only its id is known. Trying again in a moment usually fixes it.
+                +movieHeader(view, 'absent')(class='opacity-60')
+          +screenRow('Not found')
+            +appFrame(view)
+              +dlBar(view, { active: 'library' })
+              +dlMain(view, { narrow: true })
+                +boundaryNotFound(view, { title: 'No such movie', body: 'Radarr has no movie at this address. Nothing has gone wrong — the link was probably mistyped, or the movie was removed.', action: 'Back to library' })
+          +screenRow('Error · movie.tsx error boundary')
+            +appFrame(view)
+              +dlBar(view, { active: 'library' })
+              +dlMain(view, { narrow: true })
+                +boundaryError(view, { title: 'This movie couldn’t be loaded', lead: 'The download service didn’t answer.', detail: 'None of this movie’s details or downloads could be read. Nothing has been changed — trying again is safe.', digest: 'digest 3482910274' })

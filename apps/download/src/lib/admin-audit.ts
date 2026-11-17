@@ -12,7 +12,7 @@ import type { StatusTone } from 'src/lib/format'
  * rather than invented per row.
  */
 export type AuditLevel = {
-  /** The uppercase word in the level column. */
+  /** The sentence-case word in the action column's badge. */
   label: string
   /** Which of the design system's tones tints it. */
   tone: StatusTone
@@ -24,31 +24,31 @@ export type AuditLevel = {
  * here instead of a row that silently renders as unlabelled grey.
  *
  * The tones follow the same reading `statusTone` uses elsewhere: `ok` for work
- * starting or arriving, `uv` for the machine or an admin acting, `warn` for an
+ * starting or arriving, `accent` for the machine or an admin acting, `warn` for an
  * intervention on something that already exists, `bad` for destruction, `mute`
  * for housekeeping.
  */
 export const AUDIT_ACTION_LEVELS: Record<AuditAction, AuditLevel> = {
-  'video.create': { label: 'DOWNLOAD', tone: 'ok' },
-  'video.cancel': { label: 'CANCEL', tone: 'warn' },
-  'video.pause': { label: 'PAUSE', tone: 'warn' },
-  'video.resume': { label: 'RESUME', tone: 'uv' },
-  'video.delete': { label: 'DELETE', tone: 'bad' },
-  'movie.request': { label: 'REQUEST', tone: 'ok' },
-  'movie.delete': { label: 'DELETE', tone: 'bad' },
-  'show.request': { label: 'REQUEST', tone: 'ok' },
-  'show.delete': { label: 'DELETE', tone: 'bad' },
-  'media.delete_files': { label: 'DELETE', tone: 'bad' },
-  'media.save_file': { label: 'SAVE', tone: 'uv' },
-  'release.grab': { label: 'GRAB', tone: 'ok' },
-  'release.replace': { label: 'REPLACE', tone: 'warn' },
-  'file.flag_bad': { label: 'FLAG', tone: 'warn' },
-  'file.unflag_bad': { label: 'UNFLAG', tone: 'uv' },
-  'ytdlp.check_update': { label: 'UPDATE', tone: 'mute' },
-  'media.manual_import': { label: 'IMPORT', tone: 'uv' },
-  'media.discard_download': { label: 'DISCARD', tone: 'bad' },
-  'movie.cancel': { label: 'CANCEL', tone: 'warn' },
-  'show.cancel': { label: 'CANCEL', tone: 'warn' },
+  'video.create': { label: 'Download', tone: 'ok' },
+  'video.cancel': { label: 'Cancel', tone: 'warn' },
+  'video.pause': { label: 'Pause', tone: 'warn' },
+  'video.resume': { label: 'Resume', tone: 'accent' },
+  'video.delete': { label: 'Delete', tone: 'bad' },
+  'movie.request': { label: 'Request', tone: 'ok' },
+  'movie.delete': { label: 'Delete', tone: 'bad' },
+  'show.request': { label: 'Request', tone: 'ok' },
+  'show.delete': { label: 'Delete', tone: 'bad' },
+  'media.delete_files': { label: 'Delete', tone: 'bad' },
+  'media.save_file': { label: 'Save', tone: 'accent' },
+  'release.grab': { label: 'Grab', tone: 'ok' },
+  'release.replace': { label: 'Replace', tone: 'warn' },
+  'file.flag_bad': { label: 'Flag', tone: 'warn' },
+  'file.unflag_bad': { label: 'Unflag', tone: 'accent' },
+  'ytdlp.check_update': { label: 'Update', tone: 'mute' },
+  'media.manual_import': { label: 'Import', tone: 'accent' },
+  'media.discard_download': { label: 'Discard', tone: 'bad' },
+  'movie.cancel': { label: 'Cancel', tone: 'warn' },
+  'show.cancel': { label: 'Cancel', tone: 'warn' },
 }
 
 /** The level an audit row renders at. See {@link AUDIT_ACTION_LEVELS}. */

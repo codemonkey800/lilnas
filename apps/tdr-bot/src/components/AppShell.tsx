@@ -1,21 +1,12 @@
 'use client'
 
-import MenuIcon from '@mui/icons-material/Menu'
-import AppBar from '@mui/material/AppBar'
-import Box from '@mui/material/Box'
-import Button from '@mui/material/Button'
-import IconButton from '@mui/material/IconButton'
-import Menu from '@mui/material/Menu'
-import MenuItem from '@mui/material/MenuItem'
-import Toolbar from '@mui/material/Toolbar'
-import Typography from '@mui/material/Typography'
+import { AppBar, Button, Icon, Sheet } from '@lilnas/ui'
+import { cns } from '@lilnas/utils/cns'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { ReactNode, useState } from 'react'
 
-import { SadPepeIcon } from './SadPepeIcon'
-
-const NAV_LINKS = [
+export const NAV_LINKS = [
   { href: '/settings', label: 'Settings' },
   { href: '/transcript', label: 'Transcript' },
   { href: '/reminders', label: 'Reminders' },
@@ -29,111 +20,58 @@ interface AppShellProps {
 
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname()
-  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  const links = NAV_LINKS.map(({ href, label }) => ({
+    href,
+    label,
+    active: pathname.startsWith(href),
+    render: <Link href={href} />,
+  }))
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-      <AppBar position="sticky" elevation={0}>
-        <Toolbar>
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1.5,
-              flexGrow: 1,
-              minWidth: 0,
-            }}
-          >
-            <Box
-              sx={{
-                width: 40,
-                height: 40,
-                borderRadius: '50%',
-                overflow: 'hidden',
-                border: '2px solid',
-                borderColor: 'primary.light',
-                bgcolor: 'primary.dark',
-                flexShrink: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <SadPepeIcon width={40} height={40} aria-label="TDR Bot" />
-            </Box>
-
-            <Typography
-              variant="h6"
-              component="span"
-              noWrap
-              sx={{ fontWeight: 600 }}
-            >
-              TDR Bot
-            </Typography>
-          </Box>
-
-          <Box
-            component="nav"
-            sx={{ display: { xs: 'none', md: 'flex' }, gap: 1 }}
-          >
-            {NAV_LINKS.map(({ href, label }) => (
-              <Button
-                key={href}
-                component={Link}
-                nativeButton={false}
-                href={href}
-                color="inherit"
-                sx={{
-                  fontWeight: pathname.startsWith(href) ? 700 : 400,
-                  opacity: pathname.startsWith(href) ? 1 : 0.75,
-                }}
-              >
-                {label}
-              </Button>
-            ))}
-          </Box>
-
-          <IconButton
-            color="inherit"
-            edge="end"
-            aria-label="Open navigation"
-            aria-controls={menuAnchor ? 'nav-menu' : undefined}
-            aria-haspopup="true"
-            aria-expanded={menuAnchor ? 'true' : undefined}
-            onClick={event => setMenuAnchor(event.currentTarget)}
-            sx={{ display: { xs: 'inline-flex', md: 'none' } }}
-          >
-            <MenuIcon />
-          </IconButton>
-
-          <Menu
-            id="nav-menu"
-            anchorEl={menuAnchor}
-            open={Boolean(menuAnchor)}
-            onClose={() => setMenuAnchor(null)}
-            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-            sx={{ display: { md: 'none' } }}
-          >
-            {NAV_LINKS.map(({ href, label }) => (
-              <MenuItem
-                key={href}
-                component={Link}
-                nativeButton={false}
-                href={href}
-                selected={pathname.startsWith(href)}
-                onClick={() => setMenuAnchor(null)}
-              >
-                {label}
-              </MenuItem>
-            ))}
-          </Menu>
-        </Toolbar>
-      </AppBar>
-
-      <Box component="main" sx={{ flexGrow: 1 }}>
-        {children}
-      </Box>
-    </Box>
+    <>
+      <AppBar
+        app="tdr"
+        className="sticky top-0 z-40"
+        links={links}
+        sheet={
+          <Sheet.Root open={menuOpen} onOpenChange={setMenuOpen}>
+            <Sheet.Trigger
+              render={
+                <Button
+                  aria-label="Open navigation"
+                  icon="list"
+                  variant="ghost"
+                />
+              }
+            />
+            <Sheet.Popup side="bottom">
+              <Sheet.Title className="sr-only">Navigation</Sheet.Title>
+              <nav aria-label="Menu" className="flex flex-col gap-1 pb-3">
+                {links.map(({ href, label, active }) => (
+                  <Link
+                    key={href}
+                    aria-current={active ? 'page' : undefined}
+                    className={cns(
+                      'flex h-11 items-center justify-between rounded-md px-3 text-body',
+                      active
+                        ? 'bg-accent-ghost font-medium text-accent-hi'
+                        : 'text-ink-2',
+                    )}
+                    href={href}
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    {label}
+                    {active && <Icon name="check" size={14} />}
+                  </Link>
+                ))}
+              </nav>
+            </Sheet.Popup>
+          </Sheet.Root>
+        }
+      />
+      <main className="flex-1">{children}</main>
+    </>
   )
 }

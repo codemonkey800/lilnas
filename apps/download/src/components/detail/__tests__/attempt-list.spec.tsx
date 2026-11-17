@@ -154,20 +154,20 @@ function attempt(container: HTMLElement, id: string): HTMLElement {
 const TONE_MARKERS: Record<DownloadJobStatus, string> = {
   [DownloadJobStatus.Cancelled]: 'text-ink-3',
   [DownloadJobStatus.Cancelling]: 'text-warn',
-  [DownloadJobStatus.Cleaning]: 'text-uv-hi',
+  [DownloadJobStatus.Cleaning]: 'text-accent-hi',
   [DownloadJobStatus.Completed]: 'text-ok',
-  [DownloadJobStatus.Converting]: 'text-uv-hi',
-  [DownloadJobStatus.Downloading]: 'text-uv-hi',
+  [DownloadJobStatus.Converting]: 'text-accent-hi',
+  [DownloadJobStatus.Downloading]: 'text-accent-hi',
   [DownloadJobStatus.Failed]: 'text-bad',
-  [DownloadJobStatus.Importing]: 'text-uv-hi',
+  [DownloadJobStatus.Importing]: 'text-accent-hi',
   [DownloadJobStatus.NeedsAttention]: 'text-warn',
   [DownloadJobStatus.NotFound]: 'text-warn',
   [DownloadJobStatus.Paused]: 'text-warn',
   [DownloadJobStatus.Pausing]: 'text-warn',
   [DownloadJobStatus.Pending]: 'text-ink-3',
   [DownloadJobStatus.Requested]: 'text-ink-3',
-  [DownloadJobStatus.Searching]: 'text-uv-hi',
-  [DownloadJobStatus.Uploading]: 'text-uv-hi',
+  [DownloadJobStatus.Searching]: 'text-accent-hi',
+  [DownloadJobStatus.Uploading]: 'text-accent-hi',
 }
 
 const EXPECTED_ACTIONS: Record<DownloadJobStatus, string[]> = {
@@ -309,9 +309,9 @@ describe('AttemptList', () => {
         const { container } = renderList([job({ status })])
         const element = attempt(container, 'job_1')
 
-        expect(element.getAttribute('class')?.includes('border-uv/35')).toBe(
-          !isTerminalDownloadJobStatus(status),
-        )
+        expect(
+          element.getAttribute('class')?.includes('border-accent-dim'),
+        ).toBe(!isTerminalDownloadJobStatus(status))
       },
     )
 
@@ -322,7 +322,7 @@ describe('AttemptList', () => {
       expect(
         within(card).getByText(jobStatusLabel(DownloadJobStatus.Downloading)),
       ).toBeInTheDocument()
-      expect(card.querySelector('.dot-live')).toBeInTheDocument()
+      expect(card.querySelector('[data-pulse]')).toBeInTheDocument()
     })
 
     it('leaves a paused attempt undotted', () => {
@@ -330,7 +330,7 @@ describe('AttemptList', () => {
         job({ status: DownloadJobStatus.Paused }),
       ])
 
-      expect(container.querySelector('.dot-live')).not.toBeInTheDocument()
+      expect(container.querySelector('[data-pulse]')).not.toBeInTheDocument()
     })
 
     it('draws the attempt’s own progress from its media snapshot', () => {
@@ -368,15 +368,15 @@ describe('AttemptList', () => {
         name: 'Download progress',
       })
 
-      expect(within(card).getByText('finishing up')).toBeInTheDocument()
+      expect(within(card).getByText('Finishing up')).toBeInTheDocument()
       expect(
         within(card).getByText(
           'All downloaded. SABnzbd is checking and unpacking it; Radarr imports it after.',
         ),
       ).toBeInTheDocument()
       expect(within(card).queryByText('~00:00:00 left')).not.toBeInTheDocument()
-      expect(bar).toHaveAttribute('aria-valuetext', '100%, finishing up')
-      expect(bar.querySelector('[data-settling]')).toBeInTheDocument()
+      expect(bar).toHaveAttribute('aria-valuetext', '100%, Finishing up')
+      expect(bar).toHaveAttribute('data-settling')
     })
 
     it('says who is importing, with or without a bar', () => {
@@ -441,7 +441,7 @@ describe('AttemptList', () => {
 
         expect(
           Array.from(row?.children ?? []).map(child => child.textContent),
-        ).toEqual(['downloading', 'file 1 of 2', '64%'])
+        ).toEqual(['Downloading', 'file 1 of 2', '64%'])
       })
 
       it('counts fragments on an HLS download', () => {
@@ -485,8 +485,8 @@ describe('AttemptList', () => {
           'aria-valuenow',
           '64',
         )
-        expect(within(card).getByText('paused')).toBeInTheDocument()
-        expect(card.querySelector('.dot-live')).not.toBeInTheDocument()
+        expect(within(card).getByText('Paused')).toBeInTheDocument()
+        expect(card.querySelector('[data-pulse]')).not.toBeInTheDocument()
         expect(
           within(card).getByText('412 MB / 640 MB · 3.1 MB/s · ~2m left'),
         ).toBeInTheDocument()
@@ -509,9 +509,9 @@ describe('AttemptList', () => {
         })
 
         expect(bar).toHaveAttribute('aria-valuenow', '100')
-        expect(bar).toHaveAttribute('aria-valuetext', '100%, converting')
-        expect(bar.querySelector('[data-settling]')).toBeInTheDocument()
-        expect(within(card).getByText('converting')).toBeInTheDocument()
+        expect(bar).toHaveAttribute('aria-valuetext', '100%, Converting')
+        expect(bar).toHaveAttribute('data-settling')
+        expect(within(card).getByText('Converting')).toBeInTheDocument()
         expect(within(card).queryByText(/MB\/s/)).not.toBeInTheDocument()
       })
     })
@@ -595,7 +595,7 @@ describe('AttemptList', () => {
           DownloadJobStatus.Paused,
         )
 
-        expect(within(card).getByText('paused')).toBeInTheDocument()
+        expect(within(card).getByText('Paused')).toBeInTheDocument()
         expect(within(card).getByText('1.2 GB / 2.6 GB')).toBeInTheDocument()
         expect(card.textContent).not.toContain('B/s')
         expect(card.textContent).not.toContain('left')
@@ -613,8 +613,8 @@ describe('AttemptList', () => {
           name: 'Download progress',
         })
 
-        expect(within(card).getByText('unpacking')).toBeInTheDocument()
-        expect(card.querySelector('.dot-live')).toBeInTheDocument()
+        expect(within(card).getByText('Unpacking')).toBeInTheDocument()
+        expect(card.querySelector('[data-pulse]')).toBeInTheDocument()
         expect(within(card).getByText('100%')).toBeInTheDocument()
         expect(
           within(card).getByText(
@@ -622,8 +622,8 @@ describe('AttemptList', () => {
           ),
         ).toBeInTheDocument()
         expect(bar).toHaveAttribute('aria-valuenow', '100')
-        expect(bar).toHaveAttribute('aria-valuetext', '100%, unpacking')
-        expect(bar.querySelector('[data-settling]')).toBeInTheDocument()
+        expect(bar).toHaveAttribute('aria-valuetext', '100%, Unpacking')
+        expect(bar).toHaveAttribute('data-settling')
         expect(within(card).queryByText(/left$/)).not.toBeInTheDocument()
       })
 
@@ -652,10 +652,10 @@ describe('AttemptList', () => {
           const card = renderSnapshot(SAB_PAUSED, DownloadJobStatus.Paused)
           const note = within(card).getByText('Paused in SABnzbd')
 
-          expect(within(card).getByText('paused')).toBeInTheDocument()
+          expect(within(card).getByText('Paused')).toBeInTheDocument()
           // The mockup's `statusNote` slot, right under the chip row.
           expect(note.previousElementSibling).toContainElement(
-            within(card).getByText('paused'),
+            within(card).getByText('Paused'),
           )
           expect(within(card).getByText('1.2 GB / 2.6 GB')).toBeInTheDocument()
           expect(card.textContent).not.toContain('B/s')
@@ -707,7 +707,7 @@ describe('AttemptList', () => {
             DownloadJobStatus.Paused,
           )
 
-          expect(within(card).getByText('paused')).toBeInTheDocument()
+          expect(within(card).getByText('Paused')).toBeInTheDocument()
           expect(card.textContent).not.toContain('SABnzbd')
           expect(controlLabels(card)).toEqual(['Resume', 'Cancel'])
         })
@@ -721,7 +721,7 @@ describe('AttemptList', () => {
         job({ status: DownloadJobStatus.NeedsAttention }),
       ])
 
-      expect(container.querySelector('.dot-live')).not.toBeInTheDocument()
+      expect(container.querySelector('[data-pulse]')).not.toBeInTheDocument()
     })
 
     it.each([
@@ -1075,7 +1075,7 @@ describe('AttemptList', () => {
       ])
       const line = attempt(container, 'job_1')
 
-      expect(within(line).getByText('failed').getAttribute('class')).toContain(
+      expect(within(line).getByText('Failed').getAttribute('class')).toContain(
         'text-bad',
       )
       expect(within(line).getByText('2h ago')).toBeInTheDocument()
@@ -1115,7 +1115,7 @@ describe('AttemptList', () => {
       ])
       const line = attempt(container, 'job_1')
 
-      expect(within(line).getByText('hidden')).toBeInTheDocument()
+      expect(within(line).getByText('Hidden')).toBeInTheDocument()
       expect(within(line).getByTitle('Attribution hidden')).toHaveTextContent(
         '–',
       )
@@ -1141,7 +1141,7 @@ describe('AttemptList', () => {
         const line = attempt(container, 'job_1')
 
         expect(within(line).getByText(source)).toBeInTheDocument()
-        expect(within(line).queryByText('hidden')).not.toBeInTheDocument()
+        expect(within(line).queryByText('Hidden')).not.toBeInTheDocument()
         expect(
           within(line).queryByTitle('Attribution hidden'),
         ).not.toBeInTheDocument()
@@ -1198,10 +1198,10 @@ describe('AttemptList', () => {
         job({ status: DownloadJobStatus.NotFound }),
       ])
       const chip = within(attempt(container, 'job_1')).getByText(
-        'no release found',
+        'No release found',
       )
 
-      expect(chip.getAttribute('class')).toContain('sm:w-[132px]')
+      expect(chip.getAttribute('class')).toContain('sm:w-[148px]')
     })
   })
 
@@ -1216,14 +1216,14 @@ describe('AttemptList', () => {
       const { container } = renderList([notFound])
       const line = attempt(container, 'job_1')
 
-      expect(line.getAttribute('class')).not.toContain('border-uv/35')
+      expect(line.getAttribute('class')).not.toContain('border-accent-dim')
       expect(within(line).getByText('6m ago')).toBeInTheDocument()
     })
 
     it('chips it warn, not red', () => {
       const { container } = renderList([notFound])
       const chip = within(attempt(container, 'job_1')).getByText(
-        'no release found',
+        'No release found',
       )
 
       expect(chip.getAttribute('class')).toContain('text-warn')
@@ -1318,7 +1318,7 @@ describe('AttemptList', () => {
         }),
       ])
 
-      expect(container.querySelector('.text-cap')).not.toBeInTheDocument()
+      expect(container.querySelector('p.text-cap')).not.toBeInTheDocument()
     })
   })
 

@@ -46,14 +46,20 @@ describe('CastRow', () => {
     expect(screen.getByText('Jeremy Theobald')).toBeInTheDocument()
     expect(screen.getByText('John Nolan')).toBeInTheDocument()
     expect(screen.queryByText('Dick Bradsell')).not.toBeInTheDocument()
-    expect(screen.getByText('+2')).toBeInTheDocument()
-    expect(screen.getByText('more')).toBeInTheDocument()
+    expect(screen.getByText('+2 more')).toBeInTheDocument()
+  })
+
+  it('heads the row with a Cast section', () => {
+    render(<CastRow people={CAST} />)
+
+    expect(screen.getByRole('region', { name: 'Cast' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Cast')
   })
 
   it('keeps the collapsed names in the overflow title', () => {
     render(<CastRow people={CAST} />)
 
-    expect(screen.getByText('+2')).toHaveAttribute(
+    expect(screen.getByText('+2 more')).toHaveAttribute(
       'title',
       'Dick Bradsell, Gillian El-Kadi',
     )
@@ -62,13 +68,13 @@ describe('CastRow', () => {
   it('draws no overflow marker when everybody fits', () => {
     render(<CastRow people={CAST.slice(0, 4)} />)
 
-    expect(screen.queryByText('more')).not.toBeInTheDocument()
+    expect(screen.queryByText(/more$/)).not.toBeInTheDocument()
   })
 
   it('takes the limit the page asks for', () => {
     render(<CastRow limit={2} people={CAST} />)
 
-    expect(screen.getByText('+4')).toBeInTheDocument()
+    expect(screen.getByText('+4 more')).toBeInTheDocument()
     expect(screen.queryByText('Lucy Russell')).not.toBeInTheDocument()
   })
 
@@ -106,11 +112,12 @@ describe('CastRow', () => {
     )
   })
 
-  it('wraps rather than scrolling sideways', () => {
-    const { container } = render(<CastRow people={CAST} />)
+  it('scrolls sideways rather than wrapping, so the section keeps one line', () => {
+    render(<CastRow people={CAST} />)
 
-    expect(container.firstElementChild?.getAttribute('class')).toContain(
-      'flex-wrap',
-    )
+    const row = screen.getByText('Jeremy Theobald').closest('.overflow-x-auto')
+
+    expect(row).not.toBeNull()
+    expect(row?.getAttribute('class')).not.toContain('flex-wrap')
   })
 })

@@ -1,335 +1,205 @@
-extends ../layout/page.pug
+extends ../../../../../designs/mockup-kit/page.pug
+
+include ../mixins/download.pug
 
 block title
-  | Search — download UI mockups · lilnas
+  | download — search · UI mockups
 
 //-
-  Movie and show discovery's own page. This is the one screen whose hero IS
-  the search field, so it has no nav-bar search — everywhere else does.
+  /search: movie and show discovery. The one screen whose hero IS the search
+  field, so its app bar omits the nav search. Every state is a captioned row at
+  both widths. Copy and sample data are in src/data/search.mjs.
 
-  Eight states are mocked per viewport: grid, list, filters open, an invalid
-  year range, both loading states, and no matches. They all share the same
-  hero and results toolbar, so those are mixins.
-
-//- The hero: a headline and the query field it belongs to. `slot` is the big
-    borderless field — an underline rather than a box, because at this size a
-    box would read as a form.
-mixin hero(view, opts)
+//- The hero in layout: the headline, the field and a one-line hint.
+mixin searchHero(view, opts)
   - opts = opts || {}
-  - const mobile = view === 'mobile'
-  p(
-    class=['font-sans font-[780] tracking-[-0.025em] text-ink', mobile ? 'mb-[18px] text-[32px]/[1.03]' : 'mb-[22px] text-[54px]/[1.03]']
-  ) Search movies &amp; shows.
-  div(
-    class=[
-      'flex items-center gap-4 border-b-2 pb-4 transition-[border-color] duration-200 ease-uv focus-within:border-uv',
-      opts.invalid ? 'border-bad' : 'border-uv',
-    ]
-  )
-    if opts.loading
-      +spinner
-    else
-      +icon('search')(class=['shrink-0', mobile ? 'h-4 w-4' : 'h-[22px] w-[22px]', opts.invalid ? 'text-bad' : 'text-ink-4'])
-    input(
-      class=['min-w-0 flex-1 border-none bg-transparent font-mono text-ink outline-none placeholder:text-ink-4', mobile ? 'text-[18px]' : 'text-[25px]']
-      name='q'
-      value=opts.value === undefined ? QUERY : opts.value
-      readonly=opts.loading
-    )
-  p(class='mt-2.5 font-mono text-mono-sm text-ink-3')= mobile ? HINT_MOBILE : HINT
+  +hero(view, { title: 'Search movies and shows', value: opts.value === undefined ? QUERY : opts.value, hint: view === 'mobile' ? HINT_MOBILE : HINT, placeholder: 'Search a title…', button: 'Search' })
 
-//- Result count, grid/list switch, and Filters.
+//- Result count, the grid/list toggle, Sort and Filters.
 mixin toolbar(view, opts)
   - opts = opts || {}
-  - const mobile = view === 'mobile'
-  div(
-    class=[
-      'flex items-center justify-between',
-      mobile ? 'mt-[22px] mb-4 gap-2.5' : 'mt-[30px] mb-[18px] gap-4',
-      opts.filtersOpen && mobile ? 'relative z-20' : '',
-    ]
-  )
+  - const phone = view === 'mobile'
+  - const sorts = SORTS.map((label, i) => ({ label: label, selected: i === 0 }))
+  div(class=['mb-4 flex items-center justify-between', phone ? 'flex-wrap gap-2' : 'gap-4']).relative
     span(class='text-sm text-ink-3')= opts.count
-    div(class=['flex items-center', mobile ? 'shrink-0 gap-2' : 'gap-2.5'])
-      if !opts.noViewToggle
-        div(class='inline-flex shrink-0 gap-0.5 rounded-md border border-line bg-surface p-[3px]' role='radiogroup' aria-label='Result view')
-          +viewBtn('grid-fill', 'Grid view', !opts.list)
-          +viewBtn('list', 'List view', opts.list)
-      if opts.filtersOpen
-        if mobile
-          +filtersBtn({ count: 2, open: true })(class='border-uv/35 bg-uv-ghost text-uv-hi')
-        else
-          div(class='relative z-20')
-            +filtersBtn({ count: 2, open: true })(class='border-uv/35 bg-uv-ghost text-uv-hi')
-            div(class='absolute top-[calc(100%+10px)] right-0 w-[460px]')
-              +filters(opts.invalid, mobile)
-      else
-        +filtersBtn({ size: mobile ? 'sm' : null })
-    if opts.filtersOpen && mobile
-      div(class='absolute inset-x-0 top-[calc(100%+10px)]')
-        +filters(opts.invalid, mobile)
+    div(class='flex items-center gap-2')
+      if !opts.noView
+        +segmented([{ value: 'grid', label: 'Grid', icon: 'grid-fill' }, { value: 'list', label: 'List', icon: 'list' }], opts.list ? 'list' : 'grid')
+      +sortMenu(sorts, { open: opts.sortOpen, label: phone ? 'Sort' : 'Sort: Relevance' })
+      div(class=['relative', opts.filtersOpen ? 'z-20' : ''])
+        +filtersBtn({ count: opts.applied, open: opts.filtersOpen })
+        if opts.filtersOpen && !phone
+          div(class='absolute top-[calc(100%+8px)] right-0 w-[460px]')
+            +filters(opts.invalid, false)
+    if opts.filtersOpen && phone
+      div(class='absolute inset-x-0 top-[calc(100%+8px)] z-20')
+        +filters(opts.invalid, true)
 
-mixin viewBtn(name, label, active)
-  button(
-    type='button'
-    class=[
-      'inline-flex h-[30px] w-[30px] items-center justify-center rounded-[7px] transition-[background-color,color] duration-200 ease-uv',
-      active ? 'bg-uv-ghost text-uv-hi' : 'text-ink-3 hover:bg-surface-2 hover:text-ink',
-    ]
-    aria-label=label
-    aria-pressed=active ? 'true' : 'false'
-  )
-    +icon(name)(class='h-[15px] w-[15px]')
-
-//- The filter panel. `invalid` shows the year-range error, which also disables
-    the confirm button — you can't apply a range that can't exist.
-mixin filters(invalid, mobile)
+//- The filter panel. An inverted year range shows its error and disables the apply button.
+mixin filters(invalid, phone)
   +filterPanel
     +filterGrid
-      +filterGroup('genre')(class='@min-[400px]:col-span-2')
+      +filterGroup('Genre')(class='@min-[400px]:col-span-2')
         div(class='flex flex-wrap gap-2')
-          each genre, i in mobile ? GENRES.slice(0, GENRES_MOBILE) : GENRES
-            +toggleChip(null, genre, i === 0)
-      +filterGroup('release year')
+          each genre, i in phone ? GENRES.slice(0, GENRES_MOBILE) : GENRES
+            +toggleChip(genre, i === 0)
+      +filterGroup('Release year')(class='@min-[400px]:col-span-2')
         div(class='flex items-center gap-2')
-          +input({ value: invalid ? '2015' : '1999', mono: true })(
-            class=['w-[76px]!', invalid ? 'border-bad!' : '']
-            aria-invalid=invalid ? 'true' : null
-          )
+          +input({ value: invalid ? '2015' : '1999', mono: true, error: invalid })(class='w-24' aria-label='From year')
           span(class='text-ink-3') –
-          +input({ value: invalid ? '1998' : '2012', mono: true })(
-            class=['w-[76px]!', invalid ? 'border-bad!' : '']
-            aria-invalid=invalid ? 'true' : null
-          )
+          +input({ value: invalid ? '1998' : '2012', mono: true, error: invalid })(class='w-24' aria-label='To year')
         if invalid
-          span(class='flex items-center gap-[5px] font-mono text-[11px] text-bad')
-            +icon('alert')(class='h-[11px] w-[11px] shrink-0')
+          p(class='flex items-center gap-1.5 text-xs text-bad')
+            +icon('alert', 12)
             | Start year must be before end year
-      +filterGroup('sort by')
-        +menuTrigger('Relevance')
     +filterFoot
-      +btn({ label: 'Clear all', variant: 'ghost', size: 'sm' })
-      +btn({ label: invalid ? 'Show results' : 'Show 8 results', variant: 'uv', size: 'sm', disabled: invalid })
+      +btn({ variant: 'ghost', size: 'sm', label: 'Clear all' })
+      +btn({ variant: 'accent', size: 'sm', label: invalid ? 'Show results' : 'Show 8 results', disabled: invalid })
 
-//- Applied-filter chips, shown under the toolbar when filters are on.
-mixin activeFilters(view)
-  div(
-    class=['flex flex-wrap', view === 'mobile' ? 'mb-5 gap-2' : 'mb-[22px] gap-[9px]']
-    aria-label='Active filters'
-  )
-    +afchip('Comedy', 'Remove genre filter')
-    +afchip('1999–2012', 'Remove release year filter')
-    if view !== 'mobile'
-      +btn({ label: 'Clear all', variant: 'ghost', size: 'sm' })(class='h-[27px] px-2.5 text-[12px]')
-
-//- The results, as a grid of posters. Mobile shows the first four — enough to
-    read the layout without the frame becoming a scroll.
+//- The results as poster cards; a phone shows the first four.
 mixin resultGrid(view)
-  - const mobile = view === 'mobile'
-  div(
-    class=[
-      'stagger grid gap-4',
-      mobile ? 'grid-cols-[repeat(auto-fill,minmax(128px,1fr))] gap-3' : 'grid-cols-[repeat(auto-fill,minmax(148px,1fr))]',
-    ]
-  )
-    each entry in mobile ? RESULTS.slice(0, 4) : RESULTS
-      +resultCard(entry, mobile)
+  - const phone = view === 'mobile'
+  div(class=['grid gap-4 stagger', phone ? 'grid-cols-2' : 'grid-cols-[repeat(auto-fill,minmax(148px,1fr))]'])
+    each entry in phone ? RESULTS.slice(0, 4) : RESULTS
+      +resultCard(entry)
 
-//- A result as a poster card.
-mixin resultCard(entry, mobile)
-  a(
-    class='flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px] transition-[border-color,background-color,transform] duration-200 ease-uv hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv'
-    href=entry.href
-  )
-    +poster({ shape: 'tall', v: entry.v, src: entry.art })
-    +gcardTitle(entry.title)(class=mobile ? 'text-[12.5px]!' : '')
-    +mchip(mobile ? null : entry.icon, `${entry.kind} · ${entry.meta}`)(class='font-mono text-mono-sm text-ink-3')
+//- The results as a list: a row each, with the year and genre alongside.
+mixin resultList(view)
+  - const phone = view === 'mobile'
+  div(class='flex flex-col gap-2 stagger')
+    each entry in phone ? RESULTS.slice(0, 4) : RESULTS
+      +resultRow(entry)
+        if !phone
+          span(class='w-40 truncate text-cap text-ink-3')= entry.genre
+        span(class='w-12 text-right text-sm tabular-nums')= entry.year
+        +badge({ tone: 'mute', label: entry.kind === 'show' ? 'Show' : 'Movie' })
 
-//- A sortable column header. The active one shows a direction chevron rather
-    than the neutral two-way arrows.
-mixin thSort(label, opts)
-  - opts = opts || {}
-  button(
-    type='button'
-    class=[
-      'inline-flex items-center gap-[5px] font-[inherit] tracking-[inherit] uppercase transition-colors duration-200 ease-uv',
-      opts.active ? 'text-uv-hi' : 'text-inherit hover:text-ink-2',
-      opts.end ? 'justify-end' : '',
-    ]
-  )
-    = label
-    if opts.active
-      +icon('chevron')(class='h-[11px] w-[11px] shrink-0 rotate-180 text-uv-hi')
+//- Load more: the one outline button under a result set.
+mixin loadMore(state)
+  div(class='mt-6 flex flex-col items-center gap-2')
+    if state === 'pending'
+      +btn({ variant: 'outline', label: 'Loading more', loading: true })
     else
-      +icon('sort')(class='h-[9px] w-[9px] shrink-0 text-ink-4')
+      +btn({ variant: 'outline', label: 'Load more' })
+    if state === 'failed'
+      p(class='flex items-center gap-1.5 text-xs text-bad')
+        +icon('alert', 12)
+        | Couldn’t load more results — try again
 
-//- Results as a table. Mobile drops the `type` column and scrolls sideways for
-    the rest; there isn't room for five columns at 390px.
-mixin resultTable(view)
-  - const mobile = view === 'mobile'
-  if mobile
-    p(class='mb-2 font-mono text-mono-sm text-ink-4') Scroll for genre →
-  +card()(class=['px-1.5 pt-1 pb-1.5', mobile ? 'overflow-x-auto' : ''])
-    +dataTable()(class=mobile ? 'min-w-[480px]' : '')
-      thead
-        tr
-          th(class=mobile ? 'w-[42%]' : 'w-[36%]')
-            +thSort('title')
-          if !mobile
-            th
-              +thSort('type')
-          th
-            +thSort('year', { active: true })
-          th
-            +thSort('genre')
-          th(class='text-right!')
-            +thSort('seasons', { end: true })
-      tbody(class='stagger')
-        each row in mobile ? ROWS_MOBILE.map((i) => ROWS[i]) : ROWS
-          tr
-            td
-              div(class='flex items-center gap-2.5')
-                +poster({ shape: 'tall', v: row.v, src: row.art })(class=mobile ? 'w-[30px]' : 'w-[34px]')
-                span(class='text-sm')= row.title
-            if !mobile
-              td
-                +mchip(row.icon, row.kind)(class='font-mono text-mono-sm text-ink-3')
-            td(class='font-mono text-mono-sm tabular-nums')= row.year
-            td(class='font-mono text-mono-sm text-ink-3')= row.genre
-            td(class=['text-right! font-mono text-mono-sm tabular-nums', row.seasons ? '' : 'text-ink-4'])= row.seasons || '—'
-
-//- Loading: the shape of the answer before the answer arrives.
+//- The shape of the answer before the answer arrives.
 mixin loadingGrid(view)
-  div(class=['stagger grid gap-4', view === 'mobile' ? 'mt-[22px] grid-cols-[repeat(auto-fill,minmax(128px,1fr))] gap-3' : 'mt-[30px] grid-cols-[repeat(auto-fill,minmax(148px,1fr))]'])
-    each w in view === 'mobile' ? GRID_SKELETONS.slice(0, 4) : GRID_SKELETONS
-      div(class='flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px]')
+  - const phone = view === 'mobile'
+  div(class=['grid gap-4', phone ? 'grid-cols-2' : 'grid-cols-[repeat(auto-fill,minmax(148px,1fr))]'] aria-busy='true')
+    each w in phone ? GRID_SKELETONS.slice(0, 4) : GRID_SKELETONS.slice(0, 8)
+      div(class='flex flex-col gap-2 rounded-lg border border-line bg-surface p-2.5')
         +skeleton()(class='aspect-[2/3] w-full rounded-md')
-        +skeleton()(class='h-[13px]' style=`width: ${w[0]}`)
-        +skeleton()(class='h-2.5' style=`width: ${w[1]}`)
+        +skeleton()(class='h-3.5' style=`width: ${w[0]}`)
+        +skeleton()(class='h-3' style=`width: ${w[1]}`)
 
-mixin loadingTable(view)
-  - const mobile = view === 'mobile'
-  +card()(class=['mt-[22px] px-1.5 pt-1 pb-1.5', mobile ? 'overflow-x-auto' : 'mt-[30px]'])
-    +dataTable()(class=mobile ? 'min-w-[480px]' : '')
-      thead
-        tr
-          th(class=mobile ? 'w-[42%]' : 'w-[36%]') title
-          if !mobile
-            th type
-          th year
-          th genre
-          th(class='text-right!') seasons
-      tbody
-        each w in mobile ? LIST_SKELETONS.slice(0, 4) : LIST_SKELETONS
-          tr
-            td
-              div(class='flex items-center gap-3')
-                +skeleton()(class='h-[50px] w-[34px] shrink-0')
-                +skeleton()(class='h-[13px]' style=`width: ${w}`)
-            if !mobile
-              td
-                +skeleton()(class='h-[11px] w-[46px]')
-            td
-              +skeleton()(class='h-[11px] w-8')
-            td
-              +skeleton()(class='h-[11px] w-16')
-            td(class='text-right!')
-              +skeleton()(class='ml-auto h-[11px] w-[18px]')
+mixin loadingList(view)
+  - const phone = view === 'mobile'
+  div(class='flex flex-col gap-2' aria-busy='true')
+    each w in phone ? LIST_SKELETONS.slice(0, 4) : LIST_SKELETONS
+      div(class='flex items-center gap-3 rounded-lg border border-line bg-surface p-2.5')
+        +skeleton('poster')(class='h-[72px] w-12 shrink-0')
+        div(class='flex flex-1 flex-col gap-2')
+          +skeleton()(class='h-3.5' style=`width: ${w}`)
+          +skeleton()(class='h-3 w-24')
 
-//- The app bar. No nav-bar search here — this page's hero already is it.
-mixin searchBar(view)
-  +appBar(view)
-    +doorplate('Download')(href='https://lilnas.io')
-    if view === 'mobile'
-      span(class='flex shrink-0 items-center gap-1.5')
-        +chip({ tone: 'ok' })
-          +dot('live')
-          | 2
-        +accountLink('JA')
-    else
-      span(class='flex items-center gap-2.5')
-        +avatar('JA', { ring: true, href: 'profile.html' })(class='h-[30px] w-[30px] text-[11.5px]' title='Jeremy · you')
-
-//- One mocked state, framed and captioned. `scrim` dims the whole frame
-    behind an open filter panel.
-mixin state(view, label, opts)
+//- One framed state. `scrim` dims the frame behind an open panel.
+mixin searchState(view, label, opts)
   - opts = opts || {}
-  +frameLabel()(class=opts.first ? '' : 'mt-3')
-    = label
-  +appFrame(view)
-    +searchBar(view)
-    +appBody(view)
-      if view === 'mobile'
+  +screenRow(label)
+    +appFrame(view)
+      +dlBar(view, { active: 'library', search: false })
+      +dlMain(view)
         block
-      else
-        div(class='mx-auto max-w-[1080px]')
-          block
-    if opts.scrim
-      +filterScrim
+      if opts.scrim
+        +frameScrim
 
 block content
-  +mockHead({ eyebrow: 'lilnas · download', title: 'Search' })
-    p(class='max-w-[62ch] text-sm text-ink-3')
-      | Movie and show discovery's dedicated home, reachable from the nav bar on every page. Title, year, cast,
-      | or genre — filtered by genre and release-date range, interleaving movies and shows in one set of
-      | results. A grid of posters is the default view, with a toggle to switch to a sortable table for
-      | scanning full metadata at once. Every result opens its detail page; nothing downloads directly from
-      | here, same as everywhere else in the app.
+  +mockHead({ back: true, eyebrow: 'download · /search', title: 'Search' })
+    p Movie and show discovery, reachable from the app bar on every other page. Title, year, cast or genre, filtered by genre and release year, with movies and shows interleaved in one set of results. Nothing downloads from here: every result opens its detail page.
 
-  div(class='vp-scope')
-    +viewportToggle('viewport')(class='mb-8' role='radiogroup' aria-label='Viewport')
+  +mockSection('search', 'Search', 'The hero is the search field, so the app bar has no nav search of its own.')
+    +viewports('search-viewport')
+      each view in ['desktop', 'mobile']
+        - const phone = view === 'mobile'
+        - const count = phone ? '8 results' : '8 results for “the office”'
+        - const chips = [['Comedy', 'Remove genre filter'], ['1999–2012', 'Remove release year filter']]
+        +viewportPanel(view)
+          +searchState(view, 'Empty query · the hero is the whole invitation')
+            +searchHero(view, { value: '' })
 
-    each view in ['desktop', 'mobile']
-      - var mobile = view === 'mobile'
-      - var count = mobile ? '8 results' : '8 results for "the office"'
-      +viewportPanel(view)
+          +searchState(view, 'Short query · note')
+            +searchHero(view, { value: 'o' })
+            +note('accent', 'Keep typing.')(class='reveal')
+              | A search needs at least two characters.
 
-        +state(view, 'Results — grid view', { first: true })
-          +hero(view)
-          +toolbar(view, { count: count })
-          +resultGrid(view)
+          +searchState(view, 'Invalid year range · note')
+            +searchHero(view)
+            +note('bad', 'Start year must be before end year.')(class='reveal')
+              | Widen the release-year range and the results will come back.
 
-        +state(view, 'Results — list view, sorted by release year')
-          +hero(view)
-          +toolbar(view, { count: count, list: true })
-          +resultTable(view)
+          +searchState(view, 'Degraded sources · note above the count')
+            +searchHero(view)
+            +note('warn', 'Showing movies only.')(class='mb-4')
+              | Sonarr didn’t answer, so these results come from Radarr alone. Try again shortly for the full set.
+            +toolbar(view, { count: phone ? '4 results' : '4 results for “the office”' })
+            +resultGrid(view)
 
-        +state(view, 'Results — grid view, filters open', { scrim: true })
-          +hero(view)
-          +toolbar(view, { count: count, filtersOpen: true })
-          +activeFilters(view)
-          +resultGrid(view)
+          +searchState(view, 'No matches')
+            +searchHero(view, { value: 'xyzzyqqq' })
+            +toolbar(view, { count: phone ? '0 results' : '0 results for “xyzzyqqq”', noView: true })
+            +note('accent', 'No matches for “xyzzyqqq.”')(class='reveal')
+              | Double-check the spelling, or try browsing the #[a(class='text-ink underline' href='gallery.html') gallery] instead.
 
-        +state(view, 'Filters — invalid release year range', { scrim: true })
-          +hero(view)
-          +toolbar(view, { count: count, filtersOpen: true, invalid: true })
-          +activeFilters(view)
-          +resultGrid(view)
+          +searchState(view, 'Results · grid view')
+            +searchHero(view)
+            +toolbar(view, { count: count })
+            +resultGrid(view)
 
-        +state(view, 'Loading — grid view')
-          +hero(view, { loading: true, value: 'the offic' })
-          +loadingGrid(view)
+          +searchState(view, 'Results · list view')
+            +searchHero(view)
+            +toolbar(view, { count: count, list: true })
+            +resultList(view)
 
-        +state(view, 'Loading — list view')
-          +hero(view, { loading: true, value: 'the offic' })
-          +loadingTable(view)
+          +searchState(view, 'Sort menu open')
+            +searchHero(view)
+            +toolbar(view, { count: count, sortOpen: true })
+            +resultGrid(view)
 
-        +state(view, 'No matches')
-          +hero(view, { invalid: true, value: 'xyzzyqqq' })
-          +toolbar(view, { count: mobile ? '0 results' : '0 results for "xyzzyqqq"', noViewToggle: true })
-          +note('alert')(class!='reveal border-bad/35! bg-bad-ghost! [&>svg]:text-bad!')
-            b(class='text-ink') No matches for "xyzzyqqq."
-            |  Double-check the spelling, or try browsing the
-            | #[a(class='text-ink underline' href='gallery.html') gallery] instead.
+          +searchState(view, 'Filter panel open', { scrim: true })
+            +searchHero(view)
+            +toolbar(view, { count: count, filtersOpen: true, applied: 2 })
+            +appliedFilters(chips)(class='mb-4')
+            +resultGrid(view)
 
-  //- The sort menu open — no frame above can show it without covering the
-      results it sorts.
-  section(class='mt-12')
-    p(class='mb-4 font-mono text-label tracking-[0.11em] uppercase text-ink-4') Sort by — all options
-    +card()(class='w-[240px] p-4')
-      div(class='flex flex-col gap-2')
-        span(class='font-mono text-label tracking-[0.11em] uppercase text-ink-4') sort by
-        +menuTrigger('Relevance', { open: true })
-        +menu()(class='mt-0.5')
-          each label, i in SORTS
-            +menuItem(label, i === 0)
+          +searchState(view, 'Filter panel · invalid year range', { scrim: true })
+            +searchHero(view)
+            +toolbar(view, { count: count, filtersOpen: true, applied: 2, invalid: true })
+            +appliedFilters(chips)(class='mb-4')
+            +resultGrid(view)
+
+          +searchState(view, 'Applied filters · load more')
+            +searchHero(view)
+            +toolbar(view, { count: count, applied: 2 })
+            +appliedFilters(chips)(class='mb-4')
+            +resultGrid(view)
+            +loadMore()
+
+          +stateRow('Load more', { stack: true })(class='w-full')
+            +stateCell('Rest')
+              +loadMore()(class='mt-0')
+            +stateCell('Loading')
+              +loadMore('pending')(class='mt-0')
+            +stateCell('Failed')
+              +loadMore('failed')(class='mt-0')
+
+          +searchState(view, 'Loading · grid')
+            +searchHero(view, { value: 'the offic' })
+            +loadingGrid(view)
+
+          +searchState(view, 'Loading · list')
+            +searchHero(view, { value: 'the offic' })
+            +loadingList(view)

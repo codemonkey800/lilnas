@@ -1,0 +1,595 @@
+//-
+  Download-only mixins. The shared kit (docs/designs/mockup-kit) is the design
+  system and nothing else, so everything that only makes sense in this app —
+  poster art, media cards, the release and episode rows, the quality tier
+  select, the status vocabularies — lives here.
+
+  Pages `include ../mixins/download.pug` after `extends`. Every mixin ends in
+  `&attributes(attributes)`, as in the kit.
+
+//- ── status vocabularies ─────────────────────────────────────────────────
+//-
+  Tone map: accent = in progress, ok = available / delivered, warn = queued /
+  paused / needs attention, bad = failed, mute = neutral. Labels are sentence
+  case, one or two words. `live` swaps the dot for the pulsing one — only on
+  things that are actually moving.
+
+//- A badge for a media state — the seven in src/components/detail/media-state.ts. A video's `available` reads "Downloaded".
+mixin mediaBadge(state, type)
+  - const MEDIA_STATES = { absent: { tone: 'mute', label: 'Not downloaded' }, wanted: { tone: 'warn', label: 'Wanted' }, downloading: { tone: 'accent', label: 'Downloading', live: true }, importing: { tone: 'accent', label: 'Importing', live: true }, needs_attention: { tone: 'warn', label: 'Needs attention' }, paused: { tone: 'warn', label: 'Paused' }, available: { tone: 'ok', label: 'In library' } }
+  - const s = Object.assign({}, MEDIA_STATES[state] || MEDIA_STATES.absent)
+  - if (type === 'video' && state === 'available') s.label = 'Downloaded'
+  +badge({ tone: s.tone, label: s.label, live: s.live })&attributes(attributes)
+
+//- A badge for a job status — the sixteen in src/components/detail/job-state.ts.
+mixin jobBadge(status)
+  - const JOB_STATUSES = { requested: { tone: 'warn', label: 'Requested' }, pending: { tone: 'warn', label: 'Queued' }, searching: { tone: 'accent', label: 'Searching', live: true }, downloading: { tone: 'accent', label: 'Downloading', live: true }, pausing: { tone: 'warn', label: 'Pausing' }, paused: { tone: 'warn', label: 'Paused' }, converting: { tone: 'accent', label: 'Converting', live: true }, uploading: { tone: 'accent', label: 'Uploading', live: true }, importing: { tone: 'accent', label: 'Importing', live: true }, cleaning: { tone: 'accent', label: 'Cleaning up' }, completed: { tone: 'ok', label: 'Completed' }, needs_attention: { tone: 'warn', label: 'Needs attention' }, not_found: { tone: 'warn', label: 'No release found' }, failed: { tone: 'bad', label: 'Failed' }, cancelling: { tone: 'warn', label: 'Cancelling' }, cancelled: { tone: 'mute', label: 'Cancelled' } }
+  - const s = JOB_STATUSES[status] || JOB_STATUSES.pending
+  +badge({ tone: s.tone, label: s.label, live: s.live })&attributes(attributes)
+
+//- ── page furniture ──────────────────────────────────────────────────────
+
+//-
+  The app bar as the real app draws it: doorplate, Library and Activity links,
+  the nav search, then the avatar. `/search` omits the field (its hero is the
+  search); an admin sees an Admin link.
+    opts  active  'library' | 'activity' | 'admin'     search  false to omit
+          admin   show the Admin link                  back    (unused on desktop)
+mixin dlBar(view, opts)
+  - opts = opts || {}
+  -
+    const links = [
+      { label: 'Library', active: opts.active === 'library' },
+      { label: 'Activity', active: opts.active === 'activity' },
+    ]
+    if (opts.admin) links.push({ label: 'Admin', active: opts.active === 'admin' })
+  +appBar(view, { app: 'download', links: links })&attributes(attributes)
+    if opts.search !== false
+      if view === 'mobile'
+        +btn({ variant: 'ghost', icon: 'search', iconOnly: true, label: 'Search', touch: true })
+      else
+        div(class='w-72')
+          +input({ placeholder: 'Search or paste a link…' })(aria-label='Search or paste a link')
+
+//- A screen's body: padding by viewport, content in a centred column.
+mixin dlMain(view, opts)
+  - opts = opts || {}
+  main(class=[view === 'mobile' ? 'px-4 pt-5 pb-8' : 'px-8 pt-8 pb-12', 'flex-auto'])&attributes(attributes)
+    div(class=['mx-auto', opts.narrow ? 'max-w-[720px]' : 'max-w-[1080px]'])
+      block
+
+//-
+  One captioned row holding a framed screen (or any wide thing). The caption
+  sits above, because a 1280px frame has no room beside it.
+mixin screenRow(label, id)
+  +stateRow(label, { stack: true })(id=id class='w-full')
+    block
+
+//- Two viewports behind one switch. `name` must be unique on the page.
+mixin viewports(name)
+  div(class='vp-scope flex flex-col items-center gap-6')&attributes(attributes)
+    +viewportToggle(name)(role='radiogroup' aria-label='Viewport')
+    block
+
+//-
+  The giant single-input hero (adoption.md keeps it): a large Geist 600
+  heading over one 44px field and the one accent button. `value` fills the
+  field; on a phone the button is icon-only.
+    opts  title, lede, placeholder, value, button, hint
+mixin hero(view, opts)
+  - opts = opts || {}
+  - const phone = view === 'mobile'
+  section(class=['flex flex-col', phone ? 'gap-4 pt-4 pb-8' : 'items-center gap-6 pt-10 pb-14 text-center'])&attributes(attributes)
+    h1(class=['font-semibold tracking-tight text-balance', phone ? 'text-4xl leading-[1.1]' : 'text-6xl leading-[1.05]'])= opts.title
+    if opts.lede
+      p(class='max-w-[52ch] text-body text-ink-3')= opts.lede
+    div(class=['flex w-full items-center gap-2', phone ? '' : 'max-w-[680px]'])
+      input(
+        data-control
+        type='text'
+        value=opts.value
+        placeholder=opts.placeholder || 'Search a title or paste a link…'
+        aria-label='Search or paste a link'
+        class='h-11 min-w-0 flex-1 rounded-md border border-line-control bg-bg-sunk px-4 text-[15px] transition-[border-color,box-shadow] duration-200 ease-standard placeholder:text-ink-3 focus:border-accent focus:ring-2 focus:ring-accent-ghost focus:outline-none'
+      )
+      +btn({ variant: 'accent', size: 'lg', icon: 'search', iconOnly: phone, label: opts.button || 'Search' })
+    if opts.hint
+      p(class='max-w-[60ch] text-cap text-ink-3')= opts.hint
+
+//- ── media ───────────────────────────────────────────────────────────────
+
+//-
+  Poster / thumbnail. The real art in assets/ is gitignored, so every poster
+  falls back to one of five token-only gradients; src/runtime.js removes a
+  broken <img> and the label underneath reappears.
+    shape  'tall' (2:3) | 'wide' (16:9)   v  1-5 which gradient
+    src    art, relative to the page      label  shown only without art
+    play   a play mark over the art       playSize  px
+mixin poster(opts)
+  - opts = opts || {}
+  -
+    const fills = [
+      'from-surface-2 to-surface-3',
+      'from-surface to-surface-2',
+      'from-surface-3 to-surface',
+      'from-surface-2 to-bg-sunk',
+      'from-surface to-surface-3',
+    ]
+  div(
+    class=[
+      'group relative flex shrink-0 items-center justify-center overflow-hidden bg-linear-to-br',
+      opts.radius || 'rounded-md',
+      opts.shape === 'wide' ? 'aspect-video' : 'aspect-[2/3]',
+      fills[((opts.v || 1) - 1) % fills.length],
+    ]
+  )&attributes(attributes)
+    if opts.label
+      span(class='p-2.5 text-center text-cap font-semibold text-ink-2 group-has-[img]:hidden')= opts.label
+    if opts.src
+      img(class='absolute inset-0 size-full object-cover' src=opts.src alt='' data-poster)
+    if opts.play
+      span(class='absolute inset-0 flex items-center justify-center bg-linear-to-b from-transparent from-50% to-black/50')
+        +icon('play', opts.playSize || 28)(class='text-ink')
+    block
+
+//- Icon + text run, for the kind / year / duration under a title.
+mixin kindMeta(icon, label)
+  span(class='inline-flex items-center gap-1.5 text-cap text-ink-3')&attributes(attributes)
+    if icon
+      +icon(icon, 12)(class='shrink-0')
+    = label.charAt(0).toUpperCase() + label.slice(1)
+
+//- A person who isn't named: attribution is masked from everyone but an admin.
+mixin maskedAvatar(size)
+  span(
+    class=['grid shrink-0 place-items-center rounded-full border border-dashed border-line-control text-ink-3', size === 64 ? 'size-16 text-h2' : size === 32 ? 'size-8 text-sm' : 'size-6 text-[11px]']
+    title='Hidden uploader'
+  )&attributes(attributes) –
+
+//-
+  Who and when: avatar, then the relative time in mono. `you` is the viewer
+  (the accent avatar); `hidden` is a masked uploader.
+mixin attribution(opts)
+  - opts = opts || {}
+  span(class='flex min-w-0 items-center gap-1.5 whitespace-nowrap')&attributes(attributes)
+    if opts.hidden
+      +maskedAvatar(opts.size)
+    else
+      +avatar(opts.who || 'JA', { size: opts.size || 24, you: opts.you })
+    if opts.name
+      span(class='truncate text-cap text-ink-2')= opts.name
+    span(class='font-mono text-mono-sm text-ink-3')= opts.when
+
+//-
+  The gallery / recently-added card: poster, two-line title, kind and meta,
+  who added it. The top half is the link; Watch stays its own button.
+    entry  href, title, kind, icon, meta, art, v, video, who, when, hidden,
+           watch, indexing
+mixin galleryCard(entry, opts)
+  - opts = opts || {}
+  div(
+    class='flex flex-col gap-2 rounded-lg border border-line bg-surface p-2.5 transition-[border-color,background-color] duration-200 ease-standard hover:border-line-loud hover:bg-surface-2'
+  )&attributes(attributes)
+    a(class='flex flex-col gap-2' href=entry.href || '#')
+      +poster({ shape: 'tall', v: entry.v, src: entry.art, label: entry.video ? null : entry.title, play: entry.video, playSize: 22 })
+        if entry.indexing
+          span(class='absolute top-1.5 left-1.5 rounded-full bg-bg-sunk')
+            +badge({ tone: 'warn', label: 'Indexing' })
+      p(class='line-clamp-2 min-h-[2.7em] text-sm leading-[1.35] font-semibold')= entry.title
+      div(class='flex items-center justify-between gap-1.5')
+        +kindMeta(entry.icon, entry.meta ? `${entry.kind} · ${entry.meta}` : entry.kind)
+    div(class='mt-auto flex min-h-[30px] items-center justify-between gap-1.5')
+      +attribution({ who: entry.who, when: entry.when, hidden: entry.hidden || !entry.who, you: entry.who === 'JA' })
+      if entry.watch
+        +btn({ variant: 'ghost', size: 'sm', label: 'Watch' })
+
+//- A library list row, for the search list view: small poster, title, facts.
+mixin resultRow(entry)
+  a(
+    class='flex items-center gap-3 rounded-lg border border-line bg-surface p-2.5 transition-[border-color,background-color] duration-200 ease-standard hover:border-line-loud hover:bg-surface-2'
+    href=entry.href || '#'
+  )&attributes(attributes)
+    +poster({ shape: 'tall', v: entry.v, src: entry.art, label: entry.title })(class='w-12')
+    div(class='flex min-w-0 flex-1 flex-col gap-0.5')
+      p(class='truncate text-h3')= entry.title
+      +kindMeta(entry.icon, entry.meta ? `${entry.kind} · ${entry.meta}` : entry.kind)
+    block
+
+//- ── detail pages ────────────────────────────────────────────────────────
+
+//- A key/value fact. `mono` for identifiers someone would copy.
+mixin fact(label, value, mono)
+  div(class='min-w-0')&attributes(attributes)
+    dt(class='text-label text-ink-3 uppercase')= label
+    dd(class=['truncate text-sm', mono ? 'font-mono text-mono' : ''])= value
+
+//- One credited name, avatar then name.
+mixin castPerson(initials, name)
+  div(class='flex shrink-0 items-center gap-2')&attributes(attributes)
+    +avatar(initials, { size: 32 })
+    span(class='text-sm')= name
+
+//- A section heading with the mono caption the detail pages use.
+mixin sectionHead(title, caption)
+  div(class='mb-3 flex items-baseline justify-between gap-3')&attributes(attributes)
+    h2(class='text-h2')= title
+    if caption
+      span(class='text-cap text-ink-3')= caption
+    block
+
+//-
+  Quality tier select — beside a movie's Download or a show's Download series.
+  A field around the kit select; the three tiers are caps, not exact matches.
+    tiers  [[key, label], …]    selected  key    open  draw the listbox
+    hint   a caption under it   full      stretch
+mixin tierSelect(opts)
+  - opts = opts || {}
+  - const chosen = opts.tiers.find(t => t[0] === opts.selected) || opts.tiers[0]
+  +field('Quality', opts.hint)(class=opts.full ? 'w-full' : 'w-60')&attributes(attributes)
+    +select({ value: chosen[1], items: opts.tiers.map(t => t[1]), open: opts.open })
+
+//-
+  One release Radarr or Sonarr found. A row in a list: the release, the
+  indexer, any badge, then the action.
+    release  { quality, size, source, current, flagged, rejected, reason, action }
+mixin releaseRow(release, view)
+  - const phone = view === 'mobile'
+  div(
+    class=['flex flex-wrap gap-x-4 gap-y-1.5 px-1 py-3 not-first:border-t not-first:border-line-soft', phone ? 'flex-col items-start' : 'items-center', release.flagged || release.rejected ? 'opacity-60' : '']
+  )&attributes(attributes)
+    div(class=['flex min-w-0 flex-col gap-0.5', phone ? '' : 'flex-1'])
+      p(class=['font-mono text-mono', release.flagged ? 'line-through' : ''])= `${release.quality} · ${release.size}`
+      p(class='font-mono text-mono-sm text-ink-3')= release.source
+      if release.reason
+        p(class='text-cap text-ink-3')= release.reason
+    div(class=['flex items-center gap-2', phone ? 'w-full' : ''])
+      if release.current
+        +badge({ tone: 'ok', label: 'Current' })
+      if release.flagged
+        +badge({ tone: 'bad', label: 'Bad file' })
+      if release.action
+        +btn({ variant: release.action.variant || 'outline', size: 'sm', label: release.action.label, icon: release.action.icon, disabled: release.action.disabled })(class=phone ? 'flex-1' : '')
+
+//-
+  An episode row: number, title, air date, runtime, state, optional progress,
+  then Manage. `open` draws the inline actions drawer under the row.
+    ep  { n, title, air, runtime, state, pct, finale, selected }
+mixin episodeRow(ep, view, opts)
+  - opts = opts || {}
+  - const phone = view === 'mobile'
+  div(class='not-first:border-t not-first:border-line-soft')&attributes(attributes)
+    div(class=['flex gap-x-4 gap-y-2 px-1 py-3', phone ? 'flex-col items-start' : 'items-center'])
+      div(class=['flex min-w-0 items-center gap-2.5', phone ? '' : 'flex-1'])
+        span(class='w-7 shrink-0 font-mono text-mono-sm text-ink-3')= `E${ep.n}`
+        span(class=['text-sm', phone ? '' : 'truncate'])= ep.title
+      div(class='flex flex-wrap items-center gap-2.5')
+        span(class='text-cap text-ink-3')= ep.air
+        span(class='text-cap text-ink-3')= ep.runtime
+        if ep.finale
+          +badge({ tone: 'mute', label: ep.finale })
+        +mediaBadge(ep.state)
+      if ep.pct !== undefined && ep.pct !== null
+        +progress(ep.pct, undefined, {})(class=phone ? 'w-full' : 'w-32')
+      if ep.action
+        +btn({ variant: 'outline', size: 'sm', label: opts.open ? 'Close' : ep.action, icon: opts.open ? 'x' : undefined })(class=phone ? 'w-full' : '')
+    if opts.open
+      div(class='mx-1 mb-3 rounded-lg border border-line bg-bg-sunk p-3')
+        block
+
+//-
+  A bar that has stopped counting but not finished: every byte is down, the
+  library import isn't. A band of light sweeps the full fill, so it keeps
+  moving after its percentage has stopped. Say what's happening in text beside
+  it too — under reduced motion the sweep doesn't run.
+mixin settlingProgress(opts)
+  - opts = opts || {}
+  div(class='flex items-center gap-3')&attributes(attributes)
+    div(
+      class='relative h-1.5 flex-1 overflow-hidden rounded-full bg-surface-2'
+      role='progressbar'
+      aria-valuemin='0'
+      aria-valuemax='100'
+      aria-valuenow='100'
+      aria-valuetext='100%, finishing up'
+    )
+      div(class='h-full w-full rounded-full bg-accent')
+      div(class='progress-indeterminate absolute inset-y-0 left-0 w-[30%] rounded-full bg-ink/30')
+    unless opts.bare
+      span(class='w-9 shrink-0 text-right text-cap tabular-nums text-ink-3') 100%
+
+//- ── boundaries ──────────────────────────────────────────────────────────
+
+//-
+  A route's error boundary: the page title, then a bad Note — what broke, why
+  if known, what to do — the digest in mono, and the one Try again button.
+    opts  title, lead, detail, digest
+mixin boundaryError(view, opts)
+  - opts = opts || {}
+  h1(class='mb-4 text-h2')= opts.title || 'The library didn’t load'
+  +note('bad', opts.lead || 'The download service didn’t answer.')
+    = opts.detail || 'Counts and recently added are missing rather than stale. It may be restarting — try again in a minute.'
+  div(class='mt-3 flex items-center gap-3')
+    +btn({ variant: 'outline', size: 'sm', label: 'Try again', icon: 'refresh' })
+    span(class='font-mono text-mono-sm text-ink-3')= opts.digest || 'digest 3482910274'
+
+//- A sunk centred panel: an icon, a heading, a sentence and one way out.
+mixin quietPanel(icon, title, body, action)
+  +card({ sunk: true })(class='mx-auto flex max-w-[560px] flex-col items-center gap-2.5 px-6 py-12 text-center')&attributes(attributes)
+    +icon(icon, 24)(class='text-ink-3')
+    h2(class='text-h2')= title
+    p(class='max-w-[52ch] text-sm text-ink-3')= body
+    if action
+      +btn({ variant: 'outline', size: 'sm', label: action, icon: 'grid' })(class='mt-2')
+
+//- /not-found.tsx — nothing at this address. Quiet, not an error. A route's own not-found passes its title and body.
+mixin boundaryNotFound(view, opts)
+  - opts = opts || {}
+  h1(class='sr-only')= opts.title || 'No page at this address'
+  +quietPanel('search', opts.title || 'No page at this address', opts.body || 'Nothing in the app answers to this address. Nothing has gone wrong — the link was probably mistyped, or it points at something that has since been removed.', opts.action || 'Back to library')
+
+//- The shared not-authorized panel (/admin, someone else's /profile).
+mixin notAuthorized(view, opts)
+  - opts = opts || {}
+  h1(class='sr-only')= opts.page || 'Admin'
+  +quietPanel('shield', 'No access to this page', opts.body || 'Your account isn’t on the list for this page. Nothing has gone wrong — ask an admin if you think you should be able to see it.', 'Back to library')
+
+//- ── filtering ───────────────────────────────────────────────────────────
+//- Shared by gallery, search, admin and profile, which all filter the same way.
+
+//- The Filters button: a count pill when filters are on, a chevron that turns when open.
+mixin filtersBtn(opts)
+  - opts = opts || {}
+  +btn({ variant: 'outline', label: 'Filters', icon: 'filter', size: opts.size })(aria-expanded=opts.open ? 'true' : 'false' data-force=opts.open ? 'hover' : undefined)&attributes(attributes)
+    if opts.count
+      span(class='grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[11px] leading-none font-semibold text-accent-ink')= opts.count
+    +icon('chevron', 14)(class=['text-ink-3', opts.open ? 'rotate-180' : ''])
+
+//- An applied filter with its own remove button. Accent, because you chose it.
+mixin appliedChip(label, removeLabel)
+  span(class='inline-flex h-7 items-center gap-1 rounded-md border border-accent-dim bg-accent-ghost pr-1 pl-2.5 text-cap font-medium text-accent-hi')&attributes(attributes)
+    = label
+    button(
+      type='button'
+      aria-label=removeLabel || `Remove ${label}`
+      class='grid size-5 place-items-center rounded-xs transition-colors duration-200 ease-standard hover:bg-accent-ghost'
+    )
+      +icon('x', 12)
+
+//- A row of applied chips and the one Clear all.
+mixin appliedFilters(chips, opts)
+  - opts = opts || {}
+  div(class='flex flex-wrap items-center gap-2' aria-label='Applied filters')&attributes(attributes)
+    each chip in chips
+      +appliedChip(chip[0], chip[1])
+    +btn({ variant: 'ghost', size: 'sm', label: opts.clear || 'Clear all' })
+
+//-
+  A choice you can toggle: a person, a type, a date range. A native checkbox
+  read with :has(), so it needs no JS. `block` goes before the label (an avatar).
+mixin toggleChip(label, checked)
+  label(
+    class='inline-flex h-8 cursor-pointer items-center gap-2 rounded-md border border-line-control bg-bg-sunk px-3 text-sm text-ink-2 transition-[border-color,background-color,color] duration-200 ease-standard select-none hover:border-line-loud has-[:checked]:border-accent-dim has-[:checked]:bg-accent-ghost has-[:checked]:text-accent-hi has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent'
+  )&attributes(attributes)
+    input(class='sr-only' type='checkbox' checked=checked)
+    block
+    = label
+
+//- The panel a Filters button opens. `@container` lets groups key off its own width.
+mixin filterPanel
+  div(class='@container rounded-lg border border-line-loud bg-surface p-5 shadow-lift')&attributes(attributes)
+    block
+
+mixin filterGrid
+  div(class='grid grid-cols-1 gap-x-6 gap-y-5 @min-[400px]:grid-cols-2')&attributes(attributes)
+    block
+
+mixin filterGroup(label)
+  div(class='flex flex-col gap-2')&attributes(attributes)
+    span(class='text-label text-ink-3 uppercase')= label
+    block
+
+mixin filterFoot
+  div(class='mt-5 flex items-center justify-between gap-3 border-t border-line-soft pt-4')&attributes(attributes)
+    block
+
+//- Dims the whole frame behind an open panel. A direct child of `appFrame`.
+mixin frameScrim
+  div(class='absolute inset-0 z-10 bg-black/55')&attributes(attributes)
+
+//- Sort: a button naming the current order, with the menu hung under it when open.
+mixin sortMenu(items, opts)
+  - opts = opts || {}
+  div(class=['relative', opts.open ? 'z-20' : ''])&attributes(attributes)
+    +btn({ variant: 'outline', label: opts.label || 'Sort: Relevance', icon: 'sort' })(aria-haspopup='menu' aria-expanded=opts.open ? 'true' : 'false' data-force=opts.open ? 'hover' : undefined)
+      +icon('chevron', 14)(class=['text-ink-3', opts.open ? 'rotate-180' : ''])
+    if opts.open
+      +menu(items)(class='absolute top-[calc(100%+6px)] right-0')
+
+//- A search result as a poster card: poster, title, kind and meta.
+mixin resultCard(entry)
+  a(
+    class='flex flex-col gap-2 rounded-lg border border-line bg-surface p-2.5 transition-[border-color,background-color] duration-200 ease-standard hover:border-line-loud hover:bg-surface-2'
+    href=entry.href || '#'
+  )&attributes(attributes)
+    +poster({ shape: 'tall', v: entry.v, src: entry.art, label: entry.title })
+    p(class='line-clamp-2 text-sm leading-[1.35] font-semibold')= entry.title
+    +kindMeta(entry.icon, `${entry.kind} · ${entry.meta}`)
+
+//- ── dashboards ──────────────────────────────────────────────────────────
+
+//-
+  A headline number. Geist with tabular figures, never mono: it's a quantity,
+  not something to copy. A `meter` draws a capacity bar; `live` adds the dot.
+    stat  label, value, unit, meter (pct), live, foot
+mixin statCard(stat)
+  +card()(class='flex flex-col gap-2')&attributes(attributes)
+    span(class='text-label text-ink-3 uppercase')= stat.label
+    span(class='flex items-center gap-2')
+      if stat.live
+        +statusDot('ok', true)
+      span(class=['text-[32px] leading-[1.1] font-semibold tracking-tight tabular-nums', stat.live ? 'text-ok' : ''])
+        = stat.value
+        if stat.unit
+          |  
+          span(class='text-body font-normal text-ink-3')= stat.unit
+    if stat.meter !== undefined
+      div(class='h-2.5 overflow-hidden rounded-full bg-surface-2' role='meter' aria-valuemin='0' aria-valuemax='100' aria-valuenow=stat.meter)
+        div(class='h-full rounded-full bg-accent' style=`width: ${stat.meter}%`)
+    span(class='text-cap text-ink-3')= stat.foot
+
+//- ── detail pages (movie, show, video) ───────────────────────────────────
+
+//-
+  The header every detail page opens with: poster, title, the meta line, a
+  synopsis, then the block (lifecycle badge and actions). A phone stacks them.
+    d  { art, v, title, meta, synopsis }
+mixin detailHead(view, d)
+  - const phone = view === 'mobile'
+  header(class=['flex gap-6', phone ? 'flex-col' : 'items-start'])&attributes(attributes)
+    +poster({ shape: 'tall', v: d.v, src: d.art, label: d.title })(class=phone ? 'w-[132px]' : 'w-[200px]')
+    div(class='flex min-w-0 flex-1 flex-col gap-4')
+      div(class='flex flex-col gap-1')
+        h1(class='text-h1 text-balance')= d.title
+        if d.meta
+          p(class='text-sm text-ink-3')= d.meta
+      if d.synopsis
+        p(class='max-w-[64ch] text-body text-ink-2')= d.synopsis
+      block
+
+//- A row of actions: wraps on desktop, full-width and stacked on a phone.
+mixin actionRow(view)
+  div(class=['flex gap-2', view === 'mobile' ? 'flex-col *:w-full' : 'flex-wrap items-center'])&attributes(attributes)
+    block
+
+//- A status badge with the plain sentence that goes beside it.
+mixin lifecycle(note)
+  div(class='flex flex-col items-start gap-2')&attributes(attributes)
+    block
+    if note
+      p(class='max-w-[56ch] text-sm text-ink-3')= note
+
+//- A titled run of facts: a two-column grid on a phone, four on desktop.
+mixin facts(view, title, items)
+  section(class='mt-8')&attributes(attributes)
+    h2(class='mb-3 text-h2')= title
+    dl(class=['grid gap-x-6 gap-y-4', view === 'mobile' ? 'grid-cols-2' : 'grid-cols-4'])
+      each item in items
+        +fact(item[0], item[1], item[2])
+
+//- Cast: a scrolling row of avatars and names, the last cell the overflow.
+mixin castRow(people, more)
+  section(class='mt-8')&attributes(attributes)
+    h2(class='mb-3 text-h2') Cast
+    div(class='flex gap-5 overflow-x-auto pb-1')
+      each person in people
+        +castPerson(person[0], person[1])
+      if more
+        span(class='flex shrink-0 items-center text-sm text-ink-3')= more
+
+//-
+  The in-flight card on a detail page: the badge, the bar, one mono line of
+  throughput, then what you can do about it. Accent border, because it is
+  moving.
+    p  { badge (media state key), pct, tone, settling, line, note, actions }
+mixin progressBlock(view, p)
+  +card()(class='flex flex-col gap-3 border-accent-dim')&attributes(attributes)
+    div(class='flex flex-wrap items-center gap-x-3 gap-y-1')
+      if p.job
+        +jobBadge(p.job)
+      else
+        +mediaBadge(p.state, p.type)
+      if p.scope
+        span(class='text-cap text-ink-3')= p.scope
+    if p.settling
+      +settlingProgress()
+    else if p.pct !== undefined
+      +progress(p.pct, p.tone)
+    if p.line
+      p(class='font-mono text-mono-sm text-ink-3 tabular-nums')= p.line
+    if p.note
+      p(class='text-sm text-ink-2')= p.note
+    if p.actions
+      +actionRow(view)
+        each action in p.actions
+          +btn({ variant: action.variant || 'outline', size: 'sm', label: action.label, icon: action.icon, disabled: action.disabled })
+
+//-
+  One finished attempt: its outcome badge, which part of the show it was for,
+  who started it and when, then the reason in plain words. Only the newest
+  attempt may offer Retry.
+    a  { job, scope, who: [initials, name] | 'Radarr', when, error, note, retry }
+mixin attemptRow(a, view)
+  - const phone = view === 'mobile'
+  div(class=['flex gap-x-4 gap-y-2 px-1 py-3 not-first:border-t not-first:border-line-soft', phone ? 'flex-col items-start' : 'items-center'])&attributes(attributes)
+    +jobBadge(a.job)(class=phone ? '' : 'w-[148px] shrink-0 justify-center')
+    div(class='flex min-w-0 flex-1 flex-col gap-1')
+      div(class='flex flex-wrap items-center gap-x-3 gap-y-1')
+        if a.scope
+          span(class='text-sm text-ink-2')= a.scope
+        if a.who
+          if typeof a.who === 'string'
+            span(class='flex items-center gap-1.5 text-cap text-ink-3')
+              +icon('server', 14)
+              = a.who
+          else
+            span(class='flex items-center gap-1.5')
+              +avatar(a.who[0], { size: 24 })
+              span(class='text-cap text-ink-2')= a.who[1]
+        span(class='font-mono text-mono-sm text-ink-3')= a.when
+      if a.error
+        p(class='text-sm text-bad')= a.error
+      if a.note
+        p(class='text-cap text-ink-3')= a.note
+    if a.retry
+      +btn({ variant: 'outline', size: 'sm', label: 'Retry', icon: 'refresh' })(class=phone ? 'w-full' : '')
+
+//- The Attempts section: an in-flight card first, then the finished ones in a sunk well. Renders nothing when empty.
+mixin attempts(view, items)
+  if items && items.length
+    - const live = items.filter(a => a.inFlight)
+    - const done = items.filter(a => !a.inFlight)
+    section(class='mt-8')&attributes(attributes)
+      h2(class='mb-3 text-h2') Attempts
+      each a in live
+        +progressBlock(view, a)(class='mb-3')
+      if done.length
+        +card({ sunk: true })(class='px-4 py-1')
+          each a in done
+            +attemptRow(a, view)
+
+//-
+  The release picker: ask every indexer, then choose. Four states.
+    opts  state  'idle' | 'searching' | 'results' | 'none' | 'rejected'
+          releases  the rows (results)         hasFile  Replace instead of Download
+mixin releasePicker(view, opts)
+  - const phone = view === 'mobile'
+  section(class='mt-8')&attributes(attributes)
+    +sectionHead('Release', opts.caption)
+    +card()
+      case opts.state
+        when 'idle'
+          div(class=['flex gap-3', phone ? 'flex-col' : 'items-center justify-between'])
+            p(class='max-w-[56ch] text-sm text-ink-3') Asks every indexer directly, which usually takes about half a minute. Nothing is downloaded until you pick a release.
+            +btn({ variant: 'outline', label: 'Find releases', icon: 'search' })(class=phone ? 'w-full' : '')
+        when 'searching'
+          div(class='flex flex-col gap-3')
+            div(class='flex items-center justify-between gap-3')
+              p(class='text-sm text-ink-2') Asking every indexer — this takes a while.
+              +btn({ variant: 'outline', label: 'Find releases', loading: true, disabled: true })
+            +progress(null, undefined, { bare: true })
+        when 'none'
+          +note('warn', 'No release found.')
+            | No indexer had anything for this. Try again later — new releases show up all the time.
+          +btn({ variant: 'outline', size: 'sm', label: 'Search again', icon: 'refresh' })(class='mt-3')
+        when 'rejected'
+          +note('warn', 'Nothing here can be downloaded right now.')
+            | Each row says why.
+          div(class='mt-2')
+            each r in opts.releases
+              +releaseRow(r, view)
+        default
+          div
+            each r in opts.releases
+              +releaseRow(r, view)
+          div(class='mt-2 flex justify-end border-t border-line-soft pt-3')
+            +btn({ variant: 'ghost', size: 'sm', label: 'Search again', icon: 'refresh' })

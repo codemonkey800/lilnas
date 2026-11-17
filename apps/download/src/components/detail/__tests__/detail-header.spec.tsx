@@ -12,7 +12,7 @@ import {
   DetailAttribution,
   DetailHeader,
 } from 'src/components/detail/detail-header'
-import { MASKED_INITIALS } from 'src/components/ui/avatar'
+import { MASKED_INITIALS } from 'src/components/ui/person-avatar'
 
 /** The one instant every stamp on the page is measured against. */
 const NOW = Date.parse('2026-09-15T12:00:00.000Z')
@@ -54,9 +54,12 @@ const VIDEO: Media = {
 
 describe('DetailHeader', () => {
   it('renders the title as the heading', () => {
-    const { container } = render(<DetailHeader media={MOVIE} />)
+    render(<DetailHeader media={MOVIE} />)
 
-    expect(container.querySelector('p.text-h1')).toHaveTextContent('Following')
+    // The document's one h1: pages no longer supply a screen-reader copy.
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+      'Following',
+    )
   })
 
   it('renders every optional slot in the order the mockups put them', () => {
@@ -64,7 +67,6 @@ describe('DetailHeader', () => {
       <DetailHeader
         actions={<span>slot-actions</span>}
         attribution={<span>slot-attribution</span>}
-        cast={<span>slot-cast</span>}
         lifecycle={<span>slot-lifecycle</span>}
         links={<span>slot-links</span>}
         media={MOVIE}
@@ -79,10 +81,9 @@ describe('DetailHeader', () => {
 
     expect(order).toEqual([
       'slot-links',
-      'slot-cast',
-      'slot-attribution',
       'slot-lifecycle',
       'slot-actions',
+      'slot-attribution',
     ])
   })
 
@@ -122,10 +123,21 @@ describe('DetailHeader', () => {
     const wideClasses =
       wide.firstElementChild?.firstElementChild?.getAttribute('class')
 
-    expect(tallClasses).toContain('max-w-[220px]')
+    expect(tallClasses).toContain('w-[132px]')
     expect(tallClasses).toContain('sm:w-[200px]')
     expect(wideClasses).toContain('sm:w-[340px]')
-    expect(wideClasses).not.toContain('max-w-[220px]')
+    expect(wideClasses).not.toContain('w-[132px]')
+  })
+
+  it('draws no poster at all for the video page, whose picture is the player', () => {
+    const { container } = render(
+      <DetailHeader media={VIDEO} posterShape="none" />,
+    )
+
+    expect(container.querySelector('[class*="aspect-"]')).toBeNull()
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+      'Sourdough starter, day one to seven',
+    )
   })
 
   it('renders an overlay inside the poster', () => {
@@ -151,7 +163,9 @@ describe('DetailAttribution', () => {
       />,
     )
 
-    expect(screen.getByText('jeremy.asuncion · 12m ago')).toBeInTheDocument()
+    expect(
+      screen.getByText('Added by jeremy.asuncion · 12m ago'),
+    ).toBeInTheDocument()
   })
 
   it('takes the prefix the page supplies', () => {
@@ -176,7 +190,7 @@ describe('DetailAttribution', () => {
       />,
     )
 
-    expect(screen.getByText('hidden · 12m ago')).toBeInTheDocument()
+    expect(screen.getByText('Added by hidden · 12m ago')).toBeInTheDocument()
     expect(screen.getByText(MASKED_INITIALS)).toBeInTheDocument()
   })
 
@@ -201,7 +215,7 @@ describe('DetailAttribution', () => {
       />,
     )
 
-    expect(screen.getByText('JA')).toHaveAttribute(
+    expect(screen.getByRole('img', { name: 'JA' })).toHaveAttribute(
       'title',
       'jeremy.asuncion@lilnas.io',
     )
@@ -216,7 +230,7 @@ describe('DetailAttribution', () => {
       />,
     )
 
-    expect(screen.getByText('hidden · 1d ago')).toBeInTheDocument()
+    expect(screen.getByText('Added by hidden · 1d ago')).toBeInTheDocument()
   })
 
   /**
@@ -275,7 +289,7 @@ describe('DetailAttribution', () => {
         />,
       )
 
-      expect(screen.getByText('hidden · 12m ago')).toBeInTheDocument()
+      expect(screen.getByText('Added by hidden · 12m ago')).toBeInTheDocument()
       expect(discordMark()).not.toBeInTheDocument()
       expect(document.body).not.toHaveTextContent(SNOWFLAKE)
       expect(document.body).not.toHaveTextContent(LINKED_JEREMY.discordUsername)
@@ -338,7 +352,9 @@ describe('DetailAttribution', () => {
         />,
       )
 
-      expect(screen.getByText('jeremy.asuncion · 12m ago')).toBeInTheDocument()
+      expect(
+        screen.getByText('Added by jeremy.asuncion · 12m ago'),
+      ).toBeInTheDocument()
       unmount()
 
       render(
@@ -351,7 +367,7 @@ describe('DetailAttribution', () => {
         />,
       )
 
-      expect(screen.getByText('sam.pham')).toBeInTheDocument()
+      expect(screen.getByText('Added by sam.pham')).toBeInTheDocument()
       expect(screen.queryByText(/Radarr/)).not.toBeInTheDocument()
     })
   })

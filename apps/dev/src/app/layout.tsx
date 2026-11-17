@@ -1,50 +1,45 @@
 import 'src/tailwind.css'
 
+import { AppBar, Density, ToastProvider } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
-import { Figtree, IBM_Plex_Mono } from 'next/font/google'
+import { Geist, Geist_Mono } from 'next/font/google'
 import { ReactNode } from 'react'
-
-import { AppBar } from 'src/components/shell/app-bar'
-import { IconSprite } from 'src/components/ui/sprite'
 
 export const metadata = { title: 'dev.lilnas.io' }
 
-// Per docs/designs/foundations.md the dashboard loads Figtree (body/UI) and
-// IBM Plex Mono (machine) and, like `download`, skips the Bricolage Grotesque
-// display face. The variables match --font-sans / --font-mono in tailwind.css.
-const figtree = Figtree({
+// Geist for the UI, Geist Mono for the machine (docs/designs/foundations.md,
+// "Fonts"). tailwind.css maps these variables onto --font-sans / --font-mono.
+const sans = Geist({
   subsets: ['latin'],
   display: 'swap',
-  variable: '--font-sans',
+  variable: '--font-geist',
 })
 
-const ibmPlexMono = IBM_Plex_Mono({
-  weight: ['400', '500', '600'],
+const mono = Geist_Mono({
   subsets: ['latin'],
   display: 'swap',
-  variable: '--font-mono',
+  variable: '--font-geist-mono',
 })
 
 /**
- * The app shell. `<IconSprite />` comes first inside `<body>`: the doorplate
- * paints its pepe badge with a `<use href="#pepe">` into the sprite, and it is
- * rendered here and nowhere else so every `<symbol id>` stays unique.
+ * The root layout: fonts, the page background and the app chrome (toasts,
+ * compact density and the app bar). The dashboard is a compact app, so
+ * everything, the bar included, sits in `Density mode="compact"`. It has no
+ * navigation and no signed-in user, so the bar carries the doorplate only.
  */
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html
-      className={cns('h-full w-full', figtree.variable, ibmPlexMono.variable)}
+      className={cns('h-full w-full', sans.variable, mono.variable)}
       lang="en"
     >
-      <body
-        className={cns(
-          'flex h-full w-full flex-auto flex-col bg-bg text-ink',
-          'font-[family-name:var(--font-sans)]',
-        )}
-      >
-        <IconSprite />
-        <AppBar />
-        {children}
+      <body className="flex h-full w-full flex-auto flex-col bg-bg font-sans text-ink">
+        <ToastProvider>
+          <Density className="flex flex-auto flex-col" mode="compact">
+            <AppBar app="dev" />
+            {children}
+          </Density>
+        </ToastProvider>
       </body>
     </html>
   )

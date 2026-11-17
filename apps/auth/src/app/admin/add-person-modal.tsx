@@ -1,13 +1,12 @@
 'use client'
 
-import { cns } from '@lilnas/utils/cns'
+import { Button, Dialog, Field, Input, Note } from '@lilnas/ui'
 import type { TransitionStartFunction } from 'react'
 import { useState } from 'react'
 
 import { AccessRulesField } from 'src/app/admin/access-rules-field'
 import { preAuthorizeUsers } from 'src/app/admin/actions'
 import type { AdminServiceEntry } from 'src/app/admin/require-admin'
-import { Icon } from 'src/app/components/icons'
 import { ServiceCheckGrid } from 'src/app/components/service-check-grid'
 import { toggleInSet } from 'src/app/lib/toggle-in-set'
 import { isHostPattern } from 'src/grants/host-matcher'
@@ -88,78 +87,71 @@ export function AddPersonModal({
   }
 
   return (
-    <div
-      className={cns('modal-overlay', isOpen && 'is-open')}
-      onClick={event => {
-        if (event.target === event.currentTarget) onClose()
+    <Dialog.Root
+      open={isOpen}
+      onOpenChange={open => {
+        if (!open) onClose()
       }}
     >
-      <div className="modal">
-        <div className="row between">
-          <h2 className="h2">Add a person</h2>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            aria-label="Close"
-            onClick={onClose}
+      <Dialog.Popup className="max-w-[520px]">
+        <Dialog.Title>Add a person</Dialog.Title>
+        <div className="flex flex-col gap-4">
+          <Dialog.Description className="text-ink-3">
+            Give someone access before they ask — handy for family and friends
+            you’re onboarding.
+          </Dialog.Description>
+          <Field
+            label="Email address"
+            error={
+              addEmailHasError ? 'Enter an email like name@example.com.' : null
+            }
           >
-            <Icon name="x" />
-          </button>
-        </div>
-        <p className="body-text muted">
-          Grant access directly without waiting for a request — useful for
-          onboarding family or friends ahead of time.
-        </p>
-        <div className={cns('field', addEmailHasError && 'has-error')}>
-          <label htmlFor="add-email">Email address</label>
-          <input
-            id="add-email"
-            className="input"
-            type="email"
-            placeholder="name@example.com"
-            value={addEmail}
-            onChange={event => setAddEmail(event.target.value)}
-          />
-          <span className="field-error">Enter a valid email address.</span>
-        </div>
-        <div className="field">
-          <label>Grant access to</label>
-          <ServiceCheckGrid
-            hosts={services.map(s => s.host)}
-            selected={addSelected}
-            onToggle={(host, checked) =>
-              setAddSelected(prev => toggleInSet(prev, host, checked))
+            <Input
+              mono
+              type="email"
+              placeholder="name@example.com"
+              value={addEmail}
+              onChange={event => setAddEmail(event.target.value)}
+            />
+          </Field>
+          <fieldset className="flex flex-col gap-1.5">
+            <legend className="mb-1.5 text-sm font-medium text-ink-2">
+              Grant access to
+            </legend>
+            <ServiceCheckGrid
+              hosts={services.map(s => s.host)}
+              selected={addSelected}
+              onToggle={(host, checked) =>
+                setAddSelected(prev => toggleInSet(prev, host, checked))
+              }
+              disabled={isPending}
+            />
+          </fieldset>
+          <AccessRulesField
+            rules={[...addSelected].filter(isHostPattern)}
+            onAdd={rule =>
+              setAddSelected(prev => toggleInSet(prev, rule, true))
+            }
+            onRemove={rule =>
+              setAddSelected(prev => toggleInSet(prev, rule, false))
             }
             disabled={isPending}
           />
+          {addModalError ? <Note tone="bad" lead={addModalError} /> : null}
         </div>
-        <AccessRulesField
-          rules={[...addSelected].filter(isHostPattern)}
-          onAdd={rule => setAddSelected(prev => toggleInSet(prev, rule, true))}
-          onRemove={rule =>
-            setAddSelected(prev => toggleInSet(prev, rule, false))
-          }
-          disabled={isPending}
-        />
-        {addModalError ? (
-          <p role="alert" className="text-sm text-red-400">
-            {addModalError}
-          </p>
-        ) : null}
-        <div className="row justify-end gap-2.5">
-          <button type="button" className="btn btn-outline" onClick={onClose}>
+        <Dialog.Actions>
+          <Dialog.Close render={<Button variant="ghost" />}>
             Cancel
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary"
+          </Dialog.Close>
+          <Button
+            variant="accent"
+            loading={isPending}
             onClick={handleAddConfirm}
-            disabled={isPending}
           >
-            Grant access
-          </button>
-        </div>
-      </div>
-    </div>
+            Add person
+          </Button>
+        </Dialog.Actions>
+      </Dialog.Popup>
+    </Dialog.Root>
   )
 }

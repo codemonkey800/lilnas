@@ -50,7 +50,7 @@ describe('AdminAuditLog', () => {
     renderLog([entry({ actor: null, origin: 'service' })])
 
     expect(screen.getByText(AUDIT_SERVICE_LABEL)).toBeInTheDocument()
-    expect(screen.queryByText('hidden')).not.toBeInTheDocument()
+    expect(screen.queryByText('Hidden')).not.toBeInTheDocument()
     expect(screen.queryByText('–')).not.toBeInTheDocument()
     expect(screen.queryByText('unknown')).not.toBeInTheDocument()
     // Nothing to open a profile or a per-user filter for — a service is not a
@@ -138,7 +138,7 @@ describe('AdminAuditLog', () => {
     expect(
       actor?.contains(screen.getByRole('button', { name: MARK_LABEL })),
     ).toBe(true)
-    expect(what.closest('li')?.getAttribute('class')).not.toContain('grid')
+    expect(what.closest('tr')).not.toBeNull()
   })
 
   it('says so out loud when a web request arrived with no identity', () => {
@@ -163,10 +163,10 @@ describe('AdminAuditLog', () => {
 
     // The tint is asserted on the rendered class attribute, never on a composed
     // input string — `cns()` reshapes the list after composition.
-    expect(screen.getByText('DELETE').getAttribute('class')).toContain(
+    expect(screen.getByText('Delete').getAttribute('class')).toContain(
       'text-bad',
     )
-    expect(screen.getByText('FLAG').getAttribute('class')).toContain(
+    expect(screen.getByText('Flag').getAttribute('class')).toContain(
       'text-warn',
     )
   })
@@ -181,7 +181,7 @@ describe('AdminAuditLog', () => {
       }),
     ])
 
-    expect(screen.getByText('metadata')).toBeInTheDocument()
+    expect(screen.getByText('Metadata')).toBeInTheDocument()
     expect(screen.getByText(/"indexer": "nzbgeek"/)).toBeInTheDocument()
     expect(screen.getByText(/"somethingNew"/)).toBeInTheDocument()
   })
@@ -192,7 +192,7 @@ describe('AdminAuditLog', () => {
       entry({ metadata: {}, id: 5 }),
     ])
 
-    expect(screen.queryByText('metadata')).not.toBeInTheDocument()
+    expect(screen.queryByText('Metadata')).not.toBeInTheDocument()
   })
 
   it('renders the target when there is one and nothing when there is not', () => {
@@ -220,11 +220,12 @@ describe('AdminAuditLog', () => {
     expect(stamp).toHaveTextContent('17m ago')
   })
 
-  it('has its own empty state rather than an empty card', () => {
+  it('has its own empty state rather than an empty table', () => {
     renderLog([])
 
     expect(
-      screen.getByText(/nothing has been recorded yet/),
+      screen.getByText(/nothing has been recorded yet/i),
     ).toBeInTheDocument()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
   })
 })

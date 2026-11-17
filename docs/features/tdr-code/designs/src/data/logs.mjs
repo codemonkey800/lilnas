@@ -1,0 +1,380 @@
+// Copy and sample data for logs.pug. The three tails of the pino logs:
+// `backend` (the Nest server, `main` and `bot` processes), `frontend-server`
+// (Next's server side) and `frontend-browser` (what the page reports back).
+// Terse and factual: slugs, levels and counts in mono, sentences only in notes.
+
+export const tabs = ['backend', 'frontend-server', 'frontend-browser']
+
+export const levelOptions = [
+  'Any level',
+  'Trace+',
+  'Debug+',
+  'Info+',
+  'Warn+',
+  'Error+',
+  'Fatal',
+]
+
+export const backend = [
+  {
+    time: '14:02:03.118',
+    level: 'INFO',
+    process: 'main',
+    event: 'app-ready',
+    msg: 'Console listening on :8081',
+    chips: ['port=8081'],
+  },
+  {
+    time: '14:02:04.007',
+    level: 'INFO',
+    process: 'bot',
+    event: 'bot-ready',
+    msg: 'Discord gateway ready',
+    chips: ['guilds=1'],
+  },
+  {
+    time: '14:02:09.644',
+    level: 'DEBUG',
+    process: 'bot',
+    event: 'queue-enqueue',
+    msg: 'Prompt queued',
+    chips: ['channel=ops-agent', 'depth=1'],
+  },
+  {
+    time: '14:02:09.702',
+    level: 'INFO',
+    process: 'bot',
+    event: 'session-created',
+    msg: 'Session created',
+    chips: ['session=4826', 'channel=ops-agent'],
+  },
+  {
+    time: '14:02:10.931',
+    level: 'INFO',
+    process: 'bot',
+    event: 'turn-started',
+    msg: 'Turn started',
+    chips: ['session=4826', 'turn=3'],
+  },
+  {
+    time: '14:02:11.482',
+    level: 'DEBUG',
+    process: 'bot',
+    event: 'tool-call',
+    msg: 'Tool call started: Bash',
+    chips: ['session=4826'],
+  },
+  {
+    time: '14:02:15.240',
+    level: 'WARN',
+    process: 'bot',
+    event: 'git-push-blocked',
+    msg: 'Push blocked: no SSH identity for this user',
+    chips: ['user=alex'],
+  },
+  {
+    time: '14:02:19.771',
+    level: 'INFO',
+    process: 'bot',
+    event: 'turn-completed',
+    msg: 'Turn completed',
+    chips: ['session=4826', 'ms=41230'],
+  },
+  {
+    time: '14:02:21.003',
+    level: 'ERROR',
+    process: 'main',
+    event: 'sse-write-failed',
+    msg: 'SSE write failed: client closed',
+    chips: ['topic=live'],
+  },
+  {
+    raw: 'node:internal/process/promises:394 unhandledRejection Error: connect ETIMEDOUT 10.0.0.12:443',
+  },
+  {
+    time: '14:02:24.318',
+    level: 'INFO',
+    process: 'main',
+    event: 'http-request',
+    msg: 'GET /api/live 200',
+    chips: ['ms=4'],
+  },
+  {
+    time: '14:02:26.540',
+    level: 'WARN',
+    process: 'bot',
+    event: 'discord-rest-slow',
+    msg: 'Request timeout talking to Discord REST, retrying',
+    chips: ['attempt=2'],
+  },
+  {
+    time: '14:02:29.870',
+    level: 'WARN',
+    process: 'bot',
+    event: 'turn-slow',
+    msg: 'Turn exceeded 30s without output',
+    chips: ['session=4826'],
+  },
+  {
+    time: '14:02:33.115',
+    level: 'FATAL',
+    process: 'main',
+    event: 'db-migrate-failed',
+    msg: 'Migration 0007 failed: database is locked',
+    chips: ['file=0007_events.sql'],
+  },
+  {
+    time: '14:02:34.200',
+    level: 'INFO',
+    process: 'bot',
+    event: 'session-ended',
+    msg: 'Idle timeout reached, ending session',
+    chips: ['session=4825'],
+  },
+  {
+    time: '14:02:35.012',
+    level: 'INFO',
+    process: 'main',
+    event: 'http-request',
+    msg: 'GET /api/bot/status 200',
+    chips: ['ms=2'],
+  },
+]
+
+export const frontendBrowser = [
+  {
+    time: '14:01:58.220',
+    level: 'INFO',
+    process: 'browser',
+    event: 'page-view',
+    msg: 'Page view: /',
+    chips: ['viewport=1280x800'],
+  },
+  {
+    time: '14:02:01.407',
+    level: 'INFO',
+    process: 'browser',
+    event: 'click',
+    msg: 'Click: dashboard-restart-cancel',
+    chips: ['path=/'],
+  },
+  {
+    time: '14:02:06.115',
+    level: 'INFO',
+    process: 'browser',
+    event: 'web-vital',
+    msg: 'LCP 1180ms',
+    chips: ['rating=good'],
+  },
+  {
+    time: '14:02:12.690',
+    level: 'WARN',
+    process: 'browser',
+    event: 'client-validation-rejected',
+    msg: 'config validation failed',
+    chips: ['field=claudeArgs'],
+  },
+  {
+    time: '14:02:18.044',
+    level: 'ERROR',
+    process: 'browser',
+    event: 'window-error',
+    msg: 'Unhandled error: Failed to fetch',
+    chips: ['path=/logs'],
+  },
+  {
+    time: '14:02:20.311',
+    level: 'INFO',
+    process: 'browser',
+    event: 'page-view',
+    msg: 'Page view: /sessions',
+    chips: ['viewport=1280x800'],
+  },
+]
+
+// Rows that survive "Warn+ · bot · git-push-blocked/turn-slow"
+export const filtered = backend.filter(
+  l => l.process === 'bot' && (l.level === 'WARN' || l.level === 'ERROR'),
+)
+
+// The line the detail sheet is open on, as parsed JSON (pino's own fields).
+export const detail = {
+  header: { process: 'bot', timestamp: '2026-10-24 14:02:19.771 UTC' },
+  json: {
+    level: 30,
+    time: 1792850539771,
+    process: 'bot',
+    event: 'turn-completed',
+    msg: 'Turn completed',
+    channelId: '1184726493302157312',
+    sessionId: 4826,
+    turnIndex: 3,
+    durationMs: 41230,
+    toolCalls: 3,
+    ok: true,
+    error: null,
+  },
+  filters: ['level ≥ Info', 'process=bot', 'event=turn-completed'],
+  raw: {
+    header: { process: 'backend', timestamp: null },
+    text: 'node:internal/process/promises:394 unhandledRejection Error: connect ETIMEDOUT 10.0.0.12:443',
+  },
+}
+
+export const copy = {
+  eventPlaceholder: 'Event slug…',
+  searchPlaceholder: 'Search this file…',
+  empty: {
+    title: 'This log is empty',
+    body: "Nothing has been written, or the file doesn't exist yet.",
+  },
+  filteredEmpty: {
+    title: 'No lines match these filters',
+    body: 'Loosen the level or clear the event slug.',
+    action: 'Clear filters',
+  },
+  error: {
+    lead: "Couldn't load the backend log.",
+    detail: "The log reader didn't answer.",
+    code: 'GET /api/logs/backend 502',
+  },
+}
+
+const following = { kind: 'following', pct: 100 }
+
+// One entry per captioned row. `body` is what sits under the tabs; `edge` is
+// the viewer's marker lines; `selected` is the row index open in the sheet.
+export const states = [
+  {
+    label: 'Following live',
+    caption: 'at the end of the file, new lines scroll in',
+    stream: 'backend',
+    status: following,
+    body: 'rows',
+    lines: backend,
+  },
+  {
+    label: 'Paused',
+    caption: 'scrolled up: 14 new lines waiting, loading earlier',
+    stream: 'backend',
+    status: { kind: 'paused', n: 14, pct: 62 },
+    body: 'rows',
+    lines: backend.slice(0, 12),
+    edge: { before: true },
+  },
+  {
+    label: 'Search',
+    caption: 'hits marked, the one you are on selected',
+    stream: 'backend',
+    search: { value: 'timeout', count: { i: 1, n: 5 } },
+    status: following,
+    body: 'rows',
+    lines: backend,
+    hit: 'timeout',
+    selected: 11,
+  },
+  {
+    label: 'Search, no results',
+    caption: 'the count says so and the arrows go',
+    stream: 'backend',
+    search: { value: 'segfault', count: { n: 0 } },
+    status: following,
+    body: 'rows',
+    lines: backend,
+  },
+  {
+    label: 'Searching',
+    caption: 'the scan is running; the file has grown since',
+    stream: 'backend',
+    search: { value: 'timeout', searching: true, grew: true },
+    status: following,
+    body: 'rows',
+    lines: backend,
+  },
+  {
+    label: 'Filtered',
+    caption: 'level and process set: the viewer shows only matches',
+    stream: 'backend',
+    level: 'Warn+',
+    process: 'bot',
+    status: { kind: 'filtered', count: 3 },
+    body: 'rows',
+    lines: filtered,
+  },
+  {
+    label: 'Filtered, scanning',
+    caption: 'looking through the file for matches',
+    stream: 'backend',
+    level: 'Warn+',
+    process: 'bot',
+    event: 'turn-slow',
+    status: { kind: 'filtered', count: 0 },
+    body: 'scanning',
+  },
+  {
+    label: 'Filtered, nothing',
+    caption: 'the filters match no line',
+    stream: 'backend',
+    level: 'Fatal',
+    process: 'bot',
+    status: { kind: 'filtered', count: 0 },
+    body: 'filtered-empty',
+  },
+  {
+    label: 'Top and end of file',
+    caption: 'a short file shows both markers',
+    stream: 'backend',
+    status: following,
+    body: 'rows',
+    lines: backend.slice(0, 5),
+    edge: { top: true, end: true },
+  },
+  {
+    label: 'frontend-browser',
+    caption: 'no process filter on the frontend tabs',
+    stream: 'frontend-browser',
+    status: following,
+    body: 'rows',
+    lines: frontendBrowser,
+  },
+  {
+    label: 'Empty tab',
+    caption: "no file, or it's empty",
+    stream: 'frontend-server',
+    body: 'empty',
+  },
+  {
+    label: 'Loading',
+    caption: 'first window',
+    stream: 'backend',
+    body: 'loading',
+  },
+  {
+    label: 'Error',
+    caption: "the first window didn't load",
+    stream: 'backend',
+    body: 'error',
+  },
+  {
+    label: 'Detail sheet',
+    caption: 'a JSON line: filter-by buttons and the highlighted JSON',
+    stream: 'backend',
+    status: following,
+    body: 'rows',
+    lines: backend,
+    selected: 7,
+    sheet: 'json',
+    copy: 'idle',
+  },
+  {
+    label: 'Detail sheet, raw line',
+    caption: "a line that isn't JSON: no filter-by, just the text",
+    stream: 'backend',
+    status: following,
+    body: 'rows',
+    lines: backend,
+    selected: 9,
+    sheet: 'raw',
+    copy: 'copied',
+  },
+]

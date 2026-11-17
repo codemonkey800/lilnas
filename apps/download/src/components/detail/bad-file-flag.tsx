@@ -1,15 +1,19 @@
 'use client'
 
+import {
+  Badge,
+  Button,
+  type ButtonSize,
+  type ButtonVariant,
+  Dialog,
+} from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { BadFile, FlagBadFileInput } from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX, ReactNode } from 'react'
 import { useState, useTransition } from 'react'
 
 import type { BadFileActionResult } from 'src/app/actions/media-files'
-import { Button } from 'src/components/ui/button'
-import type { ButtonSize, ButtonVariant } from 'src/components/ui/button-recipe'
-import { Chip } from 'src/components/ui/chip'
-import { Modal, Reason, ReasonGroup } from 'src/components/ui/modal'
+import { Reason, ReasonGroup } from 'src/components/ui/reason'
 
 /**
  * The label on the trigger, in the one place it is spelled.
@@ -61,12 +65,12 @@ export const REPORT_SCOPE_CAVEAT =
   "This app won't pick this release again. Radarr and Sonarr can still grab it from their own interfaces."
 
 /** The chip that replaces the trigger once a release is reported. */
-export const REPORTED_LABEL = 'reported'
+export const REPORTED_LABEL = 'Reported'
 
 /** The trigger offered back when the report can be taken away again. */
 export const UNDO_REPORT_LABEL = 'Undo report'
 
-export const SUBMIT_REPORT_LABEL = 'Submit report'
+export const SUBMIT_REPORT_LABEL = 'Report problem'
 
 const CANCEL_LABEL = 'Cancel'
 
@@ -75,7 +79,7 @@ const CANCEL_LABEL = 'Cancel'
  * writes to: a mono clause rather than a paragraph, sitting directly under the
  * control that failed.
  */
-const ERROR_LINE = 'font-mono text-[11px] text-bad'
+const ERROR_LINE = 'text-cap text-bad'
 
 /** The storyboard's step-3 caption. A sentence, so `ink-3` and never `ink-4`. */
 const CAVEAT_LINE = 'text-cap text-ink-3'
@@ -142,11 +146,6 @@ export type BadFileFlagProps = Omit<
   label?: string
   /** The `mediaId()` key — `tmdb:438631`, `tvdb:121361`. */
   mediaId: string
-  /**
-   * Stack the dialog's buttons and stretch them, which is the mockups' mobile
-   * frame. A layout switch rather than a breakpoint, matching `StateLine`.
-   */
-  mobile?: boolean
   onFlag?: FlagBadFileAction
   /** Omitted renders no undo affordance at all. */
   onUnflag?: UnflagBadFileAction
@@ -203,7 +202,6 @@ export function BadFileFlag({
   full = false,
   label = REPORT_LABEL,
   mediaId,
-  mobile = false,
   onFlag,
   onUnflag,
   prompt = REPORT_PROMPT,
@@ -292,7 +290,9 @@ export function BadFileFlag({
         )}
         data-reported="true"
       >
-        <Chip className={cns('w-fit')} label={REPORTED_LABEL} tone="mute" />
+        <Badge className={cns('w-fit')} tone="mute">
+          {REPORTED_LABEL}
+        </Badge>
         <span className={cns('min-w-0 flex-1', CAVEAT_LINE)}>
           {REPORT_SCOPE_CAVEAT}
         </span>
@@ -326,72 +326,50 @@ export function BadFileFlag({
       >
         {label}
       </Button>
-      <Modal open={open} title={prompt} onClose={close}>
-        {/*
-          `ReasonGroup` carries no layout of its own and has to be named from
-          here — `Modal` owns its title's generated id and does not expose it,
-          so `aria-label` is the reachable half of that contract.
-        */}
-        <ReasonGroup
-          aria-label={typeof prompt === 'string' ? prompt : REPORT_PROMPT}
-          value={reason}
-          onValueChange={setReason}
-        >
-          {reasons.map(entry => (
-            <Reason key={entry} value={entry}>
-              {entry}
-            </Reason>
-          ))}
-        </ReasonGroup>
-        {/*
-          Said before submitting, not after. The storyboard's step-3 caption
-          claims more than the flag delivers; this is that sentence corrected,
-          and moved to where it can still change the user's mind.
-        */}
-        <p className={cns('mt-2.5', CAVEAT_LINE)}>{REPORT_SCOPE_CAVEAT}</p>
-        {error ? (
-          <p className={cns('mt-2', ERROR_LINE)} role="alert">
-            {error}
-          </p>
-        ) : null}
-        <div
-          className={cns(
-            'mt-4 flex gap-2',
-            mobile ? 'flex-col' : 'justify-end',
-          )}
-        >
-          {mobile ? (
-            <>
-              <Button
-                aria-disabled={pending || undefined}
-                full
-                size="sm"
-                variant="uv"
-                onClick={submit}
-              >
-                {SUBMIT_REPORT_LABEL}
-              </Button>
-              <Button full size="sm" variant="ghost" onClick={close}>
-                {CANCEL_LABEL}
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button size="sm" variant="ghost" onClick={close}>
-                {CANCEL_LABEL}
-              </Button>
-              <Button
-                aria-disabled={pending || undefined}
-                size="sm"
-                variant="uv"
-                onClick={submit}
-              >
-                {SUBMIT_REPORT_LABEL}
-              </Button>
-            </>
-          )}
-        </div>
-      </Modal>
+      <Dialog.Root
+        open={open}
+        onOpenChange={next => {
+          if (!next) {
+            close()
+          }
+        }}
+      >
+        <Dialog.Popup>
+          <Dialog.Title>{prompt}</Dialog.Title>
+          <ReasonGroup
+            aria-label={typeof prompt === 'string' ? prompt : REPORT_PROMPT}
+            value={reason}
+            onValueChange={setReason}
+          >
+            {reasons.map(entry => (
+              <Reason key={entry} label={entry} value={entry} />
+            ))}
+          </ReasonGroup>
+          {/*
+            Said before submitting, not after: this is the sentence that can
+            still change the user's mind.
+          */}
+          <p className={cns(CAVEAT_LINE)}>{REPORT_SCOPE_CAVEAT}</p>
+          {error ? (
+            <p className={cns(ERROR_LINE)} role="alert">
+              {error}
+            </p>
+          ) : null}
+          <Dialog.Actions>
+            <Button size="sm" variant="ghost" onClick={close}>
+              {CANCEL_LABEL}
+            </Button>
+            <Button
+              aria-disabled={pending || undefined}
+              size="sm"
+              variant="accent"
+              onClick={submit}
+            >
+              {SUBMIT_REPORT_LABEL}
+            </Button>
+          </Dialog.Actions>
+        </Dialog.Popup>
+      </Dialog.Root>
     </div>
   )
 }

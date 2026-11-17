@@ -1,13 +1,7 @@
-import { cns } from '@lilnas/utils/cns'
 import type { JSX } from 'react'
 
 import { NOT_FOUND_TITLE, NotFound } from 'src/components/shell/not-found'
-
-/** `mock.pug`'s `appBody` at both widths, as every other route spells it. */
-const PAGE_SHELL = cns(
-  'flex-auto px-6 pt-[18px] pb-[30px]',
-  'sm:px-8 sm:pt-[30px] sm:pb-11',
-)
+import { PageMain } from 'src/components/shell/page-main'
 
 /**
  * ⚠️ Applied **only** when no route matched at all — which, since
@@ -58,15 +52,13 @@ export const metadata = {
  */
 export default function RootNotFound(): JSX.Element {
   return (
-    <main className={PAGE_SHELL}>
-      <div className={cns('mx-auto max-w-[1080px]')}>
-        {/*
-          `NotFound` renders an `<h2>`, so the route still owes the document its
-          own heading — the same call `/profile` makes for `NotAuthorized`.
-        */}
-        <h1 className="sr-only">{NOT_FOUND_TITLE}</h1>
-        <NotFound />
-      </div>
-    </main>
+    <PageMain narrow>
+      {/*
+        `NotFound` renders an `<h3>`, so the route still owes the document its
+        own heading — the same call `/profile` makes for `NotAuthorized`.
+      */}
+      <h1 className="sr-only">{NOT_FOUND_TITLE}</h1>
+      <NotFound />
+    </PageMain>
   )
 }

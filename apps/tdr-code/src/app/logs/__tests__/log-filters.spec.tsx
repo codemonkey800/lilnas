@@ -59,9 +59,14 @@ function renderFilters(
 }
 
 describe('LogFilters', () => {
+  // The selects are Base UI comboboxes (`Select.Trigger`): the trigger keeps
+  // its data-track-id, and the options only exist in the DOM while open.
   function levelSelect() {
     const el = document.querySelector('[data-track-id="log-filters-level"]')
-    if (!(el instanceof HTMLSelectElement)) {
+    if (
+      !(el instanceof HTMLElement) ||
+      el.getAttribute('role') !== 'combobox'
+    ) {
       throw new Error('level select not found')
     }
     return el
@@ -84,7 +89,8 @@ describe('LogFilters', () => {
       const user = userEvent.setup()
       const { onFiltersChange } = renderFilters()
 
-      await user.selectOptions(levelSelect(), '40')
+      await user.click(levelSelect())
+      await user.click(await screen.findByRole('option', { name: 'Warn+' }))
 
       expect(onFiltersChange).toHaveBeenCalledWith({ level: 40 })
     })
@@ -93,32 +99,53 @@ describe('LogFilters', () => {
       const user = userEvent.setup()
       const { onFiltersChange } = renderFilters({ filters: { level: 40 } })
 
-      await user.selectOptions(levelSelect(), '')
+      await user.click(levelSelect())
+      await user.click(await screen.findByRole('option', { name: 'Any level' }))
 
       expect(onFiltersChange).toHaveBeenCalledWith({ level: undefined })
     })
 
-    it('renders every level option using the SAME TRACE/DEBUG/INFO/WARN/ERROR/FATAL vocabulary as log-row.tsx', () => {
+    it('shows the chosen level on the trigger', () => {
+      renderFilters({ filters: { level: 50 } })
+      expect(levelSelect()).toHaveTextContent('Error+')
+    })
+
+    it('renders every level option using the SAME TRACE/DEBUG/INFO/WARN/ERROR/FATAL vocabulary as log-row.tsx', async () => {
+      const user = userEvent.setup()
       renderFilters()
-      expect(screen.getByText('Trace+')).toBeInTheDocument()
-      expect(screen.getByText('Debug+')).toBeInTheDocument()
-      expect(screen.getByText('Info+')).toBeInTheDocument()
-      expect(screen.getByText('Warn+')).toBeInTheDocument()
-      expect(screen.getByText('Error+')).toBeInTheDocument()
-      expect(screen.getByText('Fatal')).toBeInTheDocument()
+
+      await user.click(levelSelect())
+      for (const name of [
+        'Trace+',
+        'Debug+',
+        'Info+',
+        'Warn+',
+        'Error+',
+        'Fatal',
+      ]) {
+        expect(await screen.findByRole('option', { name })).toBeInTheDocument()
+      }
     })
   })
 
   describe('process selection', () => {
+    function processTrigger() {
+      const select = processSelect()
+      if (
+        !(select instanceof HTMLElement) ||
+        select.getAttribute('role') !== 'combobox'
+      ) {
+        throw new Error('process select not found')
+      }
+      return select
+    }
+
     it('selecting "bot" calls onFiltersChange with { process: "bot" }', async () => {
       const user = userEvent.setup()
       const { onFiltersChange } = renderFilters({ stream: 'backend' })
 
-      const select = processSelect()
-      if (!(select instanceof HTMLSelectElement)) {
-        throw new Error('process select not found')
-      }
-      await user.selectOptions(select, 'bot')
+      await user.click(processTrigger())
+      await user.click(await screen.findByRole('option', { name: 'bot' }))
 
       expect(onFiltersChange).toHaveBeenCalledWith({ process: 'bot' })
     })
@@ -130,11 +157,10 @@ describe('LogFilters', () => {
         filters: { process: 'bot' },
       })
 
-      const select = processSelect()
-      if (!(select instanceof HTMLSelectElement)) {
-        throw new Error('process select not found')
-      }
-      await user.selectOptions(select, 'both')
+      await user.click(processTrigger())
+      await user.click(
+        await screen.findByRole('option', { name: 'Any process' }),
+      )
 
       expect(onFiltersChange).toHaveBeenCalledWith({ process: 'both' })
     })

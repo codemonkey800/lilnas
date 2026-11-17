@@ -1,20 +1,18 @@
 'use client'
 
-import { cns } from '@lilnas/utils/cns'
+import { Icon, Note } from '@lilnas/ui'
 import type { DownloadJob } from '@lilnas/utils/download/types'
 import type { JSX } from 'react'
 import { useState, useTransition } from 'react'
 
 import { loadProfileHistory } from 'src/app/actions/load-profile-history'
+import { ProfileHistoryDataList } from 'src/components/profile/profile-history-data-list'
 import { ProfileHistoryEmpty } from 'src/components/profile/profile-history-empty'
-import { ProfileHistoryTable } from 'src/components/profile/profile-history-table'
-import { Note } from 'src/components/ui/card'
 import { LoadMore } from 'src/components/ui/load-more'
 
-/** The loud `Note` from `ui.pug`'s call sites — `Note` itself has no tone. */
-const HISTORY_ERROR_NOTE = 'mt-6 border-bad/35! bg-bad-ghost! [&>svg]:text-bad!'
-
 export type ProfileHistoryProps = {
+  /** Where the empty state's "Clear filters" goes. */
+  clearHref?: string
   /**
    * Whether a type or status chip is applied, which decides which empty state
    * an empty result gets. Passed rather than re-derived from the query string
@@ -58,6 +56,7 @@ export type ProfileHistoryProps = {
  * button then has to walk back through.
  */
 export function ProfileHistory({
+  clearHref,
   filtered,
   initialJobs,
   initialNextCursor,
@@ -96,16 +95,25 @@ export function ProfileHistory({
   }
 
   if (jobs.length === 0) {
-    return <ProfileHistoryEmpty filtered={filtered} you={you} />
+    return (
+      <ProfileHistoryEmpty
+        clearHref={clearHref}
+        filtered={filtered}
+        you={you}
+      />
+    )
   }
 
   return (
     <>
-      <ProfileHistoryTable jobs={jobs} now={now} />
+      <ProfileHistoryDataList jobs={jobs} now={now} />
       {error ? (
-        <Note className={cns(HISTORY_ERROR_NOTE)} icon="alert" role="alert">
-          {error}
-        </Note>
+        <Note
+          className="mt-6"
+          icon={<Icon name="alert" />}
+          lead={error}
+          tone="bad"
+        />
       ) : null}
       <LoadMore
         className="mt-6"

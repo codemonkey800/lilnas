@@ -315,15 +315,15 @@ describe('the quality tier — one picker, in the header', () => {
   })
 
   function tierTriggers(): HTMLElement[] {
-    return screen.getAllByRole('button', { name: /^Quality:/ })
+    return screen.getAllByRole('combobox', { name: /^Quality:/ })
   }
 
   async function pickTier(
     user: ReturnType<typeof userEvent.setup>,
     label: string,
   ): Promise<void> {
-    await user.click(screen.getByRole('button', { name: /^Quality:/ }))
-    await user.click(screen.getByRole('option', { name: label }))
+    await user.click(screen.getByRole('combobox', { name: /^Quality:/ }))
+    await user.click(await screen.findByRole('option', { name: label }))
   }
 
   it('⚠️ draws exactly one picker, however many Downloads the page offers', () => {
@@ -412,13 +412,13 @@ describe('the quality tier — one picker, in the header', () => {
 })
 
 describe('the series status reads the media, never a job', () => {
-  it('reads "in library" with the episode count beside it for a settled series', () => {
+  it('reads "In library" with the episode count beside it for a settled series', () => {
     const { container } = renderDetail()
     const status = seriesStatus(container)
 
     // `show-detail.pug`'s `episodeInfo`: 14 of 24 across two seasons, specials
     // excluded — the prose that used to be a second chip.
-    expect(within(status).getByText('in library')).toBeInTheDocument()
+    expect(within(status).getByText('In library')).toBeInTheDocument()
     expect(within(status).getByText('14 of 24 episodes')).toBeInTheDocument()
     expect(status).toHaveAttribute('data-state', 'available')
   })
@@ -432,7 +432,7 @@ describe('the series status reads the media, never a job', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('⚠️ reads "in library" over a failed newest attempt — the Cars bug', () => {
+  it('⚠️ reads "In library" over a failed newest attempt — the Cars bug', () => {
     const { container } = renderDetail({
       jobs: [
         scopedJob(undefined, {
@@ -444,15 +444,15 @@ describe('the series status reads the media, never a job', () => {
 
     // The failure is an attempt, listed under the chip — not the chip.
     expect(
-      within(seriesStatus(container)).getByText('in library'),
+      within(seriesStatus(container)).getByText('In library'),
     ).toBeInTheDocument()
-    expect(within(seriesAttempts()).getByText('failed')).toBeInTheDocument()
+    expect(within(seriesAttempts()).getByText('Failed')).toBeInTheDocument()
     expect(
       within(seriesAttempts()).getByText('Indexer timed out after 3 retries'),
     ).toBeInTheDocument()
   })
 
-  it('reads "needs your decision" when one episode needs one, with the server’s reason', () => {
+  it('reads "Needs your decision" when one episode needs one, with the server’s reason', () => {
     const reason = 'No files found are eligible for import'
     const { container } = renderDetail({
       media: show({ state: 'needs_attention', stateReason: reason }),
@@ -461,15 +461,15 @@ describe('the series status reads the media, never a job', () => {
     const status = seriesStatus(container)
 
     // One episode waiting on a human outranks thirteen on disk.
-    expect(within(status).getByText('needs your decision')).toBeInTheDocument()
+    expect(within(status).getByText('Needs your decision')).toBeInTheDocument()
     expect(within(status).getByText(reason)).toBeInTheDocument()
   })
 
-  it('says "not downloaded" and nothing more when the library has nothing', () => {
+  it('says "Not downloaded" and nothing more when the library has nothing', () => {
     const { container } = renderDetail({ seasons: [] })
     const status = seriesStatus(container)
 
-    expect(within(status).getByText('not downloaded')).toBeInTheDocument()
+    expect(within(status).getByText('Not downloaded')).toBeInTheDocument()
     // `0 of 0 episodes` would be worse than nothing.
     expect(within(status).queryByText(/episodes?$/)).not.toBeInTheDocument()
     expect(
@@ -520,7 +520,7 @@ describe('⚠️ Sonarr running a download with no attempt behind it', () => {
 
     // Twice: the chip, and the queue's own status over the bar.
     expect(status).toHaveAttribute('data-state', 'downloading')
-    expect(within(status).getAllByText('downloading')).toHaveLength(2)
+    expect(within(status).getAllByText(/^downloading$/i)).toHaveLength(2)
     expect(
       within(status).getByRole('progressbar', { name: 'Download progress' }),
     ).toHaveAttribute('aria-valuenow', '35')
@@ -666,7 +666,7 @@ describe('the series Attempts', () => {
 
     // A search has not queued anything, so the chip still reads the disk.
     expect(
-      within(seriesStatus(container)).getByText('in library'),
+      within(seriesStatus(container)).getByText('In library'),
     ).toBeInTheDocument()
   })
 
@@ -751,7 +751,7 @@ describe('the series Attempts', () => {
     })
 
     expect(
-      screen.getByText('requested by jeremy.asuncion · 12m ago'),
+      screen.getByText('Added by jeremy.asuncion · 12m ago'),
     ).toBeInTheDocument()
   })
 
@@ -759,7 +759,7 @@ describe('the series Attempts', () => {
     renderDetail({ jobs: [scopedJob(undefined, { requester: null })] })
 
     // `projectJobForViewer` already applied the mask server-side.
-    expect(screen.getByText(/^requested by hidden · /)).toBeInTheDocument()
+    expect(screen.getByText(/^Added by hidden · /)).toBeInTheDocument()
   })
 })
 

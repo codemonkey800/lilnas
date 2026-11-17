@@ -1,38 +1,24 @@
-import Link from 'next/link'
+import { Doorplate } from '@lilnas/ui'
 
-// Ported from the design mockups' `.brandmark` markup (badge + wordmark),
-// used at the top of every page. `label` renders a small trailing word next
-// to the wordmark (e.g. "admin" on the merged admin dashboard); `href` makes
-// the whole mark a link (e.g. back to `/` from the admin topbar) — plain
-// text otherwise.
+// The signature at the top of every page: the pepe badge plus `auth.lilnas.io`
+// (`Doorplate`). `href` makes it link somewhere other than the portal (e.g.
+// back to `/` from the admin topbar). `label` is a small trailing word next
+// to it (e.g. "admin" on the admin dashboard) — the Doorplate itself has no
+// slot for one, so it sits beside it.
 export type BrandmarkProps = {
   label?: string
   href?: string
 }
 
 export function Brandmark({ label, href }: BrandmarkProps) {
-  const content = (
-    <>
-      <span className="brandmark__badge">
-        {/* Plain <img>, not next/image — a local public/ asset with no
-            remote-optimization benefit, matching home-client.tsx's own
-            precedent for the same reason. */}
-        <img src="/sad-pepe.svg" alt="" />
-      </span>
-      <span className="brandmark__word">
-        lilnas<span>.io</span>
-        {label ? <span className="ml-1">{label}</span> : null}
-      </span>
-    </>
+  const doorplate = <Doorplate app="auth" href={href ?? null} />
+
+  if (!label) return doorplate
+
+  return (
+    <span className="inline-flex items-center gap-2">
+      {doorplate}
+      <span className="text-sm text-ink-3">{label}</span>
+    </span>
   )
-
-  if (href) {
-    return (
-      <Link href={href} className="brandmark">
-        {content}
-      </Link>
-    )
-  }
-
-  return <div className="brandmark">{content}</div>
 }

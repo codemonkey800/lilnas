@@ -188,10 +188,9 @@ describe('DiscordLinksPanel — empty states', () => {
   it('tells the admin that an empty accounts list is the expected day-one state, not a failure', () => {
     renderPanel({ people: [ALICE], accounts: [] })
 
+    expect(screen.getByText('No Discord accounts yet')).toBeInTheDocument()
     expect(
-      screen.getByText(
-        /Discord accounts show up here the first time someone runs\s+\/download/,
-      ),
+      screen.getByText('/download', { selector: 'code' }),
     ).toBeInTheDocument()
     // Nothing about this reads as an error — the only role="alert" in this
     // panel is the mutation-failure line, and no mutation has run.
@@ -201,9 +200,7 @@ describe('DiscordLinksPanel — empty states', () => {
   it('reports an empty people list as everyone already being linked', () => {
     renderPanel({ people: [], accounts: [ALICE_H] })
 
-    expect(
-      screen.getByText('Everyone who has signed in is already linked.'),
-    ).toBeInTheDocument()
+    expect(screen.getByText('Everyone is linked')).toBeInTheDocument()
   })
 })
 
@@ -246,38 +243,62 @@ describe('DiscordLinksPanel — filters', () => {
   })
 })
 
+// The links DataList renders a table row AND a card per link (CSS picks one),
+// so anchor on the table row.
+function linkRow(email: string): HTMLElement {
+  return screen.getAllByText(email)[0]!.closest('tr')!
+}
+
 describe('DiscordLinksPanel — existing links', () => {
-  it('confirms before unlinking, then calls the action with the person id', async () => {
-    mockUnlinkDiscordAccount.mockResolvedValue(undefined)
-    const confirmSpy = jest
-      .spyOn(window, 'confirm')
-      .mockImplementation(() => true)
+  it('renders one table row and one card per link', () => {
     renderPanel({ people: [], accounts: [] }, [EXISTING_LINK])
 
-    const row = screen.getByText('carol@example.com').closest('tr')!
-    fireEvent.click(within(row).getByRole('button', { name: /^Unlink$/ }))
+    expect(screen.getAllByText('carol@example.com')).toHaveLength(2)
+    expect(
+      screen
+        .getAllByText('carol@example.com')
+        .map(el => el.closest('tr, li')!.tagName),
+    ).toEqual(['TR', 'LI'])
+  })
 
-    expect(confirmSpy).toHaveBeenCalledTimes(1)
-    expect(confirmSpy.mock.calls[0]![0]).toContain('carol@example.com')
-    expect(confirmSpy.mock.calls[0]![0]).toContain('@carol_c')
+  it('confirms before unlinking, then calls the action with the person id', async () => {
+    mockUnlinkDiscordAccount.mockResolvedValue(undefined)
+    renderPanel({ people: [], accounts: [] }, [EXISTING_LINK])
+
+    fireEvent.click(
+      within(linkRow('carol@example.com')).getByRole('button', {
+        name: /^Unlink$/,
+      }),
+    )
+
+    // Nothing happens until the dialog is confirmed, and it names the pair.
+    expect(mockUnlinkDiscordAccount).not.toHaveBeenCalled()
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Unlink carol@example.com from @carol_c?',
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Unlink' }))
+
     await waitFor(() => {
       expect(mockUnlinkDiscordAccount).toHaveBeenCalledWith('user_carol')
     })
     expect(mockShowToast).toHaveBeenCalledWith('Unlinked @carol_c')
-    confirmSpy.mockRestore()
   })
 
-  it('does nothing when the unlink confirmation is declined', () => {
-    const confirmSpy = jest
-      .spyOn(window, 'confirm')
-      .mockImplementation(() => false)
+  it('does nothing when the unlink confirmation is declined', async () => {
     renderPanel({ people: [], accounts: [] }, [EXISTING_LINK])
 
-    const row = screen.getByText('carol@example.com').closest('tr')!
-    fireEvent.click(within(row).getByRole('button', { name: /^Unlink$/ }))
+    fireEvent.click(
+      within(linkRow('carol@example.com')).getByRole('button', {
+        name: /^Unlink$/,
+      }),
+    )
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Keep link' }))
 
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
     expect(mockUnlinkDiscordAccount).not.toHaveBeenCalled()
-    confirmSpy.mockRestore()
   })
 
   // A 404 here means the view is stale (someone else unlinked them first),
@@ -290,25 +311,28 @@ describe('DiscordLinksPanel — existing links', () => {
         'lilnas-auth: /admin/discord/unlink returned 404: user user_carol has no Discord link',
       ),
     )
-    const confirmSpy = jest
-      .spyOn(window, 'confirm')
-      .mockImplementation(() => true)
     renderPanel({ people: [], accounts: [] }, [EXISTING_LINK])
 
-    const row = screen.getByText('carol@example.com').closest('tr')!
-    fireEvent.click(within(row).getByRole('button', { name: /^Unlink$/ }))
+    fireEvent.click(
+      within(linkRow('carol@example.com')).getByRole('button', {
+        name: /^Unlink$/,
+      }),
+    )
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Unlink' }))
 
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('user user_carol has no Discord link')
     expect(mockShowToast).not.toHaveBeenCalled()
-    confirmSpy.mockRestore()
   })
 
-  it('renders the linked handle as a chip next to the person', () => {
+  it('renders the linked handle as a badge next to the person', () => {
     renderPanel({ people: [], accounts: [] }, [EXISTING_LINK])
 
-    const chip = screen.getByText('@carol_c')
-    expect(chip).toHaveClass('chip', 'chip-neutral')
-    expect(screen.getByText('Carol Example')).toBeInTheDocument()
+    // A badge is a plain span, never a control.
+    const badge = screen.getAllByText('@carol_c')[0]!
+    expect(badge.tagName).toBe('SPAN')
+    expect(badge.closest('button, a')).toBeNull()
+    expect(screen.getAllByText('Carol Example').length).toBeGreaterThan(0)
   })
 })

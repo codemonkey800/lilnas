@@ -1,3 +1,4 @@
+import { Badge } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { Video, VideoFile } from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX } from 'react'
@@ -12,7 +13,6 @@ import {
   httpHref,
   joinFacts,
 } from 'src/components/detail/fact-section'
-import { Chip } from 'src/components/ui/chip'
 import { formatBytes, UNKNOWN_VALUE } from 'src/lib/format'
 
 export const VIDEO_DETAILS_HEADING = 'Details'
@@ -67,7 +67,7 @@ export function videoInfoFacts(video: Video): Fact[] {
       'Channel',
       video.channel && channelHref ? (
         <a
-          className={cns('text-uv-hi hover:underline')}
+          className={cns('text-accent-hi hover:underline')}
           href={channelHref}
           rel="noreferrer"
           target="_blank"
@@ -84,7 +84,7 @@ export function videoInfoFacts(video: Video): Fact[] {
       stats.length > 0 ? (
         <>
           <FactRun parts={stats} />
-          <span className={cns('text-ink-4')}>{` (${VIDEO_STATS_NOTE})`}</span>
+          <span className={cns('text-ink-3')}>{` (${VIDEO_STATS_NOTE})`}</span>
         </>
       ) : null,
     ),
@@ -100,7 +100,9 @@ export function videoInfoFacts(video: Video): Fact[] {
       tags.length > 0 ? (
         <span className={cns('flex flex-wrap gap-1.5')}>
           {tags.map(tag => (
-            <Chip key={tag} label={tag} tone="mute" />
+            <Badge key={tag} tone="mute">
+              {tag}
+            </Badge>
           ))}
         </span>
       ) : null,
@@ -126,6 +128,21 @@ export function videoFileFacts(video: Video): Fact[] {
   ])
 }
 
+/**
+ * The link the clip came from, as someone would copy it: no scheme, no `www.`.
+ * An identifier, so the fact is set mono. Falls back to the raw string for
+ * something `URL` will not parse.
+ */
+export function sourceLabel(sourceUrl: string): string {
+  try {
+    const url = new URL(sourceUrl)
+
+    return `${url.hostname.replace(/^www\./, '')}${url.pathname === '/' ? '' : url.pathname}${url.search}`
+  } catch {
+    return sourceUrl
+  }
+}
+
 export type VideoFactsProps = Omit<
   ComponentPropsWithoutRef<'div'>,
   'children'
@@ -149,8 +166,14 @@ export function VideoFacts({
     <FactCards
       {...props}
       sections={[
-        { facts: videoFileFacts(media), heading: VIDEO_FILE_HEADING },
         { facts: videoInfoFacts(media), heading: VIDEO_DETAILS_HEADING },
+        {
+          facts: facts([
+            ...videoFileFacts(media),
+            fact('Source', sourceLabel(media.sourceUrl), true),
+          ]),
+          heading: VIDEO_FILE_HEADING,
+        },
       ]}
     />
   )

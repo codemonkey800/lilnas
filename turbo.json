@@ -25,11 +25,14 @@
     },
     "//#mockups": {
       "dependsOn": ["@lilnas/cli#build"],
-      "inputs": ["docs/features/*/designs/src/**"],
+      "inputs": [
+        "docs/features/*/designs/src/**",
+        "docs/designs/mockup-kit/**"
+      ],
       "outputs": ["docs/features/*/designs/*.html"]
     },
     "//#mockups:lint": {
-      "inputs": ["docs/features/*/designs/src/**"]
+      "inputs": ["docs/features/*/designs/src/**", "docs/designs/mockup-kit/**"]
     }
   }
 }

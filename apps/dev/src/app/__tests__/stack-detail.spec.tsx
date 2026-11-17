@@ -158,7 +158,7 @@ describe('stack detail page', () => {
     await renderPage()
 
     const title = screen.getByRole('heading', { level: 1 }).parentElement!
-    expect(within(title).getByText('unhealthy')).toBeInTheDocument()
+    expect(within(title).getByText('Unhealthy')).toBeInTheDocument()
     expect(
       screen.getByText('~/dev/fitness-pwa/docker-compose.yml'),
     ).toBeInTheDocument()
@@ -194,21 +194,56 @@ describe('stack detail page', () => {
 
     const api = within(table.getByText('fitness-pwa-api-1').closest('tr')!)
     expect(api.getByText('node:24-alpine')).toBeInTheDocument()
-    expect(api.getByText('running')).toBeInTheDocument()
+    expect(api.getByText('Unhealthy')).toBeInTheDocument()
     expect(api.getByText('unhealthy')).toBeInTheDocument()
     expect(api.getByText('2h 41m ago')).toBeInTheDocument()
     expect(api.getByText('31.4%')).toBeInTheDocument()
     expect(api.getByText('468 MB')).toBeInTheDocument()
     expect(api.getByText('127.0.0.1:8091:8081')).toBeInTheDocument()
 
+    const web = within(table.getByText('fitness-pwa-web-1').closest('tr')!)
+    expect(web.getByText('Running')).toBeInTheDocument()
+    expect(web.getByText('healthy')).toBeInTheDocument()
+
     const migrate = within(
       table.getByText('fitness-pwa-migrate-1').closest('tr')!,
     )
-    expect(migrate.getByText('exited')).toBeInTheDocument()
+    expect(migrate.getByText('Exited')).toBeInTheDocument()
     expect(migrate.getByText('0')).toBeInTheDocument()
 
     const crash = within(table.getByText('fitness-pwa-crash-1').closest('tr')!)
     expect(crash.getByText('137')).toHaveClass('text-bad')
+  })
+
+  it('renders every service in both layouts from one DataList', async () => {
+    await renderPage()
+    const names = [
+      'fitness-pwa-web-1',
+      'fitness-pwa-api-1',
+      'fitness-pwa-migrate-1',
+      'fitness-pwa-crash-1',
+    ]
+    const services = panel('Services')
+
+    // The table is the md-and-up layout…
+    const table = within(services.getByRole('table'))
+    expect(table.getAllByRole('row')).toHaveLength(names.length + 1)
+
+    // …and the card list is the phone layout. Both are in the DOM and CSS
+    // picks one, so the list carries the same rows and the same values.
+    const list = within(services.getByRole('list', { name: 'Services' }))
+    const cards = list.getAllByRole('listitem')
+    expect(cards).toHaveLength(names.length)
+    names.forEach((name, i) => {
+      expect(table.getByText(name)).toBeInTheDocument()
+      expect(within(cards[i]!).getByText(name)).toBeInTheDocument()
+    })
+    const api = within(cards[1]!)
+    expect(api.getByText('Unhealthy')).toBeInTheDocument()
+    expect(api.getByText('31.4%')).toBeInTheDocument()
+    expect(api.getByText('468 MB')).toBeInTheDocument()
+    expect(api.getByText('127.0.0.1:8091:8081')).toBeInTheDocument()
+    expect(within(cards[3]!).getByText('137')).toHaveClass('text-bad')
   })
 
   it('renders the env files with present and missing marks', async () => {
@@ -217,13 +252,13 @@ describe('stack detail page', () => {
 
     const required = env.getByText('~/dev/fitness-pwa/.env').closest('li')!
     expect(within(required).getByText('required')).toBeInTheDocument()
-    expect(within(required).getByText('present')).toBeInTheDocument()
+    expect(within(required).getByText('Present')).toBeInTheDocument()
 
     const optional = env
       .getByText('~/dev/fitness-pwa/.env.local')
       .closest('li')!
     expect(within(optional).getByText('optional')).toBeInTheDocument()
-    expect(within(optional).getByText('missing')).toBeInTheDocument()
+    expect(within(optional).getByText('Missing')).toBeInTheDocument()
     expect(env.getByText('pnpm lilnas secrets decrypt')).toBeInTheDocument()
   })
 
@@ -248,9 +283,9 @@ describe('stack detail page', () => {
     expect(
       reaper.getByText(/Latest visit across the stack’s 2 routes/),
     ).toBeInTheDocument()
-    expect(
-      reaper.getByRole('img', { name: 'Idle for 12m of 2h' }),
-    ).toBeInTheDocument()
+    const meter = reaper.getByRole('meter', { name: 'Idle' })
+    expect(Number(meter.getAttribute('aria-valuenow'))).toBeCloseTo(10, 0)
+    expect(reaper.getByText('12m of 2h')).toBeInTheDocument()
   })
 
   it('shows when the reaper will come once nobody is active', async () => {
@@ -284,7 +319,7 @@ describe('stack detail page', () => {
     render(<StackDetailPage />)
     await screen.findByRole('heading', { level: 1, name: 'hop-road' })
 
-    expect(panel('Idle reaper').getByText('off')).toBeInTheDocument()
+    expect(panel('Idle reaper').getByText('Off')).toBeInTheDocument()
     expect(
       panel('Idle reaper').getByText(/lilnas\.idle-reap\.enabled=false/),
     ).toBeInTheDocument()
@@ -294,11 +329,10 @@ describe('stack detail page', () => {
     await renderPage()
     const logs = panel('Container logs')
 
-    const select = logs.getByRole('combobox', { name: 'Container' })
+    const user = userEvent.setup()
+    await user.click(logs.getByRole('combobox', { name: 'Container' }))
     expect(
-      within(select)
-        .getAllByRole('option')
-        .map(o => o.textContent),
+      (await screen.findAllByRole('option')).map(o => o.textContent),
     ).toEqual([
       // Running containers first, then the ones that exited.
       'fitness-pwa-web-1',
@@ -370,9 +404,7 @@ describe('stack detail page', () => {
         operation: operation({ id: 'op-9', status: 'succeeded', exitCode: 0 }),
       })
     })
-    expect(
-      panel('Operation log').getByText('exit 0', { selector: 'span' }),
-    ).toBeInTheDocument()
+    expect(panel('Operation log').getByText('Exit 0')).toBeInTheDocument()
   })
 
   describe('not found', () => {

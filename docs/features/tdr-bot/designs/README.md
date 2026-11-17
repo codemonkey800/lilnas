@@ -16,19 +16,19 @@ The builder is `lilnas mockups build`, from `@lilnas/cli`.
 
 ## Layout
 
-Only `src/pages/` is required; everything else is picked up if present.
+Drawn on Category Standard with the shared kit in
+[`docs/designs/mockup-kit`](../../../designs/mockup-kit/README.md); read that
+for the mixins. Only the tdr-bot-only pieces live here.
 
 ```
 src/
-  theme.css        design tokens as a Tailwind @theme, plus any @utility rules
-  runtime.js       optional — inlined into every page as a <script>
-  layout/
-    page.pug       the shell pages extend
-  mixins/*.pug     optional — shared components
-  pages/*.pug      one per screen; layout only
-  data/*.mjs       optional — copy and sample data, keyed by page name
+  theme.css        three lines: Tailwind, then the kit's theme
+  mixins/
+    tdr-bot.pug    chat bubble, emoji card, reminder row, LLM-call row, cost strip, eval table
+  pages/*.pug      one per screen, extending the kit's page.pug; layout only
+  data/*.mjs       copy and sample data, keyed by page name (shared.mjs is not a page)
 ```
 
-`data/<page>.mjs` default-exports an object that becomes that page's template
+`data/<page>.mjs` exports named values that become that page's template
 locals. It's `.mjs` rather than `.js` because there's no `package.json` here
 to tell Node these are ES modules.

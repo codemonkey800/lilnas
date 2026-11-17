@@ -134,12 +134,12 @@ export function formatMeta(
 
 export type ScoreTone = 'ok' | 'bad' | 'warn' | 'muted'
 
-/** MUI Chip colour per score tone. */
-export const TONE_COLOR = {
-  ok: 'success',
-  bad: 'error',
-  warn: 'warning',
-  muted: 'default',
+/** `Badge` tone per score tone. */
+export const TONE_BADGE = {
+  ok: 'ok',
+  bad: 'bad',
+  warn: 'warn',
+  muted: 'mute',
 } as const satisfies Record<ScoreTone, string>
 
 export interface ScoreChip {

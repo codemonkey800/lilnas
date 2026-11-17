@@ -1,7 +1,6 @@
+import type { IconName, NoteTone, StatusDotTone } from '@lilnas/ui'
+
 import type { ReapEstimate } from 'src/activity/host-activity.service'
-import type { CalloutTone } from 'src/components/ui/callout'
-import type { IconName } from 'src/components/ui/icon'
-import type { DotTone } from 'src/components/ui/status'
 import type { StackAction } from 'src/compose/compose.types'
 import { formatAgo, formatDuration } from 'src/lib/format'
 import type { ServiceView, StackView } from 'src/stacks/stacks.types'
@@ -106,7 +105,7 @@ export const ACTION_ORDER: readonly StackAction[] = [
 ]
 
 /** Dot tone for one container: state first, then its healthcheck. */
-export function serviceTone(svc: ServiceView): DotTone | undefined {
+export function serviceTone(svc: ServiceView): StatusDotTone | undefined {
   const c = svc.container
   if (!c) return undefined
   switch (c.state) {
@@ -204,7 +203,7 @@ export function shortPath(path: string): string {
 }
 
 export interface StackNote {
-  tone: CalloutTone
+  tone: NoteTone
   icon: IconName
   text: string
   detail?: string
@@ -237,7 +236,7 @@ export function stackNote(stack: StackView, now: number): StackNote | null {
     }
     case 'absent':
       return {
-        tone: 'mute',
+        tone: 'accent',
         icon: 'clock',
         text: 'No containers.',
         detail: 'Up brings it back; its volumes are kept.',

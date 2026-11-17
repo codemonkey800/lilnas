@@ -273,10 +273,10 @@ export function posterVariant(seed: string): PosterVariant {
 }
 
 /**
- * The design system's status tones: `uv` is the accent (work in flight),
+ * The design system's status tones: `accent` is the accent (work in flight),
  * `mute` is the recessive grey.
  */
-export type StatusTone = 'bad' | 'mute' | 'ok' | 'uv' | 'warn'
+export type StatusTone = 'bad' | 'mute' | 'ok' | 'accent' | 'warn'
 
 /**
  * Every {@link DownloadJobStatus} to the tone it renders in. A
@@ -285,14 +285,14 @@ export type StatusTone = 'bad' | 'mute' | 'ok' | 'uv' | 'warn'
  * quietly defaulting to grey.
  *
  * The grouping: `mute` for a job that is inert (queued and not yet started,
- * or cancelled), `uv` for one the machine is actively working, `warn` for
+ * or cancelled), `accent` for one the machine is actively working, `warn` for
  * one a person has to act on, `ok` for done, `bad` for broken.
  *
  * `warn` covers both halves of "a person has to act": an intervention a user
  * already made (`pausing`/`paused`/`cancelling`) and a decision upstream is
  * waiting on (`needs_attention`, where Radarr/Sonarr grabbed the file but
  * will not import it until somebody picks it by hand). Both are *stopped*
- * rather than busy, which is precisely why the second one cannot be `uv` -
+ * rather than busy, which is precisely why the second one cannot be `accent` -
  * an accent and a breathing dot would read as "the machine is working on it"
  * for a job that will sit there forever.
  *
@@ -303,20 +303,20 @@ export type StatusTone = 'bad' | 'mute' | 'ok' | 'uv' | 'warn'
 const STATUS_TONES: Record<DownloadJobStatus, StatusTone> = {
   [DownloadJobStatus.Cancelled]: 'mute',
   [DownloadJobStatus.Cancelling]: 'warn',
-  [DownloadJobStatus.Cleaning]: 'uv',
+  [DownloadJobStatus.Cleaning]: 'accent',
   [DownloadJobStatus.Completed]: 'ok',
-  [DownloadJobStatus.Converting]: 'uv',
-  [DownloadJobStatus.Downloading]: 'uv',
+  [DownloadJobStatus.Converting]: 'accent',
+  [DownloadJobStatus.Downloading]: 'accent',
   [DownloadJobStatus.Failed]: 'bad',
-  [DownloadJobStatus.Importing]: 'uv',
+  [DownloadJobStatus.Importing]: 'accent',
   [DownloadJobStatus.NeedsAttention]: 'warn',
   [DownloadJobStatus.NotFound]: 'warn',
   [DownloadJobStatus.Paused]: 'warn',
   [DownloadJobStatus.Pausing]: 'warn',
   [DownloadJobStatus.Pending]: 'mute',
   [DownloadJobStatus.Requested]: 'mute',
-  [DownloadJobStatus.Searching]: 'uv',
-  [DownloadJobStatus.Uploading]: 'uv',
+  [DownloadJobStatus.Searching]: 'accent',
+  [DownloadJobStatus.Uploading]: 'accent',
 }
 
 /** The design-system tone a job status renders in. See {@link STATUS_TONES}. */
@@ -330,7 +330,7 @@ export function statusTone(status: DownloadJobStatus): StatusTone {
  * {@link STATUS_TONES}) so a test can walk it; a `Record` for the same reason
  * as that table, so a new state fails type-check here.
  *
- * The same grouping as a job's status: `uv` for the two states the machine is
+ * The same grouping as a job's status: `accent` for the two states the machine is
  * working (`downloading`, `importing`), `warn` for the two that are stopped
  * until somebody acts (`needs_attention`, `paused`), `ok` for a file on disk
  * and `mute` for nothing to show (`absent`, `wanted`). There is no `bad` - a
@@ -340,8 +340,8 @@ export function statusTone(status: DownloadJobStatus): StatusTone {
 export const MEDIA_STATE_TONES: Record<MediaState, StatusTone> = {
   absent: 'mute',
   available: 'ok',
-  downloading: 'uv',
-  importing: 'uv',
+  downloading: 'accent',
+  importing: 'accent',
   needs_attention: 'warn',
   paused: 'warn',
   wanted: 'mute',

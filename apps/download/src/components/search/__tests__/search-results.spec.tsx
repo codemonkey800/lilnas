@@ -68,15 +68,17 @@ function renderResults(
 }
 
 describe('SearchResults', () => {
-  it('renders the grid by default and the table on request', () => {
-    const { unmount } = renderResults(page([movie(1)], null, 1))
+  it('renders the grid by default and the list on request', () => {
+    const { container, unmount } = renderResults(page([movie(1)], null, 1))
 
-    expect(screen.queryByRole('table')).toBeNull()
+    expect(container.querySelector('[data-view="grid"]')).not.toBeNull()
+    expect(container.querySelector('[data-view="list"]')).toBeNull()
 
     unmount()
-    renderResults(page([movie(1)], null, 1), 'q=star&view=list')
+    const list = renderResults(page([movie(1)], null, 1), 'q=star&view=list')
 
-    expect(screen.getByRole('table')).toBeInTheDocument()
+    expect(list.container.querySelector('[data-view="list"]')).not.toBeNull()
+    expect(list.container.querySelector('[data-view="grid"]')).toBeNull()
   })
 
   describe('paging', () => {
@@ -128,7 +130,7 @@ describe('SearchResults', () => {
 
       await waitFor(() =>
         expect(screen.getByRole('alert')).toHaveTextContent(
-          'Could not load more results',
+          'Couldn’t load more results',
         ),
       )
       expect(shownIds()).toEqual(['/movies/1'])
@@ -194,19 +196,9 @@ describe('SearchResults', () => {
         />,
       )
 
-      expect(screen.getByRole('table')).toBeInTheDocument()
+      expect(document.querySelector('[data-view="list"]')).not.toBeNull()
+      expect(shownIds()).toHaveLength(2)
       expect(screen.getByText(/Showing 2 of 2/)).toBeInTheDocument()
-    })
-  })
-
-  it('sends a table header sort to the URL', async () => {
-    const user = userEvent.setup()
-    renderResults(page([movie(1)], null, 1), 'q=star&view=list')
-
-    await user.click(screen.getByRole('button', { name: /^title/ }))
-
-    expect(push).toHaveBeenCalledWith('/search?q=star&sort=title&view=list', {
-      scroll: false,
     })
   })
 })

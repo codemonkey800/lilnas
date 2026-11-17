@@ -1,33 +1,20 @@
+import { Button, Card, EmptyState, Icon, Note, Skeleton } from '@lilnas/ui'
+import Link from 'next/link'
 import type { JSX } from 'react'
-
-import { Button } from 'src/components/ui/button'
-import { buttonRecipeClassName } from 'src/components/ui/button-recipe'
-import { Callout } from 'src/components/ui/callout'
-import { Card } from 'src/components/ui/card'
-import { Skeleton } from 'src/components/ui/feedback'
-import { PEPE_SYMBOL_ID } from 'src/components/ui/icon'
 
 /** The API says there is no stack with this id (404). */
 export function NotFound({ id }: { id: string }): JSX.Element {
   return (
-    <Card className="mx-auto flex max-w-[560px] flex-col items-center gap-3 py-10 text-center">
-      <svg aria-hidden="true" className="h-14 w-14">
-        <use href={`#${PEPE_SYMBOL_ID}`} />
-      </svg>
-      <h1 className="text-h3">No such stack</h1>
-      <p className="max-w-[44ch] text-sm text-ink-3">
-        Nothing on this host is called{' '}
-        <code className="font-mono text-mono-sm break-all text-ink-2">
-          {id}
-        </code>
-        . Its compose file may have moved or been removed.
-      </p>
-      <a
-        className={buttonRecipeClassName({ variant: 'outline', size: 'sm' })}
-        href="/"
-      >
-        Back to all stacks
-      </a>
+    <Card className="mx-auto max-w-[560px]">
+      <EmptyState
+        action={
+          <Button render={<Link href="/" />} size="sm" variant="accent">
+            Back to all stacks
+          </Button>
+        }
+        body={`Nothing on this host is called ${id}. Its compose file may have moved or been removed.`}
+        title="No such stack"
+      />
     </Card>
   )
 }
@@ -45,29 +32,38 @@ export function DetailError({
   onRetry: () => void
 }): JSX.Element {
   return (
-    <Card className="flex flex-col gap-3">
-      <Callout icon="alert" tone="bad">
-        <p className="font-medium text-ink">Couldn’t load this stack.</p>
-        <p className="mt-0.5 text-ink-3">
-          The dashboard’s API didn’t answer
-          {stale ? ', so what’s below may be stale' : ''}. Retrying in{' '}
-          {retryInSeconds}s.
-        </p>
-        <p className="mt-1.5 font-mono text-mono-sm break-words text-ink-4">
+    <div className="flex flex-col gap-3">
+      <Note
+        icon={<Icon name="alert" />}
+        lead="Couldn’t load this stack."
+        tone="bad"
+      >
+        The dashboard’s API didn’t answer
+        {stale ? ', so what’s below may be stale' : ''}. Retrying in{' '}
+        {retryInSeconds}s.
+        <span className="mt-1 block font-mono text-mono-sm break-words text-ink-3">
           {message}
-        </p>
-      </Callout>
-      <div className="flex gap-2">
-        <Button icon="refresh" onClick={onRetry} size="sm" variant="outline">
+        </span>
+      </Note>
+      <div>
+        <Button icon="refresh" onClick={onRetry} size="sm">
           Retry now
         </Button>
       </div>
-    </Card>
+    </div>
   )
 }
 
-/** Placeholder while the first answer is on its way. */
+/** Placeholder while the first answer is on its way. Shapes match what's coming. */
 export function DetailSkeleton(): JSX.Element {
+  const lines = (
+    <div className="flex flex-col gap-2">
+      <Skeleton className="h-3 w-full" />
+      <Skeleton className="h-3 w-11/12" />
+      <Skeleton className="h-3 w-2/3" />
+    </div>
+  )
+
   return (
     <div
       aria-busy="true"
@@ -75,11 +71,16 @@ export function DetailSkeleton(): JSX.Element {
       className="flex flex-col gap-5"
       role="status"
     >
-      <Skeleton className="h-[120px] rounded-lg" />
-      <Skeleton className="h-[220px] rounded-lg" />
+      <p className="text-sm text-ink-3">Reading this stack from Docker…</p>
+      <Card className="flex flex-col gap-3">
+        <Skeleton className="h-6 w-1/4" />
+        <Skeleton className="h-3 w-1/2" />
+        <Skeleton className="h-3 w-1/3" />
+      </Card>
+      <Card>{lines}</Card>
       <div className="grid gap-5 md:grid-cols-2">
-        <Skeleton className="h-[180px] rounded-lg" />
-        <Skeleton className="h-[180px] rounded-lg" />
+        <Card>{lines}</Card>
+        <Card>{lines}</Card>
       </div>
     </div>
   )

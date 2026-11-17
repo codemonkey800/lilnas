@@ -1,13 +1,24 @@
 'use client'
 
+import {
+  Button,
+  Card,
+  Input,
+  type LogLine,
+  LogLineRow,
+  LogViewer as LogPane,
+  Segmented,
+  Select,
+  StatusDot,
+  type StatusDotTone,
+  Switch,
+} from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { JSX } from 'react'
-import { memo, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 
-import { Panel, PanelHead } from 'src/components/detail/panel'
-import { Segmented } from 'src/components/detail/segmented'
+import { CardHead } from 'src/components/detail/card-head'
 import { formatLogTime } from 'src/components/detail/time'
-import { Toggle } from 'src/components/detail/toggle'
 import {
   BUFFER_CAP,
   type LogEntry,
@@ -16,50 +27,58 @@ import {
   type TailChoice,
   useContainerLogs,
 } from 'src/components/logs/use-container-logs'
-import { Button } from 'src/components/ui/button'
-import { Icon } from 'src/components/ui/icon'
-import { Dot } from 'src/components/ui/status'
-
-/** Farther than this from the bottom counts as the reader scrolling up. */
-const BOTTOM_SLACK_PX = 24
 
 const DEFAULT_TAIL: TailChoice = 500
+
+const TAIL_OPTIONS = TAIL_CHOICES.map(n => ({
+  value: String(n),
+  label: String(n),
+}))
+
+/** The well is this tall whatever it holds, so the page doesn't jump. */
+const WELL_HEIGHT = 300
 
 /** The buffer as a file: Docker's timestamp (when asked for), then the line. */
 export function logsToText(lines: readonly LogEntry[]): string {
   return lines.map(l => (l.ts ? `${l.ts} ${l.text}` : l.text)).join('\n') + '\n'
 }
 
-const LogRow = memo(function LogRow({
-  line,
-  timestamps,
-}: {
-  line: LogEntry
-  timestamps: boolean
-}): JSX.Element {
-  const err = line.stream === 'stderr'
-  return (
-    <div
-      className={cns(
-        'flex gap-3 border-l-2 px-4',
-        err
-          ? 'border-bad bg-bad-ghost text-bad'
-          : 'border-transparent text-ink-2',
-      )}
-      data-stream={line.stream}
-    >
-      {timestamps && line.ts ? (
-        <span className="shrink-0 text-ink-4 tabular-nums">
-          {formatLogTime(line.ts)}
-        </span>
-      ) : null}
-      <span className="min-w-0 flex-1 break-all whitespace-pre-wrap">
-        {line.text}
-      </span>
-    </div>
-  )
-})
+// `LogLineRow` is memoised on its `line`, so each buffered entry keeps one
+// `LogLine` object per timestamp setting; rebuilding them on every flush would
+// re-render all 5000 rows when one arrives.
+const WITH_TIME = new WeakMap<LogEntry, LogLine>()
+const WITHOUT_TIME = new WeakMap<LogEntry, LogLine>()
 
+function toLogLine(entry: LogEntry, timestamps: boolean): LogLine {
+  const cache = timestamps ? WITH_TIME : WITHOUT_TIME
+  let line = cache.get(entry)
+  if (!line) {
+    line = {
+      id: entry.id,
+      ts: timestamps && entry.ts ? formatLogTime(entry.ts) : undefined,
+      message: entry.text,
+      stderr: entry.stream === 'stderr',
+    }
+    cache.set(entry, line)
+  }
+  return line
+}
+
+/** An id no `LogEntry` has: the one row that says something about the stream. */
+const NOTE_ID = 'note'
+
+const STATUS_LOOK: Record<
+  'connecting' | 'live' | 'paused' | 'reconnecting' | 'ended',
+  { dot: StatusDotTone; pulse: boolean; text: string }
+> = {
+  connecting: { dot: 'accent', pulse: false, text: 'text-ink-3' },
+  live: { dot: 'ok', pulse: true, text: 'text-ink-3' },
+  paused: { dot: 'idle', pulse: false, text: 'text-ink-3' },
+  reconnecting: { dot: 'warn', pulse: false, text: 'text-warn' },
+  ended: { dot: 'idle', pulse: false, text: 'text-ink-3' },
+}
+
+/** Beside the heading. Only a live follow pulses; a dropped stream is amber. */
 function Status({
   follow,
   status,
@@ -67,25 +86,32 @@ function Status({
   follow: boolean
   status: LogStatus
 }): JSX.Element {
-  if (status === 'reconnecting') {
-    return (
-      <span className="flex items-center gap-1.5 font-mono text-mono-sm text-warn">
-        <Dot tone="warn" />
-        reconnecting
-      </span>
-    )
-  }
+  const word = status === 'live' ? (follow ? 'live' : 'paused') : status
+  const look = STATUS_LOOK[word]
   return (
-    <span className="flex items-center gap-1.5 font-mono text-mono-sm text-ink-3">
-      <Dot tone={follow && status === 'live' ? 'live' : undefined} />
-      {status === 'connecting'
-        ? 'connecting'
-        : status === 'ended'
-          ? 'ended'
-          : follow
-            ? 'following'
-            : 'paused'}
+    <span className={cns('flex items-center gap-2 text-cap', look.text)}>
+      <StatusDot pulse={look.pulse} tone={look.dot} />
+      {word}
     </span>
+  )
+}
+
+/** A well with nothing to scroll: says what happened and what to do. */
+function WellMessage({
+  title,
+  children,
+}: {
+  title: string
+  children?: React.ReactNode
+}): JSX.Element {
+  return (
+    <div
+      className="flex flex-col items-center justify-center gap-1.5 rounded-lg border border-line bg-bg-sunk px-6 text-center"
+      style={{ height: WELL_HEIGHT }}
+    >
+      <p className="text-h3">{title}</p>
+      {children}
+    </div>
   )
 }
 
@@ -108,7 +134,6 @@ export function LogViewer({
   const [follow, setFollow] = useState(true)
   const [timestamps, setTimestamps] = useState(true)
   const [filter, setFilter] = useState('')
-  const scroller = useRef<HTMLDivElement>(null)
   const selectId = useId()
 
   // A container that has gone away falls back to the first one that's left.
@@ -129,17 +154,29 @@ export function LogViewer({
     [lines, needle],
   )
 
-  useLayoutEffect(() => {
-    const el = scroller.current
-    if (follow && el) el.scrollTop = el.scrollHeight
-  }, [follow, visible, status])
+  const noMatch = needle !== '' && visible.length === 0 && lines.length > 0
 
-  function onScroll() {
-    const el = scroller.current
-    if (!el || !follow) return
-    const gap = el.scrollHeight - el.scrollTop - el.clientHeight
-    if (gap > BOTTOM_SLACK_PX) setFollow(false)
-  }
+  const rows = useMemo(() => {
+    const mapped = visible.map(entry => toLogLine(entry, timestamps))
+    if (status === 'reconnecting') {
+      return [
+        ...mapped,
+        { id: NOTE_ID, message: 'disconnected — reconnecting…' },
+      ]
+    }
+    if (lines.length === 0) {
+      return [
+        {
+          id: NOTE_ID,
+          message:
+            status === 'connecting'
+              ? 'Connecting…'
+              : 'No output yet. New lines appear here.',
+        },
+      ]
+    }
+    return mapped
+  }, [visible, timestamps, status, lines.length])
 
   function download() {
     if (!container) return
@@ -157,141 +194,125 @@ export function LogViewer({
 
   if (!container) {
     return (
-      <Panel aria-label="Container logs">
-        <PanelHead
+      <Card aria-label="Container logs" role="region">
+        <CardHead
           caption="stdout and stderr · stderr is tinted"
           title="Container logs"
         />
-        <div className="flex flex-col items-center gap-1.5 bg-bg-sunk px-6 py-10 text-center">
-          <p className="text-h3">No containers yet</p>
+        <WellMessage title="No containers yet">
           <p className="max-w-[40ch] text-sm text-ink-3">
             Logs show up once the stack has a container. Up creates them.
           </p>
-        </div>
-      </Panel>
+        </WellMessage>
+      </Card>
     )
   }
 
   return (
-    <Panel aria-label="Container logs">
-      <PanelHead
+    <Card aria-label="Container logs" role="region">
+      <CardHead
         caption="stdout and stderr · stderr is tinted"
         title="Container logs"
       >
         <Status follow={follow} status={status} />
-      </PanelHead>
+      </CardHead>
 
-      <div className="flex flex-col gap-3 border-b border-line-soft px-5 py-3.5">
+      <div className="flex flex-col gap-3 pb-3">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2.5">
-          <div className="w-full md:w-[250px]">
-            <label className="sr-only" htmlFor={selectId}>
-              Container
-            </label>
-            <select
-              className="h-[38px] w-full rounded-md border border-line bg-bg-sunk px-3 font-mono text-mono text-ink transition-[border-color,box-shadow] duration-200 ease-uv outline-none [color-scheme:dark] focus:border-uv focus:shadow-[0_0_0_3px_var(--color-uv-ghost)]"
+          <Select.Root
+            items={Object.fromEntries(containers.map(name => [name, name]))}
+            onValueChange={value => setSelected(value ?? undefined)}
+            value={container}
+          >
+            <Select.Trigger
+              aria-label="Container"
+              className="w-full font-mono md:w-[250px]"
               id={selectId}
-              onChange={event => setSelected(event.target.value)}
-              value={container}
             >
+              <Select.Value />
+            </Select.Trigger>
+            <Select.Popup>
               {containers.map(name => (
-                <option key={name} value={name}>
+                <Select.Item className="font-mono" key={name} value={name}>
                   {name}
-                </option>
+                </Select.Item>
               ))}
-            </select>
-          </div>
+            </Select.Popup>
+          </Select.Root>
           <Segmented
             label="Tail lines"
-            onChange={setTail}
-            options={TAIL_CHOICES}
-            value={tail}
+            onValueChange={value => setTail(Number(value) as TailChoice)}
+            options={TAIL_OPTIONS}
+            value={String(tail)}
           />
-          <Toggle checked={follow} label="Follow" onChange={setFollow} />
-          <Toggle
+          <Switch checked={follow} label="Follow" onCheckedChange={setFollow} />
+          <Switch
             checked={timestamps}
             label="Timestamps"
-            onChange={setTimestamps}
+            onCheckedChange={setTimestamps}
           />
           <span className="flex w-full items-center gap-1.5 md:ml-auto md:w-auto [&>button]:flex-1 md:[&>button]:flex-none">
             <Button icon="x" onClick={clear} size="sm" variant="ghost">
               Clear
             </Button>
-            <Button
-              icon="download"
-              onClick={download}
-              size="sm"
-              variant="outline"
-            >
+            <Button icon="download" onClick={download} size="sm">
               Download
             </Button>
           </span>
         </div>
-        <div className="flex items-center gap-2 rounded-md border border-line bg-bg-sunk px-3 transition-[border-color,box-shadow] duration-200 ease-uv focus-within:border-uv focus-within:shadow-[0_0_0_3px_var(--color-uv-ghost)]">
-          <Icon
-            className="h-[14px] w-[14px] shrink-0 text-ink-4"
-            name="search"
-          />
-          <input
-            aria-label="Filter lines"
-            className="h-[34px] min-w-0 flex-1 border-none bg-transparent font-mono text-mono text-ink outline-none placeholder:text-ink-4"
-            onChange={event => setFilter(event.target.value)}
-            placeholder="Filter lines"
-            value={filter}
-          />
-        </div>
+        <Input
+          aria-label="Filter lines"
+          icon="search"
+          mono
+          onChange={event => setFilter(event.target.value)}
+          placeholder="Filter lines"
+          value={filter}
+        />
       </div>
 
-      <div
-        className="h-[300px] overflow-auto bg-bg-sunk py-3 font-mono text-[12px] leading-[1.7]"
-        onScroll={onScroll}
-        ref={scroller}
-        role="log"
-      >
-        {needle && visible.length === 0 && lines.length > 0 ? (
-          <div className="flex flex-col items-center gap-1.5 px-6 py-10 text-center font-sans">
-            <p className="text-h3">No lines match “{filter.trim()}”</p>
-            <p className="max-w-[40ch] text-sm text-ink-3">
-              The last {lines.length} lines of {container} don’t contain it. Try
-              a shorter filter or a longer tail.
-            </p>
-            <Button
-              className="mt-2"
-              onClick={() => setFilter('')}
-              size="sm"
-              variant="outline"
-            >
-              Clear filter
-            </Button>
-          </div>
-        ) : (
-          <div>
-            {visible.map(line => (
-              <LogRow key={line.id} line={line} timestamps={timestamps} />
-            ))}
-            {lines.length === 0 && status !== 'reconnecting' ? (
-              <p className="px-4 text-ink-4">
-                {status === 'connecting'
-                  ? 'Connecting…'
-                  : 'No output yet. New lines appear here.'}
-              </p>
-            ) : null}
-          </div>
-        )}
-        {status === 'reconnecting' ? (
-          <p className="px-4 text-warn" role="status">
-            disconnected — reconnecting…
+      {noMatch ? (
+        <WellMessage title={`No lines match “${filter.trim()}”`}>
+          <p className="max-w-[40ch] text-sm text-ink-3">
+            The last {lines.length} lines of {container} don’t contain it. Try a
+            shorter filter or a longer tail.
           </p>
-        ) : null}
-      </div>
+          <Button className="mt-2" onClick={() => setFilter('')} size="sm">
+            Clear filter
+          </Button>
+        </WellMessage>
+      ) : (
+        <LogPane
+          aria-label="Container log output"
+          follow={follow}
+          height={WELL_HEIGHT}
+          lines={rows}
+          onFollowChange={setFollow}
+          renderLine={line =>
+            line.id === NOTE_ID ? (
+              <p
+                className={cns(
+                  'px-3 font-mono text-mono-sm',
+                  status === 'reconnecting' ? 'text-warn' : 'text-ink-3',
+                )}
+                role={status === 'reconnecting' ? 'status' : undefined}
+              >
+                {line.message}
+              </p>
+            ) : (
+              <LogLineRow line={line} />
+            )
+          }
+        />
+      )}
 
-      <footer className="flex items-center justify-between gap-3 border-t border-line-soft px-5 py-2.5 font-mono text-mono-sm text-ink-4 tabular-nums">
+      <div className="mt-2 flex items-center justify-between gap-3 text-cap text-ink-3 tabular-nums">
         <span title={`The viewer keeps the last ${BUFFER_CAP} lines.`}>
           {needle
             ? `${visible.length} of ${lines.length} lines`
             : `${lines.length} ${lines.length === 1 ? 'line' : 'lines'}`}
         </span>
-        <span className="truncate">{container}</span>
-      </footer>
-    </Panel>
+        <span className="truncate font-mono text-mono-sm">{container}</span>
+      </div>
+    </Card>
   )
 }

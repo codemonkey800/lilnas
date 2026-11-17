@@ -125,22 +125,22 @@ export function jobActionState(
  * alone could be mistaken for the title not existing.
  */
 const JOB_STATUS_LABELS: Record<DownloadJobStatus, string> = {
-  [DownloadJobStatus.Cancelled]: 'cancelled',
-  [DownloadJobStatus.Cancelling]: 'cancelling…',
-  [DownloadJobStatus.Cleaning]: 'cleaning up',
-  [DownloadJobStatus.Completed]: 'completed',
-  [DownloadJobStatus.Converting]: 'converting',
-  [DownloadJobStatus.Downloading]: 'downloading',
-  [DownloadJobStatus.Failed]: 'failed',
-  [DownloadJobStatus.Importing]: 'importing',
-  [DownloadJobStatus.NeedsAttention]: 'needs your decision',
-  [DownloadJobStatus.NotFound]: 'no release found',
-  [DownloadJobStatus.Paused]: 'paused',
-  [DownloadJobStatus.Pausing]: 'pausing…',
-  [DownloadJobStatus.Pending]: 'queued',
-  [DownloadJobStatus.Requested]: 'requested',
-  [DownloadJobStatus.Searching]: 'searching',
-  [DownloadJobStatus.Uploading]: 'uploading',
+  [DownloadJobStatus.Cancelled]: 'Cancelled',
+  [DownloadJobStatus.Cancelling]: 'Cancelling…',
+  [DownloadJobStatus.Cleaning]: 'Cleaning up',
+  [DownloadJobStatus.Completed]: 'Completed',
+  [DownloadJobStatus.Converting]: 'Converting',
+  [DownloadJobStatus.Downloading]: 'Downloading',
+  [DownloadJobStatus.Failed]: 'Failed',
+  [DownloadJobStatus.Importing]: 'Importing',
+  [DownloadJobStatus.NeedsAttention]: 'Needs your decision',
+  [DownloadJobStatus.NotFound]: 'No release found',
+  [DownloadJobStatus.Paused]: 'Paused',
+  [DownloadJobStatus.Pausing]: 'Pausing…',
+  [DownloadJobStatus.Pending]: 'Queued',
+  [DownloadJobStatus.Requested]: 'Requested',
+  [DownloadJobStatus.Searching]: 'Searching',
+  [DownloadJobStatus.Uploading]: 'Uploading',
 }
 
 /** The chip text for a job status. See {@link JOB_STATUS_LABELS}. */
@@ -503,13 +503,13 @@ export function jobHandoff(
  * `cleaning up`); only a `downloading` that has nothing left to download
  * needs a word of its own.
  */
-export const FINISHING_LABEL = 'finishing up'
+export const FINISHING_LABEL = 'Finishing up'
 
 /**
  * {@link FINISHING_LABEL}'s stand-in while SABnzbd reports its
  * `post_processing` stage — the one part of finishing up it can name.
  */
-export const UNPACKING_LABEL = 'unpacking'
+export const UNPACKING_LABEL = 'Unpacking'
 
 /**
  * The chip text for a `finishing` handoff — `unpacking` while SABnzbd says it

@@ -1,5 +1,6 @@
 'use client'
 
+import { Button, Input, Note, Tabs } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type {
   DownloadGalleryFacets,
@@ -9,8 +10,6 @@ import { useRouter } from 'next/navigation'
 import type { JSX, ReactNode } from 'react'
 import { useId, useOptimistic, useRef, useState, useTransition } from 'react'
 
-import { Avatar } from 'src/components/ui/avatar'
-import { Button } from 'src/components/ui/button'
 import {
   AppliedFilterChip,
   FilterFoot,
@@ -20,9 +19,7 @@ import {
   FiltersButton,
   FilterScrim,
 } from 'src/components/ui/filters'
-import { Icon } from 'src/components/ui/icon'
-import { Input } from 'src/components/ui/input'
-import { Tab, Tabs } from 'src/components/ui/tabs'
+import { PersonAvatar } from 'src/components/ui/person-avatar'
 import { ToggleChip } from 'src/components/ui/toggle-chip'
 import { initials } from 'src/lib/format'
 import type { GalleryFilters } from 'src/lib/gallery-filters'
@@ -53,41 +50,17 @@ import {
  * the way the desktop frame does.
  */
 const CONTROLS_ROW = cns(
-  'relative z-20 mb-[18px] flex flex-wrap items-center justify-between gap-4',
+  'relative z-20 mb-5 flex flex-col gap-3',
+  'sm:flex-row sm:items-end sm:justify-between sm:border-b sm:border-line',
 )
 
-/**
- * Anchored to the controls row's right edge at 480px wide, and to both of its
- * edges below the breakpoint — `gallery.pug`'s two frames exactly
- * (`absolute top-[calc(100%+10px)] right-0 w-[480px]` and
- * `absolute inset-x-0 top-[calc(100%+10px)]`).
- *
- * The panel's own internal layout keys off *its* width with a container query
- * rather than off the viewport, so this is the only breakpoint involved.
- */
 const FILTER_PANEL_POSITION = cns(
-  'absolute top-[calc(100%+10px)] right-0 left-0',
-  'sm:left-auto sm:w-[480px]',
+  'absolute inset-x-0 top-full mt-2',
+  'sm:inset-x-auto sm:right-0 sm:mt-0 sm:w-[480px] sm:top-[calc(100%+8px)]',
 )
 
-/** `search.pug`'s error idiom: alert glyph, machine face, `text-bad`. */
-const RANGE_ERROR = 'flex items-center gap-[5px] font-mono text-[11px] text-bad'
+const FACET_COUNT = 'order-last font-mono text-mono-sm text-ink-3'
 
-/** The count beside a facet's name. A machine annotation, so mono and `ink-4`. */
-const FACET_COUNT = 'font-mono text-mono-sm text-ink-4'
-
-/** `gallery.pug`'s Clear all beside the applied chips — a 27px ghost button. */
-const CLEAR_ALL_INLINE = 'h-[27px] px-2.5 text-[12px]'
-
-/**
- * The four tabs, left to right.
- *
- * `type: null` is the "All" tab, and the reason each entry carries its own
- * `DownloadType` rather than the handler casting the tab's string value back
- * into one: `all` is a real tab value and is not a member of the enum, so the
- * cast would be the only thing standing between a typo and a filter nobody can
- * clear.
- */
 const TABS: Array<{ label: string; type: DownloadType | null; value: string }> =
   [
     { label: 'All', type: null, value: GALLERY_ALL_TYPES_TAB },
@@ -97,6 +70,16 @@ const TABS: Array<{ label: string; type: DownloadType | null; value: string }> =
       value: type as string,
     })),
   ]
+
+/** The count on a tab: the whole library for All, else that type's rows. */
+function tabCount(
+  facets: DownloadGalleryFacets,
+  type: DownloadType | null,
+): number {
+  return type === null
+    ? facets.types.reduce((sum, facet) => sum + facet.count, 0)
+    : (facets.types.find(facet => facet.type === type)?.count ?? 0)
+}
 
 export type GalleryControlsProps = {
   /**
@@ -210,27 +193,37 @@ export function GalleryControls({
   return (
     <>
       <div className={CONTROLS_ROW}>
-        <Tabs
-          activationMode="manual"
-          aria-label="Media type"
-          className="w-full sm:w-auto"
+        <Tabs.Root
+          className="min-w-0 sm:w-auto"
           onValueChange={selectTab}
-          // A two-type selection is reachable from the panel and from a shared
-          // link, and no single tab can report it — so none of them is
-          // selected, and `Tab`'s roving `tabIndex` would leave the whole strip
-          // out of the tab order. The strip itself takes the stop instead: an
-          // arrow key from there lands on a tab exactly as it does from a
-          // selected one.
-          tabIndex={tabValue === GALLERY_MIXED_TYPES_TAB ? 0 : undefined}
           value={tabValue}
         >
-          {TABS.map(tab => (
-            <Tab key={tab.value} value={tab.value}>
-              {tab.label}
-            </Tab>
-          ))}
-        </Tabs>
-        <div className="ml-auto flex items-center gap-2.5">
+          <Tabs.List
+            activationMode="manual"
+            aria-label="Media type"
+            className="sm:border-b-0"
+            scroll
+            // A two-type selection is reachable from the panel and from a
+            // shared link, and no single tab can report it — so none of them
+            // is selected, and the roving `tabIndex` would leave the whole
+            // strip out of the tab order. The strip itself takes the stop
+            // instead: an arrow key from there lands on a tab exactly as it
+            // does from a selected one.
+            tabIndex={tabValue === GALLERY_MIXED_TYPES_TAB ? 0 : undefined}
+          >
+            {TABS.map(tab => (
+              <Tabs.Tab
+                count={tabCount(facets, tab.type)}
+                key={tab.value}
+                value={tab.value}
+              >
+                {tab.label}
+              </Tabs.Tab>
+            ))}
+            <Tabs.Indicator />
+          </Tabs.List>
+        </Tabs.Root>
+        <div className="self-end sm:mb-2">
           <FiltersButton
             count={countGalleryFilters(applied)}
             onClick={() => setOpen(!open)}
@@ -245,7 +238,7 @@ export function GalleryControls({
           triggerRef={triggerRef}
         >
           <FilterGrid>
-            <FilterGroup label="date added" wide>
+            <FilterGroup label="Date added" wide>
               <div className="flex items-center gap-2">
                 <Input
                   aria-describedby={invalidRange ? rangeErrorId : undefined}
@@ -276,13 +269,16 @@ export function GalleryControls({
                 />
               </div>
               {invalidRange ? (
-                <p className={RANGE_ERROR} id={rangeErrorId} role="alert">
-                  <Icon className="h-3 w-3 shrink-0" name="alert" />
-                  {rangeError ?? INVALID_RANGE_MESSAGE}
-                </p>
+                <Note
+                  id={rangeErrorId}
+                  lead={rangeError ?? INVALID_RANGE_MESSAGE}
+                  tone="bad"
+                >
+                  Swap them and the results will come back.
+                </Note>
               ) : null}
             </FilterGroup>
-            <FilterGroup label="media type" wide>
+            <FilterGroup label="Media type" wide>
               <div className="flex flex-wrap gap-2">
                 {GALLERY_TYPE_ORDER.map(type => {
                   const facet = facets.types.find(entry => entry.type === type)
@@ -303,7 +299,7 @@ export function GalleryControls({
                 })}
               </div>
             </FilterGroup>
-            <FilterGroup label="uploaded by" wide>
+            <FilterGroup label="Uploaded by" wide>
               <div className="flex flex-wrap gap-2">
                 {facets.uploaders.map(uploader => (
                   <ToggleChip
@@ -322,7 +318,7 @@ export function GalleryControls({
                       })
                     }
                   >
-                    <Avatar
+                    <PersonAvatar
                       aria-hidden="true"
                       initials={initials(uploader.email)}
                       size="xs"
@@ -349,7 +345,7 @@ export function GalleryControls({
             >
               Clear all
             </Button>
-            <Button onClick={() => setOpen(false)} size="sm" variant="uv">
+            <Button onClick={() => setOpen(false)} size="sm" variant="accent">
               {resultsLabel(total)}
             </Button>
           </FilterFoot>
@@ -358,7 +354,7 @@ export function GalleryControls({
       {chips.length > 0 ? (
         <div
           aria-label="Active filters"
-          className="mb-5 flex flex-wrap gap-2 sm:mb-[22px] sm:gap-[9px]"
+          className="mb-5 flex flex-wrap items-center gap-2"
           role="group"
         >
           {chips.map(chip => (
@@ -370,7 +366,6 @@ export function GalleryControls({
             />
           ))}
           <Button
-            className={CLEAR_ALL_INLINE}
             onClick={() => apply(EMPTY_GALLERY_FILTERS)}
             size="sm"
             variant="ghost"

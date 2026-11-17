@@ -1,0 +1,490 @@
+//-
+  auth's own mixins: the screens' furniture that isn't a design-system
+  component. The kit (docs/designs/mockup-kit) is the design system and
+  nothing else, so the gate card, the status ring and the people list live
+  here. Pages `include` this file.
+
+  Everything is drawn at an explicit viewport — `view` is 'desktop' (1280) or
+  'mobile' (390) — rather than with responsive utilities: Tailwind's `md:`
+  answers to the browser window, not to the frame a screen is drawn in.
+
+//- ── Gate: the centred-card screens (login, pending, blocked, error) ────────
+//-
+  A frame holding one centred card (the block). `doorplate: false` drops the
+  top-left doorplate — login is the front door and carries the mark in its
+  card instead. `narrow` is login's 380px card; the others are 420px.
+  `toast` ({ tone, title }) pins a toast bottom-centre of the frame.
+mixin gate(view, opts)
+  - opts = opts || {}
+  - const phone = view === 'mobile'
+  +appFrame(view)
+    if opts.doorplate !== false
+      div(class=phone ? 'p-4' : 'px-6 py-4')
+        +doorplate('auth')
+    div(class=['flex min-h-[600px] flex-1 items-center justify-center', phone ? 'px-4 pt-4 pb-20' : 'px-6 pt-6 pb-24'])
+      div(
+        class=[
+          'flex w-full flex-col gap-5 rounded-lg border border-line bg-surface',
+          opts.narrow ? 'max-w-[380px]' : 'max-w-[420px]',
+          phone ? 'p-5' : 'p-6',
+        ]
+      )
+        block
+    if opts.toast
+      div(class='pointer-events-none absolute inset-x-0 bottom-6 flex justify-center px-4')
+        +toast(opts.toast.tone || 'accent', opts.toast.title)
+
+//- Who is signed in: avatar (accent, because it is you), name, email in mono.
+mixin identityRow(who)
+  div(class='flex items-center gap-3 rounded-lg border border-line bg-bg-sunk p-3 text-left')
+    +avatar(who.initials, { size: 32, you: true })
+    span(class='flex min-w-0 flex-col')
+      span(class='truncate text-sm font-medium')= who.name
+      span(class='truncate font-mono text-mono-sm text-ink-3')= who.email
+
+//- Where they were headed: the service's icon, name and host in mono.
+mixin targetPill(t)
+  div(class='flex items-center gap-3 rounded-lg border border-line bg-bg-sunk p-3 text-left')&attributes(attributes)
+    span(class='grid size-[30px] shrink-0 place-items-center rounded-md bg-accent-ghost text-accent-hi')
+      +icon(t.icon, 16)
+    span(class='flex min-w-0 flex-col')
+      span(class='truncate text-sm font-medium')= t.name
+      span(class='truncate font-mono text-mono-sm text-ink-3')= t.host
+
+//-
+  The hero on pending and blocked: a 64px ring. 'waiting' is a large live
+  accent dot (the system is working on it); 'declined' and 'blocked' are an x.
+mixin statusRing(kind)
+  -
+    const waiting = kind === 'waiting'
+  span(
+    class=[
+      'mx-auto grid size-16 shrink-0 place-items-center rounded-full border',
+      waiting ? 'border-line bg-surface-2' : 'border-transparent bg-bad-ghost text-bad',
+    ]
+    role='img'
+    aria-label=waiting ? 'Waiting' : kind === 'blocked' ? 'Blocked' : 'Declined'
+  )&attributes(attributes)
+    if waiting
+      span(class='grid scale-[2] place-items-center')
+        +statusDot('accent', true)
+    else
+      +icon('x', 24)
+
+//- The pepe-full mark at 46 × 42, as login's header.
+mixin mark
+  svg(class='mx-auto h-[42px] w-[46px]' aria-hidden='true')&attributes(attributes)
+    use(href='#pepe-full')
+
+//- A heading and the line under it, centred, as the gate cards use them.
+mixin gateHeading(title, body)
+  div(class='flex flex-col gap-1.5 text-center')&attributes(attributes)
+    h1(class='text-h1')= title
+    if body
+      p(class='text-body text-ink-3')= body
+
+//- A pill-shaped label that isn't a status: Discord handle, access rule.
+//-   icon  leading sprite icon       mono  identifier typography
+//-   remove  trailing x (a removable rule)
+mixin chip(opts)
+  span(
+    class=[
+      'inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full bg-surface-2 px-2.5 text-xs font-medium whitespace-nowrap text-ink-2',
+      opts.mono ? 'font-mono text-mono-sm' : '',
+    ]
+  )&attributes(attributes)
+    if opts.icon
+      +icon(opts.icon, 12)(class='text-ink-3')
+    = opts.label
+    if opts.remove
+      button(type='button' aria-label=`Remove rule ${opts.label}` class='-mr-1 grid size-4 place-items-center rounded-full text-ink-3 hover:text-ink')
+        +icon('x', 12)
+
+mixin discordChip(handle)
+  +chip({ icon: 'discord', label: '@' + handle, mono: true })&attributes(attributes)
+
+//- ── Home ────────────────────────────────────────────────────────────────
+//- A label over a list: "Session details", "Your services".
+mixin eyebrow(text)
+  h2(class='text-label text-ink-3 uppercase')&attributes(attributes)= text
+
+//-
+  A radio or checkbox row with arbitrary content (the block): a service with
+  its icon, a person, a Discord account. The whole row is the tap target.
+    kind  'radio' | 'checkbox'     name  radio group     checked
+mixin choice(kind, opts)
+  - opts = opts || {}
+  label(
+    class='group flex cursor-pointer items-center gap-3 rounded-md border border-line px-3 py-2 transition-[background-color,border-color] duration-200 ease-standard hover:border-line-loud has-[:checked]:border-accent-dim has-[:checked]:bg-accent-ghost has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent'
+  )&attributes(attributes)
+    input(class='sr-only' type=kind name=opts.name checked=opts.checked)
+    if kind === 'radio'
+      span(class='grid size-[18px] shrink-0 place-items-center rounded-full border border-line-control bg-bg-sunk transition-press group-has-[:checked]:border-accent')
+        span(class='size-2 scale-0 rounded-full bg-accent transition-transform duration-[120ms] ease-spring group-has-[:checked]:scale-100')
+    else
+      span(class='grid size-[18px] shrink-0 place-items-center rounded-xs border border-line-control bg-bg-sunk text-accent-ink transition-press group-has-[:checked]:border-accent group-has-[:checked]:bg-accent')
+        +icon('check', 12)(class='opacity-0 group-has-[:checked]:opacity-100')
+    block
+
+//- The whole Home screen at one viewport, in one status.
+mixin homeScreen(view, st, profile, copy)
+  - const phone = view === 'mobile'
+  - const links = st.admin ? [{ label: 'Admin' }] : undefined
+  +appFrame(view)
+    if phone
+      +appBar('mobile', { app: 'auth' })
+    else
+      +appBar('desktop', { app: 'auth', links: links, initials: profile.initials })
+        +btn({ variant: 'ghost', size: 'sm', label: 'Sign out' })
+    main(class=['mx-auto flex w-full max-w-[720px] flex-col', phone ? 'gap-6 px-4 py-6' : 'gap-8 px-8 py-10'])
+      div(class='flex flex-col gap-1')
+        h1(class='text-h1')= copy.title
+        p(class='text-body text-ink-3')= copy.lede
+
+      div(class=['flex gap-4 rounded-lg border border-line bg-surface p-4', phone ? 'items-start' : 'items-center'])
+        +avatar(profile.initials, { size: 64, you: true })
+        div(class='flex min-w-0 flex-1 flex-col gap-1')
+          div(class='flex flex-wrap items-center gap-x-3 gap-y-1')
+            h2(class='text-h2')= profile.name
+            +badge(st.status)
+          p(class='truncate font-mono text-mono text-ink-3')= profile.email
+
+      if st.notice
+        +note('warn', st.notice.lead)= st.notice.body
+
+      section(class='flex flex-col gap-3')
+        +eyebrow(copy.sessionHeading)
+        dl(class='rounded-lg border border-line bg-surface px-4')
+          div(class='flex items-baseline justify-between gap-4 border-t border-line-soft py-2.5 first:border-t-0')
+            dt(class='text-sm text-ink-3') Role
+            dd(class='text-sm')= st.role
+          div(class='flex items-baseline justify-between gap-4 border-t border-line-soft py-2.5 first:border-t-0')
+            dt(class='text-sm text-ink-3') Member since
+            dd(class='text-sm')= profile.memberSince
+          div(class='flex items-baseline justify-between gap-4 border-t border-line-soft py-2.5 first:border-t-0')
+            dt(class='text-sm text-ink-3') Signed in with
+            dd(class='text-sm')= profile.signIn
+
+      section(class='flex flex-col gap-3')
+        div(class='flex items-baseline justify-between')
+          h2(class='text-h2')= copy.servicesHeading
+          span(class='text-cap text-ink-3 tabular-nums') #{st.tiles.length} #{st.tiles.length === 1 ? 'service' : 'services'}
+        if st.tiles.length
+          div(class=['grid gap-3', phone ? 'grid-cols-1' : 'grid-cols-2'])
+            each t in st.tiles
+              +tile({ icon: t.icon, name: t.name, host: t.host })
+        else
+          div(class='rounded-lg border border-line bg-surface')
+            +emptyState(copy.empty.title, copy.empty.body, copy.empty.action)
+
+//- ── People: one column definition, the table and the card list ─────────────
+//- One cell. `col.type`: person | badge | services | discord | actions | text.
+mixin authCell(col, row, view)
+  - const phone = view === 'mobile'
+  - const v = row[col.key]
+  - const initialsOf = name => name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
+  case col.type
+    when 'person'
+      div(class='flex min-w-0 items-center gap-3')
+        +avatar(initialsOf(v.name), { size: 32 })
+        span(class='flex min-w-0 flex-col')
+          span(class='truncate text-[13.5px] font-medium')= v.name
+          span(class='truncate font-mono text-mono-sm text-ink-3')= v.email
+    when 'badge'
+      +badge(v)
+    when 'services'
+      if v.length === 0
+        span(class='text-cap text-ink-3') No services
+      else
+        div(class='flex flex-wrap gap-1.5')
+          each s in v.slice(0, 4)
+            if s.rule
+              +chip({ icon: 'globe', label: s.rule, mono: true })
+            else
+              +badge({ tone: 'mute', label: s })
+          if v.length > 4
+            +badge({ tone: 'mute', label: '+' + (v.length - 4) })
+    when 'discord'
+      if v
+        +discordChip(v)
+      else
+        span(class='text-cap text-ink-3') Not linked
+    when 'actions'
+      div(class=['flex gap-2', phone ? '' : 'justify-end'])
+        each a in v
+          +btn({ variant: a.variant, size: phone ? 'md' : 'sm', touch: phone, label: a.label })(class=phone ? 'flex-1' : '')
+    default
+      span(class='text-cap text-ink-3')= v
+
+//- The desktop rendering.
+mixin authTable(cols, rows)
+  div(class='overflow-hidden rounded-lg border border-line bg-surface')&attributes(attributes)
+    table(class='w-full border-collapse')
+      thead
+        tr
+          each col in cols
+            th(scope='col' class='border-b border-line-loud px-3 pt-3 pb-2.5 text-left text-label text-ink-3 uppercase')
+              if col.type === 'actions'
+                span(class='sr-only')= col.label
+              else
+                = col.label
+      tbody
+        each row in rows
+          tr(class='transition-colors duration-[120ms] ease-standard hover:bg-surface-2 [&:last-child>td]:border-b-0')
+            each col in cols
+              td(class='border-b border-line-soft px-3 py-2.5 align-middle')
+                +authCell(col, row, 'desktop')
+
+//- The phone rendering: a card per row, built from the same columns.
+mixin authCards(cols, rows)
+  -
+    const titleCol = cols[0]
+    const badgeCol = cols.find(c => c.type === 'badge')
+    const actionsCol = cols.find(c => c.type === 'actions')
+    const rest = cols.slice(1).filter(c => c !== badgeCol && c !== actionsCol)
+  ul(class='flex flex-col gap-2')&attributes(attributes)
+    each row in rows
+      li(class='flex flex-col gap-3 rounded-lg border border-line bg-surface p-3')
+        div(class='flex items-start justify-between gap-3')
+          +authCell(titleCol, row, 'mobile')
+          if badgeCol
+            +authCell(badgeCol, row, 'mobile')
+        if rest.length
+          dl(class='flex flex-col gap-2.5')
+            each col in rest
+              if col.type !== 'discord' || row[col.key]
+                div(class='flex flex-col gap-1')
+                  dt(class='text-label text-ink-3 uppercase')= col.label
+                  dd
+                    +authCell(col, row, 'mobile')
+        if actionsCol
+          +authCell(actionsCol, row, 'mobile')
+
+//- One definition, both renderings.
+mixin authDataList(cols, rows, view)
+  if view === 'mobile'
+    +authCards(cols, rows)&attributes(attributes)
+  else
+    +authTable(cols, rows)&attributes(attributes)
+
+//- ── Admin ───────────────────────────────────────────────────────────────
+//-
+  The admin screen's frame: app bar, then a padded column holding the block.
+  `bare` drops the app bar for a frame that shows one section; `height` clips
+  to a fixed height (a dialog's backdrop).
+mixin adminShell(view, opts)
+  - opts = opts || {}
+  - const phone = view === 'mobile'
+  +appFrame(view, { height: opts.height })
+    unless opts.bare
+      if phone
+        +appBar('mobile', { app: 'auth', initials: 'JA' })
+      else
+        +appBar('desktop', { app: 'auth', links: [{ label: 'Home' }, { label: 'Admin', active: true }], initials: 'JA' })
+          +btn({ variant: 'ghost', size: 'sm', label: 'Sign out' })
+    div(class=['flex w-full flex-col', phone ? 'gap-8 px-4 py-6' : 'mx-auto max-w-[1040px] gap-10 px-8 py-10'])
+      block
+
+//- A section's heading: title, the count pill, and the actions (the block).
+mixin sectionHead(title, count)
+  div(class='flex flex-wrap items-center justify-between gap-x-4 gap-y-2')&attributes(attributes)
+    div(class='flex items-center gap-2')
+      h2(class='text-h2')= title
+      if count !== undefined
+        span(class='rounded-full bg-surface-2 px-1.5 font-mono text-[11px] text-ink')= count
+    block
+
+mixin adminTitle
+  div(class='flex flex-col gap-1')
+    h1(class='text-h1') Access control
+    p(class='text-body text-ink-3') Review requests and manage who can reach what behind the gate.
+
+mixin statTiles(stats)
+  div(class='grid grid-cols-3 gap-3')&attributes(attributes)
+    each s in stats
+      -
+        const flagged = s.label === 'Pending' && s.value > 0
+      div(class=['flex flex-col gap-0.5 rounded-lg border p-4', flagged ? 'border-warn/40 bg-warn-ghost' : 'border-line bg-surface'])
+        span(class=['text-[28px] leading-9 font-semibold tracking-[-0.02em] tabular-nums', flagged ? 'text-warn' : 'text-ink'])= s.value
+        span(class='text-cap text-ink-3')= s.label
+
+mixin requestCard(view, r, selected)
+  - const phone = view === 'mobile'
+  div(class=['flex gap-3 rounded-lg border bg-surface p-3', selected ? 'border-accent-dim' : 'border-line', phone ? 'flex-col' : 'items-center'])
+    div(class='flex min-w-0 flex-1 items-center gap-3')
+      +checkbox({ checked: selected })(aria-label=`Select request from ${r.email}` class='shrink-0')
+      +avatar(r.initials, { size: 32 })
+      div(class='flex min-w-0 flex-col gap-0.5')
+        p(class='truncate font-mono text-mono text-ink')= r.email
+        p(class='text-cap text-ink-3')
+          span(class='font-mono text-mono-sm')= r.host
+          |  · requested #{r.ago}
+          if r.prior
+            |  · #{r.prior}
+    div(class='flex shrink-0 gap-2')
+      +btn({ variant: 'outline', size: phone ? 'md' : 'sm', touch: phone, label: 'Decline' })(class=phone ? 'flex-1' : '')
+      +btn({ variant: 'accent', size: phone ? 'md' : 'sm', touch: phone, label: 'Approve' })(class=phone ? 'flex-1' : '')
+
+//- Pending requests. `selected` is the set of ticked indexes; `empty` swaps in the quiet state.
+mixin requestsSection(view, requests, opts)
+  - opts = opts || {}
+  - const selected = opts.selected || []
+  section(class='flex flex-col gap-3')&attributes(attributes)
+    +sectionHead('Pending requests', opts.empty ? 0 : requests.length)
+      if selected.length
+        +btn({ variant: 'outline', size: 'sm', label: `Dismiss selected (${selected.length})` })
+    if opts.empty
+      div(class='rounded-lg border border-line bg-surface')
+        +emptyState('Nothing waiting', 'New requests show up here the moment someone asks.', 'Add person')
+    else
+      div(class='flex flex-col gap-2')
+        each r, i in requests
+          +requestCard(view, r, selected.includes(i))
+
+//- The search field with its icon inside, and Add person beside it.
+mixin peopleToolbar(view, query)
+  - const phone = view === 'mobile'
+  div(class=['flex items-center gap-2', phone ? 'w-full' : 'w-[420px]'])
+    div(class='relative flex-1')
+      +icon('search', 14)(class='pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-ink-3')
+      +input({ placeholder: 'Search people…', value: query })(class='pl-9' aria-label='Search people')
+    if phone
+      +btn({ variant: 'outline', icon: 'plus', iconOnly: true, label: 'Add person', touch: true })
+    else
+      +btn({ variant: 'outline', icon: 'plus', label: 'Add person' })
+
+mixin peopleSection(view, cols, rows, opts)
+  - opts = opts || {}
+  section(class='flex flex-col gap-3')&attributes(attributes)
+    +sectionHead('People', opts.count !== undefined ? opts.count : rows.length)
+      +peopleToolbar(view, opts.query)
+    if rows.length
+      +authDataList(cols, rows, view)
+    else
+      div(class='rounded-lg border border-line bg-surface')
+        +emptyState(`No one matches “${opts.query}”`, 'Check the spelling, or search by email.', 'Clear search')
+
+mixin blockedSection(view, cols, rows)
+  section(class='flex flex-col gap-3')&attributes(attributes)
+    +sectionHead('Blocked', rows.length)
+    if rows.length
+      +authDataList(cols, rows, view)
+    else
+      div(class='rounded-lg border border-line bg-surface px-4 py-8 text-center')
+        p(class='text-h3') No one is blocked
+        p(class='mt-1 text-sm text-ink-3') Block someone from People and they’ll show up here.
+
+//-
+  The Discord links panel: two lists to pick from, the Link button, and the
+  table of links already made. `empty` shows the nothing-to-link state.
+mixin discordSection(view, d, opts)
+  - opts = opts || {}
+  - const phone = view === 'mobile'
+  section(class='flex flex-col gap-3')&attributes(attributes)
+    +sectionHead('Discord links', opts.empty ? 0 : d.links.length)
+    p(class='max-w-[74ch] text-sm text-ink-3') Pair a person with a Discord account so their downloads are attributed to them. Both sides are picked from what the system has already seen — nothing is typed by hand.
+    div(class=['grid gap-5 rounded-lg border border-line bg-surface p-4', phone ? 'grid-cols-1' : 'grid-cols-2'])
+      div(class='flex min-w-0 flex-col gap-2')
+        p(class='text-sm font-medium text-ink-2') People without a Discord link
+        if opts.empty
+          div(class='rounded-md border border-dashed border-line px-4 py-8 text-center')
+            p(class='text-sm font-medium') Everyone is linked
+            p(class='mt-1 text-cap text-ink-3') People who sign in without a link show up here.
+        else
+          +input({ placeholder: 'Filter people…' })(aria-label='Filter people without a Discord link')
+          div(role='radiogroup' aria-label='People without a Discord link' class='flex flex-col gap-1.5')
+            each p, i in d.people
+              +choice('radio', { name: 'discord-person-' + view, checked: i === 0 })
+                span(class='flex min-w-0 flex-col')
+                  span(class='truncate text-sm font-medium')= p.name
+                  span(class='truncate font-mono text-mono-sm text-ink-3')= p.email
+      div(class='flex min-w-0 flex-col gap-2')
+        p(class='text-sm font-medium text-ink-2') Discord accounts without a lilnas link
+        if opts.empty
+          div(class='rounded-md border border-dashed border-line px-4 py-8 text-center')
+            p(class='text-sm font-medium') No Discord accounts yet
+            p(class='mt-1 text-cap text-ink-3') They appear the first time someone runs #[+code('/download')].
+        else
+          +input({ placeholder: 'Filter accounts…' })(aria-label='Filter Discord accounts without a lilnas link')
+          div(role='radiogroup' aria-label='Discord accounts without a lilnas link' class='flex flex-col gap-1.5')
+            each a, i in d.accounts
+              +choice('radio', { name: 'discord-account-' + view, checked: i === 0 })
+                span(class='flex min-w-0 flex-col')
+                  span(class='truncate font-mono text-mono-sm font-medium') @#{a.username}
+                  span(class='truncate text-cap text-ink-3')
+                    if a.displayName
+                      | #{a.displayName} ·#{' '}
+                    | last seen #{a.seen}
+    div(class='flex justify-end')
+      if opts.empty
+        +btn({ variant: 'accent', label: 'Link', disabled: true })
+      else
+        +btn({ variant: 'accent', label: `Link ${d.people[0].email} ↔ @${d.accounts[0].username}`, full: phone })
+    if opts.empty
+      div(class='rounded-lg border border-line bg-surface')
+        +emptyState('No Discord links yet', 'Pick a person and an account above and they’ll show up here.')
+    else
+      +authDataList(d.linksCols, d.links, view)
+
+//- ── Dialog bodies ───────────────────────────────────────────────────────
+mixin serviceGrid(list, checkedHosts, view)
+  div(class='grid grid-cols-2 gap-1.5')
+    each s in list
+      +choice('checkbox', { checked: checkedHosts.includes(s.host) })(class='min-w-0 px-2.5')
+        unless view === 'mobile'
+          span(class='grid size-[26px] shrink-0 place-items-center rounded-md bg-accent-ghost text-accent-hi')
+            +icon(s.icon, 14)
+        span(class='truncate text-sm font-medium')= s.name
+
+//- Chips for the rules in force, an input and Add rule, and the one-click preset.
+mixin accessRules(rules, opts)
+  - opts = opts || {}
+  +field('Access rules', opts.error ? null : 'A rule grants every site under it, including ones not discovered yet.', opts.error)
+    div(class='flex flex-col gap-2')
+      if rules.length
+        div(class='flex flex-wrap gap-1.5')
+          each r in rules
+            +chip({ icon: 'globe', label: r, mono: true, remove: true })
+      div(class='flex gap-2')
+        +input({ placeholder: '*.dev.lilnas.io', mono: true, value: opts.draft, error: !!opts.error })(class='flex-1' aria-label='Access rule')
+        +btn({ variant: 'outline', label: 'Add rule', disabled: !opts.draft })
+      unless rules.includes('*.dev.lilnas.io')
+        div
+          +btn({ variant: 'ghost', size: 'sm', icon: 'plus', label: '*.dev.lilnas.io' })
+
+mixin addPersonDialog(d, opts)
+  - opts = opts || {}
+  +dialog({ title: 'Add a person', confirm: 'Add person' })
+    div(class='flex flex-col gap-4')
+      p(class='text-ink-3') Give someone access before they ask — handy for family and friends you’re onboarding.
+      +field('Email address', null, opts.error ? 'Enter an email like name@example.com.' : null)
+        +input({ type: 'email', placeholder: 'name@example.com', value: opts.email, error: !!opts.error, mono: true })
+      +field('Grant access to')
+        +serviceGrid(d.serviceList, opts.checked || [], opts.view)
+      +accessRules(opts.rules || [])
+
+mixin editAccessDialog(d, opts)
+  - opts = opts || {}
+  - const checked = [d.serviceList[1].host, d.serviceList[2].host, d.serviceList[4].host]
+  +dialog({ title: 'Edit access', confirm: 'Save access' })
+    div(class='flex flex-col gap-4')
+      div(class='flex items-center gap-3')
+        +avatar('JD', { size: 32 })
+        span(class='flex min-w-0 flex-col')
+          span(class='truncate text-sm font-medium') Jane Doe
+          span(class='truncate font-mono text-mono-sm text-ink-3') jane.doe@example.com
+      +field('Discord', 'Link people from the Discord links panel, where you pick both sides from accounts the system has seen.')
+        div(class='flex items-center justify-between gap-2')
+          +discordChip('janedoe')
+          +btn({ variant: 'bad', size: 'sm', label: 'Unlink' })
+      +field('Services')
+        +serviceGrid(d.serviceList, checked, opts.view)
+      +accessRules(['*.dev.lilnas.io'])
+      div(class='flex flex-wrap gap-2 border-t border-line-soft pt-4')
+        +btn({ variant: 'outline', size: 'sm', icon: 'logout', label: 'Sign out everywhere' })
+        +btn({ variant: 'bad', size: 'sm', icon: 'trash', label: 'Remove access' })
+
+//- A destructive confirm over the (dimmed) people list. The block is the body.
+mixin confirmDialog(c)
+  +dialog({ title: c.title, confirm: c.confirm, cancel: c.cancel, destructive: true })
+    = c.body

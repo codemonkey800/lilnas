@@ -12,7 +12,7 @@ import { type ReactNode } from 'react'
 // login/page.tsx renders its content into.
 export default function LoginLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-950 px-4">
+    <div className="flex min-h-screen flex-1 items-center justify-center px-4">
       {children}
     </div>
   )

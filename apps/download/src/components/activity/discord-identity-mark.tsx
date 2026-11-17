@@ -53,7 +53,7 @@ const ROOT = 'relative inline-flex shrink-0 items-center'
  */
 const TRIGGER = cns(
   'relative inline-flex shrink-0 items-center text-ink-4',
-  'transition-colors duration-200 ease-uv hover:text-ink-2',
+  'transition-colors duration-200 ease-standard hover:text-ink-2',
   'before:absolute before:-inset-1.5',
 )
 
@@ -88,7 +88,7 @@ const PANEL = cns(
 
 const FIELD = 'flex flex-col gap-[3px]'
 
-const FIELD_LABEL = 'font-mono text-label uppercase text-ink-4'
+const FIELD_LABEL = 'text-label uppercase text-ink-3'
 
 const FIELD_VALUE = 'font-mono text-mono-sm text-ink-2'
 
@@ -115,7 +115,7 @@ const FIELD_VALUE = 'font-mono text-mono-sm text-ink-2'
  */
 const FIELD_ID = cns(FIELD_VALUE, 'break-all select-all')
 
-const NOTE = 'text-cap text-ink-4'
+const NOTE = 'text-cap text-ink-3'
 
 /** The panel's one line of context — why this identity is raw Discord at all. */
 export const DISCORD_UNLINKED_NOTE = 'No lilnas account linked yet'

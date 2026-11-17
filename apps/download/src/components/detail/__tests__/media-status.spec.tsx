@@ -36,27 +36,27 @@ const VIDEO: Video = {
 const TONE_MARKERS: Record<MediaState, string> = {
   absent: 'text-ink-3',
   available: 'text-ok',
-  downloading: 'text-uv-hi',
-  importing: 'text-uv-hi',
+  downloading: 'text-accent-hi',
+  importing: 'text-accent-hi',
   needs_attention: 'text-warn',
   paused: 'text-warn',
   wanted: 'text-ink-3',
 }
 
 const MOVIE_LABELS: Record<MediaState, string> = {
-  absent: 'not downloaded',
-  available: 'in library',
-  downloading: 'downloading',
-  importing: 'importing…',
-  needs_attention: 'needs your decision',
-  paused: 'paused',
-  wanted: 'wanted',
+  absent: 'Not downloaded',
+  available: 'In library',
+  downloading: 'Downloading',
+  importing: 'Importing…',
+  needs_attention: 'Needs your decision',
+  paused: 'Paused',
+  wanted: 'Wanted',
 }
 
 const VIDEO_LABELS: Record<MediaState, string> = {
   ...MOVIE_LABELS,
-  available: 'downloaded',
-  importing: 'processing…',
+  available: 'Downloaded',
+  importing: 'Processing…',
 }
 
 const LIVE_STATES: readonly MediaState[] = ['downloading', 'importing']
@@ -72,7 +72,7 @@ describe('MediaStatus', () => {
       const chip = screen.getByText(MOVIE_LABELS[state])
 
       expect(chip.getAttribute('class')).toContain(TONE_MARKERS[state])
-      expect(container.querySelector('.dot-live') !== null).toBe(
+      expect(container.querySelector('[data-pulse]') !== null).toBe(
         LIVE_STATES.includes(state),
       )
     })
@@ -82,7 +82,7 @@ describe('MediaStatus', () => {
       const chip = screen.getByText(VIDEO_LABELS[state])
 
       expect(chip.getAttribute('class')).toContain(TONE_MARKERS[state])
-      expect(container.querySelector('.dot-live') !== null).toBe(
+      expect(container.querySelector('[data-pulse]') !== null).toBe(
         LIVE_STATES.includes(state),
       )
     })
@@ -90,13 +90,13 @@ describe('MediaStatus', () => {
     it('reads a show in the movie wording', () => {
       render(<MediaStatus media={{ ...SHOW, state: 'available' }} />)
 
-      expect(screen.getByText('in library')).toBeInTheDocument()
+      expect(screen.getByText('In library')).toBeInTheDocument()
     })
 
     it('reads a media with no state as absent', () => {
       render(<MediaStatus media={MOVIE} />)
 
-      expect(screen.getByText('not downloaded')).toBeInTheDocument()
+      expect(screen.getByText('Not downloaded')).toBeInTheDocument()
     })
 
     it('lets a scope override the media state', () => {
@@ -107,15 +107,15 @@ describe('MediaStatus', () => {
         />,
       )
 
-      expect(screen.getByText('downloading')).toBeInTheDocument()
-      expect(screen.queryByText('in library')).not.toBeInTheDocument()
-      expect(container.querySelector('.dot-live')).toBeInTheDocument()
+      expect(screen.getByText('Downloading')).toBeInTheDocument()
+      expect(screen.queryByText('In library')).not.toBeInTheDocument()
+      expect(container.querySelector('[data-pulse]')).toBeInTheDocument()
     })
 
     it('keeps the media type wording under a scope override', () => {
       render(<MediaStatus media={VIDEO} scopeState="importing" />)
 
-      expect(screen.getByText('processing…')).toBeInTheDocument()
+      expect(screen.getByText('Processing…')).toBeInTheDocument()
     })
   })
 
@@ -143,7 +143,7 @@ describe('MediaStatus', () => {
         />,
       )
 
-      expect(screen.getByText('wanted')).toBeInTheDocument()
+      expect(screen.getByText('Wanted')).toBeInTheDocument()
       expect(screen.getByText('Not released yet')).toBeInTheDocument()
     })
 
@@ -248,8 +248,8 @@ describe('MediaStatus', () => {
       )
 
       // The chip and the bar's note both name the handoff.
-      expect(screen.getAllByText('finishing up')).toHaveLength(2)
-      expect(screen.queryByText('downloading')).not.toBeInTheDocument()
+      expect(screen.getAllByText('Finishing up')).toHaveLength(2)
+      expect(screen.queryByText('Downloading')).not.toBeInTheDocument()
       expect(
         screen.getByText(
           'All downloaded. SABnzbd is checking and unpacking it; Radarr imports it after.',
@@ -258,11 +258,9 @@ describe('MediaStatus', () => {
       expect(screen.queryByText('~00:00:00 left')).not.toBeInTheDocument()
       expect(progressBar()).toHaveAttribute(
         'aria-valuetext',
-        '100%, finishing up',
+        '100%, Finishing up',
       )
-      expect(
-        progressBar()?.querySelector('[data-settling]'),
-      ).toBeInTheDocument()
+      expect(progressBar()).toHaveAttribute('data-settling')
     })
 
     // Plan 025: SABnzbd's post-processing, named as the attempt card names it.
@@ -298,11 +296,11 @@ describe('MediaStatus', () => {
       )
 
       // The chip and the bar's note both name the stage.
-      expect(screen.getAllByText('unpacking')).toHaveLength(2)
-      expect(screen.queryByText('finishing up')).not.toBeInTheDocument()
+      expect(screen.getAllByText('Unpacking')).toHaveLength(2)
+      expect(screen.queryByText('Finishing up')).not.toBeInTheDocument()
       expect(screen.getByText(line)).toBeInTheDocument()
       expect(progressBar()).toHaveAttribute('aria-valuenow', '100')
-      expect(progressBar()).toHaveAttribute('aria-valuetext', '100%, unpacking')
+      expect(progressBar()).toHaveAttribute('aria-valuetext', '100%, Unpacking')
       // No throughput in the header — that is the attempt card's line.
       expect(screen.queryByText(/B\/s|GB/)).not.toBeInTheDocument()
     })
@@ -322,14 +320,12 @@ describe('MediaStatus', () => {
         />,
       )
 
-      expect(screen.getAllByText('importing…')).toHaveLength(2)
-      expect(screen.queryByText('completed')).not.toBeInTheDocument()
+      expect(screen.getAllByText(/^importing…$/i)).toHaveLength(2)
+      expect(screen.queryByText('Completed')).not.toBeInTheDocument()
       expect(
         screen.getByText('Sonarr is moving it into the library.'),
       ).toBeInTheDocument()
-      expect(
-        progressBar()?.querySelector('[data-settling]'),
-      ).toBeInTheDocument()
+      expect(progressBar()).toHaveAttribute('data-settling')
     })
 
     it('keeps a download short of 100% transferring', () => {
@@ -343,10 +339,8 @@ describe('MediaStatus', () => {
         />,
       )
 
-      expect(screen.getAllByText('downloading')).toHaveLength(2)
-      expect(
-        progressBar()?.querySelector('[data-settling]'),
-      ).not.toBeInTheDocument()
+      expect(screen.getAllByText(/^downloading$/i)).toHaveLength(2)
+      expect(progressBar()).not.toHaveAttribute('data-settling')
     })
 
     it('draws no bar for a snapshot with no percentage', () => {
@@ -354,7 +348,7 @@ describe('MediaStatus', () => {
         <MediaStatus
           media={{
             ...MOVIE,
-            queueSnapshot: { status: 'queued' },
+            queueSnapshot: { status: 'Queued' },
             state: 'downloading',
           }}
         />,

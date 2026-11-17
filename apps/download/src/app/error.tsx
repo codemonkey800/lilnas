@@ -1,10 +1,9 @@
 'use client'
 
-import { cns } from '@lilnas/utils/cns'
+import { Button, Icon, Note } from '@lilnas/ui'
 import type { JSX } from 'react'
 
-import { Button } from 'src/components/ui/button'
-import { Note } from 'src/components/ui/card'
+import { PageMain } from 'src/components/shell/page-main'
 
 export type HomeErrorProps = {
   /**
@@ -18,49 +17,38 @@ export type HomeErrorProps = {
 }
 
 /**
- * The homepage's error boundary — the library, activity or facets call threw.
+ * The root error boundary — the library, activity or facets call threw.
  *
  * A client component because Next.js requires it: the boundary owns `reset`,
- * which is a callback the browser has to be able to invoke.
- *
- * `Note` wears the loud override `ui.pug` uses for its one alarming aside.
- * `Note` has no `tone` prop by design, so the three `!` utilities below are
- * the sanctioned way to say "this one is bad".
+ * which is a callback the browser has to be able to invoke. Drawn as the
+ * mockups' boundary row: the page title, a `bad` `Note` saying what broke and
+ * what to do, then the one Try again button beside the digest.
  */
 export default function HomeError({
   error,
   reset,
 }: HomeErrorProps): JSX.Element {
   return (
-    <main
-      className={cns(
-        'flex-auto px-6 pt-[18px] pb-[30px]',
-        'sm:px-8 sm:pt-[30px] sm:pb-11',
-      )}
-    >
-      <div className="mx-auto max-w-[1080px]">
-        <h1 className="mb-[14px] text-h2 sm:mb-4">Library unavailable</h1>
-        <Note className="border-bad/35! bg-bad-ghost! [&>svg]:text-bad!">
-          <p>
-            The library didn&rsquo;t load. The download service answered with an
-            error, so the counts and the recently-added grid are both missing
-            rather than stale.
-          </p>
-          {error.digest === undefined ? null : (
-            <p className="mt-1.5 font-mono text-mono-sm text-ink-4">
-              {error.digest}
-            </p>
-          )}
-          <Button
-            className="mt-2.5"
-            onClick={reset}
-            size="sm"
-            variant="outline"
-          >
-            Try again
-          </Button>
-        </Note>
+    <PageMain>
+      <h1 className="mb-4 text-h2">The library didn&rsquo;t load</h1>
+      <Note
+        icon={<Icon name="alert" />}
+        lead="The download service didn’t answer."
+        tone="bad"
+      >
+        Counts and recently added are missing rather than stale. It may be
+        restarting — try again in a minute.
+      </Note>
+      <div className="mt-3 flex items-center gap-3">
+        <Button icon="refresh" onClick={reset} size="sm" variant="outline">
+          Try again
+        </Button>
+        {error.digest === undefined ? null : (
+          <span className="font-mono text-mono-sm text-ink-3">
+            digest {error.digest}
+          </span>
+        )}
       </div>
-    </main>
+    </PageMain>
   )
 }

@@ -1,96 +1,60 @@
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 import { AccountLink } from 'src/components/shell/account-link'
 import { PROFILE_HREF } from 'src/lib/profile-filters'
 
-describe('AccountLink', () => {
-  it('is an <a>, not a <button> — it navigates', () => {
-    render(<AccountLink email="jeremy@lilnas.io" />)
-    const link = screen.getByRole('link', { name: 'Your account' })
+function trigger(): HTMLElement {
+  return screen.getByRole('button', { name: 'Your account' })
+}
 
-    expect(link.tagName).toBe('A')
-    expect(link).toHaveAttribute('href', PROFILE_HREF)
-    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+describe('AccountLink', () => {
+  it('is a menu trigger wearing the viewer’s avatar', () => {
+    render(<AccountLink email="jeremy@lilnas.io" />)
+
+    expect(trigger()).toHaveAttribute('aria-haspopup', 'menu')
+    expect(trigger()).toHaveAttribute('aria-expanded', 'false')
   })
 
   it('derives the initials from the viewer email', () => {
     render(<AccountLink email="jeremy.asuncion@lilnas.io" />)
 
-    expect(
-      screen.getByRole('link', { name: 'Your account' }),
-    ).toHaveTextContent('JA')
+    expect(trigger()).toHaveTextContent('JA')
   })
 
   it('names the account in the tooltip without leaking it into the label', () => {
     render(<AccountLink email="jeremy@lilnas.io" />)
-    const link = screen.getByRole('link', { name: 'Your account' })
 
-    expect(link).toHaveAttribute('title', 'jeremy@lilnas.io · you')
+    expect(trigger()).toHaveAttribute('title', 'jeremy@lilnas.io · you')
+    expect(trigger()).toHaveAccessibleName('Your account')
   })
 
-  it('carries the uv ring that marks the avatar as the viewer', () => {
+  it('carries the accent fill that marks the avatar as the viewer', () => {
     render(<AccountLink email="jeremy@lilnas.io" />)
-    const avatar = screen.getByRole('link', {
-      name: 'Your account',
-    }).firstElementChild
 
-    expect(avatar?.getAttribute('class')).toContain(
-      'shadow-[0_0_0_2px_var(--color-bg-sunk),0_0_0_4px_var(--color-uv)]',
+    expect(trigger().firstElementChild?.getAttribute('class')).toContain(
+      'bg-accent',
     )
   })
 
-  it('renders one avatar, not a nested link inside a link', () => {
+  it('opens onto the email and the one way to the profile', async () => {
+    const user = userEvent.setup()
     render(<AccountLink email="jeremy@lilnas.io" />)
 
-    expect(screen.getAllByRole('link')).toHaveLength(1)
+    await user.click(trigger())
+
+    expect(await screen.findByRole('menu')).toHaveTextContent(
+      'jeremy@lilnas.io',
+    )
     expect(
-      screen.getByRole('link', { name: 'Your account' }).firstElementChild
-        ?.tagName,
-    ).toBe('SPAN')
+      screen.getByRole('menuitem', { name: 'Your profile' }),
+    ).toHaveAttribute('href', PROFILE_HREF)
+    expect(screen.getAllByRole('menuitem')).toHaveLength(1)
   })
 
-  it('is a 32px plate on mobile and a 30px plateless mark on desktop', () => {
-    render(<AccountLink email="jeremy@lilnas.io" />)
-    const classes =
-      screen
-        .getByRole('link', { name: 'Your account' })
-        .getAttribute('class') ?? ''
+  it('merges a className onto the trigger', () => {
+    render(<AccountLink className="max-md:hidden" email="jeremy@lilnas.io" />)
 
-    expect(classes).toContain('h-8')
-    expect(classes).toContain('w-8')
-    expect(classes).toContain('rounded-md')
-    expect(classes).toContain('hover:bg-surface-2')
-    expect(classes).toContain('sm:h-[30px]')
-    expect(classes).toContain('sm:w-[30px]')
-    expect(classes).toContain('sm:rounded-full')
-    expect(classes).toContain('sm:hover:bg-transparent')
-  })
-
-  it('keeps both avatar sizes, so the mark grows with the plate', () => {
-    render(<AccountLink email="jeremy@lilnas.io" />)
-    const classes =
-      screen
-        .getByRole('link', { name: 'Your account' })
-        .firstElementChild?.getAttribute('class') ?? ''
-
-    expect(classes).toContain('h-6')
-    expect(classes).toContain('text-[10.5px]')
-    expect(classes).toContain('sm:h-[30px]')
-    expect(classes).toContain('sm:text-[11.5px]')
-  })
-
-  it('spreads remaining props and lets a call site override href', () => {
-    render(
-      <AccountLink
-        className="ml-2"
-        data-testid="account"
-        email="jeremy@lilnas.io"
-        href="/profile/me"
-      />,
-    )
-    const link = screen.getByTestId('account')
-
-    expect(link).toHaveAttribute('href', '/profile/me')
-    expect(link).toHaveClass('ml-2')
+    expect(trigger()).toHaveClass('max-md:hidden')
   })
 })

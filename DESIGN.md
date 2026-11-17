@@ -2,9 +2,12 @@
 
 The design system for every app at `*.lilnas.io`.
 
-> **See it first:** open `docs/designs/preview/index.html` in a browser. It is a
-> single self-contained file that renders every component in the system. Read
-> this doc after.
+> **See it first:** open `docs/features/design-system/designs/index.html` in a
+> browser. It is a single self-contained file that renders every component in
+> the system. Read this doc after.
+
+The system ships as the `@lilnas/ui` package (`packages/ui`): import the theme
+and the components from there rather than rebuilding them in an app.
 
 **Direction: Category Standard.** Chosen on 2026-10-23 from six dark-purple
 candidates (five sketches plus the earlier "Ultraviolet" system, now retired).
@@ -189,20 +192,20 @@ and nowhere else:
 
 ## The docs
 
-| Doc                                                                  | What's in it                                                                     |
-| -------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| [`docs/designs/preview/index.html`](docs/designs/preview/index.html) | **Start here.** Every component, rendered.                                       |
-| [`docs/designs/foundations.md`](docs/designs/foundations.md)         | Colour, type, space, shape, elevation. Tokens, contrast, and the `@theme` block. |
-| [`docs/designs/motion.md`](docs/designs/motion.md)                   | Durations, curves, the entry motion, stagger, reduced motion.                    |
-| [`docs/designs/components.md`](docs/designs/components.md)           | Anatomy, variants and states for every primitive.                                |
-| [`docs/designs/voice.md`](docs/designs/voice.md)                     | How the interface talks. Buttons, errors, empty states.                          |
-| [`docs/designs/adoption.md`](docs/designs/adoption.md)               | Current state of every app, the `@lilnas/ui` package, migration order.           |
+| Doc                                                                                                | What's in it                                                                     |
+| -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| [`docs/features/design-system/designs/index.html`](docs/features/design-system/designs/index.html) | **Start here.** Every component, rendered.                                       |
+| [`docs/designs/foundations.md`](docs/designs/foundations.md)                                       | Colour, type, space, shape, elevation. Tokens, contrast, and the `@theme` block. |
+| [`docs/designs/motion.md`](docs/designs/motion.md)                                                 | Durations, curves, the entry motion, stagger, reduced motion.                    |
+| [`docs/designs/components.md`](docs/designs/components.md)                                         | Anatomy, variants and states for every primitive.                                |
+| [`docs/designs/voice.md`](docs/designs/voice.md)                                                   | How the interface talks. Buttons, errors, empty states.                          |
+| [`docs/designs/adoption.md`](docs/designs/adoption.md)                                             | Which apps are on `@lilnas/ui`, what changed, the work that remains.             |
 
 ---
 
 ## Status
 
-**Direction agreed; implementation partial.** `apps/download` and `apps/dev`
-already ship a local copy of the previous (Ultraviolet) system under the same
-token names, so the first step is a values swap, not a rewrite. `@lilnas/ui`
-doesn't exist yet. See [`docs/designs/adoption.md`](docs/designs/adoption.md).
+**Implemented.** `@lilnas/ui` (`packages/ui`) is the library, and `portal`,
+`auth`, `download`, `tdr-bot`, `tdr-code` and `dev` are on it. `swole`,
+`dashcam` and `theater` remain. See
+[`docs/designs/adoption.md`](docs/designs/adoption.md).

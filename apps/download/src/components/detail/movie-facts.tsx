@@ -1,3 +1,4 @@
+import { Badge } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type {
   MediaCredits,
@@ -19,7 +20,6 @@ import {
   imdbLink,
   joinFacts,
 } from 'src/components/detail/fact-section'
-import { Chip } from 'src/components/ui/chip'
 import { formatBytes, UNKNOWN_VALUE } from 'src/lib/format'
 
 export const MOVIE_FILE_HEADING = 'File'
@@ -29,7 +29,7 @@ export const MOVIE_DETAILS_HEADING = 'Details'
  * Beside the quality when Radarr's profile would still take a better release -
  * the file is fine to watch, and may be swapped out from under the page.
  */
-export const MOVIE_UPGRADE_LABEL = 'upgrade wanted'
+export const MOVIE_UPGRADE_LABEL = 'Upgrade wanted'
 
 export const MOVIE_IMDB_LABEL = IMDB_LABEL
 export const MOVIE_TMDB_LABEL = 'TMDb'
@@ -161,7 +161,7 @@ export function movieFileFacts(file: MovieFile): Fact[] {
         <span className={cns('flex flex-wrap items-center gap-2')}>
           <span>{file.quality}</span>
           {file.qualityCutoffNotMet ? (
-            <Chip label={MOVIE_UPGRADE_LABEL} tone="warn" />
+            <Badge tone="warn">{MOVIE_UPGRADE_LABEL}</Badge>
           ) : null}
         </span>
       ) : null,
@@ -229,12 +229,15 @@ export function MovieFacts({
       {...props}
       sections={[
         {
-          facts: movie.file ? movieFileFacts(movie.file) : [],
-          heading: MOVIE_FILE_HEADING,
-        },
-        {
           facts: movieInfoFacts(movie, credits),
           heading: MOVIE_DETAILS_HEADING,
+        },
+        {
+          facts: facts([
+            ...(movie.file ? movieFileFacts(movie.file) : []),
+            fact('Path', movie.filePath, true),
+          ]),
+          heading: MOVIE_FILE_HEADING,
         },
       ]}
     />

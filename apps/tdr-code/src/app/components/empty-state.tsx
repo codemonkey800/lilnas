@@ -1,7 +1,22 @@
-export function EmptyState({ message }: { message: string }) {
+import { EmptyState as UiEmptyState } from '@lilnas/ui'
+import type { JSX, ReactNode } from 'react'
+
+/** `message` is the title; add a `body` line and at most one `action`. */
+export function EmptyState({
+  message,
+  body,
+  action,
+}: {
+  message: string
+  body?: string
+  action?: ReactNode
+}): JSX.Element {
   return (
-    <div className="flex min-h-32 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-gray-700 p-8 text-center">
-      <p className="text-sm text-gray-400">{message}</p>
-    </div>
+    <UiEmptyState
+      action={action}
+      body={body}
+      className="rounded-lg border border-dashed border-line"
+      title={message}
+    />
   )
 }

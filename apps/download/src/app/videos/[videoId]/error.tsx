@@ -1,15 +1,10 @@
 'use client'
 
-import { cns } from '@lilnas/utils/cns'
 import type { JSX } from 'react'
 
+import { DetailError } from 'src/components/detail/detail-error'
 import { LibraryLink } from 'src/components/detail/library-link'
 import { VideoDetailShell } from 'src/components/detail/video-detail'
-import { Button } from 'src/components/ui/button'
-import { Note } from 'src/components/ui/card'
-
-/** The loud `Note`, assembled at the call site the way `ui.pug` does it. */
-const ERROR_NOTE = 'border-bad/35! bg-bad-ghost! [&>svg]:text-bad!'
 
 export type VideoDetailErrorProps = {
   /** Next hands the boundary the thrown error, with a `digest` in production. */
@@ -45,30 +40,13 @@ export default function VideoDetailError({
   return (
     <VideoDetailShell>
       <LibraryLink />
-      <Note className={cns(ERROR_NOTE)} icon="alert">
-        <p className={cns('font-[620] text-ink')}>
-          This video could not be loaded
-        </p>
-        <p className="mt-1">
-          The download service did not answer. Whatever has already been
-          downloaded is still on the server — trying again is safe, and so is
-          leaving and coming back.
-        </p>
-        {error.digest ? (
-          <p className={cns('mt-2 font-mono text-mono-sm text-ink-4')}>
-            Reference {error.digest}
-          </p>
-        ) : null}
-        <Button
-          className="mt-3.5"
-          icon="activity"
-          onClick={reset}
-          size="sm"
-          variant="outline"
-        >
-          Try again
-        </Button>
-      </Note>
+      <DetailError
+        detail="None of this video’s details or downloads could be read. Nothing has been changed — trying again is safe."
+        digest={error.digest}
+        lead="The download service didn’t answer."
+        title="This video couldn’t be loaded"
+        onReset={reset}
+      />
     </VideoDetailShell>
   )
 }

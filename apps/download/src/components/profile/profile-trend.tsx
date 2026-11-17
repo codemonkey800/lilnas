@@ -1,8 +1,8 @@
+import { Icon, Note } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { JSX } from 'react'
 
 import { PROFILE_GROUP_LABEL } from 'src/components/profile/profile-page-shell'
-import { Note } from 'src/components/ui/card'
 import type { ProfileTrendDay } from 'src/lib/jobs-per-day'
 
 /**
@@ -19,9 +19,13 @@ const MIN_BAR_PCT = 15
 const BAR_RANGE_PCT = 85
 
 /** `profile.pug`'s `trend`: 64px of plot, bars growing up off the baseline. */
-const TREND_PLOT = 'flex h-16 items-end gap-[3px]'
+const TREND_PLOT = 'flex h-16 items-end gap-0.5 border-b border-line-soft'
 
-const TREND_BAR = 'flex-1 rounded-t-xs transition-[height] duration-200 ease-uv'
+const TREND_BAR =
+  'flex-1 rounded-t-xs transition-[height] duration-200 ease-standard'
+
+/** The first and last day's labels under the plot, in mono — they are dates. */
+const TREND_AXIS = 'flex justify-between font-mono text-mono-sm text-ink-3'
 
 export type ProfileTrendProps = {
   /**
@@ -63,36 +67,45 @@ export function ProfileTrend({
 
   return (
     <div className="mb-7 flex flex-col gap-2">
-      <span className={cns(PROFILE_GROUP_LABEL)}>
-        downloads per day · last {windowDays}
-      </span>
+      <span className={PROFILE_GROUP_LABEL}>Last {windowDays} days</span>
       {days.length === 0 || total === 0 ? (
-        <Note icon="activity">No activity in the selected window.</Note>
-      ) : (
-        <div
-          aria-label={`${total} ${total === 1 ? 'download' : 'downloads'} over the last ${windowDays} days`}
-          className={cns(TREND_PLOT)}
-          role="img"
+        <Note
+          icon={<Icon name="activity" />}
+          lead="No activity in this window."
         >
-          {days.map(day => (
-            <div
-              className={cns(
-                TREND_BAR,
-                day.count > 0 ? 'bg-uv/70' : 'bg-surface-3',
-              )}
-              key={day.day}
-              style={{
-                height:
-                  day.count > 0
-                    ? `${MIN_BAR_PCT + (day.count / max) * BAR_RANGE_PCT}%`
-                    : `${ZERO_HEIGHT_PCT}%`,
-              }}
-              title={`${day.label} · ${day.count} ${
-                day.count === 1 ? 'download' : 'downloads'
-              }`}
-            />
-          ))}
-        </div>
+          Downloads from the past {windowDays} days will show up here as bars.
+        </Note>
+      ) : (
+        <>
+          <div
+            aria-label={`${total} ${total === 1 ? 'download' : 'downloads'} over the last ${windowDays} days`}
+            className={TREND_PLOT}
+            role="img"
+          >
+            {days.map(day => (
+              <div
+                className={cns(
+                  TREND_BAR,
+                  day.count > 0 ? 'bg-accent' : 'bg-line-soft',
+                )}
+                key={day.day}
+                style={{
+                  height:
+                    day.count > 0
+                      ? `${MIN_BAR_PCT + (day.count / max) * BAR_RANGE_PCT}%`
+                      : `${ZERO_HEIGHT_PCT}%`,
+                }}
+                title={`${day.label} · ${day.count} ${
+                  day.count === 1 ? 'download' : 'downloads'
+                }`}
+              />
+            ))}
+          </div>
+          <div aria-hidden="true" className={TREND_AXIS}>
+            <span>{days[0]?.label}</span>
+            <span>{days[days.length - 1]?.label}</span>
+          </div>
+        </>
       )}
     </div>
   )

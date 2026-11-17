@@ -1,0 +1,164 @@
+extends ../../../../../designs/mockup-kit/page.pug
+
+include ../mixins/tdr-code.pug
+
+block title
+  | tdr-code — git · UI mockups
+
+//-
+  /git: GitHub link, the signed-in person's SSH identity, and the roster of
+  everyone's. Each panel loads and fails on its own. Copy and sample data are
+  in src/data/git.mjs.
+
+//- ── roster cells ──
+mixin clearControl(row, view, cell, what, prompt, others)
+  - const phone = view === 'mobile'
+  if cell.clear === 'pending'
+    +btn({ variant: 'outline', size: 'sm', touch: phone, label: 'Clearing…', loading: true, disabled: true })
+  else if cell.clear === 'confirm'
+    +confirmPair(view, prompt, 'Confirm')
+  else
+    +btn({ variant: 'outline', size: 'sm', touch: phone, label: 'Clear', disabled: others })
+
+mixin rosterGithub(row, view)
+  div(class='flex flex-wrap items-center gap-2')
+    +badge(chip[row.github.status])
+    if row.github.status !== 'not-linked'
+      +clearControl(row, view, row.github, 'GitHub', "Unlink " + row.name + "'s GitHub?", row.others)
+
+mixin rosterSsh(row, view)
+  div(class='flex flex-wrap items-center gap-2')
+    +badge(chip[row.ssh.status])
+    if row.ssh.status !== 'not-configured'
+      +clearControl(row, view, row.ssh, 'SSH', 'Remove ' + row.name + "'s SSH key?", row.others)
+
+//- ── panels ──
+mixin githubPanel(view, s)
+  - const phone = view === 'mobile'
+  - const failed = s.status === 'decrypt-failed'
+  +panel(github.title, github.body)
+    if s.body === 'loading'
+      +loadingBlock(copy.loading.github)(class='border-0 bg-transparent p-0')
+    else if s.body === 'error'
+      +errorBlock(view, copy.error.github.lead, copy.error.github.detail, copy.error.github.code, false)
+    else
+      div(class='flex flex-col gap-3')
+        div(class='flex flex-wrap items-center gap-3')
+          +badge(chip[s.status])
+          if s.status !== 'linked'
+            +btn({ variant: 'accent', touch: phone, label: failed ? 'Relink GitHub' : 'Link GitHub', disabled: s.pending })(title=github.linkHint)
+          if s.status !== 'not-linked'
+            +btn({ variant: 'outline', touch: phone, label: s.unlinking ? 'Unlinking…' : 'Unlink', loading: s.unlinking, disabled: s.unlinking })
+        if failed
+          +note('bad', 'Token unreadable.')
+            = github.failed
+        if s.status === 'linked'
+          p(class='text-sm text-ink-2')
+            | Linked as 
+            span(class='font-medium text-ink')= github.linkedAs
+            span(class='font-mono text-mono-sm text-ink-3')= ' (' + github.linkedEmail + ')'
+        if s.unlinkError
+          +note('bad', github.unlinkError.lead)
+            = github.unlinkError.detail
+            span(class='mt-0.5 block font-mono text-mono-sm text-ink-3')= github.unlinkError.code
+
+mixin sshPanel(view, s)
+  - const phone = view === 'mobile'
+  - const have = s.status === 'configured' || s.status === 'decrypt-failed'
+  - const fixed = s.githubLinked || s.disabled
+  +panel(ssh.title, ssh.body)
+    if s.body === 'loading'
+      +loadingBlock(copy.loading.ssh)(class='border-0 bg-transparent p-0')
+    else if s.body === 'error'
+      +errorBlock(view, copy.error.ssh.lead, copy.error.ssh.detail, copy.error.ssh.code, false)
+    else
+      div(class='flex flex-col gap-4')
+        div(class='flex flex-col gap-2')
+          div(class='flex flex-wrap items-center gap-3')
+            +badge(chip[s.status])
+          if s.status === 'decrypt-failed'
+            +note('bad', 'Key unreadable.')
+              = ssh.failed
+          if have
+            p(class='text-cap text-ink-3')
+              = ssh.identity.name + ' (' + ssh.identity.email + ') · '
+              span(class='font-mono text-mono-sm')= ssh.identity.fingerprint
+        if s.githubLinked
+          +note('accent', ssh.githubNote.lead)
+            = ssh.githubNote.detail
+            |  
+            span(class='font-mono text-mono-sm')= github.linkedEmail
+        div(class=['grid gap-4', phone ? 'grid-cols-1' : 'grid-cols-2'])
+          +field('Name')
+            +input({ value: s.githubLinked ? github.linkedAs : '', placeholder: s.githubLinked ? undefined : 'Jane Doe', disabled: fixed })(class=phone ? 'h-11!' : '')
+          +field('Email')
+            +input({ type: 'email', value: s.githubLinked ? github.linkedEmail : '', placeholder: s.githubLinked ? undefined : 'jane@example.com', disabled: fixed, mono: s.githubLinked })(class=phone ? 'h-11!' : '')
+          +field(ssh.keyLabel, ssh.keyHint)(class=phone ? '' : 'col-span-2')
+            +textarea({ rows: 5, mono: true, placeholder: ssh.keyPlaceholder, disabled: s.disabled })
+        div(class='flex flex-wrap items-center gap-3')
+          +btn({ variant: 'accent', touch: phone, label: s.saving ? 'Saving…' : have ? 'Replace key' : 'Save key', loading: s.saving, disabled: s.saving || s.disabled })
+          if have
+            if s.confirmClear
+              +confirmPair(view, ssh.clearPrompt, 'Confirm')
+            else
+              +btn({ variant: 'outline', touch: phone, label: 'Clear' })
+          if s.saved
+            span(class='inline-flex items-center gap-1.5 text-sm text-ok' role='status')
+              +icon('check', 14)
+              | Saved
+        if s.saveError
+          +note('bad', ssh.saveError.lead)
+            = ssh.saveError.detail
+            span(class='mt-0.5 block font-mono text-mono-sm text-ink-3')= ssh.saveError.code
+
+mixin rosterPanel(view, s)
+  +panel(roster.title, roster.caption)
+    if s.body === 'loading'
+      +loadingBlock(copy.loading.roster)(class='border-0 bg-transparent p-0')
+    else if s.body === 'error'
+      +errorBlock(view, copy.error.roster.lead, copy.error.roster.detail, copy.error.roster.code, false)
+    else if s.body === 'empty'
+      +emptyState(roster.empty.title, roster.empty.body)
+    else
+      +tdrList(rosterColumns, s.rows.map(r => Object.assign({ others: s.others && !(r.github.clear || r.ssh.clear) }, r)), view)
+
+mixin gitScreen(view, panel, s)
+  +shell(view, 'Git', { width: 'max-w-3xl' })
+    h1(class='text-h2') Git
+    if panel === 'github'
+      +githubPanel(view, s)
+    else if panel === 'ssh'
+      +sshPanel(view, s)
+    else if panel === 'roster'
+      +rosterPanel(view, s)
+    else
+      +githubPanel(view, githubStates[1])
+      +sshPanel(view, sshStates[2])
+      +rosterPanel(view, rosterStates[0])
+
+mixin gitStates(view)
+  - const stack = view === 'desktop'
+  +stateRow('Whole page · everything linked and configured', { stack: true })(class='w-full')
+    +gitScreen(view, 'all')
+  each s in githubStates
+    +stateRow('GitHub · ' + s.label + ' · ' + s.caption, { stack: true })(class='w-full')
+      +gitScreen(view, 'github', s)
+  each s in sshStates
+    +stateRow('SSH key · ' + s.label + ' · ' + s.caption, { stack: true })(class='w-full')
+      +gitScreen(view, 'ssh', s)
+  each s in rosterStates
+    +stateRow('Roster · ' + s.label + ' · ' + s.caption, { stack: true })(class='w-full')
+      +gitScreen(view, 'roster', s)
+
+block content
+  +mockHead({ eyebrow: 'tdr-code · /git', title: 'Git', back: true })
+    p Three panels, each with its own loading, error and empty state so one failing doesn't blank the page. A status is a badge: green for Linked and Configured, red for Decrypt failed, quiet for Not linked. The identity note when GitHub is linked is the accent (information, not a warning). Every Clear confirms in place, naming the person and what goes. On a phone the roster is one card per member with each Clear on its own line, and every button is 44px.
+
+  div(class='vp-scope flex flex-col items-center gap-8')
+    +viewportToggle('git-viewport')
+    +viewportPanel('desktop')
+      +gitStates('desktop')
+      +frameLabel Desktop · 1280
+    +viewportPanel('mobile')
+      +gitStates('mobile')
+      +frameLabel Mobile · 390

@@ -1,10 +1,10 @@
 'use client'
 
+import { Note } from '@lilnas/ui'
 import type { GalleryItem } from '@lilnas/utils/download/types'
 import type { JSX } from 'react'
 
 import { RecentCard } from 'src/components/home/recent-card'
-import { Note } from 'src/components/ui/card'
 import { useLiveLibraryItems } from 'src/lib/use-live-library-items'
 import type { Viewer } from 'src/lib/viewer'
 
@@ -28,15 +28,15 @@ export function RecentlyAddedGrid({
 
   if (visible.length === 0) {
     return (
-      <Note>
-        Nothing in the library yet. Paste a link in the search field above to
-        download something, or search for a title to request it.
+      <Note lead="Nothing in the library yet.">
+        Paste a link in the search field above to download something, or search
+        for a title to request it.
       </Note>
     )
   }
 
   return (
-    <div className="flex flex-wrap gap-4 stagger">
+    <div className="stagger grid grid-cols-2 gap-4 sm:grid-cols-[repeat(auto-fill,minmax(158px,1fr))]">
       {visible.map(item => (
         <RecentCard key={item.media.id} item={item} now={now} viewer={viewer} />
       ))}

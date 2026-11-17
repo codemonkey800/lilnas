@@ -1,16 +1,15 @@
 'use client'
 
-import { cns } from '@lilnas/utils/cns'
+import { Badge, Button, Field, Icon, Input } from '@lilnas/ui'
 import { useId, useState } from 'react'
 
-import { Icon } from 'src/app/components/icons'
 import {
   isValidHostPattern,
   normalizeHostMatcher,
 } from 'src/grants/host-matcher'
 
 // The one rule an admin reaches for most often: every externally-exposed
-// dev instance (docs/lilnas-expose.md). Offered as a one-click chip so it
+// dev instance (docs/lilnas-expose.md). Offered as a one-click button so it
 // never has to be typed.
 const PRESET_RULE = '*.dev.lilnas.io'
 
@@ -56,75 +55,87 @@ export function AccessRulesField({
     }
   }
 
+  const messageId = `${inputId}-${hasError ? 'error' : 'hint'}`
+
   return (
-    <div className={cns('field', hasError && 'has-error')}>
-      <label htmlFor={inputId}>Access rules</label>
-      {rules.length > 0 ? (
-        <div className="service-chip-list">
-          {rules.map(rule => (
-            <span key={rule} className="chip chip-neutral">
-              <Icon name="globe" />
-              <span>{rule}</span>
-              <button
-                type="button"
-                className="row"
-                aria-label={`Remove rule ${rule}`}
-                onClick={() => onRemove(rule)}
+    <Field
+      label="Access rules"
+      htmlFor={inputId}
+      hint="A rule grants every site under it, including ones not discovered yet."
+      error={
+        hasError ? 'Use a single leading wildcard, like *.dev.lilnas.io.' : null
+      }
+    >
+      {/* A fragment so Field leaves the controls alone: the input below is
+          the one the label points at. */}
+      <>
+        <div className="flex flex-col gap-2">
+          {rules.length > 0 ? (
+            <ul className="flex flex-wrap gap-1.5">
+              {rules.map(rule => (
+                // A badge is never clickable, so removing a rule is its own
+                // button beside it.
+                <li key={rule} className="flex items-center gap-0.5">
+                  <Badge className="font-mono text-mono-sm">
+                    <Icon name="globe" />
+                    {rule}
+                  </Badge>
+                  <Button
+                    aria-label={`Remove rule ${rule}`}
+                    disabled={disabled}
+                    icon="x"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => onRemove(rule)}
+                  />
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <div className="flex gap-2">
+            <Input
+              id={inputId}
+              mono
+              aria-describedby={messageId}
+              className="flex-1"
+              disabled={disabled}
+              invalid={hasError}
+              placeholder="*.dev.lilnas.io"
+              value={draft}
+              onChange={event => {
+                setDraft(event.target.value)
+                setHasError(false)
+              }}
+              onKeyDown={event => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  handleAdd()
+                }
+              }}
+            />
+            <Button
+              disabled={disabled || draft.trim() === ''}
+              variant="outline"
+              onClick={handleAdd}
+            >
+              Add rule
+            </Button>
+          </div>
+          {rules.includes(PRESET_RULE) ? null : (
+            <div>
+              <Button
                 disabled={disabled}
+                icon="plus"
+                size="sm"
+                variant="ghost"
+                onClick={() => onAdd(PRESET_RULE)}
               >
-                <Icon name="x" />
-              </button>
-            </span>
-          ))}
+                {PRESET_RULE}
+              </Button>
+            </div>
+          )}
         </div>
-      ) : null}
-      <div className="row gap-2">
-        <input
-          id={inputId}
-          className="input"
-          type="text"
-          placeholder="*.dev.lilnas.io"
-          value={draft}
-          onChange={event => {
-            setDraft(event.target.value)
-            setHasError(false)
-          }}
-          onKeyDown={event => {
-            if (event.key === 'Enter') {
-              event.preventDefault()
-              handleAdd()
-            }
-          }}
-          disabled={disabled}
-        />
-        <button
-          type="button"
-          className="btn btn-outline"
-          onClick={handleAdd}
-          disabled={disabled || draft.trim() === ''}
-        >
-          Add rule
-        </button>
-      </div>
-      <span className="field-error">
-        Use a single leading wildcard, like *.dev.lilnas.io.
-      </span>
-      {rules.includes(PRESET_RULE) ? null : (
-        <div className="row gap-2">
-          <button
-            type="button"
-            className="chip chip-pending"
-            onClick={() => onAdd(PRESET_RULE)}
-            disabled={disabled}
-          >
-            <Icon name="plus" />
-            <span>{PRESET_RULE}</span>
-          </button>
-        </div>
-      )}
-      <span className="field-hint">
-        A rule grants every site under it, including ones not discovered yet.
-      </span>
-    </div>
+      </>
+    </Field>
   )
 }

@@ -132,7 +132,7 @@ describe('profileStatusChips', () => {
       profileStatusChips(BY_STATUS, EMPTY_PROFILE_FILTERS).map(
         chip => chip.tone,
       ),
-    ).toEqual(['uv', 'ok', 'bad'])
+    ).toEqual(['accent', 'ok', 'bad'])
   })
 
   it('emits no chip for a status that never occurred', () => {

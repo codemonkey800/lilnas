@@ -1,11 +1,8 @@
+import { Button, Card, Icon } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { ComponentPropsWithoutRef, JSX } from 'react'
 
 import { LIBRARY_HREF } from 'src/components/detail/library-link'
-import { ButtonLink } from 'src/components/ui/button-link'
-import { Card } from 'src/components/ui/card'
-import type { IconName } from 'src/components/ui/icon'
-import { Icon } from 'src/components/ui/icon'
 
 /**
  * The heading. Deliberately general: the same panel answers "this is someone
@@ -24,14 +21,7 @@ export const NOT_AUTHORIZED_DESCRIPTION =
   'Your account isn’t on the list for this page. Nothing has gone wrong — ask an admin if you think you should be able to see it.'
 
 /** The label on the back link. */
-export const NOT_AUTHORIZED_BACK_LABEL = 'Library'
-
-/**
- * `shield` rather than `alert`. `alert` is this system's error register (it is
- * `Note`'s default, and what the loud `border-bad/35!` override pairs with);
- * this panel is a rule being stated, not a fault being reported.
- */
-export const NOT_AUTHORIZED_ICON: IconName = 'shield'
+export const NOT_AUTHORIZED_BACK_LABEL = 'Back to library'
 
 export type NotAuthorizedProps = Omit<
   ComponentPropsWithoutRef<'div'>,
@@ -48,30 +38,22 @@ export type NotAuthorizedProps = Omit<
 }
 
 /**
- * "You are not allowed to see this", as a page's whole body.
+ * "You are not allowed to see this", as a page's whole body: a shield icon, a
+ * heading, one sentence and one way out, in a sunk `Card`. No mascot — that
+ * belongs to empty states only.
  *
  * Shared on purpose. Two routes need this state — `/profile?user=…` for a
  * profile that is neither yours nor visible to you as an admin, and `/admin`
- * for the admin-only dashboard — and if each grew its own the two would drift,
- * the way the ghost-styled watch link did when the home grid and
- * `gallery-item-card.tsx` each kept their own copy of it, before both were
- * folded into `ui/button-link.tsx`.
+ * for the admin-only dashboard — and if each grew its own the two would drift.
  *
  * Quiet, not loud, and specifically *not* the error boundary's register: no
  * `bad` ink, no `role="alert"`. Nothing has failed — the app is answering the
- * question it was asked. That is the same reading as
- * `app/videos/[videoId]/not-found.tsx`, and it wears the same centred sunk
- * panel as `GalleryEmpty` / `ActivityEmpty` (`+card({ sunk: true })` from
- * `ui.pug`, with the call site's own padding).
+ * question it was asked.
  *
  * Presentational and server-safe: no `'use client'`, no hooks, no handlers, so
  * a server component can decide the viewer isn't allowed and render this
- * directly instead of throwing into a boundary.
- *
- * The heading is an `<h2>`, not an `<h1>`. The panel is page *content*, and
- * every route in this app titles itself — usually with an `sr-only` `<h1>`, as
- * `app/gallery/page.tsx` and `videos/[videoId]/not-found.tsx` both do. Pair it
- * with one:
+ * directly instead of throwing into a boundary. The heading is an `<h2>`, so
+ * the route still owes the document an `<h1>`; pair it with an `sr-only` one:
  *
  * ```tsx
  * <h1 className="sr-only">Profile</h1>
@@ -88,26 +70,25 @@ export function NotAuthorized({
 }: NotAuthorizedProps): JSX.Element {
   return (
     <Card
-      sunk
       {...props}
       className={cns(
-        'mx-auto flex max-w-[560px] flex-col items-center gap-2.5',
-        'px-6 py-12 text-center',
+        'mx-auto flex max-w-[560px] flex-col items-center gap-2.5 px-6 py-12 text-center',
         className,
       )}
+      variant="sunk"
     >
-      <Icon className={cns('h-6 w-6 text-ink-4')} name={NOT_AUTHORIZED_ICON} />
-      <h2 className={cns('text-h2')}>{title}</h2>
-      <p className={cns('max-w-[52ch] text-sm text-ink-3')}>{description}</p>
-      <ButtonLink
-        className={cns('mt-2.5')}
-        href={backHref}
+      <Icon className="text-ink-3" name="shield" size={24} />
+      <h2 className="text-h2">{title}</h2>
+      <p className="max-w-[52ch] text-sm text-ink-3">{description}</p>
+      <Button
+        className="mt-2"
         icon="grid"
+        render={<a href={backHref} />}
         size="sm"
         variant="outline"
       >
         {backLabel}
-      </ButtonLink>
+      </Button>
     </Card>
   )
 }

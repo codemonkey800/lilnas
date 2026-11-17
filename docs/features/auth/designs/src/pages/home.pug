@@ -1,0 +1,38 @@
+extends ../../../../../designs/mockup-kit/page.pug
+
+include ../mixins/auth.pug
+
+block title
+  | auth — Home · UI mockups
+
+//-
+  Your account at 1280 and 390, one row per account status. Copy and sample
+  data are in src/data/home.mjs.
+
+block content
+  +mockHead({ eyebrow: 'auth · home', title: 'Home', back: true })
+    p Who you are, what you can open and what state your account is in. The status badge is the one thing that changes across the rows below; the empty state is the only place the pepe turns up.
+
+  div(class='vp-scope flex flex-col items-center gap-6')
+    +viewportToggle('home-viewport')
+    +viewportPanel('desktop')
+      each st in states
+        +stateRow(st.label, { stack: true })(class='w-full')
+          div(class='flex w-full flex-col gap-2')
+            +homeScreen('desktop', st, st.profile || profile, copy)
+            +frameLabel Desktop · 1280
+    +viewportPanel('mobile')
+      each st in states
+        +stateRow(st.label, { stack: true })(class='w-full')
+          div(class='flex w-full flex-col items-center gap-2')
+            +homeScreen('mobile', st, st.profile || profile, copy)
+            +frameLabel Mobile · 390
+      +stateRow('Menu', { stack: true })(class='w-full')
+        div(class='flex w-full flex-col items-center gap-2')
+          +appFrame('mobile', { height: 340 })
+            +appBar('mobile', { app: 'auth' })
+            div(class='px-4 py-6 text-sm text-ink-3') Your account
+            +sheet('bottom', { title: 'Menu' })
+              div(class='-mx-1.5 flex flex-col')
+                +menuItems(menuItems)
+          +frameLabel Mobile · 390 · the app bar’s menu button opens a sheet; on desktop Admin and Sign out sit in the bar

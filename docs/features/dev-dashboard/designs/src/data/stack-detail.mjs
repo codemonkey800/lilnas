@@ -69,6 +69,22 @@ export default {
     },
   ],
 
+  // The same stack once it is down: every service reads "not created".
+  absentServices: [
+    {
+      container: 'fitness-pwa-web-1',
+      status: 'absent',
+      health: 'none',
+      exit: null,
+    },
+    {
+      container: 'fitness-pwa-api-1',
+      status: 'absent',
+      health: 'none',
+      exit: null,
+    },
+  ],
+
   envFiles: [
     { path: '.env', present: true, required: true },
     { path: '.env.local', present: false, required: false },
@@ -88,7 +104,8 @@ export default {
       'Latest visit across the stack’s 2 routes, from the auth service. The reaper stops and removes all 4 containers together and keeps networks and volumes.',
   },
 
-  // Two snapshots of the operation log: one that has finished, one mid-stream.
+  // Three snapshots of the operation log: one that finished, one mid-stream,
+  // one that failed. Lines are { ts, level, src, msg } for the kit's logViewer.
   operations: {
     done: {
       title: 'restart api',
@@ -100,8 +117,18 @@ export default {
       command:
         'docker compose -p fitness-pwa -f /home/jeremy/dev/fitness-pwa/docker-compose.yml restart api',
       lines: [
-        { t: 'out', text: 'Container fitness-pwa-api-1  Restarting' },
-        { t: 'out', text: 'Container fitness-pwa-api-1  Started' },
+        {
+          ts: '16:02:11',
+          level: 'INFO',
+          src: 'compose',
+          msg: 'Container fitness-pwa-api-1  Restarting',
+        },
+        {
+          ts: '16:02:15',
+          level: 'INFO',
+          src: 'compose',
+          msg: 'Container fitness-pwa-api-1  Started',
+        },
       ],
     },
     running: {
@@ -112,13 +139,61 @@ export default {
       command:
         'docker compose -p fitness-pwa -f /home/jeremy/dev/fitness-pwa/docker-compose.yml up -d --force-recreate web',
       lines: [
-        { t: 'out', text: 'Container fitness-pwa-db-1  Running' },
-        { t: 'out', text: 'Container fitness-pwa-web-1  Recreate' },
-        { t: 'out', text: 'Container fitness-pwa-web-1  Recreated' },
-        { t: 'out', text: 'Container fitness-pwa-web-1  Starting' },
+        {
+          ts: '16:09:40',
+          level: 'INFO',
+          src: 'compose',
+          msg: 'Container fitness-pwa-db-1  Running',
+        },
+        {
+          ts: '16:09:41',
+          level: 'INFO',
+          src: 'compose',
+          msg: 'Container fitness-pwa-web-1  Recreate',
+        },
+        {
+          ts: '16:09:43',
+          level: 'INFO',
+          src: 'compose',
+          msg: 'Container fitness-pwa-web-1  Recreated',
+        },
+        {
+          ts: '16:09:43',
+          level: 'INFO',
+          src: 'compose',
+          msg: 'Container fitness-pwa-web-1  Starting',
+        },
+      ],
+    },
+    failed: {
+      title: 'recreate api',
+      started: '15:48:03',
+      who: 'Jeremy',
+      status: 'done',
+      exit: 1,
+      took: '2.3s',
+      command:
+        'docker compose -p fitness-pwa -f /home/jeremy/dev/fitness-pwa/docker-compose.yml up -d --force-recreate api',
+      lines: [
+        {
+          ts: '15:48:03',
+          level: 'INFO',
+          src: 'compose',
+          msg: 'Container fitness-pwa-api-1  Recreate',
+        },
+        {
+          ts: '15:48:05',
+          level: 'ERROR',
+          src: 'compose',
+          msg: 'Error response from daemon: driver failed programming external connectivity: port 8091 is already allocated',
+        },
       ],
     },
   },
+
+  notFoundId: 'lilnas:fitness-pwa-old',
+  retryInSeconds: 30,
+  errorCode: 'ECONNREFUSED 127.0.0.1:8081',
 
   containers: [
     'fitness-pwa-web-1',

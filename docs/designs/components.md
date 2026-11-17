@@ -3,8 +3,11 @@
 Specs for every primitive in `@lilnas/ui`. Each entry gives anatomy, variants,
 states and the classNames that produce them.
 
-These are rendered live in [`preview/index.html`](preview/index.html) — read the
-markup there if a spec is ambiguous.
+These are rendered live in
+[`../features/design-system/designs/index.html`](../features/design-system/designs/index.html)
+— read the markup there if a spec is ambiguous. Every component below is
+shipped in [`packages/ui/src`](../../packages/ui/src); each heading's file is
+listed in the [build order](#build-order).
 
 ---
 
@@ -37,14 +40,14 @@ no variants, because its whole job is to be the same everywhere.
 
 ```
 ┌─────────────────────────────┐
-│ ( 🐸 )  swole.lilnas.io      │   32px tall, rounded-full
+│ ( 🐸 )  tdr-code.lilnas.io   │   32px tall, rounded-full
 └─────────────────────────────┘
    24px      mono 12px/500
    badge     ".lilnas.io" in ink-3
 ```
 
 ```tsx
-<Doorplate app="swole" href="https://lilnas.io" />
+<Doorplate app="tdr-code" href="https://lilnas.io" />
 ```
 
 | Part      | Spec                                                                                                                        |
@@ -274,9 +277,10 @@ Destructive items are `text-bad` and sit below a `line` divider. Keyboard hints
 A **Select** and a **Combobox** with a `Search…` row at the top share the same
 panel; the combobox also filters its items as you type.
 
-**Combobox** is the hardest component in the set — `swole`'s exercise picker
-needs freeform entry, grouping by muscle group, and a coloured dot per group.
-Spec it once, properly, and only in `@lilnas/ui`. Don't reimplement per app.
+**Combobox** is the hardest component in the set: it needs freeform entry
+(`allowCustom`), grouping, and an optional coloured dot per group. `tdr-bot`'s
+reminder dialog uses it today. Spec it once, properly, and only in
+`@lilnas/ui`. Don't reimplement per app.
 
 ---
 
@@ -311,8 +315,9 @@ disruptive than a modal and the pattern already exists in `tdr-code`.
 
 ## Sheet / Drawer
 
-Base UI `Dialog` positioned to an edge. `swole` needs `bottom`; `tdr-code` and
-`download`'s detail view need `right`.
+Base UI `Dialog` positioned to an edge. The mobile menus in `auth`, `download`,
+`tdr-bot` and `tdr-code` use `bottom`; `tdr-code`'s log detail panel uses
+`right`.
 
 ```
 transform transition 380ms ease-standard
@@ -364,9 +369,12 @@ can't drift between them.
 ## Toast
 
 ```
-bg-surface border border-line-loud border-l-[3px] border-l-<tone>
-rounded-lg shadow-lift px-3.5 py-2.5
+relative bg-surface border border-line-loud rounded-lg shadow-lift py-2.5 pr-3.5 pl-5
+before:absolute before:inset-y-2.5 before:left-2 before:w-[3px] before:rounded-full before:bg-<tone>
 ```
+
+The tone is a straight 3px bar inset from the corners, never a `border-l-*`: a
+thick left border on a rounded box bends round the corners into a crescent.
 
 Title `text-[13.5px] font-medium`; one line of detail in `text-ink-3` when needed.
 A `×` dismiss at the right. Bottom-centre. Enters with `animate-rise`, exits
@@ -473,19 +481,49 @@ rows flicker — see [`adoption.md`](adoption.md)).
 
 ## Build order
 
-Ship in this order — each tier unblocks real screens:
+All three tiers are shipped in [`packages/ui/src`](../../packages/ui/src); each
+component links to its file. The tiers are the order they were built in — each
+unblocked real screens.
 
-**1 — unblocks `portal`, `auth`**
-`Doorplate` · `App bar` · `Button` · `Card` · `Tile` · `Badge` · `StatusDot` ·
-`EmptyState` · `icons`
+**1 — unblocked `portal`, `auth`**
+[`Doorplate`](../../packages/ui/src/doorplate/doorplate.tsx) ·
+[`App bar`](../../packages/ui/src/app-bar/app-bar.tsx) ·
+[`Button`](../../packages/ui/src/button/button.tsx) ·
+[`Card` / `Panel` / `Tile`](../../packages/ui/src/card/card.tsx) ·
+[`Badge`](../../packages/ui/src/badge/badge.tsx) ·
+[`StatusDot`](../../packages/ui/src/status-dot/status-dot.tsx) ·
+[`EmptyState`](../../packages/ui/src/empty-state/empty-state.tsx) ·
+[`icons`](../../packages/ui/src/icons/icons.tsx)
 
-**2 — unblocks `download`, `dev`, `tdr-code`**
-`Input` · `Field` · `Checkbox` / `Radio` / `Switch` / `Segmented` · `Tabs` ·
-`Toast` · `Note` · `Skeleton` · `Progress` · `Table` / `DataList` · `Avatar` ·
-`Tooltip` · `Breadcrumb` / `Pagination` · `LogViewer`
+**2 — unblocked `download`, `dev`, `tdr-code`**
+[`Input` / `Field`](../../packages/ui/src/input/input.tsx) ·
+[`Checkbox` / `Radio` / `Switch` / `Segmented`](../../packages/ui/src/choice/choice.tsx) ·
+[`Tabs`](../../packages/ui/src/tabs/tabs.tsx) ·
+[`Toast`](../../packages/ui/src/toast/toast.tsx) ·
+[`Note`](../../packages/ui/src/note/note.tsx) ·
+[`Skeleton` / `Progress`](../../packages/ui/src/feedback/feedback.tsx) ·
+[`Table`](../../packages/ui/src/table/table.tsx) /
+[`DataList`](../../packages/ui/src/table/data-list.tsx) ·
+[`Avatar`](../../packages/ui/src/avatar/avatar.tsx) ·
+[`Tooltip`](../../packages/ui/src/tooltip/tooltip.tsx) ·
+[`Breadcrumb` / `Pagination`](../../packages/ui/src/navigation/navigation.tsx) ·
+[`LogViewer`](../../packages/ui/src/log-viewer/log-viewer.tsx)
 
-**3 — unblocks `swole`**
-`Dialog` · `Sheet` · `Select` · `Menu` · `Combobox` · `Slider`
+**3 — used today by `auth`, `download`, `tdr-bot`, `tdr-code`**
+[`Dialog`](../../packages/ui/src/dialog/dialog.tsx) ·
+[`Sheet`](../../packages/ui/src/sheet/sheet.tsx) ·
+[`Select`](../../packages/ui/src/select/select.tsx) ·
+[`Menu`](../../packages/ui/src/menu/menu.tsx) ·
+[`Combobox`](../../packages/ui/src/combobox/combobox.tsx) ·
+[`Slider`](../../packages/ui/src/slider/slider.tsx)
 
-Tier 3 is the expensive one and only `swole` needs all of it, which is why
-`swole` migrates last. See [`adoption.md`](adoption.md).
+Also in the package: [`Density`](../../packages/ui/src/density/density.tsx)
+(sets `data-density`), `Spinner` and `Meter` (in `feedback.tsx`),
+`Search` (in `input.tsx`), `Kbd` (in `navigation.tsx`), `AvatarStack`, and the
+[`PepeBadge` / `PepeFull`](../../packages/ui/src/marks/marks.tsx) marks. The
+[media card](#media-card) is not a library component: it is built from `Card`,
+`Badge` and `Progress` inside `apps/download`.
+
+Tier 3 was the expensive one. Today `Sheet` is used by `auth`, `download`,
+`tdr-bot` and `tdr-code`, and `Combobox` and `Slider` by `tdr-bot`. See
+[`adoption.md`](adoption.md).

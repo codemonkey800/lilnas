@@ -1,4 +1,4 @@
-import { cns } from '@lilnas/utils/cns'
+import { Badge } from '@lilnas/ui'
 import type { JSX } from 'react'
 
 import { AdminAuditLog } from 'src/components/admin/admin-audit-log'
@@ -6,7 +6,6 @@ import { AdminFilterChips } from 'src/components/admin/admin-filter-chips'
 import { AdminHistory } from 'src/components/admin/admin-history'
 import { AdminLeaderboard } from 'src/components/admin/admin-leaderboard'
 import {
-  ADMIN_NOT_AUTHORIZED_DESCRIPTION,
   ADMIN_SECTION_HEADING,
   ADMIN_TITLE,
   ADMIN_TITLE_TEXT,
@@ -14,7 +13,6 @@ import {
 } from 'src/components/admin/admin-page-shell'
 import { AdminStats } from 'src/components/admin/admin-stats'
 import { NotAuthorized } from 'src/components/shell/not-authorized'
-import { Chip } from 'src/components/ui/chip'
 import { ADMIN_AUDIT_LOG_LIMIT, loadAdminHistory } from 'src/lib/admin-data'
 import type { AdminSearchParams } from 'src/lib/admin-filters'
 import {
@@ -27,7 +25,7 @@ import { getRequestInstant } from 'src/lib/request-instant'
 import { getViewer } from 'src/lib/viewer'
 
 export const metadata = {
-  title: 'Admin dashboard · Download',
+  title: 'Admin · Download',
 }
 
 export type AdminPageProps = {
@@ -78,12 +76,12 @@ export default async function AdminPage({
     return (
       <AdminPageShell>
         {/*
-          `NotAuthorized` renders an `<h2>`, so the route still owes the
+          `NotAuthorized` renders an `<h3>`, so the route still owes the
           document its own heading — the same pairing `app/gallery/page.tsx`
           and `videos/[videoId]/not-found.tsx` use.
         */}
         <h1 className="sr-only">{ADMIN_TITLE_TEXT}</h1>
-        <NotAuthorized description={ADMIN_NOT_AUTHORIZED_DESCRIPTION} />
+        <NotAuthorized />
       </AdminPageShell>
     )
   }
@@ -117,35 +115,28 @@ export default async function AdminPage({
     <AdminPageShell>
       <h1 className={ADMIN_TITLE}>{ADMIN_TITLE_TEXT}</h1>
       <AdminStats stats={stats} />
-      <div className="mb-[14px] flex items-center justify-between gap-4">
+      <AdminFilterChips filters={filters} />
+      <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className={ADMIN_SECTION_HEADING}>Download history</h2>
-        <Chip
-          label={filters.requester === null ? 'every user' : 'one requester'}
-          tone="mute"
+        <Badge tone="mute">Unmasked</Badge>
+      </div>
+      <div className="mb-8">
+        <AdminHistory
+          filters={filters}
+          initialJobs={history.items}
+          initialNextCursor={history.nextCursor}
+          initialTotal={history.total}
+          key={search}
+          now={now}
+          search={search}
+          viewer={viewer}
         />
       </div>
-      <AdminFilterChips filters={filters} />
-      <AdminHistory
-        filters={filters}
-        initialJobs={history.items}
-        initialNextCursor={history.nextCursor}
-        initialTotal={history.total}
-        key={search}
-        now={now}
-        search={search}
-        viewer={viewer}
-      />
-      <div className="mt-7 flex flex-col gap-6 sm:flex-row sm:items-start sm:gap-5">
-        <div className="sm:flex-[0_0_320px]">
-          <h2 className={cns('mb-3 sm:mb-[14px]', ADMIN_SECTION_HEADING)}>
-            Top downloaders
-          </h2>
+      <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
+        <div className="sm:w-[320px] sm:shrink-0">
           <AdminLeaderboard filters={filters} stats={stats} viewer={viewer} />
         </div>
         <div className="min-w-0 sm:flex-1">
-          <h2 className={cns('mb-3 sm:mb-[14px]', ADMIN_SECTION_HEADING)}>
-            Audit log
-          </h2>
           <AdminAuditLog entries={auditLog.items} filters={filters} now={now} />
         </div>
       </div>

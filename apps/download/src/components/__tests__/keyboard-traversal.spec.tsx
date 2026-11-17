@@ -1,5 +1,6 @@
 import '@testing-library/jest-dom'
 
+import { Badge, Button } from '@lilnas/ui'
 import type {
   DownloadJob,
   GalleryItem,
@@ -9,17 +10,13 @@ import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import { ActivityList } from 'src/components/activity/activity-list'
-import { ActivityTable } from 'src/components/activity/activity-table'
+import { ActivityDataList } from 'src/components/activity/activity-data-list'
 import { AdminActor } from 'src/components/admin/admin-actor'
 import { AdminHistoryRequester } from 'src/components/admin/admin-history-cells'
 import { GalleryItemCard } from 'src/components/gallery/gallery-item-card'
 import { RecentCard } from 'src/components/home/recent-card'
-import { Avatar } from 'src/components/ui/avatar'
-import { Button } from 'src/components/ui/button'
-import { ButtonLink } from 'src/components/ui/button-link'
-import { Chip } from 'src/components/ui/chip'
 import { MChip } from 'src/components/ui/mchip'
+import { PersonAvatar } from 'src/components/ui/person-avatar'
 import { ToggleChip } from 'src/components/ui/toggle-chip'
 import { EMPTY_ADMIN_FILTERS } from 'src/lib/admin-filters'
 import type { Viewer } from 'src/lib/viewer'
@@ -96,21 +93,10 @@ type Surface = {
 
 const SURFACES: readonly Surface[] = [
   {
-    name: 'the activity table',
+    name: 'the activity data list',
     render: () =>
       render(
-        <ActivityTable
-          now={NOW}
-          rows={[{ departing: false, job: job() }]}
-          viewer={ADMIN}
-        />,
-      ).container,
-  },
-  {
-    name: 'the activity list',
-    render: () =>
-      render(
-        <ActivityList
+        <ActivityDataList
           now={NOW}
           rows={[{ departing: false, job: job() }]}
           viewer={ADMIN}
@@ -181,7 +167,7 @@ function mouseOnlyControls(container: HTMLElement): string[] {
       }
 
       // An anchor with no `href` is not a link and announces as nothing — it
-      // is how `ButtonLink` implements its own disabled state.
+      // is how a disabled link is written.
       if (element.tagName === 'A' && !element.hasAttribute('href')) {
         return false
       }
@@ -294,26 +280,14 @@ describe('every surface is traversable by keyboard', () => {
  * screen and total for anyone not using a mouse.
  */
 describe('navigating controls are links, activating controls are buttons', () => {
-  it('ButtonLink is a real anchor with a real href', () => {
-    render(<ButtonLink href="/gallery">Gallery</ButtonLink>)
+  it('a Button rendered as a link is a real anchor with a real href', () => {
+    render(<Button render={<a href="/gallery" />}>Gallery</Button>)
 
     const link = screen.getByRole('link', { name: 'Gallery' })
 
     expect(link.tagName).toBe('A')
     expect(link).toHaveAttribute('href', '/gallery')
     expect(link.tabIndex).toBeGreaterThanOrEqual(0)
-  })
-
-  it('a disabled ButtonLink drops the href rather than faking it', () => {
-    render(
-      <ButtonLink aria-disabled href="/gallery">
-        Gallery
-      </ButtonLink>,
-    )
-
-    // A hrefless anchor is neither a link nor focusable, so nothing else has
-    // to be done to pull it out of the tab order.
-    expect(screen.queryByRole('link')).toBeNull()
   })
 
   it('Button is a real button, and never an anchor', () => {
@@ -325,19 +299,10 @@ describe('navigating controls are links, activating controls are buttons', () =>
     expect(button).toHaveAttribute('type', 'button')
   })
 
-  it('an interactive Chip is a button carrying its own pressed state', () => {
-    render(<Chip interactive active label="Movies" onClick={jest.fn()} />)
+  it('a Badge is inert markup, not a control with no keyboard', () => {
+    const { container } = render(<Badge>Movies</Badge>)
 
-    const chip = screen.getByRole('button', { name: 'Movies' })
-
-    expect(chip.tagName).toBe('BUTTON')
-    expect(chip).toHaveAttribute('aria-pressed', 'true')
-  })
-
-  it('a static Chip is inert markup, not a control with no keyboard', () => {
-    const { container } = render(<Chip label="Movies" />)
-
-    // The honest half of the rule: a chip that does nothing must not *look*
+    // The honest half of the rule: a badge that does nothing must not *look*
     // like a control to assistive tech either. Silence beats a button that
     // does nothing when you press it.
     expect(container.querySelector('span')).toBeInTheDocument()
@@ -393,12 +358,12 @@ describe('navigating controls are links, activating controls are buttons', () =>
 
   it('an Avatar is a link only when it has somewhere to go', () => {
     const { container: linked } = render(
-      <Avatar href="/profile" initials="SA" />,
+      <PersonAvatar href="/profile" initials="SA" />,
     )
 
     expect(linked.querySelector('a')).toHaveAttribute('href', '/profile')
 
-    const { container: plain } = render(<Avatar initials="SA" />)
+    const { container: plain } = render(<PersonAvatar initials="SA" />)
 
     expect(plain.querySelector('a')).toBeNull()
     expect(mouseOnlyControls(plain)).toEqual([])

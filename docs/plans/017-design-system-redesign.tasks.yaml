@@ -1,0 +1,2407 @@
+nexus-tasks: 1
+phases:
+  - key: '1'
+    name: Library, mockup kit, mockups and their reviews
+    tasks:
+      - id: T1
+        title: 'Scaffold `packages/ui` (@lilnas/ui): theme.css, placeholders, jest, Base UI'
+        after: []
+        files:
+          - packages/ui/
+          - pnpm-lock.yaml
+        status: done
+        commit: 4412240072443553b4da554a8d9cec2005ea72ed
+        body: |-
+          Create the shared component library package so the tier tasks can fill it in
+          parallel without touching the same files. Mirror `packages/utils` for the
+          build shape (tsc to `dist/`, `tsc7 --noEmit` type-check, eslint + prettier
+          `lint`/`lint:fix`, jest `test` with the same `NODE_OPTIONS` string) and
+          `apps/dev/jest.config.js` + `src/__tests__/setup-dom.ts` for the jsdom
+          project (ts-jest, `jsx: react-jsx`, RTL + jest-dom + user-event).
+
+          Create:
+          - `package.json`: name `@lilnas/ui`, private, `"prettier": "@lilnas/prettier"`,
+            `exports: { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }, "./theme.css": "./theme.css" }`,
+            `files: ["dist", "theme.css"]`. deps: `@base-ui/react` **1.9.0** (exact),
+            `@lilnas/utils workspace:*`. peerDeps `react >=19`, `react-dom >=19`.
+            devDeps pinned to what `apps/dev/package.json` uses: react, react-dom,
+            `@types/react`, `@types/react-dom`, jest 30.5.2, ts-jest 29.4.15,
+            jest-environment-jsdom, `@testing-library/{react,jest-dom,user-event,dom}`,
+            `@lilnas/eslint workspace:*`, `@lilnas/tsc7 workspace:*`, typescript 6.0.3.
+            This is the ONLY phase-1 library task that adds dependencies: run
+            `pnpm install` (not frozen) from the repo root and commit `pnpm-lock.yaml`.
+          - `tsconfig.json`: extend `../../tsconfig.base.json`, `rootDir: src`, `outDir: dist`,
+            `jsx: react-jsx`, `lib: [dom, dom.iterable, esnext]`, `module`/`moduleResolution`
+            as `packages/utils/tsconfig.json`, exclude tests. Every component file that uses
+            hooks or event handlers starts with `'use client'` (tsc preserves the directive).
+          - `eslint.config.cjs`: `[...base, ...react]` from `@lilnas/eslint`, like `apps/dev`.
+          - `theme.css`: the full `@theme` block from `docs/designs/foundations.md` ("The
+            `@theme` block") verbatim — surfaces, lines, text, accent, status, fonts, shape,
+            `--shadow-lift`, motion, keyframes, the deprecated `uv-*`/`ease-uv` alias block,
+            `@layer base`, reduced motion — PLUS, in the same `@theme`, the named type scale
+            the apps already rely on (copy `--text-h1 … --text-label` with their
+            `--line-height`/`--font-weight`/`--letter-spacing` companions from
+            `apps/download/src/tailwind.css`, values per foundations.md "Scale": h1 24/32 600
+            -0.02em, h2 18/26 600 -0.01em, h3 15/22 600, body 14/20, sm 13/18, cap 12/16,
+            label 11/16 500 0.06em, mono 13/20, mono-sm 12/20) and these `@utility` rules
+            lifted from the same file: `stagger` (per-child `animation-delay` = index × 40ms
+            capped at 8), `transition-press` (scale .97 on `:active`, 120ms `--ease-spring`),
+            `dot-live` (the breathe ring), `skeleton` (shimmer; flat `surface-2` under
+            reduced motion). Add a `[data-density="compact"]` block that sets the compact
+            control height/body size custom properties the components read
+            (`--control-h: 36px` → `30px`, `--control-h-sm: 30px` → `26px`, body 13px).
+          - `src/index.ts`: ONE line per module, all written now:
+            ```ts
+            export * from './icons'
+            export * from './marks'          // PepeBadge, PepeFull
+            export * from './doorplate'
+            export * from './app-bar'
+            export * from './button'
+            export * from './card'           // Card, Panel, PanelHead, Tile
+            export * from './badge'
+            export * from './status-dot'
+            export * from './empty-state'
+            export * from './input'          // Input, Textarea, Field, useFieldId, Search
+            export * from './choice'         // Checkbox, Radio, RadioGroup, Switch, Segmented
+            export * from './tabs'
+            export * from './feedback'       // Spinner, Skeleton, Progress, Meter
+            export * from './toast'
+            export * from './note'
+            export * from './avatar'
+            export * from './tooltip'
+            export * from './navigation'     // Breadcrumb, Pagination, Kbd
+            export * from './table'          // Table, DataList
+            export * from './log-viewer'
+            export * from './dialog'
+            export * from './sheet'
+            export * from './menu'
+            export * from './select'
+            export * from './combobox'
+            export * from './slider'
+            export * from './density'        // DensityProvider / data-density helper
+            ```
+            Create each module as an empty placeholder `export {}` with a one-line comment
+            naming the task that fills it (T10 icons/marks/doorplate/app-bar/button/card/
+            badge/status-dot/empty-state/density; T11 input/choice/tabs; T12 feedback/toast/
+            note/avatar/tooltip/navigation; T13 table/log-viewer; T14 dialog/sheet/menu/
+            select; T15 combobox/slider).
+          - `src/__tests__/setup-dom.ts`, `jest.config.js` (single jsdom project; map
+            `@lilnas/utils/(.*)` to `../utils/src/$1`), and `src/__tests__/theme.spec.ts`
+            which reads `theme.css` and asserts the accent (`#9b7bf5`), `accent-ink`
+            (`#120a2a`), `line-control` (`#6f688a`) tokens, the alias block and the nine
+            `--text-*` sizes are present — the check needs at least one passing test now.
+          - `README.md`: what the package is, the two lines an app adds to its stylesheet
+            (`@import '@lilnas/ui/theme.css'; @source '../../../node_modules/@lilnas/ui/dist';`
+            — path relative to that stylesheet), the font wiring from foundations.md, the
+            jest `moduleNameMapper` line (`'^@lilnas/ui$': '<rootDir>/../../packages/ui/src/index.ts'`),
+            and "run `pnpm --filter @lilnas/ui build` after editing" (injected workspace
+            copies resync on build).
+
+          Verify `pnpm --filter @lilnas/ui build && lint && type-check && test` all pass and
+          `ls node_modules/@lilnas/ui/dist/index.js` exists inside `apps/dev` after the build.
+      - id: T2
+        title: 'Test scaffolds: jest + RTL for portal, a jsdom project for tdr-bot'
+        after: []
+        files:
+          - apps/portal/package.json
+          - apps/portal/jest.config.js
+          - apps/portal/src/__tests__/
+          - apps/tdr-bot/package.json
+          - apps/tdr-bot/jest.config.js
+          - apps/tdr-bot/src/__tests__/setup-dom.ts
+          - pnpm-lock.yaml
+        status: done
+        commit: 0e70348de3ffcd24cfeac71b4f51678f1c8e792f
+        body: |-
+          Give the two apps without component tests the same two-project jest setup
+          `apps/dev/jest.config.js` has, so the redesign tasks can write render tests.
+
+          portal (`apps/portal`): add scripts `test` / `test:watch` with the exact
+          `NODE_OPTIONS='--experimental-vm-modules --no-warnings=ExperimentalWarning' jest`
+          form the other apps use; devDeps pinned to `apps/dev/package.json`'s versions:
+          jest, ts-jest, `@types/jest`, jest-environment-jsdom, `@testing-library/react`,
+          `@testing-library/jest-dom`, `@testing-library/user-event`, `@testing-library/dom`.
+          `jest.config.js`: copy dev's, keep only the `jsdom` project (portal has no Nest),
+          `moduleNameMapper` for `src/*`, `@lilnas/utils/(.*)` → `<rootDir>/../../packages/utils/src/$1`
+          and `^@lilnas/ui$` → `<rootDir>/../../packages/ui/src/index.ts`. Add
+          `src/__tests__/setup-dom.ts` and one real spec `src/__tests__/smoke.spec.tsx`
+          that renders `apps/portal/src/components/BrowserControl.tsx` with a `stopped`
+          status and asserts the power button is present (mock `src/app/browser/actions`).
+
+          tdr-bot (`apps/tdr-bot`): turn `jest.config.js` into dev's two-project shape — the
+          existing config becomes the `node` project unchanged (keep its testMatch
+          exclusions, transformIgnorePatterns, setup file, 30s timeout, coverage), plus a
+          `jsdom` project matching `**/__tests__/**/*.tsx` under `src/app` and
+          `src/components` with `src/__tests__/setup-dom.ts`. Add the RTL devDeps and
+          `jest-environment-jsdom` (same pins). Add the `@lilnas/ui` mapper to both
+          projects. Verify `pnpm --filter @lilnas/tdr-bot exec jest src/app --maxWorkers=2`
+          still runs the 6 existing `.ts` specs (86 tests) and `--selectProjects jsdom`
+          passes with `--passWithNoTests`.
+
+          Run `pnpm install` (not frozen) once from the repo root and commit `pnpm-lock.yaml`.
+          Do not write component tests beyond the smoke spec — later tasks own those.
+      - id: T3
+        title: Mockup kit on Category Standard + design-system preview project
+        after: []
+        files:
+          - docs/designs/mockup-kit/
+          - docs/designs/README.md
+          - docs/features/design-system/
+          - turbo.json
+          - package.json
+        status: done
+        commit: c053583850f0cd6250c71680a443d7e663ac59a3
+        body: |-
+          Build the shared Pug/CSS kit every app's mockups will include, and one mockup
+          project that renders the whole kit so it can be built and eyeballed.
+
+          Read `DESIGN.md`, `docs/designs/foundations.md`, `components.md`, `motion.md`,
+          `voice.md`, open `docs/designs/preview/index.html`, and read
+          `docs/features/download/designs/README.md` + its `src/` (the Ultraviolet kit this
+          replaces: `theme.css`, `mixins/ui.pug`, `mixins/mock.pug`, `layout/page.pug`,
+          `layout/sprite.html`).
+
+          Create `docs/designs/mockup-kit/`:
+          - `theme.css` — `@import 'tailwindcss' source(none); @source '../.build/html';`
+            is per-project, so the kit file holds only the `@theme` block (identical to
+            foundations.md, hex values, plus the named type scale and the `stagger`,
+            `transition-press`, `dot-live`, `skeleton` utilities as in T1's description) and
+            the mockup-only utilities (`vp-scope`/viewport panel switching, `reveal`). A
+            project's `src/theme.css` is then three lines: the two Tailwind lines and
+            `@import '../../../../designs/mockup-kit/theme.css';`.
+          - `ui.pug` — one mixin per component in `components.md`, named after it, each
+            owning its variants end to end and ending in `&attributes(attributes)`:
+            `doorplate(app)`, `appBar(view, opts)` (links, spacer, avatar; phone = doorplate
+            + menu button), `btn(opts)` variants accent/outline/ghost/bad, sizes sm/md/lg,
+            `loading`, icon-only; `badge(opts)` accent/ok/warn/bad/mute + `live`;
+            `statusDot(tone, pulse)`; `card`, `panel(title, caption)`, `tile(opts)`,
+            `mediaCard(opts)`; `input(opts)`, `textarea`, `field(label, hint, error)`,
+            `search`; `checkbox`, `radio`, `switch`, `segmented(options, selected)`,
+            `slider`; `select`/`menu`/`combobox` open panels; `dialog`, `sheet(side)`;
+            `tabs`/`tab(label, selected, count)`; `table`/`dataList` (desktop table +
+            phone card list); `toast(tone)`, `note(tone)`, `emptyState`, `skeleton`,
+            `progress(pct, tone)`, `meter`, `avatar`/`avatarStack`, `tooltip`,
+            `breadcrumb`, `pagination`, `logViewer`, `kbd`. Heights per `components.md`
+            (36/30 comfortable/compact via a `data-density` wrapper).
+          - `mock.pug` — the harness, ported from download's `mock.pug`: `mockHead`,
+            `viewportToggle` (Desktop 1280 / Mobile 390), `viewportPanel`, `appFrame(view)`,
+            `frameLabel`, `stateRow(label)` (a captioned row for showing one state of a
+            screen), `jumpNav`, `code`, `demoFrame`. The switch stays CSS-only (`:has()`
+            radios) — no behavioural JS anywhere in the kit.
+          - `page.pug` — the shell: head, Google Fonts link for Geist + Geist Mono (`wght@400;500;600`
+            and `400;500`), `include sprite.html`, `block content` inside a centred 1328px
+            column. Projects `extends` it with `extends ../../../../../designs/mockup-kit/page.pug`
+            from `src/pages/*.pug` (verified: Pug resolves relative includes outside `src/`).
+          - `sprite.html` — one `<symbol>` set: union of the icons in
+            `apps/auth/src/app/components/icons.tsx` (25), download's sprite (27) and dev's
+            (16), de-duplicated by meaning, plus `pepe-badge` (from
+            `docs/designs/assets/pepe-badge.svg`) and `pepe-full` (from
+            `apps/auth/public/sad-pepe.svg`). Keep a `README.md` listing icon names.
+          - `README.md` — how a project includes the kit, the mixin list, the rule that
+            app-specific mixins live in the project's own `src/mixins/<app>.pug`.
+
+          Create `docs/features/design-system/designs/` with
+          `pnpm --filter @lilnas/cli build && pnpm exec lilnas mockups new design-system`,
+          then replace its scaffold with `src/theme.css` (three lines), `src/pages/index.pug`
+          (every kit mixin, every variant and state, both densities, a palette strip, the
+          doorplate for each of the six apps) and a `README.md`. This page supersedes the
+          hand-written `docs/designs/preview/index.html` as the live reference: update
+          `docs/designs/README.md` to point at `docs/features/design-system/designs/index.html`
+          first and keep the old preview as "the comparison-era snapshot".
+
+          Wiring: in `turbo.json` add `docs/designs/mockup-kit/**` to the `//#mockups` and
+          `//#mockups:lint` `inputs`; in root `package.json` extend `mockups:lint` and
+          `mockups:lint:fix` globs to also cover `docs/designs/mockup-kit/**/*.{mjs,js,css,html,pug}`
+          only if prettier handles `.pug` — it does not, so cover `css,html,js,mjs` there.
+          `pnpm mockups` and `pnpm mockups:lint` must pass; commit the generated
+          `index.html`. Do not touch the other `docs/features/*/designs` projects — the
+          per-app tasks rebuild them.
+      - id: T4
+        title: 'Mockups: auth (login, home, pending, blocked, admin)'
+        after:
+          - T3
+        files:
+          - docs/features/auth/
+        status: done
+        commit: 5db1f9e966735e33045190c4959bd09c2f5f4f7d
+        body: |-
+          Design every auth screen on Category Standard with the shared kit. Read
+          `docs/designs/mockup-kit/README.md`, `DESIGN.md`, `docs/designs/components.md`
+          and `voice.md`, then the app: `apps/auth/src/app/**` (`login/login-form.tsx`,
+          `home-client.tsx`, `pending/pending-client.tsx`, `blocked/blocked-client.tsx`,
+          `admin/admin-dashboard-client.tsx`, `admin/add-person-modal.tsx`,
+          `admin/edit-access-modal.tsx`, `admin/discord-links-panel.tsx`, `admin/error.tsx`,
+          `components/toast.tsx`, `styles/design-tokens.css`). Scaffold with
+          `pnpm --filter @lilnas/cli build && pnpm exec lilnas mockups new auth`, then make
+          `src/theme.css` the three-line kit import and `src/pages/*.pug` extend the kit's
+          `page.pug`; app-specific mixins go in `src/mixins/auth.pug`; copy and sample
+          data in `src/data/*.mjs`. Every page shows the screen at 1280 and 390 behind the
+          viewport switch, with each state as its own captioned `stateRow`.
+
+          Pages:
+          - `index.pug` — list of the pages with one-line descriptions.
+          - `login.pug` — the centred 380px gate card (pepe-full ≥40px, "Sign in to
+            lilnas.io", Google button `btn outline lg`); states: no target, with a target
+            pill ("Sign in to continue" + host in mono), `?error=` note (`note bad`),
+            redirecting (button loading + toast "Redirecting…").
+          - `home.pug` — app bar with doorplate `auth.lilnas.io` and "Admin" link for
+            admins; account card (avatar 64 or initials, name, email, status `badge` for
+            admin/granted/pending/blocked/no access), pending notice, session details list
+            (`dl`, identifiers in mono), "Your services" tile grid (`tile` with icon, name,
+            subdomain mono), empty state "No services granted yet." with exactly one button.
+          - `pending.pug` — waiting (status ring = `statusDot accent pulse` large, "Waiting
+            for approval", "Requested 4 minutes ago", info `note`, "Check again" with
+            spinning icon, Sign out) and declined (x icon, "Request access again" accent).
+          - `blocked.pug` — "Access blocked", identity row, target pill, "Check again",
+            toast "Still blocked".
+          - `admin.pug` — stat tiles (people, granted, pending flagged `warn` when > 0),
+            pending request cards with Approve (accent) / Decline (outline) / dismiss,
+            People: search input + `dataList` (name/email, status badge, services badges,
+            Discord chip, row actions Edit / Block as `btn bad sm`) rendered as the table at
+            1280 and the card list at 390 from one definition; Discord links panel (two
+            filterable lists + links table); Blocked panel; Add person `dialog` and Edit
+            access `dialog` (service checkboxes, access-rules field with removable
+            chips); error-boundary state ("Try again"); a destructive confirm dialog
+            replacing `window.confirm` ("Block Jane Doe? They lose every service until
+            you unblock them." / Block / Keep access).
+          Write the real copy per `voice.md` (no "Oops", sentence case, verbs on buttons,
+          the same verb in the resulting toast). `pnpm mockups && pnpm mockups:lint` must
+          pass; commit the generated `*.html`.
+      - id: H1
+        title: Review the auth mockups
+        after:
+          - T4
+        files:
+          - docs/features/auth/designs/login.html
+          - docs/features/auth/designs/home.html
+          - docs/features/auth/designs/pending.html
+          - docs/features/auth/designs/blocked.html
+          - docs/features/auth/designs/admin.html
+        status: approved
+        body: |-
+          Confirm the gate card, the account page, the admin layout (stat tiles, request
+          cards, one DataList for people at both widths), the dialog copy that replaces
+          `window.confirm`, and the phone layouts. Anything you request changes on
+          becomes the spec for T17/T18.
+      - id: T5
+        title: 'Mockups: portal (apps grid, browser power page)'
+        after:
+          - T3
+        files:
+          - docs/features/portal/
+        status: done
+        commit: 48afb0307cec2021e66a40442f07da6d3dacd0b7
+        body: |-
+          Design the portal on Category Standard with the shared kit. Read
+          `docs/designs/mockup-kit/README.md`, `DESIGN.md`, `docs/designs/components.md`
+          (Tile, Doorplate, EmptyState, StatusDot), `motion.md` (stagger) and `voice.md`,
+          then `apps/portal/src/components/AppList.tsx`, `BrowserControl.tsx`,
+          `src/utils/browser.ts` (states missing / stopped / starting / running, the
+          auto-stop countdown) and `src/utils/hosts.ts`. Scaffold with
+          `pnpm --filter @lilnas/cli build && pnpm exec lilnas mockups new portal`; three-line
+          `src/theme.css`; pages extend the kit's `page.pug`; data in `src/data/*.mjs`.
+          Each page at 1280 and 390 behind the viewport switch, states as captioned rows.
+
+          Pages:
+          - `index.pug` — list of the pages.
+          - `home.pug` — the hallway. App bar with the doorplate reading `lilnas.io` (no
+            subdomain, no link — portal is home). "lilnas apps" `h1`, then a responsive
+            `tile` grid (3 columns at 1280, 1 at 390): icon slot, app name, subdomain in
+            mono, optional `statusDot` + word. Tiles are staggered (`stagger`). Include a
+            tile for the remote browser (`browser`) and sample hosts download, dev, tdr,
+            theater, dashcam, auth-admin, immich, grafana. States: normal; empty ("No apps
+            are running." + one button "Open Grafana"? — no: the empty state's one action
+            is "Reload"); error ("Couldn't list the containers. Docker didn't answer." +
+            Retry).
+          - `browser.pug` — "Remote browser" page: doorplate, back link, a `panel` with a
+            status row (`statusDot` idle/warn/ok/bad + "Stopped" / "Starting…" / "Running ·
+            stops in 12m" / "Not installed") and the single primary action (Turn on /
+            Turn off), the "Open browser" link when running, the `missing` hint with the
+            compose command in a `kbd`/code block, the error note, and the working state
+            (button loading). Four states, both widths.
+          Copy per `voice.md`. `pnpm mockups && pnpm mockups:lint` must pass; commit the HTML.
+      - id: H2
+        title: Review the portal mockups
+        after:
+          - T5
+        files:
+          - docs/features/portal/designs/home.html
+          - docs/features/portal/designs/browser.html
+        status: approved
+        body: |-
+          Confirm the tile grid (the system's first real screen — if it doesn't look right,
+          say so here before the apps follow), the doorplate reading `lilnas.io`, and the
+          browser page's four states. Changes requested here become the spec for T16.
+      - id: T6
+        title: 'Mockups: dev dashboard, rebuilt in place (overview, stack detail)'
+        after:
+          - T3
+        files:
+          - docs/features/dev-dashboard/
+        status: done
+        commit: 91293ee7535ae5770f202be9643d0ab6da715ff1
+        body: |-
+          Rebuild `docs/features/dev-dashboard/designs` on Category Standard with the shared
+          kit, keeping the same two screens and every state the current mockups and the
+          app show. Read `docs/designs/mockup-kit/README.md`, `DESIGN.md`,
+          `docs/designs/components.md` (compact density — dev is a compact app), `voice.md`,
+          the existing `src/pages/{index,stack-detail}.pug` + `src/mixins/dev.pug` +
+          `src/data/*.mjs` (keep the sample data), and the app: `apps/dev/src/app/page.tsx`,
+          `src/app/stacks/[id]/page.tsx`, `src/components/overview/*`, `detail/*`, `logs/*`.
+
+          Replace `src/theme.css` with the three-line kit import, make the pages extend the
+          kit's `page.pug`, delete the local `mixins/ui.pug`/`mock.pug`/`layout/` copies and
+          keep only dev-specific mixins in `src/mixins/dev.pug` (stack card, host strip,
+          service row, reaper panel). Wrap the app frames in `data-density="compact"`.
+
+          `index.pug` — app bar (doorplate `dev.lilnas.io`), host strip (stacks, running
+          containers, memory, "reaper: 2h idle", live dot "updated 3s ago"), sections
+          "lilnas apps" and "~/dev projects" as card grids; a card shows name, source
+          `badge mute` in mono, state `badge` (Running ok · Unhealthy warn · Exited bad ·
+          Absent mute · Busy accent live · Env missing warn), routes as mono links with a
+          lock icon, each container row with `statusDot`, uptime, CPU/mem (tabular, not
+          mono), "reaps in 1h 20m", and the action row Up (accent) / Stop / Restart /
+          Recreate / Down (bad outline) with the inline two-step confirm (`note warn` +
+          Confirm / Keep it) for Recreate and Down and the 409 / 412 notes. States:
+          loading skeletons, empty ("No dev stacks yet" + Refresh), error note above a
+          stale list, each card state at least once. 1280 and 390.
+          `stack-detail.pug` — header (back, h1, state badge, source, routes, actions in a
+          right column at 1280 and stacked at 390), services as a `dataList` (table at
+          1280 / cards at 390), env files list with present/missing marks, reaper panel
+          with `meter`, operation log (`logViewer` with running → exit badge), container
+          log viewer (container select, tail `segmented` 100/500/2000, Follow and
+          Timestamps `switch`es, filter input, Clear, Download; status line connecting /
+          live / paused / reconnecting / ended; stderr tint; empties "No containers yet",
+          "No lines match", "No output yet"), not-found and error states.
+          Copy per `voice.md`. `pnpm mockups && pnpm mockups:lint` pass; commit the HTML;
+          delete generated pages that no longer have a `.pug`. The committed `index.html`
+          and `stack-detail.html` are stale at `base` (built with an older Tailwind, so
+          `pnpm mockups` dirties them today); your rebuilt, committed pages make
+          `pnpm mockups` leave `git status` clean again — verify that before finishing.
+      - id: H3
+        title: Review the dev-dashboard mockups
+        after:
+          - T6
+        files:
+          - docs/features/dev-dashboard/designs/index.html
+          - docs/features/dev-dashboard/designs/stack-detail.html
+        status: approved
+        body: |-
+          Confirm the compact density reads right, the card state set, the action
+          prominence, and the log viewer at 390. Changes requested become the spec for T19.
+      - id: T7
+        title: 'Mockups: download, rebuilt in place (9 routes + boundaries)'
+        after:
+          - T3
+        files:
+          - docs/features/download/
+        status: done
+        commit: 95e41842102da85793f9d39606e8ff7b4e384e7c
+        body: |-
+          Rebuild `docs/features/download/designs` on Category Standard with the shared kit,
+          covering exactly the routes the app has today and dropping pages that have no
+          route (`nav-search`, `patterns`, `discord-attribution`, `auth-admin-discord-link`
+          — delete their `.pug`, `.mjs` and generated `.html`). Read
+          `docs/designs/mockup-kit/README.md`, `DESIGN.md`, `docs/designs/components.md`
+          (Media card, Tile, Search, Tabs, Menu, Dialog, Skeleton, Progress), `voice.md`,
+          the existing `src/` (keep `src/data/*.mjs` sample data and `assets/README.md`;
+          keep the 44px giant-input hero on home — foundations says keep it, in Geist 600),
+          and the app: `apps/download/src/app/**` (`(home)`, `search`, `gallery`,
+          `activity`, `admin`, `profile`, `movies/[tmdbId]`, `shows/[tvdbId]`,
+          `videos/[videoId]`, root `error.tsx`/`not-found.tsx`, every `loading.tsx`) and
+          `src/components/**` (the `detail/*` media/job state machines:
+          `media-state.ts` 7 media states, `job-state.ts` 16 job statuses).
+
+          Replace `src/theme.css` with the three-line kit import; pages extend the kit's
+          `page.pug`; delete the local `layout/` and `mixins/ui.pug`/`mock.pug`; keep
+          download-only mixins (poster, media card variants, gallery card, release row,
+          episode row, quality tier select) in `src/mixins/download.pug`. Comfortable
+          density. Every page at 1280 and 390 behind the viewport switch, each state a
+          captioned row. Status `badge`s use the tone map accent=in progress, ok=available/
+          delivered, warn=queued/paused/needs attention, bad=failed; text sentence case.
+
+          Pages: `index.pug` (list); `home.pug` (hero input, quick-access tiles, recently
+          added grid, loading skeletons, error); `search.pug` (hero in layout, empty query,
+          short-query note, invalid-year note, degraded-sources note, no matches, grid and
+          list views with the toggle, sort `menu` open, filter panel open, load more,
+          skeleton); `gallery.pug` (tabs, filter panel with date range / type / uploaded-by
+          toggle chips, applied-filter chips, range-error note, empty, loading); `activity.pug`
+          (tabs, `dataList` table/list, progress bars incl. settling, all 16 job statuses as
+          badges in a legend row, empty, loading); `admin.pug` (not-authorized, stats cards,
+          filter chips, history table/list, leaderboard, audit log, empty, loading);
+          `profile.pug` (not-authorized, header, lifetime tile, totals badges, trend bars,
+          history, empty, loading); `movie-detail.pug` (header + poster + facts + cast row;
+          the 7 media states each as a row; progress block; request button + quality tier
+          select; release picker; attempt list; import `dialog`; delete confirm `dialog` with
+          the object and consequence named; bad-file flag `dialog`; save-local; not-found;
+          error); `show-detail.pug` (as movie, plus season tabs and episode rows with the
+          inline actions drawer open on one row, cascade delete copy); `video-detail.pug`
+          (player, facts, download button, job states, not-found, error). A shared
+          `boundaries` row on `index.pug` shows the root error and not-found pages.
+          Copy per `voice.md`. `pnpm mockups && pnpm mockups:lint` pass; commit the HTML.
+      - id: H4
+        title: Review the download mockups
+        after:
+          - T7
+        files:
+          - docs/features/download/designs/home.html
+          - docs/features/download/designs/search.html
+          - docs/features/download/designs/gallery.html
+          - docs/features/download/designs/activity.html
+          - docs/features/download/designs/admin.html
+          - docs/features/download/designs/profile.html
+          - docs/features/download/designs/movie-detail.html
+          - docs/features/download/designs/show-detail.html
+          - docs/features/download/designs/video-detail.html
+        status: approved
+        body: |-
+          Confirm the hero survived the font change, the media card, the badge tone map for
+          job statuses, the detail pages' dialogs, and the phone layouts for the tables.
+          Changes requested become the spec for T20–T23.
+      - id: T8
+        title: 'Mockups: tdr-bot, rebuilt in place (settings, transcript, reminders, emojis, playground)'
+        after:
+          - T3
+        files:
+          - docs/features/tdr-bot/
+        status: done
+        commit: 1a4c570c55346ce10d84e9042b037f82d77538da
+        body: |-
+          Rebuild `docs/features/tdr-bot/designs` on Category Standard with the shared kit.
+          Read `docs/designs/mockup-kit/README.md`, `DESIGN.md`, `docs/designs/components.md`,
+          `voice.md`, the existing `src/pages/*.pug` + `src/data/*.mjs` (keep the sample
+          data), and the app — it is a full admin UI, not a stub: `apps/tdr-bot/src/components/
+          AppShell.tsx` (nav Settings / Transcript / Reminders / Emojis / Playground, phone
+          hamburger), `src/app/settings/page.tsx`, `transcript/page.tsx`, `reminders/*`
+          (`ReminderDialog.tsx`, `CancelDialog`, `TestSendDialog`, `StatusChip`),
+          `emojis/*` (`DescriptionEditor`, `RedescribeDialog`, `RedescribeAllDialog`,
+          `SourceChip`), `playground/page.tsx` + `EvalPanel.tsx`, `src/components/ModelSelect.tsx`,
+          `DiscordContent.tsx`.
+
+          Replace `src/theme.css` with the three-line kit import (the old `#7c3aed` tokens
+          go); pages extend the kit's `page.pug`; delete the local layout/mixins copies;
+          tdr-bot-only mixins (chat bubble, emoji card, reminder card, LLM-call row, cost
+          strip) in `src/mixins/tdr-bot.pug`. Comfortable density. App bar: doorplate
+          `tdr.lilnas.io`, nav links, phone `sheet` for nav. Every page at 1280 and 390,
+          states as captioned rows.
+
+          Pages: `index.pug`; `settings.pug` (three cards Models / Generation / System
+          prompt; `select`s for chat/reasoning/image models with description + per-1M
+          pricing; temperature `slider` with value, or reasoning-effort `radio`s;
+          monospace `textarea` with n / 20000; Save (accent) + Reset (outline, confirm
+          dialog); status line Unsaved / Saving… / Saved <date> / fix the highlighted
+          field with a field error; loading, error); `transcript.pug` (channel list as a
+          232px sidebar at 1280 and a horizontal scroller at 390; from/to date fields;
+          totals strip in tabular figures; turns with the user line, assistant line with
+          custom emoji images, and the LLM-call `dataList` (operation, model, tokens
+          in/out/cached, finish, retries, cost) as a table at 1280 and cards at 390;
+          loading skeletons, "No messages yet", loading-older spinner, error);
+          `reminders.pug` (status `segmented`/tabs with counts, search, "New reminder"
+          accent; `dataList`; status badges Active accent live / Completed ok / Cancelled
+          mute / Missed warn; the create/edit `dialog` with member `combobox`, What, one-
+          time vs recurring segmented, datetime or cron preset + custom cron, next-runs
+          preview, channel select, users, action; cancel confirm dialog naming the
+          reminder; test-send dialog; empties); `emojis.pug` (filter tabs with counts,
+          search, Re-describe all + Run reconcile (outline) with the reconcile status line
+          and live badge; emoji grid cards with image, name in mono, source badge AI/
+          Manual/Deleted, inline description editor open on one; per-emoji re-describe
+          confirm; redescribe-all dialog; "No emojis synced yet", "No matching emojis",
+          error note dismissible); `playground.pug` (model select, Reset conversation,
+          system-prompt draft disclosure with "modified" badge; thread with user,
+          assistant (model · cost · latency, emoji-score badges), error + Retry, pending
+          bubbles; empty thread; EvalPanel: model checkboxes, cost estimate, Run eval,
+          progress, cancel, results `dataList` with expandable rows). Copy per `voice.md`.
+          `pnpm mockups && pnpm mockups:lint` pass; commit the HTML.
+      - id: H5
+        title: Review the tdr-bot mockups
+        after:
+          - T8
+        files:
+          - docs/features/tdr-bot/designs/settings.html
+          - docs/features/tdr-bot/designs/transcript.html
+          - docs/features/tdr-bot/designs/reminders.html
+          - docs/features/tdr-bot/designs/emojis.html
+          - docs/features/tdr-bot/designs/playground.html
+        status: approved
+        body: |-
+          Confirm the nav (sheet on phones), the settings cards, the transcript sidebar at
+          both widths, the reminder dialog (the most form-heavy screen in the six apps),
+          and the playground thread. Changes requested become the spec for T24–T27.
+      - id: T9
+        title: 'Mockups: tdr-code (login, dashboard, sessions, session, events, logs, config, git)'
+        after:
+          - T3
+        files:
+          - docs/features/tdr-code/
+        status: done
+        commit: 40a9f518d947d148d37ee2296bf020b59f07dc73
+        body: |-
+          Design every tdr-code screen on Category Standard with the shared kit — and give
+          it a phone layout, which it has never had. Read `docs/designs/mockup-kit/README.md`,
+          `DESIGN.md`, `docs/designs/components.md` (compact density; LogViewer; Sheet;
+          DataList; the inline two-step confirm the Dialog section recommends), `voice.md`,
+          and the app: `apps/tdr-code/src/app/components/nav-shell.tsx` (Live, Sessions,
+          Events, Logs, Config, Git, user badge), `page.tsx` (dashboard: bot status widget,
+          Restart bot confirm, active sessions table with per-row Tear down confirm),
+          `sessions/page.tsx`, `sessions/[id]/page.tsx` (+ `not-found.tsx`; TurnCards with
+          prompt / agent_text / tool_call / diff blocks, ReconcilePanel), `events/page.tsx`,
+          `logs/page.tsx` + `logs/log-viewer.tsx` (markup from ~line 1369; status banner
+          Following live / Paused · N new · Jump to latest; filtered mode; top/end of file)
+          + `logs/log-detail-panel.tsx` (right drawer, Copy, filter-by buttons, JSON) +
+          `log-filters.tsx` + `log-search-bar.tsx`, `config/page.tsx`, `git/page.tsx`
+          (GitHub link/unlink, SSH identity with clear confirm, roster table with inline
+          confirms), `login/page.tsx` (error banner by `?error=`), `error.tsx`.
+          Scaffold with `pnpm --filter @lilnas/cli build && pnpm exec lilnas mockups new tdr-code`;
+          three-line `src/theme.css`; pages extend the kit's `page.pug`; tdr-code mixins
+          (turn card, content block, log row, bot status widget) in `src/mixins/tdr-code.pug`;
+          sample data in `src/data/*.mjs`. `data-density="compact"`. Every page at 1280 and
+          390 behind the viewport switch, states as captioned rows. On phones the nav
+          collapses into a `sheet` opened from the app bar; tables become `dataList` cards;
+          the log viewer keeps the filter row scrollable and the detail panel becomes a
+          full-width right sheet. JSON highlighting in the detail panel uses ink / ink-2 /
+          accent-hi / ok only (no sky/emerald/amber/purple).
+
+          Pages: `index.pug`; `login.pug` (380px card, Sign in with Discord accent, each
+          `?error=` note); `dashboard.pug` (bot status `statusDot` live/ok/warn/bad + Restart
+          bot with inline confirm; active sessions `dataList` with state badges, queue,
+          last activity, Tear down → "Kill active session?" Confirm / Cancel inline; offline
+          note; loading; empties "Bot has never run" / "No active sessions"; row error);
+          `sessions.pug` (channel filter input + Clear, `dataList` with mono `#id` links,
+          Load more, loading, error, empty); `session.pug` (back, title, active/ended badge,
+          meta grid, dropped-blocks note, turn cards with every block type, reconcile panel
+          with counts, loading, error, empty turns, not-found); `events.pug` (selects +
+          input filters, table with level badges, loading, error, empty); `logs.pug` (tabs
+          backend / frontend-server / frontend-browser, filters row, search row with hit
+          count + prev/next, status banner states, `logViewer` rows with level colours and
+          highlighted hits, "Top of file"/"End of file", empty tab, loading, error + Retry,
+          filtered-scanning / filtered-empty, detail sheet open); `config.pug` (form with
+          fields, textareas, char-limit warn note, offline note, Save accent, loading,
+          error); `git.pug` (three panels, status badges, info `note accent`, inline
+          confirms, loading/error/empty per panel); a boundaries row (segment error,
+          global error — note: the global one must stay inline-styled in the app).
+          Copy per `voice.md`. `pnpm mockups && pnpm mockups:lint` pass; commit the HTML.
+      - id: H6
+        title: Review the tdr-code mockups
+        after:
+          - T9
+        files:
+          - docs/features/tdr-code/designs/login.html
+          - docs/features/tdr-code/designs/dashboard.html
+          - docs/features/tdr-code/designs/sessions.html
+          - docs/features/tdr-code/designs/session.html
+          - docs/features/tdr-code/designs/events.html
+          - docs/features/tdr-code/designs/logs.html
+          - docs/features/tdr-code/designs/config.html
+          - docs/features/tdr-code/designs/git.html
+        status: approved
+        body: |-
+          Confirm the compact density, the new phone layouts (nav sheet, DataList cards,
+          the log viewer at 390), the inline confirms, and the logs detail sheet. Changes
+          requested become the spec for T29–T32.
+      - id: T10
+        title: '@lilnas/ui tier 1: icons, marks, Doorplate, AppBar, Button, Card/Panel/Tile, Badge, StatusDot, EmptyState, density'
+        after:
+          - T1
+        files:
+          - packages/ui/src/icons.tsx
+          - packages/ui/src/icons/
+          - packages/ui/src/marks.tsx
+          - packages/ui/src/doorplate.tsx
+          - packages/ui/src/app-bar.tsx
+          - packages/ui/src/button.tsx
+          - packages/ui/src/card.tsx
+          - packages/ui/src/badge.tsx
+          - packages/ui/src/status-dot.tsx
+          - packages/ui/src/empty-state.tsx
+          - packages/ui/src/density.tsx
+          - packages/ui/src/__tests__/tier1/
+        status: done
+        commit: 006be79e8c0513cdbc3ca4f8e5df44a84fd219a1
+        body: |-
+          Fill the tier-1 placeholder modules in `packages/ui/src` (created by the scaffold;
+          do not edit `index.ts`). Specs: `docs/designs/components.md` sections Doorplate,
+          App bar, Button, Badge, StatusDot, Card / Panel, Tile, EmptyState, Conventions;
+          `foundations.md` "The mark". Lift from `apps/download/src/components/ui/
+          {button-recipe.ts,button.tsx,button-link.tsx,card.tsx,chip.tsx,doorplate.tsx,
+          status.tsx,tile.tsx,icon.tsx,sprite.tsx}` and `apps/dev/src/components/ui/*`,
+          retokened (`uv` → `accent`, `ease-uv` → `ease-standard`, radii 4/6/8/12). All class
+          merging via `cns()`; every component takes `className` merged last, forwards
+          `ref` (React 19 `ref` prop) and spreads `...props`.
+
+          ```ts
+          // icons.tsx — inline SVG, no document sprite needed
+          export type IconName = /* union of auth's 25, download's 27, dev's 16, de-duplicated */
+          export const ICON_NAMES: readonly IconName[]
+          export function Icon({ name, size = 16, className, ...svg }: { name: IconName; size?: number } & SVGProps<SVGSVGElement>)  // aria-hidden unless aria-label given; stroke currentColor 1.6
+          // marks.tsx
+          export function PepeBadge({ size = 24 }): JSX  // the pepe-badge.svg paths inline, rounded-full, full-bleed #5a8d3e backdrop
+          export function PepeFull({ size = 64 }): JSX   // sad-pepe.svg inline; throws in dev if size < 40
+          // doorplate.tsx
+          export function Doorplate({ app, href = 'https://lilnas.io' }: { app?: string; href?: string | null })
+          //   app omitted → reads "lilnas.io", renders a <span>, no link (portal)
+          // app-bar.tsx
+          export function AppBar({ app, links, end, sheet }: { app?: string; links?: { href: string; label: string; active?: boolean; render?: ReactElement }[]; end?: ReactNode; sheet?: ReactNode })
+          //   h-14 (h-12 compact) bg-surface border-b border-line px-4; links hidden below md, `sheet` slot rendered as the phone menu trigger's content
+          // button.tsx
+          export type ButtonVariant = 'accent' | 'outline' | 'ghost' | 'bad'; export type ButtonSize = 'sm' | 'md' | 'lg'
+          export function buttonClassName({ variant, size, full, iconOnly, className })
+          export function Button(props: ButtonHTMLAttributes & { variant?; size?; full?; loading?; icon?: IconName; iconEnd?: IconName; render?: ReactElement })
+          //   `render` (Base UI's useRender) swaps the element, e.g. render={<Link href=… />}; loading swaps the leading icon for a Spinner-sized ring and keeps width; type="button" default
+          // card.tsx
+          export function Card({ variant = 'default' | 'sunk', ...div })
+          export function Panel({ ...div }); export function PanelHead({ title, caption, children })
+          export function Tile({ icon, title, meta, status, statusTone, href, render }: …)  // hover steps surface + border, no shadow
+          // badge.tsx
+          export function Badge({ tone = 'mute' | 'accent' | 'ok' | 'warn' | 'bad', live, children })  // rounded-full h-6 px-2.5 text-xs font-medium, leading dot; live → StatusDot pulse
+          // status-dot.tsx
+          export function StatusDot({ tone: 'ok' | 'accent' | 'warn' | 'bad' | 'idle', pulse })  // pulse only honoured for ok/accent
+          // empty-state.tsx
+          export function EmptyState({ title, body, action }: { title: string; body?: string; action?: ReactNode })  // PepeFull 46px opacity-55; exactly one action
+          // density.tsx
+          export function Density({ mode: 'comfortable' | 'compact', children })  // renders a wrapper with data-density
+          ```
+          Edge cases: `Button` with `loading` is `aria-busy` and `aria-disabled`, ignores
+          clicks; icon-only buttons require `aria-label` (throw in dev when missing);
+          `Badge` never renders as a button; `StatusDot` ignores `pulse` for warn/bad/idle.
+          Tests (RTL, in `src/__tests__/tier1/`): each Button variant/size class, loading
+          and disabled behaviour, `render` swaps the element; Doorplate with and without
+          `app`; AppBar hides links below md (class assertion) and renders `end`; Badge
+          tones and `live`; StatusDot pulse rule; Tile renders as `a` with href and via
+          `render`; EmptyState renders exactly one action; Icon renders every `ICON_NAMES`
+          entry without throwing. Run `pnpm --filter @lilnas/ui build` at the end.
+      - id: T11
+        title: '@lilnas/ui tier 2a: Input, Textarea, Field, Search, Checkbox, Radio, Switch, Segmented, Tabs (Base UI)'
+        after:
+          - T1
+        files:
+          - packages/ui/src/input.tsx
+          - packages/ui/src/choice.tsx
+          - packages/ui/src/tabs.tsx
+          - packages/ui/src/__tests__/tier2a/
+        status: done
+        commit: 4e3b64ed6b9e75e45a809aa612ad00164caca254
+        body: |-
+          Fill `input.tsx`, `choice.tsx`, `tabs.tsx` in `packages/ui/src` (placeholders from
+          the scaffold; do not edit `index.ts`). Specs: `docs/designs/components.md` Input /
+          Field, Checkbox / Radio / Switch / Segmented, Tabs. Lift the Field/Input API from
+          `apps/download/src/components/ui/input.tsx` and Tabs from
+          `apps/download/src/components/ui/tabs.tsx` (which is already keyboard-correct —
+          move it onto Base UI `Tabs` and keep its `activationMode`, `stretch`, `scroll`
+          props), Segmented/Toggle from `apps/dev/src/components/detail/{segmented,toggle}.tsx`.
+          Base UI (`@base-ui/react` 1.9.0) for Checkbox, Radio/RadioGroup, Switch, Tabs;
+          style via `className` and its `data-checked` / `data-active` / `data-disabled`
+          attributes. Inputs sit on `bg-bg-sunk` with `border-line-control`; focus is
+          `border-accent ring-2 ring-accent-ghost`.
+
+          ```ts
+          export function Input(props: InputHTMLAttributes & { mono?; icon?: IconName; invalid?; wrapperClassName? })
+          export function Textarea(props: TextareaHTMLAttributes & { mono?; invalid?; autoResize? })
+          export function Field({ label, hint, error, htmlFor, children })   // error replaces hint, sets aria-invalid + aria-describedby on the child via cloneElement/id
+          export function useFieldId(explicit?: string): string
+          export function Search({ value, onValueChange, onSubmit, placeholder, buttonLabel = 'Search', pending }) // Input + accent Button; icon-only button below sm
+          export function Checkbox({ label, ...BaseCheckboxRootProps }); export function Radio({ label, value }); export function RadioGroup(props)
+          export function Switch({ label, ...BaseSwitchRootProps })
+          export function Segmented<T extends string>({ options: { value: T; label: string }[]; value: T; onValueChange(v: T): void; label: string; size? })  // role=radiogroup, arrow keys
+          export const Tabs = { Root, List, Tab, Panel, Indicator }  // Base UI Tabs; Tab accepts `count?: number` rendered as the mute pill; underline via Indicator with the --active-tab-* vars, 200ms ease-standard
+          ```
+          Edge cases: `Field` with `error` renders `role="alert"`-free text in `text-bad`
+          and the control gets `aria-invalid`; `Textarea autoResize` grows to content
+          with `min-h-[70px]`; `Segmented` tap targets ≥44px on touch (use `min-h-11
+          pointer-coarse:` or a `touch` class); every control's label is part of the tap
+          target. Tests in `src/__tests__/tier2a/`: Field wires `aria-describedby` for
+          hint and error; Input `mono` and `invalid` classes; Search submits on Enter and
+          button; Checkbox/Switch toggle with keyboard and report `onCheckedChange`;
+          RadioGroup arrow keys; Segmented arrow keys and `aria-checked`; Tabs activate
+          on click, arrow keys, honour `activationMode="manual"`, render `count`.
+          Run `pnpm --filter @lilnas/ui build` at the end.
+      - id: T12
+        title: '@lilnas/ui tier 2b: Spinner, Skeleton, Progress, Meter, Toast, Note, Avatar, Tooltip, Breadcrumb, Pagination, Kbd'
+        after:
+          - T1
+        files:
+          - packages/ui/src/feedback.tsx
+          - packages/ui/src/toast.tsx
+          - packages/ui/src/note.tsx
+          - packages/ui/src/avatar.tsx
+          - packages/ui/src/tooltip.tsx
+          - packages/ui/src/navigation.tsx
+          - packages/ui/src/__tests__/tier2b/
+        status: done
+        commit: 10784e3da864adf6d517487640fbf72eedfa6dbb
+        body: |-
+          Fill `feedback.tsx`, `toast.tsx`, `note.tsx`, `avatar.tsx`, `tooltip.tsx`,
+          `navigation.tsx` in `packages/ui/src` (placeholders; do not edit `index.ts`).
+          Specs: `docs/designs/components.md` Toast, Note, Skeleton, Progress (+ Meter),
+          Avatar, Tooltip, Breadcrumb and Pagination; `motion.md`. Lift Spinner/Skeleton/
+          Bar/Avatar/Note from `apps/download/src/components/ui/{feedback,status,avatar,
+          card}.tsx` and `apps/dev/src/components/ui/{callout,feedback,kbd}.tsx`; the toast
+          timing from `apps/auth/src/app/components/toast.tsx` (2200ms). Base UI
+          `Tooltip` and Base UI `Toast` (`Toast.Provider`, `useToastManager`).
+
+          ```ts
+          export function Spinner({ size = 16 }); export function Skeleton(props: DivProps)   // shimmer utility, caller sets the shape
+          export function Progress({ value, max = 100, tone = 'accent' | 'ok' | 'bad', indeterminate, label })  // role=progressbar; fill transitions 380ms ease-standard
+          export function Meter({ value, max, label, detail })   // 10px track; warn past 80%, bad past 95%
+          export function ToastProvider({ children })            // bottom-centre viewport, role=status aria-live=polite, animate-rise in, fade+down out
+          export function useToast(): { show(opts: { title: string; detail?: string; tone?: 'ok' | 'warn' | 'bad' | 'accent'; timeout?: number }): void }
+          //   default timeout 2200ms; tone 'bad' persists until dismissed; a × dismiss button
+          export function Note({ tone = 'accent' | 'ok' | 'warn' | 'bad', lead, children, icon?, onDismiss? })  // bold lead sentence then detail; role=alert for bad, status otherwise
+          export function Avatar({ initials, src?, size = 24 | 32 | 40 | 64, self?: boolean, title? }); export function AvatarStack({ people, max = 3 })
+          export const Tooltip = { Provider, Root, Trigger, Popup }  // 400ms delay, no delay between neighbours (Base UI Tooltip.Provider delay/closeDelay)
+          export function Breadcrumb({ items: { label; href? }[] }); export function Pagination({ page, pageCount, onPageChange, label })
+          export function Kbd(props)
+          ```
+          Edge cases: `Progress indeterminate` ignores `value` and uses the 1.4s slide;
+          `Meter` clamps; `Avatar` falls back to initials when `src` fails to load; `Note`
+          with `onDismiss` renders a labelled × button; toast text never wraps beyond two
+          lines (truncate detail). Tests in `src/__tests__/tier2b/`: Progress tones and
+          aria values; Meter thresholds; Toast shows, auto-dismisses after 2200ms (fake
+          timers), `bad` persists, × dismisses; Note roles per tone and dismiss; Avatar
+          self vs other classes and image fallback; Tooltip opens on hover/focus after the
+          delay; Pagination disables ends and calls `onPageChange`; Breadcrumb marks the
+          last item `aria-current="page"`. Run `pnpm --filter @lilnas/ui build` at the end.
+      - id: T13
+        title: '@lilnas/ui tier 2c: Table, DataList, LogViewer'
+        after:
+          - T10
+        files:
+          - packages/ui/src/table.tsx
+          - packages/ui/src/log-viewer.tsx
+          - packages/ui/src/__tests__/tier2c/
+        status: done
+        commit: b66e770d765b8eb73560684da33dd0f22e84b36c
+        body: |-
+          Fill `table.tsx` and `log-viewer.tsx` in `packages/ui/src` (placeholders; do not
+          edit `index.ts`). Specs: `docs/designs/components.md` Table (and its "Below `md`,
+          a table becomes a card list" rule) and LogViewer; `adoption.md` on virtualised
+          rows. Lift `DataTable` from `apps/download/src/components/ui/data-table.tsx`, the
+          desktop-table/mobile-card pairs in `apps/auth/src/app/admin/admin-dashboard-client.tsx`
+          (people) and `apps/dev/src/components/detail/services-table.tsx`, and the log
+          styling from `apps/dev/src/components/logs/LogViewer.tsx`. Uses `Badge` from T10
+          for status cells in the examples/tests only — the components stay generic.
+
+          ```ts
+          export const Table = { Root, Head, Body, Row, Th, Td }  // th label style, td 13.5px, row hover surface-2, selected accent-ghost; `align="right"` adds tabular-nums; `mono` on Td
+          export type Column<T> = { key: string; header: string; render(row: T): ReactNode; align?: 'left' | 'right'; mono?: boolean; primary?: boolean; hideOnCard?: boolean }
+          export function DataList<T>({ rows, columns, rowKey, onRowClick?, selectedKey?, empty?: ReactNode, caption?: string, cardBreakpoint = 'md' })
+          //   renders ONE definition two ways: <Table> at ≥ breakpoint, and a card list below it (primary column as the card title, others as dt/dd rows, hideOnCard omitted); both in the DOM with hidden/md:block like auth does today, so tests can assert either
+          export function LogViewer({ lines, follow?, onFollowChange?, height?, renderLine?, virtualize?: false }: { lines: LogLine[] … })
+          export type LogLine = { id: string | number; ts?: string; level?: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'; source?: string; message: string; stderr?: boolean; fresh?: boolean }
+          //   bg-bg-sunk well, mono-sm, level colours INFO accent-hi / WARN warn / ERROR bad, stderr tint, `fresh` lines get animate-rise, never when `virtualize` (consumer passes rows via renderLine); sticks to bottom while follow
+          export function LogLineRow(props)   // exported so tdr-code's virtualised list can reuse the row styling without the container
+          ```
+          Edge cases: `DataList` with zero rows renders `empty` once (not per layout);
+          numeric columns right-align in the table and stay left in cards; `onRowClick`
+          rows are keyboard-activatable (`tabIndex=0`, Enter/Space); LogViewer with
+          `follow` keeps the scroll pinned only while the reader is at the bottom and
+          exposes `aria-live="polite"`. Tests in `src/__tests__/tier2c/`: DataList renders
+          both layouts from one column set, empty once, selection class, keyboard row
+          activation, `hideOnCard`; Table alignment classes; LogViewer level colours,
+          stderr tint, `fresh` animation class absent under `virtualize`, follow pinning
+          (scroll mocks). Run `pnpm --filter @lilnas/ui build` at the end.
+      - id: T14
+        title: '@lilnas/ui tier 3a: Dialog, Sheet, Menu, Select (Base UI)'
+        after:
+          - T10
+        files:
+          - packages/ui/src/dialog.tsx
+          - packages/ui/src/sheet.tsx
+          - packages/ui/src/menu.tsx
+          - packages/ui/src/select.tsx
+          - packages/ui/src/__tests__/tier3a/
+        status: done
+        commit: 85084e3348dcece045f20859efa134c7fe7b963b
+        body: |-
+          Fill `dialog.tsx`, `sheet.tsx`, `menu.tsx`, `select.tsx` in `packages/ui/src`
+          (placeholders; do not edit `index.ts`). Specs: `docs/designs/components.md`
+          Dialog, Sheet / Drawer, Select / Menu; `motion.md`. Base UI `Dialog`, `Menu`,
+          `Select` from `@base-ui/react` 1.9.0 — style the parts via `className` and the
+          `data-open` / `data-starting-style` / `data-ending-style` attributes for the
+          200ms enter/exit (`animate-rise` + scrim fade; sheets translate 380ms
+          `ease-standard`). Lift the API ideas from `apps/download/src/components/ui/
+          {modal,menu}.tsx` (keep `ReasonGroup`/`Reason`, `DeleteButton` semantics) and
+          `apps/tdr-code/src/app/logs/log-detail-panel.tsx` (right drawer with Escape,
+          scrim, focus restore). Uses `Button` from T10 for `ConfirmDialog`.
+
+          ```ts
+          export const Dialog = { Root, Trigger, Popup, Title, Description, Actions, Close }   // Popup: max-w-[440px] bg-surface border-line-loud rounded-lg shadow-lift p-5; Portal + Backdrop bg-black/55 inside Popup wrapper
+          export function ConfirmDialog({ open, onOpenChange, title, body, confirmLabel, cancelLabel = 'Keep it', tone = 'bad' | 'accent', onConfirm, pending })
+          //   the filled red confirm lives ONLY here (`bg-bad text-bg-sunk`); title names the object, body the consequence
+          export const Sheet = { Root, Trigger, Popup, Title, Close }   // Popup side: 'right' (w-full max-w-[480px] border-l border-line-loud) | 'bottom' (rounded-t-xl max-h-[85vh], 36×4 grab handle); traps focus, Escape/scrim close, restores focus
+          export const Menu = { Root, Trigger, Popup, Item, Separator, Group, GroupLabel }     // Item: h-8 px-2.5 rounded-md 13.5px, `destructive` → text-bad, `shortcut` → mono-sm ink-3 right; keyboard per Base UI
+          export const Select = { Root, Trigger, Value, Popup, Item, Group, GroupLabel }       // trigger matches Input height/border; selected item trailing check accent-hi
+          ```
+          Edge cases: nested dialogs (Base UI `data-nested`) keep one scrim; `Sheet`
+          `bottom` on desktop still works (no swipe gesture — close by button/Escape/
+          scrim); `Select` with a `null` value shows the placeholder in `ink-3`; `Menu`
+          items with `render={<a href>}` navigate. Tests in `src/__tests__/tier3a/`:
+          Dialog opens/closes via trigger, Escape and backdrop, traps and restores focus,
+          `ConfirmDialog` calls `onConfirm` once and disables while `pending`; Sheet
+          sides' classes and Escape; Menu keyboard navigation, destructive class,
+          shortcut rendering, `onClick` per item; Select opens, selects with keyboard,
+          reports `onValueChange`, shows placeholder. Run `pnpm --filter @lilnas/ui build`
+          at the end.
+      - id: T15
+        title: '@lilnas/ui tier 3b: Combobox and Slider (Base UI)'
+        after:
+          - T11
+        files:
+          - packages/ui/src/combobox.tsx
+          - packages/ui/src/slider.tsx
+          - packages/ui/src/__tests__/tier3b/
+        status: done
+        commit: c54341f99d6cb12d2256d63eb31ab460d9b8aae5
+        body: |-
+          Fill `combobox.tsx` and `slider.tsx` in `packages/ui/src` (placeholders; do not
+          edit `index.ts`). Specs: `docs/designs/components.md` Select / Menu / Combobox
+          ("the hardest component in the set … spec it once, properly") and Slider. Base
+          UI `Combobox` and `Slider` from `@base-ui/react` 1.9.0. The immediate consumers:
+          tdr-bot's reminder "For" member picker (`apps/tdr-bot/src/app/reminders/
+          ReminderDialog.tsx`, today an MUI `Autocomplete` over `MemberInfo` with avatar)
+          and tdr-bot's temperature slider (`settings/page.tsx`, 0–2 step 0.1). Reuse the
+          `Input` styling from T11 for the combobox field.
+
+          ```ts
+          export type ComboboxItem<V> = { value: V; label: string; group?: string; hint?: string; icon?: ReactNode; disabled?: boolean }
+          export function Combobox<V extends string>({ items, value, onValueChange, placeholder, allowCustom?: boolean, groups?: { key: string; label: string; dot?: string }[], emptyText = 'No matches', renderItem?, label, name? })
+          //   filters as you type (case/diacritic-insensitive), groups with a label row and optional coloured dot, `allowCustom` keeps the typed text as a value, panel = bg-surface border-line-loud rounded-lg shadow-lift p-1.5 with the "Search…" row at top on touch
+          export function Slider({ value, onValueChange, min, max, step, label, format?: (v: number) => string, disabled })
+          //   h-1.5 track surface-2, accent fill, 18px thumb bg-ink with 3px accent border; current value tabular-nums right-aligned above; arrow/home/end keys
+          ```
+          Edge cases: Combobox with `allowCustom` and an empty list still submits the typed
+          value; Escape restores the previous value; a disabled item is skipped by arrow
+          keys; Slider clamps and rounds to `step`, `format` drives the displayed value
+          and `aria-valuetext`. Tests in `src/__tests__/tier3b/`: filtering, grouping
+          order, keyboard selection, custom value on Enter, Escape restore, empty text;
+          Slider keyboard steps, clamping, formatted value. Run `pnpm --filter @lilnas/ui
+          build` at the end.
+      - id: T41
+        title: '@lilnas/ui: wire Input `icon` and Search onto the tier-1 Icon and Button'
+        after:
+          - T10
+          - T11
+        files:
+          - packages/ui/src/input/
+          - packages/ui/src/__tests__/tier2a/
+        status: done
+        commit: 7df151eb08ec4a798ed783c01ec08d3816972381
+        body: |-
+          Small follow-up in `packages/ui` only. `src/input/` (Input, Textarea, Field,
+          useFieldId, Search) was written in parallel with `src/icons/` and `src/button/`,
+          so it could not import them and shipped with a stand-in for the icon slot and a
+          plain `<button>` in `Search`. Now both exist: read `src/icons/index.ts`
+          (`IconName`, `<Icon name size />`) and `src/button/index.ts` (`Button` with its
+          `variant`/`size`/icon-only props) and rewire:
+
+          - `Input`'s `icon?: IconName` renders `<Icon name={icon} />` in the leading slot
+            (`text-fg-mute`, 16px, `pointer-events-none`), with the input's left padding
+            widened only when an icon is present. Remove whatever stand-in type/prop T11
+            used for it; `icon="search"` must type-check.
+          - `Search` renders `<Input icon="search" …>` plus the package `Button`
+            (`accent`), full label at `sm` and up, icon-only (`<Icon name="search" />` with
+            `aria-label={buttonLabel}`) below `sm` via responsive classes — no JS media
+            queries. `pending` disables the button and shows the Button's own pending state
+            if it has one, else `aria-busy`.
+          - Public API of `src/input/index.ts` otherwise unchanged (same exports, same
+            prop names), `src/index.ts` untouched.
+
+          Update `src/__tests__/tier2a/` so the Input and Search specs assert the icon is
+          rendered via `Icon` (e.g. the svg's `data-icon="search"` or whatever marker
+          `src/icons` exposes), that Search's button is the package Button (its base
+          class or `data-variant`), that it carries the `aria-label`, and that Enter and
+          click still submit. Run `pnpm --filter @lilnas/ui lint`, `type-check`,
+          `test --maxWorkers=2` and `build`.
+  - key: '2'
+    name: Migrate the six apps to the approved mockups and @lilnas/ui, then render-check each
+    tasks:
+      - id: T16
+        title: 'portal: adopt @lilnas/ui and the approved mockup'
+        after:
+          - T10
+          - T12
+          - T2
+          - H2
+        files:
+          - apps/portal/
+        status: done
+        commit: dd62af13fd420c759b50bdbe1799945961cc3ed6
+        body: |-
+          Rebuild the portal's two screens to the approved mockups in
+          `docs/features/portal/designs/{home,browser}.html` (sources in `src/pages/*.pug`).
+          Add `@lilnas/ui` (`workspace:*`) and `@lilnas/utils` to `apps/portal/package.json`
+          (lockfile already carries the package; run `pnpm install --frozen-lockfile` — if
+          it refuses, run `pnpm install` and commit the lockfile). `src/tailwind.css` becomes
+          `@import '@lilnas/ui/theme.css'; @source '../node_modules/@lilnas/ui/dist';`
+          (the app-local injected copy; root `node_modules` has no `@lilnas/ui`) plus the `@theme inline` font
+          mapping; `src/app/layout.tsx` loads Geist + Geist Mono with `next/font/google`
+          per `docs/designs/foundations.md` "Fonts", sets `lang`, and renders `<AppBar>`
+          with `<Doorplate />` (no `app` → reads `lilnas.io`, no link) and a `ToastProvider`.
+          Delete the dead v3 `tailwind.config.ts` and the create-next-app leftovers in
+          `public/` (`file.svg`, `globe.svg`, `next.svg`, `vercel.svg`, `window.svg`).
+
+          `src/components/AppList.tsx` (server component): the `Tile` grid from the mockup,
+          staggered (`stagger` utility, delay index × 40ms capped at 8), each tile's
+          subdomain in mono, icon slot from a small host → icon/name map (extend
+          `src/utils/hosts.ts` or add `src/utils/app-meta.ts`); an `EmptyState` when no
+          hosts; add `src/app/error.tsx` with the mockup's error copy and a retry button.
+          `src/components/BrowserControl.tsx`: the mockup's panel — `StatusDot` tone per
+          state (missing bad, stopped idle, starting warn, running ok), `Badge`, one
+          `Button variant="accent"` (Turn on / Turn off, `loading` while working), the
+          "Open browser" link as `Button variant="ghost" render={<a …/>}`, the missing
+          hint with `Kbd`, errors as `Note tone="bad"`; keep the 5s poll and the countdown
+          logic untouched. No `gray-*`/`purple-*`/`red-*`/`green-*`/`yellow-*` utilities
+          remain in `apps/portal/src`.
+          Tests (`src/__tests__/*.spec.tsx`, jsdom project from T2): AppList renders a
+          tile per host with mono subdomain and the empty state with one action;
+          BrowserControl renders each of the four states with the right dot tone and
+          button label, shows the error note, disables the button while working. Keep
+          the T2 smoke spec passing or fold it in.
+      - id: T17
+        title: 'auth: theme swap, @lilnas/ui, login / home / pending / blocked'
+        after:
+          - T10
+          - T11
+          - T41
+          - T12
+          - H1
+        files:
+          - apps/auth/package.json
+          - apps/auth/jest.config.js
+          - apps/auth/src/tailwind.css
+          - apps/auth/src/app/styles/
+          - apps/auth/src/app/layout.tsx
+          - apps/auth/src/app/page.tsx
+          - apps/auth/src/app/home-client.tsx
+          - apps/auth/src/app/login/
+          - apps/auth/src/app/pending/
+          - apps/auth/src/app/blocked/
+          - apps/auth/src/app/components/
+          - apps/auth/src/app/service-meta.ts
+          - apps/auth/src/app/__tests__/
+        status: done
+        commit: 738dbc0ffa8d59ce2d10c60dd10a29d32c3a07f7
+        body: |-
+          Move auth onto `@lilnas/ui` and rebuild the gate pages to the approved mockups in
+          `docs/features/auth/designs/{login,home,pending,blocked}.html` (sources in
+          `src/pages/*.pug`). The admin page is T18's; leave `src/app/admin/**` compiling
+          by keeping any class it still uses defined (see below).
+
+          - `package.json`: add `@lilnas/ui workspace:*` (`pnpm install --frozen-lockfile`;
+            if refused, `pnpm install` and commit the lockfile). `jest.config.js`: add the
+            `^@lilnas/ui$` mapper to both projects.
+          - `src/tailwind.css`: `@import '@lilnas/ui/theme.css'; @source '../node_modules/@lilnas/ui/dist';`
+            (verify the path), the `@theme inline` font mapping, then
+            `@import './app/styles/design-tokens.css'`. `src/app/layout.tsx`: Geist + Geist
+            Mono via `next/font/google` (replace `Inter`), `ToastProvider`, body classes
+            `bg-bg text-ink`.
+          - `src/app/styles/design-tokens.css`: delete the `:root` palette and the
+            `@theme inline` map (tokens now come from the package); delete every class no
+            TSX uses (`.btn-dark .eyebrow .small .grow .hr .mono .surface .wrap-items .tabs
+            .tab .stat-row .checkbox-row .select …` — grep each before deleting); rewrite the
+            classes the gate pages still need (`.gate__*`, `.status-ring`/`pulse-ring` at
+            2.4s, `.identity-row*`, `.target-pill*`, `.spin`, `.skip-link`, `.visually-hidden`)
+            on the new tokens; keep the admin-only classes (`.stat-*`, `.req-card*`,
+            `.people-*`, `.person-card*`, `.modal*`, `.panel*`, `.row-user*`, `.table*`,
+            `.chip*`, `.notice*`, `.btn*`, `.card`) untouched but retokened (they reference
+            the deleted `--bg/--surface/--fg/--muted/--border/--accent` vars — repoint them to
+            `var(--color-bg)` etc. so T18 can delete them one by one).
+          - `components/toast.tsx` → re-export a thin wrapper over `useToast` from
+            `@lilnas/ui` keeping the `useToast()` call shape the pages use; delete the
+            local toast markup. `components/icons.tsx` → re-export `Icon` from `@lilnas/ui`
+            with a name-compat map if any auth name differs. `components/brandmark.tsx` →
+            `Doorplate app="auth"`. `service-check-grid.tsx` → `Checkbox` from the package.
+          - `login/login-form.tsx`: the 380px card, `PepeFull`, target pill, `Note tone="bad"`
+            for `?error=`, Google button `Button variant="outline" size="lg"` with `loading`
+            + "Redirecting…". `home-client.tsx`: `AppBar app="auth"` (+ Admin link for
+            admins), account `Card` with `Avatar size={64}`, status `Badge` (one shared
+            `StatusBadge` in `components/status-badge.tsx` replacing both inline
+            `StatusChip`s), pending `Note`, details `dl` with mono identifiers, services
+            `Tile` grid, `EmptyState`. `pending/pending-client.tsx` and
+            `blocked/blocked-client.tsx`: per mockup, `StatusDot pulse` ring, `Button`s,
+            toasts; keep the SSE/poll/reconnect logic byte-for-byte.
+          No `text-red-*`, `hover:bg-red-*` or other raw palette utilities remain in the
+          files this task touches. Tests: extend `pending/__tests__/pending-page.spec.tsx`
+          and `blocked/__tests__/blocked-client.spec.tsx` for the new markup (they must
+          keep passing); add `login/__tests__/login-form.spec.tsx` (no target / target /
+          error / redirecting states) and `__tests__/home-client.spec.tsx` (each status
+          badge, empty services, admin link only for admins).
+      - id: T18
+        title: 'auth: admin dashboard on DataList, Dialog and Badge; delete design-tokens.css classes'
+        after:
+          - T17
+          - T13
+          - T14
+        files:
+          - apps/auth/src/app/admin/
+          - apps/auth/src/app/styles/
+        status: done
+        commit: 74fb4f2c8879177cb5771689a96c68eabe5a4582
+        body: |-
+          Rebuild the admin page to the approved mockup `docs/features/auth/designs/admin.html`
+          (`src/pages/admin.pug`) on `@lilnas/ui`, then delete what is left of
+          `src/app/styles/design-tokens.css` (after this task the file holds only the
+          gate-page classes T17 kept, or nothing — if nothing, delete it and its import).
+
+          `admin/admin-dashboard-client.tsx` (942 lines; split into
+          `admin/stat-tiles.tsx`, `admin/request-cards.tsx`, `admin/people-list.tsx`,
+          `admin/blocked-panel.tsx` as you go): stat tiles as `Tile`-like `Card`s with the
+          pending one `warn` when > 0; request cards with `Button variant="accent"` Approve /
+          `outline` Decline / `ghost` dismiss; the People section as ONE `DataList` (columns:
+          person with `Avatar`, status `Badge`, services as `Badge tone="mute"` list,
+          Discord `Badge`, actions Edit `ghost sm` + Block `bad sm`) replacing the parallel
+          `.people-table-wrap` / `.people-card-list` renderings; search as `Input icon="search"`;
+          `discord-links-panel.tsx` lists with `RadioGroup`; blocked panel. Replace every
+          `window.confirm` with `ConfirmDialog` whose title names the person and body the
+          consequence (copy from the mockup); `add-person-modal.tsx` and
+          `edit-access-modal.tsx` become `Dialog` (they currently have no `role="dialog"`,
+          no focus trap — the package fixes that); `access-rules-field.tsx` chips → `Badge`
+          with a remove button rendered as a `Button variant="ghost" size="sm"` beside it
+          (badges are never clickable). `admin/error.tsx`: `Note tone="bad"` + Try again.
+          Page-level action errors: `Note tone="bad"` with `onDismiss`. Keep SSE refresh,
+          server actions and all `data-testid`s.
+          Delete from `design-tokens.css` every `.btn*`, `.chip*`, `.card`, `.table*`,
+          `.toast*`, `.notice*`, `.modal*`, `.panel*`, `.stat-*`, `.req-card*`, `.people-*`,
+          `.person-card*`, `.row-user*`, `.empty-state`, `.field/.input/.field-hint/
+          .field-error`, `.avatar*`, `.service-*` rule once no TSX references it (grep).
+          Tests: `admin/__tests__/admin-dashboard-client.spec.tsx` (1154 lines) and
+          `discord-links-panel.spec.tsx` must keep passing with selectors updated to the
+          new markup — they are the regression net; add cases for the confirm dialog
+          (Block calls the action only after confirm; Keep access doesn't) and for the
+          DataList rendering one row per person in both layouts.
+      - id: T19
+        title: 'dev: adopt @lilnas/ui, delete the local ui/ copy, rebuild to the approved mockup'
+        after:
+          - T10
+          - T11
+          - T41
+          - T12
+          - T13
+          - T14
+          - H3
+        files:
+          - apps/dev/
+        status: done
+        commit: b27748e5b7e11134a89f74c10bc6b373c79dfe08
+        body: |-
+          Move `apps/dev` from its local Ultraviolet copy to `@lilnas/ui`, to the approved
+          mockups `docs/features/dev-dashboard/designs/{index,stack-detail}.html`
+          (`src/pages/*.pug`, mixins `src/mixins/dev.pug`). Read `docs/designs/adoption.md`
+          "Migrating the apps already on Ultraviolet" — its token map and step order apply.
+
+          - `package.json`: add `@lilnas/ui workspace:*` (`pnpm install --frozen-lockfile`;
+            if refused, `pnpm install` + commit lockfile). `jest.config.js`: `^@lilnas/ui$`
+            mapper in `shared`.
+          - `src/tailwind.css`: replace the whole file with the two package lines + the
+            `@theme inline` font mapping + any dev-only `@utility` that the package doesn't
+            ship (there should be none — move anything genuinely needed into a comment and
+            ask via a change request rather than keeping a fork). `src/app/layout.tsx`: Geist
+            + Geist Mono, `AppBar app="dev"`, `Density mode="compact"` around the app,
+            `ToastProvider`; delete `IconSprite` usage.
+          - Delete `src/components/ui/*` entirely and `src/components/detail/{panel,segmented,
+            toggle}.tsx`; re-point every import to `@lilnas/ui` (`Chip` → `Badge`, `Callout`
+            → `Note`, `Dot` → `StatusDot`, `Kbd`, `Spinner`, `Skeleton`, `Card`, `Panel`,
+            `PanelHead`, `Segmented`, `Toggle` → `Switch`, `buttonRecipeClassName` on `<a>`
+            → `Button render={<Link/>}`). Then `sed` `uv-` → `accent-`, `ease-uv` →
+            `ease-standard`, fix `hover:-translate-y-*`/hover shadows, `placeholder:text-ink-4`
+            → `ink-3`, input borders → `border-line-control`, review every `font-mono` (keep
+            on names, paths, images, ports, log lines; drop on CPU/mem/uptime/counts), badge
+            text to sentence case (`Running`, `Exited`, `Env missing`).
+          - Overview and detail per the mockup: `stack-card.tsx` actions with the inline
+            confirm as `Note tone="warn"` + Confirm / Keep it; `services-table.tsx` → one
+            `DataList`; `reaper-panel.tsx` → `Meter`; `LogViewer.tsx`/`OperationLog.tsx` →
+            the package `LogViewer` for the container/line rendering (keep
+            `use-container-logs.ts` and `use-operation-stream.ts` untouched: SSE, 5000-line
+            buffer, 50ms flush, reconnects); `states.tsx` → `EmptyState`/`Note`; the log
+            `<select>` → `Select`, tail → `Segmented`, Follow/Timestamps → `Switch`.
+          No `uv-`, `ease-uv`, `Chip`, or raw palette utility remains in `apps/dev/src`.
+          Tests: the four existing jsdom specs (`src/app/__tests__/page.spec.tsx`,
+          `stack-detail.spec.tsx`, `src/components/logs/__tests__/{LogViewer,OperationLog}.spec.tsx`,
+          66 tests) must pass with selectors updated; add assertions for the confirm step on
+          Recreate/Down and for the DataList rendering services in both layouts.
+      - id: T20
+        title: 'download: mechanical swap to @lilnas/ui (theme, fonts, delete ui/, retoken)'
+        after:
+          - T10
+          - T11
+          - T41
+          - T12
+          - T13
+          - T14
+          - T15
+          - H4
+        files:
+          - apps/download/
+        status: done
+        commit: 326f9891c56657cf447369d7b278467a94d6cf14
+        body: |-
+          The whole-app mechanical step for `apps/download`, so the three screen tasks
+          after it can work in parallel on disjoint folders. Read `docs/designs/adoption.md`
+          "Migrating the apps already on Ultraviolet" (token map, step order, the 112
+          `font-mono` call sites) and the approved mockups under
+          `docs/features/download/designs/` for the target look, but keep this task to the
+          mechanical layer; per-screen layout changes belong to T21–T23.
+
+          - `package.json`: add `@lilnas/ui workspace:*`, remove the unused `react-icons`
+            (`pnpm install --frozen-lockfile`; if refused, `pnpm install` + commit lockfile).
+            `jest.config.js`: `^@lilnas/ui$` mapper.
+          - `src/tailwind.css`: the two package lines + `@theme inline` font mapping; keep
+            ONLY download-specific `@utility` rules the package doesn't ship (`bar-settling`,
+            `poster-v1..5`) under a comment. `src/app/layout.tsx`: Geist + Geist Mono
+            (replace Figtree / IBM Plex Mono), `ToastProvider`, drop `IconSprite`, keep the
+            `AppBar navSearch` slot via the package `AppBar end=` prop or a thin local shell.
+          - Delete the files in `src/components/ui/` that the package now provides —
+            `avatar`, `button`, `button-link`, `button-recipe`, `card` (Card, Note),
+            `chip`, `data-table`, `doorplate`, `feedback`, `icon`, `input`, `menu`,
+            `modal`, `sprite`, `status` (Dot, Bar → Progress), `tabs`, `tile` — together with
+            their specs in `ui/__tests__/` (the package has its own). Keep download-only
+            ones (`filters`, `gallery-card`, `load-more`, `mchip`, `poster`, `state-line`,
+            `toggle-chip`) and retoken them. Re-point every import (`Chip` → `Badge`,
+            `Dot` → `StatusDot`, `Bar` → `Progress`, `Modal` → `Dialog`/`ConfirmDialog`,
+            `Menu/MenuItem/MenuTrigger` → `Menu.*`, `Note` → `Note` with `tone="bad"`
+            replacing the copied `border-bad/35! bg-bad-ghost! …` strings).
+          - `sed` `uv-` → `accent-`, `ease-uv` → `ease-standard` across `src/`; fix hover
+            lifts/shadows, `placeholder:text-ink-4`, input borders → `line-control`; audit
+            every `font-mono` (keep: hostnames, IDs, paths, file names, URLs; drop: sizes,
+            counts, percentages, timestamps, speeds); the `ts-pattern` status maps in
+            `components/detail/job-state.ts` and `media-state.ts` return `Badge` tones +
+            sentence-case labels instead of class strings; `clampPct` moves next to its
+            users.
+          No `uv-`, `ease-uv`, `Chip`, `!`-suffixed override, `oklch(`, or raw palette
+          utility remains in `apps/download/src`. All 2039 jsdom tests (minus the deleted
+          `ui/__tests__` specs) pass with selectors updated; no page's behaviour changes.
+          `apps/download/Dockerfile`: add `COPY packages/ui/package.json packages/ui/` right
+          after the `COPY packages/utils/package.json packages/utils/` line in the deps
+          stage, so the frozen install sees the new workspace dependency.
+      - id: T21
+        title: 'download: shell, home, search, gallery to the approved mockups'
+        after:
+          - T20
+        files:
+          - apps/download/src/app/(home)/
+          - apps/download/src/app/search/
+          - apps/download/src/app/gallery/
+          - apps/download/src/app/error.tsx
+          - apps/download/src/app/not-found.tsx
+          - apps/download/src/components/shell/
+          - apps/download/src/components/home/
+          - apps/download/src/components/search/
+          - apps/download/src/components/gallery/
+          - apps/download/src/components/ui/filters.tsx
+          - apps/download/src/components/ui/gallery-card.tsx
+          - apps/download/src/components/ui/toggle-chip.tsx
+          - apps/download/src/components/ui/__tests__/
+        status: done
+        commit: b5ffd8d7b04d5850b9ed6af8781de7e86039f407
+        body: |-
+          Bring the shell and the discovery screens of `apps/download` to the approved
+          mockups `docs/features/download/designs/{home,search,gallery}.html` and the
+          boundaries row on `index.html` (sources `src/pages/*.pug`, download mixins
+          `src/mixins/download.pug`). The app is already on `@lilnas/ui`; this task is
+          layout, spacing, type and copy per screen, nothing mechanical.
+
+          - Shell (`components/shell/*`): `AppBar app="download"` with the nav search in
+            the `end` slot (`Search` from the package, icon-only submit below `sm`),
+            account link as `Avatar` + `Menu`, `not-authorized.tsx` / `not-found.tsx` and
+            `app/error.tsx` as `EmptyState`/`Note` per the boundaries row (keep the error
+            digest line).
+          - Home: hero (the giant input, Geist 600, `Input` sized per mockup), quick-access
+            `Tile`s with the live count as `StatusDot pulse`, recently-added grid
+            staggered; `loading.tsx` skeletons in the new geometry.
+          - Search: `search-hero`, notes as `Note` tones per mockup, sort `Menu`,
+            `FilterPanel` restyled (popover panel = `bg-surface border-line-loud rounded-lg
+            shadow-lift`), grid/list toggle as `Segmented`, result table → `DataList` or the
+            mockup's list, `LoadMore` as `Button variant="outline"`, skeletons.
+          - Gallery: media-type `Tabs` with counts, filter chips → `Badge` + remove button,
+            `ToggleChip` restyled, `GalleryEmpty` → `EmptyState` with one action.
+          Keep every URL-param behaviour, server action and `data-testid`. Copy per
+          `docs/designs/voice.md` and the mockup. Tests: the specs under
+          `src/components/{shell,home,search,gallery}/__tests__/`, `src/app/{search,gallery}/
+          __tests__` and the kept `ui/__tests__` must pass with selectors updated; add a
+          test per new state the mockup shows that had none (e.g. the not-found page's
+          single action, Segmented view toggle).
+      - id: T22
+        title: 'download: activity, admin, profile to the approved mockups'
+        after:
+          - T20
+        files:
+          - apps/download/src/app/activity/
+          - apps/download/src/app/admin/
+          - apps/download/src/app/profile/
+          - apps/download/src/components/activity/
+          - apps/download/src/components/admin/
+          - apps/download/src/components/profile/
+          - apps/download/src/components/ui/state-line.tsx
+          - apps/download/src/components/ui/mchip.tsx
+          - apps/download/src/components/ui/load-more.tsx
+        status: done
+        commit: ee71608b0b0c9f6035426d8b73ba4d007c233985
+        body: |-
+          Bring the list screens of `apps/download` to the approved mockups
+          `docs/features/download/designs/{activity,admin,profile}.html` (sources
+          `src/pages/*.pug`, mixins `src/mixins/download.pug`). The app is already on
+          `@lilnas/ui`; this task is per-screen layout, type and copy.
+
+          - Activity: `ActivityTabs` → package `Tabs` with counts; the desktop table +
+            mobile list pair (`activity-table.tsx` / `activity-list.tsx`) becomes ONE
+            `DataList` (columns: item with poster thumb + title, requester `Avatar`,
+            status `Badge` from the T20 tone map, progress `Progress` with `settling`,
+            size/speed in Geist tabular, actions); `ActivityEmpty` → `EmptyState`; keep the
+            live `JobEventsProvider` updates and `LoadMore`.
+          - Admin: `NotAuthorized` → `EmptyState`; `AdminStats` cards; filter chips →
+            `Badge` + remove; `admin-history-table.tsx` / `admin-history-list.tsx` → one
+            `DataList`; leaderboard and audit log as `Panel`s with `Table`.
+          - Profile: header with `Avatar size={64}`, lifetime `Tile`, totals `Badge`s,
+            `ProfileTrend` bars retokened (accent fill, `line-soft` grid), history
+            `DataList`, empties.
+          `MChip` (mono meta chip) stays mono only for identifiers — review each call.
+          Keep server actions, pagination cursors, `data-testid`s. Tests: specs under
+          `src/components/{activity,admin}/__tests__/` and `src/app/{activity,admin,profile}/
+          __tests__` pass with selectors updated; add `src/components/profile/__tests__/
+          profile-history.spec.tsx` (no tests exist for profile today) covering the
+          DataList rows, the empty state and the not-authorized state.
+      - id: T23
+        title: 'download: movie / show / video detail to the approved mockups'
+        after:
+          - T20
+        files:
+          - apps/download/src/app/movies/
+          - apps/download/src/app/shows/
+          - apps/download/src/app/videos/
+          - apps/download/src/components/detail/
+          - apps/download/src/components/ui/poster.tsx
+        status: done
+        commit: 2942e19fde8d743de90786d06a46094b43bbc80b
+        body: |-
+          Bring the detail screens of `apps/download` to the approved mockups
+          `docs/features/download/designs/{movie-detail,show-detail,video-detail}.html`
+          (sources `src/pages/*.pug`, mixins `src/mixins/download.pug`). The app is already
+          on `@lilnas/ui`; this task is per-screen layout, type, dialogs and copy.
+
+          - `DetailHeader` + facts + `CastRow` per mockup (poster `Poster` retokened,
+            facts as a `dl` with Geist values, identifiers mono).
+          - `MediaStatus` for the 7 media states with the T20 tone map and the mockup's
+            copy; `ProgressBlock` → `Progress` + Geist tabular percentage/speed/ETA;
+            `MovieRequestButton`/`ShowRequestButton` as the single `accent` button per
+            view; `QualityTierSelect` → `Select`; `ReleasePicker` rows; `AttemptList`.
+          - Dialogs: `ImportDialog` → `Dialog` (keep `ReasonGroup`/`Reason` semantics on
+            `RadioGroup`); `DeleteConfirm` → `ConfirmDialog` with the object and the
+            consequence named ("Delete "Dune: Part Two"? The 38.4 GB comes off the disk…")
+            and cascade variants for season / series on shows; `BadFileFlag` → `Dialog`;
+            `SaveLocal` per mockup. `job-actions.tsx`: offered / acknowledged / none states
+            as the mockup draws them.
+          - Shows: season `Tabs`, `ShowEpisodeRow` with the inline actions drawer (one
+            open at a time) restyled — keep its state logic.
+          - Videos: `VideoPlayer` chrome retokened (keep `video-player-state.ts`), facts,
+            download button, segment `not-found.tsx`/`error.tsx` as `EmptyState`/`Note`;
+            add the missing `videos/[videoId]/loading.tsx` skeleton.
+          Keep the live `*-live.tsx` wiring, server actions and `data-testid`s. Tests: every
+          spec under `src/components/detail/__tests__/` and `src/app/{movies,shows,videos}/
+          __tests__` passes with selectors updated; add cases for the ConfirmDialog copy
+          naming the title and for the cascade variants.
+      - id: T24
+        title: 'tdr-bot: shell, Provider, settings and shared components off MUI onto @lilnas/ui'
+        after:
+          - T2
+          - T10
+          - T11
+          - T41
+          - T12
+          - T14
+          - T15
+          - H5
+        files:
+          - apps/tdr-bot/package.json
+          - apps/tdr-bot/src/styles/
+          - apps/tdr-bot/src/app/layout.tsx
+          - apps/tdr-bot/src/app/page.tsx
+          - apps/tdr-bot/src/app/settings/
+          - apps/tdr-bot/src/components/
+          - apps/tdr-bot/src/store/
+        status: done
+        commit: ebb6b97a2f69cd3d8866c199c9c3ce715d19cba6
+        body: |-
+          Start tdr-bot's MUI exit: the shell, the providers, the shared components and the
+          Settings page move to `@lilnas/ui`, matching the approved mockup
+          `docs/features/tdr-bot/designs/settings.html` and the app bar on every page
+          (sources `src/pages/*.pug`, mixins `src/mixins/tdr-bot.pug`). Do NOT remove the
+          `@mui/*`/`@emotion/*` dependencies yet — reminders, emojis, transcript and
+          playground still import them until T25–T27; T28 removes them.
+
+          - `package.json`: add `@lilnas/ui workspace:*` (`pnpm install --frozen-lockfile`;
+            if refused, `pnpm install` + commit lockfile).
+          - `src/styles/globals.css`: `@import '@lilnas/ui/theme.css'; @source '../../node_modules/@lilnas/ui/dist';`
+            (verify the path from `src/styles/`), `@theme inline` font mapping; drop the
+            `html, body` rule the theme now covers. `src/app/layout.tsx`: Geist + Geist Mono.
+          - `src/components/Provider.tsx`: delete the Emotion cache, `useServerInsertedHTML`
+            shim, `CacheProvider`, `ThemeProvider`, `CssBaseline`; keep the react-query
+            singleton (`staleTime` 60s); add `ToastProvider` and `Tooltip.Provider`.
+            MUI pages still work without `ThemeProvider` (they fall back to MUI's default
+            theme until their own task) — verify type-check and that `/reminders` renders
+            in jest.
+          - `src/components/AppShell.tsx` → `AppBar app="tdr"` with `NAV_LINKS` as links
+            (active by pathname) and the phone nav as a `Sheet side="right"` listing the
+            links; delete the unused jotai `mobileDrawerOpen` atom in `src/store/nav.ts`
+            (and `jotai` from deps if nothing else uses it — grep). `ModelSelect.tsx` →
+            `Select` with label, description and per-1M pricing per item; `DiscordContent.tsx`
+            unchanged except the unknown-emoji outline → `border-bad`; `SadPepeIcon.tsx` →
+            re-export `PepeFull`.
+          - `src/app/settings/page.tsx`: three `Card`s; model `Select`s; temperature
+            `Slider` (0–2 step 0.1) or reasoning-effort `RadioGroup`; system prompt
+            `Textarea mono` with the n / 20000 counter; Save `accent` / Reset `outline` with
+            `ConfirmDialog`; status line states; field errors via `Field error=`; loading
+            `Skeleton`s; error `Note`. Keep `useSettings` and the `ApiRequestError.issues`
+            mapping.
+          No MUI import remains in the files this task touches. Tests (jsdom project from
+          T2): `src/components/__tests__/AppShell.spec.tsx` (links, active link, sheet opens
+          on phone trigger), `ModelSelect.spec.tsx`, `src/app/settings/__tests__/page.spec.tsx`
+          (loaded form, slider vs radios by model capability, unsaved/saving/saved states,
+          field error, reset confirm) with react-query mocked at the `ApiClient` boundary.
+      - id: T25
+        title: 'tdr-bot: reminders off MUI'
+        after:
+          - T24
+        files:
+          - apps/tdr-bot/src/app/reminders/
+        status: done
+        commit: d1fae48ae10cde036fe84dc57e85eb31fac992b5
+        body: |-
+          Rebuild `/reminders` to the approved mockup `docs/features/tdr-bot/designs/
+          reminders.html` (source `src/pages/reminders.pug`, mixins `src/mixins/tdr-bot.pug`)
+          on `@lilnas/ui`, removing every MUI import under `src/app/reminders/`.
+          `page.tsx`: status filter as `Tabs` (or `Segmented`) with counts, search `Input
+          icon="search"`, "New reminder" `accent`; `ReminderTable.tsx` + `ReminderCard.tsx`
+          → one `DataList` (columns: for/what, schedule, next run, status `Badge`
+          — Active accent live · Completed ok · Cancelled mute · Missed warn — actions);
+          `StatusChip.tsx` → `Badge` map. `ReminderDialog.tsx` (490 lines) → `Dialog`
+          with `Field`s: member `Combobox` (avatar as `icon`, `MemberInfo`), What `Input`,
+          one-time vs recurring `Segmented`, `datetime-local` `Input` or cron preset
+          `Select` + custom cron `Input mono`, "Ends on", the next-runs preview list
+          (keep `cron-presets.ts`, `format.ts` and the preview query), channel `Select`,
+          users `Combobox`, action `Select`; validation errors through `Field error=`.
+          `CancelDialog.tsx` → `ConfirmDialog` naming the reminder; `TestSendDialog.tsx`
+          → `Dialog` with a `RadioGroup` of upcoming runs. Empties → `EmptyState` with one
+          action; errors → `Note`. Keep `useReminders`/`useMembers`/`useChannels` and
+          every API call. Tests: keep `__tests__/{cron-presets,format}.test.ts` passing;
+          add `__tests__/page.spec.tsx` (filter counts, search, empty, error) and
+          `__tests__/ReminderDialog.spec.tsx` (one-time vs recurring switch, preset →
+          custom cron, validation error rendering, submit payload) with `ApiClient` mocked.
+      - id: T26
+        title: 'tdr-bot: emojis off MUI'
+        after:
+          - T24
+        files:
+          - apps/tdr-bot/src/app/emojis/
+        status: done
+        commit: a745745c88bd7640bafbfef2fee52d9fb4791df9
+        body: |-
+          Rebuild `/emojis` to the approved mockup `docs/features/tdr-bot/designs/emojis.html`
+          (source `src/pages/emojis.pug`, mixins `src/mixins/tdr-bot.pug`) on `@lilnas/ui`,
+          removing every MUI import under `src/app/emojis/`. `page.tsx`: filter `Tabs` with
+          counts (All / Needs description / AI / Manual / Deleted), search `Input`,
+          "Re-describe all" and "Run reconcile now" as `outline` buttons with the
+          reconcile status line and a `Badge tone="accent" live` while running (keep the 3s
+          refetch); `EmojiTable.tsx` + `EmojiCard.tsx` → the mockup's card grid (or
+          `DataList` if the mockup shows a table at 1280), `EmojiImage` unchanged,
+          `SourceChip.tsx` → `Badge` (AI accent · Manual ok · Deleted mute);
+          `DescriptionEditor.tsx` inline `Textarea` with Save/Cancel `sm` buttons;
+          `RedescribeDialog.tsx` → `ConfirmDialog` ("Re-describe :pepe:? The manual
+          description is replaced."), `RedescribeAllDialog.tsx` → `ConfirmDialog` with the
+          count; empties → `EmptyState`; dismissible errors → `Note onDismiss`. Keep
+          `useEmojis`, `format.ts` and every API call. Tests: keep `__tests__/format.test.ts`;
+          add `__tests__/page.spec.tsx` (filters and counts, search, reconcile running
+          badge, empty states, error dismiss) and `__tests__/DescriptionEditor.spec.tsx`
+          (edit → save calls PATCH with source manual, cancel restores) with `ApiClient`
+          mocked.
+      - id: T27
+        title: 'tdr-bot: transcript and playground off MUI'
+        after:
+          - T24
+        files:
+          - apps/tdr-bot/src/app/transcript/
+          - apps/tdr-bot/src/app/playground/
+        status: done
+        commit: f4da25cbd1f16cef1985539fb3c5c6d81db35a33
+        body: |-
+          Rebuild `/transcript` and `/playground` to the approved mockups
+          `docs/features/tdr-bot/designs/{transcript,playground}.html` (sources
+          `src/pages/*.pug`, mixins `src/mixins/tdr-bot.pug`) on `@lilnas/ui`, removing every
+          MUI import under both folders.
+          Transcript (`page.tsx`, 728 lines — split out `channel-list.tsx`, `turn.tsx`,
+          `llm-calls.tsx`): channel list as a 232px sidebar at `md`+ and a horizontal
+          scroller below; From/To `Input type="date"` in `Field`s; totals strip in tabular
+          Geist; each turn per mockup with `DiscordContent`; the LLM-call table/cards pair
+          → one `DataList`; skeletons, "No messages yet" `EmptyState`, load-older `Spinner`,
+          error `Note`. Keep `group-turns.ts`, the infinite scroll that preserves position,
+          and `useTranscript`.
+          Playground (`page.tsx` 553 + `EvalPanel.tsx` 491): model `Select`, Reset
+          conversation `ConfirmDialog`, system-prompt draft disclosure (a `details`-style
+          `Panel` with a "modified" `Badge` and "Reset to saved" `ghost`), chat bubbles per
+          mockup (user / assistant with model · cost · latency and emoji-score `Badge`s /
+          error with Retry / pending), empty thread; `EvalPanel`: model `Checkbox`es, cost
+          estimate, Run eval `accent`, `Progress`, cancel, results `DataList` with
+          expandable rows. Keep `conversation.ts`, `eval.ts`, `eval-prompts.ts`,
+          `usePlayground`, the MUI-free logic. While here, fix F5 from plan 010: Retry is
+          disabled while an eval runs.
+          Tests: keep `transcript/__tests__/group-turns.test.ts` and
+          `playground/__tests__/{conversation,eval}.test.ts`; add `transcript/__tests__/
+          page.spec.tsx` (channel select, date range, totals, empty, error) and
+          `playground/__tests__/page.spec.tsx` (send → pending → assistant bubble, error +
+          Retry, Retry disabled during eval, draft modified badge) with `ApiClient` mocked.
+      - id: T28
+        title: 'tdr-bot: remove MUI, emotion, theme.ts, tailwind.config.ts, components.json'
+        after:
+          - T25
+          - T26
+          - T27
+        files:
+          - apps/tdr-bot/package.json
+          - apps/tdr-bot/src/theme.ts
+          - apps/tdr-bot/tailwind.config.ts
+          - apps/tdr-bot/components.json
+          - apps/tdr-bot/next.config.js
+          - pnpm-lock.yaml
+        status: done
+        commit: f6122b279cc5fd186a82f77d0b2c853c9dda6d34
+        body: |-
+          Finish tdr-bot's MUI exit now that no page imports it. `grep -rn "@mui\|@emotion"
+          apps/tdr-bot/src` must be empty before you start (if not, stop and file a change
+          request naming the files). Remove `@mui/material`, `@mui/icons-material`,
+          `@emotion/react`, `@emotion/styled`, `@emotion/cache` from `apps/tdr-bot/package.json`
+          (and `jotai` if T24 left it unused); delete `src/theme.ts`, the dead v3
+          `tailwind.config.ts` (the `eminence`/`lavender` scales) and shadcn's
+          `components.json`; drop any MUI-related `transpilePackages`/`modularizeImports`
+          from `next.config.js` if present. Run `pnpm install` (not frozen) from the repo
+          root and commit `pnpm-lock.yaml`. `pnpm --filter @lilnas/tdr-bot lint && type-check`
+          and the jsdom + `src/app` specs pass; `pnpm --filter @lilnas/tdr-bot build:frontend`
+          succeeds in this worktree (then delete `.next`).
+      - id: T29
+        title: 'tdr-code: theme, fonts, shell with phone nav, shared states, login, error pages'
+        after:
+          - T10
+          - T11
+          - T41
+          - T12
+          - T13
+          - T14
+          - H6
+        files:
+          - apps/tdr-code/package.json
+          - apps/tdr-code/jest.config.js
+          - apps/tdr-code/tailwind.config.ts
+          - apps/tdr-code/src/styles/
+          - apps/tdr-code/src/app/layout.tsx
+          - apps/tdr-code/src/app/components/
+          - apps/tdr-code/src/app/login/
+          - apps/tdr-code/src/app/error.tsx
+          - apps/tdr-code/src/app/global-error.tsx
+          - apps/tdr-code/src/app/not-found.tsx
+          - apps/tdr-code/src/app/__tests__/
+        status: done
+        commit: bd869a29b30e5e3a68cf0f4ee9219379b2077839
+        body: |-
+          The foundation step for `apps/tdr-code`: tokens, fonts, the shell with its first
+          phone layout, the shared state components and the login/error pages, to the
+          approved mockups `docs/features/tdr-code/designs/{login,index}.html` (boundaries
+          row) and the app bar seen on every page (sources `src/pages/*.pug`, mixins
+          `src/mixins/tdr-code.pug`). Read `docs/designs/adoption.md` "tdr-code" (the
+          gray-ladder → token table). NEVER run `next build`/`pnpm build` or
+          `scripts/daemon.sh` in `/home/jeremy/lilnas/apps/tdr-code`; this worktree is fine.
+
+          - `package.json`: add `@lilnas/ui workspace:*` (`pnpm install --frozen-lockfile`;
+            if refused, `pnpm install` + commit lockfile). `jest.config.js`: `^@lilnas/ui$`
+            mapper in all three projects. Delete the dead v3 `tailwind.config.ts`.
+          - `src/styles/globals.css`: `@import '@lilnas/ui/theme.css'; @source '../../node_modules/@lilnas/ui/dist';`
+            (verify the path), `@theme inline` font mapping; drop the hardcoded `#030712`
+            body rule. `src/app/layout.tsx`: Geist + Geist Mono, `Density mode="compact"`,
+            `ToastProvider`, body `bg-bg text-ink`.
+          - `components/nav-shell.tsx` → `AppBar app="tdr-code"` with the six links (active
+            by pathname), the user badge as `Avatar` + name + "Log out" `ghost sm`, and the
+            phone nav as a `Sheet side="right"` (first mobile layout — the mockup is the
+            spec); hidden on `/login` as today. `components/status-dot.tsx` → re-export
+            `StatusDot` with the old tone names mapped (green ok, yellow warn, red bad, gray
+            idle). `empty-state.tsx` → `EmptyState`, `error-state.tsx` → `Note tone="bad"`
+            with retry, `loading-state.tsx` → `Skeleton` rows, `page-container.tsx` keeps
+            its API with `max-w-[1280px] px-4 md:px-8`. `bot-status-widget.tsx` per mockup.
+            Add `components/inline-confirm.tsx`: `InlineConfirm({ label, confirmLabel,
+            onConfirm, pending })` — the two-step swap-in-place (`bad` outline → Confirm
+            `bad` filled sm + Cancel `ghost` sm) that four pages hand-roll today; later
+            tasks adopt it.
+          - `login/page.tsx`: the 380px card, Discord button `accent`, `?error=` → `Note
+            tone="bad"` per code. `error.tsx` → `Note` + Try again. `global-error.tsx`:
+            keep inline styles only, repoint the hex values to the new palette
+            (`#0e0c14`, `#181520`, `#ebe8f2`, `#9b7bf5`). `not-found.tsx` → `EmptyState`.
+          No `gray-*`, `blue-*`, `red-*`, `yellow-*`, `green-*` utility remains in the files
+          this task touches. Tests: `src/app/__tests__/login.spec.tsx` and the other
+          specs in `src/app/__tests__/` (keep `data-track-id`s) pass with class selectors
+          updated; add `nav-shell.spec.tsx` (links, active, sheet opens, hidden on login)
+          and `inline-confirm.spec.tsx` (swap, confirm calls once, cancel restores).
+      - id: T30
+        title: 'tdr-code: dashboard, sessions, session detail, events'
+        after:
+          - T29
+        files:
+          - apps/tdr-code/src/app/page.tsx
+          - apps/tdr-code/src/app/sessions/
+          - apps/tdr-code/src/app/events/
+        status: done
+        commit: 0d702ddbc850b1cbfc079961141621fc8a3a908b
+        body: |-
+          Bring `/`, `/sessions`, `/sessions/[id]` and `/events` of `apps/tdr-code` to the
+          approved mockups `docs/features/tdr-code/designs/{dashboard,sessions,session,
+          events}.html` (sources `src/pages/*.pug`, mixins `src/mixins/tdr-code.pug`) on
+          `@lilnas/ui`, using the shell pieces from T29 (`InlineConfirm`, `StatusDot`,
+          `EmptyState`, `PageContainer`). Dashboard `page.tsx`: bot status widget, Restart
+          bot → `InlineConfirm`, active sessions table → `DataList` (state `Badge`s
+          replacing the `bg-green-900 text-green-300` pill idiom, queue and last activity
+          in Geist tabular, `RelativeTime` kept, per-row Tear down → `InlineConfirm`
+          "Kill active session?"), offline `Note tone="warn"`, empties. `sessions/page.tsx`:
+          channel filter `Input` + Clear `ghost`, `DataList` with mono `#id` links
+          (`text-accent-hi`), Load more `outline`. `sessions/[id]/page.tsx` (355 lines):
+          header with active/ended `Badge`, meta `dl`, dropped-blocks `Note warn`,
+          `TurnCard`s as `Card`s with block types styled per mockup (diff blocks in a
+          `bg-bg-sunk` mono well; the stray `orange-400` goes to `warn`), `ReconcilePanel`
+          as `Panel` with count `Badge`s; keep the 300ms-throttled SSE + 5s poll.
+          `events/page.tsx`: filters → `Select`s + `Input`, table → `DataList` with level
+          `Badge`s. Keep every `data-track-id`, `useLiveStream` call and API call.
+          No raw palette utility remains in these files. Tests: there are none for these
+          routes today — add `src/app/__tests__/dashboard.spec.tsx` (offline note, empty,
+          rows, restart and teardown confirm flows), `sessions/__tests__/page.spec.tsx`
+          (filter, load more, empty), `sessions/[id]/__tests__/page.spec.tsx` (each block
+          type renders, not-found, reconcile counts), `events/__tests__/page.spec.tsx`
+          (filters, empty) with `fetch`/`src/app/lib/api.ts` mocked as the existing
+          `src/app/__tests__` specs do.
+      - id: T31
+        title: 'tdr-code: config and git pages'
+        after:
+          - T29
+        files:
+          - apps/tdr-code/src/app/config/
+          - apps/tdr-code/src/app/git/
+        status: done
+        commit: 8d536e5c9870f81161f8d527597f7009bcb855ae
+        body: |-
+          Bring `/config` and `/git` of `apps/tdr-code` to the approved mockups
+          `docs/features/tdr-code/designs/{config,git}.html` (sources `src/pages/*.pug`,
+          mixins `src/mixins/tdr-code.pug`) on `@lilnas/ui` and the T29 shell pieces.
+          `config/page.tsx` (347 lines): the form on `Field` + `Input` / `Textarea`
+          (`FieldLabel` goes), the character-limit warning as `Note tone="warn"`, offline
+          note, Save as the single `accent` button, loading skeletons, error `Note`.
+          `git/page.tsx` (723 lines; split into `github-section.tsx`, `ssh-section.tsx`,
+          `roster-section.tsx`): three `Panel`s; `StatusChip` → `Badge`; the blue info box →
+          `Note tone="accent"`; link/unlink/clear/remove confirms → `InlineConfirm`; roster
+          table → `DataList` with per-row and per-credential actions; per-section loading,
+          error and empty states. The `bg-blue-700 text-blue-100` primaries become
+          `Button variant="accent"`. Keep every query lifecycle, mutation, `data-track-id`
+          and the three independent loading states. No raw palette utility remains in
+          these files. Tests: add `config/__tests__/page.spec.tsx` (loaded values, limit
+          warning, offline note, submit) and `git/__tests__/page.spec.tsx` (each section's
+          empty/loaded/error, an inline confirm flow per section) with `fetch` mocked as
+          the existing specs do.
+      - id: T32
+        title: 'tdr-code: logs page, log viewer markup, detail sheet, filters, search bar'
+        after:
+          - T29
+        files:
+          - apps/tdr-code/src/app/logs/
+        status: done
+        commit: 553c70c232c38cb33976fdcf3ec2d284c1d20ebd
+        body: |-
+          Bring `/logs` of `apps/tdr-code` to the approved mockup
+          `docs/features/tdr-code/designs/logs.html` (source `src/pages/logs.pug`, mixins
+          `src/mixins/tdr-code.pug`) on `@lilnas/ui`. This is the riskiest surface in the
+          plan: `log-viewer.tsx` is 1684 lines with a 3181-line spec. Change ONLY its
+          markup (roughly lines 1369–1684: toolbar, status banner, row container, edge
+          states) and the class maps in `log-row.tsx`; leave the windowing, eviction,
+          live-tail, filtered-projection and `@tanstack/react-virtual` logic untouched.
+          Virtualised rows must NOT get `animate-rise` (recycled rows flicker) — use the
+          package `LogLineRow` styling (level colours INFO accent-hi / WARN warn / ERROR
+          bad, timestamp ink-3, source ink, message ink-2, WARN/ERROR pill as `Badge`)
+          inside the existing row component; the container is the package `LogViewer`
+          well styling only if it can wrap the virtualiser without changing scroll
+          ownership — otherwise apply its classes to the existing scroller. `logs/page.tsx`:
+          the three streams as `Tabs` keeping every viewer mounted (`block`/`hidden`
+          behaviour unchanged, including the shared `LogDetailPanel` closing on tab
+          switch), empty-tab `EmptyState`. `log-filters.tsx`: `Select`s + `Input mono`;
+          `log-search-bar.tsx` (623 lines): `Input icon="search"`, hit count in Geist
+          tabular, prev/next `ghost` icon buttons with `aria-label`s, keep the debounce.
+          `log-detail-panel.tsx` (750 lines): becomes `Sheet side="right"` — keep the drag
+          resize (320–720, default 448) by rendering the resize handle inside the Sheet
+          popup and passing the width as a style; Copy and filter-by buttons as `ghost sm`;
+          JSON highlighting restricted to ink / ink-2 / accent-hi / ok (the sky / emerald /
+          amber / purple classes go). At 390 the filter row scrolls horizontally and the
+          sheet is full-width, per mockup. Status banner states (Following live with
+          `StatusDot pulse`, Paused · N new · Jump to latest `accent sm`, filtered
+          scanning / empty, Top of file / End of file) per mockup.
+          Tests: every spec in `logs/__tests__/` (log-viewer 3181 lines, log-detail-panel,
+          log-search-bar, log-row, use-log-tail, page, log-filters — 7 files) must pass;
+          update only class-name and role assertions (`text-red-400` etc., `fixed`,
+          `block`/`hidden`) to the new markup and keep every behavioural assertion and
+          `data-track-id`. Add a test that virtualised rows carry no `animate-rise` class.
+      - id: T42
+        title: auth and tdr-bot Dockerfiles copy packages/ui; confirm ESM; drop auth's Providers workaround
+        after:
+          - T16
+          - T17
+        files:
+          - apps/auth/Dockerfile
+          - apps/tdr-bot/Dockerfile
+          - apps/auth/src/app/layout.tsx
+          - apps/auth/src/app/components/providers.tsx
+          - apps/auth/src/app/__tests__/
+        status: done
+        commit: a7c1834164bf911ee60cb85cbdbb26d00c50022d
+        body: |-
+          `@lilnas/ui` now compiles to ESM: `packages/ui/tsconfig.json` sets
+          `"module": "Preserve"` and `"moduleResolution": "bundler"`. When it compiled to
+          CommonJS, Next server components that imported its barrel failed `next build`.
+
+          1. Confirm the fix is on this branch: run `pnpm --filter @lilnas/utils build &&
+             pnpm --filter @lilnas/ui build`. `packages/ui/dist/index.js` must use
+             `export` syntax, not `exports.`/`__exportStar`. If it is still CommonJS,
+             report that under `defects:` and stop. Don't edit `packages/ui` here.
+          2. Dockerfiles: the deps stage of each consuming app copies each workspace
+             package's `package.json` before `pnpm install --frozen-lockfile`. In
+             `apps/auth/Dockerfile` and `apps/tdr-bot/Dockerfile`, add
+             `COPY packages/ui/package.json packages/ui/` right after the
+             `COPY packages/utils/package.json packages/utils/` line, unless it is
+             already there. portal has it, dev and download are handled by their own
+             tasks, and tdr-code has no Dockerfile.
+          3. Auth workaround: the auth migration added a client wrapper,
+             `apps/auth/src/app/components/providers.tsx`, for one reason only: its
+             comment says a Server Component importing `ToastProvider` from the
+             CommonJS barrel got `undefined`. With ESM output that should no longer
+             happen. Import `ToastProvider` from `@lilnas/ui` straight into
+             `apps/auth/src/app/layout.tsx`, delete `providers.tsx`, and update any
+             spec that imports it. Then run `pnpm --filter @lilnas/auth build`. It
+             must succeed. Delete `apps/auth/.next` afterwards. If the direct import
+             still fails, restore the wrapper, rewrite its comment to give the real
+             cause, and report the build error under `defects:`.
+      - id: T43
+        title: 'dev: Dockerfile copies packages/ui; drop the client-shell workaround'
+        after:
+          - T19
+          - T42
+        files:
+          - apps/dev/Dockerfile
+          - apps/dev/src/app/
+        status: done
+        commit: e1287d4218af8218b109e23a24cb9700a5c86dc0
+        body: |-
+          `apps/dev` now depends on `@lilnas/ui` (`workspace:*`). The deps stage of
+          `apps/dev/Dockerfile` copies each workspace package's `package.json` before
+          `pnpm install --frozen-lockfile`. If it doesn't already have
+          `COPY packages/ui/package.json packages/ui/`, add it right after the
+          `COPY packages/utils/package.json packages/utils/` line. If the line is already
+          there, change nothing and say so in `notes`. Check that `apps/dev/package.json`
+          lists `@lilnas/ui`; if it doesn't, report that under `defects:` and change
+          nothing.
+
+          Second, the dev migration ran while `@lilnas/ui` still compiled to CommonJS.
+          Server components couldn't import from its barrel, so `apps/dev` routed its
+          root layout chrome through a client wrapper, `apps/dev/src/app/shell.tsx`.
+          `@lilnas/ui` now compiles to ESM, so remove the workaround: import the
+          components straight into `apps/dev/src/app/layout.tsx` (a server component),
+          delete `shell.tsx` if nothing else needs it, and keep the rendered markup the
+          same. Then run `pnpm --filter @lilnas/utils build && pnpm --filter @lilnas/ui
+          build && pnpm --filter @lilnas/dev build`. It must succeed. Delete
+          `apps/dev/.next` afterwards. If the direct import still fails `next build`,
+          restore the wrapper, report the error under `defects:`, and leave a one-line
+          comment in `shell.tsx` saying why it exists. Update any spec that imports
+          `shell.tsx`.
+      - id: T44
+        title: 'auth mockup: drop the Account ID row from home'
+        after: []
+        files:
+          - docs/features/auth/designs/
+        status: done
+        commit: 2d596bdd8d1dc5d9ec7831cd990245d4e961d371
+        body: |-
+          The approved auth home mockup shows an "Account ID" row in the account card
+          (`usr_…`, mono). The auth `/me` endpoint doesn't return the user id, and the
+          owner decided the row should go rather than add it. Remove it from the
+          mockup sources:
+          - `docs/features/auth/designs/src/mixins/auth.pug`: delete the
+            `div` with `dt … Account ID` and its `dd … profile.accountId` (around
+            line 168). Keep the other rows (role, Member since, Signed in with) and
+            their `first:border-t-0` divider pattern.
+          - `docs/features/auth/designs/src/data/home.mjs`: delete every
+            `accountId:` field.
+          Then run `pnpm --filter @lilnas/cli build && pnpm mockups && pnpm
+          mockups:lint`. Commit the regenerated `docs/features/auth/designs/*.html`
+          (`home.html` at least). `grep -rn "Account ID\|accountId"
+          docs/features/auth/designs` must print nothing. Don't touch `apps/auth`:
+          it never rendered the row. If `pnpm mockups` also regenerates HTML outside
+          `docs/features/auth/designs/`, leave those files out of the commit.
+      - id: T45
+        title: '@lilnas/ui DataList `rowProps`; download activity fades whole rows'
+        after:
+          - T22
+        files:
+          - packages/ui/src/table/data-list.tsx
+          - packages/ui/src/__tests__/tier2c/
+          - apps/download/src/components/activity/
+        status: done
+        commit: 8415925932b8f52e76863c74996e4f6e2a7539a0
+        body: |-
+          `DataList` (`packages/ui/src/table/data-list.tsx`) has no per-row hook, so
+          download's activity list (rebuilt onto `DataList` by an earlier task) fakes
+          row-level state with per-cell wrappers: a finished download should fade out as
+          a whole row (`data-departing` + opacity) and new rows should enter with a
+          stagger. Add the hook, then move activity onto it.
+
+          ```ts
+          export type DataListProps<T> = {
+            // …existing props
+            /** Extra attributes for the row: the table `<tr>` and the card `<li>`. */
+            rowProps?: (row: T, index: number) => HTMLAttributes<HTMLElement> & {
+              [data: `data-${string}`]: string | undefined
+            }
+          }
+          ```
+          - Spread `rowProps(row, index)` on both `Table.Row` and the card `<li>`.
+            Merge `className` with `cns()` after DataList's own classes and `style`
+            shallowly. DataList's `tabIndex`/`onClick`/`onKeyDown` (from `onRowClick`),
+            `key` and `data-selected` win over anything `rowProps` returns.
+          - No `rowProps` → output identical to today.
+          - Tests in `packages/ui/src/__tests__/tier2c/` (beside the existing
+            `table.spec.tsx`): a `data-*` attribute and className land on both the
+            `<tr>` and the `<li>`; the index argument; `onRowClick` still fires and a
+            conflicting `onClick`/`data-selected` from `rowProps` doesn't override it.
+          - In `apps/download/src/components/activity/` (the `DataList` file, e.g.
+            `activity-data-list.tsx`, and any cell wrapper it uses): put
+            `data-departing` and the fade/stagger on the row via `rowProps`, delete the
+            per-cell wrapper, and keep every `data-testid` and the departure timing.
+            Respect `prefers-reduced-motion` the way the current wrapper does. Update
+            the activity specs under `src/components/activity/__tests__/` to assert
+            the attribute on the row instead of the cell.
+      - id: T46
+        title: 'download: NotFound and NotAuthorized to the mockup''s quiet panel (no mascot)'
+        after:
+          - T21
+          - T22
+          - T23
+        files:
+          - apps/download/src/components/shell/not-found.tsx
+          - apps/download/src/components/shell/not-authorized.tsx
+          - apps/download/src/components/shell/__tests__/not-found.spec.tsx
+          - apps/download/src/components/shell/__tests__/not-authorized.spec.tsx
+          - apps/download/src/app/__tests__/not-found.spec.tsx
+          - apps/download/src/app/videos/[videoId]/__tests__/not-found.spec.tsx
+          - apps/download/src/app/profile/
+          - apps/download/src/app/admin/
+        status: done
+        commit: d2cbec14b787a2aee5fc256b5bd38341ca9b7141
+        body: |-
+          The approved download mockups draw the not-found and not-authorized
+          boundaries as a quiet panel with an icon and no mascot. The code renders
+          `@lilnas/ui` `EmptyState` instead, which always shows the pepe mascot
+          (`docs/designs/components.md`: the mascot belongs to empty states only).
+          Make the code match the mockup. Don't change the mockups, the docs or
+          `EmptyState`.
+
+          The mockup is the `quietPanel` mixin in
+          `docs/features/download/designs/src/mixins/download.pug` (around line
+          316), used by `boundaryNotFound` and `notAuthorized`:
+          ```pug
+          +card({ sunk: true })(class='mx-auto flex max-w-[560px] flex-col items-center gap-2.5 px-6 py-12 text-center')
+            +icon(icon, 24)(class='text-ink-3')        // 'search' for not-found, 'shield' for not-authorized
+            h2(class='text-h2')= title
+            p(class='max-w-[52ch] text-sm text-ink-3')= body
+            +btn({ variant: 'outline', size: 'sm', label: action, icon: 'grid' })(class='mt-2')
+          ```
+          - In `apps/download/src/components/shell/not-found.tsx` and
+            `not-authorized.tsx`, replace `EmptyState` with that markup, built from
+            the `@lilnas/ui` sunk `Card`, `Icon` and an outline sm `Button` that
+            renders an `<a href={backHref}>`. Read `packages/ui/src` for the exact
+            prop names. The two components keep the same structure.
+          - Keep the exported constants, props (`title`, `description`,
+            `backHref`, `backLabel`, rest props, `className`), copy, the
+            server-safe status (no `'use client'`) and any `data-testid`. The heading
+            becomes an `h2` (the mockup's `text-h2`); the routes keep their
+            `sr-only` `h1`. Update the doc comments that mention the mascot or
+            `EmptyState`.
+          - The video not-found route (`src/app/videos/[videoId]/not-found.tsx`)
+            already uses the shared `NotFound`, so it picks this up. Check that
+            `profile` and `admin` pages render `NotAuthorized` unchanged.
+          - Tests: update the specs listed in `files` that assert an `h3` heading
+            or the mascot. Assert the `h2` heading, the icon (search / shield),
+            the back link's href and label, and that no mascot `svg`/mark renders.
+            Run only these specs with `--maxWorkers=2`, not the whole download
+            suite.
+      - id: T47
+        title: 'auth: themed root error boundary; alert icon on the error notes'
+        after:
+          - T17
+          - T18
+        files:
+          - apps/auth/src/app/error.tsx
+          - apps/auth/src/app/__tests__/error.spec.tsx
+          - apps/auth/src/app/admin/error.tsx
+          - apps/auth/src/app/login/login-form.tsx
+          - apps/auth/src/app/login/__tests__/
+        status: done
+        commit: ab854c419dc9a1af8d06ff8a2ba40c1c00feb3c0
+        body: |-
+          Two gaps from the auth render check. Don't edit `apps/auth/src/app/layout.tsx`.
+
+          1. **Root error boundary.** `apps/auth` has only `src/app/admin/error.tsx`.
+             A backend outage on `/` (or `/pending`, `/blocked`, `/login`) shows
+             Next's unthemed default page. Add `src/app/error.tsx` (`'use client'`)
+             modelled on `src/app/admin/error.tsx`: `GateScreen` > `GateCard` >
+             `GateHeading title="Couldn’t load your account"`, a `bad` `Note` with
+             lead "The page didn’t load." and the error message (fallback
+             "An unexpected error occurred."), then the accent `Try again` button
+             calling `reset`. `console.error(error)` in an effect, as admin does.
+             If `error.digest` is set, show `digest <id>` in
+             `font-mono text-mono-sm text-ink-3` under the note. No `global-error.tsx`.
+          2. **Note icons.** The mockup kit's `note` mixin
+             (`docs/designs/mockup-kit/ui.pug` ~line 703) always draws a 16px tone
+             icon (`alert` for `bad`), and the approved `login.html` error note shows
+             it. `@lilnas/ui` `Note` takes an optional `icon` prop and draws nothing
+             without it. Pass `icon={<Icon name="alert" size={16} />}` (check
+             `packages/ui/src` for the exact `Icon` props) to the `bad` notes in
+             `src/app/login/login-form.tsx` (`LoginErrorNotice`), in
+             `src/app/admin/error.tsx`, and in the new `src/app/error.tsx`.
+             Leave other apps alone.
+
+          Tests: `src/app/__tests__/error.spec.tsx` covers the heading, message,
+          message fallback, digest shown and hidden, and that `Try again` calls
+          `reset`. Add or extend a login spec under `src/app/login/__tests__/`:
+          with `?error=x` the note has `role="alert"` and an svg icon. Mock
+          `next/navigation`'s `useSearchParams` the way existing auth specs do.
+          Run only the auth jest suite.
+      - id: T33
+        title: 'Live render check: portal'
+        after:
+          - T42
+          - T16
+        files: []
+        status: done
+        commit: 66ab34ac6350b9a6a327b281f21f34e0794c4fe2
+        body: |-
+          Build and screenshot the redesigned portal in this worktree (never in
+          `/home/jeremy/lilnas` itself). `pnpm --filter @lilnas/ui build && pnpm --filter
+          @lilnas/portal build`, then mirror `apps/portal/Dockerfile`'s standalone layout:
+          copy `.next/static` into `.next/standalone/apps/portal/.next/static` and `public`
+          beside it, pick a free port P
+          (`node -e "const s=require('net').createServer().listen(0,()=>{console.log(s.address().port);s.close()})"`)
+          and run `PORT=P HOSTNAME=127.0.0.1 NODE_ENV=production node .next/standalone/apps/portal/server.js`
+          in the background from the app dir. Docker is reachable, so `/` lists real hosts;
+          `/browser` shows the real browser state — only read it, press nothing.
+          From a scratch dir (`mktemp -d`; the CLI writes `.playwright-cli/` into the cwd)
+          use `npx -y @playwright/cli@0.1.22` (`playwright-cli` is not on PATH; Chromium is
+          cached): `open http://127.0.0.1:P/`, `resize 1280 900`, `screenshot`, `resize 390
+          844`, `screenshot`, then `goto` `/browser` and repeat; `close-all`. Copy the PNGs
+          to `/storage/files/mockups/redesign-017/portal/<route>-<width>.png` (served at
+          `https://files.lilnas.io/mockups/redesign-017/portal/…`). Compare each against
+          `docs/features/portal/designs/*.html`: fonts (Geist loaded — check the computed
+          `font-family` via `run-code`), tokens (no grey/blue), tile grid, phone layout,
+          console errors. Report the links and every mismatch as `defects:` in the
+          result; kill the server, delete the scratch dir and `.next`.
+      - id: T34
+        title: 'Live render check: auth'
+        after:
+          - T44
+          - T42
+          - T18
+        files: []
+        status: done
+        commit: 3ec1c488023b300b0477ded354d57634309479fc
+        body: |-
+          Build and screenshot the redesigned auth frontend in this worktree. `pnpm --filter
+          @lilnas/ui build && pnpm --filter @lilnas/auth build:frontend`, mirror
+          `apps/auth/Dockerfile`'s standalone layout (copy `.next/static` and `public` into
+          `.next/standalone/apps/auth/`), pick a free port P
+          (`node -e "const s=require('net').createServer().listen(0,()=>{console.log(s.address().port);s.close()})"`),
+          run `PORT=P HOSTNAME=127.0.0.1 NODE_ENV=production node .next/standalone/apps/auth/server.js`
+          in the background. No Nest backend runs, so expect: `/login` renders fully (also
+          `/login?redirect=https://dev.lilnas.io/` and `/login?error=access_denied`),
+          `/`, `/pending`, `/blocked`, `/admin` redirect to `/login` or hit the error
+          boundary — screenshot whatever renders at 1280×900 and 390×844 from a scratch
+          dir with `npx -y @playwright/cli@0.1.22` (`open`, `resize`, `screenshot`, `goto`,
+          `close-all`; `playwright-cli` is not on PATH, Chromium is cached). For the
+          backend-dependent pages also render the jsdom route through a one-off
+          `next dev`-free approach: skip — report them as "needs backend" instead of
+          faking data. Copy PNGs to `/storage/files/mockups/redesign-017/auth/<route>-<width>.png`
+          and report the `https://files.lilnas.io/mockups/redesign-017/auth/…` links.
+          Compare against `docs/features/auth/designs/*.html`: Geist loaded, tokens, the
+          gate card at both widths, the error note, console errors. Report mismatches as
+          `defects:`; kill the server, delete the scratch dir and `.next`.
+      - id: T35
+        title: 'Live render check: dev'
+        after:
+          - T42
+          - T19
+        files: []
+        status: done
+        commit: b98bc6eff8eac74aa2add4a2b6df1ed0ed3f6afb
+        body: |-
+          Build and screenshot the redesigned dev dashboard frontend in this worktree.
+          `pnpm --filter @lilnas/ui build && pnpm --filter @lilnas/dev build:frontend`,
+          mirror `apps/dev/Dockerfile`'s standalone layout (copy `.next/static` and
+          `public` into `.next/standalone/apps/dev/`), free port P
+          (`node -e "const s=require('net').createServer().listen(0,()=>{console.log(s.address().port);s.close()})"`),
+          `PORT=P HOSTNAME=127.0.0.1 NODE_ENV=production node .next/standalone/apps/dev/server.js`
+          in the background. No Nest backend: `/` shows its loading skeleton then the error
+          panel, `/stacks/download-dev` its error or not-found state — those ARE the states
+          to check. Screenshot at 1280×900 and 390×844 from a scratch dir with
+          `npx -y @playwright/cli@0.1.22` (`open`, `resize`, `screenshot`, `goto`,
+          `close-all`; not on PATH, Chromium cached); wait ~3s after load so the error
+          state has replaced the skeleton, and take one early shot for the skeleton. Copy
+          PNGs to `/storage/files/mockups/redesign-017/dev/<route>-<width>.png`; report the
+          `https://files.lilnas.io/mockups/redesign-017/dev/…` links. Compare against
+          `docs/features/dev-dashboard/designs/*.html`: Geist, compact density (36→30px
+          controls), tokens, app bar and doorplate, phone layout, console errors. Report
+          mismatches as `defects:`; kill the server, delete the scratch dir and `.next`.
+      - id: T36
+        title: 'Live render check: download'
+        after:
+          - T42
+          - T21
+          - T22
+          - T23
+          - T45
+        files: []
+        status: done
+        commit: c23eac1d86c592c3addebf197ddda1d8f8f2dc1c
+        body: |-
+          Build and screenshot the redesigned download frontend in this worktree.
+          `pnpm --filter @lilnas/ui build && pnpm --filter @lilnas/download build:frontend`,
+          mirror `apps/download/Dockerfile`'s standalone layout (copy `.next/static` and
+          `public` into `.next/standalone/apps/download/`), free port P
+          (`node -e "const s=require('net').createServer().listen(0,()=>{console.log(s.address().port);s.close()})"`),
+          `PORT=P HOSTNAME=127.0.0.1 NODE_ENV=production node .next/standalone/apps/download/server.js`
+          in the background. No Nest backend: server components that call
+          `src/lib/download-client.ts` render the route's `error.tsx`; `loading.tsx`
+          skeletons flash first. Routes: `/`, `/search?q=dune`, `/gallery`, `/activity`,
+          `/admin`, `/profile`, `/movies/438631`, `/shows/371572`, `/videos/abc`, `/nope`
+          (not-found). Screenshot each at 1280×900 and 390×844 from a scratch dir with
+          `npx -y @playwright/cli@0.1.22` (`open`, `resize`, `screenshot`, `goto`,
+          `close-all`; not on PATH, Chromium cached), one early shot for a skeleton. Copy
+          PNGs to `/storage/files/mockups/redesign-017/download/<route>-<width>.png`;
+          report the `https://files.lilnas.io/mockups/redesign-017/download/…` links.
+          Compare against `docs/features/download/designs/*.html`: Geist (the hero),
+          tokens, app bar with nav search (icon-only at 390), error/not-found states,
+          console errors. Report mismatches as `defects:`; kill the server, delete the
+          scratch dir and `.next`.
+      - id: T37
+        title: 'Live render check: tdr-bot'
+        after:
+          - T42
+          - T28
+        files: []
+        status: done
+        commit: 38f3f5fdfc79262f87509ebdd6ce9e4f6e3a0379
+        body: |-
+          Build and screenshot the redesigned tdr-bot frontend in this worktree.
+          `pnpm --filter @lilnas/ui build && pnpm --filter @lilnas/tdr-bot build:frontend`,
+          mirror `apps/tdr-bot/Dockerfile`'s standalone layout (copy `.next/static` and
+          `public` into `.next/standalone/apps/tdr-bot/`), free port P
+          (`node -e "const s=require('net').createServer().listen(0,()=>{console.log(s.address().port);s.close()})"`),
+          `PORT=P HOSTNAME=127.0.0.1 NODE_ENV=production node .next/standalone/apps/tdr-bot/server.js`
+          in the background. No Nest backend: every page is a client component that
+          shows skeletons then its error `Note`. Routes: `/settings`, `/transcript`,
+          `/reminders`, `/emojis`, `/playground`. Screenshot each at 1280×900 and 390×844
+          from a scratch dir with `npx -y @playwright/cli@0.1.22` (`open`, `resize`,
+          `screenshot`, `goto`, `close-all`; not on PATH, Chromium cached); at 390 also
+          open the nav sheet (click the menu button) and screenshot it. Confirm no
+          `data-emotion` `<style>` tag and no MUI class (`Mui*`) exists in the DOM
+          (`run-code`). Copy PNGs to `/storage/files/mockups/redesign-017/tdr-bot/<route>-<width>.png`;
+          report the `https://files.lilnas.io/mockups/redesign-017/tdr-bot/…` links.
+          Compare against `docs/features/tdr-bot/designs/*.html`: Geist, tokens, app bar,
+          sheet, error states, console errors. Report mismatches as `defects:`; kill the
+          server, delete the scratch dir and `.next`.
+      - id: T38
+        title: 'Live render check: tdr-code (worktree only)'
+        after:
+          - T42
+          - T30
+          - T31
+          - T32
+        files: []
+        status: done
+        commit: 61b926f7326067ad765fa9cf23df4f32442d8f32
+        body: |-
+          Build and screenshot the redesigned tdr-code frontend — ONLY inside this run's
+          worktree. First run `pwd` and confirm it is not `/home/jeremy/lilnas`; the main
+          checkout's `apps/tdr-code` is the live production install and `next build` there
+          would break it. Never touch `scripts/daemon.sh`. Then `pnpm --filter @lilnas/ui
+          build && pnpm --filter @lilnas/tdr-code build:frontend` (it copies `server.js`
+          into the app dir — gitignored), copy `.next/static` and `public` into
+          `.next/standalone/apps/tdr-code/`, free port P
+          (`node -e "const s=require('net').createServer().listen(0,()=>{console.log(s.address().port);s.close()})"`),
+          `PORT=P BACKEND_PORT=1 HOSTNAME=127.0.0.1 NODE_ENV=production node server.js` in
+          the background from the app dir. `src/proxy.ts` sends unauthenticated visitors
+          to `/login`, so expect `/login` (plus `/login?error=` variants from
+          `login/page.tsx`) and the not-found / error boundaries to render; every other
+          route redirects — screenshot `/login` at 1280×900 and 390×844 and one redirected
+          route to prove the redirect still works, from a scratch dir with
+          `npx -y @playwright/cli@0.1.22` (`open`, `resize`, `screenshot`, `goto`,
+          `close-all`; not on PATH, Chromium cached). Copy PNGs to
+          `/storage/files/mockups/redesign-017/tdr-code/<route>-<width>.png`; report the
+          `https://files.lilnas.io/mockups/redesign-017/tdr-code/…` links. Compare against
+          `docs/features/tdr-code/designs/login.html`: Geist, tokens, the card at both
+          widths, console errors. Report mismatches as `defects:` and list the routes that
+          need a backend to check (dashboard, sessions, events, logs, config, git); kill
+          the server, delete the scratch dir, `.next` and the copied `server.js`.
+  - key: '3'
+    name: Guard rails and docs
+    tasks:
+      - id: T39
+        title: ESLint guard against raw palette utilities; delete the uv-* alias block; fix stragglers
+        after:
+          - T33
+          - T34
+          - T35
+          - T36
+          - T37
+          - T38
+        files:
+          - packages/eslint-config-lilnas/
+          - packages/ui/theme.css
+          - packages/ui/src/__tests__/theme.spec.ts
+          - apps/auth/eslint.config.cjs
+          - apps/dev/eslint.config.cjs
+          - apps/download/eslint.config.cjs
+          - apps/portal/eslint.config.cjs
+          - apps/tdr-bot/eslint.config.cjs
+          - apps/tdr-code/eslint.config.cjs
+          - apps/auth/src/
+          - apps/dev/src/
+          - apps/download/src/
+          - apps/portal/src/
+          - apps/tdr-bot/src/
+          - apps/tdr-code/src/
+        status: done
+        commit: 674c6db79662b12cbe9be3c3d816f7863964a57f
+        body: |-
+          Make the drift impossible to reintroduce quietly, per `docs/designs/adoption.md`
+          "An ESLint guard is worth it". In `packages/eslint-config-lilnas/` add a
+          `design-system.js` flat-config fragment exporting `designSystem`: a
+          `no-restricted-syntax` (or a small local rule in `rules/no-raw-palette.js`) that
+          reports any string literal, template literal or JSX `className` containing a
+          Tailwind utility on a raw palette — `(bg|text|border|ring|outline|fill|stroke|
+          from|via|to|decoration|divide|shadow)-(gray|zinc|slate|neutral|stone|blue|sky|
+          indigo|violet|purple|fuchsia|pink|rose|red|orange|amber|yellow|lime|green|
+          emerald|teal|cyan)-\d{2,3}` — and `uv-`/`ease-uv`, with the message pointing at
+          `DESIGN.md`. Export it from `index.js`; add it to the six apps'
+          `eslint.config.cjs` (`[...base, ...react, ...designSystem]`). It must not apply
+          to `packages/ui` (the only place a hex/palette value may live is `theme.css`,
+          which eslint doesn't read anyway) and must allow `tdr-code`'s inline-styled
+          `global-error.tsx` (hex, not utilities — fine) . Run `pnpm --filter @lilnas/<app>
+          lint` for all six and fix every straggler the rule finds (there should be few:
+          grep first with the same regex). Then delete the deprecated `@theme inline`
+          alias block (`--color-uv*`, `--ease-uv`) from `packages/ui/theme.css` and update
+          `packages/ui/src/__tests__/theme.spec.ts` to assert it is gone; every app's lint,
+          type-check and scoped jest must still pass. Document the rule in
+          `packages/eslint-config-lilnas/README.md`.
+      - id: T40
+        title: 'Docs: adoption status, design-system README, components build order, @lilnas/ui pointers'
+        after:
+          - T33
+          - T34
+          - T35
+          - T36
+          - T37
+          - T38
+        files:
+          - docs/designs/adoption.md
+          - docs/designs/README.md
+          - docs/designs/components.md
+          - docs/designs/foundations.md
+          - DESIGN.md
+          - CLAUDE.md
+          - packages/ui/README.md
+        status: done
+        commit: 141d76aa914abc8dbaa82c1da1a647b182bccede
+        body: |-
+          Bring the design docs in line with what now exists. `docs/designs/adoption.md`:
+          rewrite "Where we are" and the status callout — the six apps are on Category
+          Standard via `@lilnas/ui`; strike the migration sections for portal, auth,
+          download, tdr-bot, tdr-code and the Ultraviolet section (keep a short "what
+          changed" summary with the token map for anyone reading old branches); leave
+          `dashcam` and `theater` as the remaining work with their estimates (`swole`
+          was removed from the repo on 2026-10-17, so a later task strikes it); mark
+          the ESLint guard as done and name the rule. `docs/designs/README.md` "Status":
+          implemented, library at `packages/ui`, live reference
+          `docs/features/design-system/designs/index.html`. `components.md`: note the tiers
+          are shipped and link each component to its file in `packages/ui/src`.
+          `foundations.md` "Wiring it into an app": confirm the `@source` path form the
+          apps actually use (check two of them) and the font mapping. `DESIGN.md`: the
+          one-line pointer to `@lilnas/ui`, and repoint both stale references to
+          `docs/designs/preview/index.html` (the "See it first" callout near the top and
+          the "Start here" row of the docs table) at
+          `docs/features/design-system/designs/index.html`, which is where the kit's live
+          preview now builds. `CLAUDE.md`: add `@lilnas/ui` to the shared
+          libraries list and a one-line rule ("UI primitives come from `@lilnas/ui`; raw
+          palette utilities are lint errors"). `packages/ui/README.md`: component index
+          with one line each, and the rule for adding a component (spec in components.md
+          first, kit mixin, then code). Prose only — no code changes; prettier must pass
+          on every file you touch (`pnpm --filter @lilnas/ui lint` for the README; the
+          repo's docs are formatted with the root prettier config, run
+          `pnpm exec prettier -c` on each edited `.md`).
+      - id: T48
+        title: 'Docs: strike the removed `swole` app from the design docs'
+        after:
+          - T40
+        files:
+          - docs/designs/adoption.md
+          - docs/designs/components.md
+          - docs/designs/foundations.md
+          - docs/designs/motion.md
+          - docs/designs/voice.md
+        status: done
+        commit: c4dde0e2e1e18c23755379773092be3a875bf8c8
+        body: |-
+          `apps/swole` was deleted from `main` on 2026-10-17 (commit `65972ab8`, "chore:
+          remove swole app"). The design docs still plan around it. Prose only; no code.
+
+          - `docs/designs/adoption.md`: delete the `swole` row of the status table, the
+            "`swole` — the real work" section, and its row in the estimate table.
+            Recompute the total from the rows left, and renumber the sections that
+            follow. Where a library choice is justified by swole (e.g. "Headless UI —
+            too narrow; no combobox good enough for `swole`", "tier 3 exists only for
+            `swole`"), restate the reason without swole, or say the reason no longer
+            applies. Don't invent new justifications.
+          - `docs/designs/components.md`: the Doorplate example (`swole.lilnas.io`,
+            `app="swole"`) uses `tdr-code` instead. Combobox, Sheet and the build-order
+            "3 — unblocks `swole`" text name the apps that use tier 3 today
+            (`grep -rn "Combobox\|Sheet\|Slider" apps/*/src` to see which) and drop
+            "migrates last".
+          - `docs/designs/foundations.md` (hostname example), `motion.md` (the
+            per-app table row and the "matters most in `swole`" sentence) and
+            `voice.md` (app-name list and the per-app tone row): replace each swole
+            example with an existing app, or drop the row.
+          - `grep -rn -i swole docs/designs` must print nothing afterwards. Leave
+            `docs/archive/` and `docs/plans/` alone.
+          - `pnpm exec prettier -c` passes on every edited `.md`.
+  - key: R1
+    name: Mockup review (H1)
+    tasks:
+      - id: R1
+        title: Round 1 · Address 1 review comment on blocked.html
+        after: []
+        files:
+          - docs/features/auth/designs/blocked.html
+        status: done
+        commit: 0648b496c00e8970080a658945f5e2e0b316b65a
+        body: |-
+          Design review of `docs/features/auth/designs/blocked.html`, round 1:
+
+          1. region over <div> "Access blocked An admin blocked your account. If you think …" in scene "Access blocked"
+             - selector: `body > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2)` at fx 0.34, fy 0.87, fw 0.11, fh 0.13
+             - **user:** the fingernail border does not look good. we should fix this for all designs
+             - screenshot 1 attached
+
+          Resolve each thread with `nexus_design_review` and a one-line note when it is addressed.
+  - key: R2
+    name: Review remediation
+    tasks:
+      - id: R2
+        title: P1 Documented @source path points at nonexistent root node_modules/@lilnas/ui
+        after: []
+        files:
+          - packages/ui/README.md
+        status: done
+        commit: 0c98259ce31776087d5caef2657fbcc2c903aa5c
+        body: |-
+          Finding: F1 (P1)
+
+          From the review of phase 1 (cycle 1): a P1 finding.
+
+          Where: packages/ui/README.md:15
+
+          Why: For apps/<app>/src/tailwind.css, '../../../node_modules' is the repo-root node_modules, which has no @lilnas/ui; with injectWorkspacePackages the package lives at apps/<app>/node_modules/@lilnas/ui, and Tailwind silently ignores a missing @source. The task body and foundations.md mandate this exact line.
+
+          Plan-mandated: the plan asked for this behaviour; a person chose to fix it anyway.
+
+          Failure scenario: An app adds the two documented lines to src/tailwind.css and renders a @lilnas/ui Button: classes used only inside the package (e.g. bg-accent, h-[var(--control-h)]) are absent from the built CSS, so components render unstyled with no build error.
+
+          Suggested fix: Change the documented line (README, theme.css header comment, docs/designs/foundations.md 'Wiring it into an app') to `@source '../node_modules/@lilnas/ui/dist';` for a stylesheet at apps/<app>/src/, and note that the path depends on the stylesheet's depth.
+
+          How to fix it:
+          1. First write a test that reproduces the failure scenario and fails on the
+             current code, in the package's test style, beside the tests the file
+             already has. Keep it: it is the regression test.
+          2. Then change the code so it passes, and run the plan's checks.
+          3. If you cannot make the scenario fail — the guard, type, or test that
+             already covers it — change nothing: delete the attempted test, leave the
+             tree clean, commit nothing, and report `status: done` with `commits: []`.
+             Open `notes` with `Not reproduced:` and say where the behaviour is covered.
+             The runner drops the finding on your word.
+      - id: R3
+        title: P1 Escape on a closed Combobox clears the chosen value
+        after: []
+        files:
+          - packages/ui/src/combobox/combobox.tsx
+        status: done
+        commit: b0a03026bc0b77f4050def3fad1ead32f4fcf603
+        body: |-
+          Finding: F3 (P1)
+
+          From the review of phase 1 (cycle 1): a P1 finding.
+
+          Where: packages/ui/src/combobox/combobox.tsx:341
+
+          Why: Task: 'Escape restores the previous value'. Base UI 1.9 ComboboxInput, when the popup is not mounted, handles Escape by calling setSelectedValue(null) with reason 'escape-key'; the wrapper's Root onValueChange only ignores 'input-clear', so it commits null and fires the consumer's onValueChange(null).
+
+          Failure scenario: Value 'squat' is picked and the list is closed (after selecting, after tabbing in, or on a second Escape). Pressing Escape empties the field and calls onValueChange(null); in tdr-bot's ReminderDialog the chosen member is wiped instead of the dialog closing.
+
+          Suggested fix: In Root onValueChange (and onInputValueChange), ignore details.reason === 'escape-key' and keep the committed value and label; add a test that presses Escape with the popup closed and asserts value and text unchanged and onValueChange not called.
+
+          How to fix it:
+          1. First write a test that reproduces the failure scenario and fails on the
+             current code, in the package's test style, beside the tests the file
+             already has. Keep it: it is the regression test.
+          2. Then change the code so it passes, and run the plan's checks.
+          3. If you cannot make the scenario fail — the guard, type, or test that
+             already covers it — change nothing: delete the attempted test, leave the
+             tree clean, commit nothing, and report `status: done` with `commits: []`.
+             Open `notes` with `Not reproduced:` and say where the behaviour is covered.
+             The runner drops the finding on your word.
+  - key: R3
+    name: Defects (T16)
+    tasks:
+      - id: R4
+        title: 'Fix: next build fails because @lilnas/ui dist is CommonJS'
+        after: []
+        files:
+          - packages/ui/tsconfig.json
+        status: done
+        commit: 8f5effc6fefa2df00e71fefb4992c8e9986988bc
+        body: |-
+          T16 · portal: adopt @lilnas/ui and the approved mockup reported this blocking defect (attempt 1):
+
+          **next build fails because @lilnas/ui dist is CommonJS**
+
+          - Where: `packages/ui/tsconfig.json`
+          - Observed: pnpm --filter @lilnas/portal exec next build: Error occurred prerendering page /_not-found: Element type is invalid: expected a string ... but got: undefined (AppBar/ToastProvider from '@lilnas/ui' are undefined in the server layout). Cause: tsc emits CJS with __exportStar, which Next's RSC client-reference proxy cannot re-export. Verified fix: set packages/ui/tsconfig.json to "module": "Preserve" and "moduleResolution": "bundler", then rebuild ui. With that, next build succeeded and the CSS had bg-accent, stagger, bg-bad-ghost, text-h1 and md:grid-cols-3. ui type-check passed and its 334 tests passed. I reverted the change because it is outside this task.
+
+          T16's notes:
+
+          > Portal lint, type-check and jest pass (13 tests); ui lint passes. I did not re-run the auth, dev, download, tdr-bot, tdr-code or mockups checks, and I touched no docs or other apps.
+          > Deleted tailwind.config.ts, the five create-next-app SVGs and the T2 smoke spec. Added public/.gitkeep so the Dockerfile's COPY of public/ still works. Added `COPY packages/ui/package.json packages/ui/` to the portal Dockerfile deps stage.
+          > The mockup and the task text disagree, so I followed the mockup. "Open browser" is the accent Button, and the Turn on/off toggle is accent when off and outline when on. The task text asked for a ghost "Open browser" and an accent toggle.
+          > I used no Badge in the browser panel, since the mockup has none. The status is a StatusDot plus an h2 word.
+          > Loading is `Button loading`, which sets aria-busy and aria-disabled and swallows clicks. It does not set the `disabled` attribute, and the spec asserts on those aria attributes.
+          > AppList always pins browser.lilnas.io, linked to /browser with a status word, when any host is listed. With no hosts it shows only the EmptyState, whose single Reload action is `<a href="/">`.
+          > `stagger` comes from ui's theme.css, which already caps the delay at 8 × 40ms.
+
+          Fix only this defect. Add a test that fails without the fix where one can; then T16 runs again to re-check.
+  - key: R4
+    name: Defects (T34)
+    tasks:
+      - id: R5
+        title: 'Fix: Geist Sans is not applied in auth; body falls back to the system font stack'
+        after: []
+        files:
+          - apps/auth/src/app/layout.tsx
+        status: done
+        commit: 01c9d01fb76899d5a78fda8c98f1c48c25b683e4
+        body: |-
+          T34 · Live render check: auth reported this blocking defect (attempt 1):
+
+          **Geist Sans is not applied in auth; body falls back to the system font stack**
+
+          - Where: `apps/auth/src/app/layout.tsx`
+          - Observed: Computed font-family on body/h1/button at /login is '-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, ...'; Geist Sans faces stay 'unloaded' and only Geist Mono loads (the mockup computes 'Geist, system-ui, sans-serif'). Cause: sans.variable and mono.variable are on <body>, but tailwind.css maps --font-sans at :root, where --font-geist is undefined. apps/dev and apps/download put the variables on <html>. Fix: move the two variable classes to <html> and add font-sans to body.
+
+          T34's notes:
+
+          > No code changes. The reported check failures (download and tdr-bot type-check, "Cannot find module '@lilnas/media/…'") come from the known gap: packages/media/dist is gitignored and unbuilt in a fresh worktree. After `pnpm --filter @lilnas/media build`, tdr-bot lint, type-check and jest (13 suites, 157 tests) pass, and download lint, type-check and jsdom jest (91 suites, 1811 tests) pass. The other six checks were not rerun. The runner's checks should build @lilnas/media first.
+          > Findings from the render check are unchanged; see the earlier result block: Geist not applied (font variables on <body> instead of <html> in apps/auth/src/app/layout.tsx), the login error note lacks the mockup's alert icon, and "/" has no root error boundary.
+
+          Fix only this defect. Add a test that fails without the fix where one can; then T34 runs again to re-check.
+  - key: R5
+    name: Review remediation
+    tasks:
+      - id: R6
+        title: P1 Retry on the portal error page cannot recover from a Docker failure
+        after: []
+        files:
+          - apps/portal/src/app/error.tsx
+        status: done
+        commit: e7c150cfe93ea0d469483402482aafb487a66025
+        body: |-
+          Finding: F9 (P1)
+
+          From the review of phase 2 (cycle 1): a P1 finding.
+
+          Where: apps/portal/src/app/error.tsx:33
+
+          Why: The error comes from the AppList server component (getAppHosts on the Docker socket). Next's reset() only re-renders the client error boundary from the RSC payload it already has, so the server render never runs again.
+
+          Failure scenario: The Docker socket is briefly unavailable, so the home page shows 'Couldn't list the containers.' Docker comes back and the user presses Retry; reset() re-renders the same failed payload and the error stays until a full page reload.
+
+          Suggested fix: Use useRouter() and call startTransition(() => { router.refresh(); reset() }). Add a spec that Retry triggers both refresh and reset.
+
+          How to fix it:
+          1. First write a test that reproduces the failure scenario and fails on the
+             current code, in the package's test style, beside the tests the file
+             already has. Keep it: it is the regression test.
+          2. Then change the code so it passes, and run the plan's checks.
+          3. If you cannot make the scenario fail — the guard, type, or test that
+             already covers it — change nothing: delete the attempted test, leave the
+             tree clean, commit nothing, and report `status: done` with `commits: []`.
+             Open `notes` with `Not reproduced:` and say where the behaviour is covered.
+             The runner drops the finding on your word.
+      - id: R7
+        title: P1 admin-audit.spec.ts still expects UPPERCASE labels for Update and Discard
+        after: []
+        files:
+          - apps/download/src/lib/__tests__/admin-audit.spec.ts
+        status: done
+        commit: 2688115bf737ff22f763cbd54388be5e927a3f6d
+        body: |-
+          Finding: F10 (P1)
+
+          From the review of phase 2 (cycle 1): a P1 finding.
+
+          Where: apps/download/src/lib/__tests__/admin-audit.spec.ts:44
+
+          Why: T22 sentence-cased every AUDIT_ACTION_LEVELS label in src/lib/admin-audit.ts but only updated the Delete and Import expectations; lines 44 and 58 still expect 'UPDATE' and 'DISCARD'. The spec is in the 'node' jest project, which the phase checks (--selectProjects jsdom) never run.
+
+          Failure scenario: `jest --selectProjects node admin-audit` in apps/download: 2 of 10 tests fail because auditLevel returns 'Update'/'Discard' where the test expects 'UPDATE'/'DISCARD'.
+
+          Suggested fix: Change the two expectations to 'Update' and 'Discard', then run `pnpm --filter @lilnas/download exec jest --selectProjects node src/lib/__tests__/admin-audit.spec.ts --maxWorkers=2`.
+
+          How to fix it:
+          1. First write a test that reproduces the failure scenario and fails on the
+             current code, in the package's test style, beside the tests the file
+             already has. Keep it: it is the regression test.
+          2. Then change the code so it passes, and run the plan's checks.
+          3. If you cannot make the scenario fail — the guard, type, or test that
+             already covers it — change nothing: delete the attempted test, leave the
+             tree clean, commit nothing, and report `status: done` with `commits: []`.
+             Open `notes` with `Not reproduced:` and say where the behaviour is covered.
+             The runner drops the finding on your word.
+      - id: R8
+        title: P1 Jump to latest label renders rotated 90°
+        after: []
+        files:
+          - apps/tdr-code/src/app/logs/log-viewer.tsx
+        status: done
+        commit: 659bf193f7e4ede6e94b4084aaa259f4f77a0430
+        body: |-
+          Finding: F11 (P1)
+
+          From the review of phase 2 (cycle 1): a P1 finding.
+
+          Where: apps/tdr-code/src/app/logs/log-viewer.tsx:1546
+
+          Why: The button has className="*:rotate-90", which applies to every direct child. The @lilnas/ui Button renders the icon plus <span>{children}</span>, so the label span rotates along with the arrow.
+
+          Failure scenario: Scroll up in a following log so the viewer pauses: the paused banner shows 'Jump to latest' with its text turned vertical next to the arrow.
+
+          Suggested fix: Rotate only the icon (e.g. className="[&>svg]:rotate-90"), or use a down-pointing icon. Add a test that the label span carries no rotate class.
+
+          How to fix it:
+          1. First write a test that reproduces the failure scenario and fails on the
+             current code, in the package's test style, beside the tests the file
+             already has. Keep it: it is the regression test.
+          2. Then change the code so it passes, and run the plan's checks.
+          3. If you cannot make the scenario fail — the guard, type, or test that
+             already covers it — change nothing: delete the attempted test, leave the
+             tree clean, commit nothing, and report `status: done` with `commits: []`.
+             Open `notes` with `Not reproduced:` and say where the behaviour is covered.
+             The runner drops the finding on your word.

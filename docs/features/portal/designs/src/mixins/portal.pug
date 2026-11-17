@@ -1,0 +1,72 @@
+//-
+  Portal-only pieces. The kit's appBar always puts a menu button on a phone and
+  an avatar on a desktop; the portal has no nav and no account, so it draws the
+  same bar with just the doorplate (bare `lilnas.io`: portal is home).
+mixin portalBar(view)
+  header(class='flex h-14 w-full shrink-0 items-center gap-4 border-b border-line bg-surface px-4')
+    +doorplate('portal')
+
+//- The column both pages sit in: a hallway, not a dashboard.
+mixin portalMain(view)
+  main(class=['w-full', view === 'mobile' ? 'px-4 py-6' : 'mx-auto max-w-[1040px] px-8 py-10'])
+    block
+
+//- One state of the home screen.
+mixin homeScreen(view, state, apps, empty, failure)
+  - const mobile = view === 'mobile'
+  +appFrame(view, { height: state === 'normal' ? undefined : (mobile ? 460 : 400) })
+    +portalBar(view)
+    +portalMain(view)
+      h1(class='mb-6 text-h1') lilnas apps
+      if state === 'normal'
+        //- stagger deals the rise out across the tiles, 40ms apart (motion.md)
+        div(class=['stagger grid gap-3', mobile ? 'grid-cols-1' : 'grid-cols-3'])
+          each app in apps
+            +tile({ icon: app.icon, name: app.name, host: app.name + '.lilnas.io', status: app.status, href: app.href })
+      else if state === 'empty'
+        +card
+          +emptyState(empty.title, empty.body, empty.action)
+      else
+        div(class='flex max-w-[520px] flex-col items-start gap-4')
+          +note('bad', failure.lead)
+            = failure.detail
+            span(class='mt-0.5 block font-mono text-mono-sm text-ink-3')= failure.code
+          +btn({ variant: 'accent', size: mobile ? 'lg' : 'sm', label: failure.action, icon: 'refresh' })
+
+//- One state of the power page.
+mixin browserScreen(view, s, copy)
+  - const mobile = view === 'mobile'
+  +appFrame(view, { height: mobile ? 540 : 400 })
+    +portalBar(view)
+    +portalMain(view)
+      a(class='mb-5 inline-flex items-center gap-1.5 text-sm text-ink-3 hover:text-ink' href='home.html')
+        +icon('arrow', 12)(class='-scale-x-100 text-ink-4')
+        | All apps
+      h1(class='mb-6 text-h1') Remote browser
+      +panel()(class='max-w-[520px]')
+        div(class='flex flex-wrap items-center gap-x-2.5 gap-y-1' role='status')
+          +statusDot(s.status.tone, s.status.pulse)
+          h2(class='text-h3')= s.status.word
+          if s.status.detail
+            span(class='text-sm text-ink-3') · #{s.status.detail}
+        if s.progress
+          p(class='mt-1.5 text-sm text-ink-3')= s.progress
+
+        if s.missing
+          p(class='mt-4 text-sm text-ink-2')= copy.missing.hint
+          +card({ sunk: true })(class='mt-3 overflow-x-auto px-3 py-2.5')
+            code(class='font-mono text-mono whitespace-nowrap text-ink')
+              span(class='mr-2 text-ink-4 select-none') $
+              = copy.missing.command
+        else
+          div(class=['mt-4 flex gap-2', mobile ? 'flex-col' : 'flex-row'])
+            if s.open
+              //- a link in the app; drawn with the button so the two match
+              +btn({ variant: 'accent', size: mobile ? 'lg' : 'md', label: 'Open browser', iconEnd: 'external', full: mobile })
+            +btn({ variant: s.action.variant, size: mobile ? 'lg' : 'md', label: s.action.label, loading: s.action.loading, full: mobile })
+          if s.error
+            +note('bad', copy.failure.lead)(class='mt-4')
+              = copy.failure.detail
+              span(class='mt-0.5 block font-mono text-mono-sm text-ink-3')= copy.failure.code
+          p(class='mt-4 border-t border-line-soft pt-3 text-cap text-ink-3')
+            | Stops after #[span(class='font-mono text-mono-sm') #{copy.idleTimeout}] with no one viewing it, or after #[span(class='font-mono text-mono-sm') #{copy.maxUptime}] regardless.

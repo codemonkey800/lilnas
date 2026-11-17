@@ -1,0 +1,39 @@
+extends ../../../../../designs/mockup-kit/page.pug
+
+include ../mixins/auth.pug
+
+block title
+  | auth — Blocked · UI mockups
+
+//-
+  The blocked screen at 1280 and 390. Copy and states are in
+  src/data/blocked.mjs.
+
+mixin blockedCard(view, st)
+  +gate(view, { toast: st.toast })
+    +statusRing('blocked')
+    +gateHeading(copy.heading, copy.body)
+    +identityRow(identity)
+    +targetPill(target)
+    div(class='flex flex-col gap-2')
+      +btn({ variant: 'outline', size: 'lg', full: true, icon: 'refresh', label: 'Check again' })
+      +btn({ variant: 'ghost', size: 'lg', full: true, label: 'Sign out' })
+
+block content
+  +mockHead({ eyebrow: 'auth · blocked', title: 'Blocked', back: true })
+    p The end of the line for a blocked account. Nothing to request, so the only moves are to check again — in case an admin changed their mind — or to sign out.
+
+  div(class='vp-scope flex flex-col items-center gap-6')
+    +viewportToggle('blocked-viewport')
+    +viewportPanel('desktop')
+      each st in states
+        +stateRow(st.label, { stack: true })(class='w-full')
+          div(class='flex w-full flex-col gap-2')
+            +blockedCard('desktop', st)
+            +frameLabel Desktop · 1280
+    +viewportPanel('mobile')
+      each st in states
+        +stateRow(st.label, { stack: true })(class='w-full')
+          div(class='flex w-full flex-col items-center gap-2')
+            +blockedCard('mobile', st)
+            +frameLabel Mobile · 390

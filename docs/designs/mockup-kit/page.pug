@@ -1,0 +1,47 @@
+//-
+  The shell every mockup extends. Holds the things that would otherwise be
+  copy-pasted into every page: the head, the font link, the icon sprite and the
+  page column.
+
+  A project extends it from src/pages/*.pug with
+
+    extends ../../../../../designs/mockup-kit/page.pug
+
+  (Pug resolves relative paths outside src/.) The builder inlines the compiled
+  Tailwind and src/runtime.js, if any, just before </head>, so nothing here
+  links out except the fonts.
+
+  Type: Geist 400/500/600 and Geist Mono 400/500 (foundations.md, "Type").
+
+  Blocks a page fills in:
+    title    the full <title>
+    head     anything extra in <head> (rare)
+    content  the page body, inside a centred 1328px column
+
+  A page that wants a different column overrides `block page` instead and calls
+  +mockPage(width) itself.
+
+include mock.pug
+
+//- The centred column every mockup page sits in. `width` is a max-w class.
+mixin mockPage(width)
+  div(class=['mx-auto px-6 pt-14 pb-32', width || 'max-w-[1328px]'])&attributes(attributes)
+    block
+
+doctype html
+html(lang='en')
+  head
+    meta(charset='utf-8')
+    meta(name='viewport' content='width=device-width, initial-scale=1')
+    title
+      block title
+    link(rel='preconnect' href='https://fonts.googleapis.com')
+    link(rel='preconnect' href='https://fonts.gstatic.com' crossorigin)
+    link(rel='stylesheet' href='https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap')
+    block head
+  body
+    include sprite.html
+
+    block page
+      +mockPage()
+        block content

@@ -1,13 +1,4 @@
-import Alert from '@mui/material/Alert'
-import Button from '@mui/material/Button'
-import CircularProgress from '@mui/material/CircularProgress'
-import Dialog from '@mui/material/Dialog'
-import DialogActions from '@mui/material/DialogActions'
-import DialogContent from '@mui/material/DialogContent'
-import DialogContentText from '@mui/material/DialogContentText'
-import DialogTitle from '@mui/material/DialogTitle'
-import TextField from '@mui/material/TextField'
-import Typography from '@mui/material/Typography'
+import { Button, Dialog, Field, Input, Note } from '@lilnas/ui'
 import { useState } from 'react'
 
 import type { ReminderView } from 'src/api/api.types'
@@ -58,70 +49,73 @@ export function TestSendDialog({ reminder, onClose }: TestSendDialogProps) {
     test.mutate({ id: reminder.id, at })
   }
 
+  const error =
+    runs.error?.message ??
+    (exhausted
+      ? 'This reminder has no future dates left to test.'
+      : !!date && !valid
+        ? 'Pick a future date.'
+        : undefined)
+
   return (
-    <Dialog open={!!reminder} onClose={close} fullWidth maxWidth="xs">
-      <DialogTitle>Send a test</DialogTitle>
-      <DialogContent>
-        <DialogContentText sx={{ color: 'text.primary' }}>
-          {reminder?.what}
-        </DialogContentText>
-        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-          DMs @{reminder?.userName} the message this reminder would send at the
-          chosen time. Its schedule isn’t touched.
-        </Typography>
-
-        <TextField
-          type="date"
-          fullWidth
-          label="Send as if it were"
-          value={date}
-          disabled={!runs.data || exhausted || test.isPending}
-          error={!!runs.error || exhausted || (!!date && !valid)}
-          helperText={
-            runs.error?.message ??
-            (exhausted
-              ? 'This reminder has no future dates left to test.'
-              : bounds?.max
+    <Dialog.Root
+      open={!!reminder}
+      onOpenChange={next => {
+        if (!next) close()
+      }}
+    >
+      <Dialog.Popup>
+        <Dialog.Title>Send a test</Dialog.Title>
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1">
+            <p className="text-body font-medium text-ink">{reminder?.what}</p>
+            <Dialog.Description className="text-cap text-ink-3">
+              DMs @{reminder?.userName} the message this reminder would send at
+              the chosen time. Its schedule isn’t touched.
+            </Dialog.Description>
+          </div>
+          <Field
+            error={error}
+            hint={
+              bounds?.max
                 ? `Future dates up to when it ends (${bounds.max}).`
-                : undefined)
-          }
-          onChange={e => {
-            setPicked(e.target.value)
-            test.reset()
-          }}
-          slotProps={{
-            inputLabel: { shrink: true },
-            htmlInput: { min: bounds?.min, max: bounds?.max ?? undefined },
-          }}
-          sx={{ mt: 2.5 }}
-        />
-
-        {test.isSuccess && (
-          <Alert severity="success" sx={{ mt: 2 }}>
-            Sent to @{reminder?.userName}’s DMs as of {formatWhen(at)}.
-          </Alert>
-        )}
-        {test.error && (
-          <Alert severity="error" sx={{ mt: 2 }}>
-            {test.error.message}
-          </Alert>
-        )}
-      </DialogContent>
-      <DialogActions>
-        <Button color="inherit" onClick={close}>
-          Close
-        </Button>
-        <Button
-          variant="contained"
-          disabled={!at || test.isPending}
-          onClick={send}
-          startIcon={
-            test.isPending ? <CircularProgress size={14} /> : undefined
-          }
-        >
-          {test.isSuccess ? 'Send again' : 'Send test'}
-        </Button>
-      </DialogActions>
-    </Dialog>
+                : undefined
+            }
+            label="Send as if it were"
+          >
+            <Input
+              disabled={!runs.data || exhausted || test.isPending}
+              max={bounds?.max ?? undefined}
+              min={bounds?.min}
+              mono
+              type="date"
+              value={date}
+              onChange={e => {
+                setPicked(e.target.value)
+                test.reset()
+              }}
+            />
+          </Field>
+          {test.isSuccess && (
+            <Note
+              lead={`Sent to @${reminder?.userName}’s DMs as of ${formatWhen(at)}.`}
+              tone="ok"
+            />
+          )}
+          {test.error && <Note lead={test.error.message} tone="bad" />}
+        </div>
+        <Dialog.Actions>
+          <Dialog.Close render={<Button variant="ghost" />}>Close</Dialog.Close>
+          <Button
+            disabled={!at}
+            loading={test.isPending}
+            variant="accent"
+            onClick={send}
+          >
+            {test.isSuccess ? 'Send again' : 'Send test'}
+          </Button>
+        </Dialog.Actions>
+      </Dialog.Popup>
+    </Dialog.Root>
   )
 }

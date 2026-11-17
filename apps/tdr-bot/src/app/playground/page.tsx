@@ -1,247 +1,41 @@
 'use client'
 
-import Accordion from '@mui/material/Accordion'
-import AccordionDetails from '@mui/material/AccordionDetails'
-import AccordionSummary from '@mui/material/AccordionSummary'
-import Alert from '@mui/material/Alert'
-import Box from '@mui/material/Box'
-import Button from '@mui/material/Button'
-import Chip from '@mui/material/Chip'
-import CircularProgress from '@mui/material/CircularProgress'
-import Dialog from '@mui/material/Dialog'
-import DialogActions from '@mui/material/DialogActions'
-import DialogContent from '@mui/material/DialogContent'
-import DialogContentText from '@mui/material/DialogContentText'
-import DialogTitle from '@mui/material/DialogTitle'
-import Link from '@mui/material/Link'
-import Stack from '@mui/material/Stack'
-import TextField from '@mui/material/TextField'
-import Typography from '@mui/material/Typography'
+import {
+  Badge,
+  Button,
+  ConfirmDialog,
+  EmptyState,
+  Icon,
+  Kbd,
+  Note,
+  Skeleton,
+  Textarea,
+} from '@lilnas/ui'
 import { useRef, useState } from 'react'
 
 import type { SettingsResponse } from 'src/api/api.types'
-import { DiscordContent } from 'src/components/DiscordContent'
 import { ModelSelect } from 'src/components/ModelSelect'
-import { type EmojiLookup, useEmojiLookup } from 'src/queries/useEmojiLookup'
+import { useEmojiLookup } from 'src/queries/useEmojiLookup'
 import { usePlaygroundChat } from 'src/queries/usePlayground'
 import { useSettings } from 'src/queries/useSettings'
 
 import {
+  AssistantBubble,
+  ErrorBubble,
+  PendingBubble,
+  UserBubble,
+} from './bubbles'
+import {
   draftOverride,
-  formatMeta,
-  scoreChips,
   threadReducer,
-  TONE_COLOR,
   toRequestMessages,
   type Turn,
 } from './conversation'
 import { EvalPanel } from './EvalPanel'
 
 const PROMPT_MAX = 20_000
-/** The author the server stamps on user turns (DEFAULT_PLAYGROUND_AUTHOR). */
-const AUTHOR = 'paulbeenis420'
 
 const newId = () => crypto.randomUUID()
-
-const bubbleSx = (isHuman: boolean) => ({
-  px: 2,
-  py: 1.25,
-  borderRadius: 4,
-  ...(isHuman
-    ? { bgcolor: 'primary.dark', borderBottomRightRadius: 4 }
-    : { bgcolor: 'background.paper', borderBottomLeftRadius: 4 }),
-})
-
-function BubbleRow({
-  isHuman,
-  children,
-}: {
-  isHuman: boolean
-  children: React.ReactNode
-}) {
-  return (
-    <Box
-      sx={{
-        display: 'flex',
-        justifyContent: isHuman ? 'flex-end' : 'flex-start',
-      }}
-    >
-      <Box
-        sx={{
-          maxWidth: isHuman
-            ? { xs: '88%', md: '75%' }
-            : { xs: '100%', md: '80%' },
-          minWidth: 0,
-        }}
-      >
-        {children}
-      </Box>
-    </Box>
-  )
-}
-
-function UserBubble({ turn, lookup }: { turn: Turn; lookup: EmojiLookup }) {
-  if (turn.role !== 'user') return null
-  return (
-    <BubbleRow isHuman>
-      <Box sx={bubbleSx(true)}>
-        <Typography
-          variant="caption"
-          sx={{ color: 'primary.light', fontWeight: 500 }}
-        >
-          {AUTHOR}
-        </Typography>
-        <DiscordContent text={turn.content} lookup={lookup} />
-      </Box>
-    </BubbleRow>
-  )
-}
-
-function AssistantBubble({
-  turn,
-  lookup,
-}: {
-  turn: Turn
-  lookup: EmojiLookup
-}) {
-  if (turn.role !== 'assistant') return null
-  return (
-    <BubbleRow isHuman={false}>
-      <Box sx={bubbleSx(false)}>
-        <Typography
-          variant="caption"
-          sx={{ color: 'text.secondary', fontWeight: 500 }}
-        >
-          tdr-bot
-        </Typography>
-        <DiscordContent text={turn.content} lookup={lookup} />
-      </Box>
-      <Typography
-        variant="caption"
-        sx={{
-          fontFamily: 'monospace',
-          color: 'text.secondary',
-          display: 'block',
-          mt: 0.5,
-          px: 0.5,
-        }}
-      >
-        {formatMeta(turn.meta)}
-      </Typography>
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, px: 0.5 }}>
-        {scoreChips(turn.meta.emojis).map(chip => (
-          <Chip
-            key={chip.label}
-            size="small"
-            variant="outlined"
-            color={TONE_COLOR[chip.tone]}
-            label={chip.label}
-            title={chip.title}
-          />
-        ))}
-      </Box>
-    </BubbleRow>
-  )
-}
-
-function ErrorBubble({
-  turn,
-  disabled,
-  onRetry,
-}: {
-  turn: Turn
-  disabled: boolean
-  onRetry: () => void
-}) {
-  if (turn.role !== 'error') return null
-  return (
-    <BubbleRow isHuman={false}>
-      <Box
-        sx={{
-          ...bubbleSx(false),
-          bgcolor: 'rgba(211, 47, 47, 0.1)',
-          border: 1,
-          borderColor: 'error.dark',
-        }}
-      >
-        <Typography variant="caption" color="error" sx={{ fontWeight: 500 }}>
-          tdr-bot · failed
-        </Typography>
-        <Box
-          sx={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            gap: 1.5,
-          }}
-        >
-          <Typography variant="body2">{turn.message}</Typography>
-          <Button
-            size="small"
-            color="inherit"
-            disabled={disabled}
-            onClick={onRetry}
-          >
-            Retry
-          </Button>
-        </Box>
-      </Box>
-    </BubbleRow>
-  )
-}
-
-function PendingBubble() {
-  return (
-    <BubbleRow isHuman={false}>
-      <Box sx={bubbleSx(false)}>
-        <Typography
-          variant="caption"
-          sx={{ color: 'text.secondary', fontWeight: 500 }}
-        >
-          tdr-bot
-        </Typography>
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1,
-            color: 'text.secondary',
-          }}
-        >
-          <CircularProgress size={14} color="inherit" />
-          <Typography variant="body2">Thinking…</Typography>
-        </Box>
-      </Box>
-    </BubbleRow>
-  )
-}
-
-function EmptyThread() {
-  return (
-    <Box
-      sx={{
-        display: 'grid',
-        placeItems: 'center',
-        py: 8,
-        textAlign: 'center',
-        border: 1,
-        borderStyle: 'dashed',
-        borderColor: 'divider',
-        borderRadius: 3,
-      }}
-    >
-      <Box>
-        <Typography sx={{ fontSize: 32 }}>💬</Typography>
-        <Typography sx={{ fontWeight: 500 }}>
-          Pick a model and say something.
-        </Typography>
-        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-          Replies use the real system prompt and emoji dictionary.
-        </Typography>
-      </Box>
-    </Box>
-  )
-}
 
 function Playground({ settings }: { settings: SettingsResponse }) {
   const chat = usePlaygroundChat()
@@ -259,7 +53,8 @@ function Playground({ settings }: { settings: SettingsResponse }) {
 
   const pending = chat.isPending
   const modified = draft !== settings.systemPrompt
-  const canSend = !pending && !evalRunning && input.trim().length > 0
+  const busy = pending || evalRunning
+  const canSend = !busy && input.trim().length > 0
 
   const submit = (next: Turn[], userId: string, content: string) => {
     const seq = ++requestSeq.current
@@ -313,6 +108,7 @@ function Playground({ settings }: { settings: SettingsResponse }) {
   }
 
   const retry = (turn: Extract<Turn, { role: 'error' }>) => {
+    if (busy) return
     const next = threadReducer(turns, { type: 'retry', id: turn.id })
     const failed = next.find(t => t.id === turn.retryOf)
     submit(next, turn.retryOf, failed?.role === 'user' ? failed.content : '')
@@ -326,157 +122,104 @@ function Playground({ settings }: { settings: SettingsResponse }) {
   }
 
   return (
-    <Stack spacing={2}>
-      <Box
-        sx={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          alignItems: 'flex-start',
-          gap: 1.5,
-        }}
-      >
-        <ModelSelect
-          role="chat"
-          label="Model"
-          size="small"
-          value={model}
-          disabled={pending}
-          sx={{ flex: 1, minWidth: 260, maxWidth: { sm: 440 } }}
-          onChange={setModel}
-        />
-        <Button
-          color="inherit"
-          disabled={pending || turns.length === 0}
-          onClick={() => setConfirmOpen(true)}
-          sx={{ alignSelf: 'center' }}
-        >
-          Reset conversation
-        </Button>
-      </Box>
-
-      <Accordion variant="outlined" disableGutters>
-        <AccordionSummary>
-          <Box
-            sx={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              alignItems: 'center',
-              columnGap: 1,
-              rowGap: 0.5,
-              width: '100%',
-            }}
-          >
-            <Typography variant="body2" sx={{ fontWeight: 500 }}>
-              System prompt draft
-            </Typography>
-            {modified && (
-              <Chip
-                size="small"
-                color="warning"
-                variant="outlined"
-                label="modified"
-              />
-            )}
-            <Typography
-              variant="caption"
-              sx={{
-                color: 'text.secondary',
-                ml: { sm: 'auto' },
-                width: { xs: '100%', sm: 'auto' },
-              }}
-            >
-              Overrides the saved prompt for this conversation only
-            </Typography>
-          </Box>
-        </AccordionSummary>
-        <AccordionDetails>
-          <TextField
-            multiline
-            fullWidth
-            minRows={5}
-            value={draft}
+    <>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-end">
+          <ModelSelect
+            className="w-full md:max-w-md"
             disabled={pending}
-            helperText={`${draft.length} / ${PROMPT_MAX}`}
-            onChange={e => setDraft(e.target.value)}
-            slotProps={{
-              input: { sx: { fontFamily: 'monospace', fontSize: 13 } },
-              htmlInput: { 'aria-label': 'System prompt draft' },
-            }}
+            label="Model"
+            role="chat"
+            value={model}
+            onChange={setModel}
           />
-          <Box
-            sx={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: 1,
-              mt: 0.5,
-            }}
+          <Button
+            className="md:ml-auto"
+            disabled={pending || turns.length === 0}
+            onClick={() => setConfirmOpen(true)}
           >
-            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+            Reset conversation
+          </Button>
+        </div>
+
+        <details className="group overflow-hidden rounded-lg border border-line bg-surface">
+          <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2.5 text-sm [&::-webkit-details-marker]:hidden">
+            <Icon
+              className="-rotate-90 text-ink-3 transition-transform duration-200 ease-standard group-open:rotate-0"
+              name="chevron"
+              size={14}
+            />
+            <span className="font-medium">System prompt draft</span>
+            {modified && <Badge tone="warn">modified</Badge>}
+            <span className="w-full pl-6 text-cap text-ink-3 md:ml-auto md:w-auto md:pl-0">
+              Overrides the saved prompt for this conversation only
+            </span>
+          </summary>
+          <div className="flex flex-col gap-2 border-t border-line p-3">
+            <Textarea
+              aria-label="System prompt draft"
+              className="border-accent"
+              disabled={pending}
+              mono
+              rows={5}
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+            />
+            <div className="flex items-center justify-between gap-2 text-xs text-ink-3">
+              <span className="font-mono tabular-nums">
+                {draft.length} / {PROMPT_MAX}
+              </span>
+              <Button
+                disabled={!modified || pending}
+                size="sm"
+                variant="ghost"
+                onClick={() => setDraft(settings.systemPrompt)}
+              >
+                Reset to saved
+              </Button>
+            </div>
+            <p className="text-xs text-ink-3">
               The draft is never saved. The intro, input format and emoji
-              dictionary are always appended, same as in production.
-            </Typography>
-            <Link
-              component="button"
-              type="button"
-              variant="caption"
-              disabled={!modified || pending}
-              onClick={() => setDraft(settings.systemPrompt)}
-            >
-              Reset to saved
-            </Link>
-          </Box>
-        </AccordionDetails>
-      </Accordion>
+              dictionary are always appended, as in production.
+            </p>
+          </div>
+        </details>
+      </div>
 
       {turns.length === 0 && !pending ? (
-        <EmptyThread />
+        <div className="rounded-lg border border-line bg-surface">
+          <EmptyState
+            body="Ask the model something and see whether it reaches for the server’s emojis."
+            title="No messages yet"
+          />
+        </div>
       ) : (
-        <Stack spacing={1.5}>
+        <div className="flex flex-col gap-3" data-testid="playground-thread">
           {turns.map(turn =>
             turn.role === 'user' ? (
-              <UserBubble key={turn.id} turn={turn} lookup={lookup} />
+              <UserBubble key={turn.id} lookup={lookup} turn={turn} />
             ) : turn.role === 'assistant' ? (
-              <AssistantBubble key={turn.id} turn={turn} lookup={lookup} />
+              <AssistantBubble key={turn.id} lookup={lookup} turn={turn} />
             ) : (
               <ErrorBubble
                 key={turn.id}
+                retryDisabled={busy}
                 turn={turn}
-                disabled={pending}
                 onRetry={() => retry(turn)}
               />
             ),
           )}
-          {pending && <PendingBubble />}
-        </Stack>
+          {pending && <PendingBubble model={model} />}
+        </div>
       )}
 
-      <EvalPanel
-        savedModel={settings.models.chat}
-        systemPromptDraft={draftOverride(draft, settings.systemPrompt)}
-        lookup={lookup}
-        disabled={pending}
-        onRunningChange={setEvalRunning}
-      />
-
-      <Box
-        sx={{
-          p: 1.5,
-          border: 1,
-          borderColor: 'divider',
-          borderRadius: 3,
-          bgcolor: 'background.paper',
-        }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1.5 }}>
-          <TextField
-            multiline
-            fullWidth
-            size="small"
-            minRows={2}
-            maxRows={8}
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-end gap-3">
+          <Textarea
+            aria-label="Message"
+            className="flex-1"
             placeholder="Message tdr-bot…"
+            rows={2}
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => {
@@ -485,41 +228,41 @@ function Playground({ settings }: { settings: SettingsResponse }) {
                 send()
               }
             }}
-            slotProps={{ htmlInput: { 'aria-label': 'Message' } }}
           />
-          <Button variant="contained" disabled={!canSend} onClick={send}>
+          <Button
+            className="pointer-coarse:min-h-11"
+            disabled={!canSend}
+            variant="accent"
+            onClick={send}
+          >
             Send
           </Button>
-        </Box>
-        <Typography
-          variant="caption"
-          sx={{
-            color: 'text.secondary',
-            display: 'block',
-            mt: 0.75,
-          }}
-        >
-          Enter to send · Shift+Enter for a newline
-        </Typography>
-      </Box>
+        </div>
+        <p className="flex items-center gap-1.5 text-cap text-ink-3">
+          <Kbd>Enter</Kbd>
+          to send ·<Kbd>Shift</Kbd>+<Kbd>Enter</Kbd>
+          for a newline
+        </p>
+      </div>
 
-      <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
-        <DialogTitle>Reset conversation?</DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            This clears every turn. The model and prompt draft stay as they are.
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button color="inherit" onClick={() => setConfirmOpen(false)}>
-            Cancel
-          </Button>
-          <Button color="error" onClick={reset}>
-            Reset
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Stack>
+      <EvalPanel
+        disabled={pending}
+        lookup={lookup}
+        savedModel={settings.models.chat}
+        systemPromptDraft={draftOverride(draft, settings.systemPrompt)}
+        onRunningChange={setEvalRunning}
+      />
+
+      <ConfirmDialog
+        body="The thread is cleared and the model starts fresh. The system prompt draft stays."
+        cancelLabel="Keep it"
+        confirmLabel="Reset conversation"
+        open={confirmOpen}
+        title="Reset the conversation?"
+        onConfirm={reset}
+        onOpenChange={setConfirmOpen}
+      />
+    </>
   )
 }
 
@@ -527,27 +270,38 @@ export default function PlaygroundPage() {
   const { data, isLoading, error } = useSettings()
 
   return (
-    <Box sx={{ maxWidth: 880, mx: 'auto', p: { xs: 2, md: 4 } }}>
-      <Typography variant="h4" component="h1" sx={{ fontWeight: 600 }}>
-        Playground
-      </Typography>
-      <Typography
-        variant="body2"
-        sx={{
-          color: 'text.secondary',
-          mb: 3,
-          mt: 0.5,
-        }}
-      >
-        Chat with the bot’s chat model outside Discord to check it uses the
-        custom-emoji dictionary. The model writes :shortcodes:, which are
-        resolved to real emojis before display, same as in Discord. Repaired and
-        hallucinated ones are counted against the raw output.
-      </Typography>
+    <div className="mx-auto flex w-full max-w-[1136px] flex-col gap-6 px-4 py-5 md:px-8 md:py-8">
+      <header className="flex flex-col gap-1">
+        <h1 className="text-h1">Playground</h1>
+        <p className="text-sm text-ink-3">
+          Chat with the bot’s model outside Discord and see which emojis it
+          picks. The model writes :shortcodes:, which are resolved to real
+          emojis before display, as in Discord; repaired and hallucinated ones
+          are counted against the raw output.
+        </p>
+      </header>
 
-      {isLoading && <CircularProgress aria-label="Loading playground" />}
-      {error && <Alert severity="error">Couldn’t load settings.</Alert>}
+      {isLoading && (
+        <div
+          aria-label="Loading playground"
+          className="flex flex-col gap-3"
+          role="status"
+        >
+          <Skeleton className="h-16 w-full max-w-md rounded-md" />
+          <Skeleton className="h-10 w-full rounded-lg" />
+          <Skeleton className="h-40 w-full rounded-lg" />
+        </div>
+      )}
+      {error && (
+        <Note
+          icon={<Icon name="alert" />}
+          lead="Couldn’t load settings."
+          tone="bad"
+        >
+          The API didn’t answer. Reload the page to try again.
+        </Note>
+      )}
       {data && <Playground settings={data} />}
-    </Box>
+    </div>
   )
 }

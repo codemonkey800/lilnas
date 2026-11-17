@@ -1,5 +1,6 @@
 'use client'
 
+import { Badge, Button, Card, Icon, Note, Skeleton } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type {
   BadFile,
@@ -19,10 +20,6 @@ import type {
   UnflagBadFileAction,
 } from 'src/components/detail/bad-file-flag'
 import { BadFileFlag } from 'src/components/detail/bad-file-flag'
-import { Button } from 'src/components/ui/button'
-import { Card, Note } from 'src/components/ui/card'
-import { Chip } from 'src/components/ui/chip'
-import { Skeleton } from 'src/components/ui/feedback'
 import { StateLineActions } from 'src/components/ui/state-line'
 import { formatBytes, UNKNOWN_VALUE } from 'src/lib/format'
 
@@ -60,10 +57,10 @@ export const RELEASE_EMPTY_NOTE =
   'No indexer had anything for this. Try again later — new releases show up all the time.'
 
 /** The chip on the release currently on disk. `movie-detail.pug:93`. */
-export const RELEASE_CURRENT_LABEL = 'current'
+export const RELEASE_CURRENT_LABEL = 'Current'
 
 /** The chip on a reported release. `movie-detail.pug:88`. */
-export const RELEASE_FLAGGED_LABEL = 'bad file'
+export const RELEASE_FLAGGED_LABEL = 'Bad file'
 
 /** Grab a release when there is no file yet. `movie-detail.pug:97`. */
 export const RELEASE_GRAB_LABEL = 'Download this'
@@ -227,7 +224,7 @@ const ROW_MOBILE = 'flex-col items-start gap-[9px]'
 /** The dimming `movie-detail.pug` gives a struck-through, unusable row. */
 const ROW_BLOCKED = 'opacity-55'
 
-const ROW_PRIMARY = 'font-mono text-mono-sm text-ink-3'
+const ROW_PRIMARY = 'font-mono text-mono text-ink'
 
 /**
  * The scene name. `ink-3`, not `ink-4`, and that is the point of the column:
@@ -238,12 +235,12 @@ const ROW_PRIMARY = 'font-mono text-mono-sm text-ink-3'
 const ROW_TITLE = 'font-mono text-mono-sm text-ink-3'
 
 /** A machine annotation — the indexer's own name — which is what `ink-4` is for. */
-const ROW_SECONDARY = 'font-mono text-mono-sm text-ink-4'
+const ROW_SECONDARY = 'text-cap text-ink-3'
 
 /** A sentence, so `ink-3`. Full-width, which is what wraps it onto its own line. */
 const ROW_REASON = 'w-full text-cap text-ink-3'
 
-const ERROR_LINE = 'font-mono text-[11px] text-bad'
+const ERROR_LINE = 'text-cap text-bad'
 
 /**
  * What the explicit interactive search answers with.
@@ -480,8 +477,12 @@ export function ReleasePicker({
       ) : (
         <>
           {stuck ? (
-            <Note className={cns('mb-2.5')}>
-              <p>{RELEASE_ALL_BLOCKED_NOTE}</p>
+            <Note
+              className={cns('mb-2.5')}
+              icon={<Icon name="alert" />}
+              lead={RELEASE_ALL_BLOCKED_NOTE}
+              tone="warn"
+            >
               {stuckReasons.length > 0 ? (
                 <ul className={cns('mt-1.5 flex flex-col gap-1 text-cap')}>
                   {stuckReasons.map(reason => (
@@ -491,7 +492,7 @@ export function ReleasePicker({
               ) : null}
             </Note>
           ) : null}
-          <Card className={cns(mobile ? 'px-[14px] py-1' : 'px-4 py-1')} sunk>
+          <Card className={cns(mobile ? 'px-[14px] py-1' : 'px-4 py-1')}>
             {rows.length === 0 ? (
               <p className={cns('py-[13px] text-sm text-ink-3')}>
                 {RELEASE_EMPTY_NOTE}
@@ -565,7 +566,7 @@ function SearchPrompt({
   }
 
   return (
-    <Card className={cns(mobile ? 'px-[14px] py-4' : 'px-4 py-[18px]')} sunk>
+    <Card className={cns(mobile ? 'px-[14px] py-4' : 'px-4 py-[18px]')}>
       <p className={cns('mb-[14px] text-sm text-ink-3')}>
         {RELEASE_SEARCH_NOTE}
       </p>
@@ -640,7 +641,7 @@ function ReleaseRowSkeleton({
  */
 function ReleaseListSkeleton({ mobile }: { mobile: boolean }): JSX.Element {
   return (
-    <Card className={cns(mobile ? 'px-[14px] py-1' : 'px-4 py-1')} sunk>
+    <Card className={cns(mobile ? 'px-[14px] py-1' : 'px-4 py-1')}>
       {SKELETON_ROWS.map((widths, index) => (
         <ReleaseRowSkeleton key={index} mobile={mobile} {...widths} />
       ))}
@@ -709,9 +710,9 @@ function ReleaseRow({
   const flag = badFiles?.find(entry => entry.releaseGuid === release.guid)
 
   const chip = release.flaggedBad ? (
-    <Chip label={RELEASE_FLAGGED_LABEL} tone="bad" />
+    <Badge tone="bad">{RELEASE_FLAGGED_LABEL}</Badge>
   ) : current ? (
-    <Chip label={RELEASE_CURRENT_LABEL} tone="ok" />
+    <Badge tone="ok">{RELEASE_CURRENT_LABEL}</Badge>
   ) : null
 
   // The current release is the one already on disk, so there is nothing to
@@ -748,7 +749,6 @@ function ReleaseRow({
       flag={flag ?? null}
       full={mobile}
       mediaId={mediaId}
-      mobile={mobile}
       prompt={reportPrompt}
       reasons={reportReasons}
       release={{

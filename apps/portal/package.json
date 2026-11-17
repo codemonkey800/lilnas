@@ -16,9 +16,12 @@
     "lint:eslint:fix": "eslint --fix src",
     "lint:prettier:fix": "prettier -w src",
     "start": "NODE_ENV=production node server.js",
+    "test": "NODE_OPTIONS='--experimental-vm-modules --no-warnings=ExperimentalWarning' jest",
+    "test:watch": "NODE_OPTIONS='--experimental-vm-modules --no-warnings=ExperimentalWarning' jest --watch",
     "type-check": "tsc7 --noEmit"
   },
   "dependencies": {
+    "@lilnas/ui": "workspace:*",
     "@lilnas/utils": "workspace:*",
     "next": "16.4.2",
     "node-docker-api": "1.1.22",
@@ -27,6 +30,14 @@
   },
   "devDependencies": {
     "@lilnas/cli": "workspace:*",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.8",
+    "@types/jest": "30.0.0",
+    "jest": "30.5.2",
+    "jest-environment-jsdom": "30.5.2",
+    "ts-jest": "29.4.15",
     "yaml": "^2.9.1"
   }
 }

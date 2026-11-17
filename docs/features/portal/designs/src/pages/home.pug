@@ -1,0 +1,29 @@
+extends ../../../../../designs/mockup-kit/page.pug
+
+include ../mixins/portal.pug
+
+block title
+  | portal — home · UI mockups
+
+//-
+  The hallway. Responsive prefixes read the browser's width, not the frame's, so
+  the mixins take `view` and write the 3-column or 1-column grid directly.
+  Copy and sample data are in src/data/home.mjs.
+
+block content
+  +mockHead({ eyebrow: 'portal', title: 'Home', back: true })
+    p Almost silent: the #[+code('lilnas.io')] doorplate (no subdomain, no link: this is home), a #[+code('lilnas apps')] heading, and a grid of tiles. Three columns at 1280, one at 390. The tiles rise in 40ms apart. The browser tile is the only one with a status, because the portal only knows the browser's state; it opens the power page, which is the only way to turn it on.
+
+  div(class='vp-scope flex flex-col items-center gap-8')
+    +viewportToggle('home-viewport')
+    +viewportPanel('desktop')
+      each s in states
+        +stateRow(s.label + ' · ' + s.caption, { stack: true })(class='w-full')
+          +homeScreen('desktop', s.key, apps, empty, failure)
+      +frameLabel Desktop · 1280
+    +viewportPanel('mobile')
+      +stateRow('States', { stack: true })(class='w-full')
+        each s in states
+          +stateCell(s.label)
+            +homeScreen('mobile', s.key, apps, empty, failure)
+      +frameLabel Mobile · 390

@@ -86,7 +86,27 @@ describe('GalleryResults empty states', () => {
     expect(
       screen.getByText('No titles match these filters'),
     ).toBeInTheDocument()
-    expect(screen.getByText(/library is not empty/)).toBeInTheDocument()
+    expect(screen.getByText(/library isn’t empty/)).toBeInTheDocument()
+  })
+
+  it('gives an empty library exactly one way out: search for a title', () => {
+    renderResults({ initialItems: [], initialTotal: 0 })
+
+    const actions = screen.getAllByRole('link')
+
+    expect(actions).toHaveLength(1)
+    expect(actions[0]).toHaveTextContent('Search for a title')
+    expect(actions[0]).toHaveAttribute('href', '/search')
+  })
+
+  it('gives a filtered miss exactly one way out: clear the filters', () => {
+    renderResults({ filtered: true, initialItems: [], initialTotal: 0 })
+
+    const actions = screen.getAllByRole('link')
+
+    expect(actions).toHaveLength(1)
+    expect(actions[0]).toHaveTextContent('Clear filters')
+    expect(actions[0]).toHaveAttribute('href', '/gallery')
   })
 
   it('keeps the two apart, so filtered-to-nothing never reads as empty', () => {

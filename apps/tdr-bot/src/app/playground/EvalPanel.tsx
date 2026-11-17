@@ -1,22 +1,16 @@
 'use client'
 
-import Box from '@mui/material/Box'
-import Button from '@mui/material/Button'
-import Checkbox from '@mui/material/Checkbox'
-import Chip from '@mui/material/Chip'
-import Collapse from '@mui/material/Collapse'
-import FormControlLabel from '@mui/material/FormControlLabel'
-import FormGroup from '@mui/material/FormGroup'
-import IconButton from '@mui/material/IconButton'
-import LinearProgress from '@mui/material/LinearProgress'
-import Stack from '@mui/material/Stack'
-import Table from '@mui/material/Table'
-import TableBody from '@mui/material/TableBody'
-import TableCell from '@mui/material/TableCell'
-import TableContainer from '@mui/material/TableContainer'
-import TableHead from '@mui/material/TableHead'
-import TableRow from '@mui/material/TableRow'
-import Typography from '@mui/material/Typography'
+import {
+  Badge,
+  Button,
+  Checkbox,
+  Icon,
+  Note,
+  Panel,
+  PanelHead,
+  Progress,
+} from '@lilnas/ui'
+import { cns } from '@lilnas/utils/cns'
 import { useEffect, useRef, useState } from 'react'
 
 import { ApiClient } from 'src/api/api.client'
@@ -24,7 +18,8 @@ import { DiscordContent } from 'src/components/DiscordContent'
 import type { EmojiLookup } from 'src/queries/useEmojiLookup'
 import { useModels } from 'src/queries/useModels'
 
-import { formatMeta, scoreChips, TONE_COLOR } from './conversation'
+import { ScoreBadges } from './bubbles'
+import { formatMeta, scoreChips } from './conversation'
 import {
   bestDictionaryRate,
   estimateCostUsd,
@@ -45,14 +40,18 @@ const CONCURRENCY = 2
 
 const COLUMNS = [
   'Model',
-  'Replies with ≥1 dictionary emoji',
+  'Reply rate',
   'Dictionary',
   'Repaired',
   'Hallucinated',
   'Unicode',
-  'Avg cost',
-  'Avg latency',
+  'Cost',
+  'Latency',
 ] as const
+
+/** The header and every row share this grid at `md`+; phones stack the row. */
+const ROW_GRID =
+  'md:grid md:grid-cols-[minmax(150px,1.4fr)_minmax(90px,.8fr)_repeat(4,minmax(84px,.6fr))_minmax(64px,.7fr)_minmax(64px,.7fr)] md:items-center md:gap-2'
 
 const formatEstimate = (usd: number) =>
   `~$${usd.toFixed(usd > 0 && usd < 0.01 ? 4 : 2)}`
@@ -62,24 +61,6 @@ const percent = (row: EvalRow) =>
     ? '—'
     : `${Math.round((row.repliesWithDictionary / row.calls) * 100)}%`
 
-function ScoreLine({ cell }: { cell: EvalCell }) {
-  if (!cell.result) return null
-  return (
-    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mt: 0.5 }}>
-      {scoreChips(cell.result.emojis).map(chip => (
-        <Chip
-          key={chip.label}
-          size="small"
-          variant="outlined"
-          color={TONE_COLOR[chip.tone]}
-          label={chip.label}
-          title={chip.title}
-        />
-      ))}
-    </Box>
-  )
-}
-
 function PromptResults({
   cells,
   lookup,
@@ -88,50 +69,32 @@ function PromptResults({
   lookup: EmojiLookup
 }) {
   return (
-    <Stack spacing={1.5} sx={{ py: 1.5 }}>
+    <div className="flex flex-col gap-4 border-t border-line-soft bg-bg-sunk py-3 pr-3 pl-3 md:pl-9">
       {cells.map((cell, i) => (
-        <Box key={cell.prompt}>
-          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+        <div key={cell.prompt} className="flex flex-col gap-1.5">
+          <p className="text-cap text-ink-3">
             {i + 1}. {cell.prompt}
-          </Typography>
+          </p>
           {cell.result ? (
             <>
-              <Box
-                sx={{
-                  px: 1.5,
-                  py: 1,
-                  mt: 0.5,
-                  borderRadius: 2,
-                  bgcolor: 'background.paper',
-                }}
-              >
-                <DiscordContent text={cell.result.reply} lookup={lookup} />
-              </Box>
-              <Typography
-                variant="caption"
-                sx={{
-                  fontFamily: 'monospace',
-                  color: 'text.secondary',
-                  display: 'block',
-                  mt: 0.5,
-                }}
-              >
+              <div className="rounded-lg bg-surface px-3 py-2 text-sm">
+                <DiscordContent lookup={lookup} text={cell.result.reply} />
+              </div>
+              <p className="font-mono text-mono-sm text-ink-3">
                 {formatMeta({
                   model: cell.result.model,
                   costUsd: cell.result.usage.costUsd,
                   durationMs: cell.result.durationMs,
                 })}
-              </Typography>
-              <ScoreLine cell={cell} />
+              </p>
+              <ScoreBadges chips={scoreChips(cell.result.emojis)} />
             </>
           ) : (
-            <Typography variant="body2" color="error" sx={{ mt: 0.5 }}>
-              failed: {cell.error}
-            </Typography>
+            <p className="text-sm text-bad">failed: {cell.error}</p>
           )}
-        </Box>
+        </div>
       ))}
-    </Stack>
+    </div>
   )
 }
 
@@ -147,67 +110,96 @@ function ResultRow({
   lookup: EmojiLookup
 }) {
   const [open, setOpen] = useState(false)
-  const weight = best ? 700 : 400
-  const mono = { fontFamily: 'monospace', fontWeight: weight }
+  const num = cns('font-mono text-mono tabular-nums', best && 'font-semibold')
+  const cost = `$${row.avgCostUsd.toFixed(4)}`
+  const latency = `${(row.avgDurationMs / 1000).toFixed(1)} s`
 
   return (
-    <>
-      <TableRow hover>
-        <TableCell sx={{ whiteSpace: 'nowrap', ...mono }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            <IconButton
-              size="small"
-              aria-label={open ? 'Hide replies' : 'Show replies'}
-              aria-expanded={open}
-              onClick={() => setOpen(o => !o)}
-              sx={{ fontSize: 12, width: 24, height: 24 }}
-            >
-              {open ? '▾' : '▸'}
-            </IconButton>
+    <details
+      className="group border-b border-line-soft last:border-b-0"
+      open={open}
+    >
+      <summary
+        className={cns(
+          'flex cursor-pointer list-none flex-col gap-2 px-3 py-2.5 transition-colors duration-[120ms] ease-standard hover:bg-surface-2 [&::-webkit-details-marker]:hidden',
+          ROW_GRID,
+        )}
+        onClick={e => {
+          e.preventDefault()
+          setOpen(o => !o)
+        }}
+      >
+        <span className="flex items-center gap-2">
+          <Icon
+            className="-rotate-90 text-ink-3 transition-transform duration-200 ease-standard group-open:rotate-0"
+            name="chevron"
+            size={14}
+          />
+          <span className={cns('font-mono text-mono', best && 'font-semibold')}>
             {row.model}
-            {row.failed > 0 && (
-              <Chip
-                size="small"
-                color="error"
-                variant="outlined"
-                label={`${row.failed} failed`}
-              />
+          </span>
+          {row.failed > 0 && <Badge tone="bad">{row.failed} failed</Badge>}
+        </span>
+
+        <span className="flex items-baseline gap-2 pl-6 md:hidden">
+          <span
+            className={cns(
+              'font-mono text-h2 tabular-nums',
+              best ? 'font-semibold' : 'text-ink-2',
             )}
-          </Box>
-        </TableCell>
-        <TableCell sx={mono}>{percent(row)}</TableCell>
-        <TableCell sx={mono}>{row.dictionary}</TableCell>
-        <TableCell
-          sx={{ ...mono, color: row.repaired > 0 ? 'warning.main' : undefined }}
+          >
+            {percent(row)}
+          </span>
+          <span className="text-cap text-ink-3">
+            reply with ≥1 dictionary emoji
+          </span>
+        </span>
+        <span className="flex flex-wrap gap-1.5 pl-6 md:hidden">
+          <Badge tone="ok">{row.dictionary} dictionary</Badge>
+          {row.repaired > 0 && (
+            <Badge tone="warn">{row.repaired} repaired</Badge>
+          )}
+          {row.hallucinated > 0 && (
+            <Badge tone="bad">{row.hallucinated} hallucinated</Badge>
+          )}
+          <Badge tone="warn">{row.unicode} unicode</Badge>
+        </span>
+        <span className="pl-6 font-mono text-mono-sm text-ink-3 md:hidden">
+          {cost} · {latency}
+        </span>
+
+        <span className={cns(num, 'hidden md:inline')}>{percent(row)}</span>
+        <span className="hidden font-mono text-mono tabular-nums md:inline">
+          {row.dictionary}
+        </span>
+        <span
+          className={cns(
+            'hidden font-mono text-mono tabular-nums md:inline',
+            row.repaired > 0 && 'text-warn',
+          )}
         >
           {row.repaired}
-        </TableCell>
-        <TableCell
-          sx={{
-            ...mono,
-            color: row.hallucinated > 0 ? 'error.main' : undefined,
-          }}
+        </span>
+        <span
+          className={cns(
+            'hidden font-mono text-mono tabular-nums md:inline',
+            row.hallucinated > 0 && 'text-bad',
+          )}
         >
           {row.hallucinated}
-        </TableCell>
-        <TableCell sx={mono}>{row.unicode}</TableCell>
-        <TableCell sx={{ whiteSpace: 'nowrap', ...mono }}>
-          ${row.avgCostUsd.toFixed(4)}
-        </TableCell>
-        <TableCell sx={{ whiteSpace: 'nowrap', ...mono }}>
-          {(row.avgDurationMs / 1000).toFixed(1)} s
-        </TableCell>
-      </TableRow>
-      <TableRow>
-        <TableCell colSpan={COLUMNS.length} sx={{ p: 0, border: 0 }}>
-          <Collapse in={open} unmountOnExit>
-            <Box sx={{ px: 2, borderBottom: 1, borderColor: 'divider' }}>
-              <PromptResults cells={cells} lookup={lookup} />
-            </Box>
-          </Collapse>
-        </TableCell>
-      </TableRow>
-    </>
+        </span>
+        <span className="hidden font-mono text-mono tabular-nums md:inline">
+          {row.unicode}
+        </span>
+        <span className="hidden font-mono text-mono whitespace-nowrap tabular-nums md:inline">
+          {cost}
+        </span>
+        <span className="hidden font-mono text-mono whitespace-nowrap tabular-nums md:inline">
+          {latency}
+        </span>
+      </summary>
+      {open && <PromptResults cells={cells} lookup={lookup} />}
+    </details>
   )
 }
 
@@ -222,39 +214,32 @@ function ResultsTable({
   const best = bestDictionaryRate(rows)
 
   return (
-    <TableContainer sx={{ border: 1, borderColor: 'divider', borderRadius: 3 }}>
-      <Table size="small" aria-label="Eval results">
-        <TableHead>
-          <TableRow>
-            {COLUMNS.map(column => (
-              <TableCell
-                key={column}
-                sx={{
-                  color: 'text.secondary',
-                  verticalAlign: 'bottom',
-                  ...(column.length > 12
-                    ? { minWidth: 112 }
-                    : { whiteSpace: 'nowrap' }),
-                }}
-              >
-                {column}
-              </TableCell>
-            ))}
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {rows.map(row => (
-            <ResultRow
-              key={row.model}
-              row={row}
-              cells={cells.filter(cell => cell.model === row.model)}
-              best={row.model === best}
-              lookup={lookup}
-            />
-          ))}
-        </TableBody>
-      </Table>
-    </TableContainer>
+    <div
+      aria-label="Eval results"
+      className="overflow-hidden rounded-lg border border-line bg-surface"
+      role="group"
+    >
+      <div
+        aria-hidden="true"
+        className={cns(
+          'hidden border-b border-line-loud px-3 pt-3 pb-2.5 text-label text-ink-3 uppercase md:grid md:items-end',
+          ROW_GRID.replace('md:grid ', '').replace('md:items-center ', ''),
+        )}
+      >
+        {COLUMNS.map(column => (
+          <span key={column}>{column}</span>
+        ))}
+      </div>
+      {rows.map(row => (
+        <ResultRow
+          key={row.model}
+          best={row.model === best}
+          cells={cells.filter(cell => cell.model === row.model)}
+          lookup={lookup}
+          row={row}
+        />
+      ))}
+    </div>
   )
 }
 
@@ -287,6 +272,7 @@ export function EvalPanel({
   const [running, setRunning] = useState(false)
   const [progress, setProgress] = useState({ done: 0, total: 0 })
   const [cells, setCells] = useState<EvalCell[] | null>(null)
+  const [runError, setRunError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
   // Abort an in-progress run if the page unmounts.
@@ -316,6 +302,7 @@ export function EvalPanel({
       EVAL_PROMPTS,
     )
     setRunning(true)
+    setRunError(null)
     onRunningChange?.(true)
     setProgress({ done: 0, total: jobs.length })
     try {
@@ -334,6 +321,8 @@ export function EvalPanel({
         },
       )
       setCells(result)
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : String(err))
     } finally {
       if (abortRef.current === controller) abortRef.current = null
       setRunning(false)
@@ -343,149 +332,108 @@ export function EvalPanel({
 
   const cancel = () => abortRef.current?.abort()
 
+  const failures = cells?.filter(cell => !cell.result) ?? []
+
   return (
-    <Box
-      sx={{
-        p: 2,
-        border: 1,
-        borderColor: 'divider',
-        borderRadius: 3,
-        bgcolor: 'background.paper',
-      }}
-    >
-      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-        Emoji eval
-      </Typography>
-      <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2 }}>
-        Every ticked model answers every prompt once; replies are scored against
-        the dictionary.
-      </Typography>
-
-      <Box
-        sx={{
-          display: 'grid',
-          gap: 3,
-          gridTemplateColumns: { xs: '1fr', lg: '16rem 1fr' },
-        }}
-      >
-        <Stack spacing={2}>
-          <Box>
-            <Typography
-              variant="caption"
-              sx={{
-                fontWeight: 500,
-                display: 'block',
-                mb: 0.5,
-              }}
-            >
+    <Panel>
+      <PanelHead
+        caption="Every ticked model answers every prompt once. Replies are scored against the dictionary."
+        title="Emoji eval"
+      />
+      <div className="flex flex-col gap-5 p-4 lg:flex-row lg:items-start">
+        <div className="flex shrink-0 flex-col gap-4 lg:w-56">
+          <fieldset className="flex flex-col gap-2">
+            <legend className="mb-2 text-sm font-medium text-ink-2">
               Models
-            </Typography>
-            <FormGroup>
-              {models.map(model => (
-                <FormControlLabel
-                  key={model.id}
-                  control={
-                    <Checkbox
-                      size="small"
-                      checked={ticked.includes(model.id)}
-                      disabled={running}
-                      onChange={e => toggle(model.id, e.target.checked)}
-                    />
-                  }
-                  label={model.id}
-                  slotProps={{
-                    typography: {
-                      variant: 'body2',
-                      sx: { fontFamily: 'monospace' },
-                    },
-                  }}
-                />
-              ))}
-            </FormGroup>
-          </Box>
-
-          <Box component="details">
-            <Typography
-              component="summary"
-              variant="body2"
-              sx={{ cursor: 'pointer', userSelect: 'none' }}
-            >
-              {EVAL_PROMPTS.length} prompts
-            </Typography>
-            <Box
-              component="ol"
-              sx={{ mt: 0.75, mb: 0, pl: 2.5, color: 'text.secondary' }}
-            >
-              {EVAL_PROMPTS.map(prompt => (
-                <Typography
-                  key={prompt}
-                  component="li"
-                  variant="caption"
-                  sx={{ display: 'list-item' }}
-                >
-                  {prompt}
-                </Typography>
-              ))}
-            </Box>
-          </Box>
-
-          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-            {formatEstimate(estimate)} for {calls} calls
-          </Typography>
-
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            <Button variant="contained" disabled={!canRun} onClick={run}>
-              Run eval
-            </Button>
-            {running && (
-              <Button color="inherit" onClick={cancel}>
-                Cancel
-              </Button>
-            )}
-          </Box>
-        </Stack>
-
-        <Stack spacing={2} sx={{ minWidth: 0 }}>
-          {running && (
-            <Box>
-              <Box
-                sx={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  mb: 0.5,
-                }}
-              >
-                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                  Running…
-                </Typography>
-                <Typography
-                  variant="caption"
-                  sx={{ fontFamily: 'monospace', color: 'text.secondary' }}
-                >
-                  {progress.done} / {progress.total}
-                </Typography>
-              </Box>
-              <LinearProgress
-                variant="determinate"
-                aria-label="Eval progress"
-                value={
-                  progress.total === 0
-                    ? 0
-                    : (progress.done / progress.total) * 100
-                }
+            </legend>
+            {models.map(model => (
+              <Checkbox
+                key={model.id}
+                checked={ticked.includes(model.id)}
+                className="font-mono"
+                disabled={running}
+                label={model.id}
+                onCheckedChange={checked => toggle(model.id, checked)}
               />
-            </Box>
+            ))}
+          </fieldset>
+
+          <details className="group text-sm">
+            <summary className="flex cursor-pointer list-none items-center gap-1.5 text-ink-2 [&::-webkit-details-marker]:hidden">
+              <Icon
+                className="-rotate-90 text-ink-3 transition-transform duration-200 ease-standard group-open:rotate-0"
+                name="chevron"
+                size={12}
+              />
+              {EVAL_PROMPTS.length} prompts
+            </summary>
+            <ol className="mt-2 list-decimal space-y-1 pl-6 text-cap text-ink-3">
+              {EVAL_PROMPTS.map(prompt => (
+                <li key={prompt}>{prompt}</li>
+              ))}
+            </ol>
+          </details>
+
+          <p className="text-cap text-ink-3">
+            <span className="font-mono text-mono-sm tabular-nums">
+              {formatEstimate(estimate)} for {calls} calls
+            </span>
+          </p>
+
+          <div className="flex gap-2">
+            <Button
+              disabled={!canRun && !running}
+              loading={running}
+              variant="accent"
+              onClick={run}
+            >
+              {running ? 'Running…' : 'Run eval'}
+            </Button>
+            {running && <Button onClick={cancel}>Cancel</Button>}
+          </div>
+        </div>
+
+        <div className="flex min-w-0 flex-1 flex-col gap-4">
+          {running && (
+            <div className="flex flex-col gap-1.5">
+              <div className="flex justify-between text-cap text-ink-3">
+                <span>Running…</span>
+                <span className="font-mono tabular-nums">
+                  {progress.done} / {progress.total}
+                </span>
+              </div>
+              <Progress
+                label="Eval progress"
+                max={progress.total}
+                value={progress.done}
+              />
+            </div>
+          )}
+          {runError && (
+            <Note lead="The eval stopped." tone="bad">
+              {runError}
+            </Note>
+          )}
+          {!running && failures.length > 0 && (
+            <Note
+              lead={`${failures.length} of ${cells?.length ?? 0} replies failed.`}
+              tone="bad"
+            >
+              {failures[0].error}. Results so far are below; run it again in a
+              minute.
+            </Note>
           )}
           {cells && cells.length > 0 && (
             <ResultsTable cells={cells} lookup={lookup} />
           )}
           {!running && !cells && (
-            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-              No results yet.
-            </Typography>
+            <p className="text-sm text-ink-3">
+              Tick the models to compare and run the eval. Results land here as
+              each reply comes back.
+            </p>
           )}
-        </Stack>
-      </Box>
-    </Box>
+        </div>
+      </div>
+    </Panel>
   )
 }

@@ -1,22 +1,25 @@
-import Chip from '@mui/material/Chip'
+import { Badge, type BadgeTone } from '@lilnas/ui'
 
 import type { EmojiView } from 'src/api/api.types'
 
-import { sourceLabel, type SourceTone, sourceTone } from './format'
+import { type SourceTone, sourceTone } from './format'
 
-const TONE_COLOR = {
-  ok: 'success',
-  muted: 'default',
-  warn: 'warning',
-} as const satisfies Record<SourceTone, string>
+const TONE: Record<SourceTone, BadgeTone> = {
+  ok: 'ok',
+  muted: 'mute',
+  warn: 'warn',
+}
 
+const LABEL: Record<SourceTone, string> = {
+  ok: 'Manual',
+  muted: 'AI',
+  warn: 'Pending',
+}
+
+/** Manual · AI · Pending while a description is on its way · Deleted. */
 export function SourceChip({ emoji }: { emoji: EmojiView }) {
-  return (
-    <Chip
-      size="small"
-      variant="outlined"
-      color={TONE_COLOR[sourceTone(emoji)]}
-      label={sourceLabel(emoji)}
-    />
-  )
+  if (emoji.deletedAt) return <Badge tone="bad">Deleted</Badge>
+
+  const tone = sourceTone(emoji)
+  return <Badge tone={TONE[tone]}>{LABEL[tone]}</Badge>
 }

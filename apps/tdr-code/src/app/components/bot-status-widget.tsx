@@ -7,6 +7,7 @@ import { fetchJson, queryKeys } from 'src/app/lib/api'
 import { useLiveStream } from 'src/app/lib/use-live-stream'
 import type { BotStatusDto } from 'src/bot/bot-status.dto'
 
+import { RelativeTime } from './relative-time'
 import { StatusDot } from './status-dot'
 
 type ClientStatus = 'loading' | 'unknown' | BotStatusDto['status']
@@ -48,20 +49,25 @@ export function BotStatusWidget() {
     clientStatus = 'loading'
   }
 
+  const online = clientStatus === 'online'
+
   return (
-    <div className="flex items-center gap-2">
-      <StatusDot variant={statusVariant(clientStatus)} />
+    <div
+      className="flex flex-wrap items-center gap-x-2 gap-y-0.5"
+      role="status"
+    >
+      <StatusDot pulse={online} variant={statusVariant(clientStatus)} />
       <span
         className={cns(
           'text-sm font-medium',
-          clientStatus === 'online' ? 'text-green-400' : 'text-gray-400',
+          online ? 'text-ok' : 'text-ink-2',
         )}
       >
         {STATUS_LABELS[clientStatus]}
       </span>
-      {data?.lastSeenAt && clientStatus !== 'online' && (
-        <span className="text-xs text-gray-500">
-          (last seen {new Date(data.lastSeenAt).toLocaleString()})
+      {data?.lastSeenAt && !online && (
+        <span className="text-cap text-ink-3">
+          last seen <RelativeTime value={data.lastSeenAt} />
         </span>
       )}
     </div>

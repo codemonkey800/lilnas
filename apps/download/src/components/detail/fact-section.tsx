@@ -1,9 +1,7 @@
+import { Button } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { ComponentPropsWithoutRef, JSX, ReactNode } from 'react'
 import { useId } from 'react'
-
-import { ButtonLink } from 'src/components/ui/button-link'
-import { Card } from 'src/components/ui/card'
 
 /**
  * The reference cards the movie, show and video pages draw under their
@@ -46,7 +44,7 @@ export function formatDay(value: string | undefined): string | null {
 }
 
 /** One `<dt>`/`<dd>` pair. A row with nothing to say is not drawn. */
-export type Fact = { label: string; value: ReactNode }
+export type Fact = { label: string; mono?: boolean; value: ReactNode }
 
 export function facts(rows: readonly (Fact | null)[]): Fact[] {
   return rows.filter((row): row is Fact => row !== null)
@@ -55,10 +53,13 @@ export function facts(rows: readonly (Fact | null)[]): Fact[] {
 export function fact(
   label: string,
   value: ReactNode | null | undefined,
+  mono = false,
 ): Fact | null {
   return value === null || value === undefined || value === ''
     ? null
-    : { label, value }
+    : mono
+      ? { label, mono, value }
+      : { label, value }
 }
 
 /**
@@ -88,11 +89,11 @@ type FactSectionProps = Omit<
 }
 
 /**
- * A heading over a sunk card of label/value rows - the same heading weight and
- * card the attempts and release sections use, so the page reads as one set.
- * The label column is sized to its longest label and the value column takes
- * the rest, at every width, so a long value wraps rather than pushing the card
- * wider than the phone.
+ * A heading over a `dl` grid - two columns on a phone, four from `sm`, as
+ * `facts` in `download.pug`. Labels are the uppercase `label` caption, values
+ * are Geist; a `mono` fact is an identifier someone would copy (a path, a
+ * release name) and is set in Geist Mono. Long values wrap rather than
+ * truncate, since these are real upstream strings.
  */
 export function FactSection({
   className,
@@ -106,27 +107,28 @@ export function FactSection({
     <section
       {...props}
       aria-labelledby={headingId}
-      className={cns('flex min-w-0 flex-col gap-3', className)}
+      className={cns('min-w-0', className)}
     >
-      <h2 className={cns('text-h2')} id={headingId}>
+      <h2 className={cns('mb-3 text-h2')} id={headingId}>
         {heading}
       </h2>
-      <Card className={cns('px-[14px] py-3.5 sm:px-4')} sunk>
-        <dl
-          className={cns(
-            'grid grid-cols-[max-content_minmax(0,1fr)] gap-x-5 gap-y-2.5 text-sm',
-          )}
-        >
-          {rows.map(row => (
-            <div className={cns('contents')} key={row.label}>
-              <dt className={cns('text-ink-3')}>{row.label}</dt>
-              <dd className={cns('min-w-0 break-words text-ink')}>
-                {row.value}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      </Card>
+      <dl className={cns('grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4')}>
+        {rows.map(row => (
+          <div className={cns('min-w-0')} key={row.label}>
+            <dt className={cns('text-label text-ink-3 uppercase')}>
+              {row.label}
+            </dt>
+            <dd
+              className={cns(
+                'text-sm break-words text-ink',
+                row.mono && 'font-mono text-mono',
+              )}
+            >
+              {row.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
     </section>
   )
 }
@@ -139,9 +141,8 @@ export type FactCardsProps = Omit<
 }
 
 /**
- * Every section that has rows, side by side from `lg` only when more than one
- * is drawn - a lone card at half width would leave a hole beside it. `null`
- * when none has anything to say, so the page adds no gap.
+ * Every section that has rows, stacked, each its own heading over a `dl`.
+ * `null` when none has anything to say, so the page adds no gap.
  */
 export function FactCards({
   className,
@@ -155,14 +156,7 @@ export function FactCards({
   }
 
   return (
-    <div
-      {...props}
-      className={cns(
-        'grid items-start gap-7 sm:gap-8',
-        drawn.length > 1 && 'lg:grid-cols-2',
-        className,
-      )}
-    >
+    <div {...props} className={cns('flex flex-col gap-8', className)}>
       {drawn.map(section => (
         <FactSection
           facts={section.facts}
@@ -244,17 +238,15 @@ export function ExternalLinks({
       className={cns('-ml-[11px] flex flex-wrap items-center gap-1', className)}
     >
       {links.map(link => (
-        <ButtonLink
-          href={link.href}
+        <Button
           icon="external"
           key={link.label}
-          rel="noreferrer"
           size="sm"
-          target="_blank"
           variant="ghost"
+          render={<a href={link.href} rel="noreferrer" target="_blank" />}
         >
           {link.label}
-        </ButtonLink>
+        </Button>
       ))}
     </div>
   )

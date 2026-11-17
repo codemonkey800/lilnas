@@ -1,9 +1,10 @@
+import { Icon } from '@lilnas/ui'
 import type { DownloadJob } from '@lilnas/utils/download/types'
 import type { JSX } from 'react'
 
 import { jobUpstreamSource } from 'src/components/activity/activity-requester'
 import { AdminActor } from 'src/components/admin/admin-actor'
-import { Icon } from 'src/components/ui/icon'
+import type { PersonAvatarSize } from 'src/components/ui/person-avatar'
 import type { AdminFilters } from 'src/lib/admin-filters'
 import { adminHref } from 'src/lib/admin-filters'
 import type { Viewer } from 'src/lib/viewer'
@@ -14,6 +15,10 @@ export const HIDDEN_ATTRIBUTION_LABEL = 'Hidden from other users'
 export type AdminHistoryRequesterProps = {
   /** Avatar size utilities — the two layouts size their mark differently. */
   avatarClassName?: string
+  /** The avatar's size, from `PersonAvatar`'s scale. */
+  avatarSize?: PersonAvatarSize
+  /** Overrides the name's register. */
+  nameClassName?: string
   /** The filter the page is currently at, so the link can extend it. */
   filters: AdminFilters
   job: DownloadJob
@@ -45,6 +50,8 @@ export type AdminHistoryRequesterProps = {
  */
 export function AdminHistoryRequester({
   avatarClassName,
+  avatarSize,
+  nameClassName,
   filters,
   job,
   nameless = false,
@@ -71,6 +78,8 @@ export function AdminHistoryRequester({
       <AdminActor
         actor={job.requester}
         avatarClassName={avatarClassName}
+        avatarSize={avatarSize}
+        nameClassName={nameClassName}
         discordActor={job.discordRequester}
         href={href}
         linkedDiscord={job.linkedDiscord}

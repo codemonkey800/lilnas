@@ -6,7 +6,6 @@ import {
   buildActivityRows,
   isMoving,
   jobProgressPct,
-  mobileStatusLabel,
 } from 'src/components/activity/activity-rows'
 
 const NO_EVICTIONS: ReadonlySet<string> = new Set()
@@ -271,33 +270,5 @@ describe('jobProgressPct', () => {
         }),
       ),
     ).toBeNull()
-  })
-})
-
-describe('mobileStatusLabel', () => {
-  it('lets the percentage stand alone while the job is moving', () => {
-    expect(mobileStatusLabel(movie())).toBe('64%')
-  })
-
-  it('names the state as well once the job has stopped moving', () => {
-    expect(mobileStatusLabel(movie({ status: DownloadJobStatus.Paused }))).toBe(
-      'paused · 64%',
-    )
-  })
-
-  it("lets a moving video's percentage stand alone", () => {
-    expect(mobileStatusLabel(video({ progress: moving }))).toBe('64%')
-  })
-
-  it('names the state as well once a video has stopped moving', () => {
-    expect(
-      mobileStatusLabel(
-        video({ progress: moving, status: DownloadJobStatus.Paused }),
-      ),
-    ).toBe('paused · 64%')
-  })
-
-  it('falls back to the bare state when there is no progress', () => {
-    expect(mobileStatusLabel(video())).toBe('downloading')
   })
 })

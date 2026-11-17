@@ -1,0 +1,44 @@
+extends ../../../../../designs/mockup-kit/page.pug
+
+include ../mixins/tdr-code.pug
+
+block title
+  | tdr-code — login · UI mockups
+
+//-
+  /login renders with no app nav (NavShell skips it): a centred card on the
+  page background. The doorplate stands in for the old "tdr-code" label.
+  Copy and sample data are in src/data/login.mjs.
+
+mixin loginScreen(view, s, copy, errors)
+  - const phone = view === 'mobile'
+  - const err = errors[s.key]
+  +appFrame(view, { density: 'compact', height: phone ? 520 : 460 })(class='items-center justify-center')
+    div(class=['flex w-full max-w-[380px] flex-col items-center gap-5', phone ? 'px-4' : ''])
+      +card()(class='flex w-full flex-col items-center gap-5 p-8')
+        +doorplate('tdr-code')
+        div(class='flex flex-col items-center gap-1 text-center')
+          h1(class='text-h2')= copy.title
+          p(class='text-sm text-ink-3')= copy.body
+        if err
+          +note(err.tone, err.lead)(class='w-full')
+            = err.detail
+        +btn({ variant: 'accent', size: phone ? 'lg' : 'md', label: s.key === 'redirecting' ? copy.redirecting : copy.button, icon: 'discord', loading: s.key === 'redirecting', disabled: s.key === 'redirecting', full: true })
+
+block content
+  +mockHead({ eyebrow: 'tdr-code · /login', title: 'Login', back: true })
+    p One accent button, a 380px card. #[+code('?error=')] picks one of three notes, each worded so none reads as another: #[+code('not_guild_member')] is red (you're not allowed), #[+code('oauth_failed')] amber (it didn't finish, try again), #[+code('session_expired')] the accent (routine, not a rejection). A deliberate log out lands on a bare #[+code('/login')], so the default state has no note. After the click the button disables and relabels so a double click can't start a second sign-in.
+
+  div(class='vp-scope flex flex-col items-center gap-8')
+    +viewportToggle('login-viewport')
+    +viewportPanel('desktop')
+      each s in states
+        +stateRow(s.label + ' · ' + s.caption, { stack: true })(class='w-full')
+          +loginScreen('desktop', s, copy, errors)
+      +frameLabel Desktop · 1280
+    +viewportPanel('mobile')
+      +stateRow('States', { stack: true })(class='w-full')
+        each s in states
+          +stateCell(s.label)
+            +loginScreen('mobile', s, copy, errors)
+      +frameLabel Mobile · 390

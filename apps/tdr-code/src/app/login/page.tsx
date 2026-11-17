@@ -1,6 +1,6 @@
 'use client'
 
-import { cns } from '@lilnas/utils/cns'
+import { Button, Card, Doorplate, Note, type NoteTone } from '@lilnas/ui'
 import { useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useState } from 'react'
 
@@ -15,15 +15,34 @@ import { LOG_EVENTS } from 'src/logging/log-events'
 // produce collapses into exactly one of these three codes.
 type LoginErrorCode = 'not_guild_member' | 'session_expired' | 'oauth_failed'
 
-const ERROR_COPY: Record<LoginErrorCode, string> = {
-  not_guild_member:
-    "You don't have access to tdr-code — this console is limited to members of the configured Discord server.",
-  session_expired: 'Your session expired. Please sign in again.',
+// Each code is its own note, worded so none reads as another. not_guild_member
+// is red (you're not allowed), oauth_failed amber (it didn't finish, try
+// again), session_expired the accent (routine, not a rejection). Copy follows
+// the approved mockup (docs/features/tdr-code/designs/src/data/login.mjs).
+const ERROR_NOTES: Record<
+  LoginErrorCode,
+  { tone: NoteTone; lead: string; detail: string }
+> = {
+  not_guild_member: {
+    tone: 'bad',
+    lead: "That account isn't in the server.",
+    detail:
+      'tdr-code is limited to members of the configured Discord server. Sign in with a different account, or ask to be added.',
+  },
+  session_expired: {
+    tone: 'accent',
+    lead: 'Your session expired.',
+    detail: 'Sign in again to pick up where you were.',
+  },
   // Deliberately distinct and generic — the plan is explicit that this must
   // read as "sign-in didn't complete" rather than the more alarming
   // not_guild_member wording, so a transient Discord outage isn't
   // misinterpreted by the user as "you're not allowed here."
-  oauth_failed: "Sign-in didn't complete. Please try again.",
+  oauth_failed: {
+    tone: 'warn',
+    lead: "Sign-in didn't finish.",
+    detail: "Discord didn't complete it. Try again.",
+  },
 }
 
 function isLoginErrorCode(value: string | null): value is LoginErrorCode {
@@ -62,22 +81,12 @@ function LoginErrorBanner() {
 
   if (code === null) return null
 
+  const { tone, lead, detail } = ERROR_NOTES[code]
+
   return (
-    <div
-      className={cns(
-        'w-full rounded border px-4 py-3 text-sm',
-        // not_guild_member and oauth_failed both render as attention-states
-        // (amber/red-leaning) but with different copy above so they're
-        // never confused for each other; session_expired uses a visually
-        // distinct informational tone (not alarming — an expired session is
-        // routine, not a rejection).
-        code === 'session_expired'
-          ? 'border-gray-700 bg-gray-900 text-gray-300'
-          : 'border-red-800 bg-red-950 text-red-300',
-      )}
-    >
-      {ERROR_COPY[code]}
-    </div>
+    <Note className="w-full" lead={lead} tone={tone}>
+      {detail}
+    </Note>
   )
 }
 
@@ -111,32 +120,29 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex w-full max-w-sm flex-col items-center gap-6 rounded-lg border border-gray-800 bg-gray-950 p-8">
-      <div className="flex flex-col items-center gap-1">
-        <span className="text-xs font-bold tracking-[0.15em] text-gray-400 uppercase">
-          tdr-code
-        </span>
-        <p className="text-sm text-gray-500">Sign in to continue</p>
+    <Card className="flex w-full max-w-[380px] flex-col items-center gap-5 p-8">
+      <Doorplate app="tdr-code" href={null} />
+      <div className="flex flex-col items-center gap-1 text-center">
+        <h1 className="text-h2">Sign in</h1>
+        <p className="text-sm text-ink-3">
+          tdr-code is for members of the Discord server.
+        </p>
       </div>
 
       <Suspense fallback={null}>
         <LoginErrorBanner />
       </Suspense>
 
-      <button
-        type="button"
-        onClick={handleLogin}
-        disabled={isRedirecting}
+      <Button
         data-track-id="login-discord"
-        className={cns(
-          'w-full rounded px-4 py-2.5 text-sm font-medium transition-colors',
-          isRedirecting
-            ? 'cursor-not-allowed bg-gray-700 text-gray-400 opacity-50'
-            : 'bg-blue-700 text-blue-100 hover:bg-blue-600',
-        )}
+        disabled={isRedirecting}
+        full
+        loading={isRedirecting}
+        onClick={handleLogin}
+        variant="accent"
       >
-        {isRedirecting ? 'Redirecting…' : 'Login with Discord'}
-      </button>
-    </div>
+        {isRedirecting ? 'Redirecting…' : 'Sign in with Discord'}
+      </Button>
+    </Card>
   )
 }

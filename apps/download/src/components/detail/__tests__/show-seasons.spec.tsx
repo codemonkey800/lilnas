@@ -388,18 +388,18 @@ function seasonStatus(): HTMLElement {
 }
 
 describe('the season status reads its episodes, never a job', () => {
-  it('reads "in library" with the season’s own count once it settles', () => {
+  it('reads "In library" with the season’s own count once it settles', () => {
     renderSeasons()
 
     // Season 1 is the default tab: one of two episodes on disk rolls up to
     // `available` — the wanted one is outranked, as it is at series level.
-    expect(within(seasonStatus()).getByText('in library')).toBeInTheDocument()
+    expect(within(seasonStatus()).getByText('In library')).toBeInTheDocument()
     expect(
       within(seasonStatus()).getByText('1 of 2 episodes'),
     ).toBeInTheDocument()
   })
 
-  it('reads "needs your decision" when one of its episodes does, with the reason', async () => {
+  it('reads "Needs your decision" when one of its episodes does, with the reason', async () => {
     const reason = 'No files found are eligible for import'
     const { user } = renderSeasons({
       media: show({ state: 'needs_attention', stateReason: reason }),
@@ -418,7 +418,7 @@ describe('the season status reads its episodes, never a job', () => {
     await user.click(screen.getByRole('tab', { name: /Season 2/ }))
 
     expect(
-      within(seasonStatus()).getByText('needs your decision'),
+      within(seasonStatus()).getByText('Needs your decision'),
     ).toBeInTheDocument()
     expect(within(seasonStatus()).getByText(reason)).toBeInTheDocument()
   })
@@ -535,7 +535,7 @@ describe('the season tab strip', () => {
     const tab = screen.getByRole('tab', { name: /Season 2/ })
 
     // No percentage: nothing is moving, somebody has to act.
-    expect(tab).toHaveAccessibleName('Season 2 · needs your decision')
+    expect(tab).toHaveAccessibleName('Season 2 · Needs your decision')
     expect(tab.querySelector('.bg-warn')).not.toBeNull()
     expect(tab).not.toHaveTextContent('%')
   })
@@ -552,7 +552,7 @@ describe('the season tab strip', () => {
     })
 
     expect(screen.getByRole('tab', { name: /Season 2/ })).toHaveAccessibleName(
-      'Season 2 · paused',
+      'Season 2 · Paused',
     )
   })
 
@@ -679,7 +679,7 @@ describe('the delete control', () => {
     await user.click(screen.getByRole('button', { name: 'Delete season' }))
 
     expect(screen.getByRole('dialog')).toHaveTextContent(
-      'Delete season 1 of "Silicon Valley"?',
+      'Delete season 1 of “Silicon Valley”?',
     )
   })
 })

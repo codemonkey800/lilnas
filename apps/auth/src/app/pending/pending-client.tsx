@@ -1,12 +1,18 @@
 'use client'
 
+import { Button, Note } from '@lilnas/ui'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { Brandmark } from 'src/app/components/brandmark'
-import { Icon } from 'src/app/components/icons'
+import {
+  GateCard,
+  GateHeading,
+  GateScreen,
+  IdentityRow,
+  StatusRing,
+  TargetPill,
+} from 'src/app/components/gate'
 import { signOut } from 'src/app/lib/auth-client'
 import { timeAgo } from 'src/app/lib/time-ago'
-import { getServiceMeta } from 'src/app/service-meta'
 
 import { checkRequestStatus, submitReRequest } from './actions'
 
@@ -107,7 +113,6 @@ export function PendingClient({
   // (see recheck's own comment below) rather than defined inline inside it.
   const cancelledRef = useRef(false)
 
-  const targetMeta = getServiceMeta(serviceHost)
   const isRejected = outcome === 'rejected'
 
   // Hoisted out of the effect into a stable (per redirectUrl) callback so
@@ -234,102 +239,78 @@ export function PendingClient({
   }
 
   return (
-    <div className="wrap">
-      <div className="panel">
-        <Brandmark />
+    <GateScreen>
+      <GateCard>
+        <StatusRing kind={isRejected ? 'declined' : 'waiting'} />
 
-        <div className="status-ring">
-          <Icon name={isRejected ? 'x' : 'clock'} />
-        </div>
-
-        <div className="stack gap-1.5" role="status" aria-live="polite">
-          <h1 className="h1">
-            {isRejected ? 'Access declined' : 'Waiting for approval'}
-          </h1>
-          <p className="body-text muted">
-            {isRejected
+        <GateHeading
+          live
+          title={isRejected ? 'Access declined' : 'Waiting for approval'}
+          body={
+            isRejected
               ? 'An admin declined your request for this service. You can request access again below.'
-              : 'An admin needs to grant your account access before you can continue.'}
-          </p>
-        </div>
+              : 'An admin needs to grant your account access before you can continue.'
+          }
+        />
 
-        <div className="identity-row">
-          <span className="avatar">{identity.initials}</span>
-          <div className="identity-row__text">
-            <span className="identity-row__name">{identity.name}</span>
-            <span className="identity-row__email">{identity.email}</span>
-          </div>
-        </div>
+        <IdentityRow
+          name={identity.name}
+          email={identity.email}
+          initials={identity.initials}
+        />
 
-        <div className="target-pill">
-          <span className="target-pill__icon">
-            <Icon name={targetMeta.icon} />
-          </span>
-          <div className="target-pill__text">
-            <span className="target-pill__name">{targetMeta.name}</span>
-            <span className="target-pill__domain">{serviceHost}</span>
-          </div>
-        </div>
+        <TargetPill host={serviceHost} />
 
         {!isRejected && requestedAt ? (
-          <p className="caption" suppressHydrationWarning>
+          <p
+            className="text-center text-cap text-ink-3"
+            suppressHydrationWarning
+          >
             Requested {timeAgo(requestedAt)}
           </p>
         ) : null}
 
-        <div className="actions-row">
+        <div className="flex flex-col gap-2">
           {isRejected ? (
-            <button
-              type="button"
-              className="btn btn-outline"
+            <Button
+              variant="accent"
+              size="lg"
+              full
+              loading={isChecking}
               onClick={handleRequestAgain}
             >
-              <Icon
-                name="refresh"
-                className={isChecking ? 'spin' : undefined}
-              />
-              <span>Request access again</span>
-            </button>
+              Request access again
+            </Button>
           ) : (
-            <button
-              type="button"
-              className="btn btn-outline"
+            <Button
+              variant="outline"
+              size="lg"
+              full
+              icon="refresh"
+              className={isChecking ? '[&_svg]:animate-spin' : undefined}
               onClick={handleCheckAgain}
             >
-              <Icon
-                name="refresh"
-                className={isChecking ? 'spin' : undefined}
-              />
-              <span>Check again</span>
-            </button>
+              Check again
+            </Button>
           )}
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={handleSignOut}
-          >
+          <Button variant="ghost" size="lg" full onClick={handleSignOut}>
             Sign out
-          </button>
+          </Button>
         </div>
 
-        <div className="notice text-left">
-          <Icon name="clock" />
-          <span>
-            {isRejected ? (
-              <>
-                Requesting again will notify an admin. You&apos;ll be sent on to
-                your destination the moment they approve you.
-              </>
-            ) : (
-              <>
-                This page updates on its own — no need to keep refreshing.
-                You&apos;ll be sent on to your destination the moment an admin
-                approves you.
-              </>
-            )}
-          </span>
-        </div>
-      </div>
-    </div>
+        <Note
+          tone="accent"
+          lead={
+            isRejected
+              ? 'Asking again notifies an admin.'
+              : 'This page updates on its own.'
+          }
+        >
+          {isRejected
+            ? `You'll be sent to ${serviceHost} the moment you're approved.`
+            : `No need to keep refreshing — you'll be sent to ${serviceHost} the moment you're approved.`}
+        </Note>
+      </GateCard>
+    </GateScreen>
   )
 }

@@ -1,0 +1,887 @@
+//-
+  Category Standard components, as Pug mixins.
+
+  One mixin per component in docs/designs/components.md, named after it. Each
+  owns its variants end to end, so a call site says WHAT it wants
+  (`+btn({ variant: 'outline', size: 'sm' })`), never which utilities make it.
+
+  Conventions (the same as every lilnas mockup):
+    - Every mixin ends in `&attributes(attributes)`, so a call site can add
+      layout classes (`+btn({ label: 'Cancel' })(class='flex-1')`) without the
+      mixin needing a parameter for it. Pug merges `class` rather than
+      replacing it, so don't pass a class that fights the mixin's own (a second
+      `h-*` on a button): two utilities for one property resolve by Tailwind's
+      output order, not by yours. That's also why each variant sets its own
+      border colour and each size its own padding instead of overriding a base.
+    - Density is a wrapper, not a parameter: `div(data-density='compact')`, or
+      `+density('compact')`. Heights are comfortable / compact (36 / 30 for
+      controls) via Tailwind's `in-data-[density=compact]:` variant.
+    - Forced states: any element can be pinned on with
+      `(data-force='hover')` / `'active'` / `'focus'` — see theme.css. That is
+      how stateRow demonstrates a state without anyone pointing at it.
+    - No behavioural JS. Anything that opens, checks or switches is CSS:
+      native checkboxes/radios read with `has-[:checked]`.
+    - App-specific mixins do NOT go here. They live in the project's own
+      `src/mixins/<app>.pug`.
+
+//- Unique ids for radio groups, which need a `name` to group on.
+- var kitUid = 0
+
+- var ICON_SIZES = { 12: 'size-3', 14: 'size-3.5', 16: 'size-4', 18: 'size-[18px]', 20: 'size-5', 24: 'size-6' }
+
+//- Sets the density for everything inside it.
+mixin density(mode)
+  div(data-density=mode || 'comfortable' class=mode === 'compact' ? 'text-sm' : 'text-body')&attributes(attributes)
+    block
+
+//- An icon from sprite.html (`i-<name>`). `size` is px; default 16.
+mixin icon(name, size)
+  svg(class=['shrink-0', ICON_SIZES[size || 16] || `size-[${size}px]`] aria-hidden='true')&attributes(attributes)
+    use(href='#i-' + name)
+
+//- ── Doorplate ──────────────────────────────────────────────────────────
+//-
+  The signature. Identical in every app: same size, position, radius and type.
+    app  the subdomain ('download', 'auth', 'dev', 'tdr', 'tdr-code'), or
+         'portal' / nothing for the bare `lilnas.io`, which links nowhere.
+mixin doorplate(app)
+  -
+    const bare = !app || app === 'portal'
+    const tag = bare ? 'span' : 'a'
+  #{tag}(
+    class=[
+      'inline-flex h-8 shrink-0 items-center gap-2 rounded-full border border-line bg-surface pr-3 pl-1',
+      bare ? '' : 'transition-[border-color,background-color] duration-200 ease-standard hover:border-line-loud hover:bg-surface-2',
+    ]
+    href=bare ? undefined : 'https://lilnas.io'
+  )&attributes(attributes)
+    span(class='size-6 shrink-0 overflow-hidden rounded-full')
+      svg(class='size-full' aria-hidden='true')
+        use(href='#pepe-badge')
+    span(class='font-mono text-xs font-medium text-ink')
+      = bare ? 'lilnas.io' : app
+      unless bare
+        span(class='text-ink-3') .lilnas.io
+
+//- ── App bar ────────────────────────────────────────────────────────────
+//-
+  Full width, h-14 (h-12 compact). Desktop: doorplate, nav links, a spacer,
+  then whatever the block holds, then the avatar. Phone: the doorplate stays
+  and the links collapse into a menu button (which opens a Sheet).
+    view   'desktop' | 'mobile'
+    opts   app      doorplate app            links  [{ label, active }]
+           initials the avatar ('JA')        mark   avatar `you` (default true)
+mixin appBar(view, opts)
+  - opts = opts || {}
+  - const phone = view === 'mobile' || view === 'phone'
+  header(
+    class='flex h-14 w-full shrink-0 items-center gap-4 border-b border-line bg-surface px-4 in-data-[density=compact]:h-12'
+  )&attributes(attributes)
+    +doorplate(opts.app)
+    if phone
+      span(class='flex-1')
+      block
+      +btn({ variant: 'ghost', icon: 'list', iconOnly: true, label: 'Open menu', touch: true })
+    else
+      if opts.links
+        nav(class='flex items-center gap-1' aria-label='Primary')
+          each link in opts.links
+            a(
+              class=[
+                'rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors duration-200 ease-standard hover:text-ink',
+                link.active ? 'text-ink' : 'text-ink-3',
+              ]
+              href='#'
+              aria-current=link.active ? 'page' : undefined
+            )= link.label
+      span(class='flex-1')
+      block
+      if opts.initials !== false
+        +avatar(opts.initials || 'JA', { size: 32, you: opts.you !== false })
+
+//- ── Button ─────────────────────────────────────────────────────────────
+//-
+  Rectangular (rounded-md) — it's a control.
+    variant   'accent' | 'outline' (default) | 'ghost' | 'bad'
+              `bad` + `filled` is the dialog's confirm step, the only filled red.
+    size      'sm' | 'md' (default) | 'lg'
+    touch     44px tall, for phone layouts
+    icon      leading icon name           iconEnd  trailing icon name
+    iconOnly  square, label becomes the aria-label
+    loading   spinner replaces the leading icon; the label stays
+    full      stretch to the container
+mixin btn(opts)
+  - opts = opts || {}
+  -
+    const variants = {
+      accent: 'border-transparent bg-accent text-accent-ink hover:bg-accent-hi active:bg-accent-press',
+      outline: 'border-line bg-surface-2 text-ink hover:border-line-loud hover:bg-surface',
+      ghost: 'border-transparent text-accent-hi hover:bg-accent-ghost',
+      bad: opts.filled
+        ? 'border-bad bg-bad text-bg-sunk hover:bg-bad/90'
+        : 'border-bad text-bad hover:bg-bad-ghost',
+    }
+    const sizes = {
+      sm: 'h-[30px] px-[11px] text-sm in-data-[density=compact]:h-[26px]',
+      md: 'h-9 px-3.5 text-body in-data-[density=compact]:h-[30px] in-data-[density=compact]:px-[11px]',
+      lg: 'h-11 px-5 text-[15px]',
+      touch: 'h-11 px-4 text-body',
+    }
+    const squares = {
+      sm: 'size-[30px] in-data-[density=compact]:size-[26px]',
+      md: 'size-9 in-data-[density=compact]:size-[30px]',
+      lg: 'size-11',
+      touch: 'size-11',
+    }
+    const key = opts.touch ? 'touch' : opts.size || 'md'
+    const iconPx = key === 'sm' ? 14 : 16
+  button(
+    type='button'
+    disabled=opts.disabled
+    aria-busy=opts.loading ? 'true' : undefined
+    aria-label=opts.iconOnly ? opts.label : undefined
+    class=[
+      'inline-flex items-center justify-center gap-[7px] rounded-md border font-medium whitespace-nowrap transition-press active:scale-[.97] disabled:pointer-events-none disabled:opacity-40',
+      variants[opts.variant || 'outline'],
+      opts.iconOnly ? ['p-0', squares[key]] : sizes[key],
+      opts.full ? 'w-full' : '',
+    ]
+  )&attributes(attributes)
+    if opts.loading
+      span(class='size-3.5 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent' aria-hidden='true')
+    else if opts.icon
+      +icon(opts.icon, iconPx)
+    unless opts.iconOnly
+      if opts.label
+        = opts.label
+    if opts.iconEnd
+      +icon(opts.iconEnd, iconPx)
+    block
+
+//- ── Badge ──────────────────────────────────────────────────────────────
+//-
+  Round (rounded-full) — it's a label, never clickable. Sentence case, one or
+  two words.
+    tone   'accent' | 'ok' | 'warn' | 'bad' | 'mute' (default)
+    live   swap the static dot for a pulsing StatusDot (accent and ok only)
+mixin badge(opts)
+  - opts = opts || {}
+  -
+    const tones = {
+      accent: 'bg-accent-ghost text-accent-hi',
+      ok: 'bg-ok-ghost text-ok',
+      warn: 'bg-warn-ghost text-warn',
+      bad: 'bg-bad-ghost text-bad',
+      mute: 'bg-surface-2 text-ink-3',
+    }
+    const tone = opts.tone || 'mute'
+    const dotTone = tone === 'ok' ? 'ok' : 'accent'
+  span(
+    class=['inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium whitespace-nowrap', tones[tone]]
+  )&attributes(attributes)
+    if opts.live
+      +statusDot(dotTone, true)
+    else
+      span(class='size-1.5 rounded-full bg-current' aria-hidden='true')
+    = opts.label
+    block
+
+//- ── StatusDot ──────────────────────────────────────────────────────────
+//-
+  8px. Tone: 'ok' | 'accent' | 'warn' | 'bad' | 'idle'. `pulse` only takes on
+  ok and accent: problems don't blink.
+mixin statusDot(tone, pulse)
+  -
+    const tones = { ok: 'text-ok', accent: 'text-accent', warn: 'text-warn', bad: 'text-bad', idle: 'text-ink-4' }
+    const alive = pulse && (tone === 'ok' || tone === 'accent')
+  span(class=['size-2 shrink-0 rounded-full bg-current', tones[tone] || tones.idle, alive ? 'dot-live' : ''] aria-hidden='true')&attributes(attributes)
+
+//- ── Card / Panel / Tile / MediaCard ────────────────────────────────────
+//- `sunk` is a well, for content with its own content (log panes).
+mixin card(opts)
+  - opts = opts || {}
+  div(
+    class=[
+      'rounded-lg border border-line p-4 in-data-[density=compact]:p-3',
+      opts.sunk ? 'bg-bg-sunk' : 'bg-surface',
+    ]
+  )&attributes(attributes)
+    block
+
+//- A card with a heading: title (h3) and an optional caption under it.
+mixin panel(title, caption)
+  +card()&attributes(attributes)
+    if title
+      div(class='mb-3 flex flex-col gap-0.5')
+        h3(class='text-h3')= title
+        if caption
+          p(class='text-cap text-ink-3')= caption
+    block
+
+//-
+  A card that's a navigation target: the portal grid, auth's services.
+    icon    sprite icon in the 30px slot    name  the h3
+    host    the subdomain, mono             status  { tone, label, pulse }
+mixin tile(opts)
+  - opts = opts || {}
+  a(
+    class='flex items-center gap-3 rounded-lg border border-line bg-surface p-3 transition-[background-color,border-color] duration-200 ease-standard hover:border-line-loud hover:bg-surface-2'
+    href=opts.href || '#'
+  )&attributes(attributes)
+    span(class='grid size-[30px] shrink-0 place-items-center rounded-md bg-accent-ghost text-accent-hi')
+      +icon(opts.icon || 'globe', 16)
+    span(class='flex min-w-0 flex-1 flex-col')
+      span(class='truncate text-h3')= opts.name
+      if opts.host
+        span(class='truncate font-mono text-mono-sm text-ink-3')= opts.host
+    if opts.status
+      span(class='flex shrink-0 items-center gap-1.5 text-cap text-ink-3')
+        +statusDot(opts.status.tone, opts.status.pulse)
+        = opts.status.label
+    block
+
+//-
+  The download browse/queue unit: poster at the left bleeding to the card edge,
+  title + badge, a line of facts, progress, actions.
+    state   'downloading' | 'queued' | 'delivered' | 'failed'
+    title, meta ('2160p · 38.4 GB'), pct, reason (failed only)
+  The block adds to the actions row; failed always gets the one accent Retry.
+mixin mediaCard(opts)
+  - opts = opts || {}
+  -
+    const states = {
+      downloading: { tone: 'accent', label: 'Downloading', live: true, bar: 'accent' },
+      queued: { tone: 'warn', label: 'Queued', bar: 'accent' },
+      delivered: { tone: 'ok', label: 'Delivered', bar: 'ok' },
+      failed: { tone: 'bad', label: 'Failed', bar: 'bad' },
+    }
+    const s = states[opts.state || 'downloading']
+    const pct = opts.pct !== undefined ? opts.pct : opts.state === 'delivered' ? 100 : opts.state === 'queued' ? 0 : 40
+  div(class='flex overflow-hidden rounded-lg border border-line bg-surface')&attributes(attributes)
+    div(class='grid w-[92px] shrink-0 place-items-center bg-surface-3 text-ink-4' style='aspect-ratio: 2 / 3')
+      +icon(opts.icon || 'film', 24)
+    div(class='flex min-w-0 flex-1 flex-col gap-1.5 p-3')
+      div(class='flex items-center justify-between gap-2')
+        h3(class='min-w-0 truncate text-h3')= opts.title
+        +badge({ tone: s.tone, label: s.label, live: s.live })
+      p(class='text-cap text-ink-3')= opts.meta
+      +progress(pct, s.bar)
+      if opts.state === 'failed'
+        p(class='text-cap text-ink-3')= opts.reason || 'The source stopped answering.'
+      div(class='mt-auto flex items-center gap-2 pt-1')
+        if opts.state === 'failed'
+          +btn({ variant: 'accent', size: 'sm', label: 'Retry', icon: 'refresh' })
+        block
+
+//- ── Input / Textarea / Field / Search ──────────────────────────────────
+//-
+  A well, not a raised surface: darker than whatever it's on, with a
+  line-control border (3:1) so the boundary is legible.
+    mono   machine values (URLs, paths, IDs, tokens)
+    error  border-bad + aria-invalid
+mixin input(opts)
+  - opts = opts || {}
+  input(
+    data-control
+    type=opts.type || 'text'
+    value=opts.value
+    placeholder=opts.placeholder
+    disabled=opts.disabled
+    readonly=opts.readonly
+    aria-invalid=opts.error ? 'true' : undefined
+    class=[
+      'h-9 w-full rounded-md border bg-bg-sunk px-3 text-sm in-data-[density=compact]:h-[30px]',
+      'transition-[border-color,box-shadow] duration-200 ease-standard placeholder:text-ink-3',
+      'focus:border-accent focus:ring-2 focus:ring-accent-ghost focus:outline-none disabled:opacity-40',
+      opts.error ? 'border-bad' : 'border-line-control',
+      opts.mono ? 'font-mono text-mono' : '',
+    ]
+  )&attributes(attributes)
+
+mixin textarea(opts)
+  - opts = opts || {}
+  textarea(
+    data-control
+    placeholder=opts.placeholder
+    disabled=opts.disabled
+    rows=opts.rows || 3
+    aria-invalid=opts.error ? 'true' : undefined
+    class=[
+      'min-h-[70px] w-full rounded-md border bg-bg-sunk px-3 py-2 text-sm',
+      'transition-[border-color,box-shadow] duration-200 ease-standard placeholder:text-ink-3',
+      'focus:border-accent focus:ring-2 focus:ring-accent-ghost focus:outline-none disabled:opacity-40',
+      opts.error ? 'border-bad' : 'border-line-control',
+      opts.mono ? 'font-mono text-mono' : '',
+      opts.long ? 'resize-y' : 'resize-none',
+    ]
+  )&attributes(attributes)= opts.value
+
+//- Label + control (the block) + hint, or the error in the hint's place.
+mixin field(label, hint, error)
+  div(class='flex flex-col')&attributes(attributes)
+    label(class='mb-1.5 text-sm font-medium text-ink-2')= label
+    block
+    if error
+      p(class='mt-[5px] text-xs text-bad')= error
+    else if hint
+      p(class='mt-[5px] text-xs text-ink-3')= hint
+
+//- An input and an accent button in one row. On phones the button is icon-only.
+mixin search(opts)
+  - opts = opts || {}
+  - const phone = opts.view === 'mobile' || opts.view === 'phone'
+  div(class='flex items-center gap-2')&attributes(attributes)
+    +input({ placeholder: opts.placeholder || 'Search…', value: opts.value, mono: opts.mono })(class='flex-1')
+    if phone
+      +btn({ variant: 'accent', icon: 'search', iconOnly: true, label: 'Search', touch: true })
+    else
+      +btn({ variant: 'accent', icon: 'search', label: opts.button || 'Search' })
+
+//- ── Checkbox / Radio / Switch / Segmented / Slider ─────────────────────
+//-
+  All use line-control for their boundary. The control is a real native input
+  (visually hidden, still focusable) and the look reads `:checked` through
+  `has-[:checked]`, so there's no JS and the state is the browser's own.
+  The label is part of the tap target.
+mixin checkbox(opts)
+  - opts = opts || {}
+  label(class='group inline-flex cursor-pointer items-center gap-2 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-40')&attributes(attributes)
+    input(class='peer sr-only' type='checkbox' checked=opts.checked disabled=opts.disabled)
+    span(
+      class=[
+        'grid size-[18px] shrink-0 place-items-center rounded-xs border text-accent-ink transition-press',
+        'group-has-[:checked]:border-accent group-has-[:checked]:bg-accent',
+        'group-has-[:focus-visible]:outline-2 group-has-[:focus-visible]:outline-offset-2 group-has-[:focus-visible]:outline-accent',
+        opts.mixed ? 'border-accent bg-accent' : 'border-line-control bg-bg-sunk',
+      ]
+      data-force=opts.focus ? 'focus' : undefined
+    )
+      if opts.mixed
+        span(class='h-0.5 w-2 rounded-full bg-current')
+      else
+        +icon('check', 12)(class='opacity-0 group-has-[:checked]:opacity-100')
+    if opts.label
+      = opts.label
+
+mixin radio(opts)
+  - opts = opts || {}
+  label(class='group inline-flex cursor-pointer items-center gap-2 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-40')&attributes(attributes)
+    input(class='peer sr-only' type='radio' name=opts.name || 'radio' checked=opts.checked disabled=opts.disabled)
+    span(
+      class='grid size-[18px] shrink-0 place-items-center rounded-full border border-line-control bg-bg-sunk transition-press group-has-[:checked]:border-accent group-has-[:focus-visible]:outline-2 group-has-[:focus-visible]:outline-offset-2 group-has-[:focus-visible]:outline-accent'
+    )
+      span(class='size-2 scale-0 rounded-full bg-accent transition-transform duration-[120ms] ease-spring group-has-[:checked]:scale-100')
+    if opts.label
+      = opts.label
+
+//- Takes effect immediately; use a checkbox for something that waits on a submit.
+mixin switch(opts)
+  - opts = opts || {}
+  label(class='group inline-flex cursor-pointer items-center gap-2.5 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-40')&attributes(attributes)
+    input(class='peer sr-only' type='checkbox' role='switch' checked=opts.checked disabled=opts.disabled)
+    span(
+      class='relative h-5 w-9 shrink-0 rounded-full border border-line-control bg-surface-2 transition-[background-color,border-color] duration-200 ease-standard group-has-[:checked]:border-accent group-has-[:checked]:bg-accent group-has-[:focus-visible]:outline-2 group-has-[:focus-visible]:outline-offset-2 group-has-[:focus-visible]:outline-accent'
+    )
+      span(
+        class='absolute top-1/2 left-0.5 size-3.5 -translate-y-1/2 rounded-full bg-ink-3 transition-transform duration-[120ms] ease-spring group-has-[:checked]:translate-x-4 group-has-[:checked]:bg-accent-ink'
+      )
+    if opts.label
+      = opts.label
+
+//-
+  Joined segments, one selected. `options` are strings or { value, label,
+  icon }; `selected` is the value (or the string).
+mixin segmented(options, selected, opts)
+  - opts = opts || {}
+  - const group = opts.name || 'segmented-' + ++kitUid
+  div(
+    role='radiogroup'
+    class='inline-flex overflow-hidden rounded-md border border-line-control'
+  )&attributes(attributes)
+    each option in options
+      -
+        const o = typeof option === 'string' ? { value: option, label: option } : option
+      label(
+        class='inline-flex h-9 cursor-pointer items-center gap-1.5 bg-surface px-3 text-sm font-medium text-ink-3 transition-colors duration-200 ease-standard not-first:border-l not-first:border-line-control hover:text-ink has-[:checked]:bg-accent has-[:checked]:text-accent-ink has-[:focus-visible]:outline-2 has-[:focus-visible]:-outline-offset-2 has-[:focus-visible]:outline-accent in-data-[density=compact]:h-[30px]'
+      )
+        input(class='sr-only' type='radio' name=group value=o.value checked=o.value === selected)
+        if o.icon
+          +icon(o.icon, 14)
+        = o.label
+
+//- Always paired with its value, tabular and right-aligned above the track.
+mixin slider(opts)
+  - opts = opts || {}
+  - const pct = ((opts.value - (opts.min || 0)) / ((opts.max || 100) - (opts.min || 0))) * 100
+  div(class='flex flex-col gap-2')&attributes(attributes)
+    div(class='flex items-baseline justify-between text-sm')
+      if opts.label
+        span(class='font-medium text-ink-2')= opts.label
+      span(class='ml-auto tabular-nums text-ink')= opts.value + (opts.unit || '')
+    div(
+      class='relative h-1.5 rounded-full bg-surface-2'
+      role='slider'
+      aria-valuemin=opts.min || 0
+      aria-valuemax=opts.max || 100
+      aria-valuenow=opts.value
+    )
+      div(class='h-full rounded-full bg-accent' style=`width: ${pct}%`)
+      span(
+        class='absolute top-1/2 size-[18px] -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-accent bg-ink'
+        style=`left: ${pct}%`
+      )
+
+//- ── Select / Menu / Combobox ───────────────────────────────────────────
+//- The floating surface they share: line-loud border, the one shadow, rise-in.
+mixin floatPanel
+  div(class='animate-rise rounded-lg border border-line-loud bg-surface p-1.5 shadow-lift [animation-duration:200ms]')&attributes(attributes)
+    block
+
+//-
+  Rows for a menu. Strings, or { label, icon, kbd, selected, highlighted,
+  destructive } — and { divider: true } for the rule above destructive items.
+mixin menuItems(items)
+  each item in items
+    if item.divider
+      div(class='-mx-1.5 my-1.5 h-px bg-line' role='separator')
+    else
+      -
+        const it = typeof item === 'string' ? { label: item } : item
+      div(
+        role='menuitem'
+        class=[
+          'flex h-8 items-center gap-2 rounded-md px-2.5 text-[13.5px] in-data-[density=compact]:h-7',
+          it.destructive ? 'text-bad' : 'text-ink',
+          it.highlighted ? 'bg-surface-2' : 'hover:bg-surface-2',
+        ]
+      )
+        if it.icon
+          +icon(it.icon, 14)(class=it.destructive ? '' : 'text-ink-3')
+        span(class='min-w-0 flex-1 truncate')= it.label
+        if it.kbd
+          span(class='font-mono text-mono-sm text-ink-3')= it.kbd
+        if it.selected
+          +icon('check', 14)(class='text-accent-hi')
+
+//- A menu, open. `items` as for menuItems.
+mixin menu(items, opts)
+  - opts = opts || {}
+  +floatPanel()(class='w-56')&attributes(attributes)
+    +menuItems(items)
+
+//-
+  The trigger matches Input, with a chevron; the value is ink, the placeholder
+  ink-3. `open` shows the panel under it.
+    items  strings or { label, selected }; `value` marks the selected one.
+mixin select(opts)
+  - opts = opts || {}
+  div(class='flex flex-col gap-1.5')&attributes(attributes)
+    button(
+      type='button'
+      role='combobox'
+      aria-expanded=opts.open ? 'true' : 'false'
+      data-control
+      class=[
+        'flex h-9 w-full items-center justify-between gap-2 rounded-md border bg-bg-sunk px-3 text-sm in-data-[density=compact]:h-[30px]',
+        'focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent-ghost focus-visible:outline-none',
+        opts.open ? 'border-accent ring-2 ring-accent-ghost' : 'border-line-control',
+      ]
+    )
+      span(class=['truncate', opts.value ? 'text-ink' : 'text-ink-3'])= opts.value || opts.placeholder || 'Select…'
+      +icon('chevron', 14)(class='text-ink-3')
+    if opts.open
+      -
+        const rows = (opts.items || []).map(i => {
+          const it = typeof i === 'string' ? { label: i } : i
+          return Object.assign({}, it, { selected: it.selected || it.label === opts.value })
+        })
+      +floatPanel
+        +menuItems(rows)
+
+//-
+  A Select whose panel starts with a Search row and groups its items, each
+  group with a coloured dot (a Tailwind bg-* class). `create` adds the
+  freeform "Add …" row.
+    groups  [{ name, dot, items: [{ label, selected, highlighted }] }]
+mixin combobox(opts)
+  - opts = opts || {}
+  div(class='flex flex-col gap-1.5')&attributes(attributes)
+    button(
+      type='button'
+      role='combobox'
+      aria-expanded='true'
+      data-control
+      class='flex h-9 w-full items-center justify-between gap-2 rounded-md border border-accent bg-bg-sunk px-3 text-sm ring-2 ring-accent-ghost in-data-[density=compact]:h-[30px]'
+    )
+      span(class=['truncate', opts.value ? 'text-ink' : 'text-ink-3'])= opts.value || opts.placeholder || 'Pick an exercise'
+      +icon('chevron', 14)(class='text-ink-3')
+    +floatPanel
+      div(class='mb-1.5 flex h-8 items-center gap-2 border-b border-line-soft px-2.5 text-[13.5px]')
+        +icon('search', 14)(class='text-ink-3')
+        span(class=opts.query ? 'text-ink' : 'text-ink-3')= opts.query || 'Search…'
+      each group in opts.groups || []
+        div(class='pt-1.5 pb-1')
+          p(class='flex items-center gap-2 px-2.5 pb-1 text-label text-ink-3 uppercase')
+            span(class=['size-2 rounded-full', group.dot || 'bg-ink-3'])
+            = group.name
+          +menuItems(group.items)
+      if opts.create
+        div(class='-mx-1.5 my-1.5 h-px bg-line' role='separator')
+        div(class='flex h-8 items-center gap-2 rounded-md px-2.5 text-[13.5px] text-accent-hi in-data-[density=compact]:h-7')
+          +icon('plus', 14)
+          = opts.create
+
+//- ── Dialog / Sheet ─────────────────────────────────────────────────────
+//-
+  Overlays fill their nearest `relative` ancestor (an appFrame, a demoFrame):
+  a scrim at bg-black/55 and the panel on it.
+    title        the h2             cancel / confirm  button labels
+    destructive  confirm is the one filled red button
+  Destructive confirms name the object and its consequence (voice.md). The
+  block is the body.
+mixin dialog(opts)
+  - opts = opts || {}
+  div(class='absolute inset-0 z-10 flex items-center justify-center bg-black/55 p-6')&attributes(attributes)
+    div(
+      role='dialog'
+      aria-modal='true'
+      class='flex w-full max-w-[440px] animate-rise flex-col gap-3 rounded-lg border border-line-loud bg-surface p-5 shadow-lift'
+    )
+      h2(class='text-h2')= opts.title
+      div(class='text-sm text-ink-2')
+        block
+      div(class='mt-1 flex justify-end gap-2')
+        if opts.cancel !== false
+          +btn({ variant: 'ghost', label: opts.cancel || 'Cancel' })
+        +btn(opts.destructive ? { variant: 'bad', filled: true, label: opts.confirm || 'Delete' } : { variant: 'accent', label: opts.confirm || 'Save' })
+
+//-
+  A Dialog pinned to an edge. 'bottom' (grab handle, rounded-t-xl, max 85%) or
+  'right' (full height, max 480px, border-l). Slides in over 380ms on
+  ease-standard in the real component; here it's drawn already open.
+mixin sheet(side, opts)
+  - opts = opts || {}
+  - const bottom = side === 'bottom'
+  div(class='absolute inset-0 z-10 overflow-hidden bg-black/55')&attributes(attributes)
+    div(
+      role='dialog'
+      aria-modal='true'
+      class=[
+        'absolute flex flex-col gap-3 bg-surface p-4 shadow-lift',
+        bottom ? 'inset-x-0 bottom-0 max-h-[85%] rounded-t-xl border-t border-line-loud' : 'inset-y-0 right-0 w-full max-w-[480px] border-l border-line-loud',
+      ]
+    )
+      if bottom
+        div(class='mx-auto h-1 w-9 shrink-0 rounded-full bg-line-loud')
+      if opts.title
+        h2(class='text-h2')= opts.title
+      block
+
+//- ── Tabs ───────────────────────────────────────────────────────────────
+mixin tabs()
+  div(role='tablist' class='flex gap-1 border-b border-line')&attributes(attributes)
+    block
+
+//- `count` is an optional mute pill.
+mixin tab(label, selected, count)
+  button(
+    type='button'
+    role='tab'
+    aria-selected=selected ? 'true' : 'false'
+    class=[
+      'relative inline-flex h-10 items-center gap-2 px-3.5 text-sm font-medium transition-colors duration-200 ease-standard in-data-[density=compact]:h-9',
+      selected
+        ? "text-ink after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-full after:bg-accent after:content-['']"
+        : 'text-ink-3 hover:text-ink',
+    ]
+  )&attributes(attributes)
+    = label
+    if count !== undefined && count !== null
+      span(class='rounded-full bg-surface-2 px-1.5 font-mono text-[11px] text-ink')= count
+
+//- ── Table / DataList ───────────────────────────────────────────────────
+//- One cell. `col.type`: 'badge' (value is a badge opts object) | undefined.
+//- `col.mono` for identifiers; `col.align: 'right'` for numbers.
+mixin cellValue(col, value)
+  if col.type === 'badge'
+    +badge(value)
+  else if col.mono
+    span(class='font-mono text-mono-sm')= value
+  else
+    = value
+
+//-
+  The desktop rendering.
+    cols  [{ key, label, align, mono, type }]       rows  [{ ...by key, selected }]
+mixin table(cols, rows, opts)
+  div(class='overflow-hidden rounded-lg border border-line bg-surface')&attributes(attributes)
+    table(class='w-full border-collapse')
+      thead
+        tr
+          each col in cols
+            th(
+              scope='col'
+              class=['px-3 pt-3 pb-2.5 text-label text-ink-3 uppercase border-b border-line-loud', col.align === 'right' ? 'text-right' : 'text-left']
+            )= col.label
+      tbody
+        each row in rows
+          tr(class=['transition-colors duration-[120ms] ease-standard [&:last-child>td]:border-b-0', row.selected ? 'bg-accent-ghost' : 'hover:bg-surface-2'])
+            each col in cols
+              td(
+                class=['border-b border-line-soft px-3 py-2.5 text-[13.5px] in-data-[density=compact]:py-1.5', col.align === 'right' ? 'text-right tabular-nums' : 'text-left']
+              )
+                +cellValue(col, row[col.key])
+
+//-
+  The phone rendering of the same data: a card per row. The first column is
+  the card's title; a badge column rides beside it; the rest are label/value
+  pairs.
+mixin cardList(cols, rows)
+  -
+    const titleCol = cols[0]
+    const badgeCol = cols.find(c => c.type === 'badge')
+    const rest = cols.slice(1).filter(c => c !== badgeCol)
+  ul(class='flex flex-col gap-2')&attributes(attributes)
+    each row in rows
+      li(class=['rounded-lg border p-3', row.selected ? 'border-accent-dim bg-accent-ghost' : 'border-line bg-surface'])
+        div(class='flex items-start justify-between gap-3')
+          p(class='min-w-0 text-[13.5px] font-medium')
+            +cellValue(titleCol, row[titleCol.key])
+          if badgeCol
+            +cellValue(badgeCol, row[badgeCol.key])
+        if rest.length
+          dl(class='mt-2.5 grid grid-cols-2 gap-x-4 gap-y-2')
+            each col in rest
+              div(class='min-w-0')
+                dt(class='text-label text-ink-3 uppercase')= col.label
+                dd(class='truncate text-[13.5px]')
+                  +cellValue(col, row[col.key])
+
+//-
+  One column definition, both renderings, so the data can't drift between
+  them. `opts.view` pins one ('desktop' | 'mobile'); without it the switch is
+  the `md` breakpoint, as in the real component.
+mixin dataList(cols, rows, opts)
+  - opts = opts || {}
+  - const phone = opts.view === 'mobile' || opts.view === 'phone'
+  div(class='w-full')&attributes(attributes)
+    if opts.view
+      if phone
+        +cardList(cols, rows)
+      else
+        +table(cols, rows)
+    else
+      +table(cols, rows)(class='hidden md:block')
+      +cardList(cols, rows)(class='md:hidden')
+
+//- ── Toast / Note / EmptyState ──────────────────────────────────────────
+//-
+  Confirms; doesn't explain. "Routine saved", not "Your routine has been saved
+  successfully." Bottom-centre in the real thing; here it's just the toast.
+    tone  'accent' | 'ok' | 'warn' | 'bad'
+mixin toast(tone, title, detail)
+  -
+    const edges = { accent: 'before:bg-accent', ok: 'before:bg-ok', warn: 'before:bg-warn', bad: 'before:bg-bad' }
+  div(
+    role='status'
+    aria-live='polite'
+    class=[
+      'relative flex w-full max-w-[360px] items-start gap-3 rounded-lg border border-line-loud bg-surface py-2.5 pr-2.5 pl-5 shadow-lift',
+      'before:absolute before:inset-y-2.5 before:left-2 before:w-[3px] before:rounded-full',
+      edges[tone] || edges.accent,
+    ]
+  )&attributes(attributes)
+    div(class='min-w-0 flex-1')
+      p(class='text-[13.5px] font-medium')= title
+      if detail
+        p(class='text-sm text-ink-3')= detail
+    +btn({ variant: 'ghost', size: 'sm', icon: 'x', iconOnly: true, label: 'Dismiss' })(class='-my-1 text-ink-3')
+
+//-
+  An inline banner — the thing that DOES get a sentence: a bold lead, then the
+  detail (the block). The tone tints the fill and the lead; the body is ink-2.
+mixin note(tone, lead)
+  -
+    const tones = {
+      accent: { bg: 'bg-accent-ghost', text: 'text-accent-hi', icon: 'info' },
+      ok: { bg: 'bg-ok-ghost', text: 'text-ok', icon: 'check' },
+      warn: { bg: 'bg-warn-ghost', text: 'text-warn', icon: 'alert' },
+      bad: { bg: 'bg-bad-ghost', text: 'text-bad', icon: 'alert' },
+    }
+    const t = tones[tone] || tones.accent
+  div(role='note' class=['flex gap-2.5 rounded-lg px-3 py-2.5 text-sm leading-normal text-ink-2', t.bg])&attributes(attributes)
+    +icon(t.icon, 16)(class=['mt-px', t.text])
+    p
+      if lead
+        //- the trailing space keeps the lead and the detail apart
+        strong(class=['font-semibold', t.text])= lead + ' '
+      block
+
+//-
+  The only place the mascot appears in normal UI: pepe-full at 46px, a title, a
+  line, and exactly one thing to press. Never a dead end.
+mixin emptyState(title, body, action)
+  div(class='flex flex-col items-center px-6 py-10 text-center')&attributes(attributes)
+    svg(class='mb-3 h-[42px] w-[46px] opacity-55' aria-hidden='true')
+      use(href='#pepe-full')
+    h3(class='text-h3')= title
+    if body
+      p(class='mt-1 max-w-[34ch] text-sm text-ink-3')= body
+    if action
+      +btn({ variant: 'accent', size: 'sm', label: action })(class='mt-4')
+
+//- ── Skeleton / Progress / Meter ────────────────────────────────────────
+//-
+  Match the shape of what's loading, not a generic grey box.
+    shape  'line' (default; give it a width) | 'lines' (a paragraph) |
+           'poster' (60 × 84) | 'avatar' (32)
+mixin skeleton(shape)
+  if shape === 'lines'
+    div(class='flex flex-col gap-2')&attributes(attributes)
+      div(class='skeleton h-3 w-full rounded-xs')
+      div(class='skeleton h-3 w-11/12 rounded-xs')
+      div(class='skeleton h-3 w-2/3 rounded-xs')
+  else if shape === 'poster'
+    div(class='skeleton h-[84px] w-[60px] rounded-xs')&attributes(attributes)
+  else if shape === 'avatar'
+    div(class='skeleton size-8 rounded-full')&attributes(attributes)
+  else
+    div(class='skeleton h-3 w-full rounded-xs')&attributes(attributes)
+
+//-
+  `pct` 0–100, or null for the indeterminate slide. The fill goes ok when
+  complete; pass 'bad' for failed. `opts.bare` drops the percentage.
+mixin progress(pct, tone, opts)
+  - opts = opts || {}
+  -
+    const indeterminate = pct === null || pct === undefined
+    const fills = { accent: 'bg-accent', ok: 'bg-ok', warn: 'bg-warn', bad: 'bg-bad' }
+    const fill = fills[tone || (pct >= 100 ? 'ok' : 'accent')]
+  div(class='flex items-center gap-3')&attributes(attributes)
+    div(
+      class='h-1.5 flex-1 overflow-hidden rounded-full bg-surface-2'
+      role='progressbar'
+      aria-valuemin='0'
+      aria-valuemax='100'
+      aria-valuenow=indeterminate ? undefined : pct
+    )
+      if indeterminate
+        div(class=['progress-indeterminate h-full w-[30%] rounded-full', fill])
+      else
+        div(class=['h-full rounded-full transition-[width] duration-[380ms] ease-standard', fill] style=`width: ${pct}%`)
+    unless opts.bare || indeterminate
+      span(class='w-9 shrink-0 text-right text-cap tabular-nums text-ink-3')= pct + '%'
+
+//- Storage / quota: a 10px track, a label row above, warn past 80%, bad past 95%.
+mixin meter(label, value, pct)
+  -
+    const fill = pct > 95 ? 'bg-bad' : pct > 80 ? 'bg-warn' : 'bg-accent'
+  div(class='flex flex-col gap-1.5')&attributes(attributes)
+    div(class='flex items-baseline justify-between text-sm')
+      span(class='font-medium text-ink-2')= label
+      span(class='tabular-nums text-ink-3')= value
+    div(class='h-2.5 overflow-hidden rounded-full bg-surface-2' role='meter' aria-valuemin='0' aria-valuemax='100' aria-valuenow=pct)
+      div(class=['h-full rounded-full transition-[width] duration-[380ms] ease-standard', fill] style=`width: ${pct}%`)
+
+//- ── Avatar / AvatarStack ───────────────────────────────────────────────
+//-
+  rounded-full, initials. `you` (accent fill) means YOU; everyone else is
+  surface-2. Sizes 24 / 32 / 40 / 64.
+mixin avatar(initials, opts)
+  - opts = opts || {}
+  -
+    const sizes = { 24: 'size-6 text-[11px]', 32: 'size-8 text-sm', 40: 'size-10 text-[15px]', 64: 'size-16 text-xl' }
+  span(
+    class=[
+      'grid shrink-0 place-items-center rounded-full font-semibold',
+      sizes[opts.size || 32],
+      opts.you ? 'bg-accent text-accent-ink' : 'bg-surface-2 text-ink',
+      opts.ring ? 'ring-2 ring-bg' : '',
+    ]
+  )&attributes(attributes)= initials
+
+//- Overlaps by 8px with a 2px bg ring; anything past `max` becomes "+N".
+mixin avatarStack(people, max, size)
+  -
+    const limit = max || 4
+    const shown = people.slice(0, limit)
+    const extra = people.length - shown.length
+  div(class='flex -space-x-2')&attributes(attributes)
+    each person in shown
+      +avatar(person, { size: size || 32, ring: true })
+    if extra > 0
+      +avatar('+' + extra, { size: size || 32, ring: true })
+
+//- ── Tooltip / Breadcrumb / Pagination ──────────────────────────────────
+//- The bubble, drawn open. Never the only place a fact appears.
+mixin tooltip(text)
+  span(
+    role='tooltip'
+    class='inline-block rounded-md border border-line-loud bg-surface-2 px-2 py-1.5 text-xs font-medium shadow-lift'
+  )&attributes(attributes)
+    = text
+    block
+
+//- `items` are strings; the last is the current page.
+mixin breadcrumb(items)
+  nav(aria-label='Breadcrumb')&attributes(attributes)
+    ol(class='flex items-center gap-2 text-[13px] text-ink-3')
+      each item, i in items
+        if i > 0
+          li(aria-hidden='true' class='text-ink-4') /
+        if i === items.length - 1
+          li(class='font-medium text-ink' aria-current='page')= item
+        else
+          li
+            a(class='transition-colors duration-200 ease-standard hover:text-ink' href='#')= item
+
+//- Buttons `size-8`, tabular page numbers, the current page on the accent.
+mixin pagination(page, total)
+  -
+    const pages = []
+    for (let n = 1; n <= total; n++) {
+      if (n === 1 || n === total || Math.abs(n - page) <= 1) pages.push(n)
+      else if (pages[pages.length - 1] !== '…') pages.push('…')
+    }
+    const base = 'grid size-8 place-items-center rounded-md border text-sm tabular-nums transition-press active:scale-[.97]'
+  nav(aria-label='Pagination' class='flex items-center gap-1')&attributes(attributes)
+    button(type='button' aria-label='Previous page' disabled=page <= 1 class=[base, 'border-line text-ink-2 hover:border-line-loud hover:bg-surface-2 disabled:pointer-events-none disabled:opacity-40'])
+      +icon('arrow', 14)(class='-scale-x-100')
+    each n in pages
+      if n === '…'
+        span(class='grid size-8 place-items-center text-ink-3') …
+      else
+        button(
+          type='button'
+          aria-current=n === page ? 'page' : undefined
+          class=[base, n === page ? 'border-accent bg-accent text-accent-ink' : 'border-line text-ink-2 hover:border-line-loud hover:bg-surface-2']
+        )= n
+    button(type='button' aria-label='Next page' disabled=page >= total class=[base, 'border-line text-ink-2 hover:border-line-loud hover:bg-surface-2 disabled:pointer-events-none disabled:opacity-40'])
+      +icon('arrow', 14)
+
+//- ── LogViewer / Kbd ────────────────────────────────────────────────────
+//-
+  The admin apps' staple. `lines` are { ts, level, src, msg }. Timestamp ink-3,
+  level coloured, source ink, message ink-2. `stream` gives the rows the
+  staggered entry; virtualised rows must not (recycled rows flicker).
+mixin logViewer(lines, opts)
+  - opts = opts || {}
+  -
+    const levels = { INFO: 'text-accent-hi', WARN: 'text-warn', ERROR: 'text-bad', DEBUG: 'text-ink-3' }
+  div(
+    class=['overflow-x-auto rounded-lg border border-line bg-bg-sunk p-3 font-mono text-xs leading-[1.65]', opts.stream ? 'stagger' : '']
+    role='log'
+  )&attributes(attributes)
+    each line in lines
+      div(class='flex gap-3 whitespace-nowrap')
+        span(class='shrink-0 text-ink-3')= line.ts
+        span(class=['w-10 shrink-0 font-medium', levels[line.level] || 'text-ink-3'])= line.level
+        span(class='shrink-0 text-ink')= line.src
+        span(class='text-ink-2')= line.msg
+
+mixin kbd(keys)
+  kbd(
+    class='inline-flex h-5 min-w-5 items-center justify-center rounded-xs border border-line bg-surface-2 px-1 font-mono text-mono-sm text-ink-2'
+  )&attributes(attributes)
+    = keys
+    block

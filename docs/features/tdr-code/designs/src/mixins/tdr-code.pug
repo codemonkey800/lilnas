@@ -1,0 +1,390 @@
+//-
+  tdr-code-only pieces, built from the kit (docs/designs/mockup-kit).
+
+  Everything here is compact density (a workshop tool: 30px controls, 13px
+  body). On a phone the same screen reflows: the nav collapses into a sheet,
+  tables become card lists, and every tappable thing is 44px (`touch`).
+
+  The kit's `dataList` renders plain values; tdr-code's rows carry links, state
+  badges and inline confirms, so `tdrList` draws the same table / card pair with
+  the kit's classes and a per-column `type`.
+
+//- ── Nav chrome ─────────────────────────────────────────────────────────
+//-
+  The window every tdr-code screen is drawn in: compact density, the app bar
+  (doorplate, the six nav links, user, Log out), and the page column.
+    view  'desktop' | 'mobile'          active  the nav label that is current
+    opts  height   fixed height in px   width   a max-w class for the column
+          navOpen  phone: the nav sheet is open
+mixin shell(view, active, opts)
+  - opts = opts || {}
+  - const phone = view === 'mobile'
+  - const links = ['Live', 'Sessions', 'Events', 'Logs', 'Config', 'Git'].map(label => ({ label, active: label === active }))
+  +appFrame(view, { density: 'compact', height: opts.height })&attributes(attributes)
+    +appBar(view, { app: 'tdr-code', links: links, initials: 'JA' })
+      unless phone
+        span(class='text-sm text-ink-2') Jeremy
+        +btn({ variant: 'ghost', size: 'sm', label: 'Log out', icon: 'logout' })
+    main(
+      class=[
+        'mx-auto flex w-full flex-1 flex-col',
+        phone ? 'gap-4 px-4 py-4' : 'gap-5 px-8 py-6',
+        opts.width || 'max-w-[1280px]',
+      ]
+    )
+      block
+    if opts.navOpen
+      +sheet('bottom', { title: 'Menu' })
+        nav(class='flex flex-col gap-0.5' aria-label='Primary')
+          each link in links
+            a(
+              href='#'
+              aria-current=link.active ? 'page' : undefined
+              class=[
+                'flex h-11 items-center rounded-md px-3 text-body font-medium',
+                link.active ? 'bg-accent-ghost text-accent-hi' : 'text-ink-2',
+              ]
+            )= link.label
+        div(class='flex items-center gap-3 border-t border-line pt-3')
+          +avatar('JA', { size: 32, you: true })
+          span(class='flex-1 text-sm') Jeremy
+          +btn({ variant: 'outline', touch: true, label: 'Log out', icon: 'logout' })
+
+//- ── Inline two-step confirm ────────────────────────────────────────────
+//-
+  The pattern components.md recommends over a dialog for a low-stakes
+  destructive action in a list: the button swaps in place for a prompt and
+  Confirm / Cancel. The destructive step is outline red (the filled red button
+  belongs to the Dialog), Cancel is ghost.
+mixin confirmPair(view, prompt, confirm, size)
+  - const phone = view === 'mobile'
+  div(class='flex flex-wrap items-center gap-2')&attributes(attributes)
+    if prompt
+      span(class=['text-cap text-ink-2', phone ? 'basis-full' : ''])= prompt
+    +btn({ variant: 'bad', size: size || 'sm', touch: phone, label: confirm || 'Confirm' })
+    +btn({ variant: 'ghost', size: size || 'sm', touch: phone, label: 'Cancel' })
+
+//- ── Bot status widget ──────────────────────────────────────────────────
+//-
+  A StatusDot and a word. Online pulses (it's alive); a problem never does.
+    s  { tone: 'ok'|'accent'|'warn'|'bad'|'idle', pulse, label, seen }
+  `seen` is the machine fact (`4h ago`), shown when the bot isn't online.
+mixin botStatus(s)
+  div(class='flex flex-wrap items-center gap-x-2 gap-y-0.5' role='status')&attributes(attributes)
+    +statusDot(s.tone, s.pulse)
+    span(class=['text-sm font-medium', s.tone === 'ok' ? 'text-ok' : 'text-ink-2'])= s.label
+    if s.seen
+      span(class='text-cap text-ink-3')= 'last seen ' + s.seen
+
+//- ── Loading and error blocks ───────────────────────────────────────────
+//- Say what is being fetched; the skeleton matches a table's rows.
+mixin loadingBlock(text)
+  div(class='flex flex-col gap-3 rounded-lg border border-line bg-surface p-4' role='status' aria-busy='true')&attributes(attributes)
+    p(class='text-sm text-ink-3')= text
+    each width in ['w-full', 'w-11/12', 'w-full', 'w-4/5']
+      div(class=width)
+        +skeleton('line')
+
+//- what broke -> why -> what to do; the machine string in mono after it.
+mixin errorBlock(view, lead, detail, code, action)
+  div(class='flex flex-col items-start gap-3')&attributes(attributes)
+    +note('bad', lead)(class='w-full')
+      = detail
+      if code
+        span(class='mt-0.5 block font-mono text-mono-sm text-ink-3')= code
+    if action !== false
+      +btn({ variant: 'accent', size: 'sm', touch: view === 'mobile', label: action || 'Retry', icon: 'refresh' })
+
+//- ── tdrList: the table / card pair ─────────────────────────────────────
+//-
+  cols  [{ key, label, align, type, mono, muted, title, wide, actions, render }]
+    type  'link' | 'badge' | 'ended' | 'render' | undefined (text)
+    mono  identifiers (`#4821`, event types)       muted  ink-3 (times, reasons)
+    title the card's heading on a phone (default: the first column)
+    render  the name of a mixin, called as +name(row, view); `actions` puts it
+            on its own row at the foot of a phone card, `wide` spans both columns
+    corner  rides top-right of a phone card beside the title (default: the
+            first `badge` column); an `ended` column there reads `Ended 3h ago`
+  rows  [{ ...by key, error, selected }]; `error` is a line under that row
+mixin tdrCell(col, row, view, corner)
+  - const v = row[col.key]
+  - const blank = v === null || v === undefined || v === '' || v === '—'
+  if col.type === 'render'
+    +#{col.render}(row, view)
+  else if blank
+    span(class='text-ink-4') —
+  else if col.type === 'badge'
+    +badge(v)
+  else if col.type === 'ended'
+    if v.active
+      +badge({ tone: 'ok', label: 'Active', live: true })
+    else
+      span(class='tabular-nums text-ink-3')= corner ? 'Ended ' + v.ago : v.ago
+  else if col.type === 'link'
+    a(class=['text-accent-hi hover:underline', col.mono ? 'font-mono text-mono-sm' : ''] href='#')= v
+  else if col.mono
+    span(class=['font-mono text-mono-sm', col.muted ? 'text-ink-3' : ''])= v
+  else
+    span(class=col.muted ? 'tabular-nums text-ink-3' : '')= v
+
+mixin tdrTable(cols, rows, view)
+  div(class='overflow-hidden rounded-lg border border-line bg-surface')&attributes(attributes)
+    table(class='w-full border-collapse')
+      thead
+        tr
+          each col in cols
+            th(
+              scope='col'
+              class=['border-b border-line-loud px-3 pt-3 pb-2.5 text-label text-ink-3 uppercase', col.align === 'right' ? 'text-right' : 'text-left']
+            )= col.label
+      tbody
+        each row in rows
+          tr(class=['transition-colors duration-[120ms] ease-standard [&:last-child>td]:border-b-0', row.selected ? 'bg-accent-ghost' : 'hover:bg-surface-2'])
+            each col in cols
+              td(
+                class=['border-b border-line-soft px-3 py-2.5 align-middle text-[13.5px] in-data-[density=compact]:py-1.5', col.align === 'right' ? 'text-right tabular-nums' : 'text-left']
+              )
+                +tdrCell(col, row, view)
+          if row.error
+            tr(class='[&:last-child>td]:border-b-0')
+              td(colspan=cols.length class='border-b border-line-soft px-3 pb-2 text-cap text-bad')= row.error
+
+mixin tdrCardList(cols, rows, view)
+  -
+    const titleCol = cols.find(c => c.title) || cols[0]
+    const badgeCol = cols.find(c => c.corner) || cols.find(c => c.type === 'badge')
+    const actionCol = cols.find(c => c.actions)
+    const rest = cols.filter(c => c !== titleCol && c !== badgeCol && c !== actionCol)
+  ul(class='flex flex-col gap-2')&attributes(attributes)
+    each row in rows
+      li(class=['rounded-lg border p-3', row.selected ? 'border-accent-dim bg-accent-ghost' : 'border-line bg-surface'])
+        div(class='flex items-start justify-between gap-3')
+          p(class='min-w-0 text-[13.5px] font-medium')
+            +tdrCell(titleCol, row, view)
+          if badgeCol
+            +tdrCell(badgeCol, row, view, true)
+        if rest.length
+          dl(class='mt-2.5 grid grid-cols-2 gap-x-4 gap-y-2.5')
+            each col in rest
+              div(class=['min-w-0', col.wide ? 'col-span-2' : ''])
+                dt(class='mb-0.5 text-label text-ink-3 uppercase')= col.label
+                dd(class=['text-[13.5px]', col.type === 'render' ? '' : 'truncate'])
+                  +tdrCell(col, row, view)
+        if actionCol
+          div(class='mt-3 border-t border-line-soft pt-3')
+            +tdrCell(actionCol, row, view)
+        if row.error
+          p(class='mt-2 text-cap text-bad')= row.error
+
+mixin tdrList(cols, rows, view)
+  div(class='w-full')&attributes(attributes)
+    if view === 'mobile'
+      +tdrCardList(cols, rows, view)
+    else
+      +tdrTable(cols, rows, view)
+
+//- ── Session transcript ─────────────────────────────────────────────────
+//-
+  One block of a turn. kind: prompt | agent_text | tool_call | diff.
+  The four sit on three surfaces so a turn scans: the person's prompt is a
+  raised well, the agent's text a sunk one, a tool call an outlined row.
+mixin contentBlock(b)
+  - const planOutcomes = { accepted: 'Plan approved', rejected: 'Plan rejected', cancelled: 'Plan cancelled', superseded: 'Superseded by follow-up' }
+  if b.kind === 'prompt'
+    div(class='rounded-md bg-surface-2 px-3 py-2')&attributes(attributes)
+      p(class='mb-1 text-label text-ink-3 uppercase') Prompt
+      p(class='text-sm text-ink')= b.text
+      if b.images
+        p(class='mt-1.5 text-cap text-ink-3')= b.images + (b.images === 1 ? ' image attached' : ' images attached')
+  else if b.kind === 'agent_text'
+    div(class='rounded-md border border-line-soft bg-bg-sunk px-3 py-2')&attributes(attributes)
+      p(class='mb-1 text-label text-ink-3 uppercase') Agent
+      p(class='text-sm text-ink-2')= b.text
+  else if b.kind === 'tool_call'
+    div(class='rounded-md border border-line px-3 py-2')&attributes(attributes)
+      p(class='flex min-w-0 items-baseline gap-2 text-sm')
+        span(class='shrink-0 text-label text-ink-3 uppercase') Tool
+        span(class='min-w-0 truncate font-mono text-mono-sm text-ink')= b.title
+      p(class='mt-0.5 font-mono text-mono-sm text-ink-3')
+        = b.toolKind + ' · '
+        span(class=b.status === 'failed' ? 'text-bad' : '')= b.status
+        if b.planOutcome
+          = ' · ' + planOutcomes[b.planOutcome]
+      if b.planText
+        //- the app keeps the plan's own line breaks (pre-wrap); the mockup builder
+        //- re-indents its HTML, which pre-wrap would show, so each line is a <p>
+        div(class='mt-1.5 flex flex-col gap-0.5 text-sm text-ink-2')
+          each line in b.planText.split('\n')
+            p= line
+  else if b.kind === 'diff'
+    div(class='rounded-md border border-line-soft bg-bg-sunk px-3 py-2')&attributes(attributes)
+      p(class='mb-1 flex min-w-0 items-baseline gap-2')
+        span(class='shrink-0 text-label text-ink-3 uppercase') Diff
+        span(class='min-w-0 truncate font-mono text-mono-sm text-ink-2')= b.path
+      pre(class='max-h-40 overflow-auto font-mono text-mono-sm text-ink-2')= b.newText
+
+mixin turnCard(turn)
+  - const tones = { completed: 'ok', running: 'accent', errored: 'bad', cancelled: 'warn', interrupted: 'mute' }
+  +card()&attributes(attributes)
+    div(class='mb-3 flex items-center justify-between gap-3')
+      h3(class='text-h3')= 'Turn ' + turn.index
+      div(class='flex items-center gap-3')
+        +badge({ tone: tones[turn.status], label: turn.status.charAt(0).toUpperCase() + turn.status.slice(1), live: turn.status === 'running' })
+        if turn.ended
+          span(class='text-cap tabular-nums text-ink-3')= turn.ended
+    div(class='flex flex-col gap-2')
+      if turn.content.length === 0
+        p(class='text-cap text-ink-3') No content blocks
+      else
+        each block in turn.content
+          +contentBlock(block)
+
+//- ── Log rows ───────────────────────────────────────────────────────────
+//- A search hit is the accent, the colour of "the thing you're on".
+mixin hitText(text, needle)
+  -
+    const segments = []
+    if (!needle) {
+      segments.push({ text: text, hit: false })
+    } else {
+      const lower = text.toLowerCase()
+      const n = needle.toLowerCase()
+      let at = 0
+      while (at < text.length) {
+        const i = lower.indexOf(n, at)
+        if (i === -1) {
+          segments.push({ text: text.slice(at), hit: false })
+          break
+        }
+        if (i > at) segments.push({ text: text.slice(at, i), hit: false })
+        segments.push({ text: text.slice(i, i + n.length), hit: true })
+        at = i + n.length
+      }
+    }
+  each seg in segments
+    if seg.hit
+      mark(class='rounded-xs bg-accent/40 text-ink')= seg.text
+    else
+      = seg.text
+
+//-
+  One 24px row of the log viewer. A phone keeps time, level and message (the
+  rest is in the detail sheet); a desktop row also carries the process, the
+  event slug and the line's context as key=value.
+    line  { time, level, process, event, msg, chips } or { raw } for a line
+          that isn't JSON
+    opts  view   hit  the search term to mark   selected  the row open in the sheet
+mixin logRow(line, opts)
+  - opts = opts || {}
+  -
+    const levelText = { TRACE: 'text-ink-3', DEBUG: 'text-ink-3', INFO: 'text-accent-hi', WARN: 'text-warn', ERROR: 'text-bad', FATAL: 'text-bad' }
+    const levelFill = { WARN: 'bg-warn-ghost', ERROR: 'bg-bad-ghost', FATAL: 'bg-bad-ghost' }
+  - const phone = opts.view === 'mobile'
+  - const base = 'flex h-6 w-full items-center gap-3 border-l-2 px-2 font-mono text-mono-sm whitespace-nowrap'
+  if line.raw !== undefined
+    div(
+      role='button'
+      tabindex='0'
+      class=[base, 'border-line-loud', opts.selected ? 'bg-accent-ghost' : 'hover:bg-surface-2']
+    )&attributes(attributes)
+      span(class='truncate text-ink-3 italic')
+        +hitText(line.raw, opts.hit)
+  else
+    div(
+      role='button'
+      tabindex='0'
+      class=[base, opts.selected ? 'border-accent bg-accent-ghost' : 'border-transparent hover:bg-surface-2']
+    )&attributes(attributes)
+      span(class='shrink-0 tabular-nums text-ink-3')= line.time
+      span(class=['w-12 shrink-0 rounded-xs text-center font-semibold', levelText[line.level], levelFill[line.level]])= line.level
+      unless phone
+        span(class='shrink-0 rounded-xs bg-surface-2 px-1.5 text-ink-2')= line.process
+        span(class=['max-w-48 shrink-0 truncate', line.event ? 'text-ink-3' : 'text-ink-4 italic'])= line.event || 'no-event'
+      span(class='min-w-0 flex-1 truncate text-ink')
+        +hitText(line.msg, opts.hit)
+      if !phone && line.chips && line.chips.length
+        span(class='flex min-w-0 shrink gap-2 overflow-hidden text-ink-4')
+          each chip in line.chips
+            span(class='shrink-0 truncate')= chip
+
+//- ── Reconcile panel ────────────────────────────────────────────────────
+//-
+  "Verify against claude's JSONL": run once, compare the DB transcript with
+  the CLI's own file, report four counts. A count is the colour of what it
+  means only when it's non-zero: matched is ok, missing is bad, extra and
+  mismatched are warn.
+    r  { state: 'idle'|'loading'|'error'|'cannot'|'clean'|'drift',
+         matched, missing, extra, mismatched, skipped, cappedAt, reason, error }
+mixin reconcileCount(label, n, tone)
+  - const tones = { ok: 'text-ok', bad: 'text-bad', warn: 'text-warn' }
+  div(class='rounded-md bg-surface-2 px-3 py-2')
+    dd(class=['text-h2 tabular-nums', n > 0 ? tones[tone] : 'text-ink-3'])= n
+    dt(class='text-label text-ink-3 uppercase')= label
+
+mixin reconcilePanel(view, r)
+  - const phone = view === 'mobile'
+  +card()&attributes(attributes)
+    div(class='flex items-center justify-between gap-3')
+      h2(class='text-h3') Verify against claude's JSONL
+      if r.state === 'idle'
+        +btn({ variant: 'outline', size: 'sm', touch: phone, label: 'Run reconcile' })
+    if r.state === 'loading'
+      p(class='mt-3 flex items-center gap-2 text-sm text-ink-3' role='status')
+        span(class='size-3.5 shrink-0 animate-spin rounded-full border-2 border-accent border-t-transparent' aria-hidden='true')
+        | Comparing transcript…
+    else if r.state === 'error'
+      +note('bad', "Couldn't compare the transcript.")(class='mt-3')
+        = r.error.detail
+        span(class='mt-0.5 block font-mono text-mono-sm text-ink-3')= r.error.code
+    else if r.state === 'cannot'
+      +note('warn', 'Nothing to compare against.')(class='mt-3')
+        = 'claude has no JSONL for this session. '
+        span(class='font-mono text-mono-sm')= r.reason
+    else if r.state === 'clean' || r.state === 'drift'
+      dl(class=['mt-3 grid gap-2', phone ? 'grid-cols-2' : 'grid-cols-4'])
+        +reconcileCount('Matched', r.matched, 'ok')
+        +reconcileCount('Missing in DB', r.missing, 'bad')
+        +reconcileCount('Extra in DB', r.extra, 'warn')
+        +reconcileCount('Mismatched', r.mismatched, 'warn')
+      if r.skipped
+        p(class='mt-2 text-cap text-ink-3')= 'Skipped ' + r.skipped + (r.skipped === 1 ? ' malformed JSONL line' : ' malformed JSONL lines')
+      if r.cappedAt
+        +note('warn', 'JSONL truncated.')(class='mt-3')
+          = 'Only the first '
+          span(class='font-mono text-mono-sm')= r.cappedAt + ' bytes'
+          |  were compared.
+
+//- ── JSON, highlighted ──────────────────────────────────────────────────
+//-
+  The log detail panel's body. Four inks only: keys accent-hi, strings ok,
+  numbers / true / false / null ink, punctuation ink-2.
+mixin jsonView(obj)
+  -
+    const text = JSON.stringify(obj, null, 2)
+    const re = /("(?:\\.|[^"\\])*")(\s*:)?|(true|false|null)|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|([{}[\],:])|(\s+)/g
+    const toks = []
+    let m
+    while ((m = re.exec(text)) !== null) {
+      if (m[1] !== undefined && m[2]) { toks.push({ t: m[1], c: 'text-accent-hi' }); toks.push({ t: m[2], c: 'text-ink-2' }) }
+      else if (m[1] !== undefined) toks.push({ t: m[1], c: 'text-ok' })
+      else if (m[3] !== undefined || m[4] !== undefined) toks.push({ t: m[0], c: 'text-ink' })
+      else if (m[5] !== undefined) toks.push({ t: m[0], c: 'text-ink-2' })
+      else toks.push({ t: m[0], c: '' })
+    }
+  pre(class='font-mono text-mono-sm leading-relaxed break-words whitespace-pre-wrap')&attributes(attributes)
+    each tok in toks
+      span(class=tok.c)= tok.t
+
+//- ── Config field ───────────────────────────────────────────────────────
+//- The kit's `field`, with the setting's reach (`new sessions only`) on the label line.
+mixin cfgField(label, effect, hint, error)
+  div(class='flex flex-col')&attributes(attributes)
+    div(class='mb-1.5 flex flex-wrap items-baseline justify-between gap-x-3')
+      label(class='text-sm font-medium text-ink-2')= label
+      if effect
+        span(class='shrink-0 text-cap text-ink-3')= 'Takes effect: ' + effect
+    block
+    if error
+      p(class='mt-[5px] text-xs text-bad')= error
+    else if hint
+      p(class='mt-[5px] text-xs text-ink-3')= hint

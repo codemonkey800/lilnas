@@ -131,8 +131,12 @@ describe('SearchPage', () => {
       await renderPage({ q: 'star', yearFrom: '2012', yearTo: '1999' })
 
       expect(getDiscover).not.toHaveBeenCalled()
-      expect(screen.getByRole('status')).toHaveTextContent(
-        'Start year must be before end year',
+      // A `bad` note: the range is wrong, and it is announced as an alert.
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Start year must be before end year.',
+      )
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Widen the release-year range',
       )
     })
 
@@ -212,7 +216,7 @@ describe('SearchPage', () => {
       await renderPage({ q: 'xyzzyqqq' })
 
       expect(screen.getByText(/0 results/)).toBeInTheDocument()
-      expect(screen.queryByRole('button', { name: 'Grid view' })).toBeNull()
+      expect(screen.queryByRole('radio', { name: 'Grid' })).toBeNull()
     })
   })
 
@@ -226,10 +230,11 @@ describe('SearchPage', () => {
       )
     })
 
-    it('renders the table when the URL asks for the list view', async () => {
-      await renderPage({ q: 'star', view: 'list' })
+    it('renders the list when the URL asks for the list view', async () => {
+      const { container } = await renderPage({ q: 'star', view: 'list' })
 
-      expect(screen.getByRole('table')).toBeInTheDocument()
+      expect(container.querySelector('[data-view="list"]')).not.toBeNull()
+      expect(screen.queryByRole('table')).toBeNull()
     })
 
     it('keeps the filter controls available', async () => {

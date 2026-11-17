@@ -1,3 +1,4 @@
+import { Badge, Button, Icon, Note } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type {
   BadFile,
@@ -49,10 +50,6 @@ import {
   seriesState,
   showMetaLine,
 } from 'src/components/detail/show-state'
-import { ButtonLink } from 'src/components/ui/button-link'
-import { Note } from 'src/components/ui/card'
-import { Chip } from 'src/components/ui/chip'
-import { Dot } from 'src/components/ui/status'
 
 /** `show-detail.pug:44`. Emby's own word, not "Play". */
 export const WATCH_LABEL = 'Watch'
@@ -61,7 +58,7 @@ export const WATCH_LABEL = 'Watch'
  * Emby has the file but has not finished cataloguing it, so there is no item
  * to open yet. A state, not an error - it resolves on its own.
  */
-export const EMBY_INDEXING_LABEL = 'indexing…'
+export const EMBY_INDEXING_LABEL = 'Indexing…'
 
 /**
  * The note beside the series chip when Sonarr's queue is moving and no
@@ -85,14 +82,11 @@ export const SHOW_EXTERNAL_QUEUE_NOTE =
  * The marker under a moving series while the live feed is not connected. The
  * same word the movie and video pages use for the same condition.
  */
-export const SHOW_STALE_LABEL = 'reconnecting…'
+export const SHOW_STALE_LABEL = 'Reconnecting…'
 
 /** The metadata lookup placeholder's explanation. See `isMetadataMissing`. */
 export const METADATA_MISSING_NOTE =
   "Sonarr could not be reached, so this show's title, artwork and description are missing. The seasons and episodes below may be incomplete too — reloading in a minute usually fixes it."
-
-/** The loud `Note`, assembled at the call site the way `ui.pug` does it. */
-const ALARM_NOTE = 'border-bad/35! bg-bad-ghost! [&>svg]:text-bad!'
 
 /**
  * Stacked and full-width on a phone, inline from `sm`: `show-detail.pug`
@@ -284,9 +278,12 @@ export function ShowDetail({
     <>
       <LibraryLink />
       {degraded ? (
-        <Note className={cns('mb-[22px]', ALARM_NOTE)} icon="alert">
-          {METADATA_MISSING_NOTE}
-        </Note>
+        <Note
+          className={cns('mb-[22px]')}
+          icon={<Icon name="alert" />}
+          lead={METADATA_MISSING_NOTE}
+          tone="bad"
+        />
       ) : null}
       <DetailHeader
         actions={
@@ -295,7 +292,7 @@ export function ShowDetail({
             // hint makes its group taller than Watch and Delete, and the
             // buttons line up along the top rather than around its middle.
             className={cns(
-              'mt-1 flex flex-col gap-2',
+              'flex flex-col gap-2',
               'sm:flex-row sm:flex-wrap sm:items-start sm:gap-2.5',
             )}
           >
@@ -306,6 +303,7 @@ export function ShowDetail({
               mediaId={media.id}
               qualityTier={qualityTier}
               target={{ kind: 'series' }}
+              variant={isDownloadableState(state) ? 'accent' : 'outline'}
               onQualityTierChange={setQualityTier}
               onRequest={onRequest}
             />
@@ -327,17 +325,12 @@ export function ShowDetail({
               discordRequester={latest.discordRequester}
               linkedDiscord={latest.linkedDiscord}
               now={now}
-              prefix="requested by "
               requester={latest.requester}
               timestamp={latest.createdAt}
               upstreamSource={jobUpstreamSource(latest)}
             />
           ) : null
         }
-        // Nothing on the wire populates a cast on any media type yet; `CastRow`
-        // renders `null` for an empty list, so this costs a gap-free nothing.
-        cast={<CastRow people={[]} />}
-        className={cns('mb-7 sm:mb-8')}
         lifecycle={
           <div className={cns('flex flex-col gap-[14px]')}>
             <MediaStatus
@@ -357,10 +350,9 @@ export function ShowDetail({
             {reconnecting ? (
               // `w-fit` because this is a flex column — see the same marker on
               // the movie and video pages.
-              <Chip className={cns('w-fit')} tone="warn">
-                <Dot tone="warn" />
+              <Badge className={cns('w-fit')} tone="warn">
                 {SHOW_STALE_LABEL}
-              </Chip>
+              </Badge>
             ) : null}
           </div>
         }
@@ -371,14 +363,19 @@ export function ShowDetail({
       />
 
       <ShowFacts
-        className={cns('mb-7 sm:mb-8')}
+        className={cns('mt-8')}
         media={media}
         now={now}
         seasons={seasons}
       />
+      {/*
+        Nothing on the wire populates a cast on any media type yet; `CastRow`
+        renders `null` for an empty list, so this costs a gap-free nothing.
+      */}
+      <CastRow className={cns('mt-8')} people={[]} />
 
       <AttemptList
-        className={cns('mb-7 sm:mb-8')}
+        className={cns('mt-8')}
         imports={imports}
         jobs={jobs}
         now={now}
@@ -435,7 +432,7 @@ function seriesNote({
   }
 
   return count === null ? undefined : (
-    <span className={cns('font-mono text-mono-sm')}>{count}</span>
+    <span className={cns('text-cap')}>{count}</span>
   )
 }
 
@@ -470,7 +467,9 @@ function WatchAction({ media }: WatchActionProps): JSX.Element | null {
 
   if (status.state === 'indexing') {
     return (
-      <Chip className={cns('w-fit')} label={EMBY_INDEXING_LABEL} tone="warn" />
+      <Badge className={cns('w-fit')} tone="warn">
+        {EMBY_INDEXING_LABEL}
+      </Badge>
     )
   }
 
@@ -479,15 +478,13 @@ function WatchAction({ media }: WatchActionProps): JSX.Element | null {
   }
 
   return (
-    <ButtonLink
+    <Button
       className={cns(HEADER_ACTION)}
-      href={status.watchUrl}
       iconEnd="eye"
-      rel="noreferrer"
-      target="_blank"
-      variant="uv"
+      variant="accent"
+      render={<a href={status.watchUrl} rel="noreferrer" target="_blank" />}
     >
       {WATCH_LABEL}
-    </ButtonLink>
+    </Button>
   )
 }

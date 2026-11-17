@@ -41,8 +41,8 @@ describe('galleryTypeCount', () => {
 
 describe('runningMeta', () => {
   it('counts what is in flight', () => {
-    expect(runningMeta(2)).toBe('2 running now')
-    expect(runningMeta(1)).toBe('1 running now')
+    expect(runningMeta(2)).toBe('2 running')
+    expect(runningMeta(1)).toBe('1 running')
   })
 
   it('does not claim anything is happening at zero', () => {
@@ -66,45 +66,45 @@ describe('QuickAccess', () => {
   it('takes every library count from the facets', () => {
     render(<QuickAccess facets={FACETS} running={2} />)
 
-    expect(
-      screen.getByRole('link', { name: /Browse movies/ }),
-    ).toHaveTextContent('318 in the library')
-    expect(
-      screen.getByRole('link', { name: /Video library/ }),
-    ).toHaveTextContent('203 in the library')
+    expect(screen.getByRole('link', { name: /Movies/ })).toHaveTextContent(
+      '318',
+    )
+    expect(screen.getByRole('link', { name: /Videos/ })).toHaveTextContent(
+      '203',
+    )
   })
 
   it('renders 0 for a type the facets omit rather than dropping the tile', () => {
     render(<QuickAccess facets={FACETS} running={2} />)
-    const shows = screen.getByRole('link', { name: /Browse shows/ })
+    const shows = screen.getByRole('link', { name: /Shows/ })
 
     expect(shows).toBeInTheDocument()
-    expect(shows).toHaveTextContent('0 in the library')
+    expect(shows).toHaveTextContent('0')
   })
 
   it('survives facets with nothing in them at all', () => {
     render(<QuickAccess facets={EMPTY_FACETS} running={0} />)
 
     expect(screen.getAllByRole('link')).toHaveLength(4)
-    expect(
-      screen.getByRole('link', { name: /Browse movies/ }),
-    ).toHaveTextContent('0 in the library')
+    expect(screen.getByRole('link', { name: /Movies/ })).toHaveTextContent('0')
   })
 
-  it('shows the running count with a live dot while work is in flight', () => {
+  it('breathes the accent dot while work is in flight', () => {
     render(<QuickAccess facets={FACETS} running={2} />)
-    const activity = screen.getByRole('link', { name: /Downloads activity/ })
+    const activity = screen.getByRole('link', { name: /Activity/ })
 
-    expect(activity).toHaveTextContent('2 running now')
-    expect(activity.querySelector('.dot-live')).not.toBeNull()
+    expect(activity).toHaveTextContent('2 running')
+    expect(activity.querySelector('[data-pulse]')).not.toBeNull()
+    expect(activity.querySelector('.bg-accent')).not.toBeNull()
   })
 
-  it('drops the live dot when nothing is running', () => {
+  it('goes quiet when nothing is running', () => {
     render(<QuickAccess facets={FACETS} running={0} />)
-    const activity = screen.getByRole('link', { name: /Downloads activity/ })
+    const activity = screen.getByRole('link', { name: /Activity/ })
 
     expect(activity).toHaveTextContent('Nothing running')
-    expect(activity.querySelector('.dot-live')).toBeNull()
+    expect(activity.querySelector('[data-pulse]')).toBeNull()
+    expect(activity.querySelector('.bg-accent')).toBeNull()
   })
 
   it('labels the section with its own heading', () => {

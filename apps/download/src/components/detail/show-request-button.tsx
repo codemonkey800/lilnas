@@ -1,18 +1,19 @@
 'use client'
 
+import { Button, type ButtonSize, type ButtonVariant } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { DownloadJob, QualityTier } from '@lilnas/utils/download/types'
 import { DEFAULT_QUALITY_TIER } from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX } from 'react'
-import { useState, useTransition } from 'react'
+import { useId, useState, useTransition } from 'react'
 
 import {
+  QUALITY_TIER_HINT,
+  QUALITY_TIER_HINT_CLASS,
   QUALITY_TIER_PICKER,
   QUALITY_TIER_ROW,
   QualityTierSelect,
 } from 'src/components/detail/quality-tier-select'
-import { Button } from 'src/components/ui/button'
-import type { ButtonSize, ButtonVariant } from 'src/components/ui/button-recipe'
 
 /**
  * ⚠️ Which part of a series to fetch, as a discriminated union - the mirror of
@@ -98,7 +99,7 @@ export const REQUEST_SEASON_LABEL = 'Download season'
 /** `show-detail.mjs`'s `E5` row. */
 export const REQUEST_EPISODE_LABEL = 'Download'
 /** `show-detail.pug`'s caption under the series-level tier picker. */
-export const SHOW_QUALITY_TIER_HINT = 'Applies to the whole show'
+export const SHOW_QUALITY_TIER_HINT = `Applies to the whole show. ${QUALITY_TIER_HINT}`
 
 const TRIGGER_LABELS: Record<ShowRequestTarget['kind'], string> = {
   episode: REQUEST_EPISODE_LABEL,
@@ -107,7 +108,7 @@ const TRIGGER_LABELS: Record<ShowRequestTarget['kind'], string> = {
 }
 
 /** The mono error clause `bad-file-flag.tsx` and `delete-confirm.tsx` both write. */
-const ERROR_LINE = 'mt-2 font-mono text-[11px] text-bad'
+const ERROR_LINE = 'mt-2 text-cap text-bad'
 
 export type ShowRequestButtonProps = Omit<
   ComponentPropsWithoutRef<'div'>,
@@ -179,6 +180,7 @@ export function ShowRequestButton({
   variant = 'outline',
   ...props
 }: ShowRequestButtonProps): JSX.Element {
+  const hintId = useId()
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
   const [ownQualityTier, setOwnQualityTier] = useState<QualityTier>(
@@ -229,16 +231,21 @@ export function ShowRequestButton({
   return (
     <div {...props} className={cns(full && 'w-full', className)}>
       {series ? (
-        <div className={cns(QUALITY_TIER_ROW)}>
-          <QualityTierSelect
-            className={cns(QUALITY_TIER_PICKER)}
-            disabled={pending}
-            hint={SHOW_QUALITY_TIER_HINT}
-            value={qualityTier}
-            onChange={chooseQualityTier}
-          />
-          {button}
-        </div>
+        <>
+          <div className={cns(QUALITY_TIER_ROW)}>
+            <QualityTierSelect
+              className={cns(QUALITY_TIER_PICKER)}
+              describedBy={hintId}
+              disabled={pending}
+              value={qualityTier}
+              onChange={chooseQualityTier}
+            />
+            {button}
+          </div>
+          <p className={cns('mt-2', QUALITY_TIER_HINT_CLASS)} id={hintId}>
+            {SHOW_QUALITY_TIER_HINT}
+          </p>
+        </>
       ) : (
         button
       )}

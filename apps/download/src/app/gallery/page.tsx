@@ -1,11 +1,10 @@
-import { cns } from '@lilnas/utils/cns'
+import { Icon, Note } from '@lilnas/ui'
 import type { JSX } from 'react'
 
 import { GalleryControls } from 'src/components/gallery/gallery-controls'
 import { GalleryPageShell } from 'src/components/gallery/gallery-page-shell'
 import { GalleryResults } from 'src/components/gallery/gallery-results'
 import { JobEventsProvider } from 'src/components/live/job-events'
-import { Note } from 'src/components/ui/card'
 import { loadGalleryView } from 'src/lib/gallery-data'
 import type { GallerySearchParams } from 'src/lib/gallery-filters'
 import {
@@ -18,9 +17,6 @@ import { getViewer } from 'src/lib/viewer'
 export const metadata = {
   title: 'Library · Download',
 }
-
-/** The loud `Note`, assembled at the call site the way `ui.pug` does it. */
-const RANGE_ERROR_NOTE = 'border-bad/35! bg-bad-ghost! [&>svg]:text-bad!'
 
 export type GalleryPageProps = {
   searchParams: Promise<GallerySearchParams>
@@ -78,9 +74,9 @@ export default async function GalleryPage({
       {view.items === null ? (
         // No `role="alert"`: the filter panel's message already has one, and
         // announcing the same complaint twice is worse than announcing it once.
-        <Note className={cns(RANGE_ERROR_NOTE)} icon="alert">
-          {view.rangeError} Open <strong className="font-[620]">Filters</strong>{' '}
-          to change the dates.
+        <Note icon={<Icon name="alert" />} lead={view.rangeError} tone="warn">
+          Open <strong className="font-semibold">Filters</strong> to change the
+          dates.
         </Note>
       ) : (
         // The live feed is what drops a card whose title leaves the library

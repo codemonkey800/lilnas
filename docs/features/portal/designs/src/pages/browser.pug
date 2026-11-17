@@ -1,0 +1,29 @@
+extends ../../../../../designs/mockup-kit/page.pug
+
+include ../mixins/portal.pug
+
+block title
+  | portal — remote browser · UI mockups
+
+//-
+  The power page at /browser. One panel: the status, then the one action that
+  matters. Copy and sample data are in src/data/browser.mjs.
+
+block content
+  +mockHead({ eyebrow: 'portal · /browser', title: 'Remote browser', back: true })
+    p Status first, then the single action. #[+code('Turn on')] is the one accent button; once it is running, #[+code('Open browser')] takes the accent and #[+code('Turn off')] steps back to outline. Not installed has no action, only the command to run once. The status dot is idle, warn, ok or bad; only the running dot pulses.
+
+  - const copy = { failure, missing, idleTimeout, maxUptime }
+  div(class='vp-scope flex flex-col items-center gap-8')
+    +viewportToggle('browser-viewport')
+    +viewportPanel('desktop')
+      each s in states
+        +stateRow(s.label + ' · ' + s.caption, { stack: true })(class='w-full')
+          +browserScreen('desktop', s, copy)
+      +frameLabel Desktop · 1280
+    +viewportPanel('mobile')
+      +stateRow('States', { stack: true })(class='w-full')
+        each s in states
+          +stateCell(s.label)(class='w-[390px]')
+            +browserScreen('mobile', s, copy)
+      +frameLabel Mobile · 390

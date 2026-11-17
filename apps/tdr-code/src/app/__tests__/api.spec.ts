@@ -176,7 +176,7 @@ describe('api.ts redirect-on-401', () => {
     expect(hrefValues[0]).toBe('/login?error=session_expired')
   })
 
-  it('still throws (does not redirect) for a non-401 error status, preserving the existing inline ErrorState/text-red-400 UI contract', async () => {
+  it('still throws (does not redirect) for a non-401 error status, preserving the existing inline ErrorState UI contract', async () => {
     const fetchJson = await loadFetchJson()
     fetchSpy.mockResolvedValue(
       jsonResponse({ message: 'Something broke' }, 500),

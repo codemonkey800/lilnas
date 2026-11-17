@@ -1,10 +1,11 @@
+import { Card, StatusDot } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { JSX } from 'react'
 
-import { Dot } from 'src/components/ui/status'
 import { formatAgo, formatBytes, UNKNOWN_VALUE } from 'src/lib/format'
 import type { Overview } from 'src/stacks/stacks.types'
 
+/** One figure on the strip. Numbers are Geist, tabular — not mono. */
 function HostStat({
   value,
   label,
@@ -15,13 +16,9 @@ function HostStat({
   className?: string
 }): JSX.Element {
   return (
-    <div className={cns('flex min-w-0 flex-col gap-0.5', className)}>
-      <span className="font-mono text-[22px] leading-[1.15] font-semibold tracking-[-0.02em] tabular-nums">
-        {value}
-      </span>
-      <span className="font-mono text-label tracking-[0.11em] text-ink-4 uppercase">
-        {label}
-      </span>
+    <div className={cns('flex min-w-0 flex-col', className)}>
+      <span className="text-h1 tabular-nums">{value}</span>
+      <span className="text-label text-ink-3 uppercase">{label}</span>
     </div>
   )
 }
@@ -52,19 +49,21 @@ export function HostStrip({
   const { host, stacks } = overview
 
   return (
-    <div className="grid grid-cols-2 gap-x-4 gap-y-4 rounded-lg border border-line bg-surface p-4 sm:flex sm:items-center sm:gap-8 sm:px-6 sm:py-4">
-      <HostStat label="stacks" value={stacks.length} />
-      <HostStat label="running containers" value={host.containers} />
-      <HostStat label="dev memory" value={formatBytes(host.memoryBytes)} />
-      <HostStat
-        className="sm:border-l sm:border-line-soft sm:pl-8"
-        label="reaper"
-        value={reaperSummary(stacks)}
-      />
-      <span className="ml-auto hidden items-center gap-2 font-mono text-mono-sm text-ink-3 sm:flex">
-        <Dot tone="live" />
-        updated {formatAgo(host.generatedAt, now)}
-      </span>
-    </div>
+    <Card>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-4 p-1 sm:flex sm:items-center sm:gap-8 sm:px-3 sm:py-1">
+        <HostStat label="stacks" value={stacks.length} />
+        <HostStat label="running containers" value={host.containers} />
+        <HostStat label="dev memory" value={formatBytes(host.memoryBytes)} />
+        <HostStat
+          className="sm:border-l sm:border-line-soft sm:pl-8"
+          label="reaper"
+          value={reaperSummary(stacks)}
+        />
+        <span className="col-span-2 flex items-center gap-2 border-t border-line-soft pt-3 text-cap text-ink-3 sm:ml-auto sm:border-t-0 sm:pt-0">
+          <StatusDot pulse tone="ok" />
+          updated {formatAgo(host.generatedAt, now)}
+        </span>
+      </div>
+    </Card>
   )
 }

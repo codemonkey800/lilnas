@@ -1391,6 +1391,39 @@ describe('LogViewer — component wiring', () => {
     expect(readWindow).toHaveBeenCalledTimes(1)
   })
 
+  it('virtualised rows carry no animate-rise class (recycled rows would replay it and flicker)', async () => {
+    const readWindow = jest
+      .fn<Promise<LogWindowResponse>, [ReadLogWindowParams]>()
+      .mockResolvedValue(makeResponse(200, lineOffset(200), 'before', 50))
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    rtlRender(
+      <QueryClientProvider client={queryClient}>
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+        />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByText('line 199')).toBeInTheDocument(),
+    )
+
+    const scroller = document.querySelector(
+      '[data-track-id="log-viewer-scroll"]',
+    ) as HTMLElement
+    expect(scroller).toHaveAttribute('role', 'log')
+    expect(
+      scroller.querySelectorAll('[data-track-id="log-row-select"]').length,
+    ).toBeGreaterThan(0)
+    expect(scroller.querySelector('.animate-rise')).toBeNull()
+    expect(scroller.className).not.toContain('animate-rise')
+  })
+
   it('regression: a manual Refresh racing an already-open live tail never introduces a duplicate byteOffset once the refreshed response replaces state.lines wholesale', async () => {
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
     // loadInitialInFlightRef only blocks CONCURRENT invocations (Strict
@@ -2166,6 +2199,35 @@ describe('LogViewer — component wiring', () => {
           heightBeforeSecondAppend + ROW_PX,
         )
       })
+    })
+
+    it('rotates only the arrow icon of the paused "Jump to latest" button, never its label', async () => {
+      const readWindow = makeReadWindow()
+      render(
+        <LogViewer
+          stream="backend"
+          readWindow={readWindow}
+          onSelectLine={jest.fn()}
+        />,
+      )
+
+      const { scrollContainer } = await settleInitialLoadAndTail(readWindow)
+      scrollTo(scrollContainer, 0)
+      await waitFor(() =>
+        expect(screen.getByText(/paused/i)).toBeInTheDocument(),
+      )
+
+      const button = screen.getByRole('button', { name: /jump to latest/i })
+      const label = screen.getByText('Jump to latest')
+      expect(label.tagName).toBe('SPAN')
+      expect(label.className).not.toMatch(/rotate/)
+
+      // Every direct child other than the icon svg (i.e. the label span)
+      // must not pick up a rotate utility from the button's className.
+      const rotateChildSelector =
+        /(^|\s)\*:rotate|(^|\s)\[&>(?!svg)[^\]]*\]:rotate/
+      expect(button.className).not.toMatch(rotateChildSelector)
+      expect(button.querySelector('svg')).not.toBeNull()
     })
 
     it('AE4 (R5): a burst of several tail appends in quick succession all individually appear as separate rows, not coalesced into only the last one', async () => {

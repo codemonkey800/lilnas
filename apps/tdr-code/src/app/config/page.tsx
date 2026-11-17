@@ -1,8 +1,18 @@
 'use client'
 
+import {
+  Button,
+  Card,
+  Checkbox,
+  Field,
+  Icon,
+  Input,
+  Note,
+  Textarea,
+} from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 
 import { ErrorState } from 'src/app/components/error-state'
 import { LoadingState } from 'src/app/components/loading-state'
@@ -47,18 +57,19 @@ function changedConfigFields(
   return changed
 }
 
-function FieldLabel({
-  label,
-  effectLabel,
-}: {
-  label: string
-  effectLabel: string
-}) {
+/**
+ * The label line: the setting's name, and on the right how far a change
+ * reaches. It sits inside the `Field` label so the pair is one name for the
+ * control.
+ */
+function fieldLabel(label: string, effect: string) {
   return (
-    <div className="flex items-baseline justify-between">
-      <label className="block text-xs font-medium text-gray-300">{label}</label>
-      <span className="text-xs text-gray-500">takes effect: {effectLabel}</span>
-    </div>
+    <span className="flex flex-wrap items-baseline justify-between gap-x-3">
+      <span>{label}</span>
+      <span className="shrink-0 text-cap font-normal text-ink-3">
+        Takes effect: {effect}
+      </span>
+    </span>
   )
 }
 
@@ -154,7 +165,7 @@ export default function ConfigPage() {
     try {
       const parsed = JSON.parse(claudeArgsJson)
       if (!Array.isArray(parsed) || parsed.some(a => typeof a !== 'string')) {
-        setArgsError('Must be a JSON array of strings, e.g. ["--flag"]')
+        setArgsError('Must be a JSON array of strings, like ["--flag"].')
         logToServer(
           'warn',
           LOG_EVENTS.clientValidationRejected,
@@ -166,7 +177,9 @@ export default function ConfigPage() {
       parsedArgs = parsed as string[]
       setArgsError(null)
     } catch {
-      setArgsError('Invalid JSON array')
+      setArgsError(
+        'That isn\'t JSON. Use an array of strings, like ["--flag"].',
+      )
       logToServer(
         'warn',
         LOG_EVENTS.clientValidationRejected,
@@ -194,154 +207,176 @@ export default function ConfigPage() {
   const customPromptNearCap =
     customSystemPrompt.length >= CUSTOM_PROMPT_MAX * 0.9
 
-  if (isLoading) return <LoadingState />
-  if (isError) return <ErrorState message={(error as Error).message} />
+  if (isLoading) {
+    return (
+      <ConfigLayout>
+        <LoadingState message="Fetching config…" />
+      </ConfigLayout>
+    )
+  }
+  if (isError) {
+    return (
+      <ConfigLayout>
+        <ErrorState
+          code={(error as Error).message}
+          lead="Couldn't load the config."
+          message="The server didn't answer. Try again in a minute."
+        />
+      </ConfigLayout>
+    )
+  }
 
   return (
-    <div className="mx-auto max-w-xl space-y-6">
-      <h1 className="text-lg font-semibold text-white">Global config</h1>
-
+    <ConfigLayout>
       {botOffline && (
-        <div className="rounded border border-yellow-800 bg-yellow-950 px-4 py-3 text-xs text-yellow-300">
-          Bot offline — config saved and will apply at next bot start
-        </div>
+        <Note lead="Bot is offline." tone="warn">
+          Changes are saved now and apply at the next bot start.
+        </Note>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-5">
-        <div className="space-y-1">
-          <FieldLabel
-            label="Working directory (cwd)"
-            effectLabel="new sessions only"
-          />
-          <input
-            type="text"
-            value={cwd}
-            onChange={e => setCwd(e.target.value)}
-            className="w-full rounded border border-gray-700 bg-gray-900 px-3 py-2 font-mono text-sm text-gray-100 focus:border-gray-500 focus:outline-none"
-          />
-        </div>
-
-        <div className="space-y-1">
-          <FieldLabel label="Claude command" effectLabel="new sessions only" />
-          <input
-            type="text"
-            value={claudeCommand}
-            onChange={e => setClaudeCommand(e.target.value)}
-            className="w-full rounded border border-gray-700 bg-gray-900 px-3 py-2 font-mono text-sm text-gray-100 focus:border-gray-500 focus:outline-none"
-          />
-        </div>
-
-        <div className="space-y-1">
-          <FieldLabel
-            label="Claude args (JSON array)"
-            effectLabel="new sessions only"
-          />
-          <textarea
-            value={claudeArgsJson}
-            onChange={e => {
-              setClaudeArgsJson(e.target.value)
-              setArgsError(null)
-            }}
-            rows={2}
-            className={cns(
-              'w-full rounded border bg-gray-900 px-3 py-2 font-mono text-sm text-gray-100 focus:outline-none',
-              argsError
-                ? 'border-red-700 focus:border-red-500'
-                : 'border-gray-700 focus:border-gray-500',
-            )}
-          />
-          {argsError && <p className="text-xs text-red-400">{argsError}</p>}
-        </div>
-
-        <div className="space-y-1">
-          <FieldLabel
-            label="Idle timeout (seconds)"
-            effectLabel="next idle-timer reset"
-          />
-          <input
-            type="number"
-            min={1}
-            value={idleTimeoutSec}
-            onChange={e => setIdleTimeoutSec(e.target.value)}
-            className="w-full rounded border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 focus:border-gray-500 focus:outline-none"
-          />
-        </div>
-
-        <div className="space-y-1">
-          <FieldLabel
-            label="Max concurrent sessions"
-            effectLabel="next create (no eviction)"
-          />
-          <input
-            type="number"
-            min={1}
-            value={maxConcurrentSessions}
-            onChange={e => setMaxConcurrentSessions(e.target.value)}
-            className="w-full rounded border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 focus:border-gray-500 focus:outline-none"
-          />
-        </div>
-
-        <div className="space-y-1">
-          <FieldLabel
-            label="Custom system prompt"
-            effectLabel="new sessions only"
-          />
-          <textarea
-            value={customSystemPrompt}
-            onChange={e => setCustomSystemPrompt(e.target.value)}
-            rows={7}
-            className="w-full rounded border border-gray-700 bg-gray-900 px-3 py-2 font-mono text-sm text-gray-100 focus:border-gray-500 focus:outline-none"
-          />
-          <p
-            className={cns(
-              'text-right text-xs',
-              customPromptNearCap ? 'text-yellow-400' : 'text-gray-500',
-            )}
+      <Card>
+        <form className="flex flex-col gap-5" onSubmit={handleSubmit}>
+          <Field
+            label={fieldLabel('Working directory (cwd)', 'new sessions only')}
           >
-            {customSystemPrompt.length} / {CUSTOM_PROMPT_MAX}
-          </p>
-        </div>
+            <Input mono value={cwd} onChange={e => setCwd(e.target.value)} />
+          </Field>
 
-        <div className="space-y-1">
-          <FieldLabel
-            label="Auto-post tool diffs to Discord"
-            effectLabel="next tool call"
-          />
-          <label className="flex items-center gap-2 text-sm text-gray-300">
-            <input
-              type="checkbox"
-              checked={autoPostDiffs}
-              onChange={e => setAutoPostDiffs(e.target.checked)}
-              className="h-4 w-4 rounded border-gray-700 bg-gray-900 focus:outline-none"
+          <Field label={fieldLabel('Claude command', 'new sessions only')}>
+            <Input
+              mono
+              value={claudeCommand}
+              onChange={e => setClaudeCommand(e.target.value)}
             />
-            Post a diff message after each completed Edit/Read tool call
-          </label>
-        </div>
+          </Field>
 
-        <div className="flex items-center gap-3">
-          <button
-            type="submit"
-            disabled={mutation.isPending}
-            data-track-id="config-save"
-            className={cns(
-              'rounded px-4 py-2 text-sm font-medium transition-colors',
-              mutation.isPending
-                ? 'bg-gray-700 text-gray-400 opacity-50 cursor-not-allowed'
-                : 'bg-blue-700 text-blue-100 hover:bg-blue-600',
+          <Field
+            error={argsError}
+            label={fieldLabel('Claude args (JSON array)', 'new sessions only')}
+          >
+            <Textarea
+              mono
+              rows={2}
+              value={claudeArgsJson}
+              onChange={e => {
+                setClaudeArgsJson(e.target.value)
+                setArgsError(null)
+              }}
+            />
+          </Field>
+
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+            <Field
+              label={fieldLabel(
+                'Idle timeout (seconds)',
+                'next idle-timer reset',
+              )}
+            >
+              <Input
+                min={1}
+                type="number"
+                value={idleTimeoutSec}
+                onChange={e => setIdleTimeoutSec(e.target.value)}
+              />
+            </Field>
+
+            <Field
+              label={fieldLabel(
+                'Max concurrent sessions',
+                'next create (no eviction)',
+              )}
+            >
+              <Input
+                min={1}
+                type="number"
+                value={maxConcurrentSessions}
+                onChange={e => setMaxConcurrentSessions(e.target.value)}
+              />
+            </Field>
+          </div>
+
+          <div className="flex flex-col">
+            <Field
+              label={fieldLabel('Custom system prompt', 'new sessions only')}
+            >
+              <Textarea
+                mono
+                rows={7}
+                value={customSystemPrompt}
+                onChange={e => setCustomSystemPrompt(e.target.value)}
+              />
+            </Field>
+            <p
+              className={cns(
+                'mt-1 text-right text-cap tabular-nums',
+                customPromptNearCap ? 'text-warn' : 'text-ink-3',
+              )}
+            >
+              {customSystemPrompt.length} / {CUSTOM_PROMPT_MAX}
+            </p>
+            {customPromptNearCap && (
+              <Note className="mt-2" lead="Close to the limit." tone="warn">
+                The prompt can be at most 20,000 characters.
+              </Note>
+            )}
+          </div>
+
+          <Field
+            label={fieldLabel(
+              'Auto-post tool diffs to Discord',
+              'next tool call',
             )}
           >
-            {mutation.isPending ? 'Saving…' : 'Save'}
-          </button>
+            <div aria-label="Auto-post tool diffs to Discord" role="group">
+              <Checkbox
+                checked={autoPostDiffs}
+                label="Post a diff message after each completed Edit/Read tool call"
+                onCheckedChange={checked => setAutoPostDiffs(checked)}
+              />
+            </div>
+          </Field>
 
-          {saved && <span className="text-xs text-green-400">Saved</span>}
+          <div className="flex flex-col items-stretch gap-3 border-t border-line pt-4 md:flex-row md:items-center">
+            <Button
+              data-track-id="config-save"
+              disabled={mutation.isPending}
+              loading={mutation.isPending}
+              type="submit"
+              variant="accent"
+            >
+              {mutation.isPending ? 'Saving…' : 'Save'}
+            </Button>
+
+            {saved && (
+              <span
+                className="inline-flex items-center gap-1.5 text-sm text-ok"
+                role="status"
+              >
+                <Icon name="check" size={14} />
+                Saved
+              </span>
+            )}
+          </div>
 
           {mutation.isError && !saved && (
-            <span className="text-xs text-red-400">
-              {(mutation.error as Error).message}
-            </span>
+            <Note lead="Couldn't save the config." tone="bad">
+              The server didn&apos;t answer. Your changes are still in the form.
+              <span className="mt-0.5 block font-mono text-mono-sm text-ink-3">
+                {(mutation.error as Error).message}
+              </span>
+            </Note>
           )}
-        </div>
-      </form>
+        </form>
+      </Card>
+    </ConfigLayout>
+  )
+}
+
+function ConfigLayout({ children }: { children: ReactNode }) {
+  return (
+    <div className="mx-auto flex w-full max-w-xl flex-col gap-4 px-4 md:gap-5 md:px-8">
+      <h1 className="text-h2">Global config</h1>
+      {children}
     </div>
   )
 }

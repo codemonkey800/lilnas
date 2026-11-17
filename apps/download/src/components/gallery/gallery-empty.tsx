@@ -1,48 +1,50 @@
+import { Button, EmptyState } from '@lilnas/ui'
 import type { JSX } from 'react'
 
-import { Card } from 'src/components/ui/card'
-import { Icon } from 'src/components/ui/icon'
+import { EMPTY_GALLERY_FILTERS, galleryHref } from 'src/lib/gallery-filters'
 
-/**
- * The two ways a gallery can be empty, which are not the same thing and must
- * never be told the same way.
- *
- * An unfiltered gallery with nothing in it is a library that has never been
- * used, and the only useful thing to say is how to put something in it. A
- * *filtered* gallery with nothing in it is a full library plus a query that
- * happens to match none of it, and the only useful thing to say is that the
- * filters are why. Collapsing the two into one "No results" is how a user
- * concludes their downloads are gone.
- */
 export type GalleryEmptyProps = {
-  /** Whether any filter is currently applied. */
+  /**
+   * Whether any filter is applied. It decides which of the two empty states
+   * this is, because they are different facts with different ways out: an
+   * empty library is filled by searching, an over-filtered one by clearing.
+   */
   filtered: boolean
 }
 
 const EMPTY_STATES = {
   library: {
-    body: 'Paste a link in the search field at the top of the page to download your first video, or search for a movie or show by name.',
-    icon: 'grid',
+    action: { href: '/search', label: 'Search for a title' },
+    body: 'Paste a link in the search field and it’ll queue up, or search for a movie or show by name.',
     title: 'Nothing in the library yet',
   },
   filtered: {
-    body: 'The library is not empty — nothing in it matches this combination. Clear a filter above to widen the search.',
-    icon: 'filter',
+    action: {
+      href: galleryHref(EMPTY_GALLERY_FILTERS),
+      label: 'Clear filters',
+    },
+    body: 'The library isn’t empty — nothing in it matches this combination. Clear a filter to widen it.',
     title: 'No titles match these filters',
   },
 } as const
 
+/**
+ * A grid with nothing in it: the mascot, one sentence on why, and the one thing
+ * to press. Never a dead end — `EmptyState` takes exactly one action.
+ */
 export function GalleryEmpty({ filtered }: GalleryEmptyProps): JSX.Element {
   const state = EMPTY_STATES[filtered ? 'filtered' : 'library']
 
   return (
-    <Card
-      sunk
-      className="flex flex-col items-center gap-2.5 px-6 py-12 text-center"
-    >
-      <Icon className="h-6 w-6 text-ink-4" name={state.icon} />
-      <p className="text-h3">{state.title}</p>
-      <p className="max-w-[52ch] text-sm text-ink-3">{state.body}</p>
-    </Card>
+    <EmptyState
+      action={
+        <Button size="sm" render={<a href={state.action.href} />}>
+          {state.action.label}
+        </Button>
+      }
+      body={state.body}
+      className="rounded-lg border border-line bg-bg-sunk py-12"
+      title={state.title}
+    />
   )
 }

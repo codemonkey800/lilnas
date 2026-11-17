@@ -1,14 +1,13 @@
+import { Icon } from '@lilnas/ui'
 import { render, screen } from '@testing-library/react'
 
 import { LIBRARY_HREF } from 'src/components/detail/library-link'
 import {
   NOT_AUTHORIZED_BACK_LABEL,
   NOT_AUTHORIZED_DESCRIPTION,
-  NOT_AUTHORIZED_ICON,
   NOT_AUTHORIZED_TITLE,
   NotAuthorized,
 } from 'src/components/shell/not-authorized'
-import { iconSymbolId } from 'src/components/ui/icon'
 
 /** The rendered class list, which is the only place `cns` output is real. */
 function classesOf(element: Element): string[] {
@@ -35,14 +34,13 @@ describe('NotAuthorized', () => {
     expect(screen.getByText(NOT_AUTHORIZED_DESCRIPTION)).toBeInTheDocument()
   })
 
-  it('gives the page a real heading rather than styled prose', () => {
+  it('gives the page a real h2 heading rather than styled prose', () => {
     render(<NotAuthorized />)
     const heading = screen.getByRole('heading', { name: NOT_AUTHORIZED_TITLE })
 
-    // An <h2>, not an <h1>: the route supplies its own title (usually
-    // `sr-only`), and this panel is content underneath it.
+    // An <h2>, not an <h1>: the route supplies its own
+    // title (usually `sr-only`), and this panel is content underneath it.
     expect(heading.tagName).toBe('H2')
-    expect(classesOf(heading)).toContain('text-h2')
   })
 
   it('specialises its heading and sentence for a call site', () => {
@@ -62,12 +60,15 @@ describe('NotAuthorized', () => {
     expect(screen.queryByText(NOT_AUTHORIZED_DESCRIPTION)).toBeNull()
   })
 
-  it('sends "back" to the library by default, through a real anchor', () => {
+  // An empty state is never a dead end, and never offers a second way out.
+  it('offers exactly one action: back to the library, as a real anchor', () => {
     render(<NotAuthorized />)
     const link = screen.getByRole('link', { name: NOT_AUTHORIZED_BACK_LABEL })
 
+    expect(NOT_AUTHORIZED_BACK_LABEL).toBe('Back to library')
     expect(link.tagName).toBe('A')
     expect(link).toHaveAttribute('href', LIBRARY_HREF)
+    expect(screen.getAllByRole('link')).toHaveLength(1)
     expect(screen.queryByRole('button')).toBeNull()
   })
 
@@ -89,18 +90,27 @@ describe('NotAuthorized', () => {
     ).toHaveLength(0)
   })
 
-  it('wears the shield, decorative, at the panel size the empty states use', () => {
+  it('draws a decorative shield icon and no mascot', () => {
     const { container } = render(<NotAuthorized />)
-    const icon = container.querySelector('svg')
+    const link = screen.getByRole('link')
+    // Every svg outside the back link: the icon, and nothing else.
+    const outside = Array.from(container.querySelectorAll('svg')).filter(
+      svg => !link.contains(svg),
+    )
 
-    expect(icon?.querySelector('use')).toHaveAttribute(
-      'href',
-      `#${iconSymbolId(NOT_AUTHORIZED_ICON)}`,
-    )
+    expect(outside).toHaveLength(1)
+    const icon = outside[0]
+    if (!icon) throw new Error('expected the icon')
     expect(icon).toHaveAttribute('aria-hidden', 'true')
-    expect(classesOf(icon as Element)).toEqual(
-      expect.arrayContaining(['h-6', 'w-6', 'text-ink-4']),
-    )
+    expect(icon).toHaveAttribute('width', '24')
+    expect(icon).toHaveAttribute('height', '24')
+    expect(classesOf(icon)).toContain('text-ink-3')
+
+    // The glyph is the shield one, not just any 24px mark.
+    const expected = render(<Icon name="shield" size={24} />).container
+    expect(icon.innerHTML).toBe(expected.querySelector('svg')?.innerHTML)
+    // The pepe mark is a filled, much larger svg; none of that is here.
+    expect(container.querySelector('svg[width="46"]')).toBeNull()
   })
 
   it('is the centred sunk panel, not a raised card', () => {
@@ -115,9 +125,6 @@ describe('NotAuthorized', () => {
         'border-line',
         'mx-auto',
         'max-w-[560px]',
-        'flex',
-        'flex-col',
-        'items-center',
         'text-center',
         'py-12',
       ]),

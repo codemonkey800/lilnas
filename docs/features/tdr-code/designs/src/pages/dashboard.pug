@@ -1,0 +1,80 @@
+extends ../../../../../designs/mockup-kit/page.pug
+
+include ../mixins/tdr-code.pug
+
+block title
+  | tdr-code — dashboard · UI mockups
+
+//-
+  The Live page ("/"). The bot's status and Restart bot sit in the header; the
+  active sessions are a table on a desktop and a card per channel on a phone.
+  Tear down and Restart bot both confirm inline, in place. Copy and sample data
+  are in src/data/dashboard.mjs.
+
+//- The last cell of a row: Tear down, or its inline confirm.
+mixin teardownCell(row, view)
+  if row.confirm
+    +confirmPair(view, copy.teardownPrompt, 'Confirm')(class=view === 'mobile' ? '' : 'justify-end')
+  else
+    +btn({ variant: 'outline', size: 'sm', touch: view === 'mobile', label: 'Tear down' })(class=view === 'mobile' ? 'w-full' : '')
+
+mixin restartArea(view, s)
+  - const phone = view === 'mobile'
+  div(class=['flex flex-col gap-1.5', phone ? 'w-full' : 'items-end'])
+    if s.restart === 'confirm'
+      +confirmPair(view, copy.restartPrompt, 'Confirm restart')
+    else
+      +btn({ variant: 'outline', touch: phone, label: 'Restart bot', icon: 'refresh', full: phone })
+    if s.restart === 'error'
+      p(class=['text-cap text-bad', phone ? '' : 'text-right'])
+        = copy.restartError
+        span(class='block font-mono text-mono-sm text-ink-3')= copy.restartErrorCode
+
+mixin dashBody(view, s)
+  if s.body === 'loading'
+    +loadingBlock(copy.loading)
+  else if s.body === 'error'
+    +errorBlock(view, copy.error.lead, copy.error.detail, copy.error.code, false)
+  else
+    if s.offline
+      +note('warn', copy.offline.lead)
+        = copy.offline.detail
+    if s.body === 'rows'
+      +tdrList(columns, s.rows, view)
+    else
+      - const e = s.body === 'never' ? copy.never : s.body === 'offline-empty' ? copy.offlineEmpty : copy.empty
+      +card()
+        +emptyState(e.title, e.body)
+
+mixin dashScreen(view, s, opts)
+  - const phone = view === 'mobile'
+  +shell(view, 'Live', opts)
+    div(class='flex flex-wrap items-start justify-between gap-x-4 gap-y-3')
+      div(class='flex flex-col gap-1.5')
+        h1(class='text-h2') Dashboard
+        +botStatus(s.bot)
+      +restartArea(view, s)
+    section(class='flex flex-col gap-3')
+      h2(class='text-h3') Active sessions
+      +dashBody(view, s)
+
+block content
+  +mockHead({ eyebrow: 'tdr-code · /', title: 'Dashboard', back: true })
+    p The page the nav calls Live. Bot status is a StatusDot and a word: Online pulses, nothing else does. Restart bot and each row's Tear down confirm in place instead of opening a dialog (the inline two-step from #[+code('components.md')]); the destructive step is outlined red and Cancel is a ghost. A phone swaps the table for one card per channel with Tear down on its own row at the foot, and the nav for a sheet opened from the app bar.
+
+  div(class='vp-scope flex flex-col items-center gap-8')
+    +viewportToggle('dashboard-viewport')
+    +viewportPanel('desktop')
+      each s in states
+        +stateRow(s.label + ' · ' + s.caption, { stack: true })(class='w-full')
+          +dashScreen('desktop', s)
+      +frameLabel Desktop · 1280
+    +viewportPanel('mobile')
+      +stateRow('Nav sheet', { stack: true })(class='w-full')
+        +stateCell('The app bar menu opens this')
+          +dashScreen('mobile', states[0], { height: 640, navOpen: true })
+      +stateRow('States', { stack: true })(class='w-full')
+        each s in states
+          +stateCell(s.label + ' · ' + s.caption)
+            +dashScreen('mobile', s)
+      +frameLabel Mobile · 390

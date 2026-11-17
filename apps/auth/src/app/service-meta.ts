@@ -65,7 +65,7 @@ export const SERVICE_META: Record<string, ServiceMeta> = {
   'download.lilnas.io': {
     name: 'Download',
     description: 'Video & media downloader',
-    icon: 'arrowRight',
+    icon: 'download',
   },
   'dashcam.lilnas.io': {
     name: 'Dashcam',

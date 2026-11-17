@@ -1,9 +1,22 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { ToastProvider } from '@lilnas/ui'
+import {
+  fireEvent,
+  render as renderPlain,
+  screen,
+  waitFor,
+} from '@testing-library/react'
+import type { ReactElement } from 'react'
 
 import { BlockedClient } from 'src/app/blocked/blocked-client'
+
+// "Still blocked" is a toast, drawn by the ToastProvider layout.tsx mounts
+// once at the root — so every render here needs one around it.
+function render(ui: ReactElement) {
+  return renderPlain(ui, { wrapper: ToastProvider })
+}
 
 const mockCheckRequestStatus = jest.fn()
 jest.mock('src/app/pending/actions', () => ({
@@ -69,6 +82,67 @@ describe('BlockedClient — static render', () => {
 
     expect(screen.queryByText(/waiting for approval/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/declined/i)).not.toBeInTheDocument()
+  })
+})
+
+describe('BlockedClient — markup', () => {
+  it('draws a labelled blocked status ring and the target service in the target pill', () => {
+    render(
+      <BlockedClient
+        serviceHost="dashcam.lilnas.io"
+        redirectUrl={REDIRECT_URL}
+        identity={IDENTITY}
+      />,
+    )
+
+    expect(screen.getByRole('img', { name: 'Blocked' })).toBeInTheDocument()
+    expect(screen.getByText('Dashcam')).toBeInTheDocument()
+    // The signed-in avatar carries the initials, and is the accent "you" one.
+    expect(screen.getByRole('img', { name: IDENTITY.initials })).toHaveClass(
+      'bg-accent',
+    )
+    // The pending page's own "waiting" ring never shows here.
+    expect(
+      screen.queryByRole('img', { name: 'Waiting' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('announces the heading in a polite status region', () => {
+    render(
+      <BlockedClient
+        serviceHost="dashcam.lilnas.io"
+        redirectUrl={REDIRECT_URL}
+        identity={IDENTITY}
+      />,
+    )
+
+    expect(
+      screen
+        .getAllByRole('status')
+        .some(
+          region =>
+            region.querySelector('h1')?.textContent === 'Access blocked',
+        ),
+    ).toBe(true)
+  })
+
+  it('spins the Check again icon while the check is in flight', async () => {
+    mockCheckRequestStatus.mockReturnValueOnce(new Promise(() => {}))
+    render(
+      <BlockedClient
+        serviceHost="dashcam.lilnas.io"
+        redirectUrl={REDIRECT_URL}
+        identity={IDENTITY}
+      />,
+    )
+    const button = screen.getByRole('button', { name: /check again/i })
+    expect(button).not.toHaveClass('[&_svg]:animate-spin')
+
+    fireEvent.click(button)
+
+    await waitFor(() => {
+      expect(button).toHaveClass('[&_svg]:animate-spin')
+    })
   })
 })
 

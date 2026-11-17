@@ -104,7 +104,7 @@ describe('ActivityPage', () => {
     await renderPage()
 
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Downloads activity' }),
+      screen.getByRole('heading', { level: 1, name: 'Activity' }),
     ).toBeInTheDocument()
     expect(screen.getByRole('tablist')).toBeInTheDocument()
     expect(
@@ -124,6 +124,6 @@ describe('ActivityPage', () => {
 
     await renderPage()
 
-    expect(screen.getByText('Nothing in flight')).toBeInTheDocument()
+    expect(screen.getByText('Nothing downloading')).toBeInTheDocument()
   })
 })

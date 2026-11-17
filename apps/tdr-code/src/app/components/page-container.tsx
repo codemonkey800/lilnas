@@ -17,8 +17,10 @@ export function PageContainer({
   spacing?: keyof typeof SPACING
 }) {
   return (
-    <div className={cns('mx-auto max-w-6xl', SPACING[spacing])}>
-      {title && <h1 className="text-lg font-semibold text-white">{title}</h1>}
+    <div
+      className={cns('mx-auto max-w-[1280px] px-4 md:px-8', SPACING[spacing])}
+    >
+      {title && <h1 className="text-h2">{title}</h1>}
       {children}
     </div>
   )

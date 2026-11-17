@@ -11,8 +11,8 @@
     "lint:fix": "pnpm run -r lint:fix && pnpm run mockups:lint:fix",
     "mockups": "lilnas mockups build --all",
     "mockups:watch": "lilnas mockups build --all --watch",
-    "mockups:lint": "prettier -c \"docs/features/*/designs/src/**/*.{mjs,js,css,html}\"",
-    "mockups:lint:fix": "prettier -w \"docs/features/*/designs/src/**/*.{mjs,js,css,html}\"",
+    "mockups:lint": "prettier -c \"docs/features/*/designs/src/**/*.{mjs,js,css,html}\" \"docs/designs/mockup-kit/**/*.{mjs,js,css,html}\"",
+    "mockups:lint:fix": "prettier -w \"docs/features/*/designs/src/**/*.{mjs,js,css,html}\" \"docs/designs/mockup-kit/**/*.{mjs,js,css,html}\"",
     "test": "dotenv -e .env.turbo -- turbo run test",
     "test:watch": "pnpm run --recursive --if-present test:watch",
     "type-check": "dotenv -e .env.turbo -- turbo run type-check"

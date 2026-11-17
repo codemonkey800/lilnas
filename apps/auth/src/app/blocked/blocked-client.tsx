@@ -1,13 +1,19 @@
 'use client'
 
+import { Button } from '@lilnas/ui'
 import { useState } from 'react'
 
-import { Brandmark } from 'src/app/components/brandmark'
-import { Icon } from 'src/app/components/icons'
-import { Toast, useToast } from 'src/app/components/toast'
+import {
+  GateCard,
+  GateHeading,
+  GateScreen,
+  IdentityRow,
+  StatusRing,
+  TargetPill,
+} from 'src/app/components/gate'
+import { useToast } from 'src/app/components/toast'
 import { signOut } from 'src/app/lib/auth-client'
 import { checkRequestStatus } from 'src/app/pending/actions'
-import { getServiceMeta } from 'src/app/service-meta'
 
 export type BlockedClientProps = {
   serviceHost: string
@@ -21,8 +27,8 @@ export type BlockedClientProps = {
 const CHECK_AGAIN_SPIN_MS = 500
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Modeled on pending-client.tsx's panel/status-ring/identity-row/target-pill
-// markup, but deliberately WITHOUT its SSE/poll loop. A blocked user
+// Modeled on pending-client.tsx's gate card / status ring / identity row /
+// target pill markup, but deliberately WITHOUT its SSE/poll loop. A blocked user
 // re-checking their own status is a rare, admin-initiated event (someone
 // has to notice and unblock them) — unlike the pending flow, there is no
 // natural per-service topic to hang a live channel off here: blocking is
@@ -38,15 +44,14 @@ export function BlockedClient({
   identity,
 }: BlockedClientProps) {
   const [isChecking, setIsChecking] = useState(false)
-  const { message, showToast } = useToast()
-  const targetMeta = getServiceMeta(serviceHost)
+  const { showToast } = useToast()
 
   function handleCheckAgain() {
     setIsChecking(true)
     checkRequestStatus(redirectUrl)
       .then(status => {
         if (status.outcome === 'blocked') {
-          showToast('Still blocked')
+          showToast('Still blocked', 'bad')
           return
         }
         // No longer blocked — /pending itself resolves the exact
@@ -59,7 +64,7 @@ export function BlockedClient({
         // A transient backend hiccup here must never crash this page —
         // matches pending-client.tsx's own recheck() posture. The user can
         // simply click "Check again" a second time.
-        showToast('Still blocked')
+        showToast('Still blocked', 'bad')
       })
       .finally(() => {
         setTimeout(() => setIsChecking(false), CHECK_AGAIN_SPIN_MS)
@@ -73,60 +78,40 @@ export function BlockedClient({
   }
 
   return (
-    <div className="wrap">
-      <div className="panel">
-        <Brandmark />
+    <GateScreen>
+      <GateCard>
+        <StatusRing kind="blocked" />
 
-        <div className="status-ring">
-          <Icon name="x" />
-        </div>
+        <GateHeading
+          live
+          title="Access blocked"
+          body="An admin has blocked your account. Reach out to them directly if you think this is a mistake."
+        />
 
-        <div className="stack gap-1.5" role="status" aria-live="polite">
-          <h1 className="h1">Access blocked</h1>
-          <p className="body-text muted">
-            An admin has blocked your account. Reach out to them directly if you
-            think this is a mistake.
-          </p>
-        </div>
+        <IdentityRow
+          name={identity.name}
+          email={identity.email}
+          initials={identity.initials}
+        />
 
-        <div className="identity-row">
-          <span className="avatar">{identity.initials}</span>
-          <div className="identity-row__text">
-            <span className="identity-row__name">{identity.name}</span>
-            <span className="identity-row__email">{identity.email}</span>
-          </div>
-        </div>
+        <TargetPill host={serviceHost} />
 
-        <div className="target-pill">
-          <span className="target-pill__icon">
-            <Icon name={targetMeta.icon} />
-          </span>
-          <div className="target-pill__text">
-            <span className="target-pill__name">{targetMeta.name}</span>
-            <span className="target-pill__domain">{serviceHost}</span>
-          </div>
-        </div>
-
-        <div className="actions-row">
-          <button
-            type="button"
-            className="btn btn-outline"
+        <div className="flex flex-col gap-2">
+          <Button
+            variant="outline"
+            size="lg"
+            full
+            icon="refresh"
+            className={isChecking ? '[&_svg]:animate-spin' : undefined}
             onClick={handleCheckAgain}
           >
-            <Icon name="refresh" className={isChecking ? 'spin' : undefined} />
-            <span>Check again</span>
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={handleSignOut}
-          >
+            Check again
+          </Button>
+          <Button variant="ghost" size="lg" full onClick={handleSignOut}>
             Sign out
-          </button>
+          </Button>
         </div>
-      </div>
-
-      <Toast message={message} />
-    </div>
+      </GateCard>
+    </GateScreen>
   )
 }

@@ -1,11 +1,13 @@
+import { ToastProvider } from '@lilnas/ui'
 import {
   act,
   fireEvent,
-  render,
+  render as renderPlain,
   screen,
   waitFor,
   within,
 } from '@testing-library/react'
+import type { ReactElement } from 'react'
 
 import { AdminDashboardClient } from 'src/app/admin/admin-dashboard-client'
 import type {
@@ -13,6 +15,12 @@ import type {
   AdminServiceEntry,
   AdminUserEntry,
 } from 'src/app/admin/require-admin'
+
+// useToast() now fires into the ToastProvider layout.tsx mounts once at the
+// root, so every render here needs one around it.
+function render(ui: ReactElement) {
+  return renderPlain(ui, { wrapper: ToastProvider })
+}
 
 const mockApproveRequest = jest.fn()
 const mockBlockUser = jest.fn()
@@ -39,6 +47,12 @@ jest.mock('src/app/admin/actions', () => ({
   unblockUser: (...args: unknown[]) => mockUnblockUser(...args),
   unlinkDiscordAccount: (...args: unknown[]) =>
     mockUnlinkDiscordAccount(...args),
+}))
+
+// auth-client.ts builds a Better Auth client at import time, which needs a
+// `Request` jsdom doesn't have — stubbed as in the home/pending/blocked specs.
+jest.mock('src/app/lib/auth-client', () => ({
+  signOut: jest.fn().mockResolvedValue(undefined),
 }))
 
 const mockRefresh = jest.fn()
@@ -117,11 +131,56 @@ function buildUser(overrides: Partial<AdminUserEntry>): AdminUserEntry {
 // (rather than an index into getAllByRole) finds the right one regardless
 // of how many other users are rendered or in what order.
 function editAccessButtonFor(email: string): HTMLElement {
-  const row = screen.getAllByText(email)[0]!.closest('tr, .person-card')
+  const row = screen.getAllByText(email)[0]!.closest('tr, li')
   if (!row) throw new Error(`no row/card found for ${email}`)
   return within(row as HTMLElement).getByRole('button', {
     name: /edit access/i,
   })
+}
+
+// Opens the Edit-access dialog for the first row in either panel.
+function openEditAccess(): HTMLElement {
+  const [editAccessButton] = screen.getAllByRole('button', {
+    name: /edit access/i,
+  })
+  fireEvent.click(editAccessButton!)
+  return screen.getByRole('dialog', { name: /^edit access$/i })
+}
+
+// The confirm dialog a destructive action opens: one dialog, named for the
+// person, with the consequence as its body.
+async function findConfirm(title: string | RegExp): Promise<HTMLElement> {
+  return screen.findByRole('dialog', { name: title })
+}
+
+// The dialogs on screen. A toast is `role="dialog"` too (its `data-type` marks
+// it), and one is usually showing once an action has run.
+function openDialogs(): HTMLElement[] {
+  return screen
+    .queryAllByRole('dialog')
+    .filter(el => !el.hasAttribute('data-type'))
+}
+
+// A dialog's confirm button, looked up inside it — the same label can also
+// sit on the control that opened it.
+function confirmButton(dialog: HTMLElement, name: string | RegExp) {
+  return within(dialog).getByRole('button', { name })
+}
+
+function renderWithUsers(
+  users: AdminUserEntry[],
+  extra: Partial<Parameters<typeof AdminDashboardClient>[0]> = {},
+) {
+  return render(
+    <AdminDashboardClient
+      initialQueue={[]}
+      initialUsers={users}
+      services={SERVICES}
+      discordUnlinked={NO_DISCORD}
+      discordLinks={[]}
+      {...extra}
+    />,
+  )
 }
 
 beforeEach(() => {
@@ -166,7 +225,7 @@ describe('AdminDashboardClient — People/Blocked split', () => {
     )
 
     expect(screen.getAllByText('active@example.com').length).toBeGreaterThan(0)
-    expect(screen.getByText('No blocked users.')).toBeInTheDocument()
+    expect(screen.getByText('No one is blocked')).toBeInTheDocument()
   })
 
   it('renders a blocked, non-admin user in the Blocked panel — never in People', () => {
@@ -185,13 +244,13 @@ describe('AdminDashboardClient — People/Blocked split', () => {
       />,
     )
 
-    // People's own empty state (search-icon copy) proves the blocked user
+    // People's own empty state proves the blocked user
     // does not land there; the email itself renders exactly twice — once
     // in the Blocked panel's desktop table row, once in its mobile card —
     // proving it DOES land in the Blocked panel.
-    expect(screen.getByText('No one matches your search.')).toBeInTheDocument()
+    expect(screen.getByText('No one here yet')).toBeInTheDocument()
     expect(screen.getAllByText('blocked@example.com')).toHaveLength(2)
-    expect(screen.queryByText('No blocked users.')).not.toBeInTheDocument()
+    expect(screen.queryByText('No one is blocked')).not.toBeInTheDocument()
   })
 
   it('S2a: a blocked ADMIN user renders in the Blocked panel, not People — blocking an admin is now a real action', () => {
@@ -211,8 +270,8 @@ describe('AdminDashboardClient — People/Blocked split', () => {
       />,
     )
 
-    expect(screen.getByText('No one matches your search.')).toBeInTheDocument()
-    expect(screen.queryByText('No blocked users.')).not.toBeInTheDocument()
+    expect(screen.getByText('No one here yet')).toBeInTheDocument()
+    expect(screen.queryByText('No one is blocked')).not.toBeInTheDocument()
     expect(screen.getAllByText('admin@example.com').length).toBeGreaterThan(0)
     // PersonStatusChip still shows "Admin" (not "Blocked") even in the
     // Blocked panel — isAdmin stays the higher-priority fact (a blocked
@@ -254,113 +313,90 @@ describe('AdminDashboardClient — People/Blocked split', () => {
 })
 
 describe('AdminDashboardClient — Remove access', () => {
-  it('clicking "Remove access" in the Edit-access modal after confirming calls removeUser and closes the modal', async () => {
-    // Assigned directly rather than jest.spyOn(window, 'confirm') — jsdom's
-    // own confirm() stub is a "not implemented" no-op whose exact shape has
-    // varied across versions; a direct assignment works regardless.
-    window.confirm = jest.fn().mockReturnValue(true)
+  it('clicking "Remove access" opens a confirm naming the person; confirming calls removeUser and closes the dialog', async () => {
     mockRemoveUser.mockResolvedValue(undefined)
-    const active = buildUser({
-      id: 'user_active',
-      email: 'active@example.com',
-      services: ['swole.lilnas.io'],
-    })
-    render(
-      <AdminDashboardClient
-        initialQueue={[]}
-        initialUsers={[active]}
-        services={SERVICES}
-        discordUnlinked={NO_DISCORD}
-        discordLinks={[]}
-      />,
+    renderWithUsers([
+      buildUser({
+        id: 'user_active',
+        email: 'active@example.com',
+        services: ['swole.lilnas.io'],
+      }),
+    ])
+
+    const edit = openEditAccess()
+    fireEvent.click(
+      within(edit).getByRole('button', { name: /remove access/i }),
     )
 
-    const [editAccessButton] = screen.getAllByRole('button', {
-      name: /edit access/i,
-    })
-    fireEvent.click(editAccessButton!)
-
-    const removeButton = screen.getByRole('button', { name: /remove access/i })
-    fireEvent.click(removeButton)
+    const confirm = await findConfirm('Remove active@example.com’s access?')
+    expect(confirm).toHaveTextContent(
+      'They lose all 1 service. They can ask again from the sign-in page.',
+    )
+    // Nothing runs until it is confirmed.
+    expect(mockRemoveUser).not.toHaveBeenCalled()
+    fireEvent.click(confirmButton(confirm, 'Remove access'))
 
     await waitFor(() => {
       expect(mockRemoveUser).toHaveBeenCalledWith('user_active')
     })
-    // Closing the modal is this component's OWN local UI state
+    // Closing the dialog is this component's OWN local UI state
     // (accessModalUser), not a server-data mirror — still directly
     // testable, unlike the now-optimistic-free `services` list (M3).
     await waitFor(() => {
+      expect(openDialogs()).toHaveLength(0)
+    })
+  })
+
+  it('"Keep access" on the Remove confirm never calls removeUser and leaves the Edit-access dialog open', async () => {
+    renderWithUsers([
+      buildUser({
+        id: 'user_active',
+        email: 'active@example.com',
+        services: ['swole.lilnas.io'],
+      }),
+    ])
+
+    const edit = openEditAccess()
+    fireEvent.click(
+      within(edit).getByRole('button', { name: /remove access/i }),
+    )
+    const confirm = await findConfirm(/^Remove active@example\.com/)
+    fireEvent.click(confirmButton(confirm, 'Keep access'))
+
+    await waitFor(() => {
       expect(
-        screen.queryByRole('button', { name: /remove access/i }),
+        screen.queryByRole('dialog', { name: /^Remove / }),
       ).not.toBeInTheDocument()
     })
-  })
-
-  it('clicking "Remove access" in the Edit-access modal without confirming never calls removeUser', () => {
-    window.confirm = jest.fn().mockReturnValue(false)
-    const active = buildUser({
-      id: 'user_active',
-      email: 'active@example.com',
-      services: ['swole.lilnas.io'],
-    })
-    render(
-      <AdminDashboardClient
-        initialQueue={[]}
-        initialUsers={[active]}
-        services={SERVICES}
-        discordUnlinked={NO_DISCORD}
-        discordLinks={[]}
-      />,
-    )
-
-    const [editAccessButton] = screen.getAllByRole('button', {
-      name: /edit access/i,
-    })
-    fireEvent.click(editAccessButton!)
-
-    const removeButton = screen.getByRole('button', { name: /remove access/i })
-    fireEvent.click(removeButton)
-
     expect(mockRemoveUser).not.toHaveBeenCalled()
+    expect(
+      screen.getByRole('dialog', { name: /^edit access$/i }),
+    ).toBeInTheDocument()
   })
 
-  it('the Blocked panel\'s Edit-access modal also has a working "Remove access" action', async () => {
-    // Assigned directly rather than jest.spyOn(window, 'confirm') — jsdom's
-    // own confirm() stub is a "not implemented" no-op whose exact shape has
-    // varied across versions; a direct assignment works regardless.
-    window.confirm = jest.fn().mockReturnValue(true)
+  it('the Blocked panel\'s Edit-access dialog also has a working "Remove access" action', async () => {
     mockRemoveUser.mockResolvedValue(undefined)
-    const blocked = buildUser({
-      id: 'user_blocked',
-      email: 'blocked@example.com',
-      blockedAt: '2026-01-01T00:00:00.000Z',
-      services: ['swole.lilnas.io'],
-    })
-    render(
-      <AdminDashboardClient
-        initialQueue={[]}
-        initialUsers={[blocked]}
-        services={SERVICES}
-        discordUnlinked={NO_DISCORD}
-        discordLinks={[]}
-      />,
+    renderWithUsers([
+      buildUser({
+        id: 'user_blocked',
+        email: 'blocked@example.com',
+        blockedAt: '2026-01-01T00:00:00.000Z',
+        services: ['swole.lilnas.io'],
+      }),
+    ])
+
+    const edit = openEditAccess()
+    fireEvent.click(
+      within(edit).getByRole('button', { name: /remove access/i }),
     )
-
-    const [editAccessButton] = screen.getAllByRole('button', {
-      name: /edit access/i,
-    })
-    fireEvent.click(editAccessButton!)
-
-    const removeButton = screen.getByRole('button', { name: /remove access/i })
-    fireEvent.click(removeButton)
+    const confirm = await findConfirm(/^Remove blocked@example\.com/)
+    fireEvent.click(confirmButton(confirm, 'Remove access'))
 
     await waitFor(() => {
       expect(mockRemoveUser).toHaveBeenCalledWith('user_blocked')
     })
     await waitFor(() => {
-      expect(
-        screen.queryByRole('button', { name: /remove access/i }),
-      ).not.toBeInTheDocument()
+      expect(openDialogs()).toHaveLength(0)
     })
   })
 
@@ -393,111 +429,108 @@ describe('AdminDashboardClient — Remove access', () => {
   })
 })
 
-describe('AdminDashboardClient — blocking an admin (S2a)', () => {
-  it('clicking "Block" on an admin row asks for confirmation; confirming calls blockUser and moves the row into the Blocked panel', async () => {
-    window.confirm = jest.fn().mockReturnValue(true)
+describe('AdminDashboardClient — Block confirm', () => {
+  it('Block opens a confirm naming the person; the action runs only after confirming', async () => {
     mockBlockUser.mockResolvedValue(undefined)
-    const admin = buildUser({
-      id: 'user_admin',
-      email: 'admin@example.com',
-      isAdmin: true,
-    })
-    render(
-      <AdminDashboardClient
-        initialQueue={[]}
-        initialUsers={[admin]}
-        services={SERVICES}
-        discordUnlinked={NO_DISCORD}
-        discordLinks={[]}
-      />,
-    )
+    renderWithUsers([
+      buildUser({ id: 'user_active', email: 'active@example.com' }),
+    ])
 
     const [blockButton] = screen.getAllByRole('button', { name: /^block$/i })
     fireEvent.click(blockButton!)
 
-    expect(window.confirm).toHaveBeenCalled()
+    const confirm = await findConfirm('Block active@example.com?')
+    expect(confirm).toHaveTextContent(
+      'They lose every service until you unblock them.',
+    )
+    // The body does NOT promise dashboard access to a non-admin.
+    expect(confirm).not.toHaveTextContent('dashboard')
+    expect(mockBlockUser).not.toHaveBeenCalled()
+
+    fireEvent.click(confirmButton(confirm, 'Block'))
+    await waitFor(() => {
+      expect(mockBlockUser).toHaveBeenCalledWith('user_active')
+    })
+    expect(mockBlockUser).toHaveBeenCalledTimes(1)
+    await waitFor(() => {
+      expect(openDialogs()).toHaveLength(0)
+    })
+  })
+
+  it('"Keep access" closes the confirm and never calls blockUser', async () => {
+    renderWithUsers([
+      buildUser({ id: 'user_active', email: 'active@example.com' }),
+    ])
+
+    const [blockButton] = screen.getAllByRole('button', { name: /^block$/i })
+    fireEvent.click(blockButton!)
+    const confirm = await findConfirm('Block active@example.com?')
+    fireEvent.click(confirmButton(confirm, 'Keep access'))
+
+    await waitFor(() => {
+      expect(openDialogs()).toHaveLength(0)
+    })
+    expect(mockBlockUser).not.toHaveBeenCalled()
+  })
+
+  it('S2a: blocking an admin says they keep the dashboard, and confirming calls blockUser', async () => {
+    mockBlockUser.mockResolvedValue(undefined)
+    renderWithUsers([
+      buildUser({
+        id: 'user_admin',
+        email: 'admin@example.com',
+        isAdmin: true,
+      }),
+    ])
+
+    const [blockButton] = screen.getAllByRole('button', { name: /^block$/i })
+    fireEvent.click(blockButton!)
+
+    const confirm = await findConfirm('Block admin@example.com?')
+    expect(confirm).toHaveTextContent(
+      'They keep this dashboard, because they’re an admin.',
+    )
+    fireEvent.click(confirmButton(confirm, 'Block'))
     await waitFor(() => {
       expect(mockBlockUser).toHaveBeenCalledWith('user_admin')
     })
   })
 
-  it('clicking "Block" on an admin row without confirming never calls blockUser', () => {
-    window.confirm = jest.fn().mockReturnValue(false)
-    const admin = buildUser({
-      id: 'user_admin',
-      email: 'admin@example.com',
-      isAdmin: true,
-    })
-    render(
-      <AdminDashboardClient
-        initialQueue={[]}
-        initialUsers={[admin]}
-        services={SERVICES}
-        discordUnlinked={NO_DISCORD}
-        discordLinks={[]}
-      />,
-    )
+  it('Escape dismisses the confirm without blocking', async () => {
+    renderWithUsers([
+      buildUser({ id: 'user_active', email: 'active@example.com' }),
+    ])
 
     const [blockButton] = screen.getAllByRole('button', { name: /^block$/i })
     fireEvent.click(blockButton!)
+    const confirm = await findConfirm('Block active@example.com?')
+    fireEvent.keyDown(confirm, { key: 'Escape' })
 
-    expect(mockBlockUser).not.toHaveBeenCalled()
-  })
-
-  it('clicking "Block" on a non-admin row never asks for confirmation', async () => {
-    window.confirm = jest.fn()
-    mockBlockUser.mockResolvedValue(undefined)
-    const active = buildUser({
-      id: 'user_active',
-      email: 'active@example.com',
-    })
-    render(
-      <AdminDashboardClient
-        initialQueue={[]}
-        initialUsers={[active]}
-        services={SERVICES}
-        discordUnlinked={NO_DISCORD}
-        discordLinks={[]}
-      />,
-    )
-
-    const [blockButton] = screen.getAllByRole('button', { name: /^block$/i })
-    fireEvent.click(blockButton!)
-
-    expect(window.confirm).not.toHaveBeenCalled()
     await waitFor(() => {
-      expect(mockBlockUser).toHaveBeenCalledWith('user_active')
+      expect(openDialogs()).toHaveLength(0)
     })
+    expect(mockBlockUser).not.toHaveBeenCalled()
   })
 })
 
 describe('AdminDashboardClient — Sign out everywhere (S2b)', () => {
-  it('clicking "Sign out everywhere" in the Edit-access modal after confirming calls revokeSessions and shows the session count', async () => {
-    window.confirm = jest.fn().mockReturnValue(true)
+  it('"Sign out everywhere" confirms first, then calls revokeSessions and shows the session count', async () => {
     mockRevokeSessions.mockResolvedValue({ ok: true, sessionsRevoked: 2 })
-    const active = buildUser({
-      id: 'user_active',
-      email: 'active@example.com',
-      services: ['swole.lilnas.io'],
-    })
-    render(
-      <AdminDashboardClient
-        initialQueue={[]}
-        initialUsers={[active]}
-        services={SERVICES}
-        discordUnlinked={NO_DISCORD}
-        discordLinks={[]}
-      />,
-    )
+    renderWithUsers([
+      buildUser({
+        id: 'user_active',
+        email: 'active@example.com',
+        services: ['swole.lilnas.io'],
+      }),
+    ])
 
-    const [editAccessButton] = screen.getAllByRole('button', {
-      name: /edit access/i,
-    })
-    fireEvent.click(editAccessButton!)
-    const signOutButton = screen.getByRole('button', {
-      name: /sign out everywhere/i,
-    })
-    fireEvent.click(signOutButton)
+    const edit = openEditAccess()
+    fireEvent.click(
+      within(edit).getByRole('button', { name: /sign out everywhere/i }),
+    )
+    const confirm = await findConfirm('Sign active@example.com out everywhere?')
+    expect(mockRevokeSessions).not.toHaveBeenCalled()
+    fireEvent.click(confirmButton(confirm, 'Sign out'))
 
     await waitFor(() => {
       expect(mockRevokeSessions).toHaveBeenCalledWith('user_active')
@@ -507,62 +540,47 @@ describe('AdminDashboardClient — Sign out everywhere (S2b)', () => {
     })
   })
 
-  it('clicking "Sign out everywhere" without confirming never calls revokeSessions', () => {
-    window.confirm = jest.fn().mockReturnValue(false)
-    const active = buildUser({
-      id: 'user_active',
-      email: 'active@example.com',
-      services: ['swole.lilnas.io'],
-    })
-    render(
-      <AdminDashboardClient
-        initialQueue={[]}
-        initialUsers={[active]}
-        services={SERVICES}
-        discordUnlinked={NO_DISCORD}
-        discordLinks={[]}
-      />,
+  it('"Keep signed in" never calls revokeSessions', async () => {
+    renderWithUsers([
+      buildUser({
+        id: 'user_active',
+        email: 'active@example.com',
+        services: ['swole.lilnas.io'],
+      }),
+    ])
+
+    const edit = openEditAccess()
+    fireEvent.click(
+      within(edit).getByRole('button', { name: /sign out everywhere/i }),
     )
+    const confirm = await findConfirm(/out everywhere\?$/)
+    fireEvent.click(confirmButton(confirm, 'Keep signed in'))
 
-    const [editAccessButton] = screen.getAllByRole('button', {
-      name: /edit access/i,
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('dialog', { name: /out everywhere/ }),
+      ).not.toBeInTheDocument()
     })
-    fireEvent.click(editAccessButton!)
-    const signOutButton = screen.getByRole('button', {
-      name: /sign out everywhere/i,
-    })
-    fireEvent.click(signOutButton)
-
     expect(mockRevokeSessions).not.toHaveBeenCalled()
   })
 
-  it('the Blocked panel\'s Edit-access modal also has a working "Sign out everywhere" action', async () => {
-    window.confirm = jest.fn().mockReturnValue(true)
+  it('the Blocked panel\'s Edit-access dialog also has a working "Sign out everywhere" action', async () => {
     mockRevokeSessions.mockResolvedValue({ ok: true, sessionsRevoked: 0 })
-    const blocked = buildUser({
-      id: 'user_blocked',
-      email: 'blocked@example.com',
-      blockedAt: '2026-01-01T00:00:00.000Z',
-      services: ['swole.lilnas.io'],
-    })
-    render(
-      <AdminDashboardClient
-        initialQueue={[]}
-        initialUsers={[blocked]}
-        services={SERVICES}
-        discordUnlinked={NO_DISCORD}
-        discordLinks={[]}
-      />,
-    )
+    renderWithUsers([
+      buildUser({
+        id: 'user_blocked',
+        email: 'blocked@example.com',
+        blockedAt: '2026-01-01T00:00:00.000Z',
+        services: ['swole.lilnas.io'],
+      }),
+    ])
 
-    const [editAccessButton] = screen.getAllByRole('button', {
-      name: /edit access/i,
-    })
-    fireEvent.click(editAccessButton!)
-    const signOutButton = screen.getByRole('button', {
-      name: /sign out everywhere/i,
-    })
-    fireEvent.click(signOutButton)
+    const edit = openEditAccess()
+    fireEvent.click(
+      within(edit).getByRole('button', { name: /sign out everywhere/i }),
+    )
+    const confirm = await findConfirm(/out everywhere\?$/)
+    fireEvent.click(confirmButton(confirm, 'Sign out'))
 
     await waitFor(() => {
       expect(mockRevokeSessions).toHaveBeenCalledWith('user_blocked')
@@ -602,16 +620,14 @@ describe('AdminDashboardClient — Add person modal (M2/M3)', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /add person/i }))
-    const modal = screen
-      .getByRole('heading', { name: /add a person/i })
-      .closest('.modal') as HTMLElement
+    fireEvent.click(screen.getAllByRole('button', { name: /add person/i })[0]!)
+    const modal = screen.getByRole('dialog', { name: /add a person/i })
     fireEvent.change(within(modal).getByLabelText('Email address'), {
       target: { value: 'new.person@example.com' },
     })
     fireEvent.click(within(modal).getByRole('checkbox', { name: /swole/i }))
     fireEvent.click(
-      within(modal).getByRole('button', { name: /grant access/i }),
+      within(modal).getByRole('button', { name: /^add person$/i }),
     )
 
     await waitFor(() => {
@@ -641,17 +657,15 @@ describe('AdminDashboardClient — Add person modal (M2/M3)', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /add person/i }))
-    const modal = screen
-      .getByRole('heading', { name: /add a person/i })
-      .closest('.modal') as HTMLElement
+    fireEvent.click(screen.getAllByRole('button', { name: /add person/i })[0]!)
+    const modal = screen.getByRole('dialog', { name: /add a person/i })
     fireEvent.change(within(modal).getByLabelText('Email address'), {
       target: { value: 'both@example.com' },
     })
     fireEvent.click(within(modal).getByRole('checkbox', { name: /swole/i }))
     fireEvent.click(within(modal).getByRole('checkbox', { name: /tdr/i }))
     fireEvent.click(
-      within(modal).getByRole('button', { name: /grant access/i }),
+      within(modal).getByRole('button', { name: /^add person$/i }),
     )
 
     await waitFor(() => {
@@ -677,15 +691,13 @@ describe('AdminDashboardClient — Add person modal (M2/M3)', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /add person/i }))
-    const modal = screen
-      .getByRole('heading', { name: /add a person/i })
-      .closest('.modal') as HTMLElement
+    fireEvent.click(screen.getAllByRole('button', { name: /add person/i })[0]!)
+    const modal = screen.getByRole('dialog', { name: /add a person/i })
     fireEvent.change(within(modal).getByLabelText('Email address'), {
       target: { value: 'not-an-email' },
     })
     fireEvent.click(
-      within(modal).getByRole('button', { name: /grant access/i }),
+      within(modal).getByRole('button', { name: /^add person$/i }),
     )
 
     expect(mockPreAuthorizeUsers).not.toHaveBeenCalled()
@@ -702,22 +714,20 @@ describe('AdminDashboardClient — Add person modal (M2/M3)', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /add person/i }))
-    const firstOpen = screen
-      .getByRole('heading', { name: /add a person/i })
-      .closest('.modal') as HTMLElement
+    fireEvent.click(screen.getAllByRole('button', { name: /add person/i })[0]!)
+    const firstOpen = screen.getByRole('dialog', { name: /add a person/i })
     fireEvent.change(within(firstOpen).getByLabelText('Email address'), {
       target: { value: 'typed-but-not-submitted@example.com' },
     })
     expect(within(firstOpen).getByLabelText('Email address')).toHaveValue(
       'typed-but-not-submitted@example.com',
     )
-    fireEvent.click(within(firstOpen).getByRole('button', { name: /close/i }))
+    fireEvent.click(
+      within(firstOpen).getByRole('button', { name: /^cancel$/i }),
+    )
 
-    fireEvent.click(screen.getByRole('button', { name: /add person/i }))
-    const secondOpen = screen
-      .getByRole('heading', { name: /add a person/i })
-      .closest('.modal') as HTMLElement
+    fireEvent.click(screen.getAllByRole('button', { name: /add person/i })[0]!)
+    const secondOpen = screen.getByRole('dialog', { name: /add a person/i })
     expect(within(secondOpen).getByLabelText('Email address')).toHaveValue('')
   })
 })
@@ -741,9 +751,7 @@ describe('AdminDashboardClient — Edit access modal checkbox diffing (M2/M3)', 
     )
 
     fireEvent.click(editAccessButtonFor('user@example.com'))
-    const modal = screen
-      .getByRole('heading', { name: /^edit access$/i })
-      .closest('.modal') as HTMLElement
+    const modal = screen.getByRole('dialog', { name: /^edit access$/i })
     fireEvent.click(within(modal).getByRole('checkbox', { name: /swole/i }))
     fireEvent.click(within(modal).getByRole('button', { name: /save access/i }))
 
@@ -773,9 +781,7 @@ describe('AdminDashboardClient — Edit access modal checkbox diffing (M2/M3)', 
     )
 
     fireEvent.click(editAccessButtonFor('user@example.com'))
-    const modal = screen
-      .getByRole('heading', { name: /^edit access$/i })
-      .closest('.modal') as HTMLElement
+    const modal = screen.getByRole('dialog', { name: /^edit access$/i })
     fireEvent.click(within(modal).getByRole('checkbox', { name: /swole/i }))
     fireEvent.click(within(modal).getByRole('button', { name: /save access/i }))
 
@@ -808,9 +814,7 @@ describe('AdminDashboardClient — Edit access modal checkbox diffing (M2/M3)', 
     )
 
     fireEvent.click(editAccessButtonFor('user@example.com'))
-    const modal = screen
-      .getByRole('heading', { name: /^edit access$/i })
-      .closest('.modal') as HTMLElement
+    const modal = screen.getByRole('dialog', { name: /^edit access$/i })
     // swole starts checked (revoke it), tdr starts unchecked (grant it).
     fireEvent.click(within(modal).getByRole('checkbox', { name: /swole/i }))
     fireEvent.click(within(modal).getByRole('checkbox', { name: /tdr/i }))
@@ -851,9 +855,7 @@ describe('AdminDashboardClient — Edit access modal checkbox diffing (M2/M3)', 
     )
 
     fireEvent.click(editAccessButtonFor('user@example.com'))
-    const modal = screen
-      .getByRole('heading', { name: /^edit access$/i })
-      .closest('.modal') as HTMLElement
+    const modal = screen.getByRole('dialog', { name: /^edit access$/i })
     fireEvent.click(within(modal).getByRole('button', { name: /save access/i }))
 
     // handleAccessConfirm still enters startTransition()'s async callback
@@ -887,18 +889,14 @@ describe('AdminDashboardClient — Edit access modal checkbox diffing (M2/M3)', 
     )
 
     fireEvent.click(editAccessButtonFor('a@example.com'))
-    let modal = screen
-      .getByRole('heading', { name: /^edit access$/i })
-      .closest('.modal') as HTMLElement
+    let modal = screen.getByRole('dialog', { name: /^edit access$/i })
     // Flip both checkboxes for A — never saved, only Cancel below.
     fireEvent.click(within(modal).getByRole('checkbox', { name: /swole/i }))
     fireEvent.click(within(modal).getByRole('checkbox', { name: /tdr/i }))
     fireEvent.click(within(modal).getByRole('button', { name: /^cancel$/i }))
 
     fireEvent.click(editAccessButtonFor('b@example.com'))
-    modal = screen
-      .getByRole('heading', { name: /^edit access$/i })
-      .closest('.modal') as HTMLElement
+    modal = screen.getByRole('dialog', { name: /^edit access$/i })
     // B's own real services (tdr, not swole) — if A's uncommitted edits had
     // leaked, this would show the opposite of both checkboxes.
     expect(
@@ -926,9 +924,7 @@ describe('AdminDashboardClient — access rules', () => {
       />,
     )
     fireEvent.click(editAccessButtonFor(user.email))
-    return screen
-      .getByRole('heading', { name: /^edit access$/i })
-      .closest('.modal') as HTMLElement
+    return screen.getByRole('dialog', { name: /^edit access$/i })
   }
 
   it('renders a held rule as a chip, never as a checkbox, and lists it on the People row', () => {
@@ -997,11 +993,10 @@ describe('AdminDashboardClient — access rules', () => {
     expect(
       within(modal).queryByRole('button', { name: /remove rule/i }),
     ).not.toBeInTheDocument()
+    expect(within(modal).getByLabelText('Access rules')).toBeInvalid()
     expect(
-      within(modal)
-        .getByText(/use a single leading wildcard/i)
-        .closest('.field'),
-    ).toHaveClass('has-error')
+      within(modal).getByText(/use a single leading wildcard/i),
+    ).toBeInTheDocument()
   })
 
   it('shows the server error when saving a rule fails', async () => {
@@ -1033,10 +1028,8 @@ describe('AdminDashboardClient — access rules', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /add person/i }))
-    const modal = screen
-      .getByRole('heading', { name: /add a person/i })
-      .closest('.modal') as HTMLElement
+    fireEvent.click(screen.getAllByRole('button', { name: /add person/i })[0]!)
+    const modal = screen.getByRole('dialog', { name: /add a person/i })
     fireEvent.change(within(modal).getByLabelText('Email address'), {
       target: { value: 'dev.friend@example.com' },
     })
@@ -1045,7 +1038,7 @@ describe('AdminDashboardClient — access rules', () => {
       within(modal).getByRole('button', { name: '*.dev.lilnas.io' }),
     )
     fireEvent.click(
-      within(modal).getByRole('button', { name: /grant access/i }),
+      within(modal).getByRole('button', { name: /^add person$/i }),
     )
 
     await waitFor(() => {
@@ -1083,9 +1076,11 @@ describe('AdminDashboardClient — Discord handle on People rows', () => {
     // pass with the mobile card silently missing it.
     const chips = screen.getAllByText('@alice_h')
     expect(chips).toHaveLength(2)
-    expect(chips[0]!).toHaveClass('chip', 'chip-neutral')
+    // A badge is a plain span — never a control.
+    expect(chips[0]!.tagName).toBe('SPAN')
+    expect(chips[0]!.closest('button, a')).toBeNull()
     expect(chips[0]!.closest('tr')).not.toBeNull()
-    expect(chips[1]!.closest('.person-card')).not.toBeNull()
+    expect(chips[1]!.closest('li')).not.toBeNull()
   })
 
   it('renders no handle chip for a person with no link', () => {
@@ -1126,9 +1121,7 @@ describe('AdminDashboardClient — Edit access modal, Discord section', () => {
     )
 
     fireEvent.click(editAccessButtonFor('alice@example.com'))
-    const modal = screen
-      .getByRole('heading', { name: /^edit access$/i })
-      .closest('.modal') as HTMLElement
+    const modal = screen.getByRole('dialog', { name: /^edit access$/i })
 
     expect(within(modal).getByText('@alice_h')).toBeInTheDocument()
     expect(
@@ -1144,68 +1137,53 @@ describe('AdminDashboardClient — Edit access modal, Discord section', () => {
 
   it('unlinking from the modal confirms first, then calls unlinkDiscordAccount with the user id', async () => {
     mockUnlinkDiscordAccount.mockResolvedValue(undefined)
-    const confirmSpy = jest
-      .spyOn(window, 'confirm')
-      .mockImplementation(() => true)
-    const linked = buildUser({
-      id: 'user_linked',
-      email: 'alice@example.com',
-      discordUserId: '111111111111111111',
-      discordUsername: 'alice_h',
-    })
-    render(
-      <AdminDashboardClient
-        initialQueue={[]}
-        initialUsers={[linked]}
-        services={SERVICES}
-        discordUnlinked={NO_DISCORD}
-        discordLinks={[]}
-      />,
-    )
+    renderWithUsers([
+      buildUser({
+        id: 'user_linked',
+        email: 'alice@example.com',
+        discordUserId: '111111111111111111',
+        discordUsername: 'alice_h',
+      }),
+    ])
 
     fireEvent.click(editAccessButtonFor('alice@example.com'))
-    const modal = screen
-      .getByRole('heading', { name: /^edit access$/i })
-      .closest('.modal') as HTMLElement
+    const modal = screen.getByRole('dialog', { name: /^edit access$/i })
     fireEvent.click(within(modal).getByRole('button', { name: /^unlink$/i }))
 
-    expect(confirmSpy).toHaveBeenCalledTimes(1)
-    expect(confirmSpy.mock.calls[0]![0]).toContain('alice@example.com')
-    expect(confirmSpy.mock.calls[0]![0]).toContain('@alice_h')
+    const confirm = await findConfirm('Unlink alice@example.com from @alice_h?')
+    expect(confirm).toHaveTextContent(
+      'Their Discord downloads stop being attributed to them until you link them again.',
+    )
+    expect(mockUnlinkDiscordAccount).not.toHaveBeenCalled()
+    fireEvent.click(confirmButton(confirm, 'Unlink'))
+
     await waitFor(() => {
       expect(mockUnlinkDiscordAccount).toHaveBeenCalledWith('user_linked')
     })
-    confirmSpy.mockRestore()
   })
 
-  it('declining the unlink confirmation calls nothing', () => {
-    const confirmSpy = jest
-      .spyOn(window, 'confirm')
-      .mockImplementation(() => false)
-    const linked = buildUser({
-      id: 'user_linked',
-      email: 'alice@example.com',
-      discordUserId: '111111111111111111',
-      discordUsername: 'alice_h',
-    })
-    render(
-      <AdminDashboardClient
-        initialQueue={[]}
-        initialUsers={[linked]}
-        services={SERVICES}
-        discordUnlinked={NO_DISCORD}
-        discordLinks={[]}
-      />,
-    )
+  it('"Keep link" on the unlink confirmation calls nothing', async () => {
+    renderWithUsers([
+      buildUser({
+        id: 'user_linked',
+        email: 'alice@example.com',
+        discordUserId: '111111111111111111',
+        discordUsername: 'alice_h',
+      }),
+    ])
 
     fireEvent.click(editAccessButtonFor('alice@example.com'))
-    const modal = screen
-      .getByRole('heading', { name: /^edit access$/i })
-      .closest('.modal') as HTMLElement
+    const modal = screen.getByRole('dialog', { name: /^edit access$/i })
     fireEvent.click(within(modal).getByRole('button', { name: /^unlink$/i }))
+    const confirm = await findConfirm(/^Unlink alice@example\.com/)
+    fireEvent.click(confirmButton(confirm, 'Keep link'))
 
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('dialog', { name: /^Unlink / }),
+      ).not.toBeInTheDocument()
+    })
     expect(mockUnlinkDiscordAccount).not.toHaveBeenCalled()
-    confirmSpy.mockRestore()
   })
 
   it('offers no Unlink action for a person with no link', () => {
@@ -1224,14 +1202,154 @@ describe('AdminDashboardClient — Edit access modal, Discord section', () => {
     )
 
     fireEvent.click(editAccessButtonFor('plain@example.com'))
-    const modal = screen
-      .getByRole('heading', { name: /^edit access$/i })
-      .closest('.modal') as HTMLElement
+    const modal = screen.getByRole('dialog', { name: /^edit access$/i })
 
     expect(
       within(modal).queryByRole('button', { name: /^unlink$/i }),
     ).not.toBeInTheDocument()
     expect(within(modal).getByText(/not linked/i)).toBeInTheDocument()
+  })
+})
+
+describe('AdminDashboardClient — People and Blocked as one DataList', () => {
+  const PEOPLE = [
+    buildUser({
+      id: 'user_a',
+      email: 'a@example.com',
+      services: ['swole.lilnas.io'],
+    }),
+    buildUser({ id: 'user_b', email: 'b@example.com' }),
+    buildUser({
+      id: 'user_c',
+      email: 'c@example.com',
+      blockedAt: '2026-01-01T00:00:00.000Z',
+    }),
+  ]
+
+  it('renders one table row and one card per person, in both layouts', () => {
+    renderWithUsers(PEOPLE)
+
+    const tables = screen.getAllByRole('table', { hidden: true })
+    // People and Blocked each own one table; Discord links is empty.
+    expect(tables).toHaveLength(2)
+    const [peopleTable, blockedTable] = tables as [HTMLElement, HTMLElement]
+    // Header row + one row per active person / blocked person.
+    expect(
+      within(peopleTable).getAllByRole('row', { hidden: true }),
+    ).toHaveLength(3)
+    expect(
+      within(blockedTable).getAllByRole('row', { hidden: true }),
+    ).toHaveLength(2)
+
+    for (const email of ['a@example.com', 'b@example.com', 'c@example.com']) {
+      const matches = screen.getAllByText(email)
+      expect(matches).toHaveLength(2)
+      expect(matches.map(el => el.closest('tr, li')!.tagName)).toEqual([
+        'TR',
+        'LI',
+      ])
+    }
+  })
+
+  it('keeps the old parallel markup gone: no .people-card-list or .person-card', () => {
+    const { container } = renderWithUsers(PEOPLE)
+
+    expect(container.querySelector('.people-card-list')).toBeNull()
+    expect(container.querySelector('.person-card')).toBeNull()
+    expect(container.querySelector('.people-table-wrap')).toBeNull()
+  })
+
+  it('shows status as a badge and services as a badge list', () => {
+    renderWithUsers(PEOPLE)
+
+    expect(screen.getAllByText('Granted').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('No access').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Blocked').length).toBeGreaterThan(0)
+    // The services list renders a badge per service on both layouts.
+    expect(screen.getAllByText('swole.lilnas.io').length).toBe(2)
+  })
+
+  it('filters People by the search box and offers to clear it', () => {
+    renderWithUsers(PEOPLE)
+
+    fireEvent.change(screen.getByLabelText('Search people'), {
+      target: { value: 'zed' },
+    })
+    expect(screen.getByText('No one matches “zed”')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
+    expect(screen.getAllByText('a@example.com')).toHaveLength(2)
+  })
+})
+
+describe('AdminDashboardClient — stat tiles, requests and errors', () => {
+  const REQUEST = {
+    id: 7,
+    userId: 'user_req',
+    email: 'req@example.com',
+    serviceHost: 'swole.lilnas.io',
+    createdAt: new Date().toISOString(),
+    lastSeenAt: new Date().toISOString(),
+    priorDecisions: 1,
+  }
+
+  it('flags the Pending tile as warn only while something is pending', () => {
+    const { unmount } = renderWithUsers([], { initialQueue: [REQUEST] })
+    expect(screen.getByText('Pending').closest('[data-flagged]')).not.toBeNull()
+    unmount()
+
+    renderWithUsers([])
+    expect(screen.getByText('Pending').closest('[data-flagged]')).toBeNull()
+  })
+
+  it('Approve and Decline call the request actions; Decline reads as outline, Approve as accent', async () => {
+    mockApproveRequest.mockResolvedValue(undefined)
+    mockRejectRequest.mockResolvedValue({ decided: true })
+    renderWithUsers([], { initialQueue: [REQUEST] })
+
+    const approve = screen.getByRole('button', { name: 'Approve' })
+    const decline = screen.getByRole('button', { name: 'Decline' })
+    expect(approve).toHaveClass('bg-accent')
+    expect(decline).toHaveClass('bg-surface-2')
+
+    fireEvent.click(approve)
+    await waitFor(() => expect(mockApproveRequest).toHaveBeenCalledWith(7))
+    fireEvent.click(decline)
+    await waitFor(() => expect(mockRejectRequest).toHaveBeenCalledWith(7))
+  })
+
+  it('ticking a request offers Dismiss selected, which declines the batch', async () => {
+    mockBulkRejectRequests.mockResolvedValue({ decided: [7] })
+    renderWithUsers([], { initialQueue: [REQUEST] })
+
+    fireEvent.click(
+      screen.getByRole('checkbox', {
+        name: 'Select request from req@example.com',
+      }),
+    )
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Dismiss selected (1)' }),
+    )
+    await waitFor(() =>
+      expect(mockBulkRejectRequests).toHaveBeenCalledWith([7]),
+    )
+  })
+
+  it('shows a failed action as a dismissible bad Note', async () => {
+    mockBlockUser.mockRejectedValue(
+      new Error('The auth service didn’t answer.'),
+    )
+    renderWithUsers([buildUser({ id: 'user_a', email: 'a@example.com' })])
+
+    fireEvent.click(screen.getAllByRole('button', { name: /^block$/i })[0]!)
+    const confirm = await findConfirm('Block a@example.com?')
+    fireEvent.click(confirmButton(confirm, 'Block'))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('The auth service didn’t answer.')
+
+    fireEvent.click(within(alert).getByRole('button', { name: 'Dismiss' }))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })
 

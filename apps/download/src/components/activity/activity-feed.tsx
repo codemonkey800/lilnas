@@ -1,21 +1,21 @@
 'use client'
 
-import { cns } from '@lilnas/utils/cns'
+import { Badge, Icon, Note, StatusDot } from '@lilnas/ui'
 import type { DownloadJob } from '@lilnas/utils/download/types'
 import { useRouter } from 'next/navigation'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useState, useTransition } from 'react'
 
 import { loadActivityPage } from 'src/app/actions/load-activity-page'
+import { ActivityDataList } from 'src/components/activity/activity-data-list'
 import { ActivityEmpty } from 'src/components/activity/activity-empty'
-import { ActivityList } from 'src/components/activity/activity-list'
+import {
+  ACTIVITY_TITLE,
+  ACTIVITY_TITLE_TEXT,
+} from 'src/components/activity/activity-page-shell'
 import { buildActivityRows } from 'src/components/activity/activity-rows'
-import { ActivityTable } from 'src/components/activity/activity-table'
 import { ActivityTabs } from 'src/components/activity/activity-tabs'
-import { Note } from 'src/components/ui/card'
-import { Chip } from 'src/components/ui/chip'
 import { LoadMore } from 'src/components/ui/load-more'
-import { Dot } from 'src/components/ui/status'
 import type { ActivityFilters } from 'src/lib/activity-filters'
 import { hasActivityFilters } from 'src/lib/activity-filters'
 import { useJobEvents } from 'src/lib/use-job-events'
@@ -33,12 +33,6 @@ export const DEPARTURE_MS = 2_600
 
 /** Shared empty set, so the initial state is one object rather than one per render. */
 const NO_EVICTIONS: ReadonlySet<string> = new Set()
-
-/** The loud `Note` from `ui.pug`'s call sites — `Note` itself has no tone. */
-const FEED_ERROR_NOTE = 'mt-6 border-bad/35! bg-bad-ghost! [&>svg]:text-bad!'
-
-const CONTROLS_ROW =
-  'mb-[18px] flex flex-wrap items-center justify-between gap-4'
 
 export type ActivityFeedProps = {
   /** The filter the URL currently describes. */
@@ -189,28 +183,27 @@ export function ActivityFeed({
 
   return (
     <>
-      <div className={cns(CONTROLS_ROW)}>
-        <ActivityTabs
-          filters={filters}
-          // `scroll: false` — a filter change replaces the feed in place, and
-          // yanking the viewport to the top of a page the user is already at
-          // the top of is only ever felt as a jolt when they are not.
-          onNavigate={href => router.push(href, { scroll: false })}
-        />
-        <div className="ml-auto flex items-center gap-2.5">
-          {connected ? (
-            <Chip tone="ok">
-              <Dot tone="live" />
-              {running} in flight
-            </Chip>
-          ) : (
-            <Chip tone="warn">
-              <Dot tone="warn" />
-              reconnecting…
-            </Chip>
-          )}
-        </div>
+      <div className="mb-4 flex items-baseline justify-between gap-3">
+        <h1 className={ACTIVITY_TITLE}>{ACTIVITY_TITLE_TEXT}</h1>
+        {connected ? (
+          <span className="flex items-center gap-2 text-sm text-ink-3">
+            <StatusDot pulse={running > 0} tone="accent" />
+            {running > 0 ? `${running} running` : 'Nothing running'}
+          </span>
+        ) : (
+          <Badge tone="warn">Reconnecting…</Badge>
+        )}
       </div>
+      <ActivityTabs
+        // The tab's own count is the rows it is showing, departing ones
+        // included — they are still on the screen the count describes.
+        count={rows.length}
+        filters={filters}
+        // `scroll: false` — a filter change replaces the feed in place, and
+        // yanking the viewport to the top of a page the user is already at
+        // the top of is only ever felt as a jolt when they are not.
+        onNavigate={href => router.push(href, { scroll: false })}
+      />
       {/*
         The departure, for anyone not watching the screen. A row leaving is
         otherwise completely silent: nothing takes focus and nothing else
@@ -226,24 +219,14 @@ export function ActivityFeed({
         <ActivityEmpty filtered={hasActivityFilters(filters)} />
       ) : (
         <>
-          {/*
-            Two layouts, one of them `display: none` at any given width — which
-            removes it from the accessible tree too, so assistive technology
-            sees exactly one copy of every row. Six columns do not fit at 390px
-            and the mobile row is a genuine re-ordering of the facts rather than
-            a reflow of the same cells, so this is two renders rather than a
-            table that collapses.
-          */}
-          <div className="hidden sm:block">
-            <ActivityTable now={now} rows={rows} viewer={viewer} />
-          </div>
-          <div className="sm:hidden">
-            <ActivityList now={now} rows={rows} viewer={viewer} />
-          </div>
+          <ActivityDataList now={now} rows={rows} viewer={viewer} />
           {error ? (
-            <Note className={cns(FEED_ERROR_NOTE)} icon="alert" role="alert">
-              {error}
-            </Note>
+            <Note
+              className="mt-6"
+              icon={<Icon name="alert" />}
+              lead={error}
+              tone="bad"
+            />
           ) : null}
           <LoadMore
             className="mt-6"

@@ -1,0 +1,14 @@
+extends ../../../../../designs/mockup-kit/page.pug
+
+block title
+  | tdr-code — UI mockups · lilnas
+
+block content
+  +mockHead({ eyebrow: 'tdr-code · tdr-code.lilnas.io', title: 'tdr-code' })
+    p The workshop. A console for the Claude Code sessions the Discord bot runs: live status, the session and event history, the logs, the global config and each person's git credentials. Compact density (30px controls, 13px body), Category Standard, built from the shared kit in #[+code('docs/designs/mockup-kit')]. Every page is shown at 1280 and 390 behind a switch, with each state as a captioned row. The phone layout is new: the nav collapses into a sheet, tables become cards.
+
+  ul(class='stagger grid max-w-[640px] gap-4')
+    each page in pages
+      li(class='flex flex-col gap-2')
+        +tile({ icon: page.icon, name: page.name, host: page.file, href: page.file })
+        p(class='px-1 text-sm text-ink-3')= page.blurb

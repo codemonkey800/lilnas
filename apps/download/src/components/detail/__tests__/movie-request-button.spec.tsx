@@ -8,6 +8,7 @@ import {
   MOVIE_REQUEST_LABEL,
   MovieRequestButton,
 } from 'src/components/detail/movie-request-button'
+import { QUALITY_TIER_HINT } from 'src/components/detail/quality-tier-select'
 
 const MOVIE_ID = 'tmdb:438631'
 
@@ -18,7 +19,7 @@ function downloadButton(): HTMLElement {
 
 /** The tier picker's trigger, whatever tier it reads. */
 function tierTrigger(): HTMLElement {
-  return screen.getByRole('button', { name: /^Quality:/ })
+  return screen.getByRole('combobox', { name: /^Quality:/ })
 }
 
 function renderButton(onRequest = jest.fn().mockResolvedValue(undefined)) {
@@ -28,6 +29,20 @@ function renderButton(onRequest = jest.fn().mockResolvedValue(undefined)) {
 }
 
 describe('MovieRequestButton', () => {
+  it('is the single accent button of its view', () => {
+    renderButton()
+
+    // `accent` is the filled-violet variant; the picker beside it is not a button variant at all.
+    expect(downloadButton().getAttribute('class')).toContain('bg-accent')
+  })
+
+  it('says what a tier is under the row, and describes the picker with it', () => {
+    renderButton()
+
+    expect(screen.getByText(QUALITY_TIER_HINT)).toBeInTheDocument()
+    expect(tierTrigger()).toHaveAccessibleDescription(QUALITY_TIER_HINT)
+  })
+
   it('labels the trigger', () => {
     renderButton()
 
@@ -73,7 +88,7 @@ describe('MovieRequestButton', () => {
     const { onRequest, user } = renderButton()
 
     await user.click(tierTrigger())
-    await user.click(screen.getByRole('option', { name: 'Up to 4K' }))
+    await user.click(await screen.findByRole('option', { name: 'Up to 4K' }))
     await user.click(downloadButton())
 
     expect(onRequest).toHaveBeenCalledWith(MOVIE_ID, QualityTier.UpTo4k)
@@ -83,7 +98,7 @@ describe('MovieRequestButton', () => {
     const { onRequest, user } = renderButton()
 
     await user.click(tierTrigger())
-    await user.click(screen.getByRole('option', { name: 'Up to 720p' }))
+    await user.click(await screen.findByRole('option', { name: 'Up to 720p' }))
 
     expect(onRequest).not.toHaveBeenCalled()
   })

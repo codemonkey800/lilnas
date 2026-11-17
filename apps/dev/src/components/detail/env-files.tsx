@@ -1,9 +1,7 @@
+import { Badge, Card, Icon, Kbd } from '@lilnas/ui'
 import type { JSX } from 'react'
 
-import { Panel, PanelHead } from 'src/components/detail/panel'
-import { Chip } from 'src/components/ui/chip'
-import { Icon } from 'src/components/ui/icon'
-import { Kbd } from 'src/components/ui/kbd'
+import { CardHead } from 'src/components/detail/card-head'
 import { shortPath } from 'src/lib/stack-display'
 import type { EnvFileRef } from 'src/registry/registry.types'
 
@@ -14,50 +12,48 @@ export function EnvFilesPanel({
   envFiles: EnvFileRef[]
 }): JSX.Element {
   return (
-    <Panel aria-label="Env files">
-      <PanelHead caption="read from the compose file" title="Env files" />
+    <Card aria-label="Env files" role="region">
+      <CardHead caption="read from the compose file" title="Env files" />
       {envFiles.length === 0 ? (
-        <p className="px-5 py-4 text-sm text-ink-3">
+        <p className="text-sm text-ink-3">
           The compose file names no env files.
         </p>
       ) : (
         <ul>
           {envFiles.map(file => (
             <li
-              className="flex items-center gap-3 px-5 py-3 [&+&]:border-t [&+&]:border-line-soft"
+              className="flex items-center gap-3 border-t border-line-soft py-2 first:border-t-0 first:pt-0"
               key={file.path}
             >
-              <Icon
-                className="h-[15px] w-[15px] shrink-0 text-ink-4"
-                name="file"
-              />
+              <Icon className="text-ink-3" name="file" size={14} />
               <span
                 className="min-w-0 flex-1 truncate font-mono text-mono text-ink"
                 title={file.path}
               >
                 {shortPath(file.path)}
               </span>
-              <span className="font-mono text-mono-sm text-ink-4">
+              <span className="text-cap text-ink-3">
                 {file.required ? 'required' : 'optional'}
               </span>
               {file.exists ? (
-                <Chip icon="check" label="present" tone="ok" />
+                <Badge tone="ok">
+                  <Icon name="check" size={12} />
+                  Present
+                </Badge>
               ) : (
-                <Chip
-                  icon="x"
-                  label="missing"
-                  tone={file.required ? 'bad' : 'mute'}
-                />
+                <Badge tone={file.required ? 'bad' : 'mute'}>
+                  <Icon name="x" size={12} />
+                  Missing
+                </Badge>
               )}
             </li>
           ))}
         </ul>
       )}
-      <p className="border-t border-line-soft px-5 py-3 text-sm text-ink-3">
-        Missing a required file? Run
-        <Kbd className="mx-1">pnpm lilnas secrets decrypt</Kbd>
-        on the host, then press Up.
+      <p className="mt-3 border-t border-line-soft pt-3 text-sm text-ink-3">
+        Missing a required file? Run <Kbd>pnpm lilnas secrets decrypt</Kbd> on
+        the host, then press Up.
       </p>
-    </Panel>
+    </Card>
   )
 }

@@ -36,6 +36,8 @@ const shared = {
     // and confirmed working here by actually running a test that imports
     // from '@lilnas/utils/health' (see db/__tests__/schema.spec.ts).
     '^@lilnas/utils/(.*)$': '<rootDir>/../../packages/utils/src/$1',
+    // The UI package is mapped to its source so specs don't need a build.
+    '^@lilnas/ui$': '<rootDir>/../../packages/ui/src/index.ts',
   },
 }
 

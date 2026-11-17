@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 
-const { base, react } = require('@lilnas/eslint')
+const { base, designSystem, react } = require('@lilnas/eslint')
 
-module.exports = [...base, ...react]
+module.exports = [...base, ...react, ...designSystem]

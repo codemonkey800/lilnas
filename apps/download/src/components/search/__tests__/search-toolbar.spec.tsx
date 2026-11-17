@@ -1,5 +1,5 @@
 import type { DiscoveryFacets } from '@lilnas/utils/download/types'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import type { SearchState } from 'src/components/search/search-params'
@@ -58,27 +58,29 @@ describe('SearchToolbar', () => {
   })
 
   describe('the view switch', () => {
-    // Deviation from `search.pug`, which wraps `aria-pressed` buttons in a
-    // `role="radiogroup"` — two patterns that do not compose. A pair of toggle
-    // buttons is what this actually is.
-    it('is a group of pressed-state toggles', () => {
+    // A `Segmented`: a radio group underneath, so the arrow keys move and
+    // select, and the chosen segment reports `aria-checked`.
+    it('is a radio group, with the current view checked', () => {
       renderToolbar('q=star&view=list')
 
-      expect(screen.getByRole('button', { name: 'List view' })).toHaveAttribute(
-        'aria-pressed',
-        'true',
-      )
-      expect(screen.getByRole('button', { name: 'Grid view' })).toHaveAttribute(
-        'aria-pressed',
-        'false',
-      )
+      expect(
+        screen.getByRole('radiogroup', { name: 'Result view' }),
+      ).toBeInTheDocument()
+      expect(screen.getByRole('radio', { name: 'List' })).toBeChecked()
+      expect(screen.getByRole('radio', { name: 'Grid' })).not.toBeChecked()
+    })
+
+    it('shows the grid as checked by default', () => {
+      renderToolbar('q=star')
+
+      expect(screen.getByRole('radio', { name: 'Grid' })).toBeChecked()
     })
 
     it('writes the view to the URL', async () => {
       const user = userEvent.setup()
       renderToolbar('q=star')
 
-      await user.click(screen.getByRole('button', { name: 'List view' }))
+      await user.click(screen.getByRole('radio', { name: 'List' }))
 
       expect(pushedParams().get('view')).toBe('list')
       expect(pushedParams().get('q')).toBe('star')
@@ -87,11 +89,21 @@ describe('SearchToolbar', () => {
     it('is dropped entirely when nothing matched', () => {
       renderToolbar('q=xyzzy', 0)
 
-      expect(screen.queryByRole('button', { name: 'Grid view' })).toBeNull()
+      expect(
+        screen.queryByRole('radiogroup', { name: 'Result view' }),
+      ).toBeNull()
     })
   })
 
   describe('the sort menu', () => {
+    it('names the current ordering on its trigger', () => {
+      renderToolbar('q=star&sort=title')
+
+      expect(
+        screen.getByRole('button', { name: 'Sort by Title A–Z' }),
+      ).toHaveTextContent('Sort: Title A–Z')
+    })
+
     it('offers exactly the API enum, and no more', async () => {
       const user = userEvent.setup()
       renderToolbar()
@@ -101,11 +113,23 @@ describe('SearchToolbar', () => {
       // In the enum's own declaration order, which is `DiscoverQuerySchema`'s.
       // `search.mjs` lists a fourth option, `Oldest release`; the API has no
       // ascending release order, so it is not offered.
-      expect(screen.getAllByRole('option').map(o => o.textContent)).toEqual([
-        'Relevance',
-        'Title A–Z',
-        'Newest release',
-      ])
+      expect(
+        (await screen.findAllByRole('menuitemradio')).map(o => o.textContent),
+      ).toEqual(['Relevance', 'Title A–Z', 'Newest release'])
+    })
+
+    it('marks the current ordering as checked', async () => {
+      const user = userEvent.setup()
+      renderToolbar('q=star&sort=title')
+
+      await user.click(screen.getByRole('button', { name: /^Sort by/ }))
+
+      expect(
+        await screen.findByRole('menuitemradio', { name: 'Title A–Z' }),
+      ).toHaveAttribute('aria-checked', 'true')
+      expect(
+        screen.getByRole('menuitemradio', { name: 'Relevance' }),
+      ).toHaveAttribute('aria-checked', 'false')
     })
 
     it('writes the chosen ordering to the URL', async () => {
@@ -113,7 +137,9 @@ describe('SearchToolbar', () => {
       renderToolbar()
 
       await user.click(screen.getByRole('button', { name: /^Sort by/ }))
-      await user.click(screen.getByRole('option', { name: 'Title A–Z' }))
+      await user.click(
+        await screen.findByRole('menuitemradio', { name: 'Title A–Z' }),
+      )
 
       expect(pushedParams().get('sort')).toBe('title')
     })
@@ -294,20 +320,6 @@ describe('SearchToolbar — popover focus', () => {
   }
 
   describe('the sort menu', () => {
-    it('opens onto the option it is currently sitting on', async () => {
-      const user = userEvent.setup()
-
-      renderToolbar('q=star&sort=title')
-
-      await user.click(sortTrigger())
-
-      const selected = screen.getByRole('option', { selected: true })
-
-      // Real DOM focus, not `aria-activedescendant` — so the first arrow press
-      // moves from somewhere meaningful.
-      expect(selected).toHaveFocus()
-    })
-
     it('closes on Escape and hands focus back to its own trigger', async () => {
       const user = userEvent.setup()
 
@@ -316,11 +328,11 @@ describe('SearchToolbar — popover focus', () => {
       const trigger = sortTrigger()
 
       await user.click(trigger)
-      expect(screen.getByRole('listbox')).toBeInTheDocument()
+      expect(await screen.findByRole('menu')).toBeInTheDocument()
 
       await user.keyboard('{Escape}')
 
-      expect(screen.queryByRole('listbox')).toBeNull()
+      await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
       expect(trigger).toHaveFocus()
     })
 
@@ -330,10 +342,12 @@ describe('SearchToolbar — popover focus', () => {
       renderToolbar()
 
       sortTrigger().focus()
-      await user.keyboard('{ArrowDown}')
+      await user.keyboard('{Enter}')
 
-      expect(screen.getByRole('listbox')).toBeInTheDocument()
-      expect(screen.getByRole('option', { selected: true })).toHaveFocus()
+      expect(await screen.findByRole('menu')).toBeInTheDocument()
+      expect(
+        await screen.findByRole('menuitemradio', { name: 'Relevance' }),
+      ).toBeInTheDocument()
     })
   })
 
@@ -371,14 +385,14 @@ describe('SearchToolbar — popover focus', () => {
       renderToolbar()
 
       await user.click(sortTrigger())
-      expect(screen.getByRole('listbox')).toBeInTheDocument()
+      expect(await screen.findByRole('menu')).toBeInTheDocument()
 
       // A pointer press outside the menu dismisses it, and the filters button
       // is outside. Two popovers stacked over each other would be two Escapes
       // to get out of, and the second one invisible.
       await user.click(filtersTrigger())
 
-      expect(screen.queryByRole('listbox')).toBeNull()
+      await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
       expect(
         screen.getByRole('dialog', { name: 'Filters' }),
       ).toBeInTheDocument()

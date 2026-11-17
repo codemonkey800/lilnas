@@ -84,17 +84,17 @@ describe('ToggleChip', () => {
     )
 
     expect(container.firstChild).toHaveClass(
-      'border-line',
-      'bg-surface',
-      'text-ink-3',
+      'border-line-control',
+      'bg-bg-sunk',
+      'text-ink-2',
     )
 
     rerender(<ToggleChip checked label="Comedy" />)
 
     expect(container.firstChild).toHaveClass(
-      'border-uv/35',
-      'bg-uv-ghost',
-      'text-uv-hi',
+      'border-accent-dim',
+      'bg-accent-ghost',
+      'text-accent-hi',
     )
     expect(container.firstChild).not.toHaveClass('bg-surface')
   })

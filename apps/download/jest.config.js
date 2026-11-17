@@ -22,6 +22,7 @@ const shared = {
   moduleNameMapper: {
     '^src/(.*)$': '<rootDir>/src/$1',
     '^@lilnas/media/(.*)$': '<rootDir>/../../packages/media/src/$1',
+    '^@lilnas/ui$': '<rootDir>/../../packages/ui/src/index.ts',
     '^@lilnas/utils/(.*)$': '<rootDir>/../../packages/utils/src/$1',
   },
   clearMocks: true,

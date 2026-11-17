@@ -133,8 +133,9 @@ const stacks = [
     ],
     note: {
       kind: 'unhealthy',
-      text: 'fitness-pwa-api-1 has failed its healthcheck 3 times in a row.',
+      text: 'fitness-pwa-api-1 is failing its healthcheck.',
       detail: 'curl -f http://localhost:3001/health → exit 22',
+      mono: true,
     },
   },
   {
@@ -229,7 +230,7 @@ const stacks = [
     note: {
       kind: 'absent',
       text: 'Reaped 1h 5m ago after 2h without a visit.',
-      detail: 'Up brings it back; its volumes were kept.',
+      detail: 'Up brings it back; its volumes are kept.',
     },
   },
   {
@@ -280,13 +281,71 @@ const running = stacks.flatMap(s =>
 )
 const memMb = running.reduce((sum, svc) => sum + svc.mem, 0)
 
+// Cards pinned to one moment of the action bar, since the sample stacks above
+// are all at rest. `ui.asking` is the first step of Recreate/Down; `ui.pending`
+// is a request in flight (every button disabled, the pressed one spinning);
+// `ui.outcome` is what the API said when it refused or failed.
+const bySlug = slug => stacks.find(s => s.slug === slug)
+
+const actionStates = [
+  {
+    label: 'Recreate, asked',
+    stack: { ...bySlug('fitness-pwa'), ui: { asking: 'recreate' } },
+  },
+  {
+    label: 'Down, asked',
+    stack: { ...bySlug('test-landing-page'), ui: { asking: 'down' } },
+  },
+  {
+    label: 'Restart, in flight',
+    stack: { ...bySlug('download'), ui: { pending: 'restart' } },
+  },
+  {
+    label: '409 — another operation owns the stack',
+    stack: {
+      ...bySlug('theater'),
+      ui: { outcome: { kind: 'busy', action: 'restart', running: 'recreate' } },
+    },
+  },
+  {
+    label: '412 — a required env file is missing',
+    stack: {
+      ...bySlug('tdr-bot'),
+      ui: {
+        outcome: {
+          kind: 'preflight',
+          action: 'up',
+          missing: ['apps/tdr-bot/.env.prod.decrypted'],
+        },
+      },
+    },
+  },
+  {
+    label: 'Compose refused',
+    stack: {
+      ...bySlug('rocky-roads-dev'),
+      ui: {
+        outcome: {
+          kind: 'failed',
+          action: 'recreate',
+          status: 500,
+          message: 'docker compose exited 1: no space left on device',
+        },
+      },
+    },
+  },
+]
+
 export default {
   stacks,
+  actionStates,
   host: {
     stacks: stacks.length,
     running: running.length,
     memory: `${(memMb / 1024).toFixed(1)} GB`,
     reaper: '2h idle',
-    updated: '4s ago',
+    updated: '3s ago',
   },
+  retryInSeconds: 30,
+  errorCode: 'ECONNREFUSED 127.0.0.1:8081',
 }

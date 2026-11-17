@@ -34,25 +34,25 @@ describe('AdminStats — windowDays', () => {
   it('renders the window the response reports, not the one that was requested', () => {
     render(<AdminStats stats={stats({ windowDays: 30 })} />)
 
-    expect(screen.getByText('last 30 days')).toBeInTheDocument()
-    expect(screen.queryByText('last 365 days')).not.toBeInTheDocument()
+    expect(screen.getByText('Last 30 days')).toBeInTheDocument()
+    expect(screen.queryByText('Last 365 days')).not.toBeInTheDocument()
   })
 
   it('follows the response when it clamps down to the schema default', () => {
     const { rerender } = render(<AdminStats stats={stats({ windowDays: 7 })} />)
-    expect(screen.getByText('last 7 days')).toBeInTheDocument()
+    expect(screen.getByText('Last 7 days')).toBeInTheDocument()
 
     // Same page, same URL, a response that now says a different window — the
     // tile has to move with it.
     rerender(<AdminStats stats={stats({ windowDays: 30 })} />)
-    expect(screen.getByText('last 30 days')).toBeInTheDocument()
-    expect(screen.queryByText('last 7 days')).not.toBeInTheDocument()
+    expect(screen.getByText('Last 30 days')).toBeInTheDocument()
+    expect(screen.queryByText('Last 7 days')).not.toBeInTheDocument()
   })
 
   it('says day, singular, for a one-day window', () => {
     render(<AdminStats stats={stats({ windowDays: 1 })} />)
 
-    expect(screen.getByText('last 1 day')).toBeInTheDocument()
+    expect(screen.getByText('Last 1 day')).toBeInTheDocument()
   })
 })
 
@@ -116,8 +116,8 @@ describe('AdminStats — the tiles', () => {
     expect(screen.getByText('921')).toBeInTheDocument()
     // The all-time totals say so: only `jobsPerDay` is windowed by `days`, so
     // every other tile has to state the scope it actually describes.
-    expect(screen.getAllByText('all time').length).toBeGreaterThan(0)
-    expect(screen.getByText(/of 1,842/)).toBeInTheDocument()
+    expect(screen.getByText('All time')).toBeInTheDocument()
+    expect(screen.getByText(/of 1,842 all time/)).toBeInTheDocument()
   })
 
   it('marks the running tile live only while something is running', () => {
@@ -129,7 +129,7 @@ describe('AdminStats — the tiles', () => {
       />,
     )
 
-    expect(container.querySelector('.dot-live')).not.toBeNull()
+    expect(container.querySelector('[data-pulse]')).not.toBeNull()
 
     rerender(
       <AdminStats
@@ -139,7 +139,7 @@ describe('AdminStats — the tiles', () => {
       />,
     )
 
-    expect(container.querySelector('.dot-live')).toBeNull()
+    expect(container.querySelector('[data-pulse]')).toBeNull()
   })
 
   // The bar is decoration beside a figure that already states the fact; a

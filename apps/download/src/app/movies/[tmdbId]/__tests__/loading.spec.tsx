@@ -16,10 +16,10 @@ describe('MovieLoading', () => {
 
     const poster = container.querySelector('.skeleton.aspect-\\[2\\/3\\]')
 
-    // `DetailHeader`'s own geometry: centred and capped at 220px on a phone,
+    // `DetailHeader`'s own geometry: a 132px thumbnail on a phone,
     // a fixed 200px column from `sm`. Anything else and the art jumps when
     // Radarr answers.
-    expect(poster?.getAttribute('class')).toContain('max-w-[220px]')
+    expect(poster?.getAttribute('class')).toContain('w-[132px]')
     expect(poster?.getAttribute('class')).toContain('sm:w-[200px]')
   })
 

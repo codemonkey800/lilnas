@@ -114,7 +114,7 @@ function wrapper({ children }: { children: ReactNode }) {
 const mockFetch = jest.fn()
 
 // jest.config.js's top-level clearMocks/restoreMocks do NOT apply per Jest
-// PROJECT once a `projects` array is used (see config.page.spec.tsx's own
+// PROJECT once a `projects` array is used (see config/__tests__/page.spec.tsx's own
 // header comment, which documents this exact gap empirically) — so a spy
 // installed in one test bleeds its call history into the next test in this
 // file unless explicitly torn down. jest.spyOn(...).mockRestore() in

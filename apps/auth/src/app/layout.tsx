@@ -1,20 +1,24 @@
 import 'src/tailwind.css'
 
+import { ToastProvider } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
+import { Geist, Geist_Mono } from 'next/font/google'
 import type { ReactNode } from 'react'
 
-// Self-hosted at build time (next/font downloads and serves the font file
-// itself), not a runtime <link> to Google's CDN — strictly better for a
-// self-hosted app: no third-party request, no layout shift while the CDN
-// link resolves. `--fg`/design-tokens.css's own `.h1`/`.body-text`/etc.
-// classes never set font-family themselves (they inherit from body), so
-// applying `inter.className` here is the ONLY place Inter is wired in.
-const inter = Inter({ subsets: ['latin'] })
+// Self-hosted at build time (next/font downloads and serves the font files
+// itself), not a runtime <link> to Google's CDN — no third-party request and
+// no layout shift. Each font exposes a CSS variable that src/tailwind.css
+// maps onto `--font-sans` / `--font-mono` with `@theme inline`; that mapping
+// is the ONLY place the families are wired in. The variable classes must sit
+// on <html>: tailwind.css declares `--font-sans` at :root, and a custom
+// property set on <body> is invisible to :root, so `var(--font-geist)` would
+// resolve to nothing there and fall back to the system stack.
+const sans = Geist({ subsets: ['latin'], variable: '--font-geist' })
+const mono = Geist_Mono({ subsets: ['latin'], variable: '--font-geist-mono' })
 
-// Reuses the same public/sad-pepe.svg the in-app <Brandmark> renders, so the
-// browser tab icon matches the brand mark shown on every page instead of
+// Reuses the same public/sad-pepe.svg the system's pepe mark is drawn from, so
+// the browser tab icon matches the mark shown on every page instead of
 // falling back to Next.js's default icon.
 export const metadata: Metadata = {
   title: 'lilnas Auth',
@@ -26,14 +30,9 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html className="h-full" lang="en">
-      <body
-        className={cns(
-          inter.className,
-          'min-h-screen bg-bg text-fg antialiased',
-        )}
-      >
-        {children}
+    <html className={cns('h-full', sans.variable, mono.variable)} lang="en">
+      <body className="min-h-screen bg-bg font-sans text-ink antialiased">
+        <ToastProvider>{children}</ToastProvider>
       </body>
     </html>
   )

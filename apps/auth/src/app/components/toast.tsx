@@ -1,49 +1,28 @@
 'use client'
 
-import { cns } from '@lilnas/utils/cns'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import type { ToastTone } from '@lilnas/ui'
+import { useToast as useUiToast } from '@lilnas/ui'
+import { useCallback, useMemo } from 'react'
 
-import { Icon } from './icons'
-
-// Mirrors the design mockups' `showToast()` — a single bottom-center toast
-// that auto-clears after 2200ms. Each page owns its own `useToast()` hook
-// instance (no global provider) and renders one `<Toast>` for it.
+// A thin wrapper over @lilnas/ui's `useToast()` that keeps the one-string
+// call shape every page here already uses: `showToast('Access granted')`.
+// The toast itself is drawn by the `ToastProvider` mounted once in
+// layout.tsx, so there is no markup (and no `<Toast>` element) here anymore.
+// An optional tone is the only addition — "Still blocked" is `bad`.
+//
+// Toasts confirm, they don't linger: every one dismisses itself after
+// 2.2 seconds, `bad` included (the package default keeps a `bad` toast up
+// until it's dismissed, which would stack up on a repeated "Check again").
 const TOAST_VISIBLE_MS = 2200
 
 export function useToast() {
-  const [message, setMessage] = useState<string | null>(null)
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(
-    undefined,
+  const { show } = useUiToast()
+
+  const showToast = useCallback(
+    (title: string, tone?: ToastTone) =>
+      show({ title, tone, timeout: TOAST_VISIBLE_MS }),
+    [show],
   )
 
-  useEffect(() => () => clearTimeout(timeoutRef.current), [])
-
-  const showToast = useCallback((text: string) => {
-    setMessage(text)
-    clearTimeout(timeoutRef.current)
-    timeoutRef.current = setTimeout(() => setMessage(null), TOAST_VISIBLE_MS)
-  }, [])
-
-  return { message, showToast }
-}
-
-export type ToastProps = {
-  message: string | null
-}
-
-export function Toast({ message }: ToastProps) {
-  return (
-    <div
-      className={cns('toast', message ? 'is-visible' : undefined)}
-      role="status"
-      aria-live="polite"
-    >
-      {message ? (
-        <>
-          <Icon name="check" />
-          <span>{message}</span>
-        </>
-      ) : null}
-    </div>
-  )
+  return useMemo(() => ({ showToast }), [showToast])
 }

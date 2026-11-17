@@ -1,7 +1,7 @@
+import { type IconName } from '@lilnas/ui'
 import type { Media } from '@lilnas/utils/download/types'
 import { DownloadType } from '@lilnas/utils/download/types'
 
-import type { IconName } from 'src/components/ui/icon'
 import { formatRuntime, UNKNOWN_VALUE } from 'src/lib/format'
 
 /**

@@ -17,8 +17,8 @@ import { mediaHref } from 'src/lib/media-route'
 
 /** `search.pug:132`. */
 const RESULT_GRID = cns(
-  'stagger grid gap-3 grid-cols-[repeat(auto-fill,minmax(128px,1fr))]',
-  'sm:gap-4 sm:grid-cols-[repeat(auto-fill,minmax(148px,1fr))]',
+  'stagger grid grid-cols-2 gap-4',
+  'sm:grid-cols-[repeat(auto-fill,minmax(148px,1fr))]',
 )
 
 export type ResultCardProps = { media: Media }
@@ -44,7 +44,7 @@ export function ResultCard({ media }: ResultCardProps): JSX.Element {
         // height. In `search.pug` the `<a>` *is* the grid item and stretches on
         // its own; here it sits inside one, and without this the bottom of a
         // short card is border with nothing clickable behind it.
-        className="flex-1 rounded-[inherit] p-[9px]"
+        className="flex-1 rounded-[inherit] p-2.5"
         href={mediaHref(media)}
       >
         <Poster
@@ -53,11 +53,9 @@ export function ResultCard({ media }: ResultCardProps): JSX.Element {
           shape="tall"
           src={media.posterUrl}
         />
-        <GalleryCardTitle className="text-[12.5px]! sm:text-sm!">
-          {media.title}
-        </GalleryCardTitle>
+        <GalleryCardTitle className="text-sm">{media.title}</GalleryCardTitle>
         <MChip
-          className="font-mono text-mono-sm text-ink-3"
+          className="text-cap text-ink-3"
           icon={RESULT_KIND_ICONS[media.type]}
           label={resultKindAndYear(media)}
         />
@@ -87,7 +85,7 @@ export function ResultGrid({
   ...props
 }: ResultGridProps): JSX.Element {
   return (
-    <div {...props} className={cns(RESULT_GRID, className)}>
+    <div {...props} className={cns(RESULT_GRID, className)} data-view="grid">
       {items.map(media => (
         <ResultCard key={media.id} media={media} />
       ))}

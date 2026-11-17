@@ -1,5 +1,6 @@
 'use client'
 
+import { Icon } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type {
   ComponentPropsWithoutRef,
@@ -9,7 +10,6 @@ import type {
 } from 'react'
 import { useCallback, useState } from 'react'
 
-import { Icon } from 'src/components/ui/icon'
 import type { PosterVariant } from 'src/lib/format'
 import { posterVariant } from 'src/lib/format'
 
@@ -169,7 +169,7 @@ export function Poster({
         />
       ) : null}
       {play ? (
-        <span className="absolute inset-0 flex items-center justify-center bg-linear-to-b from-transparent from-48% to-scrim/50">
+        <span className="absolute inset-0 flex items-center justify-center bg-linear-to-b from-transparent from-48% to-bg-sunk/50">
           <Icon name="play" className={cns(playSize, 'text-ink')} />
         </span>
       ) : null}

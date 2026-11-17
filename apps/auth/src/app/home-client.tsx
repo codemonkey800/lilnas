@@ -1,7 +1,20 @@
 'use client'
 
-import { Brandmark } from 'src/app/components/brandmark'
-import { Icon } from 'src/app/components/icons'
+import {
+  AppBar,
+  Avatar,
+  Button,
+  Card,
+  EmptyState,
+  Icon,
+  Note,
+  Sheet,
+  Tile,
+} from '@lilnas/ui'
+import type { ReactNode } from 'react'
+
+import type { AccountStatus } from 'src/app/components/status-badge'
+import { StatusBadge } from 'src/app/components/status-badge'
 import { signOut } from 'src/app/lib/auth-client'
 import { getInitials } from 'src/app/lib/initials'
 import type { MeResponse } from 'src/app/lib/require-session'
@@ -11,8 +24,6 @@ export type HomeClientProps = {
   me: MeResponse
 }
 
-type AccountStatus = 'admin' | 'blocked' | 'granted' | 'pending' | 'none'
-
 function getAccountStatus(me: MeResponse): AccountStatus {
   if (me.isAdmin) return 'admin'
   if (me.blockedAt) return 'blocked'
@@ -20,47 +31,6 @@ function getAccountStatus(me: MeResponse): AccountStatus {
   if (me.grants.length > 0 || me.rules.length > 0) return 'granted'
   if (me.pendingRequests.length > 0) return 'pending'
   return 'none'
-}
-
-function StatusChip({ status }: { status: AccountStatus }) {
-  if (status === 'admin') {
-    return (
-      <span className="chip chip-admin">
-        <Icon name="shield" />
-        <span>Admin</span>
-      </span>
-    )
-  }
-  if (status === 'granted') {
-    return (
-      <span className="chip chip-granted">
-        <Icon name="check" />
-        <span>Granted</span>
-      </span>
-    )
-  }
-  if (status === 'pending') {
-    return (
-      <span className="chip chip-pending">
-        <Icon name="clock" />
-        <span>Pending</span>
-      </span>
-    )
-  }
-  if (status === 'blocked') {
-    return (
-      <span className="chip chip-revoked">
-        <Icon name="x" />
-        <span>Blocked</span>
-      </span>
-    )
-  }
-  return (
-    <span className="chip chip-revoked">
-      <Icon name="x" />
-      <span>No access</span>
-    </span>
-  )
 }
 
 // The redesigned home page's signed-in-user view. Renders entirely from the
@@ -72,15 +42,16 @@ function StatusChip({ status }: { status: AccountStatus }) {
 // to cover.
 //
 // Every authenticated user — admin or not — sees this same view; the only
-// admin-specific additions are the "Admin" link in the topbar (see
+// admin-specific additions are the "Admin" link in the app bar (see
 // deviation #8 in the redesign plan: `/` no longer force-redirects an admin
-// to /admin) and the "Admin" status chip, which takes priority over
+// to /admin) and the "Admin" status badge, which takes priority over
 // blocked/granted/pending/none — an ADMIN_EMAILS address's access doesn't
 // depend on grants (see MeResponse.isAdmin's own comment), so the chip
 // reflects that rather than whatever the grants table happens to say.
 export function HomeClient({ me }: HomeClientProps) {
   const status = getAccountStatus(me)
   const serviceCount = me.grants.length + me.rules.length
+  const initials = getInitials(me.name)
 
   function handleSignOut() {
     void signOut().then(() => {
@@ -90,130 +61,160 @@ export function HomeClient({ me }: HomeClientProps) {
 
   return (
     <>
-      <header className="topbar">
-        <Brandmark />
-        <div className="row gap-2.5">
-          {me.isAdmin ? (
-            <a href="/admin" className="btn btn-outline btn-sm">
-              Admin
-            </a>
-          ) : null}
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={handleSignOut}
-          >
-            Sign out
-          </button>
-        </div>
-      </header>
+      <AppBar
+        app="auth"
+        links={me.isAdmin ? [{ href: '/admin', label: 'Admin' }] : undefined}
+        end={
+          <div className="hidden items-center gap-2 md:flex">
+            <Button variant="ghost" size="sm" onClick={handleSignOut}>
+              Sign out
+            </Button>
+            <Avatar
+              initials={initials}
+              size={32}
+              self
+              src={me.image ?? undefined}
+              title={me.name}
+            />
+          </div>
+        }
+        sheet={
+          <Sheet.Root>
+            <Sheet.Trigger
+              render={
+                <Button variant="ghost" icon="menu" aria-label="Open menu" />
+              }
+            />
+            <Sheet.Popup side="bottom">
+              <Sheet.Title className="mb-2">Menu</Sheet.Title>
+              <div className="-mx-1.5 flex flex-col">
+                {me.isAdmin ? (
+                  <a
+                    href="/admin"
+                    className="flex h-11 items-center gap-2 rounded-md px-2.5 text-body text-ink hover:bg-surface-2"
+                  >
+                    <Icon name="shield" />
+                    Admin
+                  </a>
+                ) : null}
+                <button
+                  type="button"
+                  className="flex h-11 items-center gap-2 rounded-md px-2.5 text-body text-ink hover:bg-surface-2"
+                  onClick={handleSignOut}
+                >
+                  <Icon name="logout" />
+                  Sign out
+                </button>
+              </div>
+            </Sheet.Popup>
+          </Sheet.Root>
+        }
+      />
 
-      <div className="shell shell--home">
-        <div className="stack gap-1">
-          <h1 className="h1">Your account</h1>
-          <p className="body-text muted">
+      <main className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-4 py-6 md:gap-8 md:px-8 md:py-10">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-h1">Your account</h1>
+          <p className="text-body text-ink-3">
             This is what&apos;s tied to your session at lilnas.io.
           </p>
         </div>
 
-        <div className="account-card">
-          <span className="avatar avatar-lg avatar-ring overflow-hidden">
-            {me.image ? (
-              <img
-                src={me.image}
-                alt=""
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              getInitials(me.name)
-            )}
-          </span>
-          <div className="account-card__text">
-            <div className="account-card__row">
-              <span className="h2">{me.name}</span>
-              <StatusChip status={status} />
+        <Card className="flex items-start gap-4 md:items-center">
+          <Avatar
+            initials={initials}
+            size={64}
+            self
+            src={me.image ?? undefined}
+            title={me.name}
+          />
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <h2 className="text-h2">{me.name}</h2>
+              <StatusBadge status={status} />
             </div>
-            <span className="body-text muted">{me.email}</span>
+            <p className="truncate font-mono text-mono text-ink-3">
+              {me.email}
+            </p>
           </div>
-        </div>
+        </Card>
 
         {status === 'pending' ? (
-          <div className="notice" role="status">
-            <Icon name="clock" />
-            <span>
-              Your access request is still awaiting admin approval. You&apos;ll
-              be able to reach gated services once it&apos;s approved.
-            </span>
-          </div>
+          <Note tone="warn" lead="Your request is waiting for approval.">
+            You&apos;ll be able to open services once an admin approves it.
+          </Note>
         ) : null}
 
-        <div className="stack gap-3.5">
-          <h2 className="h3 text-xs uppercase tracking-[0.06em] text-muted">
-            Session details
-          </h2>
-          <div className="meta-list card px-[18px] py-1">
-            <div className="meta-list__row">
-              <span className="meta-list__label">Role</span>
-              <span className="meta-list__value">
-                {me.isAdmin ? 'Admin' : 'Member'}
-              </span>
-            </div>
-            <div className="meta-list__row">
-              <span className="meta-list__label">Member since</span>
-              <span className="meta-list__value">
-                {new Date(me.createdAt).toLocaleDateString()}
-              </span>
-            </div>
-          </div>
-        </div>
+        <section className="flex flex-col gap-3">
+          <h2 className="text-label text-ink-3 uppercase">Session details</h2>
+          <dl className="rounded-lg border border-line bg-surface px-4">
+            <DetailRow label="Role">
+              {me.isAdmin ? 'Admin' : 'Member'}
+            </DetailRow>
+            <DetailRow label="Member since">
+              {new Date(me.createdAt).toLocaleDateString()}
+            </DetailRow>
+            <DetailRow label="Signed in with">Google</DetailRow>
+          </dl>
+        </section>
 
-        <div className="stack gap-3.5">
-          <div className="row between">
-            <h2 className="h2">Your services</h2>
-            <span className="caption">
+        <section className="flex flex-col gap-3">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-h2">Your services</h2>
+            <span className="text-cap text-ink-3 tabular-nums">
               {serviceCount} {serviceCount === 1 ? 'service' : 'services'}
             </span>
           </div>
-          <div className="services-grid">
-            {serviceCount === 0 ? (
-              <div className="empty-state col-span-full">
-                <p className="body-text">No services granted yet.</p>
-              </div>
-            ) : (
-              [
-                // Access rules first, as plain (non-link) tiles — a rule
-                // names a whole family of sites, so there's no single URL
-                // to send the user to.
-                ...me.rules.map(rule => (
-                  <div key={rule} className="service-tile">
-                    <span className="service-tile__icon">
-                      <Icon name="globe" />
-                    </span>
-                    <span className="service-tile__name">Any {rule} site</span>
-                    <span className="service-tile__domain">Access rule</span>
-                  </div>
-                )),
-                ...me.grants.map(host => {
-                  const meta = getServiceMeta(host)
-                  return (
-                    <a
-                      key={host}
-                      href={`https://${host}`}
-                      className="service-tile"
-                    >
-                      <span className="service-tile__icon">
-                        <Icon name={meta.icon} />
-                      </span>
-                      <span className="service-tile__name">{meta.name}</span>
-                      <span className="service-tile__domain">{host}</span>
-                    </a>
-                  )
-                }),
-              ]
-            )}
-          </div>
-        </div>
-      </div>
+          {serviceCount === 0 ? (
+            <div className="rounded-lg border border-line bg-surface">
+              <EmptyState
+                title="No services granted yet."
+                body="Once an admin grants you access, your services show up here."
+              />
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {/* Access rules first, as plain (non-link) tiles — a rule names
+                  a whole family of sites, so there's no single URL to send
+                  the user to. */}
+              {me.rules.map(rule => (
+                <Tile
+                  key={rule}
+                  icon="globe"
+                  title={`Any ${rule} site`}
+                  meta="Access rule"
+                />
+              ))}
+              {me.grants.map(host => {
+                const meta = getServiceMeta(host)
+                return (
+                  <Tile
+                    key={host}
+                    href={`https://${host}`}
+                    icon={meta.icon}
+                    title={meta.name}
+                    meta={host}
+                  />
+                )
+              })}
+            </div>
+          )}
+        </section>
+      </main>
     </>
+  )
+}
+
+function DetailRow({
+  label,
+  children,
+}: {
+  label: string
+  children: ReactNode
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-4 border-t border-line-soft py-2.5 first:border-t-0">
+      <dt className="text-sm text-ink-3">{label}</dt>
+      <dd className="text-sm">{children}</dd>
+    </div>
   )
 }

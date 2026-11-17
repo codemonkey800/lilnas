@@ -116,12 +116,12 @@ describe('overview page', () => {
   })
 
   describe('states', () => {
-    it('running: a live chip, the container numbers and the reap time', async () => {
+    it('running: a live badge, the container numbers and the reap time', async () => {
       await renderPage()
 
       const card = cardOf('download')
       expect(
-        card.getByText('running', { selector: 'span' }),
+        card.getByText('Running', { selector: 'span' }),
       ).toBeInTheDocument()
       expect(card.getByText('lilnas-download-dev')).toBeInTheDocument()
       expect(card.getByText('healthy')).toBeInTheDocument()
@@ -138,8 +138,9 @@ describe('overview page', () => {
       await renderPage()
 
       const card = cardOf('fitness-pwa')
-      // Once on the chip, once as the container's verdict.
-      expect(card.getAllByText('unhealthy')).toHaveLength(2)
+      // The badge is sentence case; the container's verdict is machine voice.
+      expect(card.getByText('Unhealthy')).toBeInTheDocument()
+      expect(card.getByText('unhealthy')).toBeInTheDocument()
       expect(
         card.getByText('fitness-pwa-api-1 is failing its healthcheck.'),
       ).toBeInTheDocument()
@@ -151,7 +152,7 @@ describe('overview page', () => {
       await renderPage()
 
       const card = cardOf('test-landing-page')
-      expect(card.getByText('exited', { selector: 'span' })).toBeInTheDocument()
+      expect(card.getByText('Exited', { selector: 'span' })).toBeInTheDocument()
       expect(card.getByText('exited (1)')).toBeInTheDocument()
       expect(
         card.getByText(/test-landing-page-web-1 exited with code 1, 14m ago\./),
@@ -164,7 +165,7 @@ describe('overview page', () => {
       await renderPage()
 
       const card = cardOf('GoonCut')
-      expect(card.getByText('absent')).toBeInTheDocument()
+      expect(card.getByText('Absent')).toBeInTheDocument()
       expect(card.getByText('no container')).toBeInTheDocument()
       expect(card.getByText('No containers.')).toBeInTheDocument()
       expect(card.getByRole('button', { name: 'Up' })).toBeEnabled()
@@ -177,8 +178,9 @@ describe('overview page', () => {
       await renderPage()
 
       const card = cardOf('blabla')
-      expect(card.getByText('busy')).toBeInTheDocument()
-      expect(card.getByText(/^up · \d+s$/)).toBeInTheDocument()
+      expect(card.getByText('Busy')).toBeInTheDocument()
+      expect(card.getByText('Up is running.')).toBeInTheDocument()
+      expect(card.getByText(/\d+s so far\./)).toBeInTheDocument()
       expect(
         card.getByText(/Container blabla-web-1\s+Starting/),
       ).toBeInTheDocument()
@@ -191,7 +193,7 @@ describe('overview page', () => {
       await renderPage()
 
       const card = cardOf('tdr-bot')
-      expect(card.getByText('env missing')).toBeInTheDocument()
+      expect(card.getByText('Env missing')).toBeInTheDocument()
       expect(
         card.getByText('apps/tdr-bot/.env.prod.decrypted'),
       ).toBeInTheDocument()
@@ -231,7 +233,7 @@ describe('overview page', () => {
       await screen.findByRole('heading', { name: 'tdr-bot' })
 
       const card = cardOf('tdr-bot')
-      expect(card.getByText('env missing')).toBeInTheDocument()
+      expect(card.getByText('Env missing')).toBeInTheDocument()
       expect(card.getByRole('button', { name: 'Stop' })).toBeEnabled()
       expect(card.getByRole('button', { name: 'Down' })).toBeEnabled()
       for (const name of ['Up', 'Restart', 'Recreate']) {
@@ -302,14 +304,39 @@ describe('overview page', () => {
       const card = cardOf('download')
 
       await user.click(card.getByRole('button', { name: 'Down' }))
+      // The confirm is an inline warn note that names the object and what
+      // survives, not a dialog.
+      expect(card.getByText('Down download?')).toBeInTheDocument()
       expect(
-        card.getByText(/Down removes the containers and networks of download/),
+        card.getByText(/Its containers and networks are removed\./),
+      ).toBeInTheDocument()
+      expect(card.getByText(/Volumes are kept\./)).toBeInTheDocument()
+      expect(
+        card.getByText('Down download?').closest('[role="status"]'),
       ).toBeInTheDocument()
       expect(posts()).toHaveLength(0)
 
       await user.click(card.getByRole('button', { name: 'Keep it' }))
       expect(card.queryByRole('button', { name: 'Keep it' })).toBeNull()
+      expect(card.queryByText('Down download?')).toBeNull()
       expect(posts()).toHaveLength(0)
+    })
+
+    it('the Down confirm is the one filled red; the Recreate confirm is accent', async () => {
+      const user = userEvent.setup()
+      await renderPage()
+      const card = cardOf('download')
+
+      await user.click(card.getByRole('button', { name: 'Down' }))
+      expect(card.getByRole('button', { name: 'Down download' })).toHaveClass(
+        'bg-bad',
+      )
+      await user.click(card.getByRole('button', { name: 'Keep it' }))
+
+      await user.click(card.getByRole('button', { name: 'Recreate' }))
+      expect(
+        card.getByRole('button', { name: 'Recreate download' }),
+      ).not.toHaveClass('bg-bad')
     })
 
     it('Down posts once confirmed', async () => {
@@ -330,6 +357,11 @@ describe('overview page', () => {
       const card = cardOf('download')
 
       await user.click(card.getByRole('button', { name: 'Recreate' }))
+      expect(card.getByText('Recreate download?')).toBeInTheDocument()
+      expect(
+        card.getByText(/Its containers are rebuilt from the compose file\./),
+      ).toBeInTheDocument()
+      expect(card.getByText(/Volumes are kept\./)).toBeInTheDocument()
       expect(posts()).toHaveLength(0)
       await user.click(card.getByRole('button', { name: 'Recreate download' }))
 

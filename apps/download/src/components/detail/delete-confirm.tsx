@@ -1,20 +1,22 @@
 'use client'
 
+import {
+  Button,
+  type ButtonSize,
+  type ButtonVariant,
+  ConfirmDialog,
+} from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type {
   DeleteMediaFilesQuery,
   Episode,
 } from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX, ReactNode } from 'react'
-import { useRef, useState, useTransition } from 'react'
+import { useState, useTransition } from 'react'
 
 import type { DeleteMediaFilesResult } from 'src/app/actions/media-files'
 import type { DeleteVideoJobResult } from 'src/app/actions/video-job'
 import type { DeleteCascade } from 'src/components/detail/show-state'
-import { Button } from 'src/components/ui/button'
-import type { ButtonSize, ButtonVariant } from 'src/components/ui/button-recipe'
-import { buttonRecipeClassName } from 'src/components/ui/button-recipe'
-import { DeleteButton, Modal } from 'src/components/ui/modal'
 import { formatBytes } from 'src/lib/format'
 
 /**
@@ -154,13 +156,13 @@ function scopeClause(
   if (scope.cascadesTo === 'series') {
     const last = scope.kind === 'season' ? 'season' : 'episode'
 
-    return `It's the last downloaded ${last} of the series, so the series is removed from Sonarr.`
+    return `It’s the last downloaded ${last} of the series, so the series is removed from Sonarr.`
   }
 
   // `'season'` on a season scope is meaningless - a season delete unmonitors
   // its own season by definition - so it keeps the reassurance.
   if (scope.cascadesTo === 'season' && scope.kind === 'episode') {
-    return "It's the last downloaded episode of the season, so the season is unmonitored too."
+    return 'It’s the last downloaded episode of the season, so the season is unmonitored too.'
   }
 
   return scope.kind === 'episode'
@@ -291,33 +293,33 @@ export function deleteConfirmCopy(
       const siblings = siblingsClause(scope.sharesFileWith)
       // "this one episode" would be false of a file that holds several.
       const file = siblings
-        ? "this episode's file"
+        ? 'this episode’s file'
         : 'the file for this one episode'
 
       return {
-        description: `Removes ${file} from the library${frees}.${siblings} ${scopeClause(scope)} This can't be undone.`,
-        title: `Delete ${episodeLabel(scope.seasonNumber, scope.episodeNumber)} of "${title}"?`,
+        description: `Removes ${file} from the library${frees}.${siblings} ${scopeClause(scope)}`,
+        title: `Delete ${episodeLabel(scope.seasonNumber, scope.episodeNumber)} of “${title}”?`,
       }
     }
     case 'season':
       return {
-        description: `Removes the file for every episode in season ${scope.seasonNumber} from the library${frees}. ${scopeClause(scope)} This can't be undone.`,
-        title: `Delete season ${scope.seasonNumber} of "${title}"?`,
+        description: `Removes the file for every episode in season ${scope.seasonNumber} from the library${frees}. ${scopeClause(scope)}`,
+        title: `Delete season ${scope.seasonNumber} of “${title}”?`,
       }
     case 'series':
       return {
-        description: `Removes every episode of every season from the library${frees} and removes the series from Sonarr. It can be requested again later. This can't be undone.`,
-        title: `Delete "${title}"?`,
+        description: `Removes every episode of every season from the library${frees} and removes the series from Sonarr. It can be requested again later.`,
+        title: `Delete “${title}”?`,
       }
     case 'movie':
       return {
-        description: `Removes this movie's file from the library${frees} and removes the movie from Radarr. It can be requested again later. This can't be undone.`,
-        title: `Delete "${title}"?`,
+        description: `Removes this movie’s file from the library${frees} and removes the movie from Radarr. It can be requested again later.`,
+        title: `Delete “${title}”?`,
       }
     case 'video':
       return {
-        description: `Removes this video's downloaded file${frees}. The source link stays on this page, so it can be downloaded again. This can't be undone.`,
-        title: `Delete "${title}"?`,
+        description: `Removes this video’s downloaded file${frees}. The source link stays on this page, so it can be downloaded again.`,
+        title: `Delete “${title}”?`,
       }
   }
 }
@@ -388,11 +390,12 @@ function deleteRun(options: {
   return onDelete ? () => onDelete(mediaId, deleteScopeQuery(scope)) : null
 }
 
-const CANCEL_LABEL = 'Cancel'
+/** The destructive cancel: say what happens to the thing, not what happens to the dialog. */
+export const DELETE_CANCEL_LABEL = 'Keep it'
 const CONFIRM_LABEL = 'Delete'
 
-/** The mono error clause, the same idiom `start-video-download.ts` writes to. */
-const ERROR_LINE = 'mt-3 font-mono text-[11px] text-bad'
+/** The failure line, under the consequence it follows. */
+const ERROR_LINE = 'mt-3 block text-cap text-bad'
 
 /**
  * `onSubmit` and `title` are real `<div>` attributes this component wants for
@@ -421,8 +424,6 @@ export type DeleteConfirmProps = Omit<
    * prevent.
    */
   mediaId: string
-  /** Stack the dialog's buttons — the mockups' mobile frame. */
-  mobile?: boolean
   /** The delete for every scope but `video`. */
   onDelete?: DeleteMediaFilesAction
   /** The delete for a `video` scope, which is a different endpoint entirely. */
@@ -454,13 +455,11 @@ export type DeleteConfirmProps = Omit<
  *   see {@link deleteConfirmCopy}. A user cannot reach the confirm button
  *   without having been told whether this takes one episode, one season, a
  *   whole series, a movie, or a video's download.
- * - **Cancel holds the initial focus**, which is APG's rule for a destructive
- *   confirm: the dialog opens on the way *out*, not on the trigger. It is a
- *   bare `<button>` wearing `buttonRecipeClassName()` because `Button` does not
- *   forward a ref and `Modal.initialFocusRef` needs one — the same reason
- *   `FiltersButton` declares its own.
- * - **`dismissible` stays true.** Escape and a scrim click cancel, which is the
- *   safe direction; the irreversible half needs a deliberate press either way.
+ * - **Keep it holds the initial focus**, which is APG's rule for a destructive
+ *   confirm: the dialog opens on the way *out*. `ConfirmDialog` puts it first
+ *   in the tab order, so Base UI lands there without being told to.
+ * - **Escape and a scrim click cancel**, which is the safe direction - except
+ *   while the delete is in flight, when `ConfirmDialog` swallows both.
  *
  * The delete itself is a callback, never an import: the server actions live in
  * `src/app/actions/media-files.ts` and `src/app/actions/video-job.ts` and the
@@ -474,7 +473,6 @@ export function DeleteConfirm({
   full = false,
   label,
   mediaId,
-  mobile = false,
   onDelete,
   onDeleted,
   onDeleteVideo,
@@ -487,7 +485,6 @@ export function DeleteConfirm({
   const [open, setOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
-  const cancelRef = useRef<HTMLButtonElement>(null)
 
   const copy = deleteConfirmCopy(scope, { freesBytes, title })
 
@@ -521,29 +518,15 @@ export function DeleteConfirm({
     })
   }
 
-  const cancel = (
-    <button
-      ref={cancelRef}
-      type="button"
-      className={buttonRecipeClassName({
-        className: mobile ? 'w-full' : undefined,
-        size: 'sm',
-        variant: 'ghost',
-      })}
-      onClick={close}
-    >
-      {CANCEL_LABEL}
-    </button>
-  )
-
-  const confirmButton = (
-    <DeleteButton
-      aria-disabled={pending || undefined}
-      full={mobile}
-      onClick={confirm}
-    >
-      {CONFIRM_LABEL}
-    </DeleteButton>
+  const body = (
+    <>
+      {description ?? copy.description}
+      {error ? (
+        <span className={cns(ERROR_LINE)} role="alert">
+          {error}
+        </span>
+      ) : null}
+    </>
   )
 
   return (
@@ -557,32 +540,20 @@ export function DeleteConfirm({
       >
         {label ?? TRIGGER_LABELS[scope.kind]}
       </Button>
-      <Modal
-        description={description ?? copy.description}
-        initialFocusRef={cancelRef}
+      <ConfirmDialog
+        body={body}
+        cancelLabel={DELETE_CANCEL_LABEL}
+        confirmLabel={CONFIRM_LABEL}
         open={open}
+        pending={pending}
         title={copy.title}
-        onClose={close}
-      >
-        <div className={cns('flex gap-2', mobile ? 'flex-col' : 'justify-end')}>
-          {mobile ? (
-            <>
-              {confirmButton}
-              {cancel}
-            </>
-          ) : (
-            <>
-              {cancel}
-              {confirmButton}
-            </>
-          )}
-        </div>
-        {error ? (
-          <p className={cns(ERROR_LINE)} role="alert">
-            {error}
-          </p>
-        ) : null}
-      </Modal>
+        onConfirm={confirm}
+        onOpenChange={next => {
+          if (!next) {
+            close()
+          }
+        }}
+      />
     </div>
   )
 }

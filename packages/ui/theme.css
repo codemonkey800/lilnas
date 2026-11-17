@@ -1,0 +1,308 @@
+/*
+ * @lilnas/ui theme — the `@theme` block from docs/designs/foundations.md
+ * ("The @theme block"), plus the named type scale and the handful of
+ * utilities Tailwind can't compose from what it already ships.
+ *
+ * Apps add two lines to their stylesheet (see README.md):
+ *   @import '@lilnas/ui/theme.css';
+ *   @source '../node_modules/@lilnas/ui/dist';
+ *
+ * The @source path is relative to the stylesheet (this one is for
+ * apps/<app>/src/) and targets the app's own node_modules — workspace
+ * packages are injected there, not into the repo root.
+ */
+
+@import 'tailwindcss';
+
+@theme {
+  /* ── surfaces ─────────────────────────────────────────────────────── */
+  --color-bg-sunk: #09080e;
+  --color-bg: #0e0c14;
+  --color-surface: #181520;
+  --color-surface-2: #211d2c;
+  --color-surface-3: #2b2638;
+
+  /* ── lines ────────────────────────────────────────────────────────── */
+  --color-line-soft: #231f2f;
+  --color-line: #2e2a3c;
+  --color-line-loud: #4a4460;
+  --color-line-control: #6f688a;
+
+  /* ── text ─────────────────────────────────────────────────────────── */
+  --color-ink: #ebe8f2;
+  --color-ink-2: #c4bfd3;
+  --color-ink-3: #a29cb4;
+  --color-ink-4: #736d88;
+
+  /* ── accent ───────────────────────────────────────────────────────── */
+  --color-accent: #9b7bf5;
+  --color-accent-hi: #ae92f8;
+  --color-accent-press: #8a67ee;
+  --color-accent-dim: #5a4a96;
+  --color-accent-ghost: rgb(155 123 245 / 0.16);
+  --color-accent-ink: #120a2a;
+
+  /* ── status ───────────────────────────────────────────────────────── */
+  --color-ok: #3fb27f;
+  --color-ok-ghost: rgb(63 178 127 / 0.14);
+  --color-warn: #e0a43a;
+  --color-warn-ghost: rgb(224 164 58 / 0.14);
+  --color-bad: #ef5b5b;
+  --color-bad-ghost: rgb(239 91 91 / 0.14);
+
+  /* ── type ─────────────────────────────────────────────────────────── */
+  --font-sans: 'Geist', system-ui, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, monospace;
+
+  /* The named scale from foundations.md "Scale", as real utilities: `text-h2`
+     carries its size, line height, weight and tracking together. `sm` shadows
+     Tailwind's default — on this system it means 13px / 18px. Keep the names
+     in sync with the size-token list in @lilnas/utils `cns()`. */
+  --text-h1: 24px;
+  --text-h1--line-height: 32px;
+  --text-h1--font-weight: 600;
+  --text-h1--letter-spacing: -0.02em;
+
+  --text-h2: 18px;
+  --text-h2--line-height: 26px;
+  --text-h2--font-weight: 600;
+  --text-h2--letter-spacing: -0.01em;
+
+  --text-h3: 15px;
+  --text-h3--line-height: 22px;
+  --text-h3--font-weight: 600;
+
+  --text-body: 14px;
+  --text-body--line-height: 20px;
+
+  --text-sm: 13px;
+  --text-sm--line-height: 18px;
+
+  --text-cap: 12px;
+  --text-cap--line-height: 16px;
+
+  --text-label: 11px;
+  --text-label--line-height: 16px;
+  --text-label--font-weight: 500;
+  --text-label--letter-spacing: 0.06em;
+
+  --text-mono: 13px;
+  --text-mono--line-height: 20px;
+
+  --text-mono-sm: 12px;
+  --text-mono-sm--line-height: 20px;
+
+  /* ── shape ────────────────────────────────────────────────────────── */
+  --radius-xs: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  /* ── elevation — the only shadow ──────────────────────────────────── */
+  --shadow-lift: 0 12px 32px -8px rgb(0 0 0 / 0.55);
+
+  /* ── motion ───────────────────────────────────────────────────────── */
+  --ease-standard: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-spring: linear(
+    0,
+    0.006,
+    0.025 2.8%,
+    0.101 6.1%,
+    0.539 18.9%,
+    0.721 25.3%,
+    0.849 31.5%,
+    0.937 38.1%,
+    0.968 41.8%,
+    0.991 45.7%,
+    1.006 50.1%,
+    1.015 60%,
+    1.006 76.2%,
+    1
+  );
+
+  --animate-rise: rise 380ms var(--ease-standard) both;
+  --animate-breathe: breathe 2.4s var(--ease-standard) infinite;
+  --animate-shimmer: shimmer 1.5s linear infinite;
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes breathe {
+    0% {
+      transform: scale(0.7);
+      opacity: 0.9;
+    }
+    70% {
+      transform: scale(2.1);
+      opacity: 0;
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+  @keyframes shimmer {
+    to {
+      background-position: -200% 0;
+    }
+  }
+}
+
+/* ── base ───────────────────────────────────────────────────────────── */
+@layer base {
+  html {
+    scrollbar-gutter: stable;
+  }
+  body {
+    background: var(--color-bg);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 20px;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-xs);
+  }
+
+  /* Density. Components read these instead of hard-coding a height, so one
+     `data-density="compact"` on a wrapper tightens everything inside it. */
+  :root,
+  [data-density='comfortable'] {
+    --control-h: 36px;
+    --control-h-sm: 30px;
+    --body-size: 14px;
+  }
+  [data-density='compact'] {
+    --control-h: 30px;
+    --control-h-sm: 26px;
+    --body-size: 13px;
+    --text-body: 13px;
+    --text-body--line-height: 18px;
+    font-size: var(--body-size);
+    line-height: 18px;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Utilities Tailwind can't compose from what it already ships. Everything
+   else is plain utilities in the markup.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* The system's entry motion dealt out across children: each one rises 40ms
+   after the one before it, capped at the eighth so a long list never crawls. */
+@utility stagger {
+  & > * {
+    animation: var(--animate-rise);
+  }
+  & > *:nth-child(1) {
+    animation-delay: 0ms;
+  }
+  & > *:nth-child(2) {
+    animation-delay: 40ms;
+  }
+  & > *:nth-child(3) {
+    animation-delay: 80ms;
+  }
+  & > *:nth-child(4) {
+    animation-delay: 120ms;
+  }
+  & > *:nth-child(5) {
+    animation-delay: 160ms;
+  }
+  & > *:nth-child(6) {
+    animation-delay: 200ms;
+  }
+  & > *:nth-child(7) {
+    animation-delay: 240ms;
+  }
+  & > *:nth-child(n + 8) {
+    animation-delay: 280ms;
+  }
+  /* `rise ... both` leaves every child with a `transform`, so each one is its
+     own stacking context and a later sibling paints over an earlier one's
+     popover whatever z-index it carries. Lifting the child that holds focus
+     (a popover moves focus into its panel) puts the open one on top. */
+  & > *:focus-within {
+    position: relative;
+    z-index: 10;
+  }
+}
+
+/* The press. "Springs for you, eases for the machine": the colour change is
+   the machine acknowledging you and rides the ease, the squash is the surface
+   reacting to your finger and rides the spring. */
+@utility transition-press {
+  transition:
+    background-color 200ms var(--ease-standard),
+    border-color 200ms var(--ease-standard),
+    color 200ms var(--ease-standard),
+    transform 120ms var(--ease-spring);
+
+  &:active {
+    transform: scale(0.97);
+  }
+}
+
+/* The live pulse: a ring that breathes outward from a status dot. The ring is
+   a pseudo-element, so it can't be a utility stack on the dot itself. */
+@utility dot-live {
+  position: relative;
+  background: var(--color-ok);
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    border-radius: 999px;
+    border: 1.5px solid var(--color-ok);
+    animation: var(--animate-breathe);
+  }
+}
+
+/* Loading placeholder. The tile is two widths wide and repeats, so `shimmer`
+   (which only declares its end, a shift of one tile) loops seamlessly. */
+@utility skeleton {
+  background: linear-gradient(
+    100deg,
+    var(--color-surface-2) 35%,
+    var(--color-surface-3) 50%,
+    var(--color-surface-2) 65%
+  );
+  background-size: 200% 100%;
+  border-radius: var(--radius-xs);
+  animation: var(--animate-shimmer);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  /* `breathe` has no `forwards` fill, so a run clamped to 0.01ms reverts the
+     ring to its un-animated state: a static, fully opaque ring around the dot.
+     `opacity: 0` is the endpoint `breathe` itself lands on. The dot keeps its
+     fill, which is what actually carries "live". */
+  .dot-live::after {
+    animation: none !important;
+    opacity: 0 !important;
+  }
+  /* A clamped shimmer would freeze mid-gradient; a flat surface says
+     "loading" without moving. */
+  .skeleton {
+    animation: none !important;
+    background: var(--color-surface-2) !important;
+  }
+}

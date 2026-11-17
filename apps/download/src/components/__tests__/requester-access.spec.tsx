@@ -8,12 +8,11 @@ import type {
 import { DownloadJobStatus, DownloadType } from '@lilnas/utils/download/types'
 import { render, screen } from '@testing-library/react'
 
-import { ActivityList } from 'src/components/activity/activity-list'
-import { ActivityTable } from 'src/components/activity/activity-table'
+import { ActivityDataList } from 'src/components/activity/activity-data-list'
 import { AdminHistoryRequester } from 'src/components/admin/admin-history-cells'
 import { GalleryItemCard } from 'src/components/gallery/gallery-item-card'
 import { RecentCard } from 'src/components/home/recent-card'
-import { MASKED_INITIALS } from 'src/components/ui/avatar'
+import { MASKED_INITIALS } from 'src/components/ui/person-avatar'
 import { EMPTY_ADMIN_FILTERS } from 'src/lib/admin-filters'
 import { PROFILE_HREF, profileHrefForEmail } from 'src/lib/profile-filters'
 import type { Viewer } from 'src/lib/viewer'
@@ -113,21 +112,10 @@ type Surface = {
 
 const ATTRIBUTION_SURFACES: readonly Surface[] = [
   {
-    name: 'the activity table',
+    name: 'the activity data list',
     render: (requester, viewer) =>
       render(
-        <ActivityTable
-          now={NOW}
-          rows={[{ departing: false, job: job(requester) }]}
-          viewer={viewer}
-        />,
-      ).container,
-  },
-  {
-    name: 'the activity list',
-    render: (requester, viewer) =>
-      render(
-        <ActivityList
+        <ActivityDataList
           now={NOW}
           rows={[{ departing: false, job: job(requester) }]}
           viewer={viewer}

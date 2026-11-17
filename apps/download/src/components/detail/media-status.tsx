@@ -1,3 +1,4 @@
+import { Badge } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { Media, MediaState } from '@lilnas/utils/download/types'
 import { mediaState } from '@lilnas/utils/download/types'
@@ -11,8 +12,6 @@ import {
   mediaStateLabel,
 } from 'src/components/detail/media-state'
 import { ProgressBlock } from 'src/components/detail/progress-block'
-import { Chip } from 'src/components/ui/chip'
-import { Dot } from 'src/components/ui/status'
 import { mediaStateTone } from 'src/lib/format'
 
 export type MediaStatusProps = Omit<
@@ -99,18 +98,15 @@ export function MediaStatus({
   return (
     <div
       {...props}
-      className={cns('flex flex-col gap-[14px]', className)}
+      className={cns('flex flex-col gap-4', className)}
       data-state={state}
     >
-      <div className={cns('flex flex-wrap items-center gap-2.5')}>
-        <Chip className={cns('w-fit')} tone={mediaStateTone(state)}>
-          {mediaStateIsLive(state) ? <Dot tone="live" /> : null}
+      <div className={cns('flex flex-col items-start gap-2')}>
+        <Badge tone={mediaStateTone(state)} live={mediaStateIsLive(state)}>
           {label}
-        </Chip>
+        </Badge>
         {note ? (
-          <span className={cns('min-w-0 flex-1 text-sm text-ink-3')}>
-            {note}
-          </span>
+          <p className={cns('max-w-[56ch] text-sm text-ink-3')}>{note}</p>
         ) : null}
       </div>
       {pct === null ? null : (

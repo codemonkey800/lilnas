@@ -60,7 +60,7 @@ describe('LoginPage', () => {
   it('renders the Discord login button', () => {
     render(<LoginPage />)
     expect(
-      screen.getByRole('button', { name: 'Login with Discord' }),
+      screen.getByRole('button', { name: 'Sign in with Discord' }),
     ).toBeInTheDocument()
   })
 
@@ -68,7 +68,9 @@ describe('LoginPage', () => {
     const user = userEvent.setup()
     render(<LoginPage />)
 
-    await user.click(screen.getByRole('button', { name: 'Login with Discord' }))
+    await user.click(
+      screen.getByRole('button', { name: 'Sign in with Discord' }),
+    )
 
     expect(mockSignInSocial).toHaveBeenCalledTimes(1)
     const [args] = mockSignInSocial.mock.calls[0] as [
@@ -89,7 +91,7 @@ describe('LoginPage', () => {
     const user = userEvent.setup()
     render(<LoginPage />)
 
-    const button = screen.getByRole('button', { name: 'Login with Discord' })
+    const button = screen.getByRole('button', { name: 'Sign in with Discord' })
     await user.click(button)
 
     const redirectingButton = screen.getByRole('button', {
@@ -117,7 +119,9 @@ describe('LoginPage', () => {
     // 'return_to' or 'returnTo' off searchParams.
     const user = userEvent.setup()
     render(<LoginPage />)
-    await user.click(screen.getByRole('button', { name: 'Login with Discord' }))
+    await user.click(
+      screen.getByRole('button', { name: 'Sign in with Discord' }),
+    )
 
     const readKeys = mockSearchParamsGet.mock.calls.map(call => call[0])
     expect(readKeys).not.toContain('return_to')
@@ -131,9 +135,7 @@ describe('LoginPage', () => {
       )
       render(<LoginPage />)
       expect(
-        screen.getByText(
-          /this console is limited to members of the configured Discord server/,
-        ),
+        screen.getByText(/limited to members of the configured Discord server/),
       ).toBeInTheDocument()
     })
 
@@ -143,7 +145,7 @@ describe('LoginPage', () => {
       )
       render(<LoginPage />)
       expect(
-        screen.getByText('Your session expired. Please sign in again.'),
+        screen.getByText(/Sign in again to pick up where you were/),
       ).toBeInTheDocument()
     })
 
@@ -153,7 +155,7 @@ describe('LoginPage', () => {
       )
       render(<LoginPage />)
       expect(
-        screen.getByText("Sign-in didn't complete. Please try again."),
+        screen.getByText("Discord didn't complete it. Try again."),
       ).toBeInTheDocument()
       expect(
         screen.queryByText(/not a member|configured Discord server/),
@@ -165,7 +167,7 @@ describe('LoginPage', () => {
       render(<LoginPage />)
       expect(
         screen.queryByText(
-          /session expired|didn't complete|configured Discord server/,
+          /session expired|didn't finish|configured Discord server/,
         ),
       ).not.toBeInTheDocument()
     })
@@ -180,28 +182,31 @@ describe('LoginPage', () => {
       ).not.toBeInTheDocument()
     })
 
-    it('renders the three error states with visually distinct styling', () => {
-      const classesFor = (code: string) => {
+    it('renders each error as a Note in its own tone (red, accent, amber)', () => {
+      const noteFor = (code: string) => {
         mockSearchParamsGet.mockImplementation(key =>
           key === 'error' ? code : null,
         )
-        const { container, unmount } = render(<LoginPage />)
-        const banner = container.querySelector('.rounded.border')
-        const cls = banner?.className ?? ''
+        const { unmount } = render(<LoginPage />)
+        // Note renders role="alert" for `bad` and role="status" otherwise.
+        const note = (screen.queryByRole('alert') ??
+          screen.getByRole('status')) as HTMLElement
+        const cls = note.className
+        const role = note.getAttribute('role')
         unmount()
-        return cls
+        return { cls, role }
       }
 
-      const notMember = classesFor('not_guild_member')
-      const expired = classesFor('session_expired')
-      const oauthFailed = classesFor('oauth_failed')
+      const notMember = noteFor('not_guild_member')
+      const expired = noteFor('session_expired')
+      const oauthFailed = noteFor('oauth_failed')
 
-      // session_expired is visually distinct from the other two (a
-      // non-alarming informational tone vs. a red attention state) —
-      // asserting the actual class difference, not just the copy
-      // difference, since the plan requires this be visually distinguishable.
-      expect(expired).not.toBe(notMember)
-      expect(expired).not.toBe(oauthFailed)
+      // Visual distinction between the three is the plan's requirement, so
+      // assert the tone fills, not just that the copy differs.
+      expect(notMember.role).toBe('alert')
+      expect(notMember.cls).toContain('bg-bad-ghost')
+      expect(expired.cls).toContain('bg-accent-ghost')
+      expect(oauthFailed.cls).toContain('bg-warn-ghost')
     })
   })
 })

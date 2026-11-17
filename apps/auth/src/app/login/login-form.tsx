@@ -1,13 +1,17 @@
 'use client'
 
+import { Button, Icon, Note, PepeFull } from '@lilnas/ui'
 import { useSearchParams } from 'next/navigation'
 import { Suspense, useState } from 'react'
 
-import { Brandmark } from 'src/app/components/brandmark'
-import { Icon } from 'src/app/components/icons'
-import { Toast, useToast } from 'src/app/components/toast'
+import {
+  GateCard,
+  GateHeading,
+  GateScreen,
+  TargetPill,
+} from 'src/app/components/gate'
+import { useToast } from 'src/app/components/toast'
 import { signIn } from 'src/app/lib/auth-client'
-import { getServiceMeta } from 'src/app/service-meta'
 
 // Split out of page.tsx by U4. page.tsx is now an async Server Component so
 // it can read AUTH_HOST / REDIRECT_ALLOWED_SUFFIX from real process.env at
@@ -36,10 +40,14 @@ function LoginErrorNotice() {
   if (!error) return null
 
   return (
-    <div className="notice" role="alert">
-      <Icon name="x" />
-      <span>Sign-in failed ({error}). Please try again.</span>
-    </div>
+    <Note
+      tone="bad"
+      lead="Google didn’t sign you in."
+      icon={<Icon name="alert" size={16} />}
+    >
+      It sent back an error. Try again.{' '}
+      <code className="font-mono text-mono-sm">{error}</code>
+    </Note>
   )
 }
 
@@ -56,63 +64,45 @@ type LoginFormProps = {
 
 export function LoginForm({ callbackURL, targetHost }: LoginFormProps) {
   const [isRedirecting, setIsRedirecting] = useState(false)
-  const { message, showToast } = useToast()
-
-  const targetMeta = targetHost ? getServiceMeta(targetHost) : null
+  const { showToast } = useToast()
 
   function handleSignIn() {
-    // Disable immediately so a double-click (or a slow network before the
-    // full-page navigation away actually happens) can't invoke
-    // signIn.social() a second time.
+    // Mark the button busy immediately so a double-click (or a slow network
+    // before the full-page navigation away actually happens) can't invoke
+    // signIn.social() a second time — a loading Button swallows clicks.
     setIsRedirecting(true)
-    showToast('Redirecting to Google…')
+    showToast('Redirecting…')
 
     void signIn.social({ provider: 'google', callbackURL })
   }
 
   return (
-    <div className="gate__wrap">
-      <div className="gate__card">
-        <Brandmark />
+    <GateScreen doorplate={false}>
+      <GateCard narrow>
+        <PepeFull className="mx-auto" size={42} />
 
         <Suspense fallback={null}>
           <LoginErrorNotice />
         </Suspense>
 
-        <div className="gate__card-header">
-          <h1 className="h1">
-            {targetHost ? 'Sign in to continue' : 'Sign in to lilnas.io'}
-          </h1>
-        </div>
+        <GateHeading
+          className="-mt-1"
+          title={targetHost ? 'Sign in to continue' : 'Sign in to lilnas.io'}
+        />
 
-        {targetHost && targetMeta ? (
-          <div className="target-pill">
-            <span className="target-pill__icon">
-              <Icon name={targetMeta.icon} />
-            </span>
-            <div className="target-pill__text">
-              <span className="target-pill__name">{targetMeta.name}</span>
-              <span className="target-pill__domain">{targetHost}</span>
-            </div>
-          </div>
-        ) : null}
+        {targetHost ? <TargetPill host={targetHost} /> : null}
 
-        <div className="oauth-list">
-          <button
-            type="button"
-            onClick={handleSignIn}
-            disabled={isRedirecting}
-            className="btn btn-oauth btn-block"
-          >
-            <Icon name="google" />
-            <span>
-              {isRedirecting ? 'Redirecting…' : 'Continue with Google'}
-            </span>
-          </button>
-        </div>
-      </div>
-
-      <Toast message={message} />
-    </div>
+        <Button
+          variant="outline"
+          size="lg"
+          full
+          icon="google"
+          loading={isRedirecting}
+          onClick={handleSignIn}
+        >
+          {isRedirecting ? 'Redirecting…' : 'Continue with Google'}
+        </Button>
+      </GateCard>
+    </GateScreen>
   )
 }

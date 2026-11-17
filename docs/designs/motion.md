@@ -116,14 +116,13 @@ should arrive as one object.
 
 ### Where it goes in each app
 
-| App        | Staggered                                     |
-| ---------- | --------------------------------------------- |
-| `portal`   | The service tile grid                         |
-| `auth`     | The request queue; the service grid on home   |
-| `swole`    | Routine cards on home; exercises in a routine |
-| `download` | Search result posters                         |
-| `tdr-code` | New log lines as they stream; session rows    |
-| `dashcam`  | Day groups in the sidebar                     |
+| App        | Staggered                                   |
+| ---------- | ------------------------------------------- |
+| `portal`   | The service tile grid                       |
+| `auth`     | The request queue; the service grid on home |
+| `download` | Search result posters                       |
+| `tdr-code` | New log lines as they stream; session rows  |
+| `dashcam`  | Day groups in the sidebar                   |
 
 ---
 
@@ -160,8 +159,7 @@ Every pressable thing. `0.96` on a normal button; `0.97` on anything larger than
 about 56px, or the travel becomes comical.
 
 This is the highest-value animation in the system for perceived quality and it
-costs one line. It matters most in `swole`, where the whole interaction model is
-tapping big buttons with sweaty hands.
+costs one line.
 
 ---
 

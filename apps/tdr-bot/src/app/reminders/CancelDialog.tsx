@@ -1,12 +1,4 @@
-import Alert from '@mui/material/Alert'
-import Button from '@mui/material/Button'
-import CircularProgress from '@mui/material/CircularProgress'
-import Dialog from '@mui/material/Dialog'
-import DialogActions from '@mui/material/DialogActions'
-import DialogContent from '@mui/material/DialogContent'
-import DialogContentText from '@mui/material/DialogContentText'
-import DialogTitle from '@mui/material/DialogTitle'
-import Typography from '@mui/material/Typography'
+import { ConfirmDialog } from '@lilnas/ui'
 
 import type { ReminderView } from 'src/api/api.types'
 import { useCancelReminder } from 'src/queries/useReminders'
@@ -29,38 +21,32 @@ export function CancelDialog({ reminder, onClose }: CancelDialogProps) {
     cancel.mutate(reminder.id, { onSuccess: close })
   }
 
+  const schedule = reminder?.scheduleDescription.replace(/\.$/, '')
+  const consequence = reminder?.isRecurring
+    ? 'cancelling stops every future run.'
+    : 'cancelling means it won’t be sent.'
+
   return (
-    <Dialog open={!!reminder} onClose={close} fullWidth maxWidth="xs">
-      <DialogTitle>Cancel this reminder?</DialogTitle>
-      <DialogContent>
-        <DialogContentText sx={{ color: 'text.primary' }}>
-          {reminder?.what}
-        </DialogContentText>
-        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-          {reminder?.scheduleDescription}
-        </Typography>
-        {cancel.error && (
-          <Alert severity="error" sx={{ mt: 2 }}>
-            {cancel.error.message}
-          </Alert>
-        )}
-      </DialogContent>
-      <DialogActions>
-        <Button color="inherit" onClick={close}>
-          Keep
-        </Button>
-        <Button
-          color="error"
-          variant="contained"
-          disabled={cancel.isPending}
-          onClick={confirm}
-          startIcon={
-            cancel.isPending ? <CircularProgress size={14} /> : undefined
-          }
-        >
-          Cancel reminder
-        </Button>
-      </DialogActions>
-    </Dialog>
+    <ConfirmDialog
+      body={
+        <>
+          {reminder ? `${schedule}, and ${consequence}` : null}
+          {cancel.error && (
+            <span className="mt-2 block text-bad" role="alert">
+              {cancel.error.message}
+            </span>
+          )}
+        </>
+      }
+      cancelLabel="Keep it"
+      confirmLabel="Cancel reminder"
+      open={!!reminder}
+      pending={cancel.isPending}
+      title={reminder ? `Cancel “${reminder.what}”?` : ''}
+      onConfirm={confirm}
+      onOpenChange={next => {
+        if (!next) close()
+      }}
+    />
   )
 }

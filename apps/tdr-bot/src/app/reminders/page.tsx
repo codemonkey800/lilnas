@@ -1,14 +1,14 @@
 'use client'
 
-import Alert from '@mui/material/Alert'
-import Box from '@mui/material/Box'
-import Button from '@mui/material/Button'
-import Skeleton from '@mui/material/Skeleton'
-import Stack from '@mui/material/Stack'
-import TextField from '@mui/material/TextField'
-import ToggleButton from '@mui/material/ToggleButton'
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
-import Typography from '@mui/material/Typography'
+import {
+  Button,
+  EmptyState,
+  Icon,
+  Input,
+  Note,
+  Skeleton,
+  Tabs,
+} from '@lilnas/ui'
 import { useMemo, useState } from 'react'
 
 import type { ReminderView } from 'src/api/api.types'
@@ -17,7 +17,7 @@ import { useReminders } from 'src/queries/useReminders'
 
 import { CancelDialog } from './CancelDialog'
 import { ReminderDialog } from './ReminderDialog'
-import { ReminderTable } from './ReminderTable'
+import { ReminderList } from './ReminderList'
 import { TestSendDialog } from './TestSendDialog'
 
 type StatusFilter = ReminderStatus | 'all'
@@ -36,6 +36,25 @@ function matches(reminder: ReminderView, text: string): boolean {
 
   return [reminder.what, reminder.userName, ...reminder.targetUserNames].some(
     field => field.toLowerCase().includes(needle),
+  )
+}
+
+function ListSkeleton() {
+  return (
+    <div
+      aria-label="Loading reminders"
+      className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-3"
+      role="status"
+    >
+      {[1, 2, 3, 4, 5].map(i => (
+        <div key={i} className="flex items-center gap-4">
+          <Skeleton className="h-4 flex-1 rounded-xs" />
+          <Skeleton className="h-6 w-16 rounded-full md:w-20" />
+          <Skeleton className="hidden h-4 w-40 rounded-xs md:block" />
+          <Skeleton className="hidden h-4 w-28 rounded-xs md:block" />
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -74,111 +93,98 @@ export default function RemindersPage() {
   )
   const now = new Date()
   const label = FILTERS.find(f => f.value === status)?.label.toLowerCase()
+  const query = text.trim()
+  const newReminder = () => setDialog({ open: true, reminder: null })
 
   return (
-    <Box sx={{ maxWidth: 1200, mx: 'auto', p: { xs: 2, md: 4 } }}>
-      <Typography variant="h4" component="h1" sx={{ fontWeight: 600 }}>
-        Reminders
-      </Typography>
-      <Typography
-        variant="body2"
-        sx={{
-          color: 'text.secondary',
-          mb: 3,
-          mt: 0.5,
-        }}
-      >
-        Every reminder the bot holds.
-      </Typography>
+    <div className="mx-auto flex w-full max-w-[1136px] flex-col gap-6 px-4 py-5 md:px-8 md:py-8">
+      <header className="flex flex-col gap-1">
+        <h1 className="text-h1">Reminders</h1>
+        <p className="text-sm text-ink-3">Every reminder the bot holds.</p>
+      </header>
 
-      <Box
-        sx={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          alignItems: 'center',
-          gap: 1.5,
-          mb: 2,
-        }}
-      >
-        <ToggleButtonGroup
-          exclusive
-          size="small"
+      <div className="flex flex-col gap-4">
+        <Tabs.Root
           value={status}
-          aria-label="Status filter"
-          onChange={(_, value: StatusFilter | null) =>
-            value && setStatus(value)
-          }
+          onValueChange={value => setStatus(value as StatusFilter)}
         >
-          {FILTERS.map(f => (
-            <ToggleButton key={f.value} value={f.value}>
-              {f.label}
-              <Typography
-                component="span"
-                variant="caption"
-                sx={{ color: 'text.secondary', ml: 0.75 }}
+          <Tabs.List aria-label="Status filter" scroll>
+            {FILTERS.map(f => (
+              <Tabs.Tab
+                key={f.value}
+                className="shrink-0"
+                count={all.data ? counts[f.value] : undefined}
+                value={f.value}
               >
-                {counts[f.value]}
-              </Typography>
-            </ToggleButton>
-          ))}
-        </ToggleButtonGroup>
-        <TextField
-          size="small"
-          placeholder="Who or what…"
-          value={text}
-          onChange={e => setText(e.target.value)}
-          slotProps={{ htmlInput: { 'aria-label': 'Filter reminders' } }}
-          sx={{ width: 224 }}
-        />
-        <Button
-          variant="contained"
-          sx={{ ml: 'auto' }}
-          onClick={() => setDialog({ open: true, reminder: null })}
-        >
-          + New reminder
-        </Button>
-      </Box>
+                {f.label}
+              </Tabs.Tab>
+            ))}
+            <Tabs.Indicator />
+          </Tabs.List>
+        </Tabs.Root>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <Input
+            aria-label="Filter reminders"
+            icon="search"
+            placeholder="Who or what…"
+            value={text}
+            wrapperClassName="w-full sm:max-w-xs"
+            onChange={e => setText(e.target.value)}
+          />
+          <Button
+            className="sm:ml-auto"
+            icon="plus"
+            variant="accent"
+            onClick={newReminder}
+          >
+            New reminder
+          </Button>
+        </div>
+      </div>
 
-      {list.isLoading && (
-        <Stack spacing={1} aria-label="Loading reminders">
-          {[1, 2, 3, 4, 5].map(i => (
-            <Skeleton key={i} variant="rounded" height={40} />
-          ))}
-        </Stack>
-      )}
+      {list.isLoading && <ListSkeleton />}
       {list.error && (
-        <Alert severity="error">
-          Couldn’t load reminders: {list.error.message}
-        </Alert>
+        <Note
+          icon={<Icon name="alert" />}
+          lead="Couldn’t load reminders."
+          tone="bad"
+        >
+          The API didn’t answer. Reload the page to try again.
+        </Note>
       )}
       {list.data && visible.length === 0 && (
-        <Box
-          sx={{
-            py: 8,
-            textAlign: 'center',
-            border: 1,
-            borderStyle: 'dashed',
-            borderColor: 'divider',
-            borderRadius: 2,
-          }}
-        >
-          <Typography sx={{ fontSize: 32 }}>⏰</Typography>
-          <Typography variant="body2" sx={{ fontWeight: 500, mt: 1 }}>
-            {text.trim()
-              ? 'No matching reminders'
-              : `No ${status === 'all' ? '' : `${label} `}reminders`}
-          </Typography>
-          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-            Create one, or ask tdr-bot in Discord.
-          </Typography>
-        </Box>
+        <div className="rounded-lg border border-line bg-surface">
+          {query ? (
+            <EmptyState
+              action={
+                <Button variant="outline" onClick={() => setText('')}>
+                  Clear search
+                </Button>
+              }
+              body={`Nothing matches “${query}”. Check the spelling, or search by what it says.`}
+              title="No matching reminders"
+            />
+          ) : (
+            <EmptyState
+              action={
+                <Button icon="plus" variant="accent" onClick={newReminder}>
+                  New reminder
+                </Button>
+              }
+              body="Create one here, or ask tdr-bot in Discord."
+              title={
+                status === 'all' ? 'No reminders' : `No ${label} reminders`
+              }
+            />
+          )}
+        </div>
       )}
       {visible.length > 0 && (
-        <ReminderTable
-          reminders={visible}
+        <ReminderList
           now={now}
-          onEdit={reminder => setDialog({ open: true, reminder })}
+          reminders={visible}
           onCancel={setCancelling}
+          onEdit={reminder => setDialog({ open: true, reminder })}
           onTest={setTesting}
         />
       )}
@@ -190,6 +196,6 @@ export default function RemindersPage() {
       />
       <CancelDialog reminder={cancelling} onClose={() => setCancelling(null)} />
       <TestSendDialog reminder={testing} onClose={() => setTesting(null)} />
-    </Box>
+    </div>
   )
 }

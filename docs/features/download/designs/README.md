@@ -45,14 +45,14 @@ all match `docs/features/*/designs`.
 
 ## Why there's a build step at all
 
-There used to be eleven hand-written HTML files, each carrying its own ~800
+There used to be hand-written HTML files, each carrying its own ~800
 line `<style>` block. The blocks were copies of each other, so they drifted:
 by the time this build landed, 21 CSS rules and 4 icons had quietly diverged
 between files, and the same "just fix the card hover" edit had to be made in
 nine places or not at all.
 
-Now there is one theme, one layout, one set of components, and eleven pages
-that only describe what's on them.
+Now there is one theme, one layout, one set of components, and one page per route
+that only describes what's on it.
 
 ## Layout
 
@@ -61,21 +61,21 @@ the rest are picked up if present.
 
 ```
 src/
-  theme.css        Ultraviolet as a Tailwind theme, plus the handful of
-                   utilities Tailwind can't compose (stagger, skeleton, the
-                   live pulse, the press transition)
+  theme.css        three lines: the per-project Tailwind lines, then the
+                   shared kit's theme (docs/designs/mockup-kit/theme.css)
   runtime.js       the entire client-side runtime — a poster-art fallback
-  layout/
-    page.pug       the shell: head, fonts, sprite, page column
-    sprite.html    every icon, as one <symbol> set
   mixins/
-    ui.pug         Ultraviolet primitives — button, chip, poster, card, table…
-    mock.pug       the mockup furniture — app frame, nav bar, viewport switch
-  pages/*.pug      one per screen; layout only
-  data/*.mjs       copy and sample data for the pages that have a lot of it
-                   (.mjs, not .js — there's no package.json here to tell Node
-                   these are ES modules)
+    download.pug   download-only mixins: poster, gallery and result cards,
+                   the media and job badges, release and episode rows, the
+                   quality tier select, detail-page furniture
+  pages/*.pug      one per route; each `extends` the kit's page.pug
+  data/*.mjs       copy and sample data (.mjs, not .js — there's no
+                   package.json here to tell Node these are ES modules)
 ```
+
+The shell, the icon sprite, the components and the harness (viewport switch,
+app frame, state rows) live in [`docs/designs/mockup-kit`](../../../designs/mockup-kit/README.md),
+shared by every app's mockups.
 
 ### How the build works
 
@@ -108,28 +108,18 @@ src/
 
 ### Where the design system lives
 
-`theme.css` reproduces the `@theme` block from
+`docs/designs/mockup-kit/theme.css` reproduces the `@theme` block from
 [`../../../designs/foundations.md`](../../designs/foundations.md), which is
-canonical. Anything in `theme.css` that isn't in `foundations.md` is marked as
-a mockup-local addition — mostly the named type scale (`text-h2`, `text-label`)
-from that doc's type table, which the block itself doesn't yet include.
+canonical. The kit's own README lists every mixin.
 
-## Known inconsistencies, preserved
+## Pages
 
-The port kept these rather than silently reconciling them; they're decisions
-someone should make, not transcription slips.
+Exactly the routes `apps/download/src/app` has today: `home`, `search`,
+`gallery`, `activity`, `admin`, `profile`, `movie-detail`, `show-detail`,
+`video-detail`, with the root `error.tsx` and `not-found.tsx` drawn as a
+`boundaries` row on `index`. Every page is drawn at 1280 and 390 behind the
+viewport switch, and each state is a captioned row.
 
-- `nav-search.html` renders its search field at 44px, including the one in the
-  app bar, where every other page uses the 32px default.
-- Four icons had drifted between copies (`i-search`, `i-x`, `i-check`,
-  `i-grid`). Each is now the version most pages used — except the filled grid,
-  which is a genuinely different icon (the grid/list toggle in search) and is
-  kept alongside as `i-grid-fill`.
-- The `downloading` chip on `video-detail.html` stretches to the full column
-  width, because it's a flex child in a stretch container.
-
-## Artwork
-
-Poster art and video thumbnails are **not committed** — see
-[`assets/README.md`](assets/README.md). Without them, every poster falls back
-to a gradient stand-in and the mockups still read fine.
+Status badges use one tone map: accent is in progress, ok is available or
+delivered, warn is queued, paused or needs attention, bad is failed, mute is
+neutral.

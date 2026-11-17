@@ -1,6 +1,6 @@
 'use client'
 
-import { cns } from '@lilnas/utils/cns'
+import { Button, Input, Select } from '@lilnas/ui'
 
 import type { LogStream } from 'src/logging/log-view.types'
 
@@ -24,6 +24,22 @@ const LEVEL_OPTIONS: { value: number; label: string }[] = [
   { value: 50, label: 'Error+' },
   { value: 60, label: 'Fatal' },
 ]
+
+// A Select can't hold '' (that reads as "nothing chosen"), so "no constraint"
+// is a sentinel the handlers map back to the unset filter. 'both' is already a
+// real value for process, so only the level needs one.
+const ANY_LEVEL = '__any__'
+
+const LEVEL_ITEMS: Record<string, string> = {
+  [ANY_LEVEL]: 'Any level',
+  ...Object.fromEntries(LEVEL_OPTIONS.map(o => [String(o.value), o.label])),
+}
+
+const PROCESS_ITEMS: Record<string, string> = {
+  both: 'Any process',
+  main: 'main',
+  bot: 'bot',
+}
 
 // The plane-neutral LogScanPredicate (log-view.types.ts) also carries
 // `text`, which this component intentionally has NO control for — free-text
@@ -71,13 +87,15 @@ export function LogFilters({
     (filters.process !== undefined && filters.process !== 'both') ||
     filters.event !== undefined
 
-  function handleLevelChange(value: string) {
-    onFiltersChange({ level: value === '' ? undefined : Number(value) })
+  function handleLevelChange(value: string | null) {
+    onFiltersChange({
+      level: value === null || value === ANY_LEVEL ? undefined : Number(value),
+    })
   }
 
-  function handleProcessChange(value: string) {
+  function handleProcessChange(value: string | null) {
     onFiltersChange({
-      process: value === 'both' ? 'both' : (value as 'main' | 'bot'),
+      process: value === 'main' || value === 'bot' ? value : 'both',
     })
   }
 
@@ -89,31 +107,34 @@ export function LogFilters({
   return (
     <div
       data-track-id="log-filters"
-      // U14: square bottom corners + no bottom border — this sits directly
-      // above LogSearchBar with zero gap (see log-viewer.tsx's own toolbar
-      // wrapper) so the two compose into ONE bordered strip with a single
-      // internal divider, rather than reading as two independent floating
-      // boxes. `text-gray-500` on the label gives the (fixed, always-
-      // present) "Filters" word a lighter weight than the interactive
-      // controls next to it, echoing the row grid's own dim-label
-      // convention (e.g. context chip keys).
-      className="flex flex-wrap items-center gap-2 rounded-t border border-b-0 border-gray-800 bg-gray-900/50 px-3 py-1.5 text-xs"
+      // One strip row of the toolbar: log-viewer.tsx wraps this and
+      // LogSearchBar in a single bordered surface. On a phone the row scrolls
+      // sideways instead of wrapping, and every control grows to 44px.
+      className="flex items-center gap-2 overflow-x-auto px-3 py-2 md:flex-wrap md:overflow-visible"
     >
-      <span className="shrink-0 text-gray-500">Filters</span>
+      <span className="shrink-0 text-label text-ink-3 uppercase">Filters</span>
 
-      <select
-        data-track-id="log-filters-level"
-        value={filters.level ?? ''}
-        onChange={e => handleLevelChange(e.target.value)}
-        className="rounded bg-gray-800 px-2 py-1 text-gray-200 focus:outline-none"
+      <Select.Root
+        items={LEVEL_ITEMS}
+        onValueChange={handleLevelChange}
+        value={filters.level === undefined ? ANY_LEVEL : String(filters.level)}
       >
-        <option value="">Any level</option>
-        {LEVEL_OPTIONS.map(opt => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
+        <Select.Trigger
+          aria-label="Level"
+          className="w-32 shrink-0 max-md:h-11"
+          data-track-id="log-filters-level"
+        >
+          <Select.Value />
+        </Select.Trigger>
+        <Select.Popup>
+          <Select.Item value={ANY_LEVEL}>Any level</Select.Item>
+          {LEVEL_OPTIONS.map(opt => (
+            <Select.Item key={opt.value} value={String(opt.value)}>
+              {opt.label}
+            </Select.Item>
+          ))}
+        </Select.Popup>
+      </Select.Root>
 
       {/*
         Source/process is only meaningful for `backend` — main/bot both live
@@ -123,45 +144,51 @@ export function LogFilters({
         ("for backend: main/bot/both; other tabs: none").
       */}
       {stream === 'backend' && (
-        <select
-          data-track-id="log-filters-process"
+        <Select.Root
+          items={PROCESS_ITEMS}
+          onValueChange={handleProcessChange}
           value={processValue}
-          onChange={e => handleProcessChange(e.target.value)}
-          className="rounded bg-gray-800 px-2 py-1 text-gray-200 focus:outline-none"
         >
-          <option value="both">Any process</option>
-          <option value="main">main</option>
-          <option value="bot">bot</option>
-        </select>
+          <Select.Trigger
+            aria-label="Process"
+            className="w-36 shrink-0 max-md:h-11"
+            data-track-id="log-filters-process"
+          >
+            <Select.Value />
+          </Select.Trigger>
+          <Select.Popup>
+            <Select.Item value="both">Any process</Select.Item>
+            <Select.Item value="main">main</Select.Item>
+            <Select.Item value="bot">bot</Select.Item>
+          </Select.Popup>
+        </Select.Root>
       )}
 
-      <input
-        type="text"
+      <Input
+        aria-label="Event slug"
+        className="max-md:h-11"
         data-track-id="log-filters-event"
-        value={filters.event ?? ''}
-        onChange={e => handleEventChange(e.target.value)}
-        placeholder="Event slug…"
         // Free-text, exact-match semantics (U9's own matchesPredicate does
         // a literal `===` against parsed.event, never a substring) — a
         // dropdown is deliberately NOT used here: this app has no endpoint
-        // enumerating which event slugs actually occur in a given file, and
-        // LOG_EVENTS' full catalog (log-events.ts) is a huge, mostly-
-        // irrelevant-per-file list that would make a poor picker for "which
-        // of these actually appear in THIS file."
-        className="w-40 rounded bg-gray-800 px-2 py-1 text-gray-200 placeholder-gray-600 focus:outline-none"
+        // enumerating which event slugs actually occur in a given file.
+        mono
+        onChange={e => handleEventChange(e.target.value)}
+        placeholder="Event slug…"
+        value={filters.event ?? ''}
+        wrapperClassName="w-44 shrink-0"
       />
 
       {hasActiveFilter && (
-        <button
-          type="button"
+        <Button
+          className="ml-auto shrink-0 pointer-coarse:min-h-11"
           data-track-id="log-filters-clear"
           onClick={onClearFilters}
-          className={cns(
-            'ml-auto shrink-0 text-gray-500 transition-colors hover:text-gray-300',
-          )}
+          size="sm"
+          variant="ghost"
         >
           Clear filters
-        </button>
+        </Button>
       )}
     </div>
   )

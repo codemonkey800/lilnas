@@ -17,7 +17,7 @@ import {
   jobUpstreamSource,
   MASKED_REQUESTER_LABEL,
 } from 'src/components/activity/activity-requester'
-import { MASKED_INITIALS } from 'src/components/ui/avatar'
+import { MASKED_INITIALS } from 'src/components/ui/person-avatar'
 import { PROFILE_HREF, profileHrefForEmail } from 'src/lib/profile-filters'
 import type { Viewer } from 'src/lib/viewer'
 

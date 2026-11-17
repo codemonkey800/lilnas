@@ -1,0 +1,428 @@
+extends ../../../../../designs/mockup-kit/page.pug
+
+block title
+  | lilnas design system — Category Standard · UI mockups
+
+//-
+  The live reference for the design system: every mixin in the mockup kit,
+  every variant and state, both densities. It supersedes the hand-written
+  docs/designs/preview/index.html. Copy and sample data are in
+  src/data/index.mjs.
+
+block content
+  +mockHead({ eyebrow: 'Design system · Category Standard', title: 'Every component, every state' })
+    p Quiet, conventional, consistent: dark violet-tinted surfaces, hairline borders, 6–8px corners, soft status pills and one accent. This page is built from the shared kit in #[+code('docs/designs/mockup-kit')], so it is the same markup every app's mockups use. The rules live in #[+code('DESIGN.md')]; the component specs in #[+code('docs/designs/components.md')].
+
+  +jumpNav(jump)
+
+  //- ── Foundations ──────────────────────────────────────────────────────
+  +mockSection('foundations', 'Foundations', 'Tinted neutrals, one accent, status that means status.')
+    div(class='grid gap-6 md:grid-cols-2 xl:grid-cols-3')
+      each group in palette
+        div(class='flex flex-col gap-2')
+          div
+            h3(class='text-h3')= group.name
+            p(class='text-cap text-ink-3')= group.note
+          div(class='flex gap-1.5')
+            each sw in group.swatches
+              div(class='flex min-w-0 flex-1 flex-col gap-1.5')
+                div(class=['h-12 rounded-md border border-line', sw.cls])
+                p(class='truncate font-mono text-mono-sm text-ink-2')= sw.token
+                p(class='-mt-1.5 truncate font-mono text-mono-sm text-ink-3')= sw.hex
+
+    h3(class='mt-10 mb-3 text-h3') Type
+    p(class='mb-4 max-w-[74ch] text-sm text-ink-3') Geist for people, Geist Mono for identifiers someone would copy. Numbers are tabular, not mono: #[span(class='text-ink') 64% · 12.1 MB/s] is Geist; #[span(class='font-mono text-mono text-ink') download.lilnas.io] is mono.
+    div(class='rounded-lg border border-line bg-surface p-4')
+      each row, i in typeScale
+        div(class=['grid grid-cols-[72px_190px_minmax(0,1fr)] items-baseline gap-4 py-2.5', i > 0 ? 'border-t border-line-soft' : ''])
+          span(class='font-mono text-mono-sm text-ink-3')= row.name
+          span(class='font-mono text-mono-sm text-ink-3')= row.spec
+          span(class=row.cls)= row.sample
+
+    h3(class='mt-10 mb-3 text-h3') Shape and elevation
+    p(class='mb-4 max-w-[74ch] text-sm text-ink-3') Round means label, rectangular means control. Elevation is lightness plus a border; the one shadow is for things that float.
+    div(class='grid gap-3 sm:grid-cols-3 lg:grid-cols-5')
+      each s in shapes
+        div(class='flex flex-col gap-2')
+          div(class=['grid h-16 place-items-center border border-line-loud bg-surface-2 font-mono text-mono-sm text-ink-3', s.cls])= s.name
+          p(class='text-cap text-ink-3')= s.use
+    div(class='mt-6 grid gap-3 sm:grid-cols-4')
+      each lvl in [['0 · page', 'bg-bg', 'border-transparent', ''], ['1 · card', 'bg-surface', 'border-line', ''], ['2 · raised on card', 'bg-surface-2', 'border-line', ''], ['3 · floating', 'bg-surface', 'border-line-loud', 'shadow-lift']]
+        div(class=['flex h-20 items-end rounded-lg border p-3 text-cap text-ink-2', lvl[1], lvl[2], lvl[3]])= lvl[0]
+
+  //- ── Doorplate ────────────────────────────────────────────────────────
+  +mockSection('doorplate', 'Doorplate', 'The signature. Identical in every app: the pepe badge and the subdomain in mono, top-left.')
+    div(class='grid gap-x-8 gap-y-3 sm:grid-cols-2 lg:grid-cols-3')
+      each d in doorplates
+        div(class='flex items-center gap-4 rounded-lg border border-line bg-surface p-4')
+          +doorplate(d.app)
+          span(class='text-cap text-ink-3')= d.note
+    +stateRow('States')(class='mt-5')
+      +stateCell('Rest')
+        +doorplate('download')
+      +stateCell('Hover')
+        +doorplate('download')(data-force='hover')
+      +stateCell('Focus')
+        +doorplate('download')(data-force='focus')
+      +stateCell('The mark, ≤32px')
+        div(class='flex items-center gap-3')
+          span(class='size-8 overflow-hidden rounded-full')
+            svg(class='size-full'): use(href='#pepe-badge')
+          span(class='size-6 overflow-hidden rounded-full')
+            svg(class='size-full'): use(href='#pepe-badge')
+      +stateCell('The mark, 40px+')
+        svg(class='h-[46px] w-[50px]'): use(href='#pepe-full')
+
+  //- ── App bar ──────────────────────────────────────────────────────────
+  +mockSection('app-bar', 'App bar', 'h-14 (h-12 compact). Doorplate, nav links, a spacer, then search and the avatar. On phones the links collapse into a menu button; the doorplate stays.')
+    div(class='vp-scope flex flex-col items-center gap-5')
+      +viewportToggle('appbar-viewport')
+      +viewportPanel('desktop')
+        +appFrame('desktop')
+          +appBar('desktop', { app: 'download', links: links })
+            +btn({ variant: 'ghost', icon: 'search', iconOnly: true, label: 'Search' })
+          div(class='px-8 py-10 text-sm text-ink-3') Page content
+        +frameLabel Desktop · 1280
+      +viewportPanel('mobile')
+        +appFrame('mobile')
+          +appBar('mobile', { app: 'download' })
+          div(class='px-4 py-10 text-sm text-ink-3') Page content
+        +frameLabel Mobile · 390 · the menu opens a Sheet
+
+    +stateRow('Compact', { stack: true })(class='mt-6')
+      +appFrame('desktop', { density: 'compact' })
+        +appBar('desktop', { app: 'dev', links: [{ label: 'Stacks', active: true }, { label: 'Logs' }] })
+
+  //- ── Button ───────────────────────────────────────────────────────────
+  +mockSection('button', 'Button', 'Rectangular, because it is a control. One accent button per view; a destructive action is the outlined bad button.')
+    each v in [['accent', 'Primary'], ['outline', 'Secondary'], ['ghost', 'Tertiary'], ['bad', 'Destructive']]
+      +stateRow(v[0] + ' — ' + v[1].toLowerCase())
+        +stateCell('Rest')
+          +btn({ variant: v[0], label: 'Request', icon: 'plus' })
+        +stateCell('Hover')
+          +btn({ variant: v[0], label: 'Request', icon: 'plus' })(data-force='hover')
+        +stateCell('Pressed')
+          +btn({ variant: v[0], label: 'Request', icon: 'plus' })(data-force='active')
+        +stateCell('Focus')
+          +btn({ variant: v[0], label: 'Request', icon: 'plus' })(data-force='focus')
+        +stateCell('Disabled')
+          +btn({ variant: v[0], label: 'Request', icon: 'plus', disabled: true })
+        +stateCell('Loading')
+          +btn({ variant: v[0], label: 'Requesting', loading: true })
+    +stateRow('Sizes · comfortable')
+      +stateCell('sm · 30')
+        +btn({ variant: 'accent', size: 'sm', label: 'Save' })
+      +stateCell('md · 36')
+        +btn({ variant: 'accent', label: 'Save' })
+      +stateCell('lg · 44')
+        +btn({ variant: 'accent', size: 'lg', label: 'Save' })
+      +stateCell('touch · 44')
+        +btn({ variant: 'accent', touch: true, label: 'Save' })
+    +density('compact')
+      +stateRow('Sizes · compact')
+        +stateCell('sm · 26')
+          +btn({ variant: 'accent', size: 'sm', label: 'Save' })
+        +stateCell('md · 30')
+          +btn({ variant: 'accent', label: 'Save' })
+        +stateCell('lg · 44')
+          +btn({ variant: 'accent', size: 'lg', label: 'Save' })
+    +stateRow('Icon-only')
+      +stateCell('Square, 36')
+        +btn({ variant: 'outline', icon: 'refresh', iconOnly: true, label: 'Refresh' })
+      +stateCell('Ghost')
+        +btn({ variant: 'ghost', icon: 'more', iconOnly: true, label: 'More' })
+      +stateCell('Small, 30')
+        +btn({ variant: 'outline', size: 'sm', icon: 'x', iconOnly: true, label: 'Close' })
+      +stateCell('Touch, 44')
+        +btn({ variant: 'outline', touch: true, icon: 'list', iconOnly: true, label: 'Menu' })
+      +stateCell('Loading')
+        +btn({ variant: 'outline', loading: true, iconOnly: true, label: 'Refreshing' })
+    +stateRow('Trailing icon · full width')
+      +stateCell('iconEnd')
+        +btn({ variant: 'outline', label: 'Open', iconEnd: 'external' })
+      +stateCell('full')(class='w-64')
+        +btn({ variant: 'accent', label: 'Sign in with Discord', icon: 'discord', full: true })
+
+  //- ── Badge / StatusDot ────────────────────────────────────────────────
+  +mockSection('badge', 'Badge and status dot', 'A soft tinted pill with a leading dot. Sentence case, one or two words; never clickable. Problems never pulse.')
+    +stateRow('Badge')
+      each b in [['accent', 'Downloading'], ['ok', 'Delivered'], ['warn', 'Queued'], ['bad', 'Failed'], ['mute', 'Idle']]
+        +stateCell(b[0])
+          +badge({ tone: b[0], label: b[1] })
+    +stateRow('Live')
+      +stateCell('accent · live')
+        +badge({ tone: 'accent', label: 'Downloading', live: true })
+      +stateCell('ok · live')
+        +badge({ tone: 'ok', label: 'Running', live: true })
+    +stateRow('Status dot')
+      each d in [['ok', true, 'ok · pulse'], ['accent', true, 'accent · pulse'], ['ok', false, 'ok · still'], ['warn', false, 'warn'], ['bad', false, 'bad'], ['idle', false, 'idle']]
+        +stateCell(d[2])
+          div(class='flex h-6 items-center px-1')
+            +statusDot(d[0], d[1])
+
+  //- ── Card / Panel / Tile / Media card ─────────────────────────────────
+  +mockSection('cards', 'Cards, panels, tiles', 'bg-surface, a line border, 8px corners, no shadow, ever. A card that is a link becomes a tile.')
+    div(class='grid gap-4 md:grid-cols-3')
+      +card
+        h3(class='text-h3') Card
+        p(class='mt-1 text-sm text-ink-3') The default raised thing. It never gains a shadow on hover.
+      +card({ sunk: true })
+        h3(class='text-h3') Sunk card
+        p(class='mt-1 text-sm text-ink-3') A well, for content with its own content: log panes, code.
+      +panel('Panel', 'A card with a heading and a caption.')
+        +progress(64)
+    h3(class='mt-8 mb-3 text-h3') Tile
+    div(class='grid gap-4 md:grid-cols-3')
+      +tile({ icon: 'film', name: 'Download', host: 'download.lilnas.io', status: { tone: 'accent', pulse: true, label: '3 active' } })
+      +tile({ icon: 'terminal', name: 'tdr-code', host: 'tdr-code.lilnas.io', status: { tone: 'ok', label: 'Ready' } })
+      +tile({ icon: 'server', name: 'Dev', host: 'dev.lilnas.io', status: { tone: 'bad', label: 'Down' } })
+      +tile({ icon: 'shield', name: 'Auth', host: 'auth.lilnas.io', status: { tone: 'warn', label: '2 pending' } })
+      +tile({ icon: 'device', name: 'Dashcam', host: 'dashcam.lilnas.io' })(data-force='hover')
+      +tile({ icon: 'globe', name: 'Portal', host: 'lilnas.io' })(data-force='focus')
+    h3(class='mt-8 mb-3 text-h3') Media card
+    div(class='grid gap-4 md:grid-cols-2')
+      +mediaCard({ state: 'downloading', title: 'Dune: Part Two', meta: '2160p · 38.4 GB', pct: 64 })
+      +mediaCard({ state: 'queued', title: 'Severance S02E04', meta: '1080p · 4.1 GB', icon: 'tv' })
+      +mediaCard({ state: 'delivered', title: 'Arcane S02E09', meta: '1080p · 2.8 GB', icon: 'tv' })
+        +btn({ variant: 'ghost', size: 'sm', label: 'Open', iconEnd: 'external' })
+      +mediaCard({ state: 'failed', title: 'The Bear S03E01', meta: '1080p · 3.3 GB', pct: 22, reason: 'ETIMEDOUT — the indexer stopped answering.', icon: 'tv' })
+
+  //- ── Forms ────────────────────────────────────────────────────────────
+  +mockSection('forms', 'Inputs and fields', 'A well, not a raised surface: darker than whatever it is on, with a line-control border so the edge reads at 3:1.')
+    div(class='grid gap-x-8 gap-y-6 md:grid-cols-2')
+      +stateRow('Input', { stack: true })(class='md:col-span-2')
+        +stateCell('Rest')(class='w-64')
+          +input({ placeholder: 'https://…' })
+        +stateCell('Hover')(class='w-64')
+          +input({ value: 'Push day' })
+        +stateCell('Focus')(class='w-64')
+          +input({ value: 'Push day' })(data-force='focus')
+        +stateCell('Error')(class='w-64')
+          +input({ value: 'not a link', error: true })
+        +stateCell('Disabled')(class='w-64')
+          +input({ value: 'Locked', disabled: true })
+        +stateCell('Mono (machine value)')(class='w-64')
+          +input({ value: '/storage/media/movies', mono: true })
+      +field('Video URL', 'Paste any link yt-dlp supports.')
+        +input({ placeholder: 'https://…', mono: true })
+      +field('Video URL', null, 'That is not a link yt-dlp can read.')
+        +input({ value: 'download.lilnas', error: true, mono: true })
+      +field('Notes')
+        +textarea({ placeholder: 'Anything the next you should know.' })
+      +field('Search')
+        +search({ placeholder: 'Search or paste a link' })
+      +field('Search · phone')(class='md:col-start-2' style='max-width:390px')
+        +search({ placeholder: 'Search or paste a link', view: 'mobile' })
+
+  //- ── Choice controls ──────────────────────────────────────────────────
+  +mockSection('choice', 'Checkbox, radio, switch, segmented, slider', 'Native inputs underneath, read with :has() — so the state shown is the browser’s own and nothing needs a script. Click them.')
+    div(class='grid gap-x-10 gap-y-6 md:grid-cols-2')
+      +card
+        h3(class='mb-3 text-h3') Checkbox
+        div(class='flex flex-wrap items-center gap-x-6 gap-y-3')
+          +checkbox({ label: 'Unchecked' })
+          +checkbox({ label: 'Checked', checked: true })
+          +checkbox({ label: 'Mixed', mixed: true })
+          +checkbox({ label: 'Focus', checked: true, focus: true })
+          +checkbox({ label: 'Disabled', disabled: true })
+          +checkbox({ label: 'Disabled on', checked: true, disabled: true })
+      +card
+        h3(class='mb-3 text-h3') Radio
+        div(class='flex flex-wrap items-center gap-x-6 gap-y-3')
+          +radio({ name: 'quality', label: '1080p', checked: true })
+          +radio({ name: 'quality', label: '2160p' })
+          +radio({ name: 'quality', label: 'Any' })
+          +radio({ name: 'quality-off', label: 'Disabled', disabled: true })
+      +card
+        h3(class='mb-3 text-h3') Switch
+        div(class='flex flex-wrap items-center gap-x-6 gap-y-3')
+          +switch({ label: 'Off' })
+          +switch({ label: 'On', checked: true })
+          +switch({ label: 'Disabled', disabled: true })
+          +switch({ label: 'Disabled on', checked: true, disabled: true })
+      +card
+        h3(class='mb-3 text-h3') Segmented
+        div(class='flex flex-wrap items-center gap-4')
+          +segmented(['Day', 'Week', 'Month'], 'Week')
+          +segmented([{ value: 'grid', label: 'Grid', icon: 'grid' }, { value: 'list', label: 'List', icon: 'list' }], 'grid')
+      +card()(class='md:col-span-2')
+        h3(class='mb-3 text-h3') Slider
+        div(class='grid gap-8 md:grid-cols-2')
+          +slider({ label: 'Rest timer', value: 90, min: 0, max: 180, unit: 's' })
+          +slider({ label: 'Volume', value: 35, unit: '%' })
+
+  //- ── Select / Menu / Combobox ─────────────────────────────────────────
+  +mockSection('overlays', 'Select, menu, combobox', 'Floating things get line-loud and the one shadow. Drawn open here; in the app they enter with the 200ms rise.')
+    div(class='grid items-start gap-6 md:grid-cols-3')
+      div
+        p(class='mb-2 text-cap text-ink-3') Select
+        +select({ open: true, value: 'Comfortable', items: ['Comfortable', 'Compact'] })
+      div
+        p(class='mb-2 text-cap text-ink-3') Menu
+        +menu([{ label: 'Open', icon: 'external', highlighted: true, kbd: 'O' }, { label: 'Copy link', icon: 'file', kbd: '⌘C' }, { label: 'Restart', icon: 'refresh', kbd: 'R' }, { divider: true }, { label: 'Delete', icon: 'trash', destructive: true }])
+      div
+        p(class='mb-2 text-cap text-ink-3') Combobox
+        +combobox({ query: 'p', groups: comboGroups, create: 'Add “Zercher squat”', value: 'Bench press' })
+    div(class='mt-6 grid gap-6 md:grid-cols-3')
+      +stateCell('Select · closed')
+        +select({ placeholder: 'Pick a quality', items: ['1080p'] })(class='w-full')
+      +stateCell('Select · closed, with value')
+        +select({ value: '2160p', items: ['2160p'] })(class='w-full')
+
+  //- ── Dialog / Sheet ───────────────────────────────────────────────────
+  +mockSection('dialog', 'Dialog and sheet', 'Destructive confirms name the object and its consequence. The filled red button exists only here, as the confirm step.')
+    div(class='grid gap-6 lg:grid-cols-2')
+      div
+        p(class='mb-2 text-cap text-ink-3') Dialog
+        +demoFrame(250)
+          +dialog({ title: 'Request this?', confirm: 'Request', cancel: 'Not now' })
+            | Dune: Part Two is 38.4 GB. It lands in Movies when it finishes.
+      div
+        p(class='mb-2 text-cap text-ink-3') Dialog · destructive
+        +demoFrame(250)
+          +dialog({ title: 'Delete “Dune: Part Two”?', destructive: true, confirm: 'Delete', cancel: 'Keep it' })
+            | The 38.4 GB comes off the disk. You can request it again later.
+      div
+        p(class='mb-2 text-cap text-ink-3') Sheet · bottom
+        +demoFrame(300)
+          +sheet('bottom', { title: 'Add a set' })
+            +field('Weight')
+              +input({ value: '185' })
+            +btn({ variant: 'accent', label: 'Add set', full: true })
+      div
+        p(class='mb-2 text-cap text-ink-3') Sheet · right
+        +demoFrame(300)
+          +sheet('right', { title: 'Details' })
+            p(class='text-sm text-ink-2') Detail views slide in from the right at 380ms on the standard ease.
+
+  //- ── Tabs / Table / Breadcrumb / Pagination ───────────────────────────
+  +mockSection('tables', 'Tabs, tables, data lists', 'A table is a card list below md: one column definition, two renderings, so the data cannot drift between them.')
+    +tabs
+      +tab('Queue', true, 4)
+      +tab('History', false, 128)
+      +tab('Failed', false, 1)
+      +tab('Settings')
+    div(class='mt-6 flex flex-col gap-6')
+      +breadcrumb(['Library', 'Movies', 'Dune: Part Two'])
+      +pagination(4, 12)
+    div(class='vp-scope mt-8 flex flex-col items-center gap-5')
+      +viewportToggle('table-viewport')
+      +viewportPanel('desktop')
+        +dataList(cols, rows, { view: 'desktop' })
+      +viewportPanel('mobile')
+        div(class='w-[390px] max-w-full')
+          +dataList(cols, rows, { view: 'mobile' })
+    +density('compact')
+      p(class='mt-8 mb-2 text-cap text-ink-3') Compact
+      +table(cols, rows.slice(0, 3))
+
+  //- ── Toast / Note / Empty / Skeleton / Progress / Meter ───────────────
+  +mockSection('feedback', 'Feedback', 'Toasts confirm; notes explain; empty states are the only place the mascot appears.')
+    div(class='grid gap-x-8 gap-y-6 md:grid-cols-2')
+      div(class='flex flex-col gap-3')
+        h3(class='text-h3') Toast
+        +toast('ok', 'Routine saved')
+        +toast('accent', 'Request sent', 'Dune: Part Two is in the queue.')
+        +toast('warn', 'Queued behind 3 others')
+        +toast('bad', 'Couldn’t reach Radarr', 'ETIMEDOUT — it stays until you dismiss it.')
+      div(class='flex flex-col gap-3')
+        h3(class='text-h3') Note
+        +note('accent', 'Downloads move to the SSD.')
+          | New files land there first, then archive overnight.
+        +note('ok', 'Access granted.')
+          | They can sign in now.
+        +note('warn', 'yt-dlp is out of date.')
+          | Some sites may fail until it updates — that happens nightly at 3am.
+        +note('bad', 'Radarr didn’t answer.')
+          | Requests are paused until it does.
+    div(class='mt-8 grid gap-6 md:grid-cols-2')
+      +card
+        +emptyState('Nothing in the queue', 'Paste a link or search the library to get something going.', 'Add a download')
+      +card
+        h3(class='mb-4 text-h3') Skeleton
+        div(class='flex gap-4')
+          +skeleton('poster')
+          div(class='flex-1')
+            +skeleton('line')(class='mb-3 w-1/2')
+            +skeleton('lines')
+        div(class='mt-4 flex items-center gap-3')
+          +skeleton('avatar')
+          +skeleton('line')(class='w-40')
+    div(class='mt-8 grid gap-x-8 gap-y-5 md:grid-cols-2')
+      div(class='flex flex-col gap-4')
+        h3(class='text-h3') Progress
+        +stateCell('Active', { fill: true })
+          +progress(64)
+        +stateCell('Complete → ok', { fill: true })
+          +progress(100)
+        +stateCell('Failed → bad', { fill: true })
+          +progress(22, 'bad')
+        +stateCell('Indeterminate', { fill: true })
+          +progress(null)
+      div(class='flex flex-col gap-4')
+        h3(class='text-h3') Meter
+        each m in storage
+          +meter(m.label, m.value, m.pct)
+
+  //- ── Avatar / Tooltip / Kbd ───────────────────────────────────────────
+  +mockSection('people', 'Avatar, tooltip, kbd', 'Accent avatars mean you; everyone else is surface-2. A tooltip is never the only place a fact appears.')
+    +stateRow('Avatar sizes')
+      each size in [24, 32, 40, 64]
+        +stateCell(size + 'px')
+          +avatar('JA', { size: size })
+    +stateRow('You vs. others')
+      +stateCell('you')
+        +avatar('JA', { size: 40, you: true })
+      +stateCell('other')
+        +avatar('MK', { size: 40 })
+    +stateRow('Stack')
+      +avatarStack(people, 4)
+      +avatarStack(people.slice(0, 3), 4, 40)
+    +stateRow('Tooltip')
+      +tooltip('Restart the stack')
+      +kbd('⌘')
+      +kbd('K')
+      +kbd('Esc')
+
+  //- ── Log viewer ───────────────────────────────────────────────────────
+  +mockSection('logs', 'Log viewer', 'The admin apps’ staple. Streaming lines rise in; virtualised rows must not.')
+    +logViewer(logLines, { stream: true })
+
+  //- ── Density ──────────────────────────────────────────────────────────
+  +mockSection('density', 'Density follows the job', 'Comfortable (36px controls, 14px body) for download, portal and dashcam. Compact (30px, 13px) for dev, tdr-code and admin tables. Same tokens, one data-density wrapper.')
+    div(class='grid gap-6 lg:grid-cols-2')
+      each mode in ['comfortable', 'compact']
+        +density(mode)
+          +card()(class='flex flex-col gap-4')
+            div(class='flex items-center justify-between')
+              h3(class='text-h3')= mode === 'compact' ? 'Compact · 30' : 'Comfortable · 36'
+              +badge({ tone: 'ok', label: 'Running', live: true })
+            +field('Stack name')
+              +input({ value: 'lilnas-dev', mono: true })
+            div(class='flex flex-wrap items-center gap-x-5 gap-y-3')
+              +checkbox({ label: 'Follow logs', checked: true })
+              +switch({ label: 'Auto-restart', checked: true })
+            +segmented(['All', 'Running', 'Stopped'], 'Running')
+            +tabs
+              +tab('Logs', true)
+              +tab('Config')
+            div(class='flex gap-2')
+              +btn({ variant: 'accent', label: 'Start' })
+              +btn({ variant: 'outline', label: 'Stop' })
+              +btn({ variant: 'bad', label: 'Remove', icon: 'trash' })
+
+  //- ── Motion ───────────────────────────────────────────────────────────
+  +mockSection('motion', 'Motion', 'One entry motion — fade up 6px — staggered 40ms apart, capped at 8. Reload the page to replay it. Reduced motion resolves every entry to its end state.')
+    div(class='stagger grid gap-3 sm:grid-cols-2 lg:grid-cols-5')
+      each n in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        div(class='flex h-16 items-center justify-between rounded-lg border border-line bg-surface px-3')
+          span(class='text-sm') Item #{n}
+          span(class='font-mono text-mono-sm text-ink-3')= Math.min(n - 1, 8) * 40 + 'ms'
+
+  //- ── Icons ────────────────────────────────────────────────────────────
+  +mockSection('icons', 'Icons', 'One sprite for every app. Colour from currentColor, size from the call site.')
+    div(class='grid grid-cols-3 gap-2 sm:grid-cols-5 lg:grid-cols-9 xl:grid-cols-12')
+      each name in icons
+        div(class='flex flex-col items-center gap-2 rounded-lg border border-line bg-surface px-1 py-3 text-ink-2')
+          +icon(name, 20)
+          span(class='max-w-full truncate font-mono text-mono-sm text-ink-3')= name

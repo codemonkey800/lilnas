@@ -200,6 +200,7 @@ _Backend Services (NestJS):_
 **Shared Libraries (`packages/`):**
 
 - `@lilnas/utils` - Shared utilities and types
+- `@lilnas/ui` - Design system: Tailwind theme (`theme.css`) and React components (`packages/ui`)
 - `@lilnas/media` - Radarr/Sonarr API clients
 - `@lilnas/eslint` - Shared ESLint config
 - `@lilnas/prettier` - Shared Prettier config
@@ -439,6 +440,7 @@ Not every app has environment variables — `portal` and `dashcam` have none. `t
 - ESLint configurations use the new flat config format (`eslint.config.cjs`)
 - Each package has its own ESLint configuration
 - Try to avoid using `any` types
+- UI primitives come from `@lilnas/ui`; raw palette utilities are lint errors (see `DESIGN.md`).
 - Always write optimal code that follows best practices
 - **Whenever writing to a file, ensure that it passes prettier and lint checks for the package you're editing the file in.**
 

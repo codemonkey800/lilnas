@@ -25,9 +25,9 @@ export function GalleryCard({
     <div
       {...props}
       className={cns(
-        'flex flex-col gap-[9px] rounded-lg border border-line bg-surface p-[9px]',
-        'transition-[border-color,background-color,transform] duration-200 ease-uv',
-        'hover:-translate-y-[2px] hover:border-uv hover:bg-surface-uv',
+        'flex flex-col gap-2 rounded-lg border border-line bg-surface p-2.5',
+        'transition-[border-color,background-color] duration-200 ease-standard',
+        'hover:border-line-loud hover:bg-surface-2',
         className,
       )}
     />
@@ -46,7 +46,7 @@ export function GalleryCardLink({
   className,
   ...props
 }: GalleryCardLinkProps): JSX.Element {
-  return <a {...props} className={cns('flex flex-col gap-[9px]', className)} />
+  return <a {...props} className={cns('flex flex-col gap-2', className)} />
 }
 
 export type GalleryCardTitleProps = ComponentPropsWithoutRef<'p'>
@@ -90,10 +90,7 @@ export function GalleryCardRow({
   return (
     <div
       {...props}
-      className={cns(
-        'flex items-center justify-between gap-1.5 px-px',
-        className,
-      )}
+      className={cns('flex items-center justify-between gap-1.5', className)}
     />
   )
 }

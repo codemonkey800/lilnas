@@ -1,9 +1,8 @@
 import '@testing-library/jest-dom'
 
 import { QUALITY_TIER_LABELS, QualityTier } from '@lilnas/utils/download/types'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { useState } from 'react'
 
 import {
   QUALITY_TIER_SELECT_LABEL,
@@ -25,7 +24,7 @@ function renderSelect(
 
 /** The trigger, found by its accessible name's leading word. */
 function trigger(): HTMLElement {
-  return screen.getByRole('button', { name: /^Quality:/ })
+  return screen.getByRole('combobox', { name: /^Quality:/ })
 }
 
 describe('qualityTierSelectName', () => {
@@ -39,23 +38,28 @@ describe('QualityTierSelect', () => {
     renderSelect({ value: QualityTier.UpTo720p })
 
     expect(
-      screen.getByRole('button', { name: 'Quality: Up to 720p' }),
+      screen.getByRole('combobox', { name: 'Quality: Up to 720p' }),
     ).toHaveAttribute('aria-haspopup', 'listbox')
   })
 
-  it('draws the mockup’s caption and value inside the trigger', () => {
+  it('draws the “Quality” label above the trigger and the value inside it', () => {
     renderSelect()
 
-    expect(trigger()).toHaveTextContent(QUALITY_TIER_SELECT_LABEL)
+    // The label is decoration: the trigger's own `aria-label` already says it.
+    expect(screen.getByText(QUALITY_TIER_SELECT_LABEL)).toHaveAttribute(
+      'aria-hidden',
+      'true',
+    )
     expect(trigger()).toHaveTextContent('HD (up to 1080p)')
+    expect(trigger()).not.toHaveTextContent(QUALITY_TIER_SELECT_LABEL)
   })
 
-  it('lists all three tiers, best first, under the same name', async () => {
+  it('lists all three tiers, best first', async () => {
     const { user } = renderSelect()
 
     await user.click(trigger())
 
-    const listbox = screen.getByRole('listbox', { name: /^Quality/ })
+    const listbox = await screen.findByRole('listbox')
 
     expect(
       within(listbox)
@@ -70,12 +74,14 @@ describe('QualityTierSelect', () => {
     await user.click(trigger())
 
     expect(
-      screen.getByRole('option', {
+      await screen.findByRole('option', {
         name: QUALITY_TIER_LABELS[QualityTier.UpTo4k],
       }),
     ).toHaveAttribute('aria-selected', 'true')
     expect(
-      screen.getByRole('option', { name: QUALITY_TIER_LABELS[QualityTier.Hd] }),
+      await screen.findByRole('option', {
+        name: QUALITY_TIER_LABELS[QualityTier.Hd],
+      }),
     ).toHaveAttribute('aria-selected', 'false')
   })
 
@@ -83,39 +89,46 @@ describe('QualityTierSelect', () => {
     const { onChange, user } = renderSelect()
 
     await user.click(trigger())
-    await user.click(screen.getByRole('option', { name: 'Up to 720p' }))
+    await user.click(await screen.findByRole('option', { name: 'Up to 720p' }))
 
     expect(onChange).toHaveBeenCalledWith(QualityTier.UpTo720p)
-    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument(),
+    )
   })
 
-  it('is picked from the keyboard too', async () => {
-    function Harness() {
-      const [value, setValue] = useState<QualityTier>(QualityTier.Hd)
-
-      return <QualityTierSelect onChange={setValue} value={value} />
-    }
-
-    render(<Harness />)
-    const user = userEvent.setup()
+  it('opens from the keyboard alone and hands focus back on Escape', async () => {
+    const { user } = renderSelect()
 
     trigger().focus()
     await user.keyboard('{ArrowDown}')
-    // Opening lands on the selected option — HD — so one more ArrowDown is 720p.
-    await user.keyboard('{ArrowDown}{Enter}')
 
-    expect(
-      screen.getByRole('button', { name: 'Quality: Up to 720p' }),
-    ).toHaveFocus()
+    expect(await screen.findByRole('listbox')).toBeInTheDocument()
+
+    await user.keyboard('{Escape}')
+
+    await waitFor(() =>
+      expect(screen.queryByRole('listbox')).not.toBeInTheDocument(),
+    )
+    expect(trigger()).toHaveFocus()
   })
 
-  it('draws a hint under the trigger and describes the trigger with it', () => {
-    renderSelect({ hint: 'Applies to the whole show' })
+  it('is described by the caption the row owner points it at', () => {
+    render(
+      <>
+        <p id="row-hint">A cap, not a match.</p>
+        <QualityTierSelect
+          describedBy="row-hint"
+          value={QualityTier.Hd}
+          onChange={jest.fn()}
+        />
+      </>,
+    )
 
-    expect(trigger()).toHaveAccessibleDescription('Applies to the whole show')
+    expect(trigger()).toHaveAccessibleDescription('A cap, not a match.')
   })
 
-  it('draws no hint when given none', () => {
+  it('has no description unless pointed at one', () => {
     renderSelect()
 
     expect(trigger()).not.toHaveAttribute('aria-describedby')

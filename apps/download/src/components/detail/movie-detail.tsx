@@ -1,3 +1,4 @@
+import { Badge, Button, Icon, Note } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type {
   BadFile,
@@ -44,10 +45,6 @@ import type {
 } from 'src/components/detail/release-picker'
 import { ReleasePicker } from 'src/components/detail/release-picker'
 import { SaveLocal } from 'src/components/detail/save-local'
-import { ButtonLink } from 'src/components/ui/button-link'
-import { Note } from 'src/components/ui/card'
-import { Chip } from 'src/components/ui/chip'
-import { Dot } from 'src/components/ui/status'
 import { formatRuntime, UNKNOWN_VALUE } from 'src/lib/format'
 
 /** The Emby handoff. `movie-detail.pug:42`. */
@@ -59,7 +56,7 @@ export const MOVIE_WATCH_LABEL = 'Watch'
  * implies the user can do something about it, and nobody can hurry Emby's
  * scanner.
  */
-export const MOVIE_INDEXING_LABEL = 'indexing…'
+export const MOVIE_INDEXING_LABEL = 'Indexing…'
 
 /**
  * `EmbyStatus.state === 'unknown'`, which `EmbyStatusService` sets when its
@@ -67,7 +64,7 @@ export const MOVIE_INDEXING_LABEL = 'indexing…'
  * (that is `indexing`). So this says the player could not be asked, not that
  * the file is missing.
  */
-export const MOVIE_EMBY_UNAVAILABLE_LABEL = 'emby unavailable'
+export const MOVIE_EMBY_UNAVAILABLE_LABEL = 'Emby unavailable'
 
 /**
  * The note beside a download's progress when no attempt is behind it —
@@ -91,7 +88,7 @@ export const MOVIE_EXTERNAL_QUEUE_NOTE =
  * The marker under a moving download while the live feed is not connected.
  * The same word the video page and `/activity` use for the same condition.
  */
-export const MOVIE_STALE_LABEL = 'reconnecting…'
+export const MOVIE_STALE_LABEL = 'Reconnecting…'
 
 /** Said when the resolver handed back a placeholder instead of a movie. */
 export const MOVIE_METADATA_NOTE =
@@ -106,7 +103,7 @@ export const MOVIE_METADATA_NOTE =
 const ACTION_BUTTON = 'w-full sm:w-auto'
 
 /** `movie-detail.pug`'s gap between the header, the attempts and the releases. */
-const SECTION = 'mt-7 sm:mt-8'
+const SECTION = 'mt-8'
 
 /**
  * The states the header's one-press Download is offered in — nothing on disk
@@ -351,7 +348,7 @@ export type MovieDetailProps = Omit<
  *   is in flight — a press beside a pending grab would race it. It is a
  *   shortcut, not the recommended path: the release picker below stays
  *   visible the whole time, and `MovieRequestButton` is `outline`, not
- *   Watch's `uv`, so it never reads as competing advice.
+ *   Watch's `accent`, so it never reads as competing advice.
  * - **The attempts list offers Cancel, Retry and Import — never Pause or
  *   Resume.** The page wires `onCancel` and `onRetry` to the movie's own
  *   `PATCH /download/movies/:id/cancel` and a fresh request, so an in-flight
@@ -431,29 +428,23 @@ export function MovieDetail({
 
   if (watch === 'indexed' && watchUrl !== undefined) {
     actions.push(
-      <ButtonLink
+      <Button
         className={cns(ACTION_BUTTON)}
-        href={watchUrl}
         iconEnd="eye"
         key="watch"
-        rel="noreferrer"
-        target="_blank"
-        variant="uv"
+        variant="accent"
+        render={<a href={watchUrl} rel="noreferrer" target="_blank" />}
       >
         {MOVIE_WATCH_LABEL}
-      </ButtonLink>,
+      </Button>,
     )
   } else if (watch !== 'none') {
     actions.push(
-      <Chip
-        key="emby"
-        label={
-          watch === 'indexing'
-            ? MOVIE_INDEXING_LABEL
-            : MOVIE_EMBY_UNAVAILABLE_LABEL
-        }
-        tone={watch === 'indexing' ? 'uv' : 'mute'}
-      />,
+      <Badge key="emby" tone={watch === 'indexing' ? 'accent' : 'mute'}>
+        {watch === 'indexing'
+          ? MOVIE_INDEXING_LABEL
+          : MOVIE_EMBY_UNAVAILABLE_LABEL}
+      </Badge>,
     )
   }
 
@@ -510,15 +501,13 @@ export function MovieDetail({
 
   return (
     <div {...props} className={className}>
-      {/*
-        The document's heading. `DetailHeader` renders the title as a
-        `text-h1` paragraph and is a shipped component this task may not
-        reopen, so the structure is supplied here — the same call `gallery`
-        made for its own unlabelled screen.
-      */}
-      <h1 className={cns('sr-only')}>{media.title}</h1>
       {degraded ? (
-        <Note className={cns('mb-4')}>{MOVIE_METADATA_NOTE}</Note>
+        <Note
+          className={cns('mb-4')}
+          icon={<Icon name="alert" />}
+          lead={MOVIE_METADATA_NOTE}
+          tone="warn"
+        />
       ) : null}
       <DetailHeader
         actions={
@@ -545,7 +534,6 @@ export function MovieDetail({
             />
           ) : null
         }
-        cast={<CastRow people={movieCast(credits)} />}
         lifecycle={
           <div className={cns('flex flex-col gap-[14px]')}>
             <MediaStatus
@@ -555,10 +543,9 @@ export function MovieDetail({
             {reconnecting ? (
               // `w-fit` because this is a flex column — see the same marker on
               // the video page.
-              <Chip className={cns('w-fit')} tone="warn">
-                <Dot tone="warn" />
+              <Badge className={cns('w-fit')} tone="warn">
                 {MOVIE_STALE_LABEL}
-              </Chip>
+              </Badge>
             ) : null}
           </div>
         }
@@ -568,6 +555,7 @@ export function MovieDetail({
         synopsis={media.overview}
       />
       <MovieFacts className={cns(SECTION)} credits={credits} movie={media} />
+      <CastRow className={cns(SECTION)} people={movieCast(credits)} />
       <AttemptList
         className={cns(SECTION)}
         imports={imports}

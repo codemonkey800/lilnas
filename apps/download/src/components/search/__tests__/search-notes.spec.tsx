@@ -16,8 +16,8 @@ function noteClasses(): string[] {
   return (node.getAttribute('class') ?? '').split(/\s+/).filter(Boolean)
 }
 
-/** The loud `bad` override `search.pug:320` puts on a call site. */
-const LOUD = ['border-bad/35!', 'bg-bad-ghost!', '[&>svg]:text-bad!']
+/** The `warn` tone the degraded-source note wears: a missing upstream. */
+const LOUD = ['bg-warn-ghost']
 
 describe('DegradedSourcesNote', () => {
   // ⚠️ An empty array is the explicit "both sources answered" signal, not an
@@ -105,5 +105,14 @@ describe('ShortQueryNote', () => {
     expect(screen.getByRole('status')).toHaveTextContent(
       /at least two characters/,
     )
+  })
+
+  it('leads with the short instruction and keeps the reason as the body', () => {
+    render(<ShortQueryNote />)
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Keep typing. A search needs at least two characters.',
+    )
+    expect(screen.getByText('Keep typing.').tagName).toBe('STRONG')
   })
 })

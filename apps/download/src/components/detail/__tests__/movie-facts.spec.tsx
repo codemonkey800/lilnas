@@ -113,6 +113,28 @@ describe('formatters', () => {
 })
 
 describe('MovieFacts', () => {
+  it('draws the details before the file, as the mockup does', () => {
+    render(<MovieFacts movie={MOVIE} />)
+
+    expect(
+      screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent),
+    ).toEqual([MOVIE_DETAILS_HEADING, MOVIE_FILE_HEADING])
+  })
+
+  it('sets the path in mono, since it is something to copy', () => {
+    render(
+      <MovieFacts
+        movie={{ ...MOVIE, filePath: '/movies/End of Watch (2012)' }}
+      />,
+    )
+
+    const file = screen.getByRole('region', { name: MOVIE_FILE_HEADING })
+
+    expect(within(file).getByText('/movies/End of Watch (2012)')).toHaveClass(
+      'font-mono',
+    )
+  })
+
   it('draws the file card from the file on disk', () => {
     render(<MovieFacts movie={MOVIE} />)
 

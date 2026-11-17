@@ -1,8 +1,7 @@
+import { Icon, StatusDot } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { JSX } from 'react'
 
-import { Icon } from 'src/components/ui/icon'
-import { Dot } from 'src/components/ui/status'
 import { formatAgo, formatBytes, formatSince } from 'src/lib/format'
 import {
   reapNote,
@@ -27,7 +26,7 @@ export function ServiceRow({
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-center gap-2">
-        <Dot tone={tone} />
+        <StatusDot tone={tone} />
         <span className="min-w-0 flex-1 truncate font-mono text-mono text-ink">
           {serviceName(service)}
         </span>
@@ -42,7 +41,7 @@ export function ServiceRow({
       </div>
 
       {container?.state === 'running' ? (
-        <div className="flex flex-wrap items-center gap-x-3.5 gap-y-0.5 pl-[15px] font-mono text-mono-sm text-ink-3 tabular-nums">
+        <div className="flex flex-wrap items-center gap-x-3.5 gap-y-0.5 pl-4 text-cap text-ink-3 tabular-nums">
           <span>up {formatSince(container.startedAt, now)}</span>
           {stats ? (
             <>
@@ -53,16 +52,16 @@ export function ServiceRow({
           <span
             className={cns(
               'ml-auto inline-flex items-center gap-1.5',
-              reap.warn ? 'text-warn' : 'text-ink-3',
+              reap.warn && 'text-warn',
             )}
             title={reap.title}
           >
-            <Icon className="h-[11px] w-[11px] shrink-0" name="clock" />
+            <Icon name="clock" size={12} />
             {reap.text}
           </span>
         </div>
       ) : container?.state === 'exited' && container.finishedAt ? (
-        <div className="pl-[15px] font-mono text-mono-sm text-ink-4">
+        <div className="pl-4 text-cap text-ink-3">
           stopped {formatAgo(container.finishedAt, now)}
         </div>
       ) : null}

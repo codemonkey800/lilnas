@@ -1,10 +1,7 @@
 import type { JSX } from 'react'
 
 import { ActivityFeed } from 'src/components/activity/activity-feed'
-import {
-  ACTIVITY_TITLE,
-  ActivityPageShell,
-} from 'src/components/activity/activity-page-shell'
+import { ActivityPageShell } from 'src/components/activity/activity-page-shell'
 import { JobEventsProvider } from 'src/components/live/job-events'
 import type { ActivitySearchParams } from 'src/lib/activity-filters'
 import {
@@ -17,7 +14,7 @@ import { getRequestInstant } from 'src/lib/request-instant'
 import { getViewer } from 'src/lib/viewer'
 
 export const metadata = {
-  title: 'Downloads activity · Download',
+  title: 'Activity · Download',
 }
 
 export type ActivityPageProps = {
@@ -79,7 +76,6 @@ export default async function ActivityPage({
 
   return (
     <ActivityPageShell>
-      <h1 className={ACTIVITY_TITLE}>Downloads activity</h1>
       <JobEventsProvider>
         <ActivityFeed
           filters={filters}

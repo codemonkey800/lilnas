@@ -1,3 +1,4 @@
+import { Panel, PanelHead, Table } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { AdminStatsResponse } from '@lilnas/utils/download/types'
 import type { JSX } from 'react'
@@ -9,30 +10,21 @@ import {
 } from 'src/components/activity/activity-requester'
 import { DiscordIdentityMark } from 'src/components/activity/discord-identity-mark'
 import { formatCount } from 'src/components/admin/admin-stats'
-import { Avatar } from 'src/components/ui/avatar'
-import { Card } from 'src/components/ui/card'
+import { PersonAvatar } from 'src/components/ui/person-avatar'
 import type { AdminFilters } from 'src/lib/admin-filters'
 import { adminHref } from 'src/lib/admin-filters'
-import { initials, UNKNOWN_VALUE } from 'src/lib/format'
+import { initials } from 'src/lib/format'
 import type { Viewer } from 'src/lib/viewer'
 
-/** `admin-dashboard.pug`'s `lbRow`, divider and all. */
-const ROW = cns(
-  'flex items-center gap-3 px-1 py-2.5',
-  '[&+&]:border-t [&+&]:border-line-soft',
-)
-
-const RANK = 'w-4 shrink-0 text-center font-mono text-mono-sm text-ink-4'
+const RANK = 'w-8 text-center text-cap text-ink-3 tabular-nums'
 
 const NAME = cns(
   'min-w-0 truncate text-sm',
-  'transition-colors duration-200 ease-uv hover:text-ink hover:underline',
+  'transition-colors duration-200 ease-standard hover:text-ink hover:underline',
 )
 
 /** The email and, when the account has one, its linked handle. */
 const NAME_RUN = 'flex min-w-0 flex-1 items-baseline gap-1.5'
-
-const COUNT = 'font-mono text-mono tabular-nums'
 
 export type AdminLeaderboardProps = {
   filters: AdminFilters
@@ -71,92 +63,142 @@ export function AdminLeaderboard({
   stats,
   viewer,
 }: AdminLeaderboardProps): JSX.Element {
-  if (stats.topRequesters.length === 0) {
-    return (
-      <Card className="px-3 py-4">
-        <p className="font-mono text-mono-sm text-ink-4">
-          {UNKNOWN_VALUE} nobody has downloaded anything yet
+  return (
+    <Panel>
+      <PanelHead title="Top downloaders" />
+      {stats.topRequesters.length === 0 ? (
+        <p className="px-4 py-5 text-sm text-ink-3">
+          Nobody has downloaded anything yet.
         </p>
-      </Card>
+      ) : (
+        <Table.Root aria-label="Top downloaders">
+          <Table.Head>
+            <Table.Row>
+              <Table.Th align="right" className="w-12 pl-4" scope="col">
+                #
+              </Table.Th>
+              <Table.Th scope="col">Downloader</Table.Th>
+              <Table.Th align="right" className="pr-4" scope="col">
+                Downloads
+              </Table.Th>
+            </Table.Row>
+          </Table.Head>
+          <Table.Body>
+            {stats.topRequesters.map((entry, index) => (
+              <LeaderRow
+                entry={entry}
+                filters={filters}
+                key={
+                  entry.requesterEmail ??
+                  entry.discordRequester?.discordUserId ??
+                  index
+                }
+                rank={index + 1}
+                viewer={viewer}
+              />
+            ))}
+          </Table.Body>
+        </Table.Root>
+      )}
+    </Panel>
+  )
+}
+
+type LeaderRowProps = {
+  entry: AdminStatsResponse['topRequesters'][number]
+  filters: AdminFilters
+  rank: number
+  viewer: Viewer | null
+}
+
+function LeaderRow({
+  entry,
+  filters,
+  rank,
+  viewer,
+}: LeaderRowProps): JSX.Element | null {
+  const rankCell = (
+    <Table.Td align="right" className="pl-4">
+      <span className={RANK}>{rank}</span>
+    </Table.Td>
+  )
+  const countCell = (you: boolean) => (
+    <Table.Td
+      align="right"
+      className={cns('pr-4 text-sm', you ? 'text-accent-hi' : 'text-ink-2')}
+    >
+      {formatCount(entry.count)}
+    </Table.Td>
+  )
+
+  if (entry.requesterEmail === null) {
+    if (entry.discordRequester === null) {
+      return null
+    }
+
+    const { discordUserId, discordUsername } = entry.discordRequester
+
+    return (
+      <Table.Row>
+        {rankCell}
+        <Table.Td>
+          <span className="flex min-w-0 items-center gap-3">
+            <PersonAvatar
+              initials={initials(discordUsername)}
+              size={32}
+              title={discordAvatarTitle(discordUsername)}
+            />
+            <span className="flex min-w-0 flex-1 items-center gap-1">
+              <span className="truncate text-sm">{discordUsername}</span>
+              <DiscordIdentityMark
+                discordUserId={discordUserId}
+                discordUsername={discordUsername}
+              />
+            </span>
+          </span>
+        </Table.Td>
+        {countCell(false)}
+      </Table.Row>
     )
   }
 
+  const email = entry.requesterEmail
+  const you = viewer !== null && viewer.email === email
+  const href = adminHref({ ...filters, requester: email })
+
   return (
-    <Card className="px-3 pt-1 pb-2">
-      {/*
-        An ordered list, and named: the rank is the whole point, and the page
-        holds a second list (the audit log) that a screen-reader user otherwise
-        meets as an indistinguishable "list".
-      */}
-      <ol aria-label="Top downloaders" className="flex flex-col stagger">
-        {stats.topRequesters.map((entry, index) => {
-          const rank = <span className={RANK}>{index + 1}</span>
-          const countCell = (tone: string) => (
-            <span className={cns(COUNT, tone)}>{formatCount(entry.count)}</span>
-          )
-
-          if (entry.requesterEmail === null) {
-            if (entry.discordRequester === null) {
-              return null
-            }
-
-            const { discordUserId, discordUsername } = entry.discordRequester
-
-            return (
-              <li className={ROW} key={`discord:${discordUserId}`}>
-                {rank}
-                <Avatar
-                  initials={initials(discordUsername)}
-                  title={discordAvatarTitle(discordUsername)}
-                />
-                <span className="flex min-w-0 flex-1 items-center gap-1">
-                  <span className="truncate text-sm">{discordUsername}</span>
-                  <DiscordIdentityMark
-                    discordUserId={discordUserId}
-                    discordUsername={discordUsername}
-                  />
-                </span>
-                {countCell('text-ink-3')}
-              </li>
-            )
-          }
-
-          const email = entry.requesterEmail
-          const you = viewer !== null && viewer.email === email
-          const href = adminHref({ ...filters, requester: email })
-
-          return (
-            <li className={ROW} key={email}>
-              {rank}
-              <Avatar
-                href={href}
-                initials={initials(email)}
-                ring={you}
-                title={you ? `${email} · you` : email}
-              />
-              <span className={NAME_RUN}>
-                <a className={NAME} href={href}>
-                  {email}
-                </a>
-                {/*
-                  Inert text, never a `DiscordIdentityMark` — same call as
-                  `AdminActor`: this says who the person also is, not that
-                  the row is an unclaimed account.
-                */}
-                {entry.linkedDiscord === null ? null : (
-                  <span
-                    className="shrink-0 truncate font-mono text-mono-sm text-ink-4"
-                    title={LINKED_DISCORD_TITLE}
-                  >
-                    {linkedDiscordLabel(entry.linkedDiscord.discordUsername)}
-                  </span>
-                )}
+    <Table.Row>
+      {rankCell}
+      <Table.Td>
+        <span className="flex min-w-0 items-center gap-3">
+          <PersonAvatar
+            href={href}
+            initials={initials(email)}
+            ring={you}
+            size={32}
+            title={you ? `${email} · you` : email}
+          />
+          <span className={NAME_RUN}>
+            <a className={NAME} href={href}>
+              {email}
+            </a>
+            {/*
+              Inert text, never a `DiscordIdentityMark` — same call as
+              `AdminActor`: this says who the person also is, not that the row
+              is an unclaimed account.
+            */}
+            {entry.linkedDiscord === null ? null : (
+              <span
+                className="shrink-0 truncate text-cap text-ink-3"
+                title={LINKED_DISCORD_TITLE}
+              >
+                {linkedDiscordLabel(entry.linkedDiscord.discordUsername)}
               </span>
-              {countCell(you ? 'text-uv-hi' : 'text-ink-3')}
-            </li>
-          )
-        })}
-      </ol>
-    </Card>
+            )}
+          </span>
+        </span>
+      </Table.Td>
+      {countCell(you)}
+    </Table.Row>
   )
 }

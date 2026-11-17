@@ -1,5 +1,15 @@
 'use client'
 
+import {
+  Badge,
+  type BadgeTone,
+  Button,
+  Card,
+  Icon,
+  Note,
+  Panel,
+  PanelHead,
+} from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
@@ -9,6 +19,7 @@ import { useEffect, useState } from 'react'
 import { EmptyState } from 'src/app/components/empty-state'
 import { ErrorState } from 'src/app/components/error-state'
 import { LoadingState } from 'src/app/components/loading-state'
+import { PageContainer } from 'src/app/components/page-container'
 import { RelativeTime } from 'src/app/components/relative-time'
 import { api, queryKeys } from 'src/app/lib/api'
 import { logReconcileResult } from 'src/app/lib/reconcile-logging'
@@ -46,47 +57,62 @@ const PLAN_OUTCOME_LABEL: Record<
   superseded: 'Superseded by follow-up',
 }
 
+const TURN_BADGE: Record<
+  TurnDetailDto['status'],
+  { tone: BadgeTone; label: string; live?: boolean }
+> = {
+  completed: { tone: 'ok', label: 'Completed' },
+  running: { tone: 'accent', label: 'Running', live: true },
+  errored: { tone: 'bad', label: 'Errored' },
+  cancelled: { tone: 'warn', label: 'Cancelled' },
+  interrupted: { tone: 'mute', label: 'Interrupted' },
+}
+
+const BLOCK_LABEL = 'shrink-0 text-label text-ink-3 uppercase'
+
+// A turn's blocks sit on three surfaces so it scans: the person's prompt is a
+// raised well, the agent's text and diffs a sunk one, a tool call an outlined
+// row.
 function ContentBlock({ block }: { block: TurnContentBlockDto }) {
   switch (block.kind) {
     case 'prompt':
       return (
-        <div className="rounded bg-gray-800 px-3 py-2">
-          <p className="mb-1 text-xs font-medium text-gray-400">Prompt</p>
-          <p className="whitespace-pre-wrap text-xs text-gray-200">
-            {block.text}
-          </p>
+        <div className="rounded-md bg-surface-2 px-3 py-2">
+          <p className={cns(BLOCK_LABEL, 'mb-1')}>Prompt</p>
+          <p className="text-sm whitespace-pre-wrap text-ink">{block.text}</p>
           {block.images && block.images.length > 0 && (
-            <p className="mt-1 text-xs text-gray-500">
-              [{block.images.length} image(s)]
+            <p className="mt-1.5 text-cap text-ink-3">
+              {block.images.length}{' '}
+              {block.images.length === 1 ? 'image' : 'images'} attached
             </p>
           )}
         </div>
       )
     case 'agent_text':
       return (
-        <div className="rounded bg-gray-900 px-3 py-2">
-          <p className="mb-1 text-xs font-medium text-gray-500">Agent</p>
-          <p className="whitespace-pre-wrap text-xs text-gray-300">
-            {block.text}
-          </p>
+        <div className="rounded-md border border-line-soft bg-bg-sunk px-3 py-2">
+          <p className={cns(BLOCK_LABEL, 'mb-1')}>Agent</p>
+          <p className="text-sm whitespace-pre-wrap text-ink-2">{block.text}</p>
         </div>
       )
     case 'tool_call':
       return (
-        <div className="rounded border border-gray-700 px-3 py-2">
-          <p className="text-xs font-medium text-gray-400">
-            <span className="text-gray-500">Tool</span> {block.title}
+        <div className="rounded-md border border-line px-3 py-2">
+          <p className="flex min-w-0 items-baseline gap-2 text-sm">
+            <span className={BLOCK_LABEL}>Tool</span>
+            <span className="min-w-0 truncate font-mono text-mono-sm text-ink">
+              {block.title}
+            </span>
           </p>
-          <p className="text-xs text-gray-600">
-            {block.toolKind} · {block.status}
-            {block.planOutcome && (
-              <span className="ml-2 text-gray-500">
-                · {PLAN_OUTCOME_LABEL[block.planOutcome]}
-              </span>
-            )}
+          <p className="mt-0.5 font-mono text-mono-sm text-ink-3">
+            {block.toolKind} ·{' '}
+            <span className={block.status === 'failed' ? 'text-bad' : ''}>
+              {block.status}
+            </span>
+            {block.planOutcome && ` · ${PLAN_OUTCOME_LABEL[block.planOutcome]}`}
           </p>
           {block.planText && (
-            <p className="mt-1 whitespace-pre-wrap text-xs text-gray-300">
+            <p className="mt-1.5 text-sm whitespace-pre-wrap text-ink-2">
               {block.planText}
             </p>
           )}
@@ -94,11 +120,14 @@ function ContentBlock({ block }: { block: TurnContentBlockDto }) {
       )
     case 'diff':
       return (
-        <div className="rounded bg-gray-900 px-3 py-2">
-          <p className="mb-1 text-xs font-medium text-gray-500">
-            Diff: {block.path}
+        <div className="rounded-md border border-line-soft bg-bg-sunk px-3 py-2">
+          <p className="mb-1 flex min-w-0 items-baseline gap-2">
+            <span className={BLOCK_LABEL}>Diff</span>
+            <span className="min-w-0 truncate font-mono text-mono-sm text-ink-2">
+              {block.path}
+            </span>
           </p>
-          <pre className="max-h-40 overflow-auto text-xs text-gray-300">
+          <pre className="max-h-40 overflow-auto font-mono text-mono-sm text-ink-2">
             {block.newText}
           </pre>
         </div>
@@ -110,37 +139,63 @@ function ContentBlock({ block }: { block: TurnContentBlockDto }) {
 }
 
 function TurnCard({ turn }: { turn: TurnDetailDto }) {
+  const { tone, label, live } = TURN_BADGE[turn.status]
   return (
-    <div className="rounded-lg border border-gray-800 p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <span className="text-sm font-medium text-gray-300">
-          Turn {turn.turnIndex}
-        </span>
+    <Card>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="text-h3">Turn {turn.turnIndex}</h3>
         <div className="flex items-center gap-3">
-          <span
-            className={cns(
-              'rounded px-1.5 py-0.5 text-xs',
-              turn.status === 'completed' && 'bg-green-900 text-green-300',
-              turn.status === 'running' && 'bg-yellow-900 text-yellow-300',
-              (turn.status === 'errored' || turn.status === 'cancelled') &&
-                'bg-red-900 text-red-300',
-              turn.status === 'interrupted' && 'bg-gray-800 text-gray-400',
-            )}
-          >
-            {turn.status}
-          </span>
-          {turn.endedAt && <RelativeTime value={turn.endedAt} />}
+          <Badge live={live} tone={tone}>
+            {label}
+          </Badge>
+          {turn.endedAt && (
+            <span className="text-cap text-ink-3 tabular-nums">
+              <RelativeTime value={turn.endedAt} />
+            </span>
+          )}
         </div>
       </div>
-      <div className="space-y-2">
+      <div className="flex flex-col gap-2">
         {turn.content.length === 0 ? (
-          <p className="text-xs text-gray-600">No content blocks</p>
+          <p className="text-cap text-ink-3">No content blocks</p>
         ) : (
           turn.content.map(block => (
             <ContentBlock key={block.id} block={block} />
           ))
         )}
       </div>
+    </Card>
+  )
+}
+
+// A count takes the colour of what it means only when it's non-zero: matched
+// is ok, missing is bad, extra and mismatched are warn.
+const COUNT_TONE = {
+  ok: 'text-ok',
+  bad: 'text-bad',
+  warn: 'text-warn',
+} as const
+
+function ReconcileCount({
+  label,
+  value,
+  tone,
+}: {
+  label: string
+  value: number
+  tone: keyof typeof COUNT_TONE
+}) {
+  return (
+    <div className="rounded-md bg-surface-2 px-3 py-2">
+      <dd
+        className={cns(
+          'text-h2 tabular-nums',
+          value > 0 ? COUNT_TONE[tone] : 'text-ink-3',
+        )}
+      >
+        {value}
+      </dd>
+      <dt className="text-label text-ink-3 uppercase">{label}</dt>
     </div>
   )
 }
@@ -167,89 +222,78 @@ function ReconcilePanel({ sessionId }: { sessionId: number }) {
   }, [data, sessionId])
 
   return (
-    <section className="rounded-lg border border-gray-800 p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-medium text-gray-300">
-          Verify against claude&apos;s JSONL
-        </h2>
+    <Panel>
+      <PanelHead title="Verify against claude's JSONL">
         {!triggered && (
-          <button
-            onClick={() => setTriggered(true)}
+          <Button
             data-track-id="session-run-reconcile"
-            className="rounded bg-gray-800 px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-700"
+            onClick={() => setTriggered(true)}
+            size="sm"
           >
             Run reconcile
-          </button>
+          </Button>
         )}
-      </div>
+      </PanelHead>
 
-      {isFetching && <LoadingState message="Comparing transcript…" />}
-      {isError && <ErrorState message={(error as Error)?.message} />}
-
-      {data && (
-        <>
-          {data.verdict === 'cannot-reconcile' && (
-            <p className="text-sm text-yellow-400">
-              Cannot reconcile:{' '}
-              <span className="text-yellow-300">{data.reason}</span>
-            </p>
+      {(isFetching || isError || data) && (
+        <div className="flex flex-col gap-3 p-4">
+          {isFetching && <LoadingState message="Comparing transcript…" />}
+          {isError && (
+            <ErrorState
+              lead="Couldn't compare the transcript."
+              message={(error as Error)?.message}
+            />
           )}
-          {data.verdict === 'reconciled' && (
-            <div className="space-y-2 text-sm">
-              <p className="text-gray-300">
-                Matched:{' '}
-                <span className="font-medium text-green-400">
-                  {data.matched}
-                </span>
-                {' · '}
-                Missing in DB:{' '}
-                <span
-                  className={
-                    data.missingInDb.length > 0
-                      ? 'text-red-400'
-                      : 'text-gray-500'
-                  }
-                >
-                  {data.missingInDb.length}
-                </span>
-                {' · '}
-                Extra in DB:{' '}
-                <span
-                  className={
-                    data.extraInDb.length > 0
-                      ? 'text-yellow-400'
-                      : 'text-gray-500'
-                  }
-                >
-                  {data.extraInDb.length}
-                </span>
-                {' · '}
-                Mismatched:{' '}
-                <span
-                  className={
-                    data.mismatched.length > 0
-                      ? 'text-orange-400'
-                      : 'text-gray-500'
-                  }
-                >
-                  {data.mismatched.length}
-                </span>
-              </p>
+
+          {data?.verdict === 'cannot-reconcile' && (
+            <Note lead="Nothing to compare against." tone="warn">
+              <span className="font-mono text-mono-sm">{data.reason}</span>
+            </Note>
+          )}
+          {data?.verdict === 'reconciled' && (
+            <>
+              <dl className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                <ReconcileCount
+                  label="Matched"
+                  tone="ok"
+                  value={data.matched}
+                />
+                <ReconcileCount
+                  label="Missing in DB"
+                  tone="bad"
+                  value={data.missingInDb.length}
+                />
+                <ReconcileCount
+                  label="Extra in DB"
+                  tone="warn"
+                  value={data.extraInDb.length}
+                />
+                <ReconcileCount
+                  label="Mismatched"
+                  tone="warn"
+                  value={data.mismatched.length}
+                />
+              </dl>
               {data.skippedJsonlLines > 0 && (
-                <p className="text-xs text-gray-500">
-                  Skipped {data.skippedJsonlLines} malformed JSONL line(s)
+                <p className="text-cap text-ink-3">
+                  Skipped {data.skippedJsonlLines} malformed JSONL{' '}
+                  {data.skippedJsonlLines === 1 ? 'line' : 'lines'}
                 </p>
               )}
               {data.cappedAt !== undefined && (
-                <p className="text-xs text-yellow-500">
-                  JSONL truncated at {data.cappedAt} bytes
-                </p>
+                <Note lead="JSONL truncated." tone="warn">
+                  Only the first{' '}
+                  <span className="font-mono text-mono-sm">
+                    {data.cappedAt} bytes
+                  </span>{' '}
+                  were compared.
+                </Note>
               )}
-            </div>
+            </>
           )}
-        </>
+        </div>
       )}
-    </section>
+    </Panel>
   )
 }
 
@@ -275,81 +319,130 @@ export default function SessionDetailPage() {
         : 5_000,
   })
 
-  if (isLoading && !data) return <LoadingState />
-  if (isError && !data)
-    return <ErrorState message={(error as Error)?.message} />
+  if (isLoading && !data) {
+    return (
+      <PageContainer>
+        <div className="mx-auto max-w-3xl">
+          <LoadingState message={`Fetching session #${sessionId}…`} />
+        </div>
+      </PageContainer>
+    )
+  }
+  if (isError && !data) {
+    return (
+      <PageContainer>
+        <div className="mx-auto max-w-3xl">
+          <ErrorState
+            lead={`Couldn't load session #${sessionId}.`}
+            message={(error as Error)?.message}
+          />
+        </div>
+      </PageContainer>
+    )
+  }
   if (!data) return null
 
   const { session, turns, droppedBlocks } = data
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4">
-      <div className="flex items-center gap-3">
-        <Link
-          href="/sessions"
-          className="text-xs text-gray-500 hover:text-gray-300"
-        >
-          ← Sessions
-        </Link>
-        <h1 className="text-lg font-semibold text-white">
-          Session #{session.id}
-        </h1>
-        {session.endedAt ? (
-          <span className="text-xs text-gray-500">{session.endReason}</span>
-        ) : (
-          <span className="rounded bg-green-900 px-1.5 py-0.5 text-xs text-green-300">
-            active
-          </span>
-        )}
-      </div>
-
-      <div className="grid grid-cols-2 gap-4 rounded-lg border border-gray-800 p-4 text-xs text-gray-400">
-        <div className="flex min-w-0 items-baseline gap-1">
-          <span className="shrink-0">Channel:</span>
-          <span
-            className="block truncate font-mono text-gray-200"
-            title={session.channelId}
+    <PageContainer>
+      <div className="mx-auto flex max-w-3xl flex-col gap-4">
+        <div className="flex flex-col gap-2">
+          <Link
+            className="inline-flex w-fit items-center gap-1.5 text-sm text-ink-3 hover:text-ink"
+            href="/sessions"
           >
-            {session.channelName ?? session.channelId}
-          </span>
-        </div>
-        <div className="flex min-w-0 items-baseline gap-1">
-          <span className="shrink-0">User:</span>
-          <span
-            className="block truncate font-mono text-gray-200"
-            title={session.triggeringUserId}
-          >
-            {session.triggeringUserDisplayName ?? session.triggeringUserId}
-          </span>
-        </div>
-        <div>
-          Created: <RelativeTime value={session.createdAt} />
-        </div>
-        {session.endedAt && (
-          <div>
-            Ended: <RelativeTime value={session.endedAt} />
+            <Icon className="size-3 -scale-x-100 text-ink-4" name="arrow" />
+            Sessions
+          </Link>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <h1 className="text-h2">
+              Session <span className="font-mono">#{session.id}</span>
+            </h1>
+            {session.endedAt ? (
+              session.endReason && (
+                <span className="font-mono text-mono-sm text-ink-3">
+                  {session.endReason}
+                </span>
+              )
+            ) : (
+              <Badge live tone="ok">
+                Active
+              </Badge>
+            )}
           </div>
+        </div>
+
+        <Card>
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-3 md:grid-cols-4">
+            <MetaItem label="Channel">
+              <span
+                className="font-mono text-mono-sm text-ink"
+                title={session.channelId}
+              >
+                {session.channelName ?? session.channelId}
+              </span>
+            </MetaItem>
+            <MetaItem label="User">
+              <span title={session.triggeringUserId}>
+                {session.triggeringUserDisplayName ?? session.triggeringUserId}
+              </span>
+            </MetaItem>
+            <MetaItem label="Created">
+              <span className="tabular-nums">
+                <RelativeTime value={session.createdAt} />
+              </span>
+            </MetaItem>
+            {session.endedAt && (
+              <MetaItem label="Ended">
+                <span className="tabular-nums">
+                  <RelativeTime value={session.endedAt} />
+                </span>
+              </MetaItem>
+            )}
+          </dl>
+        </Card>
+
+        {droppedBlocks > 0 && (
+          <Note
+            lead={`${droppedBlocks} malformed ${
+              droppedBlocks === 1 ? 'block' : 'blocks'
+            } dropped from view.`}
+            tone="warn"
+          />
         )}
+
+        <section className="flex flex-col gap-3">
+          <h2 className="text-h3">
+            {turns.length} turn{turns.length !== 1 ? 's' : ''}
+          </h2>
+          {turns.length === 0 ? (
+            <EmptyState
+              body="The session started but hasn't been given a prompt."
+              message="No turns recorded"
+            />
+          ) : (
+            turns.map(turn => <TurnCard key={turn.id} turn={turn} />)
+          )}
+        </section>
+
+        <ReconcilePanel sessionId={session.id} />
       </div>
+    </PageContainer>
+  )
+}
 
-      {droppedBlocks > 0 && (
-        <p className="text-xs text-yellow-500">
-          {droppedBlocks} malformed block(s) dropped from view
-        </p>
-      )}
-
-      <section className="space-y-3">
-        <h2 className="text-sm font-medium text-gray-400">
-          {turns.length} turn{turns.length !== 1 ? 's' : ''}
-        </h2>
-        {turns.length === 0 ? (
-          <EmptyState message="No turns recorded" />
-        ) : (
-          turns.map(turn => <TurnCard key={turn.id} turn={turn} />)
-        )}
-      </section>
-
-      <ReconcilePanel sessionId={session.id} />
+function MetaItem({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="min-w-0">
+      <dt className="mb-0.5 text-label text-ink-3 uppercase">{label}</dt>
+      <dd className="truncate text-[13.5px]">{children}</dd>
     </div>
   )
 }

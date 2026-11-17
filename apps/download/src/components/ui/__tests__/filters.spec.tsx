@@ -1,10 +1,11 @@
 import '@testing-library/jest-dom'
 
+import { Button } from '@lilnas/ui'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useRef, useState } from 'react'
 
-import { Button } from 'src/components/ui/button'
+import { iconBody } from 'src/__tests__/helpers/icon'
 import {
   AppliedFilterChip,
   FilterFoot,
@@ -14,7 +15,6 @@ import {
   FiltersButton,
   FilterScrim,
 } from 'src/components/ui/filters'
-import { Menu, MenuItem } from 'src/components/ui/menu'
 import { ToggleChip } from 'src/components/ui/toggle-chip'
 
 describe('FiltersButton', () => {
@@ -25,8 +25,8 @@ describe('FiltersButton', () => {
 
     expect(button).toHaveAttribute('type', 'button')
     expect(button).toHaveAttribute('aria-haspopup', 'dialog')
-    expect(button).toHaveClass('border-line', 'bg-surface', 'text-ink')
-    expect(container.querySelector('use')).toHaveAttribute('href', '#i-chevron')
+    expect(button).toHaveClass('border-line', 'bg-surface-2', 'text-ink')
+    expect(container.querySelector('svg')?.innerHTML).toBe(iconBody('chevron'))
   })
 
   it('leaves aria-expanded off a button that reports no open state', () => {
@@ -53,7 +53,7 @@ describe('FiltersButton', () => {
 
     const badge = screen.getByText('2')
 
-    expect(badge).toHaveClass('bg-uv', 'text-uv-ink', 'rounded-full')
+    expect(badge).toHaveClass('bg-accent', 'text-accent-ink', 'rounded-full')
     expect(screen.getByRole('button')).toHaveAccessibleName('Filters 2')
   })
 
@@ -62,7 +62,7 @@ describe('FiltersButton', () => {
 
     expect(container.querySelector('svg')).not.toHaveClass('rotate-180')
     expect(screen.getByRole('button')).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.getByRole('button')).not.toHaveClass('bg-uv-ghost')
+    expect(screen.getByRole('button')).not.toHaveClass('bg-accent-ghost')
   })
 
   it('rotates the chevron and tints itself while open', () => {
@@ -71,9 +71,8 @@ describe('FiltersButton', () => {
     expect(container.querySelector('svg')).toHaveClass('rotate-180')
     expect(screen.getByRole('button')).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByRole('button')).toHaveClass(
-      'border-uv/35',
-      'bg-uv-ghost',
-      'text-uv-hi',
+      'border-line-loud',
+      'bg-surface',
     )
   })
 
@@ -82,8 +81,8 @@ describe('FiltersButton', () => {
 
     const button = screen.getByRole('button')
 
-    expect(button).toHaveClass('bg-surface-2', 'h-[30px]')
-    expect(button).not.toHaveClass('bg-uv-ghost')
+    expect(button).toHaveClass('bg-surface-2', 'h-(--control-h-sm)')
+    expect(button).not.toHaveClass('bg-accent-ghost')
   })
 
   it('forwards a ref to the underlying button', () => {
@@ -120,7 +119,9 @@ describe('AppliedFilterChip', () => {
     const chip = screen.getByTestId('chip')
 
     expect(chip).toHaveTextContent('2019–2024')
-    expect(chip).toHaveClass('border-uv/30', 'bg-uv-ghost', 'text-uv-hi')
+    // A `Badge` in the accent tone: the same tint a chosen thing wears
+    // everywhere else, with its remove button inside.
+    expect(chip).toHaveClass('bg-accent-ghost', 'text-accent-hi')
   })
 
   it('names the remove button after the filter it removes', () => {
@@ -158,7 +159,7 @@ describe('AppliedFilterChip', () => {
     await user.click(screen.getByRole('button'))
 
     expect(onRemove).toHaveBeenCalledTimes(1)
-    expect(container.querySelector('use')).toHaveAttribute('href', '#i-x')
+    expect(container.querySelector('svg')?.innerHTML).toBe(iconBody('x'))
     expect(screen.getByRole('button')).toHaveAttribute('type', 'button')
   })
 })
@@ -170,7 +171,7 @@ describe('FilterGrid', () => {
     expect(screen.getByTestId('grid')).toHaveClass(
       'grid',
       'grid-cols-1',
-      '@min-[400px]:grid-cols-[repeat(auto-fill,minmax(190px,1fr))]',
+      '@min-[400px]:grid-cols-2',
     )
   })
 })
@@ -190,14 +191,13 @@ describe('FilterGroup', () => {
     ).toBeInTheDocument()
   })
 
-  it('draws its label in the uppercase mono micro-type', () => {
+  it('draws its label in the uppercase micro-type', () => {
     render(<FilterGroup label="release year" />)
 
     expect(screen.getByText('release year')).toHaveClass(
-      'font-mono',
       'text-label',
       'uppercase',
-      'text-ink-4',
+      'text-ink-3',
     )
   })
 
@@ -256,7 +256,7 @@ describe('FilterPanel', () => {
     expect(panel).toHaveClass(
       '@container',
       'rounded-lg',
-      'border-line',
+      'border-line-loud',
       'bg-surface',
       'shadow-lift',
     )
@@ -294,7 +294,6 @@ function FiltersPopover({
   withControls?: boolean
 }) {
   const [open, setOpen] = useState(false)
-  const [sort, setSort] = useState('Recently added')
   const triggerRef = useRef<HTMLButtonElement>(null)
 
   function setOpenState(next: boolean): void {
@@ -326,14 +325,6 @@ function FiltersPopover({
                   ))
                 : null}
             </FilterGroup>
-            {withControls ? (
-              <FilterGroup label="sort by">
-                <Menu label={sort} value={sort} onValueChange={setSort}>
-                  <MenuItem value="Recently added">Recently added</MenuItem>
-                  <MenuItem value="Title">Title</MenuItem>
-                </Menu>
-              </FilterGroup>
-            ) : null}
           </FilterGrid>
         </FilterPanel>
       </div>
@@ -386,26 +377,6 @@ describe('FilterPanel as a popover', () => {
     await user.click(trigger())
     await user.click(screen.getByText('uploaded by'))
 
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
-
-    await user.keyboard('{Escape}')
-
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-  })
-
-  it('leaves the panel open when Escape closes a menu inside it', async () => {
-    const user = userEvent.setup()
-
-    render(<FiltersPopover />)
-
-    await user.click(trigger())
-    await user.click(screen.getByRole('button', { name: 'Recently added' }))
-
-    expect(screen.getByRole('listbox')).toBeInTheDocument()
-
-    await user.keyboard('{Escape}')
-
-    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
     expect(screen.getByRole('dialog')).toBeInTheDocument()
 
     await user.keyboard('{Escape}')

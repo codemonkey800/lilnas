@@ -18,7 +18,7 @@ import {
   IMPORT_DISCARD_TITLE,
   IMPORT_EMPTY_NOTE,
   IMPORT_MOVIE_GROUP_LABEL,
-  IMPORT_REJECTION_NOTE,
+  IMPORT_REJECTION_LEAD_RADARR,
   IMPORT_TRIGGER_LABEL,
   importCandidateSecondary,
   ImportDialog,
@@ -286,9 +286,11 @@ describe('ImportDialog — the dialog', () => {
   it('puts the initial focus on Cancel', async () => {
     await open()
 
-    expect(
-      screen.getByRole('button', { name: IMPORT_CANCEL_LABEL }),
-    ).toHaveFocus()
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: IMPORT_CANCEL_LABEL }),
+      ).toHaveFocus(),
+    )
   })
 
   it('renders the candidate, checked, with its quality, size and title', async () => {
@@ -299,17 +301,21 @@ describe('ImportDialog — the dialog', () => {
     })
 
     expect(row).toHaveAttribute('aria-checked', 'true')
-    expect(within(row).getByText('Bluray-1080p · 1.6 GB')).toBeInTheDocument()
-    expect(within(row).getByText('Game Night')).toBeInTheDocument()
-    expect(within(row).getByText('English')).toBeInTheDocument()
+
+    // One mono line: quality and size, what it resolved to, the language.
+    const line = within(row.closest('label') as HTMLElement).getByText(
+      'Bluray-1080p · 1.6 GB · Game Night · English',
+    )
+
+    expect(line).toHaveClass('font-mono')
   })
 
   it("reports upstream's rejection, and then discounts it", async () => {
     await open()
 
     // Informational, never a blocker: `ManualImport` builds a fresh decision.
+    expect(screen.getByText(IMPORT_REJECTION_LEAD_RADARR)).toBeInTheDocument()
     expect(screen.getByText(GAME_NIGHT_REJECTION)).toBeInTheDocument()
-    expect(screen.getByText(IMPORT_REJECTION_NOTE)).toBeInTheDocument()
     expect(confirmButton()).not.toHaveAttribute('aria-disabled', 'true')
   })
 
@@ -331,7 +337,10 @@ describe('ImportDialog — a blocked row', () => {
 
     expect(row).toHaveAttribute('aria-disabled', 'true')
     expect(row).toHaveAttribute('aria-checked', 'false')
-    expect(row).toHaveAccessibleDescription(SAMPLE.blockedReason as string)
+    // The reason is part of the row's own label, not a description off it.
+    expect(row).toHaveAccessibleName(
+      expect.stringContaining(SAMPLE.blockedReason as string),
+    )
   })
 
   it('falls back to a written reason when the server gave none', async () => {

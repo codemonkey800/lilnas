@@ -1,12 +1,11 @@
 'use client'
 
+import { type ButtonVariant, type IconName } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { JSX, ReactNode } from 'react'
 
 import { IMPORT_TRIGGER_LABEL } from 'src/components/detail/import-dialog'
 import type { JobActionKey } from 'src/components/detail/job-state'
-import type { ButtonVariant } from 'src/components/ui/button-recipe'
-import type { IconName } from 'src/components/ui/icon'
 
 /**
  * The job action pieces — what a page hands over for a job action, what each
@@ -60,10 +59,15 @@ export type ActionSpec = {
  */
 export const ACTION_SPECS: readonly ActionSpec[] = [
   { iconEnd: 'pause', key: 'pause', label: 'Pause', variant: 'outline' },
-  { key: 'resume', label: 'Resume', variant: 'uv' },
-  { key: 'import', label: IMPORT_TRIGGER_LABEL, variant: 'outline' },
-  { key: 'retry', label: 'Retry', variant: 'outline' },
-  { iconEnd: 'eye', key: 'watch', label: 'Watch', variant: 'uv' },
+  { key: 'resume', label: 'Resume', variant: 'accent' },
+  {
+    iconEnd: 'check',
+    key: 'import',
+    label: IMPORT_TRIGGER_LABEL,
+    variant: 'accent',
+  },
+  { iconEnd: 'refresh', key: 'retry', label: 'Retry', variant: 'outline' },
+  { iconEnd: 'eye', key: 'watch', label: 'Watch', variant: 'accent' },
   {
     iconEnd: 'device',
     key: 'save',

@@ -1,9 +1,9 @@
+import { Button } from '@lilnas/ui'
 import type { GalleryItem } from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX } from 'react'
 
 import { GALLERY_HREF } from 'src/components/home/quick-access'
 import { RecentlyAddedGrid } from 'src/components/home/recently-added-grid'
-import { ButtonLink } from 'src/components/ui/button-link'
 import type { Viewer } from 'src/lib/viewer'
 
 /**
@@ -44,18 +44,18 @@ export function RecentlyAdded({
 }: RecentlyAddedProps): JSX.Element {
   return (
     <section {...props} aria-labelledby={HEADING_ID} className={className}>
-      <div className="mb-[14px] flex items-center justify-between gap-3 sm:mb-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="text-h2" id={HEADING_ID}>
           Recently added
         </h2>
-        <ButtonLink
-          href={GALLERY_HREF}
+        <Button
           iconEnd="arrow"
           size="sm"
           variant="ghost"
+          render={<a href={GALLERY_HREF} />}
         >
           See full library
-        </ButtonLink>
+        </Button>
       </div>
       <RecentlyAddedGrid items={items} now={now} viewer={viewer} />
     </section>

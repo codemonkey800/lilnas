@@ -1,5 +1,6 @@
 'use client'
 
+import { Badge, Button, Progress } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type {
   BadFile,
@@ -47,10 +48,7 @@ import {
   episodeState,
   isDownloadableState,
 } from 'src/components/detail/show-state'
-import { Button } from 'src/components/ui/button'
-import { Chip } from 'src/components/ui/chip'
 import { StateLineActions } from 'src/components/ui/state-line'
-import { Bar, Dot } from 'src/components/ui/status'
 import { formatRuntime, UNKNOWN_VALUE } from 'src/lib/format'
 
 /** The disclosure's two labels, and the eyebrow over what it reveals. */
@@ -59,9 +57,9 @@ export const EPISODE_ACTIONS_HIDE_LABEL = 'Close'
 
 /** The chip beside a last episode - Sonarr's `finaleType`, in words. */
 export const EPISODE_FINALE_LABELS: Record<EpisodeFinaleType, string> = {
-  midseason: 'midseason finale',
-  season: 'season finale',
-  series: 'series finale',
+  midseason: 'Midseason finale',
+  season: 'Season finale',
+  series: 'Series finale',
 }
 
 /**
@@ -80,7 +78,7 @@ const EPISODE_ROW = cns(
   'sm:flex-row sm:items-center sm:gap-[14px]',
 )
 
-const EPISODE_NUMBER = 'w-[26px] shrink-0 font-mono text-mono-sm text-ink-4'
+const EPISODE_NUMBER = 'w-7 shrink-0 font-mono text-mono-sm text-ink-3'
 
 /** `ACTION_SPECS`' own Cancel, so the row's button reads like every other. */
 const CANCEL_SPEC = ACTION_SPECS.find(spec => spec.key === 'cancel')
@@ -96,7 +94,7 @@ function episodeQueuePct(episode: Episode): number | null {
 
   return pct !== undefined && Number.isFinite(pct) ? pct : null
 }
-const EPISODE_META = 'font-mono text-mono-sm text-ink-4'
+const EPISODE_META = 'text-cap text-ink-3'
 
 /**
  * A row action: splits the stacked row on a phone, natural width from `sm`.
@@ -272,15 +270,13 @@ export function ShowEpisodeRow({
           {airDay ? <span className={cns(EPISODE_META)}>{airDay}</span> : null}
           <span className={cns(EPISODE_META)}>{runtime}</span>
           {episode.finaleType ? (
-            <Chip
-              label={EPISODE_FINALE_LABELS[episode.finaleType]}
-              tone="mute"
-            />
+            <Badge tone="mute">
+              {EPISODE_FINALE_LABELS[episode.finaleType]}
+            </Badge>
           ) : null}
-          <Chip tone={state.tone}>
-            {state.live ? <Dot tone="live" /> : null}
+          <Badge tone={state.tone} live={state.live}>
             {state.label}
-          </Chip>
+          </Badge>
         </span>
         {pct === null ? null : (
           <span
@@ -288,14 +284,14 @@ export function ShowEpisodeRow({
               'flex w-full items-center gap-2 sm:w-[120px] sm:shrink-0',
             )}
           >
-            <Bar
+            <Progress
               aria-label={`${code} download progress`}
               className={cns('flex-1')}
-              pct={pct}
+              value={pct}
             />
             <span
               aria-hidden="true"
-              className={cns('font-mono text-mono-sm tabular-nums text-uv-hi')}
+              className={cns('text-cap text-accent-hi tabular-nums')}
             >
               {`${Math.round(pct)}%`}
             </span>
@@ -350,9 +346,9 @@ export function ShowEpisodeRow({
           <Button
             aria-expanded={open}
             className={cns('flex-1 sm:flex-none')}
-            iconEnd="chevron"
+            icon={open ? 'x' : undefined}
             size="sm"
-            variant="ghost"
+            variant="outline"
             onClick={() => onToggle(episode.id)}
           >
             {open ? EPISODE_ACTIONS_HIDE_LABEL : EPISODE_ACTIONS_LABEL}
@@ -360,7 +356,11 @@ export function ShowEpisodeRow({
         </span>
       </div>
       {open ? (
-        <div className={cns('flex flex-col gap-3 px-1 pt-1 pb-[13px]')}>
+        <div
+          className={cns(
+            'mx-1 mb-3 flex flex-col gap-3 rounded-lg border border-line bg-bg-sunk p-3',
+          )}
+        >
           <EpisodeSynopsis episode={episode} />
           <ReleasePicker
             badFiles={badFiles}

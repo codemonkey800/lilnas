@@ -4,9 +4,16 @@ The design system for every app at `*.lilnas.io`. Direction: **Category
 Standard** — dark violet-tinted surfaces, hairline borders, 6–8px corners, soft
 tinted status badges and one accent.
 
-**Start with [`preview/index.html`](preview/index.html)** — open it in a browser.
-It's one self-contained file that renders every component in the system.
-Nothing to install.
+**Start with the live reference,
+[`../features/design-system/designs/index.html`](../features/design-system/designs/index.html)**
+— open it in a browser. It is one self-contained file that renders every
+component in the system, every variant and state, in both densities. Nothing to
+install. It is built from the shared mockup kit,
+[`mockup-kit/`](mockup-kit), which every app's mockups include too.
+
+[`preview/index.html`](preview/index.html) is the comparison-era snapshot: the
+hand-written page the direction was chosen from. It is kept for the record and
+is no longer updated.
 
 Then read [`../../DESIGN.md`](../../DESIGN.md) for the thesis and the four rules
 everything derives from.
@@ -22,7 +29,8 @@ everything derives from.
 | [`motion.md`](motion.md)             | Curves, durations, the single entry motion, stagger, hover steps, the live pulse, reduced motion, when to reach for a library.            |
 | [`components.md`](components.md)     | Anatomy, variants and states for every primitive in `@lilnas/ui`, plus the build order.                                                   |
 | [`voice.md`](voice.md)               | How the interface talks. Buttons, errors, empty states, confirmations, per-app tone.                                                      |
-| [`adoption.md`](adoption.md)         | Current state of the apps, the `@lilnas/ui` package, how to migrate the apps already on the previous system, and the migration order.     |
+| [`mockup-kit/`](mockup-kit)          | The Pug + Tailwind kit every app's mockups include: theme, one mixin per component, the harness and the icon sprite.                      |
+| [`adoption.md`](adoption.md)         | Which apps are on the system, what changed for them (with the old-to-new token map), and the work that remains.                           |
 
 ---
 
@@ -48,9 +56,12 @@ identical in every app.
 
 ## Status
 
-**Direction agreed; implementation partial.** `apps/download` and `apps/dev`
-ship a local copy of the previous system under mostly the same token names, so
-adopting this is a values swap plus a rename. `@lilnas/ui` doesn't exist yet.
+**Implemented.** The library is [`packages/ui`](../../packages/ui)
+(`@lilnas/ui`: the Tailwind theme plus every component in
+[`components.md`](components.md)). `portal`, `auth`, `download`, `tdr-bot`,
+`tdr-code` and `dev` are on it; `dashcam` and `theater` are the
+remaining work. The live reference is
+[`../features/design-system/designs/index.html`](../features/design-system/designs/index.html).
 See [`adoption.md`](adoption.md).
 
 The comparison that led here (six candidates, 23 components each) was built as

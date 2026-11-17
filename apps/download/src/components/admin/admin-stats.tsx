@@ -1,10 +1,9 @@
+import { Card, Progress, StatusDot } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { AdminStatsResponse } from '@lilnas/utils/download/types'
 import { DownloadJobStatus } from '@lilnas/utils/download/types'
 import type { JSX, ReactNode } from 'react'
 
-import { Card } from 'src/components/ui/card'
-import { Bar, Dot } from 'src/components/ui/status'
 import { isInProgress } from 'src/lib/format'
 
 /**
@@ -55,52 +54,30 @@ export function runningJobTotal(stats: AdminStatsResponse): number {
 }
 
 /**
- * The value. Mono and tabular — it changes, so it must not jitter.
- *
- * `admin-dashboard.pug` writes this `text-[32px]` on desktop and `text-[26px]`
- * on mobile, which the mockup can express as two separate renders and the real
- * app expresses as one responsive element.
+ * The value: Geist with tabular figures, never mono — it is a quantity, not
+ * something to copy, and it changes, so it must not jitter.
  */
-const STAT_VALUE = cns(
-  'font-mono text-[26px] leading-[1.1] font-semibold tracking-[-0.02em] tabular-nums',
-  'sm:text-[32px]',
-)
+const STAT_VALUE =
+  'text-[32px] leading-[1.1] font-semibold tracking-tight tabular-nums'
 
-const STAT_LABEL = cns(
-  'font-mono text-label uppercase',
-  // After the `text-label` token, which carries its own tracking: a font-size
-  // utility clears a preceding `tracking-*` through tailwind-merge.
-  'tracking-[0.11em] text-ink-4',
-)
+const STAT_LABEL = 'text-label text-ink-3 uppercase'
 
-/** The licensed `ink-4`: a short machine annotation, never a sentence. */
-const STAT_FOOT = 'font-mono text-mono-sm text-ink-4'
+const STAT_FOOT = 'text-cap text-ink-3'
 
 type StatTileProps = {
   /** A 0-100 share, drawn under the value. Omitted draws no bar. */
   bar?: number
   foot: ReactNode
-  /**
-   * The tile's name. A `ReactNode` rather than a `string` because
-   * `admin-dashboard.pug`'s `statTile` takes a `labelMobile` — at 390px a
-   * two-column tile is 124px wide inside its padding and a long label wraps,
-   * which makes one tile in the row taller than the others.
-   */
-  label: ReactNode
+  label: string
   /**
    * Marks the figure as something happening right now — the breathing dot and
-   * the `ok` ink from `admin-dashboard.pug`'s `stat.live`.
+   * the `ok` ink.
    */
   live?: boolean
   value: number
 }
 
-/**
- * One headline number. `admin-dashboard.pug`'s `statTile` mixin, including its
- * optional `+bar` — which is the mockup's own answer to "a tile that wants to
- * show a proportion", and the reason this page draws no trend chart (the
- * `trend` mixin lives only in `profile.pug`).
- */
+/** One headline number, with an optional proportion bar under it. */
 function StatTile({
   bar,
   foot,
@@ -109,11 +86,11 @@ function StatTile({
   value,
 }: StatTileProps): JSX.Element {
   return (
-    <Card className="flex flex-col gap-[7px] px-5 pt-[18px] pb-5">
+    <Card className="flex flex-col gap-2">
       <span className={STAT_LABEL}>{label}</span>
       {live ? (
         <span className="flex items-center gap-2">
-          <Dot tone="live" />
+          <StatusDot pulse tone="ok" />
           <span className={cns(STAT_VALUE, 'text-ok')}>
             {formatCount(value)}
           </span>
@@ -122,9 +99,9 @@ function StatTile({
         <span className={STAT_VALUE}>{formatCount(value)}</span>
       )}
       {bar === undefined ? null : (
-        // `role="presentation"` — the figure above it is the same fact in
+        // `aria-hidden="true"` — the figure above it is the same fact in
         // words, and a progress bar announced beside it reads the tile twice.
-        <Bar className="mt-px" pct={bar} role="presentation" />
+        <Progress aria-hidden="true" className="h-2.5" value={bar} />
       )}
       <span className={STAT_FOOT}>{foot}</span>
     </Card>
@@ -170,41 +147,26 @@ export function AdminStats({ stats }: AdminStatsProps): JSX.Element {
     stats.totalJobs > 0 ? (completed / stats.totalJobs) * 100 : 0
 
   return (
-    <div className="mb-6 grid grid-cols-2 gap-[14px] sm:mb-8 sm:grid-cols-4">
+    <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
       <StatTile
-        foot="all time"
-        label="total downloads"
+        foot="All time"
+        label="Total downloads"
         value={stats.totalJobs}
       />
       <StatTile
-        foot={`last ${stats.windowDays} ${stats.windowDays === 1 ? 'day' : 'days'}`}
-        label="recent downloads"
+        foot={`Last ${stats.windowDays} ${stats.windowDays === 1 ? 'day' : 'days'}`}
+        label="Recent downloads"
         value={windowTotal}
       />
       <StatTile
         bar={completedShare}
-        foot={
-          <>
-            of {formatCount(stats.totalJobs)}
-            <span className="hidden sm:inline"> all time</span>
-          </>
-        }
-        label="completed"
+        foot={`of ${formatCount(stats.totalJobs)} all time`}
+        label="Completed"
         value={completed}
       />
       <StatTile
-        foot={
-          <>
-            <span className="sm:hidden">in progress</span>
-            <span className="hidden sm:inline">downloads in progress</span>
-          </>
-        }
-        label={
-          <>
-            <span className="sm:hidden">running</span>
-            <span className="hidden sm:inline">currently running</span>
-          </>
-        }
+        foot="Downloads in progress"
+        label="Running now"
         live={running > 0}
         value={running}
       />

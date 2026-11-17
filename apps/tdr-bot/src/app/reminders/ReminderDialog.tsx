@@ -1,22 +1,17 @@
-import Alert from '@mui/material/Alert'
-import Autocomplete from '@mui/material/Autocomplete'
-import Box from '@mui/material/Box'
-import Button from '@mui/material/Button'
-import Chip from '@mui/material/Chip'
-import CircularProgress from '@mui/material/CircularProgress'
-import Dialog from '@mui/material/Dialog'
-import DialogActions from '@mui/material/DialogActions'
-import DialogContent from '@mui/material/DialogContent'
-import DialogTitle from '@mui/material/DialogTitle'
-import FormControl from '@mui/material/FormControl'
-import FormControlLabel from '@mui/material/FormControlLabel'
-import FormLabel from '@mui/material/FormLabel'
-import MenuItem from '@mui/material/MenuItem'
-import Radio from '@mui/material/Radio'
-import RadioGroup from '@mui/material/RadioGroup'
-import Stack from '@mui/material/Stack'
-import TextField from '@mui/material/TextField'
-import Typography from '@mui/material/Typography'
+import {
+  Avatar,
+  Button,
+  Combobox,
+  type ComboboxItem,
+  Dialog,
+  Field,
+  Input,
+  Note,
+  Segmented,
+  Textarea,
+  useFieldId,
+} from '@lilnas/ui'
+import { cns } from '@lilnas/utils/cns'
 import { useEffect, useMemo, useState } from 'react'
 
 import { ApiRequestError } from 'src/api/api.client'
@@ -36,13 +31,20 @@ import {
 import { ReminderActionType } from 'src/reminders/reminder.types'
 
 import { CRON_PRESETS, CUSTOM_PRESET, presetFor } from './cron-presets'
+import { FieldSelect } from './FieldSelect'
 import { ACTION_LABELS } from './format'
 
 const WHAT_MAX = 500
 const DEFAULT_CRON = CRON_PRESETS[0].cron
-const NONE = ''
+/** The `Select` has no "empty" value, so the default channel is a sentinel. */
+const DEFAULT_CHANNEL = 'default'
 
-type Kind = 'once' | 'recurring'
+const KINDS = [
+  { value: 'once', label: 'One-time' },
+  { value: 'recurring', label: 'Recurring' },
+] as const
+
+type Kind = (typeof KINDS)[number]['value']
 
 interface Draft {
   userId: string
@@ -77,7 +79,7 @@ function emptyDraft(): Draft {
     at: '',
     cron: DEFAULT_CRON,
     endsOn: '',
-    channelId: NONE,
+    channelId: DEFAULT_CHANNEL,
     targetUserIds: [],
     actionType: ReminderActionType.Default,
   }
@@ -91,7 +93,7 @@ function draftFrom(reminder: ReminderView): Draft {
     at: toLocalInput(reminder.scheduledAt),
     cron: reminder.cronExpression ?? DEFAULT_CRON,
     endsOn: toLocalDate(reminder.endsAt),
-    channelId: reminder.channelId ?? NONE,
+    channelId: reminder.channelId ?? DEFAULT_CHANNEL,
     targetUserIds: reminder.targetUserIds,
     actionType: reminder.actionType,
   }
@@ -134,6 +136,21 @@ function issueFor(error: Error | null, ...paths: string[]) {
 
 const memberLabel = (m: MemberInfo) => `${m.username} · ${m.displayName}`
 
+function memberItem(m: MemberInfo): ComboboxItem<string> {
+  return {
+    value: m.id,
+    label: memberLabel(m),
+    icon: (
+      <Avatar
+        initials={m.displayName.slice(0, 2).toUpperCase()}
+        size={24}
+        src={m.avatarUrl ?? undefined}
+        title={m.displayName}
+      />
+    ),
+  }
+}
+
 const formatRun = (iso: string) =>
   new Date(iso).toLocaleString(undefined, {
     weekday: 'short',
@@ -142,6 +159,14 @@ const formatRun = (iso: string) =>
     hour: 'numeric',
     minute: '2-digit',
   })
+
+const actionLabel = (type: ReminderActionType) =>
+  ACTION_LABELS[type][0].toUpperCase() + ACTION_LABELS[type].slice(1)
+
+const ACTION_OPTIONS = Object.values(ReminderActionType).map(type => ({
+  value: type,
+  label: actionLabel(type),
+}))
 
 interface ReminderDialogProps {
   open: boolean
@@ -156,15 +181,51 @@ export function ReminderDialog({
   onClose,
 }: ReminderDialogProps) {
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
-      {open && (
+    <Dialog.Root
+      open={open}
+      onOpenChange={next => {
+        if (!next) onClose()
+      }}
+    >
+      <Dialog.Popup className="max-w-[520px] gap-4">
         <ReminderForm
           key={reminder?.id ?? 'new'}
           reminder={reminder}
           onClose={onClose}
         />
+      </Dialog.Popup>
+    </Dialog.Root>
+  )
+}
+
+/** A pill that picks a cron preset; the picked one is accent. */
+function PresetPill({
+  label,
+  selected,
+  disabled,
+  onClick,
+}: {
+  label: string
+  selected: boolean
+  disabled: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      aria-pressed={selected}
+      className={cns(
+        'inline-flex h-7 items-center rounded-full border px-3 text-cap font-medium',
+        'transition-colors duration-200 ease-standard disabled:opacity-40',
+        selected
+          ? 'border-accent bg-accent-ghost text-ink'
+          : 'border-line-control text-ink-2 hover:text-ink',
       )}
-    </Dialog>
+      disabled={disabled}
+      type="button"
+      onClick={onClick}
+    >
+      {label}
+    </button>
   )
 }
 
@@ -181,6 +242,7 @@ function ReminderForm({
   const mutation = editing ? update : create
   const { data: members = [] } = useMembers()
   const { data: channels = [] } = useChannels()
+  const remindId = useFieldId()
 
   const [draft, setDraft] = useState<Draft>(() =>
     reminder ? draftFrom(reminder) : emptyDraft(),
@@ -197,10 +259,25 @@ function ReminderForm({
   const previewError = preview.error?.message
   const settling = schedule !== null && schedule !== debouncedSchedule
 
-  const owner = members.find(m => m.id === draft.userId) ?? null
+  // Ids the member list doesn't know (left the server, still on a reminder)
+  // stay pickable and readable instead of showing a bare id.
+  const people = useMemo(() => {
+    const known = new Set(members.map(m => m.id))
+    const missing = [draft.userId, ...draft.targetUserIds]
+      .filter(id => id && !known.has(id))
+      .map(id => ({
+        id,
+        username: id === reminder?.userId ? reminder.userName : id,
+        displayName: id === reminder?.userId ? reminder.userName : id,
+        avatarUrl: null,
+      }))
+
+    return [...members, ...missing]
+  }, [members, draft.userId, draft.targetUserIds, reminder])
+  const items = useMemo(() => people.map(memberItem), [people])
   const targets = draft.targetUserIds.map(
     id =>
-      members.find(m => m.id === id) ?? {
+      people.find(m => m.id === id) ?? {
         id,
         username: id,
         displayName: id,
@@ -243,7 +320,7 @@ function ReminderForm({
     const fields = {
       what: draft.what.trim(),
       schedule,
-      channelId: draft.channelId || null,
+      channelId: draft.channelId === DEFAULT_CHANNEL ? null : draft.channelId,
       targetUserIds: draft.targetUserIds,
       actionType: draft.actionType,
     }
@@ -257,234 +334,201 @@ function ReminderForm({
     }
   }
 
+  const userError = issueFor(mutation.error, 'userId')
+  const targetsError = issueFor(mutation.error, 'targetUserIds')
+  const endsError = issueFor(mutation.error, 'schedule.endsAt')
+  const remindMessage = targetsError ? `${remindId}-error` : `${remindId}-hint`
+
   return (
     <>
-      <DialogTitle>{editing ? 'Edit reminder' : 'New reminder'}</DialogTitle>
-      <DialogContent>
-        <Stack spacing={2.5} sx={{ pt: 1 }}>
-          <Autocomplete
-            options={members}
-            value={owner}
-            disabled={editing || saving}
-            getOptionLabel={memberLabel}
-            isOptionEqualToValue={(a, b) => a.id === b.id}
-            onChange={(_, m) => edit({ userId: m?.id ?? '' })}
-            renderInput={params => (
-              <TextField
-                {...params}
-                label="For"
-                helperText={
-                  issueFor(mutation.error, 'userId') ??
-                  (editing && !owner
-                    ? reminder.userName
-                    : 'Username and display name')
-                }
-                error={!!issueFor(mutation.error, 'userId')}
-              />
-            )}
-          />
+      <Dialog.Title className="text-h2">
+        {editing ? 'Edit reminder' : 'New reminder'}
+      </Dialog.Title>
 
-          <TextField
-            multiline
-            minRows={3}
-            label="What"
-            value={draft.what}
+      <Field error={userError} hint="Username and display name" label="For">
+        <Combobox
+          disabled={editing || saving}
+          items={items}
+          label="For"
+          placeholder="Pick a member"
+          value={draft.userId || null}
+          onValueChange={id => edit({ userId: id ?? '' })}
+        />
+      </Field>
+
+      <div>
+        <Field error={whatError} label="What">
+          <Textarea
             disabled={saving}
-            error={!!whatError}
-            helperText={
-              <Box component="span" sx={{ display: 'flex' }}>
-                <span>{whatError}</span>
-                <Box component="span" sx={{ ml: 'auto' }}>
-                  {draft.what.length} / {WHAT_MAX}
-                </Box>
-              </Box>
-            }
+            rows={3}
+            value={draft.what}
             onChange={e => edit({ what: e.target.value.slice(0, WHAT_MAX) })}
           />
+        </Field>
+        <p className="mt-[5px] text-right font-mono text-xs text-ink-3 tabular-nums">
+          {draft.what.length} / {WHAT_MAX}
+        </p>
+      </div>
 
-          <FormControl disabled={saving}>
-            <FormLabel id="reminder-kind-label">Type</FormLabel>
-            <RadioGroup
-              row
-              aria-labelledby="reminder-kind-label"
-              value={draft.kind}
-              onChange={e => edit({ kind: e.target.value as Kind })}
-            >
-              <FormControlLabel
-                value="once"
-                control={<Radio />}
-                label="One-time"
-              />
-              <FormControlLabel
-                value="recurring"
-                control={<Radio />}
-                label="Recurring"
-              />
-            </RadioGroup>
-          </FormControl>
+      <div className="flex flex-col gap-1.5">
+        <span className="text-sm font-medium text-ink-2">Type</span>
+        <Segmented
+          className="self-start"
+          label="Type"
+          options={KINDS}
+          value={draft.kind}
+          onValueChange={kind => edit({ kind })}
+        />
+      </div>
 
-          {draft.kind === 'once' ? (
-            <TextField
-              type="datetime-local"
-              label="When"
-              value={draft.at}
-              disabled={saving}
-              error={!!(atError ?? previewError)}
-              helperText={atError ?? previewError}
-              onChange={e => edit({ at: e.target.value })}
-              slotProps={{ inputLabel: { shrink: true } }}
-            />
-          ) : (
-            <Stack spacing={2}>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                {[...CRON_PRESETS, { label: CUSTOM_PRESET, cron: '' }].map(
-                  p => (
-                    <Chip
-                      key={p.label}
-                      size="small"
-                      label={p.label === CUSTOM_PRESET ? 'Custom' : p.label}
-                      color={presetLabel === p.label ? 'primary' : 'default'}
-                      variant={presetLabel === p.label ? 'filled' : 'outlined'}
-                      disabled={saving}
-                      onClick={() =>
-                        p.cron
-                          ? edit({ cron: p.cron })
-                          : edit({ cron: draft.cron })
-                      }
-                    />
-                  ),
-                )}
-              </Box>
-              <TextField
-                label="Cron expression"
-                value={draft.cron}
-                disabled={saving}
-                error={!!cronError}
-                helperText={cronError}
-                onChange={e => edit({ cron: e.target.value })}
-                slotProps={{ input: { sx: { fontFamily: 'monospace' } } }}
-              />
-              <TextField
-                type="date"
-                label="Ends on (optional)"
-                value={draft.endsOn}
-                disabled={saving}
-                error={!!issueFor(mutation.error, 'schedule.endsAt')}
-                helperText={issueFor(mutation.error, 'schedule.endsAt')}
-                onChange={e => edit({ endsOn: e.target.value })}
-                slotProps={{ inputLabel: { shrink: true } }}
-              />
-            </Stack>
-          )}
-
-          {draft.kind === 'recurring' && (
-            <Box>
-              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                Next 3 runs
-              </Typography>
-              <Box
-                component="ul"
-                sx={{
-                  m: 0,
-                  mt: 0.5,
-                  p: 1.5,
-                  listStyle: 'none',
-                  border: 1,
-                  borderColor: 'divider',
-                  borderRadius: 1,
-                  fontFamily: 'monospace',
-                  fontSize: 12,
-                  color: 'text.secondary',
-                  minHeight: 32,
-                }}
-              >
-                {preview.data && !settling
-                  ? preview.data.runs
-                      .slice(0, 3)
-                      .map(run => <li key={run}>{formatRun(run)}</li>)
-                  : null}
-              </Box>
-            </Box>
-          )}
-
-          <TextField
-            select
-            label="Deliver to"
-            value={draft.channelId}
+      {draft.kind === 'once' ? (
+        <Field error={atError ?? previewError} label="When">
+          <Input
             disabled={saving}
-            error={!!issueFor(mutation.error, 'channelId')}
-            helperText={
-              issueFor(mutation.error, 'channelId') ?? 'Default channel'
-            }
-            onChange={e => edit({ channelId: e.target.value })}
-          >
-            <MenuItem value={NONE}>Default channel</MenuItem>
-            {channels.map(c => (
-              <MenuItem key={c.id} value={c.id}>
-                #{c.name}
-              </MenuItem>
-            ))}
-          </TextField>
-
-          <Autocomplete
-            multiple
-            filterSelectedOptions
-            options={members}
-            value={targets}
-            disabled={saving}
-            getOptionLabel={memberLabel}
-            isOptionEqualToValue={(a, b) => a.id === b.id}
-            onChange={(_, selected) =>
-              edit({ targetUserIds: selected.map(m => m.id) })
-            }
-            renderInput={params => (
-              <TextField
-                {...params}
-                label="Remind"
-                error={!!issueFor(mutation.error, 'targetUserIds')}
-                helperText={
-                  issueFor(mutation.error, 'targetUserIds') ??
-                  'Tags everyone selected; defaults to the creator'
-                }
-              />
-            )}
+            mono
+            type="datetime-local"
+            value={draft.at}
+            onChange={e => edit({ at: e.target.value })}
           />
-
-          <TextField
-            select
-            label="Action"
-            value={draft.actionType}
-            disabled={saving}
-            error={!!issueFor(mutation.error, 'actionType')}
-            helperText={issueFor(mutation.error, 'actionType')}
-            onChange={e =>
-              edit({ actionType: e.target.value as ReminderActionType })
-            }
+        </Field>
+      ) : (
+        <div className="flex flex-col gap-3">
+          <div
+            aria-label="Preset"
+            className="flex flex-wrap gap-2"
+            role="group"
           >
-            {Object.values(ReminderActionType).map(type => (
-              <MenuItem key={type} value={type}>
-                {ACTION_LABELS[type][0].toUpperCase() +
-                  ACTION_LABELS[type].slice(1)}
-              </MenuItem>
+            {[...CRON_PRESETS, { label: CUSTOM_PRESET, cron: '' }].map(p => (
+              <PresetPill
+                key={p.label}
+                disabled={saving}
+                label={p.label === CUSTOM_PRESET ? 'Custom' : p.label}
+                selected={presetLabel === p.label}
+                onClick={() => p.cron && edit({ cron: p.cron })}
+              />
             ))}
-          </TextField>
+          </div>
+          <Field error={cronError} label="Cron expression">
+            <Input
+              disabled={saving}
+              mono
+              value={draft.cron}
+              onChange={e => edit({ cron: e.target.value })}
+            />
+          </Field>
+          <Field error={endsError} label="Ends on (optional)">
+            <Input
+              disabled={saving}
+              mono={!!draft.endsOn}
+              placeholder="No end date"
+              type="date"
+              value={draft.endsOn}
+              onChange={e => edit({ endsOn: e.target.value })}
+            />
+          </Field>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium text-ink-2">Next 3 runs</span>
+            <ul
+              aria-label="Next 3 runs"
+              className="flex min-h-[38px] flex-col rounded-md border border-line bg-bg-sunk px-3 py-2 font-mono text-mono-sm text-ink-2"
+            >
+              {preview.data && !settling
+                ? preview.data.runs
+                    .slice(0, 3)
+                    .map(run => <li key={run}>{formatRun(run)}</li>)
+                : null}
+            </ul>
+          </div>
+        </div>
+      )}
 
-          {globalError && <Alert severity="error">{globalError}</Alert>}
-        </Stack>
-      </DialogContent>
-      <DialogActions>
-        <Button color="inherit" onClick={onClose}>
-          Cancel
-        </Button>
+      <FieldSelect
+        disabled={saving}
+        error={issueFor(mutation.error, 'channelId')}
+        hint="Default channel"
+        label="Deliver to"
+        options={[
+          { value: DEFAULT_CHANNEL, label: 'Default channel' },
+          ...channels.map(c => ({ value: c.id, label: `#${c.name}` })),
+        ]}
+        value={draft.channelId}
+        onValueChange={channelId => edit({ channelId })}
+      />
+
+      <Field
+        error={targetsError}
+        hint="Tags everyone selected; defaults to the creator"
+        htmlFor={remindId}
+        label="Remind"
+      >
+        <>
+          <Combobox
+            aria-describedby={remindMessage}
+            aria-invalid={targetsError ? true : undefined}
+            disabled={saving}
+            id={remindId}
+            items={items.filter(i => !draft.targetUserIds.includes(i.value))}
+            label="Remind"
+            placeholder="Add a member"
+            value={null}
+            onValueChange={id => {
+              if (id) edit({ targetUserIds: [...draft.targetUserIds, id] })
+            }}
+          />
+          {targets.length > 0 && (
+            <ul aria-label="Reminding" className="flex flex-wrap gap-2">
+              {targets.map(m => (
+                <li
+                  key={m.id}
+                  className="inline-flex h-7 items-center gap-1.5 rounded-full bg-surface-2 pr-1 pl-3 text-cap text-ink"
+                >
+                  {memberLabel(m)}
+                  <button
+                    aria-label={`Remove ${m.username}`}
+                    className="flex size-5 items-center justify-center rounded-full text-ink-3 hover:bg-line hover:text-ink disabled:opacity-40"
+                    disabled={saving}
+                    type="button"
+                    onClick={() =>
+                      edit({
+                        targetUserIds: draft.targetUserIds.filter(
+                          id => id !== m.id,
+                        ),
+                      })
+                    }
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      </Field>
+
+      <FieldSelect
+        disabled={saving}
+        error={issueFor(mutation.error, 'actionType')}
+        label="Action"
+        options={ACTION_OPTIONS}
+        value={draft.actionType}
+        onValueChange={actionType =>
+          edit({ actionType: actionType as ReminderActionType })
+        }
+      />
+
+      {globalError && <Note lead={globalError} tone="bad" />}
+
+      <Dialog.Actions>
+        <Dialog.Close render={<Button variant="ghost" />}>Cancel</Dialog.Close>
         <Button
-          variant="contained"
           disabled={submitDisabled}
+          loading={saving}
+          variant="accent"
           onClick={submit}
-          startIcon={saving ? <CircularProgress size={14} /> : undefined}
         >
-          {editing ? 'Save' : 'Create'}
+          {editing ? 'Save reminder' : 'Create reminder'}
         </Button>
-      </DialogActions>
+      </Dialog.Actions>
     </>
   )
 }

@@ -1,0 +1,56 @@
+extends ../../../../../designs/mockup-kit/page.pug
+
+include ../mixins/tdr-code.pug
+
+block title
+  | tdr-code — sessions · UI mockups
+
+//-
+  /sessions: every session, newest first, with a channel filter and Load more.
+  Copy and sample data are in src/data/sessions.mjs.
+
+mixin sessionsBody(view, s)
+  - const phone = view === 'mobile'
+  if s.body === 'loading'
+    +loadingBlock(copy.loading)
+  else if s.body === 'error'
+    +errorBlock(view, copy.error.lead, copy.error.detail, copy.error.code, false)
+  else if s.body === 'empty'
+    +card()
+      +emptyState(copy.empty.title, copy.empty.body)
+  else if s.body === 'filtered-empty'
+    +card()
+      +emptyState(copy.filteredEmpty.title, copy.filteredEmpty.body, copy.filteredEmpty.action)
+  else
+    +tdrList(columns, s.body === 'filtered' ? filteredRows : rows, view)
+    unless s.body === 'filtered'
+      div
+        +btn({ variant: 'outline', touch: phone, label: s.loadingMore ? 'Loading…' : 'Load more', loading: s.loadingMore, disabled: s.loadingMore, full: phone })
+
+mixin sessionsScreen(view, s)
+  - const phone = view === 'mobile'
+  +shell(view, 'Sessions')
+    h1(class='text-h2') Sessions
+    form(class='flex items-center gap-2' onsubmit='return false')
+      +input({ value: s.filter, placeholder: copy.placeholder, mono: !!s.filter })(class=[phone ? 'h-11! min-w-0 flex-1' : 'max-w-[340px]'])
+      if s.filter
+        +btn({ variant: 'ghost', size: 'sm', touch: phone, label: 'Clear' })
+    +sessionsBody(view, s)
+
+block content
+  +mockHead({ eyebrow: 'tdr-code · /sessions', title: 'Sessions', back: true })
+    p Every session the bot has run, newest first. The ID is the link, in mono; Ended is an Active badge for a live session and a relative time otherwise. A filter that hides everything gets its own line and a Clear filter action, not the empty state's. On a phone each row is a card: ID on the left, Active or #[+code('Ended 3h ago')] on the right.
+
+  div(class='vp-scope flex flex-col items-center gap-8')
+    +viewportToggle('sessions-viewport')
+    +viewportPanel('desktop')
+      each s in states
+        +stateRow(s.label + ' · ' + s.caption, { stack: true })(class='w-full')
+          +sessionsScreen('desktop', s)
+      +frameLabel Desktop · 1280
+    +viewportPanel('mobile')
+      +stateRow('States', { stack: true })(class='w-full')
+        each s in states
+          +stateCell(s.label + ' · ' + s.caption)
+            +sessionsScreen('mobile', s)
+      +frameLabel Mobile · 390

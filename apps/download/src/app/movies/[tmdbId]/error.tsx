@@ -3,18 +3,14 @@
 import { cns } from '@lilnas/utils/cns'
 import type { JSX } from 'react'
 
+import { DetailError } from 'src/components/detail/detail-error'
 import { LibraryLink } from 'src/components/detail/library-link'
-import { Button } from 'src/components/ui/button'
-import { Note } from 'src/components/ui/card'
 
 /** `mock.pug`'s `appBody` at both widths, spelled the way `src/app/(home)/page.tsx` does. */
 const PAGE_SHELL = cns(
   'flex-auto px-6 pt-[18px] pb-[30px]',
   'sm:px-8 sm:pt-[30px] sm:pb-11',
 )
-
-/** The loud `Note`, assembled at the call site the way `ui.pug` does it. */
-const ERROR_NOTE = 'border-bad/35! bg-bad-ghost! [&>svg]:text-bad!'
 
 export type MovieErrorProps = {
   /** Next hands the boundary the thrown error, with a `digest` in production. */
@@ -50,30 +46,13 @@ export default function MovieError({
     <main className={PAGE_SHELL}>
       <div className={cns('mx-auto max-w-[1080px]')}>
         <LibraryLink />
-        <h1 className={cns('mb-[14px] text-h2 sm:mb-4')}>
-          This movie could not be loaded
-        </h1>
-        <Note className={cns(ERROR_NOTE)} icon="alert">
-          <p>
-            The download service didn&rsquo;t answer, so none of this
-            movie&rsquo;s details or downloads could be read. Nothing has been
-            changed &mdash; trying again is safe.
-          </p>
-          {error.digest === undefined ? null : (
-            <p className={cns('mt-1.5 font-mono text-mono-sm text-ink-4')}>
-              Reference {error.digest}
-            </p>
-          )}
-          <Button
-            className={cns('mt-2.5')}
-            icon="activity"
-            onClick={reset}
-            size="sm"
-            variant="outline"
-          >
-            Try again
-          </Button>
-        </Note>
+        <DetailError
+          detail="None of this movie’s details or downloads could be read. Nothing has been changed — trying again is safe."
+          digest={error.digest}
+          lead="The download service didn’t answer."
+          title="This movie couldn’t be loaded"
+          onReset={reset}
+        />
       </div>
     </main>
   )

@@ -58,7 +58,7 @@ export default {
       video: true,
       v: 4,
       who: null,
-      when: 'hidden · 3h ago',
+      when: '3h ago',
       mobileHalf: true,
     },
     {
@@ -125,10 +125,16 @@ export default {
   ],
 
   TABS: ['All', 'Videos', 'Movies', 'Shows'],
+  // [initials, name, checked, count]
   PEOPLE: [
-    ['JA', 'Jeremy', true],
-    ['SR', 'Sarah'],
-    ['AC', 'Alex'],
+    ['JA', 'Jeremy', true, 74],
+    ['SR', 'Sarah', false, 31],
+    ['AC', 'Alex', false, 23],
+  ],
+  TYPES: [
+    ['Videos', 203],
+    ['Movies', 318],
+    ['Shows', 54],
   ],
   SORTS: ['Recently added', 'Title A–Z', 'Oldest first', 'Duration'],
 }

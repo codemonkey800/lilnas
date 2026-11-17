@@ -72,7 +72,7 @@ describe('ShowDetailLive', () => {
   it('⚠️ moves a row’s chip and its season tab off a media frame — no refresh', () => {
     const { send } = renderLive()
 
-    expect(within(row(2431)).getByText('wanted')).toBeInTheDocument()
+    expect(within(row(2431)).getByText('Wanted')).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /Season 1/ })).toHaveAccessibleName(
       'Season 1',
     )
@@ -95,7 +95,7 @@ describe('ShowDetailLive', () => {
       ),
     )
 
-    expect(within(row(2431)).getByText('downloading')).toBeInTheDocument()
+    expect(within(row(2431)).getByText('Downloading')).toBeInTheDocument()
     expect(
       within(row(2431)).getByRole('progressbar', {
         name: 'S01E02 download progress',

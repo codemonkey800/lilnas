@@ -1,0 +1,14 @@
+extends ../../../../../designs/mockup-kit/page.pug
+
+block title
+  | portal — UI mockups · lilnas
+
+block content
+  +mockHead({ eyebrow: 'portal · lilnas.io', title: 'Portal' })
+    p The hallway. A grid of the apps that are running, and a power page for the remote browser. Category Standard, built from the shared kit in #[+code('docs/designs/mockup-kit')]. Every page is shown at 1280 and 390 behind a switch, with each state as a captioned row.
+
+  ul(class='stagger grid max-w-[640px] gap-4')
+    each page in pages
+      li(class='flex flex-col gap-2')
+        +tile({ icon: page.icon, name: page.name, host: page.file, href: page.file })
+        p(class='px-1 text-sm text-ink-3')= page.blurb

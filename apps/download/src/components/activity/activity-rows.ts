@@ -136,14 +136,14 @@ export function buildActivityRows({
  * that wear the breathing `live` dot in `downloads-activity.pug`.
  *
  * Derived from `statusTone`'s own grouping rather than from a second list of
- * statuses: `uv` is defined there as "the machine is working on it"
+ * statuses: `accent` is defined there as "the machine is working on it"
  * (`searching`, `downloading`, `converting`, `uploading`, `importing`,
  * `cleaning`), while `mute` is inert, `warn` is a user intervention and `ok`/
  * `bad` are terminal. A new status therefore picks up the right dot from the
  * one place tones are decided, instead of silently defaulting to "still".
  */
 export function isMoving(job: DownloadJob): boolean {
-  return statusTone(job.status) === 'uv'
+  return statusTone(job.status) === 'accent'
 }
 
 /**
@@ -181,23 +181,4 @@ export function jobProgressPct(job: DownloadJob): number | null {
   return progress === undefined || !Number.isFinite(progress)
     ? null
     : Math.round(progress)
-}
-
-/**
- * The status chip's label on a **stacked** (mobile) row, where there is no
- * separate progress column for the percentage to live in.
- *
- * Follows `downloads-activity.mjs`'s `mobileState`: a moving row is already
- * saying "working" with its live dot, so the percentage is the more useful half
- * and stands alone; a stalled row that still has progress needs both, because
- * `18%` on its own would read as moving.
- */
-export function mobileStatusLabel(job: DownloadJob): string {
-  const pct = jobProgressPct(job)
-
-  if (pct === null) {
-    return job.status
-  }
-
-  return isMoving(job) ? `${pct}%` : `${job.status} · ${pct}%`
 }

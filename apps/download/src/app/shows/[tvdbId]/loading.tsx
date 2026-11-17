@@ -1,8 +1,8 @@
+import { Skeleton } from '@lilnas/ui'
 import { cns } from '@lilnas/utils/cns'
 import type { JSX } from 'react'
 
 import { ShowPageShell } from 'src/components/detail/show-page-shell'
-import { Skeleton } from 'src/components/ui/feedback'
 
 /** Three seasons' worth of tab stubs - `show-detail.pug:329,359`. */
 const TAB_KEYS = ['a', 'b', 'c'] as const
@@ -47,8 +47,8 @@ export default function ShowLoading(): JSX.Element {
       <div className={cns('flex flex-col sm:flex-row sm:items-start sm:gap-6')}>
         <Skeleton
           className={cns(
-            'mx-auto mb-4 aspect-[2/3] w-full max-w-[220px] rounded-md',
-            'sm:mx-0 sm:mb-0 sm:w-[200px] sm:max-w-none',
+            'mb-4 aspect-[2/3] w-[132px] rounded-md',
+            'sm:mb-0 sm:w-[200px]',
           )}
         />
         <div

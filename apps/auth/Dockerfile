@@ -13,6 +13,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/auth/package.json apps/auth/
 COPY packages/cli/package.json packages/cli/
 COPY packages/utils/package.json packages/utils/
+COPY packages/ui/package.json packages/ui/
 COPY packages/eslint-config-lilnas/package.json packages/eslint-config-lilnas/
 COPY packages/prettier-config-lilnas/package.json packages/prettier-config-lilnas/
 COPY packages/tsc7/ packages/tsc7/

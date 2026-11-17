@@ -10,6 +10,7 @@ import {
   ActivityFeed,
   DEPARTURE_MS,
 } from 'src/components/activity/activity-feed'
+import { jobStatusLabel } from 'src/components/detail/job-state'
 import { JobEventsProvider } from 'src/components/live/job-events'
 import {
   buildJobFrame,
@@ -159,9 +160,16 @@ describe('ActivityFeed', () => {
 
     // First it stays, wearing the status that ended it — a row that blinked
     // out the instant the frame landed would read as a rendering fault.
-    const departing = within(table()).getAllByRole('row')[1]
+    // The marker and the fade ride on the row itself — the `<tr>` and the
+    // card's `<li>` — not on its cells.
+    const departing = within(table()).getAllByRole('row')[1] as HTMLElement
     expect(departing).toHaveAttribute('data-departing', 'true')
-    expect(within(departing as HTMLElement).getByText(status)).toBeVisible()
+    expect(departing).toHaveClass('opacity-60')
+    expect(departing.querySelector('td [data-departing]')).toBeNull()
+    expect(document.querySelectorAll('li[data-departing="true"]')).toHaveLength(
+      1,
+    )
+    expect(within(departing).getByText(jobStatusLabel(status))).toBeVisible()
 
     act(() => jest.advanceTimersByTime(DEPARTURE_MS))
 
@@ -178,9 +186,54 @@ describe('ActivityFeed', () => {
       act(() => jest.advanceTimersByTime(DEPARTURE_MS * 2))
 
       expect(rowTitles()).toEqual(['Sourdough starter'])
-      expect(within(table()).getByText(status)).toBeVisible()
+      expect(within(table()).getByText(jobStatusLabel(status))).toBeVisible()
     },
   )
+
+  it('enters rows with a stagger and leaves a live row unmarked', () => {
+    const { recorder } = renderFeed()
+
+    emit(recorder, movie())
+
+    const rows = within(table()).getAllByRole('row').slice(1)
+    expect(rows).toHaveLength(2)
+    rows.forEach((row, index) => {
+      expect(row).not.toHaveAttribute('data-departing')
+      expect(row).not.toHaveClass('opacity-60')
+      expect(row).toHaveStyle({ animationDelay: `${index * 40}ms` })
+    })
+  })
+
+  it('puts the row count on the selected tab only', () => {
+    renderFeed({ initialJobs: [video(), movie()], initialTotal: 2 })
+
+    expect(screen.getByRole('tab', { name: /^All/ })).toHaveTextContent('2')
+    expect(screen.getByRole('tab', { name: /^Movies/ })).not.toHaveTextContent(
+      /\d/,
+    )
+  })
+
+  it('draws a settling bar for a download with nothing left to transfer', () => {
+    renderFeed({
+      initialJobs: [
+        video({
+          progress: {
+            downloadedBytes: 100,
+            fileIndex: 1,
+            percent: 100,
+            totalBytes: 100,
+          },
+        }),
+      ],
+    })
+
+    expect(within(table()).getByText('Finishing up')).toBeInTheDocument()
+    expect(
+      within(table())
+        .getAllByText('100%')[0]
+        ?.previousElementSibling?.getAttribute('data-settling'),
+    ).toBe('true')
+  })
 
   it('adds a job the gateway announces that the server page never had', () => {
     const { recorder } = renderFeed()
@@ -204,7 +257,7 @@ describe('ActivityFeed', () => {
   it('shows the idle empty state when nothing is in flight', () => {
     renderFeed({ initialJobs: [], initialTotal: 0 })
 
-    expect(screen.getByText('Nothing in flight')).toBeInTheDocument()
+    expect(screen.getByText('Nothing downloading')).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
   })
 
@@ -217,7 +270,7 @@ describe('ActivityFeed', () => {
     })
 
     expect(
-      screen.getByText('Nothing of this kind is downloading'),
+      screen.getByText('Nothing of this kind downloading'),
     ).toBeInTheDocument()
   })
 
@@ -227,19 +280,19 @@ describe('ActivityFeed', () => {
     emit(recorder, video({ status: DownloadJobStatus.Completed }))
     act(() => jest.advanceTimersByTime(DEPARTURE_MS))
 
-    expect(screen.getByText('Nothing in flight')).toBeInTheDocument()
+    expect(screen.getByText('Nothing downloading')).toBeInTheDocument()
   })
 
   it('says it is reconnecting until a socket is actually open', () => {
     const { recorder } = renderFeed()
 
-    expect(screen.getByText('reconnecting…')).toBeInTheDocument()
+    expect(screen.getByText('Reconnecting…')).toBeInTheDocument()
 
     act(() => recorder.latest().emitOpen())
-    expect(screen.getByText(/in flight/)).toBeInTheDocument()
+    expect(screen.getByText('1 running')).toBeInTheDocument()
 
     act(() => recorder.latest().emitClose())
-    expect(screen.getByText('reconnecting…')).toBeInTheDocument()
+    expect(screen.getByText('Reconnecting…')).toBeInTheDocument()
   })
 
   it('counts only the rows that are still in flight', () => {
@@ -247,10 +300,10 @@ describe('ActivityFeed', () => {
 
     act(() => recorder.latest().emitOpen())
     emit(recorder, movie())
-    expect(screen.getByText(/2 in flight/)).toBeInTheDocument()
+    expect(screen.getByText('2 running')).toBeInTheDocument()
 
     emit(recorder, movie({ status: DownloadJobStatus.Completed }))
-    expect(screen.getByText(/1 in flight/)).toBeInTheDocument()
+    expect(screen.getByText('1 running')).toBeInTheDocument()
   })
 
   it('announces a departure for anyone not watching the screen', () => {
@@ -300,7 +353,7 @@ describe('ActivityFeed', () => {
     emit(recorder, movie())
 
     const row = within(table()).getAllByRole('row')[1] as HTMLElement
-    expect(within(row).getByText('hidden')).toBeInTheDocument()
+    expect(within(row).getByText('Hidden')).toBeInTheDocument()
     expect(within(row).queryByRole('link', { name: /@/ })).toBeNull()
   })
 
@@ -314,6 +367,6 @@ describe('ActivityFeed', () => {
     expect(within(row).getByText('Radarr')).toBeInTheDocument()
     // The table and the stacked mobile list, both in the tree under jsdom.
     expect(screen.getAllByText('Radarr')).toHaveLength(2)
-    expect(screen.queryByText('hidden')).not.toBeInTheDocument()
+    expect(screen.queryByText('Hidden')).not.toBeInTheDocument()
   })
 })

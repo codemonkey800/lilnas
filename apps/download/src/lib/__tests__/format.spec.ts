@@ -313,7 +313,7 @@ describe('posterVariant', () => {
 })
 
 describe('statusTone', () => {
-  const TONES: StatusTone[] = ['bad', 'mute', 'ok', 'uv', 'warn']
+  const TONES: StatusTone[] = ['bad', 'mute', 'ok', 'accent', 'warn']
 
   it.each(Object.values(DownloadJobStatus))(
     'maps %s to a known tone',
@@ -335,12 +335,12 @@ describe('statusTone', () => {
   })
 
   it('accents the statuses where the machine is actively working', () => {
-    expect(statusTone(DownloadJobStatus.Searching)).toBe('uv')
-    expect(statusTone(DownloadJobStatus.Downloading)).toBe('uv')
-    expect(statusTone(DownloadJobStatus.Converting)).toBe('uv')
-    expect(statusTone(DownloadJobStatus.Uploading)).toBe('uv')
-    expect(statusTone(DownloadJobStatus.Importing)).toBe('uv')
-    expect(statusTone(DownloadJobStatus.Cleaning)).toBe('uv')
+    expect(statusTone(DownloadJobStatus.Searching)).toBe('accent')
+    expect(statusTone(DownloadJobStatus.Downloading)).toBe('accent')
+    expect(statusTone(DownloadJobStatus.Converting)).toBe('accent')
+    expect(statusTone(DownloadJobStatus.Uploading)).toBe('accent')
+    expect(statusTone(DownloadJobStatus.Importing)).toBe('accent')
+    expect(statusTone(DownloadJobStatus.Cleaning)).toBe('accent')
   })
 
   it('warns on the statuses a person has to act on', () => {
@@ -352,7 +352,7 @@ describe('statusTone', () => {
   it('⚠️ gives a stuck import the resting tone, not the working one', () => {
     // The whole point of the status: upstream grabbed the file and then
     // refused to import it, so the job is stopped until somebody decides.
-    // `uv` would put it in the same visual bucket as a 30-second import.
+    // `accent` would put it in the same visual bucket as a 30-second import.
     expect(statusTone(DownloadJobStatus.NeedsAttention)).toBe('warn')
     expect(statusTone(DownloadJobStatus.NeedsAttention)).toBe(
       statusTone(DownloadJobStatus.Paused),
@@ -370,8 +370,8 @@ describe('mediaStateTone', () => {
   const EXPECTED: Record<MediaState, StatusTone> = {
     absent: 'mute',
     available: 'ok',
-    downloading: 'uv',
-    importing: 'uv',
+    downloading: 'accent',
+    importing: 'accent',
     needs_attention: 'warn',
     paused: 'warn',
     wanted: 'mute',

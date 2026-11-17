@@ -1,11 +1,8 @@
-import { cns } from '@lilnas/utils/cns'
+import { type IconName, StatusDot, Tile } from '@lilnas/ui'
 import { ACTIVITY_HREF } from '@lilnas/utils/download/media-route'
 import type { DownloadGalleryFacets } from '@lilnas/utils/download/types'
 import { DownloadType } from '@lilnas/utils/download/types'
 import type { ComponentPropsWithoutRef, JSX } from 'react'
-
-import type { IconName } from 'src/components/ui/icon'
-import { Tile } from 'src/components/ui/tile'
 
 /** The activity feed — every job currently in flight, plus what just finished. */
 export { ACTIVITY_HREF }
@@ -51,21 +48,21 @@ const BROWSE_TILES: ReadonlyArray<{
   title: string
   type: DownloadType
 }> = [
-  { icon: 'film', title: 'Browse movies', type: DownloadType.Movie },
-  { icon: 'tv', title: 'Browse shows', type: DownloadType.Show },
-  { icon: 'play', title: 'Video library', type: DownloadType.Video },
+  { icon: 'film', title: 'Movies', type: DownloadType.Movie },
+  { icon: 'tv', title: 'Shows', type: DownloadType.Show },
+  { icon: 'play', title: 'Videos', type: DownloadType.Video },
 ]
 
 /**
  * The downloads-activity tile's subtitle.
  *
  * Zero gets prose rather than `0 running now`: the number is paired with a
- * `live` dot, and a pulsing dot over a zero says "watch this" about nothing at
- * all. The browse tiles keep their literal `0 in the library`, which is a fact
- * about a collection rather than a claim that something is happening.
+ * green dot, and a green dot over a zero says "watch this" about nothing at
+ * all. The browse tiles keep their literal `0`, which is a fact about a
+ * collection rather than a claim that something is happening.
  */
 export function runningMeta(running: number): string {
-  return running > 0 ? `${running} running now` : 'Nothing running'
+  return running > 0 ? `${running} running` : 'Nothing running'
 }
 
 export type QuickAccessProps = Omit<
@@ -85,13 +82,12 @@ export type QuickAccessProps = Omit<
 const HEADING_ID = 'quick-access-heading'
 
 /**
- * Quick access — four tiles across the top of the homepage: browse each of the
- * three library types, then the live downloads feed.
+ * Quick access — four tiles across the top of the library: each of the three
+ * types with how many it holds, then the live jobs feed.
  *
- * Ported from `home.pug`'s `QUICK` table. The mockup draws two separate
- * panels, a column of `row` tiles on mobile and a wrapping row of column tiles
- * on desktop; one responsive tree renders both here, so there is a single set
- * of four links in the accessible tree at every width.
+ * Ported from `home.pug`'s `QUICK` table: one column on a phone, four across
+ * from `sm`. The activity tile's dot breathes (`StatusDot pulse`) only while
+ * something is actually running; at zero it is the idle dot and plain words.
  */
 export function QuickAccess({
   className,
@@ -101,37 +97,29 @@ export function QuickAccess({
 }: QuickAccessProps): JSX.Element {
   return (
     <section {...props} aria-labelledby={HEADING_ID} className={className}>
-      <div className="mb-[14px] flex items-center justify-between sm:mb-4">
-        <h2 className="text-h2" id={HEADING_ID}>
-          Quick access
-        </h2>
-      </div>
-      <div
-        className={cns(
-          'flex flex-col gap-2.5 stagger',
-          'sm:flex-row sm:flex-wrap sm:gap-[14px]',
-        )}
-      >
+      <h2 className="mb-3 text-h2" id={HEADING_ID}>
+        Quick access
+      </h2>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
         {BROWSE_TILES.map(({ icon, title, type }) => (
           <Tile
             key={type}
-            className="sm:min-w-[220px] sm:flex-1 sm:flex-col sm:items-stretch"
             href={galleryHrefForType(type)}
             icon={icon}
-            meta={`${galleryTypeCount(facets, type)} in the library`}
-            row
+            // A string: `Tile` drops a falsy status, and an empty type is a `0`.
+            status={String(galleryTypeCount(facets, type))}
             title={title}
           />
         ))}
-        <Tile
-          className="sm:min-w-[220px] sm:flex-1 sm:flex-col sm:items-stretch"
-          href={ACTIVITY_HREF}
-          icon="download"
-          live={running > 0}
-          meta={runningMeta(running)}
-          row
-          title="Downloads activity"
-        />
+        <Tile href={ACTIVITY_HREF} icon="activity" title="Activity">
+          <span className="flex shrink-0 items-center gap-1.5 text-cap text-ink-3">
+            <StatusDot
+              pulse={running > 0}
+              tone={running > 0 ? 'accent' : 'idle'}
+            />
+            {runningMeta(running)}
+          </span>
+        </Tile>
       </div>
     </section>
   )

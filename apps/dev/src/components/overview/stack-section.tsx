@@ -1,12 +1,12 @@
+import { Card } from '@lilnas/ui'
 import type { JSX } from 'react'
 
 import { StackCard } from 'src/components/overview/stack-card'
-import { Card } from 'src/components/ui/card'
 import type { StackView } from 'src/stacks/stacks.types'
 
 /**
  * One group of cards under a heading. Cards differ a lot in height (one
- * container vs four plus a callout), so CSS columns pack them masonry-style
+ * container vs four plus a note), so CSS columns pack them masonry-style
  * instead of a grid that stretches the short ones.
  */
 export function StackSection({
@@ -27,12 +27,12 @@ export function StackSection({
 }): JSX.Element {
   return (
     <section aria-label={title} className="mb-9 last:mb-0">
-      <div className="mb-3.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+      <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
         <h2 className="text-h2">{title}</h2>
-        <span className="font-mono text-mono-sm text-ink-4 tabular-nums">
+        <span className="text-cap text-ink-3 tabular-nums">
           {stacks.length}
         </span>
-        <span className="font-mono text-mono-sm text-ink-4">{caption}</span>
+        <span className="font-mono text-mono-sm text-ink-3">{caption}</span>
       </div>
 
       {stacks.length === 0 ? (

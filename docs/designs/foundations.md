@@ -148,7 +148,7 @@ component; do not opt out except for running prose in a long paragraph.
 
 | String                  | Face       | Why                               |
 | ----------------------- | ---------- | --------------------------------- |
-| `swole.lilnas.io`       | Geist Mono | A hostname                        |
+| `tdr-code.lilnas.io`    | Geist Mono | A hostname                        |
 | `Push day`              | Geist      | The user typed it                 |
 | `185 lb × 8`            | Geist      | A value, not an identifier        |
 | `Beat the last one.`    | Geist      | The interface talking             |
@@ -336,18 +336,6 @@ the doc is self-contained.
   }
 }
 
-/* Deprecated aliases for the previous system's names. Delete once no app
-   references `uv-*` — see adoption.md. `inline` so they track the values above. */
-@theme inline {
-  --color-uv: var(--color-accent);
-  --color-uv-hi: var(--color-accent-hi);
-  --color-uv-press: var(--color-accent-press);
-  --color-uv-dim: var(--color-accent-dim);
-  --color-uv-ghost: var(--color-accent-ghost);
-  --color-uv-ink: var(--color-accent-ink);
-  --ease-uv: var(--ease-standard);
-}
-
 /* ── base ───────────────────────────────────────────────────────────── */
 @layer base {
   html {
@@ -388,12 +376,21 @@ That gives you `bg-surface`, `text-ink-3`, `border-line`, `rounded-md`,
 ```css
 /* apps/<app>/src/tailwind.css */
 @import '@lilnas/ui/theme.css';
-@source '../../../node_modules/@lilnas/ui/dist';
+@source '../node_modules/@lilnas/ui/dist';
 ```
 
 The `@source` line is required: Tailwind ignores `node_modules` by default, so
 without it the classNames inside `@lilnas/ui` components never get generated.
-Path is relative to the stylesheet.
+Path is relative to the stylesheet, and it targets the app's own
+`node_modules` (`apps/<app>/node_modules/@lilnas/ui`): workspace packages are
+injected per app, so the repo-root `node_modules` has no `@lilnas/ui`. The line
+above is for a stylesheet at `apps/<app>/src/`; a deeper one needs more `../`
+(e.g. `src/styles/globals.css` → `../../node_modules/@lilnas/ui/dist`).
+
+The apps use exactly these two forms. `portal`, `auth`, `dev` and `download`
+keep the stylesheet at `src/tailwind.css` and use the `../node_modules/…` path
+above. `tdr-bot` and `tdr-code` keep it at `src/styles/globals.css` and use the
+same path with one more `../`.
 
 ### Fonts
 
@@ -419,6 +416,11 @@ const mono = Geist_Mono({ subsets: ['latin'], variable: '--font-geist-mono' })
 `@theme inline` (not plain `@theme`) is required when a token references another
 CSS variable — otherwise Tailwind pre-resolves it at build time and the
 `next/font` variable never gets read.
+
+All six Next apps do this the same way: `Geist` with `variable: '--font-geist'`
+and `Geist_Mono` with `variable: '--font-geist-mono'` in `layout.tsx`, mapped to
+`--font-sans` and `--font-mono` in an `@theme inline` block in the app's
+stylesheet, with the variable classes on `<html>`.
 
 `dashcam` is Vite, not Next — it uses a `<link>` to Google Fonts, or
 `@fontsource-variable/geist` and `@fontsource-variable/geist-mono` if offline
