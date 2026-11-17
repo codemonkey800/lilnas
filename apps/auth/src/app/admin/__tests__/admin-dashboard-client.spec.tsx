@@ -1314,6 +1314,9 @@ describe('AdminDashboardClient — stat tiles, requests and errors', () => {
 
     fireEvent.click(approve)
     await waitFor(() => expect(mockApproveRequest).toHaveBeenCalledWith(7))
+    // Both buttons are `disabled` while Approve's transition is pending, and a
+    // click on a disabled button is dropped — wait for it to settle first.
+    await waitFor(() => expect(decline).toBeEnabled())
     fireEvent.click(decline)
     await waitFor(() => expect(mockRejectRequest).toHaveBeenCalledWith(7))
   })

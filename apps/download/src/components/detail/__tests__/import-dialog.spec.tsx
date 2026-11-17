@@ -316,7 +316,11 @@ describe('ImportDialog — the dialog', () => {
     // Informational, never a blocker: `ManualImport` builds a fresh decision.
     expect(screen.getByText(IMPORT_REJECTION_LEAD_RADARR)).toBeInTheDocument()
     expect(screen.getByText(GAME_NIGHT_REJECTION)).toBeInTheDocument()
-    expect(confirmButton()).not.toHaveAttribute('aria-disabled', 'true')
+    // The candidates commit before the load transition's `pending` clears, so
+    // the button is briefly still `aria-disabled` — wait it out.
+    await waitFor(() =>
+      expect(confirmButton()).not.toHaveAttribute('aria-disabled', 'true'),
+    )
   })
 
   it('cancels without importing anything', async () => {
