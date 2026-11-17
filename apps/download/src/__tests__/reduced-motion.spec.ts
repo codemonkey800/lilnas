@@ -24,15 +24,20 @@ import { join } from 'node:path'
  * goes wrong: someone adds an animated utility and forgets to cover it. That
  * is a text-level property of this one file, and it is exactly how the live
  * pulse went uncovered. So the stylesheet is parsed and the two lists — what
- * is animated, and what is exempted — are required to agree.
+ * is animated, and what is exempted — are required to agree. The app's own
+ * sheet imports `@lilnas/ui/theme.css`, which holds the global clamp and the
+ * shared animated utilities, so both sheets are read as one.
  *
  * Whether the reduced-motion rules *look* right on screen is a browser
  * question and is not claimed here.
  */
 
-const STYLESHEET = join(__dirname, '..', 'tailwind.css')
+const appCss = readFileSync(join(__dirname, '..', 'tailwind.css'), 'utf8')
 
-const css = readFileSync(STYLESHEET, 'utf8')
+const css = [
+  appCss,
+  readFileSync(require.resolve('@lilnas/ui/theme.css'), 'utf8'),
+].join('\n')
 
 /**
  * Pulls a brace-balanced block out of `source`, starting at the first match of
@@ -70,19 +75,19 @@ function blockAfter(source: string, opening: RegExp): string {
 }
 
 /** Every `@utility <name>` in the sheet whose body declares an `animation`. */
-function animatedUtilities(): string[] {
+function animatedUtilities(source: string = css): string[] {
   const names: string[] = []
   const pattern = /@utility\s+([\w-]+)\s*\{/g
   let match: RegExpExecArray | null
 
-  while ((match = pattern.exec(css))) {
+  while ((match = pattern.exec(source))) {
     const name = match[1]
 
     if (name === undefined) {
       continue
     }
 
-    const body = blockAfter(css.slice(match.index), /@utility/)
+    const body = blockAfter(source.slice(match.index), /@utility/)
 
     if (/\banimation\s*:/.test(body)) {
       names.push(name)
@@ -92,10 +97,12 @@ function animatedUtilities(): string[] {
   return names.sort()
 }
 
-const reducedMotionBlock = blockAfter(
-  css,
-  /@media\s*\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)/,
-)
+/** Every reduced-motion block across the sheets, joined. */
+const reducedMotionBlock = css
+  .split(/(?=@media\s*\(\s*prefers-reduced-motion\s*:\s*reduce\s*\))/)
+  .slice(1)
+  .map(chunk => blockAfter(chunk, /@media/))
+  .join('\n')
 
 /**
  * Animated classes that come from Tailwind itself rather than from this sheet,
@@ -140,7 +147,6 @@ describe('every animated utility is named in the reduced-motion block', () => {
     expect(animatedUtilities()).toEqual([
       'bar-settling',
       'dot-live',
-      'reveal',
       'skeleton',
       'stagger',
     ])
@@ -222,10 +228,12 @@ describe('the animated utilities and the components agree', () => {
   it('every animated utility is actually reached by some component', () => {
     // A utility nothing uses is dead weight whose reduced-motion rule nobody
     // will maintain; a class the markup uses that the sheet never defines is a
-    // silent no-op. Both directions are checked, here and below.
+    // silent no-op. Both directions are checked, here and below. Only this
+    // app's own utilities: the shared ones are applied by @lilnas/ui's
+    // components, not by markup in this app.
     const used = animatedClassesInUse()
 
-    for (const utility of animatedUtilities()) {
+    for (const utility of animatedUtilities(appCss)) {
       expect(used).toContain(utility)
     }
   })

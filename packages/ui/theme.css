@@ -291,6 +291,12 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+  /* The clamp shortens the run but not the stagger's delays, and `rise ...
+     both` holds each child at its hidden start frame through that delay — so
+     a clamped list would still pop in over 280ms. Off by name instead. */
+  .stagger > * {
+    animation: none !important;
+  }
   /* `breathe` has no `forwards` fill, so a run clamped to 0.01ms reverts the
      ring to its un-animated state: a static, fully opaque ring around the dot.
      `opacity: 0` is the endpoint `breathe` itself lands on. The dot keeps its
