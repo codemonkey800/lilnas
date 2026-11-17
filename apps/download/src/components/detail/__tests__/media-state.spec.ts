@@ -39,31 +39,31 @@ const VIDEO: Video = {
  */
 const EXPECTED_LABELS: Record<DownloadType, Record<MediaState, string>> = {
   [DownloadType.Movie]: {
-    absent: 'not downloaded',
-    available: 'in library',
-    downloading: 'downloading',
-    importing: 'importing…',
-    needs_attention: 'needs your decision',
-    paused: 'paused',
-    wanted: 'wanted',
+    absent: 'Not downloaded',
+    available: 'In library',
+    downloading: 'Downloading',
+    importing: 'Importing…',
+    needs_attention: 'Needs your decision',
+    paused: 'Paused',
+    wanted: 'Wanted',
   },
   [DownloadType.Show]: {
-    absent: 'not downloaded',
-    available: 'in library',
-    downloading: 'downloading',
-    importing: 'importing…',
-    needs_attention: 'needs your decision',
-    paused: 'paused',
-    wanted: 'wanted',
+    absent: 'Not downloaded',
+    available: 'In library',
+    downloading: 'Downloading',
+    importing: 'Importing…',
+    needs_attention: 'Needs your decision',
+    paused: 'Paused',
+    wanted: 'Wanted',
   },
   [DownloadType.Video]: {
-    absent: 'not downloaded',
-    available: 'downloaded',
-    downloading: 'downloading',
-    importing: 'processing…',
-    needs_attention: 'needs your decision',
-    paused: 'paused',
-    wanted: 'wanted',
+    absent: 'Not downloaded',
+    available: 'Downloaded',
+    downloading: 'Downloading',
+    importing: 'Processing…',
+    needs_attention: 'Needs your decision',
+    paused: 'Paused',
+    wanted: 'Wanted',
   },
 }
 
@@ -83,10 +83,10 @@ describe('mediaStateLabel', () => {
   it('words a finished video differently from a finished movie or show', () => {
     // A video has no library to be "in", and yt-dlp's convert/upload/clean is
     // not a Radarr/Sonarr import.
-    expect(mediaStateLabel('available', DownloadType.Video)).toBe('downloaded')
-    expect(mediaStateLabel('importing', DownloadType.Video)).toBe('processing…')
-    expect(mediaStateLabel('available', DownloadType.Movie)).toBe('in library')
-    expect(mediaStateLabel('importing', DownloadType.Show)).toBe('importing…')
+    expect(mediaStateLabel('available', DownloadType.Video)).toBe('Downloaded')
+    expect(mediaStateLabel('importing', DownloadType.Video)).toBe('Processing…')
+    expect(mediaStateLabel('available', DownloadType.Movie)).toBe('In library')
+    expect(mediaStateLabel('importing', DownloadType.Show)).toBe('Importing…')
   })
 })
 

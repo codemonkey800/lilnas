@@ -649,13 +649,13 @@ describe('fileSiblings', () => {
 
 describe('episodeState', () => {
   it.each<[MediaState, string, 'mute' | 'ok' | 'accent' | 'warn', boolean]>([
-    ['available', 'in library', 'ok', false],
-    ['wanted', 'wanted', 'mute', false],
-    ['downloading', 'downloading', 'accent', true],
-    ['importing', 'importing…', 'accent', true],
-    ['needs_attention', 'needs your decision', 'warn', false],
-    ['paused', 'paused', 'warn', false],
-    ['absent', 'not downloaded', 'mute', false],
+    ['available', 'In library', 'ok', false],
+    ['wanted', 'Wanted', 'mute', false],
+    ['downloading', 'Downloading', 'accent', true],
+    ['importing', 'Importing…', 'accent', true],
+    ['needs_attention', 'Needs your decision', 'warn', false],
+    ['paused', 'Paused', 'warn', false],
+    ['absent', 'Not downloaded', 'mute', false],
   ])('reads %s as "%s" (%s, live: %s)', (state, label, tone, live) => {
     expect(episodeState(episode({ state }))).toEqual({ label, live, tone })
   })
@@ -665,12 +665,12 @@ describe('episodeState', () => {
     // the row says what the server said.
     expect(
       episodeState(episode({ hasFile: true, state: 'downloading' })),
-    ).toEqual({ label: 'downloading', live: true, tone: 'accent' })
+    ).toEqual({ label: 'Downloading', live: true, tone: 'accent' })
   })
 
   it('reads an episode with no state on the wire as not downloaded', () => {
     expect(episodeState(episode({ state: undefined }))).toEqual({
-      label: 'not downloaded',
+      label: 'Not downloaded',
       live: false,
       tone: 'mute',
     })

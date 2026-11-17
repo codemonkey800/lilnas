@@ -209,24 +209,24 @@ describe('jobStatusLabel', () => {
   })
 
   it('renames the wait for a slot to the word the UI uses for it', () => {
-    expect(jobStatusLabel(DownloadJobStatus.Pending)).toBe('queued')
+    expect(jobStatusLabel(DownloadJobStatus.Pending)).toBe('Queued')
   })
 
   it('marks the two acknowledgement states as in flight', () => {
-    expect(jobStatusLabel(DownloadJobStatus.Pausing)).toBe('pausing…')
-    expect(jobStatusLabel(DownloadJobStatus.Cancelling)).toBe('cancelling…')
+    expect(jobStatusLabel(DownloadJobStatus.Pausing)).toBe('Pausing…')
+    expect(jobStatusLabel(DownloadJobStatus.Cancelling)).toBe('Cancelling…')
   })
 
   it('names what the reader has to do about a stuck import', () => {
     // The mockup's words. `needs_attention` describes the condition; the chip
     // has to say whose move it is.
     expect(jobStatusLabel(DownloadJobStatus.NeedsAttention)).toBe(
-      'needs your decision',
+      'Needs your decision',
     )
   })
 
-  it('says a search that found nothing in the mockup’s lower-case words', () => {
-    expect(jobStatusLabel(DownloadJobStatus.NotFound)).toBe('no release found')
+  it('says a search that found nothing in the mockup’s words', () => {
+    expect(jobStatusLabel(DownloadJobStatus.NotFound)).toBe('No release found')
   })
 })
 
@@ -638,9 +638,9 @@ describe('jobChipLabel', () => {
   it('falls back to the status label off a finishing handoff', () => {
     expect(
       jobChipLabel(DownloadJobStatus.Downloading, null, 'downloading'),
-    ).toBe('downloading')
+    ).toBe('Downloading')
     expect(jobChipLabel(DownloadJobStatus.Converting, 'processing')).toBe(
-      'converting',
+      'Converting',
     )
   })
 })
@@ -659,7 +659,7 @@ describe('a handoff, from progress to chip and line', () => {
     pct: number
   }>([
     {
-      chip: 'unpacking',
+      chip: 'Unpacking',
       detail:
         'SABnzbd is unpacking it · Repairing: 45%. Radarr imports it after.',
       handoff: 'finishing',
@@ -673,7 +673,7 @@ describe('a handoff, from progress to chip and line', () => {
       pct: 100,
     },
     {
-      chip: 'unpacking',
+      chip: 'Unpacking',
       detail: 'SABnzbd is unpacking it. Sonarr imports it after.',
       handoff: 'finishing',
       job: job({
@@ -689,7 +689,7 @@ describe('a handoff, from progress to chip and line', () => {
       pct: 100,
     },
     {
-      chip: 'finishing up',
+      chip: 'Finishing up',
       detail:
         'All downloaded. SABnzbd is checking and unpacking it; Radarr imports it after.',
       handoff: 'finishing',
@@ -698,7 +698,7 @@ describe('a handoff, from progress to chip and line', () => {
       pct: 100,
     },
     {
-      chip: 'downloading',
+      chip: 'Downloading',
       detail: null,
       handoff: null,
       job: movieJob(SAB_DOWNLOADING),
@@ -706,7 +706,7 @@ describe('a handoff, from progress to chip and line', () => {
       pct: 47,
     },
     {
-      chip: 'downloading',
+      chip: 'Downloading',
       detail: null,
       handoff: null,
       job: videoJob({
@@ -719,7 +719,7 @@ describe('a handoff, from progress to chip and line', () => {
       pct: 64,
     },
     {
-      chip: 'converting',
+      chip: 'Converting',
       detail: null,
       handoff: 'processing',
       job: job({
