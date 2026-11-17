@@ -139,10 +139,14 @@ describe('ci.yml shape', () => {
 
   it('builds the checked package itself, not only its dependencies', () => {
     const run = step('check', 'Build dependencies').run ?? ''
-    const filter = run.match(/--filter="([^"]+)"/)?.[1]
-    expect(filter).not.toContain('^')
-    expect(filter).toBe('{./${PACKAGE}}...')
-    expect(run).toContain('pnpm install --frozen-lockfile --offline')
+    const deps = run.indexOf('--filter="{./${PACKAGE}}^..."')
+    const sync = run.indexOf('pnpm install --frozen-lockfile --offline')
+    const self = run.indexOf('--filter="{./${PACKAGE}}" --only')
+    // Dependencies, then the injected-copy re-sync, then the package itself:
+    // built before the re-sync, it sees cache-restored deps with no dist/.
+    expect(deps).toBeGreaterThanOrEqual(0)
+    expect(sync).toBeGreaterThan(deps)
+    expect(self).toBeGreaterThan(sync)
   })
 
   it('uploads pass markers from check and built markers from build-images', () => {
