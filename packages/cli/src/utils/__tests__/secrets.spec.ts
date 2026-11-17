@@ -21,7 +21,6 @@ const ENCRYPTED_FILES = [
   'apps/tdr-bot/.env.prod',
   'apps/theater/.env.prod',
   'infra/.env',
-  'infra/.env.design',
   'infra/.env.l4d2',
   'infra/.env.nexus-code',
   'infra/.env.palworld',

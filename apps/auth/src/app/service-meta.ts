@@ -92,11 +92,6 @@ export const SERVICE_META: Record<string, ServiceMeta> = {
     description: 'AI coding agent',
     icon: 'laptop',
   },
-  'design.lilnas.io': {
-    name: 'Design',
-    description: 'Collaborative design tool',
-    icon: 'monitor',
-  },
   'yacht.lilnas.io': {
     name: 'Yacht',
     description: 'Container management',

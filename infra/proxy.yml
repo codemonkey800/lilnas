@@ -104,8 +104,7 @@ services:
       # X-Forwarded-User-Id was added here for nexus-code
       # (infra/nexus-code.yml), which reads it as its own user identity
       # instead of running its own OAuth. This is the SHARED lilnas-auth
-      # middleware, so files.lilnas.io and design.lilnas.io
-      # (infra/files.yml, infra/design.yml) also start receiving the new
-      # header — harmlessly, since neither reads it.
+      # middleware, so files.lilnas.io (infra/files.yml) also starts
+      # receiving the new header — harmlessly, since it doesn't read it.
       - traefik.http.middlewares.lilnas-auth.forwardauth.authResponseHeaders=X-Forwarded-User,X-Forwarded-User-Id
       - traefik.http.middlewares.lilnas-auth.forwardauth.preserveLocationHeader=true
