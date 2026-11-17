@@ -431,14 +431,21 @@ describe('LogDetailPanel — accessibility: focus management', () => {
 
     render(<LogDetailPanel line={line} stream="backend" onClose={jest.fn()} />)
 
+    const dialog = screen.getByRole('dialog')
     const copyButton = screen.getByRole('button', { name: /^copy$/i })
     const closeButton = screen.getByRole('button', { name: /close/i })
+
+    // Let the dialog's own initial-focus tick land first; otherwise it can
+    // run after copyButton.focus() and move focus out from under the test.
+    await waitFor(() =>
+      expect(dialog).toContainElement(document.activeElement as HTMLElement),
+    )
 
     copyButton.focus()
     expect(document.activeElement).toBe(copyButton)
 
     await user.tab()
-    expect(document.activeElement).toBe(closeButton)
+    await waitFor(() => expect(document.activeElement).toBe(closeButton))
 
     // Forward wrap: Tab from the last focusable element goes to the first.
     await user.tab()
