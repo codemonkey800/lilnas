@@ -462,3 +462,10 @@ No commits: nothing to integrate.
 
 ### 2026-11-18 · H4 · approved
 Approved.
+
+### 2026-11-18 · T10 · done
+Canary removed. `docker compose -p cookie-canary down --remove-orphans` removed its single container and `/tmp/lilnas-cookie-canary` was deleted. Verified: no containers with label com.docker.compose.project=cookie-canary, no cookie-canary networks, temp dir gone, and both https://cookie-canary.dev.lilnas.io/ and https://cookie-canary-open.dev.lilnas.io/ return 404 on three consecutive probes. The first probe of cookie-canary immediately after `down` returned 302, probably Traefik's config reload lagging behind the container removal. It was 404 on every later probe.
+Gated-host record: YES. A read-only query (better-sqlite3, readonly:true, /data/lilnas-auth.db, via docker exec lilnas-auth-1) shows `cookie-canary.dev.lilnas.io` in gated_host (first_seen_at=1794993825199, last_seen_at=1795020246113, epoch ms; 26 rows total). `cookie-canary-open.dev.lilnas.io` has no row. The row will drop out of the registry listing after GATED_HOST_MAX_AGE_MS (30 days) without a visit. I did not modify the production DB.
+Cleanup: the temporary query script on the host was removed. No other throwaway resources were created. The plan's checks were not run because no file changed and the tree is clean.
+
+No commits: nothing to integrate.
