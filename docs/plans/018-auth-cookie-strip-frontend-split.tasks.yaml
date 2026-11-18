@@ -689,7 +689,7 @@ phases:
         after:
           - T9
         files: []
-        status: todo
+        status: approved
         body: |-
           The shared middlewares now strip the session cookie. Signed in, check:
           1. `https://cookie-canary.dev.lilnas.io` and `https://cookie-canary-open.dev.lilnas.io`:

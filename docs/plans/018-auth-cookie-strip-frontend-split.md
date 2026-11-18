@@ -459,3 +459,6 @@ Defects:
   docker stop on the auth container: 30.31 s, ExitCode=137. docker stop on auth-frontend: 0.28 s, ExitCode=143. grep for enableShutdownHooks|SIGTERM|SIGINT in apps/auth/src (non-test) finds nothing. With node as PID 1 and no handler, the kernel ignores SIGTERM until SIGKILL. Impact: each backend restart or redeploy leaves /verify down for about 30 s, and SQLite is not closed cleanly (WAL is crash-safe). Fix: app.enableShutdownHooks() in bootstrap, or `init: true` on the service. Outside T13's scope; the `deploy.yml` comment already notes the missing hook.
 
 No commits: nothing to integrate.
+
+### 2026-11-18 · H4 · approved
+Approved.
