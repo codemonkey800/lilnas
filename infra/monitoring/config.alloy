@@ -50,6 +50,26 @@ loki.process "containers" {
 		}
 	}
 
+	// Traefik writes its own messages and the access log to the same stream.
+	// Access log lines are the JSON ones carrying a RequestHost field.
+	stage.match {
+		selector = "{service=\"traefik\"} |= \"\\\"RequestHost\\\"\""
+
+		stage.static_labels {
+			values = {
+				log_type = "access",
+			}
+		}
+
+		// Query strings carry secrets (SABnzbd apikey, Emby api_key, OAuth
+		// code, S3 presigned signatures). Mask the values before they reach
+		// Loki. Traefik's JSON encoder writes "&" as "&", hence u0026.
+		stage.replace {
+			expression = "(?i)(?:[?&]|u0026)(?:apikey|api_key|access_token|refresh_token|id_token|token|code|key|password|secret|signature|sig|x-amz-signature|x-amz-credential|x-amz-security-token|x-emby-token)=([^&\"\\\\\\s]+)"
+			replace    = "REDACTED"
+		}
+	}
+
 	forward_to = [loki.write.default.receiver]
 }
 

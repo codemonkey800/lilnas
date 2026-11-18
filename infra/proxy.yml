@@ -9,8 +9,8 @@ services:
     logging:
       driver: json-file
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: '10m'
+        max-file: '3'
     networks:
       - default
       - lilnas-proxy
@@ -31,6 +31,15 @@ services:
       - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
       - --metrics.prometheus=true
       - --metrics.prometheus.entrypoint=metrics
+      # Access log: one JSON line per request on stdout, which Alloy ships to
+      # Loki as {service="traefik", log_type="access"}. Request headers are
+      # dropped by default, so Cookie and Authorization never reach the log;
+      # only the two below are kept. See docs/logging.md.
+      - --accesslog=true
+      - --accesslog.format=json
+      - --accesslog.fields.headers.defaultmode=drop
+      - --accesslog.fields.headers.names.User-Agent=keep
+      - --accesslog.fields.headers.names.Referer=keep
     ports:
       - 80:80
       - 443:443
