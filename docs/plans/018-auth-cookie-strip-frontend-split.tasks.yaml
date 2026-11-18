@@ -998,3 +998,64 @@ phases:
 
           Approve if these hold. Request changes with what you saw otherwise. To roll back,
           revert the split commits on `main` and push.
+  - key: R1
+    name: Review remediation
+    tasks:
+      - id: R1
+        title: P1 /strip-cookie completion log writes the kept cookies to Loki
+        after: []
+        files:
+          - apps/auth/src/app.module.ts
+        status: todo
+        body: |-
+          Finding: F1 (P1)
+
+          From the review of phase 1 (cycle 1): a P1 finding.
+
+          Where: apps/auth/src/app.module.ts:85
+
+          Why: pino-http's default res serializer logs res.getHeaders(), which now includes the `cookie` response header. redact covers only req.headers.cookie, req.headers.authorization and res.headers["set-cookie"], and autoLogging.ignore covers /verify and /health but not the new /strip-cookie. This breaks the logger comment 'lilnas-auth is a credential-bearing service ... Redacting the credential-shaped header slots now'.
+
+          Failure scenario: Once a router uses lilnas-cookie-strip, send a request with `Cookie: __Secure-better-auth.session_token=abc; lilnas-auth.session_token=tok`. /strip-cookie then emits an info completion line with res.headers.cookie="__Secure-better-auth.session_token=abc" in plaintext, and Alloy ships it to Loki.
+
+          Suggested fix: Add 'res.headers.cookie' to LoggerModule redact.paths. Add '/strip-cookie' to autoLogging.ignore, on the same volume grounds as /verify. Add a spec that sends a request through the real LoggerModule config and asserts that no cookie value appears in the emitted log.
+
+          How to fix it:
+          1. First write a test that reproduces the failure scenario and fails on the
+             current code, in the package's test style, beside the tests the file
+             already has. Keep it: it is the regression test.
+          2. Then change the code so it passes, and run the plan's checks.
+          3. If you cannot make the scenario fail — the guard, type, or test that
+             already covers it — change nothing: delete the attempted test, leave the
+             tree clean, commit nothing, and report `status: done` with `commits: []`.
+             Open `notes` with `Not reproduced:` and say where the behaviour is covered.
+             The runner drops the finding on your word.
+      - id: R2
+        title: P1 Case 8 on HTTP/1.1 never sends two Cookie headers
+        after: []
+        files:
+          - apps/auth/scripts/cookie-rig/client.mjs
+        status: todo
+        body: |-
+          Finding: F2 (P1)
+
+          From the review of phase 1 (cycle 1): a P1 finding.
+
+          Where: apps/auth/scripts/cookie-rig/client.mjs:343
+
+          Why: The task requires 'cookies split over two `Cookie` headers (HTTP/1.1)'. requestHttp1 passes `cookie: [a, b]` to http.request, and Node's OutgoingMessage joins a cookie array into one '; '-separated header. A local check on Node v26.12.0 showed the server receiving a single cookie header.
+
+          Failure scenario: Run rig.sh: case 8 reports PASS on both 'HTTP/1.1 cleartext' and 'HTTP/1.1 TLS', yet Traefik and /verify only ever received one merged Cookie header. A regression that drops a duplicate Cookie header, or leaves the session in the second one, would never show up, and later tasks reuse this kit as proof.
+
+          Suggested fix: For the h1 transports in case 8, write the request by hand over net/tls, as websocket() already does, with two separate 'Cookie:' lines (e.g. 'Cookie: theme=dark; <session>' and 'Cookie: lang=en'). Parse the status line and body, and keep the existing check that the backend sees one merged header with the session stripped. Optionally assert that the client really wrote two Cookie lines.
+
+          How to fix it:
+          1. First write a test that reproduces the failure scenario and fails on the
+             current code, in the package's test style, beside the tests the file
+             already has. Keep it: it is the regression test.
+          2. Then change the code so it passes, and run the plan's checks.
+          3. If you cannot make the scenario fail — the guard, type, or test that
+             already covers it — change nothing: delete the attempted test, leave the
+             tree clean, commit nothing, and report `status: done` with `commits: []`.
+             Open `notes` with `Not reproduced:` and say where the behaviour is covered.
+             The runner drops the finding on your word.
