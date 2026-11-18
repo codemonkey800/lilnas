@@ -144,7 +144,8 @@ phases:
           - apps/auth/src/verify/
           - apps/auth/src/app.module.ts
           - apps/auth/README.md
-        status: todo
+        status: done
+        commit: 2534bbe5468e3742458552ebeaf5ec9560e8d80c
         body: |-
           Add a backend endpoint that allows every request and only sanitizes cookies. Traefik
           routers with no auth never call `/verify`, so a later task points a second forwardAuth
