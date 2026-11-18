@@ -54,7 +54,11 @@ services:
       # lilnas-auth is the self-hosted ForwardAuth provider in apps/auth
       # (Google OAuth via Better Auth) — see infra/proxy.yml.
       - traefik.http.routers.dev-<name>.middlewares=lilnas-auth
+      # Public alternative that still strips the visitor's lilnas session cookie
+      # (depends on auth being up): middlewares=lilnas-cookie-strip
 ```
+
+A route without `lilnas-auth` receives the signed-in visitor's lilnas session cookie, which passes `/verify` for every host the visitor may reach. `middlewares=lilnas-cookie-strip` removes it, at the cost of depending on auth (the route returns errors while the auth backend is down or restarting).
 
 Replace `<name>` with your chosen subdomain label and `<port>` with the port your service listens on inside the container.
 

@@ -8,9 +8,22 @@ Self-hosted ForwardAuth provider for lilnas. Every gated `*.lilnas.io` (and `*.d
 2. Traefik's ForwardAuth check calls this app's **backend** directly — `http://auth:8081/verify` — before the real request is ever forwarded. This bypasses the Next.js frontend entirely; the frontend only ever serves pages a human browses to directly (`/login`, `/pending`, `/blocked`, `/admin`).
 3. Traefik forwards `X-Forwarded-Host` / `X-Forwarded-Proto` / `X-Forwarded-Uri` and the original `Cookie` header on that subrequest. `VerifyController` reads them and calls `VerifyService.decide()` (`src/verify/verify.service.ts`).
 4. `decide()` returns one of three outcomes:
-   - **Allow** — Traefik lets the real request through. The response also carries `X-Forwarded-User` / `X-Forwarded-User-Id` (`authResponseHeaders` in `infra/proxy.yml`), so a downstream service can read the caller's identity without doing its own lookup.
+   - **Allow** — Traefik lets the real request through. The response also carries `X-Forwarded-User` / `X-Forwarded-User-Id` (`authResponseHeaders` in `infra/proxy.yml`), so a downstream service can read the caller's identity without doing its own lookup. It also carries a `Cookie` header: the request's own cookies minus every `lilnas-auth.` one, which replaces the request's `Cookie` header, so the service never sees the session cookie (see [Cookie forwarding](#cookie-forwarding)).
    - **Redirect** — an absolute `Location` back to this app's own `/login`, `/pending`, or `/blocked` page. Absolute is load-bearing: Traefik's `preserveLocationHeader` defaults to `false`, so a relative redirect out of `/verify` would otherwise be rewritten into a container-internal, browser-unreachable URL.
    - **Fail-closed (5xx)** — only when `X-Forwarded-Host` itself is missing, which means Traefik/infra is misconfigured, not that the caller is anonymous. `/verify` never fails open.
+
+## Cookie forwarding
+
+The session cookie is `__Secure-lilnas-auth.session_token`, scoped to `.lilnas.io`, so a browser sends it to every `*.lilnas.io` host. Who receives it from there:
+
+- **Gated backends never do.** On an allow, `/verify` returns the request's cookies without any `lilnas-auth.` cookie, and the `lilnas-auth` middleware lists `Cookie` in `authResponseHeaders`, so Traefik forwards that sanitized `Cookie` header instead of the browser's.
+- **Routers with no auth can opt in to the same strip.** They carry the `lilnas-cookie-strip` middleware (forwardAuth to `http://auth:8081/strip-cookie`, which always allows). A router with it returns errors while the auth backend is down or restarting.
+- **Still receiving the cookie from a signed-in browser:**
+  - `auth.lilnas.io`, which needs it.
+  - `emby.lilnas.io`, `immich.lilnas.io` and `turbo.lilnas.io`, left independent of auth uptime.
+  - `rocky-roads.lilnas.io` (compose project `hop-road`, outside this repo).
+  - Any dev route exposed without `lilnas-auth` or `lilnas-cookie-strip`.
+- **Rollback rule.** Once `Cookie` is in `authResponseHeaders`, the auth image must not be rolled back to one that predates the sanitized header, or gated backends lose all their cookies. Roll back by reverting on `main`.
 
 ## The `/verify` decision
 

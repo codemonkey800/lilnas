@@ -62,7 +62,11 @@ services:
       - traefik.http.services.dev-<name>.loadbalancer.server.port=<port>
       # Remove this label to make the route public:
       - traefik.http.routers.dev-<name>.middlewares=lilnas-auth
+      # Public, but without the visitor's lilnas session cookie (depends on auth being up):
+      # - traefik.http.routers.dev-<name>.middlewares=lilnas-cookie-strip
 ```
+
+A route without `lilnas-auth` receives the signed-in visitor's lilnas session cookie (`__Secure-lilnas-auth.session_token`, scoped to `.lilnas.io`). That cookie passes `/verify` for every host the visitor may reach, so a dev server that logs or leaks request headers leaks a working session. Use `middlewares=lilnas-cookie-strip` instead to remove it; the cost is that the route depends on auth and returns errors while the auth backend is down or restarting. A gated route (`lilnas-auth`) never receives the cookie.
 
 Replace `<name>` with your chosen subdomain and `<port>` with the container-internal port.
 

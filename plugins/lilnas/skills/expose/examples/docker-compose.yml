@@ -40,6 +40,11 @@ services:
       # Shipped active by default: an authenticated user must log in via OAuth
       # (apps/auth's lilnas-auth middleware) before reaching this service.
       # Removal is the deliberate opt-out.
+      # A route without lilnas-auth receives the signed-in visitor's lilnas
+      # session cookie, which passes /verify for every host they may reach.
+      # To go public but strip that cookie, swap the label for this one
+      # (the route then depends on auth being up):
+      #   - traefik.http.routers.dev-whoami.middlewares=lilnas-cookie-strip
       - traefik.http.routers.dev-whoami.middlewares=lilnas-auth
 
   # --- Vite dev server example (uncomment and adjust) ---

@@ -44,6 +44,8 @@ Dev servers are typically **unhardened**: debug endpoints, seed data, source map
 
 The `examples/docker-compose.yml` bundled with this skill ships with `lilnas-auth` active by default; removal is the deliberate opt-out.
 
+A route without `lilnas-auth` also receives the signed-in visitor's lilnas session cookie (`__Secure-lilnas-auth.session_token`, scoped to `.lilnas.io`), which passes `/verify` for every host the visitor may reach. Anything on that dev server that logs or leaks request headers leaks a working session. `middlewares=lilnas-cookie-strip` removes the cookie, at the cost of depending on auth: the route returns errors while the auth backend is down or restarting. A gated route never receives the cookie.
+
 ---
 
 ## Idle dev routes are reaped automatically

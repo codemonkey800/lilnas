@@ -20,6 +20,8 @@ allowed-tools:
 # /lilnas:expose — Guided Dev Expose Workflow
 
 > **Security notice:** Every route you expose is reachable from anywhere on the internet at `https://<name>.dev.lilnas.io` with **no authentication** unless gated. Dev servers are typically unhardened. The guided workflow ships `lilnas-auth` active by default; the operator removes it deliberately to go public.
+>
+> **Cookie notice:** A route without `lilnas-auth` receives the signed-in visitor's lilnas session cookie, which passes `/verify` for every host the visitor may reach. `middlewares=lilnas-cookie-strip` removes it, at the cost of depending on auth (the route errors while the auth backend is down or restarting).
 
 This skill walks an operator through exposing a Docker Compose service on the NAS host via the shared `lilnas-proxy` network and Traefik. It operates on **external projects** only — never on the lilnas monorepo's own `infra/proxy.yml` or `apps/*/deploy.yml`.
 
@@ -190,7 +192,7 @@ After `docker compose up` succeeds:
 3. Report to the operator:
    > ✅ `https://<name>.dev.lilnas.io` is live.
    >
-   > - **Route:** gated by OAuth (`lilnas-auth`, provided by `apps/auth`). To make it public, remove the `middlewares=lilnas-auth` label and run `docker compose up -d` again.
+   > - **Route:** gated by OAuth (`lilnas-auth`, provided by `apps/auth`). To make it public, remove the `middlewares=lilnas-auth` label and run `docker compose up -d` again. A public route receives the signed-in visitor's lilnas session cookie; use `middlewares=lilnas-cookie-strip` instead to strip it (the route then depends on auth being up).
    > - **TLS cert:** shared `*.dev.lilnas.io` wildcard cert (DNS-01, managed by the production Traefik) — no per-host cert is issued. Router must use `tls=true`, not `tls.certresolver=le`, to use it.
    > - **Dashboard:** active routes are visible at `https://traefik.lilnas.io`.
    > - **Teardown:** `docker compose down` in `<project-path>` removes the route within ~1 second.
