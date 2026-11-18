@@ -327,3 +327,6 @@ At this branch's base, infra/proxy.yml does not yet list Cookie in authResponseH
 The five expose files already failed prettier -c; I did not reformat them. apps/auth/README.md still passes.
 Checks: utils/ui build, auth lint and type-check pass; auth jest 53 suites / 774 tests pass; prettier -c on the four listed files passes; docker build --check reports no warnings.
 No throwaway containers, networks, volumes, images or temp files were created.
+
+### 2026-11-18 · H2 · approved
+Approved.

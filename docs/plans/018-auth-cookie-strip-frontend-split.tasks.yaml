@@ -419,7 +419,7 @@ phases:
         after:
           - T6
         files: []
-        status: todo
+        status: approved
         body: |-
           The new auth image is live and you were signed out. Check what an agent can't:
           1. Open `https://auth.lilnas.io` and sign in with Google. In devtools, Application,
