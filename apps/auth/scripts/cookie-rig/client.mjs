@@ -14,11 +14,11 @@
 
 import { createHash, randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import http from 'node:http'
 import http2 from 'node:http2'
-import https from 'node:https'
 import net from 'node:net'
 import tls from 'node:tls'
+
+import { requestHttp1 } from './http1.mjs'
 
 const DOMAIN = process.env.RIG_DOMAIN ?? 'rig.test'
 const BACKEND = process.env.RIG_BACKEND ?? 'http://auth:8081'
@@ -45,45 +45,6 @@ function collect(stream) {
     stream.on('data', chunk => chunks.push(chunk))
     stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
     stream.on('error', reject)
-  })
-}
-
-function requestHttp1(secure, route, { method = 'GET', headers = {}, body }) {
-  const host = hostFor(route)
-  const options = {
-    host,
-    port: secure ? 443 : 80,
-    method,
-    path: '/json',
-    headers: { host, ...headers },
-    agent: false,
-    timeout: TIMEOUT_MS,
-    ...(secure
-      ? {
-          servername: host,
-          rejectUnauthorized: false,
-          ALPNProtocols: ['http/1.1'],
-        }
-      : {}),
-  }
-  return new Promise((resolve, reject) => {
-    const req = (secure ? https : http).request(options, async res => {
-      try {
-        resolve({
-          status: res.statusCode,
-          headers: res.headers,
-          text: await collect(res),
-          protocol: secure
-            ? res.socket.alpnProtocol || 'none'
-            : 'http/1.1 (cleartext)',
-        })
-      } catch (err) {
-        reject(err)
-      }
-    })
-    req.on('error', reject)
-    req.on('timeout', () => req.destroy(new Error('request timed out')))
-    req.end(body)
   })
 }
 
@@ -138,13 +99,13 @@ const TRANSPORTS = [
     id: 'h1',
     label: 'HTTP/1.1 cleartext',
     expectedProtocol: 'http/1.1 (cleartext)',
-    send: (route, req) => requestHttp1(false, route, req),
+    send: (route, req) => requestHttp1(false, hostFor(route), req),
   },
   {
     id: 'h1tls',
     label: 'HTTP/1.1 TLS',
     expectedProtocol: 'http/1.1',
-    send: (route, req) => requestHttp1(true, route, req),
+    send: (route, req) => requestHttp1(true, hostFor(route), req),
   },
   {
     id: 'h2',
@@ -360,12 +321,18 @@ const cases = [
             : [`${OTHER_A}; ${SESSION}`, OTHER_B],
       },
     }),
-    check: (res, json) => [
-      res.status === 200 &&
-        joined(json) === `${OTHER_A}; ${OTHER_B}` &&
-        json.cookieHeaderCount === 1,
-      `${res.status}; "${mask(joined(json))}"; cookieHeaderCount=${json?.cookieHeaderCount}`,
-    ],
+    // On h1 the client writes the two `Cookie:` lines itself (http1.mjs), so
+    // it can report how many it really sent; h2 sends separate fields.
+    check: (res, json, transport) => {
+      const sentTwo = transport.id === 'h2' || res.cookieLinesSent === 2
+      return [
+        res.status === 200 &&
+          sentTwo &&
+          joined(json) === `${OTHER_A}; ${OTHER_B}` &&
+          json.cookieHeaderCount === 1,
+        `${res.status}; "${mask(joined(json))}"; cookieHeaderCount=${json?.cookieHeaderCount}${transport.id === 'h2' ? '' : `; cookie lines sent=${res.cookieLinesSent}`}`,
+      ]
+    },
   },
   {
     id: '9',
@@ -468,7 +435,7 @@ async function runCase(testCase, transport) {
       )
       return
     }
-    const [ok, observed] = testCase.check(res, json ?? {})
+    const [ok, observed] = testCase.check(res, json ?? {}, transport)
     record(
       testCase.id,
       transport.label,
@@ -620,7 +587,7 @@ async function ready() {
   while (Date.now() < deadline) {
     try {
       const health = await fetch(`${BACKEND}/health`)
-      const open = await requestHttp1(false, 'open', { headers: {} })
+      const open = await requestHttp1(false, hostFor('open'), { headers: {} })
       if (health.status === 200 && open.status === 200) {
         console.log('ready')
         return

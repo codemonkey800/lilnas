@@ -98,8 +98,20 @@ const frontendProject = {
   ...shared,
 }
 
+// Plain-ESM specs for the cookie rig's Node scripts (scripts/cookie-rig). Run
+// natively as ES modules (NODE_OPTIONS=--experimental-vm-modules), so no
+// transform; they are not part of the Nest or Next builds.
+const rigProject = {
+  displayName: 'rig',
+  testEnvironment: 'node',
+  rootDir: '.',
+  roots: ['<rootDir>/scripts/cookie-rig'],
+  testMatch: ['**/__tests__/**/*.spec.mjs'],
+  transform: {},
+}
+
 module.exports = {
-  projects: [backendProject, frontendProject],
+  projects: [backendProject, frontendProject, rigProject],
   collectCoverageFrom: [
     'src/**/*.ts',
     '!src/**/*.d.ts',
