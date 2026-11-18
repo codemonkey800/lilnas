@@ -1,3 +1,6 @@
+// Ships two sources to Loki: every Docker container's output, and the host's
+// systemd journal. Labels, queries and retention are in docs/logging.md.
+
 discovery.docker "containers" {
 	host             = "unix:///var/run/docker.sock"
 	refresh_interval = "15s"
@@ -70,6 +73,50 @@ loki.process "containers" {
 		}
 	}
 
+	forward_to = [loki.write.default.receiver]
+}
+
+// Host journal. Docker containers log to json-file, not journald, so this is
+// host services only and does not duplicate the block above.
+loki.relabel "journal" {
+	forward_to = []
+
+	// Drop the nexus-code daemon's own output. It runs as a user unit, writes
+	// about 80% of the journal, and its monitoring was removed on purpose.
+	// Everything else in a user session is kept, including sudo run from a
+	// terminal the daemon spawned.
+	rule {
+		source_labels = ["__journal__systemd_user_unit", "__journal_syslog_identifier"]
+		separator     = ";"
+		regex         = "nexus-code-daemon-[^;]*;node"
+		action        = "drop"
+	}
+
+	// Program name: sshd-session, sudo, sshguard, dockerd, kernel. Used instead
+	// of the systemd unit because sudo and login messages are filed under a
+	// per-session scope unit (session-123.scope), which would make a new Loki
+	// stream for every login.
+	rule {
+		source_labels = ["__journal_syslog_identifier"]
+		target_label  = "identifier"
+	}
+
+	rule {
+		source_labels = ["__journal_priority_keyword"]
+		target_label  = "level"
+	}
+}
+
+loki.source.journal "host" {
+	path = "/var/log/journal"
+	// How far back to read on the very first start. After that Alloy resumes
+	// from its saved cursor.
+	max_age       = "72h"
+	relabel_rules = loki.relabel.journal.rules
+	labels        = {
+		job     = "journal",
+		service = "host",
+	}
 	forward_to = [loki.write.default.receiver]
 }
 

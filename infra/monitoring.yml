@@ -88,6 +88,12 @@ services:
       - ./monitoring/config.alloy:/etc/alloy/config.alloy:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /storage/app-data/alloy:/var/lib/alloy/data
+      # Host journal (sshd, sudo, sshguard, dockerd, kernel) for
+      # loki.source.journal. machine-id tells journald which directory under
+      # /var/log/journal belongs to this host. See docs/logging.md.
+      - /var/log/journal:/var/log/journal:ro
+      - /run/log/journal:/run/log/journal:ro
+      - /etc/machine-id:/etc/machine-id:ro
 
   node-exporter:
     image: prom/node-exporter:v1.12.1
