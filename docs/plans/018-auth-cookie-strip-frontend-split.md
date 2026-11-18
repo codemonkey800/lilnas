@@ -330,3 +330,25 @@ No throwaway containers, networks, volumes, images or temp files were created.
 
 ### 2026-11-18 · H2 · approved
 Approved.
+
+### 2026-11-18 · Phase 2 · review cycle 1
+Phase 2 is clean. T7 adds the Cookie header to lilnas-auth, adds the lilnas-cookie-strip middleware and puts it on exactly the six routers, with specs that fail on drift. T8's docs state the required facts. T5 and T6 committed nothing.
+
+Suspicions:
+- T5 rollback command becomes unsafe after the label push — apps/auth/README.md:33 · T5 recorded the command LILNAS_TAG=d2a90394 docker compose up -d auth. Once Cookie is in authResponseHeaders, that image sends no sanitized Cookie header, so every gated backend would lose all its cookies. The README's rollback rule says this, but the command from T5 is still in the run's notes. · confirm by: Make sure the human go/no-go for the label push replaces the T5 rollback command with 'revert on main'.
+
+Spec check:
+- extra: Leave a one-line comment on those four routers saying so (apps/auth/deploy.yml, infra/media.yml, infra/immich.yml, infra/shared.yml) — Done as asked. Recreating these services on deploy is a side effect that T7's note discloses.
+- unverifiable: T5/T6 production and canary observations (production lilnas project, cookie-canary project) — These are claims in the task notes with no diff. A person should confirm the canary is still running for the gated-host check and is removed afterwards.
+
+Declined to judge:
+- storage.lilnas.io (MinIO S3 API) now depends on auth uptime through lilnas-cookie-strip — The task body names storage explicitly. It is a user decision, not a defect.
+- Comment-only edits on the auth, emby, immich and turbo services may get them recreated on deploy — T7's note already discloses it. Their router config is unchanged.
+- The 'exactly one state' test asserts the length twice (inside toEqual and again with toHaveLength) — Style only.
+
+Checked:
+- An open-router backend relies on the lilnas-auth cookie for identity — apps/theater/src/auth/auth.service.ts, apps/tdr-code/src/proxy.ts: theater uses its own theater_session cookie and tdr-code uses its own better-auth session cookie. The strip removes only lilnas-auth.* cookies, so neither is affected.
+- The dev dashboard treats lilnas-cookie-strip as gated — apps/dev/src/registry/compose-file.ts:110: It uses includes('lilnas-auth'), which does not match lilnas-cookie-strip.
+- Prettier regression on edited files outside apps/auth/src — dashcam/equations/tdr-code/auth deploy.yml, infra/shared|media|immich.yml, expose docs: Every one of them already failed prettier -c at base d2a90394 in repo context. proxy.yml, theater/deploy.yml and the README pass.
+- /strip-cookie behaves differently from /verify's Cookie contract — apps/auth/src/verify/strip-cookie.controller.ts: It uses the same VERIFY_SANITIZED_HEADERS and stripAuthCookies, and sends no header if sanitizing fails or there are no cookies left, which matches the proxy.yml comment.
+- The coverage spec misses a router or passes vacuously — apps/auth/src/verify/__tests__/router-cookie-coverage.spec.ts: A guard test checks that portal, dashcam and emby are found and that router names are unique. Exempt routers that also carry a middleware fail, and both list and map label forms are handled.
