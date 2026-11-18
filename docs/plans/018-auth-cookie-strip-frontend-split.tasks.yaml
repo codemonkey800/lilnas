@@ -192,7 +192,8 @@ phases:
           - T3
         files:
           - apps/auth/scripts/cookie-rig/
-        status: todo
+        status: done
+        commit: b43d6a3acfc25831ed9bf31478dd3276bbc89c18
         body: |-
           Build a small verification kit under `apps/auth/scripts/cookie-rig/`, then use it to prove
           the cookie strip end to end against the real Nest backend and traefik:v3.7.15 (the
