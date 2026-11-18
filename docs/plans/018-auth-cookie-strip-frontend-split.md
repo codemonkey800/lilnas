@@ -443,3 +443,19 @@ Mutation checks (each reverted; deploy.yml matches the saved copy): frontend env
 Checks: lint and type-check pass; full auth jest is 57 suites and 875 tests with --maxWorkers=2, including auth-response-headers.spec.ts; prettier -c passes on the four listed files; docker build --check -q reports no warnings.
 grep of infra/monitoring/ and docs/logging.md found no hard-coded service list including `auth`; the only matches are an unrelated reason="auth" label in equations.json and prose about lilnas-auth.
 Cleanup: no containers, networks, images or volumes were created; temp files in /tmp removed; tree clean.
+
+### 2026-11-18 · T13 · done
+Built lilnas-auth:split-check from this worktree and ran `auth` and `auth-frontend` from a temp compose file with the entrypoints, environments and healthchecks copied from deploy.yml, a throwaway volume, test env values, no published ports and a private network. apps/auth/deploy.yml was never run. The image, Next's baked rewrites (http://auth:8081), container DNS and both healthchecks all work.
+Every listed check matched except `docker stop` on the backend (see defects).
+Frontend start to healthy: 2.38 s on a timed restart (start_interval 2s).
+The test env file needed BACKEND_PORT=8081, which the backend requires at start. I assume production gets it from .env.prod; I did not inspect that file.
+Backend /verify with no X-Forwarded-Host returns 500 by design (verify.controller.ts fail-closed branch).
+The mint-session script refuses /data, so the throwaway volume was mounted at /throwaway-db in a one-off container (script bind-mounted at /app/scripts/cookie-rig/). The backend and the minting container shared the SQLite file without trouble.
+Cleanup shown above: containers, network, volume, image, temp dir all removed.
+
+Defects:
+
+- not blocking · Backend ignores SIGTERM, so `docker stop` takes the full 30 s grace and ends in SIGKILL · apps/auth/src/bootstrap.ts (no enableShutdownHooks or SIGTERM handler); apps/auth/deploy.yml `auth` entrypoint ['node','dist/main'] with stop_grace_period 30s
+  docker stop on the auth container: 30.31 s, ExitCode=137. docker stop on auth-frontend: 0.28 s, ExitCode=143. grep for enableShutdownHooks|SIGTERM|SIGINT in apps/auth/src (non-test) finds nothing. With node as PID 1 and no handler, the kernel ignores SIGTERM until SIGKILL. Impact: each backend restart or redeploy leaves /verify down for about 30 s, and SQLite is not closed cleanly (WAL is crash-safe). Fix: app.enableShutdownHooks() in bootstrap, or `init: true` on the service. Outside T13's scope; the `deploy.yml` comment already notes the missing hook.
+
+No commits: nothing to integrate.
