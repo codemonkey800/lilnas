@@ -1,0 +1,996 @@
+nexus-tasks: 1
+phases:
+  - key: '1'
+    name: Cookie strip in the auth app
+    tasks:
+      - id: T1
+        title: Unique cookie prefix and a one-time revoke of every session
+        after: []
+        files:
+          - apps/auth/src/auth/
+          - apps/auth/src/verify/
+          - apps/auth/src/db/migrations/
+          - apps/auth/src/db/__tests__/
+          - apps/auth/src/app/
+          - apps/auth/README.md
+          - apps/auth/.env.example
+        status: todo
+        body: |-
+          Give lilnas-auth's Better Auth cookies a unique prefix, and delete every existing session
+          once.
+
+          Why: Better Auth's default cookie name (`better-auth.session_token`, with `__Secure-` in
+          front on https) is also used by other apps under `*.lilnas.io` that run their own Better
+          Auth (see `apps/tdr-code/src/proxy.ts`). Later tasks strip lilnas-auth's cookies by name
+          before a request reaches a backend, so the names have to be unambiguous first. A token
+          signed before the rename would still be valid if sent under the new name, so all session
+          rows are deleted when the new image first boots. Everyone signs in again once; that is
+          accepted.
+
+          Changes:
+          1. New `apps/auth/src/auth/cookie-names.ts`:
+             ```ts
+             export const COOKIE_PREFIX = 'lilnas-auth'
+             export const SECURE_COOKIE_PREFIX = '__Secure-'
+             /** `lilnas-auth.session_token` (http) and `__Secure-lilnas-auth.session_token` (https). */
+             export const SESSION_COOKIE_NAMES: readonly [string, string]
+             ```
+          2. `src/auth/auth.ts`: add `cookiePrefix: COOKIE_PREFIX` under `advanced`, beside
+             `crossSubDomainCookies`. Change no other Better Auth option.
+          3. `src/verify/access-cache.service.ts`: `SESSION_COOKIE_NAMES` now comes from
+             `cookie-names.ts`. The old names are no longer matched. Fix the comments that say the
+             default prefix applies.
+          4. A migration `src/db/migrations/0007_revoke_sessions_cookie_rename.sql` containing
+             `DELETE FROM session;`, with its `meta/_journal.json` entry (`idx: 7`, `when` later
+             than every existing entry). Generate it with
+             `pnpm --filter @lilnas/auth exec drizzle-kit generate --custom --name=revoke_sessions_cookie_rename`.
+             If drizzle-kit also wants to emit schema changes, stop and report that instead of
+             committing them. `src/db/database.module.ts` already applies the folder at boot with
+             drizzle's `migrate()`; it needs no change.
+          5. `README.md` and `.env.example`: update wherever they name the cookie.
+
+          Edge cases:
+          - Dev (http `AUTH_HOST`) names have no `__Secure-`; prod (https) names do. Both forms stay
+            matched by exact name.
+          - `extractSessionCookieValue` keeps exact-name matching: `xlilnas-auth.session_token`,
+            `lilnas-auth.session_tokenx` and both old `better-auth.session_token` forms return null.
+          - `oauth_access_token` and `oauth_refresh_token` reference `session` (see
+            `src/db/schema.ts`). The DELETE must succeed with `foreign_keys = ON` while rows in
+            those tables point at a session.
+          - Don't touch `apps/tdr-code`.
+
+          Tests (extend the specs under `src/verify/__tests__`, `src/auth/__tests__`,
+          `src/db/__tests__`; the session helper is `src/verify/__tests__/helpers/session-fixtures.ts`):
+          - the sign-in callback sets `lilnas-auth.session_token` for an http `AUTH_HOST` and
+            `__Secure-lilnas-auth.session_token` for an https one, with `Domain=` equal to
+            `COOKIE_DOMAIN`, and sets no cookie whose name contains `better-auth`
+            (`auth-mount.spec.ts` already drives the callback)
+          - a real session sent under the old cookie name does not resolve: `resolveSession` finds
+            no session and the `/verify` decision is a redirect
+          - the `extractSessionCookieValue` cases above
+          - the migration: build a database from migrations 0000 to 0006 only (copy the folder to a
+            temp dir without 0007 and its journal entry), insert a user, a session, a grant, and an
+            oauth token row that references the session if the schema allows one; then migrate with
+            the full folder and assert `session` is empty, the user and grant remain, and a second
+            `migrate()` changes nothing
+          - specs under `src/app/**/__tests__` use `better-auth.session_token=abc123` as an opaque
+            string; change them to the new name so no test documents the old one
+      - id: T2
+        title: '`/verify` returns the cookies minus lilnas-auth''s own on ALLOW'
+        after:
+          - T1
+        files:
+          - apps/auth/src/verify/
+        status: todo
+        body: |-
+          On an ALLOW, `/verify` returns a `Cookie` response header holding the request's cookies
+          with every lilnas-auth cookie removed, and no `Cookie` header when nothing else remains.
+
+          How Traefik uses it: for each header named in a forwardAuth middleware's
+          `authResponseHeaders`, Traefik deletes that header from the client's request and then
+          copies it from the auth response. An absent response header therefore means the backend
+          gets none. `Cookie` is not in that list yet; a later task adds it after this code is
+          deployed. Until then Traefik ignores the new header, so this task changes nothing for
+          users.
+
+          Changes:
+          1. New `apps/auth/src/verify/strip-auth-cookies.ts`:
+             ```ts
+             /**
+              * The Cookie header value with every lilnas-auth cookie removed, or undefined
+              * when no other cookie remains (the caller then sends no header at all).
+              */
+             export function stripAuthCookies(cookieHeader: string | undefined): string | undefined
+             ```
+             - Split on `;`. A pair's name is the text before its first `=`, trimmed.
+             - Remove a pair when its name starts with `lilnas-auth.` or `__Secure-lilnas-auth.`.
+               Build both from `COOKIE_PREFIX` and `SECURE_COOKIE_PREFIX` in
+               `src/auth/cookie-names.ts`. This covers `session_token`, `session_data`,
+               `account_data`, `dont_remember` and the OAuth state cookies.
+             - Case-sensitive, and the prefix must match from the first character of the name:
+               `xlilnas-auth.session_token` and `better-auth.session_token` are kept.
+             - Kept pairs are trimmed of surrounding whitespace and otherwise unchanged byte for
+               byte (values containing `=`, `%` or quotes; pairs with no `=`), in their original
+               order, joined with `; `. Empty segments are dropped.
+             - `undefined`, empty or whitespace-only input returns `undefined`. So does a header
+               with nothing left.
+          2. `apps/auth/src/verify/verify.controller.ts`, ALLOW branch only: after the identity
+             headers, set the `Cookie` response header to `stripAuthCookies(req.headers.cookie)`
+             when it is defined. If sanitizing or `setHeader` throws, send no `Cookie` header (the
+             backend then gets no cookies, which is the safe direction), log a warning with no
+             cookie content, and still answer 200. The redirect and 500 branches do not change.
+          3. Export `VERIFY_SANITIZED_HEADERS = ['Cookie'] as const` beside
+             `VERIFY_RESPONSE_HEADERS` and use it for the header name. Leave
+             `VERIFY_RESPONSE_HEADERS` and `__tests__/auth-response-headers.spec.ts` alone:
+             `infra/proxy.yml` still lists exactly the two identity headers and that spec must keep
+             passing unmodified.
+
+          Tests:
+          - a unit spec for `stripAuthCookies` covering each rule above, plus: both name forms in
+            one header; the same stripped name twice; a kept cookie whose value contains the text
+            `lilnas-auth.session_token=`; a 4 KB header
+          - controller level (the "VerifyController integration" block in
+            `__tests__/verify.service.spec.ts` shows the wiring): ALLOW with a session and other
+            cookies returns `Cookie` equal to the others; ALLOW with only the session cookie returns
+            no `Cookie` header; redirect and 500 return none; the identity headers are unchanged;
+            `Set-Cookie` is never set
+      - id: T3
+        title: 'Always-allow `/strip-cookie` endpoint and a public-allowlist spec'
+        after:
+          - T2
+        files:
+          - apps/auth/src/verify/
+          - apps/auth/src/app.module.ts
+          - apps/auth/README.md
+        status: todo
+        body: |-
+          Add a backend endpoint that allows every request and only sanitizes cookies. Traefik
+          routers with no auth never call `/verify`, so a later task points a second forwardAuth
+          middleware at this endpoint for them.
+
+          ```ts
+          // apps/auth/src/verify/strip-cookie.controller.ts
+          @Controller('strip-cookie')
+          export class StripCookieController {
+            @All()
+            strip(@Req() req: Request, @Res() res: Response): void
+          }
+          ```
+          - Always 200 with an empty body. The `Cookie` response header is
+            `stripAuthCookies(req.headers.cookie)` (from `src/verify/strip-auth-cookies.ts`) when
+            defined, and is omitted otherwise. Handle a throw the same way the ALLOW branch of
+            `verify.controller.ts` does: no header, a warning with no cookie content, still 200.
+          - No session lookup, no database, and no call to `GatedHostsService.recordSeen` or
+            `HostActivityService.recordVisit`: these hosts are not gated, and recording them would
+            list them as gated in `/admin`. The controller injects neither service.
+          - `@All()` for the reason given in `VerifyController`'s comment.
+          - Register it in `src/app.module.ts`.
+          - It is reachable on the backend port only. Do not add a rewrite for it.
+
+          New spec `apps/auth/src/verify/__tests__/public-allowlist.spec.ts`, a guard for what the
+          internet can reach on the backend: load `apps/auth/next.config.js`, call `rewrites()`,
+          and assert the `source` list is exactly `/api/auth/:path*`,
+          `/.well-known/openid-configuration`, `/.well-known/oauth-authorization-server`,
+          `/api/sse/:path*`, and that no destination path starts with `/verify`, `/strip-cookie`,
+          `/internal`, `/admin`, `/me`, `/requests` or `/health`. Do not assert the destination
+          host; a later task changes it.
+
+          `README.md`: add `/strip-cookie` to the backend's routes in the "Two-process topology"
+          table, with one line on what it is for.
+
+          Tests for the controller (imitate how `src/auth/__tests__/auth-mount.spec.ts` or the
+          VerifyController block in `verify.service.spec.ts` drive HTTP): no cookie gives 200 and
+          no header; a lilnas-auth session cookie plus others gives the others; only the session
+          cookie gives no header; another app's `__Secure-better-auth.session_token=x` is
+          preserved; GET and POST both give 200.
+      - id: T4
+        title: Verification kit, and the isolated Traefik rig against the real backend
+        after:
+          - T3
+        files:
+          - apps/auth/scripts/cookie-rig/
+        status: todo
+        body: |-
+          Build a small verification kit under `apps/auth/scripts/cookie-rig/`, then use it to prove
+          the cookie strip end to end against the real Nest backend and traefik:v3.7.15 (the
+          production version). An earlier rig with a fake auth server passed over HTTP/1.1 only.
+          HTTP/2 on a TLS entrypoint and WebSocket upgrades are unverified and are the point of
+          this task. Later tasks reuse the kit on production.
+
+          Kit files (plain Node, no dependencies, prettier-clean):
+          - `echo.mjs`: an HTTP and WebSocket echo server on `PORT`.
+            - `GET /json` returns `{ httpVersion, method, cookieNames, authCookiePresent,
+              forwardedUser, forwardedUserId, cookieHeaderCount }`. `authCookiePresent` is true when
+              any cookie name starts with `lilnas-auth.` or `__Secure-lilnas-auth.`. Cookie values
+              are included (as `cookies`) only when `ECHO_VALUES=1`.
+            - `GET /` returns an HTML page that fetches `/json`, opens a WebSocket to `/ws`, and
+              shows one PASS or FAIL banner (FAIL when `authCookiePresent` is true on either), the
+              cookie names, `X-Forwarded-User`, and
+              `performance.getEntriesByType('navigation')[0].nextHopProtocol`.
+            - `/ws`: handle the `upgrade` event by hand, send one text frame with the same JSON for
+              the upgrade request, then close.
+            - It never logs or returns a cookie value without `ECHO_VALUES=1`.
+          - `mint-session.mjs`: for throwaway databases only. Inserts a user and a session and
+            prints a signed session cookie pair that the running backend accepts. Read how Better
+            Auth signs the cookie (`better-auth` 1.7.12, `dist/cookies`) instead of guessing. It
+            exits non-zero when `DATABASE_PATH` is under `/data` or `/storage`.
+          - `rig.sh` with its Traefik file-provider config, and `client.mjs`: start the rig, run the
+            matrix below, exit 1 on any mismatch, and always tear down.
+          - `canary.private.yml` and `canary.shared.yml`: compose files for a canary on the
+            production Traefik, run later by other tasks, not now. One service
+            `cookie-canary-echo` (image `node:22-alpine`, `echo.mjs` mounted read-only, no
+            `ECHO_VALUES`), network `lilnas-proxy` only (external), labels `traefik.enable=true`,
+            `traefik.docker.network=lilnas-proxy`, `lilnas.idle-reap.enabled=false`, and two
+            routers on `entrypoints=websecure` with `tls=true` (never `tls.certresolver`):
+            `dev-cookie-canary` on `Host(cookie-canary.dev.lilnas.io)` and `dev-cookie-canary-open`
+            on `Host(cookie-canary-open.dev.lilnas.io)`.
+            - `canary.private.yml` defines its own middlewares on the same container:
+              `dev-cookie-canary-auth` (forwardauth address `http://auth:8081/verify`,
+              `authResponseHeaders=X-Forwarded-User,X-Forwarded-User-Id,Cookie`,
+              `preserveLocationHeader=true`, no `trustForwardHeader`) on the first router, and
+              `dev-cookie-canary-strip` (address `http://auth:8081/strip-cookie`,
+              `authResponseHeaders=Cookie`) on the second.
+            - `canary.shared.yml` uses `middlewares=lilnas-auth` and
+              `middlewares=lilnas-cookie-strip` instead and defines none.
+            - See `docs/lilnas-expose.md` and
+              `plugins/lilnas/skills/expose/reference/naming-safety.md` for the label convention.
+          - `README.md`: what each file is for and how to run it.
+
+          The rig (everything on one new docker network with a unique name, no published ports):
+          - the real backend from this worktree: build it (`pnpm --filter @lilnas/auth build:backend`,
+            building `@lilnas/utils` first if needed) and run `node dist/main` with the worktree
+            mounted, in a container whose Node major matches the host's (`node --version`; a
+            matching `node:` image is local) so the native `better-sqlite3` loads. Use test env
+            values only, an https `AUTH_HOST`, a throwaway `DATABASE_PATH`, and the minted user's
+            email in `ADMIN_EMAILS` so `/verify` allows it on any host
+          - `traefik:v3.7.15` with a file provider, entrypoints `web` and `websecure` (default
+            self-signed certificate), and three routers to the echo backend: `gated` (forwardAuth
+            to `/verify` with `authResponseHeaders` `X-Forwarded-User`, `X-Forwarded-User-Id`,
+            `Cookie`), `open` (forwardAuth to `/strip-cookie` with `authResponseHeaders` `Cookie`),
+            and `baseline` (forwardAuth to `/verify` without `Cookie`, as production is today)
+          - the echo backend with `ECHO_VALUES=1`, and the client in a container on the network
+          - first confirm `/verify` called directly returns 200 for the minted cookie
+
+          Matrix. Run every HTTP case over HTTP/1.1 cleartext, HTTP/1.1 on TLS, and HTTP/2 on TLS
+          (assert the negotiated protocol really is h2):
+          1. baseline, session + another cookie: the session cookie reaches the backend (control)
+          2. gated, session + others: only the others arrive, same order and bytes;
+             `X-Forwarded-User` is the minted email
+          3. gated, session only: the backend sees no `Cookie` header
+          4. gated, no cookie: 302 to the login page
+          5. gated, the session value sent under the old name `__Secure-better-auth.session_token`
+             only: 302
+          6. gated, session + `lilnas-auth.session_data=x` + `__Secure-lilnas-auth.dont_remember=1`
+             + another: only the other arrives
+          7. gated, forged `X-Forwarded-User` and `X-Forwarded-User-Id`: overwritten
+          8. gated, cookies split over two `Cookie` headers (HTTP/1.1) and over separate cookie
+             header fields (HTTP/2): merged, session stripped
+          9. gated, a POST with a 1 MB body: arrives intact
+          10. open, no cookie: 200, no `Cookie` header
+          11. open, session + other: only the other
+          12. open, session only: none
+          13. open, another app's `__Secure-better-auth.session_token=keep`: arrives unchanged
+          14. WebSocket upgrade through gated and through open with session + other: 101, and the
+              upgrade request the backend saw carries only the other cookie
+          15. open with the backend stopped: record the status code Traefik returns
+
+          Result: the matrix as a table of expected against observed, the Traefik and Node
+          versions, and proof of cleanup (`docker ps -a`, `docker network ls`, temp paths). Report
+          every mismatch under `defects:`. Any mismatch in cases 2 to 14 is blocking, because it
+          means the approach does not hold on that transport.
+  - key: '2'
+    name: Ship the auth image, prepare the labels
+    tasks:
+      - id: H1
+        title: 'Go/no-go: push the auth image (signs everyone out once)'
+        after:
+          - T4
+        files: []
+        status: todo
+        body: |-
+          Approving lets the next task push phase 1 to `main`. CI then rebuilds and redeploys the
+          `auth` service only.
+
+          What the deploy does:
+          - renames the session cookie to `__Secure-lilnas-auth.session_token` and deletes every
+            session row on boot, so everyone is signed out once
+          - makes `/verify` return a sanitized `Cookie` header, which Traefik ignores until the
+            labels change, and adds `/strip-cookie` on the backend port
+          - restarts auth: gated sites return errors for about 10 s
+
+          Before approving:
+          - read T4's result: every matrix case passed on HTTP/2 and WebSocket, and nothing was
+            left running
+          - read the phase 1 review
+          - pick a quiet time, and don't push anything else to `main` until the push task has
+            finished (it stops if `origin/main` has moved)
+
+          Rollback, by you, if gated sites break:
+          `cd /opt/lilnas && sudo -u deploy env LILNAS_TAG=<sha before the push> docker compose up -d auth`.
+          The push task reports that sha. Sessions stay deleted either way.
+
+          Request changes to hold the push.
+      - id: T5
+        title: 'Push the auth image to main, watch CI, verify production'
+        after:
+          - H1
+        files: []
+        status: todo
+        body: |-
+          A human approved this push. Push the cookie work in `apps/auth` to `main`, watch the
+          deploy, and verify production. Commit nothing.
+
+          Before pushing, all of these must hold. If one does not, stop and report it without
+          pushing:
+          - `git fetch origin main`, then `git merge-base --is-ancestor origin/main HEAD` succeeds
+            (never rebase, merge or force)
+          - `git diff --stat origin/main..HEAD` touches only `apps/auth/**` and `docs/plans/**`.
+            Anything under `infra/`, `plugins/` or another app's `deploy.yml` means the Traefik
+            labels would ship too early
+          - `HEAD` contains the work: `apps/auth/src/verify/strip-cookie.controller.ts`,
+            `apps/auth/src/auth/cookie-names.ts`, the `0007` migration and
+            `apps/auth/scripts/cookie-rig/` exist
+          - `pnpm lilnas ci detect --base origin/main --head HEAD --json` lists image `auth` only,
+            and `pull` is `["auth"]`
+          - record `git rev-parse origin/main` as the rollback sha
+
+          Push with `git push origin HEAD:main`. Find the run with
+          `gh run list --workflow ci.yml --branch main --event push --limit 5 --json databaseId,headSha,status,url`
+          (match `headSha`) and follow it with `gh run watch <id> --exit-status`. If the run is red
+          or the auth image was held back, report it with the failing job's log and stop: the old
+          image is still running, and that is safe.
+
+          After the deploy, check production (read-only):
+          - `docker compose -p lilnas ps auth` shows a new, healthy container;
+            `docker logs lilnas-auth-1 --since 15m` has no error and shows the migration ran
+          - inside the container (`docker exec lilnas-auth-1 node -e ...` with `fetch` against
+            `http://localhost:8081`): `/strip-cookie` with
+            `Cookie: __Secure-lilnas-auth.session_token=x; a=1; __Secure-better-auth.session_token=y`
+            answers 200 with `Cookie: a=1; __Secure-better-auth.session_token=y`; with only the
+            lilnas-auth cookie it answers 200 and no `Cookie` header; `/verify` with no cookie,
+            `X-Forwarded-Host: sonarr.lilnas.io` and `X-Forwarded-Proto: https` answers 302 to
+            `https://auth.lilnas.io/login...`
+          - the session table was emptied: a read-only row count from inside the container
+            (`better-sqlite3` with `{ readonly: true }` on `/data/lilnas-auth.db`) is small, and
+            every row was created after the deploy. Print counts only
+          - from the internet: `https://auth.lilnas.io/login` is 200, `/api/auth/ok` is 200,
+            `/.well-known/openid-configuration` is 200; `/verify`, `/strip-cookie`,
+            `/internal/host-activity?host=x.lilnas.io&hours=1`, `/admin/check?email=a@b.c`, `/me`,
+            `/health` and `/requests/status` on `auth.lilnas.io` are all 404;
+            `https://sonarr.lilnas.io/` is a 302 to the login page
+          - starting a sign-in (`POST https://auth.lilnas.io/api/auth/sign-in/social` with JSON
+            `{"provider":"google","callbackURL":"/"}` and `Origin: https://auth.lilnas.io`) returns
+            a Google URL and sets cookies whose names start with `__Secure-lilnas-auth.` with
+            `Domain=.lilnas.io`, and none containing `better-auth`. Print names and attributes only
+
+          Report the pushed sha, the rollback sha, the CI run URL, each check with what you
+          observed, and this rollback command for the human:
+          `cd /opt/lilnas && sudo -u deploy env LILNAS_TAG=<rollback sha> docker compose up -d auth`.
+          Do not run it yourself. Put any failed check under `defects:`.
+      - id: T6
+        title: Start the canary on the production Traefik with private middlewares
+        after:
+          - T5
+        files: []
+        status: todo
+        body: |-
+          Production's auth backend now returns a sanitized `Cookie` header on `/verify` and
+          serves `/strip-cookie`, but the shared Traefik middlewares do not use them yet. Start a
+          canary that does, so the strip is exercised on the real Traefik (TLS, HTTP/2,
+          WebSocket) for two throwaway hosts before the shared middlewares change. Commit nothing.
+
+          Steps:
+          1. Copy `apps/auth/scripts/cookie-rig/echo.mjs` and `canary.private.yml` to
+             `/tmp/lilnas-cookie-canary/` (the worktree may be deleted while the canary is still
+             needed) and run
+             `docker compose -p cookie-canary -f /tmp/lilnas-cookie-canary/canary.private.yml up -d`.
+             This is its own compose project on the external `lilnas-proxy` network, the
+             documented way to expose a dev service (`docs/lilnas-expose.md`); it is not the
+             `lilnas` project.
+          2. With no session, `https://cookie-canary.dev.lilnas.io/` must be a 302 to
+             `https://auth.lilnas.io/login...`.
+          3. On `https://cookie-canary-open.dev.lilnas.io/json`, with fake values only:
+             - `curl --http2` with
+               `Cookie: __Secure-lilnas-auth.session_token=fake.sig; theme=dark; __Secure-better-auth.session_token=keep`:
+               `cookieNames` is `theme` and `__Secure-better-auth.session_token`,
+               `authCookiePresent` is false, and curl's `%{http_version}` is 2
+             - the same over `--http1.1`
+             - over HTTP/2 with the cookies split across two `cookie:` headers: same result
+             - only the lilnas-auth cookie: `cookieNames` is empty
+             - no cookie: `cookieNames` is empty, status 200
+             - a WebSocket upgrade to `wss://cookie-canary-open.dev.lilnas.io/ws` (a short Node
+               script) with the first cookie set: the frame shows `authCookiePresent` false and
+               the other two names
+          4. `docker logs lilnas-auth-1 --since 5m` shows no error from these requests.
+
+          Leave the canary running; a human checks the gated host next and a later task removes
+          it. Report both URLs, each observation, and the removal command
+          (`docker compose -p cookie-canary down` and `rm -rf /tmp/lilnas-cookie-canary`). If a
+          check fails, stop the canary, remove the temp dir, and report it under `defects:` as
+          blocking.
+      - id: H2
+        title: Sign in again and check the gated canary in your browser
+        after:
+          - T6
+        files: []
+        status: todo
+        body: |-
+          The new auth image is live and you were signed out. Check what an agent can't:
+          1. Open `https://auth.lilnas.io` and sign in with Google. In devtools, Application,
+             Cookies: there is a `__Secure-lilnas-auth.session_token` on `.lilnas.io`.
+          2. Open two gated apps, for example `https://sonarr.lilnas.io` and
+             `https://grafana.lilnas.io`. They load as before.
+          3. Open `https://cookie-canary.dev.lilnas.io`. The banner says PASS; the page shows your
+             email as `X-Forwarded-User`, protocol `h2` (or `h3`), no `lilnas-auth` cookie among
+             the cookie names for the page or the WebSocket, and any other cookies by name.
+          4. Open `https://cookie-canary-open.dev.lilnas.io`. PASS as well.
+          5. Sign in to `https://tdr-code.lilnas.io` as usual. It still works.
+
+          Approve if all five hold. Request changes with what you saw otherwise. If sign-in itself
+          is broken, roll back with the command in T5's result.
+      - id: T7
+        title: 'Traefik labels: `Cookie` on lilnas-auth, the strip middleware, six open routers'
+        after:
+          - T5
+        files:
+          - infra/proxy.yml
+          - infra/shared.yml
+          - apps/dashcam/deploy.yml
+          - apps/equations/deploy.yml
+          - apps/theater/deploy.yml
+          - apps/tdr-code/deploy.yml
+          - apps/auth/src/verify/
+          - apps/auth/src/services/__tests__/
+        status: todo
+        body: |-
+          Make Traefik use what the auth backend now returns. Nothing here is deployed by this
+          task; a later task pushes it after a human approves.
+
+          Background: the backend's `/verify` returns, on ALLOW, a `Cookie` header with the
+          lilnas-auth cookies removed (`VERIFY_SANITIZED_HEADERS` in
+          `apps/auth/src/verify/verify.controller.ts`), and `/strip-cookie` allows everything and
+          returns the same sanitized header. For each name in a forwardAuth middleware's
+          `authResponseHeaders`, Traefik deletes the client's header and copies the auth
+          response's, so an absent response header means the backend gets none.
+
+          Labels on the `traefik` service in `infra/proxy.yml`:
+          ```yaml
+          - traefik.http.middlewares.lilnas-auth.forwardauth.authResponseHeaders=X-Forwarded-User,X-Forwarded-User-Id,Cookie
+          - traefik.http.middlewares.lilnas-cookie-strip.forwardauth.address=http://auth:8081/strip-cookie
+          - traefik.http.middlewares.lilnas-cookie-strip.forwardauth.authResponseHeaders=Cookie
+          ```
+          Don't set `trustForwardHeader` on either. Update the comments there: why `Cookie` is
+          listed, what the strip middleware is for, and that a router carrying it returns errors
+          while the auth backend is down.
+
+          Add `traefik.http.routers.<router>.middlewares=lilnas-cookie-strip` to exactly these
+          routers: `dashcam` (`apps/dashcam/deploy.yml`), `equations`
+          (`apps/equations/deploy.yml`), `theater` and `theater-ws` (`apps/theater/deploy.yml`),
+          `storage` (`infra/shared.yml`), `tdr-code` (`apps/tdr-code/deploy.yml`).
+          Not `auth` (the login UI needs its own cookie), and not `emby` (`infra/media.yml`),
+          `immich` (`infra/immich.yml`) or `turbo` (`infra/shared.yml`): the user decided on
+          2026-11-17 that those three must not depend on auth being up. Leave a one-line comment
+          on those four routers saying so.
+          Routers that already have `middlewares=lilnas-auth` need nothing.
+
+          Specs:
+          - `apps/auth/src/verify/__tests__/auth-response-headers.spec.ts`: the `lilnas-auth` list
+            must equal `[...VERIFY_RESPONSE_HEADERS, ...VERIFY_SANITIZED_HEADERS]` exactly (set and
+            length). Add: `lilnas-cookie-strip`'s address is `http://auth:8081/strip-cookie` and its
+            `authResponseHeaders` is exactly `Cookie`; neither middleware has a
+            `trustForwardHeader` label.
+          - new `apps/auth/src/verify/__tests__/router-cookie-coverage.spec.ts`: read every
+            `apps/*/deploy.yml` and `infra/*.yml` (skip `*.dev.yml`), collect each router that has
+            a `Host(...)` rule under `lilnas.io`, and assert each is exactly one of: gated
+            (`lilnas-auth` in its middlewares), stripped (`lilnas-cookie-strip` in its
+            middlewares), or named in an exemption map kept in the spec with a reason (`auth`,
+            `emby`, `immich`, `turbo`). A new open router with neither middleware must fail the spec, and
+            so must an exemption for a router that no longer exists. Also assert the stripped set
+            is exactly the six routers above. Labels are list entries of the form `key=value`,
+            some quoted.
+          - `apps/auth/src/services/__tests__/service-registry.service.spec.ts`: a router with
+            `middlewares=lilnas-cookie-strip` is classified `none`, not `lilnas-auth`.
+
+          Update the comments in `verify.controller.ts` that describe `authResponseHeaders`.
+          Change no behaviour in `apps/auth/src`.
+
+          In your result, list the services whose labels changed (they are recreated on deploy):
+          traefik, storage, dashcam, equations, theater, tdr-code.
+      - id: T8
+        title: 'Docs: who still receives the cookie, and the dev-exposure note'
+        after:
+          - T5
+        files:
+          - apps/auth/README.md
+          - docs/lilnas-expose.md
+          - plugins/lilnas/skills/expose/
+        status: todo
+        body: |-
+          Document the cookie strip. Facts to state (shipped by this run; write them as how the
+          system works, not as a changelog):
+          - The lilnas-auth session cookie is `__Secure-lilnas-auth.session_token`, scoped to
+            `.lilnas.io`. On an ALLOW, `/verify` returns the request's cookies without any
+            `lilnas-auth.` cookie, and the `lilnas-auth` middleware lists `Cookie` in
+            `authResponseHeaders`, so a gated backend never receives the session cookie.
+          - Routers with no auth can carry the `lilnas-cookie-strip` middleware (forwardAuth to
+            `http://auth:8081/strip-cookie`, always allows). A router with it returns errors while
+            the auth backend is down or restarting.
+          - Still receiving the cookie from a signed-in browser: `auth.lilnas.io` (needs it),
+            `emby.lilnas.io`, `immich.lilnas.io` and `turbo.lilnas.io` (left independent of auth
+            uptime),
+            `rocky-roads.lilnas.io` (compose project `hop-road`, outside this repo), and any dev
+            route exposed without `lilnas-auth` or `lilnas-cookie-strip`.
+          - Rollback rule: once `Cookie` is in `authResponseHeaders`, the auth image must not be
+            rolled back to one that predates the sanitized header, or gated backends lose all their
+            cookies. Roll back by reverting on `main`.
+
+          Where:
+          - `apps/auth/README.md`: a short "Cookie forwarding" section with the four facts, and fix
+            any line in "Request flow" that the strip makes wrong.
+          - `docs/lilnas-expose.md`, and under `plugins/lilnas/skills/expose/`: `SKILL.md`,
+            `reference/caveats.md`, `reference/convention.md`, `examples/docker-compose.yml`:
+            where they explain gating, add that a route without `lilnas-auth` receives the
+            signed-in visitor's lilnas session cookie, which passes `/verify` for every host the
+            visitor may reach, and that `middlewares=lilnas-cookie-strip` removes it at the cost of
+            depending on auth. In the example compose file add it as a commented alternative next
+            to the existing "remove this label to make the route public" comment.
+
+          Several of these files fail `prettier -c` already; match their style and don't reformat
+          them. `apps/auth/README.md` passes and must keep passing.
+  - key: '3'
+    name: Ship the labels, build the split
+    tasks:
+      - id: H3
+        title: 'Go/no-go: push the Traefik labels'
+        after:
+          - H2
+          - T7
+          - T8
+        files: []
+        status: todo
+        body: |-
+          Approving lets the next task push the label changes and docs to `main`.
+
+          What the deploy does:
+          - recreates Traefik: every site drops for a few seconds
+          - recreates storage, dashcam, equations, theater and the tdr-code proxy, whose
+            labels changed, and rebuilds the dashcam, equations, theater and auth images because
+            files under their app directories changed
+          - from then on, gated backends no longer receive the session cookie, and the six open
+            routers go through `/strip-cookie`, so they return errors whenever the auth backend is
+            down
+
+          Before approving:
+          - you approved H2 (the canary passed in your browser)
+          - read the phase 2 review of T7 and T8
+          - don't push anything else to `main` until the push task has finished
+
+          Rollback, by you: revert the label commit on `main` and push. Do not roll the auth
+          image back with `LILNAS_TAG` while the labels are live.
+
+          Request changes to hold the push.
+      - id: T9
+        title: 'Push the labels to main, watch CI, verify production, switch the canary'
+        after:
+          - H3
+        files: []
+        status: todo
+        body: |-
+          A human approved this push. Push the Traefik label changes to `main`, watch the deploy,
+          verify production, and move the canary onto the shared middlewares. Commit nothing.
+
+          Before pushing, all of these must hold. If one does not, stop and report it without
+          pushing:
+          - `git fetch origin main`, then `git merge-base --is-ancestor origin/main HEAD` succeeds
+            (never rebase, merge or force)
+          - `git diff --stat origin/main..HEAD` touches only `infra/proxy.yml`, `infra/shared.yml`,
+            the `deploy.yml` of dashcam, equations, theater and tdr-code, `apps/auth/src/verify/**`,
+            `apps/auth/src/services/__tests__/**`, `apps/auth/README.md`, `docs/**` and
+            `plugins/**`. `apps/auth/deploy.yml`, `apps/auth/next.config.js`,
+            `apps/auth/Dockerfile` or `apps/auth/src/app/**` in the diff means later work would
+            ship early
+          - production's auth backend already sanitizes: from inside the container
+            (`docker exec lilnas-auth-1 node -e ...`, `fetch` to `http://localhost:8081`),
+            `/strip-cookie` with `Cookie: __Secure-lilnas-auth.session_token=x; a=1` answers 200
+            with `Cookie: a=1`. If it doesn't, the labels must not go live
+          - record `git rev-parse origin/main` as the rollback sha, and
+            `pnpm lilnas ci detect --base origin/main --head HEAD --json`: `up` must include
+            `traefik`, `storage` and `tdr-code`; `pull` must include `dashcam`,
+            `equations`, `theater` and `auth`
+          - record a before snapshot: the status code of `https://dashcam.lilnas.io/`,
+            `https://equations.lilnas.io/`, `https://theater.lilnas.io/`,
+            `https://storage.lilnas.io/`, `https://turbo.lilnas.io/`,
+            `https://tdr-code.lilnas.io/`, `https://emby.lilnas.io/`, `https://immich.lilnas.io/`,
+            `https://sonarr.lilnas.io/`, `https://auth.lilnas.io/login`, and of a WebSocket
+            handshake to `wss://theater.lilnas.io/socket.io/?EIO=4&transport=websocket`
+
+          Push with `git push origin HEAD:main`, find the run with
+          `gh run list --workflow ci.yml --branch main --event push --limit 5 --json databaseId,headSha,status,url`
+          and follow it with `gh run watch <id> --exit-status`. If the run is red or a service was
+          held back, report exactly which services did and did not deploy.
+
+          After the deploy:
+          - `docker inspect lilnas-traefik-1` labels: `lilnas-auth` lists `Cookie` in
+            `authResponseHeaders`, and both `lilnas-cookie-strip` labels are present
+          - the running containers behind dashcam, equations, theater, storage and tdr-code carry
+            their `middlewares=lilnas-cookie-strip` label; emby, immich and turbo carry none
+          - the after snapshot of the same URLs and the WebSocket handshake equals the before
+            snapshot
+          - `docker logs lilnas-auth-1 --since 10m` and
+            `docker logs lilnas-traefik-1 --since 10m` show no new errors
+          - switch the canary: copy `apps/auth/scripts/cookie-rig/echo.mjs` and
+            `canary.shared.yml` to `/tmp/lilnas-cookie-canary/`, run
+            `docker compose -p cookie-canary -f /tmp/lilnas-cookie-canary/canary.shared.yml up -d --remove-orphans`.
+            Then on `https://cookie-canary-open.dev.lilnas.io/json`, with fake values:
+            `curl --http2` with
+            `Cookie: __Secure-lilnas-auth.session_token=fake.sig; theme=dark; __Secure-better-auth.session_token=keep`
+            shows only `theme` and `__Secure-better-auth.session_token`; the same over
+            `--http1.1`; a WebSocket upgrade to `/ws` shows the same; and
+            `https://cookie-canary.dev.lilnas.io/` with no session is a 302 to the login page
+
+          Leave the canary running for the human check. Report the pushed sha, the rollback sha,
+          the CI run URL, both snapshots, each check with what you observed, and the rollback
+          instruction for the human: revert the label commit on `main` and push; never roll the
+          auth image back while the labels are live. Put any failed check under `defects:` and say
+          plainly in the first line of the result if cookies are being dropped for a real app.
+      - id: H4
+        title: Check real apps and the canary after the labels deploy
+        after:
+          - T9
+        files: []
+        status: todo
+        body: |-
+          The shared middlewares now strip the session cookie. Signed in, check:
+          1. `https://cookie-canary.dev.lilnas.io` and `https://cookie-canary-open.dev.lilnas.io`:
+             PASS on both, with your email as `X-Forwarded-User` on the first.
+          2. Gated apps that keep their own session cookie still work without a login loop:
+             Grafana (dashboards load), Sonarr, Radarr, SABnzbd, nexus-code (your avatar loads),
+             download, portal, the dev dashboard, files.
+          3. Stripped open apps still work: theater (join a room; the WebSocket connects),
+             tdr-code (sign in and stay signed in), dashcam, an image served from
+             `storage.lilnas.io`.
+          4. Emby and Immich are unchanged (they and turbo are not stripped).
+
+          Approve if all hold. Request changes with the app and what you saw otherwise. To roll
+          back, revert the label commit on `main` and push.
+      - id: T10
+        title: Remove the canary
+        after:
+          - H4
+        files: []
+        status: todo
+        body: |-
+          Remove the cookie canary from the production Traefik. Commit nothing.
+
+          Run `docker compose -p cookie-canary down --remove-orphans` and
+          `rm -rf /tmp/lilnas-cookie-canary`. Then show that it is gone:
+          `docker ps -a --filter label=com.docker.compose.project=cookie-canary` is empty,
+          `https://cookie-canary.dev.lilnas.io/` and `https://cookie-canary-open.dev.lilnas.io/`
+          return 404, and the temp dir does not exist.
+
+          The auth backend records every host `/verify` is asked about
+          (`apps/auth/src/services/gated-hosts.service.ts`). Say in your result whether
+          `cookie-canary.dev.lilnas.io` is now stored there, using a read-only query from inside
+          the auth container (`docker exec lilnas-auth-1 node -e ...`, `better-sqlite3` with
+          `{ readonly: true }` on `/data/lilnas-auth.db`). Do not modify the production database.
+      - id: T11
+        title: The frontend addresses the backend by URL, not `localhost`
+        after:
+          - T9
+        files:
+          - apps/auth/src/app/
+          - apps/auth/src/env.ts
+          - apps/auth/src/verify/__tests__/public-allowlist.spec.ts
+          - apps/auth/next.config.js
+          - apps/auth/.env.example
+        status: todo
+        body: |-
+          Prepare `apps/auth`'s Next.js frontend to run in a container separate from the Nest
+          backend. Today both run in one container and the frontend reaches the backend at
+          `localhost:${BACKEND_PORT}`. A later task splits the compose service; this one changes
+          only the addressing, and must keep the single-container setup working.
+
+          1. New `apps/auth/src/app/lib/backend-url.ts`:
+             ```ts
+             /**
+              * Absolute URL of a backend path as seen from the Next server.
+              * Origin: AUTH_BACKEND_URL when set, else http://localhost:${BACKEND_PORT}.
+              */
+             export function backendUrl(path: string): string
+             ```
+             - Read the environment at call time, not at module load.
+             - `AUTH_BACKEND_URL` must be an `http:` or `https:` origin with no path, query or
+               credentials; one trailing slash is tolerated. Anything else throws an error naming
+               the variable.
+             - When `AUTH_BACKEND_URL` is unset and `BACKEND_PORT` is unset, throw as `env()` does
+               today. When `AUTH_BACKEND_URL` is set, `BACKEND_PORT` is not needed.
+             - Add `AUTH_BACKEND_URL` to `EnvKeys` in `src/env.ts`, and document it in
+               `.env.example` (unset in dev).
+          2. Use it in every server-side backend call: `src/app/admin/actions.ts`,
+             `src/app/admin/require-admin.ts`, `src/app/lib/require-session.ts`,
+             `src/app/pending/actions.ts`, `src/app/api/profile/route.ts`. After this,
+             `grep -rn "localhost" apps/auth/src/app` finds no code outside `backend-url.ts` and
+             the specs.
+          3. `apps/auth/next.config.js`: export a function of Next's build phase. The four rewrites
+             keep their sources and paths. Their origin is `http://localhost:8081` when the phase is
+             `PHASE_DEVELOPMENT_SERVER` (from `next/constants`) and `http://auth:8081` otherwise.
+             Rewrites are baked into the build, so the production hostname is fixed: `auth` is the
+             backend's compose service name. It also resolves inside today's single container, so
+             this is safe to deploy before the split. Export the two origins as named properties so
+             specs can read them. Keep `output` and `serverExternalPackages`, and rewrite the
+             comments that say both processes share a container.
+          4. Do not use a build argument or an env var for the rewrite origin, and do not touch any
+             `turbo.json`.
+
+          Tests:
+          - `backendUrl`: default from `BACKEND_PORT`; `AUTH_BACKEND_URL` wins; trailing slash;
+            each rejected shape; both unset throws; the env is read per call
+          - the existing specs for the five callers assert the URL they fetch; make them cover
+            both the default and `AUTH_BACKEND_URL=http://auth:8081`
+          - `src/verify/__tests__/public-allowlist.spec.ts` loads `next.config.js`: call it for
+            the development phase and for a production phase; in both, the sources are exactly
+            the four and the forbidden path prefixes are absent; the origins are
+            `http://localhost:8081` and `http://auth:8081`
+
+          Run `pnpm --filter @lilnas/auth build:frontend` once (alone) and confirm the built
+          routes manifest under `apps/auth/.next` holds `http://auth:8081` and no
+          `localhost:8081`. Say in your result which file you checked; a later task turns that
+          into a Dockerfile assertion.
+      - id: T12
+        title: 'Compose: `auth` backend and `auth-frontend`, with no secrets in the frontend'
+        after:
+          - T11
+        files:
+          - apps/auth/deploy.yml
+          - apps/auth/deploy.dev.yml
+          - apps/auth/Dockerfile
+          - apps/auth/README.md
+          - apps/auth/src/services/__tests__/
+        status: todo
+        body: |-
+          Split production's single `auth` container into two services that run the same image.
+          The Next.js frontend is the only part of auth the internet can reach before login; it
+          must not share a container with the signing secret, the Google client secret, the
+          writable SQLite volume or the compose-file mounts.
+
+          The frontend already reaches the backend through `AUTH_BACKEND_URL`
+          (`apps/auth/src/app/lib/backend-url.ts`), and production builds of
+          `apps/auth/next.config.js` proxy the four public rewrites to `http://auth:8081`.
+
+          `apps/auth/deploy.yml`:
+          - `auth` stays the backend. Same name, because Traefik's forwardAuth
+            (`infra/proxy.yml`) and other containers call `http://auth:8081`. It keeps `env_file`,
+            `DATABASE_PATH`, the `/storage/app-data/lilnas-auth:/data` volume, every compose-file
+            mount, `stop_grace_period`, and the `:8081/health` healthcheck. It loses every
+            `traefik.*` label. Its `entrypoint` runs only the backend: the command of the
+            `start:backend` script in `apps/auth/package.json`, with node directly, so PID 1 gets
+            SIGTERM.
+          - new `auth-frontend`: the same `image:` and the same `build:` block (the CI planner,
+            `packages/cli/src/utils/ci-detect.ts` `listImages()`, lists a service under an image
+            only when it has both; without `build:` it would never be pulled). `entrypoint` runs
+            the command of the `start:frontend` script with node directly. No `env_file`, no
+            `volumes`, no `ports`. `environment:` holds literals only, never `${...}`:
+            `AUTH_HOST=https://auth.lilnas.io`, `REDIRECT_ALLOWED_SUFFIX=lilnas.io`,
+            `AUTH_BACKEND_URL=http://auth:8081`. `PROFILE_ALLOWED_ORIGINS` is not set in
+            production today; leave it unset. Add `TZ=America/Los_Angeles` only if a server
+            component formats an absolute time. Same `restart` and `logging` as the backend.
+          - the five `auth` router and service labels move to `auth-frontend` unchanged (router
+            name `auth`, port 8080, priority 1000).
+          - `auth-frontend` healthcheck: `GET http://localhost:8080/login` returns 200, with
+            `start_interval: 2s` beside the usual `interval: 30s`. Traefik's Docker provider does
+            not route to a container whose health is `starting`, so without it `auth.lilnas.io`
+            is unrouted for up to 30 s after every deploy.
+          - no `depends_on` between them. The frontend serves `/login` without the backend, and
+            `/verify` must never wait on the frontend.
+          - rewrite the comments: one about why the two are split and what the frontend may hold,
+            and fix the healthcheck comment that describes `run-p` in one container.
+
+          `apps/auth/deploy.dev.yml` stays one container running `pnpm --filter=auth dev`. Add a
+          comment saying so and why (dev has no real secrets; the rewrites use `localhost` in
+          dev).
+
+          `apps/auth/Dockerfile`: keep the default `ENTRYPOINT` (both processes). After the
+          build, add a check that fails the image build when the frontend's routes manifest
+          lacks `http://auth:8081` or contains `localhost:8081`; find the file under
+          `apps/auth/.next` (run `pnpm --filter @lilnas/auth build:frontend` once, alone, if you
+          need to look). Rewrite the comments that describe one container.
+
+          Specs under `apps/auth/src/services/__tests__/`:
+          - `compose-mount-coverage.spec.ts` reads `services.auth.volumes`; it stays valid. Say in
+            a comment that `auth` is the backend.
+          - new `frontend-isolation.spec.ts` parsing `apps/auth/deploy.yml`:
+            - `auth-frontend` has no `env_file`, `volumes`, `ports` or `secrets`; its
+              `environment` keys are a subset of `AUTH_HOST`, `REDIRECT_ALLOWED_SUFFIX`,
+              `AUTH_BACKEND_URL`, `PROFILE_ALLOWED_ORIGINS`, `TZ`, `NODE_ENV`; no value contains
+              `${`
+            - `auth` has no label starting with `traefik.`, has the env file and the `/data` volume
+            - the `traefik.http.routers.auth.*` and `traefik.http.services.auth.*` labels exist
+              only on `auth-frontend`
+            - both services have the same `image:` and both have `build:`
+            - `AUTH_BACKEND_URL` equals the production origin exported by
+              `apps/auth/next.config.js`, and has the same origin as the `lilnas-auth`
+              forwardauth address in `infra/proxy.yml`
+
+          `apps/auth/README.md`: rewrite "Two-process topology" for two containers in production
+          and one in dev, add `AUTH_BACKEND_URL` to the environment table, and add a "Rollback"
+          note: `LILNAS_TAG=<older sha>` works for `auth` but not for `auth-frontend` across this
+          change (an older image's rewrites point at `localhost`), so roll the split back by
+          reverting on `main`; `/verify` does not depend on the frontend, so signed-in users keep
+          working while the frontend is down. Also state the residual risk plainly: a compromised
+          frontend still sees the cookies of users who visit `auth.lilnas.io` and can call the
+          backend's unauthenticated internal routes like any container on the network; the split
+          protects the signing secret, the Google secret and the database.
+
+          Also grep `infra/monitoring/` and `docs/logging.md` for a hard-coded list of service
+          names that includes `auth`; if there is one, report it rather than editing it.
+
+          Confirm with `pnpm lilnas ci detect --base main --head HEAD --json` that image `auth`
+          lists services `auth` and `auth-frontend`, and paste that part of the output in your
+          result.
+      - id: T13
+        title: Live check of the split in throwaway containers
+        after:
+          - T12
+        files: []
+        status: todo
+        body: |-
+          Build the real auth image from this worktree and run the split in throwaway containers.
+          The specs only parse YAML; this task crosses the real boundaries: the image, Next's
+          baked rewrites, container DNS and the healthchecks. Commit nothing.
+
+          Hard rule: do not run `apps/auth/deploy.yml` itself, in any compose project. It mounts
+          the production database (`/storage/app-data/lilnas-auth`) and reads the production env
+          file. Write a separate compose file in a temp dir that copies the two services'
+          `entrypoint`, `environment` and `healthcheck` from `deploy.yml`, and replaces the image
+          with your local tag, the env file with test values (an https `AUTH_HOST`,
+          `COOKIE_DOMAIN`, a random `BETTER_AUTH_SECRET`, `changeme` Google values,
+          `ADMIN_EMAILS`), the `/data` volume with a throwaway named volume, and the compose-file
+          mounts with nothing. The backend service must be named `auth` (the image's rewrites
+          point at `http://auth:8081`) on a network of its own that is not `lilnas_default` or
+          `lilnas-proxy`. No published ports; run curl from a container on that network.
+
+          Build once, with nothing else heavy running:
+          `docker build -f apps/auth/Dockerfile -t lilnas-auth:split-check .`. The base images
+          are local (`ghcr.io/codemonkey800/lilnas-monorepo-builder:latest`,
+          `lilnas-nextjs-runtime:latest`); if the app crashes at start with a pnpm lockfile error,
+          the local base images are stale: pull them and rebuild.
+
+          Check and report expected against observed:
+          - `auth-frontend`: `docker inspect` shows no mounts; its env names (names only) include
+            none of `BETTER_AUTH_SECRET`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CLIENT_ID`,
+            `ADMIN_EMAILS`, `COOKIE_DOMAIN`, `DATABASE_PATH`; no `.env*` file with values exists
+            in the image; only the frontend process runs in it. Only the backend process runs in
+            `auth`
+          - both become healthy; record the seconds from start to healthy for the frontend
+          - through the frontend (`http://auth-frontend:8080`): `/login` 200; `/api/auth/ok` 200;
+            `/.well-known/openid-configuration` 200; `/api/sse/...` answers as the backend's
+            `/sse/...` does directly; `/verify`, `/strip-cookie`,
+            `/internal/host-activity?host=x.lilnas.io&hours=1`, `/admin/check?email=a@b.c`, `/me`,
+            `/requests/status` and `/health` are 404; the `/admin` page redirects to `/login`
+            without a session; `POST /api/auth/sign-in/social` with JSON
+            `{"provider":"google","callbackURL":"/"}` and a matching `Origin` returns a Google
+            URL and a `lilnas-auth` state cookie
+          - signed in, using `apps/auth/scripts/cookie-rig/mint-session.mjs` against the
+            throwaway database with the minted email in `ADMIN_EMAILS`: `/` renders the user's
+            email, `/admin` renders, and `/api/profile` returns the profile JSON. These go
+            through server components that call the backend with `AUTH_BACKEND_URL`
+          - directly on the backend (`http://auth:8081`): `/verify` with the minted cookie and
+            `X-Forwarded-Host: x.lilnas.io` is 200 and returns the sanitized `Cookie`;
+            `/health` is 200
+          - stop the frontend: `/verify` still answers. Start it, stop the backend: `/login` is
+            still 200 and the frontend stays healthy
+          - `docker stop` on each container exits within 10 s (the node process receives SIGTERM)
+
+          Clean up everything: both containers, the curl container, the network, the volume, the
+          `lilnas-auth:split-check` image and the temp dir, and show it. Put every mismatch under
+          `defects:`; a secret in the frontend, a reachable internal path, or a failed signed-in
+          page is blocking.
+  - key: '4'
+    name: Ship the split
+    tasks:
+      - id: H5
+        title: 'Go/no-go: push the frontend/backend split'
+        after:
+          - T13
+          - T10
+        files: []
+        status: todo
+        body: |-
+          Approving lets the next task push the split to `main`. CI rebuilds the auth image and
+          deploys two services: `auth` (backend) and the new `auth-frontend`.
+
+          What the deploy does:
+          - recreates `auth` as backend only: gated sites return errors for about 10 s
+          - starts `auth-frontend` with the `auth.lilnas.io` router: the login page is down until
+            it is healthy, a few seconds
+          - nobody is signed out
+
+          Before approving:
+          - read T13's result: no secret in the frontend, internal paths 404, signed-in pages
+            work, cleanup shown
+          - read the phase 3 review
+          - don't push anything else to `main` until the push task has finished
+
+          Rollback, by you: revert the split commits on `main` and push. Signed-in users keep
+          working while the frontend is down, because `/verify` only needs the backend. If the
+          backend itself is unhealthy:
+          `cd /opt/lilnas && sudo -u deploy env LILNAS_TAG=<sha before the push> docker compose up -d auth`.
+
+          Request changes to hold the push.
+      - id: T14
+        title: 'Push the split to main, watch CI, verify production'
+        after:
+          - H5
+        files: []
+        status: todo
+        body: |-
+          A human approved this push. Push the frontend/backend split of `apps/auth` to `main`,
+          watch the deploy, and verify production. Commit nothing.
+
+          Before pushing, all of these must hold. If one does not, stop and report it without
+          pushing:
+          - `git fetch origin main`, then `git merge-base --is-ancestor origin/main HEAD` succeeds
+            (never rebase, merge or force)
+          - `git diff --stat origin/main..HEAD` touches only `apps/auth/**` and `docs/plans/**`
+          - `pnpm lilnas ci detect --base origin/main --head HEAD --json`: image `auth` lists
+            services `auth` and `auth-frontend`, and `pull` contains both
+          - no canary is running:
+            `docker ps -a --filter label=com.docker.compose.project=cookie-canary` is empty
+          - record `git rev-parse origin/main` as the rollback sha
+
+          Push with `git push origin HEAD:main`, find the run with
+          `gh run list --workflow ci.yml --branch main --event push --limit 5 --json databaseId,headSha,status,url`
+          and follow it with `gh run watch <id> --exit-status`. While it deploys, poll
+          `https://auth.lilnas.io/login` every 2 s and record how long it was not 200. If the run
+          is red or the image was held back, report it and stop: the old single container is
+          still running.
+
+          After the deploy (read-only):
+          - `docker compose -p lilnas ps auth auth-frontend`: both healthy
+          - `docker inspect lilnas-auth-frontend-1`: no mounts; env names (names only) include
+            none of `BETTER_AUTH_SECRET`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CLIENT_ID`,
+            `ADMIN_EMAILS`, `COOKIE_DOMAIN`, `DATABASE_PATH`; it carries the `auth` router labels
+          - `docker inspect lilnas-auth-1`: no `traefik.*` label; it still has the `/data` mount
+          - `docker exec lilnas-auth-frontend-1 node -e ...`: `fetch('http://auth:8081/health')`
+            is 200
+          - from the internet: `https://auth.lilnas.io/login` 200, `/api/auth/ok` 200,
+            `/.well-known/openid-configuration` 200; `/verify`, `/strip-cookie`,
+            `/internal/host-activity?host=x.lilnas.io&hours=1`, `/admin/check?email=a@b.c`, `/me`,
+            `/health` and `/requests/status` on `auth.lilnas.io` are 404;
+            `https://sonarr.lilnas.io/` is a 302 to the login page;
+            `https://dashcam.lilnas.io/` is 200
+          - starting a sign-in (`POST https://auth.lilnas.io/api/auth/sign-in/social` with JSON
+            `{"provider":"google","callbackURL":"/"}` and `Origin: https://auth.lilnas.io`)
+            returns a Google URL and `__Secure-lilnas-auth.` cookies. Print names only
+          - `docker logs` of both containers since the deploy show no errors
+
+          Report the pushed sha, the rollback sha, the CI run URL, the login-page downtime, each
+          check with what you observed, and the rollback instructions for the human: revert the
+          split commits on `main` and push; if only the backend is unhealthy,
+          `cd /opt/lilnas && sudo -u deploy env LILNAS_TAG=<rollback sha> docker compose up -d auth`.
+
+          End the result with what is still exposed after this run: `emby.lilnas.io`,
+          `immich.lilnas.io`, `turbo.lilnas.io`, `rocky-roads.lilnas.io` (compose project `hop-road`, outside this
+          repo) and dev routes without `lilnas-auth` or `lilnas-cookie-strip` still receive the
+          session cookie; a compromised frontend still sees the cookies of users who visit
+          `auth.lilnas.io`. Put any failed check under `defects:`.
+      - id: H6
+        title: Sign out and in through the split frontend
+        after:
+          - T14
+        files: []
+        status: todo
+        body: |-
+          The frontend and backend now run in separate containers. Check the flows that cross
+          between them:
+          1. Open `https://auth.lilnas.io`, sign out, and sign in with Google again. You land on
+             the home page with your name.
+          2. Open `https://auth.lilnas.io/admin`. The queue, people and services load. Open a
+             person's access editor and save it unchanged; it succeeds.
+          3. Open a gated app, for example `https://sonarr.lilnas.io`. It loads.
+          4. Optional, with a second Google account that has no access: visit a gated app, land
+             on the pending page, approve the request from `/admin`, and watch the pending page
+             move on by itself (this is the SSE path through the frontend).
+
+          Approve if these hold. Request changes with what you saw otherwise. To roll back,
+          revert the split commits on `main` and push.
