@@ -33,7 +33,7 @@ ENV pnpm_config_verify_deps_before_run=false
 COPY . .
 
 # Build the lilnas-auth package — both the NestJS backend and the Next.js
-# frontend (package.json's "build" script runs both via run-p).
+# frontend (package.json's "build" script runs both via run-s).
 #
 # Builds go through the self-hosted Turbo remote cache (docs/deploy.md) when
 # CI passes the TURBO_* BuildKit secrets; without them turbo compiles locally.
@@ -68,6 +68,18 @@ RUN cp -a apps/auth/.next/standalone /app/frontend \
 # Verify the standalone server was copied correctly
 RUN test -f /app/frontend/apps/auth/server.js || (echo "ERROR: Standalone server not found" && exit 1)
 
+# The frontend's rewrites are baked into the routes manifest at build time.
+# Production runs the frontend in its own container (deploy.yml's
+# auth-frontend), where `localhost` is not the backend: fail the build if the
+# manifest lacks the backend's compose address or still points at the dev one.
+RUN set -e; \
+    manifest=apps/auth/.next/routes-manifest.json; \
+    grep -q 'http://auth:8081' "$manifest" \
+      || { echo "ERROR: $manifest has no http://auth:8081 rewrite destination"; exit 1; }; \
+    if grep -q 'localhost:8081' "$manifest"; then \
+      echo "ERROR: $manifest contains localhost:8081"; exit 1; \
+    fi
+
 # Copy migrations into the runtime image so database.module.ts can apply
 # them on boot. resolveMigrationsFolder() resolves the path via
 # process.cwd() + src/db/migrations (WORKDIR below is /app), so the folder
@@ -78,7 +90,7 @@ RUN mkdir -p /app/src/db && \
     cp -r /source/apps/auth/src/db/migrations /app/src/db/migrations
 
 # Verify the Nest backend build output landed where start:backend expects it
-# (node dist/main) — fail the build loudly here rather than at container
+# (node dist/main, the `auth` service's entrypoint in deploy.yml) — fail the build loudly here rather than at container
 # boot if pnpm deploy's file-field handling ever changes.
 RUN test -f /app/dist/main.js || (echo "ERROR: dist/main.js not found" && exit 1)
 
@@ -97,4 +109,10 @@ USER node
 # Add OCI image source label
 LABEL org.opencontainers.image.source=https://github.com/codemonkey800/lilnas
 
+# Default: both processes in one container (`pnpm start` races start:backend
+# and start:frontend). Production's deploy.yml overrides this per service —
+# `auth` runs only the backend, `auth-frontend` only the frontend — so the
+# frontend container never holds the backend's secrets. Running the image
+# with no override (e.g. `docker run`) still gives the old single-container
+# behaviour.
 ENTRYPOINT ["pnpm", "start"]

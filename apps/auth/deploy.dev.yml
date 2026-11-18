@@ -1,3 +1,9 @@
+# Dev stays ONE container running both processes (`pnpm --filter=auth dev`),
+# unlike deploy.yml, which splits the backend (`auth`) from the frontend
+# (`auth-frontend`). Dev has no real secrets to isolate, and in dev the
+# next.config.js rewrites and backendUrl() address the backend on
+# localhost:8081, which only resolves when both processes share a network
+# namespace.
 services:
   auth:
     image: lilnas-dev

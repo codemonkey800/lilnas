@@ -15,6 +15,10 @@ import {
 // warning to notice — see service-registry.service.ts's onWarn. This turns
 // that "someone must remember to add a mount line" step into a failing test.
 
+// `services.auth` is the backend: since the frontend split it is the only
+// service in deploy.yml with the compose-file mounts. `auth-frontend` has no
+// volumes by design (see frontend-isolation.spec.ts).
+
 const REPO_ROOT = path.resolve(__dirname, '../../../../..')
 const APPS_DIR = path.join(REPO_ROOT, 'apps')
 const INFRA_DIR = path.join(REPO_ROOT, 'infra')

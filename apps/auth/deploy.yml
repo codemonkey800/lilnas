@@ -1,9 +1,35 @@
+# Two services, one image (the Dockerfile's default ENTRYPOINT runs both
+# processes; each service below overrides it to run exactly one).
+#
+#   auth           the NestJS backend on :8081. Holds everything worth
+#                  stealing: BETTER_AUTH_SECRET and GOOGLE_CLIENT_SECRET (via
+#                  env_file), the writable SQLite volume and the compose-file
+#                  mounts. Not routed by Traefik. Its name is load-bearing:
+#                  Traefik's forwardAuth (infra/proxy.yml) and other
+#                  containers call http://auth:8081.
+#   auth-frontend  the Next.js frontend on :8080 and the only part of auth
+#                  the internet reaches before login (/login, /api/auth/*,
+#                  /.well-known/*). It holds no secret, no volume and no
+#                  env_file: its environment is literals only (never `${...}`,
+#                  which would pull a value from the deploy host's
+#                  environment), so a compromise of the Next process does not
+#                  yield the signing secret, the Google secret or the
+#                  database. It reaches the backend over the compose network
+#                  at AUTH_BACKEND_URL. frontend-isolation.spec.ts enforces
+#                  this.
+#
+# No depends_on either way: the frontend serves /login without the backend,
+# and /verify must never wait on the frontend.
 services:
   auth:
     image: ghcr.io/codemonkey800/lilnas-auth:${LILNAS_TAG:-latest}
     build:
       context: ../..
       dockerfile: apps/auth/Dockerfile
+    # Backend only: the `start:backend` script from package.json, run with
+    # node directly (not via pnpm/run-p) so node is PID 1 and receives
+    # SIGTERM from `docker stop`.
+    entrypoint: ['node', 'dist/main']
     restart: unless-stopped
     logging:
       driver: json-file
@@ -78,21 +104,59 @@ services:
       - ../../apps/tdr-bot/deploy.yml:/repo/apps/tdr-bot/deploy.yml:ro
       - ../../apps/tdr-code/deploy.yml:/repo/apps/tdr-code/deploy.yml:ro
       - ../../apps/theater/deploy.yml:/repo/apps/theater/deploy.yml:ro
-    # Probes Nest's /health on :8081 directly — deliberately NOT Next's
-    # :8080. A dead/crashed Next process must never restart this container,
-    # because a restart would also interrupt /verify (once U5 exists) for
-    # every migrated service. Verified directly (not just assumed from
-    # docs): SIGKILL-ing the next-server process inside a running container
-    # left dist/main (Nest) running, /health still returning 200, and the
-    # container's Docker health status still "healthy" — run-p (used by
-    # package.json's start/dev:start scripts) does not tear down surviving
-    # siblings when one process dies.
+    # Probes Nest's /health on :8081. The frontend is a separate container
+    # now, so a dead or crashed Next process can no longer affect this
+    # container's health, and a restart of this one never waits on it.
     healthcheck:
       test: ['CMD-SHELL', 'node -e "const h=require(''http'');h.get(''http://localhost:8081/health'',r=>process.exit(r.statusCode===200?0:1)).on(''error'',()=>process.exit(1))"']
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 30s
+
+  auth-frontend:
+    image: ghcr.io/codemonkey800/lilnas-auth:${LILNAS_TAG:-latest}
+    # Same image and build as `auth`: the CI planner lists a service under an
+    # image only when it has both, and would never pull this one without
+    # `build:`.
+    build:
+      context: ../..
+      dockerfile: apps/auth/Dockerfile
+    # Frontend only: the `start:frontend` script from package.json, run with
+    # node directly so node is PID 1 and receives SIGTERM.
+    entrypoint: ['node', 'frontend/apps/auth/server.js']
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # No env_file, no volumes, no ports: see the header comment. Literals
+    # only. PROFILE_ALLOWED_ORIGINS is unset in production today and stays
+    # unset. TZ matches apps/auth/.env.example: the SSR of home-client.tsx
+    # and the admin panel formats dates with toLocaleDateString(), which
+    # reads the server's zone.
+    environment:
+      - AUTH_HOST=https://auth.lilnas.io
+      - REDIRECT_ALLOWED_SUFFIX=lilnas.io
+      # Must equal PROD_BACKEND_ORIGIN in next.config.js (the rewrites bake
+      # that origin in at build time) and the origin of the lilnas-auth
+      # forwardauth address in infra/proxy.yml.
+      - AUTH_BACKEND_URL=http://auth:8081
+      - TZ=America/Los_Angeles
+    # GET /login must return 200: it renders without the backend. The
+    # frontend serves Traefik's only route to this app, and Traefik's Docker
+    # provider does not route to a container whose health is `starting`, so
+    # start_interval probes every 2s during start_period; otherwise
+    # auth.lilnas.io would be unrouted for up to `interval` (30s) after each
+    # deploy.
+    healthcheck:
+      test: ['CMD-SHELL', 'node -e "const h=require(''http'');h.get(''http://localhost:8080/login'',r=>process.exit(r.statusCode===200?0:1)).on(''error'',()=>process.exit(1))"']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+      start_interval: 2s
     labels:
       - traefik.enable=true
       # UI-only router — deliberately no ForwardAuth middleware of its own,
