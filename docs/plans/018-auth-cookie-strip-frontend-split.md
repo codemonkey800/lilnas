@@ -311,3 +311,12 @@ Removal: docker compose -p cookie-canary -f /tmp/lilnas-cookie-canary/canary.pri
 Extra file ws-check.mjs lives only in /tmp/lilnas-cookie-canary/ and is removed by the rm -rf. Nothing was committed, the worktree tree is clean, the lilnas project was only read.
 
 No commits: nothing to integrate.
+
+### 2026-11-18 · T7 · done
+Nothing deployed or pushed. Services whose labels changed (recreated on deploy): traefik, storage, dashcam, equations, theater (theater + theater-ws), tdr-code. Comment-only edits touch auth, emby, immich and turbo, so Compose may recreate those too; their router config is unchanged.
+Checks: utils/ui build, auth lint and type-check pass; full auth jest passes (54 suites, 808 tests, --maxWorkers=2); prettier -c passes on infra/proxy.yml, apps/theater/deploy.yml, apps/auth/next.config.js and apps/auth/README.md; docker build --check reports no warnings.
+The other edited deploy.yml/infra yml files (auth, dashcam, equations, tdr-code, immich, media, shared) already failed prettier -c before my edit; I matched their style and did not reformat them.
+Mutation checks (each reverted afterwards): removing the dashcam strip label (2 failures), adding a new open router (1), removing Cookie from the lilnas-auth list (1), adding trustForwardHeader to the strip middleware (1), strip address changed to /verify (1), emby given the strip middleware while exempt (2), turbo router removed while still exempt (1), extra header on the strip list (1), registry classifier matching any lilnas-* middleware (the new service-registry test fails).
+Two commits so auth-response-headers.spec.ts passes at both: bf41fa5f (proxy.yml, controller comments, header spec), 8c265e4e (router labels, coverage spec, registry spec).
+No apps/auth/src behaviour changed; only comments in verify.controller.ts. The router-cookie-coverage spec treats an exempt router that also carries a middleware as a failure (exactly one state), and matches `lilnas-auth@docker` style suffixes.
+Temp files /tmp/t7-* removed; no containers, networks, volumes or images created.

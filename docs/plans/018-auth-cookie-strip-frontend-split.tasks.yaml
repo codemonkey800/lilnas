@@ -447,7 +447,8 @@ phases:
           - apps/tdr-code/deploy.yml
           - apps/auth/src/verify/
           - apps/auth/src/services/__tests__/
-        status: todo
+        status: done
+        commit: 7ec394b5c7f14a386975582756a1ec0b1c4d8364
         body: |-
           Make Traefik use what the auth backend now returns. Nothing here is deployed by this
           task; a later task pushes it after a human approves.
