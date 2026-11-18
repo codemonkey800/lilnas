@@ -242,3 +242,8 @@ Checked:
 - Rig middlewares agreeing with production lilnas-auth and the endpoints (gated sends X-Forwarded-User(-Id) and Cookie to /verify, open sends Cookie to /strip-cookie) — infra/proxy.yml:102-119, scripts/cookie-rig/traefik-dynamic.yml, canary.private.yml: Same address, preserveLocationHeader and authResponseHeaders, plus Cookie.
 - Middleware names containing 'lilnas-auth' would be treated as gated by apps/dev, and the idle-reap opt-out label name — canary.private.yml, apps/dev/deploy.yml: No canary middleware name contains the substring, and the label matches 'lilnas.idle-reap.enabled=false'.
 - Cookie values leaked in rig output — rig.sh, client.mjs mask(), echo.mjs: mint.json goes to a temp file, the backend log and client output are masked, and echo returns values only with ECHO_VALUES=1.
+
+### 2026-11-18 · R1 · done
+Added 'res.headers.cookie' to the pino redact paths and '/strip-cookie' to autoLogging.ignore. The pino-http options moved unchanged (apart from those two additions) from app.module.ts into src/logger.config.ts (exported pinoHttpOptions) so the regression spec can run the real config. Deliberate difference from the suggested fix: the options moved to a separate file instead of staying inline in AppModule.
+Spec strip-cookie-logging.spec.ts failed 3/3 on the old config. Reverting only the redact path fails the stand-in-route spec; reverting only the ignore entry fails the no-completion-line spec.
+All four plan checks pass (jest full run: 52 suites, 771 tests).

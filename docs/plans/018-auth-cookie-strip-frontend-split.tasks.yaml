@@ -1006,7 +1006,8 @@ phases:
         after: []
         files:
           - apps/auth/src/app.module.ts
-        status: todo
+        status: done
+        commit: da3a519f3fb61276e8d4699dab00ce96606c80e2
         body: |-
           Finding: F1 (P1)
 
