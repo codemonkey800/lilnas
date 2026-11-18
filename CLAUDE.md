@@ -77,6 +77,8 @@ docker-compose logs -f <service-name>
 # curl http://<service-name>:8080/metrics
 ```
 
+**Logs:** container output, the Traefik access log and the host journal (sshd, sudo, sshguard, kernel) are shipped to Loki by Alloy. `docs/logging.md` covers the labels, what is masked, and ready-made queries for checking SSH logins and web probes.
+
 **Grafana dashboard IDs to import:**
 
 - Node Exporter Full: `1860`
