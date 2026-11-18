@@ -282,3 +282,14 @@ Checked:
 
 ### 2026-11-18 · H1 · approved
 Approved.
+
+### 2026-11-18 · T5 · done
+Pushed 0553a8a760d9016d27b34e2481869c5d6d6c9406 to main (fast-forward from d2a903094e9c9d3ef454b90e633a866ba16bcd94, the rollback sha).
+CI run https://github.com/codemonkey800/lilnas/actions/runs/44274534107 succeeded (detect, check, build-images auth, deploy, summary; base-images skipped).
+Production checks all passed; see the table above. The session table has 0 rows after the deploy, and __drizzle_migrations has 8 rows, so 0007 applied.
+The sign-in start returned a Google URL and set only __Secure-lilnas-auth.state with Domain=.lilnas.io; no cookie name contained better-auth.
+In-container checks used docker cp of a temp script (removed) because the task suggested node -e; the behaviour checked is the same.
+Rollback (human only, not run): cd /opt/lilnas && sudo -u deploy env LILNAS_TAG=d2a903094e9c9d3ef454b90e633a866ba16bcd94 docker compose up -d auth
+No throwaway containers, networks, volumes, images or temp files remain.
+
+No commits: nothing to integrate.
