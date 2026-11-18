@@ -352,3 +352,6 @@ Checked:
 - Prettier regression on edited files outside apps/auth/src — dashcam/equations/tdr-code/auth deploy.yml, infra/shared|media|immich.yml, expose docs: Every one of them already failed prettier -c at base d2a90394 in repo context. proxy.yml, theater/deploy.yml and the README pass.
 - /strip-cookie behaves differently from /verify's Cookie contract — apps/auth/src/verify/strip-cookie.controller.ts: It uses the same VERIFY_SANITIZED_HEADERS and stripAuthCookies, and sends no header if sanitizing fails or there are no cookies left, which matches the proxy.yml comment.
 - The coverage spec misses a router or passes vacuously — apps/auth/src/verify/__tests__/router-cookie-coverage.spec.ts: A guard test checks that portal, dashcam and emby are found and that router names are unique. Exempt routers that also carry a middleware fail, and both list and map label forms are handled.
+
+### 2026-11-18 · H3 · approved
+Approved.

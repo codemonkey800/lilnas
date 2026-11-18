@@ -555,7 +555,7 @@ phases:
           - T7
           - T8
         files: []
-        status: todo
+        status: approved
         body: |-
           Approving lets the next task push the label changes and docs to `main`.
 
