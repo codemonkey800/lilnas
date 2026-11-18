@@ -709,7 +709,8 @@ phases:
         after:
           - H4
         files: []
-        status: todo
+        status: done
+        commit: 2ed57450082d2067654d399b182426185fe72d23
         body: |-
           Remove the cookie canary from the production Traefik. Commit nothing.
 
