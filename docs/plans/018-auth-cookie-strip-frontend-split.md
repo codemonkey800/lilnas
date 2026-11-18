@@ -253,3 +253,29 @@ Regression spec (apps/auth/scripts/cookie-rig/__tests__/http1.spec.mjs) failed o
 requestHttp1(secure, host, req, {port, connectHost}) now lives in http1.mjs and is hand-written over net/tls; array header values become one line each; it returns cookieLinesSent. Case 8's check requires cookieLinesSent === 2 on the h1 transports.
 Added a third Jest project `rig` (native ESM, transform {}, roots scripts/cookie-rig, testMatch **/__tests__/**/*.spec.mjs) so the rig specs run under the plan's jest check. The kit directory is mounted whole into the client container, so http1.mjs needs no rig.sh change.
 Full rig.sh run against Traefik: 45/45 + 3/3 rows PASS; teardown showed 0 containers, 0 networks, temp dir gone. All four plan checks pass (jest: 52 suites, 771 tests).
+
+### 2026-11-18 · Phase 1 · review cycle 2
+Re-review of the cycle-1 remediation. R1 (pino redact + /strip-cookie autoLogging ignore, config moved to logger.config.ts with a real-config spec) and R2 (hand-written HTTP/1.1 transport sending separate Cookie lines, case 8 asserts two lines sent) both fix their findings; no new P0/P1 in the remediation diff. F3 (P2) is untouched.
+
+Earlier findings: F1 fixed, F2 fixed.
+
+Notes:
+- F4 · P2 · Duplicated /strip-cookie comment in logger config — apps/auth/src/logger.config.ts:51
+
+Spec check:
+- extra: Add 'res.headers.cookie' to LoggerModule redact.paths. Add '/strip-cookie' to autoLogging.ignore (apps/auth/src/logger.config.ts) — The config was also moved into a new module. The R1 note states this, and behaviour is unchanged.
+- extra: Optionally assert that the client really wrote two Cookie lines (apps/auth/jest.config.js) — A third Jest project 'rig' was added so the kit spec runs under the plan's jest check.
+- unverifiable: Full rig.sh run against Traefik: 45/45 + 3/3 rows PASS (apps/auth/scripts/cookie-rig/rig.sh) — Only the R2 notes claim this. A person should rerun rig.sh to confirm case 8 passes on both HTTP/1.1 transports with 'cookie lines sent=2'.
+
+Declined to judge:
+- Moving pinoHttpOptions out of app.module.ts into src/logger.config.ts — A deliberate difference the R1 note states; the options are byte-identical apart from the two additions, and the move lets the spec use the real config.
+- Test 1 in strip-cookie-logging.spec.ts passes trivially once /strip-cookie is in autoLogging.ignore — Tests 2 and 3 cover the ignore entry and the redact path separately, and each one fails when its part is reverted.
+- http1.mjs: Content-Length uses body.length and header values are not validated — Rig-only test client. Every caller passes a Buffer body and fixed test header values.
+
+Checked:
+- The new rig Jest project needs native ESM, and CI runs pnpm test — apps/auth/package.json, .github/workflows/ci.yml: The test, test:watch and test:cov scripts all set --experimental-vm-modules, and CI calls pnpm test, so the rig project runs in CI.
+- Changed requestHttp1 signature (route became host) with callers left on the old form — apps/auth/scripts/cookie-rig/client.mjs: Every caller (both h1 transports and ready()) passes hostFor(route). Case 15 goes through transport.send.
+- Type import from pino-http resolves only transitively — apps/auth/package.json: pino-http 11.0.0 is a direct dependency.
+- Redact path casing against setHeader('Cookie') in VerifyController — apps/auth/src/logger.config.ts: res.getHeaders() lower-cases header names, so 'res.headers.cookie' also matches the 'Cookie' header that /verify sets.
+- The rig project's roots overlap the backend/frontend projects — apps/auth/jest.config.js: The backend root is src, the frontend root is src/app and the rig root is scripts/cookie-rig, so the projects don't overlap.
+- Prettier on the kit files — apps/auth/scripts/cookie-rig/, apps/auth/jest.config.js: prettier -c passes.
