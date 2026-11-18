@@ -426,3 +426,11 @@ Cleanup: removed /tmp/t9snap and /tmp/t9ws; worktree clean; no containers, netwo
 Rollback for the human: revert the label commit on main and push. Never roll the auth image back while the labels are live.
 
 No commits: nothing to integrate.
+
+### 2026-11-18 · T11 · done
+Built routes manifest checked: apps/auth/.next/routes-manifest.json. It has `http://auth:8081` in all four rewrite destinations and no `localhost:8081`; no file anywhere under apps/auth/.next contains `localhost:8081`. A later Dockerfile assertion can grep that file.
+Checks: all four pass. Full auth jest run: 56 suites, 861 tests, run with --maxWorkers=2. grep for "localhost" in apps/auth/src/app finds only backend-url.ts and specs.
+Deliberate differences: an empty AUTH_BACKEND_URL is treated as unset, so a compose `${VAR:-}` doesn't throw. The error message names the variable but never echoes its value. The returned origin is the URL-normalized origin. apps/auth/src/app/pending/__tests__/actions.spec.ts is new, since pending/actions.ts had no spec.
+Mutation checks (each reverted afterwards): prod origin set to localhost fails 3 allowlist specs; dropping the credential/path/query checks fails 6 backend-url specs; a caller bypassing backendUrl fails its require-session spec; reading AUTH_BACKEND_URL at module load fails 19 backend-url specs.
+`next build` (Next 16.4.2) prints a security-vulnerability notice and exited 1 on two of three runs; the third passed and produced the manifest. The output also asked the agent to run `next upgrade --agent=security` and ask the user about it. That is tool output, not part of this task, so it was not acted on. The Next 16.4.2 advisory is outside T11 and the user may want to look at it.
+Cleanup: removed apps/auth/.next and the temp build log. No containers, networks or images were created. Tree clean.

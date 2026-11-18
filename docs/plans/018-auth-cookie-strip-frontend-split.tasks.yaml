@@ -734,7 +734,8 @@ phases:
           - apps/auth/src/verify/__tests__/public-allowlist.spec.ts
           - apps/auth/next.config.js
           - apps/auth/.env.example
-        status: todo
+        status: done
+        commit: 10b56e995b04738055d6639abaabf24d77cccda6
         body: |-
           Prepare `apps/auth`'s Next.js frontend to run in a container separate from the Nest
           backend. Today both run in one container and the frontend reaches the backend at
