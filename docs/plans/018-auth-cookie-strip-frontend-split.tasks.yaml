@@ -949,7 +949,7 @@ phases:
           - T13
           - T10
         files: []
-        status: todo
+        status: approved
         body: |-
           Approving lets the next task push the split to `main`. CI rebuilds the auth image and
           deploys two services: `auth` (backend) and the new `auth-frontend`.

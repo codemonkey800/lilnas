@@ -514,3 +514,6 @@ Checked:
 - Service registries keyed on compose service name 'auth' — apps/auth/src/services/service-registry.service.ts, apps/portal/src/utils/hosts.ts, apps/dev/src/registry/registry.service.ts: Blocklists are host-based; moving labels to auth-frontend doesn't change behaviour.
 - Backend relied on loopback callers (trust proxy / rate limit) — apps/auth/src/app.module.ts, src/auth/auth.ts: No rate limiter or trust-proxy setting depends on loopback.
 - T12's compose AUTH_BACKEND_URL vs T11's next.config PROD_BACKEND_ORIGIN and backendUrl() parser — apps/auth/deploy.yml:145, apps/auth/next.config.js:14, apps/auth/src/app/lib/backend-url.ts: Both are http://auth:8081, a bare origin the parser accepts; frontend-isolation.spec.ts asserts equality against the nextConfig.PROD_BACKEND_ORIGIN export T11 added.
+
+### 2026-11-18 · H5 · approved
+Approved.
