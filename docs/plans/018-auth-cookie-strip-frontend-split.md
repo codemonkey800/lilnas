@@ -320,3 +320,10 @@ Mutation checks (each reverted afterwards): removing the dashcam strip label (2 
 Two commits so auth-response-headers.spec.ts passes at both: bf41fa5f (proxy.yml, controller comments, header spec), 8c265e4e (router labels, coverage spec, registry spec).
 No apps/auth/src behaviour changed; only comments in verify.controller.ts. The router-cookie-coverage spec treats an exempt router that also carries a middleware as a failure (exactly one state), and matches `lilnas-auth@docker` style suffixes.
 Temp files /tmp/t7-* removed; no containers, networks, volumes or images created.
+
+### 2026-11-18 · T8 · done
+Docs only. README gained a "Cookie forwarding" section and the Allow bullet in "Request flow" now mentions the sanitized Cookie header. The expose docs and the example compose file describe the cookie exposure on routes without lilnas-auth and the lilnas-cookie-strip alternative (a commented label in the example).
+At this branch's base, infra/proxy.yml does not yet list Cookie in authResponseHeaders and has no lilnas-cookie-strip middleware; the docs describe the finished state. The auth-side code (/strip-cookie, /verify sanitizing) is present.
+The five expose files already failed prettier -c; I did not reformat them. apps/auth/README.md still passes.
+Checks: utils/ui build, auth lint and type-check pass; auth jest 53 suites / 774 tests pass; prettier -c on the four listed files passes; docker build --check reports no warnings.
+No throwaway containers, networks, volumes, images or temp files were created.

@@ -511,7 +511,8 @@ phases:
           - apps/auth/README.md
           - docs/lilnas-expose.md
           - plugins/lilnas/skills/expose/
-        status: todo
+        status: done
+        commit: 5e401d7336c49a0cb4381f9a370e8da705a5cf7e
         body: |-
           Document the cookie strip. Facts to state (shipped by this run; write them as how the
           system works, not as a changelog):
