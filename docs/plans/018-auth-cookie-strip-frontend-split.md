@@ -168,6 +168,49 @@ Research on 2026-11-17 at `main` d2a90309 (equal to `origin/main`).
   tasks check the diff contents instead), and the reasoning effort setting, which is not a plan
   frontmatter key and has to be set on the run.
 
+- **Steering notes saved 2026-11-18 before a context clear:**
+  - Run `nexus-run:e6e4cfd3-f886-4568-ab7e-8c8edc19e653`, started 2026-11-18. The user asked
+    for Fable (frontier) at high effort; the draft did not record an effort, so it was the
+    user's to set on the Start screen. Not confirmed.
+  - User decisions, all final: cookie prefix `lilnas-auth` with a boot migration that deletes
+    every session; strip on dashcam, equations, theater, theater-ws, storage and tdr-code only
+    (emby and immich excluded at interview, turbo dropped afterwards with "lets actually not add
+    to turbo"); Change 1 in two pushes; an agent pushes after each human go/no-go; humans roll
+    back (the agent has no passwordless sudo).
+  - Why the order is linear: a push task pushes its worktree `HEAD`, so nothing that must not
+    ship may be merged before it. Any new task that edits code must be `after` the preceding
+    push task (T5, T9) or it ships early. Never add work in parallel with a pending push.
+  - Ruled out: a build argument or env var for the rewrite origin (Turbo strict env mode and
+    remote-cache poisoning; root `turbo.json` rebuilds every image); `depends_on` with
+    `service_healthy` (first probe comes after a 30 s interval); running `apps/auth/deploy.yml`
+    in tests (mounts the production DB); rotating `BETTER_AUTH_SECRET` to revoke sessions (the
+    stored JWKS private keys are encrypted with it); pushing label changes together with the
+    image (a held-back image plus live labels drops every cookie); `lilnas-auth-*` as the strip
+    middleware name (substring match in `apps/dev`).
+  - Push tasks stop if `origin/main` moved. If that happens, do not have an agent merge or
+    rebase; ask the user how to reconcile.
+  - The canary (`cookie-canary` compose project, files in `/tmp/lilnas-cookie-canary/`) runs
+    from T6 until T10. If the run is cancelled in between, it must be removed by hand:
+    `docker compose -p cookie-canary down` and delete the temp dir.
+  - `/opt/lilnas` needs `git -c safe.directory=/opt/lilnas` to read. `gh` is authenticated.
+    Wildcard DNS and the wildcard certificate cover `*.dev.lilnas.io`.
+  - Memory file `project_auth_hardening_plan_018.md` records the decisions; update it when the
+    pushes land.
+  - No open thread with the user.
+
+- **C1, 2026-11-18 (T9 blocked before pushing; production unchanged):**
+  - Cause was the planner's T7 body, which asked for a comment on the four exempt routers.
+    `ci detect` is per file, so comments in `apps/auth/deploy.yml`, `infra/immich.yml` and
+    `infra/media.yml` added emby, radarr, sonarr, sabnzbd and immich* to `up`. Verified with
+    `ci detect` at 2ab60d54.
+  - Fix: T15 removes those three comments (the turbo one in `infra/shared.yml` stays; that
+    file changes anyway). T9 is now `after` T15 and its `up`/`pull` sets are exact. Ruled
+    out: widening T9's allowed paths, which would touch services H3 did not describe.
+  - T9's `task_blocked` checkpoint was left for the user to retry once T15 is done, since a
+    commit lands after the H3 approval.
+  - The run's config shows `modelId: sonnet` and effort `high`, although the frontmatter says
+    `model: frontier`; T9's first attempt ran on sonnet. Told the user.
+
 ## Log
 <!-- Written by Nexus: findings, review cycles, checkpoint verdicts, the final report,
      the rollout record. Humans may add notes here too. -->

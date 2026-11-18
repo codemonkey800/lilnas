@@ -577,10 +577,49 @@ phases:
           image back with `LILNAS_TAG` while the labels are live.
 
           Request changes to hold the push.
+      - id: T15
+        title: Drop the three comment-only compose edits that widen the labels deploy
+        after:
+          - H3
+        files:
+          - apps/auth/deploy.yml
+          - infra/immich.yml
+          - infra/media.yml
+        status: todo
+        body: |-
+          An earlier commit on this branch (7ec394b5) added one comment line to each of three
+          compose files that otherwise do not change before the next push to `main`. The deploy
+          planner (`pnpm lilnas ci detect`) works per file, so those comments would make the
+          push redeploy emby, radarr, sonarr, sabnzbd and the four immich services, and put
+          `apps/auth/deploy.yml` in a diff that must not contain it. Remove them so each of the
+          three files is byte-identical to `origin/main`.
+
+          Delete exactly these lines and nothing else:
+          - `apps/auth/deploy.yml`:
+            `# No cookie-strip middleware: the login UI needs its own lilnas-auth cookies.`
+          - `infra/immich.yml` and `infra/media.yml`:
+            `# No auth or cookie-strip middleware: must not depend on lilnas-auth being up (decided 2026-11-17).`
+
+          Leave the same comment on the `turbo` router in `infra/shared.yml`: that file changes
+          anyway (the `storage` router gets a middleware). The reasons stay recorded in the
+          exemption map of `apps/auth/src/verify/__tests__/router-cookie-coverage.spec.ts` and in
+          the "Cookie forwarding" section of `apps/auth/README.md`; edit neither. No spec reads
+          these comments.
+
+          Verify, and paste the output in your result:
+          - `git fetch origin main`, then
+            `git diff --stat origin/main..HEAD -- apps/auth/deploy.yml infra/immich.yml infra/media.yml`
+            prints nothing after your commit
+          - `pnpm lilnas ci detect --base origin/main --head HEAD --json`: `up` is exactly
+            `storage`, `tdr-code`, `traefik`, `turbo` and `pull` is exactly `auth`, `dashcam`,
+            `equations`, `theater`. Report any other service under `defects:`
+
+          These files fail `prettier -c` at base; don't reformat them. Deploy and push nothing.
       - id: T9
         title: Push the labels to main, watch CI, verify production, switch the canary
         after:
           - H3
+          - T15
         files: []
         status: todo
         body: |-
@@ -596,15 +635,17 @@ phases:
             `apps/auth/src/services/__tests__/**`, `apps/auth/README.md`, `docs/**` and
             `plugins/**`. `apps/auth/deploy.yml`, `apps/auth/next.config.js`,
             `apps/auth/Dockerfile` or `apps/auth/src/app/**` in the diff means later work would
-            ship early
+            ship early; `infra/immich.yml` or `infra/media.yml` in the diff would redeploy
+            services this push must not touch
           - production's auth backend already sanitizes: from inside the container
             (`docker exec lilnas-auth-1 node -e ...`, `fetch` to `http://localhost:8081`),
             `/strip-cookie` with `Cookie: __Secure-lilnas-auth.session_token=x; a=1` answers 200
             with `Cookie: a=1`. If it doesn't, the labels must not go live
           - record `git rev-parse origin/main` as the rollback sha, and
-            `pnpm lilnas ci detect --base origin/main --head HEAD --json`: `up` must include
-            `traefik`, `storage` and `tdr-code`; `pull` must include `dashcam`,
-            `equations`, `theater` and `auth`
+            `pnpm lilnas ci detect --base origin/main --head HEAD --json`: `up` must be exactly
+            `storage`, `tdr-code`, `traefik` and `turbo` (turbo shares `infra/shared.yml` with
+            storage; its config is unchanged); `pull` must be exactly `auth`, `dashcam`,
+            `equations` and `theater`
           - record a before snapshot: the status code of `https://dashcam.lilnas.io/`,
             `https://equations.lilnas.io/`, `https://theater.lilnas.io/`,
             `https://storage.lilnas.io/`, `https://turbo.lilnas.io/`,
