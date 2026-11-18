@@ -469,3 +469,48 @@ Gated-host record: YES. A read-only query (better-sqlite3, readonly:true, /data/
 Cleanup: the temporary query script on the host was removed. No other throwaway resources were created. The plan's checks were not run because no file changed and the tree is clean.
 
 No commits: nothing to integrate.
+
+### 2026-11-18 · Phase 3 · review cycle 1
+Pass 1 (T15, T11): Pass 1 (T15, T11) is clean: T15 deletes exactly the three comment lines, and T11's backendUrl, the five migrated callers and the phase-aware next.config.js match the task bodies and Done means, with specs for every listed behaviour.
+Pass 2 (T12): T12's compose split, Dockerfile manifest guard, isolation spec and README match the task; the only finding is a stale README row (P2). Frontend env needs, entrypoint paths, HOSTNAME binding, start_interval support and auth:8080 callers were all checked.
+Seams pass: Seams pass over T15/T11/T12/T13: the backend origin, env name, entrypoints and spec contracts agree across tasks; no cross-task disagreement found.
+
+Notes:
+- F5 · P2 · README BACKEND_PORT row still says the frontend addresses the backend via callBackend() — apps/auth/README.md:167
+
+Suspicions:
+- Shared-network DNS name 'auth' now also receives frontend-forwarded cookies — apps/auth/next.config.js:15 · Rewrites and server-side fetches now go to http://auth:8081 by Docker DNS, not loopback. If any other container on a network shared with the auth service (e.g. lilnas-proxy, which external dev projects join) has the service name or alias 'auth', DNS round-robin could send the forwarded session cookie to it. Traefik's existing forwardAuth address has the same exposure, so this is not new with this diff. · confirm by: docker network inspect on each network the auth container joins, checking for any other container with name or alias 'auth'.
+- next build exits 1 intermittently with a Next 16.4.2 security notice — apps/auth/package.json · T11's notes say `next build` exited 1 on two of three runs. If CI's image build hits this, the auth image fails to build. The Next version is not changed in this slice. · confirm by: Run `pnpm --filter @lilnas/auth build:frontend` several times and check the CI image-build logs for the pushed sha.
+- routes-manifest grep not yet exercised on a real image build — apps/auth/Dockerfile:75 · T12 tested the grep only on fake manifests; whether Next 16 writes rewrite destinations into apps/auth/.next/routes-manifest.json (and not only into the standalone copy) is unverified here. · confirm by: T13's image build passing this RUN step, or a manual docker build of apps/auth/Dockerfile.
+
+Spec check:
+- extra: Add TZ=America/Los_Angeles only if a server component formats an absolute time (apps/auth/deploy.yml) — Added because client components' SSR calls toLocaleDateString(); stated as a deliberate difference; allowlisted in the spec.
+- unverifiable: confirm the built routes manifest under apps/auth/.next holds http://auth:8081 and no localhost:8081 (apps/auth/.next/routes-manifest.json) — A build artifact that was removed afterwards. The task notes claim it was checked, and the later Dockerfile assertion (T12) covers it.
+- unverifiable: pnpm lilnas ci detect: up is exactly storage, tdr-code, traefik, turbo and pull is exactly auth, dashcam, equations, theater (T15) — Depends on the whole branch against origin/main. The task notes report the expected sets.
+- unverifiable: fails the image build when the frontend's routes manifest lacks http://auth:8081 or contains localhost:8081 (apps/auth/Dockerfile) — Image was not built in T12; confirm via T13's build.
+- unverifiable: Traefik's Docker provider does not route to a container whose health is starting (apps/auth/deploy.yml) — Confirm on first deploy that auth.lilnas.io is routed within a few seconds of auth-frontend starting.
+- unverifiable: Live check of the split in throwaway containers (T13) (T13 result) — No diff; a person should confirm T13's result shows the frontend reaching http://auth:8081 and its cleanup.
+
+Declined to judge:
+- Empty AUTH_BACKEND_URL treated as unset — A deliberate difference stated in the T11 notes. With BACKEND_PORT also unset it still throws, so no error is hidden.
+- Stale comment in api/profile/route.ts saying next.config.js rewrites only /api/auth and /api/sse — These lines predate the diff and were not touched.
+- admin/actions.ts origin spec covers only unlinkDiscordAccount — Every action goes through the same callBackend, so one caller covers the URL construction.
+- frontend-isolation.spec.ts does not assert either service's entrypoint — Not asked for; losing the override fails loudly (frontend crash loop) or keeps secrets in the backend container, and does not hand secrets to the routed container.
+- Over-long reflowed comment line in the Dockerfile near the dist/main check — Style only.
+- Encrypted .env.prod files possibly referencing auth:8080 — Values are encrypted and must not be decrypted for review; no plaintext reference exists.
+- In-slice behaviour of backendUrl() parsing and the compose service bodies — Covered by passes 1 and 2; this seams pass looks only at agreement between tasks.
+- T13 (live check), T9/T10 (push, canary) — No diff in this phase stat to seam against.
+
+Checked:
+- http://auth:8081 must resolve and connect inside today's single container — apps/auth/src/bootstrap.ts: app.listen(port) has no host, so Nest binds all interfaces and the service-name origin reaches it before the split.
+- Dev must keep using the localhost origin — apps/auth/package.json, apps/auth/deploy.dev.yml: dev:frontend is `next dev`, i.e. PHASE_DEVELOPMENT_SERVER, so dev gets http://localhost:8081.
+- Leftover localhost backend calls in src/app — apps/auth/src/app: grep finds only backend-url.ts outside the specs.
+- AUTH_BACKEND_URL validation bypass (backslash, credentials, IPv6, empty ? or #) — apps/auth/src/app/lib/backend-url.ts: The URL parse plus the raw-text regex rejects every listed shape. Backslash becomes pathname /admin; @ is excluded by the regex.
+- Frontend container lacks env keys a page reads at render (/login healthcheck must be 200) — apps/auth/src/app/{login,pending,blocked}/page.tsx, src/app/api/profile/route.ts, src/oidc/clients.ts: Only AUTH_HOST, REDIRECT_ALLOWED_SUFFIX and the optional PROFILE_ALLOWED_ORIGINS are read; findOidcClient is static. All are provided or optional.
+- Next standalone binding to Docker's HOSTNAME so localhost healthcheck fails — infra/base-images/lilnas-node-runtime.Dockerfile: Image sets HOSTNAME=0.0.0.0 and PORT=8080.
+- Entrypoint paths vs WORKDIR and package.json scripts — apps/auth/Dockerfile, apps/auth/package.json: WORKDIR /app; dist/main.js and frontend/apps/auth/server.js are verified by existing RUN tests; match start:backend/start:frontend.
+- start_interval unsupported by host engine — docker version / compose version: Engine 29.9.3, Compose 5.7.1; tdr-bot already uses start_interval.
+- Other containers calling the frontend at auth:8080, which no longer exists — repo-wide grep of yml/ts/js/json/md/env: No matches outside docs/archive.
+- Service registries keyed on compose service name 'auth' — apps/auth/src/services/service-registry.service.ts, apps/portal/src/utils/hosts.ts, apps/dev/src/registry/registry.service.ts: Blocklists are host-based; moving labels to auth-frontend doesn't change behaviour.
+- Backend relied on loopback callers (trust proxy / rate limit) — apps/auth/src/app.module.ts, src/auth/auth.ts: No rate limiter or trust-proxy setting depends on loopback.
+- T12's compose AUTH_BACKEND_URL vs T11's next.config PROD_BACKEND_ORIGIN and backendUrl() parser — apps/auth/deploy.yml:145, apps/auth/next.config.js:14, apps/auth/src/app/lib/backend-url.ts: Both are http://auth:8081, a bare origin the parser accepts; frontend-isolation.spec.ts asserts equality against the nextConfig.PROD_BACKEND_ORIGIN export T11 added.
