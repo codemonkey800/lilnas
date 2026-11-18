@@ -1,5 +1,12 @@
 export const EnvKeys = {
   BACKEND_PORT: 'BACKEND_PORT',
+  // Origin of the Nest backend as the Next server reaches it, e.g.
+  // `http://auth:8081` once the frontend runs in its own container. http(s)
+  // scheme + host (+ port) only: no path, query or credentials (one trailing
+  // slash is tolerated). Read per call by src/app/lib/backend-url.ts. Unset,
+  // the Next server falls back to `http://localhost:${BACKEND_PORT}`, which
+  // is what a single container running both processes wants.
+  AUTH_BACKEND_URL: 'AUTH_BACKEND_URL',
   DATABASE_PATH: 'DATABASE_PATH',
   NODE_ENV: 'NODE_ENV',
   // A full ORIGIN — scheme + host, NO path, NO trailing slash (e.g.

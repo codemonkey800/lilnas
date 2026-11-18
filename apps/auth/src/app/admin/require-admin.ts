@@ -1,4 +1,3 @@
-import { env } from '@lilnas/utils/env'
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 
@@ -9,7 +8,7 @@ import type {
   DiscordUnlinkedPerson as AdminDiscordUnlinkedPerson,
   QueueEntry as AdminQueueEntry,
 } from 'src/admin/admin.controller'
-import { EnvKeys } from 'src/env'
+import { backendUrl } from 'src/app/lib/backend-url'
 import type { ServiceRegistryEntry as AdminServiceEntry } from 'src/services/service-registry.service'
 
 // Imported (aliased at the import site to this file's own established
@@ -69,9 +68,8 @@ async function fetchFromAdminApi<T>(
 ): Promise<T> {
   const incomingHeaders = await headers()
   const cookie = incomingHeaders.get('cookie') ?? ''
-  const backendPort = env(EnvKeys.BACKEND_PORT)
 
-  const res = await fetch(`http://localhost:${backendPort}${path}`, {
+  const res = await fetch(backendUrl(path), {
     method: init?.method ?? 'GET',
     headers: {
       cookie,

@@ -1,9 +1,8 @@
 'use server'
 
-import { env } from '@lilnas/utils/env'
 import { headers } from 'next/headers'
 
-import { EnvKeys } from 'src/env'
+import { backendUrl } from 'src/app/lib/backend-url'
 
 // ──────────────────────────────────────────────────────────────────────────────
 // U6: the pending page's only bridge to the Nest backend (src/requests/
@@ -20,8 +19,8 @@ import { EnvKeys } from 'src/env'
 // Deliberately NOT a next.config.js rewrite: unlike the SSE connection
 // (browser-opened, must cross :8080 -> :8081), every call here originates
 // server-side (either this Server Action's own execution context, or
-// page.tsx's direct call), so a plain internal fetch to localhost:8081 never
-// needs to be browser-reachable at all.
+// page.tsx's direct call), so a plain server-side fetch to the backend (see
+// lib/backend-url.ts) never needs to be browser-reachable at all.
 // ──────────────────────────────────────────────────────────────────────────────
 
 export type RequestStatusResult =
@@ -36,9 +35,8 @@ async function callBackend<T>(
 ): Promise<T> {
   const incomingHeaders = await headers()
   const cookie = incomingHeaders.get('cookie') ?? ''
-  const backendPort = env(EnvKeys.BACKEND_PORT)
 
-  const res = await fetch(`http://localhost:${backendPort}${path}`, {
+  const res = await fetch(backendUrl(path), {
     method,
     headers: { cookie },
     cache: 'no-store',

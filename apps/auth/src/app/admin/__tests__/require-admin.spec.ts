@@ -378,3 +378,43 @@ describe('fetchDiscordLinks', () => {
     fetchSpy.mockRestore()
   })
 })
+
+// Every fetcher builds its URL through backendUrl(): the default origin comes
+// from BACKEND_PORT, and AUTH_BACKEND_URL (set once the frontend runs in its
+// own container) replaces it.
+describe('backend origin', () => {
+  afterEach(() => {
+    delete process.env.AUTH_BACKEND_URL
+  })
+
+  it.each([
+    ['requireAdminQueue', requireAdminQueue, '/admin/queue', []],
+    ['fetchAdminServices', fetchAdminServices, '/admin/services', []],
+    [
+      'fetchDiscordUnlinked',
+      fetchDiscordUnlinked,
+      '/admin/discord/unlinked',
+      { people: [], accounts: [] },
+    ],
+    ['fetchDiscordLinks', fetchDiscordLinks, '/admin/discord/links', []],
+  ])(
+    '%s fetches the default origin, and AUTH_BACKEND_URL when set',
+    async (_name, fetcher, path, body) => {
+      mockIncomingCookie('lilnas-auth.session_token=abc123')
+      const fetchSpy = jest
+        .spyOn(global, 'fetch')
+        .mockImplementation(async () => new Response(JSON.stringify(body)))
+
+      await fetcher()
+      process.env.AUTH_BACKEND_URL = 'http://auth:8081'
+      await fetcher()
+
+      expect(fetchSpy.mock.calls.map(call => call[0])).toEqual([
+        `http://localhost:8081${path}`,
+        `http://auth:8081${path}`,
+      ])
+
+      fetchSpy.mockRestore()
+    },
+  )
+})

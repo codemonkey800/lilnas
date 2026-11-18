@@ -101,3 +101,27 @@ describe('fetchMe', () => {
     fetchSpy.mockRestore()
   })
 })
+
+describe('fetchMe backend origin', () => {
+  afterEach(() => {
+    delete process.env.AUTH_BACKEND_URL
+  })
+
+  it('fetches the default origin, and AUTH_BACKEND_URL when set', async () => {
+    mockIncomingCookie('lilnas-auth.session_token=abc123')
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockImplementation(async () => new Response(JSON.stringify({})))
+
+    await fetchMe()
+    process.env.AUTH_BACKEND_URL = 'http://auth:8081'
+    await fetchMe()
+
+    expect(fetchSpy.mock.calls.map(call => call[0])).toEqual([
+      'http://localhost:8081/me',
+      'http://auth:8081/me',
+    ])
+
+    fetchSpy.mockRestore()
+  })
+})

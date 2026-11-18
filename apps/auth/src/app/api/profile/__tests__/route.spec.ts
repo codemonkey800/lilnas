@@ -227,6 +227,29 @@ describe('GET /api/profile', () => {
     fetchSpy.mockRestore()
   })
 
+  it('fetches /me from AUTH_BACKEND_URL when it is set', async () => {
+    process.env.PROFILE_ALLOWED_ORIGINS = 'http://localhost:5173'
+    process.env.AUTH_BACKEND_URL = 'http://auth:8081'
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue(
+        new Response(JSON.stringify(ME_RESPONSE), { status: 200 }),
+      )
+
+    try {
+      await GET(makeRequest({ origin: 'http://localhost:5173' }))
+    } finally {
+      delete process.env.AUTH_BACKEND_URL
+    }
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'http://auth:8081/me',
+      expect.anything(),
+    )
+
+    fetchSpy.mockRestore()
+  })
+
   it('passes an internal 401 through as a 401, with CORS headers still attached, not a redirect', async () => {
     process.env.PROFILE_ALLOWED_ORIGINS = 'http://localhost:5173'
     const fetchSpy = jest

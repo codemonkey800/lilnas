@@ -1,8 +1,7 @@
-import { env } from '@lilnas/utils/env'
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 
-import { EnvKeys } from 'src/env'
+import { backendUrl } from 'src/app/lib/backend-url'
 import type { MeResponse } from 'src/me/me.controller'
 
 // Re-exported the same way require-admin.ts re-exports its own Nest-side
@@ -23,9 +22,8 @@ export type { MeResponse }
 export async function fetchMe(): Promise<MeResponse> {
   const incomingHeaders = await headers()
   const cookie = incomingHeaders.get('cookie') ?? ''
-  const backendPort = env(EnvKeys.BACKEND_PORT)
 
-  const res = await fetch(`http://localhost:${backendPort}/me`, {
+  const res = await fetch(backendUrl('/me'), {
     headers: { cookie },
     cache: 'no-store',
   })

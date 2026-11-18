@@ -1,9 +1,8 @@
 'use server'
 
-import { env } from '@lilnas/utils/env'
 import { headers } from 'next/headers'
 
-import { EnvKeys } from 'src/env'
+import { backendUrl } from 'src/app/lib/backend-url'
 
 // ──────────────────────────────────────────────────────────────────────────────
 // U7/U9: Server Actions the queue and users pages' client components call
@@ -98,9 +97,8 @@ async function callBackend<T = { ok: true }>(
 ): Promise<T> {
   const incomingHeaders = await headers()
   const cookie = incomingHeaders.get('cookie') ?? ''
-  const backendPort = env(EnvKeys.BACKEND_PORT)
 
-  const res = await fetch(`http://localhost:${backendPort}${path}`, {
+  const res = await fetch(backendUrl(path), {
     method: 'POST',
     headers: {
       cookie,

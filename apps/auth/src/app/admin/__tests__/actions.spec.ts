@@ -240,3 +240,30 @@ describe('unlinkDiscordAccount', () => {
     fetchSpy.mockRestore()
   })
 })
+
+describe('backend origin', () => {
+  beforeEach(() => {
+    mockIncomingCookie('lilnas-auth.session_token=abc123')
+  })
+
+  afterEach(() => {
+    delete process.env.AUTH_BACKEND_URL
+  })
+
+  it('POSTs to the default origin, and to AUTH_BACKEND_URL when set', async () => {
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockImplementation(async () => okResponse())
+
+    await unlinkDiscordAccount('user_1')
+    process.env.AUTH_BACKEND_URL = 'http://auth:8081'
+    await unlinkDiscordAccount('user_1')
+
+    expect(fetchSpy.mock.calls.map(call => call[0])).toEqual([
+      'http://localhost:8081/admin/discord/unlink',
+      'http://auth:8081/admin/discord/unlink',
+    ])
+
+    fetchSpy.mockRestore()
+  })
+})

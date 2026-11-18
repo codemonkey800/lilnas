@@ -1,5 +1,6 @@
 import { env } from '@lilnas/utils/env'
 
+import { backendUrl } from 'src/app/lib/backend-url'
 import { EnvKeys } from 'src/env'
 import type { MeResponse } from 'src/me/me.controller'
 
@@ -62,10 +63,10 @@ export async function GET(request: Request): Promise<Response> {
 
   try {
     const cookie = request.headers.get('cookie') ?? ''
-    const meRes = await fetch(
-      `http://localhost:${env(EnvKeys.BACKEND_PORT)}/me`,
-      { headers: { cookie }, cache: 'no-store' },
-    )
+    const meRes = await fetch(backendUrl('/me'), {
+      headers: { cookie },
+      cache: 'no-store',
+    })
 
     // Passed through as a 401, deliberately NOT a redirect('/login') the
     // way fetchMe() behaves for a page render — this is an API response
