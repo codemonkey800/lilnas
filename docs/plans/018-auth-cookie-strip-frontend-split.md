@@ -403,3 +403,12 @@ Approved.
 Deleted exactly the three comment lines (one per file); each file is byte-identical to origin/main (empty diff --stat).
 ci detect: up = storage, tdr-code, traefik, turbo; pull = auth, dashcam, equations, theater. No other service.
 prettier -c on proxy.yml, theater/deploy.yml, next.config.js, README.md passes. The jest, lint, type-check and docker build checks were not rerun, because the commit only removes YAML comments they don't read. Nothing deployed or pushed.
+
+### 2026-11-18 · T9 · blocked
+Not pushed. Cookies are not being dropped for any real app; production is unchanged.
+Failed gate: `git diff --stat origin/main..HEAD` touches `apps/auth/deploy.yml`, `infra/immich.yml` and `infra/media.yml`. The first is explicitly forbidden and the other two are not on the allowed list. All three are one-line comment additions from commit 7ec394b5, but `ci detect` counts them as changes. `pull` becomes [auth, dashcam, equations, theater] (the auth image rebuild is the "later work ships early" risk). `up` becomes [emby, immich, immich-database, immich-machine-learning, immich-redis, radarr, sabnzbd, sonarr, storage, tdr-code, traefik, turbo], far more than the plan's traefik/storage/tdr-code.
+Gates that passed: origin/main (0553a8a760d9016d27b34e2481869c5d6d6c9406, the rollback sha) is an ancestor of HEAD (2ab60d54). Production auth backend: /strip-cookie with `__Secure-lilnas-auth.session_token=x; a=1` answered 200 with `Cookie: a=1`.
+Not done: before snapshot, push, CI watch, post-deploy label/log/snapshot checks, canary switch. Nothing created, so no cleanup needed.
+Decision needed from the human: either accept that these comment-only edits ship (widen the allowed list and confirm that recreating auth, emby, immich*, radarr, sabnzbd, sonarr and turbo is fine), or have the comments dropped from 7ec394b5 (new commit) so the diff matches the allowed list, then rerun T9.
+
+Retried.
