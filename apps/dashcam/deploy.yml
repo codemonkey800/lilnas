@@ -15,3 +15,4 @@ services:
       - traefik.http.routers.dashcam.rule=Host(`dashcam.lilnas.io`)
       - traefik.http.routers.dashcam.entrypoints=websecure
       - traefik.http.routers.dashcam.tls.certresolver=le
+      - traefik.http.routers.dashcam.middlewares=lilnas-cookie-strip

@@ -30,9 +30,9 @@ function firstHeaderValue(
 // own and impersonate that victim (infra/nexus-code.yml trusts this header
 // as identity). Exported so
 // src/verify/__tests__/auth-response-headers.spec.ts can parse
-// infra/proxy.yml's real label value and assert the two sets match exactly
-// — this was previously enforced only by a comment, which a routine edit to
-// either file could silently break.
+// infra/proxy.yml's real label value and assert it matches exactly these
+// headers plus VERIFY_SANITIZED_HEADERS below — this was previously enforced
+// only by a comment, which a routine edit to either file could silently break.
 export const VERIFY_RESPONSE_HEADERS = [
   'X-Forwarded-User',
   'X-Forwarded-User-Id',
@@ -42,8 +42,11 @@ export const VERIFY_RESPONSE_HEADERS = [
 // than identity: the request's cookies minus lilnas-auth's own. Traefik deletes
 // each header named in authResponseHeaders from the client's request and then
 // copies it from this response, so an absent header means the backend gets
-// none. Kept separate from VERIFY_RESPONSE_HEADERS because infra/proxy.yml
-// lists exactly the identity headers until a later change adds these.
+// none. Kept separate from VERIFY_RESPONSE_HEADERS because these are not
+// identity headers; infra/proxy.yml's lilnas-auth authResponseHeaders lists
+// both constants, and so does lilnas-cookie-strip's (Cookie only, served by
+// /strip-cookie). auth-response-headers.spec.ts keeps the label and these
+// constants in agreement.
 export const VERIFY_SANITIZED_HEADERS = ['Cookie'] as const
 
 // ──────────────────────────────────────────────────────────────────────────────

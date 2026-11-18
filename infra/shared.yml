@@ -30,6 +30,7 @@ services:
       - traefik.http.routers.storage.rule=Host(`storage.lilnas.io`)
       - traefik.http.routers.storage.entrypoints=websecure
       - traefik.http.routers.storage.tls.certresolver=le
+      - traefik.http.routers.storage.middlewares=lilnas-cookie-strip
       - traefik.http.routers.storage.service=storage
       - traefik.http.services.storage.loadbalancer.server.port=9000
 
@@ -49,6 +50,7 @@ services:
       - .env.turbo.decrypted
     labels:
       - traefik.enable=true
+      # No auth or cookie-strip middleware: must not depend on lilnas-auth being up (decided 2026-11-17).
       - traefik.http.routers.turbo.rule=Host(`turbo.lilnas.io`)
       - traefik.http.routers.turbo.entrypoints=websecure
       - traefik.http.routers.turbo.tls.certresolver=le

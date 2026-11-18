@@ -115,5 +115,31 @@ services:
       # instead of running its own OAuth. This is the SHARED lilnas-auth
       # middleware, so files.lilnas.io (infra/files.yml) also starts
       # receiving the new header — harmlessly, since it doesn't read it.
-      - traefik.http.middlewares.lilnas-auth.forwardauth.authResponseHeaders=X-Forwarded-User,X-Forwarded-User-Id
+      #
+      # Cookie is listed so the backend never receives lilnas-auth's own
+      # session cookies. /verify returns, on ALLOW, a Cookie header with
+      # those cookies removed (VERIFY_SANITIZED_HEADERS in
+      # apps/auth/src/verify/verify.controller.ts), and Traefik replaces the
+      # client's Cookie with it. If /verify sends no Cookie header (the
+      # client had none, or sanitizing failed), the backend gets none.
+      # apps/auth/src/verify/__tests__/auth-response-headers.spec.ts checks
+      # this list equals VERIFY_RESPONSE_HEADERS plus VERIFY_SANITIZED_HEADERS.
+      - traefik.http.middlewares.lilnas-auth.forwardauth.authResponseHeaders=X-Forwarded-User,X-Forwarded-User-Id,Cookie
       - traefik.http.middlewares.lilnas-auth.forwardauth.preserveLocationHeader=true
+
+      # lilnas-cookie-strip: for routers that stay open (no login) but must
+      # still not hand lilnas-auth's session cookies to their backend. The
+      # auth backend's /strip-cookie allows every request and returns the same
+      # sanitized Cookie header as /verify; authResponseHeaders=Cookie makes
+      # Traefik replace the client's Cookie with it. It enforces no login.
+      # Routers carrying it are listed in
+      # apps/auth/src/verify/__tests__/router-cookie-coverage.spec.ts.
+      # Routers that must keep working while auth is down (emby, immich,
+      # turbo) do NOT carry it, and nor does auth itself (its login UI needs
+      # its own cookies).
+      # A router carrying this middleware returns an error (not an open
+      # pass-through) while the auth backend is down: ForwardAuth fails
+      # closed when its address is unreachable.
+      # trustForwardHeader is omitted here for the same reason as above.
+      - traefik.http.middlewares.lilnas-cookie-strip.forwardauth.address=http://auth:8081/strip-cookie
+      - traefik.http.middlewares.lilnas-cookie-strip.forwardauth.authResponseHeaders=Cookie

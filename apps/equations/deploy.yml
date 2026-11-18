@@ -17,4 +17,5 @@ services:
       - traefik.http.routers.equations.rule=Host(`equations.lilnas.io`)
       - traefik.http.routers.equations.entrypoints=websecure
       - traefik.http.routers.equations.tls.certresolver=le
+      - traefik.http.routers.equations.middlewares=lilnas-cookie-strip
       - traefik.http.services.equations.loadbalancer.server.port=8080

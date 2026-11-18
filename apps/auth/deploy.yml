@@ -104,6 +104,7 @@ services:
       # priority sidesteps Traefik's undefined tiebreak between two
       # byte-identical Host() rules during the brief window where both the
       # old and new containers could otherwise be registered at once.
+      # No cookie-strip middleware: the login UI needs its own lilnas-auth cookies.
       - traefik.http.routers.auth.rule=Host(`auth.lilnas.io`)
       - traefik.http.routers.auth.entrypoints=websecure
       - traefik.http.routers.auth.tls.certresolver=le

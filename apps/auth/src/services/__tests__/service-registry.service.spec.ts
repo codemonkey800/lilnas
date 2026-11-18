@@ -78,6 +78,26 @@ describe('scanServiceRegistry', () => {
     ])
   })
 
+  it('a router carrying middlewares=lilnas-cookie-strip is reported as none, not lilnas-auth', async () => {
+    await writeFile(
+      path.join(appsDir, 'dashcam', 'deploy.yml'),
+      [
+        'services:',
+        '  dashcam:',
+        '    labels:',
+        '      - traefik.enable=true',
+        '      - traefik.http.routers.dashcam.rule=Host(`dashcam.lilnas.io`)',
+        '      - traefik.http.routers.dashcam.middlewares=lilnas-cookie-strip',
+      ].join('\n'),
+    )
+
+    const result = await scanServiceRegistry(appsDir, infraDir, {
+      includeDevHosts: false,
+    })
+
+    expect(result).toEqual([{ host: 'dashcam.lilnas.io', gatedBy: 'none' }])
+  })
+
   it('a router with no middlewares label at all is reported as none (e.g. this app is own UI-only router today)', async () => {
     await writeFile(
       path.join(appsDir, 'lilnas-auth', 'deploy.yml'),

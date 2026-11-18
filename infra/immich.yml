@@ -27,6 +27,7 @@ services:
     labels:
       - traefik.enable=true
       - traefik.http.services.immich.loadbalancer.server.port=2283
+      # No auth or cookie-strip middleware: must not depend on lilnas-auth being up (decided 2026-11-17).
       - traefik.http.routers.immich.rule=Host(`immich.lilnas.io`)
       - traefik.http.routers.immich.entrypoints=websecure
       - traefik.http.routers.immich.tls.certresolver=le

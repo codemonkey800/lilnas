@@ -12,6 +12,7 @@ services:
       - traefik.http.routers.theater.rule=Host(`theater.lilnas.io`)
       - traefik.http.routers.theater.entrypoints=websecure
       - traefik.http.routers.theater.tls.certresolver=le
+      - traefik.http.routers.theater.middlewares=lilnas-cookie-strip
       # Must be explicit: with two services on this container (theater +
       # theater-ws), Traefik can't pick one for a router that omits it and
       # drops the router instead.
@@ -28,5 +29,6 @@ services:
       - traefik.http.routers.theater-ws.rule=Host(`theater.lilnas.io`) && PathPrefix(`/socket.io`)
       - traefik.http.routers.theater-ws.entrypoints=websecure
       - traefik.http.routers.theater-ws.tls.certresolver=le
+      - traefik.http.routers.theater-ws.middlewares=lilnas-cookie-strip
       - traefik.http.routers.theater-ws.service=theater-ws
       - traefik.http.services.theater-ws.loadbalancer.server.port=8081
