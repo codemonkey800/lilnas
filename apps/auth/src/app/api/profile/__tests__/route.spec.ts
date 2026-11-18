@@ -213,14 +213,14 @@ describe('GET /api/profile', () => {
     await GET(
       makeRequest({
         origin: 'http://localhost:5173',
-        cookie: 'better-auth.session_token=abc123',
+        cookie: 'lilnas-auth.session_token=abc123',
       }),
     )
 
     expect(fetchSpy).toHaveBeenCalledWith(
       'http://localhost:8081/me',
       expect.objectContaining({
-        headers: { cookie: 'better-auth.session_token=abc123' },
+        headers: { cookie: 'lilnas-auth.session_token=abc123' },
       }),
     )
 

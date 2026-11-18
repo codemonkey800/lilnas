@@ -487,6 +487,27 @@ describe('AccessCacheService', () => {
       expect(prepareSpy.mock.calls.length).toBe(callsAfterFirst)
     })
 
+    it('a real session sent under the old better-auth cookie name does not resolve', async () => {
+      const { auth, cache } = createHarness(testDb)
+      cache.onModuleInit()
+      const cookie = await signInAndGetSessionCookiePair(
+        auth,
+        process.env.AUTH_HOST as string,
+        { sub: 'google-sub-old-name', email: 'old-name@example.com' },
+      )
+      expect(await cache.resolveSession(cookie)).not.toBeNull()
+
+      const eq = cookie.indexOf('=')
+      const value = cookie.slice(eq + 1)
+      expect(cookie.slice(0, eq)).toBe('lilnas-auth.session_token')
+      for (const oldName of [
+        'better-auth.session_token',
+        '__Secure-better-auth.session_token',
+      ]) {
+        expect(await cache.resolveSession(`${oldName}=${value}`)).toBeNull()
+      }
+    })
+
     it('two different sessions for two different hosts are cached independently', async () => {
       const { auth, cache } = createHarness(testDb)
       cache.onModuleInit()
@@ -884,7 +905,7 @@ describe('AccessCacheService', () => {
       // wrong, so verification fails and resolves `false`, which
       // getSession() treats identically to "no cookie at all" (see
       // access-cache.service.ts's own citation of this).
-      const forgedCookie = `better-auth.session_token=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.${'A'.repeat(43)}=`
+      const forgedCookie = `lilnas-auth.session_token=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.${'A'.repeat(43)}=`
 
       await expect(cache.resolveSession(forgedCookie)).resolves.toBeNull()
     })
@@ -893,7 +914,7 @@ describe('AccessCacheService', () => {
       const { cache } = createHarness(testDb)
       cache.onModuleInit()
 
-      const forgedCookie = 'better-auth.session_token=not-even-signature-shaped'
+      const forgedCookie = 'lilnas-auth.session_token=not-even-signature-shaped'
 
       await expect(cache.resolveSession(forgedCookie)).resolves.toBeNull()
     })

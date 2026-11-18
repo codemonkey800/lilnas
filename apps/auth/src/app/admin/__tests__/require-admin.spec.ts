@@ -69,7 +69,7 @@ describe('requireAdminQueue', () => {
   })
 
   it('a 403 (signed in, not an admin) ALSO redirects to /login, not a thrown 403 error', async () => {
-    mockIncomingCookie('better-auth.session_token=some.value')
+    mockIncomingCookie('lilnas-auth.session_token=some.value')
     const fetchSpy = jest
       .spyOn(global, 'fetch')
       .mockResolvedValue(new Response(null, { status: 403 }))
@@ -81,7 +81,7 @@ describe('requireAdminQueue', () => {
   })
 
   it('forwards the incoming Cookie header verbatim to GET /admin/queue', async () => {
-    mockIncomingCookie('better-auth.session_token=abc123')
+    mockIncomingCookie('lilnas-auth.session_token=abc123')
     const fetchSpy = jest
       .spyOn(global, 'fetch')
       .mockResolvedValue(new Response(JSON.stringify([]), { status: 200 }))
@@ -92,7 +92,7 @@ describe('requireAdminQueue', () => {
       'http://localhost:8081/admin/queue',
       expect.objectContaining({
         method: 'GET',
-        headers: { cookie: 'better-auth.session_token=abc123' },
+        headers: { cookie: 'lilnas-auth.session_token=abc123' },
       }),
     )
 
@@ -100,7 +100,7 @@ describe('requireAdminQueue', () => {
   })
 
   it('a 200 response returns the parsed queue array and never calls redirect', async () => {
-    mockIncomingCookie('better-auth.session_token=abc123')
+    mockIncomingCookie('lilnas-auth.session_token=abc123')
     const queue = [
       {
         id: 1,
@@ -125,7 +125,7 @@ describe('requireAdminQueue', () => {
   })
 
   it('an unexpected non-401/403 error status throws rather than silently redirecting', async () => {
-    mockIncomingCookie('better-auth.session_token=abc123')
+    mockIncomingCookie('lilnas-auth.session_token=abc123')
     const fetchSpy = jest
       .spyOn(global, 'fetch')
       .mockResolvedValue(new Response(null, { status: 500 }))
@@ -150,7 +150,7 @@ describe('fetchAdminServices', () => {
   })
 
   it('calls GET /admin/services and returns the parsed registry', async () => {
-    mockIncomingCookie('better-auth.session_token=abc123')
+    mockIncomingCookie('lilnas-auth.session_token=abc123')
     const services = [
       { host: 'swole.lilnas.io', gatedBy: 'lilnas-auth' },
       { host: 'yacht.lilnas.io', gatedBy: 'lilnas-auth' },
@@ -198,7 +198,7 @@ describe('fetchDiscordUnlinked', () => {
   })
 
   it('calls GET /admin/discord/unlinked and returns both lists', async () => {
-    mockIncomingCookie('better-auth.session_token=abc123')
+    mockIncomingCookie('lilnas-auth.session_token=abc123')
     const payload = {
       people: [
         { userId: 'u1', email: 'aaron@example.com', name: 'Aaron' },
@@ -231,7 +231,7 @@ describe('fetchDiscordUnlinked', () => {
       'http://localhost:8081/admin/discord/unlinked',
       expect.objectContaining({
         method: 'GET',
-        headers: { cookie: 'better-auth.session_token=abc123' },
+        headers: { cookie: 'lilnas-auth.session_token=abc123' },
       }),
     )
     expect(result).toEqual(payload)
@@ -245,7 +245,7 @@ describe('fetchDiscordUnlinked', () => {
   // is precisely why neither is re-sorted client-side — a single display
   // sort could not reproduce both.
   it('preserves the backend ordering of both lists rather than re-sorting', async () => {
-    mockIncomingCookie('better-auth.session_token=abc123')
+    mockIncomingCookie('lilnas-auth.session_token=abc123')
     const payload = {
       people: [
         { userId: 'u1', email: 'aaron@example.com', name: 'Zzz Last' },
@@ -289,7 +289,7 @@ describe('fetchDiscordUnlinked', () => {
   // Both keys are always present, `[]` when empty — never undefined — so
   // the panel never has to guard for a missing array.
   it('returns two empty arrays when nothing is unlinked', async () => {
-    mockIncomingCookie('better-auth.session_token=abc123')
+    mockIncomingCookie('lilnas-auth.session_token=abc123')
     const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ people: [], accounts: [] }), {
         status: 200,
@@ -324,7 +324,7 @@ describe('fetchDiscordLinks', () => {
   // Note the shape difference from fetchDiscordUnlinked above: this route
   // returns a BARE ARRAY, not an envelope.
   it('calls GET /admin/discord/links and returns the bare array in backend order', async () => {
-    mockIncomingCookie('better-auth.session_token=abc123')
+    mockIncomingCookie('lilnas-auth.session_token=abc123')
     const links = [
       {
         userId: 'u1',

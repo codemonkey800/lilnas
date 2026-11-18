@@ -454,6 +454,10 @@ describe('Better Auth NestJS mount (U3)', () => {
           cookie.includes('session_token'),
         )
         expect(sessionCookie).toBeDefined()
+        expect(sessionCookie!.split('=')[0]).toBe('lilnas-auth.session_token')
+        expect(
+          setCookieHeaders.some(cookie => cookie.includes('better-auth')),
+        ).toBe(false)
 
         const attrs = sessionCookie!.split(';').map(part => part.trim())
         expect(attrs).toContain(`Domain=${process.env.COOKIE_DOMAIN}`)
@@ -586,7 +590,14 @@ describe("Secure cookie attribute reflects AUTH_HOST's own scheme, not the reque
           cookie.includes('session_token'),
         )
         expect(sessionCookie).toBeDefined()
+        expect(sessionCookie!.split('=')[0]).toBe(
+          '__Secure-lilnas-auth.session_token',
+        )
+        expect(setCookies.some(cookie => cookie.includes('better-auth'))).toBe(
+          false,
+        )
         const attrs = sessionCookie!.split(';').map(part => part.trim())
+        expect(attrs).toContain(`Domain=${process.env.COOKIE_DOMAIN}`)
         expect(attrs.some(a => a.toLowerCase() === 'secure')).toBe(true)
       } finally {
         fetchSpy.mockRestore()

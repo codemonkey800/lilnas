@@ -4,6 +4,7 @@ import { PinoLogger } from 'nestjs-pino'
 
 import { normalizeEmail } from 'src/admin/normalize-email'
 import type { Auth } from 'src/auth/auth'
+import { SESSION_COOKIE_NAMES } from 'src/auth/cookie-names'
 import { DB, type Db } from 'src/db/database.module'
 import {
   deletePreAuthorizedGrant,
@@ -62,15 +63,13 @@ type CachedSession = {
 
 // Better Auth mints this session cookie as `${cookiePrefix}.session_token`,
 // `__Secure-`-prefixed whenever AUTH_HOST's configured scheme is https —
-// confirmed against installed better-auth@1.7.12's dist/cookies/index.mjs;
-// src/auth/auth.ts never overrides cookiePrefix, so the default
-// ('better-auth') applies. Both forms are matched by exact cookie name
-// (not a substring marker) so extractSessionCookieValue() below works
-// correctly in both dev (http, unprefixed) and prod (https, `__Secure-`).
-const SESSION_COOKIE_NAMES = [
-  'better-auth.session_token',
-  '__Secure-better-auth.session_token',
-] as const
+// confirmed against installed better-auth@1.7.12's dist/cookies/index.mjs.
+// src/auth/auth.ts sets cookiePrefix to COOKIE_PREFIX ('lilnas-auth'), so
+// the names come from src/auth/cookie-names.ts; the old default
+// ('better-auth') names are deliberately no longer matched. Both forms are
+// matched by exact cookie name (not a substring marker) so
+// extractSessionCookieValue() below works correctly in both dev (http,
+// unprefixed) and prod (https, `__Secure-`).
 
 // P2: the ONE place that parses a raw `Cookie` header down to just the
 // Better Auth session cookie's VALUE — used for both resolveSession()'s
@@ -416,8 +415,8 @@ export class AccessCacheService implements OnModuleInit {
    * mechanism cannot work as described: the hook fires with the RAW,
    * UNSIGNED `session.token` at creation time — before
    * Better Auth ever constructs the SIGNED cookie value a browser actually
-   * carries (name `better-auth.session_token`, or
-   * `__Secure-better-auth.session_token` when AUTH_HOST is https —
+   * carries (name `lilnas-auth.session_token`, or
+   * `__Secure-lilnas-auth.session_token` when AUTH_HOST is https —
    * confirmed against installed better-auth@1.7.12's dist/cookies/
    * index.mjs). The signed wire value is `${rawToken}.${base64Signature}`,
    * produced by `ctx.setSignedCookie` via better-call's HMAC signing

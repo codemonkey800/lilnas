@@ -10,6 +10,7 @@ import {
 } from 'better-auth/api'
 import { jwt } from 'better-auth/plugins'
 
+import { COOKIE_PREFIX } from 'src/auth/cookie-names'
 import type { Db } from 'src/db/database.module'
 import * as schema from 'src/db/schema'
 import { EnvKeys } from 'src/env'
@@ -205,6 +206,10 @@ export function buildAuth(db: Db, deps: AuthDeps) {
         enabled: true,
         domain: env(EnvKeys.COOKIE_DOMAIN),
       },
+      // Unique cookie names (`lilnas-auth.session_token`, `__Secure-` in
+      // front on https) so they can't collide with another Better Auth app
+      // under *.lilnas.io; see cookie-names.ts.
+      cookiePrefix: COOKIE_PREFIX,
       // disableOriginCheck: false, set EXPLICITLY rather than left unset.
       // Its own JSDoc (@better-auth/core's dist/types/init-options.d.mts)
       // documents a `@default false` and warns that `true` disables

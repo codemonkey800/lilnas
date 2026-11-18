@@ -47,7 +47,7 @@ describe('fetchMe', () => {
   })
 
   it('forwards the incoming Cookie header verbatim to GET /me', async () => {
-    mockIncomingCookie('better-auth.session_token=abc123')
+    mockIncomingCookie('lilnas-auth.session_token=abc123')
     const fetchSpy = jest
       .spyOn(global, 'fetch')
       .mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
@@ -57,7 +57,7 @@ describe('fetchMe', () => {
     expect(fetchSpy).toHaveBeenCalledWith(
       'http://localhost:8081/me',
       expect.objectContaining({
-        headers: { cookie: 'better-auth.session_token=abc123' },
+        headers: { cookie: 'lilnas-auth.session_token=abc123' },
       }),
     )
 
@@ -65,7 +65,7 @@ describe('fetchMe', () => {
   })
 
   it('a 200 response returns the parsed profile and never calls redirect', async () => {
-    mockIncomingCookie('better-auth.session_token=abc123')
+    mockIncomingCookie('lilnas-auth.session_token=abc123')
     const me = {
       name: 'Test User',
       email: 'test@example.com',
@@ -90,7 +90,7 @@ describe('fetchMe', () => {
   })
 
   it('an unexpected non-401 error status throws rather than silently redirecting', async () => {
-    mockIncomingCookie('better-auth.session_token=abc123')
+    mockIncomingCookie('lilnas-auth.session_token=abc123')
     const fetchSpy = jest
       .spyOn(global, 'fetch')
       .mockResolvedValue(new Response(null, { status: 500 }))

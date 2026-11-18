@@ -138,6 +138,10 @@ Source of truth for keys: `src/env.ts`'s `EnvKeys`. Source of truth for dev valu
 
 `.env` (dev) and `.env.prod` (prod) are both gitignored; copy `.env.example` to start either one. See root `CLAUDE.md`'s Environment Variables section for the general convention.
 
+### Session cookie name
+
+Better Auth's cookie prefix is `lilnas-auth` (`advanced.cookiePrefix`, `src/auth/cookie-names.ts`), so the session cookie is `lilnas-auth.session_token` over http (dev) and `__Secure-lilnas-auth.session_token` over https (prod), with `Domain=COOKIE_DOMAIN`. The default `better-auth` prefix is shared with other Better Auth apps under `*.lilnas.io` (e.g. `apps/tdr-code`); `/verify` matches only the two `lilnas-auth` names, exactly. Migration `0007_revoke_sessions_cookie_rename` runs `DELETE FROM session` once at the first boot after the rename, so every user signs in again one time.
+
 ## Fix identifiers
 
 Comments throughout `src/` cite short IDs from a structured code review of this app, each mapping to a real git commit — `git log --oneline | grep <id>` finds it:

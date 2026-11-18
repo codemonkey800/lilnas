@@ -149,6 +149,31 @@ describe('VerifyService.decide (direct construction, real DB, real buildAuth())'
     expect(prepareSpy).not.toHaveBeenCalled()
   })
 
+  it('a real session sent under the old better-auth cookie name is a redirect to login, even with a grant', async () => {
+    testDb = createTestDb()
+    const { auth, cache, verifyService } = createHarness(testDb)
+    const cookie = await signInAndGetSessionCookiePair(auth, AUTH_HOST, {
+      sub: 'google-sub-old-name',
+      email: 'old-name@example.com',
+    })
+    const userId = getUserIdByEmail(testDb.db, 'old-name@example.com')
+    cache.addGrant(userId, 'swole.lilnas.io')
+    const value = cookie.slice(cookie.indexOf('=') + 1)
+
+    for (const oldName of [
+      'better-auth.session_token',
+      '__Secure-better-auth.session_token',
+    ]) {
+      const decision = await verifyService.decide({
+        cookieHeader: `${oldName}=${value}`,
+        forwardedHost: 'swole.lilnas.io',
+        forwardedProto: 'https',
+        forwardedUri: '/',
+      })
+      expect(decision.outcome).toBe('redirect')
+    }
+  })
+
   it('a signed-out visitor is redirected to an absolute AUTH_HOST/login URL carrying the reconstructed original URL', async () => {
     testDb = createTestDb()
     const { verifyService } = createHarness(testDb)
@@ -390,7 +415,7 @@ describe('VerifyService.decide (direct construction, real DB, real buildAuth())'
   it('error path: a malformed/forged session cookie is treated as no session — a clean redirect to login, never a thrown error', async () => {
     testDb = createTestDb()
     const { verifyService } = createHarness(testDb)
-    const forgedCookie = `better-auth.session_token=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.${'A'.repeat(43)}=`
+    const forgedCookie = `lilnas-auth.session_token=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.${'A'.repeat(43)}=`
 
     await expect(
       verifyService.decide({

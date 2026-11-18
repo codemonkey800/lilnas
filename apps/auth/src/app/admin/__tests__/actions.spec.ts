@@ -48,7 +48,7 @@ const SNOWFLAKE = '123456789012345678'
 // ──────────────────────────────────────────────────────────────────────────────
 describe('linkDiscordAccount — discordUserId narrowing', () => {
   beforeEach(() => {
-    mockIncomingCookie('better-auth.session_token=abc123')
+    mockIncomingCookie('lilnas-auth.session_token=abc123')
   })
 
   it.each([
@@ -135,7 +135,7 @@ describe('linkDiscordAccount — discordUserId narrowing', () => {
 
 describe('linkDiscordAccount', () => {
   beforeEach(() => {
-    mockIncomingCookie('better-auth.session_token=abc123')
+    mockIncomingCookie('lilnas-auth.session_token=abc123')
   })
 
   // Both ids go in the BODY, not the path — see the action's own comment
@@ -151,7 +151,7 @@ describe('linkDiscordAccount', () => {
       expect.objectContaining({
         method: 'POST',
         headers: {
-          cookie: 'better-auth.session_token=abc123',
+          cookie: 'lilnas-auth.session_token=abc123',
           'content-type': 'application/json',
         },
         body: JSON.stringify({ userId: 'user_1', discordUserId: SNOWFLAKE }),
@@ -189,7 +189,7 @@ describe('linkDiscordAccount', () => {
 
 describe('unlinkDiscordAccount', () => {
   beforeEach(() => {
-    mockIncomingCookie('better-auth.session_token=abc123')
+    mockIncomingCookie('lilnas-auth.session_token=abc123')
   })
 
   it('POSTs only the userId in the body', async () => {

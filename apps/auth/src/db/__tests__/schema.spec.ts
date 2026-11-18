@@ -1,8 +1,13 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+
 import { type HealthResponse } from '@lilnas/utils/health'
 import { HttpException } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import BetterSqlite3 from 'better-sqlite3'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
 
 import { applyPragmas, DB, runMigrations } from 'src/db/database.module'
 import * as schema from 'src/db/schema'
@@ -103,6 +108,142 @@ describe('schema + migrations', () => {
     } finally {
       close()
     }
+  })
+})
+
+describe('0007_revoke_sessions_cookie_rename', () => {
+  const FULL_FOLDER = path.resolve(process.cwd(), 'src/db/migrations')
+  const REVOKE_TAG = '0007_revoke_sessions_cookie_rename'
+  let tmpDir: string
+
+  // The migrations folder as it was before 0007: every file copied except
+  // 0007's SQL and snapshot, and with its entry dropped from the journal.
+  function copyFolderWithout0007(): string {
+    const dest = path.join(tmpDir, 'migrations-0000-0006')
+    fs.cpSync(FULL_FOLDER, dest, {
+      recursive: true,
+      filter: src => !path.basename(src).startsWith('0007'),
+    })
+    const journalPath = path.join(dest, 'meta', '_journal.json')
+    const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8')) as {
+      entries: Array<{ idx: number; tag: string }>
+    }
+    journal.entries = journal.entries.filter(e => e.tag !== REVOKE_TAG)
+    fs.writeFileSync(journalPath, JSON.stringify(journal))
+    return dest
+  }
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lilnas-auth-migration-'))
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('deletes every session, keeps the user and grant, and is a no-op the second time', () => {
+    const sqlite = new BetterSqlite3(':memory:')
+    applyPragmas(sqlite)
+    const db = drizzle(sqlite, { schema })
+    try {
+      const preFolder = copyFolderWithout0007()
+      expect(fs.readdirSync(preFolder).some(f => f.startsWith('0007'))).toBe(
+        false,
+      )
+      migrate(db, { migrationsFolder: preFolder })
+      const appliedBefore = sqlite
+        .prepare('SELECT count(*) AS n FROM __drizzle_migrations')
+        .get() as { n: number }
+      expect(appliedBefore.n).toBe(7)
+
+      const now = Date.now()
+      sqlite
+        .prepare(
+          `INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES ('u1', 'U', 'u1@example.com', 0, ?, ?)`,
+        )
+        .run(now, now)
+      sqlite
+        .prepare(
+          `INSERT INTO session (id, expires_at, token, created_at, updated_at, user_id) VALUES ('s1', ?, 'tok1', ?, ?, 'u1'), ('s2', ?, 'tok2', ?, ?, 'u1')`,
+        )
+        .run(now + 1e6, now, now, now + 1e6, now, now)
+      sqlite
+        .prepare(
+          `INSERT INTO "grant" (user_id, service_host, created_at) VALUES ('u1', 'swole.lilnas.io', ?)`,
+        )
+        .run(now)
+      sqlite
+        .prepare(
+          `INSERT INTO oauth_client (id, client_id, redirect_uris) VALUES ('c1', 'client-1', '[]')`,
+        )
+        .run()
+      sqlite
+        .prepare(
+          `INSERT INTO oauth_access_token (id, token, client_id, session_id, user_id, scopes) VALUES ('at1', 'oat1', 'client-1', 's1', 'u1', 'openid')`,
+        )
+        .run()
+      sqlite
+        .prepare(
+          `INSERT INTO oauth_refresh_token (id, token, client_id, session_id, user_id, scopes) VALUES ('rt1', 'ort1', 'client-1', 's1', 'u1', 'openid')`,
+        )
+        .run()
+
+      // foreign_keys = ON is in force for the migration run, with rows
+      // pointing at the sessions being deleted.
+      expect(sqlite.pragma('foreign_keys', { simple: true })).toBe(1)
+      migrate(db, { migrationsFolder: FULL_FOLDER })
+      sqlite.pragma('foreign_keys = ON')
+
+      const count = (table: string): number =>
+        (
+          sqlite.prepare(`SELECT count(*) AS n FROM "${table}"`).get() as {
+            n: number
+          }
+        ).n
+      expect(count('session')).toBe(0)
+      expect(count('user')).toBe(1)
+      expect(count('grant')).toBe(1)
+      // The token rows survive; ON DELETE set null just detaches them.
+      expect(count('oauth_access_token')).toBe(1)
+      expect(count('oauth_refresh_token')).toBe(1)
+      expect(
+        sqlite
+          .prepare(`SELECT session_id FROM oauth_access_token WHERE id = 'at1'`)
+          .get(),
+      ).toEqual({ session_id: null })
+
+      // A later session (a fresh sign-in) is not touched by another migrate().
+      sqlite
+        .prepare(
+          `INSERT INTO session (id, expires_at, token, created_at, updated_at, user_id) VALUES ('s3', ?, 'tok3', ?, ?, 'u1')`,
+        )
+        .run(now + 1e6, now, now)
+      migrate(db, { migrationsFolder: FULL_FOLDER })
+      expect(count('session')).toBe(1)
+      expect(
+        (
+          sqlite
+            .prepare('SELECT count(*) AS n FROM __drizzle_migrations')
+            .get() as { n: number }
+        ).n,
+      ).toBe(8)
+    } finally {
+      sqlite.close()
+    }
+  })
+
+  it('has a journal entry (idx 7) later than every earlier entry', () => {
+    const journal = JSON.parse(
+      fs.readFileSync(path.join(FULL_FOLDER, 'meta', '_journal.json'), 'utf8'),
+    ) as { entries: Array<{ idx: number; tag: string; when: number }> }
+    const entry = journal.entries.find(e => e.tag === REVOKE_TAG)
+    expect(entry?.idx).toBe(7)
+    for (const other of journal.entries.filter(e => e.tag !== REVOKE_TAG)) {
+      expect(entry!.when).toBeGreaterThan(other.when)
+    }
+    expect(
+      fs.readFileSync(path.join(FULL_FOLDER, `${REVOKE_TAG}.sql`), 'utf8'),
+    ).toMatch(/^DELETE FROM `?session`?;$/m)
   })
 })
 
