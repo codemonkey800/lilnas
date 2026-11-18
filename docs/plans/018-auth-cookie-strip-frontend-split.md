@@ -293,3 +293,21 @@ Rollback (human only, not run): cd /opt/lilnas && sudo -u deploy env LILNAS_TAG=
 No throwaway containers, networks, volumes, images or temp files remain.
 
 No commits: nothing to integrate.
+
+### 2026-11-18 · T6 · done
+Canary started from /tmp/lilnas-cookie-canary/ as compose project cookie-canary; container cookie-canary-cookie-canary-echo-1 is up on lilnas-proxy with no published ports. It is left running on purpose for the gated-host check; a later task removes it.
+URLs: gated https://cookie-canary.dev.lilnas.io/ ; open https://cookie-canary-open.dev.lilnas.io/ (/json, /ws).
+Observations (fake values only):
+- Gated host without a session: HTTP/2 302 to https://auth.lilnas.io/login?redirect=https%3A%2F%2Fcookie-canary.dev.lilnas.io%2F.
+- Open /json, curl --http2, all three cookies: 200, http_version 2, cookieNames [theme, __Secure-better-auth.session_token], authCookiePresent false.
+- Same over --http1.1: 200, http_version 1.1, same result.
+- HTTP/2 with the cookies split across two cookie: headers: 200, version 2, same result, cookieHeaderCount 1.
+- Only the lilnas-auth cookie: cookieNames [], cookieHeaderCount 0.
+- No cookie: 200, cookieNames [].
+- WebSocket upgrade to wss://cookie-canary-open.dev.lilnas.io/ws with the first cookie set (raw TLS script /tmp/lilnas-cookie-canary/ws-check.mjs): 101, frame authCookiePresent false, names theme and __Secure-better-auth.session_token.
+- docker logs lilnas-auth-1 --since 5m: no error from these requests. The only WARN (Better Auth rate-limit IP notice, 09:22:39Z) comes from the T5 /.well-known curl and predates the canary start (09:23:32Z). Auth does not log /verify or /strip-cookie requests, so this means no level 40+ lines, not a count.
+Removal: docker compose -p cookie-canary -f /tmp/lilnas-cookie-canary/canary.private.yml down && rm -rf /tmp/lilnas-cookie-canary
+(the task's short form `docker compose -p cookie-canary down` also works; -f just guarantees the compose file is found).
+Extra file ws-check.mjs lives only in /tmp/lilnas-cookie-canary/ and is removed by the rm -rf. Nothing was committed, the worktree tree is clean, the lilnas project was only read.
+
+No commits: nothing to integrate.
