@@ -100,10 +100,12 @@ An authorize with no session is redirected to `/login` carrying the signed autho
 
 This app runs as **two separate Node processes** behind one Traefik router:
 
-| Process  | Framework | Port | Role                                                                                                                                 |
-| -------- | --------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| Frontend | Next.js   | 8080 | Public-facing. Serves `/login`, `/pending`, `/blocked`, `/admin`.                                                                    |
-| Backend  | NestJS    | 8081 | Internal only. Owns `/verify`, `/api/auth/*` (Better Auth), `/.well-known/*` (OIDC discovery), `/requests/*`, `/admin/*`, `/health`. |
+| Process  | Framework | Port | Role                                                                                                                                                  |
+| -------- | --------- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frontend | Next.js   | 8080 | Public-facing. Serves `/login`, `/pending`, `/blocked`, `/admin`.                                                                                     |
+| Backend  | NestJS    | 8081 | Internal only. Owns `/verify`, `/strip-cookie`, `/api/auth/*` (Better Auth), `/.well-known/*` (OIDC discovery), `/requests/*`, `/admin/*`, `/health`. |
+
+`/strip-cookie` is the always-allow twin of `/verify` for routers with no auth: it answers 200 to every request and only returns the request's `Cookie` header minus lilnas-auth's own cookies, so a service that is not gated still never receives the lilnas-auth session. It does no session lookup and records nothing in `/admin`, and it has no `next.config.js` rewrite, so it is reachable on the backend port only.
 
 Both run in the same container (`deploy.yml` / `deploy.dev.yml`), started as concurrent processes via `run-p` — production's `pnpm start` (`ENTRYPOINT` in the `Dockerfile`) races `start:backend`/`start:frontend`; dev runs `pnpm --filter=auth dev`, which races `dev:backend`/`dev:frontend` the same way. Traefik's health check and its ForwardAuth address both target the **backend** (`:8081`) directly, never the frontend — a crashed Next.js process must not restart the container or interrupt `/verify` for every other gated service.
 

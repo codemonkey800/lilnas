@@ -24,6 +24,7 @@ import { HostActivityService } from './services/host-activity.service'
 import { ServiceRegistryService } from './services/service-registry.service'
 import { SseModule } from './sse/sse.module'
 import { AccessCacheModule } from './verify/access-cache.module'
+import { StripCookieController } from './verify/strip-cookie.controller'
 import { VerifyController } from './verify/verify.controller'
 import { VerifyService } from './verify/verify.service'
 
@@ -90,6 +91,7 @@ const isProduction = env(EnvKeys.NODE_ENV, 'development') === 'production'
   controllers: [
     HealthController,
     VerifyController,
+    StripCookieController,
     RequestsController,
     AdminController,
     AdminCheckController,
