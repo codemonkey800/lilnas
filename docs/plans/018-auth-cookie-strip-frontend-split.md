@@ -279,3 +279,6 @@ Checked:
 - Redact path casing against setHeader('Cookie') in VerifyController — apps/auth/src/logger.config.ts: res.getHeaders() lower-cases header names, so 'res.headers.cookie' also matches the 'Cookie' header that /verify sets.
 - The rig project's roots overlap the backend/frontend projects — apps/auth/jest.config.js: The backend root is src, the frontend root is src/app and the rig root is scripts/cookie-rig, so the projects don't overlap.
 - Prettier on the kit files — apps/auth/scripts/cookie-rig/, apps/auth/jest.config.js: prettier -c passes.
+
+### 2026-11-18 · H1 · approved
+Approved.

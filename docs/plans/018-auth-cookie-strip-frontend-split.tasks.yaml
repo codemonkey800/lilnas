@@ -290,7 +290,7 @@ phases:
         after:
           - T4
         files: []
-        status: todo
+        status: approved
         body: |-
           Approving lets the next task push phase 1 to `main`. CI then rebuilds and redeploys the
           `auth` service only.
