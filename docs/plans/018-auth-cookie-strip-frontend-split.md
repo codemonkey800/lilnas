@@ -398,3 +398,8 @@ Checked:
 
 ### 2026-11-18 · H3 · approved
 Approved.
+
+### 2026-11-18 · T15 · done
+Deleted exactly the three comment lines (one per file); each file is byte-identical to origin/main (empty diff --stat).
+ci detect: up = storage, tdr-code, traefik, turbo; pull = auth, dashcam, equations, theater. No other service.
+prettier -c on proxy.yml, theater/deploy.yml, next.config.js, README.md passes. The jest, lint, type-check and docker build checks were not rerun, because the commit only removes YAML comments they don't read. Nothing deployed or pushed.

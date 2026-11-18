@@ -585,7 +585,8 @@ phases:
           - apps/auth/deploy.yml
           - infra/immich.yml
           - infra/media.yml
-        status: todo
+        status: done
+        commit: 5a9dba94bb525270435d6c03e42fe87adbccdf6c
         body: |-
           An earlier commit on this branch (7ec394b5) added one comment line to each of three
           compose files that otherwise do not change before the next push to `main`. The deploy
