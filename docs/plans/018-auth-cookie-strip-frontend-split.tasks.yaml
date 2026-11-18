@@ -885,7 +885,8 @@ phases:
         after:
           - T12
         files: []
-        status: todo
+        status: done
+        commit: a5a6ae0d25050f6f272ac7cadb9eb44d2604d2b4
         body: |-
           Build the real auth image from this worktree and run the split in throwaway containers.
           The specs only parse YAML; this task crosses the real boundaries: the image, Next's
