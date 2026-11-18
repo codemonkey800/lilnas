@@ -798,7 +798,8 @@ phases:
           - apps/auth/Dockerfile
           - apps/auth/README.md
           - apps/auth/src/services/__tests__/
-        status: todo
+        status: done
+        commit: d2a908c347951f778e6eeac9cee7617cbb8a5382
         body: |-
           Split production's single `auth` container into two services that run the same image.
           The Next.js frontend is the only part of auth the internet can reach before login; it
