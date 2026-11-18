@@ -178,3 +178,9 @@ drizzle-kit --custom also emitted meta/0007_snapshot.json (identical to 0006 apa
 Migration 0007 deletes all session rows at first boot of the new image. oauth_access_token/oauth_refresh_token.session_id are ON DELETE set null, so token rows survive with a null session_id.
 README and .env.example did not name the cookie; I added a short note to each rather than editing existing text.
 Checks run: utils+ui build, auth lint, auth type-check, full auth jest (47 suites, 712 tests, --maxWorkers=2), prettier -c on the four listed files, docker build --check (no warnings). Nothing was pushed or deployed. Rollback after merge: revert the commit; sessions deleted by 0007 cannot be restored.
+
+### 2026-11-18 · T2 · done
+/verify now sets a `Cookie` response header on ALLOW (request cookies minus `lilnas-auth.*` / `__Secure-lilnas-auth.*`), and none when nothing remains. infra/proxy.yml authResponseHeaders is unchanged (two identity headers), so Traefik ignores it until a later task adds `Cookie` to that list; add it only after this is deployed. auth-response-headers.spec.ts is unmodified and passes. When the list is updated, that spec will need VERIFY_SANITIZED_HEADERS added to its comparison.
+Decision: VerifyController now constructor-injects PinoLogger (4th arg) for the sanitize-failure warning; the only other construction site is the integration harness in verify.service.spec.ts, which already provides it. app.module has LoggerModule globally.
+SECURE_COOKIE_PREFIX is '__Secure-' (not '__Secure-lilnas-auth'), so the secure name prefix is SECURE_COOKIE_PREFIX + COOKIE_PREFIX + '.'.
+Checks: utils/ui build, auth lint, auth type-check, full auth jest (49 suites, 748 tests, --maxWorkers=2), prettier -c on the 4 files, docker build --check — all pass. Mutation checks (6) each made the relevant specs fail; sources restored. Nothing pushed or deployed; no containers or temp files left. Rollback after merge: revert 84b40f3d.
