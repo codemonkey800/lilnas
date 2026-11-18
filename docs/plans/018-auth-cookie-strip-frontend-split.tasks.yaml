@@ -319,7 +319,8 @@ phases:
         after:
           - H1
         files: []
-        status: todo
+        status: done
+        commit: e227add1a7a3517d37296fcecdf78571da25dd97
         body: |-
           A human approved this push. Push the cookie work in `apps/auth` to `main`, watch the
           deploy, and verify production. Commit nothing.
