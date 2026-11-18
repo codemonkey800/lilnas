@@ -171,3 +171,10 @@ Research on 2026-11-17 at `main` d2a90309 (equal to `origin/main`).
 ## Log
 <!-- Written by Nexus: findings, review cycles, checkpoint verdicts, the final report,
      the rollout record. Humans may add notes here too. -->
+
+### 2026-11-18 · T1 · done
+Cookie names are now `lilnas-auth.session_token` (http) and `__Secure-lilnas-auth.session_token` (https); import them from `src/auth/cookie-names.ts`. Other Better Auth cookies (state, etc.) also carry the `lilnas-auth.` prefix now.
+drizzle-kit --custom also emitted meta/0007_snapshot.json (identical to 0006 apart from key order, so no schema changes); it is committed because it continues the snapshot chain.
+Migration 0007 deletes all session rows at first boot of the new image. oauth_access_token/oauth_refresh_token.session_id are ON DELETE set null, so token rows survive with a null session_id.
+README and .env.example did not name the cookie; I added a short note to each rather than editing existing text.
+Checks run: utils+ui build, auth lint, auth type-check, full auth jest (47 suites, 712 tests, --maxWorkers=2), prettier -c on the four listed files, docker build --check (no warnings). Nothing was pushed or deployed. Rollback after merge: revert the commit; sessions deleted by 0007 cannot be restored.

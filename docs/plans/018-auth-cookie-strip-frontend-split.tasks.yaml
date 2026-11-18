@@ -14,7 +14,8 @@ phases:
           - apps/auth/src/app/
           - apps/auth/README.md
           - apps/auth/.env.example
-        status: todo
+        status: done
+        commit: 30af36879c3ce76ebe28689a2bc827b751e584a6
         body: |-
           Give lilnas-auth's Better Auth cookies a unique prefix, and delete every existing session
           once.
@@ -135,7 +136,7 @@ phases:
             no `Cookie` header; redirect and 500 return none; the identity headers are unchanged;
             `Set-Cookie` is never set
       - id: T3
-        title: 'Always-allow `/strip-cookie` endpoint and a public-allowlist spec'
+        title: Always-allow `/strip-cookie` endpoint and a public-allowlist spec
         after:
           - T2
         files:
@@ -311,7 +312,7 @@ phases:
 
           Request changes to hold the push.
       - id: T5
-        title: 'Push the auth image to main, watch CI, verify production'
+        title: Push the auth image to main, watch CI, verify production
         after:
           - H1
         files: []
@@ -570,7 +571,7 @@ phases:
 
           Request changes to hold the push.
       - id: T9
-        title: 'Push the labels to main, watch CI, verify production, switch the canary'
+        title: Push the labels to main, watch CI, verify production, switch the canary
         after:
           - H3
         files: []
@@ -918,7 +919,7 @@ phases:
 
           Request changes to hold the push.
       - id: T14
-        title: 'Push the split to main, watch CI, verify production'
+        title: Push the split to main, watch CI, verify production
         after:
           - H5
         files: []
