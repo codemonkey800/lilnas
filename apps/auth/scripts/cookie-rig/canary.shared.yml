@@ -1,0 +1,49 @@
+# Cookie-strip canary on the PRODUCTION Traefik using the SHARED middlewares
+# `lilnas-auth` and `lilnas-cookie-strip` from infra/proxy.yml, so it only
+# works after those carry the Cookie strip. It defines no middleware of its
+# own. Run by a later task, not by rig.sh:
+#
+#   docker compose -f apps/auth/scripts/cookie-rig/canary.shared.yml up -d
+#   ... exercise https://cookie-canary.dev.lilnas.io and
+#       https://cookie-canary-open.dev.lilnas.io ...
+#   docker compose -f apps/auth/scripts/cookie-rig/canary.shared.yml down
+#
+# Same project name, container, hosts and routers as canary.private.yml, so
+# bring only one of the two up at a time. No published ports, no cookie
+# values (ECHO_VALUES unset), `tls=true` and never a certresolver.
+name: cookie-canary
+
+networks:
+  lilnas-proxy:
+    external: true
+
+services:
+  cookie-canary-echo:
+    image: node:22-alpine
+    command: ['node', '/echo.mjs']
+    environment:
+      PORT: '3000'
+    volumes:
+      - ./echo.mjs:/echo.mjs:ro
+    networks:
+      - lilnas-proxy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=lilnas-proxy
+      - lilnas.idle-reap.enabled=false
+
+      - traefik.http.services.dev-cookie-canary.loadbalancer.server.port=3000
+
+      # Gated router
+      - traefik.http.routers.dev-cookie-canary.rule=Host(`cookie-canary.dev.lilnas.io`)
+      - traefik.http.routers.dev-cookie-canary.entrypoints=websecure
+      - traefik.http.routers.dev-cookie-canary.tls=true
+      - traefik.http.routers.dev-cookie-canary.service=dev-cookie-canary
+      - traefik.http.routers.dev-cookie-canary.middlewares=lilnas-auth
+
+      # Ungated router
+      - traefik.http.routers.dev-cookie-canary-open.rule=Host(`cookie-canary-open.dev.lilnas.io`)
+      - traefik.http.routers.dev-cookie-canary-open.entrypoints=websecure
+      - traefik.http.routers.dev-cookie-canary-open.tls=true
+      - traefik.http.routers.dev-cookie-canary-open.service=dev-cookie-canary
+      - traefik.http.routers.dev-cookie-canary-open.middlewares=lilnas-cookie-strip

@@ -1,0 +1,59 @@
+# Cookie-strip canary on the PRODUCTION Traefik, with its own middlewares so
+# it can run before infra/proxy.yml has a `lilnas-cookie-strip` middleware.
+# Run by a later task, not by rig.sh:
+#
+#   docker compose -f apps/auth/scripts/cookie-rig/canary.private.yml up -d
+#   ... exercise https://cookie-canary.dev.lilnas.io and
+#       https://cookie-canary-open.dev.lilnas.io ...
+#   docker compose -f apps/auth/scripts/cookie-rig/canary.private.yml down
+#
+# Its own project (`cookie-canary`), never the `lilnas` project. One echo
+# container on lilnas-proxy only, no published ports, no cookie values
+# (ECHO_VALUES unset). TLS comes from the entrypoint's wildcard certificate
+# (`tls=true`, never a certresolver). Naming follows docs/lilnas-expose.md:
+# dev- router names, *.dev.lilnas.io hosts.
+#
+#   dev-cookie-canary       Host(cookie-canary.dev.lilnas.io)       gated
+#   dev-cookie-canary-open  Host(cookie-canary-open.dev.lilnas.io)  ungated
+name: cookie-canary
+
+networks:
+  lilnas-proxy:
+    external: true
+
+services:
+  cookie-canary-echo:
+    image: node:22-alpine
+    command: ['node', '/echo.mjs']
+    environment:
+      PORT: '3000'
+    volumes:
+      - ./echo.mjs:/echo.mjs:ro
+    networks:
+      - lilnas-proxy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=lilnas-proxy
+      - lilnas.idle-reap.enabled=false
+
+      - traefik.http.services.dev-cookie-canary.loadbalancer.server.port=3000
+
+      # Gated router: forwardAuth /verify, Cookie returned minus lilnas-auth's
+      # own. Same shape as lilnas-auth plus Cookie, no trustForwardHeader.
+      - traefik.http.routers.dev-cookie-canary.rule=Host(`cookie-canary.dev.lilnas.io`)
+      - traefik.http.routers.dev-cookie-canary.entrypoints=websecure
+      - traefik.http.routers.dev-cookie-canary.tls=true
+      - traefik.http.routers.dev-cookie-canary.service=dev-cookie-canary
+      - traefik.http.routers.dev-cookie-canary.middlewares=dev-cookie-canary-auth
+      - traefik.http.middlewares.dev-cookie-canary-auth.forwardauth.address=http://auth:8081/verify
+      - traefik.http.middlewares.dev-cookie-canary-auth.forwardauth.authResponseHeaders=X-Forwarded-User,X-Forwarded-User-Id,Cookie
+      - traefik.http.middlewares.dev-cookie-canary-auth.forwardauth.preserveLocationHeader=true
+
+      # Ungated router: forwardAuth /strip-cookie, always allowed.
+      - traefik.http.routers.dev-cookie-canary-open.rule=Host(`cookie-canary-open.dev.lilnas.io`)
+      - traefik.http.routers.dev-cookie-canary-open.entrypoints=websecure
+      - traefik.http.routers.dev-cookie-canary-open.tls=true
+      - traefik.http.routers.dev-cookie-canary-open.service=dev-cookie-canary
+      - traefik.http.routers.dev-cookie-canary-open.middlewares=dev-cookie-canary-strip
+      - traefik.http.middlewares.dev-cookie-canary-strip.forwardauth.address=http://auth:8081/strip-cookie
+      - traefik.http.middlewares.dev-cookie-canary-strip.forwardauth.authResponseHeaders=Cookie

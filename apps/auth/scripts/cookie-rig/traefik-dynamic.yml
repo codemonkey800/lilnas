@@ -1,0 +1,72 @@
+# Traefik file-provider config for rig.sh. Three logical routes to the echo
+# backend, each on both entrypoints: `web` (cleartext :80) and `websecure`
+# (TLS :443 with Traefik's default self-signed certificate, which negotiates
+# HTTP/1.1 or h2). A router with `tls` only matches TLS connections, so each
+# route is a pair: `<name>` on websecure and `<name>-web` on web.
+#
+#   gated     forwardAuth /verify, Cookie in authResponseHeaders (the fix)
+#   open      forwardAuth /strip-cookie, Cookie in authResponseHeaders
+#   baseline  forwardAuth /verify without Cookie (production today)
+http:
+  middlewares:
+    rig-gated:
+      forwardAuth:
+        address: http://auth:8081/verify
+        authResponseHeaders:
+          - X-Forwarded-User
+          - X-Forwarded-User-Id
+          - Cookie
+        preserveLocationHeader: true
+    rig-open:
+      forwardAuth:
+        address: http://auth:8081/strip-cookie
+        authResponseHeaders:
+          - Cookie
+    rig-baseline:
+      forwardAuth:
+        address: http://auth:8081/verify
+        authResponseHeaders:
+          - X-Forwarded-User
+          - X-Forwarded-User-Id
+        preserveLocationHeader: true
+
+  services:
+    echo:
+      loadBalancer:
+        servers:
+          - url: http://echo:3000
+
+  routers:
+    gated:
+      rule: Host(`gated.rig.test`)
+      entryPoints: [websecure]
+      tls: {}
+      middlewares: [rig-gated]
+      service: echo
+    gated-web:
+      rule: Host(`gated.rig.test`)
+      entryPoints: [web]
+      middlewares: [rig-gated]
+      service: echo
+    open:
+      rule: Host(`open.rig.test`)
+      entryPoints: [websecure]
+      tls: {}
+      middlewares: [rig-open]
+      service: echo
+    open-web:
+      rule: Host(`open.rig.test`)
+      entryPoints: [web]
+      middlewares: [rig-open]
+      service: echo
+    baseline:
+      rule: Host(`baseline.rig.test`)
+      entryPoints: [websecure]
+      tls: {}
+      middlewares: [rig-baseline]
+      service: echo
+    baseline-web:
+      rule: Host(`baseline.rig.test`)
+      entryPoints: [web]
+      middlewares: [rig-baseline]
+      service: echo
