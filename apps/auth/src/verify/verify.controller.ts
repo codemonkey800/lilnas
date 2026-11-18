@@ -1,10 +1,12 @@
 import { All, Controller, Req, Res } from '@nestjs/common'
 import type { Request, Response } from 'express'
+import { PinoLogger } from 'nestjs-pino'
 
 import { GatedHostsService } from 'src/services/gated-hosts.service'
 import { HostActivityService } from 'src/services/host-activity.service'
 import { normalizeHost } from 'src/services/normalize-host'
 
+import { stripAuthCookies } from './strip-auth-cookies'
 import { VerifyService } from './verify.service'
 
 // Express types a repeated header as `string[]`; every header this
@@ -35,6 +37,14 @@ export const VERIFY_RESPONSE_HEADERS = [
   'X-Forwarded-User',
   'X-Forwarded-User-Id',
 ] as const
+
+// Response headers /verify sets on an 'allow' that carry request data rather
+// than identity: the request's cookies minus lilnas-auth's own. Traefik deletes
+// each header named in authResponseHeaders from the client's request and then
+// copies it from this response, so an absent header means the backend gets
+// none. Kept separate from VERIFY_RESPONSE_HEADERS because infra/proxy.yml
+// lists exactly the identity headers until a later change adds these.
+export const VERIFY_SANITIZED_HEADERS = ['Cookie'] as const
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Traefik's ForwardAuth entry point (R2, R4, R16 enforcement half, R20; F4).
@@ -69,6 +79,7 @@ export class VerifyController {
     private readonly verifyService: VerifyService,
     private readonly gatedHosts: GatedHostsService,
     private readonly hostActivity: HostActivityService,
+    private readonly logger: PinoLogger,
   ) {}
 
   @All()
@@ -123,6 +134,26 @@ export class VerifyController {
       }
       for (const header of VERIFY_RESPONSE_HEADERS) {
         res.setHeader(header, headerValues[header])
+      }
+
+      // The request's cookies minus lilnas-auth's own. If this throws, no
+      // Cookie header is sent, so the backend gets no cookies — the safe
+      // direction — and the request is still allowed.
+      try {
+        const [cookieHeaderName] = VERIFY_SANITIZED_HEADERS
+        const sanitizedCookies = stripAuthCookies(req.headers.cookie)
+        if (sanitizedCookies !== undefined) {
+          res.setHeader(cookieHeaderName, sanitizedCookies)
+        }
+      } catch (err) {
+        // Never log the cookie header or the error message (which may quote it).
+        this.logger.warn(
+          {
+            event: 'verify-cookie-sanitize-failed',
+            errName: err instanceof Error ? err.name : undefined,
+          },
+          'verify: could not sanitize the Cookie header; sending none',
+        )
       }
       res.status(200).end()
       return

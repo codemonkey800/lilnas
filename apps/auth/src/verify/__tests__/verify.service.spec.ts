@@ -791,6 +791,138 @@ describe('VerifyController integration (real NestJS app, real HTTP, real DB)', (
     }
   })
 
+  it('an ALLOW returns the Cookie header with every lilnas-auth cookie removed, leaves the identity headers unchanged, and never sets Set-Cookie', async () => {
+    const testDb = createTestDb()
+    try {
+      const { moduleRef, app, port } = await startTestApp(testDb.db)
+      try {
+        const accessCache = moduleRef.get(AccessCacheService)
+        const mintingAuth = buildAuth(testDb.db, {
+          resolveVerifyService: () => undefined,
+        })
+        const sessionPair = await signInAndGetSessionCookiePair(
+          mintingAuth,
+          AUTH_HOST,
+          {
+            sub: 'integration-strip',
+            email: 'integration-strip@example.com',
+          },
+        )
+        const userId = getUserIdByEmail(
+          testDb.db,
+          'integration-strip@example.com',
+        )
+        accessCache.addGrant(userId, 'strip-service.localhost.test')
+
+        const res = await httpRequest(port, {
+          method: 'GET',
+          path: '/verify',
+          headers: {
+            cookie: `theme=dark; ${sessionPair}; better-auth.session_token=other-app; lilnas-auth.session_data=x; locale=en`,
+            'x-forwarded-host': 'strip-service.localhost.test',
+            'x-forwarded-proto': 'https',
+            'x-forwarded-uri': '/',
+          },
+        })
+
+        expect(res.status).toBe(200)
+        expect(res.headers.cookie).toBe(
+          'theme=dark; better-auth.session_token=other-app; locale=en',
+        )
+        expect(res.headers['x-forwarded-user']).toBe(
+          'integration-strip@example.com',
+        )
+        expect(res.headers['x-forwarded-user-id']).toBe(userId)
+        expect(res.headers['set-cookie']).toBeUndefined()
+      } finally {
+        await app.close()
+      }
+    } finally {
+      testDb.close()
+    }
+  })
+
+  it('an ALLOW whose only cookie is the session cookie returns no Cookie header', async () => {
+    const testDb = createTestDb()
+    try {
+      const { moduleRef, app, port } = await startTestApp(testDb.db)
+      try {
+        const accessCache = moduleRef.get(AccessCacheService)
+        const mintingAuth = buildAuth(testDb.db, {
+          resolveVerifyService: () => undefined,
+        })
+        const sessionPair = await signInAndGetSessionCookiePair(
+          mintingAuth,
+          AUTH_HOST,
+          {
+            sub: 'integration-strip-only',
+            email: 'integration-strip-only@example.com',
+          },
+        )
+        const userId = getUserIdByEmail(
+          testDb.db,
+          'integration-strip-only@example.com',
+        )
+        accessCache.addGrant(userId, 'strip-service.localhost.test')
+
+        const res = await httpRequest(port, {
+          method: 'GET',
+          path: '/verify',
+          headers: {
+            cookie: sessionPair,
+            'x-forwarded-host': 'strip-service.localhost.test',
+            'x-forwarded-proto': 'https',
+            'x-forwarded-uri': '/',
+          },
+        })
+
+        expect(res.status).toBe(200)
+        expect(res.headers['x-forwarded-user-id']).toBe(userId)
+        expect(res.headers).not.toHaveProperty('cookie')
+        expect(res.headers['set-cookie']).toBeUndefined()
+      } finally {
+        await app.close()
+      }
+    } finally {
+      testDb.close()
+    }
+  })
+
+  it('a redirect (signed out, with other cookies) and a 500 (missing X-Forwarded-Host) return no Cookie header', async () => {
+    const testDb = createTestDb()
+    try {
+      const { app, port } = await startTestApp(testDb.db)
+      try {
+        const redirectRes = await httpRequest(port, {
+          method: 'GET',
+          path: '/verify',
+          headers: {
+            cookie: 'theme=dark; lilnas-auth.session_token=not-a-session',
+            'x-forwarded-host': 'strip-service.localhost.test',
+            'x-forwarded-proto': 'https',
+            'x-forwarded-uri': '/',
+          },
+        })
+        expect(redirectRes.status).toBe(302)
+        expect(redirectRes.headers).not.toHaveProperty('cookie')
+        expect(redirectRes.headers['set-cookie']).toBeUndefined()
+
+        const failClosedRes = await httpRequest(port, {
+          method: 'GET',
+          path: '/verify',
+          headers: { cookie: 'theme=dark' },
+        })
+        expect(failClosedRes.status).toBeGreaterThanOrEqual(500)
+        expect(failClosedRes.headers).not.toHaveProperty('cookie')
+        expect(failClosedRes.headers['set-cookie']).toBeUndefined()
+      } finally {
+        await app.close()
+      }
+    } finally {
+      testDb.close()
+    }
+  })
+
   it('records a host visit for an allowed request, and none for an anonymous one', async () => {
     const testDb = createTestDb()
     try {
