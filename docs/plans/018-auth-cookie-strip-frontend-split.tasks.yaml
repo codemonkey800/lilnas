@@ -377,7 +377,8 @@ phases:
         after:
           - T5
         files: []
-        status: todo
+        status: done
+        commit: bf5e9111a054aab0316a82db03e63655d4f0dcda
         body: |-
           Production's auth backend now returns a sanitized `Cookie` header on `/verify` and
           serves `/strip-cookie`, but the shared Traefik middlewares do not use them yet. Start a
