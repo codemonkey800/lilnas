@@ -412,3 +412,17 @@ Not done: before snapshot, push, CI watch, post-deploy label/log/snapshot checks
 Decision needed from the human: either accept that these comment-only edits ship (widen the allowed list and confirm that recreating auth, emby, immich*, radarr, sabnzbd, sonarr and turbo is fine), or have the comments dropped from 7ec394b5 (new commit) so the diff matches the allowed list, then rerun T9.
 
 Retried.
+
+### 2026-11-18 · T9 · done
+Cookies are not being dropped for any real app. Pushed c7a0a818 to main; rollback sha 0553a8a760d9016d27b34e2481869c5d6d6c9406. CI run https://github.com/codemonkey800/lilnas/actions/runs/44349190298 was green.
+Gates passed: ancestor check, allowed-paths diff, prod /strip-cookie answered 200 "Cookie: a=1", ci detect up=[storage,tdr-code,traefik,turbo] pull=[auth,dashcam,equations,theater].
+Deployed (recreated): auth, dashcam, equations, theater, storage, tdr-code, traefik. turbo was not recreated (config unchanged, Up 2 days). emby, immich*, sonarr untouched.
+Before and after snapshots identical: dashcam 200, equations 404, theater 200, storage 403, turbo 404, tdr-code 502 (also 502 before the push), emby 302, immich 200, sonarr 302, auth/login 200, theater ws handshake 101.
+Traefik labels: lilnas-auth authResponseHeaders = X-Forwarded-User,X-Forwarded-User-Id,Cookie; lilnas-cookie-strip present (address http://auth:8081/strip-cookie, authResponseHeaders Cookie).
+Container labels: lilnas-cookie-strip on dashcam, equations, theater (theater and theater-ws), storage (main router), tdr-code. storage-admin and sonarr stay on lilnas-auth. emby, immich and turbo have no middlewares label.
+auth and traefik logs (10m) have no errors or warnings.
+Canary switched to shared middlewares and left running (container cookie-canary-cookie-canary-echo-1, files in /tmp/lilnas-cookie-canary/). cookie-canary-open /json over h2 and http1.1, and the /ws upgrade (101), each show only theme and __Secure-better-auth.session_token. cookie-canary.dev.lilnas.io with no session is a 302 to https://auth.lilnas.io/login?redirect=...
+Cleanup: removed /tmp/t9snap and /tmp/t9ws; worktree clean; no containers, networks or images created beyond the canary that is meant to stay.
+Rollback for the human: revert the label commit on main and push. Never roll the auth image back while the labels are live.
+
+No commits: nothing to integrate.
