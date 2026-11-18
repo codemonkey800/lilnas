@@ -1036,7 +1036,8 @@ phases:
         after: []
         files:
           - apps/auth/scripts/cookie-rig/client.mjs
-        status: todo
+        status: done
+        commit: 42786eaa6c42e81eeff5da11eee440ad92a74a32
         body: |-
           Finding: F2 (P1)
 

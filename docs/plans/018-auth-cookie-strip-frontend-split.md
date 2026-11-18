@@ -247,3 +247,9 @@ Checked:
 Added 'res.headers.cookie' to the pino redact paths and '/strip-cookie' to autoLogging.ignore. The pino-http options moved unchanged (apart from those two additions) from app.module.ts into src/logger.config.ts (exported pinoHttpOptions) so the regression spec can run the real config. Deliberate difference from the suggested fix: the options moved to a separate file instead of staying inline in AppModule.
 Spec strip-cookie-logging.spec.ts failed 3/3 on the old config. Reverting only the redact path fails the stand-in-route spec; reverting only the ignore entry fails the no-completion-line spec.
 All four plan checks pass (jest full run: 52 suites, 771 tests).
+
+### 2026-11-18 · R2 · done
+Regression spec (apps/auth/scripts/cookie-rig/__tests__/http1.spec.mjs) failed on the old transport: the server received `Cookie: theme=dark; a=b; lang=en` (one merged line) where two lines were expected. It passes after the fix.
+requestHttp1(secure, host, req, {port, connectHost}) now lives in http1.mjs and is hand-written over net/tls; array header values become one line each; it returns cookieLinesSent. Case 8's check requires cookieLinesSent === 2 on the h1 transports.
+Added a third Jest project `rig` (native ESM, transform {}, roots scripts/cookie-rig, testMatch **/__tests__/**/*.spec.mjs) so the rig specs run under the plan's jest check. The kit directory is mounted whole into the client container, so http1.mjs needs no rig.sh change.
+Full rig.sh run against Traefik: 45/45 + 3/3 rows PASS; teardown showed 0 containers, 0 networks, temp dir gone. All four plan checks pass (jest: 52 suites, 771 tests).
