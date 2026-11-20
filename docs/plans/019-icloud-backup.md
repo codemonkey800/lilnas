@@ -727,3 +727,17 @@ Verified: utils/ui build, icloud-backup lint and type-check, and the full icloud
 
 ### 2026-11-19 · R3 · done
 Failed now branches on job.state === 'cancelled' before the errorCode lookup (STOPPED reason, 'mute' "Stopped" badge, accent Note, "Sync now" when a session may exist else "Try again"). Regression specs added in failed.spec.tsx; they failed before the fix. Lint, type-check and the full icloud-backup jest suite pass (510 tests). Auth jest, mockups, prettier-on-compose and docker --check checks were not run, since the change touches only these two files. Title copy "Your backup didn't finish" was left unchanged.
+
+### 2026-11-20 · Phase 2 · review cycle 2
+Re-review of the cycle-1 remediation: R3 fixes F6 (a cancelled job now shows a neutral 'Stopped' screen with Sync now) and R4 fixes F7 (the locked-Apple-ID spec now exercises appleIdLocked with no job). The remediation diff adds no new defects; F8–F13 were not touched.
+
+Earlier findings: F6 fixed, F7 fixed.
+
+Declined to judge:
+- Title 'Your backup didn't finish' kept for a stopped job — R3 states it left the title on purpose; it is accurate copy, and the badge and note now say the person stopped it.
+- The 'Try again' (start) branch for a cancelled job with no session — Not reachable in production: stepFor sends a cancelled job with no lastBackupAt to preflight, so Failed only sees a cancelled job when a session may exist. Harmless, and covered by a spec.
+
+Checked:
+- Other backend paths that set state 'cancelled' and would now show 'You stopped this backup' — apps/icloud-backup/src/jobs/jobs.service.ts: Only line 627 (the cancel path) finishes a run as 'cancelled'; timeouts and failures use 'failed'.
+- makeView(null) leaves account null, so the new locked spec would never render the locked case — apps/icloud-backup/src/lib/__tests__/helpers/view.ts: makeView always builds an account with appleId 'nobody@example.invalid' and job null, so the spec takes the preflight then SignIn path, where only appleIdLocked can make the field read-only.
+- The new badge tone 'mute' and Note tone 'accent' are not allowed by the component types — apps/icloud-backup/src/components/steps/state-head.tsx: The badge tone is typed BadgeTone; type-check passed on the merged branch.
