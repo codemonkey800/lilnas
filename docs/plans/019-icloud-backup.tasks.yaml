@@ -158,7 +158,8 @@ phases:
           - docs/features/icloud-backup/
           - docs/designs/mockup-kit/mock.pug
           - docs/designs/mockup-kit/README.md
-        status: todo
+        status: done
+        commit: 869f27d75edc7defef860f49eb67de1801a0094b
         body: |-
           The mockups in `docs/features/icloud-backup/designs/` (`start.html`, `backup.html`,
           `admin.html`, built from `src/pages/*.pug`, `src/mixins/*.pug` and `src/data/*.mjs`) are
