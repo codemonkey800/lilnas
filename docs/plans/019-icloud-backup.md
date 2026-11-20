@@ -833,3 +833,6 @@ Gotcha: the API key file is mode 0600, so a throwaway container must run with --
 Cleanup: pulled curlimages/curl for the Immich check and removed it; temp evidence dir and throwaway container are gone. Tree clean, nothing committed.
 
 No commits: nothing to integrate.
+
+### 2026-11-19 · H5 · approved
+Approved.

@@ -1698,7 +1698,7 @@ phases:
           - T19
           - T34
         files: []
-        status: todo
+        status: approved
         body: |-
           Approving lets an agent push the app to `main`. Because the root `docker-compose.yml`
           gains a line, CI treats it as a full deploy: every image is rebuilt and every service is
