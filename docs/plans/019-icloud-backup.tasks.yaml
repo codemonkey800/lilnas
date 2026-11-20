@@ -1064,7 +1064,8 @@ phases:
           - apps/icloud-backup/src/components/steps/paused.tsx
           - apps/icloud-backup/src/components/steps/failed.tsx
           - apps/icloud-backup/src/components/steps/__tests__/backup-screens.spec.tsx
-        status: todo
+        status: done
+        commit: 6182432200ee097c0e211d7d834be51c3ef0ee1a
         body: |-
           Build the backup half of the UI to match the approved mockup
           `docs/features/icloud-backup/designs/backup.html`, at 1280 and 390. Each file in

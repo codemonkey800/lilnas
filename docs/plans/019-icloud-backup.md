@@ -524,3 +524,10 @@ parts.tsx is shared by the sign-in screens: StepMarker, Intro, LowSpaceNote, Can
 Deliberate differences: Preflight has no Cancel. Cancel on the form with no job goes back to the checklist locally. The Apple ID is read-only on a need_password retry as well as when appleIdLocked. Code entry is one real input over six drawn cells, digits only, shown as typed. Sign in is disabled for low space only when it would start a job.
 Stay-on-screen behaviour to know about: on a failed submit (ApiError) the sign-in password and the code keep what was typed so the person can resend; they are cleared only after a successful send.
 Specs: src/components/__tests__/sign-in-steps.spec.tsx (23 tests). No network, DB, Docker or icloudpd. Full apps/icloud-backup jest 297 passed, apps/auth services 88 passed. No temp files or containers were created.
+
+### 2026-11-19 · T13 · done
+Reusable for the sign-in half (T12): StateHead (badge + h1 + lede), useAction (pending/error/run around an API call), errorMessage, PHONE_FULL (full-width 44px on phones), and makeActions in src/lib/__tests__/helpers/actions.ts.
+Deliberate differences from the task text: it names `actions.newImmichPassword()` but BackupActions exposes `resetImmichPassword()`, so that is used. The three login failures (wrong_password, login_timeout, interrupted_login) show "Sign in again" (start) instead of the label "Try again", following the mockup. Other codes show "Try again": sync when account.appleIdLocked or account.lastBackupAt is set, else start.
+Progress is rounded down and counts skippedItems; the bar has aria-valuenow = percent of 100, indeterminate (no valuenow) while totalItems is null. @lilnas/ui Progress has no warn tone, so the paused bar is accent and the indexing attempt bar is a local bg-warn bar.
+Not visually checked in a browser at 1280/390; layout follows the mockup's classes (max-sm: for phone full-width buttons, sm: breakpoints for rows).
+Specs: 39 new tests across 5 files; full apps/icloud-backup jest run is 313 passed.
