@@ -1823,7 +1823,8 @@ phases:
           - apps/icloud-backup/deploy.dev.yml
           - apps/icloud-backup/src/__tests__/deploy.spec.ts
           - apps/icloud-backup/README.md
-        status: todo
+        status: done
+        commit: 5f0cecf60e5147b2ae0da863097fcd8619454bba
         body: |-
           A live check of the built image (task T16) reported a blocking defect: the icloudpd
           login form is reachable from other containers. This task fixes it; T16 then runs again
