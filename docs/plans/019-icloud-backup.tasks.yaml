@@ -1667,7 +1667,8 @@ phases:
         after:
           - H4
         files: []
-        status: todo
+        status: done
+        commit: a46c4822845e45cb656c739698d49c0837276a9f
         body: |-
           The human finished the dry run. Remove everything it left. Commit nothing.
 
