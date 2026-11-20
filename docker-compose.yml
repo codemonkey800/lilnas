@@ -33,6 +33,7 @@ include:
   - ./apps/dev-idle-reaper/deploy.yml
   - ./apps/download/deploy.yml
   - ./apps/equations/deploy.yml
+  - ./apps/icloud-backup/deploy.yml
   - ./apps/auth/deploy.yml
   - ./apps/me-token-tracker/deploy.yml
   - ./apps/tdr-bot/deploy.yml

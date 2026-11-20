@@ -20,6 +20,7 @@ const APP_ICONS: Record<string, IconName> = {
   equations: 'file',
   files: 'folder',
   grafana: 'chart',
+  'icloud-backup': 'grid',
   immich: 'monitor',
   'nexus-code': 'terminal',
   'nexus-code-work': 'terminal',

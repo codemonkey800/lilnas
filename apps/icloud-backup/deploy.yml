@@ -1,0 +1,123 @@
+# Three services, two of them from one image (the Dockerfile's default
+# ENTRYPOINT runs both app processes; each service below overrides it to run
+# exactly one).
+#
+#   icloud-backup-db        Postgres 18 for the job and account tables. Not
+#                           routed by Traefik.
+#   icloud-backup           the NestJS backend on :8081. Holds everything worth
+#                           stealing: the Immich API key and the database
+#                           password (via env_file), the iCloud session cookies
+#                           under /state and the photo library under /photos.
+#                           Not routed by Traefik. Its name is load-bearing:
+#                           next.config.js bakes http://icloud-backup:8081 into
+#                           the frontend's rewrites at build time.
+#   icloud-backup-frontend  the Next.js frontend on :8080 and the only part the
+#                           internet reaches (behind lilnas-auth). It holds no
+#                           secret, no volume and no env_file; it reaches the
+#                           backend over the compose network. deploy.spec.ts
+#                           enforces this.
+#
+# The dry-run-only settings (see deploy.dev.yml) stay unset here.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '3'
+
+services:
+  icloud-backup-db:
+    image: postgres:18.4-alpine
+    shm_size: 256m
+    environment:
+      POSTGRES_INITDB_ARGS: '--data-checksums'
+    env_file:
+      - .env.prod.decrypted
+    volumes:
+      # PG18 images keep PGDATA under /var/lib/postgresql/18/docker, so the
+      # mount is the parent directory.
+      - /storage/app-data/icloud-backup-db:/var/lib/postgresql
+    healthcheck:
+      test: pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_interval: 10s
+      start_period: 30s
+    restart: unless-stopped
+    logging: *default-logging
+
+  icloud-backup:
+    image: ghcr.io/codemonkey800/lilnas-icloud-backup:${LILNAS_TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: apps/icloud-backup/Dockerfile
+    # Backend only, run with node directly so node is PID 1 and receives
+    # SIGTERM from `docker stop`.
+    entrypoint: ['node', 'dist/main']
+    restart: unless-stopped
+    logging: *default-logging
+    # Lets a running icloudpd child and the job rows settle before SIGKILL.
+    stop_grace_period: 30s
+    env_file:
+      - .env.prod.decrypted
+    environment:
+      - BACKEND_PORT=8081
+      - POSTGRES_HOST=icloud-backup-db
+      - IMMICH_URL=http://immich:2283
+      - IMMICH_EXTERNAL_URL=https://immich.lilnas.io
+      - TZ=America/Los_Angeles
+    depends_on:
+      icloud-backup-db:
+        condition: service_healthy
+    volumes:
+      # Each person's photos, one folder per account; Immich reads the same
+      # directory as an external library.
+      - /storage/photos/icloud-users:/photos
+      # icloudpd session cookies.
+      - /storage/app-data/icloud-backup:/state
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'node -e "const h=require(''http'');h.get(''http://localhost:8081/health'',r=>process.exit(r.statusCode===200?0:1)).on(''error'',()=>process.exit(1))"',
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  icloud-backup-frontend:
+    image: ghcr.io/codemonkey800/lilnas-icloud-backup:${LILNAS_TAG:-latest}
+    # Same image and build as `icloud-backup`: the CI planner lists a service
+    # under an image only when it has both, and would never pull this one
+    # without `build:`.
+    build:
+      context: ../..
+      dockerfile: apps/icloud-backup/Dockerfile
+    # Frontend only, run with node directly so node is PID 1.
+    entrypoint: ['node', 'frontend/apps/icloud-backup/server.js']
+    restart: unless-stopped
+    logging: *default-logging
+    # No env_file, no volumes, no ports, no environment: see the header.
+    # GET / must return 200. Traefik's Docker provider does not route to a
+    # container whose health is `starting`, so start_interval probes every 2s
+    # during start_period; otherwise the hostname would be unrouted for up to
+    # `interval` (30s) after each deploy.
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'node -e "const h=require(''http'');h.get(''http://localhost:8080/'',r=>process.exit(r.statusCode===200?0:1)).on(''error'',()=>process.exit(1))"',
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+      start_interval: 2s
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.icloud-backup.rule=Host(`icloud-backup.lilnas.io`)
+      - traefik.http.routers.icloud-backup.entrypoints=websecure
+      - traefik.http.routers.icloud-backup.tls.certresolver=le
+      - traefik.http.routers.icloud-backup.middlewares=lilnas-auth
+      - traefik.http.services.icloud-backup.loadbalancer.server.port=8080

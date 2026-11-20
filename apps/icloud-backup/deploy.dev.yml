@@ -1,0 +1,147 @@
+# Dry-run stack, published at https://icloud-backup.dev.lilnas.io through the
+# PRODUCTION Traefik (docs/lilnas-expose.md). It runs the built image, not hot
+# reload, because the login form needs port 8080 and the backend/frontend
+# split has to be exercised as deployed.
+#
+#   docker compose -p lilnas-dev -f apps/icloud-backup/deploy.dev.yml up -d --build
+#   docker compose -p lilnas-dev -f apps/icloud-backup/deploy.dev.yml down
+#
+# Isolation from production, which has the same service names on lilnas_default:
+#   - the frontend joins only the private `icloud-backup-dev` network and
+#     lilnas-proxy, never lilnas_default, where `icloud-backup` would resolve
+#     to the production backend. Its built-in http://icloud-backup:8081 reaches
+#     this stack's backend through the alias below.
+#   - the backend joins lilnas_default only to reach immich and auth.
+#   - the compose service names are *-dev, so none collides with a production
+#     alias on lilnas_default.
+#   - state lives in /storage/app-data/icloud-backup-dev and the database in a
+#     named volume. Photos share /storage/photos/icloud-users, so the dry-run
+#     variables below keep folders (dev- prefix), Immich users (+tag) and the
+#     download size (--recent 25) apart from production's.
+#
+# Optional .env.dev-remote adds IMMICH_API_KEY and POSTGRES_* values; it is
+# gitignored. No ports are published.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '3'
+
+services:
+  icloud-backup-dev-db:
+    image: postgres:18.4-alpine
+    container_name: lilnas-icloud-backup-dev-db
+    environment:
+      POSTGRES_USER: icloud_backup
+      POSTGRES_DB: icloud_backup
+      POSTGRES_PASSWORD: icloud_backup_dev
+    volumes:
+      - icloud-backup-dev-db:/var/lib/postgresql
+    healthcheck:
+      test: pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_interval: 5s
+      start_period: 30s
+    networks:
+      - icloud-backup-dev
+    restart: unless-stopped
+    logging: *default-logging
+    labels:
+      - lilnas.idle-reap.enabled=false
+
+  icloud-backup-dev:
+    image: lilnas-icloud-backup:dev
+    container_name: lilnas-icloud-backup-dev
+    build:
+      context: ../..
+      dockerfile: apps/icloud-backup/Dockerfile
+    entrypoint: ['node', 'dist/main']
+    restart: unless-stopped
+    logging: *default-logging
+    stop_grace_period: 30s
+    env_file:
+      - path: .env.dev-remote
+        required: false
+    environment:
+      - BACKEND_PORT=8081
+      - POSTGRES_HOST=icloud-backup-dev-db
+      - POSTGRES_USER=icloud_backup
+      - POSTGRES_DB=icloud_backup
+      - POSTGRES_PASSWORD=icloud_backup_dev
+      - IMMICH_URL=http://immich:2283
+      - IMMICH_EXTERNAL_URL=https://immich.lilnas.io
+      - TZ=America/Los_Angeles
+      - ICLOUDPD_RECENT=25
+      - ACCOUNT_SLUG_PREFIX=dev-
+      - IMMICH_EMAIL_PLUS_TAG=icloud-backup-dev
+    depends_on:
+      icloud-backup-dev-db:
+        condition: service_healthy
+    volumes:
+      - /storage/photos/icloud-users:/photos
+      - /storage/app-data/icloud-backup-dev:/state
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'node -e "const h=require(''http'');h.get(''http://localhost:8081/health'',r=>process.exit(r.statusCode===200?0:1)).on(''error'',()=>process.exit(1))"',
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      icloud-backup-dev:
+        aliases:
+          - icloud-backup
+      lilnas_default: {}
+    labels:
+      - lilnas.idle-reap.enabled=false
+
+  icloud-backup-dev-frontend:
+    image: lilnas-icloud-backup:dev
+    container_name: lilnas-icloud-backup-dev-frontend
+    build:
+      context: ../..
+      dockerfile: apps/icloud-backup/Dockerfile
+    entrypoint: ['node', 'frontend/apps/icloud-backup/server.js']
+    restart: unless-stopped
+    logging: *default-logging
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'node -e "const h=require(''http'');h.get(''http://localhost:8080/'',r=>process.exit(r.statusCode===200?0:1)).on(''error'',()=>process.exit(1))"',
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+      start_interval: 2s
+    networks:
+      - icloud-backup-dev
+      - lilnas-proxy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=lilnas-proxy
+      - lilnas.idle-reap.enabled=false
+      # `dev-icloud-backup`, NOT `icloud-backup`: production's deploy.yml owns
+      # that router name on this same Traefik.
+      - traefik.http.routers.dev-icloud-backup.rule=Host(`icloud-backup.dev.lilnas.io`)
+      - traefik.http.routers.dev-icloud-backup.entrypoints=websecure
+      # tls=true reuses the shared *.dev.lilnas.io wildcard certificate.
+      - traefik.http.routers.dev-icloud-backup.tls=true
+      - traefik.http.routers.dev-icloud-backup.middlewares=lilnas-auth
+      - traefik.http.services.dev-icloud-backup.loadbalancer.server.port=8080
+
+networks:
+  icloud-backup-dev:
+  lilnas-proxy:
+    external: true
+  lilnas_default:
+    external: true
+
+volumes:
+  icloud-backup-dev-db:
