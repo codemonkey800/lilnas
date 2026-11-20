@@ -1,7 +1,7 @@
 #!/bin/sh
 # Backend container entrypoint (deploy.yml / deploy.dev.yml, backend service).
 #
-# icloudpd 1.33.1 has no option for the address or port of its sign-in web
+# icloudpd 1.32.3 has no option for the address or port of its sign-in web
 # form (`waitress.serve(app)`), so during a sign-in it listens on every
 # interface and any container on the compose network could reach the Apple
 # password and code form. Only the backend itself (over 127.0.0.1) may.

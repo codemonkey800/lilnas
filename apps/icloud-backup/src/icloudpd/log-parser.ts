@@ -25,7 +25,7 @@ const DOWNLOADED = /(?:^|\s)Downloaded (\/.+?)\s*$/
 // total, printed with thousands separators.
 const TOTAL = /\bDownloading (\d[\d,]*) original (?:photos?|videos?)/
 
-// The exact "already exists" wording is unverified on 1.33.1 (the library logs
+// The exact "already exists" wording is unverified on 1.32.3 (the library logs
 // it at debug level, which `--log-level info` hides), so this is loose: an
 // absolute path followed, possibly after a little punctuation, by "already
 // exists". Everything between the first `/` and the phrase is the path.

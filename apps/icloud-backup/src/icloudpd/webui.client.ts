@@ -35,7 +35,7 @@ function decodeEntities(text: string): string {
   return text
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
+    .replace(/&quot;|&#0*34;|&#x0*22;/gi, '"')
     .replace(/&#0*39;|&#x0*27;/gi, "'")
     .replace(/&amp;/g, '&')
 }

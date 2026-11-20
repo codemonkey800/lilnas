@@ -6,8 +6,12 @@
 # Usage: fetch-icloudpd.sh <dest>
 set -euo pipefail
 
-ICLOUDPD_VERSION=1.33.1
-ICLOUDPD_SHA256=961131997d58f349f437b3a9637ce92f04213fdfe4f484913b85eb4bae64ccc2
+# Pinned at 1.32.3 on purpose: 1.33.1 is refused by Apple with error -20101
+# ("Invalid email/password combination", HTTP 401) for a valid password
+# (observed 2026-11-20), while 1.32.3 signs in and moves on to two-factor. Do
+# not raise the pin without a real sign-in.
+ICLOUDPD_VERSION=1.32.3
+ICLOUDPD_SHA256=cbe4de08f715a9b524795eccd75f33a97661cd27fa7f0282c58611d760fce093
 
 if [ "$#" -ne 1 ]; then
   echo "usage: $0 <dest>" >&2

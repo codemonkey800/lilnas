@@ -144,6 +144,9 @@ To upgrade, change both, and change the version in the Dockerfile's
 `icloudpd --version | grep -q 'version:<x.y.z>'` line. The build fails on a checksum mismatch or if
 the installed binary does not report the pinned version.
 
+The pin is 1.32.3 on purpose: 1.33.1 is refused by Apple with error `-20101` for a valid password
+(2026-11-20). Do not raise it without a real sign-in.
+
 ## Immich API key
 
 The backend talks to Immich with one API key in `IMMICH_API_KEY`. Create it in Immich as an admin

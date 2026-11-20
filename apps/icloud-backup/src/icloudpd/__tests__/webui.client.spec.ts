@@ -15,6 +15,15 @@ describe('parseFragment', () => {
   it.each<[string, FormStep]>([
     ['password', { step: 'need_password', error: null }],
     ['password-error', { step: 'need_password', error: 'Invalid password' }],
+    [
+      // Captured from icloudpd 1.32.3 after a wrong password: the Apple error
+      // (code -20101, HTTP 401) sits in the div.fw-bold above the form.
+      'password-error-apple',
+      {
+        step: 'need_password',
+        error: expect.stringContaining('Invalid email/password combination.'),
+      },
+    ],
     ['checking-password', { step: 'checking_password' }],
     ['code', { step: 'need_code', error: null }],
     [
@@ -40,6 +49,15 @@ describe('parseFragment', () => {
       step: 'need_code',
       error: "Can't verify <code> & retry",
     })
+  })
+
+  it('decodes the numeric quote entities Jinja2 emits (1.32.3)', () => {
+    const parsed = parseFragment(fixture('password-error-apple'))
+    expect(parsed).toEqual({
+      step: 'need_password',
+      error: expect.stringContaining('"code" : "-20101"'),
+    })
+    expect(JSON.stringify(parsed)).not.toMatch(/&#\d+;|&quot;/)
   })
 
   it('treats garbage as unknown, with a snippet that has no <input> tag', () => {

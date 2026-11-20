@@ -104,7 +104,7 @@ RUN apt-get update \
 COPY apps/icloud-backup/scripts/fetch-icloudpd.sh /tmp/fetch-icloudpd.sh
 RUN bash /tmp/fetch-icloudpd.sh /usr/local/bin/icloudpd \
     && rm /tmp/fetch-icloudpd.sh
-RUN icloudpd --version | grep -q 'version:1.33.1'
+RUN icloudpd --version | grep -q 'version:1.32.3'
 
 # Copy the built application with non-root ownership so the node user
 # (UID 1000) can read/execute everything in /app at runtime.
