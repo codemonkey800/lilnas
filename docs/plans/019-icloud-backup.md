@@ -769,3 +769,12 @@ icloudpd is pinned to 1.32.3 (sha256 cbe4de08…ce093). Verified live in a throw
 Classifier change: decodeEntities now also decodes &#34; / &#x22; (Jinja2 escapes `"` that way; 1.32.3's Apple error showed `&#34;serviceErrors&#34;`). New fixture password-error-apple.html (captured from 1.32.3) with two specs. Existing fixtures match the 1.32.3 templates structurally, so none were replaced. auth-failure.ts untouched.
 Not run: the apps/auth jest, mockups build/lint and compose prettier plan checks. Also prettier -c cannot parse Dockerfile or .sh (no parser), which is unrelated to this change.
 The pinned-1.32.3 image is not deployed to the dry-run stack; T31 rebuilds it. Cleanup done: container t30-icloudpd, network t30-net, image lilnas-icloud-backup:t30, /tmp/t30-out and /tmp/t30-up all removed.
+
+### 2026-11-19 · T31 · done
+Dry-run stack rebuilt with `docker compose -p lilnas-dev -f apps/icloud-backup/deploy.dev.yml up -d --build`. icloudpd in lilnas-icloud-backup-dev prints `version:1.32.3, commit sha:879c561`.
+Container states: lilnas-icloud-backup-dev Up, healthy (recreated); lilnas-icloud-backup-dev-frontend Up, healthy (recreated); lilnas-icloud-backup-dev-db Up 2 hours, healthy (not recreated, same volume).
+Backend log has `backend-entrypoint: inbound tcp/8080 dropped on every interface but lo`.
+https://icloud-backup.dev.lilnas.io/ from this host: 302 to https://auth.lilnas.io/login.
+.env.dev-remote was written (mode 600, gitignored via .gitignore:6) and deleted after the containers came up. Tree clean, nothing committed.
+
+No commits: nothing to integrate.
