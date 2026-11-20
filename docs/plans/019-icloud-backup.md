@@ -531,3 +531,10 @@ Deliberate differences from the task text: it names `actions.newImmichPassword()
 Progress is rounded down and counts skippedItems; the bar has aria-valuenow = percent of 100, indeterminate (no valuenow) while totalItems is null. @lilnas/ui Progress has no warn tone, so the paused bar is accent and the indexing attempt bar is a local bg-warn bar.
 Not visually checked in a browser at 1280/390; layout follows the mockup's classes (max-sm: for phone full-width buttons, sm: breakpoints for rows).
 Specs: 39 new tests across 5 files; full apps/icloud-backup jest run is 313 passed.
+
+### 2026-11-19 · T14 · done
+/admin is src/app/admin/page.tsx rendering the client component AdminPage (src/components/admin-page.tsx). It calls getAdminAccounts() and uses DataList from @lilnas/ui (table from md, cards below) inside Density compact.
+STATE_BADGES in src/lib/admin-state.ts maps every BackupState to tone, label and live. Tones: accent for checking_*, downloading and provisioning; ok for done; warn for queued_login, need_password, need_code, queued_download, indexing_wait, needs_login and paused_low_disk; bad for failed. cancelled is mute, which the task did not specify. A row with no job shows a dash. Badges carry data-tone, which the specs read.
+Decisions: compact density applies at every width, since Density has no breakpoint option. The empty-state and 403 copy follow the task text, not the mockup's wording ("No backups yet"). The error note shows the ApiError message rather than the mockup's machine string. The link home is a ghost "My backup" button beside Refresh. Refresh keeps the rows on screen while it loads; Try again clears them to the skeleton first.
+I did not visually compare the page with the mockup at 1280 and 390, because no browser run was done; the specs are the only verification of rendering.
+Checks run: utils and ui build, icloud-backup lint and type-check, full icloud-backup jest (24 suites, 295 tests), auth services jest (88 tests), cli build with mockups and mockups:lint, prettier on the compose files, and docker build --check. All pass, and mockups left git status clean.

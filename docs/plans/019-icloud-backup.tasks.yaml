@@ -1113,7 +1113,8 @@ phases:
         files:
           - apps/icloud-backup/src/app/admin/
           - apps/icloud-backup/src/components/admin/
-        status: todo
+        status: done
+        commit: c1fdc5ff6d54209737bfc987188169e3463d693c
         body: |-
           A read-only page at `/admin` matching the approved mockup
           `docs/features/icloud-backup/designs/admin.html`, at 1280 and 390. Data from
