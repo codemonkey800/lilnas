@@ -1,0 +1,17 @@
+2026-11-20 02:57:25 INFO     Processing user: nobody@example.invalid
+getpass.py:150: GetPassWarning: Can not control echo on the terminal.
+Warning: Password input may be echoed.
+iCloud Password for nobody@example.invalid:Traceback (most recent call last):
+  File "getpass.py", line 112, in unix_getpass
+termios.error: (25, 'Inappropriate ioctl for device')
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "icloudpd.py", line 7, in <module>
+  File "icloudpd/base.py", line 131, in ask_password_in_console
+  File "getpass.py", line 150, in unix_getpass
+  File "getpass.py", line 194, in fallback_getpass
+  File "getpass.py", line 236, in _raw_input
+EOFError
+[PYI-25:ERROR] Failed to execute script 'icloudpd' due to unhandled exception!
