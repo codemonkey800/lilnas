@@ -458,3 +458,14 @@ ensure returns email as Immich stores it, which may differ from the input in cas
 An Immich failure arrives as ImmichError with code, status (http_error only) and a message that is safe to log or store. Map any ImmichError to the contract's 'immich_error' code, except import_path_taken and import_path_invalid, which a caller may want to show differently.
 The shared test stand-in is src/immich/__tests__/helpers/fake-immich.ts (FakeImmich, API_KEY, only()). Other tasks' specs can reuse it. It is excluded from jest's testMatch.
 The Jest VM realm makes `err instanceof Error` false for the DOMException from AbortSignal.timeout, so the client detects a timeout by err.name === 'TimeoutError'.
+
+### 2026-11-19 · T5 · done
+DbModule is @Global and exports DbService, the DB token (the drizzle database), AccountsRepo, JobsRepo and JobEventsRepo; other modules can inject the repos without importing DbModule.
+Repos are constructed as `new XRepo(db)`; tests use `createTestDb()` from src/db/__tests__/helpers/test-db.ts (PGlite plus the real migrations; jest ignores __tests__/helpers).
+Repo signatures: AccountsRepo { findByLilnasUserId(id), findById(id), list(), slugExists(slug), create({lilnasUserId, lilnasEmail, slug}), setAppleId(id, appleId), setImmich(id, {userId, libraryId, email, createdByUs}), addTotals(id, items, bytes) }. JobsRepo { create({accountId, kind: 'first_backup'|'sync', state}), findById, findActiveForAccount, findLatestForAccount, findNonTerminal(), update(id, patch), finish(id, state, errorCode?, errorDetail?) }. JobEventsRepo { append(jobId, type, message), tail(jobId, limit) returns the last N oldest-first }.
+Unique violations are not translated: jobs.create throws when the account already has a non-terminal job, and accounts.setAppleId throws when another account has that Apple ID. Callers should catch these and map to a 409. accounts.create never throws on a slug collision (it retries with -2, -3, ...) but would throw on a duplicate lilnasUserId.
+addTotals adds to the running totals and also stamps lastBackupAt. finish clears retryAt and currentFile and stamps finishedAt; update and finish return Job | null. errorDetail is cut to MAX_ERROR_DETAIL (2000) in update and finish.
+bigint columns (totalBytes, downloadedBytes) use mode 'number'. Timestamps are timestamptz mapped to Date.
+The caller passes the base slug (slugFromEmail(email, ACCOUNT_SLUG_PREFIX)) to AccountsRepo.create.
+The lint rule no-relative-import-paths means all imports inside src/db are written `src/db/...`.
+Migrations run in DbService.onModuleInit from <cwd>/src/db/migrations, so the runtime image must ship src/db/migrations and start with cwd at apps/icloud-backup (check the Dockerfile and deploy.yml working dir in the image task).

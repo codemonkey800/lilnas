@@ -509,7 +509,8 @@ phases:
           - T4
         files:
           - apps/icloud-backup/src/db/
-        status: todo
+        status: done
+        commit: 03c895bda273b81ead86d250e2fc0564ecbbf077
         body: |-
           Postgres through drizzle, in `apps/icloud-backup/src/db/` only. `DbModule` (already
           imported by `app.module.ts`) becomes global and exports `DbService` and the repositories.
