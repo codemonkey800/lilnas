@@ -1,0 +1,9 @@
+@import '@lilnas/ui/theme.css';
+@source '../node_modules/@lilnas/ui/dist';
+
+/* Geist and Geist Mono come from `next/font/google` in layout.tsx; `inline`
+   makes the families resolve to Next's generated CSS variables. */
+@theme inline {
+  --font-sans: var(--font-geist), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
