@@ -19,11 +19,11 @@ and 390 side by side. There is no viewport switch.
 
 ## Pages
 
-| Page                         | Shows                                                                                                                                                                                              |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`start.html`](start.html)   | Pre-flight checklist; Apple ID and password (empty, submitting, wrong password, server low on space); waiting for a turn; code entry (empty, checking, wrong); signed in.                          |
-| [`backup.html`](backup.html) | Queued, Apple preparing, downloading, reconnecting banner, review (normal and large), finishing, done (new Immich account, password shown, had an account), sign in again, paused, three failures. |
-| [`admin.html`](admin.html)   | Backups table (rows, empty, loading, error; cards on a phone), then Existing libraries: presets list with Remove, and the add form (empty, validation errors, already linked, select open).        |
+| Page                         | Shows                                                                                                                                                                     |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`start.html`](start.html)   | Pre-flight checklist; Apple ID and password (empty, submitting, wrong password, server low on space); waiting for a turn; code entry (empty, checking, wrong); signed in. |
+| [`backup.html`](backup.html) | Queued, Apple preparing, downloading, reconnecting banner, finishing, done (new Immich account, password shown, had an account), sign in again, paused, three failures.   |
+| [`admin.html`](admin.html)   | Backups table (rows, empty, loading, error; cards on a phone).                                                                                                            |
 
 ## Decisions
 
@@ -32,9 +32,8 @@ and 390 side by side. There is no viewport switch.
   "iCloud sync pending"). The machine string only appears in mono under a failure.
 - **The app bar is the doorplate** `icloud-backup.lilnas.io`, the signed-in email
   and an avatar. Admins get the kit's bar with two links (My backup, Backups).
-- **One accent button per screen**: Continue, Sign in, Check code, Download,
-  Open my photos, Sign in again, Try again, Add library. In the _large_ review
-  the accent moves to **Not now** so the warning steers people to the safe choice.
+- **One accent button per screen**: Continue, Sign in, Check code,
+  Open my photos, Sign in again, Try again.
 - **Sign-in is three screens with a step marker**, not one long form. Waiting for
   a turn sits in step 2 because it happens right after Sign in.
 - **The code cells show bullets, never digits**, and the Apple ID is
@@ -45,9 +44,10 @@ and 390 side by side. There is no viewport switch.
 - **Failed is one screen with a reason slot** (a red note). Apple refused links
   back to the pre-flight (`start.html#preflight`), timed out goes back to
   sign-in, generic offers Try again.
-- **Remove has no confirm dialog**: re-adding a preset is one form away, and
-  nothing is deleted (voice.md: confirm only what can't be undone). It is a red
-  outline, the only destructive control.
+- **Admin is read-only**: a table and nothing to change. Someone whose iCloud
+  folder or Immich library already existed signs in like anyone else; the service
+  finds both by their email and the download skips what is there, so there is no
+  screen or form for it.
 - **Admin is compact at 1280, comfortable at 390**, per DESIGN.md's density table.
 
 ## Layout
@@ -58,7 +58,7 @@ src/
   mixins/icloud.pug   bar, column, screen frame, steps, code cells, Immich panel
   mixins/start.pug    one mixin per sign-in screen, plus a dispatcher
   mixins/backup.pug   one dispatcher over every backup state
-  mixins/admin.pug    table states, presets list, add form
+  mixins/admin.pug    table states
   pages/*.pug         index, start, backup, admin: layout only
   data/*.mjs          copy and sample data, keyed by page name
 ```

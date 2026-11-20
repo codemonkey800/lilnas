@@ -36,25 +36,6 @@ export const reconnecting = {
   detail: 'Reconnecting. Your backup keeps going in the meantime.',
 }
 
-export const review = {
-  badge: { tone: 'warn', label: 'Needs a decision' },
-  title: "Download what's new?",
-  download: 'Download',
-  later: 'Not now',
-  normal: {
-    already: '18,316',
-    fresh: '212',
-  },
-  large: {
-    already: '1,310',
-    fresh: '17,222',
-    lead: 'This looks like most of your library.',
-    detail: 'Check with Jeremy before continuing.',
-  },
-  alreadyLabel: 'already on the server',
-  freshLabel: 'new',
-}
-
 export const finishing = {
   badge: { tone: 'accent', label: 'Finishing', live: true },
   title: 'Setting up your photos',
@@ -163,18 +144,6 @@ export const states = [
     key: 'reconnecting',
     label: 'Reconnecting',
     caption: 'The same screen with a banner when the live connection drops',
-  },
-  {
-    key: 'review',
-    label: 'Review before download',
-    caption:
-      'Shown once, to someone whose existing folder was adopted. Download is the accent button',
-  },
-  {
-    key: 'review-large',
-    label: 'Review · Large',
-    caption:
-      'Most of the library is new. The warning note takes over, and Not now becomes the accent button',
   },
   {
     key: 'finishing',

@@ -84,30 +84,6 @@ mixin backupScreen(view, s, c)
             +statusDot('warn')
             | Showing the last update we got.
           +btn({ icon: 'stop', label: c.downloading.stop, touch: mobile })(class=mobile ? 'w-full' : '')
-    when 'review'
-    when 'review-large'
-      - const large = s.key === 'review-large'
-      - const n = large ? c.review.large : c.review.normal
-      +ibScreen(view)
-        +stateHead(c.review.badge, c.review.title)
-        p(class='mt-2 text-body text-ink-2') #{n.already} of your photos are already on the server. #{n.fresh} are new. Download them?
-        if large
-          +note('warn', c.review.large.lead)(class='mt-4')
-            = c.review.large.detail
-        dl(class='mt-5 grid grid-cols-2 gap-3')
-          +card()
-            dd(class='text-h1 tabular-nums')= n.already
-            dt(class='text-sm text-ink-3')= c.review.alreadyLabel
-          +card()(class=large ? 'border-warn' : '')
-            dd(class='text-h1 tabular-nums')= n.fresh
-            dt(class='text-sm text-ink-3')= c.review.freshLabel
-        div(class=['mt-6 flex gap-3', mobile ? 'flex-col' : ''])
-          if large
-            +btn({ variant: 'accent', label: c.review.later, size: mobile ? 'lg' : 'md' })
-            +btn({ label: c.review.download, size: mobile ? 'lg' : 'md' })
-          else
-            +btn({ variant: 'accent', label: c.review.download, size: mobile ? 'lg' : 'md' })
-            +btn({ label: c.review.later, size: mobile ? 'lg' : 'md' })
     when 'finishing'
       +ibScreen(view)
         +stateHead(c.finishing.badge, c.finishing.title, c.finishing.lede)

@@ -6,16 +6,15 @@ block title
   | icloud-backup — admin · UI mockups
 
 //-
-  The read-only admin page: a table of everyone's backup, then the presets for
-  libraries that existed before the app, and the form that adds one. Copy and
-  sample data are in src/data/admin.mjs.
+  The read-only admin page: a table of everyone's backup. Copy and sample data
+  are in src/data/admin.mjs.
 
 block page
   +mockPage('max-w-[1760px]')(class='page')
     +mockHead({ eyebrow: 'icloud-backup · /admin', title: 'Admin', back: true })
-      p For lilnas-auth admins. A compact, read-only table at 1280 that becomes a list of cards at 390. Below it, #[+code('Existing libraries')]: the presets that link a lilnas email to a folder and an Immich library, and a form that adds one. #[+code('Add library')] is the one accent button; #[+code('Remove')] is a red outline because it is the only destructive thing here. Each state is a frame showing 1280 and 390 side by side.
+      p For lilnas-auth admins. A compact, read-only table at 1280 that becomes a list of cards at 390. Nothing on this page changes anything. Each state is a frame showing 1280 and 390 side by side.
 
-    - const d = { copy, cols, rows, libraries, form }
+    - const d = { copy, cols, rows }
     each fr, i in frames
       +mockFrame(fr.key, fr.label, { num: String(i + 1).padStart(2, '0'), caption: fr.caption })
         div(class='flex flex-wrap items-start gap-x-8 gap-y-6')

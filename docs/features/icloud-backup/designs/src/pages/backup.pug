@@ -12,9 +12,9 @@ block title
 block page
   +mockPage('max-w-[1760px]')(class='page')
     +mockHead({ eyebrow: 'icloud-backup · /', title: 'Backup', back: true })
-      p What a signed-in person sees from then on, one screen per state of their backup. Each has a status badge, one headline, and at most one accent button: #[+code('Download')], #[+code('Open my photos')], #[+code('Sign in again')] or #[+code('Try again')]. Only a live backup wears the pulsing dot. Each state is a frame showing 1280 and 390 side by side.
+      p What a signed-in person sees from then on, one screen per state of their backup. Each has a status badge, one headline, and at most one accent button: #[+code('Open my photos')], #[+code('Sign in again')] or #[+code('Try again')]. Only a live backup wears the pulsing dot. Each state is a frame showing 1280 and 390 side by side.
 
-    - const c = { queued, preparing, downloading, reconnecting, review, finishing, done, reauth, paused, failed }
+    - const c = { queued, preparing, downloading, reconnecting, finishing, done, reauth, paused, failed }
     each s, i in states
       +mockFrame(s.key, s.label, { num: String(i + 1).padStart(2, '0'), caption: s.caption })
         div(class='flex flex-wrap items-start gap-x-8 gap-y-6')
