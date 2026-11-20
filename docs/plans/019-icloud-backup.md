@@ -395,3 +395,56 @@ Checked:
 - Secret redaction depth and keys — apps/icloud-backup/src/logger.config.ts: Covers password/code/apiKey at depths 0-3 plus cookie, authorization, set-cookie and req.body; spec asserts no secret appears.
 - next.config.js origin vs Dockerfile guard and builder migrations path — apps/icloud-backup/next.config.js, Dockerfile, infra/base-images/lilnas-monorepo-builder.Dockerfile: Both use http://icloud-backup:8081; WORKDIR /source makes the migrations copy path correct.
 - Lockfile changes to other importers and @lilnas/utils imports — pnpm-lock.yaml, packages/utils/src/auth: Only a drizzle-orm peer suffix change for auth/download/tdr-bot; AuthClient.dockerInstance, checkIsAdmin and auth/types exist.
+
+### 2026-11-20 · Phase 1 · review cycle 1
+Pass 1 (T1): T1 adds the single read-only mount `/storage/photos/icloud-users:/icloud-users:ro` to the immich service in the file's existing style, and the host folder exists as uid 1000 with mode 755. No defects found.
+Pass 2 (T3): T3 adds static icloud-backup mockups (Pug + data + generated HTML). Every state T3 asks for is present in the source; no defects found. Coverage is partial because the four generated HTML files (~19k lines, mostly inlined kit CSS) were scanned with targeted greps rather than read line by line.
+Pass 3 (T4): T4 scaffold matches the task: package, configs, Nest skeleton with the global forwarded-user guard, wire contract, pino redaction, fetch script and Dockerfile, with every required spec present and passing. No P0/P1 defects; two P2 notes (global guard runs on future WebSocket message handlers and crashes; `code` redaction also hides error codes).
+Pass 4 (T25): T25 builds what the task asked for: one review frame per state on each page (start 10, backup 15, admin 8), and each frame shows the 1280 and 390 screens side by side with their labels. Ids, titles and numbers match the data, no switch markup or script is left, and only icloud-backup files and the two kit files changed. Coverage is partial because the four large generated-HTML hunks were checked by parsing the built files at 869f27d75edc rather than read line by line.
+Pass 5 (T27): T27 removes the preview states, previewItems, adopted and the preset/library-option schemas exactly as asked, with no leftover references in apps/icloud-backup and a new rejection test for the removed states. No defects found.
+Pass 6 (T26): T26 removes the review/review-large backup states and the admin Existing libraries section cleanly from data, mixins, pages, README and rebuilt HTML; no defects found.
+Seams pass: Seams pass over the export-level diff found no disagreements between tasks. T27's contract, T26's cut-down mockups, T4's scaffold (env keys, auth, config) and T1's Immich mount agree on state names, paths and identifiers.
+Consolidation: Seven passes over Phase 1 (Immich mount, mockups, scaffold, contract cut-down) found no P0/P1 defects. Three distinct P2 notes remain: the global guard on WebSocket handlers, the over-broad `code` log redaction, and the index page text that still describes the removed viewport switch.
+
+Notes:
+- F3 · P2 · Global ForwardedUserGuard throws on WebSocket message handlers — apps/icloud-backup/src/auth/forwarded-user.guard.ts:27
+- F4 · P2 · plan-mandated · Redacting every `code` key also blanks error codes — apps/icloud-backup/src/logger.config.ts:11
+- F5 · P2 · Index page text still describes the removed viewport switch — docs/features/icloud-backup/designs/src/pages/index.pug:8
+
+Suspicions:
+- icloudpd web UI default port matches the Next port in the single-container dev setup — apps/icloud-backup/src/env.ts:12 · ICLOUDPD_WEBUI_URL defaults to http://127.0.0.1:8080, and `next dev -p 8080`, the image's default `pnpm start` and FRONTEND_PORT all put the frontend on 8080. next.config.js says the backend and frontend run in one dev container, so both would want loopback 8080 there. Production splits the containers, so there is no clash in prod. · confirm by: Check whether icloudpd 1.33.1's web UI port can be configured, and read deploy.dev.yml / the dev command once the icloudpd runner exists to confirm the web UI binds to a different port in dev.
+- Mockup 'Done · Password shown' has no contract shape — apps/icloud-backup/src/shared/contract.ts · backup.mjs (T3/T26) shows a 'Create a temporary password' action that reveals a password once. The contract (T27) has `immich.createdByUs` but no request or response schema for making that password, so the screen cannot yet be built from the contract. · confirm by: Check that a later task owning contract.ts adds a temporary-password endpoint schema before the backup page is built.
+
+Spec check:
+- missing: Also `.env.example` (every key above, no values that are secrets) (apps/icloud-backup/.env.example) — NODE_ENV is not listed; every other key is.
+- extra: Redact in the pino config: req.headers.cookie, req.headers.authorization, req.body, and any key named password, code, apiKey (apps/icloud-backup/src/logger.config.ts) — Also redacts res.headers["set-cookie"] and skips /health in autoLogging; harmless.
+- unverifiable: Verify: pnpm lilnas ci detect ... lists no image, pull empty, and up holding only services defined in infra/immich.yml (T1 task notes) — The JSON in the notes matches; detect was not re-run.
+- unverifiable: docker build succeeds; icloudpd --version prints 1.33.1; id shows uid 1000; image removed afterwards (apps/icloud-backup/Dockerfile) — Only `docker build --check` is in the check results; a person should confirm the full build and the image cleanup.
+- unverifiable: Mockup changes are committed with their rebuilt *.html (pnpm mockups leaves git status clean) (docs/features/icloud-backup/designs/*.html) — The check runs pnpm mockups but does not assert git status is clean afterwards.
+- unverifiable: On the phone it becomes a list (docs/features/icloud-backup/designs/src/mixins/admin.pug) — Depends on the shared kit's dataList mobile rendering; check visually at the H task.
+- unverifiable: Confirm the two screens of a frame sit side by side without overflow or clipping, every screen looks as before, and the admin page has no empty gap at 1800 px (built start/backup/admin.html) — The task notes claim headless screenshot comparisons passed; a person should look at the rendered pages at the H review.
+- unverifiable: icloud-backup-frontend in apps/icloud-backup/deploy.yml has no env_file, no volumes and no secret in environment (apps/icloud-backup/deploy.yml) — No deploy.yml is in this phase; a person should confirm that a later phase adds it and meets this.
+
+Declined to judge:
+- forceRecreate of auth in the T1 detect JSON — Pre-existing: apps/auth/deploy.yml:83 bind-mounts infra/immich.yml, so any change to that file recreates auth. The task's verify criteria still hold.
+- infra/immich.yml failing prettier -c — It fails at base too, and the task said to keep the file's style.
+- Mockup markup semantics: buttons nested inside <a>, an <a> with no href around Try again, <dd> before <dt> in review counts — Static mockups with no behaviour; a person reviews them at the H task. The frontend should not copy the a>button nesting.
+- Inlined kit CSS in the generated pages (hex colours, leftover vp-scope/vp-radio rules, new Tailwind @property blocks) — Generated from the shared kit theme, which the task said to leave unchanged; mockups:lint passed and no markup uses the leftover rules.
+- Line-by-line reading and visual judgement of the generated admin/backup/index/start.html — Build output, checked by parsing and targeted greps instead; a person reviews the visuals at the H task.
+- pnpm-lock.yaml peer-suffix churn for auth, download and tdr-bot — Only the drizzle-orm peer variant changes (adds pglite); no new deps, and their checks pass.
+- AdminCheckService logs the email on an auth outage — An email is not a listed secret; apps/download does the same.
+- AdminAccountRowSchema has no spec case — Pre-existing gap that T27 did not touch.
+
+Checked:
+- Host folder missing or root-owned before deploy — /storage/photos/icloud-users: stat shows 1000:1001 755.
+- Auth reading infra/immich.yml affected by the new volume — apps/auth/deploy.yml:83, apps/auth/src: Auth mounts the file only to find hosts and routes, and a volume line does not change labels. The auth specs pass.
+- Global guards reach WebSocket handlers — node_modules/@nestjs/websockets/socket-module.js:88: GuardsContextCreator gets the app config, so APP_GUARD runs on @SubscribeMessage (P2 finding).
+- Logs leak passwords, codes, cookies or API keys — apps/icloud-backup/src/logger.config.ts, src/__tests__/logger.config.spec.ts: A real pino-http spec shows the cookie, authorization header, body, password, code and nested apiKey all redacted.
+- Production picks up the dev identity fallback — apps/icloud-backup/src/auth/forwarded-user.ts: With NODE_ENV=production it returns undefined before reading DEV_USER_*; this is tested.
+- Frame counts, ids and numbering match each page's data after T25/T26 — docs/features/icloud-backup/designs/{start,backup,admin}.html: Frames, numbering and ids match the state keys; after T26, backup has 13 frames (01-13) and admin has 4 (01-04).
+- Behavioural JS or leftover viewport-switch markup in the mockups — docs/features/icloud-backup/designs/*.html: No <script>, onclick, javascript:, vp-radio or data-viewport-panel elements.
+- Cross-page anchor start.html#preflight broken — start.html / backup.html: id=preflight is on the first start frame and the links point to it.
+- Leftover references to states, schemas and data removed by T26/T27 — apps/icloud-backup, docs/features/icloud-backup/designs/src: Only contract.spec.ts mentions 'previewing'/'review_download', and only to assert they are rejected; the mockup pages and mixins have no dangling references.
+- Mockup states that have no contract state — designs/src/data/backup.mjs, start.mjs vs shared/contract.ts: Every mockup state maps to a contract state or field.
+- Immich mount path vs IMMICH_IMPORT_ROOT — infra/immich.yml:19, apps/icloud-backup/src/env.ts, .env.example:33: The mount /storage/photos/icloud-users:/icloud-users:ro matches the default /icloud-users.
+- Health route path vs log ignore vs Next rewrite — health.controller.ts, logger.config.ts, next.config.js: The controller serves /health, autoLogging ignores /health, and the rewrite strips /api, so they agree.
