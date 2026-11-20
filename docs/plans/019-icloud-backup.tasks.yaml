@@ -767,7 +767,8 @@ phases:
           - T7
         files:
           - apps/icloud-backup/src/jobs/
-        status: todo
+        status: done
+        commit: 8ed85785f44865678b93bdf2d1dce95c4dfb09fc
         body: |-
           The state machine that drives one backup job from sign-in to Immich, in
           `apps/icloud-backup/src/jobs/` only. It uses the repositories from `src/db/`, the three
