@@ -1462,7 +1462,8 @@ phases:
         after:
           - T30
         files: []
-        status: todo
+        status: done
+        commit: 7cee757d920128eafa72058a86575fe4e88b0144
         body: |-
           The dry-run stack (`docker compose -p lilnas-dev -f apps/icloud-backup/deploy.dev.yml`,
           containers `lilnas-icloud-backup-dev`, `-dev-frontend`, `-dev-db`) is running on an image
