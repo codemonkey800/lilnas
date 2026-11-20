@@ -823,3 +823,13 @@ Checks run: utils and ui build, icloud-backup lint and type-check, full icloud-b
 
 ### 2026-11-19 · H4 · approved
 Approved.
+
+### 2026-11-19 · T19 · done
+Dry-run stack, image, volume, network and both dev data paths removed and verified. Immich has no +icloud-backup-dev user and no library under /icloud-users/dev- (users: erlyne, jeremy; libraries: Jeremy iCloud, Home Movies, Google Photos, Mom's iCloud), so there are no defects to report.
+Log evidence: grep -ci counts for password=, session, code=, cookie were all 0; Apple ID masked.
+Observed icloudpd form steps: job 2 went need_password -> (password POST) checking_password -> no_input -> need_code -> (code POST) unknown -> need_code -> (code POST) checking_code -> signed in. So a wrong code shows as unknown then back to need_code. A wrong password was never exercised (password accepted first try), so no sequence is recorded for it. Job 1 was cancelled at need_password.
+Immich step failed once at 06:26:51 with 403 "Missing required permission: library.create" (API key scope at that time); a later sync at 06:30:52 created the library, so the scope was fixed afterwards. Worth confirming the key still has library.create.
+Gotcha: the API key file is mode 0600, so a throwaway container must run with --user $(id -u):$(id -g) to read it; otherwise the key is silently empty and Immich returns 401.
+Cleanup: pulled curlimages/curl for the Immich check and removed it; temp evidence dir and throwaway container are gone. Tree clean, nothing committed.
+
+No commits: nothing to integrate.
