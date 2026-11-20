@@ -1886,3 +1886,64 @@ phases:
           Tear down (`docker compose -p icloud-backup-fwcheck down -v`), remove the image and temp
           folders, and show `docker ps -a`, `docker volume ls` and `docker network ls` are clean.
           Anything that fails goes under `defects:`.
+  - key: R3
+    name: Review remediation
+    tasks:
+      - id: R3
+        title: P1 A stopped backup is shown as 'Something went wrong'
+        after: []
+        files:
+          - apps/icloud-backup/src/components/steps/failed.tsx
+        status: todo
+        body: |-
+          Finding: F6 (P1)
+
+          From the review of phase 2 (cycle 1): a P1 finding.
+
+          Where: apps/icloud-backup/src/components/steps/failed.tsx:85
+
+          Why: stepFor maps job.state 'cancelled' to the 'failed' screen when account.lastBackupAt is set, and jobs.service finishes a cancelled run with errorCode null. Failed treats a null code as GENERIC, so it shows the 'Failed' badge, 'Something went wrong.' and 'if it keeps happening tell Jeremy'.
+
+          Failure scenario: A person with one finished backup presses Sync now, then Stop, and confirms. The view comes back with job.state 'cancelled' and errorCode null, and the screen says 'Your backup didn't finish / Something went wrong... tell Jeremy' instead of saying they stopped it.
+
+          Suggested fix: In Failed, branch on view.job?.state === 'cancelled' before the errorCode lookup. Show a neutral badge and copy such as 'You stopped this backup. Photos already saved are safe.' with the same Try again/Sync now button. Add a spec for a cancelled job with lastBackupAt set.
+
+          How to fix it:
+          1. First write a test that reproduces the failure scenario and fails on the
+             current code, in the package's test style, beside the tests the file
+             already has. Keep it: it is the regression test.
+          2. Then change the code so it passes, and run the plan's checks.
+          3. If you cannot make the scenario fail — the guard, type, or test that
+             already covers it — change nothing: delete the attempted test, leave the
+             tree clean, commit nothing, and report `status: done` with `commits: []`.
+             Open `notes` with `Not reproduced:` and say where the behaviour is covered.
+             The runner drops the finding on your word.
+      - id: R4
+        title: P1 Locked Apple ID spec passes without appleIdLocked
+        after: []
+        files:
+          - apps/icloud-backup/src/components/__tests__/sign-in-steps.spec.tsx
+        status: todo
+        body: |-
+          Finding: F7 (P1)
+
+          From the review of phase 2 (cycle 1): a P1 finding.
+
+          Where: apps/icloud-backup/src/components/__tests__/sign-in-steps.spec.tsx:233
+
+          Why: The task's Tests list includes 'a locked Apple ID is read-only'. The spec renders a need_password view, and sign-in.tsx makes the Apple ID read-only for any need_password view (readOnlyId = appleIdLocked || retrying), so the test would still pass if account?.appleIdLocked were removed from readOnlyId.
+
+          Failure scenario: Delete `Boolean(account?.appleIdLocked) ||` from sign-in.tsx line 46 and the spec stays green. A returning person with a locked Apple ID who reaches the form from pre-flight (job null) then gets an editable Apple ID.
+
+          Suggested fix: Render the locked case with no job: makeView(null) plus account.appleIdLocked = true. Click Continue on pre-flight and assert the Apple ID is prefilled and readonly, and that the password field has focus. Keep or rename the current case as the retry read-only test.
+
+          How to fix it:
+          1. First write a test that reproduces the failure scenario and fails on the
+             current code, in the package's test style, beside the tests the file
+             already has. Keep it: it is the regression test.
+          2. Then change the code so it passes, and run the plan's checks.
+          3. If you cannot make the scenario fail — the guard, type, or test that
+             already covers it — change nothing: delete the attempted test, leave the
+             tree clean, commit nothing, and report `status: done` with `commits: []`.
+             Open `notes` with `Not reproduced:` and say where the behaviour is covered.
+             The runner drops the finding on your word.
