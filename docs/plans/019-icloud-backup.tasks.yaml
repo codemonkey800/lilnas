@@ -1143,7 +1143,8 @@ phases:
           - apps/auth/deploy.yml
           - apps/auth/deploy.dev.yml
           - apps/portal/src/utils/app-meta.ts
-        status: todo
+        status: done
+        commit: 3e11c5dcb3c3cf9b17fe2dfe1848af19c85bd0d2
         body: |-
           Make `apps/icloud-backup` deployable. Read `apps/auth/deploy.yml` (two services from one
           image), `apps/tdr-bot/deploy.yml` (Postgres) and `docs/deploy.md` ("Add a new env file").

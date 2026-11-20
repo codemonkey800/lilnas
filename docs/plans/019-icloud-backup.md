@@ -503,3 +503,16 @@ Gotchas: (1) a missing field makes the server log `cannot find code in request {
 T8 reported 1 blocking defect at attempt 1, sent to R1; it runs again at round 2 to re-check.
 
 - R1 · Production API key cannot call POST /libraries/:id/validate; ensure() fails for every user (`apps/icloud-backup/src/immich/immich.client.ts validateLibrary(); called from immich.provisioner.ts ensure()`): Immich POST /libraries/<id>/validate failed with 403: Missing required permission: all. Cause (immich-server:v3.3.4, dist/controllers/library.controller.js): the route is Authenticated({ admin: true }) with no permission, so no entry in the seven-permission list covers it; only an `all` key passes. The other routes work with the list: GET/POST /libraries, GET /admin/users, POST /admin/users, PUT /admin/users/:id, POST /libraries/:id/scan and GET /libraries/:id/statistics all passed. Fix options: (a) human re-creates the production key with `all`, which makes it a full-admin key; or (b) drop validateLibrary from ensure() and have the backend check that the folder exists and is readable itself, then map a scan or empty result to import_path_invalid. I did not change the client because (b) is a design change and (a) is the human's call on the production key.
+
+### 2026-11-19 · T15 · done
+Compose and registration are done as specified. Deliberate differences and findings:
+- Added devDependency yaml ^2.9.1 to apps/icloud-backup/package.json (lockfile +3 lines) because deploy.spec.ts parses compose files and yaml did not resolve in this app.
+- `pnpm lilnas secrets verify` discovers env files via `git ls-files`, so a new .env.prod is skipped until it is tracked (I used git add -N before verifying; it is now committed). Verify reports ok for apps/icloud-backup/.env.prod.
+- .env.prod values are written by dotenvx set, so they are quoted (KEY="encrypted:..."), unlike some older files; deploy.spec.ts accepts both.
+- deploy.dev.yml hardcodes non-secret dev Postgres credentials as literals (icloud_backup / icloud_backup_dev) on the dev db and backend; .env.dev-remote (optional, gitignored) only needs IMMICH_API_KEY. Dev services carry lilnas.idle-reap.enabled=false on all three.
+- The deploy.yml header comment deliberately does not name the three dry-run variables, because deploy.spec.ts asserts those names do not appear anywhere in the file.
+- Prettier reflowed the healthcheck test lines in deploy.yml/deploy.dev.yml onto multiple lines; apps/auth/deploy*.yml were already failing prettier at base, so only the one mount line was added in their existing style.
+- Portal icon for icloud-backup is 'grid'.
+- Host prerequisites before first deploy (not done here): copy .env.keys to /opt/lilnas (docs/deploy.md "Add a new env file" step 5), create /storage/app-data/icloud-backup and /storage/app-data/icloud-backup-db with ownership the containers can write (backend runs as the image's user; postgres:18-alpine needs uid 70), and /storage/photos/icloud-users must exist.
+- ci detect --base HEAD~1 --head HEAD --json: full=true and image ghcr.io/codemonkey800/lilnas-icloud-backup (apps/icloud-backup/Dockerfile) lists services icloud-backup and icloud-backup-frontend.
+- Cleanup: temporary .env.prod.decrypted deleted; no containers, networks, volumes or images created; nothing pushed.
