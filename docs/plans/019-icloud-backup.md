@@ -265,3 +265,12 @@ Approved.
 
 ### 2026-11-19 · H1 · approved
 Approved.
+
+### 2026-11-19 · T2 · done
+Pushed b5c1c2cb8e82ea9b2a8ab970fd4cee79b01d2931 to main (658ee5d5..b5c1c2cb). Rollback sha: 658ee5d58fc83e6b3d7102a8b3da0ebcfb002ef2 (human revert on main; not done).
+CI run: https://github.com/codemonkey800/lilnas/actions/runs/44658108633 (green; deploy job 43s).
+Pre-push: origin/main ancestor of HEAD; diff touched only docs/plans/019-* and infra/immich.yml; immich.yml diff was exactly the one icloud-users :ro line; /storage/photos/icloud-users exists, uid:gid 1000:1001; ci detect full:false, images [], pull [], up [immich, immich-database, immich-machine-learning, immich-redis], forceRecreate ["auth"].
+Post-deploy: lilnas-immich-1 recreated (started 2026-11-20T02:04:47Z), healthy; mounts include /storage/photos/icloud-users -> /icloud-users rw=false plus icloud, icloud-mom, google-photos, home-movies (all rw=false) and upload (rw=true); immich ping 200; no mount/library errors in 10m of logs (only a benign path-to-regexp WARN); lilnas-auth-1 recreated, running (healthy); auth /login 200.
+Nothing created, so nothing to clean up; worktree clean.
+
+No commits: nothing to integrate.
