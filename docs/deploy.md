@@ -244,7 +244,7 @@ line stripped, so the container env is identical to the old plaintext files.
 Discovery rule (`listEncryptedEnvFiles` in `packages/cli/src/utils/secrets.ts`
 and `decrypt-env.sh --list`): tracked files matching `apps/*/.env.prod`,
 `infra/.env`, `infra/.env.*`, excluding `*.example` and `*.decrypted`. Today:
-`apps/{auth,download,equations,me-token-tracker,tdr-bot,theater}/.env.prod`,
+`apps/{auth,download,equations,icloud-backup,me-token-tracker,tdr-bot,theater}/.env.prod`,
 `infra/.env` (immich) and `infra/.env.{l4d2,nexus-code,palworld,storage,traefik,turbo,valheim}`.
 
 ### `.env.keys`
