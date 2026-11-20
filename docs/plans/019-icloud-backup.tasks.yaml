@@ -1639,7 +1639,7 @@ phases:
           - T31
           - T33
         files: []
-        status: todo
+        status: approved
         body: |-
           Have your phone with you. Open `https://icloud-backup.dev.lilnas.io`. This stack downloads
           only your 25 newest items, into `/storage/photos/icloud-users/dev-<your name>`.

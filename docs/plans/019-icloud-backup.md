@@ -820,3 +820,6 @@ ensure() now takes onUserCreated and knownCreatedUserId. completeBackup passes b
 Readers of immichUserId: admin.service hasImmich and jobs.view's immich block now key on immichLibraryId, so a user without a library is not shown as linked. newImmichPassword is unchanged and works for such a row.
 The jobs harness FakeProvisioner now calls onUserCreated and applies the knownCreatedUserId rule, and has a failAfterUser switch. The admin controller spec fixture got immichLibraryId null for the unlinked row, plus a third row (user, no library) that expects hasImmich false.
 Checks run: utils and ui build, icloud-backup lint and type-check, full icloud-backup jest (41 suites, 519 tests). Not run: the apps/auth jest, the mockups check, the prettier check on compose files, and docker build --check; none of them touch the files changed here.
+
+### 2026-11-19 · H4 · approved
+Approved.
