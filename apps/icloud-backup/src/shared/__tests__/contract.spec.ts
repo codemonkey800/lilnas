@@ -1,12 +1,12 @@
 import {
   BACKUP_STATES,
+  BackupStateSchema,
   BackupViewSchema,
   CodeBodySchema,
   ERROR_CODES,
   isTerminalState,
   JobViewSchema,
   PasswordBodySchema,
-  PresetBodySchema,
   ServerMessageSchema,
   StartBackupBodySchema,
   TERMINAL_STATES,
@@ -18,7 +18,6 @@ const job = {
   state: 'downloading',
   authError: null,
   queuePosition: null,
-  previewItems: null,
   totalItems: 100,
   downloadedItems: 10,
   skippedItems: 0,
@@ -39,7 +38,6 @@ const view = {
   account: {
     appleId: 'alice@icloud.com',
     appleIdLocked: true,
-    adopted: false,
     lastBackupAt: null,
     totalItems: 0,
     totalBytes: 0,
@@ -97,34 +95,6 @@ describe('CodeBodySchema', () => {
   })
 })
 
-describe('PresetBodySchema', () => {
-  const valid = {
-    lilnasEmail: 'Mom@Example.com',
-    folder: 'mom',
-    immichLibraryId: 'lib-1',
-  }
-
-  it('accepts a valid preset and lower-cases the email', () => {
-    expect(PresetBodySchema.parse(valid)).toEqual({
-      ...valid,
-      lilnasEmail: 'mom@example.com',
-    })
-  })
-
-  it.each([
-    { lilnasEmail: 'nope' },
-    { folder: '' },
-    { folder: '..' },
-    { folder: 'a/b' },
-    { folder: 'a\\b' },
-    { immichLibraryId: '' },
-  ])('refuses %j', override => {
-    expect(PresetBodySchema.safeParse({ ...valid, ...override }).success).toBe(
-      false,
-    )
-  })
-})
-
 describe('views', () => {
   it('parses a BackupView and a websocket message carrying it', () => {
     expect(BackupViewSchema.parse(view)).toEqual(view)
@@ -152,8 +122,16 @@ describe('views', () => {
     ).toBe(false)
   })
 
+  it.each(['previewing', 'review_download'])(
+    'refuses the removed state %s',
+    state => {
+      expect(BackupStateSchema.safeParse(state).success).toBe(false)
+      expect(JobViewSchema.safeParse({ ...job, state }).success).toBe(false)
+    },
+  )
+
   it('lists every state and error code', () => {
-    expect(BACKUP_STATES).toHaveLength(16)
+    expect(BACKUP_STATES).toHaveLength(14)
     expect(ERROR_CODES).toHaveLength(8)
   })
 

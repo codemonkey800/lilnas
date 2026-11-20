@@ -8,8 +8,6 @@ export const BACKUP_STATES = [
   'checking_password',
   'need_code',
   'checking_code',
-  'previewing',
-  'review_download',
   'queued_download',
   'indexing_wait',
   'downloading',
@@ -61,8 +59,6 @@ export const JobViewSchema = z.object({
   authError: z.enum(['wrong_password', 'wrong_code']).nullable(),
   // 1 = next; only in queued_login.
   queuePosition: z.number().int().nullable(),
-  // Files a download would fetch; set in review_download.
-  previewItems: z.number().int().nullable(),
   totalItems: z.number().int().nullable(),
   downloadedItems: z.number().int(),
   skippedItems: z.number().int(),
@@ -84,8 +80,6 @@ export const BackupAccountViewSchema = z.object({
   appleId: z.string(),
   // True once a download has started.
   appleIdLocked: z.boolean(),
-  // Linked to a folder and library that existed before.
-  adopted: z.boolean(),
   lastBackupAt: z.string().nullable(),
   totalItems: z.number().int(),
   totalBytes: z.number(),
@@ -120,41 +114,9 @@ export const AdminAccountRowSchema = z.object({
 })
 export type AdminAccountRow = z.infer<typeof AdminAccountRowSchema>
 
-export const AdminPresetSchema = z.object({
-  lilnasEmail: z.string(),
-  folder: z.string(),
-  immichLibraryId: z.string(),
-  immichLibraryName: z.string(),
-})
-export type AdminPreset = z.infer<typeof AdminPresetSchema>
-
-export const AdminLibraryOptionSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  importPaths: z.array(z.string()),
-})
-export type AdminLibraryOption = z.infer<typeof AdminLibraryOptionSchema>
-
 // --- requests (client to server) ---
 
 const emailAddress = z.string().trim().toLowerCase().pipe(z.email())
-
-// A folder name is one path segment under PHOTOS_ROOT: no separators, no NUL,
-// and not a relative-path component.
-const folderName = z
-  .string()
-  .trim()
-  .min(1)
-  .max(128)
-  .regex(/^[^/\\\0]+$/, 'must not contain a path separator')
-  .refine(name => name !== '.' && name !== '..', 'must not be . or ..')
-
-export const PresetBodySchema = z.object({
-  lilnasEmail: emailAddress,
-  folder: folderName,
-  immichLibraryId: z.string().trim().min(1),
-})
-export type PresetBody = z.infer<typeof PresetBodySchema>
 
 /** An email address, trimmed and lower-cased. */
 export const StartBackupBodySchema = z.object({ appleId: emailAddress })
