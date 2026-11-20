@@ -1781,7 +1781,8 @@ phases:
         title: 'Fix: Production API key cannot call POST /libraries/:id/validate; ensure() fails for every user'
         after: []
         files: []
-        status: todo
+        status: done
+        commit: f15f84a2960021b399281bb93b895527df51a876
         body: |-
           T8 · Live check of the Immich client against a throwaway Immich v3.3.4 reported this blocking defect (attempt 1):
 
