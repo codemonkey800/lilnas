@@ -719,3 +719,8 @@ Checked:
 - Env keys and paths vs compose and Immich mounts — deploy.yml, deploy.dev.yml, .env.prod, src/env.ts, infra/immich.yml: All names match EnvKeys; IMMICH_IMPORT_ROOT /icloud-users and PHOTOS_ROOT /photos match the mounts.
 - Entrypoint fails open if nft load or verify fails — apps/icloud-backup/scripts/backend-entrypoint.sh: Under set -eu, a failed nft -f or ruleset grep exits before exec setpriv.
 - Gateway push coalescing interleaving — src/api/backup.gateway.ts:79-101: schedule sets again=true while a loop runs and the loop re-checks after each await; no lost or out-of-order send.
+
+### 2026-11-19 · R4 · done
+Locked-Apple-ID spec now renders makeView(null) with account.appleIdLocked=true, clicks Continue on pre-flight, and asserts the Apple ID is prefilled and readonly and that the password field has focus. The previous need_password case is kept as "makes the Apple ID read-only on a retry even when it is not locked".
+Mutation check: with `Boolean(account?.appleIdLocked) ||` removed from sign-in.tsx, the locked spec failed (1 failed, 23 passed). With the guard restored, all 24 specs in the file pass; sign-in.tsx is unchanged in the commit.
+Verified: utils/ui build, icloud-backup lint and type-check, and the full icloud-backup jest run (41 suites, 508 tests) all pass. The apps/auth jest run, mockups, compose prettier and docker build --check were not run, since this change touches only one spec file.

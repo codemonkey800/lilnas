@@ -1923,7 +1923,8 @@ phases:
         after: []
         files:
           - apps/icloud-backup/src/components/__tests__/sign-in-steps.spec.tsx
-        status: todo
+        status: done
+        commit: f2d9ef2c4a02bdfd070ca53042849dc792e9d28b
         body: |-
           Finding: F7 (P1)
 
