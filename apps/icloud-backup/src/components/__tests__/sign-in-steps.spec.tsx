@@ -237,13 +237,26 @@ describe('sign-in screens', () => {
       expect(actions.submitPassword).not.toHaveBeenCalled()
     })
 
-    it('makes the Apple ID read-only and focuses the password when it is locked', () => {
-      const view = viewWith('need_password')
+    it('makes the Apple ID read-only and focuses the password when it is locked', async () => {
+      const user = userEvent.setup()
+      const view = makeView(null)
       const locked: BackupView = {
         ...view,
         account: view.account && { ...view.account, appleIdLocked: true },
       }
       render(<Screen actions={makeActions()} view={locked} />)
+      await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+      const id = screen.getByLabelText('Apple ID')
+      expect(id).toHaveValue('nobody@example.invalid')
+      expect(id).toHaveAttribute('readonly')
+      expect(screen.getByLabelText('Password')).toHaveFocus()
+    })
+
+    it('makes the Apple ID read-only on a retry even when it is not locked', () => {
+      render(
+        <Screen actions={makeActions()} view={viewWith('need_password')} />,
+      )
 
       const id = screen.getByLabelText('Apple ID')
       expect(id).toHaveValue('nobody@example.invalid')
