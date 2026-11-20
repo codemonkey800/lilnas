@@ -245,6 +245,14 @@ Jeremy's approval; it had been 44 commits behind).
   `+icloud-backup-dev` user and library) between T18 and T19; Immich stopped and folders moved
   between H8 and T24 (undo sheet is in T23's result, backup under `/storage/backups/immich-db/`).
 - Jeremy's reply style: answer first, tables and bullets, at most two paragraphs of prose.
+- **T25 (added 2026-11-19, Jeremy's request):** T3's mockups had no Nexus frame markup, so
+  review mode showed each page as one frame. Nexus frames are the direct `section.sec` children
+  of the first `.page` (title from `h2.sec-title`); no lilnas mockup had them. Jeremy chose one
+  frame per state with 1280 and 390 side by side, no viewport switch. T25 adds `mockFrame` to
+  the kit and rebuilds the three pages; H2 is now `after` T3 and T25. H2's checkpoint was
+  already open when T25 was added: it must not be approved before T25 lands.
+- **Run config shows `modelId: sonnet`** (2026-11-19) although the frontmatter says
+  `model: frontier`; Jeremy has been told.
 - No open thread with the user.
 
 ## Log

@@ -150,17 +150,94 @@ phases:
              its validation errors.
 
           Put copy and sample data in `src/data/*.mjs`. Report the page paths.
+      - id: T25
+        title: 'Mockups: one Nexus review frame per state, both widths in each frame'
+        after:
+          - T3
+        files:
+          - docs/features/icloud-backup/
+          - docs/designs/mockup-kit/mock.pug
+          - docs/designs/mockup-kit/README.md
+        status: todo
+        body: |-
+          The mockups in `docs/features/icloud-backup/designs/` (`start.html`, `backup.html`,
+          `admin.html`, built from `src/pages/*.pug`, `src/mixins/*.pug` and `src/data/*.mjs`) are
+          finished, but a human reviews them in Nexus's review canvas, which lays a page out as
+          **frames** and lets them pin comments per frame. These pages have no frame markup, so
+          each one shows as a single huge frame with a Desktop/Mobile switch. Rebuild the harness
+          around the screens so every state is its own frame. Do not change any screen: the copy,
+          the states, the sample data and the screen mixins' output stay as they are.
+
+          How Nexus finds frames (it reads the built HTML; nothing is configured):
+          - a frame is a direct `<section class="sec …">` child of the first element in the
+            document that has the class `page`
+          - children of `.page` before the first section are the cover band (title and intro),
+            shown above the frames
+          - a frame's title is the text of its `h2.sec-title`; an optional `.sec-num` holds a
+            number such as `01`
+          - frames are laid out on a grid of cells as wide as the `.page` content, in any order,
+            and sometimes one at a time, so each section must stand alone: its own title and
+            caption, no "as above", nothing that depends on a control outside it
+          `sec`, `sec-title`, `sec-num` and `page` are marker classes only; they need no CSS.
+
+          **Kit.** In `docs/designs/mockup-kit/mock.pug` add one mixin and use it from all three
+          pages:
+          ```pug
+          //- One Nexus review frame: a direct child of the `.page` column.
+          mixin mockFrame(id, title, opts)   //- opts: num ('01'), caption
+            section(class='sec …' id=id)&attributes(attributes)
+              //- header: span.sec-num (when given), h2.sec-title, the caption
+              block
+          ```
+          Style it with the kit's existing tokens, like `mockSection` and `stateRow` in the same
+          file. Document it in `docs/designs/mockup-kit/README.md`: a row in the `mock.pug` table
+          and a short "Nexus review frames" section giving the rules above and saying a page
+          opts in by putting `class='page'` on its column. Change nothing else in the kit: no
+          other feature's built `*.html` may change (`git status` after `pnpm mockups` shows
+          only files under `docs/features/icloud-backup/` and the two kit files).
+
+          **Pages.** In `start.pug`, `backup.pug` and `admin.pug`:
+          - override `block page` and call `+mockPage('max-w-[1760px]')(class='page')`, so a
+            1280 screen and a 390 screen fit side by side (1280 + 390 + a gap)
+          - `+mockHead(…)` stays first, as the cover band. Reword its last sentence: each state is
+            a frame showing 1280 and 390 side by side
+          - remove the `vp-scope` wrapper, `+viewportToggle`, both `+viewportPanel`s, the
+            `+stateRow`/`+stateCell` wrappers and the two trailing `+frameLabel`s
+          - then one `+mockFrame(key, label, { num, caption })` per state, each a direct child of
+            the `.page` column, in the order the desktop panel has today. Keep each state's
+            existing `key` as the section `id` (`start.html#preflight` is linked from
+            `backup.html`). Inside: a row with the desktop screen (`+startScreen('desktop', …)`,
+            `+backupScreen('desktop', …)`, `+adminScreen('desktop', …)`) and the mobile screen
+            beside it, top-aligned, each with a `+frameLabel` (`Desktop · 1280`, `Mobile · 390`)
+          - `start.pug` groups its phone screens by `s.group` today; drop the grouping, and put
+            the group name in the frame's caption if it is not already clear from the label
+          - `index.html` is a list of links and needs no frames
+          Update `docs/features/icloud-backup/designs/README.md` where it mentions the viewport
+          switch.
+
+          No behavioural JS and no `<script>` of any kind. Run `pnpm mockups` and commit the
+          rebuilt `*.html`.
+
+          Verify and report, per page: the number of direct `section.sec` children of the `.page`
+          element in the built HTML (it must equal the number of states in that page's data), the
+          frame titles in order, and that no `vp-radio` or `data-viewport-panel` is left. Open each
+          built page in a browser at a 1800 px wide window, take a screenshot, and confirm the two
+          screens of a frame sit side by side without overflow or clipping and that every screen
+          looks as it did before (compare against `git show HEAD:<path>` of the same page at
+          both widths for two states per page). Delete the screenshots and any temp files.
       - id: H2
         title: Review the icloud-backup mockups
         after:
           - T3
+          - T25
         files:
           - docs/features/icloud-backup/designs/start.html
           - docs/features/icloud-backup/designs/backup.html
           - docs/features/icloud-backup/designs/admin.html
         status: todo
         body: |-
-          Check the three pages at both widths. Things to decide here, because the frontend is built
+          Each state is one frame with the 1280 and the 390 screen side by side; pin comments on
+          the frame they belong to. Things to decide here, because the frontend is built
           from what you approve:
           - the pre-flight wording a family member reads before typing an Apple password
           - the "you're next" waiting screen
