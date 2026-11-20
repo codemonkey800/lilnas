@@ -888,3 +888,24 @@ No commits: nothing to integrate.
 
 ### 2026-11-20 · H6 · approved
 Approved.
+
+### 2026-11-20 · Phase 3 · review cycle 1
+Phase 3 adds no P0 or P1 defects. The icloudpd pin moves to the 1.32.3 musl build with a direct-exec loader setup, the classifier decodes the numeric quote entities, and T34 saves a newly created Immich user before the library step and keeps that fact across retries. One P2: if the database write right after user creation fails, the original problem comes back.
+
+Notes:
+- F14 · P2 · A failed setImmichUser still loses "we created this user" — apps/icloud-backup/src/immich/immich.provisioner.ts:133
+
+Spec check:
+- unverifiable: SIGTERM ends the process within 2 s / musl binary runs directly with no wrapper (apps/icloud-backup/Dockerfile) — Verified only through the T32/T33 notes (60 ms, ELF with the musl interpreter). The diff cannot show runtime behaviour.
+
+Declined to judge:
+- USER node / USER root toggle around the version check in the Dockerfile — The final stage still ends with USER node, so the runtime user is unchanged.
+- Half-linked row (user, no library) is not shown in the UI, so the reset button is unreachable until a retry succeeds — The task asks only that newImmichPassword be allowed for such a row, and it is.
+- T18/T19/T20/T21/T31/T33 operational steps — They commit nothing. Their results are task notes outside the diff.
+
+Checked:
+- Readers of immichUserId after the half-linked row became possible — apps/icloud-backup/src (grep): jobs.view and admin.service key on immichLibraryId. newImmichPassword needs immichUserId and immichCreatedByUs, so it works for a half row. completeBackup rescans only when immichLibraryId is set.
+- Final runtime user changed by the USER switches — apps/icloud-backup/Dockerfile: USER root is restored after the check and USER node is set before ENTRYPOINT, as before.
+- Done screen renders without a library — apps/icloud-backup/src/components/steps/done.tsx: It reads account.immich, which is now null without a library. done is reached only after setImmich, so a done view always has a library.
+- Jobs test tells the truth about knownCreatedUserId and onUserCreated wiring — apps/icloud-backup/src/jobs/__tests__/helpers/harness.ts: FakeProvisioner applies the rule itself. Dropping either parameter in jobs.service fails the half-row assertion or the createdByUs:true assertion.
+- decodeEntities ordering with the new numeric quote entities — apps/icloud-backup/src/icloudpd/webui.client.ts: &amp; is still decoded last, so &amp;#34; is not double-decoded.
