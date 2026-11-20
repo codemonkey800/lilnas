@@ -289,7 +289,18 @@ Jeremy's approval; it had been 44 commits behind).
   `after` T31. Do not approve H4 before T31. Apple sign-in attempts that day: 7 refused + 1
   accepted; avoid extra attempts (lockout risk). Not done: filing an upstream issue (would
   need Jeremy's OK; outward-facing).
-- Open thread: Jeremy is waiting for T30/T31, then redoes H4.
+- **Correction, same night: the glibc build is the problem, not the version.** T30/T31 put
+  1.32.3 glibc (`linux-amd64`) in the app; it still got `-20101` via the app (×3, also with
+  stale cookie files moved to `/storage/app-data/icloud-backup-dev/cookies-stale-20261120/`),
+  via the web form by hand (password length 32, matches the app's 47-byte JSON body) and via
+  the hidden prompt. `icloudpd/icloudpd:latest` = 1.32.3 `linux-musl-amd64` (sha256
+  `acbe7149…6fd6`, byte-identical to the release asset) succeeded twice. Same Python source;
+  the web form passes the password untouched. musl binary needs musl loader + musl libz;
+  Debian's `musl` package alone fails on libz; copying both from the pinned official image
+  into `/opt/musl/lib` works as uid 1000 (proved). T32 switches the image to it, T33 rebuilds
+  the dry-run stack and clears cookies; H4 is `after` T33. Apple attempts that night: ~13,
+  2 accepted. Not known: whether 1.33.1 musl works (not tried).
+- Open thread: Jeremy is waiting for T32/T33, then redoes H4.
 
 ## Log
 <!-- Written by Nexus: findings, review cycles, checkpoint verdicts, the final report,
