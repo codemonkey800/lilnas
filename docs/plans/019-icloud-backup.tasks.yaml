@@ -1,0 +1,1600 @@
+nexus-tasks: 1
+phases:
+  - key: '1'
+    name: Immich mount, design and scaffold
+    tasks:
+      - id: T1
+        title: 'Mount `/storage/photos/icloud-users` read-only into Immich'
+        after: []
+        files:
+          - infra/immich.yml
+        status: todo
+        body: |-
+          Every person's backup will live in `/storage/photos/icloud-users/<name>`. Mount that one
+          parent folder into Immich so a new person needs no compose change.
+
+          1. Create the host folder now, as yourself (uid 1000): `mkdir -p /storage/photos/icloud-users`
+             and confirm with `stat -c '%u:%g %a' /storage/photos/icloud-users` (expect `1000:…`, mode
+             755). It must exist before the deploy, or Docker creates it owned by root.
+          2. In `infra/immich.yml`, service `immich`, add one volume line after the `icloud-mom` one:
+             `- /storage/photos/icloud-users:/icloud-users:ro`.
+
+          Change nothing else in the file: no comments, no reformatting (the file fails
+          `prettier -c` at base; keep its style). CI runs `up -d` for every service a changed compose
+          file defines, and compose recreates only the service whose config changed.
+
+          Verify: `pnpm lilnas ci detect --base HEAD~1 --head HEAD --json` after your commit lists
+          no image, `pull` empty, and `up` holding only services defined in `infra/immich.yml`.
+          Report that JSON.
+      - id: H1
+        title: 'Go/no-go: push the Immich mount (Immich restarts once)'
+        after:
+          - T1
+        files: []
+        status: todo
+        body: |-
+          Approving lets an agent push one line to `main`: `infra/immich.yml` gains the read-only
+          mount `/storage/photos/icloud-users:/icloud-users`. CI then recreates the `immich`
+          container, so Immich is down for about 30 seconds. Nothing else deploys.
+
+          Approve when a short Immich restart is fine right now. Rollback, if needed, is yours:
+          revert the commit on `main` and push.
+      - id: T2
+        title: Push the Immich mount to main, watch CI, verify production
+        after:
+          - H1
+        files: []
+        status: todo
+        body: |-
+          A human approved this push. Push the Immich mount to `main`, watch the deploy and verify
+          production. Commit nothing.
+
+          Before pushing, all of these must hold. If one does not, stop and report without pushing:
+          - `git fetch origin main`, then `git merge-base --is-ancestor origin/main HEAD` succeeds
+            (never rebase, merge or force)
+          - `git diff --stat origin/main..HEAD` touches only `infra/immich.yml` and `docs/**`.
+            Anything under `apps/`, `packages/`, a lockfile or the root compose files means app code
+            would ship early
+          - the `infra/immich.yml` diff is exactly one added line, the `icloud-users` mount
+          - `/storage/photos/icloud-users` exists and is owned by uid 1000
+          - `pnpm lilnas ci detect --base origin/main --head HEAD --json` has `full: false`, no
+            images, `pull` empty, and `up` naming only services from `infra/immich.yml`
+          - record `git rev-parse origin/main` as the rollback sha
+
+          Push with `git push origin HEAD:main`. Find the run with
+          `gh run list --workflow ci.yml --branch main --event push --limit 5 --json databaseId,headSha,status,url`
+          (match `headSha`) and follow it with `gh run watch <id> --exit-status`. If it is red, report
+          the failing job's log and stop.
+
+          After the deploy, check production (read-only):
+          - `docker compose -p lilnas ps immich` shows a new, running container
+          - `docker inspect lilnas-immich-1 --format '{{json .Mounts}}'` includes
+            `/storage/photos/icloud-users` at `/icloud-users`, read-only, and still lists the
+            `icloud`, `icloud-mom`, `google-photos`, `home-movies` and upload mounts
+          - `curl -s -o /dev/null -w '%{http_code}' https://immich.lilnas.io/api/server/ping` is 200
+          - `docker logs lilnas-immich-1 --since 10m` has no error about a mount or a library
+
+          Report the pushed sha, the rollback sha, the CI run URL and each check. Rollback is a
+          revert on `main` by a human; do not do it yourself. Put any failed check under `defects:`.
+      - id: T3
+        title: 'Mockups: every icloud-backup screen at 1280 and 390'
+        after: []
+        files:
+          - docs/features/icloud-backup/
+        status: todo
+        body: |-
+          Design the whole `icloud-backup.lilnas.io` UI as static mockups, before any code exists.
+          Read `DESIGN.md`, `docs/designs/voice.md`, `docs/designs/components.md` and
+          `docs/designs/mockup-kit/README.md` first; open
+          `docs/features/design-system/designs/index.html` for the components. Scaffold with
+          `pnpm --filter @lilnas/cli build && pnpm exec lilnas mockups new icloud-backup`, replace the
+          scaffold, and use the shared kit (`docs/designs/mockup-kit/`) as
+          `docs/features/portal/designs/src` does. Build with `pnpm mockups`; commit the generated
+          `*.html`. No behavioural JS.
+
+          The audience is family, not developers: plain words, one thing to do per screen, comfortable
+          density. The app bar carries the doorplate `icloud-backup.lilnas.io`.
+
+          Pages, each at desktop 1280 and phone 390, with every state side by side:
+          1. `index.html`: links to the pages below.
+          2. `start.html`: the pre-flight page and sign-in.
+             - Pre-flight checklist: "Advanced Data Protection must be off", "Access iCloud Data on the
+               Web must be on", "You need an Apple device nearby for the 6-digit code; text-message
+               codes and security keys don't work here". Each with one line on where the setting is
+               on an iPhone. A "Continue" button.
+             - Apple ID and password form. Say that the password goes to Apple and is not saved.
+               States: empty, submitting, "That password didn't work, try again", server low on
+               space (start disabled).
+             - Waiting for a turn: "Someone else is signing in. You're next, this page moves on by
+               itself." No input.
+             - Code entry: six digits, "Enter the code shown on your Apple device". States: empty,
+               checking, "That code didn't work, try again".
+             - Signed in, handing over to the backup.
+          3. `backup.html`: the page a signed-in person sees from then on.
+             - Queued to download.
+             - "Apple is still preparing your library. Trying again in 2 minutes" (attempt 2 of 6).
+             - Downloading: "1,204 of 18,532 photos and videos", a progress bar, size so far
+               ("12.4 GB"), the current file name in mono, a live dot, "You can close this tab".
+               A "Stop" button.
+             - Review before download, shown once to a person whose existing folder was adopted:
+               "18,316 of your photos are already on the server. 212 are new. Download them?" with
+               "Download" and "Not now", and the warning variant when the new count is large
+               ("This looks like most of your library. Check with Jeremy before continuing").
+             - Finishing: creating the Immich account and library.
+             - Done: last backup time, item count, size, "Open my photos" to
+               `https://immich.lilnas.io`, the Immich sign-in email, a "Create a temporary password"
+               button, then the state after pressing it (password shown once in mono with a copy
+               button and "You'll be asked to change it"), and the variant for a person who already
+               had an Immich account (no password button). A "Sync now" button.
+             - "Apple wants you to sign in again" with a button back to sign-in.
+             - Paused: "The server is low on space" with what to do.
+             - Failed: one screen with a slot for the reason, covering "Apple refused access. Check
+               the two settings" (link back to pre-flight), "Sign-in timed out", and a generic
+               "Something went wrong" with "Try again".
+             - Reconnecting banner for a dropped live connection.
+          4. `admin.html`: a read-only table for admins: person (lilnas email), Apple ID, state
+             badge, last backup, items, size on disk, Immich account (linked/none). States: rows,
+             empty, loading, error. On the phone it becomes a list. Below it, "Existing libraries":
+             a short list of presets (lilnas email, folder, Immich library name) with "Remove", and
+             a form to add one (email, folder name, a select of Immich external libraries), with
+             its validation errors.
+
+          Put copy and sample data in `src/data/*.mjs`. Report the page paths.
+      - id: H2
+        title: Review the icloud-backup mockups
+        after:
+          - T3
+        files:
+          - docs/features/icloud-backup/designs/start.html
+          - docs/features/icloud-backup/designs/backup.html
+          - docs/features/icloud-backup/designs/admin.html
+        status: todo
+        body: |-
+          Check the three pages at both widths. Things to decide here, because the frontend is built
+          from what you approve:
+          - the pre-flight wording a family member reads before typing an Apple password
+          - the "you're next" waiting screen
+          - what the done screen shows: the Immich link, the sign-in email and the temporary-password
+            button
+          - the columns of the admin table
+      - id: H3
+        title: Create the Immich API key and save it to a file
+        after: []
+        files: []
+        status: todo
+        body: |-
+          The service needs an Immich admin API key. Only you can create it, and it must not pass
+          through a chat.
+
+          1. Sign in to `https://immich.lilnas.io` as the admin. Account Settings, API Keys, New API
+             Key. Name it `icloud-backup`. Select only these permissions: `adminUser.create`,
+             `adminUser.read`, `adminUser.update`, `library.create`, `library.read`,
+             `library.update`, `library.statistics`.
+          2. Save the key as the only line of a file readable only by you:
+             ```bash
+             mkdir -p ~/.config/lilnas && umask 077 && cat > ~/.config/lilnas/icloud-backup-immich-api-key
+             ```
+             Paste the key, press Enter, then Ctrl-D.
+
+          Approve when the file exists. Do not paste the key into the approval note.
+      - id: T4
+        title: 'Scaffold `apps/icloud-backup`: Nest + Next skeleton, wire contract, image with icloudpd'
+        after:
+          - T2
+        files:
+          - apps/icloud-backup/
+          - pnpm-lock.yaml
+        status: todo
+        body: |-
+          Create the app every later task fills in. Later tasks each own one directory and must not
+          need to edit a shared file, so this task creates every shared file in its final form.
+          `T2` pushed to `main`; from here nothing is pushed until the end of the run.
+
+          **Package.** `apps/icloud-backup/package.json` named `@lilnas/icloud-backup`, modelled on
+          `apps/dev/package.json` (same scripts, `dev:frontend` as `next dev -p ${FRONTEND_PORT:-8080}`,
+          `start:frontend` as `node frontend/apps/icloud-backup/server.js`), plus
+          `db:generate: drizzle-kit generate`. Dependencies, at the versions the repo already pins
+          where it has them: what `apps/dev` has, plus `@nestjs/platform-ws`, `@nestjs/websockets`,
+          `@nestjs/schedule`, `ws`, `drizzle-orm`, `pg`, `nestjs-zod`, `@lilnas/ui`; dev:
+          `@types/pg`, `@types/ws`, `drizzle-kit`, `@electric-sql/pglite` (latest). Copy and adapt
+          from `apps/dev`: `tsconfig.json`, `nest-cli.json`, `eslint.config.cjs`, `jest.config.js`
+          (projects `node` and `jsdom`, setup file `src/__tests__/setup-dom.ts`),
+          `postcss.config.cjs`, `next-env.d.ts`, `src/tailwind.css`. `drizzle.config.ts` with
+          `dialect: 'postgresql'`, schema `./src/db/schema.ts`, out `./src/db/migrations`.
+
+          **`next.config.js`.** `output: 'standalone'`, `allowedDevOrigins` as `apps/dev`, and the
+          backend origin chosen by build phase exactly as `apps/auth/next.config.js` does:
+          `http://localhost:8081` under `PHASE_DEVELOPMENT_SERVER`, else `http://icloud-backup:8081`.
+          Rewrites: `/api/:path*` to `<backend>/:path*`, and `/ws` to `<backend>/ws`.
+
+          **Backend skeleton** (`src/main.ts`, `src/bootstrap.ts`, `src/env.ts`, `src/app.module.ts`),
+          following `apps/download`: `WsAdapter`, pino logger, `app.enableShutdownHooks()`, listen on
+          `BACKEND_PORT`. `bootstrap.ts` does not run migrations or recovery itself; modules do that
+          in lifecycle hooks. `app.module.ts` imports, once and for all: `HealthModule`, `AuthModule`,
+          `DbModule`, `IcloudpdModule`, `ImmichModule`, `JobsModule`, `ApiModule`, `AdminModule`,
+          `LoggerModule`, `ScheduleModule.forRoot()`. Create `src/db/db.module.ts`,
+          `src/icloudpd/icloudpd.module.ts`, `src/immich/immich.module.ts`, `src/jobs/jobs.module.ts`,
+          `src/api/api.module.ts`, `src/admin/admin.module.ts` as empty `@Module({})` classes; their
+          owners fill them. Redact in the pino config: `req.headers.cookie`, `req.headers.authorization`,
+          `req.body`, and any key named `password`, `code`, `apiKey`.
+
+          `src/env.ts` `EnvKeys` (all read through `env()` from `@lilnas/utils/env`):
+          ```ts
+          BACKEND_PORT            // 8081
+          NODE_ENV
+          POSTGRES_HOST, POSTGRES_PORT, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
+          ICLOUDPD_BIN            // default /usr/local/bin/icloudpd
+          ICLOUDPD_WEBUI_URL      // default http://127.0.0.1:8080
+          ICLOUDPD_RECENT         // optional int; adds --recent N (dry runs only)
+          PHOTOS_ROOT             // default /photos        (host /storage/photos/icloud-users)
+          STATE_ROOT              // default /state         (cookies under <STATE_ROOT>/cookies/<slug>)
+          MIN_FREE_BYTES          // default 200000000000
+          MAX_DOWNLOADS           // default 2
+          IMMICH_URL              // http://immich:2283
+          IMMICH_API_KEY
+          IMMICH_EXTERNAL_URL     // https://immich.lilnas.io
+          IMMICH_IMPORT_ROOT      // default /icloud-users  (PHOTOS_ROOT as Immich sees it)
+          IMMICH_EMAIL_PLUS_TAG   // optional; a@b.c becomes a+<tag>@b.c (dry runs only)
+          ACCOUNT_SLUG_PREFIX     // optional; prefixes the folder name (dry runs only)
+          DEV_USER_EMAIL, DEV_USER_ID   // dev-only identity fallback
+          ```
+
+          **`src/health/`**: `GET /health` returns `{ status: 'ok' }`.
+
+          **`src/auth/`**: copy the idea of `apps/download/src/auth/forwarded-user.ts`,
+          `forwarded-user.guard.ts`, `current-user.decorator.ts`, `admin-check.service.ts` and
+          `admin.guard.ts`, without the Discord parts. Identity is `X-Forwarded-User` (email) and
+          `X-Forwarded-User-Id`; a request without both is 401, except the dev fallback, which needs
+          `NODE_ENV !== 'production'` and both `DEV_USER_*` set. `/health` is the only unguarded route.
+
+          **`src/shared/contract.ts`**: the whole wire contract, zod schemas with inferred types:
+          ```ts
+          export const BACKUP_STATES = [
+            'queued_login', 'need_password', 'checking_password', 'need_code', 'checking_code',
+            'previewing', 'review_download',
+            'queued_download', 'indexing_wait', 'downloading', 'provisioning',
+            'done', 'needs_login', 'paused_low_disk', 'failed', 'cancelled',
+          ] as const
+          export const ERROR_CODES = [
+            'wrong_password', 'login_timeout', 'interrupted_login', 'apple_access_denied',
+            'apple_indexing', 'icloudpd_error', 'immich_error', 'internal',
+          ] as const
+          export interface JobView {
+            id: string
+            kind: 'first_backup' | 'sync'
+            state: BackupState
+            authError: 'wrong_password' | 'wrong_code' | null   // shown on the form being retried
+            queuePosition: number | null      // 1 = next; only in queued_login
+            previewItems: number | null       // files a download would fetch; set in review_download
+            totalItems: number | null
+            downloadedItems: number
+            skippedItems: number
+            downloadedBytes: number
+            currentFile: string | null        // path relative to the person's folder
+            attempt: number                   // indexing retries so far
+            maxAttempts: number
+            retryAt: string | null            // ISO; only in indexing_wait
+            errorCode: ErrorCode | null
+            startedAt: string
+            finishedAt: string | null
+          }
+          export interface BackupView {
+            email: string
+            isAdmin: boolean
+            lowDiskSpace: boolean
+            account: null | {
+              appleId: string
+              appleIdLocked: boolean          // true once a download has started
+              adopted: boolean                // linked to a folder and library that existed before
+              lastBackupAt: string | null
+              totalItems: number
+              totalBytes: number
+              immich: null | { email: string; createdByUs: boolean; url: string }
+            }
+            job: JobView | null               // the active job, else the most recent one
+          }
+          export interface AdminAccountRow {
+            email: string; appleId: string; folder: string; state: BackupState | null
+            lastBackupAt: string | null; totalItems: number; totalBytes: number; hasImmich: boolean
+          }
+          export interface AdminPreset {
+            lilnasEmail: string; folder: string; immichLibraryId: string; immichLibraryName: string
+          }
+          export interface AdminLibraryOption { id: string; name: string; importPaths: string[] }
+          // requests
+          PresetBody        { lilnasEmail: string; folder: string; immichLibraryId: string }
+          StartBackupBody   { appleId: string }   // an email address, trimmed, lower-cased
+          PasswordBody      { password: string }  // 1..256 chars
+          CodeBody          { code: string }      // exactly 6 digits
+          // websocket, server to client only
+          { type: 'backup'; data: BackupView }
+          ```
+          Terminal states are `done`, `needs_login`, `paused_low_disk`, `failed`, `cancelled`.
+
+          **Frontend skeleton**: `src/app/layout.tsx` (Geist fonts as `apps/dev/src/app/layout.tsx`,
+          the `@lilnas/ui` app bar with the doorplate), `src/app/page.tsx` rendering a placeholder,
+          `src/app/not-found.tsx`, `src/__tests__/setup-dom.ts`.
+
+          **`scripts/fetch-icloudpd.sh <dest>`**: downloads
+          `https://github.com/icloud-photos-downloader/icloud_photos_downloader/releases/download/v1.33.1/icloudpd-1.33.1-linux-amd64`,
+          verifies sha256 `961131997d58f349f437b3a9637ce92f04213fdfe4f484913b85eb4bae64ccc2`, exits
+          non-zero on a mismatch, writes it executable to `<dest>`. Version and hash are two variables
+          at the top.
+
+          **`Dockerfile`**: modelled on `apps/auth/Dockerfile` (deps stage listing this app's
+          workspace package.json files, build, `pnpm --filter=icloud-backup --prod deploy /app`, the
+          standalone frontend copied to `/app/frontend`, migrations copied to
+          `/app/src/db/migrations`, the same `test -f` guards, and the `routes-manifest.json` guard
+          for `http://icloud-backup:8081`). Runtime stage on `lilnas-nextjs-runtime`: install `curl`
+          and `ca-certificates`, run the fetch script to `/usr/local/bin/icloudpd`, then
+          `RUN icloudpd --version | grep -q 'version:1.33.1'`. `USER node`,
+          `ENTRYPOINT ["pnpm", "start"]`. The migrations folder is empty until the database task; keep
+          a `.gitkeep` so the copy works.
+
+          Also `.env.example` (every key above, no values that are secrets) and a short `README.md`.
+
+          Tests: `/health`; the forwarded-user guard (both headers, one missing, dev fallback on and
+          off, production ignores the fallback); the contract schemas (a valid and an invalid sample
+          of each request body; an Apple ID is lower-cased; a 5-digit code is refused);
+          `next.config.js` picks the origin by phase; one jsdom render of the layout.
+
+          Verify by hand and report: `pnpm --filter @lilnas/icloud-backup build` succeeds, and
+          `docker build -t lilnas-icloud-backup:scaffold -f apps/icloud-backup/Dockerfile .` succeeds
+          (pull the three `ghcr.io/codemonkey800/lilnas-*` base images first if the build complains);
+          `docker run --rm --entrypoint icloudpd lilnas-icloud-backup:scaffold --version` prints
+          1.33.1 and `docker run --rm --entrypoint id lilnas-icloud-backup:scaffold` shows uid 1000.
+          Remove the image afterwards.
+  - key: '2'
+    name: Engine, API and UI
+    tasks:
+      - id: T5
+        title: 'Database: schema, migrations at boot, repositories'
+        after:
+          - T4
+        files:
+          - apps/icloud-backup/src/db/
+        status: todo
+        body: |-
+          Postgres through drizzle, in `apps/icloud-backup/src/db/` only. `DbModule` (already
+          imported by `app.module.ts`) becomes global and exports `DbService` and the repositories.
+
+          `schema.ts`:
+          ```ts
+          accounts: id uuid pk, lilnasUserId text unique, lilnasEmail text, slug text unique,
+            appleId text unique null, immichUserId text null, immichLibraryId text null,
+            immichEmail text null, immichCreatedByUs boolean default false,
+            adopted boolean default false, previewConfirmed boolean default false,
+            totalItems int default 0, totalBytes bigint default 0,
+            lastBackupAt timestamptz null, createdAt, updatedAt
+          accountPresets: lilnasEmail text pk (lower-cased), slug text unique,
+            immichLibraryId text, createdAt
+          jobs: id uuid pk, accountId fk, kind text, state text, authError text null,
+            previewItems int null, totalItems int null, downloadedItems int default 0, skippedItems int default 0,
+            downloadedBytes bigint default 0, currentFile text null, attempt int default 0,
+            retryAt timestamptz null, errorCode text null, errorDetail text null,
+            startedAt, finishedAt null, updatedAt
+          jobEvents: id bigserial pk, jobId fk, at timestamptz, type text, message text
+          ```
+          A partial unique index allows one non-terminal job per account (terminal states are `done`,
+          `needs_login`, `paused_low_disk`, `failed`, `cancelled`). No column ever holds a password,
+          a code or a cookie.
+
+          `DbService`: a `pg` pool from the `POSTGRES_*` env (as `apps/tdr-bot/src/db/pool-config.ts`),
+          `drizzle(pool, { schema })`, closes the pool on destroy. In `onModuleInit` it applies the
+          migrations from `<cwd>/src/db/migrations` and throws on failure so the process exits.
+          Generate the first migration with `pnpm --filter @lilnas/icloud-backup db:generate` and
+          commit it with its `meta/`.
+
+          Repositories take the drizzle database by injection token, typed loosely enough that a
+          PGlite database (`drizzle-orm/pglite`) fits in tests:
+          ```ts
+          AccountsRepo: findByLilnasUserId, findById, list,
+            create({ lilnasUserId, lilnasEmail, slug, adopted? }), setPreviewConfirmed, setAppleId, setImmich({ userId, libraryId, email, createdByUs }), addTotals, slugExists
+          JobsRepo: create, findActiveForAccount, findLatestForAccount, findNonTerminal,
+            update(id, patch), finish(id, state, errorCode?, errorDetail?)
+          JobEventsRepo: append(jobId, type, message), tail(jobId, limit)
+          PresetsRepo: list, findByEmail, create({ lilnasEmail, slug, immichLibraryId }), remove(lilnasEmail)
+          ```
+          `slugFromEmail(email, prefix)` in `slug.ts`: the part before `@`, lower-cased, every
+          character outside `[a-z0-9._-]` replaced by `-`, leading and trailing `.` and `-` removed,
+          at most 40 characters, `user` if nothing is left, then the prefix in front.
+          `AccountsRepo.create` retries with `-2`, `-3`, … on a slug collision, except when
+          `adopted` is set: then the slug is used as given and a collision is an error. A preset's
+          slug must match `^[a-z0-9][a-z0-9._-]{0,39}$` and must not be the slug of an existing
+          account.
+
+          Tests (PGlite with the real migration files, no server): the migration applies to an empty
+          database; slug cleaning (dots kept, `+tag` and spaces replaced, empty local part, 60
+          characters cut to 40, prefix); two people with the same local part get `name` and `name-2`;
+          a second non-terminal job for one account is refused and a new one is allowed after the
+          first finishes; the same Apple ID on two accounts is refused; `findNonTerminal` returns
+          only non-terminal jobs; `errorDetail` longer than 2000 characters is cut; presets (email
+          lower-cased, duplicate email refused, slug with `/` or `..` refused, slug of an existing
+          account refused); an adopted account keeps its slug exactly.
+      - id: T6
+        title: 'icloudpd engine: process runner, login-form client, log parser'
+        after:
+          - T4
+        files:
+          - apps/icloud-backup/src/icloudpd/
+        status: todo
+        body: |-
+          Everything that touches the icloudpd binary, in `apps/icloud-backup/src/icloudpd/` only.
+          `IcloudpdModule` exports the three services. Nothing here knows about the database or jobs.
+
+          Facts measured on 1.33.1 (2026-11-19):
+          - Flags `--password-provider webui --mfa-provider webui` start a web server on port 8080,
+            all interfaces, not configurable. `GET /status` returns an HTML fragment for the current
+            step; `POST /password` takes form field `password`; `POST /code` takes field `code`;
+            `POST /cancel` exists.
+          - Seen fragments: a form with `hx-post="/password"`; text `Status: CHECKING_PASSWORD`; a
+            form with `hx-post="/code"`; `Status: CHECKING_MFA`; a card reading "No input is needed".
+          - The server accepts `POST /code` during the password step and treats it as the answer.
+            Always read `/status` first and post only to the endpoint of the step it shows.
+          - From the source, not yet seen live: a wrong code sets the error text "Failed to verify
+            two-factor authentication code" and shows the code form again; an error during the
+            password check moves the status to "no input needed". Treat both as unverified.
+          - Log lines at `--log-level info`: `Two-factor authentication is required (2fa)`,
+            `Great, you're all set up. The script can now be run without user interaction until 2FA expires.`,
+            `Downloading N original photos and videos to /… ...` (N is the total),
+            `Downloaded <absolute path>` per file, `All photos and videos have been downloaded`,
+            `Apple iCloud Photo Library has not finished indexing yet` (then exit 0 with nothing
+            downloaded).
+          - Without the webui flags and without a valid session it dies with a Python traceback
+            ending in `EOFError`, exit 1. Apple answers `ACCESS_DENIED` when Advanced Data
+            Protection is on or web access is off.
+          - SIGTERM stops it at once. It skips files that already exist.
+
+          ```ts
+          // process.service.ts
+          spawnIcloudpd(args: string[], opts: { onLine(line: string): void }): {
+            pid: number; exited: Promise<{ code: number | null; signal: string | null }>; stop(): Promise<void>
+          }
+          // spawn(ICLOUDPD_BIN, args, { shell: false, stdio: ['ignore', 'pipe', 'pipe'] }); stdout and
+          // stderr merged line by line; stop() sends SIGTERM, then SIGKILL after 10 s.
+          // args always include: --username <appleId> --cookie-directory <dir> --no-progress-bar
+          // --log-level info. Never --log-level debug, never -p/--password.
+          buildAuthArgs({ appleId, cookieDir })                 // + --auth-only + both webui flags
+          buildDownloadArgs({ appleId, cookieDir, directory, recent? })  // no webui flags
+          buildPreviewArgs({ appleId, cookieDir, directory })  // download args + --only-print-filenames
+
+          // webui.client.ts  (base URL from ICLOUDPD_WEBUI_URL)
+          type FormStep =
+            | { step: 'need_password'; error: string | null }
+            | { step: 'checking_password' } | { step: 'need_code'; error: string | null }
+            | { step: 'checking_code' } | { step: 'no_input' } | { step: 'unreachable' }
+            | { step: 'unknown'; snippet: string }
+          getStep(): Promise<FormStep>
+          submitPassword(password: string): Promise<'accepted' | 'wrong_step' | 'rejected'>
+          submitCode(code: string): Promise<'accepted' | 'wrong_step' | 'rejected'>
+          cancel(): Promise<void>
+
+          // log-parser.ts  (pure)
+          type LogEvent =
+            | { type: 'two_factor_required' } | { type: 'authenticated' }
+            | { type: 'total'; count: number } | { type: 'downloaded'; path: string }
+            | { type: 'skipped'; path: string } | { type: 'all_done' } | { type: 'indexing' }
+            | { type: 'needs_login' } | { type: 'access_denied' } | { type: 'other' }
+          parseLine(line: string): LogEvent
+          isPreviewFile(line: string, directory: string): boolean
+            // true for an output line that is a file path under `directory`
+          ```
+          `parseFragment(html)` is a pure function behind `getStep`. `submit*` re-reads the step and
+          returns `wrong_step` without posting if it does not match. A network error is
+          `unreachable`, never a throw. Requests time out after 5 s. `skipped` matches a line that
+          names a file and says it already exists; the exact wording is unverified, so match loosely
+          and note it. `needs_login` matches `EOFError` or a `getpass` traceback line.
+
+          The password and code are parameters only: never a field on a class, never in a log call,
+          never in a thrown error. Do not log request bodies or fragments that could echo them;
+          `unknown.snippet` is the first 200 characters with every `<input …>` tag removed.
+
+          Tests (fixtures in `__tests__/fixtures/`, a fake binary as a small shell script, an
+          `http.createServer` stand-in for the form): `--only-print-filenames` prints the files a
+          run would download and downloads nothing; its exact output is unverified, so
+          `isPreviewFile` accepts a line that, trimmed, starts with the directory path and has a
+          file extension, and nothing else. Tests continue: each fragment maps to its step, including the
+          two error variants and garbage; `submitCode` during the password step posts nothing;
+          `submitPassword` sends a form-encoded `password` field; a connection refusal is
+          `unreachable`; every log line above maps to its event, with a total of 18,532 parsed from
+          a line with thousands and a path containing spaces; the argument builders (no webui flags
+          for downloads, `--recent` only when given, never `debug`); `stop()` kills a child that
+          ignores SIGTERM; a spy logger never receives the password or the code.
+
+          Live probe (report it, commit nothing from it but fixtures): fetch the real binary with
+          `apps/icloud-backup/scripts/fetch-icloudpd.sh` into a temp folder. Port 8080 on this host
+          belongs to another service, so run the probe inside a throwaway
+          `ghcr.io/codemonkey800/lilnas-nextjs-runtime:latest` container with the binary and temp
+          folders mounted, as uid 1000, account `nobody@example.invalid`, auth arguments. Save the
+          real password fragment as a fixture. Confirm `getStep()` reads it as `need_password`, and
+          that SIGTERM ends the process. Do not submit anything. Then run the download arguments
+          with an empty cookie folder and confirm the output parses to `needs_login`. Clean up.
+      - id: T7
+        title: 'Immich client: users, libraries, scans, password reset'
+        after:
+          - T4
+        files:
+          - apps/icloud-backup/src/immich/
+        status: todo
+        body: |-
+          A typed client for the Immich admin API and the provisioning logic on top, in
+          `apps/icloud-backup/src/immich/` only. `ImmichModule` exports `ImmichClient` and
+          `ImmichProvisioner`. Nothing here touches the database; callers pass values in and store
+          what comes back.
+
+          Immich is v3.3.4. These routes were read from the server image, so trust them over older
+          docs. Base URL `IMMICH_URL` + `/api`, header `x-api-key: IMMICH_API_KEY`, JSON bodies:
+          - `GET /admin/users` returns users with `id`, `email`, `name`
+          - `POST /admin/users` body `{ email, password, name, shouldChangePassword, notify }`
+          - `PUT /admin/users/:id` body `{ password, shouldChangePassword }`
+          - `GET /libraries` returns libraries with `id`, `ownerId`, `name`, `importPaths`
+          - `POST /libraries` body `{ ownerId, name, importPaths }` (`ownerId` must be a uuid)
+          - `POST /libraries/:id/validate` body `{ importPaths }` returns
+            `{ importPaths: [{ importPath, isValid, message? }] }`
+          - `POST /libraries/:id/scan` (no body), `GET /libraries/:id/statistics`
+
+          ```ts
+          class ImmichClient {
+            listUsers(): Promise<ImmichUser[]>
+            createUser(input: { email: string; name: string; password: string }): Promise<ImmichUser>
+              // always shouldChangePassword: true, notify: false
+            resetPassword(userId: string, password: string): Promise<void>   // shouldChangePassword: true
+            listLibraries(): Promise<ImmichLibrary[]>
+            createLibrary(input: { ownerId: string; name: string; importPath: string }): Promise<ImmichLibrary>
+            validateLibrary(id: string, importPath: string): Promise<{ isValid: boolean; message?: string }>
+            scanLibrary(id: string): Promise<void>
+          }
+          class ImmichProvisioner {
+            ensure(input: { email: string; slug: string }):
+              Promise<{ userId: string; libraryId: string; email: string; createdByUs: boolean }>
+            newTemporaryPassword(userId: string): Promise<string>
+          }
+          immichEmail(lilnasEmail: string, plusTag?: string): string   // a@b.c + tag -> a+tag@b.c
+          ```
+          `ensure` is safe to call again after a crash at any step: find the user by email
+          (case-insensitive), else create one with a random 32-character password that is discarded
+          (`createdByUs: true`); find a library owned by that user whose `importPaths` contains
+          `<IMMICH_IMPORT_ROOT>/<slug>`, else create one named `iCloud` with that path; validate the
+          path and throw `ImmichError('import_path_invalid')` if Immich says it is not valid; start a
+          scan. `newTemporaryPassword` generates 20 characters from an unambiguous alphabet with
+          `crypto.randomInt`, resets the password and returns it. The caller decides who may ask.
+
+          Errors: non-2xx becomes `ImmichError` with the status and Immich's `message`, never the
+          request body or the key. 10 s timeout per request. No retries here.
+
+          Tests (a local `http.createServer` stand-in, no real Immich): each method sends the right
+          verb, path, header and body; `ensure` with no user, with an existing user (no create call,
+          `createdByUs: false`), with an existing library (no second library), with an email that
+          differs only in case, and with an invalid import path; calling `ensure` twice creates one
+          user and one library; `immichEmail` with and without a tag; a 401 surfaces as `ImmichError`
+          without the key in its message; passwords never reach a spy logger.
+      - id: T8
+        title: Live check of the Immich client against a throwaway Immich v3.3.4
+        after:
+          - T7
+        files:
+          - apps/icloud-backup/scripts/immich-contract/
+        status: todo
+        body: |-
+          The Immich client was written against routes read from the image and tested against a
+          stand-in. Prove it against a real Immich v3.3.4 that is not the production one.
+
+          Write `apps/icloud-backup/scripts/immich-contract/compose.yml` and `run.ts`:
+          - compose project `icloud-backup-immich-test`, its own network, no published ports, no
+            Traefik labels, named volumes only: `ghcr.io/immich-app/immich-server:v3.3.4`, the same
+            Postgres and Valkey images (with digests) that `infra/immich.yml` uses, test-only
+            database credentials, `IMMICH_MACHINE_LEARNING_ENABLED=false`, and a host temp folder
+            holding `alice/` with three small JPEGs mounted read-only at `/icloud-users`.
+            All three images are already on this host.
+          - `run.ts` (run with `pnpm exec tsx`, reaching the server by its container IP from
+            `docker inspect`, port 2283): wait for `GET /api/server/ping`; create the admin with
+            `POST /api/auth/admin-sign-up`; log in; create an API key with exactly these
+            permissions: `adminUser.create`, `adminUser.read`, `adminUser.update`, `library.create`,
+            `library.read`, `library.update`, `library.statistics`. Then, using the real
+            `ImmichClient` and `ImmichProvisioner` from `src/immich/` with that key:
+            `ensure({ email, slug: 'alice' })` creates a user and a library; a second `ensure` creates
+            nothing; the library's import path validates; after the scan,
+            `GET /api/libraries/:id/statistics` reaches 3 assets within two minutes;
+            `ensure` for a slug with no folder throws `import_path_invalid`;
+            `newTemporaryPassword` returns a password that logs in through `POST /api/auth/login`
+            and the login response says the password must be changed; `ensure` with the admin's own
+            email reuses that user (`createdByUs: false`).
+
+          Never point this at `http://immich:2283`, the production server. Run it, then
+          `docker compose -p icloud-backup-immich-test down -v` and delete the temp folder; show
+          `docker ps -a` and `docker volume ls` are clean of the project.
+
+          Report each step with what you observed. If the permission list is not enough, say which
+          call returned 403 and which permission fixes it, under `defects:`: a human created the
+          production key with that exact list. Fix client bugs you find in `src/immich/` only if the
+          fix is small; otherwise report them as `defects:`.
+      - id: T9
+        title: 'Job orchestrator: sign-in turn, downloads, retries, disk guard, recovery'
+        after:
+          - T5
+          - T6
+          - T7
+        files:
+          - apps/icloud-backup/src/jobs/
+        status: todo
+        body: |-
+          The state machine that drives one backup job from sign-in to Immich, in
+          `apps/icloud-backup/src/jobs/` only. It uses the repositories from `src/db/`, the three
+          services from `src/icloudpd/`, `ImmichProvisioner` from `src/immich/`, and the types in
+          `src/shared/contract.ts`. `JobsModule` exports `JobsService`. Read those four directories
+          first.
+
+          ```ts
+          class JobsService {
+            getView(user: { email: string; userId: string; isAdmin: boolean }): Promise<BackupView>
+            start(user, appleId: string): Promise<BackupView>   // first sign-in, or sign-in again
+            sync(user): Promise<BackupView>                     // re-run with the saved session
+            submitPassword(user, password: string): Promise<BackupView>
+            submitCode(user, code: string): Promise<BackupView>
+            confirmDownload(user): Promise<BackupView>          // leaves review_download
+            cancel(user): Promise<BackupView>
+            listPresets(): Promise<AdminPreset[]>
+            listLibraryOptions(): Promise<AdminLibraryOption[]>  // Immich external libraries
+            addPreset(body: PresetBody): Promise<AdminPreset[]>
+            removePreset(lilnasEmail: string): Promise<AdminPreset[]>
+            newImmichPassword(user): Promise<{ password: string }>
+            onChange(listener: (lilnasUserId: string) => void): () => void
+          }
+          ```
+
+          **Account.** Created on the first `start`: slug from `slugFromEmail(email,
+          ACCOUNT_SLUG_PREFIX)`. The Apple ID can be changed by `start` until a download has
+          started for the account (`appleIdLocked`); after that a different Apple ID is a 409. An
+          Apple ID already used by another account is a 409. Folders: photos in
+          `<PHOTOS_ROOT>/<slug>`, session in `<STATE_ROOT>/cookies/<slug>`, both created mode 700 /
+          755 on demand.
+
+          **Adopted accounts.** Some people already have a folder of iCloud photos on the server
+          and an Immich external library on it. An admin records a preset for them: lilnas email,
+          folder name, Immich library id. `addPreset` refuses (409) unless the folder
+          `<PHOTOS_ROOT>/<folder>` exists, the library exists in Immich, its `importPaths` is
+          exactly `[<IMMICH_IMPORT_ROOT>/<folder>]`, and no account uses that folder or library.
+          When a person whose email (lower-cased) has a preset first calls `start`, their account is
+          created with that exact folder as slug (no prefix, no suffix), `adopted: true`,
+          `immichCreatedByUs: false`, and the library's id and owner stored as their Immich link;
+          the preset row stays as the record. An adopted account that has not confirmed yet takes
+          one extra step after sign-in: state `previewing` (it uses a download slot) runs icloudpd
+          with the preview arguments and counts the files it would fetch; then state
+          `review_download` with `previewItems`, which runs no process and waits for the person.
+          `confirmDownload` (409 in any other state) marks the account confirmed and moves to
+          `queued_download`; `cancel` ends the job as `cancelled`. If the preview finds nothing new
+          it confirms by itself and goes on. The preview has the same indexing, expired-session and
+          access-denied outcomes as a download. After that first confirmation the account behaves
+          like any other.
+
+          **One job per account.** `start` and `sync` return the existing view if a job is active.
+          `sync` without an account or Apple ID is a 409. Both are refused with a 409 and
+          `lowDiskSpace: true` in the view when free space is below `MIN_FREE_BYTES`.
+
+          **Sign-in turn** (one at a time for the whole process, first come first served):
+          1. state `queued_login` with `queuePosition` until the turn comes
+          2. spawn icloudpd with the auth arguments; poll the form once a second:
+             `need_password` and `need_code` set those states, the checking steps set
+             `checking_password` and `checking_code`
+          3. `submitPassword` and `submitCode` are accepted only in the matching state (else 409),
+             relayed once, and dropped from memory. A `wrong_step` reply from the client is a 409
+          4. signed in when the log shows the "all set up" line, or the process exits 0 having never
+             asked for a password. Then release the turn and go to `queued_download`
+          5. a form error on the code step sets `authError: 'wrong_code'` and stays in `need_code`.
+             A failed password (the process exits or the form leaves the password step without
+             reaching the code step or the "all set up" line) restarts the auth process once per
+             failure with `authError: 'wrong_password'` and state `need_password`; after three
+             failures the job fails with `wrong_password`. How icloudpd reports a wrong password is
+             unverified; keep this logic in one small function and log the step sequence (never the
+             input) so a human can correct it after the dry run
+          6. no input for 10 minutes while a form is waiting: stop the process, fail with
+             `login_timeout`. `cancel` stops the process and sets `cancelled`. Every exit path
+             releases the turn
+          7. `ACCESS_DENIED` in the log fails the job with `apple_access_denied`
+
+          **Download** (at most `MAX_DOWNLOADS` processes at once, the rest wait in
+          `queued_download`): spawn with the download arguments (`ICLOUDPD_RECENT` when set). From
+          the log: `total` sets `totalItems`; each `downloaded` adds one item, the file's size from
+          `fs.stat`, and `currentFile` relative to the person's folder; `skipped` adds to
+          `skippedItems`. Write progress to the database at most once a second and call the change
+          listeners at the same pace. Outcomes, decided from the log and never from the exit code
+          alone:
+          - `all_done` seen: success
+          - `indexing` seen: state `indexing_wait`, `retryAt` after 60 s, 120 s, 240 s, 480 s, 600 s,
+            600 s; a seventh failure is `apple_indexing`
+          - `needs_login` seen: state `needs_login` (the saved session expired)
+          - `access_denied`: `apple_access_denied`
+          - anything else, including exit 0 without `all_done`: retry after 30 s, 2 min, 10 min, then
+            `icloudpd_error` with the last 20 log lines as `errorDetail`
+          Set `appleIdLocked` when the first download starts.
+
+          **Disk guard.** `fs.statfs(PHOTOS_ROOT)` before each download starts and every 60 s while
+          one runs. Below `MIN_FREE_BYTES`: stop the process, state `paused_low_disk`.
+
+          **After a successful download.** Add the totals to the account and set `lastBackupAt`. If
+          the account has no Immich library: state `provisioning`, call
+          `ensure({ email: immichEmail(lilnasEmail, IMMICH_EMAIL_PLUS_TAG), slug })`, store the
+          result. If it has one: `scanLibrary`. An Immich failure fails the job with `immich_error`
+          but keeps the downloaded totals; the next `sync` tries Immich again. Then `done`.
+
+          **`newImmichPassword`**: allowed only when the account's Immich user was created by this
+          service (else 403); returns the password and stores nothing.
+
+          **Recovery and shutdown.** On `onApplicationBootstrap`, for every non-terminal job: one in
+          a sign-in state fails with `interrupted_login`; one in `previewing` goes back to run the
+          preview again; one in `review_download` is left waiting; one in `queued_download`, `indexing_wait`,
+          `downloading` or `provisioning` goes back to `queued_download` and runs again (icloudpd
+          skips what it has). On shutdown stop every child and leave the rows as they are.
+
+          Append a `jobEvents` row on every state change and every retry. Never write a password,
+          a code or a raw log line that follows a form submission into `errorDetail` or an event.
+
+          Tests (PGlite database, fakes for the process, the form client, the provisioner, the clock
+          and `statfs`; no real binary): the full happy path from `start` to `done` with the view at
+          each state; a wrong code then a right one; a wrong password three times; the 10-minute
+          timeout; `cancel` in each sign-in state; two people starting together (the second is
+          `queued_login` at position 1 and gets the form when the first signs in, fails or cancels);
+          three downloads with `MAX_DOWNLOADS=2`; the indexing ladder to success and to
+          `apple_indexing`; exit 0 without `all_done` is retried; an expired session becomes
+          `needs_login`; `sync` on a valid session never enters a password state; low disk before
+          start and during a download; Apple ID change allowed before the first download and refused
+          after; provisioning on the first success, scan only on the next; an Immich failure and the
+          retry on the next sync; `newImmichPassword` for a created and a reused user; presets
+          (each refusal above; a matching person gets the preset's folder and library and never a
+          new Immich user or library; a non-matching person is unaffected); the preview step
+          (count shown, confirm continues, cancel stops, zero new files skips the question, asked
+          only once per account, a download for an adopted account ends with a scan); recovery of
+          each non-terminal state; progress writes are throttled; a spy logger and the database never
+          contain the password or the code.
+      - id: T10
+        title: 'HTTP API and live updates: backup routes, websocket, admin list'
+        after:
+          - T9
+        files:
+          - apps/icloud-backup/src/api/
+          - apps/icloud-backup/src/admin/
+        status: todo
+        body: |-
+          Expose `JobsService` (in `apps/icloud-backup/src/jobs/`) to the browser. Files in
+          `src/api/` and `src/admin/` only; both modules are already imported by `app.module.ts`.
+          Types and schemas come from `src/shared/contract.ts`; identity from `src/auth/`
+          (`@CurrentUser()`, `ForwardedUserGuard`, `AdminGuard`, `AdminCheckService`).
+
+          The frontend calls these under `/api`; the backend serves them without the prefix:
+          ```
+          GET  /backup                    -> BackupView
+          POST /backup/start              StartBackupBody -> BackupView
+          POST /backup/sync               -> BackupView
+          POST /backup/password           PasswordBody -> BackupView
+          POST /backup/code               CodeBody -> BackupView
+          POST /backup/confirm            -> BackupView
+          POST /backup/cancel             -> BackupView
+          POST /backup/immich-password    -> { password: string }
+          GET  /admin/accounts            -> AdminAccountRow[]        (admins only, else 403)
+          GET  /admin/presets             -> { presets: AdminPreset[]; libraries: AdminLibraryOption[] }
+          POST /admin/presets             PresetBody -> AdminPreset[]
+          DELETE /admin/presets/:email    -> AdminPreset[]
+          WS   /ws                        server sends { type: 'backup', data: BackupView }
+          ```
+          - Every route needs the forwarded identity (401 without it). Bodies are validated with the
+            zod schemas (400). `JobsService` conflicts map to 409 with a short `message`.
+          - `POST` routes require the header `X-Requested-With: icloud-backup`, else 403, so a form on
+            another site cannot post a password or reset an Immich password.
+          - Responses that carry or follow a secret (`/backup/password`, `/backup/code`,
+            `/backup/immich-password`) send `Cache-Control: no-store`.
+          - The websocket (as `apps/download/src/download-gateway/download.gateway.ts`: `ws`
+            adapter, path `/ws`) reads the identity from the upgrade request, closes with 4401
+            without one, sends the person's view on connect and again whenever
+            `JobsService.onChange` fires for them. It accepts no client messages. A person can have
+            several tabs.
+          - `GET /admin/accounts`: one row per account with its latest job's state. `totalBytes` is
+            the stored total, not a walk of the disk.
+
+          Tests (Nest testing module with a fake `JobsService`): each route's happy path; 401
+          without identity; 400 for a bad Apple ID, an empty password and a 5-digit code; 403
+          without the header; a 409 passes through; `no-store` on the three routes; every admin route
+          for an admin and a non-admin; a preset with a bad folder name is 400; `/backup/confirm`; the websocket sends on connect, sends only to the changed
+          person's sockets, sends to both of one person's tabs, and closes 4401 without identity;
+          no request body reaches a spy logger.
+      - id: T11
+        title: 'Frontend base: API client, live hook, page shell'
+        after:
+          - T4
+          - H2
+        files:
+          - apps/icloud-backup/src/lib/
+          - apps/icloud-backup/src/app/page.tsx
+          - apps/icloud-backup/src/components/backup-app.tsx
+          - apps/icloud-backup/src/components/steps/
+          - apps/icloud-backup/src/components/__tests__/
+        status: todo
+        body: |-
+          The client-side base the screens plug into, matching the approved mockups in
+          `docs/features/icloud-backup/designs/` (`start.html`, `backup.html`). Types come from
+          `apps/icloud-backup/src/shared/contract.ts`; do not edit that file. Components from
+          `@lilnas/ui`, class names through `cns()`.
+
+          `src/lib/api.ts`: typed `fetch` wrappers for `GET /api/backup`, `POST /api/backup/start`,
+          `/sync`, `/password`, `/code`, `/confirm`, `/cancel`, `/immich-password`,
+          `GET /api/admin/accounts`, and `GET`/`POST /api/admin/presets` with
+          `DELETE /api/admin/presets/:email`.
+          Every `POST` sends `X-Requested-With: icloud-backup` and JSON. A non-2xx throws
+          `ApiError { status, message }`.
+
+          `src/lib/use-backup.ts`: `useBackup(): { view: BackupView | null; live: boolean; error:
+          ApiError | null; actions }`. It loads `GET /api/backup`, then opens a websocket to `/ws` on
+          the page's own host (`wss:` on https) and replaces the view on every `{ type: 'backup' }`
+          frame. On close it reconnects with a backoff of 1, 2, 5, 10, then 30 s and refetches the
+          view on each reconnect; `live` is true only while the socket is open. Model the reconnect
+          on `apps/download/src/lib/use-job-events.ts`. `actions` wrap the API calls and set the
+          returned view at once.
+
+          `src/lib/format.ts`: `formatBytes` ("12.4 GB"), `formatCount` ("18,532"),
+          `formatRelative(iso)`.
+
+          `src/lib/pending-password.tsx`: a context provider holding one password in a ref, never
+          in React state that renders, with `set(password)`, `take(): string | null` (returns it and
+          clears it) and `clear()`. It exists so a password typed before a wait for the sign-in turn
+          can be sent when the turn comes. It is cleared on unmount.
+
+          `src/lib/step.ts`: `stepFor(view): StepName`, a pure function choosing the screen:
+          ```ts
+          type StepName = 'preflight' | 'sign_in' | 'waiting_turn' | 'code' | 'checking'
+            | 'queued' | 'review' | 'indexing' | 'downloading' | 'finishing' | 'done'
+            | 'sign_in_again' | 'paused' | 'failed'
+          ```
+          No account or no job: `preflight` (the pre-flight page leads into `sign_in`, which is local
+          UI state, not a backend state). `need_password` is `sign_in`; `queued_login` is
+          `waiting_turn`; `need_code` is `code`; both checking states are `checking`;
+          `queued_download` and `previewing` are `queued`; `review_download` is `review`;
+          `indexing_wait`, `downloading`, `provisioning`, `done`,
+          `needs_login`, `paused_low_disk` map to their namesakes; `failed` and `cancelled` are
+          `failed`, except `cancelled` with no finished backup, which is `preflight`.
+
+          `src/components/backup-app.tsx` (client component, rendered by `src/app/page.tsx`): calls
+          `useBackup`, shows a skeleton while loading, a full-page error with "Try again" when the
+          first load fails, the reconnecting banner from the mockup when `live` is false, an "Admin"
+          link to `/admin` when `view.isAdmin`, and the component for the current step, all inside
+          the pending-password provider. Create one file per step in `src/components/steps/`
+          (`preflight.tsx`, `sign-in.tsx`, `waiting-turn.tsx`, `code.tsx`, `checking.tsx`,
+          `queued.tsx`, `review.tsx`, `indexing.tsx`, `downloading.tsx`, `finishing.tsx`, `done.tsx`,
+          `sign-in-again.tsx`, `paused.tsx`, `failed.tsx`), each exporting a component with props
+          `{ view: BackupView; actions }` that renders only its name for now. Two later tasks fill
+          them in and must not need to touch `backup-app.tsx`.
+
+          Tests: `stepFor` for every backend state and the three special cases; the API wrappers
+          send the header and throw `ApiError`; `useBackup` with a fake `WebSocket` and fake timers
+          (replaces the view on a frame, `live` goes false on close, reconnects on the ladder,
+          refetches after reconnect, ignores a malformed frame, closes on unmount); `backup-app`
+          renders the skeleton, the load error, the banner, and the admin link only for an admin;
+          the pending-password provider returns a password once and then null; the formatters.
+      - id: T12
+        title: 'Screens: pre-flight, sign-in, waiting turn, code'
+        after:
+          - T11
+        files:
+          - apps/icloud-backup/src/components/steps/preflight.tsx
+          - apps/icloud-backup/src/components/steps/sign-in.tsx
+          - apps/icloud-backup/src/components/steps/waiting-turn.tsx
+          - apps/icloud-backup/src/components/steps/code.tsx
+          - apps/icloud-backup/src/components/steps/checking.tsx
+          - apps/icloud-backup/src/components/steps/__tests__/sign-in-flow.spec.tsx
+        status: todo
+        body: |-
+          Build the sign-in half of the UI to match the approved mockup
+          `docs/features/icloud-backup/designs/start.html`, at 1280 and 390. Each file in
+          `apps/icloud-backup/src/components/steps/` already exports a placeholder component with
+          props `{ view: BackupView; actions }` (types in `src/shared/contract.ts`, actions from
+          `src/lib/use-backup.ts`); replace the five listed. Do not edit `backup-app.tsx`.
+          Components from `@lilnas/ui`; copy follows the mockup and `docs/designs/voice.md`.
+
+          - `preflight.tsx`: the three checks (Advanced Data Protection off, "Access iCloud Data on
+            the Web" on, an Apple device nearby; text-message codes and security keys are not
+            supported) and "Continue", which shows the sign-in form. When `view.lowDiskSpace` is
+            true, "Continue" is disabled and the low-space note shows.
+          - `sign-in.tsx`: Apple ID and password. The Apple ID is prefilled and read-only when
+            `view.account?.appleIdLocked`. If no job is active, submit calls `actions.start(appleId)`
+            and puts the password in the pending-password provider (`src/lib/pending-password.tsx`);
+            when the view reaches `need_password` it is taken from there, sent with
+            `actions.submitPassword(password)` once, and gone. If the view is already
+            `need_password` (a retry), submit sends the password directly. `job.authError ===
+            'wrong_password'` shows the retry message and an empty password field. Inputs use
+            `autocomplete="username"` and `autocomplete="current-password"`; the password is never
+            put in a URL, `localStorage` or a log. A 409 shows its message.
+          - `waiting-turn.tsx`: "Someone else is signing in. You're next" with
+            `job.queuePosition`, no inputs, a "Cancel" button, which also clears the pending password.
+            The password typed before the wait stays in the pending-password provider and is sent
+            by the sign-in screen when the turn comes.
+          - `code.tsx`: six digits, `inputmode="numeric"`, `autocomplete="one-time-code"`, submits
+            on the sixth digit and on Enter. `authError === 'wrong_code'` shows the retry message.
+          - `checking.tsx`: a quiet spinner with "Checking with Apple".
+
+          Every screen has a visible "Cancel" that calls `actions.cancel()`, and keyboard focus
+          lands on the first input when a screen appears.
+
+          Tests (RTL + user-event, a fake `actions`): pre-flight leads to the form; low space
+          disables it; start then password is sent exactly once when `need_password` arrives, also
+          after a wait in `queued_login`; a locked Apple ID is read-only; wrong password and wrong
+          code show their messages and clear the field; the code submits on the sixth digit and
+          refuses letters; cancel calls the action; the password is not in the DOM after it is sent.
+      - id: T13
+        title: 'Screens: progress, done, sign in again, paused, failed'
+        after:
+          - T11
+        files:
+          - apps/icloud-backup/src/components/steps/queued.tsx
+          - apps/icloud-backup/src/components/steps/review.tsx
+          - apps/icloud-backup/src/components/steps/indexing.tsx
+          - apps/icloud-backup/src/components/steps/downloading.tsx
+          - apps/icloud-backup/src/components/steps/finishing.tsx
+          - apps/icloud-backup/src/components/steps/done.tsx
+          - apps/icloud-backup/src/components/steps/sign-in-again.tsx
+          - apps/icloud-backup/src/components/steps/paused.tsx
+          - apps/icloud-backup/src/components/steps/failed.tsx
+          - apps/icloud-backup/src/components/steps/__tests__/backup-screens.spec.tsx
+        status: todo
+        body: |-
+          Build the backup half of the UI to match the approved mockup
+          `docs/features/icloud-backup/designs/backup.html`, at 1280 and 390. Each file in
+          `apps/icloud-backup/src/components/steps/` already exports a placeholder component with
+          props `{ view: BackupView; actions }` (types in `src/shared/contract.ts`, actions from
+          `src/lib/use-backup.ts`, formatters in `src/lib/format.ts`); replace the nine listed. Do
+          not edit `backup-app.tsx`. Components from `@lilnas/ui`.
+
+          - `queued.tsx`: waiting for a download slot; while `job.state === 'previewing'` it says
+            "Checking which photos are already here".
+          - `review.tsx`: for a person whose existing folder was adopted: how many items are already
+            on the server (`account.totalItems`, omitted when zero) and how many are new
+            (`job.previewItems`), "Download" (`actions.confirmDownload()`) and "Not now"
+            (`actions.cancel()`). When `previewItems` is over 1,000, show the warning from the mockup
+            and require a second confirmation.
+          - `indexing.tsx`: "Apple is still preparing your library", the attempt (`job.attempt` of
+            `job.maxAttempts`) and a countdown to `job.retryAt`.
+          - `downloading.tsx`: "`downloadedItems` of `totalItems` photos and videos" (or "Counting…"
+            while `totalItems` is null), a progress bar with `role="progressbar"` and its values,
+            size so far, `currentFile` in mono (truncated in the middle), the live dot, "You can
+            close this tab", and "Stop" (asks to confirm, then `actions.cancel()`). Items already on
+            the server (`skippedItems`) count toward the bar.
+          - `finishing.tsx`: creating the Immich account and library.
+          - `done.tsx`: last backup time, items, size; "Open my photos" linking to
+            `account.immich.url` in a new tab; the Immich sign-in email. When
+            `account.immich.createdByUs`: a "Create a temporary password" button that calls
+            `actions.newImmichPassword()` and shows the result once, in mono, with a copy button and
+            "Immich will ask you to change it"; the password lives in component state and is gone on
+            reload; pressing again asks to confirm because it replaces the old one. Otherwise: "Sign
+            in with your existing Immich account". When `account.immich` is null (Immich failed):
+            say the photos are safe on the server and "Sync now" will retry. A "Sync now" button
+            calls `actions.sync()` and is disabled with the note when `view.lowDiskSpace`.
+          - `sign-in-again.tsx`: "Apple wants you to sign in again", a button that calls
+            `actions.start(account.appleId)`.
+          - `paused.tsx`: the low-space message; "Sync now" enabled only when `lowDiskSpace` is false.
+          - `failed.tsx`: the message for `job.errorCode`: `apple_access_denied` shows the two
+            settings from the pre-flight page; `login_timeout` and `interrupted_login` offer sign-in
+            again; `wrong_password` offers sign-in again; `apple_indexing` says to try later;
+            `immich_error`, `icloudpd_error` and `internal` share a generic message. Each has "Try
+            again" (`sync` when a session may exist, else `start`).
+
+          Tests (RTL + user-event, a fake `actions`): each screen renders from a sample view; the
+          progress bar's values with and without a total and with skipped items; the countdown
+          ticks with fake timers; stop asks first; the temporary password appears once, is copied,
+          and a second press asks to confirm; no password button for a reused Immich user; the review
+          screen's numbers, both buttons, and the double confirmation above 1,000; every
+          error code has its message and its button; low space disables "Sync now".
+      - id: T14
+        title: Admin page
+        after:
+          - T11
+        files:
+          - apps/icloud-backup/src/app/admin/
+          - apps/icloud-backup/src/components/admin/
+        status: todo
+        body: |-
+          A read-only page at `/admin` matching the approved mockup
+          `docs/features/icloud-backup/designs/admin.html`, at 1280 and 390. Data from
+          `getAdminAccounts()` in `apps/icloud-backup/src/lib/api.ts` (`AdminAccountRow[]`, type in
+          `src/shared/contract.ts`); formatters in `src/lib/format.ts`. Components from `@lilnas/ui`
+          (table on desktop, list on the phone, compact density).
+
+          Columns: person (lilnas email), Apple ID, folder in mono, a state badge (accent while
+          running, `ok` for done, `warn` for queued, waiting, paused and sign-in-again, `bad` for
+          failed, none when there is no job), last backup, items, size, Immich (linked or none).
+          States: loading, empty ("Nobody has set up a backup yet"), error with "Try again". A 403
+          shows "This page is for admins" with a link home. A "Refresh" button reloads; there is no
+          live feed here. The home page already links here for admins; add a link back home.
+
+          Below the table, "Existing libraries": the presets from `GET /api/admin/presets` (email,
+          folder in mono, library name, "Remove" with a confirm), and a form to add one: lilnas
+          email, folder name, and a select of the returned Immich libraries showing name and import
+          path. Submit calls `POST /api/admin/presets`; a 409 or 400 shows its message under the
+          form. One line explains what a preset does: when this person signs in, their backup uses
+          this folder and library instead of new ones.
+
+          Tests: rows render with the right badge tone for each state; loading, empty, error and 403;
+          refresh reloads; presets list, add (success and a 409 message), remove after confirm.
+      - id: T15
+        title: 'Compose, env and registration: three services, dry-run stack, auth and portal entries'
+        after:
+          - T4
+          - H3
+        files:
+          - apps/icloud-backup/deploy.yml
+          - apps/icloud-backup/deploy.dev.yml
+          - apps/icloud-backup/.env.prod
+          - apps/icloud-backup/src/__tests__/deploy.spec.ts
+          - docker-compose.yml
+          - docker-compose.dev.yml
+          - apps/auth/deploy.yml
+          - apps/auth/deploy.dev.yml
+          - apps/portal/src/utils/app-meta.ts
+        status: todo
+        body: |-
+          Make `apps/icloud-backup` deployable. Read `apps/auth/deploy.yml` (two services from one
+          image), `apps/tdr-bot/deploy.yml` (Postgres) and `docs/deploy.md` ("Add a new env file").
+
+          **`apps/icloud-backup/deploy.yml`**, three services. Give both app services
+          `image: ghcr.io/codemonkey800/lilnas-icloud-backup:${LILNAS_TAG:-latest}` and the same
+          `build:` (context `../..`, this app's Dockerfile), since CI needs both keys to build and
+          deploy a service:
+          - `icloud-backup-db`: `postgres:18.4-alpine`, `env_file: .env.prod.decrypted`, volume
+            `/storage/app-data/icloud-backup-db:/var/lib/postgresql`, the healthcheck and logging
+            block from `tdr-bot-db`.
+          - `icloud-backup` (backend): `entrypoint: ['node', 'dist/main']`,
+            `env_file: .env.prod.decrypted`, `depends_on` the database being healthy,
+            `stop_grace_period: 30s`, volumes `/storage/photos/icloud-users:/photos` and
+            `/storage/app-data/icloud-backup:/state`, environment `BACKEND_PORT=8081`,
+            `POSTGRES_HOST=icloud-backup-db`, `IMMICH_URL=http://immich:2283`,
+            `IMMICH_EXTERNAL_URL=https://immich.lilnas.io`, `TZ=America/Los_Angeles`, a healthcheck on
+            `http://localhost:8081/health` as the `auth` service has, and no labels.
+          - `icloud-backup-frontend`: `entrypoint: ['node', 'frontend/apps/icloud-backup/server.js']`,
+            no `env_file`, no `volumes`, a healthcheck on `http://localhost:8080/` with
+            `start_interval: 2s`, and the Traefik labels: router `icloud-backup`,
+            ``Host(`icloud-backup.lilnas.io`)``, `websecure`, `tls.certresolver=le`,
+            `middlewares=lilnas-auth`, service port 8080.
+          Leave `ICLOUDPD_RECENT`, `IMMICH_EMAIL_PLUS_TAG` and `ACCOUNT_SLUG_PREFIX` unset here.
+
+          **`apps/icloud-backup/.env.prod`**, encrypted. Keys: `POSTGRES_USER=icloud_backup`,
+          `POSTGRES_DB=icloud_backup`, `POSTGRES_PASSWORD` (generate with `openssl rand -hex 24`),
+          `IMMICH_API_KEY` (read from `/home/jeremy/.config/lilnas/icloud-backup-immich-api-key`; a
+          human put it there). Copy the `DOTENV_PUBLIC_KEY_PROD="…"` line from
+          `apps/download/.env.prod` into the new file first so it shares the existing key, then set
+          each value with `pnpm exec dotenvx set KEY "$VALUE" -f apps/icloud-backup/.env.prod`
+          (add `-fk /home/jeremy/lilnas/.env.keys` if dotenvx asks for a keys file; never create a
+          `.env.keys` in the worktree and never commit one). Do not echo the values, do not use
+          `set -x`, and check the result with `pnpm lilnas secrets verify`. If the key file is
+          missing, stop and report it.
+
+          **`apps/icloud-backup/deploy.dev.yml`**: the dry-run stack at
+          `https://icloud-backup.dev.lilnas.io`, the built image rather than hot reload, because the
+          login form needs port 8080 and the split has to be exercised. Services and
+          `container_name`s `icloud-backup-dev-db` (`lilnas-icloud-backup-dev-db`, a named volume),
+          `icloud-backup-dev` (`lilnas-icloud-backup-dev`) and `icloud-backup-dev-frontend`
+          (`lilnas-icloud-backup-dev-frontend`), all `image: lilnas-icloud-backup:dev` with the same
+          `build:`. A private network `icloud-backup-dev` on which the backend has the alias
+          `icloud-backup`, so the frontend's built-in `http://icloud-backup:8081` reaches the dev
+          backend. The frontend joins only that network and the external `lilnas-proxy`; it must not
+          join `lilnas_default`, where the name would resolve to production. The backend joins the
+          private network and the external `lilnas_default` (to reach `immich` and `auth`). Backend
+          `env_file` entry `{ path: .env.dev-remote, required: false }`; environment as production
+          plus `POSTGRES_HOST=icloud-backup-dev-db`, `ICLOUDPD_RECENT=25`, `ACCOUNT_SLUG_PREFIX=dev-`,
+          `IMMICH_EMAIL_PLUS_TAG=icloud-backup-dev`; volumes
+          `/storage/photos/icloud-users:/photos` and `/storage/app-data/icloud-backup-dev:/state`.
+          Frontend labels: `traefik.docker.network=lilnas-proxy`, router `dev-icloud-backup`,
+          ``Host(`icloud-backup.dev.lilnas.io`)``, `websecure`, `tls=true` (not `certresolver`),
+          `middlewares=lilnas-auth`, port 8080, and `lilnas.idle-reap.enabled=false` on all three.
+          No published ports.
+
+          **Registration.**
+          - Root `docker-compose.yml`: add `./apps/icloud-backup/deploy.yml` to the app includes.
+            Root `docker-compose.dev.yml`: add the dev file.
+          - `apps/auth/deploy.yml` and `apps/auth/deploy.dev.yml`: add the read-only mount line for
+            `apps/icloud-backup/deploy.yml` beside the other apps, in the file's existing style.
+            `apps/auth/src/services/__tests__/compose-mount-coverage.spec.ts` fails without it.
+          - `apps/portal/src/utils/app-meta.ts`: add `'icloud-backup'` to `APP_ICONS` with an
+            existing `IconName` that suits photos (check `packages/ui/src/icons`); run
+            `pnpm --filter @lilnas/portal lint` and `type-check`.
+
+          **`src/__tests__/deploy.spec.ts`** (node project), modelled on
+          `apps/auth/src/services/__tests__/frontend-isolation.spec.ts`: the frontend service has no
+          `env_file`, `volumes`, `ports` or secret-looking environment key; only the frontend has
+          Traefik labels, with `lilnas-auth` in its middlewares; the backend mounts exactly the two
+          host paths; both app services share one image and have `build:`; the three dry-run-only
+          variables are absent from `deploy.yml`; in `deploy.dev.yml` the frontend is not on
+          `lilnas_default`; every key in `.env.prod` is `encrypted:` and no dev-only key is in it.
+
+          Verify and report: with a temporary dummy `apps/icloud-backup/.env.prod.decrypted`
+          (fake values, deleted afterwards), `docker compose -f apps/icloud-backup/deploy.yml config -q`
+          and `docker compose -p lilnas-dev -f apps/icloud-backup/deploy.dev.yml config -q` pass;
+          `pnpm lilnas ci detect --base HEAD~1 --head HEAD --json` after your commit shows
+          `full: true` (the root compose file changed) and an image for `icloud-backup`.
+      - id: T16
+        title: Live check of the built image as two containers, with the real binary
+        after:
+          - T10
+          - T11
+          - T15
+        files: []
+        status: todo
+        body: |-
+          Everything so far was tested with fakes. Build the real image and run the stack the way
+          production will, with a fake Apple account, and report what breaks. Commit nothing.
+
+          1. `docker build -t lilnas-icloud-backup:livecheck -f apps/icloud-backup/Dockerfile .`
+          2. In a throwaway compose project `icloud-backup-livecheck` (file in a temp folder; own
+             network, no published ports, no Traefik labels, named volumes and temp folders only):
+             `postgres:18.4-alpine` with test credentials; the backend (`node dist/main`) with network
+             alias `icloud-backup`, `PHOTOS_ROOT` and `STATE_ROOT` on temp folders owned by uid 1000,
+             `MIN_FREE_BYTES=1`, `IMMICH_URL` pointing at a name that does not resolve,
+             `NODE_ENV=production`; the frontend (`node frontend/apps/icloud-backup/server.js`).
+             Never use `apps/icloud-backup/deploy.yml` or the production key.
+          3. Drive it from a third throwaway container on that network with `node -e` and `fetch`,
+             sending `X-Forwarded-User` and `X-Forwarded-User-Id` yourself. Check, through the
+             frontend on port 8080 unless noted:
+             - migrations ran and `/api/backup` returns a view with `account: null`; without the
+               identity headers it is 401; `GET /health` on the backend is 200
+             - `POST /api/backup/start` with `nobody@example.invalid` reaches `need_password` within
+               30 s, and `http://icloud-backup:8080/status` (the form, on the backend) shows the
+               password form. Do not submit a password: it would be sent to Apple
+             - a second identity starting at the same time is `queued_login` with position 1
+             - a websocket to `ws://<frontend>:8080/ws` with the identity headers receives a view on
+               connect and another when the first person cancels; after that cancel the second person
+               reaches `need_password`
+             - `POST /api/backup/cancel` for both; no icloudpd process is left
+               (`docker top` on the backend)
+             - `POST` without `X-Requested-With` is 403
+             - stop and start the backend container while one person is at `need_password`: after the
+               restart that job is `failed` with `interrupted_login`
+             - the backend runs as uid 1000 and `icloudpd --version` inside it prints 1.33.1; the
+               frontend container's environment has no `POSTGRES_PASSWORD` or `IMMICH_API_KEY`
+             - `docker logs` of all three contain no `password=` and no request body
+          4. Tear down: `docker compose -p icloud-backup-livecheck down -v`, remove the image and the
+             temp folders, show `docker ps -a`, `docker volume ls` and `docker network ls` are clean.
+
+          Report each check with what you observed. Anything that fails goes under `defects:` with
+          the file you believe is at fault.
+      - id: T17
+        title: 'Docs: README, deploy notes, CLAUDE.md'
+        after:
+          - T15
+        files:
+          - apps/icloud-backup/README.md
+          - CLAUDE.md
+          - docs/deploy.md
+        status: todo
+        body: |-
+          Document the new service from the code as it now is (`apps/icloud-backup/`).
+
+          - `apps/icloud-backup/README.md`: what it does in three sentences; a mermaid state diagram
+            of a job (states from `src/shared/contract.ts`); the two-container layout and why the
+            backend owns port 8080; every env key with its default; where data lives on the host
+            (`/storage/photos/icloud-users/<name>`, `/storage/app-data/icloud-backup/cookies/<name>`,
+            `/storage/app-data/icloud-backup-db`); how the pinned icloudpd is upgraded (two variables
+            in `scripts/fetch-icloudpd.sh`); the Immich API key and its seven permissions; what is
+            never stored (Apple passwords, codes, Immich passwords); how to grant a family member
+            access (a grant for `icloud-backup.lilnas.io` in the auth admin page); how to run the
+            dry-run stack (`docker compose -p lilnas-dev -f apps/icloud-backup/deploy.dev.yml up -d --build`)
+            and what its three dry-run variables do; known limits (no SMS codes, no security keys,
+            one Apple ID per person, no schedule).
+          - `CLAUDE.md`: add `@lilnas/icloud-backup` under "Full-Stack Applications", and add
+            `icloud-backup` to the dev stack list in "Dev servers" with a note that its dev stack is
+            the built image.
+          - `docs/deploy.md`: in the Secrets section's file list, add
+            `apps/icloud-backup/.env.prod` and correct the count.
+
+          Run `pnpm exec prettier -c` on each file you touch; fix what you changed.
+  - key: '3'
+    name: Dry run and ship
+    tasks:
+      - id: T18
+        title: Start the dry-run stack at icloud-backup.dev.lilnas.io
+        after:
+          - T9
+          - T10
+          - T12
+          - T13
+          - T14
+          - T15
+          - T16
+        files: []
+        status: todo
+        body: |-
+          Bring up the dry-run stack so a human can sign in with a real Apple ID. Commit nothing.
+
+          1. Create `/storage/app-data/icloud-backup-dev` as yourself and confirm it is owned by uid
+             1000. Confirm `/storage/photos/icloud-users` exists and that production Immich mounts it
+             (`docker inspect lilnas-immich-1 --format '{{json .Mounts}}'`).
+          2. Write `apps/icloud-backup/.env.dev-remote` in your worktree (it is gitignored; confirm
+             with `git check-ignore`): `POSTGRES_USER`, `POSTGRES_DB`, a generated
+             `POSTGRES_PASSWORD`, and `IMMICH_API_KEY` read from
+             `/home/jeremy/.config/lilnas/icloud-backup-immich-api-key`. Mode 600. Print nothing.
+          3. `docker compose -p lilnas-dev -f apps/icloud-backup/deploy.dev.yml up -d --build`. This
+             is project `lilnas-dev`, never `lilnas`. Name only this file, so no other dev stack is
+             touched.
+          4. Check: the three `lilnas-icloud-backup-dev*` containers are healthy; from inside the
+             backend, `GET http://immich:2283/api/server/ping` answers and `GET /api/libraries` with
+             the key is 200 (print the count only); `https://icloud-backup.dev.lilnas.io/` from this
+             host answers with a redirect to `auth.lilnas.io` (it is gated); the frontend container
+             is not attached to `lilnas_default`; `https://icloud-backup.lilnas.io/` is still not
+             served.
+          5. Leave the stack running for the human. Delete `.env.dev-remote` from the worktree once
+             the containers are up (they keep their environment).
+
+          Report the URL, the container names, and that the stack downloads at most 25 items into
+          `/storage/photos/icloud-users/dev-<name>` and creates the Immich user
+          `<name>+icloud-backup-dev@<domain>`. Put anything that failed under `defects:`.
+      - id: H4
+        title: 'Dry run: sign in with your Apple ID on icloud-backup.dev.lilnas.io'
+        after:
+          - T18
+        files: []
+        status: todo
+        body: |-
+          Have your phone with you. Open `https://icloud-backup.dev.lilnas.io`. This stack downloads
+          only your 25 newest items, into `/storage/photos/icloud-users/dev-<your name>`.
+
+          1. Read the pre-flight page. Enter your Apple ID and a **wrong** password. Expect "That
+             password didn't work" and the form again. Note what you actually see.
+          2. Enter the right password. Approve the prompt on your device, then type a **wrong**
+             code. Expect "That code didn't work". Then the right code.
+          3. Watch the backup: "Apple is still preparing your library" may show for a few minutes
+             first. Check the count, the size and the file names move, close the tab, reopen it, and
+             see that it carried on.
+          4. When it finishes: press "Create a temporary password", open Immich in a private window,
+             sign in as `<you>+icloud-backup-dev@…` with it, change the password when asked, and see
+             the 25 items.
+          5. Press "Sync now". It must not ask for a password or a code, and must finish quickly.
+          6. Open `/admin` and check your row.
+          7. In Immich as admin, delete the `+icloud-backup-dev` user (Administration, Users) and
+             its `iCloud` library (Administration, External Libraries).
+
+          Approve if all of it worked. Request changes with what you saw for anything that didn't,
+          especially steps 1 and 2: how icloudpd reports a wrong password was not known when this
+          was built.
+      - id: T19
+        title: Remove the dry-run stack and its data
+        after:
+          - H4
+        files: []
+        status: todo
+        body: |-
+          The human finished the dry run. Remove everything it left. Commit nothing.
+
+          1. Before removing, save evidence for the report: `docker logs lilnas-icloud-backup-dev`
+             filtered to state changes (no Apple ID: mask as `<apple-id>`), and confirm the log holds
+             no password, code or cookie (`grep -c` for `password=` and `session` values; counts only).
+          2. `docker compose -p lilnas-dev -f apps/icloud-backup/deploy.dev.yml down -v` (name only
+             this file). Remove the image `lilnas-icloud-backup:dev`.
+          3. Delete `/storage/photos/icloud-users/dev-*` and `/storage/app-data/icloud-backup-dev`.
+             Check each path starts with exactly those prefixes before deleting; never delete
+             `/storage/photos/icloud-users` itself or any folder without the `dev-` prefix.
+          4. Show: no `lilnas-icloud-backup-dev*` container, no `icloud-backup-dev` network or
+             volume, the two paths gone, `/storage/photos/icloud-users` present and empty of `dev-*`.
+          5. With the key from `/home/jeremy/.config/lilnas/icloud-backup-immich-api-key`, from a
+             throwaway container on `lilnas_default`, `GET http://immich:2283/api/admin/users` and
+             `GET /api/libraries`: report whether a `+icloud-backup-dev` user or a library with an
+             `/icloud-users/dev-` path still exists (names only). If one does, say so under
+             `defects:`; the human deletes it, the key cannot.
+
+          Report what the log showed for the wrong-password and wrong-code attempts (the sequence of
+          form steps), so the record says how icloudpd really behaves.
+      - id: H5
+        title: 'Go/no-go: push icloud-backup to main (redeploys every service)'
+        after:
+          - T8
+          - T17
+          - T19
+        files: []
+        status: todo
+        body: |-
+          Approving lets an agent push the app to `main`. Because the root `docker-compose.yml`
+          gains a line, CI treats it as a full deploy: every image is rebuilt and every service is
+          pulled and recreated if its image changed, so expect a short restart of most lilnas
+          services, including auth (sign-ins fail for about 10 seconds) and Immich.
+
+          What goes live: `https://icloud-backup.lilnas.io` behind lilnas-auth, visible to admins
+          and to anyone you grant that host. Nobody else can open it.
+
+          Before approving, check the phase review and the dry-run report above have no open defect.
+          Rollback is yours: revert the commits on `main` and push.
+      - id: T20
+        title: Pre-push checklist for the app
+        after:
+          - H5
+        files: []
+        status: todo
+        body: |-
+          A human approved shipping `apps/icloud-backup`. Prepare the host and prove the branch is
+          ready, without pushing. Commit nothing.
+
+          - `git fetch origin main`; `git merge-base --is-ancestor origin/main HEAD` succeeds. If
+            `origin/main` moved, stop and report; do not merge or rebase
+          - `git diff --stat origin/main..HEAD` touches only `apps/icloud-backup/**`,
+            `docs/**`, `CLAUDE.md`, `pnpm-lock.yaml`, `docker-compose.yml`, `docker-compose.dev.yml`,
+            `apps/auth/deploy.yml`, `apps/auth/deploy.dev.yml` and
+            `apps/portal/src/utils/app-meta.ts`
+          - no `.env.keys`, `*.decrypted` or `.env.dev-remote` is tracked; `pnpm lilnas secrets verify`
+            passes; `git grep -n -i -E 'password\s*[:=]\s*["\x27][^"\x27$]' -- apps/icloud-backup`
+            finds only test fixtures with obviously fake values
+          - create the host folders as yourself and show their owner is uid 1000:
+            `/storage/app-data/icloud-backup/cookies` (mode 700). Do not create
+            `/storage/app-data/icloud-backup-db`; Postgres makes it
+          - `/storage/photos/icloud-users` exists, owned by uid 1000, and holds no `dev-*` folder
+          - no dry-run container is left (`docker ps -a --filter name=icloud-backup`)
+          - `docker build -t lilnas-icloud-backup:prepush -f apps/icloud-backup/Dockerfile .`
+            succeeds; remove the image afterwards
+          - all `checks:` of this plan pass in your worktree
+          - `pnpm lilnas ci detect --base origin/main --head HEAD --json`: report `full`, the image
+            list and the `checkPackages` list
+
+          Report each item with what you observed. Any item that does not hold goes under
+          `defects:`; the push task after this one refuses to run on a defect.
+      - id: T21
+        title: Push icloud-backup to main, watch CI, verify production
+        after:
+          - T20
+        files: []
+        status: todo
+        body: |-
+          A human approved this push and the pre-push checklist passed (its result is above; if it
+          lists a defect, stop and report). Push `apps/icloud-backup` to `main`, watch the deploy and
+          verify production. Commit nothing.
+
+          Re-check, then push:
+          - `git fetch origin main`; `git merge-base --is-ancestor origin/main HEAD` succeeds (never
+            rebase, merge or force)
+          - `/storage/app-data/icloud-backup/cookies` exists, owned by uid 1000
+          - record `git rev-parse origin/main` as the rollback sha
+
+          `git push origin HEAD:main`. Find the run with
+          `gh run list --workflow ci.yml --branch main --event push --limit 5 --json databaseId,headSha,status,url`
+          (match `headSha`) and follow it with `gh run watch <id> --exit-status`. The plan is `full`,
+          so it rebuilds every image and takes a while. If the run is red, report the failing job's
+          log and which images were held back, and stop. A held-back `icloud-backup` image leaves
+          the rest of production as it was.
+
+          After the deploy (read-only checks):
+          - `docker compose -p lilnas ps icloud-backup icloud-backup-frontend icloud-backup-db` shows
+            three running, healthy containers. If the new image could not be pulled (a new GHCR
+            package can be private), report the pull error exactly
+          - backend: `docker exec` a `node -e` fetch of `http://localhost:8081/health` is 200;
+            `icloudpd --version` prints 1.33.1; `id -u` is 1000; `/photos` and `/state/cookies` are
+            writable (`test -w`); the logs show the migration ran and no error
+          - from inside the backend, `GET http://immich:2283/api/libraries` with the container's own
+            key is 200 (print the count only), proving the encrypted key decrypted correctly
+          - frontend: `docker inspect` shows no mounts and no `env_file` values
+            (`POSTGRES_PASSWORD`, `IMMICH_API_KEY` absent from its environment)
+          - from this host: `https://icloud-backup.lilnas.io/` answers with a redirect to
+            `https://auth.lilnas.io/login…`; `https://icloud-backup.lilnas.io/api/backup` does too
+          - with the identity headers set by hand from a throwaway container on `lilnas_default`
+            against `http://icloud-backup:8081/backup`: a view with `account: null` and
+            `lowDiskSpace: false`
+          - nothing listens for the login form while idle: `http://icloud-backup:8080/status` from
+            that container refuses the connection
+          - the rest of production came back: `docker compose -p lilnas ps` has no service in
+            `restarting` or `exited` that was running before, and `https://auth.lilnas.io/login`,
+            `https://immich.lilnas.io/api/server/ping` and `https://lilnas.io/` answer 200
+
+          Report the pushed sha, the rollback sha, the CI run URL, each check with what you observed,
+          and for the human: rollback is a revert of the pushed range on `main`; to take only this
+          service down at once, `cd /opt/lilnas && sudo -u deploy docker compose stop icloud-backup icloud-backup-frontend`.
+          Do not run either yourself. Put any failed check under `defects:`.
+      - id: H6
+        title: Open icloud-backup.lilnas.io in production and grant the first family member
+        after:
+          - T21
+        files: []
+        status: todo
+        body: |-
+          1. Open `https://icloud-backup.lilnas.io`. You should see the pre-flight page with your
+             own account showing no backup yet, and `/admin` should load with an empty list. Do not
+             start a backup with your own Apple ID yet: your existing `icloud` folder is connected
+             to this service in the next phase, and starting now would download a second copy.
+          2. Check `https://lilnas.io` shows an icloud-backup tile.
+          3. When a family member is ready: in the auth admin page, grant them
+             `icloud-backup.lilnas.io`. Their first backup creates their Immich user and library
+             when it finishes; this is the first real Immich user this service creates, so look at
+             Immich's Users and External Libraries pages afterwards.
+
+          Approve when steps 1 and 2 are right. Step 3 can happen later; request changes if anything
+          looks wrong.
+  - key: '4'
+    name: Adopt the existing icloud and icloud-mom libraries
+    tasks:
+      - id: T22
+        title: 'Path rewrite for the two existing Immich libraries: script and rehearsal on a copy'
+        after:
+          - T21
+        files:
+          - apps/icloud-backup/scripts/immich-path-rewrite/
+        status: todo
+        body: |-
+          Two folders of iCloud photos predate this service: `/storage/photos/icloud` (Immich
+          library "Jeremy iCloud", import path `/icloud`, about 18,316 assets) and
+          `/storage/photos/icloud-mom` ("Mom's iCloud", `/icloud-mom`, about 20,322). They will be
+          moved to `/storage/photos/icloud-users/<folder>`, which Immich already mounts at
+          `/icloud-users`. Immich must then know every asset under its new path without re-importing
+          it, so faces, albums and favourites survive. That means editing Immich's database
+          (v3.3.4), which Immich does not support. This task writes the edit and proves it on a copy.
+          It changes nothing in production.
+
+          Known from a read-only look at the production database on 2026-11-19: paths are in
+          `asset."originalPath"`, `asset_file.path` (one `sidecar` row under `/icloud`),
+          `integrity_report.path` (two rows) and `library."importPaths"` (a text array).
+          Thumbnails, previews and encoded videos live under `/usr/src/app/upload` and are not
+          affected. External assets have `"checksumAlgorithm" = 'sha1-path'`: the checksum is
+          derived from the path, and there is a unique index on
+          `("ownerId", "libraryId", checksum)`. Find the exact formula in the server image
+          (`docker run --rm --entrypoint sh ghcr.io/immich-app/immich-server:v3.3.4 -c 'grep -rn "sha1-path" /usr/src/app/server/dist --include=*.js | head -40'`
+          and follow it to where the hash is computed), then confirm it reproduces the stored
+          checksum of existing rows before trusting it.
+
+          Write in `apps/icloud-backup/scripts/immich-path-rewrite/`:
+          - `rewrite.sql`: psql variables `old_prefix`, `new_prefix`, `library_id`,
+            `expected_assets`. One transaction that, for that library only: checks the asset count
+            equals `expected_assets` and that every asset path starts with `old_prefix || '/'`;
+            rewrites `originalPath`, recomputes `checksum`, rewrites matching `asset_file.path` and
+            `integrity_report.path`, replaces the library's `importPaths` with `{new_prefix}`; then
+            checks no row of that library still starts with the old prefix, the count is unchanged,
+            and no asset of another library changed. Any failed check raises and rolls back. A
+            second run is refused by the first check, not silently repeated. Match the prefix as
+            `old_prefix || '/'` so `/icloud` never matches `/icloud-mom` or `/icloud-users`.
+          - `rehearse.sh`: dumps the production database read-only
+            (`docker exec lilnas-immich-database-1 pg_dump` with the container's own credentials,
+            never printed) to a mode-600 file under `/storage/workspace/icloud-adoption-rehearsal/`,
+            restores it into a throwaway container of the same Postgres image as `infra/immich.yml`
+            (own network, no ports, name prefix `icloud-adoption-`), runs `rewrite.sql` for both
+            libraries with placeholder folders `rehearsal-a` and `rehearsal-b`, and prints the
+            checks below.
+          - `README.md`: the real procedure, in order, with the rollback: restore the dump taken
+            just before, move the folders back, start Immich.
+
+          Run the rehearsal and report: the checksum formula and how many existing rows it
+          reproduces (must be all of them in both libraries); asset counts per library before and
+          after; zero paths left under the old prefixes; the other libraries' rows unchanged; no
+          duplicate under the unique index; the sidecar and integrity rows moved; a second run
+          refused. Then start a throwaway `immich-server:v3.3.4` against the rewritten copy with a
+          temp folder holding three files at the new path of one library, scan it, and report
+          whether Immich kept the existing asset ids for those three paths (no new asset created for
+          them). Remove every container, network, volume and the dump, and show they are gone.
+
+          Anything that does not hold goes under `defects:`. Do not touch
+          `lilnas-immich-database-1` beyond the read-only dump.
+      - id: H7
+        title: 'Go/no-go: move the two existing libraries, and choose the folder names'
+        after:
+          - T22
+        files: []
+        status: todo
+        body: |-
+          Read the rehearsal report above. If it has no defect, decide two things and write them in
+          your approval note:
+
+          1. The folder name for each library under `/storage/photos/icloud-users/`. Use the part
+             before `@` of the lilnas (Google) email each person signs in with, lower-cased, for
+             example `jeremy=jane.doe mom=mary.doe`. Only the folder names are needed, not the full
+             addresses.
+          2. That now is a good time: Immich will be down for about 15 minutes, and the next two
+             steps need you at a terminal with sudo.
+      - id: T23
+        title: 'Prepare the move: database backup, mount removal commit, command sheet'
+        after:
+          - H7
+        files:
+          - infra/immich.yml
+        status: todo
+        body: |-
+          A human approved moving `/storage/photos/icloud` and `/storage/photos/icloud-mom` into
+          `/storage/photos/icloud-users/` and wrote the two folder names in the approval note above
+          (`jeremy=<folder>` and `mom=<folder>`). If the names are missing, or do not match
+          `^[a-z0-9][a-z0-9._-]{0,39}$`, or a folder of that name already exists in
+          `/storage/photos/icloud-users/`, stop and report. Change nothing in production except the
+          backup file.
+
+          1. Back up the Immich database: `pg_dump` from `lilnas-immich-database-1` (its own
+             credentials, never printed), gzip, to
+             `/storage/backups/immich-db/pre-icloud-move-<YYYYMMDD-HHMM>.sql.gz`, mode 600. Create
+             the folder if needed. If `/storage/backups` is not writable by you, use
+             `/storage/workspace/immich-db-backup/` and say so. Check it with `gzip -t` and report
+             its size and path.
+          2. In `infra/immich.yml`, service `immich`, delete the two volume lines
+             `/storage/photos/icloud:/icloud:ro` and `/storage/photos/icloud-mom:/icloud-mom:ro`.
+             Nothing else. Commit it; do not push.
+          3. Record for the next task: from the production database (read-only), each library's id
+             and current asset count (`library` name "Jeremy iCloud" and "Mom's iCloud").
+          4. Report a command sheet for the human with the real names filled in, in this order:
+             ```bash
+             docker stop lilnas-immich-1 lilnas-immich-machine-learning-1
+             sudo mv /storage/photos/icloud      /storage/photos/icloud-users/<jeremy folder>
+             sudo mv /storage/photos/icloud-mom  /storage/photos/icloud-users/<mom folder>
+             sudo chown -R 1000:1000 /storage/photos/icloud-users/<jeremy folder> /storage/photos/icloud-users/<mom folder>
+             ```
+             and the undo: move both back, `docker start` the two containers. Check the container
+             names with `docker compose -p lilnas ps` first and correct the sheet if they differ.
+      - id: H8
+        title: 'Stop Immich, move the two folders, fix ownership (sudo)'
+        after:
+          - T23
+        files: []
+        status: todo
+        body: |-
+          Run the command sheet from the task above, in order. The moves are instant (same disk);
+          the `chown` takes a minute or two. Leave Immich stopped: the next task rewrites its
+          database and brings it back with the deploy.
+
+          Approve as soon as the four commands have finished without an error. If one failed, run
+          the undo from the sheet and request changes with the error.
+      - id: T24
+        title: Rewrite the Immich paths, push the mount removal, verify both libraries
+        after:
+          - H8
+        files: []
+        status: todo
+        body: |-
+          A human stopped Immich and moved `/storage/photos/icloud` and `/storage/photos/icloud-mom`
+          to the two folders named in the earlier results under `/storage/photos/icloud-users/`.
+          Finish the move: rewrite the paths in Immich's database, deploy the compose change that
+          drops the two old mounts, and verify. This task writes to production's Immich database
+          and pushes to `main`; both are approved. Commit nothing.
+
+          Check first; if anything fails, stop, change nothing, and report with the undo sheet:
+          - `lilnas-immich-1` is not running; `lilnas-immich-database-1` is
+          - both new folders exist, are owned by uid 1000 all the way down
+            (`find <folder> ! -uid 1000 | head` prints nothing), and the old paths are gone
+          - the backup file from the earlier task exists and passes `gzip -t`
+          - each library's asset count equals the count recorded earlier
+          - `git fetch origin main`; `git merge-base --is-ancestor origin/main HEAD` succeeds;
+            `git diff --stat origin/main..HEAD` touches only `infra/immich.yml`,
+            `apps/icloud-backup/scripts/**` and `docs/**`, and the `infra/immich.yml` diff is
+            exactly the two removed mount lines
+
+          Then:
+          1. Run `apps/icloud-backup/scripts/immich-path-rewrite/rewrite.sql` against
+             `lilnas-immich-database-1` once per library: `/icloud` to `/icloud-users/<jeremy folder>`
+             and `/icloud-mom` to `/icloud-users/<mom folder>`, with each library's id and expected
+             count. It is one transaction per library and rolls back on a failed check. If the
+             second fails after the first committed, stop and report: each library is consistent on
+             its own, and the human decides whether to restore the backup.
+          2. Record `git rev-parse origin/main` as the rollback sha. `git push origin HEAD:main`,
+             find the run (`gh run list --workflow ci.yml --branch main --event push --limit 5 --json databaseId,headSha,status,url`,
+             match `headSha`) and `gh run watch <id> --exit-status`. The deploy starts Immich with
+             the new mounts. If the run is red, report the failing job and stop.
+          3. Verify (read-only, plus the two scans): `lilnas-immich-1` is running and mounts
+             neither old path; `https://immich.lilnas.io/api/server/ping` is 200; with the key from
+             `/home/jeremy/.config/lilnas/icloud-backup-immich-api-key`, from a throwaway container
+             on `lilnas_default`: both libraries list the new import path,
+             `POST /api/libraries/:id/validate` says the path is valid, then
+             `POST /api/libraries/:id/scan` for both. Wait for the scans (poll
+             `GET /api/libraries/:id/statistics` and the database until counts are stable for two
+             minutes), then from the database: each library's asset count equals the recorded
+             count, zero assets of either library have `"isOffline"` true or a non-null
+             `"deletedAt"`, zero paths remain under `/icloud/` or `/icloud-mom/`, and no asset was
+             created after the rewrite time in those libraries. Spot-check five asset ids per
+             library that had faces before: they still have rows in `asset_face`.
+
+          Report the pushed sha, the rollback sha, the CI run URL, each check with its observed
+          value, and the rollback for the human: stop Immich, restore the backup (steps in
+          `apps/icloud-backup/scripts/immich-path-rewrite/README.md`), move the folders back, revert
+          the pushed commit on `main`. Do not do it yourself. Failed checks go under `defects:`.
+      - id: H9
+        title: Check Immich, link both people in the admin page, run your first sync
+        after:
+          - T24
+        files: []
+        status: todo
+        body: |-
+          1. Open Immich. Your iCloud photos and your mom's are all there, with people, albums and
+             favourites as before. Open a few from different years.
+          2. On `https://icloud-backup.lilnas.io/admin`, under "Existing libraries", add two
+             presets: your lilnas email with your folder and "Jeremy iCloud"; your mom's lilnas
+             email with her folder and "Mom's iCloud".
+          3. Sign in on `https://icloud-backup.lilnas.io` with your Apple ID. After the code, the
+             site counts what is not on the server yet and asks before downloading. Expect a small
+             number: the photos taken since your last manual sync. If it shows thousands, choose
+             "Not now" and request changes with the number; file naming may differ from the old runs.
+          4. Let it download, then check the new photos appear in Immich under your existing
+             library, once each.
+          5. Your mom does step 3 whenever she is ready, after you grant her
+             `icloud-backup.lilnas.io` in the auth admin page.
+          6. The two `sync-icloud.fish` scripts moved with the folders and are no longer needed;
+             delete them when you like.
+
+          Approve when steps 1 to 4 are right.
