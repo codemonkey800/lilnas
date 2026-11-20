@@ -1309,7 +1309,8 @@ phases:
           - apps/icloud-backup/src/immich/
           - apps/icloud-backup/scripts/immich-contract/
           - apps/icloud-backup/README.md
-        status: todo
+        status: done
+        commit: cdb39bdcecc1b8f96aaf40d820b36d5d5fc61f1f
         body: |-
           Decision: the production Immich API key keeps exactly its seven permissions
           (`adminUser.create|read|update`, `library.create|read|update|statistics`). It is never

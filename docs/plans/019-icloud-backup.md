@@ -566,3 +566,11 @@ Checks run: @lilnas/utils and @lilnas/ui build, icloud-backup lint and type-chec
 Caller note carried over from R1: whatever calls ensure() must create <PHOTOS_ROOT>/<slug> first, since nothing in src does.
 
 No commits: nothing to integrate.
+
+### 2026-11-19 · T28 · done
+Items 1 and 2 already held from the earlier fix task: ensure() makes no validate request and checks <photosRoot>/<slug> locally; validateLibrary and its schema are already deleted; the provisioner spec asserts no /validate request reaches the stand-in server. Only the README still said the key needs `all`; replaced that caveat with one sentence on why validate is not used.
+immich-contract/run.ts: ALL STEPS PASSED with the seven-permission key (no --with-all). Steps: ping, admin sign-up and key, ensure(alice) creates user and library, second ensure creates nothing, statistics reach 3 assets, scan/statistics/PUT users succeed, missing slug throws import_path_invalid, temporary password login 201, admin email reused, import_path_taken. Server reached at the container IP.
+Cleanup: the script ran down -v; docker ps -a, volume ls and network ls show nothing for icloud-backup-immich-test; /tmp/icloud-users-* is gone.
+Checks run: utils and ui build, icloud-backup lint and type-check, jest src/immich (25 passed), prettier on README. Not re-run: full jest suite, auth specs, mockups, docker build --check (nothing outside the README changed).
+Remaining grep hits for "validate" are the explanatory comment in immich.provisioner.ts, the README sentence, and the spec's negative assertion; none is a call to the route.
+run.ts keeps an optional diagnostic --with-all flag; nothing needs it.
