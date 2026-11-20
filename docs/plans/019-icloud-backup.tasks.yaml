@@ -302,7 +302,7 @@ phases:
           - docs/features/icloud-backup/designs/start.html
           - docs/features/icloud-backup/designs/backup.html
           - docs/features/icloud-backup/designs/admin.html
-        status: todo
+        status: approved
         body: |-
           Each state is one frame with the 1280 and the 390 screen side by side; pin comments on
           the frame they belong to. Things to decide here, because the frontend is built

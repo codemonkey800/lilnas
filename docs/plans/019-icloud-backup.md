@@ -340,3 +340,6 @@ grep -rniE 'preset|review|adopt|already here' docs/features/icloud-backup/design
 Browser check (headless Chrome, 1800 px wide): no horizontal overflow on backup or admin, every frame shows 1280 and 390 side by side at the same top offset, remaining frames look as before, admin ends right after the Error frame with no gap. Screenshots and temp files deleted.
 Checks: mockups build + lint clean; utils/ui build ok; icloud-backup lint + type-check pass; icloud-backup jest 59/59; apps/auth services jest 87/87; docker build --check on apps/icloud-backup/Dockerfile: no warnings; prettier ok on README and compose files. git status clean.
 Not mine: /tmp/gen_t26.py, /tmp/t26_before.txt and /tmp/t26_full.txt already existed and were left alone.
+
+### 2026-11-19 · H2 · approved
+Approved.
