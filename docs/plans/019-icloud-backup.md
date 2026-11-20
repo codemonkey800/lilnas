@@ -205,6 +205,47 @@ Jeremy's approval; it had been 44 commits behind).
   else may be merged between T21 and T24 except the rewrite scripts, or it ships with the mount
   removal. Immich stays stopped from H8 until T24's deploy.
 - Memory file `project_icloud_backup_app.md` holds the spike results.
+- **C1 (T1, 2026-11-19):** any `infra/*.yml` change puts `auth` in detect's `forceRecreate`,
+  because `apps/auth/deploy.yml` bind-mounts each infra file. So the T2 and T24 pushes restart
+  auth for a few seconds. H1, T2, H7 and T24 now say so and check auth afterwards.
+
+### Steering notes saved 2026-11-19 before a context clear
+- Run `nexus-run:c31736cc-8783-45f6-a047-8275377bb163`, started 2026-11-19, branch
+  `feat/icloud-backup`, worktree `/home/jeremy/.nexus-code/worktrees/lilnas/feat-icloud-backup`.
+  Jeremy asked for fable (frontier) at high effort; effort is set on the Start screen and is not
+  confirmed. Check `nexus_run_get` config if a task looks like it ran on another model.
+- User decisions, all final (asked with the question tool, which Jeremy prefers over plain-chat
+  questions): binary in image with a backend + secret-free frontend split; sign-in one at a time
+  with a "you're next" screen (he does not expect simultaneous sign-ins), 2 parallel downloads;
+  folder and Immich email from the lilnas email; disk guard 200 GB; build untested sign-in states
+  from source and prove them at H4; mount push first, dry run on dev, then the app; an agent
+  pushes after each go/no-go; Immich temp password never stored, reset button; a read-only admin
+  page in version 1; existing `icloud` and `icloud-mom` folders are moved and Immich's paths
+  rewritten in phase 4 (he explicitly wants everything under the new path, not old mounts kept).
+- Why the adoption support is built in phases 1 and 2 instead of phase 4: it avoids a second
+  app push. Presets (admin form), states `previewing` and `review_download`, and
+  `--only-print-filenames` are in T3, T4, T5, T6, T9, T10, T11, T13 and T14.
+- Push ordering rules: every task that adds app code is `after` T2. Nothing but fixes may land
+  between H5 and T21. In phase 4 nothing may merge between T21 and T24 except T22's scripts and
+  T23's `infra/immich.yml` commit, and T23's commit must not be pushed before H8. A new task
+  that edits code must be `after` the preceding push task, never parallel to a pending push.
+  If `origin/main` moved before a push, ask Jeremy; no agent merges or rebases.
+- Ruled out: Docker socket per job; one global job queue; SQLite; storing the Immich temp
+  password; changing only the library import path (Immich re-imports and drops faces/albums);
+  keeping old Immich mounts pointed at moved folders; a hot-reload dev stack (port 8080 clash,
+  split untested); `--log-level debug` (prints Apple session data); a second login spike.
+- Known weak spots to expect change requests on: how icloudpd reports a wrong password (T9
+  isolates it, H4 shows it); the "already exists" and `--only-print-filenames` output formats
+  (T6 matches loosely); the `sha1-path` checksum formula (T22 must reproduce all 38,638 rows);
+  whether the seven API-key permissions suffice (T8 reports a 403); GHCR visibility of the new
+  `lilnas-icloud-backup` package (T21); whether a task worktree `HEAD` is the run branch tip
+  (push tasks check the diff instead).
+- Leftovers a cancelled run can leave: dry-run stack (`lilnas-icloud-backup-dev*` containers,
+  `/storage/app-data/icloud-backup-dev`, `/storage/photos/icloud-users/dev-*`, an Immich
+  `+icloud-backup-dev` user and library) between T18 and T19; Immich stopped and folders moved
+  between H8 and T24 (undo sheet is in T23's result, backup under `/storage/backups/immich-db/`).
+- Jeremy's reply style: answer first, tables and bullets, at most two paragraphs of prose.
+- No open thread with the user.
 
 ## Log
 <!-- Written by Nexus: findings, review cycles, checkpoint verdicts, the final report,
@@ -218,3 +259,6 @@ Detect JSON (--base HEAD~1 --head HEAD):
 images/pull empty and up only holds services defined in infra/immich.yml, as required. forceRecreate contains "auth": apps/auth/deploy.yml:83 bind-mounts ../../infra/immich.yml (all infra/*.yml files are mounted individually), so detect force-recreates auth on any infra/*.yml change. Expected side effect of the existing auth design; not caused by anything extra here.
 Plan checks not run: the change is a single compose line, no apps/icloud-backup/package.json exists yet; prettier -c on infra/immich.yml fails at base and was left alone per the task.
 No containers, networks, volumes, images or temp files created.
+
+### 2026-11-19 · H3 · approved
+Approved.

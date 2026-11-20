@@ -36,9 +36,11 @@ phases:
         body: |-
           Approving lets an agent push one line to `main`: `infra/immich.yml` gains the read-only
           mount `/storage/photos/icloud-users:/icloud-users`. CI then recreates the `immich`
-          container, so Immich is down for about 30 seconds. Nothing else deploys.
+          container, so Immich is down for about 30 seconds. It also recreates the `auth`
+          container, because auth bind-mounts every `infra/*.yml` file: sign-ins and every
+          site behind lilnas-auth fail for about 10 seconds. Nothing else deploys.
 
-          Approve when a short Immich restart is fine right now. Rollback, if needed, is yours:
+          Approve when a short Immich and auth restart is fine right now. Rollback, if needed, is yours:
           revert the commit on `main` and push.
       - id: T2
         title: Push the Immich mount to main, watch CI, verify production
@@ -59,7 +61,9 @@ phases:
           - the `infra/immich.yml` diff is exactly one added line, the `icloud-users` mount
           - `/storage/photos/icloud-users` exists and is owned by uid 1000
           - `pnpm lilnas ci detect --base origin/main --head HEAD --json` has `full: false`, no
-            images, `pull` empty, and `up` naming only services from `infra/immich.yml`
+            images, `pull` empty, and `up` naming only services from `infra/immich.yml`.
+            `forceRecreate` is expected to be exactly `["auth"]`: auth bind-mounts every
+            `infra/*.yml`, so the deploy recreates it. Anything else there is a reason to stop
           - record `git rev-parse origin/main` as the rollback sha
 
           Push with `git push origin HEAD:main`. Find the run with
@@ -74,6 +78,9 @@ phases:
             `icloud`, `icloud-mom`, `google-photos`, `home-movies` and upload mounts
           - `curl -s -o /dev/null -w '%{http_code}' https://immich.lilnas.io/api/server/ping` is 200
           - `docker logs lilnas-immich-1 --since 10m` has no error about a mount or a library
+          - auth came back after its recreate: `docker compose -p lilnas ps auth` shows it running
+            and healthy, and `curl -s -o /dev/null -w '%{http_code}' https://auth.lilnas.io/login`
+            is 200
 
           Report the pushed sha, the rollback sha, the CI run URL and each check. Rollback is a
           revert on `main` by a human; do not do it yourself. Put any failed check under `defects:`.
@@ -162,7 +169,7 @@ phases:
         title: Create the Immich API key and save it to a file
         after: []
         files: []
-        status: todo
+        status: approved
         body: |-
           The service needs an Immich admin API key. Only you can create it, and it must not pass
           through a chat.
@@ -1473,8 +1480,9 @@ phases:
              before `@` of the lilnas (Google) email each person signs in with, lower-cased, for
              example `jeremy=jane.doe mom=mary.doe`. Only the folder names are needed, not the full
              addresses.
-          2. That now is a good time: Immich will be down for about 15 minutes, and the next two
-             steps need you at a terminal with sudo.
+          2. That now is a good time: Immich will be down for about 15 minutes, the deploy at the
+             end also restarts auth (sign-ins fail for about 10 seconds), and the next two steps
+             need you at a terminal with sudo.
       - id: T23
         title: 'Prepare the move: database backup, mount removal commit, command sheet'
         after:
@@ -1557,9 +1565,12 @@ phases:
           2. Record `git rev-parse origin/main` as the rollback sha. `git push origin HEAD:main`,
              find the run (`gh run list --workflow ci.yml --branch main --event push --limit 5 --json databaseId,headSha,status,url`,
              match `headSha`) and `gh run watch <id> --exit-status`. The deploy starts Immich with
-             the new mounts. If the run is red, report the failing job and stop.
-          3. Verify (read-only, plus the two scans): `lilnas-immich-1` is running and mounts
-             neither old path; `https://immich.lilnas.io/api/server/ping` is 200; with the key from
+             the new mounts and recreates the `auth` container (auth bind-mounts every
+             `infra/*.yml`; `forceRecreate: ["auth"]` in the detect output is expected). If the
+             run is red, report the failing job and stop.
+          3. Verify (read-only, plus the two scans): `docker compose -p lilnas ps auth` shows auth
+             running and healthy and `https://auth.lilnas.io/login` is 200; `lilnas-immich-1` is
+             running and mounts neither old path; `https://immich.lilnas.io/api/server/ping` is 200; with the key from
              `/home/jeremy/.config/lilnas/icloud-backup-immich-api-key`, from a throwaway container
              on `lilnas_default`: both libraries list the new import path,
              `POST /api/libraries/:id/validate` says the path is valid, then
