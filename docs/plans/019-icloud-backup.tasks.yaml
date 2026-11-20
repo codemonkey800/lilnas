@@ -1828,7 +1828,8 @@ phases:
           - T21
         files:
           - apps/icloud-backup/scripts/immich-path-rewrite/
-        status: todo
+        status: done
+        commit: db9f70753d490286ecb63c74716b8adaa5ce4b1d
         body: |-
           Two folders of iCloud photos predate this service: `/storage/photos/icloud` (Immich
           library "Jeremy iCloud", import path `/icloud`, about 18,316 assets) and
