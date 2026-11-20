@@ -96,6 +96,26 @@ export class AccountsRepo {
       .where(eq(accounts.id, id))
   }
 
+  /**
+   * Records an Immich user this service just created, before its library
+   * exists, so a failed library step does not lose that fact. Leaves
+   * `immichLibraryId` null.
+   */
+  async setImmichUser(
+    id: string,
+    user: { userId: string; email: string },
+  ): Promise<void> {
+    await this.db
+      .update(accounts)
+      .set({
+        immichUserId: user.userId,
+        immichEmail: user.email,
+        immichCreatedByUs: true,
+        updatedAt: new Date(),
+      })
+      .where(eq(accounts.id, id))
+  }
+
   /** Adds to the running totals and stamps `lastBackupAt`. */
   async addTotals(id: string, items: number, bytes: number): Promise<void> {
     await this.db

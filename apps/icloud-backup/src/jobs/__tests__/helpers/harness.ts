@@ -255,17 +255,42 @@ export class FakeProvisioner {
     createdByUs: true,
   }
   failWith: Error | null = null
+  /**
+   * Like Immich failing at the library step: the user is created (and
+   * reported through `onUserCreated`) the first time, then the call throws.
+   */
+  failAfterUser: Error | null = null
   /** When set, `ensure` waits for it: holds a job in `provisioning`. */
   hold: Promise<void> | null = null
+  /** The Immich user exists once `ensure` has created it. */
+  private userExists = false
 
   async ensure(input: {
     email: string
     slug: string
+    onUserCreated?: (user: { userId: string; email: string }) => Promise<void>
+    knownCreatedUserId?: string | null
   }): Promise<EnsuredImmichAccount> {
-    this.ensured.push(input)
+    this.ensured.push({ email: input.email, slug: input.slug })
     if (this.hold) await this.hold
     if (this.failWith) throw this.failWith
-    return { ...this.link, email: input.email }
+    // Same rule as the real one: ours when we created it now, or when the
+    // caller says the existing user is the one it saved earlier.
+    let createdByUs = this.link.createdByUs
+    if (this.link.createdByUs) {
+      if (!this.userExists) {
+        this.userExists = true
+        createdByUs = true
+        await input.onUserCreated?.({
+          userId: this.link.userId,
+          email: input.email,
+        })
+      } else {
+        createdByUs = input.knownCreatedUserId === this.link.userId
+      }
+    }
+    if (this.failAfterUser) throw this.failAfterUser
+    return { ...this.link, email: input.email, createdByUs }
   }
 
   async newTemporaryPassword(userId: string): Promise<string> {

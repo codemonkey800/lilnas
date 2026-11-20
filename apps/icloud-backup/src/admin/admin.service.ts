@@ -28,7 +28,7 @@ export class AdminService {
           lastBackupAt: account.lastBackupAt?.toISOString() ?? null,
           totalItems: account.totalItems,
           totalBytes: account.totalBytes,
-          hasImmich: account.immichUserId !== null,
+          hasImmich: account.immichLibraryId !== null,
         }
       }),
     )

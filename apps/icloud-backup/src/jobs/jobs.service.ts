@@ -1388,6 +1388,11 @@ export class JobsService
             readConfig().immichPlusTag || undefined,
           ),
           slug: account.slug,
+          onUserCreated: user =>
+            this.accounts.setImmichUser(run.accountId, user),
+          knownCreatedUserId: account.immichCreatedByUs
+            ? account.immichUserId
+            : null,
         })
         await this.accounts.setImmich(run.accountId, link)
       }

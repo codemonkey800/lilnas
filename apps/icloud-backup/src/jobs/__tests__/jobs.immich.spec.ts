@@ -137,6 +137,49 @@ describe('JobsService: Immich after a download', () => {
       expect(done.account).toMatchObject({ totalItems: 4, totalBytes: 40 })
     })
 
+    it('keeps "we created this user" when the library step fails, so the retry can reset the password', async () => {
+      await h.seedAccount(alice, APPLE.alice)
+      h.provisioner.failAfterUser = new ImmichError(
+        'http_error',
+        'Immich POST /libraries failed with 403',
+        403,
+      )
+      await runSync(alice, 0, 1)
+      const failed = await h.untilState(alice, 'failed')
+      expect(failed.job?.errorCode).toBe('immich_error')
+      // A user with no library is not a linked account.
+      expect(failed.account?.immich).toBeNull()
+      const half = await h.accounts.findByLilnasUserId(alice.userId)
+      expect(half).toMatchObject({
+        immichUserId: 'immich-user-1',
+        immichEmail: 'alice@example.com',
+        immichCreatedByUs: true,
+        immichLibraryId: null,
+      })
+      expect((await h.service.newImmichPassword(alice)).password).toBe(
+        TEMP_PASSWORD,
+      )
+
+      h.provisioner.failAfterUser = null
+      await runSync(alice, 1, 0)
+      const done = await h.untilState(alice, 'done')
+      expect(h.provisioner.ensured).toHaveLength(2)
+      expect(done.account?.immich).toMatchObject({
+        email: 'alice@example.com',
+        createdByUs: true,
+      })
+      const stored = await h.accounts.findByLilnasUserId(alice.userId)
+      expect(stored).toMatchObject({
+        immichUserId: 'immich-user-1',
+        immichLibraryId: 'immich-library-1',
+        immichCreatedByUs: true,
+      })
+      expect((await h.service.newImmichPassword(alice)).password).toBe(
+        TEMP_PASSWORD,
+      )
+      expect(h.provisioner.resets).toEqual(['immich-user-1', 'immich-user-1'])
+    })
+
     it("reports a library on another user's folder as an Immich error with that code", async () => {
       await h.seedAccount(alice, APPLE.alice)
       h.provisioner.failWith = new ImmichError(

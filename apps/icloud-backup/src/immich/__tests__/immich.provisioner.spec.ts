@@ -247,6 +247,97 @@ describe('ImmichProvisioner', () => {
       expect(fake.libraries).toHaveLength(1)
       expect(result.libraryId).toBe(only(fake.libraries).id)
     })
+
+    it('reports the new user to onUserCreated before the library step, and rethrows when the library fails', async () => {
+      const onUserCreated = jest.fn().mockResolvedValue(undefined)
+      jest
+        .spyOn(ImmichClient.prototype, 'createLibrary')
+        .mockRejectedValueOnce(
+          new ImmichError('http_error', 'Immich POST /libraries failed', 403),
+        )
+
+      await expect(
+        provisioner.ensure({
+          email: 'alice@example.com',
+          slug: 'alice',
+          onUserCreated,
+        }),
+      ).rejects.toMatchObject({ code: 'http_error' })
+
+      expect(fake.users).toHaveLength(1)
+      expect(fake.libraries).toHaveLength(0)
+      expect(onUserCreated).toHaveBeenCalledTimes(1)
+      expect(onUserCreated).toHaveBeenCalledWith({
+        userId: only(fake.users).id,
+        email: 'alice@example.com',
+      })
+    })
+
+    it('does not call onUserCreated for a user that already exists', async () => {
+      const onUserCreated = jest.fn().mockResolvedValue(undefined)
+      fake.users.push({
+        id: 'b1b1b1b1-0000-4000-8000-000000000004',
+        email: 'alice@example.com',
+        name: 'Alice',
+      })
+
+      await provisioner.ensure({
+        email: 'alice@example.com',
+        slug: 'alice',
+        onUserCreated,
+      })
+
+      expect(onUserCreated).not.toHaveBeenCalled()
+    })
+
+    describe('createdByUs with knownCreatedUserId', () => {
+      const KNOWN = 'b1b1b1b1-0000-4000-8000-000000000005'
+      const OTHER = 'b1b1b1b1-0000-4000-8000-000000000006'
+
+      it('is true when the existing user is the one we created', async () => {
+        fake.users.push({
+          id: KNOWN,
+          email: 'alice@example.com',
+          name: 'Alice',
+        })
+
+        const result = await provisioner.ensure({
+          email: 'alice@example.com',
+          slug: 'alice',
+          knownCreatedUserId: KNOWN,
+        })
+
+        expect(fake.calls('POST', '/api/admin/users')).toHaveLength(0)
+        expect(result.createdByUs).toBe(true)
+      })
+
+      it('is false for a different existing user', async () => {
+        fake.users.push({
+          id: OTHER,
+          email: 'alice@example.com',
+          name: 'Alice',
+        })
+
+        const result = await provisioner.ensure({
+          email: 'alice@example.com',
+          slug: 'alice',
+          knownCreatedUserId: KNOWN,
+        })
+
+        expect(result.createdByUs).toBe(false)
+      })
+
+      it('is true when there is no user and one is created', async () => {
+        const result = await provisioner.ensure({
+          email: 'alice@example.com',
+          slug: 'alice',
+          knownCreatedUserId: KNOWN,
+        })
+
+        expect(fake.calls('POST', '/api/admin/users')).toHaveLength(1)
+        expect(result.createdByUs).toBe(true)
+      })
+    })
   })
 
   describe('newTemporaryPassword', () => {

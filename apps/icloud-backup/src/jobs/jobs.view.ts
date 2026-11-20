@@ -93,7 +93,9 @@ export function toBackupView(input: {
           totalItems: account.totalItems,
           totalBytes: account.totalBytes,
           immich:
-            account.immichUserId && account.immichEmail
+            account.immichUserId &&
+            account.immichLibraryId &&
+            account.immichEmail
               ? {
                   email: account.immichEmail,
                   createdByUs: account.immichCreatedByUs,

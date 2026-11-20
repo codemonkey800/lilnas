@@ -61,7 +61,14 @@ export class ImmichProvisioner {
    * Make sure the person has an Immich user and one library on their folder,
    * then start a scan. Every step looks before it creates, so calling it
    * again after a crash at any point finishes the job without duplicates.
-   * `createdByUs` is true only when this call created the user.
+   *
+   * `createdByUs` is true when this call created the user, or when the user
+   * found by email has the id in `knownCreatedUserId` (a user an earlier call
+   * created and the caller saved). `onUserCreated` is awaited right after the
+   * user is created and before the library is: if the library step then
+   * fails, the caller already holds the fact that the user is ours, which it
+   * passes back as `knownCreatedUserId` on the retry. The generated password
+   * is discarded, so without that fact nobody could ever sign in.
    *
    * The folder is checked here, on the backend's own mount, before anything
    * is created: Immich's `POST /libraries/:id/validate` needs an `all` API
@@ -70,6 +77,8 @@ export class ImmichProvisioner {
   async ensure(input: {
     email: string
     slug: string
+    onUserCreated?: (user: { userId: string; email: string }) => Promise<void>
+    knownCreatedUserId?: string | null
   }): Promise<EnsuredImmichAccount> {
     const importPath = `${trimTrailingSlashes(this.options.importRoot)}/${input.slug}`
     const localPath = join(this.options.photosRoot, input.slug)
@@ -105,16 +114,22 @@ export class ImmichProvisioner {
       )
     }
 
-    const user =
-      existingUser ??
-      (await this.client.createUser({
+    let user = existingUser
+    let createdByUs: boolean
+    if (user) {
+      createdByUs =
+        !!input.knownCreatedUserId && user.id === input.knownCreatedUserId
+    } else {
+      user = await this.client.createUser({
         email: input.email.trim(),
         name: input.email.trim(),
         // Discarded: the person gets a temporary password on request.
         password: randomString(ALPHANUMERIC, GENERATED_PASSWORD_LENGTH),
-      }))
-    const createdByUs = !existingUser
-    if (createdByUs) this.logger.log({ userId: user.id }, 'Created Immich user')
+      })
+      createdByUs = true
+      this.logger.log({ userId: user.id }, 'Created Immich user')
+      await input.onUserCreated?.({ userId: user.id, email: user.email })
+    }
 
     const library: ImmichLibrary =
       ownLibrary ??
