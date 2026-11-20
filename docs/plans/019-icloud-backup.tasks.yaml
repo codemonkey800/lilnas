@@ -567,7 +567,8 @@ phases:
           - T4
         files:
           - apps/icloud-backup/src/icloudpd/
-        status: todo
+        status: done
+        commit: 2b275b0f481895111253cb598beffa682bc2ae08
         body: |-
           Everything that touches the icloudpd binary, in `apps/icloud-backup/src/icloudpd/` only.
           `IcloudpdModule` exports the three services. Nothing here knows about the database or jobs.
