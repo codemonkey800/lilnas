@@ -1894,7 +1894,8 @@ phases:
         after: []
         files:
           - apps/icloud-backup/src/components/steps/failed.tsx
-        status: todo
+        status: done
+        commit: d36a2de561378851c4540d399d0fa692d9c23f72
         body: |-
           Finding: F6 (P1)
 

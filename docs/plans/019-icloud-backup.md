@@ -724,3 +724,6 @@ Checked:
 Locked-Apple-ID spec now renders makeView(null) with account.appleIdLocked=true, clicks Continue on pre-flight, and asserts the Apple ID is prefilled and readonly and that the password field has focus. The previous need_password case is kept as "makes the Apple ID read-only on a retry even when it is not locked".
 Mutation check: with `Boolean(account?.appleIdLocked) ||` removed from sign-in.tsx, the locked spec failed (1 failed, 23 passed). With the guard restored, all 24 specs in the file pass; sign-in.tsx is unchanged in the commit.
 Verified: utils/ui build, icloud-backup lint and type-check, and the full icloud-backup jest run (41 suites, 508 tests) all pass. The apps/auth jest run, mockups, compose prettier and docker build --check were not run, since this change touches only one spec file.
+
+### 2026-11-19 · R3 · done
+Failed now branches on job.state === 'cancelled' before the errorCode lookup (STOPPED reason, 'mute' "Stopped" badge, accent Note, "Sync now" when a session may exist else "Try again"). Regression specs added in failed.spec.tsx; they failed before the fix. Lint, type-check and the full icloud-backup jest suite pass (510 tests). Auth jest, mockups, prettier-on-compose and docker --check checks were not run, since the change touches only these two files. Title copy "Your backup didn't finish" was left unchanged.
