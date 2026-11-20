@@ -90,6 +90,11 @@ RUN mkdir -p /app/src/db && \
 # rather than at container boot.
 RUN test -f /app/dist/main.js || (echo "ERROR: dist/main.js not found" && exit 1)
 
+# musl loader and libz for the musl build of icloudpd (the glibc build is
+# refused by Apple, see scripts/fetch-icloudpd.sh). Taken from the image that
+# ships the same 1.32.3 binary (Alpine 3.23.4), pinned by digest.
+FROM icloudpd/icloudpd@sha256:af2bf40cb2c1d42051793b4c3c04c825950697d7fedcd12bd8455d6952395801 AS musl
+
 # Runtime stage
 FROM ghcr.io/codemonkey800/lilnas-nextjs-runtime:latest AS runtime
 
@@ -100,11 +105,23 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates nftables \
     && rm -rf /var/lib/apt/lists/*
 
-# The pinned icloudpd binary, checksum-verified by the script.
+# musl's loader at the path the binary's ELF interpreter names, and musl's
+# libz in a directory of its own that only musl searches: the loader reads
+# /etc/ld-musl-x86_64.path for its library path, and glibc programs never look
+# in /opt/musl/lib. The Alpine libz.so.1 is a symlink; copy the real file.
+COPY --from=musl /lib/ld-musl-x86_64.so.1 /lib/ld-musl-x86_64.so.1
+COPY --from=musl /usr/lib/libz.so.1.3.2 /opt/musl/lib/libz.so.1
+RUN echo /opt/musl/lib > /etc/ld-musl-x86_64.path
+
+# The pinned icloudpd binary (musl build), checksum-verified by the script.
+# Run directly: the kernel starts it through the musl loader, so there is no
+# wrapper process and signals reach icloudpd itself.
 COPY apps/icloud-backup/scripts/fetch-icloudpd.sh /tmp/fetch-icloudpd.sh
 RUN bash /tmp/fetch-icloudpd.sh /usr/local/bin/icloudpd \
     && rm /tmp/fetch-icloudpd.sh
+USER node
 RUN icloudpd --version | grep -q 'version:1.32.3'
+USER root
 
 # Copy the built application with non-root ownership so the node user
 # (UID 1000) can read/execute everything in /app at runtime.

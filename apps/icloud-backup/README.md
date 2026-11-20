@@ -138,14 +138,21 @@ The Dockerfile installs one icloudpd release, downloaded and checked by `scripts
 Two variables at the top of that script pin it:
 
 - `ICLOUDPD_VERSION`
-- `ICLOUDPD_SHA256` (of the `linux-amd64` binary for that version)
+- `ICLOUDPD_SHA256` (of the `linux-musl-amd64` binary for that version)
 
 To upgrade, change both, and change the version in the Dockerfile's
 `icloudpd --version | grep -q 'version:<x.y.z>'` line. The build fails on a checksum mismatch or if
 the installed binary does not report the pinned version.
 
-The pin is 1.32.3 on purpose: 1.33.1 is refused by Apple with error `-20101` for a valid password
-(2026-11-20). Do not raise it without a real sign-in.
+The pin is 1.32.3, musl build, on purpose (2026-11-20, a real Apple ID whose password signs in at
+icloud.com): Apple refuses the glibc `linux-amd64` release with error `-20101` for a valid password
+(1.32.3 and 1.33.1 alike), while the `linux-musl-amd64` build of 1.32.3 is accepted and moves on to
+two-factor. Do not change the build or the version without a real sign-in.
+
+The musl binary needs musl's loader and `libz.so.1`, which the Dockerfile copies from the pinned
+`icloudpd/icloudpd` image (Alpine) into `/lib/ld-musl-x86_64.so.1` and `/opt/musl/lib/libz.so.1`.
+`/etc/ld-musl-x86_64.path` points the loader at `/opt/musl/lib`, so `icloudpd` runs directly (same
+PID, signals unchanged) and glibc programs never see musl's libz.
 
 ## Immich API key
 

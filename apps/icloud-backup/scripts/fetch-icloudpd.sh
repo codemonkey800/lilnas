@@ -6,12 +6,17 @@
 # Usage: fetch-icloudpd.sh <dest>
 set -euo pipefail
 
-# Pinned at 1.32.3 on purpose: 1.33.1 is refused by Apple with error -20101
-# ("Invalid email/password combination", HTTP 401) for a valid password
-# (observed 2026-11-20), while 1.32.3 signs in and moves on to two-factor. Do
-# not raise the pin without a real sign-in.
+# Pinned at 1.32.3, musl build, on purpose (measured 2026-11-20 with a real
+# Apple ID whose password signs in at icloud.com): Apple refuses the glibc
+# `linux-amd64` release with error -20101 ("Invalid email/password
+# combination", HTTP 401) for a valid password, in 1.32.3 and in 1.33.1, from
+# the hidden prompt and from the web form alike. The `linux-musl-amd64` build
+# of 1.32.3 is accepted and moves on to two-factor. It is the same version and
+# the same Python source, so the build is what matters. Do not change the
+# build or the version without a real sign-in. The musl binary needs musl's
+# loader and libz at run time; the Dockerfile supplies both.
 ICLOUDPD_VERSION=1.32.3
-ICLOUDPD_SHA256=cbe4de08f715a9b524795eccd75f33a97661cd27fa7f0282c58611d760fce093
+ICLOUDPD_SHA256=acbe7149c5487088ecf0a660e4e75a931baec5af736e85beddf96be4aece6fd6
 
 if [ "$#" -ne 1 ]; then
   echo "usage: $0 <dest>" >&2
@@ -19,7 +24,7 @@ if [ "$#" -ne 1 ]; then
 fi
 dest=$1
 
-url="https://github.com/icloud-photos-downloader/icloud_photos_downloader/releases/download/v${ICLOUDPD_VERSION}/icloudpd-${ICLOUDPD_VERSION}-linux-amd64"
+url="https://github.com/icloud-photos-downloader/icloud_photos_downloader/releases/download/v${ICLOUDPD_VERSION}/icloudpd-${ICLOUDPD_VERSION}-linux-musl-amd64"
 
 tmp=$(mktemp)
 trap 'rm -f "$tmp"' EXIT
