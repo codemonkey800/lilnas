@@ -836,3 +836,33 @@ No commits: nothing to integrate.
 
 ### 2026-11-19 · H5 · approved
 Approved.
+
+### 2026-11-19 · T20 · done
+Every item holds; none go under defects.
+- **origin/main:** `git fetch origin main` gave `b5c1c2cb`. `git merge-base --is-ancestor origin/main HEAD` succeeded, so main has not moved past this branch. HEAD is `16b18fee`.
+- **Diff scope:** `git diff --stat origin/main..HEAD` shows 198 files changed. None fall outside the allowed paths (`apps/icloud-backup/**`, `docs/**`, `CLAUDE.md`, `pnpm-lock.yaml`, the two root compose files, `apps/auth/deploy*.yml`, `apps/portal/src/utils/app-meta.ts`).
+- **Tracked secrets:** no `.env.keys`, `*.decrypted` or `.env.dev-remote` is tracked. `pnpm lilnas secrets verify` printed `ok` for all 16 env files, including `apps/icloud-backup/.env.prod`.
+- **Password grep:** the pattern finds one line, `apps/icloud-backup/.env.prod:9`, a `POSTGRES_PASSWORD="encrypted:…"` dotenvx ciphertext. It is encrypted, not plaintext, and no test fixture matches. I count that as passing. The ciphertext is not repeated here.
+- **Host folders:**
+  - `/storage/app-data/icloud-backup/cookies` is uid=1000 gid=1001 mode 700, created by me.
+  - The parent `/storage/app-data/icloud-backup` is uid=1000 mode 755.
+  - `/storage/app-data/icloud-backup-db` does not exist, as required.
+- **Photos folder:** `/storage/photos/icloud-users` exists, uid=1000, mode 755, and is empty, so there is no `dev-*` folder.
+- **Containers:** `docker ps -a --filter name=icloud-backup` lists nothing, before and after.
+- **Docker build:** `docker build -t lilnas-icloud-backup:prepush -f apps/icloud-backup/Dockerfile .` exited 0. I removed the image (`docker rmi`), and `docker images lilnas-icloud-backup` is now empty. The temp build log is deleted.
+- **Plan checks:**
+  - `@lilnas/utils` and `@lilnas/ui` build. `@lilnas/icloud-backup` lint (eslint and prettier) and type-check both exit 0.
+  - The auth `src/services/__tests__` jest run passed 6 of 6 suites and 88 of 88 tests. The icloud-backup jest run passed 41 of 41 suites and 519 of 519 tests.
+  - `@lilnas/cli` builds, `pnpm mockups` ran and `pnpm mockups:lint` passed. `git status` is clean afterwards (0 lines).
+  - `prettier -c` passes on `docker-compose.yml`, `docker-compose.dev.yml`, `apps/icloud-backup/deploy.yml` and `apps/icloud-backup/deploy.dev.yml`.
+  - `docker build --check` reports no warnings.
+- **Immich key:** `api_key` row `icloud-backup` has `{adminUser.create, adminUser.read, adminUser.update, library.read, library.update, library.statistics, library.create}`. That is all seven required permissions, including `library.create`.
+- **`ci detect --base origin/main --head HEAD --json`:**
+  - `full: true` and `baseImages: true`.
+  - The 13 images are auth, dashcam, dev-dashboard, dev-idle-reaper, download, equations, icloud-backup, l4d2, me-token-tracker, portal, tdr-bot, theater.
+  - The `icloud-backup` image covers services `icloud-backup` and `icloud-backup-frontend`.
+  - `checkPackages` has 18 entries: apps/auth, apps/dashcam, apps/dev, apps/download, apps/equations, apps/icloud-backup, apps/me-token-tracker, apps/portal, apps/tdr-bot, apps/tdr-code, apps/theater, packages/cli, packages/eslint-config-lilnas, packages/media, packages/muapi, packages/prettier-config-lilnas, packages/ui, packages/utils.
+  - `pull` has 14 services, including `icloud-backup` and `icloud-backup-frontend`. `up` has 31 services, including `icloud-backup-db`. `decrypt: true`.
+- **Cleanup:** the image and temp log are removed, and no containers, networks or volumes were created. The `cookies` folder stays for the deploy.
+
+No commits: nothing to integrate.
