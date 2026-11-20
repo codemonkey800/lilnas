@@ -94,8 +94,10 @@ RUN test -f /app/dist/main.js || (echo "ERROR: dist/main.js not found" && exit 1
 FROM ghcr.io/codemonkey800/lilnas-nextjs-runtime:latest AS runtime
 
 # curl and ca-certificates fetch the icloudpd release over TLS at build time.
+# nftables backs the backend entrypoint's packet filter (see below); setpriv
+# comes with util-linux.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && apt-get install -y --no-install-recommends curl ca-certificates nftables \
     && rm -rf /var/lib/apt/lists/*
 
 # The pinned icloudpd binary, checksum-verified by the script.
@@ -107,6 +109,11 @@ RUN icloudpd --version | grep -q 'version:1.33.1'
 # Copy the built application with non-root ownership so the node user
 # (UID 1000) can read/execute everything in /app at runtime.
 COPY --from=builder --chown=node:node /app /app
+
+# The backend's entrypoint (deploy.yml / deploy.dev.yml): installs the packet
+# filter that keeps icloudpd's sign-in form loopback-only, then drops to the
+# node user. Root-owned so the node user cannot rewrite it.
+COPY --chmod=755 apps/icloud-backup/scripts/backend-entrypoint.sh /usr/local/bin/backend-entrypoint.sh
 
 WORKDIR /app
 

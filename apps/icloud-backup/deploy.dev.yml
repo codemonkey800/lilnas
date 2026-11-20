@@ -57,7 +57,17 @@ services:
     build:
       context: ../..
       dockerfile: apps/icloud-backup/Dockerfile
-    entrypoint: ['node', 'dist/main']
+    # The entrypoint script installs a packet filter in this container's own
+    # network namespace that drops inbound TCP to :8080 on every interface but lo (the
+    # icloudpd sign-in form cannot be bound to loopback and would otherwise be
+    # reachable from every container on the network), then execs node as PID 1,
+    # uid 1000, with no capabilities, so node still receives SIGTERM. It needs
+    # root and NET_ADMIN only until then; the container refuses to start if the
+    # rule cannot be set. no-new-privileges stops the app regaining either.
+    entrypoint: ['/usr/local/bin/backend-entrypoint.sh']
+    user: root
+    cap_add: [NET_ADMIN]
+    security_opt: ['no-new-privileges:true']
     restart: unless-stopped
     logging: *default-logging
     stop_grace_period: 30s

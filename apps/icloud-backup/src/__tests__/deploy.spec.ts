@@ -18,6 +18,10 @@ type ComposeService = {
   volumes?: string[]
   ports?: unknown
   secrets?: unknown
+  entrypoint?: string[]
+  user?: string
+  cap_add?: string[]
+  security_opt?: string[]
   networks?: string[] | Record<string, unknown>
   environment?: string[] | Record<string, unknown>
   labels?: string[] | Record<string, unknown>
@@ -67,6 +71,19 @@ const labelNames = (svc: ComposeService): string[] =>
 const traefikLabelNames = (svc: ComposeService): string[] =>
   labelNames(svc).filter(name => name.startsWith('traefik.'))
 
+// icloudpd's sign-in form listens on every interface of whichever container
+// runs it, so the backend installs a packet filter before starting node
+// (scripts/backend-entrypoint.sh). It needs root and NET_ADMIN to do that and
+// nothing else; the frontend and database must never get either.
+const BACKEND_ENTRYPOINT = ['/usr/local/bin/backend-entrypoint.sh']
+
+function expectFirewalledBackend(svc: ComposeService): void {
+  expect(svc.entrypoint).toEqual(BACKEND_ENTRYPOINT)
+  expect(svc.user).toBe('root')
+  expect(svc.cap_add).toEqual(['NET_ADMIN'])
+  expect(svc.security_opt).toEqual(['no-new-privileges:true'])
+}
+
 const SECRET_KEY = /(PASSWORD|SECRET|TOKEN|API_?KEY|COOKIE|CREDENTIAL)/i
 
 const DRY_RUN_ONLY = [
@@ -85,12 +102,16 @@ describe('icloud-backup deploy.yml', () => {
   })
 
   describe('icloud-backup-frontend', () => {
-    it.each(['env_file', 'volumes', 'ports', 'secrets'] as const)(
-      'has no %s',
-      key => {
-        expect(frontend).not.toHaveProperty(key)
-      },
-    )
+    it.each([
+      'env_file',
+      'volumes',
+      'ports',
+      'secrets',
+      'cap_add',
+      'user',
+    ] as const)('has no %s', key => {
+      expect(frontend).not.toHaveProperty(key)
+    })
 
     it('has no secret-looking environment key and no ${...} interpolation', () => {
       const entries = toEntries(frontend.environment)
@@ -128,6 +149,10 @@ describe('icloud-backup deploy.yml', () => {
         '/storage/photos/icloud-users:/photos',
         '/storage/app-data/icloud-backup:/state',
       ])
+    })
+
+    it('starts through the firewall entrypoint with only NET_ADMIN', () => {
+      expectFirewalledBackend(backend)
     })
 
     it('loads the decrypted env file and waits for a healthy database', () => {
@@ -185,6 +210,14 @@ describe('icloud-backup deploy.dev.yml', () => {
       'icloud-backup-dev': { aliases: ['icloud-backup'] },
     })
     expect(networkNames(devBackend)).toContain('lilnas_default')
+  })
+
+  it('starts the dev backend through the firewall entrypoint with only NET_ADMIN', () => {
+    expectFirewalledBackend(devBackend)
+  })
+
+  it.each(['cap_add', 'user'] as const)('gives the dev frontend no %s', key => {
+    expect(devFrontend).not.toHaveProperty(key)
   })
 
   it('publishes no ports', () => {

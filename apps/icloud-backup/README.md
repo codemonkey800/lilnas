@@ -73,6 +73,16 @@ interfaces, and the backend drives it over loopback (`ICLOUDPD_WEBUI_URL`, defau
 8080 is free, and reaches the backend over the compose network. This also keeps the one
 internet-facing container free of secrets, cookies and photos.
 
+**The sign-in form is loopback-only.** icloudpd cannot bind its form to a chosen address, so
+during a sign-in it would be reachable (Apple password and code form included) from every
+container on the compose network. The backend's entrypoint (`scripts/backend-entrypoint.sh`)
+therefore runs as root with `NET_ADMIN`, loads an nftables rule in the container's own network
+namespace that drops inbound TCP to port 8080 on every interface except `lo` (IPv4 and IPv6),
+lists the ruleset to confirm the rule is there, and then execs node as PID 1, uid 1000, with no
+capabilities (`no-new-privileges` is set). The backend still reaches the form over `127.0.0.1`;
+the API port 8081 and outbound traffic are unaffected. If the rule cannot be set, the container
+exits and the app never starts.
+
 The frontend rewrites `/api/:path*` and `/ws` to `http://icloud-backup:8081`. That address is baked
 into the build (`next.config.js`), so the backend service must stay named `icloud-backup`.
 
