@@ -723,7 +723,8 @@ phases:
           - T7
         files:
           - apps/icloud-backup/scripts/immich-contract/
-        status: todo
+        status: partial
+        commit: d6f67c092679a54e813f35f2422fe207155d4774
         body: |-
           The Immich client was written against routes read from the image and tested against a
           stand-in. Prove it against a real Immich v3.3.4 that is not the production one.

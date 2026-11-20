@@ -469,3 +469,15 @@ bigint columns (totalBytes, downloadedBytes) use mode 'number'. Timestamps are t
 The caller passes the base slug (slugFromEmail(email, ACCOUNT_SLUG_PREFIX)) to AccountsRepo.create.
 The lint rule no-relative-import-paths means all imports inside src/db are written `src/db/...`.
 Migrations run in DbService.onModuleInit from <cwd>/src/db/migrations, so the runtime image must ship src/db/migrations and start with cwd at apps/icloud-backup (check the Dockerfile and deploy.yml working dir in the image task).
+
+### 2026-11-19 · T8 · partial
+Re-run: pnpm exec tsx --tsconfig apps/icloud-backup/tsconfig.json apps/icloud-backup/scripts/immich-contract/run.ts [--with-all]. It needs docker, ffmpeg and the three images already on the host, and takes about 30 s. The compose file requires ICLOUD_USERS_DIR, which run.ts sets. Exit code is 1 on any failed step.
+Without --with-all it fails 3 steps, all from the validate 403 (ensure alice, ensure missing slug, ensure admin email). With --with-all all steps pass.
+Observed v3.3.4 status codes: admin-sign-up, auth/login and api-keys return 201. server/ping returns {res:'pong'}. The login response carries shouldChangePassword.
+Because ensure() creates the user and library before validating, a failed validate (or an invalid slug) leaves an Immich user and an empty library behind. A retry reuses them, so it is idempotent, but a bad slug still creates accounts. If the fix is (b), checking the folder before creating anything removes that side effect.
+Library import validation after the scan: 3 JPEGs were counted in about 3 s.
+
+Defects:
+
+- blocking · Production API key cannot call POST /libraries/:id/validate; ensure() fails for every user · apps/icloud-backup/src/immich/immich.client.ts validateLibrary(); called from immich.provisioner.ts ensure()
+  Immich POST /libraries/<id>/validate failed with 403: Missing required permission: all. Cause (immich-server:v3.3.4, dist/controllers/library.controller.js): the route is Authenticated({ admin: true }) with no permission, so no entry in the seven-permission list covers it; only an `all` key passes. The other routes work with the list: GET/POST /libraries, GET /admin/users, POST /admin/users, PUT /admin/users/:id, POST /libraries/:id/scan and GET /libraries/:id/statistics all passed. Fix options: (a) human re-creates the production key with `all`, which makes it a full-admin key; or (b) drop validateLibrary from ensure() and have the backend check that the folder exists and is readable itself, then map a scan or empty result to import_path_invalid. I did not change the client because (b) is a design change and (a) is the human's call on the production key.
