@@ -209,3 +209,12 @@ Jeremy's approval; it had been 44 commits behind).
 ## Log
 <!-- Written by Nexus: findings, review cycles, checkpoint verdicts, the final report,
      the rollout record. Humans may add notes here too. -->
+
+### 2026-11-19 · T1 · done
+Host dir /storage/photos/icloud-users created as uid 1000 (stat: 1000:1001 755).
+infra/immich.yml: added `- /storage/photos/icloud-users:/icloud-users:ro` after the icloud-mom line; nothing else touched.
+Detect JSON (--base HEAD~1 --head HEAD):
+{"full":false,"baseImages":false,"images":[],"pull":[],"up":["immich","immich-database","immich-machine-learning","immich-redis"],"forceRecreate":["auth"],"decrypt":false,"decryptServices":[],"checkPackages":[],"changedFiles":["infra/immich.yml"]}
+images/pull empty and up only holds services defined in infra/immich.yml, as required. forceRecreate contains "auth": apps/auth/deploy.yml:83 bind-mounts ../../infra/immich.yml (all infra/*.yml files are mounted individually), so detect force-recreates auth on any infra/*.yml change. Expected side effect of the existing auth design; not caused by anything extra here.
+Plan checks not run: the change is a single compose line, no apps/icloud-backup/package.json exists yet; prettier -c on infra/immich.yml fails at base and was left alone per the task.
+No containers, networks, volumes, images or temp files created.

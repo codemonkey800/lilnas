@@ -4,11 +4,12 @@ phases:
     name: Immich mount, design and scaffold
     tasks:
       - id: T1
-        title: 'Mount `/storage/photos/icloud-users` read-only into Immich'
+        title: Mount `/storage/photos/icloud-users` read-only into Immich
         after: []
         files:
           - infra/immich.yml
-        status: todo
+        status: done
+        commit: 877fef9f42064daf018407884f653a5050f59e59
         body: |-
           Every person's backup will live in `/storage/photos/icloud-users/<name>`. Mount that one
           parent folder into Immich so a new person needs no compose change.
@@ -1510,7 +1511,7 @@ phases:
              and the undo: move both back, `docker start` the two containers. Check the container
              names with `docker compose -p lilnas ps` first and correct the sheet if they differ.
       - id: H8
-        title: 'Stop Immich, move the two folders, fix ownership (sudo)'
+        title: Stop Immich, move the two folders, fix ownership (sudo)
         after:
           - T23
         files: []
