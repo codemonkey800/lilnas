@@ -307,6 +307,9 @@ Jeremy's approval; it had been 44 commits behind).
   `immich_created_by_us = true` on the dev DB row by hand. T34 fixes the bug (H5 is `after`
   it). T20 now checks the key's seven permissions. The dev Immich user
   `+icloud-backup-dev` and its library (36 assets) exist and are left for T19 to report.
+- **C4 (T21, 2026-11-20):** T21's production checks were stale: icloudpd is 1.32.3 (musl), the
+  backend's 8080 times out (packets dropped) instead of refusing, and `https://lilnas.io/` has
+  no apex router (use `portal.lilnas.io`). Text corrected in T21; no code change.
 
 ## Log
 <!-- Written by Nexus: findings, review cycles, checkpoint verdicts, the final report,

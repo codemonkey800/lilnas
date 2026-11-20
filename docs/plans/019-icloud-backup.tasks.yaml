@@ -1777,7 +1777,7 @@ phases:
             three running, healthy containers. If the new image could not be pulled (a new GHCR
             package can be private), report the pull error exactly
           - backend: `docker exec` a `node -e` fetch of `http://localhost:8081/health` is 200;
-            `icloudpd --version` prints 1.33.1; `id -u` is 1000; `/photos` and `/state/cookies` are
+            `icloudpd --version` prints 1.32.3; `id -u` is 1000; `/photos` and `/state/cookies` are
             writable (`test -w`); the logs show the migration ran and no error
           - from inside the backend, `GET http://immich:2283/api/libraries` with the container's own
             key is 200 (print the count only), proving the encrypted key decrypted correctly
@@ -1788,11 +1788,12 @@ phases:
           - with the identity headers set by hand from a throwaway container on `lilnas_default`
             against `http://icloud-backup:8081/backup`: a view with `account: null` and
             `lowDiskSpace: false`
-          - nothing listens for the login form while idle: `http://icloud-backup:8080/status` from
-            that container refuses the connection
+          - nothing answers for the login form from other containers: `http://icloud-backup:8080/status`
+            from that container gets no response (the entrypoint drops the packets, so it times
+            out; use a 5 s timeout) rather than an HTTP answer
           - the rest of production came back: `docker compose -p lilnas ps` has no service in
             `restarting` or `exited` that was running before, and `https://auth.lilnas.io/login`,
-            `https://immich.lilnas.io/api/server/ping` and `https://lilnas.io/` answer 200
+            `https://immich.lilnas.io/api/server/ping` and `https://portal.lilnas.io/` answer 200
 
           Report the pushed sha, the rollback sha, the CI run URL, each check with what you observed,
           and for the human: rollback is a revert of the pushed range on `main`; to take only this
