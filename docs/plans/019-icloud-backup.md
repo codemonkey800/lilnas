@@ -869,3 +869,19 @@ Every item holds; none go under defects.
 - **Cleanup:** the image and temp log are removed, and no containers, networks or volumes were created. The `cookies` folder stays for the deploy.
 
 No commits: nothing to integrate.
+
+### 2026-11-19 · T21 · done
+Pushed 999928ff8e8a63f9dc7df091ca87ae302ede9163 to main. Rollback sha b5c1c2cb8e82ea9b2a8ab970fd4cee79b01d2931. CI run https://github.com/codemonkey800/lilnas/actions/runs/44692263253 was green (all builds + deploy).
+Production verified: icloud-backup, icloud-backup-frontend, icloud-backup-db running and healthy; /health 200; migrations applied, no errors; /photos and /state/cookies writable; Immich /api/libraries 200 (4 libraries); frontend has 0 mounts and no POSTGRES_PASSWORD/IMMICH_API_KEY; both public URLs 302 to auth.lilnas.io/login; /backup with identity headers returns account null, lowDiskSpace false (401 without headers); no service restarting/exited, 42 services up (39 before + 3 new); auth login and immich ping 200.
+Differences from the task's expected values: icloudpd is 1.32.3 by design (Apple refuses 1.33.1, commit b4cfdcd3); `docker exec` shows uid 0 but pid 1 runs as 1000; backend port 8080 times out (entrypoint drops inbound 8080 except on lo) instead of refusing, so it is unreachable as intended; https://lilnas.io/ is 404 because no router exists for the apex host at either commit (portal is portal.lilnas.io, which 302s to auth).
+Rollback is a revert of the pushed range on main; to stop only this service: cd /opt/lilnas && sudo -u deploy docker compose stop icloud-backup icloud-backup-frontend (not run).
+Throwaway containers t21-probe, t21-probe2, t21-probe3 removed (--rm); no networks/volumes/images created; /tmp markers deleted; git status clean.
+
+Defects:
+
+- not blocking · icloudpd version differs from the plan's expected 1.33.1 · apps/icloud-backup/scripts/fetch-icloudpd.sh:18
+  icloudpd --version: version:1.32.3, commit sha:879c561. Pinned on purpose because Apple refuses 1.33.1 for a valid password. The task text is stale, not production.
+- not blocking · https://lilnas.io/ returns 404, not 200 · Traefik routing (no Host(`lilnas.io`) router at b5c1c2cb or 999928ff)
+  curl https://lilnas.io/: 404. The portal is served at portal.lilnas.io, which answers 302 to https://auth.lilnas.io/login. Not caused by this push.
+
+No commits: nothing to integrate.
