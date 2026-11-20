@@ -1401,7 +1401,8 @@ phases:
           - apps/icloud-backup/scripts/backend-entrypoint.sh
           - apps/icloud-backup/src/icloudpd/
           - apps/icloud-backup/README.md
-        status: todo
+        status: done
+        commit: b4cfdcd365e53c0bc17d277d556b70012306c974
         body: |-
           Why: during the H4 dry run (2026-11-20) a correct Apple ID password was refused with
           Apple error `-20101` ("Invalid email/password combination", HTTP 401) by icloudpd 1.33.1,

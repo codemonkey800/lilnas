@@ -763,3 +763,9 @@ Deliberately left running: three containers, volume lilnas-dev_icloud-backup-dev
 POSTGRES_USER/DB/PASSWORD in the env file are overridden by literals in deploy.dev.yml's environment: block (compose environment beats env_file), so the generated password was never used.
 
 No commits: nothing to integrate.
+
+### 2026-11-19 · T30 · done
+icloudpd is pinned to 1.32.3 (sha256 cbe4de08…ce093). Verified live in a throwaway image: `icloudpd --version` prints 1.32.3; with a fake account the web form behaves as classified (need_password -> POST /password 200 -> need_password with the Apple -20101 error after 8 s, process stays up).
+Classifier change: decodeEntities now also decodes &#34; / &#x22; (Jinja2 escapes `"` that way; 1.32.3's Apple error showed `&#34;serviceErrors&#34;`). New fixture password-error-apple.html (captured from 1.32.3) with two specs. Existing fixtures match the 1.32.3 templates structurally, so none were replaced. auth-failure.ts untouched.
+Not run: the apps/auth jest, mockups build/lint and compose prettier plan checks. Also prettier -c cannot parse Dockerfile or .sh (no parser), which is unrelated to this change.
+The pinned-1.32.3 image is not deployed to the dry-run stack; T31 rebuilds it. Cleanup done: container t30-icloudpd, network t30-net, image lilnas-icloud-backup:t30, /tmp/t30-out and /tmp/t30-up all removed.
