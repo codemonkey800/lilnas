@@ -1586,6 +1586,51 @@ phases:
           5. Delete `.env.dev-remote` once the containers are up.
 
           Report what you checked. Put anything that failed under `defects:`.
+      - id: T34
+        title: Keep "we created this Immich user" when provisioning fails after the user is made
+        after:
+          - T33
+        files:
+          - apps/icloud-backup/src/immich/immich.provisioner.ts
+          - apps/icloud-backup/src/immich/__tests__/immich.provisioner.spec.ts
+          - apps/icloud-backup/src/jobs/jobs.service.ts
+          - apps/icloud-backup/src/jobs/__tests__/jobs.immich.spec.ts
+          - apps/icloud-backup/src/db/repos/accounts.repo.ts
+        status: todo
+        body: |-
+          Found in the dry run (2026-11-20). `ImmichProvisioner.ensure()`
+          (`apps/icloud-backup/src/immich/immich.provisioner.ts`) creates the Immich user, then
+          the library. When `createLibrary` failed (403, a missing key permission), the user
+          stayed in Immich but nothing was saved: `JobsService.completeBackup`
+          (`src/jobs/jobs.service.ts`) calls `accounts.setImmich` only after `ensure()` returns.
+          On the retry `ensure()` found the user by email, returned `createdByUs: false`, and the
+          done screen said "You already had an Immich account", with no password reset button and
+          no way to sign in (the generated password is discarded by design).
+
+          Fix: save the user as soon as it is created, and keep that fact across retries.
+
+          - `ensure()` takes an optional `onUserCreated(user: { userId: string; email: string })`
+            callback, awaited right after `createUser` succeeds and before `createLibrary`. It
+            also takes `knownCreatedUserId?: string | null`; when the email lookup finds a user
+            whose id equals it, `createdByUs` is `true`.
+          - Add `AccountsRepo.setImmichUser(id, { userId, email })` that writes
+            `immichUserId`, `immichEmail` and `immichCreatedByUs = true` and leaves
+            `immichLibraryId` null.
+          - `completeBackup` passes `onUserCreated` (calls `setImmichUser`) and
+            `knownCreatedUserId: account.immichCreatedByUs ? account.immichUserId : null`. The
+            branch that only rescans stays keyed on `immichLibraryId`.
+          - Check every reader of `immichUserId` (`grep -rn immichUserId src`): a row with a user
+            and no library must not count as fully linked anywhere it did not before; the
+            password reset (`newImmichPassword`) is allowed for it.
+          - Update the `ensure()` doc comment.
+
+          Tests:
+          - provisioner: `createLibrary` throws after `createUser` → `onUserCreated` was called
+            once with the new id, and the error propagates
+          - provisioner: existing user whose id equals `knownCreatedUserId` → `createdByUs: true`;
+            a different existing user → `false`; no user → created, `true`
+          - jobs: first run fails at the library step, second run succeeds → the account ends
+            with `immichCreatedByUs = true`, the library id set, and the password reset works
       - id: H4
         title: 'Dry run: sign in with your Apple ID on icloud-backup.dev.lilnas.io'
         after:
@@ -1649,6 +1694,7 @@ phases:
           - T8
           - T17
           - T19
+          - T34
         files: []
         status: todo
         body: |-
@@ -1689,6 +1735,11 @@ phases:
           - `docker build -t lilnas-icloud-backup:prepush -f apps/icloud-backup/Dockerfile .`
             succeeds; remove the image afterwards
           - all `checks:` of this plan pass in your worktree
+          - the Immich key has all seven permissions: read-only,
+            `docker exec lilnas-immich-database-1 psql -U postgres -d immich -Atc "select permissions from api_key where name='icloud-backup'"`
+            shows `adminUser.create`, `adminUser.read`, `adminUser.update`, `library.create`,
+            `library.read`, `library.update`, `library.statistics` (the dry run failed on a
+            missing `library.create`)
           - `pnpm lilnas ci detect --base origin/main --head HEAD --json`: report `full`, the image
             list and the `checkPackages` list
 

@@ -301,6 +301,12 @@ Jeremy's approval; it had been 44 commits behind).
   the dry-run stack and clears cookies; H4 is `after` T33. Apple attempts that night: ~13,
   2 accepted. Not known: whether 1.33.1 musl works (not tried).
 - Open thread: Jeremy is waiting for T32/T33, then redoes H4.
+- **H4 progress, 2026-11-20:** musl icloudpd signed in, code accepted, 36 items (721.6 MB)
+  downloaded. First provisioning failed: the H3 key lacked `library.create` (Jeremy added it).
+  The retry then marked the Immich user "not created by us", so no password reset. Planner set
+  `immich_created_by_us = true` on the dev DB row by hand. T34 fixes the bug (H5 is `after`
+  it). T20 now checks the key's seven permissions. The dev Immich user
+  `+icloud-backup-dev` and its library (36 assets) exist and are left for T19 to report.
 
 ## Log
 <!-- Written by Nexus: findings, review cycles, checkpoint verdicts, the final report,
