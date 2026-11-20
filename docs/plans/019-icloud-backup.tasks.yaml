@@ -1364,7 +1364,8 @@ phases:
           - T15
           - T16
         files: []
-        status: todo
+        status: done
+        commit: d6fc72fdc313af013e1472768f17f6080ca212f9
         body: |-
           Bring up the dry-run stack so a human can sign in with a real Apple ID. Commit nothing.
 
