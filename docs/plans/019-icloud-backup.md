@@ -234,6 +234,10 @@ Jeremy's approval; it had been 44 commits behind).
   `import_path_taken` so a mismatch fails instead of making a second library. Old scripts used
   default icloudpd flags and `TZ=America/Los_Angeles`, same as the app, so names should match;
   the remaining risk is a naming change between icloudpd versions, watched by hand at H9.
+- **C2 / R1 (2026-11-19):** Immich's `POST /libraries/:id/validate` needs an `all` key. Decided
+  without asking: the key stays at seven permissions and `ensure()` drops the validate call. R1
+  was already running with both options open, so T28 (after T8 and T17) makes code, contract
+  script and README match whatever R1 did. T24 no longer calls validate either.
 - A run in `waiting_for_human` does not pick up new tasks by itself: `pause` then `resume`
   made it dispatch T26 and T27.
 - Push ordering rules: every task that adds app code is `after` T2. Nothing but fixes may land
@@ -538,3 +542,9 @@ STATE_BADGES in src/lib/admin-state.ts maps every BackupState to tone, label and
 Decisions: compact density applies at every width, since Density has no breakpoint option. The empty-state and 403 copy follow the task text, not the mockup's wording ("No backups yet"). The error note shows the ApiError message rather than the mockup's machine string. The link home is a ghost "My backup" button beside Refresh. Refresh keeps the rows on screen while it loads; Try again clears them to the skeleton first.
 I did not visually compare the page with the mockup at 1280 and 390, because no browser run was done; the specs are the only verification of rendering.
 Checks run: utils and ui build, icloud-backup lint and type-check, full icloud-backup jest (24 suites, 295 tests), auth services jest (88 tests), cli build with mockups and mockups:lint, prettier on the compose files, and docker build --check. All pass, and mockups left git status clean.
+
+### 2026-11-19 · T17 · done
+Docs only. README documents the app from the code as it is at this branch (jobs/api/admin modules are still stubs here, so the state diagram follows contract.ts and the plan's flow, and says contract.ts is the authority).
+docs/deploy.md: the Secrets text said "15 env files" but listed 14; with apps/icloud-backup/.env.prod added the list has 15 (matches `scripts/deploy/decrypt-env.sh --list`), so the number is unchanged and now correct.
+README includes a caveat about R1 (Immich POST /libraries/:id/validate needs the `all` permission on v3.3.4; provisioner still calls it, immich.provisioner.ts ensure()). If R1 is fixed by dropping validateLibrary (option b), delete that paragraph from the README "Immich API key" section.
+All five plan checks pass; prettier -c passes on the three touched files. Nothing pushed; no containers, networks, volumes, images or temp files left.

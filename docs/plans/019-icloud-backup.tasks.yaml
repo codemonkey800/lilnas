@@ -1280,7 +1280,8 @@ phases:
           - apps/icloud-backup/README.md
           - CLAUDE.md
           - docs/deploy.md
-        status: todo
+        status: done
+        commit: dc7dbe9c7d390f991304d29b6e411fe53d76a76f
         body: |-
           Document the new service from the code as it now is (`apps/icloud-backup/`).
 
@@ -1302,6 +1303,46 @@ phases:
             `apps/icloud-backup/.env.prod` and correct the count.
 
           Run `pnpm exec prettier -c` on each file you touch; fix what you changed.
+      - id: T28
+        title: 'Immich key stays at seven permissions: no validate call, README matches'
+        after:
+          - T8
+          - T17
+        files:
+          - apps/icloud-backup/src/immich/
+          - apps/icloud-backup/scripts/immich-contract/
+          - apps/icloud-backup/README.md
+        status: todo
+        body: |-
+          Decision: the production Immich API key keeps exactly its seven permissions
+          (`adminUser.create|read|update`, `library.create|read|update|statistics`). It is never
+          re-created with `all`, which would make a key held by this service a full-admin key.
+
+          Background: Immich v3.3.4's `POST /libraries/:id/validate` is admin-only with no
+          permission name, so a scoped key gets "403 Missing required permission: all" there. A
+          live check found that `ImmichProvisioner.ensure()` in
+          `apps/icloud-backup/src/immich/immich.provisioner.ts` called `validateLibrary` and so
+          failed for every user. A fix task ran after that; read the results above and the code
+          to see what it did, then make the tree match the decision. Do only what is still
+          missing:
+          1. `ensure()` must not call the validate route, and `validateLibrary` with its response
+             schema is deleted from `immich.client.ts` / `immich.types.ts` if nothing uses it. Do
+             not replace it with another Immich call. The caller creates the person's folder
+             before the first download, so the path exists by the time `ensure()` runs; keep
+             whatever folder check the fix task added, add none yourself.
+          2. `apps/icloud-backup/scripts/immich-contract/run.ts` passes with a key limited to the
+             seven permissions, with no `--with-all` step needed for `ensure`. Run it (it needs
+             docker and about 30 s; see its header) and report the step results. Clean up its
+             containers.
+          3. `apps/icloud-backup/README.md`: the Immich API key section lists the seven
+             permissions and no longer says the key needs `all` or that the provisioner calls the
+             validate route. One sentence may say why validate is not used.
+          `grep -rn -i 'validate' apps/icloud-backup/src/immich apps/icloud-backup/README.md` must
+          show no call to the route afterwards. If all three already hold, change nothing and say
+          so.
+
+          Tests: `ensure` makes no request to a `/validate` path (the stand-in server fails the
+          test if it receives one); the existing `ensure` cases still pass.
   - key: '3'
     name: Dry run and ship
     tasks:
@@ -1691,8 +1732,8 @@ phases:
              running and healthy and `https://auth.lilnas.io/login` is 200; `lilnas-immich-1` is
              running and mounts neither old path; `https://immich.lilnas.io/api/server/ping` is 200; with the key from
              `/home/jeremy/.config/lilnas/icloud-backup-immich-api-key`, from a throwaway container
-             on `lilnas_default`: both libraries list the new import path,
-             `POST /api/libraries/:id/validate` says the path is valid, then
+             on `lilnas_default`: both libraries list the new import path (do not call
+             `/libraries/:id/validate`: this key gets a 403 there by design), then
              `POST /api/libraries/:id/scan` for both. Wait for the scans (poll
              `GET /api/libraries/:id/statistics` and the database until counts are stable for two
              minutes), then from the database: each library's asset count equals the recorded
