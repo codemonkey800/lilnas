@@ -1,0 +1,29 @@
+extends ../../../../../designs/mockup-kit/page.pug
+
+include ../mixins/backup.pug
+
+block title
+  | icloud-backup — backup · UI mockups
+
+//-
+  The page a signed-in person sees from then on. One dispatcher draws every
+  state; copy and sample data are in src/data/backup.mjs.
+
+block content
+  +mockHead({ eyebrow: 'icloud-backup · /', title: 'Backup', back: true })
+    p What a signed-in person sees from then on, one screen per state of their backup. Each has a status badge, one headline, and at most one accent button: #[+code('Download')], #[+code('Open my photos')], #[+code('Sign in again')] or #[+code('Try again')]. Only a live backup wears the pulsing dot. Every state is shown at 1280 and 390.
+
+  - const c = { queued, preparing, downloading, reconnecting, review, finishing, done, reauth, paused, failed }
+  div(class='vp-scope flex flex-col items-center gap-8')
+    +viewportToggle('backup-viewport')
+    +viewportPanel('desktop')
+      each s in states
+        +stateRow(s.label + ' · ' + s.caption, { stack: true })(class='w-full' id=s.key)
+          +backupScreen('desktop', s, c)
+      +frameLabel Desktop · 1280
+    +viewportPanel('mobile')
+      +stateRow('States', { stack: true })(class='w-full')
+        each s in states
+          +stateCell(s.label)(class='w-[390px]')
+            +backupScreen('mobile', s, c)
+      +frameLabel Mobile · 390

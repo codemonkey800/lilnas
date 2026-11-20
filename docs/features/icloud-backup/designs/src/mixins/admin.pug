@@ -1,0 +1,118 @@
+//- The admin page: backups table, then Existing libraries. Copy: data/admin.mjs.
+include icloud.pug
+
+mixin adminHead(c)
+  div(class='mb-5')
+    h1(class='text-h1')= c.title
+    p(class='mt-1 text-sm text-ink-3')= c.lede
+
+//- Skeleton rows in the shape of the table (desktop) or the cards (phone).
+mixin adminLoading(view, c)
+  - const mobile = view === 'mobile'
+  div(class='flex flex-col gap-2' aria-busy='true')
+    p(class='mb-1 text-sm text-ink-3')= c.loading
+    each _, i in [0, 1, 2, 3]
+      +card()(class=mobile ? 'flex flex-col gap-2' : 'flex items-center gap-6')
+        if mobile
+          +skeleton('line')(class='w-1/2')
+          +skeleton('line')(class='w-3/4')
+        else
+          +skeleton('line')(class='w-40')
+          +skeleton('line')(class='w-44')
+          +skeleton('line')(class='w-20')
+          +skeleton('line')(class='w-16')
+          +skeleton('line')(class='ml-auto w-24')
+
+mixin adminTop(view, kind, c, cols, rows)
+  +adminHead(c)
+  if kind === 'rows'
+    +dataList(cols, rows, { view: view })
+  else if kind === 'empty'
+    +card()
+      +emptyState(c.empty.title, c.empty.body, c.empty.action)
+  else if kind === 'loading'
+    +adminLoading(view, c)
+  else
+    div(class='flex max-w-[520px] flex-col items-start gap-4')
+      +note('bad', c.error.lead)
+        = c.error.detail
+        span(class='mt-0.5 block font-mono text-mono-sm text-ink-3')= c.error.code
+      +btn({ variant: 'accent', label: c.error.action, icon: 'refresh', touch: view === 'mobile' })
+
+//- The presets list: a header row and rows on desktop, a card per row on a phone.
+mixin presetList(view, lib)
+  - const mobile = view === 'mobile'
+  if mobile
+    ul(class='flex flex-col gap-2')
+      each p in lib.presets
+        li(class='rounded-lg border border-line bg-surface p-3')
+          p(class='text-[13.5px] font-medium')= p.email
+          dl(class='mt-2.5 grid grid-cols-2 gap-x-4 gap-y-2')
+            div(class='min-w-0')
+              dt(class='text-label text-ink-3 uppercase')= lib.cols.folder
+              dd(class='truncate font-mono text-mono-sm')= p.folder
+            div(class='min-w-0')
+              dt(class='text-label text-ink-3 uppercase')= lib.cols.library
+              dd(class='truncate text-[13.5px]')= p.library
+          +btn({ variant: 'bad', touch: true, label: lib.remove, icon: 'trash' })(class='mt-3 w-full')
+  else
+    div(class='overflow-hidden rounded-lg border border-line bg-surface')
+      div(class='grid grid-cols-[1.3fr_1fr_1.3fr_auto] gap-4 border-b border-line-loud px-3 pt-3 pb-2.5 text-label text-ink-3 uppercase')
+        span= lib.cols.email
+        span= lib.cols.folder
+        span= lib.cols.library
+        span(class='w-[72px]')
+      ul
+        each p in lib.presets
+          li(class='grid grid-cols-[1.3fr_1fr_1.3fr_auto] items-center gap-4 border-b border-line-soft px-3 py-2 text-[13.5px] last:border-b-0')
+            span(class='truncate')= p.email
+            span(class='truncate font-mono text-mono-sm')= p.folder
+            span(class='truncate')= p.library
+            +btn({ variant: 'bad', size: 'sm', label: lib.remove })
+
+//- The add form. `state`: empty | errors | taken | select
+mixin presetForm(view, state, f)
+  - const mobile = view === 'mobile'
+  - const bad = state === 'errors'
+  - const filled = state === 'taken' || state === 'select'
+  +panel(f.title)
+    div(class=['flex flex-col gap-4', mobile ? '' : 'max-w-[480px]'])
+      +field(f.email.label, f.email.hint, bad ? f.email.error : null)
+        +input({ type: 'email', placeholder: f.email.placeholder, value: bad ? f.email.errorValue : filled ? f.email.value : undefined, error: bad })
+      +field(f.folder.label, null, bad ? f.folder.error : null)
+        +input({ mono: true, placeholder: f.folder.placeholder, value: bad ? f.folder.errorValue : filled ? f.folder.value : undefined, error: bad })
+        if !bad
+          p(class='mt-[5px] font-mono text-mono-sm text-ink-3')= f.folder.hint
+      +field(f.library.label, state === 'select' ? null : f.library.hint, bad ? f.library.error : null)
+        if state === 'select'
+          +select({ placeholder: f.library.placeholder, items: f.library.items.map((l, i) => ({ label: l, highlighted: i === 0 })), open: true, value: undefined })
+        else
+          +select({ placeholder: f.library.placeholder, value: filled ? f.library.value : undefined })
+      if state === 'taken'
+        +note('bad', f.taken.lead)
+          = f.taken.detail
+      +btn({ variant: 'accent', label: f.action, icon: 'plus', touch: mobile })(class=mobile ? 'w-full' : 'self-start')
+
+mixin adminLibraries(view, libs, lib, form, formState)
+  div(class='mt-12')
+    h2(class='text-h2')= lib.title
+    p(class='mt-1 mb-5 max-w-[64ch] text-sm text-ink-3')= lib.lede
+    if libs === 'empty'
+      +card()
+        +emptyState(lib.empty.title, lib.empty.body)
+    else
+      +presetList(view, lib)
+    div(class='mt-5')
+      +presetForm(view, formState, form)
+
+mixin adminScreen(view, fr, d)
+  - const mobile = view === 'mobile'
+  +ibScreen(view, { admin: true, wide: true, links: d.copy.links, density: mobile ? undefined : 'compact' })
+    if fr.top
+      +adminTop(view, fr.top, d.copy, d.cols, d.rows)
+    if fr.libs
+      if fr.top
+        +adminLibraries(view, fr.libs, d.libraries, d.form, fr.formState)
+      else
+        div(class='-mt-12')
+          +adminLibraries(view, fr.libs, d.libraries, d.form, fr.formState)

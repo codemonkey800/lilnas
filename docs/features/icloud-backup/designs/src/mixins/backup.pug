@@ -1,0 +1,140 @@
+//- The signed-in screens, one dispatcher over every state. Copy: data/backup.mjs.
+include icloud.pug
+
+//- The facts row of a done screen.
+mixin doneFacts(view, facts)
+  dl(class=['grid gap-3', view === 'mobile' ? 'grid-cols-2' : 'grid-cols-3'])
+    each f in facts
+      div(class='min-w-0')
+        dt(class='text-label text-ink-3 uppercase')= f.label
+        dd(class='text-h3 tabular-nums')= f.value
+
+mixin doneScreen(view, mode, c)
+  - const mobile = view === 'mobile'
+  +ibScreen(view)
+    +stateHead(c.badge, c.title)
+    +panel()(class='mt-5')
+      +doneFacts(view, c.facts)
+      +btn({ size: 'sm', icon: 'refresh', label: c.sync, touch: mobile })(class=['mt-4', mobile ? 'w-full' : ''])
+    a(href=c.openHref class='mt-4 flex' target='_blank' rel='noreferrer')
+      +btn({ variant: 'accent', label: c.open, iconEnd: 'external', size: mobile ? 'lg' : 'md' })(class=mobile ? 'w-full' : '')
+    div(class='mt-4')
+      +immichPanel(view, mode, c.immich)
+
+mixin failedScreen(view, f, r)
+  - const mobile = view === 'mobile'
+  +ibScreen(view)
+    +stateHead(f.badge, f.title)
+    //- the reason slot
+    +note('bad', r.lead)(class='mt-5')
+      if r.code
+        = r.detail
+        span(class='mt-0.5 block font-mono text-mono-sm text-ink-3')= r.code
+      else if r.href === 'start.html#preflight'
+        a(class='font-medium text-ink underline underline-offset-2' href=r.href)= r.detail
+        = r.detailEnd
+      else
+        = r.detail
+    a(href=r.href class=['mt-5', mobile ? 'flex' : 'inline-flex'])
+      +btn({ variant: 'accent', label: r.action, icon: r.actionIcon, size: mobile ? 'lg' : 'md' })(class=mobile ? 'w-full' : '')
+
+mixin backupScreen(view, s, c)
+  - const mobile = view === 'mobile'
+  case s.key
+    when 'queued'
+      +ibScreen(view)
+        +stateHead(c.queued.badge, c.queued.title, c.queued.lede)
+        p(class='mt-6 flex items-center gap-2 text-sm text-ink-3')
+          +icon('clock', 14)
+          = c.queued.hint
+    when 'preparing'
+      +ibScreen(view)
+        +stateHead(c.preparing.badge, c.preparing.title, c.preparing.lede)
+        +card()(class='mt-6')
+          +progress(c.preparing.attemptPct, 'warn', { bare: true })
+          p(class='mt-2 text-cap text-ink-3')= c.preparing.attempt
+        p(class='mt-4 text-sm text-ink-3')= c.preparing.hint
+    when 'downloading'
+      +ibScreen(view)
+        +stateHead(c.downloading.badge, c.downloading.title)
+        +card()(class='mt-5')
+          +progress(c.downloading.pct, 'accent')
+          div(class=['mt-4 flex gap-x-6 gap-y-1', mobile ? 'flex-col' : 'items-baseline justify-between'])
+            p
+              span(class='text-h3 tabular-nums')= c.downloading.size
+              span(class='ml-1.5 text-sm text-ink-3')= c.downloading.sizeLabel
+            p(class='min-w-0 truncate font-mono text-mono-sm text-ink-2')= c.downloading.file
+        div(class=['mt-5 flex gap-4', mobile ? 'flex-col' : 'items-center justify-between'])
+          p(class='flex items-center gap-2.5 text-sm text-ink-3')
+            +statusDot('accent', true)
+            = c.downloading.hint
+          +btn({ icon: 'stop', label: c.downloading.stop, touch: mobile })(class=mobile ? 'w-full' : '')
+    when 'reconnecting'
+      +ibScreen(view, { banner: c.reconnecting })
+        +stateHead(c.downloading.badge, c.downloading.title)
+        +card()(class='mt-5')
+          +progress(c.downloading.pct, 'accent')
+          div(class=['mt-4 flex gap-x-6 gap-y-1', mobile ? 'flex-col' : 'items-baseline justify-between'])
+            p
+              span(class='text-h3 tabular-nums')= c.downloading.size
+              span(class='ml-1.5 text-sm text-ink-3')= c.downloading.sizeLabel
+            p(class='min-w-0 truncate font-mono text-mono-sm text-ink-2')= c.downloading.file
+        div(class=['mt-5 flex gap-4', mobile ? 'flex-col' : 'items-center justify-between'])
+          p(class='flex items-center gap-2.5 text-sm text-ink-3')
+            +statusDot('warn')
+            | Showing the last update we got.
+          +btn({ icon: 'stop', label: c.downloading.stop, touch: mobile })(class=mobile ? 'w-full' : '')
+    when 'review'
+    when 'review-large'
+      - const large = s.key === 'review-large'
+      - const n = large ? c.review.large : c.review.normal
+      +ibScreen(view)
+        +stateHead(c.review.badge, c.review.title)
+        p(class='mt-2 text-body text-ink-2') #{n.already} of your photos are already on the server. #{n.fresh} are new. Download them?
+        if large
+          +note('warn', c.review.large.lead)(class='mt-4')
+            = c.review.large.detail
+        dl(class='mt-5 grid grid-cols-2 gap-3')
+          +card()
+            dd(class='text-h1 tabular-nums')= n.already
+            dt(class='text-sm text-ink-3')= c.review.alreadyLabel
+          +card()(class=large ? 'border-warn' : '')
+            dd(class='text-h1 tabular-nums')= n.fresh
+            dt(class='text-sm text-ink-3')= c.review.freshLabel
+        div(class=['mt-6 flex gap-3', mobile ? 'flex-col' : ''])
+          if large
+            +btn({ variant: 'accent', label: c.review.later, size: mobile ? 'lg' : 'md' })
+            +btn({ label: c.review.download, size: mobile ? 'lg' : 'md' })
+          else
+            +btn({ variant: 'accent', label: c.review.download, size: mobile ? 'lg' : 'md' })
+            +btn({ label: c.review.later, size: mobile ? 'lg' : 'md' })
+    when 'finishing'
+      +ibScreen(view)
+        +stateHead(c.finishing.badge, c.finishing.title, c.finishing.lede)
+        +card()(class='mt-6')
+          ul(class='flex flex-col gap-3')
+            each st in c.finishing.steps
+              li(class='flex items-center gap-2.5 text-sm')
+                +statusDot(st.tone, st.pulse)
+                span(class=st.tone === 'idle' ? 'text-ink-3' : 'text-ink')= st.label
+    when 'done-new'
+      +doneScreen(view, 'new', c.done)
+    when 'done-revealed'
+      +doneScreen(view, 'revealed', c.done)
+    when 'done-existing'
+      +doneScreen(view, 'existing', c.done)
+    when 'reauth'
+      +ibScreen(view)
+        +stateHead(c.reauth.badge, c.reauth.title, c.reauth.lede)
+        a(href=c.reauth.href class=['mt-6', mobile ? 'flex' : 'inline-flex'])
+          +btn({ variant: 'accent', label: c.reauth.action, iconEnd: 'arrow', size: mobile ? 'lg' : 'md' })(class=mobile ? 'w-full' : '')
+    when 'paused'
+      +ibScreen(view)
+        +stateHead(c.paused.badge, c.paused.title, c.paused.lede)
+        +note('warn', c.paused.todo.lead)(class='mt-5')
+          = c.paused.todo.detail
+        +card()(class='mt-4')
+          +progress(c.paused.pct, 'warn', { bare: true })
+          p(class='mt-2 text-cap text-ink-3')= c.paused.progress
+    default
+      +failedScreen(view, c.failed, c.failed.reasons[s.reason])

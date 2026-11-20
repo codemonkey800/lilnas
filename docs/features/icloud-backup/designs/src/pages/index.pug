@@ -1,0 +1,14 @@
+extends ../../../../../designs/mockup-kit/page.pug
+
+block title
+  | icloud-backup — UI mockups · lilnas
+
+block content
+  +mockHead({ eyebrow: 'icloud-backup · icloud-backup.lilnas.io', title: 'iCloud backup' })
+    p A family iCloud photo backup: read two settings, sign in to Apple, and watch photos and videos land on the server. Written for people, not developers, so it is one thing to do per screen in plain words. Category Standard, built from the shared kit in #[+code('docs/designs/mockup-kit')]. Every page is shown at 1280 and 390 behind a switch, with each state as a captioned row.
+
+  ul(class='stagger grid max-w-[640px] gap-4')
+    each page in pages
+      li(class='flex flex-col gap-2')
+        +tile({ icon: page.icon, name: page.name, host: page.file, href: page.file })
+        p(class='px-1 text-sm text-ink-3')= page.blurb
