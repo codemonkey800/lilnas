@@ -585,3 +585,17 @@ Download failure retries (30 s, 2 min, 10 min) keep state queued_download with r
 Immich: createdByUs may be false on a retry after a crash between user creation and storing the result (T7's note). That affects only whether the password button shows.
 Dry run (H4): for the wrong-password guesses read the "Sign-in form step" log lines (step names only) and adjust judgePasswordAttempt in src/jobs/auth-failure.ts. Also check that a restarted auth process gets its form quickly enough; a person typing before it is ready gets a 409 "sign-in form is not ready".
 Test helpers for other tasks: src/jobs/__tests__/helpers/harness.ts has FakeClock, FakeProcessService/FakeProc, FakeWebui, FakeProvisioner, FakeImmichClient, createHarness(db, env), captureLogs() and rejection(). It is excluded from jest's testMatch.
+
+### 2026-11-19 · T10 · done
+Routes and behaviour follow the task. Decisions worth knowing:
+- POSTs return 200, not Nest's default 201.
+- Validation is `parseBody(schema, body)` using the contract zod schemas. The 400 message names only the failing fields ("Invalid request: check password."), never the value.
+- `RequestedWithGuard` is applied to `BackupController`. It exempts GET, HEAD and OPTIONS. Because the global `ForwardedUserGuard` runs first, a request with neither identity nor header gets 401, and a missing header with a valid identity gets 403. Pipes run after guards, so 403 comes before 400.
+- Cache-Control no-store is set on the three secret routes and also on `GET /admin/accounts`. JobsService 409s pass through unchanged, including the low-disk `view` field.
+- `JobUserService` turns the forwarded identity into a `JobUser` by checking admin status through `AdminCheckService` (60 s cache). The controller and the gateway both use it.
+- `BackupGateway` is `@WebSocketGateway({ path: '/ws', maxPayload: 1024 })` with no `@SubscribeMessage` handlers. No identity means `close(4401)`.
+- On connect it schedules a push for that person. That push goes to all of their open tabs, so an already-open tab also gets one repeat of the identical view. This keeps a single ordered send path.
+- Pushes run one at a time per person, and changes that arrive during a send are folded into one more send. A getView failure is logged with its error message only, and the socket stays open.
+- The gateway subscribes to `JobsService.onChange` in `onModuleInit` and unsubscribes in `onModuleDestroy`.
+- `AdminService.listAccounts` calls `AccountsRepo.list()` and then `JobsRepo.findLatestForAccount` per account. That is one query per account, which is fine for a family-sized list. `totalBytes` and `totalItems` are the stored columns. A null `appleId` becomes '' (the contract field is a non-null string), and `folder` is the account slug. `AdminModule` and `ApiModule` now import `AuthModule` so `AdminGuard` and `AdminCheckService` resolve.
+- The frontend's `lib/api.ts` already sends `X-Requested-With: icloud-backup` on POSTs.
