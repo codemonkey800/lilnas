@@ -278,7 +278,18 @@ Jeremy's approval; it had been 44 commits behind).
   already open when T25 was added: it must not be approved before T25 lands.
 - **Run config shows `modelId: sonnet`** (2026-11-19) although the frontmatter says
   `model: frontier`; Jeremy has been told.
-- No open thread with the user.
+- **H4 finding, 2026-11-20: icloudpd 1.33.1 is refused by Apple (`-20101`) for Jeremy's
+  valid password.** Proven by hand: 1.33.1 in the app image with a TTY → `-20101`; same
+  password at icloud.com → OK + 2FA; `icloudpd/icloudpd:latest` (1.32.3, built 2026-05-30) →
+  OK + 2FA. The app relayed and judged correctly (verdict came from the form returning to the
+  password step). A real wrong password on both versions: process stays up, form returns with
+  the Apple error in `div.fw-bold`. icloudpd output is never logged by the app, so diagnosis
+  needs a hand run (`docker run -it --rm --entrypoint sh lilnas-icloud-backup:dev`).
+  Fix: T30 pins 1.32.3 (sha256 `cbe4de08…0093`), T31 rebuilds the dry-run stack, H4 is now
+  `after` T31. Do not approve H4 before T31. Apple sign-in attempts that day: 7 refused + 1
+  accepted; avoid extra attempts (lockout risk). Not done: filing an upstream issue (would
+  need Jeremy's OK; outward-facing).
+- Open thread: Jeremy is waiting for T30/T31, then redoes H4.
 
 ## Log
 <!-- Written by Nexus: findings, review cycles, checkpoint verdicts, the final report,
