@@ -935,7 +935,8 @@ phases:
           - apps/icloud-backup/src/components/backup-app.tsx
           - apps/icloud-backup/src/components/steps/
           - apps/icloud-backup/src/components/__tests__/
-        status: todo
+        status: done
+        commit: 079ff277cb6f90dc91342b1fe09f72664336c507
         body: |-
           The client-side base the screens plug into, matching the approved mockups in
           `docs/features/icloud-backup/designs/` (`start.html`, `backup.html`). Types come from
