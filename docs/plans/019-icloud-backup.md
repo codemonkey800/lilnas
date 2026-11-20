@@ -599,3 +599,16 @@ Routes and behaviour follow the task. Decisions worth knowing:
 - The gateway subscribes to `JobsService.onChange` in `onModuleInit` and unsubscribes in `onModuleDestroy`.
 - `AdminService.listAccounts` calls `AccountsRepo.list()` and then `JobsRepo.findLatestForAccount` per account. That is one query per account, which is fine for a family-sized list. `totalBytes` and `totalItems` are the stored columns. A null `appleId` becomes '' (the contract field is a non-null string), and `folder` is the account slug. `AdminModule` and `ApiModule` now import `AuthModule` so `AdminGuard` and `AdminCheckService` resolve.
 - The frontend's `lib/api.ts` already sends `X-Requested-With: icloud-backup` on POSTs.
+
+### 2026-11-19 · T16 · partial
+Live check of the built image, backend + frontend + postgres:18.4-alpine on a private network, driven from a throwaway node container. Every listed check passed except one finding: the icloudpd web UI is reachable from other containers (defect below). Details are in the table in the message above.
+Deviation: accounts.apple_id is unique, so the second identity used second@example.invalid (a .invalid address) instead of nobody@example.invalid; it never went past the password form. No Apple password or code was submitted.
+The backend logs a warning ("Failed to reach auth for admin check") because no auth container exists in this stack; expected here.
+Cleanup done: compose project, volume, network, image and temp folder removed. ps/volume/network/images match the pre-build snapshots. Build cache left alone.
+
+Defects:
+
+- blocking · icloudpd web UI (Apple sign-in password/MFA form) listens on 0.0.0.0:8080, reachable from every container on the network · apps/icloud-backup/src/icloudpd/process.service.ts (buildBaseArgs, around lines 56-74); apps/icloud-backup/.env.example (ICLOUDPD_WEBUI_URL comment says "loopback only")
+  From the driver container, GET http://icloud-backup:8080/status returned 200 with the Apple-ID password form for nobody@example.invalid while a job was at need_password. Inside the backend container, /proc/net/tcp shows a listener on 00000000:1F90 (0.0.0.0:8080). The spawn args are `--username <id> --cookie-directory ... --no-progress-bar --log-level info --auth-only --password-provider webui --mfa-provider webui`, with no bind-address option. `icloudpd --help` for 1.33.1 lists no http/bind/port/host option. In production the backend sits on the shared lilnas network, so any other container could read the pending Apple ID and submit a password or MFA code to the sign-in. Needs a fix outside what the flags allow: e.g. run icloudpd in its own loopback-only network namespace, put a loopback-only wrapper in front, or block non-loopback access to :8080 inside the backend container. Confirm the fix with a driver container fetching http://icloud-backup:8080/status.
+
+No commits: nothing to integrate.
