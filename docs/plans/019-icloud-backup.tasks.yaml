@@ -271,7 +271,8 @@ phases:
         files:
           - apps/icloud-backup/
           - pnpm-lock.yaml
-        status: todo
+        status: done
+        commit: 5a0493fc586272cd37229ca7584ab055f8d5acca
         body: |-
           Create the app every later task fills in. Later tasks each own one directory and must not
           need to edit a shared file, so this task creates every shared file in its final form.
