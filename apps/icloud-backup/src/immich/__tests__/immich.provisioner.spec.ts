@@ -1,3 +1,7 @@
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import { Logger } from '@nestjs/common'
 
 import { ImmichClient } from 'src/immich/immich.client'
@@ -13,15 +17,20 @@ describe('ImmichProvisioner', () => {
   const fake = new FakeImmich()
   let provisioner: ImmichProvisioner
   const logSpies: jest.SpyInstance[] = []
+  let photosRoot = ''
 
   beforeAll(() => fake.start())
   afterAll(() => fake.stop())
-  beforeEach(() => {
+  afterEach(() => rm(photosRoot, { recursive: true, force: true }))
+  beforeEach(async () => {
     fake.reset()
+    photosRoot = await mkdtemp(join(tmpdir(), 'icloud-backup-photos-'))
+    await mkdir(join(photosRoot, 'alice'))
     const options = {
       baseUrl: fake.url,
       apiKey: API_KEY,
       importRoot: IMPORT_ROOT,
+      photosRoot,
       timeoutMs: 2000,
     }
     provisioner = new ImmichProvisioner(new ImmichClient(options), options)
@@ -44,7 +53,7 @@ describe('ImmichProvisioner', () => {
   ]
 
   describe('ensure', () => {
-    it('creates the user, the library, validates and scans', async () => {
+    it('creates the user and the library, then scans', async () => {
       const result = await provisioner.ensure({
         email: 'alice@example.com',
         slug: 'alice',
@@ -63,9 +72,10 @@ describe('ImmichProvisioner', () => {
         name: 'iCloud',
         importPaths: [PATH],
       })
+      // Needs an `all` key; the production key deliberately lacks it.
       expect(
-        fake.calls('POST', `/api/libraries/${result.libraryId}/validate`),
-      ).toHaveLength(1)
+        fake.requests.filter(r => r.path.endsWith('/validate')),
+      ).toHaveLength(0)
       expect(fake.scans).toEqual([result.libraryId])
 
       // A random 32-character password, with the change forced and no mail.
@@ -177,11 +187,9 @@ describe('ImmichProvisioner', () => {
       expect(creates()).toHaveLength(0)
     })
 
-    it('throws import_path_invalid when Immich cannot read the path', async () => {
-      fake.invalidPaths.add(PATH)
-
+    it('throws import_path_invalid before creating anything when the folder is missing', async () => {
       const error = await provisioner
-        .ensure({ email: 'alice@example.com', slug: 'alice' })
+        .ensure({ email: 'carol@example.com', slug: 'missing' })
         .then(
           () => undefined,
           (e: unknown) => e,
@@ -189,7 +197,21 @@ describe('ImmichProvisioner', () => {
 
       expect(error).toBeInstanceOf(ImmichError)
       expect(error).toMatchObject({ code: 'import_path_invalid' })
+      expect((error as ImmichError).message).toContain(`${IMPORT_ROOT}/missing`)
+      expect((error as ImmichError).message).not.toContain(photosRoot)
+      expect(creates()).toHaveLength(0)
+      expect(fake.users).toHaveLength(0)
+      expect(fake.libraries).toHaveLength(0)
       expect(fake.scans).toHaveLength(0)
+    })
+
+    it('throws import_path_invalid when the path is a file', async () => {
+      await writeFile(join(photosRoot, 'bob'), 'not a folder')
+
+      await expect(
+        provisioner.ensure({ email: 'bob@example.com', slug: 'bob' }),
+      ).rejects.toMatchObject({ code: 'import_path_invalid' })
+      expect(creates()).toHaveLength(0)
     })
 
     it('creates one user and one library when called twice', async () => {

@@ -40,8 +40,6 @@ export class FakeImmich {
   readonly libraries: FakeLibrary[] = []
   readonly requests: RecordedRequest[] = []
   readonly scans: string[] = []
-  /** Import paths `validate` reports as unusable. */
-  readonly invalidPaths = new Set<string>()
   /** When set, every request waits this long before answering. */
   delayMs = 0
 
@@ -67,7 +65,6 @@ export class FakeImmich {
     this.libraries.length = 0
     this.requests.length = 0
     this.scans.length = 0
-    this.invalidPaths.clear()
     this.delayMs = 0
   }
 
@@ -102,8 +99,7 @@ export class FakeImmich {
 
     const input = (body ?? {}) as Record<string, unknown>
     const userMatch = /^\/api\/admin\/users\/([^/]+)$/.exec(path)
-    const libMatch =
-      /^\/api\/libraries\/([^/]+)\/(validate|scan|statistics)$/.exec(path)
+    const libMatch = /^\/api\/libraries\/([^/]+)\/(scan|statistics)$/.exec(path)
 
     if (method === 'GET' && path === '/api/admin/users') {
       return send(
@@ -147,16 +143,6 @@ export class FakeImmich {
       }
       this.libraries.push(library)
       return send(201, library)
-    }
-    if (method === 'POST' && libMatch?.[2] === 'validate') {
-      const paths = input.importPaths as string[]
-      return send(200, {
-        importPaths: paths.map(importPath =>
-          this.invalidPaths.has(importPath)
-            ? { importPath, isValid: false, message: 'Path does not exist' }
-            : { importPath, isValid: true },
-        ),
-      })
     }
     if (method === 'POST' && libMatch?.[2] === 'scan') {
       this.scans.push(String(libMatch[1]))

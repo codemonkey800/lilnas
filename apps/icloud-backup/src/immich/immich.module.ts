@@ -16,6 +16,7 @@ import { IMMICH_OPTIONS, ImmichOptions } from './immich.types'
         // Empty when unset: the client refuses to call Immich without a key.
         apiKey: env(EnvKeys.IMMICH_API_KEY, ''),
         importRoot: env(EnvKeys.IMMICH_IMPORT_ROOT, '/icloud-users'),
+        photosRoot: env(EnvKeys.PHOTOS_ROOT, '/photos'),
       }),
     },
     ImmichClient,

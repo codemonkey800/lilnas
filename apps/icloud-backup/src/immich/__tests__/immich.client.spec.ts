@@ -15,6 +15,7 @@ describe('ImmichClient', () => {
       baseUrl: fake.url,
       apiKey: API_KEY,
       importRoot: '/icloud-users',
+      photosRoot: '/photos',
       timeoutMs: 500,
     })
   })
@@ -114,22 +115,6 @@ describe('ImmichClient', () => {
     })
   })
 
-  it('validateLibrary posts the path and unwraps the result', async () => {
-    fake.invalidPaths.add('/icloud-users/bad')
-
-    await expect(
-      client.validateLibrary('lib-1', '/icloud-users/ok'),
-    ).resolves.toEqual({ isValid: true })
-    expect(last().method).toBe('POST')
-    expect(last().path).toBe('/api/libraries/lib-1/validate')
-    expect(last().headers['x-api-key']).toBe(API_KEY)
-    expect(last().body).toEqual({ importPaths: ['/icloud-users/ok'] })
-
-    await expect(
-      client.validateLibrary('lib-1', '/icloud-users/bad'),
-    ).resolves.toEqual({ isValid: false, message: 'Path does not exist' })
-  })
-
   it('scanLibrary posts with no body', async () => {
     await client.scanLibrary('lib-1')
 
@@ -145,6 +130,7 @@ describe('ImmichClient', () => {
       baseUrl: fake.url,
       apiKey: 'wrong-key-value',
       importRoot: '/icloud-users',
+      photosRoot: '/photos',
     })
 
     const error = await bad.listUsers().then(
@@ -192,6 +178,7 @@ describe('ImmichClient', () => {
       baseUrl: fake.url,
       apiKey: '',
       importRoot: '/icloud-users',
+      photosRoot: '/photos',
     })
 
     await expect(keyless.listUsers()).rejects.toMatchObject({

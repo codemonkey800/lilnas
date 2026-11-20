@@ -1,4 +1,6 @@
 import { randomInt } from 'node:crypto'
+import { access, constants, stat } from 'node:fs/promises'
+import { join } from 'node:path'
 
 import { Inject, Injectable, Logger } from '@nestjs/common'
 
@@ -25,6 +27,20 @@ function trimTrailingSlashes(path: string): string {
   return path.replace(/\/+$/, '')
 }
 
+/** Why the backend cannot read a person's folder, or undefined if it can. */
+async function folderProblem(dir: string): Promise<string | undefined> {
+  try {
+    if (!(await stat(dir)).isDirectory()) return 'it is not a folder'
+    await access(dir, constants.R_OK | constants.X_OK)
+    return undefined
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code
+    if (code === 'ENOENT' || code === 'ENOTDIR') return 'it does not exist'
+    if (code === 'EACCES' || code === 'EPERM') return 'it is not readable'
+    return `it could not be checked (${code ?? 'unknown error'})`
+  }
+}
+
 export interface EnsuredImmichAccount {
   userId: string
   libraryId: string
@@ -46,12 +62,24 @@ export class ImmichProvisioner {
    * then start a scan. Every step looks before it creates, so calling it
    * again after a crash at any point finishes the job without duplicates.
    * `createdByUs` is true only when this call created the user.
+   *
+   * The folder is checked here, on the backend's own mount, before anything
+   * is created: Immich's `POST /libraries/:id/validate` needs an `all` API
+   * key, which the production key deliberately lacks.
    */
   async ensure(input: {
     email: string
     slug: string
   }): Promise<EnsuredImmichAccount> {
     const importPath = `${trimTrailingSlashes(this.options.importRoot)}/${input.slug}`
+    const localPath = join(this.options.photosRoot, input.slug)
+    const problem = await folderProblem(localPath)
+    if (problem) {
+      throw new ImmichError(
+        'import_path_invalid',
+        `Cannot use ${importPath}: ${problem}`,
+      )
+    }
     const wanted = input.email.trim().toLowerCase()
 
     const [users, libraries] = await Promise.all([
@@ -99,14 +127,6 @@ export class ImmichProvisioner {
       this.logger.log(
         { userId: user.id, libraryId: library.id },
         'Created Immich library',
-      )
-    }
-
-    const check = await this.client.validateLibrary(library.id, importPath)
-    if (!check.isValid) {
-      throw new ImmichError(
-        'import_path_invalid',
-        `Immich cannot read ${importPath}${check.message ? `: ${check.message}` : ''}`,
       )
     }
 

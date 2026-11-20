@@ -39,9 +39,9 @@ const EXACT_PERMISSIONS = [
   'library.update',
   'library.statistics',
 ]
-// Diagnostic only: `--with-all` adds `all` to the key, to see which later steps
-// work once POST /libraries/:id/validate (which accepts no narrower
-// permission in v3.3.4) is allowed. Production's key must not have it.
+// Diagnostic only: `--with-all` adds `all` to the key. Nothing in src needs it
+// (POST /libraries/:id/validate, the one route that does, is not used), so
+// every step must pass without it. Production's key must not have it.
 const WITH_ALL = process.argv.includes('--with-all')
 const PERMISSIONS = WITH_ALL ? [...EXACT_PERMISSIONS, 'all'] : EXACT_PERMISSIONS
 const PING_TIMEOUT_MS = 240_000
@@ -250,6 +250,8 @@ async function main(): Promise<void> {
       baseUrl: base,
       apiKey: key.apiKey,
       importRoot: IMPORT_ROOT,
+      // The temp folder is both the Immich mount and this process's view of it.
+      photosRoot: dir,
       timeoutMs: 30_000,
     }
     const client = new ImmichClient(options)
@@ -299,15 +301,6 @@ async function main(): Promise<void> {
         note(`same ids; users ${users.length}, libraries ${libs.length}`)
       })
 
-      await step('validateLibrary says the import path is valid', async () => {
-        const v = await client.validateLibrary(
-          first.libraryId,
-          `${IMPORT_ROOT}/alice`,
-        )
-        expect(v.isValid, `invalid: ${v.message ?? ''}`)
-        note(`isValid ${v.isValid}`)
-      })
-
       await step('statistics reach 3 assets after the scan', async () => {
         const r = await waitForAssets(base, first.libraryId, key.apiKey, 3)
         note(`${r.total} assets after ${Math.round(r.ms / 1000)} s`)
@@ -315,8 +308,7 @@ async function main(): Promise<void> {
     }
 
     if (!WITH_ALL) {
-      // The exact list cannot get through validate, so exercise the other
-      // routes directly to show which ones it does cover.
+      // Exercise the remaining routes directly to show the exact list covers them.
       await step('exact list: scan, statistics, password reset', async () => {
         const [lib] = await client.listLibraries()
         const [user] = (await client.listUsers()).filter(
@@ -336,6 +328,7 @@ async function main(): Promise<void> {
     await step(
       'ensure for a slug with no folder throws import_path_invalid',
       async () => {
+        const before = (await client.listUsers()).length
         try {
           await provisioner.ensure({
             email: 'nobody@immich-contract.test',
@@ -345,7 +338,9 @@ async function main(): Promise<void> {
           expect(err instanceof ImmichError, 'not an ImmichError')
           const e = err as ImmichError
           expect(e.code === 'import_path_invalid', `code ${e.code}`)
-          note(`code ${e.code}; message: ${e.message}`)
+          const after = (await client.listUsers()).length
+          expect(after === before, `users went from ${before} to ${after}`)
+          note(`code ${e.code}; message: ${e.message}; no user created`)
           return
         }
         throw new Error('did not throw')

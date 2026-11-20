@@ -7,7 +7,6 @@ import {
   IMMICH_OPTIONS,
   ImmichLibrarySchema,
   ImmichUserSchema,
-  ValidateLibraryResponseSchema,
 } from './immich.types'
 
 const DEFAULT_TIMEOUT_MS = 10_000
@@ -86,30 +85,6 @@ export class ImmichClient {
       },
       ImmichLibrarySchema,
     )
-  }
-
-  async validateLibrary(
-    id: string,
-    importPath: string,
-  ): Promise<{ isValid: boolean; message?: string }> {
-    const path = `/libraries/${encodeURIComponent(id)}/validate`
-    const { importPaths } = await this.request(
-      'POST',
-      path,
-      { importPaths: [importPath] },
-      ValidateLibraryResponseSchema,
-    )
-    const entry =
-      importPaths.find(p => p.importPath === importPath) ?? importPaths[0]
-    if (!entry) {
-      throw new ImmichError(
-        'bad_response',
-        `Immich POST ${path} returned no result`,
-      )
-    }
-    return entry.message
-      ? { isValid: entry.isValid, message: entry.message }
-      : { isValid: entry.isValid }
   }
 
   async scanLibrary(id: string): Promise<void> {
