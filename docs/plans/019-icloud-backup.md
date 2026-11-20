@@ -238,6 +238,16 @@ Jeremy's approval; it had been 44 commits behind).
   without asking: the key stays at seven permissions and `ensure()` drops the validate call. R1
   was already running with both options open, so T28 (after T8 and T17) makes code, contract
   script and README match whatever R1 did. T24 no longer calls validate either.
+- **C3 (T16, 2026-11-19):** icloudpd's form (8080) is reachable from other containers on the
+  compose network; all three services sit on the default network because the backend needs
+  `immich`. R2 firewalls 8080 to loopback in a root entrypoint (`NET_ADMIN`, then `setpriv` to
+  uid 1000 with no caps), fail closed, and re-checks live. Ruled out: a private network (backend
+  still needs Immich's), a sidecar sharing the netns (rules lost on `docker restart`), installing
+  icloudpd from PyPI and patching `waitress.serve` (leaves the pinned static binary). Note the
+  backend API on 8081 trusts forwarded identity headers from the same network, so this is defence
+  in depth, not a new boundary. The runner made R2 for the same defect and had started it with
+  an open-ended body, so the run was paused with interrupt, T29's design moved into R2, T29
+  deleted before the runner saw it, and T16's re-check now expects the form to be unreachable.
 - A run in `waiting_for_human` does not pick up new tasks by itself: `pause` then `resume`
   made it dispatch T26 and T27.
 - Push ordering rules: every task that adds app code is `after` T2. Nothing but fixes may land

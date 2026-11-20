@@ -1245,8 +1245,10 @@ phases:
           1. `docker build -t lilnas-icloud-backup:livecheck -f apps/icloud-backup/Dockerfile .`
           2. In a throwaway compose project `icloud-backup-livecheck` (file in a temp folder; own
              network, no published ports, no Traefik labels, named volumes and temp folders only):
-             `postgres:18.4-alpine` with test credentials; the backend (`node dist/main`) with network
-             alias `icloud-backup`, `PHOTOS_ROOT` and `STATE_ROOT` on temp folders owned by uid 1000,
+             `postgres:18.4-alpine` with test credentials; the backend with network
+             alias `icloud-backup`, started the way `apps/icloud-backup/deploy.yml` starts it (same
+             `entrypoint`, `user`, `cap_add` and `security_opt`; plain `node dist/main` if that
+             file sets none of them), `PHOTOS_ROOT` and `STATE_ROOT` on temp folders owned by uid 1000,
              `MIN_FREE_BYTES=1`, `IMMICH_URL` pointing at a name that does not resolve,
              `NODE_ENV=production`; the frontend (`node frontend/apps/icloud-backup/server.js`).
              Never use `apps/icloud-backup/deploy.yml` or the production key.
@@ -1256,8 +1258,12 @@ phases:
              - migrations ran and `/api/backup` returns a view with `account: null`; without the
                identity headers it is 401; `GET /health` on the backend is 200
              - `POST /api/backup/start` with `nobody@example.invalid` reaches `need_password` within
-               30 s, and `http://icloud-backup:8080/status` (the form, on the backend) shows the
-               password form. Do not submit a password: it would be sent to Apple
+               30 s, and the form's `/status` on port 8080 shows the password form when fetched
+               from inside the backend container (`docker exec … node -e` with `fetch` on
+               `http://127.0.0.1:8080/status`). From the third container
+               `http://icloud-backup:8080/status` must not connect: the form is for the backend
+               process only, and reaching it from another container is a defect. Do not submit
+               a password: it would be sent to Apple
              - a second identity starting at the same time is `queued_login` with position 1
              - a websocket to `ws://<frontend>:8080/ws` with the identity headers receives a view on
                connect and another when the first person cancels; after that cancel the second person
@@ -1810,21 +1816,75 @@ phases:
       - id: R2
         title: 'Fix: icloudpd web UI (Apple sign-in password/MFA form) listens on 0.0.0.0:8080, reachable from every container on the n…'
         after: []
-        files: []
+        files:
+          - apps/icloud-backup/Dockerfile
+          - apps/icloud-backup/scripts/backend-entrypoint.sh
+          - apps/icloud-backup/deploy.yml
+          - apps/icloud-backup/deploy.dev.yml
+          - apps/icloud-backup/src/__tests__/deploy.spec.ts
+          - apps/icloud-backup/README.md
         status: todo
         body: |-
-          T16 · Live check of the built image as two containers, with the real binary reported this blocking defect (attempt 1):
+          A live check of the built image (task T16) reported a blocking defect: the icloudpd
+          login form is reachable from other containers. This task fixes it; T16 then runs again
+          to re-check. The planner chose the fix below; do this one and no other.
 
-          **icloudpd web UI (Apple sign-in password/MFA form) listens on 0.0.0.0:8080, reachable from every container on the network**
+          During sign-in the backend spawns `icloudpd --auth-only` with its web form, and the
+          backend posts the person's Apple password and code to that form at
+          `http://127.0.0.1:8080`. icloudpd 1.33.1 has no option for the form's address or port
+          (`waitress.serve(app)`), so the form listens on every interface: a live check reached
+          `http://icloud-backup:8080/status` from another container on the compose network. Only
+          the backend process itself may reach that port. Read the results above for what the
+          live check saw.
 
-          - Where: `apps/icloud-backup/src/icloudpd/process.service.ts (buildBaseArgs, around lines 56-74); apps/icloud-backup/.env.example (ICLOUDPD_WEBUI_URL comment says "loopback only")`
-          - Observed: From the driver container, GET http://icloud-backup:8080/status returned 200 with the Apple-ID password form for nobody@example.invalid while a job was at need_password. Inside the backend container, /proc/net/tcp shows a listener on 00000000:1F90 (0.0.0.0:8080). The spawn args are `--username <id> --cookie-directory ... --no-progress-bar --log-level info --auth-only --password-provider webui --mfa-provider webui`, with no bind-address option. `icloudpd --help` for 1.33.1 lists no http/bind/port/host option. In production the backend sits on the shared lilnas network, so any other container could read the pending Apple ID and submit a password or MFA code to the sign-in. Needs a fix outside what the flags allow: e.g. run icloudpd in its own loopback-only network namespace, put a loopback-only wrapper in front, or block non-loopback access to :8080 inside the backend container. Confirm the fix with a driver container fetching http://icloud-backup:8080/status.
+          Fix it with a packet filter inside the backend container's own network namespace, set
+          up before the app starts, failing closed:
+          - `apps/icloud-backup/Dockerfile` (runtime stage, Debian trixie, has `setpriv`): install
+            `nftables` (or `iptables` if nft does not work on this host; say which and why), copy
+            `scripts/backend-entrypoint.sh` to a fixed path, executable. Keep `USER node` and the
+            default `ENTRYPOINT` as they are, so the frontend and anything else from this image
+            still runs unprivileged.
+          - `scripts/backend-entrypoint.sh` (`#!/bin/sh`, `set -eu`): must be started as root;
+            add a rule that drops inbound TCP to port 8080 on every interface but `lo`, IPv4 and
+            IPv6; list the ruleset and exit non-zero if the rule is not there; then
+            `exec setpriv --reuid 1000 --regid 1000 --clear-groups --inh-caps=-all --bounding-set=-all node dist/main`
+            (adjust flags to what works, but the node process must end up as PID 1, uid 1000,
+            with no capabilities: check `CapEff`, `CapBnd` in `/proc/1/status`). If any step
+            fails the container must not start the app.
+          - `deploy.yml` and `deploy.dev.yml`, backend service only: `user: root`,
+            `cap_add: [NET_ADMIN]`, `security_opt: ['no-new-privileges:true']`, entrypoint the
+            script. A comment says why. The frontend and db services are untouched: no
+            capability, no root.
+          - `src/__tests__/deploy.spec.ts`: in both files the backend has exactly that entrypoint,
+            `NET_ADMIN` as its only added capability and `no-new-privileges`; the frontend has no
+            `cap_add` and no `user`.
+          - `README.md`: a short paragraph in the security section: what the rule is, that the
+            backend API port 8081 is unaffected, and that the container refuses to start if the
+            rule cannot be set.
+          Do not move the form to another port, proxy it, or change how the backend talks to it.
+          The backend's own port (8081) and outbound traffic must be untouched.
 
-          T16's notes:
-
-          > Live check of the built image, backend + frontend + postgres:18.4-alpine on a private network, driven from a throwaway node container. Every listed check passed except one finding: the icloudpd web UI is reachable from other containers (defect below). Details are in the table in the message above.
-          > Deviation: accounts.apple_id is unique, so the second identity used second@example.invalid (a .invalid address) instead of nobody@example.invalid; it never went past the password form. No Apple password or code was submitted.
-          > The backend logs a warning ("Failed to reach auth for admin check") because no auth container exists in this stack; expected here.
-          > Cleanup done: compose project, volume, network, image and temp folder removed. ps/volume/network/images match the pre-build snapshots. Build cache left alone.
-
-          Fix only this defect. Add a test that fails without the fix where one can; then T16 runs again to re-check.
+          Then prove it live, committing nothing from this part: build the image
+          (`docker build -t lilnas-icloud-backup:fwcheck -f apps/icloud-backup/Dockerfile .`) and
+          run a throwaway compose project `icloud-backup-fwcheck` from a temp folder (own network,
+          no published ports, no Traefik labels, temp folders and named volumes only, never
+          `deploy.yml` itself or the production key): `postgres:18.4-alpine`, the backend with the
+          new entrypoint and the three compose settings, alias `icloud-backup`, `MIN_FREE_BYTES=1`,
+          `IMMICH_URL` on a name that does not resolve. From a second container on that network,
+          with `X-Forwarded-User` / `X-Forwarded-User-Id` headers and `X-Requested-With:
+          icloud-backup`, `POST http://icloud-backup:8081/backup/start` with
+          `nobody@example.invalid` and wait for `need_password` (never submit a password: it would
+          go to Apple). Report, with what you observed:
+          - from the second container, `http://icloud-backup:8080/status` does not connect
+            (timeout or refusal), while `http://icloud-backup:8081/health` is 200
+          - inside the backend container, `http://127.0.0.1:8080/status` returns the password
+            form, and the job did reach `need_password` (so the backend's own polling works)
+          - PID 1 is node, uid 1000, with empty effective and bounding capability sets; the
+            icloudpd child is uid 1000 too
+          - `docker restart` the backend: the rule is there again and the outside probe still
+            fails
+          - without `cap_add` the container exits non-zero and never starts node
+          - `docker stop` ends the backend within the grace period (node still gets SIGTERM)
+          Tear down (`docker compose -p icloud-backup-fwcheck down -v`), remove the image and temp
+          folders, and show `docker ps -a`, `docker volume ls` and `docker network ls` are clean.
+          Anything that fails goes under `defects:`.
