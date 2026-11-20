@@ -319,3 +319,9 @@ Admin's cover paragraph had no "Every state is shown at 1280 and 390" sentence, 
 The vp-scope / viewportToggle / viewportPanel mixins and their CSS in the kit were left alone (other features may use them); only the three icloud-backup pages stopped using them.
 Verification: Chromium at 1800px, no overflow, frames top-aligned and side by side; whitespace-normalised outerHTML of every [data-density] screen equals HEAD's desktop/mobile panel screens for all 33 states. Pixel screenshots of 6 compared states (2 per page) differ only by sub-pixel noise (max channel delta 2 on static screens, 1px height rounding); temp files deleted.
 Checks: mockups build + lint clean, utils/ui build ok, apps/auth services jest 87/87, prettier ok on READMEs and compose files; apps/icloud-backup does not exist yet so its guarded checks were skipped.
+
+### 2026-11-19 · T27 · done
+Removed from the contract: states previewing and review_download (BACKUP_STATES now has 14 entries, nothing else renamed or reordered), JobView.previewItems, BackupAccountView.adopted, AdminPreset, AdminLibraryOption, PresetBody and their schemas. The private folderName helper went too, since only PresetBodySchema used it.
+Nothing else under apps/icloud-backup/src used the removed names; README.md did not mention them.
+Spec has a new case that BackupStateSchema and JobViewSchema reject previewing and review_download.
+Checks run: icloud-backup lint, type-check, full jest (8 suites, 54 tests) all pass. Not run: the auth jest, mockups and prettier/docker checks (untouched by this change).

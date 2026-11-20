@@ -268,7 +268,8 @@ phases:
           - T4
         files:
           - apps/icloud-backup/src/
-        status: todo
+        status: done
+        commit: e8585746ca13effba9da87563fb7bb8b011be589
         body: |-
           `apps/icloud-backup/src/shared/contract.ts` (types and zod schemas shared by the backend
           and the frontend) and `src/shared/__tests__/contract.spec.ts` still describe a feature
