@@ -448,3 +448,13 @@ Checked:
 - Mockup states that have no contract state — designs/src/data/backup.mjs, start.mjs vs shared/contract.ts: Every mockup state maps to a contract state or field.
 - Immich mount path vs IMMICH_IMPORT_ROOT — infra/immich.yml:19, apps/icloud-backup/src/env.ts, .env.example:33: The mount /storage/photos/icloud-users:/icloud-users:ro matches the default /icloud-users.
 - Health route path vs log ignore vs Next rewrite — health.controller.ts, logger.config.ts, next.config.js: The controller serves /health, autoLogging ignores /health, and the rewrite strips /api, so they agree.
+
+### 2026-11-19 · T7 · done
+Import from 'src/immich/immich.client', 'src/immich/immich.provisioner', 'src/immich/immich.email' and 'src/immich/immich.errors'. There is no barrel file. A module that needs the provider must import ImmichModule, which exports ImmichClient and ImmichProvisioner.
+ImmichModule builds an IMMICH_OPTIONS provider from IMMICH_URL (default http://immich:2283), IMMICH_API_KEY (default '', so the client throws ImmichError('not_configured') on first use rather than failing at boot) and IMMICH_IMPORT_ROOT (default /icloud-users).
+ensure({email, slug}) uses the email as given. The caller applies immichEmail(lilnasEmail, IMMICH_EMAIL_PLUS_TAG) first. The new Immich user's display name is that email.
+createdByUs is true only if this call created the user. If a crash happens after the user is created but before the caller stores the result, the retry reports createdByUs: false. The caller that persists createdByUs should be aware of that gap, because the spec says ensure must be safe to repeat.
+ensure returns email as Immich stores it, which may differ from the input in case.
+An Immich failure arrives as ImmichError with code, status (http_error only) and a message that is safe to log or store. Map any ImmichError to the contract's 'immich_error' code, except import_path_taken and import_path_invalid, which a caller may want to show differently.
+The shared test stand-in is src/immich/__tests__/helpers/fake-immich.ts (FakeImmich, API_KEY, only()). Other tasks' specs can reuse it. It is excluded from jest's testMatch.
+The Jest VM realm makes `err instanceof Error` false for the DOMException from AbortSignal.timeout, so the client detects a timeout by err.name === 'TimeoutError'.

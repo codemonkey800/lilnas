@@ -658,7 +658,8 @@ phases:
           - T4
         files:
           - apps/icloud-backup/src/immich/
-        status: todo
+        status: done
+        commit: 98be70a461ba0ba5ce50db407e81b33521174200
         body: |-
           A typed client for the Immich admin API and the provisioning logic on top, in
           `apps/icloud-backup/src/immich/` only. `ImmichModule` exports `ImmichClient` and
