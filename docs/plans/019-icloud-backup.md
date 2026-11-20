@@ -325,3 +325,18 @@ Removed from the contract: states previewing and review_download (BACKUP_STATES 
 Nothing else under apps/icloud-backup/src used the removed names; README.md did not mention them.
 Spec has a new case that BackupStateSchema and JobViewSchema reject previewing and review_download.
 Checks run: icloud-backup lint, type-check, full jest (8 suites, 54 tests) all pass. Not run: the auth jest, mockups and prettier/docker checks (untouched by this change).
+
+### 2026-11-19 · T26 · done
+Built-HTML verification, direct section.sec children of .page = states in data:
+start 10/10, backup 13/13 (was 15), admin 4/4 (was 8).
+Frame titles in order:
+start: Pre-flight; Sign in · Empty; Sign in · Submitting; Sign in · Wrong password; Sign in · Server low on space; Waiting for a turn; Code · Empty; Code · Checking; Code · Wrong code; Signed in.
+backup: Queued; Apple preparing; Downloading; Reconnecting; Finishing; Done · New Immich account; Done · Password shown; Done · Had an Immich account; Sign in again; Paused; Failed · Apple refused; Failed · Sign-in timed out; Failed · Something went wrong.
+admin: Rows; Table · Empty; Table · Loading; Table · Error.
+Admin: the four frames that showed only the libraries section (libs-empty, form-errors, form-taken, form-select) were removed because nothing is left in them. The Rows frame's caption no longer says "libraries below". The `full`, `libs` and `formState` frame fields and the presetList, presetForm and adminLibraries mixins are gone.
+Backup: the review/review-large states, the `review` data export and its dispatcher branch are removed. The cover paragraph no longer lists Download as an accent button. "Checking which photos are already here" was not present in the queued screen's data or the built HTML, so nothing to remove there.
+done-existing is unchanged. start.html and index.html changed only in inlined shared CSS (utilities the cut sections used are no longer emitted).
+grep -rniE 'preset|review|adopt|already here' docs/features/icloud-backup/designs/src returns nothing (exit 1).
+Browser check (headless Chrome, 1800 px wide): no horizontal overflow on backup or admin, every frame shows 1280 and 390 side by side at the same top offset, remaining frames look as before, admin ends right after the Error frame with no gap. Screenshots and temp files deleted.
+Checks: mockups build + lint clean; utils/ui build ok; icloud-backup lint + type-check pass; icloud-backup jest 59/59; apps/auth services jest 87/87; docker build --check on apps/icloud-backup/Dockerfile: no warnings; prettier ok on README and compose files. git status clean.
+Not mine: /tmp/gen_t26.py, /tmp/t26_before.txt and /tmp/t26_full.txt already existed and were left alone.

@@ -232,7 +232,8 @@ phases:
           - T25
         files:
           - docs/features/icloud-backup/
-        status: todo
+        status: done
+        commit: 7a63ef446c953df0cc9d4f3dea361c63d0ea811d
         body: |-
           The mockups in `docs/features/icloud-backup/designs/` (`start.html`, `backup.html`,
           `admin.html`, built from `src/pages/*.pug`, `src/mixins/*.pug` and `src/data/*.mjs`; read
