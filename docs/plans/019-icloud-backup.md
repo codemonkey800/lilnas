@@ -637,3 +637,10 @@ The README paragraph sits after the "Two containers, one image" section (there i
 The job showed `failed` after the `docker restart` (the restart killed it mid-sign-in); I did not investigate that.
 Cleanup: project down -v, fwcheck image, temp folder and extra container removed; ps -a / volume ls / network ls show nothing from this test; git status clean.
 Checks: lint + type-check pass; icloud-backup jest 507/507, auth services jest 88/88; mockups build + lint pass; prettier on compose and deploy files passes; docker build --check clean.
+
+### 2026-11-19 · T16 · done
+Live check of the R2 fix passed on every item. The round 1 defect no longer reproduces: with a job at need_password, http://icloud-backup:8080/status from a third container times out (before and after a backend restart), while 127.0.0.1:8080/status inside the backend returns the password form.
+Also verified: migrations, 401 without identity, 403 without X-Requested-With, backend /health 200, need_password in about 2 s, second identity queued_login position 1, websocket frame on connect and on cancel with the second person reaching need_password, no icloudpd left after cancel, interrupted_login after backend stop/start, PID 1 uid 1000 with zero caps and NoNewPrivs 1, icloudpd 1.33.1, frontend env without POSTGRES_PASSWORD/IMMICH_API_KEY, and no password= or request body in any of the three logs (canary password/code sent to a 409/400 path, absent from logs).
+Notes: websocket frames are {data: view} messages. The auth-service admin check logs a warning in this stack because no auth service exists; expected. No password was submitted to Apple. Teardown complete; ps -a, volume ls, network ls and images show nothing left; git status clean.
+
+No commits: nothing to integrate.
