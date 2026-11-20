@@ -516,3 +516,11 @@ Compose and registration are done as specified. Deliberate differences and findi
 - Host prerequisites before first deploy (not done here): copy .env.keys to /opt/lilnas (docs/deploy.md "Add a new env file" step 5), create /storage/app-data/icloud-backup and /storage/app-data/icloud-backup-db with ownership the containers can write (backend runs as the image's user; postgres:18-alpine needs uid 70), and /storage/photos/icloud-users must exist.
 - ci detect --base HEAD~1 --head HEAD --json: full=true and image ghcr.io/codemonkey800/lilnas-icloud-backup (apps/icloud-backup/Dockerfile) lists services icloud-backup and icloud-backup-frontend.
 - Cleanup: temporary .env.prod.decrypted deleted; no containers, networks, volumes or images created; nothing pushed.
+
+### 2026-11-19 · T12 · done
+Screens are function components with StepProps; SignIn also takes an optional `onBack`, which Preflight passes. backup-app.tsx is untouched.
+Password flow: SignIn parks the password in the pending-password provider before actions.start, and an effect keyed on job.state === 'need_password' takes and sends it once. It works whether SignIn is the same instance or mounts fresh after queued_login. A failed start clears the held password. After send, the password state is emptied, so it is not in the DOM or any log (specs assert it is absent from every console call).
+parts.tsx is shared by the sign-in screens: StepMarker, Intro, LowSpaceNote, CancelButton, useCancel (clears the pending password, then actions.cancel, or a local back action when there is no job), messageOf (ApiError message or a generic line).
+Deliberate differences: Preflight has no Cancel. Cancel on the form with no job goes back to the checklist locally. The Apple ID is read-only on a need_password retry as well as when appleIdLocked. Code entry is one real input over six drawn cells, digits only, shown as typed. Sign in is disabled for low space only when it would start a job.
+Stay-on-screen behaviour to know about: on a failed submit (ApiError) the sign-in password and the code keep what was typed so the person can resend; they are cleared only after a successful send.
+Specs: src/components/__tests__/sign-in-steps.spec.tsx (23 tests). No network, DB, Docker or icloudpd. Full apps/icloud-backup jest 297 passed, apps/auth services 88 passed. No temp files or containers were created.

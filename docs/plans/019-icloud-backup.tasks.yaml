@@ -1011,7 +1011,8 @@ phases:
           - apps/icloud-backup/src/components/steps/code.tsx
           - apps/icloud-backup/src/components/steps/checking.tsx
           - apps/icloud-backup/src/components/steps/__tests__/sign-in-flow.spec.tsx
-        status: todo
+        status: done
+        commit: 9a97fec0cf850e71b4fde95d24810dbfc10fa8ae
         body: |-
           Build the sign-in half of the UI to match the approved mockup
           `docs/features/icloud-backup/designs/start.html`, at 1280 and 390. Each file in
