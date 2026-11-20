@@ -151,9 +151,9 @@ The service uses them to find or create the Immich user, create the external lib
 person's folder, start a scan and read its statistics, and reset a temporary password for users it
 created.
 
-Caveat, found against Immich v3.3.4: `POST /api/libraries/:id/validate` is admin-only with no
-permission name, so a key limited to the seven above gets a 403 there, and the provisioner calls
-that route. Until the provisioner stops calling it, the key needs the `all` permission.
+The key never needs `all`. Immich's `POST /api/libraries/:id/validate` is admin-only with no
+permission name, so the service does not call it; it checks the person's folder on its own mount
+before creating anything.
 
 ## What is never stored
 
