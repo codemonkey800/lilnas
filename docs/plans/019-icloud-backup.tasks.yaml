@@ -90,7 +90,8 @@ phases:
         after: []
         files:
           - docs/features/icloud-backup/
-        status: todo
+        status: done
+        commit: d884a0ab5cb0a9dc10aae4abf10b0b34e3e7109e
         body: |-
           Design the whole `icloud-backup.lilnas.io` UI as static mockups, before any code exists.
           Read `DESIGN.md`, `docs/designs/voice.md`, `docs/designs/components.md` and

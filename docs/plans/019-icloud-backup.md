@@ -274,3 +274,10 @@ Post-deploy: lilnas-immich-1 recreated (started 2026-11-20T02:04:47Z), healthy; 
 Nothing created, so nothing to clean up; worktree clean.
 
 No commits: nothing to integrate.
+
+### 2026-11-19 · T3 · done
+Page paths (all under docs/features/icloud-backup/designs/): index.html, start.html, backup.html, admin.html. Each at 1280 and 390 behind the viewport switch, every state captioned.
+Frontend task hints: doorplate is +doorplate('icloud-backup') (renders icloud-backup.lilnas.io). Family screens use a 560px column; admin uses the kit app bar with links "My backup" and "Backups", compact density at desktop, comfortable on phone.
+Backup states by key: queued, preparing (attempt 2 of 6, retry in 2 minutes), downloading, reconnecting (warn banner under app bar), review, review-large (accent moves to "Not now"), finishing, done-new, done-revealed, done-existing, reauth, paused, failed-refused/timeout/generic (one screen with a reason note slot). Anchors: start.html#preflight is the pre-flight frame.
+Deliberate choices: sign-in split into three screens with a "Step n of 3" marker; Remove on an admin preset has no confirm dialog (re-adding is one form away); code cells show bullets, never digits; all sample emails are example.com / example.invalid; the temporary password is a made-up phrase.
+Checks: pnpm mockups and mockups:lint clean; utils/ui build; apps/auth services jest 87/87; compose prettier ok. apps/icloud-backup does not exist yet, so its lint/type-check/jest/Docker checks were skipped by their own guards. No containers or networks were created; temp screenshots in /tmp were deleted.
