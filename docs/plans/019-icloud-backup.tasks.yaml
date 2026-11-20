@@ -32,7 +32,7 @@ phases:
         after:
           - T1
         files: []
-        status: todo
+        status: approved
         body: |-
           Approving lets an agent push one line to `main`: `infra/immich.yml` gains the read-only
           mount `/storage/photos/icloud-users:/icloud-users`. CI then recreates the `immich`
