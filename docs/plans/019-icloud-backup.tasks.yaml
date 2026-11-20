@@ -226,11 +226,76 @@ phases:
           screens of a frame sit side by side without overflow or clipping and that every screen
           looks as it did before (compare against `git show HEAD:<path>` of the same page at
           both widths for two states per page). Delete the screenshots and any temp files.
+      - id: T26
+        title: 'Mockups: drop the review-before-download states and the admin "Existing libraries" section'
+        after:
+          - T25
+        files:
+          - docs/features/icloud-backup/
+        status: todo
+        body: |-
+          The mockups in `docs/features/icloud-backup/designs/` (`start.html`, `backup.html`,
+          `admin.html`, built from `src/pages/*.pug`, `src/mixins/*.pug` and `src/data/*.mjs`; read
+          `docs/designs/mockup-kit/README.md` first) still show a feature that was cut: a special
+          path for people whose iCloud folder existed before this service. The decision now is
+          that such a person is treated like anyone else: they sign in, the service finds their
+          folder and their Immich library by their email, and the download skips what is already
+          there. There is no admin form and no question before the download.
+
+          Remove, from the data, mixins, pages and `README.md`:
+          - `backup`: the states `review` and `review-large` (the "N new photos, Download / Not
+            now" screens) and any copy elsewhere that refers to them, such as "Checking which
+            photos are already here" on the queued screen
+          - `admin`: the "Existing libraries" section (the preset list, its "Remove" button and
+            the add form), in every admin state, at both widths
+          Keep everything else as it is, including `done-existing` (the done screen for a person
+          whose Immich account already existed: "Sign in with your existing Immich account") and
+          the frame markup: one `+mockFrame` per state, 1280 and 390 side by side.
+          `grep -rniE 'preset|review|adopt|already here' docs/features/icloud-backup/designs/src`
+          must find nothing that belongs to the cut feature afterwards.
+
+          Run `pnpm mockups` and commit the rebuilt `*.html`. `git status` must show only files
+          under `docs/features/icloud-backup/`.
+
+          Verify and report, per page: the number of direct `section.sec` children of the `.page`
+          element in the built HTML (it must equal the number of states in that page's data) and
+          the frame titles in order. Open `backup.html` and `admin.html` in a browser at a 1800 px
+          wide window and confirm the remaining frames look as before and the admin page has no
+          empty gap where the section was. Delete screenshots and temp files.
+      - id: T27
+        title: 'Wire contract: remove the preview states and the preset types'
+        after:
+          - T4
+        files:
+          - apps/icloud-backup/src/
+        status: todo
+        body: |-
+          `apps/icloud-backup/src/shared/contract.ts` (types and zod schemas shared by the backend
+          and the frontend) and `src/shared/__tests__/contract.spec.ts` still describe a feature
+          that was cut before anything used it: a special path for people whose iCloud folder
+          existed before this service (an admin "preset" and a count-then-ask step before their
+          first download). Such a person is now treated like anyone else, so the contract needs
+          none of it.
+
+          Remove from `contract.ts`, with their zod schemas and exports:
+          - the job states `previewing` and `review_download`
+          - `previewItems` on the job view
+          - `adopted` on the account view
+          - `AdminPreset`, `AdminLibraryOption` and `PresetBody`
+          Then `grep -rnE 'previewing|review_download|previewItems|adopted|Preset|AdminLibraryOption' apps/icloud-backup/src`
+          and remove every remaining use (the spec, any placeholder that lists states). Change
+          nothing else: no other state, field or schema is renamed or reordered. Update
+          `apps/icloud-backup/README.md` only if it mentions these.
+
+          Tests: the spec no longer covers the removed items and still covers every remaining
+          state and schema; add one case that `previewing` and `review_download` are rejected by
+          the job-state schema.
       - id: H2
         title: Review the icloud-backup mockups
         after:
           - T3
           - T25
+          - T26
         files:
           - docs/features/icloud-backup/designs/start.html
           - docs/features/icloud-backup/designs/backup.html
@@ -452,13 +517,10 @@ phases:
           accounts: id uuid pk, lilnasUserId text unique, lilnasEmail text, slug text unique,
             appleId text unique null, immichUserId text null, immichLibraryId text null,
             immichEmail text null, immichCreatedByUs boolean default false,
-            adopted boolean default false, previewConfirmed boolean default false,
             totalItems int default 0, totalBytes bigint default 0,
             lastBackupAt timestamptz null, createdAt, updatedAt
-          accountPresets: lilnasEmail text pk (lower-cased), slug text unique,
-            immichLibraryId text, createdAt
           jobs: id uuid pk, accountId fk, kind text, state text, authError text null,
-            previewItems int null, totalItems int null, downloadedItems int default 0, skippedItems int default 0,
+            totalItems int null, downloadedItems int default 0, skippedItems int default 0,
             downloadedBytes bigint default 0, currentFile text null, attempt int default 0,
             retryAt timestamptz null, errorCode text null, errorDetail text null,
             startedAt, finishedAt null, updatedAt
@@ -478,28 +540,24 @@ phases:
           PGlite database (`drizzle-orm/pglite`) fits in tests:
           ```ts
           AccountsRepo: findByLilnasUserId, findById, list,
-            create({ lilnasUserId, lilnasEmail, slug, adopted? }), setPreviewConfirmed, setAppleId, setImmich({ userId, libraryId, email, createdByUs }), addTotals, slugExists
+            create({ lilnasUserId, lilnasEmail, slug }), setAppleId, setImmich({ userId, libraryId, email, createdByUs }), addTotals, slugExists
           JobsRepo: create, findActiveForAccount, findLatestForAccount, findNonTerminal,
             update(id, patch), finish(id, state, errorCode?, errorDetail?)
           JobEventsRepo: append(jobId, type, message), tail(jobId, limit)
-          PresetsRepo: list, findByEmail, create({ lilnasEmail, slug, immichLibraryId }), remove(lilnasEmail)
           ```
           `slugFromEmail(email, prefix)` in `slug.ts`: the part before `@`, lower-cased, every
           character outside `[a-z0-9._-]` replaced by `-`, leading and trailing `.` and `-` removed,
           at most 40 characters, `user` if nothing is left, then the prefix in front.
-          `AccountsRepo.create` retries with `-2`, `-3`, … on a slug collision, except when
-          `adopted` is set: then the slug is used as given and a collision is an error. A preset's
-          slug must match `^[a-z0-9][a-z0-9._-]{0,39}$` and must not be the slug of an existing
-          account.
+          `AccountsRepo.create` retries with `-2`, `-3`, … when another account already has the
+          slug. Only accounts count: a folder of that name already on disk is not a collision
+          (a person's photos may have been moved there before their first sign-in).
 
           Tests (PGlite with the real migration files, no server): the migration applies to an empty
           database; slug cleaning (dots kept, `+tag` and spaces replaced, empty local part, 60
           characters cut to 40, prefix); two people with the same local part get `name` and `name-2`;
           a second non-terminal job for one account is refused and a new one is allowed after the
           first finishes; the same Apple ID on two accounts is refused; `findNonTerminal` returns
-          only non-terminal jobs; `errorDetail` longer than 2000 characters is cut; presets (email
-          lower-cased, duplicate email refused, slug with `/` or `..` refused, slug of an existing
-          account refused); an adopted account keeps its slug exactly.
+          only non-terminal jobs; `errorDetail` longer than 2000 characters is cut.
       - id: T6
         title: 'icloudpd engine: process runner, login-form client, log parser'
         after:
@@ -545,7 +603,6 @@ phases:
           // --log-level info. Never --log-level debug, never -p/--password.
           buildAuthArgs({ appleId, cookieDir })                 // + --auth-only + both webui flags
           buildDownloadArgs({ appleId, cookieDir, directory, recent? })  // no webui flags
-          buildPreviewArgs({ appleId, cookieDir, directory })  // download args + --only-print-filenames
 
           // webui.client.ts  (base URL from ICLOUDPD_WEBUI_URL)
           type FormStep =
@@ -565,8 +622,6 @@ phases:
             | { type: 'skipped'; path: string } | { type: 'all_done' } | { type: 'indexing' }
             | { type: 'needs_login' } | { type: 'access_denied' } | { type: 'other' }
           parseLine(line: string): LogEvent
-          isPreviewFile(line: string, directory: string): boolean
-            // true for an output line that is a file path under `directory`
           ```
           `parseFragment(html)` is a pure function behind `getStep`. `submit*` re-reads the step and
           returns `wrong_step` without posting if it does not match. A network error is
@@ -579,10 +634,7 @@ phases:
           `unknown.snippet` is the first 200 characters with every `<input …>` tag removed.
 
           Tests (fixtures in `__tests__/fixtures/`, a fake binary as a small shell script, an
-          `http.createServer` stand-in for the form): `--only-print-filenames` prints the files a
-          run would download and downloads nothing; its exact output is unverified, so
-          `isPreviewFile` accepts a line that, trimmed, starts with the directory path and has a
-          file extension, and nothing else. Tests continue: each fragment maps to its step, including the
+          `http.createServer` stand-in for the form): each fragment maps to its step, including the
           two error variants and garbage; `submitCode` during the password step posts nothing;
           `submitPassword` sends a form-encoded `password` field; a connection refusal is
           `unreachable`; every log line above maps to its event, with a total of 18,532 parsed from
@@ -643,7 +695,10 @@ phases:
           `ensure` is safe to call again after a crash at any step: find the user by email
           (case-insensitive), else create one with a random 32-character password that is discarded
           (`createdByUs: true`); find a library owned by that user whose `importPaths` contains
-          `<IMMICH_IMPORT_ROOT>/<slug>`, else create one named `iCloud` with that path; validate the
+          `<IMMICH_IMPORT_ROOT>/<slug>`, else create one named `iCloud` with that path (but if a
+          library owned by a different user already has that import path, throw
+          `ImmichError('import_path_taken')` and create nothing: two libraries on one folder would
+          show every photo twice); validate the
           path and throw `ImmichError('import_path_invalid')` if Immich says it is not valid; start a
           scan. `newTemporaryPassword` generates 20 characters from an unambiguous alphabet with
           `crypto.randomInt`, resets the password and returns it. The caller decides who may ask.
@@ -653,7 +708,8 @@ phases:
 
           Tests (a local `http.createServer` stand-in, no real Immich): each method sends the right
           verb, path, header and body; `ensure` with no user, with an existing user (no create call,
-          `createdByUs: false`), with an existing library (no second library), with an email that
+          `createdByUs: false`), with an existing library (no second library, whatever its name), with
+          the path already in another user's library (`import_path_taken`, no create call), with an email that
           differs only in case, and with an invalid import path; calling `ensure` twice creates one
           user and one library; `immichEmail` with and without a tag; a 401 surfaces as `ImmichError`
           without the key in its message; passwords never reach a spy logger.
@@ -720,12 +776,7 @@ phases:
             sync(user): Promise<BackupView>                     // re-run with the saved session
             submitPassword(user, password: string): Promise<BackupView>
             submitCode(user, code: string): Promise<BackupView>
-            confirmDownload(user): Promise<BackupView>          // leaves review_download
             cancel(user): Promise<BackupView>
-            listPresets(): Promise<AdminPreset[]>
-            listLibraryOptions(): Promise<AdminLibraryOption[]>  // Immich external libraries
-            addPreset(body: PresetBody): Promise<AdminPreset[]>
-            removePreset(lilnasEmail: string): Promise<AdminPreset[]>
             newImmichPassword(user): Promise<{ password: string }>
             onChange(listener: (lilnasUserId: string) => void): () => void
           }
@@ -738,23 +789,12 @@ phases:
           `<PHOTOS_ROOT>/<slug>`, session in `<STATE_ROOT>/cookies/<slug>`, both created mode 700 /
           755 on demand.
 
-          **Adopted accounts.** Some people already have a folder of iCloud photos on the server
-          and an Immich external library on it. An admin records a preset for them: lilnas email,
-          folder name, Immich library id. `addPreset` refuses (409) unless the folder
-          `<PHOTOS_ROOT>/<folder>` exists, the library exists in Immich, its `importPaths` is
-          exactly `[<IMMICH_IMPORT_ROOT>/<folder>]`, and no account uses that folder or library.
-          When a person whose email (lower-cased) has a preset first calls `start`, their account is
-          created with that exact folder as slug (no prefix, no suffix), `adopted: true`,
-          `immichCreatedByUs: false`, and the library's id and owner stored as their Immich link;
-          the preset row stays as the record. An adopted account that has not confirmed yet takes
-          one extra step after sign-in: state `previewing` (it uses a download slot) runs icloudpd
-          with the preview arguments and counts the files it would fetch; then state
-          `review_download` with `previewItems`, which runs no process and waits for the person.
-          `confirmDownload` (409 in any other state) marks the account confirmed and moves to
-          `queued_download`; `cancel` ends the job as `cancelled`. If the preview finds nothing new
-          it confirms by itself and goes on. The preview has the same indexing, expired-session and
-          access-denied outcomes as a download. After that first confirmation the account behaves
-          like any other.
+          **A folder that already has photos.** A person's folder, and an Immich library on it
+          owned by the Immich user with their email, may exist before their first sign-in (two
+          family libraries are moved in by hand). Nothing special happens for them: the folder is
+          used as it is, never renamed, suffixed or emptied; icloudpd skips the files already
+          there; and after the first download `ensure` finds the existing user and library and
+          returns `createdByUs: false`. There is no flag for this on the account.
 
           **One job per account.** `start` and `sync` return the existing view if a job is active.
           `sync` without an account or Apple ID is a 409. Both are refused with a 409 and
@@ -804,14 +844,14 @@ phases:
           the account has no Immich library: state `provisioning`, call
           `ensure({ email: immichEmail(lilnasEmail, IMMICH_EMAIL_PLUS_TAG), slug })`, store the
           result. If it has one: `scanLibrary`. An Immich failure fails the job with `immich_error`
-          but keeps the downloaded totals; the next `sync` tries Immich again. Then `done`.
+          but keeps the downloaded totals; the next `sync` tries Immich again (`import_path_taken` is reported the same way, with that
+          code in `errorDetail`). Then `done`.
 
           **`newImmichPassword`**: allowed only when the account's Immich user was created by this
           service (else 403); returns the password and stores nothing.
 
           **Recovery and shutdown.** On `onApplicationBootstrap`, for every non-terminal job: one in
-          a sign-in state fails with `interrupted_login`; one in `previewing` goes back to run the
-          preview again; one in `review_download` is left waiting; one in `queued_download`, `indexing_wait`,
+          a sign-in state fails with `interrupted_login`; one in `queued_download`, `indexing_wait`,
           `downloading` or `provisioning` goes back to `queued_download` and runs again (icloudpd
           skips what it has). On shutdown stop every child and leave the rows as they are.
 
@@ -828,11 +868,9 @@ phases:
           `needs_login`; `sync` on a valid session never enters a password state; low disk before
           start and during a download; Apple ID change allowed before the first download and refused
           after; provisioning on the first success, scan only on the next; an Immich failure and the
-          retry on the next sync; `newImmichPassword` for a created and a reused user; presets
-          (each refusal above; a matching person gets the preset's folder and library and never a
-          new Immich user or library; a non-matching person is unaffected); the preview step
-          (count shown, confirm continues, cancel stops, zero new files skips the question, asked
-          only once per account, a download for an adopted account ends with a scan); recovery of
+          retry on the next sync; `newImmichPassword` for a created and a reused user; a first
+          backup into a folder that already holds files (same slug, the provisioner's existing
+          library is stored, `createdByUs: false`, no password button allowed); recovery of
           each non-terminal state; progress writes are throttled; a spy logger and the database never
           contain the password or the code.
       - id: T10
@@ -856,13 +894,9 @@ phases:
           POST /backup/sync               -> BackupView
           POST /backup/password           PasswordBody -> BackupView
           POST /backup/code               CodeBody -> BackupView
-          POST /backup/confirm            -> BackupView
           POST /backup/cancel             -> BackupView
           POST /backup/immich-password    -> { password: string }
           GET  /admin/accounts            -> AdminAccountRow[]        (admins only, else 403)
-          GET  /admin/presets             -> { presets: AdminPreset[]; libraries: AdminLibraryOption[] }
-          POST /admin/presets             PresetBody -> AdminPreset[]
-          DELETE /admin/presets/:email    -> AdminPreset[]
           WS   /ws                        server sends { type: 'backup', data: BackupView }
           ```
           - Every route needs the forwarded identity (401 without it). Bodies are validated with the
@@ -881,8 +915,8 @@ phases:
 
           Tests (Nest testing module with a fake `JobsService`): each route's happy path; 401
           without identity; 400 for a bad Apple ID, an empty password and a 5-digit code; 403
-          without the header; a 409 passes through; `no-store` on the three routes; every admin route
-          for an admin and a non-admin; a preset with a bad folder name is 400; `/backup/confirm`; the websocket sends on connect, sends only to the changed
+          without the header; a 409 passes through; `no-store` on the three routes; the admin route
+          for an admin and a non-admin; the websocket sends on connect, sends only to the changed
           person's sockets, sends to both of one person's tabs, and closes 4401 without identity;
           no request body reaches a spy logger.
       - id: T11
@@ -904,9 +938,8 @@ phases:
           `@lilnas/ui`, class names through `cns()`.
 
           `src/lib/api.ts`: typed `fetch` wrappers for `GET /api/backup`, `POST /api/backup/start`,
-          `/sync`, `/password`, `/code`, `/confirm`, `/cancel`, `/immich-password`,
-          `GET /api/admin/accounts`, and `GET`/`POST /api/admin/presets` with
-          `DELETE /api/admin/presets/:email`.
+          `/sync`, `/password`, `/code`, `/cancel`, `/immich-password`, and
+          `GET /api/admin/accounts`.
           Every `POST` sends `X-Requested-With: icloud-backup` and JSON. A non-2xx throws
           `ApiError { status, message }`.
 
@@ -929,13 +962,13 @@ phases:
           `src/lib/step.ts`: `stepFor(view): StepName`, a pure function choosing the screen:
           ```ts
           type StepName = 'preflight' | 'sign_in' | 'waiting_turn' | 'code' | 'checking'
-            | 'queued' | 'review' | 'indexing' | 'downloading' | 'finishing' | 'done'
+            | 'queued' | 'indexing' | 'downloading' | 'finishing' | 'done'
             | 'sign_in_again' | 'paused' | 'failed'
           ```
           No account or no job: `preflight` (the pre-flight page leads into `sign_in`, which is local
           UI state, not a backend state). `need_password` is `sign_in`; `queued_login` is
           `waiting_turn`; `need_code` is `code`; both checking states are `checking`;
-          `queued_download` and `previewing` are `queued`; `review_download` is `review`;
+          `queued_download` is `queued`;
           `indexing_wait`, `downloading`, `provisioning`, `done`,
           `needs_login`, `paused_low_disk` map to their namesakes; `failed` and `cancelled` are
           `failed`, except `cancelled` with no finished backup, which is `preflight`.
@@ -946,7 +979,7 @@ phases:
           link to `/admin` when `view.isAdmin`, and the component for the current step, all inside
           the pending-password provider. Create one file per step in `src/components/steps/`
           (`preflight.tsx`, `sign-in.tsx`, `waiting-turn.tsx`, `code.tsx`, `checking.tsx`,
-          `queued.tsx`, `review.tsx`, `indexing.tsx`, `downloading.tsx`, `finishing.tsx`, `done.tsx`,
+          `queued.tsx`, `indexing.tsx`, `downloading.tsx`, `finishing.tsx`, `done.tsx`,
           `sign-in-again.tsx`, `paused.tsx`, `failed.tsx`), each exporting a component with props
           `{ view: BackupView; actions }` that renders only its name for now. Two later tasks fill
           them in and must not need to touch `backup-app.tsx`.
@@ -1012,7 +1045,6 @@ phases:
           - T11
         files:
           - apps/icloud-backup/src/components/steps/queued.tsx
-          - apps/icloud-backup/src/components/steps/review.tsx
           - apps/icloud-backup/src/components/steps/indexing.tsx
           - apps/icloud-backup/src/components/steps/downloading.tsx
           - apps/icloud-backup/src/components/steps/finishing.tsx
@@ -1027,16 +1059,10 @@ phases:
           `docs/features/icloud-backup/designs/backup.html`, at 1280 and 390. Each file in
           `apps/icloud-backup/src/components/steps/` already exports a placeholder component with
           props `{ view: BackupView; actions }` (types in `src/shared/contract.ts`, actions from
-          `src/lib/use-backup.ts`, formatters in `src/lib/format.ts`); replace the nine listed. Do
+          `src/lib/use-backup.ts`, formatters in `src/lib/format.ts`); replace the eight listed. Do
           not edit `backup-app.tsx`. Components from `@lilnas/ui`.
 
-          - `queued.tsx`: waiting for a download slot; while `job.state === 'previewing'` it says
-            "Checking which photos are already here".
-          - `review.tsx`: for a person whose existing folder was adopted: how many items are already
-            on the server (`account.totalItems`, omitted when zero) and how many are new
-            (`job.previewItems`), "Download" (`actions.confirmDownload()`) and "Not now"
-            (`actions.cancel()`). When `previewItems` is over 1,000, show the warning from the mockup
-            and require a second confirmation.
+          - `queued.tsx`: waiting for a download slot.
           - `indexing.tsx`: "Apple is still preparing your library", the attempt (`job.attempt` of
             `job.maxAttempts`) and a countdown to `job.retryAt`.
           - `downloading.tsx`: "`downloadedItems` of `totalItems` photos and videos" (or "Counting…"
@@ -1066,8 +1092,7 @@ phases:
           Tests (RTL + user-event, a fake `actions`): each screen renders from a sample view; the
           progress bar's values with and without a total and with skipped items; the countdown
           ticks with fake timers; stop asks first; the temporary password appears once, is copied,
-          and a second press asks to confirm; no password button for a reused Immich user; the review
-          screen's numbers, both buttons, and the double confirmation above 1,000; every
+          and a second press asks to confirm; no password button for a reused Immich user; every
           error code has its message and its button; low space disables "Sync now".
       - id: T14
         title: Admin page
@@ -1091,15 +1116,8 @@ phases:
           shows "This page is for admins" with a link home. A "Refresh" button reloads; there is no
           live feed here. The home page already links here for admins; add a link back home.
 
-          Below the table, "Existing libraries": the presets from `GET /api/admin/presets` (email,
-          folder in mono, library name, "Remove" with a confirm), and a form to add one: lilnas
-          email, folder name, and a select of the returned Immich libraries showing name and import
-          path. Submit calls `POST /api/admin/presets`; a 409 or 400 shows its message under the
-          form. One line explains what a preset does: when this person signs in, their backup uses
-          this folder and library instead of new ones.
-
           Tests: rows render with the right badge tone for each state; loading, empty, error and 403;
-          refresh reloads; presets list, add (success and a 409 message), remove after confirm.
+          refresh reloads.
       - id: T15
         title: 'Compose, env and registration: three services, dry-run stack, auth and portal entries'
         after:
@@ -1560,7 +1578,13 @@ phases:
           1. The folder name for each library under `/storage/photos/icloud-users/`. Use the part
              before `@` of the lilnas (Google) email each person signs in with, lower-cased, for
              example `jeremy=jane.doe mom=mary.doe`. Only the folder names are needed, not the full
-             addresses.
+             addresses. The name is what links a person to their library: when they first sign in
+             on icloud-backup, it looks for the folder named after their lilnas email and for the
+             Immich user with that same email, and carries on from what is there. So each person's
+             lilnas email must be the email of the Immich user that owns their library. Both
+             owners have Gmail addresses in Immich today (checked 2026-11-19); if your mom signs
+             in to lilnas with a different address, change her email in Immich (Administration,
+             Users) before approving.
           2. That now is a good time: Immich will be down for about 15 minutes, the deploy at the
              end also restarts auth (sign-ins fail for about 10 seconds), and the next two steps
              need you at a terminal with sudo.
@@ -1661,14 +1685,17 @@ phases:
              count, zero assets of either library have `"isOffline"` true or a non-null
              `"deletedAt"`, zero paths remain under `/icloud/` or `/icloud-mom/`, and no asset was
              created after the rewrite time in those libraries. Spot-check five asset ids per
-             library that had faces before: they still have rows in `asset_face`.
+             library that had faces before: they still have rows in `asset_face`. Last, for each
+             library read its owner's email from the database and check that the part before
+             `@`, lower-cased, equals the folder name: the icloud-backup service finds a person's
+             library by exactly that match. A mismatch is a defect; fix nothing yourself.
 
           Report the pushed sha, the rollback sha, the CI run URL, each check with its observed
           value, and the rollback for the human: stop Immich, restore the backup (steps in
           `apps/icloud-backup/scripts/immich-path-rewrite/README.md`), move the folders back, revert
           the pushed commit on `main`. Do not do it yourself. Failed checks go under `defects:`.
       - id: H9
-        title: Check Immich, link both people in the admin page, run your first sync
+        title: Check Immich and run your first sync
         after:
           - T24
         files: []
@@ -1676,16 +1703,17 @@ phases:
         body: |-
           1. Open Immich. Your iCloud photos and your mom's are all there, with people, albums and
              favourites as before. Open a few from different years.
-          2. On `https://icloud-backup.lilnas.io/admin`, under "Existing libraries", add two
-             presets: your lilnas email with your folder and "Jeremy iCloud"; your mom's lilnas
-             email with her folder and "Mom's iCloud".
-          3. Sign in on `https://icloud-backup.lilnas.io` with your Apple ID. After the code, the
-             site counts what is not on the server yet and asks before downloading. Expect a small
-             number: the photos taken since your last manual sync. If it shows thousands, choose
-             "Not now" and request changes with the number; file naming may differ from the old runs.
-          4. Let it download, then check the new photos appear in Immich under your existing
-             library, once each.
-          5. Your mom does step 3 whenever she is ready, after you grant her
+          2. Sign in on `https://icloud-backup.lilnas.io` with your Apple ID, like anyone else.
+             There is nothing to link: the site uses the folder named after your lilnas email and
+             skips every photo already in it. The count climbs quickly through the photos that are
+             already here, while "size so far" should stay small: only the photos taken since your
+             last manual sync are downloaded. If the size passes a few GB, press "Stop" and request
+             changes; file naming may differ from the old runs.
+          3. When it is done, the done screen says to sign in with your existing Immich account
+             (no temporary password). In Immich the new photos are in "Jeremy iCloud", once each,
+             and External Libraries shows no second library for you.
+          4. `/admin` lists you like any other person.
+          5. Your mom does step 2 whenever she is ready, after you grant her
              `icloud-backup.lilnas.io` in the auth admin page.
           6. The two `sync-icloud.fish` scripts moved with the folders and are no longer needed;
              delete them when you like.

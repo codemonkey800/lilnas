@@ -81,9 +81,12 @@ security keys, more than one Apple ID per person.
   which makes Immich re-import every file and drop faces, albums and favourites. The rewrite is
   unsupported by Immich, so it is rehearsed on a copy, preceded by a dump, and run with Immich
   stopped. The sudo steps (move, chown) are Jeremy's.
-- **Adopted people are linked by an admin preset** (lilnas email, folder, Immich library), and
-  their first sync counts what it would download and asks before downloading, in case the old
-  runs named files differently.
+- **A moved-in library needs no special handling in the app** (Jeremy, 2026-11-19: "it should
+  just be seamless"). The folder is named after the person's lilnas email, the Immich user that
+  owns the library has that same email, so the normal first backup finds both and icloudpd skips
+  what is there. Ruled out: the admin preset form and the count-then-ask step before the first
+  download, both removed from the mockups and the contract. The guard that remains is manual:
+  at H9 Jeremy watches "size so far" on his first sync and stops it if it grows.
 - **Postgres, not SQLite**, as the original brief says; tests use PGlite so no check needs a
   database server.
 - **Success is decided from the log, never the exit code**, and never from `--log-level debug`,
@@ -222,9 +225,17 @@ Jeremy's approval; it had been 44 commits behind).
   pushes after each go/no-go; Immich temp password never stored, reset button; a read-only admin
   page in version 1; existing `icloud` and `icloud-mom` folders are moved and Immich's paths
   rewritten in phase 4 (he explicitly wants everything under the new path, not old mounts kept).
-- Why the adoption support is built in phases 1 and 2 instead of phase 4: it avoids a second
-  app push. Presets (admin form), states `previewing` and `review_download`, and
-  `--only-print-filenames` are in T3, T4, T5, T6, T9, T10, T11, T13 and T14.
+- **Adoption logic removed 2026-11-19 (Jeremy's request).** Presets, `adopted`,
+  `previewing`/`review_download` and `--only-print-filenames` were cut from T5, T6, T9, T10, T11,
+  T13, T14 and H9. T26 strips them from the mockups (H2 is `after` it; do not approve H2 before
+  T26 lands) and T27 from `contract.ts`. Matching is by email only: Immich owners of the two
+  libraries are the two people's Gmail addresses (read from the database), folder = local part,
+  so `ensure` finds the user and the library whose import path is `<root>/<slug>`. T7 gained
+  `import_path_taken` so a mismatch fails instead of making a second library. Old scripts used
+  default icloudpd flags and `TZ=America/Los_Angeles`, same as the app, so names should match;
+  the remaining risk is a naming change between icloudpd versions, watched by hand at H9.
+- A run in `waiting_for_human` does not pick up new tasks by itself: `pause` then `resume`
+  made it dispatch T26 and T27.
 - Push ordering rules: every task that adds app code is `after` T2. Nothing but fixes may land
   between H5 and T21. In phase 4 nothing may merge between T21 and T24 except T22's scripts and
   T23's `infra/immich.yml` commit, and T23's commit must not be pushed before H8. A new task
