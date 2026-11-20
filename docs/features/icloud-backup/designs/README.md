@@ -13,8 +13,9 @@ pnpm mockups:lint   # prettier check over every designs src/ and the kit
 ```
 
 Drawn in **Category Standard** from the shared kit,
-[`docs/designs/mockup-kit`](../../../designs/mockup-kit). Each page shows both
-1280 and 390 behind the viewport switch, with every state as a captioned frame.
+[`docs/designs/mockup-kit`](../../../designs/mockup-kit). Every state is its
+own Nexus review frame (a titled, captioned section), showing the screen at 1280
+and 390 side by side. There is no viewport switch.
 
 ## Pages
 

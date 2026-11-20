@@ -14,7 +14,7 @@ the code.
 | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | `theme.css`   | The `@theme` block from [`foundations.md`](../foundations.md), the named type scale, the utilities Tailwind can't compose, forced states |
 | `ui.pug`      | One mixin per component in [`components.md`](../components.md)                                                                           |
-| `mock.pug`    | The harness: page header, viewport switch, app frame, state rows — furniture around a screen, not part of it                             |
+| `mock.pug`    | The harness: page header, viewport switch, Nexus review frame, app frame, state rows — furniture around a screen, not part of it         |
 | `page.pug`    | The shell a page `extends`: head, Geist fonts, the icon sprite, a centred 1328px column                                                  |
 | `sprite.html` | One `<symbol>` set: the union of auth's, download's and dev's icons, plus `pepe-badge` and `pepe-full`                                   |
 
@@ -101,19 +101,56 @@ Call with `()` before attributes when there are no arguments:
 
 ### `mock.pug` — harness
 
-| Mixin                          | What it does                                                                                   |
-| ------------------------------ | ---------------------------------------------------------------------------------------------- |
-| `mockHead(opts)`               | Page header: back link, eyebrow, title, standfirst (the block)                                 |
-| `mockSection(id, title, lede)` | A titled, anchored section                                                                     |
-| `viewportToggle(name)`         | Desktop 1280 / Mobile 390, CSS-only (`:has()` radios). `name` must be unique per switch        |
-| `viewportPanel(view)`          | One viewport's content; wrap a toggle and two panels in `div(class='vp-scope')`                |
-| `appFrame(view, opts)`         | The window a screen is drawn in; `opts.density`, `opts.height`. `relative`, so dialogs fill it |
-| `frameLabel`                   | Caption under a frame                                                                          |
-| `stateRow(label, opts)`        | A captioned row for one state of a screen or component; `stack` puts the caption above         |
-| `stateCell(label, opts)`       | One captioned example inside a row; `fill` stretches it                                        |
-| `jumpNav(items, suffix)`       | Jump links to `[label, id]` pairs                                                              |
-| `code(text)`                   | Inline code                                                                                    |
-| `demoFrame(height)`            | A fixed-height `relative` stage for something absolutely positioned                            |
+| Mixin                          | What it does                                                                                           |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| `mockHead(opts)`               | Page header: back link, eyebrow, title, standfirst (the block)                                         |
+| `mockSection(id, title, lede)` | A titled, anchored section                                                                             |
+| `mockFrame(id, title, opts)`   | One Nexus review frame: a `section.sec` with its number, title and caption; `opts.num`, `opts.caption` |
+| `viewportToggle(name)`         | Desktop 1280 / Mobile 390, CSS-only (`:has()` radios). `name` must be unique per switch                |
+| `viewportPanel(view)`          | One viewport's content; wrap a toggle and two panels in `div(class='vp-scope')`                        |
+| `appFrame(view, opts)`         | The window a screen is drawn in; `opts.density`, `opts.height`. `relative`, so dialogs fill it         |
+| `frameLabel`                   | Caption under a frame                                                                                  |
+| `stateRow(label, opts)`        | A captioned row for one state of a screen or component; `stack` puts the caption above                 |
+| `stateCell(label, opts)`       | One captioned example inside a row; `fill` stretches it                                                |
+| `jumpNav(items, suffix)`       | Jump links to `[label, id]` pairs                                                                      |
+| `code(text)`                   | Inline code                                                                                            |
+| `demoFrame(height)`            | A fixed-height `relative` stage for something absolutely positioned                                    |
+
+### Nexus review frames
+
+A human reviews a mockup page in Nexus's review canvas, which lays the page out
+as **frames** and pins comments to each one. Nexus reads the built HTML; nothing
+is configured. A page opts in by putting `class='page'` on its column and
+filling it with `+mockFrame` calls:
+
+```pug
+block page
+  +mockPage('max-w-[1760px]')(class='page')
+    +mockHead({ eyebrow: 'app', title: 'Screen' })
+      p What this is.
+
+    each s, i in states
+      +mockFrame(s.key, s.label, { num: String(i + 1).padStart(2, '0'), caption: s.caption })
+        +myScreen(s)
+```
+
+The rules Nexus applies:
+
+- A frame is a direct `<section class="sec …">` child of the first element in
+  the document with the class `page`. `+mockFrame` makes that section.
+- Children of `.page` before the first section are the **cover band** (title
+  and intro), shown above the frames. `+mockHead` goes first.
+- A frame's title is the text of its `h2.sec-title`; an optional `.sec-num`
+  holds a number such as `01`.
+- Frames sit on a grid of cells as wide as the `.page` content, in any order,
+  and sometimes one at a time. Each section must stand alone: its own title and
+  caption, no "as above", nothing that depends on a control outside it (so no
+  viewport switch).
+- `sec`, `sec-title`, `sec-num` and `page` are marker classes only; they need
+  no CSS.
+
+Size the column to what a frame holds: `max-w-[1760px]` fits a 1280 screen and
+a 390 screen side by side with a gap.
 
 ### Showing a state
 

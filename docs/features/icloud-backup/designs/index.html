@@ -72,7 +72,6 @@
           --text-sm--line-height: 18px;
           --font-weight-medium: 500;
           --font-weight-semibold: 600;
-          --tracking-normal: 0em;
           --leading-normal: 1.5;
           --radius-xs: 4px;
           --radius-md: 6px;
@@ -460,9 +459,6 @@
         }
       }
       @layer utilities {
-        .pointer-events-none {
-          pointer-events: none;
-        }
         .dot-live {
           position: relative;
         }
@@ -479,9 +475,6 @@
         }
         .relative {
           position: relative;
-        }
-        .m-0 {
-          margin: 0;
         }
         .mx-auto {
           margin-inline: auto;
@@ -543,6 +536,9 @@
         .mb-10 {
           margin-bottom: calc(var(--spacing) * 10);
         }
+        .mb-14 {
+          margin-bottom: calc(var(--spacing) * 14);
+        }
         .ml-1\.5 {
           margin-left: calc(var(--spacing) * 1.5);
         }
@@ -563,10 +559,6 @@
         }
         .table {
           display: table;
-        }
-        .size-0 {
-          width: 0;
-          height: 0;
         }
         .size-1\.5 {
           width: calc(var(--spacing) * 1.5);
@@ -726,6 +718,9 @@
         .max-w-\[1328px\] {
           max-width: 1328px;
         }
+        .max-w-\[1760px\] {
+          max-width: 1760px;
+        }
         .max-w-full {
           max-width: 100%;
         }
@@ -798,11 +793,8 @@
         .reveal {
           animation: var(--animate-rise);
         }
-        .cursor-pointer {
-          cursor: pointer;
-        }
-        .grid-cols-1 {
-          grid-template-columns: repeat(1, minmax(0, 1fr));
+        .scroll-mt-6 {
+          scroll-margin-top: calc(var(--spacing) * 6);
         }
         .grid-cols-2 {
           grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -861,9 +853,6 @@
         .gap-6 {
           gap: calc(var(--spacing) * 6);
         }
-        .gap-8 {
-          gap: calc(var(--spacing) * 8);
-        }
         .gap-\[7px\] {
           gap: 7px;
         }
@@ -873,14 +862,17 @@
         .gap-x-6 {
           column-gap: calc(var(--spacing) * 6);
         }
+        .gap-x-8 {
+          column-gap: calc(var(--spacing) * 8);
+        }
         .gap-y-1 {
           row-gap: var(--spacing);
         }
         .gap-y-2 {
           row-gap: calc(var(--spacing) * 2);
         }
-        .gap-y-3 {
-          row-gap: calc(var(--spacing) * 3);
+        .gap-y-6 {
+          row-gap: calc(var(--spacing) * 6);
         }
         .self-start {
           align-self: flex-start;
@@ -915,10 +907,6 @@
         .border-2 {
           border-style: var(--tw-border-style);
           border-width: 2px;
-        }
-        .border-t {
-          border-top-style: var(--tw-border-style);
-          border-top-width: 1px;
         }
         .border-b {
           border-bottom-style: var(--tw-border-style);
@@ -993,9 +981,6 @@
         .p-0 {
           padding: 0;
         }
-        .p-1 {
-          padding: var(--spacing);
-        }
         .p-1\.5 {
           padding: calc(var(--spacing) * 1.5);
         }
@@ -1032,9 +1017,6 @@
         .px-\[11px\] {
           padding-inline: 11px;
         }
-        .px-\[15px\] {
-          padding-inline: 15px;
-        }
         .py-1\.5 {
           padding-block: calc(var(--spacing) * 1.5);
         }
@@ -1043,9 +1025,6 @@
         }
         .py-2\.5 {
           padding-block: calc(var(--spacing) * 2.5);
-        }
-        .py-4 {
-          padding-block: calc(var(--spacing) * 4);
         }
         .py-6 {
           padding-block: calc(var(--spacing) * 6);
@@ -1061,9 +1040,6 @@
         }
         .py-px {
           padding-block: 1px;
-        }
-        .pt-1\.5 {
-          padding-top: calc(var(--spacing) * 1.5);
         }
         .pt-3 {
           padding-top: calc(var(--spacing) * 3);
@@ -1167,10 +1143,6 @@
           --tw-tracking: 0.06em;
           letter-spacing: 0.06em;
         }
-        .tracking-normal {
-          --tw-tracking: var(--tracking-normal);
-          letter-spacing: var(--tracking-normal);
-        }
         .whitespace-nowrap {
           white-space: nowrap;
         }
@@ -1219,9 +1191,6 @@
         .underline-offset-2 {
           text-underline-offset: 2px;
         }
-        .opacity-0 {
-          opacity: 0;
-        }
         .opacity-55 {
           opacity: 0.55;
         }
@@ -1250,17 +1219,6 @@
         }
         .transition-\[background-color\,border-color\] {
           transition-property: background-color, border-color;
-          transition-timing-function: var(
-            --tw-ease,
-            var(--default-transition-timing-function)
-          );
-          transition-duration: var(
-            --tw-duration,
-            var(--default-transition-duration)
-          );
-        }
-        .transition-\[background-color\,color\] {
-          transition-property: background-color, color;
           transition-timing-function: var(
             --tw-ease,
             var(--default-transition-timing-function)
@@ -1343,20 +1301,11 @@
             color 0.2s var(--ease-standard),
             transform 0.12s var(--ease-spring);
         }
-        .group-has-\[\:checked\]\:text-accent-ink:is(
-          :where(.group):has(:checked) *
-        ) {
-          color: var(--color-accent-ink);
-        }
         .placeholder\:text-ink-3::placeholder {
           color: var(--color-ink-3);
         }
-        .first\:border-t-0:first-child {
-          border-top-style: var(--tw-border-style);
-          border-top-width: 0;
-        }
-        .first\:pt-0:first-child {
-          padding-top: 0;
+        .last\:mb-0:last-child {
+          margin-bottom: 0;
         }
         .last\:border-b-0:last-child {
           border-bottom-style: var(--tw-border-style);
@@ -1474,28 +1423,6 @@
         :where([data-density='compact'])
           .in-data-\[density\=compact\]\:py-1\.5 {
           padding-block: calc(var(--spacing) * 1.5);
-        }
-        .has-\[\:checked\]\:bg-accent:has(:checked) {
-          background-color: var(--color-accent);
-        }
-        .has-\[\:checked\]\:text-accent-ink:has(:checked) {
-          color: var(--color-accent-ink);
-        }
-        .has-\[\:checked\]\:hover\:bg-accent-hi:has(:checked):hover,
-        .has-\[\:checked\]\:hover\:bg-accent-hi:has(
-            :checked
-          )[data-force~='hover'] {
-          background-color: var(--color-accent-hi);
-        }
-        .has-\[\:focus-visible\]\:outline-2:has(:focus-visible) {
-          outline-style: var(--tw-outline-style);
-          outline-width: 2px;
-        }
-        .has-\[\:focus-visible\]\:outline-offset-2:has(:focus-visible) {
-          outline-offset: 2px;
-        }
-        .has-\[\:focus-visible\]\:outline-accent:has(:focus-visible) {
-          outline-color: var(--color-accent);
         }
       }
       @keyframes progress-slide {

@@ -38,6 +38,26 @@ mixin mockSection(id, title, lede)
     div(class='mt-5')
       block
 
+//-
+  One Nexus review frame: a direct child of the `.page` column. Nexus reads
+  `section.sec` children of the first `.page` element as frames and the h2 as
+  the frame's title, so the section carries its own title and caption and
+  depends on nothing outside it. `sec`, `sec-title` and `sec-num` are marker
+  classes only. See "Nexus review frames" in the kit README.
+    id    the section id (an anchor)         title  the frame title (h2)
+    opts  num      a number such as '01'     caption  one line under the title
+mixin mockFrame(id, title, opts)
+  - opts = opts || {}
+  section(class='sec mb-14 scroll-mt-6 last:mb-0' id=id)&attributes(attributes)
+    header(class='mb-5 max-w-[74ch]')
+      div(class='flex items-baseline gap-3')
+        if opts.num
+          span(class='sec-num font-mono text-label tracking-[0.06em] text-ink-4')= opts.num
+        h2(class='sec-title text-h2')= title
+      if opts.caption
+        p(class='mt-1 text-sm text-ink-3')= opts.caption
+    block
+
 //- Inline code, for prose that names a file or a class.
 mixin code(text)
   code(class='rounded-xs bg-surface-2 px-1 py-px font-mono text-[0.92em] text-ink-2')&attributes(attributes)= text
