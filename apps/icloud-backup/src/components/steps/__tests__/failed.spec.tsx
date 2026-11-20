@@ -95,6 +95,46 @@ describe('Failed', () => {
     ).toBeInTheDocument()
   })
 
+  describe('a job the person stopped', () => {
+    function cancelledView(sessionMayExist: boolean) {
+      const base = failedView(null, sessionMayExist)
+      return { ...base, job: makeJob('cancelled', { errorCode: null }) }
+    }
+
+    it('says they stopped it instead of reporting a failure', () => {
+      const view = cancelledView(true)
+      render(<Failed actions={makeActions(view)} view={view} />)
+
+      expect(screen.getByText(/You stopped this backup/)).toBeInTheDocument()
+      expect(screen.getByText(/already saved are safe/)).toBeInTheDocument()
+      expect(screen.queryByText('Failed')).not.toBeInTheDocument()
+      expect(screen.queryByText(/Something went wrong/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/tell Jeremy/)).not.toBeInTheDocument()
+    })
+
+    it('syncs on Sync now when a session may exist', async () => {
+      const view = cancelledView(true)
+      const actions = makeActions(view)
+      render(<Failed actions={actions} view={view} />)
+
+      await userEvent.click(screen.getByRole('button', { name: 'Sync now' }))
+
+      expect(actions.sync).toHaveBeenCalledTimes(1)
+      expect(actions.start).not.toHaveBeenCalled()
+    })
+
+    it('starts on Try again when no session can exist', async () => {
+      const view = cancelledView(false)
+      const actions = makeActions(view)
+      render(<Failed actions={actions} view={view} />)
+
+      await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+
+      expect(actions.start).toHaveBeenCalledWith('nobody@example.invalid')
+      expect(actions.sync).not.toHaveBeenCalled()
+    })
+  })
+
   it.each(['wrong_password', 'login_timeout', 'interrupted_login'] as const)(
     'starts a new sign-in for %s even when a session may exist',
     async code => {

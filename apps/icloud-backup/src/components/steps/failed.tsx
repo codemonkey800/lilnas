@@ -21,6 +21,13 @@ const SETTINGS = [
   'Access iCloud Data on the Web must be on',
 ] as const
 
+/** The person pressed Stop: nothing broke, so nothing to report. */
+const STOPPED: Reason = {
+  lead: 'You stopped this backup.',
+  detail: 'Photos already saved are safe.',
+  signIn: false,
+}
+
 const GENERIC: Reason = {
   lead: 'Something went wrong.',
   detail:
@@ -83,8 +90,9 @@ function Settings(): JSX.Element {
 export function Failed({ view, actions }: StepProps): JSX.Element {
   const retry = useAction()
   const { account, job } = view
+  const stopped = job?.state === 'cancelled'
   const code = job?.errorCode ?? null
-  const reason = code ? REASONS[code] : GENERIC
+  const reason = stopped ? STOPPED : code ? REASONS[code] : GENERIC
 
   // Once a download has started (or finished) Apple's session may still be
   // good, so a sync can skip the password; otherwise start from the top.
@@ -105,10 +113,18 @@ export function Failed({ view, actions }: StepProps): JSX.Element {
   return (
     <section data-step="failed">
       <StateHead
-        badge={{ tone: 'bad', label: 'Failed' }}
+        badge={
+          stopped
+            ? { tone: 'mute', label: 'Stopped' }
+            : { tone: 'bad', label: 'Failed' }
+        }
         title="Your backup didn't finish"
       />
-      <Note className="mt-5" lead={reason.lead} tone="bad">
+      <Note
+        className="mt-5"
+        lead={reason.lead}
+        tone={stopped ? 'accent' : 'bad'}
+      >
         {reason.detail}
         {reason.showCode && code ? (
           <span className="mt-0.5 block font-mono text-mono-sm text-ink-3">
@@ -126,7 +142,11 @@ export function Failed({ view, actions }: StepProps): JSX.Element {
         variant="accent"
         onClick={onRetry}
       >
-        {reason.signIn ? 'Sign in again' : 'Try again'}
+        {reason.signIn
+          ? 'Sign in again'
+          : stopped && !useSignIn
+            ? 'Sync now'
+            : 'Try again'}
       </Button>
       {retry.error ? (
         <Note className="mt-4" lead="That didn't work." tone="bad">
