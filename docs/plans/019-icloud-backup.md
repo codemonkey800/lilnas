@@ -555,3 +555,14 @@ ImmichOptions gained a required `photosRoot` (PHOTOS_ROOT, default /photos, whic
 scripts/immich-contract/run.ts now passes its temp dir as photosRoot, drops the validateLibrary step, and asserts the missing-slug ensure creates no user. It needs no `all` key: every step should pass without --with-all. I did not re-run it live; T8 should re-run: pnpm exec tsx --tsconfig apps/icloud-backup/tsconfig.json apps/icloud-backup/scripts/immich-contract/run.ts
 Not verified: the new missing-folder spec was not run against the pre-fix code. Nothing in src creates <PHOTOS_ROOT>/<slug>, so whichever caller runs ensure() must make sure the folder exists first (the old validate call also required it to exist).
 All plan checks pass: lint, type-check, auth service specs 88/88, icloud-backup jest 336/336, prettier, docker build --check, mockups and mockups:lint. Tree is clean.
+
+### 2026-11-19 · T8 · done
+Round 2 re-run of apps/icloud-backup/scripts/immich-contract/run.ts against a throwaway immich-server v3.3.4, with the key limited to the 7 listed permissions (no `all`). ALL STEPS PASSED. The earlier defect (403 "Missing required permission: all" on POST /libraries/:id/validate) no longer reproduces: R1 removed that call and ensure() now checks <photosRoot>/<slug> locally.
+Observed: pong after 6 s; ensure(alice) created a user and a library (createdByUs true, importPath /icloud-users/alice); second ensure created nothing (2 users, 1 library); statistics reached 3 assets after 3 s; scan, statistics and PUT /admin/users/:id succeeded on the exact permission list; ensure for slug "missing" threw import_path_invalid and created no user; newTemporaryPassword logged in via POST /api/auth/login (201) with shouldChangePassword true; ensure with the admin's email reused the admin (createdByUs false); the admin email on slug alice threw import_path_taken.
+Server was reached at http://192.168.16.4:2283 (container IP), never http://immich:2283.
+Deliberate difference from the task text: "the library's import path validates" is now the local folder check in the provisioner, not Immich's validate route, because that route needs an `all` key.
+Cleanup shown: the script ran `down -v`; afterwards `docker ps -a`, `docker volume ls` and `docker network ls` have nothing for icloud-backup-immich-test, and /tmp/icloud-users-* is gone.
+Checks run: @lilnas/utils and @lilnas/ui build, icloud-backup lint and type-check, prettier on scripts/immich-contract/*. All pass. Jest, auth specs, mockups and docker build --check were not re-run; no files changed since R1 reported them passing.
+Caller note carried over from R1: whatever calls ensure() must create <PHOTOS_ROOT>/<slug> first, since nothing in src does.
+
+No commits: nothing to integrate.
