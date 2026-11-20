@@ -741,3 +741,14 @@ Checked:
 - Other backend paths that set state 'cancelled' and would now show 'You stopped this backup' — apps/icloud-backup/src/jobs/jobs.service.ts: Only line 627 (the cancel path) finishes a run as 'cancelled'; timeouts and failures use 'failed'.
 - makeView(null) leaves account null, so the new locked spec would never render the locked case — apps/icloud-backup/src/lib/__tests__/helpers/view.ts: makeView always builds an account with appleId 'nobody@example.invalid' and job null, so the spec takes the preflight then SignIn path, where only appleIdLocked can make the field read-only.
 - The new badge tone 'mute' and Note tone 'accent' are not allowed by the component types — apps/icloud-backup/src/components/steps/state-head.tsx: The badge tone is typed BadgeTone; type-check passed on the merged branch.
+
+### 2026-11-19 · T18 · done
+Dry-run stack is running for a human to sign in at https://icloud-backup.dev.lilnas.io/ (gated: 302 to auth.lilnas.io/login).
+Containers (project lilnas-dev, file apps/icloud-backup/deploy.dev.yml only): lilnas-icloud-backup-dev, lilnas-icloud-backup-dev-frontend, lilnas-icloud-backup-dev-db. All healthy.
+Dry-run bounds: at most 25 items per sign-in (ICLOUDPD_RECENT=25) into /storage/photos/icloud-users/dev-<name> (ACCOUNT_SLUG_PREFIX=dev-); the Immich user created is <name>+icloud-backup-dev@<domain> (IMMICH_EMAIL_PLUS_TAG=icloud-backup-dev).
+Checks: /storage/app-data/icloud-backup-dev created by me, uid 1000. /storage/photos/icloud-users exists and lilnas-immich-1 mounts it at /icloud-users. Backend to http://immich:2283/api/server/ping 200; /api/libraries with the key 200, count 4. Frontend networks are lilnas-dev_icloud-backup-dev and lilnas-proxy only (not lilnas_default). https://icloud-backup.dev.lilnas.io/ is 302 to auth.lilnas.io; https://icloud-backup.lilnas.io/ is 404 (not served). No error/warn/fatal lines in the backend log at start.
+.env.dev-remote was gitignored (.gitignore:6 .env.*), mode 600, and deleted after startup; git status clean; the backend container still has IMMICH_API_KEY in its environment. No password was submitted to Apple.
+Deliberately left running: three containers, volume lilnas-dev_icloud-backup-dev-db, network lilnas-dev_icloud-backup-dev, image lilnas-icloud-backup:dev. Tear down with: docker compose -p lilnas-dev -f apps/icloud-backup/deploy.dev.yml down (add -v to drop the DB volume).
+POSTGRES_USER/DB/PASSWORD in the env file are overridden by literals in deploy.dev.yml's environment: block (compose environment beats env_file), so the generated password was never used.
+
+No commits: nothing to integrate.
