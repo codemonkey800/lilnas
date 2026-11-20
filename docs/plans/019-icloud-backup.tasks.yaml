@@ -1233,7 +1233,8 @@ phases:
           - T11
           - T15
         files: []
-        status: todo
+        status: partial
+        commit: b81122657f49cce0b7e8b2767130908d84645f63
         body: |-
           Everything so far was tested with fakes. Build the real image and run the stack the way
           production will, with a fake Apple account, and report what breaks. Commit nothing.
