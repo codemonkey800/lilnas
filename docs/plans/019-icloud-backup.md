@@ -789,3 +789,13 @@ https://icloud-backup.dev.lilnas.io/ from this host: 302 to https://auth.lilnas.
 .env.dev-remote was written (mode 600, gitignored via .gitignore:6) and deleted after the containers came up. Tree clean, nothing committed.
 
 No commits: nothing to integrate.
+
+### 2026-11-19 · T32 · done
+The image now runs the musl build of icloudpd 1.32.3 directly: the loader sits at /lib/ld-musl-x86_64.so.1, musl's libz at /opt/musl/lib/libz.so.1, and /etc/ld-musl-x86_64.path points musl at /opt/musl/lib. No wrapper process, so signals go straight to icloudpd (SIGTERM stopped both processes in 60 ms).
+The musl stage is pinned to icloudpd/icloudpd@sha256:af2bf40c… (Alpine 3.23.4). The musl sha256 is acbe7149…6fd6.
+The build-time version check runs as uid 1000 (USER node, then back to root before the later steps).
+T33 must rebuild the dry-run stack with --build to pick this up.
+The default-entrypoint check was run with the entrypoint script alone. The line `inbound tcp/8080 dropped on every interface but lo` was logged, and I did not look at what the backend did afterwards (no DB in the throwaway).
+Only fake credentials were used, and only up to the password form, for nobody-t32@example.invalid.
+Containers, network and the :t32 image are removed.
+The task named no jest-affecting source change, so jest, lint and type-check were not rerun. Prettier and docker build --check pass.

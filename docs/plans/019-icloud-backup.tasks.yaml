@@ -1496,7 +1496,8 @@ phases:
           - apps/icloud-backup/scripts/backend-entrypoint.sh
           - apps/icloud-backup/src/icloudpd/
           - apps/icloud-backup/README.md
-        status: todo
+        status: done
+        commit: 3abf75a27cbcd6a518b1946c88db8f8467ba5801
         body: |-
           Why (measured 2026-11-20 with a real Apple ID whose password signs in at icloud.com):
 
