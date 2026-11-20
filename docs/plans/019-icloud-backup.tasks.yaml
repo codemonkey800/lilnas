@@ -1805,7 +1805,7 @@ phases:
         after:
           - T21
         files: []
-        status: todo
+        status: approved
         body: |-
           1. Open `https://icloud-backup.lilnas.io`. You should see the pre-flight page with your
              own account showing no backup yet, and `/admin` should load with an empty list. Do not

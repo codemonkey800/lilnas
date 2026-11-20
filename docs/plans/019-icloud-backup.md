@@ -885,3 +885,6 @@ Defects:
   curl https://lilnas.io/: 404. The portal is served at portal.lilnas.io, which answers 302 to https://auth.lilnas.io/login. Not caused by this push.
 
 No commits: nothing to integrate.
+
+### 2026-11-20 · H6 · approved
+Approved.
