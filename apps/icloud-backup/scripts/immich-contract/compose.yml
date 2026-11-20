@@ -1,0 +1,64 @@
+# Throwaway Immich for scripts/immich-contract/run.ts. Never shares anything
+# with the production `lilnas` project: own project name, own network, named
+# volumes only, nothing published, no Traefik labels. run.ts reaches the
+# server by its container IP.
+#
+# Images match infra/immich.yml. Credentials are test-only.
+name: icloud-backup-immich-test
+
+services:
+  immich:
+    image: ghcr.io/immich-app/immich-server:v3.3.4
+    environment:
+      DB_HOSTNAME: db
+      DB_USERNAME: immich_test
+      DB_PASSWORD: immich_test_only
+      DB_DATABASE_NAME: immich_test
+      REDIS_HOSTNAME: redis
+      IMMICH_MACHINE_LEARNING_ENABLED: 'false'
+    volumes:
+      - upload:/usr/src/app/upload
+      # run.ts creates this folder (alice/ with three JPEGs) and exports it.
+      - ${ICLOUD_USERS_DIR:?set by run.ts}:/icloud-users:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - immich-test
+
+  redis:
+    image: docker.io/valkey/valkey:9@sha256:c123e3715db63d06d4ad6964884037aa0d5d4d703939b9929954112889708e1d
+    healthcheck:
+      test: redis-cli ping | grep -q PONG || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - immich-test
+
+  db:
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
+    environment:
+      POSTGRES_USER: immich_test
+      POSTGRES_PASSWORD: immich_test_only
+      POSTGRES_DB: immich_test
+      POSTGRES_INITDB_ARGS: '--data-checksums'
+    volumes:
+      - db:/var/lib/postgresql/data
+    shm_size: 128mb
+    healthcheck:
+      test: pg_isready -U immich_test -d immich_test
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    networks:
+      - immich-test
+
+networks:
+  immich-test: {}
+
+volumes:
+  upload: {}
+  db: {}
