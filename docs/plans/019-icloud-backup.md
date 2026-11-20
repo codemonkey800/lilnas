@@ -799,3 +799,12 @@ The default-entrypoint check was run with the entrypoint script alone. The line 
 Only fake credentials were used, and only up to the password form, for nobody-t32@example.invalid.
 Containers, network and the :t32 image are removed.
 The task named no jest-affecting source change, so jest, lint and type-check were not rerun. Prettier and docker build --check pass.
+
+### 2026-11-19 · T33 · done
+Rebuilt lilnas-dev (deploy.dev.yml only, `up -d --build`). Frontend and backend were recreated; the db container was reused and the database was not touched.
+Checked: three containers healthy; icloudpd --version = version:1.32.3 (commit 879c561); /usr/local/bin/icloudpd is an ELF binary (no wrapper) that references ld-musl, with /lib/ld-musl-x86_64.so.1 present; backend log has "inbound tcp/8080 dropped on every interface but lo"; https://icloud-backup.dev.lilnas.io/ returns 302 to https://auth.lilnas.io/login; no error/fatal lines in the backend log, migrations applied and Nest started.
+.env.dev-remote was created (gitignored by .env.*, mode 600, no values printed) and deleted after the containers came up. deploy.dev.yml hardcodes POSTGRES_* in environment, which overrides the env file, so only IMMICH_API_KEY took effect from it.
+Cookies: the two session files in cookies/dev-<apple-id>/ went to cookies-stale-20261120/ with mv --backup=numbered, because same-named files from 22:08 were already there; the older pair is now suffixed .~1~. The cookie directory is kept and empty.
+No throwaway containers, networks, volumes or images were created. git status is clean.
+
+No commits: nothing to integrate.
