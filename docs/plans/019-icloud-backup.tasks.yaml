@@ -1911,7 +1911,8 @@ phases:
           - H7
         files:
           - infra/immich.yml
-        status: todo
+        status: done
+        commit: 927a54cdf76e4596dd2efc9efa4591355ecb4e94
         body: |-
           A human approved moving `/storage/photos/icloud` and `/storage/photos/icloud-mom` into
           `/storage/photos/icloud-users/`. The H7 approval note has no folder names; the human

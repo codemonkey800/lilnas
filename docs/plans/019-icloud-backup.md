@@ -952,3 +952,17 @@ the mount-removal commit, the library ids and counts, and the command sheet.
 Retried.
 
 The folder names are now in your task body: jeremy=jeremyasuncion808 (/storage/photos/icloud), mom=erlyned (/storage/photos/icloud-mom), confirmed by Jeremy. Do not look for them in the H7 note.
+
+### 2026-11-20 · T23 · done
+Folder names used, as given in the task: jeremy=jeremyasuncion808, mom=erlyned. Neither existed in /storage/photos/icloud-users/ (empty).
+Backup: /storage/backups/immich-db/pre-icloud-move-20261120-1820.sql.gz, 227685554 bytes, mode 600, gzip -t OK. /storage/backups was writable, so no fallback folder. Credentials came from the DB container's env and were never printed.
+Commit 534c4711 (not pushed) removes only the /storage/photos/icloud:/icloud:ro and /storage/photos/icloud-mom:/icloud-mom:ro lines from the immich service. The /icloud-users:ro mount is untouched.
+Libraries, read-only from production (none deleted, no trashed assets):
+  Jeremy iCloud: id c6e0ff97-9af0-4b19-9c89-455b2b63c84c, 18316 assets, ownerId b6c430d7-39a2-40af-b166-d267998548c8, importPaths {/icloud}
+  Mom's iCloud: id 1de14c5e-48ca-4247-95b1-7ec8c436c96d, 20323 assets, ownerId a1a3ec43-65f2-44bc-b4ec-ac2a63fc6639, importPaths {/icloud-mom}
+Other libraries, for reference: Google Photos 7870, Home Movies 82.
+Container names match the task: lilnas-immich-1, lilnas-immich-machine-learning-1 (also lilnas-immich-database-1, lilnas-immich-redis-1).
+Command sheet: docker stop lilnas-immich-1 lilnas-immich-machine-learning-1; sudo mv /storage/photos/icloud /storage/photos/icloud-users/jeremyasuncion808; sudo mv /storage/photos/icloud-mom /storage/photos/icloud-users/erlyned; sudo chown -R 1000:1000 on both new folders. Undo: move both back, docker start the two containers.
+The running Immich container still has the old mounts until the infra/immich.yml commit is deployed, so the human should not deploy it before the move. If the undo is needed after deploy, the commit must be reverted and redeployed.
+Only the prettier check on docker-compose.yml, docker-compose.dev.yml and any apps/icloud-backup/deploy*.yml was run, and it passes. The other checks (lint, type-check, jest, mockups, docker build --check) were not run. No apps/icloud-backup/src code was touched.
+Cleanup: no containers, networks, volumes or temp files were created. The backup file is the only production change.
