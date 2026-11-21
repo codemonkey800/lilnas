@@ -921,3 +921,6 @@ Refusals verified: second run (both libraries), wrong expected_assets, nested pr
 The transaction creates pgcrypto if missing (prod does not have it) and drops it before ending, so nothing is left behind. The prod DB's psql user/db come from the container env; the real procedure and the rollback (restore dump into a fresh database, swap by rename; rehearsed in step 9 of rehearse.sh) are in the README and the README's rw/pgx commands were run verbatim against the throwaway copy.
 Operational gotcha recorded in the README: infra/immich.yml still bind-mounts /storage/photos/icloud and /storage/photos/icloud-mom; after the move, starting Immich makes Docker recreate them as empty root-owned dirs (rmdir them before a rollback mv, and remove the two mounts later via a push).
 All five plan checks pass (lint/type-check, auth + icloud-backup jest 88 + 519 tests, mockups + lint, prettier, docker build --check). Nothing pushed.
+
+### 2026-11-20 · H7 · approved
+Approved.

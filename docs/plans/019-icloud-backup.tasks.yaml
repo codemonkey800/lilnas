@@ -1887,7 +1887,7 @@ phases:
         after:
           - T22
         files: []
-        status: todo
+        status: approved
         body: |-
           Read the rehearsal report above. If it has no defect, decide two things and write them in
           your approval note:
