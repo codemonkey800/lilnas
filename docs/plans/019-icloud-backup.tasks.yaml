@@ -1914,10 +1914,13 @@ phases:
         status: todo
         body: |-
           A human approved moving `/storage/photos/icloud` and `/storage/photos/icloud-mom` into
-          `/storage/photos/icloud-users/` and wrote the two folder names in the approval note above
-          (`jeremy=<folder>` and `mom=<folder>`). If the names are missing, or do not match
-          `^[a-z0-9][a-z0-9._-]{0,39}$`, or a folder of that name already exists in
-          `/storage/photos/icloud-users/`, stop and report. Change nothing in production except the
+          `/storage/photos/icloud-users/`. The H7 approval note has no folder names; the human
+          confirmed them to the planner on 2026-11-20, and they are fixed here:
+          `jeremy=jeremyasuncion808` (`/storage/photos/icloud` → `icloud-users/jeremyasuncion808`)
+          and `mom=erlyned` (`/storage/photos/icloud-mom` → `icloud-users/erlyned`). They are the
+          production slugs (`slugFromEmail`, no `ACCOUNT_SLUG_PREFIX`) of the owners' Immich emails,
+          which are also their lilnas emails. Use these; do not look for names in the H7 note. If a
+          folder of either name already exists in `/storage/photos/icloud-users/`, stop and report. Change nothing in production except the
           backup file.
 
           1. Back up the Immich database: `pg_dump` from `lilnas-immich-database-1` (its own
@@ -1979,8 +1982,8 @@ phases:
 
           Then:
           1. Run `apps/icloud-backup/scripts/immich-path-rewrite/rewrite.sql` against
-             `lilnas-immich-database-1` once per library: `/icloud` to `/icloud-users/<jeremy folder>`
-             and `/icloud-mom` to `/icloud-users/<mom folder>`, with each library's id and expected
+             `lilnas-immich-database-1` once per library: `/icloud` to `/icloud-users/jeremyasuncion808`
+             and `/icloud-mom` to `/icloud-users/erlyned`, with each library's id and expected
              count. It is one transaction per library and rolls back on a failed check. If the
              second fails after the first committed, stop and report: each library is consistent on
              its own, and the human decides whether to restore the backup.
