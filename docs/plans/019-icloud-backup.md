@@ -310,6 +310,10 @@ Jeremy's approval; it had been 44 commits behind).
 - **C4 (T21, 2026-11-20):** T21's production checks were stale: icloudpd is 1.32.3 (musl), the
   backend's 8080 times out (packets dropped) instead of refusing, and `https://lilnas.io/` has
   no apex router (use `portal.lilnas.io`). Text corrected in T21; no code change.
+- **C5 (T23, 2026-11-20):** H7 was approved with no folder names. Jeremy confirmed by the
+  question tool: `jeremy=jeremyasuncion808`, `mom=erlyned` (Immich owners'
+  `jeremyasuncion808@gmail.com` / `erlyned@gmail.com`, also their lilnas emails; production has
+  no slug prefix). Written into T23's body; T23 retried.
 
 ## Log
 <!-- Written by Nexus: findings, review cycles, checkpoint verdicts, the final report,
@@ -934,3 +938,17 @@ Needed: the human re-approves H7 with both folder names in the note. Then T23 ca
 the backup, the mount removal commit, the library ids and counts, and the command sheet.
 
 Retried.
+
+### 2026-11-20 · T23 · blocked
+Attempt 2 of 2 is blocked on the same missing input as attempt 1. The H7 approval note
+(docs/plans/019-icloud-backup.md line 925) still reads only "Approved." and has no
+`jeremy=<folder> mom=<folder>`. The task says to stop and report in that case.
+Nothing in production or the repo was touched this attempt: no pg_dump, no infra/immich.yml
+edit, no commit, no temp files or containers created. The tree is clean at eebee993.
+Needed: re-approve H7 with both folder names, each matching ^[a-z0-9][a-z0-9._-]{0,39}$ and
+not already present in /storage/photos/icloud-users/. Then rerun T23 for the DB backup,
+the mount-removal commit, the library ids and counts, and the command sheet.
+
+Retried.
+
+The folder names are now in your task body: jeremy=jeremyasuncion808 (/storage/photos/icloud), mom=erlyned (/storage/photos/icloud-mom), confirmed by Jeremy. Do not look for them in the H7 note.
