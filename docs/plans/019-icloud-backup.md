@@ -924,3 +924,13 @@ All five plan checks pass (lint/type-check, auth + icloud-backup jest 88 + 519 t
 
 ### 2026-11-20 · H7 · approved
 Approved.
+
+### 2026-11-20 · T23 · blocked
+Blocked on missing input. The H7 approval note (docs/plans/019-icloud-backup.md, commit ee0a49d1)
+says only "Approved." The format is `jeremy=<folder> mom=<folder>`, with each name matching
+`^[a-z0-9][a-z0-9._-]{0,39}$` and not already present in /storage/photos/icloud-users/.
+Nothing in production or the repo was touched: no pg_dump, no infra/immich.yml edit, no commit.
+Needed: the human re-approves H7 with both folder names in the note. Then T23 can be rerun for
+the backup, the mount removal commit, the library ids and counts, and the command sheet.
+
+Retried.
