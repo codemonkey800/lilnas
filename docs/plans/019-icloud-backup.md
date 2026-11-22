@@ -314,6 +314,10 @@ Jeremy's approval; it had been 44 commits behind).
   question tool: `jeremy=jeremyasuncion808`, `mom=erlyned` (Immich owners'
   `jeremyasuncion808@gmail.com` / `erlyned@gmail.com`, also their lilnas emails; production has
   no slug prefix). Written into T23's body; T23 retried.
+- **C6 (T24, 2026-11-21):** the real pre-move backup is
+  `/storage/backups/immich-db/pre-icloud-move-20261120-1820.sql.gz` (plain SQL, gzip, 228 MB,
+  mode 600), not the README's `-Fc` dump; restore is `gunzip -c | psql`. T35 fixes the README's
+  rollback section (docs only, lands with the run, not pushed).
 
 ## Log
 <!-- Written by Nexus: findings, review cycles, checkpoint verdicts, the final report,
@@ -969,3 +973,103 @@ Cleanup: no containers, networks, volumes or temp files were created. The backup
 
 ### 2026-11-21 · H8 · approved
 Approved.
+
+### 2026-11-21 · T24 · done
+Pushed sha 1c7ac13e47951212d51b7e556318fb68c18adcc1; rollback sha 999928ff8e8a63f9dc7df091ca87ae302ede9163.
+CI run https://github.com/codemonkey800/lilnas/actions/runs/44987657857 green, deploy ok.
+Both libraries were rewritten, one transaction each, post-checks ok (18316 and 20322 assets). Scans at 05:08:22Z were clean: 0 offlined, 0 onlined, 0 new. Final counts 18316 and 20323, 0 offline, 0 trashed, 0 old paths, 0 created after the rewrite. Faces 5 of 5 per library. Owner emails match the folder names.
+Auth healthy and /login 200; Immich healthy, no old mounts, ping 200.
+The README's backup path (/storage/workspace/icloud-adoption-backup/immich-before-rewrite.dump, pg_dump -Fc) does not match the real backup /storage/backups/immich-db/pre-icloud-move-20261120-1820.sql.gz (plain SQL, gzip). A restore needs gunzip | psql, not pg_restore.
+The one duplicate-key log line for IMG_7932.mp4 is the documented expected one.
+Rollback for the human: stop Immich; restore the backup; move the two folders back (rmdir any empty /storage/photos/icloud* first); revert 1c7ac13e on main and push; start Immich. Not done by me.
+Cleanup: throwaway containers used --rm (none left); /tmp/t24-* files removed; no volumes or images created.
+
+No commits: nothing to integrate.
+
+### 2026-11-21 · T35 · done
+Rollback step 2 now lists both backup forms and shows both restore commands in the one code block, with comments saying which to use. Step 3 and all other sections are unchanged. The 2026-11-20 plain SQL path is named in a bullet as the example of the second form. `prettier -c` passes on the README. The lint, type-check, jest, mockups and docker build checks were not run, because only a README changed. No containers, networks, volumes, images or temp files were created.
+
+### 2026-11-21 · H9 · approved
+Approved.
+
+### 2026-11-22 · Phase 4 · review cycle 1
+Phase 4 is sound: rewrite.sql's pre-flight and post-checks, prefix matching, checksum recompute and second-run refusal are correct, the immich.yml change is exactly the two mount lines, and T35's README covers both backup forms. Two P2 notes: the README's Rollback no longer works on its own now that the mount removal is deployed, and rehearse.sh has a comment that contradicts what rewrite.sql does.
+
+Notes:
+- F15 · P2 · README Rollback leaves out reverting the deployed mount removal — apps/icloud-backup/scripts/immich-path-rewrite/README.md:196
+- F16 · P2 · rehearse.sh comment says the odd asset keeps its checksum — apps/icloud-backup/scripts/immich-path-rewrite/rehearse.sh:262
+
+Suspicions:
+- The plain-SQL (.sql.gz) restore path was never rehearsed — apps/icloud-backup/scripts/immich-path-rewrite/README.md:181 · Only the pg_restore (-Fc) swap was drilled in rehearse.sh step 9. The gunzip | psql -v ON_ERROR_STOP=1 command for the real 2026-11-20 backup has never run. Immich's own restore docs rewrite the dump's search_path because of the vector extensions, so one failing statement would abort the restore partway. pg_restore emits the same statements, so it probably works. · confirm by: Restore /storage/backups/immich-db/pre-icloud-move-20261120-1820.sql.gz with the README's exact command into a throwaway container of the same postgres image, and compare table row counts with production.
+
+Spec check:
+- misunderstood: checks the asset count equals `expected_assets` and that every asset path starts with `old_prefix || '/'` (apps/icloud-backup/scripts/immich-path-rewrite/rewrite.sql) — Deliberate, data-driven deviation: expected_assets counts only assets under the prefix, and assets under /usr/src/app/upload/ are allowed and fingerprinted as unchanged (Mom's library has one encoded-video asset). Documented in the README and checked; acceptable.
+- unverifiable: T24: rewrite production, push, verify both libraries (production Immich DB / CI run 44987657857) — The observed values (counts 18316/20323, 0 offline, faces 5/5, emails match folders) are task claims; a person should confirm them in Immich.
+- unverifiable: Goal: three pushes, the old-mount removal last, after the app (main @ 1c7ac13e) — Check whether the app push reached main before the mount-removal push, or whether the order was changed on purpose.
+
+Declined to judge:
+- docs/semantic-storage.md lines 165-166 still list /storage/photos/icloud:/icloud:ro and /storage/photos/icloud-mom:/icloud-mom:ro, and never listed icloud-users — Lines the diff didn't touch, and T23 said to change nothing else; the doc was already out of date before this phase.
+- rehearse.sh's pre-flight `docker inspect $SRC_CONTAINER` checks the container exists, not that it is running, though its error says 'not running' — Cosmetic: pg_dump fails right after anyway.
+- \gset rw_ on several columns all named set_config — Harmless: the psql variables are never used.
+- rehearse.sh step 8 uses four files instead of three — A superset of the task (it adds the odd asset); behaviour the task allows.
+
+Checked:
+- Unique index (ownerId, libraryId, checksum) hit mid-UPDATE — apps/icloud-backup/scripts/immich-path-rewrite/rewrite.sql: New checksums hash new-prefix paths and the pre-flight rejects nested or overlapping prefixes, so a new hash cannot equal any old hash; the RHS of SET reads old column values.
+- Prefix collision /icloud vs /icloud-mom or /icloud-users — rewrite.sql pre-flight and UPDATEs: Every match is starts_with(x, old_p || '/'); none uses LIKE.
+- Failed check leaves partial state or pgcrypto behind — rewrite.sql: ON_ERROR_STOP plus a single BEGIN: any RAISE aborts the transaction and psql exits, so CREATE EXTENSION rolls back too; a dry run rolls back as well.
+- Second run silently repeats — rewrite.sql first count check: n_under is 0, which is not expected_assets (expect < 1 is also rejected), so it raises.
+- Path rows of another library or orphaned rows rewritten — rewrite.sql asset_file/integrity_report pre-checks: Rows under old_p that belong to another library (or to none) raise in the pre-flight; the UPDATEs are scoped to lib by EXISTS.
+- Deleted mount still referenced — git grep over the repo for photos/icloud and :/icloud: Only docs (plans, semantic-storage.md) mention it; no compose file, spec or code does.
+- immich.yml diff limited to the two lines — infra/immich.yml: Exactly the two volume lines were removed; /icloud-users:ro is unchanged.
+- T35 kept the pg_restore command and other sections unchanged — README.md Rollback: The pg_restore line is unchanged; the gunzip|psql command matches the task text; the 2026-11-20 path is named.
+
+### 2026-11-21 · Final report
+Outcome: all four phases are integrated on `feat/icloud-backup`. The app and the Immich mount are live on main (rollback `b5c1c2cb`, then `999928ff`), and both existing Immich libraries now point at the new folders (`1c7ac13e`). The phase 4 review left two P2 notes open, and the phase 1 to 3 reviews left P2 notes open too (see Unfixed review findings).
+
+Tasks, with their outcome and commits:
+- `T1` done (877fef9f): read-only `/storage/photos/icloud-users` mount for Immich. `H1` approved.
+- `T2` done (3304953a): pushed `b5c1c2cb` to main, CI 44658108633 green, Immich checked. `H2` and `H3` approved.
+- `T3` done (d884a0ab), `T25` (869f27d7), `T26` (7a63ef44), `T27` (e8585746): mockups at 1280 and 390, one review frame per state; review-before-download states, admin Existing libraries section, preview states and preset types removed.
+- `T4` (5a0493fc) scaffold, `T5` (03c895bd) database, `T6` (2b275b0f) icloudpd engine, `T7` (98be70a4) Immich client, `T8` (d6f67c09) live Immich check, `T9` (8ed85785) orchestrator, `T10` (90f1561f) HTTP API and websocket, `T11` (079ff277) frontend base, `T12` (9a97fec0) sign-in screens, `T13` (61824322) backup screens, `T14` (c1fdc5ff) admin page, `T15` (3e11c5dc) compose and env, `T16` (e24cbbcb) two-container live check, `T17` (dc7dbe9c) docs, `T28` (cdb39bdc) Immich key stays at seven permissions.
+- `T18` done (d6fc72fd): dry-run stack up. `H4` approved (dry-run sign-in). `T19` done (a46c4822): dry-run stack, image, volume, network and dev data removed.
+- `T30` done (b4cfdcd3): icloudpd pinned to 1.32.3, because Apple refuses 1.33.1 for a valid password. `T31` (7cee757d): dry-run rebuilt on 1.32.3.
+- `T32` done (3abf75a2): musl build of 1.32.3, because Apple refuses the glibc build. `T33` (969bf50c): dry-run rebuilt on the musl build.
+- `T34` done (07430e8a): when provisioning fails after the Immich user is created, the record keeps "we created this user".
+- `T20` done (6f2aac7e): pre-push checklist, all items held. `H5` approved.
+- `T21` done (af70321d): pushed `999928ff` to main, CI 44692263253 green, production verified. Rollback `b5c1c2cb`. `H6` approved (first family member granted).
+- `T22` done (db9f7075): path-rewrite script and rehearsal on a pg_dump copy of production. `H7` approved.
+- `T23` done (927a54cd): backup at `/storage/backups/immich-db/pre-icloud-move-20261120-1820.sql.gz` (plain SQL, gzipped, verified with gzip -t); mount-removal commit `534c4711`, squashed as `927a54cd`. Blocked twice because the `H7` note said only "Approved."; the folder names came in the task body and the task then ran. `H8` approved.
+- `T24` done (e9b3e006): pushed `1c7ac13e` to main, CI 44987657857 green. Both libraries rewritten in one transaction each, scans clean (0 offline, 0 new). Final counts 18316 and 20323.
+- `T35` done (43d5eafd): README rollback covers both the custom-format dump and the gzipped plain-SQL backup. `H9` approved.
+- `R1` done (f15f84a2): POST /libraries/:id/validate needs the `all` permission, so ensure() checks the folder locally instead and creates nothing when it is missing.
+- `R2` done (5f0cecf6): icloudpd's sign-in form was reachable from other containers on :8080. An nftables rule drops inbound non-loopback tcp/8080, and the entrypoint drops to uid 1000 with no capabilities.
+- `R3` done (d36a2de5): a cancelled backup shows as "Stopped", not as "Something went wrong".
+- `R4` done (f2d9ef2c): the locked-Apple-ID spec now exercises appleIdLocked.
+
+Deviations from the plan and why:
+- The provisioner no longer calls Immich's validate route (R1). The folder check is local, and the job creates `<PHOTOS_ROOT>/<slug>` before any download.
+- icloudpd is 1.32.3 (musl build), not the 1.33.1 the plan names. T21's check text still expects 1.33.1, a refused connection on :8080, and 200 from https://lilnas.io/; production matched the other values, and https://lilnas.io/ is 404 because no apex router exists (not caused by this push).
+- Pre-flight has no Cancel. Cancel on a sign-in form with no job goes back locally. Successful POSTs return 200, not 201.
+- T16's second identity used a .invalid address, because accounts.apple_id is unique.
+- T22 deviations: `expected_assets` counts only assets under the old prefix (18316 and 20322); assets under /usr/src/app/upload are allowed and checked unchanged (Mom's library has one encoded video there). The checksum is recomputed for every row whose checksum equals sha1 of the old path, which covers the one IMG_7932.mp4 row. Without that, the scan made a duplicate.
+- T23's folder names are the ones given in the task body, not in the H7 note.
+- `scripts/immich-contract/run.ts` keeps an optional `--with-all` diagnostic flag. Nothing needs it.
+
+Unfixed review findings (no R task was opened for these):
+- Phase 1, P2: `docs/features/icloud-backup/designs/src/pages/index.pug:8` still describes the removed viewport switch. `code` redaction in `src/logger.config.ts` also hides `err.code` (plan-mandated). `ForwardedUserGuard` would throw on a future WebSocket message handler (no such handler exists yet).
+- Phase 2, P2: a relay that finishes after cancel or timeout reopens the job (`jobs.service.ts:690`). The Done screen's Immich-failed branch is unreachable, so an Immich failure shows as a generic failure (plan-mandated, `done.tsx:217`). Cancel during an in-flight start leaves the job running (`sign-in.tsx:57`). The Immich temp-password spec does not check logs (`jobs.immich.spec.ts:168`). A timeout reading a 2xx body is reported as `bad_response` (`immich.client.ts:171`). The reconnecting banner flashes on first load (`backup-app.tsx:85`).
+- Phase 2, P2 declined over the cap: slug can end in `-` or `.` (`slug.ts:14`); the `deploy.dev.yml` header comment; `cns()` not used in `done.tsx` and `failed.tsx`; the README state diagram shows downloading to done for a sync.
+- Phase 3, P2: if the database write right after user creation fails, the "we created this user" fact is lost again (`immich.provisioner.ts:133`).
+- Phase 4, P2: the README Rollback does not revert the deployed mount removal (`README.md:196`). The `rehearse.sh` comment at line 262 contradicts `rewrite.sql` on the odd asset's checksum.
+- Phase 2 suspicions, not reviewed to a verdict: a SIGKILL fallback may orphan icloudpd (`process.service.ts:152`); an action response can overwrite a newer WebSocket frame (`use-backup.ts:163`); a held password can outlive a job that never reached need_password (`pending-password.tsx`); a recovery that fails part-way leaves a job active (`jobs.service.ts:290`); a disk check can pause a finished download (`jobs.service.ts:1340`); ensure's list-then-create can fail with 400 (`immich.provisioner.ts:57`); a leftover form error may mark a second code wrong (`jobs.service.ts:935`).
+- Phase 2 suspicion that touches secrets, worth checking first: a malformed JSON body may echo password text in the 400 message (`backup.controller.ts:60`). Reachable only with a hand-built request.
+
+Open questions:
+- The plain-SQL restore path (`README.md:181`) was never rehearsed. Only the `pg_restore` swap was drilled. The real backup is plain SQL, so restore `pre-icloud-move-20261120-1820.sql.gz` into a throwaway container of the same Postgres image and compare row counts before relying on it.
+- `docs/semantic-storage.md` lines 165-166 still list the two removed mounts.
+- A `docker restart` during a sign-in set the job to failed. Not investigated (T16 note).
+- Real screens were not compared with the mockups at 1280 and 390 (T11 to T14 notes). Only specs covered rendering.
+- The outcome of the family member's first sign-in in production is not recorded here.
+
+### 2026-11-22 · Landed
+Squash-merge of `feat/icloud-backup` into `main` as `feat(icloud-backup): family iCloud photo backup with Immich accounts`, authored as Jeremy Asuncion.

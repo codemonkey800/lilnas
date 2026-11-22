@@ -1962,7 +1962,8 @@ phases:
         after:
           - H8
         files: []
-        status: todo
+        status: done
+        commit: e9b3e006009d343090732bf0a23abec9932337eb
         body: |-
           A human stopped Immich and moved `/storage/photos/icloud` and `/storage/photos/icloud-mom`
           to the two folders named in the earlier results under `/storage/photos/icloud-users/`.
@@ -2015,12 +2016,37 @@ phases:
           value, and the rollback for the human: stop Immich, restore the backup (steps in
           `apps/icloud-backup/scripts/immich-path-rewrite/README.md`), move the folders back, revert
           the pushed commit on `main`. Do not do it yourself. Failed checks go under `defects:`.
+      - id: T35
+        title: 'Rewrite README: rollback from a plain gzipped SQL backup too'
+        after:
+          - T24
+        files:
+          - apps/icloud-backup/scripts/immich-path-rewrite/README.md
+        status: done
+        commit: 43d5eafd8919d1016aa7d537d3ca72a9140be14b
+        body: |-
+          Docs only, one file: `apps/icloud-backup/scripts/immich-path-rewrite/README.md`. Commit
+          it; do not push (it reaches `main` when the run lands). Touch nothing in production.
+
+          The README's procedure takes a `pg_dump -Fc` dump in its step 3
+          (`/storage/workspace/icloud-adoption-backup/immich-before-rewrite.dump`) and its
+          `## Rollback` section restores it with `pg_restore`. The real move on 2026-11-20 took a
+          different backup: `/storage/backups/immich-db/pre-icloud-move-20261120-1820.sql.gz`,
+          plain SQL (`pg_dump` without `-Fc`), gzipped. `pg_restore` cannot read that.
+
+          Change `## Rollback` so it covers both forms, keeping the existing steps (stop Immich,
+          restore into a fresh `immich_restore` database, swap it in, start Immich):
+          - custom-format dump (`*.dump`): the existing `pg_restore` command, unchanged
+          - plain SQL, gzipped (`*.sql.gz`): `gunzip -c <file> | docker exec -i "$DB" sh -c 'exec psql -U "$POSTGRES_USER" -d immich_restore -X -v ON_ERROR_STOP=1'`
+          Add one sentence naming the 2026-11-20 backup path as an example of the second form.
+          Do not change step 3 or any other section. Keep the file passing
+          `pnpm exec prettier -c` on it.
       - id: H9
         title: Check Immich and run your first sync
         after:
           - T24
         files: []
-        status: todo
+        status: approved
         body: |-
           1. Open Immich. Your iCloud photos and your mom's are all there, with people, albums and
              favourites as before. Open a few from different years.

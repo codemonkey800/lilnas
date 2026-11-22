@@ -159,16 +159,27 @@ Immich writes to the database from the moment it starts, so rolling back after s
 whatever it changed since (new uploads, edits, jobs). Before step 6 nothing else has changed.
 
 1. Stop Immich: `docker stop lilnas-immich-1 lilnas-immich-machine-learning-1`.
-2. Restore the dump from step 3 into a fresh database and swap it in (rehearsed in step 9 of
-   `rehearse.sh`):
+2. Restore the backup into a fresh database and swap it in (rehearsed in step 9 of
+   `rehearse.sh`). Pick the restore command by the form of the backup file:
+
+   - custom-format dump (`*.dump`, `pg_dump -Fc`, as in step 3): `pg_restore`
+   - plain SQL, gzipped (`*.sql.gz`, `pg_dump` without `-Fc`): `gunzip` into `psql`;
+     `pg_restore` cannot read it. The backup taken before the real move on 2026-11-20,
+     `/storage/backups/immich-db/pre-icloud-move-20261120-1820.sql.gz`, is of this form.
 
    ```bash
    DB=lilnas-immich-database-1
    pgx() { docker exec -i "$DB" sh -c 'exec psql -U "$POSTGRES_USER" -d postgres -X -v ON_ERROR_STOP=1 "$@"' sh "$@"; }
    NAME=$(docker exec "$DB" printenv POSTGRES_DB)
    pgx -c "create database immich_restore"
+
+   # custom-format dump (*.dump):
    docker exec -i "$DB" sh -c 'exec pg_restore -U "$POSTGRES_USER" -d immich_restore --no-owner --no-privileges --exit-on-error' \
      < /storage/workspace/icloud-adoption-backup/immich-before-rewrite.dump
+
+   # plain SQL, gzipped (*.sql.gz), instead of the pg_restore above:
+   gunzip -c <file>.sql.gz | docker exec -i "$DB" sh -c 'exec psql -U "$POSTGRES_USER" -d immich_restore -X -v ON_ERROR_STOP=1'
+
    pgx -c "select pg_terminate_backend(pid) from pg_stat_activity where datname = '$NAME' and pid <> pg_backend_pid()" \
        -c "alter database \"$NAME\" rename to immich_rewritten" \
        -c "alter database immich_restore rename to \"$NAME\""
