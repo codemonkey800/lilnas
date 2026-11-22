@@ -966,3 +966,6 @@ Command sheet: docker stop lilnas-immich-1 lilnas-immich-machine-learning-1; sud
 The running Immich container still has the old mounts until the infra/immich.yml commit is deployed, so the human should not deploy it before the move. If the undo is needed after deploy, the commit must be reverted and redeployed.
 Only the prettier check on docker-compose.yml, docker-compose.dev.yml and any apps/icloud-backup/deploy*.yml was run, and it passes. The other checks (lint, type-check, jest, mockups, docker build --check) were not run. No apps/icloud-backup/src code was touched.
 Cleanup: no containers, networks, volumes or temp files were created. The backup file is the only production change.
+
+### 2026-11-21 · H8 · approved
+Approved.

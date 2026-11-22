@@ -1949,7 +1949,7 @@ phases:
         after:
           - T23
         files: []
-        status: todo
+        status: approved
         body: |-
           Run the command sheet from the task above, in order. The moves are instant (same disk);
           the `chown` takes a minute or two. Leave Immich stopped: the next task rewrites its
