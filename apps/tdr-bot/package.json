@@ -6,6 +6,7 @@
   "packageManager": "pnpm@12.14.0",
   "prettier": "@lilnas/prettier",
   "files": [
+    "./bin",
     "./dist",
     "./drizzle"
   ],
@@ -26,7 +27,7 @@
     "lint:eslint:fix": "eslint --fix src",
     "lint:prettier:fix": "prettier -w src",
     "start": "run-s start:migrate start:servers",
-    "start:servers": "run-p start:backend start:frontend",
+    "start:servers": "node bin/start-servers.mjs",
     "start:backend": "node dist/main",
     "start:frontend": "node frontend/apps/tdr-bot/server.js",
     "start:migrate": "node dist/db/migrate.js",
