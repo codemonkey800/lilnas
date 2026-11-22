@@ -80,7 +80,7 @@ services:
     volumes:
       # Each person's photos, one folder per account; Immich reads the same
       # directory as an external library.
-      - /storage/photos/icloud-users:/photos
+      - /storage/photos-archive/icloud-users:/photos
       # icloudpd session cookies.
       - /storage/app-data/icloud-backup:/state
     healthcheck:

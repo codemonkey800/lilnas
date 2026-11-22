@@ -1,6 +1,6 @@
 # icloud-backup
 
-Backs up a family member's iCloud Photos and videos to `/storage/photos/icloud-users/<name>` with
+Backs up a family member's iCloud Photos and videos to `/storage/photos-archive/icloud-users/<name>` with
 [icloudpd](https://github.com/icloud-photos-downloader/icloud_photos_downloader). When the first
 backup finishes it creates an Immich user and an external library on that folder and starts a scan.
 A "Sync now" button re-runs the backup with the saved Apple session, and the service is served at
@@ -124,13 +124,13 @@ Keys with no default are required in production or have no effect when unset.
 
 | On the host                                      | In the container        | Holds                                           |
 | ------------------------------------------------ | ----------------------- | ----------------------------------------------- |
-| `/storage/photos/icloud-users/<name>`            | `icloud-backup:/photos` | One person's photos and videos; Immich reads it |
+| `/storage/photos-archive/icloud-users/<name>`    | `icloud-backup:/photos` | One person's photos and videos; Immich reads it |
 | `/storage/app-data/icloud-backup/cookies/<name>` | `icloud-backup:/state`  | icloudpd's saved Apple session for that person  |
 | `/storage/app-data/icloud-backup-db`             | `icloud-backup-db`      | Postgres data (jobs, accounts, Immich links)    |
 
 Create the two `app-data` directories before the first deploy, writable by the containers
 (`postgres:18-alpine` runs as uid 70, the backend as the image's `node` user). Immich mounts
-`/storage/photos/icloud-users` read-only at `/icloud-users`.
+`/storage/photos-archive/icloud-users` read-only at `/icloud-users`.
 
 ## The pinned icloudpd
 
@@ -205,7 +205,7 @@ docker compose -p lilnas-dev -f apps/icloud-backup/deploy.dev.yml up -d --build
 docker compose -p lilnas-dev -f apps/icloud-backup/deploy.dev.yml down
 ```
 
-It shares `/storage/photos/icloud-users` and the live Immich with production, so three variables
+It shares `/storage/photos-archive/icloud-users` and the live Immich with production, so three variables
 keep the dry run apart:
 
 | Variable                | Dry-run value       | Effect                                                         |

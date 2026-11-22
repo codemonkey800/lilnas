@@ -146,7 +146,7 @@ describe('icloud-backup deploy.yml', () => {
   describe('icloud-backup (backend)', () => {
     it('mounts exactly the photos and state host paths', () => {
       expect(backend.volumes).toEqual([
-        '/storage/photos/icloud-users:/photos',
+        '/storage/photos-archive/icloud-users:/photos',
         '/storage/app-data/icloud-backup:/state',
       ])
     })

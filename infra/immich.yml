@@ -12,9 +12,9 @@ services:
     #   service: cpu # set to one of [nvenc, quicksync, rkmpp, vaapi, vaapi-wsl] for accelerated transcoding
     volumes:
       - /storage/photos/immich/upload:/usr/src/app/upload
-      - /storage/photos/google-photos:/google-photos:ro
-      - /storage/photos/home-movies:/home-movies:ro
-      - /storage/photos/icloud-users:/icloud-users:ro
+      - /storage/photos-archive/google-photos:/google-photos:ro
+      - /storage/photos-archive/home-movies:/home-movies:ro
+      - /storage/photos-archive/icloud-users:/icloud-users:ro
       - /etc/localtime:/etc/localtime:ro
     env_file:
       - .env.decrypted

@@ -15,7 +15,7 @@
 #   - the compose service names are *-dev, so none collides with a production
 #     alias on lilnas_default.
 #   - state lives in /storage/app-data/icloud-backup-dev and the database in a
-#     named volume. Photos share /storage/photos/icloud-users, so the dry-run
+#     named volume. Photos share /storage/photos-archive/icloud-users, so the dry-run
 #     variables below keep folders (dev- prefix), Immich users (+tag) and the
 #     download size (--recent 25) apart from production's.
 #
@@ -90,7 +90,7 @@ services:
       icloud-backup-dev-db:
         condition: service_healthy
     volumes:
-      - /storage/photos/icloud-users:/photos
+      - /storage/photos-archive/icloud-users:/photos
       - /storage/app-data/icloud-backup-dev:/state
     healthcheck:
       test:

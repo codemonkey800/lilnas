@@ -13,7 +13,7 @@ export const EnvKeys = {
   // Optional int; adds `--recent N` to icloudpd. Dry runs only.
   ICLOUDPD_RECENT: 'ICLOUDPD_RECENT',
 
-  // Where each person's photos land (host /storage/photos/icloud-users).
+  // Where each person's photos land (host /storage/photos-archive/icloud-users).
   PHOTOS_ROOT: 'PHOTOS_ROOT', // default /photos
   // icloudpd session cookies live under <STATE_ROOT>/cookies/<slug>.
   STATE_ROOT: 'STATE_ROOT', // default /state
