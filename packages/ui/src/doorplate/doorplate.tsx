@@ -6,7 +6,7 @@ import { PepeBadge } from '../marks'
 export type DoorplateProps = Omit<HTMLAttributes<HTMLElement>, 'children'> & {
   /** The subdomain: `swole` reads `swole.lilnas.io`. Omit it on the portal. */
   app?: string
-  /** Where it links. `null` makes it inert. */
+  /** Where it links: the app's own root by default. `null` makes it inert. */
   href?: string | null
   ref?: Ref<HTMLElement>
 }
@@ -16,11 +16,12 @@ const TLD = 'lilnas.io'
 /**
  * The signature: pepe badge plus the app's address in mono. The only
  * component with no variants, because its whole job is to be the same
- * everywhere. Without `app` it reads `lilnas.io` and doesn't link anywhere.
+ * everywhere. With `app` it links to that app's home (`/`); without `app` it
+ * reads `lilnas.io` and doesn't link anywhere.
  */
 export function Doorplate({
   app,
-  href = 'https://lilnas.io',
+  href = '/',
   className,
   ref,
   ...props

@@ -47,7 +47,7 @@ no variants, because its whole job is to be the same everywhere.
 ```
 
 ```tsx
-<Doorplate app="tdr-code" href="https://lilnas.io" />
+<Doorplate app="tdr-code" /> // links to the app's home, `/`
 ```
 
 | Part      | Spec                                                                                                                        |

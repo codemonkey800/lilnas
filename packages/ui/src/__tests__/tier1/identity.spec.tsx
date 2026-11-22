@@ -8,19 +8,24 @@ import { Doorplate } from '../../doorplate'
 import { PepeBadge, PepeFull } from '../../marks'
 
 describe('Doorplate', () => {
-  it('reads <app>.lilnas.io and links to the portal', () => {
+  it("reads <app>.lilnas.io and links to the app's home", () => {
     render(<Doorplate app="swole" />)
 
     const link = screen.getByRole('link')
-    expect(link).toHaveAttribute('href', 'https://lilnas.io')
+    expect(link).toHaveAttribute('href', '/')
     expect(link).toHaveTextContent('swole.lilnas.io')
     expect(within(link).getByText('.lilnas.io')).toHaveClass('text-ink-3')
     expect(link).toHaveClass('h-8', 'rounded-full', 'border-line', 'bg-surface')
   })
 
   it('honours a custom href and an inert null href', () => {
-    const { rerender } = render(<Doorplate app="swole" href="/home" />)
-    expect(screen.getByRole('link')).toHaveAttribute('href', '/home')
+    const { rerender } = render(
+      <Doorplate app="swole" href="https://lilnas.io" />,
+    )
+    expect(screen.getByRole('link')).toHaveAttribute(
+      'href',
+      'https://lilnas.io',
+    )
 
     rerender(<Doorplate app="swole" href={null} />)
     expect(screen.queryByRole('link')).toBeNull()

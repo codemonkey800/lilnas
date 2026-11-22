@@ -64,8 +64,8 @@ const MENU_LINK =
  * the same links — plus the account row, which has no room in the bar — move
  * into a bottom `Sheet` behind the menu button.
  *
- * The doorplate is the package's and links to the portal; "back to the library"
- * is the Library link.
+ * The doorplate is the package's and links to the app's home (`/`); the
+ * Library link goes to the library itself.
  */
 export function AppBar({ viewer, navSearch }: AppBarProps): JSX.Element {
   const section = sectionOf(usePathname())

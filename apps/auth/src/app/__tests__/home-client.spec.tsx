@@ -151,7 +151,7 @@ describe('HomeClient — services', () => {
     // Only the doorplate links anywhere.
     expect(
       screen.getAllByRole('link').map(link => link.getAttribute('href')),
-    ).toEqual(['https://lilnas.io'])
+    ).toEqual(['/'])
   })
 
   it('renders a link tile per granted host, with the service name and the host in mono', () => {
