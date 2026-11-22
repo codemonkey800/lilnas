@@ -6,20 +6,20 @@ This document describes the semantic storage layout used by the lilnas server. E
 
 All data drives are single-device btrfs filesystems mounted at `/mnt/<drive>` via `/etc/fstab`. Each `/storage/<alias>` is a symlink to a drive root, e.g. `/storage/tv -> /mnt/hdd2`.
 
-| Alias                 | Drive  | Size | Contents                                                     | Backup class                     |
-| --------------------- | ------ | ---- | ------------------------------------------------------------ | -------------------------------- |
-| `/storage/movies`     | `hdd1` | 19T  | Movies (one folder per title, at the drive root)             | Replaceable                      |
-| `/storage/tv`         | `hdd2` | 19T  | TV series (one folder per series, at the drive root)         | Replaceable                      |
-| `/storage/backups`    | `hdd3` | 22T  | Plain copies of `photos` (and later `app-data`)              | Backup target                    |
-| `/storage/snapshots`  | `hdd4` | 22T  | Reserved for btrfs snapshot history (btrbk). Empty today     | Backup target                    |
-| `/storage/archive`    | `hdd5` | 22T  | Game-server backups, second copy of recordings, iCloud tools | Archive                          |
-| `/storage/spare-1`    | `hdd6` | 5.5T | Empty                                                        | None                             |
-| `/storage/spare-2`    | `hdd7` | 5.5T | Empty                                                        | None                             |
-| `/storage/recordings` | `hdd8` | 22T  | Gameplay captures (`win1/`, `win3/`)                         | Irreplaceable, copy in `archive` |
-| `/storage/photos`     | `ssd1` | 3.7T | Photo libraries and Immich state                             | Irreplaceable, copy in `backups` |
-| `/storage/app-data`   | `ssd2` | 1.9T | One folder per service, including MinIO (`minio/`)           | Important                        |
-| `/storage/downloads`  | `ssd3` | 3.7T | `active/` and `completed/` download folders                  | None (temporary)                 |
-| `/storage/workspace`  | `ssd4` | 3.7T | Fast scratch area for edits and re-encodes. Empty today      | None (disposable)                |
+| Alias                     | Drive  | Size | Contents                                                                                  | Backup class                     |
+| ------------------------- | ------ | ---- | ----------------------------------------------------------------------------------------- | -------------------------------- |
+| `/storage/movies`         | `hdd1` | 19T  | Movies (one folder per title, at the drive root)                                          | Replaceable                      |
+| `/storage/tv`             | `hdd2` | 19T  | TV series (one folder per series, at the drive root)                                      | Replaceable                      |
+| `/storage/backups`        | `hdd3` | 22T  | Plain copies of `photos` (and later `app-data`)                                           | Backup target                    |
+| `/storage/photos-archive` | `hdd4` | 22T  | Original photo libraries Immich reads (`icloud-users/`, `google-photos/`, `home-movies/`) | Irreplaceable, backup pending    |
+| `/storage/archive`        | `hdd5` | 22T  | Game-server backups, second copy of recordings, iCloud tools                              | Archive                          |
+| `/storage/spare-1`        | `hdd6` | 5.5T | Empty                                                                                     | None                             |
+| `/storage/spare-2`        | `hdd7` | 5.5T | Empty                                                                                     | None                             |
+| `/storage/recordings`     | `hdd8` | 22T  | Gameplay captures (`win1/`, `win3/`)                                                      | Irreplaceable, copy in `archive` |
+| `/storage/photos`         | `ssd1` | 3.7T | Photo libraries and Immich state                                                          | Irreplaceable, copy in `backups` |
+| `/storage/app-data`       | `ssd2` | 1.9T | One folder per service, including MinIO (`minio/`)                                        | Important                        |
+| `/storage/downloads`      | `ssd3` | 3.7T | `active/` and `completed/` download folders                                               | None (temporary)                 |
+| `/storage/workspace`      | `ssd4` | 3.7T | Fast scratch area for edits and re-encodes. Empty today                                   | None (disposable)                |
 
 `/storage/files` is the exception: a real directory on the root NVMe, served by copyparty at `files.lilnas.io`. It is not a drive alias.
 
@@ -66,8 +66,8 @@ All data drives are single-device btrfs filesystems mounted at `/mnt/<drive>` vi
 #### `/storage/photos/` (`ssd1`)
 
 - **Purpose:** Photo and video libraries
-- **Structure:** `icloud/`, `icloud-mom/`, `google-photos/`, `home-movies/`, `insta-go-3/`, and `immich/` (`upload/`, `model-cache/`, `db/`)
-- **Used by:** Immich (server, machine learning, database). The four original-library folders are mounted read-only
+- **Structure:** `insta-go-3/` and `immich/` (`upload/`, `model-cache/`, `db/`). The original libraries moved to `/storage/photos-archive/` on 2026-11-21
+- **Used by:** Immich (server, machine learning, database)
 
 ### Recordings
 
@@ -92,10 +92,13 @@ All data drives are single-device btrfs filesystems mounted at `/mnt/<drive>` vi
 - **Contents today:** `photos/`, a manual copy of `/storage/photos` that is behind the live data. There is no `app-data` copy yet
 - **Planned:** refresh `photos/` on a schedule and add an `app-data` copy
 
-#### `/storage/snapshots/` (`hdd4`)
+#### `/storage/photos-archive/` (`hdd4`)
 
-- **Purpose:** btrfs snapshot history of `photos` and `app-data`, taken with btrbk
-- **Status:** Reserved and empty. The data drives are mounted at the top-level subvolume, so btrbk needs either a top-level snapshot or the data moved into named subvolumes first
+- **Purpose:** Original photo and video libraries that Immich reads as external libraries, moved off the SSD to free space. Immich's own state (uploads, thumbnails, database) stays on `photos`
+- **Contents:** `icloud-users/<name>/` (written by `icloud-backup`), `google-photos/`, `home-movies/`
+- **Used by:** Immich (read-only at `/icloud-users`, `/google-photos`, `/home-movies`) and `icloud-backup` (read-write at `/photos`)
+- **Backup:** none yet. The copy in `backups/photos/` predates this layout
+- **btrbk:** the old plan to use this drive for btrfs snapshot history was dropped. If snapshots are wanted later, put them on `hdd6` or `hdd7`
 
 #### `/storage/archive/` (`hdd5`)
 
@@ -160,10 +163,9 @@ emby:
 
 ```yaml
 - /storage/photos/immich/upload:/usr/src/app/upload
-- /storage/photos/google-photos:/google-photos:ro
-- /storage/photos/home-movies:/home-movies:ro
-- /storage/photos/icloud:/icloud:ro
-- /storage/photos/icloud-mom:/icloud-mom:ro
+- /storage/photos-archive/google-photos:/google-photos:ro
+- /storage/photos-archive/home-movies:/home-movies:ro
+- /storage/photos-archive/icloud-users:/icloud-users:ro
 - /storage/photos/immich/model-cache:/cache
 - /storage/photos/immich/db:/var/lib/postgresql/data
 ```
@@ -218,7 +220,7 @@ emby:
 ### Backup strategy
 
 - **Irreplaceable** (photos, recordings): keep at least two verified copies on separate drives. Recordings already have this (`recordings` and `archive/recordings`); photos have a live copy plus a manual one in `backups`
-- **Important** (`app-data`): to be copied to `backups` and snapshotted to `snapshots` (not set up yet)
+- **Important** (`app-data`): to be copied to `backups` and snapshotted (not set up yet)
 - **Replaceable** (movies, TV): no backup
 - **Temporary** (downloads, workspace): no backup
 
