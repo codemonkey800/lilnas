@@ -1,0 +1,572 @@
+nexus-tasks: 1
+phases:
+  - key: '1'
+    name: Backend, data layer and mockup
+    tasks:
+      - id: T1
+        title: 'Mockup: invited people on the admin dashboard'
+        after: []
+        files:
+          - docs/features/auth/designs/invited.html
+          - docs/features/auth/designs/
+        status: done
+        commit: c9e4058cf8c1b649e12a96a3630211a6b269703d
+        body: |-
+          Draw how the auth admin dashboard shows people who were added with "Add a person" but
+          have not signed in yet. This is a static mockup for a human design review; no app code
+          changes here.
+
+          Read first: `docs/designs/mockup-kit/README.md` (the kit, the "Nexus review frames"
+          section and the rules), `DESIGN.md`, `docs/features/auth/designs/README.md`,
+          `docs/features/auth/designs/src/pages/admin.pug`, `src/mixins/auth.pug` and
+          `src/data/admin.mjs` in that project (the existing admin dashboard mockup), and
+          `docs/features/icloud-backup/designs/src/pages/admin.pug` (a page built from review
+          frames). The real screen is `apps/auth/src/app/admin/people-list.tsx`,
+          `edit-access-modal.tsx`, `add-person-modal.tsx` and `stat-tiles.tsx`.
+
+          **Create** a new page `docs/features/auth/designs/invited.html`, built from
+          `src/pages/invited.pug` and `src/data/invited.mjs`. Use review frames: override
+          `block page`, call `+mockPage('max-w-[1760px]')(class='page')`, then `+mockHead` and one
+          `+mockFrame` per state. Each frame shows the 1280 screen and the 390 screen side by side
+          with a `+frameLabel` under each, and stands alone (no viewport switch, no "as above").
+          Reuse the mixins in `src/mixins/auth.pug` (`adminShell`, `statTiles`, `peopleSection`,
+          `authDataList`, the dialog mixins) and add what is missing there. Add a link card to
+          `src/data/index.mjs` and a row to the Pages table in the project `README.md`.
+
+          **Frames**, in this order:
+          1. People with invited rows. Stat tiles, then the People table holding an Admin row, a
+             Granted row, a No access row and two invited rows: one with two services, one with
+             six services plus the rule `*.dev.lilnas.io`. An invited row shows the email only
+             (no name is known before sign-in), an "Invited" badge, the pending services as the
+             same badges granted services use, a note such as "Invited Nov 23", no Discord chip,
+             and one action, "Edit access". It has no Block button. Choose the badge tone from
+             the tones `@lilnas/ui`'s `Badge` already has (accent, ok, warn, bad, mute); do not
+             invent a tone. Default counts: the People tile and the section count include invited
+             people; Granted does not. If you think an "Invited" tile reads better, draw it and
+             say so in the caption.
+          2. Search that matches an invited person: only that row, count 1.
+          3. Edit access for an invited person. A dialog over the dimmed People list: the email,
+             a line saying when they were invited and that they have not signed in yet, the
+             service checkbox grid with their pending services checked, the access rules field,
+             and a destructive "Cancel invite" button where "Remove access" sits for a normal
+             person. No Discord field, no "Sign out everywhere", no "Remove access". Footer
+             buttons: "Cancel" and "Save access". The dialog now has both "Cancel" and "Cancel
+             invite"; if that reads badly, propose better copy for one of them in the caption.
+          4. Cancel invite confirm. The destructive confirm dialog, naming the person and what
+             they lose, e.g. title "Cancel erlyne@example.com’s invite?", body "They won’t get
+             these 2 services when they sign in. You can add them again any time.", buttons
+             "Cancel invite" and "Keep invite".
+          5. Add person with no service selected: the field error under the service grid, e.g.
+             "Pick at least one service or rule."
+          6. Toasts, one of each: "Invited erlyne@example.com" (email had no account),
+             "Access granted to jane.doe@example.com" (email had an account), "Invite updated",
+             "Invite cancelled", and the warning shown when the person signed in before the
+             change was saved, e.g. "erlyne@example.com has signed in. Edit their access from
+             their row."
+          7. Alternative, for comparison only: the same people with the invited ones in their own
+             "Invited" section under People instead of in the table. Say in the caption that this
+             is the option not chosen by default.
+
+          Use invented people (`example.com` addresses) and the real service names from
+          `src/data/shared.mjs`. Keep copy in `src/data/invited.mjs` and layout in the `.pug`.
+
+          **Edge cases**
+          - No `<script>` and no behavioural JS; states are drawn, not interactive.
+          - Do not change how any existing page renders. After
+            `pnpm --filter @lilnas/cli build && pnpm mockups`, `git status` must show changes
+            only under `docs/features/auth/designs/`, and of the built pages only `invited.html`
+            (new) and `index.html`. If `admin.html` or another feature's HTML changed, undo the
+            cause.
+          - `pnpm mockups:lint` must pass (`pnpm mockups:lint:fix` formats).
+
+          Commit the sources and the generated `invited.html` and `index.html`. There are no
+          tests for mockups; open `invited.html` in a browser at 1800 px wide and check each
+          frame renders both viewports without overflow. In your result, list the frame titles
+          in order, the badge tone you chose and why, and any copy you changed from this brief.
+      - id: H1
+        title: Review the invited-people mockup
+        after:
+          - T1
+        files:
+          - docs/features/auth/designs/invited.html
+        status: approved
+        body: |-
+          Each frame shows the 1280 and the 390 screen side by side; pin comments on the frame
+          they belong to. The dashboard is built from what you approve. Things to decide:
+          - Invited people as rows in the People table (frames 1 to 3) or as their own section
+            (frame 7). The plan assumes rows in the table.
+          - The Invited badge tone and the "Invited <date>" note.
+          - Counts: the plan puts invited people in the People tile and the section count, not
+            in Granted.
+          - The dialog copy: it has both "Cancel" and "Cancel invite".
+          - Add person with nothing selected becomes a field error instead of a no-op with a
+            success toast. Say so if you would rather keep today's behaviour.
+          - The toast wording.
+      - id: T2
+        title: 'Backend: list invites, remove invites, report the pre-authorize branch'
+        after: []
+        files:
+          - apps/auth/src/grants/grants.repo.ts
+          - apps/auth/src/admin/admin.dto.ts
+          - apps/auth/src/admin/users.service.ts
+          - apps/auth/src/admin/admin.controller.ts
+          - apps/auth/src/admin/__tests__/admin.controller.spec.ts
+          - apps/auth/src/admin/__tests__/admin.dto.spec.ts
+          - apps/auth/src/admin/__tests__/user-management.spec.ts
+        status: done
+        commit: 78419662c357279398aae344a9aa102ec9151c6a
+        body: |-
+          "Add a person" for an email with no `user` row writes `pre_authorized_grant` rows
+          (`UsersService.preAuthorizeMany()` in `apps/auth/src/admin/users.service.ts`), but no
+          admin route reads that table, so these pending invites are invisible. Add the backend
+          for listing and removing them, and make the pre-authorize route say which branch ran.
+
+          **Edit** `apps/auth/src/grants/grants.repo.ts`, `apps/auth/src/admin/admin.dto.ts`,
+          `apps/auth/src/admin/users.service.ts`, `apps/auth/src/admin/admin.controller.ts` and
+          the three specs in `apps/auth/src/admin/__tests__/` named below.
+
+          **Interfaces**
+          ```ts
+          // grants.repo.ts — a sibling of listAllPreAuthorizedGrants(), which stays as it is
+          // (AccessCacheService's boot preload uses it). Full rows, ordered by email, then
+          // serviceHost.
+          export function listPreAuthorizedGrantRows(db: Db): PreAuthorizedGrantRow[]
+
+          // admin.dto.ts
+          export const RemoveInvitesBodySchema = z.object({
+            email: z.string().email(),
+            serviceHosts: z
+              .array(z.string().min(1).transform(normalizeHostMatcher))
+              .min(1),
+          })
+          export type RemoveInvitesBodyDto = z.infer<typeof RemoveInvitesBodySchema>
+
+          // users.service.ts
+          export type PreAuthorizeOutcome = 'invited' | 'granted'
+          preAuthorizeMany(rawEmail: string, serviceHosts: string[]): PreAuthorizeOutcome
+          preAuthorize(rawEmail: string, serviceHost: string): PreAuthorizeOutcome
+          // Returns the hosts whose pending row was actually deleted.
+          removeInvites(rawEmail: string, serviceHosts: string[]): string[]
+
+          // admin.controller.ts
+          export type AdminInviteEntry = {
+            email: string
+            serviceHosts: string[] // sorted with localeCompare
+            createdAt: string // ISO; the earliest created_at among this email's rows
+          }
+          @Get('invites') invites(): AdminInviteEntry[] // sorted by email
+          @Post('users/pre-authorize') // now Promise<{ ok: true; outcome: PreAuthorizeOutcome }>
+          @Post('invites/remove') removeInvites(@Body() body: unknown): { ok: true; removed: string[] }
+          ```
+
+          **Behaviour**
+          - `preAuthorizeMany` returns `'granted'` from its existing-user branch and `'invited'`
+            from its pending branch. Nothing else about it changes.
+          - `GET /admin/invites` is a plain read inline in the controller, like `queue()` and
+            `users()`: group `listPreAuthorizedGrantRows()` by email. It lists every pending row,
+            including those of an email that already has a `user` row.
+          - `removeInvites` normalizes the email with `normalizeEmail`, then in ONE
+            `BEGIN IMMEDIATE` transaction (`{ behavior: 'immediate' }`) reads the email's rows
+            with `findPreAuthorizedGrantsByEmail(tx, email)` and deletes those whose
+            `serviceHost` is in the request with `deletePreAuthorizedGrant(tx, row.id)`. After
+            commit it calls `accessCache.removePreAuthorization(email, host)` for each removed
+            host, then `notifyBus.publishAdminChange()` only if at least one row was removed
+            (the same "only publish on a genuine change" rule as `removeUser()`).
+          - `POST /admin/invites/remove` parses the body with `parseBody(RemoveInvitesBodySchema,
+            body)` and returns the removed hosts. It does not check hosts against the service
+            registry: removal must work for a host that has left the registry, as revokes do in
+            `setUserServices`.
+          - `RemoveInvitesBodySchema` deliberately does not use `HostMatcherSchema`: that schema
+            rejects a rule outside `REDIRECT_ALLOWED_SUFFIX`, and a stored rule must stay
+            removable. Say so in the schema's comment.
+          - Both routes sit in the existing `@UseGuards(AdminGuard)` controller. Every mutation
+            stays a POST.
+          - Write header comments in the style of the surrounding code, including why
+            `removeInvites` returns the removed hosts: a person who signed in a moment earlier
+            has had their rows bound into real grants, so a cancel deletes nothing and the
+            caller must be able to tell.
+
+          **Edge cases**
+          - A host that is not pending for that email is skipped, not an error; the response
+            lists only what was removed. An unknown email returns `removed: []` and publishes
+            nothing.
+          - Email matching is case- and whitespace-insensitive through `normalizeEmail`
+            (`' Erlyne@Example.com'` in the service method removes rows stored as
+            `erlyne@example.com`).
+          - Removing some of an email's hosts leaves the others pending and still honoured on
+            first sign-in.
+
+          **Tests** (extend the existing specs; build the DB and harness the way each spec
+          already does)
+          - `admin.dto.spec.ts`: `RemoveInvitesBodySchema` accepts a valid body, lowercases and
+            trims hosts, accepts a rule outside the allowed suffix, and rejects a bad email, an
+            empty array, an empty host and a non-object body.
+          - `user-management.spec.ts`: `preAuthorizeMany` returns `'invited'` for a new email and
+            `'granted'` for an existing user. `removeInvites`: removes the named rows from the
+            DB; a later first sign-in and `/verify` for a removed host no longer passes straight
+            through while a host left pending still does; returns only the hosts actually
+            removed; returns `[]` and does not publish for an unknown email or a non-pending
+            host; publishes exactly once for a batch that removed several rows; matches the
+            email case-insensitively.
+          - `admin.controller.spec.ts`: `invites()` groups two emails' rows into two entries with
+            sorted hosts, the earliest `createdAt` as an ISO string, entries sorted by email,
+            and `[]` when nothing is pending; an email disappears from `invites()` once
+            `bindPreAuthorizedGrant` has run for it; `preAuthorize()` returns
+            `outcome: 'invited'` and `outcome: 'granted'` for the two branches;
+            `removeInvites()` rejects an invalid body with `BadRequestException` without
+            touching the DB and returns `removed` for a valid one.
+      - id: T3
+        title: 'Frontend data layer: fetch invites, remove-invites action, pre-authorize outcome'
+        after:
+          - T2
+        files:
+          - apps/auth/src/app/admin/require-admin.ts
+          - apps/auth/src/app/admin/actions.ts
+          - apps/auth/src/app/admin/__tests__/require-admin.spec.ts
+          - apps/auth/src/app/admin/__tests__/actions.spec.ts
+        status: done
+        commit: 4c77e8a265c4910b0de0aacb298fa58641e56629
+        body: |-
+          The backend now has `GET /admin/invites`, `POST /admin/invites/remove`, and a
+          `POST /admin/users/pre-authorize` response that carries
+          `outcome: 'invited' | 'granted'` (see `apps/auth/src/admin/admin.controller.ts` and
+          the result of the task before this one). Add the Next.js side's fetch and Server
+          Actions for them. No component changes in this task.
+
+          **Edit** `apps/auth/src/app/admin/require-admin.ts`,
+          `apps/auth/src/app/admin/actions.ts` and their specs in
+          `apps/auth/src/app/admin/__tests__/`.
+
+          **Interfaces**
+          ```ts
+          // require-admin.ts — import the type from src/admin/admin.controller with
+          // `import type` and re-export it, as the file does for AdminUserEntry.
+          export type { AdminInviteEntry }
+          export async function fetchAdminInvites(): Promise<AdminInviteEntry[]> // GET /admin/invites
+
+          // actions.ts
+          export async function preAuthorizeUsers(
+            email: string,
+            serviceHosts: string[],
+          ): Promise<{ ok: true; outcome: 'invited' | 'granted' }>
+          export async function removeInvites(
+            email: string,
+            serviceHosts: string[],
+          ): Promise<{ ok: true; removed: string[] }> // POST /admin/invites/remove
+          ```
+
+          **Behaviour**
+          - `fetchAdminInvites` goes through the existing `fetchFromAdminApi` helper, so a 401 or
+            403 redirects to `/login` like its siblings. It returns the backend's order untouched.
+          - `preAuthorizeUsers` returns the backend's parsed body instead of discarding it. Its
+            existing callers ignore the return value and keep working.
+          - `removeInvites` narrows its arguments before sending, because a Server Action is a
+            public POST endpoint whose TypeScript types are erased at runtime (see the header
+            comment in `actions.ts` and `requireDiscordUserId`): `email` must be a non-empty
+            string containing `@` and at most 320 characters; `serviceHosts` must be a non-empty
+            array of non-empty strings. Throw `Error('lilnas-auth: invalid email')` or
+            `Error('lilnas-auth: invalid service hosts')` otherwise, without calling the backend.
+          - A backend error surfaces through `callBackend` as it does for the other actions.
+          - `actions.ts` is a `'use server'` file: export only async functions from it. Use
+            `import type` for any type it needs.
+
+          **Tests**
+          - `require-admin.spec.ts`: `fetchAdminInvites` calls `GET /admin/invites`, forwards the
+            cookie, returns the array in backend order, and redirects to `/login` on a 401.
+          - `actions.spec.ts`: `preAuthorizeUsers` returns the backend's `outcome`;
+            `removeInvites` POSTs `{ email, serviceHosts }` with the cookie and returns
+            `removed`; it throws without calling `fetch` for a non-string email, an email with
+            no `@`, an empty array and an array holding a non-string; a 400 from the backend
+            rejects with the backend's message.
+      - id: T4
+        title: 'Live check: the invite routes over real HTTP'
+        after:
+          - T2
+        files: []
+        status: done
+        commit: 183dbf41f5e7c1f081cbf579f7524062e905cd03
+        body: |-
+          The backend specs construct `AdminController` directly, so nothing has yet proven the
+          new routes over real HTTP (route registration, `AdminGuard`, JSON body parsing). Boot
+          the real backend against a throwaway database and call them. Change no repository
+          files; this task has no commit.
+
+          **Steps** (from the repo root; adapt if a step fails, and say what you changed)
+          1. `pnpm --filter @lilnas/utils build && pnpm --filter @lilnas/auth build:backend`.
+          2. Make a temp dir with `mktemp -d` and pick a free TCP port above 20000. Never use
+             8080 or 8081 and never use a database path under `/storage` or `/data`: this machine
+             is the production server.
+          3. Start `node dist/main` in `apps/auth` in the background with these env vars:
+             `NODE_ENV=production`, `BACKEND_PORT=<port>`, `DATABASE_PATH=<tmp>/auth.db`,
+             `AUTH_HOST=http://localhost:<port>`, `COOKIE_DOMAIN=localhost`,
+             `REDIRECT_ALLOWED_SUFFIX=localhost`, `GOOGLE_CLIENT_ID=x`, `GOOGLE_CLIENT_SECRET=x`,
+             `BETTER_AUTH_SECRET=<32 random chars>`, `ADMIN_EMAILS=live-check@example.test`,
+             `SSE_KEEPALIVE_MS=25000`, `PROFILE_ALLOWED_ORIGINS=`,
+             `OIDC_IMMICH_CLIENT_SECRET=x`. `apps/auth/.env.example` documents each one. Wait
+             for `GET /health` to return 200.
+          4. Mint an admin session cookie with `apps/auth/scripts/cookie-rig/mint-session.mjs`
+             (read its header comment): same `DATABASE_PATH`, `BETTER_AUTH_SECRET` and
+             `AUTH_HOST`, plus `MINT_EMAIL=live-check@example.test`.
+          5. With `curl -H 'Cookie: <pair>'` against `http://localhost:<port>`:
+             - `GET /admin/invites` returns `[]`.
+             - `POST /admin/users/pre-authorize` with
+               `{"email":"New.Person@example.test","serviceHosts":["*.dev.localhost","*.a.localhost"]}`
+               returns `outcome: "invited"`. Rule hosts are used on purpose: a literal host is
+               checked against the service registry, which is empty outside the container.
+             - `GET /admin/invites` returns one entry for `new.person@example.test` with both
+               hosts and an ISO `createdAt`.
+             - `POST /admin/invites/remove` with that email and `["*.a.localhost"]` returns
+               `removed: ["*.a.localhost"]`; `GET /admin/invites` then lists one host.
+             - The same remove again returns `removed: []`.
+             - `POST /admin/invites/remove` with `{"email":"nope","serviceHosts":[]}` returns 400.
+             - `POST /admin/users/pre-authorize` for `live-check@example.test` (who has a user
+               row) with `["*.dev.localhost"]` returns `outcome: "granted"`.
+             - `GET /admin/invites` without the cookie returns 401.
+          6. Stop the process and delete the temp dir, whatever happened above.
+
+          **Report** each call with its status and body. Report anything that differs from the
+          expectations above as `defects:` (blocking if a route is missing, unauthenticated, or
+          returns the wrong data). If the backend cannot be booted on the host for a reason
+          unrelated to this change, say exactly what failed and report it as a note, not a defect.
+  - key: '2'
+    name: Dashboard
+    tasks:
+      - id: T5
+        title: 'People table: invited rows, search and counts'
+        after:
+          - T1
+          - H1
+          - T3
+        files:
+          - apps/auth/src/app/admin/page.tsx
+          - apps/auth/src/app/admin/admin-dashboard-client.tsx
+          - apps/auth/src/app/admin/people-list.tsx
+          - apps/auth/src/app/admin/stat-tiles.tsx
+          - apps/auth/src/app/admin/__tests__/admin-dashboard-client.spec.tsx
+        status: done
+        commit: 816b5e57dea2bec4fe4bf3f66e53ade94bb83b2e
+        body: |-
+          Show pending invites in the admin dashboard's People table. An invite is a person
+          added with "Add a person" who has no account yet; `fetchAdminInvites()` in
+          `apps/auth/src/app/admin/require-admin.ts` returns them as
+          `AdminInviteEntry { email, serviceHosts, createdAt }`, one per email.
+
+          The approved design is the mockup `docs/features/auth/designs/invited.html` (sources:
+          `docs/features/auth/designs/src/pages/invited.pug` and `src/data/invited.mjs`), with
+          the review verdict and comments in the results handed to this task. Follow the
+          approved mockup for layout, badge tone, copy and counts; where it and this body
+          disagree on those, the mockup and the review verdict win. If the review chose the
+          separate "Invited" section instead of rows in the table, build that section in
+          `people-list.tsx` with the same data flow and say so in your result. This task covers
+          the table only: an invited row gets no action button here (the next task adds "Edit
+          access" and its dialog).
+
+          **Edit** `apps/auth/src/app/admin/page.tsx`, `admin-dashboard-client.tsx`,
+          `people-list.tsx`, `stat-tiles.tsx` (only if the approved mockup changes the tiles)
+          and `__tests__/admin-dashboard-client.spec.tsx`. Do not edit `blocked-panel.tsx`; it
+          keeps using the exported `personColumns` for `AdminUserEntry` rows.
+
+          **Interfaces**
+          ```ts
+          // page.tsx: add fetchAdminInvites() to the existing Promise.all and pass the result.
+          // admin-dashboard-client.tsx
+          export type AdminDashboardClientProps = {
+            // …existing props
+            initialInvites: AdminInviteEntry[] // required
+          }
+
+          // people-list.tsx
+          export type PersonRow =
+            | { kind: 'user'; key: string; email: string; user: AdminUserEntry } // key = user.id
+            | { kind: 'invite'; key: string; email: string; invite: AdminInviteEntry } // key = `invite:${email}`
+          export type PeopleListProps = {
+            rows: PersonRow[] // replaces `users`
+            // …the other existing props, unchanged
+          }
+          ```
+
+          **Behaviour**
+          - `invites` is the `initialInvites` prop used directly, with no local state copy, as
+            `queue` and `users` are (see the M3 note in the component's header comment).
+          - People rows are the active (not blocked) users plus the invites, filtered by the
+            search term on email and sorted by email together, unless the approved mockup
+            groups them differently.
+          - An invited row shows: the email with initials avatar; the "Invited" badge; the
+            pending `serviceHosts` through the existing `ServiceBadges`; the invited date from
+            `createdAt` (render it with `toLocaleDateString()` and `suppressHydrationWarning`,
+            as the "Linked" column in `discord-links-panel.tsx` does); nothing in the Discord
+            column beyond what the mockup shows; no Block button.
+          - Counts, by default: the People section's count pill is the number of rows shown;
+            the People stat tile is `users.length + invites.length`; the Granted tile is
+            unchanged.
+          - The empty states are unchanged; a search that matches only an invited person shows
+            that row, not the empty state.
+          - An invite whose email also belongs to a listed user is still rendered as its own
+            row (it can happen for a moment between a person's Google sign-in and their first
+            visit to a service); the distinct `key` values keep React's keys unique.
+          - Update the header comments in `admin-dashboard-client.tsx` and `people-list.tsx` to
+            explain the invited state and why it exists (pending rows live in
+            `pre_authorized_grant`, not in `user`, until first sign-in).
+
+          **Tests** (`admin-dashboard-client.spec.tsx`; pass `initialInvites={[]}` in the
+          existing render helper and any direct renders so the current tests keep passing)
+          - An invite renders one table row and one card with the email, the Invited badge, its
+            service badges and the invited date.
+          - An invited row has no Block button, and a normal row still has one.
+          - Search by part of an invited email shows that row and hides non-matching users; a
+            term matching nobody shows the existing empty state.
+          - The People tile and the section count include invites; the Granted tile does not.
+          - Users and invites sort together by email (or as the approved mockup groups them).
+          - A user and an invite with the same email both render without a React key warning.
+      - id: T6
+        title: Edit and cancel an invite; honest Add-person toast
+        after:
+          - T1
+          - H1
+          - T5
+        files:
+          - apps/auth/src/app/admin/edit-invite-modal.tsx
+          - apps/auth/src/app/admin/edit-access-modal.tsx
+          - apps/auth/src/app/admin/add-person-modal.tsx
+          - apps/auth/src/app/admin/people-list.tsx
+          - apps/auth/src/app/admin/admin-dashboard-client.tsx
+          - apps/auth/src/app/admin/__tests__/admin-dashboard-client.spec.tsx
+        status: done
+        commit: db9fe836b4947a9485633dcf9f6a4483a53050ea
+        body: |-
+          The admin dashboard's People table now lists invited people (`PersonRow` with
+          `kind: 'invite'` in `apps/auth/src/app/admin/people-list.tsx`): people added with "Add
+          a person" who have no account yet. Let an admin edit an invited person's pending
+          services and cancel the invite, and make the Add-person toast say what happened.
+
+          The approved design is the mockup `docs/features/auth/designs/invited.html` (sources
+          under `docs/features/auth/designs/src/`), with the review verdict and comments in the
+          results handed to this task. Follow it for layout and copy; the strings below are
+          defaults that the approved mockup and the review verdict override. The behaviour below
+          is fixed.
+
+          Server Actions to use, from `apps/auth/src/app/admin/actions.ts`:
+          ```ts
+          preAuthorizeUsers(email, serviceHosts): Promise<{ ok: true; outcome: 'invited' | 'granted' }>
+          removeInvites(email, serviceHosts): Promise<{ ok: true; removed: string[] }>
+          ```
+          `outcome` is `'granted'` when the email already had an account (real grants were
+          written). `removed` lists the pending hosts actually deleted; it is shorter than the
+          request when the person signed in first and their invite had already become real
+          grants.
+
+          **Create** `apps/auth/src/app/admin/edit-invite-modal.tsx`. **Edit**
+          `add-person-modal.tsx`, `people-list.tsx`, `admin-dashboard-client.tsx`,
+          `edit-access-modal.tsx` (only to export `visibleServiceHosts` for reuse) and
+          `__tests__/admin-dashboard-client.spec.tsx` (add `removeInvites` to its
+          `jest.mock('src/app/admin/actions')` block).
+
+          **Interfaces**
+          ```ts
+          // edit-invite-modal.tsx
+          export type EditInviteModalProps = {
+            invite: AdminInviteEntry | null // null = closed
+            onClose: () => void
+            services: AdminServiceEntry[]
+            isPending: boolean
+            startTransition: TransitionStartFunction
+            showToast: (message: string, tone?: ToastTone) => void
+            onCancelInvite: (invite: AdminInviteEntry) => void
+          }
+          // people-list.tsx: PeopleListProps gains
+          onEditInvite: (invite: AdminInviteEntry) => void
+          ```
+          Mount it in `admin-dashboard-client.tsx` with `key={invite?.email ?? 'none'}` so it
+          remounts with fresh state per person, as `EditAccessModal` is keyed by user id.
+
+          **Invited row**: add an "Edit access" button that opens the dialog. Still no Block.
+
+          **Edit-invite dialog**
+          - Shows the email, a line saying when they were invited and that they have not signed
+            in yet, `ServiceCheckGrid` (hosts: the registry's hosts plus the invite's own
+            literal hosts, via `visibleServiceHosts`), `AccessRulesField` for rule patterns, and
+            a destructive "Cancel invite" button. No Discord field, no "Sign out everywhere",
+            no "Remove access".
+          - Save diffs the selection against the snapshot taken when the dialog opened and sends
+            only the differences, never the full set: added hosts in one
+            `preAuthorizeUsers(email, added)` call, then removed hosts in one
+            `removeInvites(email, removed)` call. No differences means no calls. Skip either
+            call when its list is empty.
+          - Saving with nothing left selected does not send anything; it opens the Cancel-invite
+            confirm instead.
+          - After a save: if the add returned `outcome: 'granted'` or the removal returned fewer
+            hosts than were sent, the person signed in meanwhile; show the warning toast
+            ("<email> has signed in. Edit their access from their row.", tone `warn`).
+            Otherwise toast "Invite updated". Close the dialog in both cases.
+          - A thrown action shows its message in a `Note tone="bad"` inside the dialog, which
+            stays open, as `EditAccessModal` does.
+          - "Cancel invite" opens a `ConfirmDialog` nested in the dialog, titled with the email
+            (default "Cancel <email>’s invite?", body "They won’t get these N services when
+            they sign in. You can add them again any time.", confirm "Cancel invite", cancel
+            "Keep invite"; singular "this service" for one). Confirming calls
+            `onCancelInvite(invite)`.
+          - `admin-dashboard-client.tsx` handles `onCancelInvite` through its `runAction`, like
+            `handleRemove`: `removeInvites(email, invite.serviceHosts)`, then toast "Invite
+            cancelled" when `removed` is non-empty or the warning toast when it is empty, and
+            close the dialog.
+
+          **Add person** (`add-person-modal.tsx`)
+          - Toast "Invited <email>" when `outcome` is `'invited'` and "Access granted to <email>"
+            when it is `'granted'`.
+          - Submitting with no service and no rule selected shows a field error under the
+            service grid (default "Pick at least one service or rule."), makes no call and shows
+            no toast. Today this path makes no call and still toasts success. If the review
+            verdict says to keep today's behaviour, leave this path as it is and say so in your
+            result.
+
+          **Edge cases**
+          - Opening the dialog for one invited person, changing boxes, closing, then opening
+            another shows the second person's own pending services.
+          - A registry host that the invite does not hold renders unchecked; an invite host that
+            has left the registry still renders, checked, so it can be removed.
+          - Buttons are disabled while `isPending`.
+          - Update the header comments: explain in `edit-invite-modal.tsx` why it is a separate
+            component (no user id exists; the pending set is edited through two routes), why it
+            sends deltas, and what the warning toast is for.
+
+          **Tests** (`admin-dashboard-client.spec.tsx`; assert on the action calls, as the
+          existing tests do)
+          - The invited row's "Edit access" opens the dialog with the pending services checked
+            and no Discord, Sign out everywhere or Remove access controls.
+          - Checking one more service and saving calls `preAuthorizeUsers(email, [host])` only.
+          - Unchecking one and saving calls `removeInvites(email, [host])` only.
+          - One add and one removal in the same save make exactly one call to each.
+          - Saving untouched calls neither.
+          - A rule added in the dialog is sent through `preAuthorizeUsers`; a held rule removed
+            is sent through `removeInvites`.
+          - Unchecking everything and saving opens the confirm and sends nothing until confirmed.
+          - "Cancel invite" confirms first, naming the person; confirming calls
+            `removeInvites(email, allHosts)` and toasts "Invite cancelled"; "Keep invite" calls
+            nothing and leaves the dialog open.
+          - `removed: []` on cancel, a short `removed` on save and `outcome: 'granted'` on save
+            each show the warning toast.
+          - A rejected action shows its message in the dialog and keeps it open.
+          - Add person: `outcome: 'invited'` toasts "Invited <email>"; `outcome: 'granted'`
+            toasts "Access granted to <email>"; nothing selected shows the field error and
+            calls nothing. Update the existing Add-person tests' mocks to resolve
+            `{ ok: true, outcome: … }`.
+  - key: R1
+    name: Mockup review (H1)
+    tasks:
+      - id: R1
+        title: Round 1 · Address 1 review comment on invited.html
+        after:
+          - T1
+        files:
+          - docs/features/auth/designs/invited.html
+        status: done
+        commit: 30954c82891c3be2dd69f514fe725a35ea8af75f
+        body: |-
+          Design review of `docs/features/auth/designs/invited.html`, round 1:
+
+          1. pin on <div> "07 Alternative · separate Invited section" in scene "Toasts"
+             - selector: `#section > header:nth-of-type(1) > div:nth-of-type(1)` at fx 0.52, fy 0.43
+             - **user:** the combined table looks better, so we can remove this mockup
+             - screenshot 1 attached
+
+          Resolve each thread with `nexus_design_review` and a one-line note when it is addressed.

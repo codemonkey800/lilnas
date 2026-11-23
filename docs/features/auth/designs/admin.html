@@ -506,8 +506,14 @@
         .top-1\/2 {
           top: 50%;
         }
+        .right-6 {
+          right: calc(var(--spacing) * 6);
+        }
         .bottom-0 {
           bottom: 0;
+        }
+        .bottom-4 {
+          bottom: calc(var(--spacing) * 4);
         }
         .bottom-6 {
           bottom: calc(var(--spacing) * 6);
@@ -562,6 +568,9 @@
         }
         .mb-10 {
           margin-bottom: calc(var(--spacing) * 10);
+        }
+        .mb-14 {
+          margin-bottom: calc(var(--spacing) * 14);
         }
         .block {
           display: block;
@@ -718,6 +727,9 @@
         .max-w-\[1328px\] {
           max-width: 1328px;
         }
+        .max-w-\[1760px\] {
+          max-width: 1760px;
+        }
         .max-w-full {
           max-width: 100%;
         }
@@ -766,6 +778,9 @@
         .cursor-pointer {
           cursor: pointer;
         }
+        .scroll-mt-6 {
+          scroll-margin-top: calc(var(--spacing) * 6);
+        }
         .grid-cols-1 {
           grid-template-columns: repeat(1, minmax(0, 1fr));
         }
@@ -789,6 +804,9 @@
         }
         .items-center {
           align-items: center;
+        }
+        .items-end {
+          align-items: flex-end;
         }
         .items-start {
           align-items: flex-start;
@@ -847,6 +865,9 @@
         .gap-x-6 {
           column-gap: calc(var(--spacing) * 6);
         }
+        .gap-x-8 {
+          column-gap: calc(var(--spacing) * 8);
+        }
         .gap-y-1 {
           row-gap: var(--spacing);
         }
@@ -855,6 +876,9 @@
         }
         .gap-y-3 {
           row-gap: calc(var(--spacing) * 3);
+        }
+        .gap-y-6 {
+          row-gap: calc(var(--spacing) * 6);
         }
         .truncate {
           text-overflow: ellipsis;
@@ -1438,12 +1462,19 @@
           content: var(--tw-content);
           background-color: var(--color-ok);
         }
+        .before\:bg-warn:before {
+          content: var(--tw-content);
+          background-color: var(--color-warn);
+        }
         .first\:border-t-0:first-child {
           border-top-style: var(--tw-border-style);
           border-top-width: 0;
         }
         .first\:pt-0:first-child {
           padding-top: 0;
+        }
+        .last\:mb-0:last-child {
+          margin-bottom: 0;
         }
         .hover\:border-line-loud:hover,
         .hover\:border-line-loud[data-force~='hover'] {

@@ -1,6 +1,11 @@
 import { headers } from 'next/headers'
 
-import { linkDiscordAccount, unlinkDiscordAccount } from 'src/app/admin/actions'
+import {
+  linkDiscordAccount,
+  preAuthorizeUsers,
+  removeInvites,
+  unlinkDiscordAccount,
+} from 'src/app/admin/actions'
 
 process.env.BACKEND_PORT = '8081'
 
@@ -235,6 +240,165 @@ describe('unlinkDiscordAccount', () => {
 
     await expect(unlinkDiscordAccount('user_1')).rejects.toThrow(
       'lilnas-auth: /admin/discord/unlink returned 404: user user_1 has no Discord link',
+    )
+
+    fetchSpy.mockRestore()
+  })
+})
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Plan 020: preAuthorizeUsers() now hands back the backend's body so the
+// dashboard can tell "invited" (no account yet) from "granted" (account
+// already existed).
+// ──────────────────────────────────────────────────────────────────────────────
+describe('preAuthorizeUsers', () => {
+  beforeEach(() => {
+    mockIncomingCookie('lilnas-auth.session_token=abc123')
+  })
+
+  it.each(['invited', 'granted'] as const)(
+    "returns the backend's %s outcome",
+    async outcome => {
+      const fetchSpy = mockBackend(
+        new Response(JSON.stringify({ ok: true, outcome }), { status: 200 }),
+      )
+
+      await expect(
+        preAuthorizeUsers('new@example.com', ['swole.lilnas.io']),
+      ).resolves.toEqual({ ok: true, outcome })
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:8081/admin/users/pre-authorize',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            email: 'new@example.com',
+            serviceHosts: ['swole.lilnas.io'],
+          }),
+        }),
+      )
+
+      fetchSpy.mockRestore()
+    },
+  )
+})
+
+describe('removeInvites', () => {
+  beforeEach(() => {
+    mockIncomingCookie('lilnas-auth.session_token=abc123')
+  })
+
+  it('POSTs { email, serviceHosts } with the cookie and returns `removed`', async () => {
+    const fetchSpy = mockBackend(
+      new Response(JSON.stringify({ ok: true, removed: ['swole.lilnas.io'] }), {
+        status: 200,
+      }),
+    )
+
+    await expect(
+      removeInvites('new@example.com', ['swole.lilnas.io', 'yacht.lilnas.io']),
+    ).resolves.toEqual({ ok: true, removed: ['swole.lilnas.io'] })
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'http://localhost:8081/admin/invites/remove',
+      expect.objectContaining({
+        method: 'POST',
+        headers: {
+          cookie: 'lilnas-auth.session_token=abc123',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: 'new@example.com',
+          serviceHosts: ['swole.lilnas.io', 'yacht.lilnas.io'],
+        }),
+      }),
+    )
+
+    fetchSpy.mockRestore()
+  })
+
+  // An empty `removed` is a success the caller must be able to see: nothing
+  // was pending (the person signed in first), which is not the same as
+  // "removed".
+  it('passes an empty `removed` through rather than treating it as an error', async () => {
+    const fetchSpy = mockBackend(
+      new Response(JSON.stringify({ ok: true, removed: [] }), { status: 200 }),
+    )
+
+    await expect(
+      removeInvites('new@example.com', ['swole.lilnas.io']),
+    ).resolves.toEqual({ ok: true, removed: [] })
+
+    fetchSpy.mockRestore()
+  })
+
+  // Server Actions are public POST endpoints and the parameter types are
+  // erased at runtime, so crafted values really can arrive here. A rejected
+  // argument means NO request reaches the backend.
+  it.each([
+    ['a non-string', 42 as unknown],
+    ['null', null],
+    ['an object', { toString: () => 'a@b.c' }],
+    ['empty', ''],
+    ['missing an @', 'new.example.com'],
+    ['over 320 characters', `${'a'.repeat(320)}@example.com`],
+  ])(
+    'rejects an email that is %s without calling the backend',
+    async (_label, candidate) => {
+      const fetchSpy = mockBackend(okResponse())
+
+      await expect(
+        removeInvites(candidate as string, ['swole.lilnas.io']),
+      ).rejects.toThrow('lilnas-auth: invalid email')
+      expect(fetchSpy).not.toHaveBeenCalled()
+
+      fetchSpy.mockRestore()
+    },
+  )
+
+  it('accepts an email of exactly 320 characters', async () => {
+    const fetchSpy = mockBackend(
+      new Response(JSON.stringify({ ok: true, removed: [] }), { status: 200 }),
+    )
+    const email = `${'a'.repeat(320 - '@x.io'.length)}@x.io`
+
+    await expect(removeInvites(email, ['swole.lilnas.io'])).resolves.toEqual({
+      ok: true,
+      removed: [],
+    })
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+
+    fetchSpy.mockRestore()
+  })
+
+  it.each([
+    ['an empty array', []],
+    ['not an array', 'swole.lilnas.io' as unknown],
+    ['undefined', undefined],
+    ['an array holding a non-string', ['swole.lilnas.io', 7]],
+    ['an array holding an empty string', ['swole.lilnas.io', '']],
+  ])(
+    'rejects service hosts that are %s without calling the backend',
+    async (_label, candidate) => {
+      const fetchSpy = mockBackend(okResponse())
+
+      await expect(
+        removeInvites('new@example.com', candidate as string[]),
+      ).rejects.toThrow('lilnas-auth: invalid service hosts')
+      expect(fetchSpy).not.toHaveBeenCalled()
+
+      fetchSpy.mockRestore()
+    },
+  )
+
+  it("surfaces the backend's 400 message", async () => {
+    const message = 'email must be a valid email address'
+    const fetchSpy = mockBackend(errorResponse(400, message))
+
+    await expect(
+      removeInvites('new@example.com', ['swole.lilnas.io']),
+    ).rejects.toThrow(
+      `lilnas-auth: /admin/invites/remove returned 400: ${message}`,
     )
 
     fetchSpy.mockRestore()

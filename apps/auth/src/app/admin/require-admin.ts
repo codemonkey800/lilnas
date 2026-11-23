@@ -2,6 +2,7 @@ import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 
 import type {
+  AdminInviteEntry,
   AdminUserEntry,
   DiscordLinkEntry as AdminDiscordLinkEntry,
   DiscordUnlinkedAccount as AdminDiscordUnlinkedAccount,
@@ -27,6 +28,7 @@ export type {
   AdminDiscordLinkEntry,
   AdminDiscordUnlinkedAccount,
   AdminDiscordUnlinkedPerson,
+  AdminInviteEntry,
   AdminQueueEntry,
   AdminServiceEntry,
   AdminUserEntry,
@@ -115,6 +117,19 @@ export async function fetchAdminServices(): Promise<AdminServiceEntry[]> {
 // too.
 export async function fetchAdminUsers(): Promise<AdminUserEntry[]> {
   return fetchFromAdminApi<AdminUserEntry[]>('/admin/users')
+}
+
+// Plan 020: the pending invites — one entry per invited email with the
+// services it was pre-authorized for, i.e. the people who have been let in
+// but have not signed in yet. Same "always called alongside
+// requireAdminQueue()" note as the fetches above; the shared helper makes a
+// 401/403 redirect to /login on its own.
+//
+// Returns the backend's ordering UNTOUCHED, for the same reason as the
+// Discord reads below: the order is chosen by the query that knows what the
+// list is for, and a display-side re-sort would only have to re-derive it.
+export async function fetchAdminInvites(): Promise<AdminInviteEntry[]> {
+  return fetchFromAdminApi<AdminInviteEntry[]>('/admin/invites')
 }
 
 // D2 (plan 017): the two halves of the Discord link panel's data. Same

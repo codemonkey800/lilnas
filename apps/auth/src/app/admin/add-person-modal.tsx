@@ -46,6 +46,19 @@ export type AddPersonModalProps = {
 // for the whole batch" rationale. Access rules live in that same Set
 // (AccessRulesField below), so they're sent in the same call as the
 // checked hosts.
+//
+// Plan 020: the toast says what actually happened. preAuthorizeUsers() now
+// reports `outcome` — 'invited' when the email had no account yet (the
+// services wait as a pending invite until their first sign-in) and 'granted'
+// when it did (real grants were written) — and only the backend, inside the
+// transaction that did the write, knows which branch ran. "Access granted"
+// for an invite that grants nothing yet was the lie this replaces.
+//
+// Submitting with nothing selected used to skip the call and still toast
+// success, an "Access granted" for nothing. It is now a field error under the
+// service grid (a rule alone is enough, so the message names both): no call,
+// no toast, the dialog stays open. The error is derived from the selection
+// rather than stored, so it clears the moment a service or rule is picked.
 export function AddPersonModal({
   isOpen,
   onClose,
@@ -58,25 +71,31 @@ export function AddPersonModal({
   const [addEmailHasError, setAddEmailHasError] = useState(false)
   const [addSelected, setAddSelected] = useState<Set<string>>(new Set())
   const [addModalError, setAddModalError] = useState<string | null>(null)
+  // Whether the last submit found nothing selected. The message only shows
+  // while the selection is still empty (see `serviceError` below).
+  const [serviceSubmitted, setServiceSubmitted] = useState(false)
+  const serviceError =
+    serviceSubmitted && addSelected.size === 0
+      ? 'Pick at least one service or rule.'
+      : null
 
   function handleAddConfirm() {
     const email = addEmail.trim()
     const valid = EMAIL_PATTERN.test(email)
+    const hasSelection = addSelected.size > 0
     setAddEmailHasError(!valid)
-    if (!valid) return
+    setServiceSubmitted(!hasSelection)
+    if (!valid || !hasSelection) return
 
     setAddModalError(null)
     startTransition(async () => {
       try {
-        // Matches the old per-host loop's own behavior when nothing is
-        // checked: zero iterations, zero network calls, and the toast
-        // still confirms the (empty) grant — preAuthorizeUsers() itself
-        // requires at least one host, so an empty selection must skip the
-        // call rather than send an invalid empty array.
-        if (addSelected.size > 0) {
-          await preAuthorizeUsers(email, [...addSelected])
-        }
-        showToast(`Access granted to ${email}`)
+        const { outcome } = await preAuthorizeUsers(email, [...addSelected])
+        showToast(
+          outcome === 'granted'
+            ? `Access granted to ${email}`
+            : `Invited ${email}`,
+        )
         onClose()
       } catch (err) {
         setAddModalError(
@@ -114,7 +133,12 @@ export function AddPersonModal({
               onChange={event => setAddEmail(event.target.value)}
             />
           </Field>
-          <fieldset className="flex flex-col gap-1.5">
+          <fieldset
+            aria-describedby={
+              serviceError ? 'add-person-service-error' : undefined
+            }
+            className="flex flex-col gap-1.5"
+          >
             <legend className="mb-1.5 text-sm font-medium text-ink-2">
               Grant access to
             </legend>
@@ -126,6 +150,11 @@ export function AddPersonModal({
               }
               disabled={isPending}
             />
+            {serviceError ? (
+              <p className="text-cap text-bad" id="add-person-service-error">
+                {serviceError}
+              </p>
+            ) : null}
           </fieldset>
           <AccessRulesField
             rules={[...addSelected].filter(isHostPattern)}

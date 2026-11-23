@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, isNull } from 'drizzle-orm'
+import { and, asc, eq, isNotNull, isNull } from 'drizzle-orm'
 
 import type { Db } from 'src/db/database.module'
 import {
@@ -230,6 +230,22 @@ export function listAllPreAuthorizedGrants(db: Db): PreAuthorizedPair[] {
       serviceHost: preAuthorizedGrant.serviceHost,
     })
     .from(preAuthorizedGrant)
+    .all()
+}
+
+// The admin dashboard's read of the same table: FULL rows (id and createdAt
+// included, which the boot preload above has no use for) so GET
+// /admin/invites can show who was invited to what, and since when. A sibling
+// of listAllPreAuthorizedGrants() rather than a widening of it — that
+// function's two-column shape is what AccessCacheService's preload wants,
+// and it stays exactly as it is. Ordered by email, then serviceHost, so the
+// grouping the controller does is a single pass over an already-sorted list
+// and the output never depends on insertion order.
+export function listPreAuthorizedGrantRows(db: Db): PreAuthorizedGrantRow[] {
+  return db
+    .select()
+    .from(preAuthorizedGrant)
+    .orderBy(asc(preAuthorizedGrant.email), asc(preAuthorizedGrant.serviceHost))
     .all()
 }
 

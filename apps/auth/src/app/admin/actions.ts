@@ -85,6 +85,48 @@ function requireDiscordUserId(value: unknown): string {
   return value
 }
 
+// Plan 020. removeInvites() puts an email and a list of service hosts in a
+// request BODY, so the rationale in this file's header applies in full: the
+// `string` / `string[]` signature is erased at runtime and the compiled
+// action is a public POST endpoint, so a crafted call can deliver anything.
+//
+// Deliberately SHAPE-only, the same stance as requireDiscordUserId() above.
+// The 320-character cap is the longest an address can be (64-character
+// local part + `@` + 255-character domain) and only exists to refuse an
+// absurdly large payload before it is forwarded; the `@` check is the
+// cheapest test that the value is an address at all.
+// Whether the email is well-formed, normalizes to something stored, or has
+// a pending invite for a given host is answered by the backend inside its
+// own transaction, and its 400 (whose message is already written for a
+// human) is the authoritative one and surfaces unchanged through
+// callBackend().
+const MAX_EMAIL_LENGTH = 320
+
+function requireEmail(value: unknown): string {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.length > MAX_EMAIL_LENGTH ||
+    !value.includes('@')
+  ) {
+    throw new Error('lilnas-auth: invalid email')
+  }
+  return value
+}
+
+function requireServiceHosts(value: unknown): string[] {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    !value.every(
+      (host): host is string => typeof host === 'string' && host.length > 0,
+    )
+  ) {
+    throw new Error('lilnas-auth: invalid service hosts')
+  }
+  return value
+}
+
 // Returns the parsed JSON response body on success (every route this file
 // calls returns a plain JSON object — see admin.controller.ts) rather than
 // discarding it, which is what lets rejectRequest()/bulkRejectRequests()
@@ -155,12 +197,42 @@ export async function bulkRejectRequests(
 // error (e.g. "not a known service") surfaces from the backend's own
 // BadRequestException message — see callBackend()'s own `detail`
 // extraction above.
+//
+// Plan 020: returns the backend's `outcome` rather than discarding the body.
+// 'invited' means the person has never signed in, so what was created is a
+// pending invite; 'granted' means they already had an account and the
+// services were granted to it directly. The two read differently to the
+// admin ("invite sent" vs "access granted"), and only the backend, inside
+// the transaction that did the write, knows which branch ran. Existing
+// callers that ignore the return value are unaffected.
 export async function preAuthorizeUsers(
   email: string,
   serviceHosts: string[],
-): Promise<void> {
-  await callBackend('/admin/users/pre-authorize', {
-    body: { email, serviceHosts },
+): Promise<{ ok: true; outcome: 'invited' | 'granted' }> {
+  return callBackend<{ ok: true; outcome: 'invited' | 'granted' }>(
+    '/admin/users/pre-authorize',
+    { body: { email, serviceHosts } },
+  )
+}
+
+// Plan 020: withdraw pending invites for one email, an explicit set of
+// hosts in one call (never a full-set resubmit, like setUserServices()
+// above). `removed` is the subset of `serviceHosts` that was actually
+// pending and got deleted; an EMPTY `removed` is a success response, not an
+// error — it means nothing was pending, typically because the person signed
+// in first and their invites were already bound into grants. It is passed
+// straight through so the calling component can say that instead of
+// reporting a removal that did not happen (same idea as rejectRequest()'s
+// `decided`).
+export async function removeInvites(
+  email: string,
+  serviceHosts: string[],
+): Promise<{ ok: true; removed: string[] }> {
+  return callBackend<{ ok: true; removed: string[] }>('/admin/invites/remove', {
+    body: {
+      email: requireEmail(email),
+      serviceHosts: requireServiceHosts(serviceHosts),
+    },
   })
 }
 

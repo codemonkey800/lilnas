@@ -446,6 +446,182 @@ describe('U9: user and grant management', () => {
     })
   })
 
+  describe('pre-authorize outcome and cancelling pending invites', () => {
+    function pendingHostsFor(db: Db, email: string): string[] {
+      return db
+        .select()
+        .from(schema.preAuthorizedGrant)
+        .where(eq(schema.preAuthorizedGrant.email, email))
+        .all()
+        .map(row => row.serviceHost)
+        .sort()
+    }
+
+    it("preAuthorizeMany() returns 'invited' for an email with no user row", () => {
+      const testDb = createTestDb()
+      try {
+        const { usersService } = createHarness(testDb)
+
+        expect(
+          usersService.preAuthorizeMany('new-person@example.com', [
+            'swole.lilnas.io',
+          ]),
+        ).toBe('invited')
+        expect(
+          usersService.preAuthorize('other@example.com', 'a.lilnas.io'),
+        ).toBe('invited')
+      } finally {
+        testDb.close()
+      }
+    })
+
+    it("preAuthorizeMany() returns 'granted' for an email that already has a user row", async () => {
+      const testDb = createTestDb()
+      try {
+        const { auth, usersService } = createHarness(testDb)
+        await signIn(auth, {
+          sub: 'google-sub-outcome-existing',
+          email: 'outcome-existing@example.com',
+        })
+
+        expect(
+          usersService.preAuthorizeMany('outcome-existing@example.com', [
+            'swole.lilnas.io',
+          ]),
+        ).toBe('granted')
+      } finally {
+        testDb.close()
+      }
+    })
+
+    it('removeInvites() deletes the named rows; a later first sign-in no longer passes straight through for a removed host, while a host left pending still does', async () => {
+      const testDb = createTestDb()
+      try {
+        const { auth, usersService, verifyService } = createHarness(testDb)
+        usersService.preAuthorizeMany('cancel@example.com', [
+          'swole.lilnas.io',
+          'yacht.lilnas.io',
+        ])
+
+        const removed = usersService.removeInvites('cancel@example.com', [
+          'swole.lilnas.io',
+        ])
+
+        expect(removed).toEqual(['swole.lilnas.io'])
+        expect(pendingHostsFor(testDb.db, 'cancel@example.com')).toEqual([
+          'yacht.lilnas.io',
+        ])
+        const cookie = await signIn(auth, {
+          sub: 'google-sub-cancel',
+          email: 'cancel@example.com',
+        })
+        const yacht = await verifyService.decide(
+          verifyInputFor(cookie, 'yacht.lilnas.io'),
+        )
+        const swole = await verifyService.decide(
+          verifyInputFor(cookie, 'swole.lilnas.io'),
+        )
+        expect(yacht.outcome).toBe('allow')
+        expect(swole.outcome).not.toBe('allow')
+      } finally {
+        testDb.close()
+      }
+    })
+
+    it('removeInvites() returns only the hosts it actually removed', () => {
+      const testDb = createTestDb()
+      try {
+        const { usersService } = createHarness(testDb)
+        usersService.preAuthorizeMany('partial@example.com', [
+          'swole.lilnas.io',
+          'yacht.lilnas.io',
+        ])
+
+        const removed = usersService.removeInvites('partial@example.com', [
+          'swole.lilnas.io',
+          'never-pending.lilnas.io',
+        ])
+
+        expect(removed).toEqual(['swole.lilnas.io'])
+        expect(pendingHostsFor(testDb.db, 'partial@example.com')).toEqual([
+          'yacht.lilnas.io',
+        ])
+      } finally {
+        testDb.close()
+      }
+    })
+
+    it('removeInvites() matches the email case- and whitespace-insensitively', () => {
+      const testDb = createTestDb()
+      try {
+        const { usersService } = createHarness(testDb)
+        usersService.preAuthorize('erlyne@example.com', 'swole.lilnas.io')
+
+        const removed = usersService.removeInvites(' Erlyne@Example.com', [
+          'swole.lilnas.io',
+        ])
+
+        expect(removed).toEqual(['swole.lilnas.io'])
+        expect(pendingHostsFor(testDb.db, 'erlyne@example.com')).toEqual([])
+      } finally {
+        testDb.close()
+      }
+    })
+
+    it('removeInvites() returns [] and publishes nothing for an unknown email or a non-pending host', () => {
+      const testDb = createTestDb()
+      try {
+        const { notifyBus, usersService } = createHarness(testDb)
+        usersService.preAuthorize('known@example.com', 'swole.lilnas.io')
+        const publishedTopics: string[] = []
+        notifyBus.stream$.subscribe(signal =>
+          publishedTopics.push(signal.topic),
+        )
+
+        expect(
+          usersService.removeInvites('nobody@example.com', ['swole.lilnas.io']),
+        ).toEqual([])
+        expect(
+          usersService.removeInvites('known@example.com', ['yacht.lilnas.io']),
+        ).toEqual([])
+
+        expect(publishedTopics).toEqual([])
+        expect(pendingHostsFor(testDb.db, 'known@example.com')).toEqual([
+          'swole.lilnas.io',
+        ])
+      } finally {
+        testDb.close()
+      }
+    })
+
+    it('removeInvites() publishes exactly once for a batch that removed several rows', () => {
+      const testDb = createTestDb()
+      try {
+        const { notifyBus, usersService } = createHarness(testDb)
+        usersService.preAuthorizeMany('batch@example.com', [
+          'swole.lilnas.io',
+          'yacht.lilnas.io',
+          'tdr.lilnas.io',
+        ])
+        const publishedTopics: string[] = []
+        notifyBus.stream$.subscribe(signal =>
+          publishedTopics.push(signal.topic),
+        )
+
+        const removed = usersService.removeInvites('batch@example.com', [
+          'swole.lilnas.io',
+          'yacht.lilnas.io',
+          'tdr.lilnas.io',
+        ])
+
+        expect(removed).toHaveLength(3)
+        expect(publishedTopics).toEqual([ADMIN_TOPIC])
+      } finally {
+        testDb.close()
+      }
+    })
+  })
+
   describe('access rules: a pattern grant approves the pending requests it covers', () => {
     function requestStatuses(db: Db, userId: string) {
       return Object.fromEntries(

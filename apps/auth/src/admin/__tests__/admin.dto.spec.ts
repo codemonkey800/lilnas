@@ -2,6 +2,7 @@ import {
   BulkRejectBodySchema,
   LinkDiscordBodySchema,
   PreAuthorizeBodySchema,
+  RemoveInvitesBodySchema,
   SetUserServicesBodySchema,
   UnlinkDiscordBodySchema,
 } from 'src/admin/admin.dto'
@@ -325,5 +326,78 @@ describe('UnlinkDiscordBodySchema', () => {
       false,
     )
     expect(UnlinkDiscordBodySchema.safeParse({}).success).toBe(false)
+  })
+})
+
+// REDIRECT_ALLOWED_SUFFIX is deliberately left unset here: this schema must
+// not consult it at all (that is the whole difference from
+// PreAuthorizeBodySchema), and an unset env would make HostMatcherSchema
+// throw if it were ever used.
+describe('RemoveInvitesBodySchema', () => {
+  it('accepts a valid email and a non-empty serviceHosts array', () => {
+    expect(
+      RemoveInvitesBodySchema.safeParse({
+        email: 'person@example.com',
+        serviceHosts: ['swole.lilnas.io', 'tdr.lilnas.io'],
+      }).success,
+    ).toBe(true)
+  })
+
+  it('trims and lowercases every host', () => {
+    const parsed = RemoveInvitesBodySchema.safeParse({
+      email: 'person@example.com',
+      serviceHosts: ['  Swole.Lilnas.IO ', '*.Dev.lilnas.io'],
+    })
+    expect(parsed.success).toBe(true)
+    expect(parsed.data?.serviceHosts).toEqual([
+      'swole.lilnas.io',
+      '*.dev.lilnas.io',
+    ])
+  })
+
+  // A stored rule must stay removable even when it no longer fits the
+  // allowed suffix — HostMatcherSchema would reject this one.
+  it('accepts an access rule outside the allowed suffix', () => {
+    expect(
+      RemoveInvitesBodySchema.safeParse({
+        email: 'person@example.com',
+        serviceHosts: ['*.example.org'],
+      }).success,
+    ).toBe(true)
+  })
+
+  it('rejects a malformed email', () => {
+    expect(
+      RemoveInvitesBodySchema.safeParse({
+        email: 'not-an-email',
+        serviceHosts: ['swole.lilnas.io'],
+      }).success,
+    ).toBe(false)
+  })
+
+  it('rejects an empty serviceHosts array', () => {
+    expect(
+      RemoveInvitesBodySchema.safeParse({
+        email: 'person@example.com',
+        serviceHosts: [],
+      }).success,
+    ).toBe(false)
+  })
+
+  it('rejects an empty host', () => {
+    expect(
+      RemoveInvitesBodySchema.safeParse({
+        email: 'person@example.com',
+        serviceHosts: [''],
+      }).success,
+    ).toBe(false)
+  })
+
+  it('rejects a body that is not an object at all', () => {
+    expect(RemoveInvitesBodySchema.safeParse('not-an-object').success).toBe(
+      false,
+    )
+    expect(RemoveInvitesBodySchema.safeParse(null).success).toBe(false)
+    expect(RemoveInvitesBodySchema.safeParse(undefined).success).toBe(false)
   })
 })

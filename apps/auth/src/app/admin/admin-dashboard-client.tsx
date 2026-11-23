@@ -9,6 +9,7 @@ import {
   blockUser,
   bulkRejectRequests,
   rejectRequest,
+  removeInvites,
   removeUser,
   revokeSessions,
   unblockUser,
@@ -18,11 +19,13 @@ import { AddPersonModal } from 'src/app/admin/add-person-modal'
 import { BlockedPanel } from 'src/app/admin/blocked-panel'
 import { DiscordLinksPanel } from 'src/app/admin/discord-links-panel'
 import { EditAccessModal } from 'src/app/admin/edit-access-modal'
-import { PeopleList } from 'src/app/admin/people-list'
+import { EditInviteModal } from 'src/app/admin/edit-invite-modal'
+import { PeopleList, type PersonRow } from 'src/app/admin/people-list'
 import { RequestCards } from 'src/app/admin/request-cards'
 import type {
   AdminDiscordLinkEntry,
   AdminDiscordUnlinked,
+  AdminInviteEntry,
   AdminQueueEntry,
   AdminServiceEntry,
   AdminUserEntry,
@@ -35,6 +38,11 @@ import { toggleInSet } from 'src/app/lib/toggle-in-set'
 export type AdminDashboardClientProps = {
   initialQueue: AdminQueueEntry[]
   initialUsers: AdminUserEntry[]
+  // People added with "Add a person" who have not signed in yet: rows of
+  // pre_authorized_grant, one per email (see the invited-state bullet in the
+  // header comment below). REQUIRED: an absent list would silently render a
+  // People table that hides every pending invite.
+  initialInvites: AdminInviteEntry[]
   services: AdminServiceEntry[]
   // D2/D3 (plan 017): the Discord link panel's data, fetched alongside
   // everything else by page.tsx. D2 landed these OPTIONAL as a temporary
@@ -91,7 +99,30 @@ export type AdminDashboardClientProps = {
 //     not reintroduce it by resubmitting every checkbox regardless of
 //     whether it changed.
 //
-//   - M3: `queue`/`users` are the `initialQueue`/`initialUsers` PROPS
+//   - Invited state: a person added with "Add a person" who has no account
+//     yet is not in `user` — their pending services live in
+//     `pre_authorized_grant` until their first sign-in binds them into grants
+//     (AccessCacheService.bindPreAuthorizedGrant on their first /verify). So
+//     /admin/users cannot list them, and without a second feed an admin who
+//     had just invited someone would see nothing change. `invites`
+//     (fetchAdminInvites(), one entry per email) is that feed: invites render
+//     as rows in the SAME People table, searched and sorted by email with the
+//     active users, under an "Invited" badge, and count toward the People
+//     tile and the section count — but not toward Granted, which counts
+//     people who actually have access. An invite and a user can share an
+//     email for a moment (a person's Google sign-in creates the user before
+//     their first service visit binds the invite); both rows render, under
+//     distinct keys, rather than the dashboard guessing which one wins.
+//     An invited row's "Edit access" opens EditInviteModal
+//     (edit-invite-modal.tsx; see its header comment for why it is not
+//     EditAccessModal and for the delta/warning-toast behaviour). Its
+//     "Cancel invite" is handled HERE (handleCancelInvite) for the reason
+//     handleRemove is: the toast and any error outlive the dialog. When the
+//     person signed in first, removeInvites() reports nothing removed (their
+//     invite is already grants), and the toast says that instead of
+//     "Invite cancelled".
+//   - M3: `queue`/`users`/`invites` are the `initialQueue`/`initialUsers`/
+//     `initialInvites` PROPS
 //     directly, not a local useState mirror — every mutation below already
 //     publishes to the admin broadcast topic (see the live-updates bullet
 //     next), which router.refresh() reacts to by re-running page.tsx's
@@ -110,7 +141,7 @@ export type AdminDashboardClientProps = {
 //     regardless of which mutation fired: router.refresh(), which re-runs
 //     page.tsx's Server Component and re-fetches queue/users/services via
 //     the existing requireAdminQueue()/fetchAdminUsers()/
-//     fetchAdminServices() calls — never a bespoke per-mutation Server
+//     fetchAdminInvites()/fetchAdminServices() calls — never a bespoke per-mutation Server
 //     Action. See the SSE effect below for the reconnect-backoff/poll-floor
 //     mechanics, ported verbatim from src/app/pending/pending-client.tsx.
 //   - People/Blocked split: `users` is partitioned into `activeUsers` and
@@ -140,6 +171,7 @@ const POLL_FLOOR_MS = 30_000
 export function AdminDashboardClient({
   initialQueue,
   initialUsers,
+  initialInvites,
   services,
   discordUnlinked,
   discordLinks,
@@ -149,6 +181,7 @@ export function AdminDashboardClient({
   // the props are the whole story now.
   const queue = initialQueue
   const users = initialUsers
+  const invites = initialInvites
   const [selectedRequestIds, setSelectedRequestIds] = useState<Set<number>>(
     new Set(),
   )
@@ -165,6 +198,8 @@ export function AdminDashboardClient({
   const [accessModalUser, setAccessModalUser] = useState<AdminUserEntry | null>(
     null,
   )
+  const [inviteModalInvite, setInviteModalInvite] =
+    useState<AdminInviteEntry | null>(null)
 
   // A write-only trigger, bumped only by the SSE effect's own 'error'
   // handler below — see pending-client.tsx's identical `epoch` for the
@@ -174,7 +209,7 @@ export function AdminDashboardClient({
 
   // Whether the admin SSE stream has opened at least once since mount. The
   // FIRST open lands a moment after page.tsx rendered these very props, so
-  // refreshing on it only re-ran the same five backend reads for nothing
+  // refreshing on it only re-ran the same six backend reads for nothing
   // (every page load cost two full renders). Every LATER open — the
   // browser's own auto-reconnect, or a rebuilt EventSource after an
   // sseEpoch bump — follows a gap where events may have been missed, so
@@ -319,6 +354,32 @@ export function AdminDashboardClient({
     [filteredUsers],
   )
 
+  // The People table's rows: active users and invites together, searched on
+  // email (filteredUsers above already applied the term to the users) and
+  // sorted by email. Users are listed first so that when a user and an invite
+  // share an email, the sort (stable) keeps the account above its leftover
+  // invite.
+  const personRows = useMemo<PersonRow[]>(() => {
+    const term = searchTerm.trim().toLowerCase()
+    const inviteRows: PersonRow[] = invites
+      .filter(invite => !term || invite.email.toLowerCase().includes(term))
+      .map(invite => ({
+        kind: 'invite',
+        key: `invite:${invite.email}`,
+        email: invite.email,
+        invite,
+      }))
+    const userRows: PersonRow[] = activeUsers.map(user => ({
+      kind: 'user',
+      key: user.id,
+      email: user.email,
+      user,
+    }))
+    return [...userRows, ...inviteRows].sort((a, b) =>
+      a.email.localeCompare(b.email),
+    )
+  }, [activeUsers, invites, searchTerm])
+
   // Blocking asks first, for everyone: it revokes the person's /verify access
   // to every gated service. For an admin the confirm says they keep this
   // dashboard — they keep /admin access via AdminGuard's own, deliberately
@@ -355,6 +416,25 @@ export function AdminDashboardClient({
       await removeUser(userId)
       showToast('Access removed')
       closeAccessModal()
+    })
+  }
+
+  // Cancelling an invite withdraws every pending host in one call. `removed`
+  // is what was actually pending: empty means the person signed in first and
+  // their invite was already bound into grants, so nothing was cancelled and
+  // the toast must not claim it was. The dialog closes either way.
+  function handleCancelInvite(invite: AdminInviteEntry) {
+    runAction(async () => {
+      const result = await removeInvites(invite.email, invite.serviceHosts)
+      if (result.removed.length > 0) {
+        showToast('Invite cancelled')
+      } else {
+        showToast(
+          `${invite.email} has signed in. Edit their access from their row.`,
+          'warn',
+        )
+      }
+      closeInviteModal()
     })
   }
 
@@ -409,6 +489,14 @@ export function AdminDashboardClient({
     setAccessModalUser(null)
   }
 
+  function openInviteModal(invite: AdminInviteEntry) {
+    setInviteModalInvite(invite)
+  }
+
+  function closeInviteModal() {
+    setInviteModalInvite(null)
+  }
+
   function handleSignOut() {
     void signOut().then(() => {
       window.location.href = '/login'
@@ -451,7 +539,7 @@ export function AdminDashboardClient({
         ) : null}
 
         <StatTiles
-          people={users.length}
+          people={users.length + invites.length}
           granted={grantedUsersCount}
           pending={queue.length}
         />
@@ -468,12 +556,13 @@ export function AdminDashboardClient({
         />
 
         <PeopleList
-          users={activeUsers}
+          rows={personRows}
           searchTerm={searchTerm}
           isPending={isPending}
           onSearchChange={setSearchTerm}
           onAddPerson={openAddModal}
           onEdit={openAccessModal}
+          onEditInvite={openInviteModal}
           onBlock={handleBlockClick}
         />
 
@@ -520,6 +609,20 @@ export function AdminDashboardClient({
         onRemove={handleRemove}
         onSignOutEverywhere={handleSignOutEverywhere}
         onUnlinkDiscord={handleUnlinkDiscord}
+      />
+
+      {/* Keyed by email like EditAccessModal is by id, but 'no-invite' rather
+          than 'none' when closed: both modals are siblings here, and two
+          children keyed 'none' make React warn about duplicate keys. */}
+      <EditInviteModal
+        key={inviteModalInvite?.email ?? 'no-invite'}
+        invite={inviteModalInvite}
+        onClose={closeInviteModal}
+        services={services}
+        isPending={isPending}
+        startTransition={startTransition}
+        showToast={showToast}
+        onCancelInvite={handleCancelInvite}
       />
 
       <ConfirmDialog

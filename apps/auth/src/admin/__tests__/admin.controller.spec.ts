@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common'
+import type { AuthService } from '@thallesp/nestjs-better-auth'
 import BetterSqlite3 from 'better-sqlite3'
 import { and, desc, eq } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
@@ -14,7 +15,7 @@ import type {
   ServiceRegistryService,
 } from 'src/services/service-registry.service'
 import { NotifyBusService } from 'src/sse/notify-bus.service'
-import type { AccessCacheService } from 'src/verify/access-cache.service'
+import { AccessCacheService } from 'src/verify/access-cache.service'
 
 // Access-rule patterns are validated against this suffix (see
 // src/grants/host-matcher.ts's HostMatcherSchema).
@@ -403,6 +404,134 @@ describe('AdminController', () => {
         ok: true,
         sessionsRevoked: 0,
       })
+    })
+  })
+
+  // Pending invites: GET /admin/invites, POST /admin/invites/remove, and the
+  // `outcome` the pre-authorize route now reports. The registry holds the
+  // literal hosts used below so preAuthorize() passes its registry check.
+  describe('pending invites', () => {
+    const registry = [
+      { host: 'swole.lilnas.io', gatedBy: 'lilnas-auth' },
+      { host: 'yacht.lilnas.io', gatedBy: 'lilnas-auth' },
+    ] satisfies ServiceRegistryEntry[]
+    let accessCache: AccessCacheService
+    let invitesController: AdminController
+
+    function insertInvite(email: string, serviceHost: string, at: Date): void {
+      testDb.db
+        .insert(schema.preAuthorizedGrant)
+        .values({ email, serviceHost, createdAt: at })
+        .run()
+    }
+
+    beforeEach(() => {
+      // A real AccessCacheService (bindPreAuthorizedGrant never touches its
+      // AuthService) so the bind test below runs the production code path.
+      accessCache = new AccessCacheService(
+        testDb.db,
+        {} as unknown as AuthService<never>,
+        fakeLogger(),
+      )
+      const notifyBus = new NotifyBusService()
+      invitesController = new AdminController(
+        testDb.db,
+        new RequestsService(testDb.db, accessCache, notifyBus),
+        fakeServiceRegistry(registry),
+        new UsersService(testDb.db, accessCache, notifyBus, fakeLogger()),
+      )
+    })
+
+    it('invites() groups rows per email with sorted hosts, the earliest createdAt, sorted by email', () => {
+      insertInvite('zed@example.com', 'yacht.lilnas.io', new Date(3000))
+      insertInvite('amy@example.com', 'yacht.lilnas.io', new Date(2000))
+      insertInvite('amy@example.com', 'swole.lilnas.io', new Date(1000))
+      insertInvite('zed@example.com', 'swole.lilnas.io', new Date(5000))
+
+      expect(invitesController.invites()).toEqual([
+        {
+          email: 'amy@example.com',
+          serviceHosts: ['swole.lilnas.io', 'yacht.lilnas.io'],
+          createdAt: new Date(1000).toISOString(),
+        },
+        {
+          email: 'zed@example.com',
+          serviceHosts: ['swole.lilnas.io', 'yacht.lilnas.io'],
+          createdAt: new Date(3000).toISOString(),
+        },
+      ])
+    })
+
+    it('invites() returns [] when nothing is pending', () => {
+      expect(invitesController.invites()).toEqual([])
+    })
+
+    it('invites() drops an email once bindPreAuthorizedGrant has run for it', async () => {
+      await invitesController.preAuthorize({
+        email: 'binding@example.com',
+        serviceHosts: ['swole.lilnas.io'],
+      })
+      expect(invitesController.invites()).toHaveLength(1)
+
+      const userId = seedUser(testDb.db, 'binding@example.com')
+      accessCache.bindPreAuthorizedGrant(
+        userId,
+        'binding@example.com',
+        'swole.lilnas.io',
+      )
+
+      expect(invitesController.invites()).toEqual([])
+    })
+
+    it("preAuthorize() reports outcome 'invited' for a new email and 'granted' for an existing user", async () => {
+      seedUser(testDb.db, 'existing@example.com')
+
+      await expect(
+        invitesController.preAuthorize({
+          email: 'brand-new@example.com',
+          serviceHosts: ['swole.lilnas.io'],
+        }),
+      ).resolves.toEqual({ ok: true, outcome: 'invited' })
+      await expect(
+        invitesController.preAuthorize({
+          email: 'existing@example.com',
+          serviceHosts: ['swole.lilnas.io'],
+        }),
+      ).resolves.toEqual({ ok: true, outcome: 'granted' })
+    })
+
+    it('removeInvites() rejects an invalid body with BadRequestException without touching the DB', () => {
+      insertInvite('keep@example.com', 'swole.lilnas.io', new Date(1000))
+
+      expect(() =>
+        invitesController.removeInvites({
+          email: 'keep@example.com',
+          serviceHosts: [],
+        }),
+      ).toThrow(BadRequestException)
+      expect(() => invitesController.removeInvites('nope')).toThrow(
+        BadRequestException,
+      )
+
+      expect(invitesController.invites()).toHaveLength(1)
+    })
+
+    it('removeInvites() returns the removed hosts for a valid body, even for a host not in the registry', () => {
+      insertInvite('gone@example.com', 'swole.lilnas.io', new Date(1000))
+      insertInvite('gone@example.com', 'retired.lilnas.io', new Date(1000))
+
+      expect(
+        invitesController.removeInvites({
+          email: 'Gone@example.com',
+          serviceHosts: ['retired.lilnas.io', 'unrelated.lilnas.io'],
+        }),
+      ).toEqual({ ok: true, removed: ['retired.lilnas.io'] })
+      expect(invitesController.invites()).toEqual([
+        expect.objectContaining({
+          email: 'gone@example.com',
+          serviceHosts: ['swole.lilnas.io'],
+        }),
+      ])
     })
   })
 

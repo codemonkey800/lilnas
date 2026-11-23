@@ -21,6 +21,7 @@ import {
 import { EnvKeys } from 'src/env'
 import {
   listGrantsForUser,
+  listPreAuthorizedGrantRows,
   listUsersWithGrantHistory,
 } from 'src/grants/grants.repo'
 import { HostMatcherSchema, isHostPattern } from 'src/grants/host-matcher'
@@ -36,11 +37,12 @@ import {
   BulkRejectBodySchema,
   LinkDiscordBodySchema,
   PreAuthorizeBodySchema,
+  RemoveInvitesBodySchema,
   SetUserServicesBodySchema,
   UnlinkDiscordBodySchema,
 } from './admin.dto'
 import { AdminGuard, isAdminEmail } from './admin.guard'
-import { UsersService } from './users.service'
+import { type PreAuthorizeOutcome, UsersService } from './users.service'
 
 export type QueueEntry = {
   id: number
@@ -87,6 +89,18 @@ export type AdminUserEntry = {
   // whenever Discord reports a rename). Null exactly when discordUserId is
   // null; the two always move together.
   discordUsername: string | null
+}
+
+// One pending invite per email: every pre_authorized_grant row of that
+// address folded together. The email has no `user` row yet (usually — see
+// AdminController.invites()), so there is no person to hang these on; the
+// address is the identity.
+export type AdminInviteEntry = {
+  email: string
+  // Every host still pending for this email, sorted with localeCompare.
+  serviceHosts: string[]
+  // ISO; the EARLIEST created_at among this email's rows — "invited since".
+  createdAt: string
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -244,6 +258,48 @@ export class AdminController {
     })
   }
 
+  // Pending invites: every pre_authorized_grant row, grouped by email. Without
+  // this the table was write-only from the admin's side — "Add a person" for
+  // an email with no `user` row left rows nobody could see or take back. A
+  // plain read, so it calls the repo inline like queue()/users() above.
+  //
+  // Lists EVERY pending row, including those of an email that already has a
+  // `user` row: such a row is still a real pending pre-authorization (it
+  // binds on that person's next verify), and hiding it would hide something
+  // the admin can cancel. Rows leave this list when
+  // AccessCacheService.bindPreAuthorizedGrant() consumes them on a first
+  // sign-in. Entries come out sorted by email because the repo returns rows
+  // ordered by (email, serviceHost); hosts are re-sorted with localeCompare
+  // so the order matches the rest of the dashboard's host lists.
+  @Get('invites')
+  invites(): AdminInviteEntry[] {
+    const byEmail = new Map<
+      string,
+      { serviceHosts: string[]; createdAt: Date }
+    >()
+    for (const row of listPreAuthorizedGrantRows(this.db)) {
+      const entry = byEmail.get(row.email)
+      if (entry) {
+        entry.serviceHosts.push(row.serviceHost)
+        if (row.createdAt < entry.createdAt) {
+          entry.createdAt = row.createdAt
+        }
+      } else {
+        byEmail.set(row.email, {
+          serviceHosts: [row.serviceHost],
+          createdAt: row.createdAt,
+        })
+      }
+    }
+    return [...byEmail.entries()]
+      .map(([email, { serviceHosts, createdAt }]) => ({
+        email,
+        serviceHosts: serviceHosts.sort((a, b) => a.localeCompare(b)),
+        createdAt: createdAt.toISOString(),
+      }))
+      .sort((a, b) => a.email.localeCompare(b.email))
+  }
+
   // "Add by email," M3's batched form — one call for every service the
   // admin checked, not one call per checkbox (see
   // UsersService.preAuthorizeMany()'s own comment for the "one transaction
@@ -254,14 +310,40 @@ export class AdminController {
   // not in the registry is rejected with a clear message, and that now
   // applies per host: one unknown host in the batch fails the whole
   // request, rather than partially applying the known ones first.
+  //
+  // `outcome` reports which branch ran — 'invited' (no `user` row yet, so
+  // pending rows now show in GET /admin/invites) or 'granted' (an existing
+  // person, who now holds real grants) — so the dashboard can tell the admin
+  // where the result landed.
   @Post('users/pre-authorize')
-  async preAuthorize(@Body() body: unknown): Promise<{ ok: true }> {
+  async preAuthorize(
+    @Body() body: unknown,
+  ): Promise<{ ok: true; outcome: PreAuthorizeOutcome }> {
     const { email, serviceHosts } = this.parseBody(PreAuthorizeBodySchema, body)
     await Promise.all(
       serviceHosts.map(serviceHost => this.assertKnownServiceHost(serviceHost)),
     )
-    this.usersService.preAuthorizeMany(email, serviceHosts)
-    return { ok: true }
+    const outcome = this.usersService.preAuthorizeMany(email, serviceHosts)
+    return { ok: true, outcome }
+  }
+
+  // "Cancel invite" — a POST with a body, like every mutation here (the
+  // identifying pair is (email, hosts), and an email does not belong in a
+  // path). `removed` is the subset of the requested hosts whose pending row
+  // this call actually deleted — see UsersService.removeInvites() for why
+  // that matters (a person who signed in a moment earlier has already had
+  // their rows bound into grants, so a cancel deletes nothing and the caller
+  // must be able to tell). Hosts are NOT checked against the service
+  // registry: a rule for a host that has left the registry must stay
+  // removable, as revokes do in setUserServices() above.
+  @Post('invites/remove')
+  removeInvites(@Body() body: unknown): { ok: true; removed: string[] } {
+    const { email, serviceHosts } = this.parseBody(
+      RemoveInvitesBodySchema,
+      body,
+    )
+    const removed = this.usersService.removeInvites(email, serviceHosts)
+    return { ok: true, removed }
   }
 
   // "Edit a user's services," M3's batched form — a set of explicit

@@ -31,4 +31,10 @@ export const pages = [
     title: 'Admin',
     desc: 'Access control: pending requests, people, Discord links, blocked accounts, both dialogs, the confirms and the error boundary.',
   },
+  {
+    href: 'invited.html',
+    icon: 'mail',
+    title: 'Invited people',
+    desc: 'People added with Add a person who haven’t signed in yet: invited rows, search, Edit access and Cancel invite, the empty-service error and the toasts.',
+  },
 ]

@@ -186,10 +186,20 @@ mixin authCell(col, row, view)
   case col.type
     when 'person'
       div(class='flex min-w-0 items-center gap-3')
-        +avatar(initialsOf(v.name), { size: 32 })
-        span(class='flex min-w-0 flex-col')
-          span(class='truncate text-[13.5px] font-medium')= v.name
-          span(class='truncate font-mono text-mono-sm text-ink-3')= v.email
+        if v.name
+          +avatar(initialsOf(v.name), { size: 32 })
+          span(class='flex min-w-0 flex-col')
+            span(class='truncate text-[13.5px] font-medium')= v.name
+            span(class='truncate font-mono text-mono-sm text-ink-3')= v.email
+        else
+          //- An invited person: no name is known before they sign in, so the
+          //- email is the title (as the real PersonCell) and `note` is the
+          //- line under it. The avatar carries the email's first letter.
+          +avatar(v.email[0].toUpperCase(), { size: 32 })
+          span(class='flex min-w-0 flex-col')
+            span(class='truncate font-mono text-mono')= v.email
+            if v.note
+              span(class='truncate text-cap text-ink-3')= v.note
     when 'badge'
       +badge(v)
     when 'services'
@@ -207,6 +217,11 @@ mixin authCell(col, row, view)
     when 'discord'
       if v
         +discordChip(v)
+      else if row.invited
+        //- Nothing to link yet: a Discord account pairs with a person who has
+        //- signed in. A dash, not "Not linked", which would invite an action.
+        span(class='text-cap text-ink-4' aria-hidden='true') —
+        span(class='sr-only') Available after they sign in
       else
         span(class='text-cap text-ink-3') Not linked
     when 'actions'
@@ -299,8 +314,13 @@ mixin adminTitle
     h1(class='text-h1') Access control
     p(class='text-body text-ink-3') Review requests and manage who can reach what behind the gate.
 
-mixin statTiles(stats)
-  div(class='grid grid-cols-3 gap-3')&attributes(attributes)
+//-
+  Three tiles, or four when the dashboard adds an "Invited" tile (invited.pug
+  draws it as an option). `view` only matters for four: 2 × 2 on the phone,
+  because four tiles in 358px leave "Invited" no room.
+mixin statTiles(stats, view)
+  - const cols = stats.length > 3 ? (view === 'mobile' ? 'grid-cols-2' : 'grid-cols-4') : 'grid-cols-3'
+  div(class=['grid', cols, 'gap-3'])&attributes(attributes)
     each s in stats
       -
         const flagged = s.label === 'Pending' && s.value > 0
@@ -452,6 +472,7 @@ mixin accessRules(rules, opts)
         div
           +btn({ variant: 'ghost', size: 'sm', icon: 'plus', label: '*.dev.lilnas.io' })
 
+//- `serviceError` is the message under the service grid when nothing is picked.
 mixin addPersonDialog(d, opts)
   - opts = opts || {}
   +dialog({ title: 'Add a person', confirm: 'Add person' })
@@ -459,7 +480,7 @@ mixin addPersonDialog(d, opts)
       p(class='text-ink-3') Give someone access before they ask — handy for family and friends you’re onboarding.
       +field('Email address', null, opts.error ? 'Enter an email like name@example.com.' : null)
         +input({ type: 'email', placeholder: 'name@example.com', value: opts.email, error: !!opts.error, mono: true })
-      +field('Grant access to')
+      +field('Grant access to', null, opts.serviceError)
         +serviceGrid(d.serviceList, opts.checked || [], opts.view)
       +accessRules(opts.rules || [])
 
@@ -483,6 +504,27 @@ mixin editAccessDialog(d, opts)
       div(class='flex flex-wrap gap-2 border-t border-line-soft pt-4')
         +btn({ variant: 'outline', size: 'sm', icon: 'logout', label: 'Sign out everywhere' })
         +btn({ variant: 'bad', size: 'sm', icon: 'trash', label: 'Remove access' })
+
+//-
+  Edit access for someone who hasn't signed in. Same shell as
+  editAccessDialog, minus what needs an account: no Discord field, no Sign out
+  everywhere, no Remove access. The destructive button where Remove access
+  sits is the invite's own: Cancel invite.
+    p  { email, invited, services (hosts), rules }
+mixin inviteEditDialog(d, p, opts)
+  - opts = opts || {}
+  +dialog({ title: 'Edit access', confirm: 'Save access' })
+    div(class='flex flex-col gap-4')
+      div(class='flex items-center gap-3')
+        +avatar(p.email[0].toUpperCase(), { size: 32 })
+        span(class='flex min-w-0 flex-col')
+          span(class='truncate font-mono text-mono text-ink')= p.email
+          span(class='text-cap text-ink-3')= p.invitedLine
+      +field('Services')
+        +serviceGrid(d.serviceList, p.services, opts.view)
+      +accessRules(p.rules)
+      div(class='flex flex-wrap gap-2 border-t border-line-soft pt-4')
+        +btn({ variant: 'bad', size: 'sm', icon: 'trash', label: 'Cancel invite' })
 
 //- A destructive confirm over the (dimmed) people list. The block is the body.
 mixin confirmDialog(c)

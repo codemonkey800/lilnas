@@ -18,13 +18,14 @@ screen at 1280 and 390 behind the viewport switch, one captioned row per state.
 
 ## Pages
 
-| Page                      | Shows                                                                                                                                                                                                                                         |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`login`](login.html)     | The centred 380px gate card: no target, with a target, `?error=`, redirecting (button loading + toast)                                                                                                                                        |
-| [`home`](home.html)       | Account card, status badge, session details, service tiles — admin, member, pending, blocked, no access — and the phone's menu sheet                                                                                                          |
-| [`pending`](pending.html) | Waiting, checking (spinning icon) and declined                                                                                                                                                                                                |
-| [`blocked`](blocked.html) | Access blocked, and the "Still blocked" toast                                                                                                                                                                                                 |
-| [`admin`](admin.html)     | Stats, pending requests, People (table at 1280, card list at 390 from one column definition), Discord links, Blocked, Add person and Edit access dialogs, the destructive confirms that replace `window.confirm`, error boundary, every toast |
+| Page                      | Shows                                                                                                                                                                                                                                                   |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`login`](login.html)     | The centred 380px gate card: no target, with a target, `?error=`, redirecting (button loading + toast)                                                                                                                                                  |
+| [`home`](home.html)       | Account card, status badge, session details, service tiles — admin, member, pending, blocked, no access — and the phone's menu sheet                                                                                                                    |
+| [`pending`](pending.html) | Waiting, checking (spinning icon) and declined                                                                                                                                                                                                          |
+| [`blocked`](blocked.html) | Access blocked, and the "Still blocked" toast                                                                                                                                                                                                           |
+| [`admin`](admin.html)     | Stats, pending requests, People (table at 1280, card list at 390 from one column definition), Discord links, Blocked, Add person and Edit access dialogs, the destructive confirms that replace `window.confirm`, error boundary, every toast           |
+| [`invited`](invited.html) | Invited people (added, not signed in yet) as People rows: the badge, pending services, search, Edit access with Cancel invite, its confirm, the no-service error, and the toasts. Nexus review frames at 1280 and 390 |
 
 ## Layout
 

@@ -24,7 +24,9 @@ import { isHostPattern } from 'src/grants/host-matcher'
 // users-client.tsx's identical helper; see that file's own history for the
 // "why." Access-rule patterns in the user's grants are left out — they
 // aren't services to check, and AccessRulesField renders them instead.
-function visibleServiceHosts(
+// Exported so edit-invite-modal.tsx builds its grid the same way: an invite's
+// pending hosts can leave the registry just as a grant can.
+export function visibleServiceHosts(
   userServices: string[],
   services: AdminServiceEntry[],
 ): string[] {

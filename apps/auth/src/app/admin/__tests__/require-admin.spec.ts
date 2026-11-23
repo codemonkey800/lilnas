@@ -2,6 +2,7 @@ import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 
 import {
+  fetchAdminInvites,
   fetchAdminServices,
   fetchDiscordLinks,
   fetchDiscordUnlinked,
@@ -179,6 +180,67 @@ describe('fetchAdminServices', () => {
       .mockResolvedValue(new Response(null, { status: 401 }))
 
     await expect(fetchAdminServices()).rejects.toThrow('NEXT_REDIRECT:/login')
+    expect(redirect).toHaveBeenCalledWith('/login')
+
+    fetchSpy.mockRestore()
+  })
+})
+
+// Plan 020: the pending-invites read. Like fetchAdminServices above it shares
+// fetchFromAdminApi()'s already-covered 401/403/error branches, so these
+// tests cover what is specific to it: the path, the cookie, and that the
+// backend's ordering survives untouched.
+describe('fetchAdminInvites', () => {
+  beforeEach(() => {
+    ;(redirect as unknown as jest.Mock).mockClear()
+  })
+
+  it('calls GET /admin/invites, forwards the cookie, and returns the array in backend order', async () => {
+    mockIncomingCookie('lilnas-auth.session_token=abc123')
+    // Deliberately NOT sorted by email or createdAt — a display-side
+    // re-sort would reorder these.
+    const invites = [
+      {
+        email: 'zoe@example.com',
+        serviceHosts: ['swole.lilnas.io'],
+        createdAt: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        email: 'aaron@example.com',
+        serviceHosts: ['swole.lilnas.io', 'yacht.lilnas.io'],
+        createdAt: '2026-03-01T00:00:00.000Z',
+      },
+    ]
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify(invites), { status: 200 }))
+
+    const result = await fetchAdminInvites()
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'http://localhost:8081/admin/invites',
+      expect.objectContaining({
+        method: 'GET',
+        headers: { cookie: 'lilnas-auth.session_token=abc123' },
+      }),
+    )
+    expect(result).toEqual(invites)
+    expect(result.map(invite => invite.email)).toEqual([
+      'zoe@example.com',
+      'aaron@example.com',
+    ])
+    expect(redirect).not.toHaveBeenCalled()
+
+    fetchSpy.mockRestore()
+  })
+
+  it('a 401 redirects to /login, same as requireAdminQueue', async () => {
+    mockIncomingCookie(undefined)
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 401 }))
+
+    await expect(fetchAdminInvites()).rejects.toThrow('NEXT_REDIRECT:/login')
     expect(redirect).toHaveBeenCalledWith('/login')
 
     fetchSpy.mockRestore()
@@ -390,6 +452,7 @@ describe('backend origin', () => {
   it.each([
     ['requireAdminQueue', requireAdminQueue, '/admin/queue', []],
     ['fetchAdminServices', fetchAdminServices, '/admin/services', []],
+    ['fetchAdminInvites', fetchAdminInvites, '/admin/invites', []],
     [
       'fetchDiscordUnlinked',
       fetchDiscordUnlinked,

@@ -1,5 +1,6 @@
 import { AdminDashboardClient } from './admin-dashboard-client'
 import {
+  fetchAdminInvites,
   fetchAdminServices,
   fetchAdminUsers,
   fetchDiscordLinks,
@@ -11,19 +12,21 @@ import {
 // (/admin, /admin/queue, /admin/users) with one screen. requireAdminQueue()
 // is both the session/admin check (redirects to /login otherwise — see
 // require-admin.ts's own comment) and the pending-queue data itself;
-// fetchAdminUsers()/fetchAdminServices()/the two Discord fetches share that
-// same guard.
+// fetchAdminUsers()/fetchAdminInvites()/fetchAdminServices()/the two Discord
+// fetches share that same guard. fetchAdminInvites() feeds the People table's
+// "Invited" rows (people added who haven't signed in, so they have no user).
 //
-// All five run concurrently rather than sequentially: they are independent
+// All six run concurrently rather than sequentially: they are independent
 // reads against the same already-authorized backend, and the guard property
 // is unaffected by the concurrency — an unauthorized request makes EVERY
 // one of them 401, and Promise.all rejects with whichever redirect() throws
 // first, which is the same /login navigation regardless of which won.
 export default async function AdminPage() {
-  const [queue, users, services, discordUnlinked, discordLinks] =
+  const [queue, users, invites, services, discordUnlinked, discordLinks] =
     await Promise.all([
       requireAdminQueue(),
       fetchAdminUsers(),
+      fetchAdminInvites(),
       fetchAdminServices(),
       fetchDiscordUnlinked(),
       fetchDiscordLinks(),
@@ -33,6 +36,7 @@ export default async function AdminPage() {
     <AdminDashboardClient
       initialQueue={queue}
       initialUsers={users}
+      initialInvites={invites}
       services={services}
       discordUnlinked={discordUnlinked}
       discordLinks={discordLinks}

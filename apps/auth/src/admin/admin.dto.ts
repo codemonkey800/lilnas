@@ -1,6 +1,9 @@
 import { z } from 'zod'
 
-import { HostMatcherSchema } from 'src/grants/host-matcher'
+import {
+  HostMatcherSchema,
+  normalizeHostMatcher,
+} from 'src/grants/host-matcher'
 
 // ──────────────────────────────────────────────────────────────────────────────
 // S3: request-body validation for admin.controller.ts's mutating routes.
@@ -40,6 +43,26 @@ export const PreAuthorizeBodySchema = z.object({
   serviceHosts: z.array(HostMatcherSchema).min(1),
 })
 export type PreAuthorizeBodyDto = z.infer<typeof PreAuthorizeBodySchema>
+
+// Cancelling pending invites: the email plus the hosts to take back, as
+// explicit deltas like every other mutation here. Hosts are normalized with
+// the same trim + lowercase rule HostMatcherSchema applies, so a rule typed
+// as ` *.Dev.lilnas.io ` finds the row stored as `*.dev.lilnas.io`.
+//
+// This deliberately does NOT use HostMatcherSchema. That schema rejects a
+// wildcard rule outside REDIRECT_ALLOWED_SUFFIX — right for creating a rule,
+// wrong for removing one: a row stored under an older suffix setting (or any
+// rule that has since fallen outside it) must stay removable, or it would be
+// a pending invite no admin could ever cancel. Removal only ever matches
+// against rows that already exist, so there is nothing to protect by
+// validating the shape of what is being deleted.
+export const RemoveInvitesBodySchema = z.object({
+  email: z.string().email(),
+  serviceHosts: z
+    .array(z.string().min(1).transform(normalizeHostMatcher))
+    .min(1),
+})
+export type RemoveInvitesBodyDto = z.infer<typeof RemoveInvitesBodySchema>
 
 export const SetUserServicesBodySchema = z.object({
   changes: z

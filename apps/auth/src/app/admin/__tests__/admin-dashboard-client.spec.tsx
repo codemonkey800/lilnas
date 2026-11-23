@@ -12,6 +12,7 @@ import type { ReactElement } from 'react'
 import { AdminDashboardClient } from 'src/app/admin/admin-dashboard-client'
 import type {
   AdminDiscordUnlinked,
+  AdminInviteEntry,
   AdminServiceEntry,
   AdminUserEntry,
 } from 'src/app/admin/require-admin'
@@ -27,6 +28,7 @@ const mockBlockUser = jest.fn()
 const mockBulkRejectRequests = jest.fn()
 const mockPreAuthorizeUsers = jest.fn()
 const mockRejectRequest = jest.fn()
+const mockRemoveInvites = jest.fn()
 const mockRemoveUser = jest.fn()
 const mockRevokeSessions = jest.fn()
 const mockSetUserServices = jest.fn()
@@ -41,6 +43,7 @@ jest.mock('src/app/admin/actions', () => ({
   linkDiscordAccount: (...args: unknown[]) => mockLinkDiscordAccount(...args),
   preAuthorizeUsers: (...args: unknown[]) => mockPreAuthorizeUsers(...args),
   rejectRequest: (...args: unknown[]) => mockRejectRequest(...args),
+  removeInvites: (...args: unknown[]) => mockRemoveInvites(...args),
   removeUser: (...args: unknown[]) => mockRemoveUser(...args),
   revokeSessions: (...args: unknown[]) => mockRevokeSessions(...args),
   setUserServices: (...args: unknown[]) => mockSetUserServices(...args),
@@ -112,6 +115,15 @@ const TWO_SERVICES: AdminServiceEntry[] = [
   { host: 'tdr.lilnas.io', gatedBy: 'lilnas-auth' },
 ]
 
+function buildInvite(overrides: Partial<AdminInviteEntry>): AdminInviteEntry {
+  return {
+    email: 'invitee@example.com',
+    serviceHosts: ['swole.lilnas.io'],
+    createdAt: '2026-11-23T12:00:00.000Z',
+    ...overrides,
+  }
+}
+
 function buildUser(overrides: Partial<AdminUserEntry>): AdminUserEntry {
   return {
     id: 'user_1',
@@ -175,6 +187,7 @@ function renderWithUsers(
     <AdminDashboardClient
       initialQueue={[]}
       initialUsers={users}
+      initialInvites={[]}
       services={SERVICES}
       discordUnlinked={NO_DISCORD}
       discordLinks={[]}
@@ -218,6 +231,7 @@ describe('AdminDashboardClient — People/Blocked split', () => {
       <AdminDashboardClient
         initialQueue={[]}
         initialUsers={[active]}
+        initialInvites={[]}
         services={SERVICES}
         discordUnlinked={NO_DISCORD}
         discordLinks={[]}
@@ -238,6 +252,7 @@ describe('AdminDashboardClient — People/Blocked split', () => {
       <AdminDashboardClient
         initialQueue={[]}
         initialUsers={[blocked]}
+        initialInvites={[]}
         services={SERVICES}
         discordUnlinked={NO_DISCORD}
         discordLinks={[]}
@@ -264,6 +279,7 @@ describe('AdminDashboardClient — People/Blocked split', () => {
       <AdminDashboardClient
         initialQueue={[]}
         initialUsers={[blockedAdmin]}
+        initialInvites={[]}
         services={SERVICES}
         discordUnlinked={NO_DISCORD}
         discordLinks={[]}
@@ -291,6 +307,7 @@ describe('AdminDashboardClient — People/Blocked split', () => {
       <AdminDashboardClient
         initialQueue={[]}
         initialUsers={[blocked]}
+        initialInvites={[]}
         services={SERVICES}
         discordUnlinked={NO_DISCORD}
         discordLinks={[]}
@@ -411,6 +428,7 @@ describe('AdminDashboardClient — Remove access', () => {
       <AdminDashboardClient
         initialQueue={[]}
         initialUsers={[admin]}
+        initialInvites={[]}
         services={SERVICES}
         discordUnlinked={NO_DISCORD}
         discordLinks={[]}
@@ -608,12 +626,13 @@ describe('AdminDashboardClient — Sign out everywhere (S2b)', () => {
 // batching) had no coverage at all. These tests close both gaps.
 // ──────────────────────────────────────────────────────────────────────────────
 describe('AdminDashboardClient — Add person modal (M2/M3)', () => {
-  it('a valid email with a service selected calls preAuthorizeUsers with that one host and shows a success toast', async () => {
-    mockPreAuthorizeUsers.mockResolvedValue(undefined)
+  it('a valid email with a service selected calls preAuthorizeUsers with that one host and toasts that they were invited', async () => {
+    mockPreAuthorizeUsers.mockResolvedValue({ ok: true, outcome: 'invited' })
     render(
       <AdminDashboardClient
         initialQueue={[]}
         initialUsers={[]}
+        initialInvites={[]}
         services={SERVICES}
         discordUnlinked={NO_DISCORD}
         discordLinks={[]}
@@ -638,19 +657,71 @@ describe('AdminDashboardClient — Add person modal (M2/M3)', () => {
     })
     await waitFor(() => {
       expect(
-        screen.getByText('Access granted to new.person@example.com'),
+        screen.getByText('Invited new.person@example.com'),
       ).toBeInTheDocument()
     })
+    expect(screen.queryByText(/Access granted to/)).toBeNull()
+  })
+
+  // Plan 020: the toast follows the backend's `outcome`, not a guess.
+  it('toasts "Access granted to <email>" when the email already had an account', async () => {
+    mockPreAuthorizeUsers.mockResolvedValue({ ok: true, outcome: 'granted' })
+    renderWithUsers([])
+
+    fireEvent.click(screen.getAllByRole('button', { name: /add person/i })[0]!)
+    const modal = screen.getByRole('dialog', { name: /add a person/i })
+    fireEvent.change(within(modal).getByLabelText('Email address'), {
+      target: { value: 'jane.doe@example.com' },
+    })
+    fireEvent.click(within(modal).getByRole('checkbox', { name: /swole/i }))
+    fireEvent.click(
+      within(modal).getByRole('button', { name: /^add person$/i }),
+    )
+
+    expect(
+      await screen.findByText('Access granted to jane.doe@example.com'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/^Invited /)).toBeNull()
+  })
+
+  it('shows a field error and makes no call and no toast when nothing is selected', () => {
+    renderWithUsers([])
+
+    fireEvent.click(screen.getAllByRole('button', { name: /add person/i })[0]!)
+    const modal = screen.getByRole('dialog', { name: /add a person/i })
+    fireEvent.change(within(modal).getByLabelText('Email address'), {
+      target: { value: 'erlyne@example.com' },
+    })
+    fireEvent.click(
+      within(modal).getByRole('button', { name: /^add person$/i }),
+    )
+
+    expect(
+      within(modal).getByText('Pick at least one service or rule.'),
+    ).toBeInTheDocument()
+    expect(mockPreAuthorizeUsers).not.toHaveBeenCalled()
+    expect(screen.queryByText(/Access granted to/)).toBeNull()
+    expect(screen.queryByText(/^Invited /)).toBeNull()
+    expect(
+      screen.getByRole('dialog', { name: /add a person/i }),
+    ).toBeInTheDocument()
+
+    // Picking a service clears it.
+    fireEvent.click(within(modal).getByRole('checkbox', { name: /swole/i }))
+    expect(
+      within(modal).queryByText('Pick at least one service or rule.'),
+    ).toBeNull()
   })
 
   // M3: the whole point of batching — checking multiple services sends ONE
   // preAuthorizeUsers() call with every host, not one call per checkbox.
   it('checking two services and confirming calls preAuthorizeUsers exactly once, with both hosts in one array', async () => {
-    mockPreAuthorizeUsers.mockResolvedValue(undefined)
+    mockPreAuthorizeUsers.mockResolvedValue({ ok: true, outcome: 'invited' })
     render(
       <AdminDashboardClient
         initialQueue={[]}
         initialUsers={[]}
+        initialInvites={[]}
         services={TWO_SERVICES}
         discordUnlinked={NO_DISCORD}
         discordLinks={[]}
@@ -685,6 +756,7 @@ describe('AdminDashboardClient — Add person modal (M2/M3)', () => {
       <AdminDashboardClient
         initialQueue={[]}
         initialUsers={[]}
+        initialInvites={[]}
         services={SERVICES}
         discordUnlinked={NO_DISCORD}
         discordLinks={[]}
@@ -708,6 +780,7 @@ describe('AdminDashboardClient — Add person modal (M2/M3)', () => {
       <AdminDashboardClient
         initialQueue={[]}
         initialUsers={[]}
+        initialInvites={[]}
         services={SERVICES}
         discordUnlinked={NO_DISCORD}
         discordLinks={[]}
@@ -744,6 +817,7 @@ describe('AdminDashboardClient — Edit access modal checkbox diffing (M2/M3)', 
       <AdminDashboardClient
         initialQueue={[]}
         initialUsers={[user]}
+        initialInvites={[]}
         services={SERVICES}
         discordUnlinked={NO_DISCORD}
         discordLinks={[]}
@@ -774,6 +848,7 @@ describe('AdminDashboardClient — Edit access modal checkbox diffing (M2/M3)', 
       <AdminDashboardClient
         initialQueue={[]}
         initialUsers={[user]}
+        initialInvites={[]}
         services={SERVICES}
         discordUnlinked={NO_DISCORD}
         discordLinks={[]}
@@ -807,6 +882,7 @@ describe('AdminDashboardClient — Edit access modal checkbox diffing (M2/M3)', 
       <AdminDashboardClient
         initialQueue={[]}
         initialUsers={[user]}
+        initialInvites={[]}
         services={TWO_SERVICES}
         discordUnlinked={NO_DISCORD}
         discordLinks={[]}
@@ -848,6 +924,7 @@ describe('AdminDashboardClient — Edit access modal checkbox diffing (M2/M3)', 
       <AdminDashboardClient
         initialQueue={[]}
         initialUsers={[user]}
+        initialInvites={[]}
         services={SERVICES}
         discordUnlinked={NO_DISCORD}
         discordLinks={[]}
@@ -882,6 +959,7 @@ describe('AdminDashboardClient — Edit access modal checkbox diffing (M2/M3)', 
       <AdminDashboardClient
         initialQueue={[]}
         initialUsers={[userA, userB]}
+        initialInvites={[]}
         services={TWO_SERVICES}
         discordUnlinked={NO_DISCORD}
         discordLinks={[]}
@@ -918,6 +996,7 @@ describe('AdminDashboardClient — access rules', () => {
       <AdminDashboardClient
         initialQueue={[]}
         initialUsers={[user]}
+        initialInvites={[]}
         services={SERVICES}
         discordUnlinked={NO_DISCORD}
         discordLinks={[]}
@@ -1017,11 +1096,12 @@ describe('AdminDashboardClient — access rules', () => {
   })
 
   it('the Add-person preset chip appends *.dev.lilnas.io to the hosts sent to preAuthorizeUsers', async () => {
-    mockPreAuthorizeUsers.mockResolvedValue(undefined)
+    mockPreAuthorizeUsers.mockResolvedValue({ ok: true, outcome: 'invited' })
     render(
       <AdminDashboardClient
         initialQueue={[]}
         initialUsers={[]}
+        initialInvites={[]}
         services={SERVICES}
         discordUnlinked={NO_DISCORD}
         discordLinks={[]}
@@ -1065,6 +1145,7 @@ describe('AdminDashboardClient — Discord handle on People rows', () => {
       <AdminDashboardClient
         initialQueue={[]}
         initialUsers={[linked]}
+        initialInvites={[]}
         services={SERVICES}
         discordUnlinked={NO_DISCORD}
         discordLinks={[]}
@@ -1092,6 +1173,7 @@ describe('AdminDashboardClient — Discord handle on People rows', () => {
       <AdminDashboardClient
         initialQueue={[]}
         initialUsers={[unlinkedUser]}
+        initialInvites={[]}
         services={SERVICES}
         discordUnlinked={NO_DISCORD}
         discordLinks={[]}
@@ -1114,6 +1196,7 @@ describe('AdminDashboardClient — Edit access modal, Discord section', () => {
       <AdminDashboardClient
         initialQueue={[]}
         initialUsers={[linked]}
+        initialInvites={[]}
         services={SERVICES}
         discordUnlinked={NO_DISCORD}
         discordLinks={[]}
@@ -1195,6 +1278,7 @@ describe('AdminDashboardClient — Edit access modal, Discord section', () => {
       <AdminDashboardClient
         initialQueue={[]}
         initialUsers={[unlinkedUser]}
+        initialInvites={[]}
         services={SERVICES}
         discordUnlinked={NO_DISCORD}
         discordLinks={[]}
@@ -1282,6 +1366,501 @@ describe('AdminDashboardClient — People and Blocked as one DataList', () => {
   })
 })
 
+// An invite is a person added with "Add a person" who has no account yet: it
+// comes from fetchAdminInvites() (pre_authorized_grant), not from the user
+// list, and renders as a row in the same People table.
+describe('AdminDashboardClient — invited people in People', () => {
+  const INVITE = buildInvite({
+    email: 'erlyne@example.com',
+    serviceHosts: ['swole.lilnas.io', 'tdr.lilnas.io'],
+    createdAt: '2026-11-23T12:00:00.000Z',
+  })
+
+  // The People section's count pill, read from its heading.
+  function peopleCount(): string {
+    const heading = screen.getByRole('heading', { name: /^People/ })
+    return heading.parentElement!.textContent ?? ''
+  }
+
+  function tileValue(label: string): string {
+    // The tile's label is the only `text-cap` span with this text; its value
+    // is the span just before it.
+    const labelEl = screen
+      .getAllByText(label)
+      .find(el => el.classList.contains('text-cap'))
+    return labelEl!.previousElementSibling!.textContent ?? ''
+  }
+
+  it('renders an invite as one table row and one card with email, badge, services and date', () => {
+    renderWithUsers([], { initialInvites: [INVITE] })
+
+    const matches = screen.getAllByText('erlyne@example.com')
+    expect(matches).toHaveLength(2)
+    const [tr, li] = matches.map(el => el.closest('tr, li')!) as [
+      HTMLElement,
+      HTMLElement,
+    ]
+    expect(tr.tagName).toBe('TR')
+    expect(li.tagName).toBe('LI')
+
+    const date = new Date(INVITE.createdAt).toLocaleDateString()
+    for (const row of [tr, li]) {
+      // The accent badge; "Invited <date>" under the email has the same text.
+      const badge = within(row)
+        .getAllByText('Invited')
+        .find(el => el.classList.contains('bg-accent-ghost'))
+      expect(badge).toBeDefined()
+      expect(within(row).getByText('swole.lilnas.io')).toBeInTheDocument()
+      expect(within(row).getByText('TDR Bot')).toBeInTheDocument()
+      expect(within(row).getByText(date)).toBeInTheDocument()
+      expect(
+        within(row).getByText('Available after they sign in'),
+      ).toBeInTheDocument()
+      expect(within(row).queryByText('Not linked')).toBeNull()
+    }
+  })
+
+  it('gives an invited row no Block button, and a normal row still has one', () => {
+    renderWithUsers([buildUser({ id: 'user_a', email: 'a@example.com' })], {
+      initialInvites: [INVITE],
+    })
+
+    const invitedRow = screen
+      .getAllByText('erlyne@example.com')[0]!
+      .closest('tr, li') as HTMLElement
+    expect(
+      within(invitedRow).queryByRole('button', { name: 'Block' }),
+    ).toBeNull()
+    expect(
+      within(invitedRow).getByRole('button', { name: 'Edit access' }),
+    ).toBeInTheDocument()
+
+    const normalRow = screen
+      .getAllByText('a@example.com')[0]!
+      .closest('tr, li') as HTMLElement
+    expect(
+      within(normalRow).getByRole('button', { name: 'Block' }),
+    ).toBeInTheDocument()
+  })
+
+  it('searches invited emails: part of one shows that row and hides the rest', () => {
+    renderWithUsers([buildUser({ id: 'user_a', email: 'a@example.com' })], {
+      initialInvites: [INVITE],
+    })
+
+    fireEvent.change(screen.getByLabelText('Search people'), {
+      target: { value: 'ERLY' },
+    })
+
+    expect(screen.getAllByText('erlyne@example.com')).toHaveLength(2)
+    expect(screen.queryByText('a@example.com')).toBeNull()
+    expect(screen.queryByText(/No one matches/)).toBeNull()
+  })
+
+  it('shows the existing empty state when a term matches nobody, invites included', () => {
+    renderWithUsers([buildUser({ id: 'user_a', email: 'a@example.com' })], {
+      initialInvites: [INVITE],
+    })
+
+    fireEvent.change(screen.getByLabelText('Search people'), {
+      target: { value: 'zed' },
+    })
+
+    expect(screen.getByText('No one matches “zed”')).toBeInTheDocument()
+    expect(screen.queryByText('erlyne@example.com')).toBeNull()
+  })
+
+  it('counts invites in the People tile and the section count, but not in Granted', () => {
+    renderWithUsers(
+      [
+        buildUser({
+          id: 'user_a',
+          email: 'a@example.com',
+          services: ['swole.lilnas.io'],
+        }),
+        buildUser({ id: 'user_b', email: 'b@example.com' }),
+      ],
+      {
+        initialInvites: [INVITE, buildInvite({ email: 'tomas@example.com' })],
+      },
+    )
+
+    expect(tileValue('People')).toBe('4')
+    expect(tileValue('Granted')).toBe('1')
+    expect(peopleCount()).toContain('4')
+  })
+
+  it('sorts users and invites together by email', () => {
+    renderWithUsers(
+      [
+        buildUser({ id: 'user_b', email: 'b@example.com' }),
+        buildUser({ id: 'user_d', email: 'd@example.com' }),
+      ],
+      {
+        initialInvites: [
+          buildInvite({ email: 'c@example.com' }),
+          buildInvite({ email: 'a@example.com' }),
+        ],
+      },
+    )
+
+    const [peopleTable] = screen.getAllByRole('table', { hidden: true }) as [
+      HTMLElement,
+    ]
+    const emails = within(peopleTable)
+      .getAllByRole('row', { hidden: true })
+      .slice(1)
+      .map(row => /[a-z]@example\.com/.exec(row.textContent ?? '')![0])
+    expect(emails).toEqual([
+      'a@example.com',
+      'b@example.com',
+      'c@example.com',
+      'd@example.com',
+    ])
+  })
+
+  it('renders a user and an invite with the same email without a React key warning', () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      renderWithUsers(
+        [buildUser({ id: 'user_a', email: 'same@example.com' })],
+        { initialInvites: [buildInvite({ email: 'same@example.com' })] },
+      )
+
+      // One row and one card for the user, one of each for the invite.
+      expect(screen.getAllByText('same@example.com')).toHaveLength(4)
+      const keyWarnings = errorSpy.mock.calls.filter(call =>
+        String(call[0]).includes('same key'),
+      )
+      expect(keyWarnings).toEqual([])
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+})
+
+describe('AdminDashboardClient — editing and cancelling an invite', () => {
+  const EMAIL = 'erlyne@example.com'
+  const SWOLE = 'swole.lilnas.io'
+  const TDR = 'tdr.lilnas.io'
+  const INVITE = buildInvite({
+    email: EMAIL,
+    serviceHosts: [SWOLE],
+    createdAt: '2026-11-23T12:00:00.000Z',
+  })
+  const SIGNED_IN = `${EMAIL} has signed in. Edit their access from their row.`
+
+  function openInvite(
+    invite: AdminInviteEntry = INVITE,
+    invites: AdminInviteEntry[] = [invite],
+  ): HTMLElement {
+    renderWithUsers([], { initialInvites: invites, services: TWO_SERVICES })
+    fireEvent.click(editAccessButtonFor(invite.email))
+    return screen.getByRole('dialog', { name: /^edit access$/i })
+  }
+
+  function save(modal: HTMLElement) {
+    fireEvent.click(within(modal).getByRole('button', { name: /save access/i }))
+  }
+
+  beforeEach(() => {
+    mockPreAuthorizeUsers.mockResolvedValue({ ok: true, outcome: 'invited' })
+    mockRemoveInvites.mockImplementation((_email: string, hosts: string[]) =>
+      Promise.resolve({ ok: true, removed: hosts }),
+    )
+  })
+
+  it('opens from the invited row with the pending services checked and none of the account controls', () => {
+    const modal = openInvite()
+
+    expect(within(modal).getByText(EMAIL)).toBeInTheDocument()
+    expect(within(modal).getByText(/hasn’t signed in yet/)).toBeInTheDocument()
+    expect(
+      within(modal).getByRole('checkbox', { name: /swole/i }),
+    ).toBeChecked()
+    expect(
+      within(modal).getByRole('checkbox', { name: /tdr/i }),
+    ).not.toBeChecked()
+    expect(within(modal).queryByText('Discord')).toBeNull()
+    expect(within(modal).queryByText(/sign out everywhere/i)).toBeNull()
+    expect(within(modal).queryByText(/remove access/i)).toBeNull()
+    expect(
+      within(modal).getByRole('button', { name: 'Cancel invite' }),
+    ).toBeInTheDocument()
+  })
+
+  it('checking one more service and saving sends only that add', async () => {
+    const modal = openInvite()
+
+    fireEvent.click(within(modal).getByRole('checkbox', { name: /tdr/i }))
+    save(modal)
+
+    await waitFor(() => {
+      expect(mockPreAuthorizeUsers).toHaveBeenCalledWith(EMAIL, [TDR])
+    })
+    expect(mockPreAuthorizeUsers).toHaveBeenCalledTimes(1)
+    expect(mockRemoveInvites).not.toHaveBeenCalled()
+    expect(await screen.findByText('Invite updated')).toBeInTheDocument()
+  })
+
+  it('unchecking one and saving sends only that removal', async () => {
+    const modal = openInvite(
+      buildInvite({ email: EMAIL, serviceHosts: [SWOLE, TDR] }),
+    )
+
+    fireEvent.click(within(modal).getByRole('checkbox', { name: /tdr/i }))
+    save(modal)
+
+    await waitFor(() => {
+      expect(mockRemoveInvites).toHaveBeenCalledWith(EMAIL, [TDR])
+    })
+    expect(mockRemoveInvites).toHaveBeenCalledTimes(1)
+    expect(mockPreAuthorizeUsers).not.toHaveBeenCalled()
+    expect(await screen.findByText('Invite updated')).toBeInTheDocument()
+  })
+
+  it('one add and one removal in the same save make exactly one call to each, with only the differences', async () => {
+    const modal = openInvite()
+
+    fireEvent.click(within(modal).getByRole('checkbox', { name: /tdr/i }))
+    fireEvent.click(within(modal).getByRole('checkbox', { name: /swole/i }))
+    save(modal)
+
+    await waitFor(() => {
+      expect(mockRemoveInvites).toHaveBeenCalledWith(EMAIL, [SWOLE])
+    })
+    expect(mockPreAuthorizeUsers).toHaveBeenCalledTimes(1)
+    expect(mockPreAuthorizeUsers).toHaveBeenCalledWith(EMAIL, [TDR])
+    expect(mockRemoveInvites).toHaveBeenCalledTimes(1)
+  })
+
+  it('saving untouched calls neither action', async () => {
+    const modal = openInvite()
+
+    save(modal)
+
+    expect(await screen.findByText('Invite updated')).toBeInTheDocument()
+    expect(mockPreAuthorizeUsers).not.toHaveBeenCalled()
+    expect(mockRemoveInvites).not.toHaveBeenCalled()
+  })
+
+  it('sends a rule added in the dialog through preAuthorizeUsers', async () => {
+    const modal = openInvite()
+
+    fireEvent.change(within(modal).getByLabelText('Access rules'), {
+      target: { value: '*.preview.lilnas.io' },
+    })
+    fireEvent.click(within(modal).getByRole('button', { name: 'Add rule' }))
+    save(modal)
+
+    await waitFor(() => {
+      expect(mockPreAuthorizeUsers).toHaveBeenCalledWith(EMAIL, [
+        '*.preview.lilnas.io',
+      ])
+    })
+    expect(mockRemoveInvites).not.toHaveBeenCalled()
+  })
+
+  it('sends a held rule removed in the dialog through removeInvites', async () => {
+    const modal = openInvite(
+      buildInvite({ email: EMAIL, serviceHosts: [SWOLE, '*.dev.lilnas.io'] }),
+    )
+
+    fireEvent.click(
+      within(modal).getByRole('button', {
+        name: 'Remove rule *.dev.lilnas.io',
+      }),
+    )
+    save(modal)
+
+    await waitFor(() => {
+      expect(mockRemoveInvites).toHaveBeenCalledWith(EMAIL, ['*.dev.lilnas.io'])
+    })
+    expect(mockPreAuthorizeUsers).not.toHaveBeenCalled()
+  })
+
+  it('renders a pending host that left the registry, checked, and a registry host the invite lacks, unchecked', async () => {
+    const modal = openInvite(
+      buildInvite({ email: EMAIL, serviceHosts: ['old.lilnas.io'] }),
+    )
+
+    const old = within(modal).getByRole('checkbox', {
+      name: /old\.lilnas\.io/i,
+    })
+    expect(old).toBeChecked()
+    expect(
+      within(modal).getByRole('checkbox', { name: /swole/i }),
+    ).not.toBeChecked()
+
+    fireEvent.click(old)
+    fireEvent.click(within(modal).getByRole('checkbox', { name: /swole/i }))
+    save(modal)
+
+    await waitFor(() => {
+      expect(mockRemoveInvites).toHaveBeenCalledWith(EMAIL, ['old.lilnas.io'])
+    })
+    expect(mockPreAuthorizeUsers).toHaveBeenCalledWith(EMAIL, [SWOLE])
+  })
+
+  it('opening another invited person after editing the first shows the second one’s own services', () => {
+    const second = buildInvite({
+      email: 'tomas@example.com',
+      serviceHosts: [TDR],
+    })
+    const modal = openInvite(INVITE, [INVITE, second])
+
+    fireEvent.click(within(modal).getByRole('checkbox', { name: /tdr/i }))
+    fireEvent.click(within(modal).getByRole('button', { name: /^cancel$/i }))
+
+    fireEvent.click(editAccessButtonFor('tomas@example.com'))
+    const next = screen.getByRole('dialog', { name: /^edit access$/i })
+    expect(within(next).getByText('tomas@example.com')).toBeInTheDocument()
+    expect(within(next).getByRole('checkbox', { name: /tdr/i })).toBeChecked()
+    expect(
+      within(next).getByRole('checkbox', { name: /swole/i }),
+    ).not.toBeChecked()
+  })
+
+  it('unchecking everything and saving opens the confirm and sends nothing until confirmed', async () => {
+    const modal = openInvite()
+
+    fireEvent.click(within(modal).getByRole('checkbox', { name: /swole/i }))
+    save(modal)
+
+    const confirm = await findConfirm(`Cancel ${EMAIL}’s invite?`)
+    expect(mockRemoveInvites).not.toHaveBeenCalled()
+    expect(mockPreAuthorizeUsers).not.toHaveBeenCalled()
+
+    fireEvent.click(confirmButton(confirm, 'Cancel invite'))
+    await waitFor(() => {
+      expect(mockRemoveInvites).toHaveBeenCalledWith(EMAIL, [SWOLE])
+    })
+    expect(await screen.findByText('Invite cancelled')).toBeInTheDocument()
+  })
+
+  it('"Cancel invite" confirms first, naming the person; confirming removes every pending host and toasts', async () => {
+    const modal = openInvite(
+      buildInvite({ email: EMAIL, serviceHosts: [SWOLE, TDR] }),
+    )
+
+    fireEvent.click(
+      within(modal).getByRole('button', { name: 'Cancel invite' }),
+    )
+
+    const confirm = await findConfirm(`Cancel ${EMAIL}’s invite?`)
+    expect(
+      within(confirm).getByText(
+        'They won’t get these 2 services when they sign in. You can add them again any time.',
+      ),
+    ).toBeInTheDocument()
+    expect(mockRemoveInvites).not.toHaveBeenCalled()
+
+    fireEvent.click(confirmButton(confirm, 'Cancel invite'))
+    await waitFor(() => {
+      expect(mockRemoveInvites).toHaveBeenCalledWith(EMAIL, [SWOLE, TDR])
+    })
+    expect(await screen.findByText('Invite cancelled')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(openDialogs()).toHaveLength(0)
+    })
+  })
+
+  it('says "this service" for a single pending service', async () => {
+    const modal = openInvite()
+
+    fireEvent.click(
+      within(modal).getByRole('button', { name: 'Cancel invite' }),
+    )
+
+    const confirm = await findConfirm(`Cancel ${EMAIL}’s invite?`)
+    expect(
+      within(confirm).getByText(
+        'They won’t get this service when they sign in. You can add them again any time.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('"Keep invite" calls nothing and leaves the dialog open', async () => {
+    const modal = openInvite()
+
+    fireEvent.click(
+      within(modal).getByRole('button', { name: 'Cancel invite' }),
+    )
+    const confirm = await findConfirm(`Cancel ${EMAIL}’s invite?`)
+    fireEvent.click(confirmButton(confirm, 'Keep invite'))
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('dialog', { name: `Cancel ${EMAIL}’s invite?` }),
+      ).toBeNull()
+    })
+    expect(mockRemoveInvites).not.toHaveBeenCalled()
+    expect(
+      screen.getByRole('dialog', { name: /^edit access$/i }),
+    ).toBeInTheDocument()
+  })
+
+  it('toasts the signed-in warning when cancelling removes nothing', async () => {
+    mockRemoveInvites.mockResolvedValue({ ok: true, removed: [] })
+    const modal = openInvite()
+
+    fireEvent.click(
+      within(modal).getByRole('button', { name: 'Cancel invite' }),
+    )
+    const confirm = await findConfirm(`Cancel ${EMAIL}’s invite?`)
+    fireEvent.click(confirmButton(confirm, 'Cancel invite'))
+
+    expect(await screen.findByText(SIGNED_IN)).toBeInTheDocument()
+    expect(screen.queryByText('Invite cancelled')).toBeNull()
+  })
+
+  it('toasts the signed-in warning when a save removes fewer hosts than it sent', async () => {
+    mockRemoveInvites.mockResolvedValue({ ok: true, removed: [] })
+    const modal = openInvite(
+      buildInvite({ email: EMAIL, serviceHosts: [SWOLE, TDR] }),
+    )
+
+    fireEvent.click(within(modal).getByRole('checkbox', { name: /tdr/i }))
+    save(modal)
+
+    expect(await screen.findByText(SIGNED_IN)).toBeInTheDocument()
+    expect(screen.queryByText('Invite updated')).toBeNull()
+    await waitFor(() => {
+      expect(openDialogs()).toHaveLength(0)
+    })
+  })
+
+  it('toasts the signed-in warning when the add reports the email already had an account', async () => {
+    mockPreAuthorizeUsers.mockResolvedValue({ ok: true, outcome: 'granted' })
+    const modal = openInvite()
+
+    fireEvent.click(within(modal).getByRole('checkbox', { name: /tdr/i }))
+    save(modal)
+
+    expect(await screen.findByText(SIGNED_IN)).toBeInTheDocument()
+    expect(screen.queryByText('Invite updated')).toBeNull()
+    await waitFor(() => {
+      expect(openDialogs()).toHaveLength(0)
+    })
+  })
+
+  it('shows a rejected save’s message in the dialog and keeps it open', async () => {
+    mockPreAuthorizeUsers.mockRejectedValue(new Error('Backend said no'))
+    const modal = openInvite()
+
+    fireEvent.click(within(modal).getByRole('checkbox', { name: /tdr/i }))
+    save(modal)
+
+    expect(await within(modal).findByRole('alert')).toHaveTextContent(
+      'Backend said no',
+    )
+    expect(
+      screen.getByRole('dialog', { name: /^edit access$/i }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Invite updated')).toBeNull()
+  })
+})
+
 describe('AdminDashboardClient — stat tiles, requests and errors', () => {
   const REQUEST = {
     id: 7,
@@ -1362,6 +1941,7 @@ describe('AdminDashboardClient — live updates', () => {
       <AdminDashboardClient
         initialQueue={[]}
         initialUsers={[]}
+        initialInvites={[]}
         services={SERVICES}
         discordUnlinked={NO_DISCORD}
         discordLinks={[]}

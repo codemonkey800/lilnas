@@ -38,6 +38,13 @@ import { AccessCacheService } from 'src/verify/access-cache.service'
 
 import { normalizeEmail } from './normalize-email'
 
+// Which branch preAuthorizeMany() ran: 'invited' wrote pending
+// pre_authorized_grant rows for an email with no `user` row yet; 'granted'
+// wrote real grants for an existing user. Returned so the admin UI can say
+// which one happened — "invited" shows up in the pending-invites list,
+// "granted" shows up in People.
+export type PreAuthorizeOutcome = 'invited' | 'granted'
+
 export type ServiceChange = { serviceHost: string; grant: boolean }
 
 // A pending access_request a just-granted access rule now covers. Literal
@@ -147,8 +154,15 @@ export class UsersService {
    * normalized form, matching what AccessCacheService.
    * bindPreAuthorizedGrant()'s own lookup requires to ever match a real
    * sign-in's Google-provided email.
+   *
+   * Returns which of the two branches above ran ('granted' for the
+   * existing-user branch, 'invited' for the pending one) so the caller can
+   * tell the admin where to look for the result.
    */
-  preAuthorizeMany(rawEmail: string, serviceHosts: string[]): void {
+  preAuthorizeMany(
+    rawEmail: string,
+    serviceHosts: string[],
+  ): PreAuthorizeOutcome {
     const email = normalizeEmail(rawEmail)
 
     const result = this.db.transaction(
@@ -206,13 +220,66 @@ export class UsersService {
       }
     }
     this.notifyBus.publishAdminChange()
+    return result.kind === 'granted' ? 'granted' : 'invited'
   }
 
   // Single-host convenience wrapper — kept for callers (this file's own
   // test suite included) that only ever have one host in hand. Every real
   // behavior lives in preAuthorizeMany() above.
-  preAuthorize(rawEmail: string, serviceHost: string): void {
-    this.preAuthorizeMany(rawEmail, [serviceHost])
+  preAuthorize(rawEmail: string, serviceHost: string): PreAuthorizeOutcome {
+    return this.preAuthorizeMany(rawEmail, [serviceHost])
+  }
+
+  /**
+   * "Cancel invite" — takes back pending pre_authorized_grant rows for
+   * `rawEmail`, one per host in `serviceHosts`, in ONE BEGIN IMMEDIATE
+   * transaction. The email's rows are read inside that same `tx` they are
+   * deleted under (see preAuthorizeMany()'s comment on the convention), so
+   * a first sign-in binding the rows into real grants can't land between
+   * the read and the delete.
+   *
+   * Returns the hosts whose pending row was ACTUALLY deleted, not an echo of
+   * the request. A person who signed in a moment earlier has already had
+   * their rows bound into real grants and deleted
+   * (AccessCacheService.bindPreAuthorizedGrant()), so a cancel from an admin
+   * whose page was stale finds nothing to delete — and the caller must be
+   * able to tell that apart from a cancel that worked, rather than reporting
+   * success for an invite that has in fact already become access. A host
+   * that is not pending for this email is skipped, never an error.
+   *
+   * Hosts are matched as stored strings; deliberately not checked against
+   * the service registry, so a row for a host that has since left the
+   * registry stays cancellable (the same reasoning as revokes in
+   * setUserServices()). After commit the in-memory pre-authorization is
+   * dropped for each removed host, and the admin change is published only
+   * when at least one row was really removed — the same "only publish on a
+   * genuine change" rule as removeUser().
+   */
+  removeInvites(rawEmail: string, serviceHosts: string[]): string[] {
+    const email = normalizeEmail(rawEmail)
+    const requested = new Set(serviceHosts)
+
+    const removed = this.db.transaction(
+      tx => {
+        const deleted: string[] = []
+        for (const row of findPreAuthorizedGrantsByEmail(tx, email)) {
+          if (requested.has(row.serviceHost)) {
+            deletePreAuthorizedGrant(tx, row.id)
+            deleted.push(row.serviceHost)
+          }
+        }
+        return deleted
+      },
+      { behavior: 'immediate' },
+    )
+
+    for (const serviceHost of removed) {
+      this.accessCache.removePreAuthorization(email, serviceHost)
+    }
+    if (removed.length > 0) {
+      this.notifyBus.publishAdminChange()
+    }
+    return removed
   }
 
   /**

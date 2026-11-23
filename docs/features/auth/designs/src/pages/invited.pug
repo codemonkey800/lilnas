@@ -1,0 +1,70 @@
+extends ../../../../../designs/mockup-kit/page.pug
+
+include ../mixins/auth.pug
+
+block title
+  | auth — Invited people · UI mockups
+
+//-
+  How the admin dashboard shows people who were added with "Add a person" but
+  haven't signed in yet. One Nexus review frame per state; each frame draws the
+  1280 and the 390 screen side by side, so it stands alone. Copy and sample
+  data are in src/data/invited.mjs.
+
+//- One viewport of one frame. `fr.key` picks the state.
+mixin invitedScreen(view, fr)
+  - const phone = view === 'mobile'
+  case fr.key
+    when 'list'
+      +adminShell(view)
+        +adminTitle
+        +statTiles(stats, view)
+        +peopleSection(view, peopleCols, people)
+
+    when 'search'
+      +adminShell(view, { bare: true })
+        +peopleSection(view, peopleCols, [erlyne], { query: 'erlyne' })
+
+    when 'edit'
+      +adminShell(view, { height: phone ? 900 : 780 })
+        +peopleSection(view, peopleCols, people)
+        +inviteEditDialog(dialogData, editInvite, { view: view })
+
+    when 'cancel-confirm'
+      +adminShell(view, { height: phone ? 600 : 520 })
+        +peopleSection(view, peopleCols, people)
+        +confirmDialog(cancelInvite)
+
+    when 'add-none'
+      +adminShell(view, { height: phone ? 1000 : 800 })
+        +peopleSection(view, peopleCols, people)
+        +addPersonDialog(dialogData, { view: view, email: addNone.email, serviceError: addNone.serviceError })
+
+    when 'toasts'
+      +adminShell(view, { height: phone ? 700 : 620 })
+        +peopleSection(view, peopleCols, people)
+        //- Pinned bottom-right, bottom-centre on the phone. The shell's body
+        //- isn't positioned, so this resolves against the app frame itself.
+        div(
+          class=[
+            'pointer-events-none absolute flex flex-col gap-2',
+            phone ? 'inset-x-0 bottom-4 items-center px-4' : 'right-6 bottom-6 items-end',
+          ]
+        )
+          each t in toasts
+            +toast(t.tone, t.title, t.detail)
+
+block page
+  +mockPage('max-w-[1760px]')(class='page')
+    +mockHead({ eyebrow: 'auth · admin', title: 'Invited people', back: true })
+      p People added with Add a person who haven’t signed in yet, and what an admin can do with them. An invited row has no name, no Discord and no Block; it has pending services and one action, Edit access. Each state is a frame showing 1280 and 390 side by side.
+
+    each fr, i in frames
+      +mockFrame(fr.key, fr.label, { num: String(i + 1).padStart(2, '0'), caption: fr.caption })
+        div(class='flex flex-wrap items-start gap-x-8 gap-y-6')
+          div(class='flex min-w-0 flex-col gap-3')
+            +invitedScreen('desktop', fr)
+            +frameLabel Desktop · 1280
+          div(class='flex min-w-0 flex-col gap-3')
+            +invitedScreen('mobile', fr)
+            +frameLabel Mobile · 390
