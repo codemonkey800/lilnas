@@ -53,7 +53,7 @@ Two orderings are deliberate, not incidental:
 
 ## OIDC provider
 
-lilnas-auth is also an OpenID Connect provider (Better Auth's `jwt` + `@better-auth/oauth-provider` plugins, `src/auth/auth.ts`), so apps without ForwardAuth support can sign in through it. No clients are registered right now (`OIDC_CLIENTS` in `src/oidc/clients.ts` is empty). The issuer is `AUTH_HOST` — `https://auth.lilnas.io` in prod, a bare origin with no path. id_tokens are signed RS256 (`jwt({ jwks: { keyPairConfig: { alg: 'RS256' } } })`).
+lilnas-auth is also an OpenID Connect provider (Better Auth's `jwt` + `@better-auth/oauth-provider` plugins, `src/auth/auth.ts`), so apps without ForwardAuth support can sign in through it. The registered clients are listed in `OIDC_CLIENTS` in `src/oidc/clients.ts`; today that is Immich (`immich`). The issuer is `AUTH_HOST` — `https://auth.lilnas.io` in prod, a bare origin with no path. id_tokens are signed RS256 (`jwt({ jwks: { keyPairConfig: { alg: 'RS256' } } })`).
 
 | Endpoint                                                                       | Notes                                                                                                                                                                        |
 | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -66,7 +66,7 @@ lilnas-auth is also an OpenID Connect provider (Better Auth's `jwt` + `@better-a
 Clients are seeded, never self-registered: dynamic registration is off and the client CRUD endpoints always 401. To add one:
 
 1. Append one entry to `OIDC_CLIENTS` in `src/oidc/clients.ts`: `clientId`, display `name` (shown on the login page), `host`, `redirectUris`, and `secretEnvKey`.
-2. Add the matching `OIDC_<NAME>_CLIENT_SECRET` key to `src/env.ts`'s `EnvKeys` and to `.env.example` / `.env.prod` (generate with `openssl rand -hex 32`).
+2. Add the matching `OIDC_<NAME>_CLIENT_SECRET` key to `.env.example` / `.env.prod` (generate with `openssl rand -hex 32`). No `EnvKeys` entry is needed; `secretEnvKey` is a plain string.
 
 `OidcClientsService` upserts every entry into `oauth_client` on each boot (refreshing the secret hash and redirect URIs) and throws if a client's secret env var is unset. Only `base64url(sha256(secret))` is stored. The client's `host` is the **grant key**: signing in to a client requires the user to be granted that host, exactly like visiting it behind forward-auth. A non-loopback issuer is forced to `https://` by the plugin, so a dev `AUTH_HOST` should be `http://localhost…` or `https://`.
 
