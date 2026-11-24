@@ -1,0 +1,1579 @@
+{
+  "uid": "lilnas-security",
+  "id": null,
+  "title": "Security",
+  "tags": ["lilnas", "security"],
+  "editable": true,
+  "graphTooltip": 1,
+  "schemaVersion": 39,
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "refresh": "5m",
+  "timezone": "browser",
+  "links": [
+    {
+      "title": "Dashboards",
+      "type": "dashboards",
+      "tags": ["lilnas"],
+      "asDropdown": true,
+      "includeVars": false,
+      "keepTime": true
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "ip",
+        "type": "textbox",
+        "label": "IP",
+        "description": "Event-driven: type an address to fill the \"Everything this IP did\" panel at the bottom",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "",
+            "value": ""
+          }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "SSH",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "collapsed": false
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Accepted logins",
+      "description": "Event-driven: fills when someone signs in over SSH (Accepted publickey/password lines from sshd). A quiet window shows 0.",
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 0,
+        "y": 1
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({service=\"host\", identifier=~\"sshd|sshd-session\"} |= \"Accepted\" [$__range]))",
+          "refId": "A",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Failed attempts",
+      "description": "Invalid user, Failed password and \"not allowed because not listed in AllowUsers\" lines from sshd over the selected range. Each attempt is counted once; the \"Connection closed by invalid user\" follow-up lines are only in the time series.",
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 1
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({service=\"host\", identifier=~\"sshd|sshd-session\"} |~ \"Invalid user|Failed password|not allowed because\" [$__range]))",
+          "refId": "A",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 1000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "logs",
+      "title": "Accepted SSH logins",
+      "description": "Event-driven: one line per successful SSH login: user, auth method and source IP. The key fingerprint is dropped.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "{service=\"host\", identifier=~\"sshd|sshd-session\"} |= \"Accepted\" | regexp \"Accepted (?P<method>\\\\S+) for (?P<user>\\\\S+) from (?P<ip>\\\\S+) port\" | line_format \"{{.user}} via {{.method}} from {{.ip}}\"",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Failed SSH attempts",
+      "description": "Event-driven: sshd rejections per interval; empty while nobody is probing. Password login is off, so most of this is bots probing user names.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({service=\"host\", identifier=~\"sshd|sshd-session\"} |= \"Invalid user\" [$__interval]))",
+          "refId": "A",
+          "legendFormat": "Invalid user"
+        },
+        {
+          "expr": "sum(count_over_time({service=\"host\", identifier=~\"sshd|sshd-session\"} |= \"Failed password\" [$__interval]))",
+          "refId": "B",
+          "legendFormat": "Failed password"
+        },
+        {
+          "expr": "sum(count_over_time({service=\"host\", identifier=~\"sshd|sshd-session\"} |~ \"Connection closed by (invalid|authenticating) user\" [$__interval]))",
+          "refId": "C",
+          "legendFormat": "Closed by invalid/authenticating user"
+        },
+        {
+          "expr": "sum(count_over_time({service=\"host\", identifier=~\"sshd|sshd-session\"} |= \"not allowed because\" [$__interval]))",
+          "refId": "D",
+          "legendFormat": "User not in AllowUsers"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 60,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": ["sum"]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "bargauge",
+      "title": "Top source IPs (failed attempts)",
+      "description": "The 20 addresses with the most failed SSH attempts over the selected range (local ::1 excluded).",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 13
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "topk(20, sum by (ip) (count_over_time({service=\"host\", identifier=~\"sshd|sshd-session\"} |~ \"Invalid user|Failed password|Connection closed by (invalid|authenticating) user|not allowed because\" | regexp \" (?P<ip>(?:\\\\d{1,3}\\\\.){3}\\\\d{1,3}|[0-9a-fA-F:]*:[0-9a-fA-F:]+) port \\\\d+\" | ip != \"\" | ip != \"::1\" [$__range])))",
+          "refId": "A",
+          "queryType": "instant",
+          "legendFormat": "{{ip}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "noValue": "none",
+          "color": {
+            "mode": "continuous-GrYlRd"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "namePlacement": "left",
+        "sizing": "auto"
+      }
+    },
+    {
+      "id": 7,
+      "type": "bargauge",
+      "title": "Top usernames tried",
+      "description": "The 20 user names bots tried most over the selected range. The real account (jeremy) is excluded so local pre-auth drops do not show up.",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 13
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "topk(20, sum by (user) (count_over_time({service=\"host\", identifier=~\"sshd|sshd-session\"} |~ \"Invalid user|Failed password|Connection closed by (invalid|authenticating) user|not allowed because\" | regexp \"(?:Invalid user|Failed password for (?:invalid user )?|by (?:invalid|authenticating) user|User) ?(?P<user>[^ ]+) (?:from )?(?:(?:\\\\d{1,3}\\\\.){3}\\\\d{1,3}|[0-9a-fA-F:]*:[0-9a-fA-F:]+)\" | user != \"\" | user != \"jeremy\" [$__range])))",
+          "refId": "A",
+          "queryType": "instant",
+          "legendFormat": "{{user}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "noValue": "none",
+          "color": {
+            "mode": "continuous-GrYlRd"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "namePlacement": "left",
+        "sizing": "auto"
+      }
+    },
+    {
+      "id": 8,
+      "type": "row",
+      "title": "sshguard",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 23
+      },
+      "collapsed": false
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "sshguard attacks",
+      "description": "sshguard attack detections (each failed login pattern) over the selected range.",
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({service=\"host\", identifier=\"sshguard\"} |= \"Attack from\" [$__range]))",
+          "refId": "A",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "yellow",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "sshguard blocks",
+      "description": "Event-driven: fills when sshguard blocks an address after repeated attacks. A quiet window shows 0.",
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({service=\"host\", identifier=\"sshguard\"} |= \"Blocking\" [$__range]))",
+          "refId": "A",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "sshguard attacks and blocks",
+      "description": "Event-driven: Attacks are sshguard's detections (each failed pattern scores danger points); Blocks appear only when an address crosses the threshold and is put in the nft set. Blocks can be empty in a quiet window.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 28
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({service=\"host\", identifier=\"sshguard\"} |= \"Attack from\" [$__interval]))",
+          "refId": "A",
+          "legendFormat": "Attacks"
+        },
+        {
+          "expr": "sum(count_over_time({service=\"host\", identifier=\"sshguard\"} |= \"Blocking\" [$__interval]))",
+          "refId": "B",
+          "legendFormat": "Blocks"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 60,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Attacks"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Blocks"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": ["sum"]
+        }
+      }
+    },
+    {
+      "id": 12,
+      "type": "table",
+      "title": "Blocked IPs",
+      "description": "Event-driven: addresses sshguard blocked in the selected range, with how many times. Empty when nothing was blocked.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 28
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "topk(20, sum by (ip) (count_over_time({service=\"host\", identifier=\"sshguard\"} |= \"Blocking\" | regexp \"Blocking \\\"(?P<ip>[^\\\"/]+)\" [$__range])))",
+          "refId": "A",
+          "queryType": "instant",
+          "legendFormat": "{{ip}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "none",
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Blocks",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "reduce",
+          "options": {
+            "mode": "seriesToRows",
+            "reducers": ["lastNotNull"],
+            "includeTimeField": false,
+            "labelsToFields": true
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Field": true
+            },
+            "indexByName": {
+              "ip": 0,
+              "Last *": 1
+            },
+            "renameByName": {
+              "Last *": "Blocks"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "row",
+      "title": "sudo",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 36
+      },
+      "collapsed": false
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Sudo commands run",
+      "description": "Event-driven: counts sudo commands that ran (COMMAND= lines, failed attempts excluded). 0 in a window with no sudo use.",
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 0,
+        "y": 37
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({service=\"host\", identifier=\"sudo\"} |= \"COMMAND=\" != \"a password is required\" != \"incorrect password\" [$__range]))",
+          "refId": "A",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Sudo failures",
+      "description": "Event-driven: fills when a sudo attempt needs a password that was not supplied (\"a password is required\") or the wrong one was typed (\"incorrect password\"). A quiet window shows 0.",
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 37
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({service=\"host\", identifier=\"sudo\"} |~ \"a password is required|incorrect password\" [$__range]))",
+          "refId": "A",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 16,
+      "type": "logs",
+      "title": "Sudo commands",
+      "description": "Event-driven: one line per sudo command that ran: who, from which TTY and directory, as which user, and the command.",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 41
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "{service=\"host\", identifier=\"sudo\"} |= \"COMMAND=\" != \"a password is required\" != \"incorrect password\"",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
+    },
+    {
+      "id": 17,
+      "type": "row",
+      "title": "Web",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 49
+      },
+      "collapsed": false
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "4xx and 5xx over time",
+      "description": "Requests through Traefik that were answered with a client (4xx) or server (5xx) error. Includes scanners, rejected logins at lilnas-auth and unknown hostnames.",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 50
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({service=\"traefik\", log_type=\"access\"} |~ \"\\\"DownstreamStatus\\\":4\\\\d\\\\d\" [$__interval]))",
+          "refId": "A",
+          "legendFormat": "4xx"
+        },
+        {
+          "expr": "sum(count_over_time({service=\"traefik\", log_type=\"access\"} |~ \"\\\"DownstreamStatus\\\":5\\\\d\\\\d\" [$__interval]))",
+          "refId": "B",
+          "legendFormat": "5xx"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 60,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "4xx"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "5xx"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": ["sum"]
+        }
+      }
+    },
+    {
+      "id": 19,
+      "type": "bargauge",
+      "title": "Top 20 client IPs by 4xx/5xx",
+      "description": "The 20 client addresses with the most 4xx/5xx responses over the selected range.",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 58
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "topk(20, sum by (ClientHost) (count_over_time({service=\"traefik\", log_type=\"access\"} |~ \"\\\"DownstreamStatus\\\":[45]\\\\d\\\\d\" | json ClientHost=\"ClientHost\" [$__range])))",
+          "refId": "A",
+          "queryType": "instant",
+          "legendFormat": "{{ClientHost}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "noValue": "none",
+          "color": {
+            "mode": "continuous-GrYlRd"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "namePlacement": "left",
+        "sizing": "auto"
+      }
+    },
+    {
+      "id": 20,
+      "type": "bargauge",
+      "title": "Top paths by 4xx/5xx (first segment)",
+      "description": "The 20 first path segments (for example /api or /.env) with the most 4xx/5xx responses over the selected range, for requests that matched a Traefik router. Requests for unknown hostnames are in Errors by hostname. Only the first segment and no query string is kept: full paths exceed Loki's 500-series limit at 7 days.",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 58
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "topk(20, sum by (path) (count_over_time({service=\"traefik\", log_type=\"access\"} |~ \"\\\"DownstreamStatus\\\":[45]\\\\d\\\\d\" |~ \"\\\"RouterName\\\":\" | regexp \"\\\"RequestPath\\\":\\\"(?P<path>/[^/?\\\"]*)\" [$__range])))",
+          "refId": "A",
+          "queryType": "instant",
+          "legendFormat": "{{path}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "noValue": "none",
+          "color": {
+            "mode": "continuous-GrYlRd"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "namePlacement": "left",
+        "sizing": "auto"
+      }
+    },
+    {
+      "id": 21,
+      "type": "bargauge",
+      "title": "Errors by hostname",
+      "description": "4xx/5xx responses per requested hostname over the selected range. A raw IP or an unknown name is a scanner that did not use a lilnas.io host.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 68
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "topk(20, sum by (RequestHost) (count_over_time({service=\"traefik\", log_type=\"access\"} |~ \"\\\"DownstreamStatus\\\":[45]\\\\d\\\\d\" | json RequestHost=\"RequestHost\" [$__range])))",
+          "refId": "A",
+          "queryType": "instant",
+          "legendFormat": "{{RequestHost}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "noValue": "none",
+          "color": {
+            "mode": "continuous-GrYlRd"
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "namePlacement": "left",
+        "sizing": "auto"
+      }
+    },
+    {
+      "id": 22,
+      "type": "stat",
+      "title": "Scanner probes",
+      "description": "Requests whose line mentions .env, .git, .aws, wp-login, phpmyadmin or @fs/ over the selected range.",
+      "gridPos": {
+        "h": 9,
+        "w": 4,
+        "x": 12,
+        "y": 68
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({service=\"traefik\", log_type=\"access\"} |~ \"(?i)\\\\.env|\\\\.git|\\\\.aws|wp-login|phpmyadmin|@fs/\" [$__range]))",
+          "refId": "A",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 23,
+      "type": "stat",
+      "title": "Probes with no error back",
+      "description": "Event-driven: probes that got a 2xx/3xx answer instead of an error, excluding dashcam (a single-page app that answers every path with 200). Empty is the good outcome: it means every probe was refused.",
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 16,
+        "y": 68
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({service=\"traefik\", log_type=\"access\"} |~ \"(?i)\\\\.env|\\\\.git|\\\\.aws|wp-login|phpmyadmin|@fs/\" | json | DownstreamStatus < 400 | RouterName != \"dashcam@docker\" [$__range]))",
+          "refId": "A",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 24,
+      "type": "logs",
+      "title": "Scanner probes",
+      "description": "One line per probe: client IP, hostname, status code and path.",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 77
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "{service=\"traefik\", log_type=\"access\"} |~ \"(?i)\\\\.env|\\\\.git|\\\\.aws|wp-login|phpmyadmin|@fs/\" | json | line_format \"{{.ClientHost}} {{.RequestHost}} {{.DownstreamStatus}} {{.RequestPath}}\"",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
+    },
+    {
+      "id": 25,
+      "type": "logs",
+      "title": "Probes that did not get an error back",
+      "description": "Event-driven: probes that were answered with 2xx/3xx, excluding dashcam. Worth reading when present; empty means every probe was refused.",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 77
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "{service=\"traefik\", log_type=\"access\"} |~ \"(?i)\\\\.env|\\\\.git|\\\\.aws|wp-login|phpmyadmin|@fs/\" | json | DownstreamStatus < 400 | RouterName != \"dashcam@docker\" | line_format \"{{.ClientHost}} {{.RequestHost}} {{.DownstreamStatus}} {{.RequestPath}}\"",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
+    },
+    {
+      "id": 26,
+      "type": "row",
+      "title": "Auth logins",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 87
+      },
+      "collapsed": false
+    },
+    {
+      "id": 27,
+      "type": "stat",
+      "title": "Sign-in callbacks",
+      "description": "Event-driven: the browser coming back from Google to /api/auth/callback/google with a 302 (lilnas-auth accepted the callback and redirected on). Fills on each sign-in. A callback that fails also redirects, so read it together with the rejected count.",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 88
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({service=\"traefik\", log_type=\"access\"} |= \"\\\"RequestHost\\\":\\\"auth.lilnas.io\\\"\" | json | RequestHost=\"auth.lilnas.io\" | RequestPath=~\"/api/auth/callback/.*\" | DownstreamStatus=302 [$__range]))",
+          "refId": "A",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 28,
+      "type": "stat",
+      "title": "Rejected sign-ins",
+      "description": "Event-driven: the login page loaded with ?error=<code> (for example state_not_found): an OAuth callback failed and lilnas-auth sent the browser back to /login. 0 when every sign-in went through.",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 88
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({service=\"traefik\", log_type=\"access\"} |= \"\\\"RequestHost\\\":\\\"auth.lilnas.io\\\"\" |= \"/login?error=\" | json | RequestHost=\"auth.lilnas.io\" | RequestPath=~\"/login\\\\?error=.*\" [$__range]))",
+          "refId": "A",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 29,
+      "type": "stat",
+      "title": "OIDC gate denials",
+      "description": "Event-driven: lilnas-auth refused an OpenID Connect client (for example Immich) for a user that is not allowed to use it: \"authorize denied\" or \"token/userinfo denied\" in the auth service log. 0 when no one was refused.",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 88
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({service=\"auth\"} |~ \"authorize denied|token/userinfo denied\" [$__range]))",
+          "refId": "A",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 30,
+      "type": "stat",
+      "title": "Auth service warnings/errors",
+      "description": "Event-driven: pino lines at level 40 (warn) or 50 (error) from the auth service, which include 4xx/5xx responses the auth app itself returned. 0 in a clean window.",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 88
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({service=\"auth\"} |~ \"\\\"level\\\":(40|50)\" [$__range]))",
+          "refId": "A",
+          "queryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "Sign-in activity",
+      "description": "Event-driven: sign-in callbacks and rejected sign-ins at auth.lilnas.io per interval.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 92
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({service=\"traefik\", log_type=\"access\"} |= \"\\\"RequestHost\\\":\\\"auth.lilnas.io\\\"\" | json | RequestHost=\"auth.lilnas.io\" | RequestPath=~\"/api/auth/callback/.*\" | DownstreamStatus=302 [$__interval]))",
+          "refId": "A",
+          "legendFormat": "Callbacks"
+        },
+        {
+          "expr": "sum(count_over_time({service=\"traefik\", log_type=\"access\"} |= \"\\\"RequestHost\\\":\\\"auth.lilnas.io\\\"\" |= \"/login?error=\" | json | RequestHost=\"auth.lilnas.io\" | RequestPath=~\"/login\\\\?error=.*\" [$__interval]))",
+          "refId": "B",
+          "legendFormat": "Rejected"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 60,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Callbacks"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Rejected"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": ["sum"]
+        }
+      }
+    },
+    {
+      "id": 32,
+      "type": "logs",
+      "title": "Sign-in callbacks and rejections",
+      "description": "Event-driven: one line per callback (client IP, path without its query string, so the code and state never appear) and one per rejection with its error code.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 92
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "{service=\"traefik\", log_type=\"access\"} |= \"\\\"RequestHost\\\":\\\"auth.lilnas.io\\\"\" | json | RequestHost=\"auth.lilnas.io\" | RequestPath=~\"/api/auth/callback/.*\" | DownstreamStatus=302 | line_format `callback {{.ClientHost}} {{.RequestMethod}} {{.DownstreamStatus}} {{ regexReplaceAll \"\\\\?.*\" .RequestPath \"\" }}`",
+          "refId": "A"
+        },
+        {
+          "expr": "{service=\"traefik\", log_type=\"access\"} |= \"\\\"RequestHost\\\":\\\"auth.lilnas.io\\\"\" |= \"/login?error=\" | json | RequestHost=\"auth.lilnas.io\" | RequestPath=~\"/login\\\\?error=.*\" | regexp \"error=(?P<err>[a-z_]+)\" | line_format \"rejected {{.ClientHost}} error={{.err}}\"",
+          "refId": "B"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
+    },
+    {
+      "id": 33,
+      "type": "logs",
+      "title": "Auth service warnings and errors",
+      "description": "Event-driven: warn/error lines from the auth service, reduced to level, context, message and response status. The request and headers are never shown.",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 100
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "{service=\"auth\"} |~ \"\\\"level\\\":(40|50)\" | json | line_format \"{{.level}} {{.context}} {{.msg}} {{.res_statusCode}}\"",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
+    },
+    {
+      "id": 34,
+      "type": "row",
+      "title": "Investigate an IP",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 108
+      },
+      "collapsed": false
+    },
+    {
+      "id": 35,
+      "type": "logs",
+      "title": "Everything this IP did",
+      "description": "Event-driven: type an address into the IP box at the top. It then lists that address's web requests (Traefik access log), its sshd lines and sshguard's verdicts, newest first. Empty while the IP box is empty.",
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 109
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "{service=\"traefik\", log_type=\"access\"} | json | ClientHost=\"$ip\" | line_format \"web {{.ClientHost}} {{.RequestHost}} {{.RequestMethod}} {{.DownstreamStatus}} {{.RequestPath}}\"",
+          "refId": "A"
+        },
+        {
+          "expr": "{service=\"host\", identifier=~\"sshd|sshd-session\"} |= \" $ip port \"",
+          "refId": "B"
+        },
+        {
+          "expr": "{service=\"host\", identifier=\"sshguard\"} |= \"\\\"$ip\\\"\"",
+          "refId": "C"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
+    }
+  ]
+}
