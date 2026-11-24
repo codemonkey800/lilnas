@@ -191,5 +191,47 @@ services:
       PORT: 9709
     env_file: .env.exportarr-sabnzbd.decrypted
 
+  # One postgres_exporter per Postgres server (Download and auth use SQLite).
+  # Each connects as the read-only lilnas_monitor role (pg_monitor), whose
+  # credentials sit in the shared encrypted .env.postgres-exporter. The role is
+  # created by infra/monitoring/scripts/postgres-monitor-roles.sh; until it
+  # exists the exporters report pg_up 0. No depends_on: the databases live in
+  # other compose files and the exporter reconnects on its own. No published
+  # port: Prometheus scrapes :9187 on the compose network. Both extra
+  # collectors work on PG14 and PG18; pg_stat_statements is not installed on any
+  # server, so that collector stays off.
+  postgres-exporter-tdr-bot:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.21.1
+    restart: unless-stopped
+    logging: *default-logging
+    command:
+      - --collector.long_running_transactions
+      - --collector.stat_activity_autovacuum
+    environment:
+      DATA_SOURCE_URI: tdr-bot-db:5432/tdr_bot?sslmode=disable
+    env_file: .env.postgres-exporter.decrypted
+
+  postgres-exporter-icloud-backup:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.21.1
+    restart: unless-stopped
+    logging: *default-logging
+    command:
+      - --collector.long_running_transactions
+      - --collector.stat_activity_autovacuum
+    environment:
+      DATA_SOURCE_URI: icloud-backup-db:5432/icloud_backup?sslmode=disable
+    env_file: .env.postgres-exporter.decrypted
+
+  postgres-exporter-immich:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.21.1
+    restart: unless-stopped
+    logging: *default-logging
+    command:
+      - --collector.long_running_transactions
+      - --collector.stat_activity_autovacuum
+    environment:
+      DATA_SOURCE_URI: immich-database:5432/immich?sslmode=disable
+    env_file: .env.postgres-exporter.decrypted
+
 volumes:
   node-exporter-textfile:

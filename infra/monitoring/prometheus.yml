@@ -81,3 +81,18 @@ scrape_configs:
       - targets: ['immich:8082']
         labels:
           component: microservices
+
+  # One postgres_exporter per Postgres server; the server label names the
+  # database container. Reports pg_up 0 until postgres-monitor-roles.sh has
+  # created the lilnas_monitor role on that server.
+  - job_name: postgres
+    static_configs:
+      - targets: ['postgres-exporter-tdr-bot:9187']
+        labels:
+          server: tdr-bot-db
+      - targets: ['postgres-exporter-icloud-backup:9187']
+        labels:
+          server: icloud-backup-db
+      - targets: ['postgres-exporter-immich:9187']
+        labels:
+          server: immich-database
