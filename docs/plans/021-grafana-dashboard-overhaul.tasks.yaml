@@ -1155,7 +1155,8 @@ phases:
         title: 'Fix: CI check (apps/tdr-bot) fails on next/font/google build, so the tdr-bot image was not built or deployed'
         after: []
         files: []
-        status: todo
+        status: done
+        commit: 101aa1d6b2fa6ffc0322db7d174510e98ed81d09
         body: |-
           T12 · Create the monitoring roles, push to main, watch CI, verify production reported this blocking defect (attempt 3):
 

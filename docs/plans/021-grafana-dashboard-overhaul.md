@@ -549,3 +549,10 @@ No commits: nothing to integrate.
 T12 reported 1 blocking defect at attempt 3, sent to R5; it runs again at round 2 to re-check.
 
 - R5 · CI check (apps/tdr-bot) fails on next/font/google build, so the tdr-bot image was not built or deployed (`.github/workflows/ci.yml job "check (apps/tdr-bot)" (run 45352251208, job 138301594297), apps/tdr-bot frontend build`): Error: Turbopack build failed with 12 errors: Module not found: Can't resolve '@vercel/turbopack-next/internal/font/google/font' / next/font/google queries have exactly one entry; ##[error]command (apps/tdr-bot) pnpm run build exited (1); annotation: tdr-bot skipped: checks failed or missing for apps/tdr-bot; summary job failed
+
+### 2026-11-24 · R5 · done
+Cause not reproduced: the same layout built in earlier CI runs and builds locally with a cleared .next and a reachable Google Fonts. The CI error comes from the Turbopack next/font/google loader at build time, so the fix removes the network dependency: Geist and Geist Mono (latin, variable woff2, OFL) are committed in apps/tdr-bot/src/app/fonts and loaded with next/font/local. CSS variable names and globals.css are unchanged.
+Test src/app/__tests__/layout.spec.ts (node jest project) fails on the old layout (2 failed) and passes on the new one (2 passed).
+Local verification: next build in apps/tdr-bot compiles and emits the fonts under .next/static/media; tdr-bot type-check, eslint and prettier on src/app are clean. All five plan checks pass. No throwaway containers or temp files remain (mon-rig- count 0).
+Not done here (outside the task): pushing, rerunning CI. T12 must push this to main and re-check: the tdr-bot image build and deploy, then the rest of its checks (llm_retries_total and tdr_bot_llm_schema_failures_total only exist once a tdr-bot image is deployed).
+Other apps (auth, dev, download, icloud-backup) still use next/font/google and could hit the same transient failure when their checks run; left unchanged on purpose.
