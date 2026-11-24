@@ -1,0 +1,957 @@
+nexus-tasks: 1
+phases:
+  - key: '1'
+    name: Cleanup, exporters and the log-backed dashboards
+    tasks:
+      - id: T1
+        title: Dashboard checker script (lint and live queries)
+        after: []
+        files:
+          - infra/monitoring/scripts/check-dashboards.mjs
+          - infra/monitoring/scripts/check-dashboards.test.mjs
+          - infra/monitoring/scripts/fixtures/
+        status: todo
+        body: |-
+          Write a dependency-free Node script (ESM, Node 26 stdlib only) that every later task
+          uses to prove its dashboards are well formed and that every panel returns data.
+
+          ```
+          node infra/monitoring/scripts/check-dashboards.mjs lint [file.json ...]
+          node infra/monitoring/scripts/check-dashboards.mjs live [--range 24h] [--var name=value ...] [file.json ...]
+          ```
+          With no files, both modes take every `*.json` in
+          `infra/monitoring/grafana/provisioning/dashboards/json/`.
+
+          `lint` (no network), exit 1 with one line per problem:
+          - `uid` starts with `lilnas-` and is unique across the given files; `tags` contains
+            `lilnas`; `title` is set; top-level `id` is null or absent
+          - panel `id`s are unique within a dashboard, including panels nested in collapsed rows
+          - every non-row panel has a title, a datasource uid of `prometheus` or `loki`, and at
+            least one target with a non-empty `expr`
+          - every `$var` / `${var}` used in an `expr` is a templating variable of the dashboard
+            or a Grafana built-in (`$__rate_interval`, `$__interval`, `$__range`, `$__auto`)
+          Lint must pass on the 9 dashboards as they are at base. If a rule fails on one of them,
+          loosen the rule and say so; do not edit a dashboard in this task.
+
+          `live` runs every panel target and every query-type variable against production,
+          read-only:
+          - Prometheus: an instant query through
+            `docker exec lilnas-prometheus-1 wget -qO- 'http://localhost:9090/api/v1/query?query=…'`
+          - Loki: through the Grafana proxy shown in Context. A metric query (starts with an
+            aggregation or `count_over_time`-style function) uses `/loki/api/v1/query`; a log
+            query uses `query_range` with `limit=1` and `since=<range>`
+          - substitutions: `$__rate_interval`, `$__interval`, `$__auto` become `5m`; `$__range`
+            becomes `--range` (default `24h`); a dashboard variable takes `--var`, else its
+            `current.value`, else (for a query variable) the first value its query returns, else
+            `.*` for a textbox. An unresolved variable is an error
+          - per panel print one of `OK <n series>`, `EMPTY`, `EMPTY (event-driven)` when the
+            panel `description` starts with `Event-driven:`, or `ERROR <message>`; end with a
+            summary line of counts per dashboard
+          - exit 1 if any panel is `ERROR` or a plain `EMPTY`
+          Put the command runner behind a function the tests can replace.
+
+          Edge cases: a collapsed row keeps its panels in `row.panels`; one panel can have
+          several targets (the panel is OK if any target returns data, and each empty target is
+          listed); a target with `hide: true` is skipped; `expr` can contain backticks, quotes
+          and newlines, so URL-encode it and never pass it through a shell string.
+
+          Tests (`node --test infra/monitoring/scripts/`), with fixture dashboards and a fake
+          runner, no docker: each lint rule with one passing and one failing fixture; nested row
+          panels; variable substitution order; event-driven empty versus plain empty; an erroring
+          query; the exit codes.
+
+          Then run both modes on the 9 base dashboards and put the `live` summary in your
+          result. Cross-check against the audit: the MinIO bucket panels in `storage.json` must
+          come out `EMPTY`, and `equations.json` mostly empty. If they don't, the script is wrong.
+      - id: T2
+        title: 'Prometheus: drop the dead idkwiw job, scrape MinIO bucket metrics'
+        after: []
+        files:
+          - infra/monitoring/prometheus.yml
+        status: todo
+        body: |-
+          Edit `infra/monitoring/prometheus.yml`:
+          - remove the `idkwiw` job (the hostname no longer exists; the target has been down)
+          - add job `minio-bucket`, `metrics_path: /minio/v2/metrics/bucket`, target
+            `storage:9000`, beside the existing `minio` job (which keeps scraping
+            `/minio/v2/metrics/cluster`)
+
+          The storage service is the pgsty/silo fork of MinIO with
+          `MINIO_PROMETHEUS_AUTH_TYPE: public`. Confirm the endpoint before committing:
+          `docker exec lilnas-prometheus-1 wget -qO- http://storage:9000/minio/v2/metrics/bucket`
+          must list `minio_bucket_usage_total_bytes` and `minio_bucket_usage_object_total` with a
+          `bucket` label. Report the bucket names and the metric families the endpoint exposes;
+          the Storage dashboard task relies on them.
+
+          Do not touch any other job. Nothing is deployed by this task.
+      - id: T3
+        title: 'App Detail dashboard replaces Download, Equations, Service Detail and Services Overview'
+        after:
+          - T1
+        files:
+          - infra/monitoring/grafana/provisioning/dashboards/json/app-detail.json
+          - infra/monitoring/grafana/provisioning/dashboards/json/download.json
+          - infra/monitoring/grafana/provisioning/dashboards/json/equations.json
+          - infra/monitoring/grafana/provisioning/dashboards/json/service-detail.json
+          - infra/monitoring/grafana/provisioning/dashboards/json/services-overview.json
+        status: todo
+        body: |-
+          In `infra/monitoring/grafana/provisioning/dashboards/json/`, create `app-detail.json`
+          (uid `lilnas-app-detail`, title `App Detail`, tags `lilnas`, `apps`) and delete
+          `download.json`, `equations.json`, `service-detail.json` and `services-overview.json`.
+          The provider has `disableDeletion: false`, so Grafana drops the four old dashboards
+          when their files go.
+
+          Why: the four NestJS apps (jobs `tdr-bot`, `equations`, `download`, `me-token-tracker`)
+          export `http_requests_total`, but for tdr-bot and me-token-tracker the only route is
+          `/metrics`, which is Prometheus scraping them. The old dashboards showed that as user
+          traffic and counted 4xx as errors. Equations has never recorded a compilation and
+          download had no job in 7 days, so two whole dashboards were empty.
+
+          Layout:
+          - variable `app`: query `label_values(nodejs_heap_size_used_bytes, job)`, single
+            value, default `tdr-bot`; textbox variable `search` for the logs row
+          - row "Summary" (for `$app`): up, process uptime (`time() - process_start_time_seconds`),
+            restarts in 24h (`changes(process_start_time_seconds[24h])`), resident memory, heap
+            used, event loop lag
+          - row "Node.js runtime" (for `$app`): process CPU (user and system), heap used versus
+            total, resident memory, event loop lag, active handles and requests. Reuse the
+            working queries from `service-detail.json`'s "Node.js Runtime" row
+          - row "HTTP (real traffic)" (for `$app`): request rate by route and status, 5xx rate,
+            p95 latency by route, all with `route!="/metrics"`. Only 5xx is an error. These are
+            event-driven: say so in each description
+          - collapsed row "Download: jobs and pipeline": the useful panels from `download.json`
+            (jobs created, outcomes, in progress, queued, phase duration p50/p95, yt-dlp update
+            results). These always show download, whatever `$app` is
+          - collapsed row "Equations: compilations": at most 8 panels from `equations.json`
+            (compilations by status, active jobs, total latency p50/p95, validation failures by
+            reason, rate limited). Always equations
+          - row "Logs" (for `$app`): log volume and a logs panel
+            `{service="$app"} |~ "$search"`
+          - tdr-bot has its own dashboard: add a dashboard link to `lilnas-tdr-bot`.
+            me-token-tracker has no domain metrics; it gets the shared rows only
+
+          With traffic this low a `rate(...[5m])` stat reads zero almost always. For counters
+          prefer `increase(...[$__range])` stats and `increase(...[1h])` bars, and give stats an
+          `or vector(0)` so they show 0 instead of "No data".
+
+          Run `check-dashboards.mjs lint` on the new file and `live` once per app
+          (`--var app=tdr-bot`, `equations`, `download`, `me-token-tracker`). The Summary and
+          runtime rows must be `OK` for all four apps. Check nothing else in the repo refers to
+          the four deleted uids (`grep -rn 'lilnas-services-overview\|lilnas-service-detail\|"lilnas-download"\|"lilnas-equations"'`
+          outside `docs/plans` and `docs/archive`).
+      - id: T4
+        title: Trim the TDR Bot dashboard to cost, errors, latency and logs
+        after:
+          - T1
+        files:
+          - infra/monitoring/grafana/provisioning/dashboards/json/tdr-bot.json
+        status: todo
+        body: |-
+          Rewrite `infra/monitoring/grafana/provisioning/dashboards/json/tdr-bot.json`, keeping
+          uid `lilnas-tdr-bot` and the `requestId` textbox variable. Today it has about 45 panels
+          in 9 rows for a bot that handled 47 messages and spent $0.25 on LLM calls in 30 days.
+          Target: at most 16 panels in 5 rows, default time range 7 days.
+
+          - "Summary" stats over `$__range`: messages received, LLM success rate, LLM cost,
+            cost over 30 days, errors (message, LLM, image generation and response failures
+            added up)
+          - "Cost": cost per day by model (`tdr_bot_llm_cost_usd_total`), tokens by model and
+            type (`tdr_bot_llm_tokens_by_model_total`)
+          - "Latency": LLM request duration p50 and p95 by skill
+            (`tdr_bot_llm_request_duration_seconds_bucket`), LLM call duration p95 by operation
+            (`tdr_bot_llm_call_duration_seconds_bucket`)
+          - "Errors": failed messages by handler and LLM errors; timeouts, schema failures and
+            retries (`tdr_bot_llm_calls_total{status=~"error|timeout"}`,
+            `tdr_bot_llm_schema_failures_total` if it exists live, `tdr_bot_llm_retries_total`)
+          - "Logs": errors and warnings, and recent logs, both filtered by `$requestId`
+
+          Drop the rows "Messages and Commands", "LLM Calls" (apart from the latency panel
+          above), "Resilience" and "Router", and the per-skill p95 stats.
+
+          At about 7 messages a week, `rate(...[5m])` is zero nearly always: use
+          `increase(...[1h])` or `[1d]` bars and `$__range` stats, with `or vector(0)` on stats.
+          Histogram quantiles are genuinely event-driven; mark them so. Check every metric name
+          against live Prometheus first (`tdr_bot_*` has 20 families).
+
+          Run `check-dashboards.mjs lint` and `live --range 7d` on the file and report the
+          summary and the panel count before and after.
+      - id: T5
+        title: 'Fix Storage (HDD and SSD groups, MinIO buckets) and the Infrastructure disk gauge'
+        after:
+          - T1
+          - T2
+        files:
+          - infra/monitoring/grafana/provisioning/dashboards/json/storage.json
+          - infra/monitoring/grafana/provisioning/dashboards/json/infrastructure.json
+        status: todo
+        body: |-
+          Two dashboards in `infra/monitoring/grafana/provisioning/dashboards/json/`. Keep both
+          uids.
+
+          `storage.json`:
+          - the "Filesystem Overview" stats (Total Capacity, Total Available, Total Used, Overall
+            Disk Usage, Inode Usage) add 8 HDDs, 4 SSDs, `/` and `/boot` into one number. Replace
+            them with two groups: HDD (`mountpoint=~"/mnt/hdd.*"`) and SSD
+            (`mountpoint=~"/mnt/ssd.*|/"`), each with capacity, used, free and percent used.
+            `/boot` (vfat, 300 MB) is in neither total. Keep "Mount Points Monitored"
+          - keep the per-mount panels and their `lilnas_storage_volume` labelling exactly as
+            they are (added on 2026-11-23)
+          - "MinIO Object Storage": the bucket panels query `minio_bucket_usage_total_bytes` and
+            `minio_bucket_usage_object_total`, which no job scraped. The `minio-bucket` job from
+            the earlier task adds them once deployed. Add `job="minio-bucket"` to those queries,
+            legend `{{bucket}}`, and check the label names against the endpoint
+            (`docker exec lilnas-prometheus-1 wget -qO- http://storage:9000/minio/v2/metrics/bucket`).
+            Until the job is deployed `live` reports these panels empty: list them in your
+            result as waiting for `minio-bucket`; do not mark them event-driven
+
+          `infrastructure.json`: the "Disk Usage (/)" gauge covers only the root filesystem.
+          Rename it "Root disk usage" and add a "Fullest mount" stat beside it: the highest
+          percent used across btrfs mounts, with the mount name in the legend
+          (`topk(1, …)` over `node_filesystem_avail_bytes{fstype="btrfs"}`). Shrink neighbours to
+          make room; no other change.
+
+          Run `check-dashboards.mjs lint` and `live` on both files and report the summary.
+      - id: T6
+        title: Security dashboard from Loki (SSH, sshguard, sudo, web probes, auth logins)
+        after:
+          - T1
+        files:
+          - infra/monitoring/grafana/provisioning/dashboards/json/security.json
+        status: todo
+        body: |-
+          Create `infra/monitoring/grafana/provisioning/dashboards/json/security.json` (uid
+          `lilnas-security`, title `Security`, tags `lilnas`, `security`), Loki datasource only,
+          default time range 24 hours. Read `docs/logging.md` first: it has the labels, the
+          access-log fields and working example queries. The data is already in Loki; this task
+          changes no collector config.
+
+          Sources:
+          - host journal: `{service="host", identifier="sshd-session"}` (also `sshd`),
+            `identifier="sshguard"`, `identifier="sudo"`
+          - Traefik access log: `{service="traefik", log_type="access"} | json` with fields
+            `ClientHost`, `RequestHost`, `RequestPath`, `DownstreamStatus`, `RouterName`
+          - auth app: `{service="auth"}` (pino JSON) and access-log lines for
+            `RequestHost="auth.lilnas.io"`
+
+          Panels:
+          - "SSH": accepted logins (stat and a logs panel showing user, method and source IP);
+            failed attempts over time (`Invalid user`, `Failed password`,
+            `Connection closed by invalid user|authenticating user`); top source IPs and top
+            usernames tried, extracted with `regexp` or `pattern`
+          - "sshguard": attacks over time (`Attack from`) and blocks (`Blocking`), with a table
+            of blocked IPs
+          - "sudo": commands run (`COMMAND=`) as a logs panel and a count; failures
+            (`a password is required`, `incorrect password`) as their own stat
+          - "Web": 4xx and 5xx over time; top 20 client IPs by 4xx/5xx; top paths by 4xx/5xx;
+            errors by `RequestHost`; scanner probes (the `\.env|\.git|wp-login…` query from
+            `docs/logging.md`) and the probes that did not get an error back
+          - "Auth logins": sign-ins at lilnas-auth. Look at real lines first and pick what
+            identifies a completed login and a rejected one (candidates: access-log requests to
+            `auth.lilnas.io` under `/api/auth/callback/`, and the `auth` service's own log
+            lines). State the query you chose and why. Never show a token or cookie
+          - textbox variable `ip`: a logs panel "Everything this IP did" over the access log and
+            the sshd lines, shown when `ip` is set (default empty, description `Event-driven:`)
+
+          Rules: no new Loki labels. Keep high-cardinality values (IPs, paths) in `| json` /
+          `regexp` extractions. Top-N panels are instant queries over `$__range`, not range
+          queries. Check each query at 24 hours and at 7 days through the Grafana proxy and
+          report any that errors or takes over 10 seconds at 7 days; simplify those. Blocks,
+          sudo failures and accepted logins can be empty in a quiet window: mark them
+          event-driven.
+
+          Run `check-dashboards.mjs lint` and `live --range 24h` and report the summary.
+      - id: T7
+        title: Overview dashboard, set as the Grafana home page
+        after:
+          - T1
+        files:
+          - infra/monitoring/grafana/provisioning/dashboards/json/overview.json
+          - infra/monitoring.yml
+        status: todo
+        body: |-
+          Create `infra/monitoring/grafana/provisioning/dashboards/json/overview.json` (uid
+          `lilnas-overview`, title `Overview`, tags `lilnas`, `overview`): one screen that says
+          whether anything needs attention, with links to the dashboards that explain it. It uses
+          only data that exists today.
+
+          Panels (stats and bar gauges with thresholds; no row needs scrolling at 1080p):
+          - scrape targets: up / total, and a table of targets that are down (`up == 0`),
+            showing "none" when empty
+          - disk fill per mount: bar gauge of percent used for the btrfs mounts, labelled with
+            the same `lilnas_storage_volume` join `storage.json` uses; thresholds 80 and 90
+          - btrfs device errors: `sum(node_btrfs_device_errors_total)`, green only at 0
+          - certificates: days until the soonest `traefik_tls_certs_not_after`; thresholds 14
+            and 30
+          - containers: running count, and restarts in 24h per container
+            (`changes(container_start_time_seconds{name!=""}[24h])`, top 10, zero hidden). A
+            deploy recreates containers, so say that in the description
+          - Traefik: request rate, 5xx rate and 5xx share, top services by 5xx
+            (`traefik_service_requests_total{code=~"5.."}`)
+          - host: CPU, memory, load
+          - LLM spend: `tdr_bot_llm_cost_usd_total` over 24 hours and 30 days
+          - security glance from Loki: SSH accepted logins and failed attempts in 24h
+
+          Each group's title or a data link opens the matching dashboard by uid:
+          `lilnas-infrastructure`, `lilnas-storage`, `lilnas-traefik`, `lilnas-security`,
+          `lilnas-app-detail`, `lilnas-tdr-bot`, `lilnas-logs`. Link by uid only
+          (`/d/<uid>`). Do not link to `lilnas-disk-health`, `lilnas-media` or
+          `lilnas-postgres` yet: a later task adds those once they exist.
+
+          Home page: in `infra/monitoring.yml`, add to the `grafana` service's `environment`
+          `GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/json/overview.json`.
+          Confirm the option name against the Grafana 13 docs. Change nothing else in that file;
+          other tasks edit other services in it.
+
+          Run `check-dashboards.mjs lint` and `live` and report the summary. Stats that are zero
+          when healthy use `or vector(0)`, so the only event-driven panels are the tables.
+      - id: T8
+        title: smartctl_exporter service and scrape job
+        after: []
+        files:
+          - infra/monitoring.yml
+          - infra/monitoring/prometheus.yml
+        status: todo
+        body: |-
+          Add SMART data for the 8 SATA HDDs (`sda`–`sdh`) and 5 NVMe drives (`nvme0`–`nvme4`).
+          Background: a boot NVMe dropped off the PCIe bus on 2026-09-24 and SATA errors have
+          been seen on `ata5`.
+
+          `infra/monitoring.yml`, new service `smartctl-exporter`:
+          ```yaml
+          smartctl-exporter:
+            image: prometheuscommunity/smartctl-exporter:v0.15.0
+            restart: unless-stopped
+            logging: *default-logging
+            privileged: true
+            user: root
+          ```
+          `infra/monitoring/prometheus.yml`: job `smartctl`, target `smartctl-exporter:9633`,
+          `scrape_interval: 60s` (the exporter polls smartctl every 60 seconds).
+
+          This shape was tried once on this host and saw all 13 devices. Repeat it as a
+          throwaway before committing
+          (`docker run -d --name mon-rig-smartctl --privileged --user root prometheuscommunity/smartctl-exporter:v0.15.0`,
+          wait 15 seconds, `docker exec mon-rig-smartctl wget -qO- http://localhost:9633/metrics`)
+          and report: `smartctl_devices`, the metric families, the label names on
+          `smartctl_device` and `smartctl_device_attribute`, the `attribute_name` values, and any
+          warning in its log (one drive, `sdd`, is expected to report device error log entries).
+          Mask serial numbers in your result.
+
+          Edge cases to settle and report:
+          - the default `--smartctl.powermode-check=standby` must stay, so a poll never spins up
+            a sleeping disk
+          - a privileged container gets its `/dev` at start. Check whether a device that appears
+            later would be seen at the 10-minute rescan; if it needs `/dev:/dev:ro` mounted to
+            do so, add the mount and say why
+          - no published port, no Traefik labels
+
+          Nothing is deployed by this task. Remove the throwaway container.
+      - id: T9
+        title: exportarr for Sonarr, Radarr and SABnzbd with encrypted API keys
+        after: []
+        files:
+          - infra/monitoring.yml
+          - infra/monitoring/prometheus.yml
+          - infra/.env.exportarr-sonarr
+          - infra/.env.exportarr-radarr
+          - infra/.env.exportarr-sabnzbd
+          - infra/.env.exportarr-sonarr.example
+          - infra/.env.exportarr-radarr.example
+          - infra/.env.exportarr-sabnzbd.example
+        status: todo
+        body: |-
+          Add three exportarr containers (`ghcr.io/onedr0p/exportarr:v2.3.0`) to
+          `infra/monitoring.yml`. The image has no shell (entrypoint `/tini -- /exportarr`), so
+          each instance gets its own env file holding only its API key.
+
+          | Service | `command` | `URL` | `PORT` | env file | Prometheus job |
+          |---|---|---|---|---|---|
+          | `exportarr-sonarr` | `['sonarr']` | `http://sonarr:8989` | 9707 | `.env.exportarr-sonarr.decrypted` | `sonarr` |
+          | `exportarr-radarr` | `['radarr']` | `http://radarr:7878` | 9708 | `.env.exportarr-radarr.decrypted` | `radarr` |
+          | `exportarr-sabnzbd` | `['sabnzbd']` | `http://sabnzbd:8080` | 9709 | `.env.exportarr-sabnzbd.decrypted` | `sabnzbd` |
+
+          Each service: `restart: unless-stopped`, `logging: *default-logging`, `URL` and `PORT`
+          as literal `environment` values, `env_file` pointing at the decrypted sibling, no
+          ports, no labels. Sonarr and Radarr also get `ENABLE_ADDITIONAL_METRICS: true` if a
+          throwaway run shows it adds useful series without slow scrapes (report the scrape
+          duration either way). Add the three jobs to `infra/monitoring/prometheus.yml` with
+          `scrape_interval: 60s`.
+
+          Confirm the environment variable names for v2.3.0 first (`docker run --rm ghcr.io/onedr0p/exportarr:v2.3.0 sonarr --help`
+          and the project README): the key is expected as `APIKEY`. Use whatever the binary
+          actually reads and name it the same in the env files.
+
+          Secrets, following "Add a new env file" in `docs/deploy.md`:
+          - the three keys already exist, encrypted, in `apps/download/.env.prod` as
+            `SONARR_API_KEY`, `RADARR_API_KEY`, `SABNZBD_API_KEY`. Read each with
+            `pnpm exec dotenvx get <NAME> -f apps/download/.env.prod -fk /home/jeremy/lilnas/.env.keys`
+            straight into a file write (a shell redirect or command substitution inside a
+            script file); never echo it, never put it on a command line you report
+          - write each plaintext `infra/.env.exportarr-<app>` with one line, then
+            `pnpm exec dotenvx encrypt -fk /home/jeremy/lilnas/.env.keys -f infra/.env.exportarr-<app>`.
+            This appends three new private keys to `/home/jeremy/lilnas/.env.keys`; that is
+            expected, and a later task has a human copy the key file to the deploy host
+          - commit a `.example` beside each with the variable name and an empty value
+          - `pnpm lilnas secrets verify --keys /home/jeremy/lilnas/.env.keys` passes, and
+            `pnpm lilnas secrets decrypt --keys /home/jeremy/lilnas/.env.keys` writes the three
+            `.decrypted` siblings in your worktree (gitignored; confirm with `git status`)
+          - if a retry finds a file already encrypted, do not encrypt it twice: check for the
+            `DOTENV_PUBLIC_KEY` line
+
+          Live check with throwaways on the production network, read-only: for each app run
+          `docker run -d --name mon-rig-exportarr-<app> --network lilnas_default --env-file infra/.env.exportarr-<app>.decrypted -e URL=… -e PORT=… ghcr.io/onedr0p/exportarr:v2.3.0 <app>`.
+          The image has no wget, so read the metrics from the Prometheus container:
+          `docker exec lilnas-prometheus-1 wget -qO- http://mon-rig-exportarr-<app>:<port>/metrics`.
+          Report per app: the metric families, the label names, the scrape time, and any error
+          in the exporter log (a 401 means the wrong key or variable name). Remove the three
+          containers and show they are gone.
+
+          Nothing is deployed by this task.
+      - id: T10
+        title: postgres_exporter for the three Postgres servers, with a monitoring-role script
+        after: []
+        files:
+          - infra/monitoring.yml
+          - infra/monitoring/prometheus.yml
+          - infra/.env.postgres-exporter
+          - infra/.env.postgres-exporter.example
+          - infra/monitoring/scripts/postgres-monitor-roles.sh
+        status: todo
+        body: |-
+          Add one postgres_exporter (`quay.io/prometheuscommunity/postgres-exporter:v0.21.1`,
+          port 9187) per Postgres server to `infra/monitoring.yml`. Download and auth use SQLite;
+          these three are all the Postgres there is.
+
+          | Service | `DATA_SOURCE_URI` | `server` label |
+          |---|---|---|
+          | `postgres-exporter-tdr-bot` | `tdr-bot-db:5432/tdr_bot?sslmode=disable` | `tdr-bot-db` |
+          | `postgres-exporter-icloud-backup` | `icloud-backup-db:5432/icloud_backup?sslmode=disable` | `icloud-backup-db` |
+          | `postgres-exporter-immich` | `immich-database:5432/immich?sslmode=disable` | `immich-database` |
+
+          Each service: `restart: unless-stopped`, `logging: *default-logging`,
+          `DATA_SOURCE_URI` as a literal `environment` value, `env_file: .env.postgres-exporter.decrypted`
+          (shared by all three), no ports, no labels, no `depends_on` (the databases are defined
+          in other compose files and the exporter reconnects on its own). In
+          `infra/monitoring/prometheus.yml` add one job `postgres` with three `static_configs`
+          entries, each with its target `<service>:9187` and `labels: { server: <server label> }`.
+
+          `infra/.env.postgres-exporter` holds `DATA_SOURCE_USER=lilnas_monitor` and
+          `DATA_SOURCE_PASS=<64 hex chars from openssl rand -hex 32>`. Generate the password
+          straight into the file, encrypt it with
+          `pnpm exec dotenvx encrypt -fk /home/jeremy/lilnas/.env.keys -f infra/.env.postgres-exporter`
+          (appends one new private key to that key file; expected), commit a `.example` with
+          both names and empty values, and check `pnpm lilnas secrets verify --keys /home/jeremy/lilnas/.env.keys`.
+          If a retry finds the file already encrypted, keep it: a new password would not match
+          a role that may already exist.
+
+          `infra/monitoring/scripts/postgres-monitor-roles.sh` (POSIX sh, executable) creates
+          the read-only role. A later task runs it against production after a human approves;
+          this task must not.
+          ```
+          postgres-monitor-roles.sh [--dry-run] [--drop] <path to .env.postgres-exporter.decrypted>
+          ```
+          - for each of `lilnas-tdr-bot-db-1`, `lilnas-icloud-backup-db-1`,
+            `lilnas-immich-database-1`: `docker exec -i <c> sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" …'`
+            (each container has its own superuser and database in its environment)
+          - SQL: create role `lilnas_monitor` with `LOGIN` if it does not exist, set its password
+            (so a re-run repairs a mismatch), `GRANT pg_monitor TO lilnas_monitor`,
+            `GRANT CONNECT ON DATABASE <db> TO lilnas_monitor`. Nothing else: no superuser, no
+            `CREATEDB`, no table grants
+          - the password travels on stdin only, never in `argv` and never in output; quote it as
+            a SQL literal safely (it is hex, but do not rely on that)
+          - idempotent; `--dry-run` prints the SQL with the password masked and touches nothing;
+            `--drop` removes the role (the rollback); exits non-zero naming the container that
+            failed
+          - PG 14 (immich) and PG 18 must both accept the SQL
+
+          Test the script and the exporter without touching production data, in throwaway
+          containers on their own network (`mon-rig-pg14`, `mon-rig-pg18`, `mon-rig-pgexp`, test
+          password, images `postgres:18.4-alpine` and the Immich Postgres image already on this
+          host): run the SQL twice (idempotence), log in as `lilnas_monitor`, confirm it can
+          read `pg_stat_database` and cannot create a table, point the exporter at it and
+          report `pg_up`, the metric families, and which collectors are on by default. Decide
+          and report whether to enable `--collector.long_running_transactions` and
+          `--collector.stat_activity_autovacuum` (enable if they work on both versions).
+          `pg_stat_statements` is not installed anywhere; leave that collector off. Remove
+          every `mon-rig-` container, network and volume.
+
+          Until the role exists in production the deployed exporters report `pg_up 0`; that is
+          expected and harmless.
+      - id: T11
+        title: Turn on Immich's Prometheus telemetry and scrape it
+        after: []
+        files:
+          - infra/immich.yml
+          - infra/monitoring/prometheus.yml
+        status: todo
+        body: |-
+          Immich (`ghcr.io/immich-app/immich-server:v3.3.4`, service `immich` in
+          `infra/immich.yml`) can export Prometheus metrics. Jeremy approved turning it on; the
+          deploy will restart Immich once.
+
+          First confirm, from Immich's documentation and release notes for v3.3.4 (its
+          monitoring page, and the server's environment-variable reference), which variable
+          enables telemetry and which ports serve `/metrics`. In earlier versions this was
+          `IMMICH_TELEMETRY_INCLUDE=all`, with the API metrics on port 8081 and the microservices
+          metrics on 8082. Cross-check against the running container without changing it:
+          `docker exec lilnas-immich-1 env | grep -i -c telemetry` (count only) and a search of
+          the server bundle for the variable name.
+
+          If confirmed:
+          - add the variable as a literal under `environment:` on the `immich` service (the
+            service already has `env_file`; do not touch that, and write no `${...}`). The file
+            fails Prettier at base: match its style and reformat nothing
+          - add job `immich` to `infra/monitoring/prometheus.yml` with one target per metrics
+            port, each labelled `component: api` or `component: microservices`
+          - publish no port and add no Traefik label
+
+          If you cannot confirm the variable or the ports for v3.3.4, change nothing, commit
+          nothing, and report what you found: the Media Stack dashboard then uses Traefik and
+          cAdvisor for Immich.
+
+          Report the variable, the ports, the metric name prefix to expect, and whether the
+          machine-learning container exposes anything (do not enable it there). Nothing is
+          deployed by this task.
+  - key: '2'
+    name: Ship push 1, then build the exporter-backed dashboards
+    tasks:
+      - id: H1
+        title: 'Go/no-go: push 1 (cleanup, Security, Overview, exporters)'
+        after:
+          - T2
+          - T3
+          - T4
+          - T5
+          - T6
+          - T7
+          - T8
+          - T9
+          - T10
+          - T11
+        files: []
+        status: todo
+        body: |-
+          Approving lets the next task create the Postgres monitoring role and push phase 1 to
+          `main`, which deploys it.
+
+          Before you approve, copy the key file to the deploy host. Four env files were added
+          and the deploy cannot decrypt them without their keys (it fails safely, before
+          anything restarts, if you skip this):
+          `sudo install -o deploy -g deploy -m 0600 /home/jeremy/lilnas/.env.keys /opt/lilnas/.env.keys`
+
+          What the push does:
+          - Grafana and Prometheus restart (a few seconds each). Four dashboards disappear
+            (Services Overview, Service Detail, Download, Equations); App Detail, Security and
+            Overview appear, and Overview becomes the home page
+          - Immich restarts once if the telemetry task found the setting (see its result)
+          - seven new containers start: `smartctl-exporter` (privileged, reads SMART from all 13
+            disks), three `exportarr-*`, three `postgres-exporter-*`
+          - before pushing, the agent creates role `lilnas_monitor` (read-only, `pg_monitor`) in
+            tdr-bot-db, icloud-backup-db and immich-database
+
+          Pick a quiet time and don't push anything else to `main` until the push task is done.
+          Rollback, by you: revert the commits on `main` and push, then remove the exporter
+          containers with `cd /opt/lilnas && sudo -u deploy docker compose rm -sf <name>`. The
+          push task reports the exact names and the command that drops the role.
+
+          Request changes to hold the push.
+      - id: T12
+        title: Create the monitoring roles, push to main, watch CI, verify production
+        after:
+          - H1
+          - T8
+          - T9
+          - T10
+          - T11
+        files: []
+        status: todo
+        body: |-
+          A human approved this push. Create the Postgres monitoring role, push phase 1 to
+          `main`, watch the deploy and verify production. Commit nothing.
+
+          Before anything else, all of these must hold. If one does not, stop and report it
+          without creating roles or pushing:
+          - `git fetch origin main`, then `git merge-base --is-ancestor origin/main HEAD`
+            succeeds (never rebase, merge or force)
+          - `git diff --name-only origin/main..HEAD` lists only `infra/monitoring.yml`,
+            `infra/monitoring/**`, `infra/immich.yml`, `infra/.env.exportarr-*`,
+            `infra/.env.postgres-exporter*` and `docs/plans/**`. Anything under `apps/`,
+            `packages/`, `.github/` or the root `docker-compose.yml` would rebuild images or
+            redeploy everything
+          - `pnpm lilnas secrets verify --keys /home/jeremy/lilnas/.env.keys` passes
+          - `pnpm lilnas ci detect --base origin/main --head HEAD --json`: `full` false, no
+            images, `decrypt` true, `forceRecreate` within `prometheus` and `grafana`, `up`
+            within the services defined in `infra/monitoring.yml` and `infra/immich.yml`
+          - the human copied the key file: `stat -c %s /opt/lilnas/.env.keys` equals
+            `stat -c %s /home/jeremy/lilnas/.env.keys` (you cannot read the file; sizes are
+            enough)
+          - record `git rev-parse origin/main` as the rollback sha
+
+          Then, in order:
+          1. Refresh the key backup: `install -m 0600 /home/jeremy/lilnas/.env.keys /storage/backups/lilnas-secrets/.env.keys`.
+          2. `pnpm lilnas secrets decrypt --keys /home/jeremy/lilnas/.env.keys` in your
+             worktree, run `infra/monitoring/scripts/postgres-monitor-roles.sh --dry-run` on
+             `infra/.env.postgres-exporter.decrypted`, read the SQL, then run it for real.
+             Confirm in each of the three database containers that `lilnas_monitor` exists, is
+             a member of `pg_monitor`, is not a superuser, and can log in with the password
+             (password on stdin, never in `argv`).
+          3. `git push origin HEAD:main`. Find the run with
+             `gh run list --workflow ci.yml --branch main --event push --limit 5 --json databaseId,headSha,status,url`
+             (match `headSha`) and follow it with `gh run watch <id> --exit-status`. If it is
+             red, report the failing job's log and stop.
+
+          After the deploy, wait five minutes for scrapes, then check production (read-only):
+          - `docker compose -p lilnas ps` shows the seven new containers running, and
+            prometheus, grafana and immich healthy with a fresh start time;
+            `https://immich.lilnas.io/api/server/ping` answers 200
+          - Prometheus targets: `idkwiw` is gone; `minio-bucket`, `smartctl`, `sonarr`, `radarr`,
+            `sabnzbd`, the three `postgres` targets and (if added) the `immich` targets are up.
+            For a target that is down, report its `lastError` and the exporter's log
+          - `smartctl_devices` is 13; `pg_up` is 1 for all three `server` values;
+            `minio_bucket_usage_total_bytes` has one series per bucket
+          - Grafana (`/api/search?type=dash-db` through `docker exec lilnas-grafana-1`): the
+            uids are exactly `lilnas-overview`, `lilnas-infrastructure`, `lilnas-storage`,
+            `lilnas-traefik`, `lilnas-security`, `lilnas-app-detail`, `lilnas-tdr-bot`,
+            `lilnas-logs`; `/api/dashboards/home` returns the Overview
+          - `node infra/monitoring/scripts/check-dashboards.mjs live` over every dashboard, and
+            App Detail once per app. The MinIO bucket panels must now be `OK`
+
+          The dashboards built next depend on your inventory. Report, for each of the jobs
+          `smartctl`, `sonarr`, `radarr`, `sabnzbd`, `postgres` and `immich`: every metric name
+          (`count by (__name__)({job="<job>"})`) with its label names, and two sample series for
+          the main families. Also report the pushed sha, the rollback sha, the CI run URL, each
+          check with what you observed, the seven container names, and
+          `infra/monitoring/scripts/postgres-monitor-roles.sh --drop <env file>` as the role
+          rollback. Do not roll anything back yourself. Put failed checks under `defects:`.
+      - id: H2
+        title: Review the cleaned-up dashboards and confirm the exporters are scraping
+        after:
+          - T12
+        files: []
+        status: todo
+        body: |-
+          Push 1 is live. Open `https://grafana.lilnas.io` and check:
+          - it opens on Overview, and every tile reads sensibly for what you know of the server
+          - App Detail: switch `$app` through tdr-bot, equations, download and
+            me-token-tracker; the runtime rows fill for each
+          - TDR Bot: cost, errors, latency and logs are all you need from it
+          - Storage: HDD and SSD totals are separate and the MinIO bucket panels have data
+          - Security: SSH, sshguard, sudo, web and auth-login panels match what you expect
+          - `https://prometheus.lilnas.io/targets`: the new targets are up (the push task's
+            result lists them, with anything that is down)
+
+          Disk Health, Media Stack and Postgres are built next, on the metrics the push task
+          listed. Approve to start them. Request changes for anything to fix first: comments
+          about the dashboards above become fix tasks.
+      - id: T13
+        title: Disk Health dashboard (SMART, btrfs device errors, temperatures)
+        after:
+          - T12
+          - H2
+        files:
+          - infra/monitoring/grafana/provisioning/dashboards/json/disk-health.json
+        status: todo
+        body: |-
+          Create `infra/monitoring/grafana/provisioning/dashboards/json/disk-health.json` (uid
+          `lilnas-disk-health`, title `Disk Health`, tags `lilnas`, `storage`, `hardware`).
+          The server has 8 SATA HDDs (`sda`–`sdh`, mounted at `/mnt/hdd1`–`8`) and 5 NVMe drives
+          (`nvme0`–`nvme4`: `/` and `/mnt/ssd1`–`4`). A boot NVMe once dropped off the PCIe bus,
+          SATA errors have been seen on `ata5`, and `sdd` has entries in its device error log.
+
+          Data, all deployed (the push task's result lists the exact `smartctl_*` names and
+          labels; use those, not memory):
+          - job `smartctl`: `smartctl_device` (model, serial, interface),
+            `smartctl_device_smart_status`, `smartctl_device_smartctl_exit_status`,
+            `smartctl_device_temperature`, `smartctl_device_power_on_seconds`,
+            `smartctl_device_error_log_count`, `smartctl_device_attribute` (HDD attributes by
+            `attribute_name`), and for NVMe `smartctl_device_percentage_used`,
+            `smartctl_device_media_errors`, `smartctl_device_available_spare`,
+            `smartctl_device_critical_warning`, `smartctl_device_num_err_log_entries`
+          - node-exporter: `node_btrfs_device_errors_total` (`device`, `type`),
+            `node_btrfs_*` allocation, `node_hwmon_temp_celsius` joined to
+            `node_hwmon_chip_names`, `node_nvme_info` (`state`), `node_disk_info`
+          - `lilnas_storage_volume{name,mountpoint,volume}` and `node_filesystem_size_bytes{device,mountpoint}`
+            to turn a device into the mount and what it holds
+          - Loki: kernel SATA errors, `{service="host", identifier="kernel"} |~ "ata[0-9.]+: .*(error|failed)"`
+
+          Panels:
+          - "At a glance": drives reporting / expected (13), drives failing SMART, total
+            reallocated + pending + offline-uncorrectable sectors, NVMe media errors, btrfs
+            device errors, hottest drive. Green only when the bad counts are 0
+          - a table, one row per drive: device, mount and contents, model, SMART status, power-on
+            time, temperature, and per type the key counters (HDD: reallocated, pending,
+            uncorrectable, CRC errors, error log count; NVMe: percent used, spare, media errors,
+            critical warning)
+          - "HDD": temperature over time, the sector counters over time, UDMA CRC errors (cable
+            or port trouble), error log count
+          - "NVMe": temperature (SMART and hwmon), wear percent, available spare, media errors,
+            controller state
+          - "btrfs": device errors by device and type, allocation (data, metadata, used versus
+            size) per filesystem
+          - "Other temperatures": CPU (`k10temp`) and board sensors from hwmon, labelled by
+            chip name
+          - "Kernel": SATA error and link-reset log lines (event-driven)
+
+          Mask nothing in the dashboard, but keep serial numbers out of your result. Raw SMART
+          attribute values differ by vendor: label panels with the attribute name and use the
+          raw value field the exporter marks as raw. Rising counters matter more than totals:
+          show `increase` over `$__range` beside the current value.
+
+          Run `check-dashboards.mjs lint` and `live`, report the summary, and list anything the
+          data already shows as unhealthy (it is the point of the dashboard).
+      - id: T14
+        title: Media Stack dashboard (Sonarr, Radarr, SABnzbd, Emby, Immich)
+        after:
+          - T12
+          - H2
+        files:
+          - infra/monitoring/grafana/provisioning/dashboards/json/media.json
+        status: todo
+        body: |-
+          Create `infra/monitoring/grafana/provisioning/dashboards/json/media.json` (uid
+          `lilnas-media`, title `Media Stack`, tags `lilnas`, `media`).
+
+          Data, all deployed (the push task's result lists the exact metric names and labels per
+          job; use those):
+          - jobs `sonarr`, `radarr`, `sabnzbd`: exportarr v2.3.0
+          - job `immich` (labels `component: api|microservices`), only if the push task reports
+            it up. If it is not, build the Immich row from Traefik and cAdvisor alone and say so
+          - Traefik: `traefik_service_requests_total{service=~"emby@docker|immich@docker|sonarr@docker|radarr@docker|sabnzbd@docker"}`
+            and the matching duration histogram. Check the real `service` values live
+          - cAdvisor: CPU, memory and network for containers `lilnas-emby-1`, `lilnas-immich-1`,
+            `lilnas-immich-machine-learning-1`, `lilnas-sonarr-1`, `lilnas-radarr-1`,
+            `lilnas-sabnzbd-1`
+          - disk: `/storage/tv`, `/storage/movies`, `/storage/downloads` and `/storage/photos`
+            map to mounts through `lilnas_storage_volume{name,mountpoint}`
+
+          Panels:
+          - "At a glance": each service up (scrape `up` for the three exporters, and for Emby
+            and Immich a recent 2xx/3xx through Traefik or container running), download queue
+            size, current download speed, items missing or wanted, free space on the library
+            and downloads mounts
+          - "Sonarr" and "Radarr": library size (series, episodes, movies), monitored versus
+            missing, queue, health issues, root folder free space
+          - "SABnzbd": speed, queue size and remaining bytes, paused or not, downloaded per day
+          - "Emby": request rate, 4xx and 5xx separately, p95 latency, CPU (transcoding shows up
+            here), memory, network out
+          - "Immich": request rate, errors, p95 latency, CPU and memory for the server and the
+            machine-learning container, plus job queue and API metrics from telemetry when
+            present
+          - "Logs": errors and warnings from `{service=~"sonarr|radarr|sabnzbd|immich"}`
+
+          An idle download queue is normal: queue panels show 0 with `or vector(0)`, and
+          speed-over-time panels are event-driven. Emby failed logins (401) are a Security
+          matter; link to `lilnas-security` instead of repeating them.
+
+          Run `check-dashboards.mjs lint` and `live` and report the summary.
+      - id: T15
+        title: Postgres dashboard for the three database servers
+        after:
+          - T12
+          - H2
+        files:
+          - infra/monitoring/grafana/provisioning/dashboards/json/postgres.json
+        status: todo
+        body: |-
+          Create `infra/monitoring/grafana/provisioning/dashboards/json/postgres.json` (uid
+          `lilnas-postgres`, title `Postgres`, tags `lilnas`, `postgres`).
+
+          Data: job `postgres`, three targets told apart by the `server` label: `tdr-bot-db`
+          (PG 18, db `tdr_bot`, the bot's LangGraph checkpointer tables), `icloud-backup-db`
+          (PG 18, db `icloud_backup`), `immich-database` (PG 14 with VectorChord, db `immich`,
+          the big one). The exporter is postgres_exporter v0.21.1 connecting as the read-only
+          `lilnas_monitor` role; the push task's result lists the exact `pg_*` metric names and
+          labels. Use those. `pg_stat_statements` is not installed, so there are no per-query
+          panels. cAdvisor has CPU, memory and I/O for `lilnas-tdr-bot-db-1`,
+          `lilnas-icloud-backup-db-1` and `lilnas-immich-database-1`.
+
+          Layout: variable `server` (query `label_values(pg_up, server)`, multi-value with All).
+          - "At a glance", one column per server: up, Postgres version, uptime, database size,
+            connections used versus `max_connections`, deadlocks and rollbacks over `$__range`
+          - "Activity": connections by state, transactions per second (commits and rollbacks),
+            rows fetched/inserted/updated/deleted, cache hit ratio, temp files and bytes
+          - "Size and tables": database size over time; top 10 tables by size and by dead
+            tuples; last autovacuum per table. For `tdr-bot-db` the checkpointer tables are the
+            ones to watch: make sure they are visible by name
+          - "Locks and long transactions": locks by mode, longest running transaction, if those
+            collectors are deployed
+          - "WAL and checkpoints": WAL size, checkpoint and bgwriter counters. PG 14 and PG 18
+            name these differently (`pg_stat_bgwriter` versus `pg_stat_checkpointer`); write the
+            queries so each server shows its own (an `or` between the two), and check both
+          - "Container": CPU, memory, disk I/O per database container
+          - "Logs": `{service=~"tdr-bot-db|icloud-backup-db|immich-database"}` errors and fatals
+
+          A stat that is 0 when healthy uses `or vector(0)`. Panels must return data for all
+          three servers unless a metric truly does not exist on that Postgres version; name
+          those in your result.
+
+          Run `check-dashboards.mjs lint` and `live` (once with each `--var server=…` and once
+          with all) and report the summary.
+      - id: T16
+        title: 'Overview: add disk health, database and media tiles and links'
+        after:
+          - T12
+          - H2
+        files:
+          - infra/monitoring/grafana/provisioning/dashboards/json/overview.json
+        status: todo
+        body: |-
+          `infra/monitoring/grafana/provisioning/dashboards/json/overview.json` (uid
+          `lilnas-overview`, the Grafana home page) was built before the exporters existed. Add,
+          using the metric names in the push task's result:
+          - disk health: drives failing SMART (`smartctl_device_smart_status`), sum of
+            reallocated + pending sectors and NVMe media errors, hottest drive temperature;
+            links to `/d/lilnas-disk-health`
+          - Postgres: servers up out of 3 (`pg_up` by `server`); links to `/d/lilnas-postgres`
+          - media: Sonarr, Radarr and SABnzbd exporters up, download queue size; links to
+            `/d/lilnas-media`
+
+          Keep it one screen at 1080p: resize or merge existing tiles instead of adding a
+          scrolling row, and remove nothing. The three linked dashboards are created by other
+          tasks in this phase with exactly those uids; link by uid and do not wait for them.
+
+          Run `check-dashboards.mjs lint` and `live` and report the summary.
+      - id: T17
+        title: 'Docs: monitoring guide, CLAUDE.md monitoring section, logging and deploy notes'
+        after:
+          - T12
+        files:
+          - docs/monitoring.md
+          - CLAUDE.md
+          - docs/logging.md
+          - docs/deploy.md
+        status: todo
+        body: |-
+          Bring the docs in line with the new monitoring setup. Read the push task's result and
+          the files under `infra/monitoring/` and `infra/monitoring.yml` for what actually
+          shipped; document that, not this description.
+
+          New `docs/monitoring.md`, in the style of `docs/logging.md` (short sections, tables,
+          one mermaid flowchart of sources → Prometheus/Loki → Grafana):
+          - the 11 dashboards: title, uid, file, what each answers, its data sources. Overview is
+            the home page. Disk Health, Media Stack and Postgres are being added by tasks running
+            beside this one, with uids `lilnas-disk-health`, `lilnas-media`, `lilnas-postgres`
+            and files `disk-health.json`, `media.json`, `postgres.json`
+          - scrape jobs and exporters: job, target, image and version, what it needs (privileged
+            for smartctl, an API key file for each exportarr, the `lilnas_monitor` role for
+            Postgres, the telemetry variable for Immich)
+          - secrets: the four env files, which variable each holds (names only), and that a new
+            Postgres server needs `infra/monitoring/scripts/postgres-monitor-roles.sh`
+          - adding or changing a dashboard: the rules (uid `lilnas-*`, tag `lilnas`, file
+            provisioned, `Event-driven:` descriptions), `check-dashboards.mjs lint|live`, and
+            what a push redeploys (dashboard or `prometheus.yml` change force-recreates Grafana
+            or Prometheus; `infra/monitoring.yml` runs `up -d`)
+          - checking a deploy: targets page, the checker, where exporter logs are
+          - what is not monitored yet: alerting, valkey, Emby's own API
+
+          `CLAUDE.md`, "Monitoring & Observability": the stack now includes the exporters;
+          replace the stale "Grafana dashboard IDs to import" list (community dashboards 1860,
+          14282, 4475 are not used) with a pointer to `docs/monitoring.md` and one line on how
+          dashboards are provisioned and checked. Keep the section short.
+
+          `docs/logging.md`: under "Queries" or "What is not logged", point to the Security
+          dashboard as the place these queries now live; its last bullet says nothing watches
+          the logs, which stays true for alerts.
+
+          `docs/deploy.md`, "Secrets": the count and list of committed env files (15, in two
+          places) now include `infra/.env.exportarr-{sonarr,radarr,sabnzbd}` and
+          `infra/.env.postgres-exporter`; add their private-key names to the `.env.keys` table
+          pattern if it needs it. Check the real set with
+          `scripts/deploy/decrypt-env.sh --list`.
+
+          All four files pass `pnpm exec prettier -c`. No secret values, no serial numbers.
+  - key: '3'
+    name: Ship push 2 and the final review
+    tasks:
+      - id: H3
+        title: 'Go/no-go: push 2 (Disk Health, Media Stack, Postgres, docs)'
+        after:
+          - T13
+          - T14
+          - T15
+          - T16
+          - T17
+        files:
+          - docs/monitoring.md
+        status: todo
+        body: |-
+          Approving lets the next task push phase 2 to `main`. It contains only dashboard JSON
+          and docs: Grafana restarts once (a few seconds) and nothing else is touched. No keys
+          to copy this time.
+
+          `docs/monitoring.md` is the new guide to the whole setup; read it before approving and
+          request changes for anything wrong or missing.
+
+          Rollback, by you: revert the commits on `main` and push.
+      - id: T18
+        title: Push the dashboards and docs to main, watch CI, verify every dashboard live
+        after:
+          - H3
+        files: []
+        status: todo
+        body: |-
+          A human approved this push. Push phase 2 to `main`, watch the deploy and verify
+          production. Commit nothing.
+
+          Before pushing, all of these must hold. If one does not, stop and report it without
+          pushing:
+          - `git fetch origin main`, then `git merge-base --is-ancestor origin/main HEAD`
+            succeeds (never rebase, merge or force)
+          - `git diff --name-only origin/main..HEAD` lists only
+            `infra/monitoring/grafana/provisioning/dashboards/json/**`,
+            `infra/monitoring/scripts/**`, `docs/**` and `CLAUDE.md`. If a fix task from the
+            review of push 1 also changed `infra/monitoring.yml` or
+            `infra/monitoring/prometheus.yml`, that is allowed: name the change and the services
+            it restarts in your result. Any other path stops the push
+          - `pnpm lilnas ci detect --base origin/main --head HEAD --json`: `full` false, no
+            images, `decrypt` false, `up` empty, `forceRecreate` is `["grafana"]` (plus only
+            what such a fix explains)
+          - record `git rev-parse origin/main` as the rollback sha
+
+          Push with `git push origin HEAD:main`, find the run with
+          `gh run list --workflow ci.yml --branch main --event push --limit 5 --json databaseId,headSha,status,url`
+          (match `headSha`) and follow it with `gh run watch <id> --exit-status`. If it is red,
+          report the failing job's log and stop.
+
+          After the deploy (read-only):
+          - Grafana is healthy and `/api/search?type=dash-db` lists exactly 11 dashboards with
+            uids `lilnas-overview`, `lilnas-infrastructure`, `lilnas-storage`,
+            `lilnas-disk-health`, `lilnas-traefik`, `lilnas-security`, `lilnas-app-detail`,
+            `lilnas-tdr-bot`, `lilnas-media`, `lilnas-postgres`, `lilnas-logs`, all in the
+            provisioned folder, and the home dashboard is still Overview
+          - every dashboard link and data link resolves: collect each `/d/<uid>` in the JSON
+            files and check the uid is one of the 11
+          - `docker logs lilnas-grafana-1 --since 15m` has no provisioning error
+          - every scrape target is up
+          - `node infra/monitoring/scripts/check-dashboards.mjs lint` and `live` over all 11
+            (App Detail once per app, Postgres once per server). Report the full per-dashboard
+            summary and list every panel that is empty with its `Event-driven:` reason. A plain
+            `EMPTY` or `ERROR` is a defect
+
+          Report the pushed sha, the rollback sha, the CI run URL and each check with what you
+          observed. The human rolls back by reverting on `main` and pushing; do not do it
+          yourself. Put failed checks under `defects:`.
+      - id: H4
+        title: Final review of all 11 dashboards with real data
+        after:
+          - T18
+        files:
+          - docs/monitoring.md
+        status: todo
+        body: |-
+          Everything is live at `https://grafana.lilnas.io`. Walk through the 11 dashboards from
+          the Overview links:
+          - Overview now has disk health, Postgres and media tiles
+          - Disk Health: all 13 drives are in the table; look at `sdd` (hdd2), which reported
+            device error log entries during planning
+          - Media Stack: Sonarr, Radarr and SABnzbd numbers match their own UIs; Emby and Immich
+            show traffic
+          - Postgres: three servers, sizes look right, the tdr-bot checkpointer tables are
+            visible
+          - the push task's result lists every panel that is empty and why; nothing else should
+            say "No data"
+
+          Approve to finish the run. Request changes with comments for anything to fix; fixes
+          ship with a follow-up push you approve. Alerts are the next piece of work and are not
+          part of this run.
