@@ -24,6 +24,11 @@ scrape_configs:
     static_configs:
       - targets: ['storage:9000']
 
+  - job_name: minio-bucket
+    metrics_path: /minio/v2/metrics/bucket
+    static_configs:
+      - targets: ['storage:9000']
+
   - job_name: tdr-bot
     metrics_path: /metrics
     static_configs:
@@ -43,8 +48,3 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ['me-token-tracker:8080']
-
-  - job_name: idkwiw
-    metrics_path: /metrics
-    static_configs:
-      - targets: ['idkwiw:8080']
