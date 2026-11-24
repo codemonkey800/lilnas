@@ -21,7 +21,7 @@
       "id": 2,
       "type": "gauge",
       "title": "CPU Usage",
-      "gridPos": { "h": 6, "w": 4, "x": 0, "y": 1 },
+      "gridPos": { "h": 6, "w": 3, "x": 0, "y": 1 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
@@ -53,7 +53,7 @@
       "id": 3,
       "type": "gauge",
       "title": "Memory Usage",
-      "gridPos": { "h": 6, "w": 4, "x": 4, "y": 1 },
+      "gridPos": { "h": 6, "w": 3, "x": 3, "y": 1 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
@@ -84,8 +84,8 @@
     {
       "id": 4,
       "type": "gauge",
-      "title": "Disk Usage (/)",
-      "gridPos": { "h": 6, "w": 4, "x": 8, "y": 1 },
+      "title": "Root disk usage",
+      "gridPos": { "h": 6, "w": 3, "x": 6, "y": 1 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
@@ -111,6 +111,43 @@
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"] },
         "showThresholdMarkers": true
+      }
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Fullest mount",
+      "description": "Highest percent used across the btrfs mounts; the legend names the mount.",
+      "gridPos": { "h": 6, "w": 3, "x": 9, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "topk(1, (1 - node_filesystem_avail_bytes{fstype=\"btrfs\"} / node_filesystem_size_bytes{fstype=\"btrfs\"}) * 100)",
+          "instant": true,
+          "legendFormat": "{{mountpoint}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 70 },
+              { "color": "red", "value": 90 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
       }
     },
     {
