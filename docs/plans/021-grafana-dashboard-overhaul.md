@@ -843,3 +843,66 @@ check-dashboards live, before: 14 OK, 2 EMPTY (panels 4 and 13).
 check-dashboards live, after: lilnas-traefik: 16 OK, 0 EMPTY, 0 EMPTY (event-driven), 0 ERROR. Panel 4 shows 1 series and panel 13 shows 3 series. The other 14 panels report the same OK results as before.
 No other plain EMPTY panel on the dashboard.
 All five plan checks pass (uid/tag check, promtool, compose config, prettier, jest 99 tests passed). No throwaway containers or temp files created; nothing deployed or pushed.
+
+### 2026-11-24 · Phase 2 · review cycle 1
+Pass 1 (R5, T17): T17's docs mostly match the shipped config (jobs, targets, images, env files, role script, checker and deploy actions all verified), and R5's switch to locally hosted fonts is sound. One defect: the docs/monitoring.md dashboard table rows for Disk Health, Media Stack and Postgres were written before those dashboards merged, and their data-source and 'Answers' cells no longer match the files.
+Pass 2 (T14): T14 adds media.json (lilnas-media) with every row the task asked for; the queries check out against live Prometheus. One wrong-value panel: Immich 'Node process CPU' is 32x too low because host-metrics already divides by all cores.
+Pass 3 (T16): T16 adds six stat tiles (SMART failures, bad sectors + NVMe media errors, hottest drive, Postgres up out of 3, media exporters up out of 3, SABnzbd queue) in a new 4-unit row at y=4. It shrinks the top row from 5 to 4, shifts every lower panel down by 3 and removes nothing. Every query's metric and label resolves in live Prometheus, and the links use the required uids. No findings.
+Pass 4 (T15): T15's postgres.json matches the task: every requested row is there, the PG 14/PG 18 checkpoint split uses `or`, and the checkpointer tables are pinned to tdr-bot-db. No P0 or P1 defects. Two P2s: the Deadlocks stat shows an extra unlabeled 0 tile, and the Up panel cannot show a dead exporter as DOWN.
+Pass 5 (T13): T13's Disk Health dashboard meets the task: uid, tags, link, all requested sections and the joins check out against live Prometheus (device-to-mount rewrite, btrfs uuid-to-mountpoint join, NVMe hwmon chip names, raw attribute type). The only defect is a P2: the hottest-drive tile uses HDD temperature thresholds, so it is yellow on a healthy server.
+Pass 6 (T19, T20): T19 adds --collector.stat_checkpointer to exactly the two PG 18 exporters and rewrites the comment block as asked. T20 changes only the two Traefik expr lines to the metric that exists live. No P0/P1 defects; two P2 notes, both following from the plan's own wording.
+Seams pass: Seams pass: no blocking cross-task disagreements. Overview links, job names, service names and uids agree across T13–T17 and T19; two P2 seams remain: the Overview bad-sector tile disagrees with Disk Health's definition, and Postgres panel descriptions went stale after T19 enabled stat_checkpointer.
+Consolidation: Seven slice passes merged into 8 findings: 2 P1 (docs/monitoring.md dashboard rows for Disk Health, Media Stack and Postgres don't match the merged files; Immich Node process CPU panel reads 1/32 of real usage) and 6 P2 notes. The three reports of stale Postgres checkpoint descriptions (Pass 4 suspicion, Pass 6, seams) are merged into one.
+
+- F10 · P1 · Dashboard table wrong for Disk Health, Media Stack, Postgres — docs/monitoring.md:30 → R8
+- F11 · P1 · Immich Node process CPU panel reads 1/32 of real usage — infra/monitoring/grafana/provisioning/dashboards/json/media.json:2700 → R9
+
+Notes:
+- F12 · P2 · Postgres checkpoint panel descriptions say stat_checkpointer is not enabled — infra/monitoring/grafana/provisioning/dashboards/json/postgres.json:1627
+- F13 · P2 · Overview bad-sector tile omits Offline_Uncorrectable that Disk Health counts — infra/monitoring/grafana/provisioning/dashboards/json/overview.json
+- F14 · P2 · Postgres Up panel cannot show a dead exporter as DOWN — infra/monitoring/grafana/provisioning/dashboards/json/postgres.json:82
+- F15 · P2 · Deadlocks stat shows an extra unlabeled 0 tile — infra/monitoring/grafana/provisioning/dashboards/json/postgres.json:330
+- F16 · P2 · Hottest-drive tile and Temp column use HDD thresholds, so a healthy NVMe shows yellow — infra/monitoring/grafana/provisioning/dashboards/json/disk-health.json
+- F17 · P2 · plan-mandated · Traefik Active Connections counts Prometheus's own scrape connection — infra/monitoring/grafana/provisioning/dashboards/json/traefik.json:98
+
+Suspicions:
+- Missing / wanted stat mixes Radarr missing with 'wanted' wording and has no fallback — infra/monitoring/grafana/provisioning/dashboards/json/media.json · Panel 9 sums sonarr_episode_missing_total + radarr_movie_missing_total (live 348 + 7) while radarr_movie_wanted_total is 0. The expression has no 'or' fallback, so the tile goes blank if either exporter is down. · confirm by: Check Radarr's Wanted > Missing view to decide whether 'missing' or 'wanted' is the number the tile should show.
+- 'Drives reporting' may stay at 13 after a drive drops off the bus — infra/monitoring/grafana/provisioning/dashboards/json/disk-health.json · count(smartctl_device) only falls if the exporter stops emitting the series. smartctl_exporter keeps its device list until the next rescan and may still emit it from a failed run. · confirm by: Check smartctl_exporter's behaviour when a device node vanishes and its rescan interval in infra/monitoring.yml.
+- Plan notes claim stat_checkpointer produces nothing live — docs/plans/021-grafana-dashboard-overhaul.md:811 · A note says the collector 'produces no pg_stat_checkpointer_* family live'. That is most likely because T19 isn't deployed yet: T15's throwaway exporter with the flag did produce the family. A reader could still take it to mean the collector is broken. · confirm by: After the push, pg_scrape_collector_success{collector="stat_checkpointer"} is 1 and pg_stat_checkpointer_num_timed_total has series for tdr-bot-db and icloud-backup-db.
+
+Spec check:
+- missing: Rising counters matter more than totals: show increase over $__range beside the current value. (infra/monitoring/grafana/provisioning/dashboards/json/disk-health.json (panel 9)) — The Drives table has rise columns only for CRC and Err log. Reallocated, pending and uncorrectable sectors and NVMe media errors show only the current value per drive.
+- extra: R5 commits (tdr-bot font self-hosting) (apps/tdr-bot/src/app/layout.tsx) — Remediation fixing T12's CI build break; not part of T17.
+- extra: Activity: connections by state, TPS, rows, cache hit ratio, temp files and bytes (postgres.json panel 26) — Adds an 'Idle in transaction and long-running' panel; harmless.
+- extra: Kernel: SATA error and link-reset log lines (event-driven) (disk-health.json panel 30) — Adds an NVMe/PCIe AER log panel; harmless.
+- misunderstood: the 11 dashboards: title, uid, file, what each answers, its data sources (docs/monitoring.md) — Disk Health, Media Stack and Postgres rows were written from the plan, not the merged files (finding).
+- unverifiable: Grafana redirects / to /d/default-home-dashboard/overview (docs/monitoring.md) — Load https://grafana.lilnas.io/ once after deploy.
+- unverifiable: Keep it one screen at 1080p (overview.json) — 20 grid rows should fit; open the home page at 1920x1080 after deploy.
+- unverifiable: PG 18 checkpoint panels return data; the push task checks it in production (postgres.json WAL and checkpoints row, T19) — pg_stat_checkpointer_* for both PG 18 servers can only be confirmed after push 2.
+- unverifiable: Run check-dashboards.mjs lint and live and report the summary (T14, T15, T20 notes) — T14 reports 52 OK / 3 event-driven; T15's live summary is cut off; T20 reports 16 OK / 0 EMPTY with no raw output. Re-run live to confirm.
+- unverifiable: Links to /d/lilnas-disk-health, /d/lilnas-postgres, /d/lilnas-media (overview.json panels 20-25) — The seams pass confirmed the uids match; open each link once after deploy.
+- unverifiable: Mask nothing in the dashboard, but keep serial numbers out of your result. (T13 result text) — Confirm the run's result text contains no serials.
+
+Declined to judge:
+- layout.spec.ts checks layout.tsx with a regex, so a double-quoted next/font/google import would slip past it — Prettier enforces single quotes; this is an acceptable guard for build config.
+- Overview 'Drives failing SMART', 'Bad sectors' and 'Download queue' tiles (and Disk Health tiles with noValue '0') show a green 0 when their exporter is down — Matches the existing Overview pattern, and the 'Scrape targets down' tile shows the failure.
+- 'Media exporters up' counts exportarr scrape targets, not app health — The task asked for the exporters to be up, and no *_up metric exists.
+- Emby/Immich up tiles stay UP for up to 15 min after the container stops; Immich uses Traefik/cAdvisor rather than up{job="immich"} — The task allows a recent 2xx/3xx through Traefik or a running container.
+- Disk Health organize.indexByName keyed by renamed columns (a no-op) — Cosmetic; the natural join order already gives the intended columns.
+- Postgres top-10 tables hard-code the three servers instead of using topk by server — Works for the current servers; adding a fourth is out of scope.
+- Cosmetic items: [5m] instead of $__rate_interval, unit 'none' on checkpoint write/sync time, increase() over $__rate_interval on bgwriter stalls, Loki regex matching, 4-unit 'Targets that are down' table, docs wording — Style or display only.
+- tdr-bot font changes (R5) in the seams stat — Not a seam between monitoring tasks; covered by its slice pass.
+
+Checked:
+- Scrape jobs, images, env files and role script in the docs match the config — infra/monitoring/prometheus.yml, infra/monitoring.yml, infra/.env*, postgres-monitor-roles.sh: All match, including 19 env files and 90d retention.
+- Docs dashboard rows match the merged files — media.json, disk-health.json, postgres.json: Data sources and coverage differ (finding).
+- R5 leaves a next/font/google import or unwired font vars — apps/tdr-bot/src: Only comments mention it; globals.css still uses --font-geist and --font-geist-mono.
+- Units of process_cpu_utilization — live Prometheus, immich vs cAdvisor: Divided by 32 cores (finding).
+- group_left(volume) joins and exportarr metric names in media.json — live lilnas_storage_volume, sonarr/radarr series: Mountpoints unique; no queue metrics exist, as the note says; other names exist.
+- Overview tile metrics, labels and the hard-coded /3 — live smartctl, pg_up, sabnzbd_queue_length, up{job=~"sonarr|radarr|sabnzbd"}: All resolve; pg_up has 3 series.
+- Overview grid overlap after the shift — overview.json gridPos: 20 rows, no overlap, row y=4 fills 24 columns.
+- Overview links and job names match uids and scrape config across tasks — overview.json vs dashboard uids, prometheus.yml: All 10 /d/lilnas-* links resolve; job names agree everywhere.
+- or vector(0) adds an unlabeled series in Deadlocks — live query of postgres.json panel 7: Confirmed 4 series (finding).
+- Checkpointer table renames and cAdvisor label_replace joins — Grafana 13.2.4 frontend, container_start_time_seconds: Renames apply; joins are 1:1.
+- Disk Health device rewrite, btrfs uuid join, NVMe hwmon names, raw attribute types — live Prometheus: All join correctly for the current 13 filesystems.
+- T19 flag scope and old Traefik metric names still referenced — infra/monitoring.yml, infra/, docs/: Flag only on the two PG 18 exporters; old names only in plan history.

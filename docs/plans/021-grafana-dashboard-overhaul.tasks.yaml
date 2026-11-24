@@ -1404,3 +1404,64 @@ phases:
           > Throwaway containers: none created (docker ps -a --filter name=mon-rig- => 0). Temp files in /tmp removed. Tree clean.
 
           Fix only this defect. Add a test that fails without the fix where one can; then T12 runs again to re-check.
+  - key: R4
+    name: Review remediation
+    tasks:
+      - id: R8
+        title: P1 Dashboard table wrong for Disk Health, Media Stack, Postgres
+        after: []
+        files:
+          - docs/monitoring.md
+        status: todo
+        body: |-
+          Finding: F10 (P1)
+
+          From the review of phase 2 (cycle 1): a P1 finding.
+
+          Where: docs/monitoring.md:30
+
+          Why: T17 asked for each dashboard's 'what each answers, its data sources'. The rows were written before the files merged. media.json, disk-health.json and postgres.json all use the loki and prometheus datasource uids, but rows 26, 30 and 31 say 'Prometheus' only and leave out whole sections.
+
+          Failure scenario: A reader is told Media Stack covers only Sonarr/Radarr/SABnzbd from Prometheus, but the file also has Emby, Immich and Loki log sections. Disk Health's row omits btrfs device errors, temperatures and kernel SATA/NVMe error logs (Loki). Postgres's row omits its Loki error-log panels.
+
+          Suggested fix: In docs/monitoring.md rows 26, 30 and 31, set Data sources to 'Prometheus, Loki'. Rewrite 'Answers' from the merged JSON: Disk Health = SMART, btrfs device errors, temperatures, kernel SATA/NVMe errors; Media Stack = Sonarr, Radarr, SABnzbd, Emby and Immich health, queues and logs; Postgres = add per-server error logs and WAL/checkpoints. Run pnpm exec prettier -w docs/monitoring.md.
+
+          How to fix it:
+          1. First write a test that reproduces the failure scenario and fails on the
+             current code, in the package's test style, beside the tests the file
+             already has. Keep it: it is the regression test.
+          2. Then change the code so it passes, and run the plan's checks.
+          3. If you cannot make the scenario fail — the guard, type, or test that
+             already covers it — change nothing: delete the attempted test, leave the
+             tree clean, commit nothing, and report `status: done` with `commits: []`.
+             Open `notes` with `Not reproduced:` and say where the behaviour is covered.
+             The runner drops the finding on your word.
+      - id: R9
+        title: P1 Immich Node process CPU panel reads 1/32 of real usage
+        after: []
+        files:
+          - infra/monitoring/grafana/provisioning/dashboards/json/media.json
+        status: todo
+        body: |-
+          Finding: F11 (P1)
+
+          From the review of phase 2 (cycle 1): a P1 finding.
+
+          Where: infra/monitoring/grafana/provisioning/dashboards/json/media.json:2700
+
+          Why: Panel 57 runs sum by (component)(process_cpu_utilization{job="immich"}) * 100 and its description says '100% = one core'. @opentelemetry/host-metrics 0.38.3 already divides by the CPU count (32 here), so the panel shows a share of the whole machine.
+
+          Failure scenario: Live, the API and microservices together read about 0.013%, while cAdvisor shows lilnas-immich-1 at about 0.62% of one core. Anyone comparing it with the per-core container CPU panel beside it is told Immich's Node processes are almost idle.
+
+          Suggested fix: Multiply by the core count, e.g. sum by (component)(process_cpu_utilization{job="immich"}) * scalar(count(node_cpu_seconds_total{mode="idle"})) * 100. Or keep the query and change the description and unit to 'share of all cores'. Re-run check-dashboards.mjs live.
+
+          How to fix it:
+          1. First write a test that reproduces the failure scenario and fails on the
+             current code, in the package's test style, beside the tests the file
+             already has. Keep it: it is the regression test.
+          2. Then change the code so it passes, and run the plan's checks.
+          3. If you cannot make the scenario fail — the guard, type, or test that
+             already covers it — change nothing: delete the attempted test, leave the
+             tree clean, commit nothing, and report `status: done` with `commits: []`.
+             Open `notes` with `Not reproduced:` and say where the behaviour is covered.
+             The runner drops the finding on your word.
