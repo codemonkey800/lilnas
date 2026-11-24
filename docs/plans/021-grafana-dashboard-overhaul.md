@@ -600,3 +600,21 @@ Verified here: layout.spec.ts passes 2/2. `next build` for apps/tdr-bot compiled
 All five plan checks pass: dashboard uid/tag check dash-ok, promtool valid, both compose config checks ok, Prettier clean, jest 3 suites / 99 tests. Tree clean; no throwaway containers or temp files created.
 
 No commits: nothing to integrate.
+
+### 2026-11-24 · T12 · partial
+No push, no roles script, no key-backup refresh: origin/main (394431e08b3e3ddc54f8f3d9ed5980dcbbe791e2) already contains 394431e0 but NOT 101aa1d6, and no result for a second push was given, so per the task I did not push. Latest ci.yml run on main is still 45352251208 (red, https://github.com/codemonkey800/lilnas/actions/runs/45352251208). Infra rollback sha e5d9cdae. Role rollback: infra/monitoring/scripts/postgres-monitor-roles.sh --drop <env file>.
+Observed 2026-11-24 08:11 UTC, about 10 minutes after the infra containers started: seven new containers up (lilnas-smartctl-exporter-1, lilnas-exportarr-sonarr-1, -radarr-1, -sabnzbd-1, lilnas-postgres-exporter-tdr-bot-1, -icloud-backup-1, -immich-1); prometheus/grafana Up 9 min (started 08:01:47/48); immich healthy, /api/server/ping 200; auth recreated 08:01:48, healthy, auth.lilnas.io 307; lilnas_monitor exists in all three DBs (not superuser, pg_monitor member, can log in; pg_up=1 for tdr-bot-db, icloud-backup-db, immich-database); targets idkwiw gone, minio-bucket/smartctl/sonarr/radarr/sabnzbd/postgres x3/immich x2 up; smartctl_devices=13; minio_bucket_usage_total_bytes 5 series (build, equations, files, images, videos); Grafana uids exactly the 8 expected; home redirects to /d/default-home-dashboard/overview (known); check-dashboards lint ok for 8, live shows 0 ERROR and the MinIO bucket panels OK.
+tdr-bot: container still runs the old image lilnas-tdr-bot:latest started 2026-11-22T22:40Z; up=1; tdr_bot_llm_retries_total (the real name carries the tdr_bot_ prefix) and tdr_bot_llm_schema_failures_total have 0 series (HELP/TYPE only on /metrics).
+Live summaries, tdr_bot/traefik/security panel findings and the full metric inventory per job are in the message above this block; the dashboard tasks must use the label names listed there (note postgres exported_server on pg_static and pg_stat_database_conflicts_confl_*, and that Immich only exposes immich_users_total as a business metric plus per-repository duration histograms and system_*/process_* OTel metrics; no http_server_*). Sonarr/radarr/sabnzbd families all carry url; smartctl_device_model_name does not exist (model_name is a label on smartctl_device).
+Throwaway containers: none created (docker ps -a --filter name=mon-rig- => 0). Temp files in /tmp removed. Tree clean.
+
+Defects:
+
+- blocking · tdr-bot fix 101aa1d6 not on main; tdr-bot image not rebuilt or deployed · origin/main (394431e0) vs branch HEAD; ci.yml run 45352251208
+  git merge-base --is-ancestor 101aa1d6 origin/main => not ancestor; run 45352251208 conclusion=failure; lilnas-tdr-bot-1 image tag :latest, started 2026-11-22T22:40:25Z; count(tdr_bot_llm_retries_total)=0, count(tdr_bot_llm_schema_failures_total)=0; tdr-bot up=1 on the old image. Needs a human-approved push of 101aa1d6 to main, then CI green, tdr-bot recreated on the pushed sha, both series at 0 and a clean log.
+- not blocking · Traefik Active Connections panels query metrics that do not exist · infra/monitoring/grafana/provisioning/dashboards/json/traefik.json panels
+  check-dashboards live: EMPTY #4 'sum(traefik_service_open_connections)' and EMPTY #13 'sum(traefik_entrypoint_open_connections) by (entrypoint)'; real metric traefik_open_connections{entrypoint=metrics|web|websecure,protocol=TCP}, 3 series
+- not blocking · Security 4xx and 5xx over time reports EMPTY in live check · infra/monitoring/grafana/provisioning/dashboards/json/security.json panel
+  live: both targets empty with [$__interval]; same selector over [24h] returns 2699 4xx lines (of 59940 access lines), so likely a checker $__interval artifact; panel not marked Event-driven
+
+No commits: nothing to integrate.
