@@ -1,0 +1,2219 @@
+{
+  "id": null,
+  "uid": "lilnas-postgres",
+  "title": "Postgres",
+  "tags": ["lilnas", "postgres"],
+  "editable": true,
+  "graphTooltip": 1,
+  "schemaVersion": 39,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "timezone": "browser",
+  "links": [
+    {
+      "title": "lilnas dashboards",
+      "type": "dashboards",
+      "tags": ["lilnas"],
+      "asDropdown": true,
+      "includeVars": false,
+      "keepTime": false
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "server",
+        "label": "Server",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(pg_up, server)",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".+",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "At a glance",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Up",
+      "description": "pg_up per server: 1 when the exporter can connect as lilnas_monitor and run its queries.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "pg_up{server=~\"$server\"}",
+          "legendFormat": "{{server}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 1
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Postgres version",
+      "description": "tdr-bot-db and icloud-backup-db run PG 18; immich-database runs PG 14 with VectorChord.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "pg_static{server=~\"$server\"}",
+          "legendFormat": "{{server}} {{short_version}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "name",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 8,
+        "y": 1
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Uptime",
+      "description": "Time since the database container started (cAdvisor container_start_time_seconds); Postgres is the container main process, so this is the postmaster uptime.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "label_replace(time() - container_start_time_seconds{name=~\"lilnas-(tdr-bot-db|icloud-backup-db|immich-database)-1\"}, \"server\", \"$1\", \"name\", \"lilnas-(.*)-1\") and on(server) pg_up{server=~\"$server\"}",
+          "legendFormat": "{{server}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 16,
+        "y": 1
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Database size",
+      "description": "Size of the application database (tdr_bot, icloud_backup, immich).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (server)(pg_database_size_bytes{datname!~\"postgres|template0|template1\", server=~\"$server\"})",
+          "legendFormat": "{{server}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 5
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Connections used",
+      "description": "Backends across all databases as a share of max_connections (100 on all three servers). The exporter itself holds one or two.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (server)(pg_stat_database_numbackends{server=~\"$server\"}) / max by (server)(pg_settings_max_connections{server=~\"$server\"}) * 100",
+          "legendFormat": "{{server}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 5
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Deadlocks (range)",
+      "description": "Deadlocks detected over the selected time range.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (server)(increase(pg_stat_database_deadlocks{server=~\"$server\"}[$__range])) or vector(0)",
+          "legendFormat": "{{server}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 5
+      }
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Rollbacks (range)",
+      "description": "Transactions rolled back over the selected time range. A few are normal (the exporter and ORMs roll back); a steady stream is not.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (server)(increase(pg_stat_database_xact_rollback{server=~\"$server\"}[$__range]))",
+          "legendFormat": "{{server}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 100
+              },
+              {
+                "color": "red",
+                "value": 1000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 5
+      }
+    },
+    {
+      "id": 9,
+      "type": "row",
+      "title": "Activity",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
+      "panels": []
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Connections by state",
+      "description": "Backends per state (pg_stat_activity_count) with the max_connections ceiling as a dashed line.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (server, state)(pg_stat_activity_count{server=~\"$server\"}) > 0",
+          "legendFormat": "{{server}} {{state}}",
+          "refId": "A"
+        },
+        {
+          "expr": "max by (server)(pg_settings_max_connections{server=~\"$server\"})",
+          "legendFormat": "{{server}} max_connections",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*max_connections"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [10, 10]
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 10
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Transactions per second",
+      "description": "Commits and rollbacks per second, summed over all databases on each server.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (server)(rate(pg_stat_database_xact_commit{server=~\"$server\"}[$__rate_interval]))",
+          "legendFormat": "{{server}} commit",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (server)(rate(pg_stat_database_xact_rollback{server=~\"$server\"}[$__rate_interval]))",
+          "legendFormat": "{{server}} rollback",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 10
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Rows fetched, inserted, updated, deleted",
+      "description": "Row operations per second, summed over all databases on each server.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (server)(rate(pg_stat_database_tup_fetched{server=~\"$server\"}[$__rate_interval]))",
+          "legendFormat": "{{server}} fetched",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (server)(rate(pg_stat_database_tup_inserted{server=~\"$server\"}[$__rate_interval]))",
+          "legendFormat": "{{server}} inserted",
+          "refId": "B"
+        },
+        {
+          "expr": "sum by (server)(rate(pg_stat_database_tup_updated{server=~\"$server\"}[$__rate_interval]))",
+          "legendFormat": "{{server}} updated",
+          "refId": "C"
+        },
+        {
+          "expr": "sum by (server)(rate(pg_stat_database_tup_deleted{server=~\"$server\"}[$__rate_interval]))",
+          "legendFormat": "{{server}} deleted",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "rowsps",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 18
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Cache hit ratio",
+      "description": "Share of block requests served from shared buffers (blks_hit / (blks_hit + blks_read)). Gaps mean the server was idle in that window.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (server)(rate(pg_stat_database_blks_hit{server=~\"$server\"}[$__rate_interval])) / (sum by (server)(rate(pg_stat_database_blks_hit{server=~\"$server\"}[$__rate_interval])) + sum by (server)(rate(pg_stat_database_blks_read{server=~\"$server\"}[$__rate_interval])))",
+          "legendFormat": "{{server}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.9
+              },
+              {
+                "color": "green",
+                "value": 0.99
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 18
+      }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Temp files created",
+      "description": "Temporary files per second written because a sort or hash spilled past work_mem. Zero is healthy.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (server)(rate(pg_stat_database_temp_files{server=~\"$server\"}[$__rate_interval]))",
+          "legendFormat": "{{server}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 26
+      }
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Temp bytes written",
+      "description": "Bytes per second written to temporary files. Zero is healthy.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (server)(rate(pg_stat_database_temp_bytes{server=~\"$server\"}[$__rate_interval]))",
+          "legendFormat": "{{server}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 26
+      }
+    },
+    {
+      "id": 16,
+      "type": "row",
+      "title": "Size and tables",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      },
+      "panels": []
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Database size over time",
+      "description": "Application database size per server (tdr_bot, icloud_backup, immich). Immich dwarfs the other two, so use the legend to isolate a series.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (server)(pg_database_size_bytes{datname!~\"postgres|template0|template1\", server=~\"$server\"})",
+          "legendFormat": "{{server}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 35
+      }
+    },
+    {
+      "id": 18,
+      "type": "table",
+      "title": "Top 10 tables by size (per server)",
+      "description": "The ten largest tables on each selected server (table heap size, excluding indexes).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "topk(10, pg_stat_user_tables_table_size_bytes{server=\"tdr-bot-db\", server=~\"$server\"}) or topk(10, pg_stat_user_tables_table_size_bytes{server=\"icloud-backup-db\", server=~\"$server\"}) or topk(10, pg_stat_user_tables_table_size_bytes{server=\"immich-database\", server=~\"$server\"})",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Size"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "sortBy": [
+          {
+            "displayName": "Size",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "instance": true,
+              "job": true,
+              "datname": true
+            },
+            "indexByName": {
+              "server": 0,
+              "schemaname": 1,
+              "relname": 2,
+              "Value": 3
+            },
+            "renameByName": {
+              "server": "Server",
+              "schemaname": "Schema",
+              "relname": "Table",
+              "Value": "Size"
+            }
+          }
+        }
+      ],
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 43
+      }
+    },
+    {
+      "id": 19,
+      "type": "table",
+      "title": "Top 10 tables by dead tuples (per server)",
+      "description": "The ten tables with the most dead tuples on each selected server; autovacuum should keep these low.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "topk(10, pg_stat_user_tables_n_dead_tup{server=\"tdr-bot-db\", server=~\"$server\"}) or topk(10, pg_stat_user_tables_n_dead_tup{server=\"icloud-backup-db\", server=~\"$server\"}) or topk(10, pg_stat_user_tables_n_dead_tup{server=\"immich-database\", server=~\"$server\"})",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Dead tuples"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "sortBy": [
+          {
+            "displayName": "Dead tuples",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "instance": true,
+              "job": true,
+              "datname": true
+            },
+            "indexByName": {
+              "server": 0,
+              "schemaname": 1,
+              "relname": 2,
+              "Value": 3
+            },
+            "renameByName": {
+              "server": "Server",
+              "schemaname": "Schema",
+              "relname": "Table",
+              "Value": "Dead tuples"
+            }
+          }
+        }
+      ],
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 43
+      }
+    },
+    {
+      "id": 20,
+      "type": "table",
+      "title": "tdr-bot checkpointer tables",
+      "description": "The LangGraph checkpointer tables in tdr_bot (checkpoints, checkpoint_blobs, checkpoint_writes, checkpoint_migrations). Always shows tdr-bot-db, whatever the server variable says. checkpoint_blobs is the one that grows.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "pg_stat_user_tables_table_size_bytes{server=\"tdr-bot-db\", relname=~\"checkpoint.*\"}",
+          "legendFormat": "size",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "expr": "pg_stat_user_tables_n_live_tup{server=\"tdr-bot-db\", relname=~\"checkpoint.*\"}",
+          "legendFormat": "live",
+          "refId": "B",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "expr": "pg_stat_user_tables_n_dead_tup{server=\"tdr-bot-db\", relname=~\"checkpoint.*\"}",
+          "legendFormat": "dead",
+          "refId": "C",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "expr": "pg_stat_user_tables_last_autovacuum{server=\"tdr-bot-db\", relname=~\"checkpoint.*\"} * 1000",
+          "legendFormat": "autovacuum",
+          "refId": "D",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Size"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last autovacuum"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeFromNow"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "text": "never"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "sortBy": [
+          {
+            "displayName": "Size",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "instance": true,
+              "job": true,
+              "datname": true,
+              "server": true
+            },
+            "indexByName": {
+              "schemaname": 0,
+              "relname": 1
+            },
+            "renameByName": {
+              "schemaname": "Schema",
+              "relname": "Table",
+              "Value #A": "Size",
+              "Value #B": "Live tuples",
+              "Value #C": "Dead tuples",
+              "Value #D": "Last autovacuum"
+            }
+          }
+        }
+      ],
+      "gridPos": {
+        "h": 9,
+        "w": 14,
+        "x": 0,
+        "y": 53
+      }
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "tdr-bot checkpointer table size over time",
+      "description": "Heap size of each checkpointer table in tdr_bot. Ignores the server variable.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "pg_stat_user_tables_table_size_bytes{server=\"tdr-bot-db\", relname=~\"checkpoint.*\"}",
+          "legendFormat": "{{relname}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull"]
+        }
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 10,
+        "x": 14,
+        "y": 53
+      }
+    },
+    {
+      "id": 22,
+      "type": "table",
+      "title": "Last autovacuum per table",
+      "description": "When autovacuum last ran on each table of the selected servers; \"never\" means it has not needed to yet.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "pg_stat_user_tables_last_autovacuum{server=~\"$server\"} * 1000",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last autovacuum"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeFromNow"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "text": "never"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "sortBy": [
+          {
+            "displayName": "Last autovacuum",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "instance": true,
+              "job": true,
+              "datname": true
+            },
+            "indexByName": {
+              "server": 0,
+              "schemaname": 1,
+              "relname": 2,
+              "Value": 3
+            },
+            "renameByName": {
+              "server": "Server",
+              "schemaname": "Schema",
+              "relname": "Table",
+              "Value": "Last autovacuum"
+            }
+          }
+        }
+      ],
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 62
+      }
+    },
+    {
+      "id": 23,
+      "type": "row",
+      "title": "Locks and long transactions",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 72
+      },
+      "panels": []
+    },
+    {
+      "id": 24,
+      "type": "timeseries",
+      "title": "Locks by mode",
+      "description": "Locks held per mode (pg_locks_count), summed over databases.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (server, mode)(pg_locks_count{server=~\"$server\"}) > 0",
+          "legendFormat": "{{server}} {{mode}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 10,
+        "x": 0,
+        "y": 73
+      }
+    },
+    {
+      "id": 25,
+      "type": "timeseries",
+      "title": "Longest running transaction",
+      "description": "Age of the oldest open transaction per server (pg_stat_activity_max_tx_duration). Idle-in-transaction sessions count.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "max by (server)(pg_stat_activity_max_tx_duration{server=~\"$server\"})",
+          "legendFormat": "{{server}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 60
+              },
+              {
+                "color": "red",
+                "value": 600
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 7,
+        "x": 10,
+        "y": 73
+      }
+    },
+    {
+      "id": 26,
+      "type": "timeseries",
+      "title": "Idle in transaction and long-running",
+      "description": "Sessions idle in transaction, and transactions the long_running_transactions collector counts as long. Zero is healthy.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (server)(pg_stat_activity_count{state=~\"idle in transaction.*\", server=~\"$server\"})",
+          "legendFormat": "{{server}} idle in transaction",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (server)(pg_long_running_transactions{server=~\"$server\"})",
+          "legendFormat": "{{server}} long-running",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 7,
+        "x": 17,
+        "y": 73
+      }
+    },
+    {
+      "id": 27,
+      "type": "row",
+      "title": "WAL and checkpoints",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 81
+      },
+      "panels": []
+    },
+    {
+      "id": 28,
+      "type": "timeseries",
+      "title": "WAL size",
+      "description": "Size of the pg_wal directory per server (pg_wal_size_bytes).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "pg_wal_size_bytes{server=~\"$server\"}",
+          "legendFormat": "{{server}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 82
+      }
+    },
+    {
+      "id": 29,
+      "type": "timeseries",
+      "title": "Checkpoints per minute",
+      "description": "Timed and requested checkpoints. PG 14 reports them from pg_stat_bgwriter, PG 18 from pg_stat_checkpointer (needs the exporter stat_checkpointer collector, which is not enabled on the PG 18 exporters yet, so tdr-bot-db and icloud-backup-db are absent here until it is).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "(sum by (server)(rate(pg_stat_checkpointer_num_timed_total{server=~\"$server\"}[$__rate_interval])) or sum by (server)(rate(pg_stat_bgwriter_checkpoints_timed_total{server=~\"$server\"}[$__rate_interval]))) * 60",
+          "legendFormat": "{{server}} timed",
+          "refId": "A"
+        },
+        {
+          "expr": "(sum by (server)(rate(pg_stat_checkpointer_num_requested_total{server=~\"$server\"}[$__rate_interval])) or sum by (server)(rate(pg_stat_bgwriter_checkpoints_req_total{server=~\"$server\"}[$__rate_interval]))) * 60",
+          "legendFormat": "{{server}} requested",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 82
+      }
+    },
+    {
+      "id": 30,
+      "type": "timeseries",
+      "title": "Checkpoint write and sync time",
+      "description": "Milliseconds spent writing and syncing checkpoints per second. Same PG 14 / PG 18 split as Checkpoints per minute.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (server)(rate(pg_stat_checkpointer_write_time_total{server=~\"$server\"}[$__rate_interval])) or sum by (server)(rate(pg_stat_bgwriter_checkpoint_write_time_total{server=~\"$server\"}[$__rate_interval]))",
+          "legendFormat": "{{server}} write",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (server)(rate(pg_stat_checkpointer_sync_time_total{server=~\"$server\"}[$__rate_interval])) or sum by (server)(rate(pg_stat_bgwriter_checkpoint_sync_time_total{server=~\"$server\"}[$__rate_interval]))",
+          "legendFormat": "{{server}} sync",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 90
+      }
+    },
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "Buffers written",
+      "description": "Buffers per second written by checkpoints (PG 14: buffers_checkpoint, PG 18: pg_stat_checkpointer buffers_written), by the background writer (buffers_clean) and allocated (buffers_alloc). The checkpoint line has the same PG 18 gap as Checkpoints per minute.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (server)(rate(pg_stat_checkpointer_buffers_written_total{server=~\"$server\"}[$__rate_interval])) or sum by (server)(rate(pg_stat_bgwriter_buffers_checkpoint_total{server=~\"$server\"}[$__rate_interval]))",
+          "legendFormat": "{{server}} checkpoint",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (server)(rate(pg_stat_bgwriter_buffers_clean_total{server=~\"$server\"}[$__rate_interval]))",
+          "legendFormat": "{{server}} bgwriter",
+          "refId": "B"
+        },
+        {
+          "expr": "sum by (server)(rate(pg_stat_bgwriter_buffers_alloc_total{server=~\"$server\"}[$__rate_interval]))",
+          "legendFormat": "{{server}} alloc",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 90
+      }
+    },
+    {
+      "id": 32,
+      "type": "timeseries",
+      "title": "Background writer stalls",
+      "description": "Times the background writer stopped a cleaning scan because it wrote too many buffers (maxwritten_clean). Exists on both PG 14 and PG 18; zero is healthy.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (server)(increase(pg_stat_bgwriter_maxwritten_clean_total{server=~\"$server\"}[$__rate_interval]))",
+          "legendFormat": "{{server}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 98
+      }
+    },
+    {
+      "id": 33,
+      "type": "timeseries",
+      "title": "Backend buffer writes (PG 14 only)",
+      "description": "Buffers written directly by backends instead of the checkpointer or bgwriter, and backend fsyncs. PG 14 reports these in pg_stat_bgwriter; PG 17 and later dropped them, so only immich-database appears.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum by (server)(rate(pg_stat_bgwriter_buffers_backend_total{server=~\"$server\"}[$__rate_interval]))",
+          "legendFormat": "{{server}} backend writes",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (server)(rate(pg_stat_bgwriter_buffers_backend_fsync_total{server=~\"$server\"}[$__rate_interval]))",
+          "legendFormat": "{{server}} backend fsyncs",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 98
+      }
+    },
+    {
+      "id": 34,
+      "type": "row",
+      "title": "Container",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 105
+      },
+      "panels": []
+    },
+    {
+      "id": 35,
+      "type": "timeseries",
+      "title": "CPU",
+      "description": "CPU cores used by each database container (cAdvisor).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "label_replace(sum by (name)(rate(container_cpu_usage_seconds_total{name=~\"lilnas-(tdr-bot-db|icloud-backup-db|immich-database)-1\"}[$__rate_interval])), \"server\", \"$1\", \"name\", \"lilnas-(.*)-1\") and on(server) pg_up{server=~\"$server\"}",
+          "legendFormat": "{{server}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 106
+      }
+    },
+    {
+      "id": 36,
+      "type": "timeseries",
+      "title": "Memory",
+      "description": "Working set of each database container (cAdvisor).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "label_replace(sum by (name)(container_memory_working_set_bytes{name=~\"lilnas-(tdr-bot-db|icloud-backup-db|immich-database)-1\"}), \"server\", \"$1\", \"name\", \"lilnas-(.*)-1\") and on(server) pg_up{server=~\"$server\"}",
+          "legendFormat": "{{server}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 106
+      }
+    },
+    {
+      "id": 37,
+      "type": "timeseries",
+      "title": "Disk I/O",
+      "description": "Block device reads (positive) and writes (negative) per second for each database container.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "label_replace(sum by (name)(rate(container_fs_reads_bytes_total{name=~\"lilnas-(tdr-bot-db|icloud-backup-db|immich-database)-1\"}[$__rate_interval])), \"server\", \"$1\", \"name\", \"lilnas-(.*)-1\") and on(server) pg_up{server=~\"$server\"}",
+          "legendFormat": "{{server}} read",
+          "refId": "A"
+        },
+        {
+          "expr": "label_replace(-sum by (name)(rate(container_fs_writes_bytes_total{name=~\"lilnas-(tdr-bot-db|icloud-backup-db|immich-database)-1\"}[$__rate_interval])), \"server\", \"$1\", \"name\", \"lilnas-(.*)-1\") and on(server) pg_up{server=~\"$server\"}",
+          "legendFormat": "{{server}} write",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 106
+      }
+    },
+    {
+      "id": 38,
+      "type": "row",
+      "title": "Logs",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 114
+      },
+      "panels": []
+    },
+    {
+      "id": 39,
+      "type": "timeseries",
+      "title": "Errors and fatals per server",
+      "description": "Event-driven: lines appear when Postgres logs ERROR, FATAL or PANIC (a failed query, a refused connection, a crash). A quiet database has none.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "sum by (service)(count_over_time({service=~\"tdr-bot-db|icloud-backup-db|immich-database\"} |~ \"\\\\b(ERROR|FATAL|PANIC):\" [$__interval]))",
+          "legendFormat": "{{service}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 60,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["sum"]
+        }
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 115
+      }
+    },
+    {
+      "id": 40,
+      "type": "logs",
+      "title": "Errors and fatals",
+      "description": "Event-driven: lines appear when Postgres logs ERROR, FATAL or PANIC. The exporter's own startup probes can log a few.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "{service=~\"tdr-bot-db|icloud-backup-db|immich-database\"} |~ \"\\\\b(ERROR|FATAL|PANIC):\"",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showTime": true,
+        "showLabels": true,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 120
+      }
+    }
+  ]
+}
