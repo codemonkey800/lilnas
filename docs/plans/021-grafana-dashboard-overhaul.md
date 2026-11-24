@@ -366,3 +366,30 @@ Probe panels 22-25 now filter `| json | RequestPath =~ "(?i)[^?]*(/\.(env|git|aw
 Live 24h: panel 22 about 4230 -> 1036 hits; "no error back" is now 22 hits across 10 hosts (files, grafana, immich, portal, prometheus, radarr, sonarr, storage-admin, tdr, yacht), nexus-code and sabnzbd gone.
 Regression test is in check-dashboards.test.mjs ("security dashboard: scanner probe panels"); it failed on the old expressions and `node --test infra/monitoring/scripts/` now passes 66/66. docs/logging.md example queries updated to match.
 Live summary (security.json, 24h): lilnas-security: 18 OK, 1 EMPTY, 10 EMPTY (event-driven), 0 ERROR. The one plain EMPTY panel is #18 "4xx and 5xx over time", which I did not touch and did not investigate. No new metrics or labels were used. No containers were created; temp files /tmp/e22.txt and /tmp/e23.txt were removed. All five plan checks pass.
+
+### 2026-11-24 · Phase 1 · review cycle 2
+The remediation diff fixes F1 (probe panels now filter on RequestPath), F2 (a panel with an erroring target is ERROR) and F3 (the Errors-stat, cost and token counters start at 0). One new P1: the hard-coded OPERATIONS list used to start retry and schema-failure series at 0 covers only 12 of the 31 operation names in use, so the F3 defect remains on those panels for most operations.
+
+Earlier findings: F1 fixed, F2 fixed, F3 fixed.
+
+- F9 · P1 · OPERATIONS list misses 19 live operation names, so their first retry or schema failure after a restart is still dropped — apps/tdr-bot/src/llm/observability/llm-metrics.service.ts:18 → R4
+
+Suspicions:
+- Security panel #18 '4xx and 5xx over time' reports plain EMPTY — infra/monitoring/grafana/provisioning/dashboards/json/security.json · R1's live summary shows lilnas-security with 1 plain EMPTY (#18). Done means requires every empty panel to have an Event-driven: description, and live traffic has 4xx/5xx lines, so the query is probably wrong. This panel is outside the remediation diff. · confirm by: node infra/monitoring/scripts/check-dashboards.mjs live --range 24h infra/monitoring/grafana/provisioning/dashboards/json/security.json, then compare #18's expr with the Top client IPs query that returns data.
+
+Spec check:
+- missing: R3: initialise each known label set at 0 at startup (e.g. ... for each handler, skill, operation and status) (apps/tdr-bot/src/llm/observability/llm-metrics.service.ts) — Operation-keyed series cover 12 of 31 operations.
+- unverifiable: R3: afterwards confirm increase() matches the raw counter delta after a restart (production tdr-bot) — Needs a tdr-bot deploy; not checked live.
+
+Declined to judge:
+- tdr_bot_llm_calls_total is not created at startup, so the first error or timeout call after a restart is still missed by the timeouts panel — R3 states this deliberately (open-ended operation x model x role x status combinations). It is acknowledged, not a regression from this diff.
+- Cost-per-day and tokens panels will now list all 14 catalog models at 0 — Cosmetic; the values are correct.
+- Security panel #18 and other T6 panels outside the remediation diff — New findings are limited to the remediation diff; noted as a suspicion.
+
+Checked:
+- Cost and token series created at startup use a different model label than real calls — apps/tdr-bot/src/llm/client/default-llm-client.ts:106,250-251: Calls label by modelId from settings or overrides, which are catalog ids, so the zero series match.
+- OPERATIONS matches real call sites — grep of operation: literals in apps/tdr-bot/src: 31 distinct literals, 12 covered (tldr.* come from a ternary in tldr.service.ts). Reported as P1.
+- registry.ids() exists and returns skill ids for initLlmRequests — apps/tdr-bot/src/llm/skills/skill.registry.ts:18: Exists; build-graph.ts already uses it the same way.
+- Test mocks missing initLlmRequests would throw in onModuleInit — llm-orchestration.integration.test.ts, api.controller.conversations.test.ts: Both use createMockMetricsService, which now has initLlmRequests.
+- LogQL 'or' and anchoring in the new RequestPath filters — security.json panels 22-25: Label-filter regexes are fully anchored; [^?]* stops before the query string; \b leaves out /.github and nexus-code gitStatus. The 'or' filters only exclude nexus-code /@fs/ assets and SAB 302s.
+- ERROR branch still counts and prints detail lines — infra/monitoring/scripts/check-dashboards.mjs:429: Any error now goes to ERROR with every error and empty target listed; the summary counts it and ok becomes false.

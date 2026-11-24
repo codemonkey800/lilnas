@@ -1059,3 +1059,35 @@ phases:
              tree clean, commit nothing, and report `status: done` with `commits: []`.
              Open `notes` with `Not reproduced:` and say where the behaviour is covered.
              The runner drops the finding on your word.
+  - key: R2
+    name: Review remediation
+    tasks:
+      - id: R4
+        title: P1 OPERATIONS list misses 19 live operation names, so their first retry or schema failure after a restart is still dropp
+        after: []
+        files:
+          - apps/tdr-bot/src/llm/observability/llm-metrics.service.ts
+        status: todo
+        body: |-
+          Finding: F9 (P1)
+
+          From the review of phase 1 (cycle 2): a P1 finding.
+
+          Where: apps/tdr-bot/src/llm/observability/llm-metrics.service.ts:18
+
+          Why: The constructor creates tdr_bot_llm_retries_total and tdr_bot_llm_schema_failures_total at 0 only for OPERATIONS. The code passes 31 distinct operation literals, and 19 are missing: reminder.extract, reminder.confirm, reminder.askMissing, reminder.deliver, reminder.deliverMath, reminder.deliverSearch, reminder.resolveCancel, reminder.topicSwitch, media.classifyType, media.browse, media.downloadStatus, media.downloadStatusEmpty, media.downloadStatusError, media.extractQuery, media.extractTvQuery, media.parseSelection, media.parseTvSelection, media.topicSwitch, media.wrongPick, plus response.shorten and playground.chat. The comment says to add new call sites here, but the list is already incomplete.
+
+          Failure scenario: tdr-bot is redeployed, then reminder.extract hits one schema failure. tdr_bot_llm_schema_failures_total{operation="reminder.extract"} first appears at 1, so increase(...[1d]) is 0 and the Schema failures panel on tdr-bot.json stays at 0. Retries on these operations are dropped the same way.
+
+          Suggested fix: Add every operation literal used in apps/tdr-bot/src to OPERATIONS, or make operation a typed union that the LLM call type requires so a missing name fails type-check. Add a test that every operation used by a call site is in the list.
+
+          How to fix it:
+          1. First write a test that reproduces the failure scenario and fails on the
+             current code, in the package's test style, beside the tests the file
+             already has. Keep it: it is the regression test.
+          2. Then change the code so it passes, and run the plan's checks.
+          3. If you cannot make the scenario fail — the guard, type, or test that
+             already covers it — change nothing: delete the attempted test, leave the
+             tree clean, commit nothing, and report `status: done` with `commits: []`.
+             Open `notes` with `Not reproduced:` and say where the behaviour is covered.
+             The runner drops the finding on your word.
