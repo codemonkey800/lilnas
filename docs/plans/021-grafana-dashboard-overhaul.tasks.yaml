@@ -1245,7 +1245,8 @@ phases:
         after:
           - H6
         files: []
-        status: todo
+        status: done
+        commit: 4e176f757a0d1e5d2f682546c51b05507c939cdd
         body: |-
           T12 · Create the monitoring roles, push to main, watch CI, verify production reported this blocking defect (attempt 5):
 
