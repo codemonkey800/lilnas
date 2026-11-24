@@ -1359,7 +1359,8 @@ phases:
         title: 'Fix: tdr-bot fix 101aa1d6 not on main; tdr-bot image not rebuilt or deployed'
         after: []
         files: []
-        status: todo
+        status: done
+        commit: 0c4dc0a62992252b00d5860adfd2a888283e24bf
         body: |-
           T12 · Create the monitoring roles, push to main, watch CI, verify production reported this blocking defect (attempt 6):
 
