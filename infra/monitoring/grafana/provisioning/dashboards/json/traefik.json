@@ -95,7 +95,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sum(traefik_service_open_connections)",
+          "expr": "sum(traefik_open_connections)",
           "legendFormat": "connections",
           "refId": "A"
         }
@@ -312,7 +312,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sum(traefik_entrypoint_open_connections) by (entrypoint)",
+          "expr": "sum by (entrypoint) (traefik_open_connections)",
           "legendFormat": "{{entrypoint}}",
           "refId": "A"
         }
