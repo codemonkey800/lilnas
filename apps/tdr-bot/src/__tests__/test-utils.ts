@@ -368,6 +368,7 @@ export function createMockMetricsService(): jest.Mocked<TdrBotMetricsService> {
   return {
     messageReceived: jest.fn(),
     messageHandled: jest.fn(),
+    initLlmRequests: jest.fn(),
     llmRequest: jest.fn(),
     observeLlmDuration: jest.fn(),
     imageGeneration: jest.fn(),

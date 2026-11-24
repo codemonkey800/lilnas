@@ -9,6 +9,19 @@ type ResponseSentStatus =
   'success' | 'shortened' | 'truncated' | 'error' | 'fallback'
 type ReminderType = 'recurring' | 'one_time'
 
+const MESSAGE_HANDLERS: readonly MessageHandler[] = ['chat', 'keywords']
+const OUTCOME_STATUSES: readonly (
+  HandledStatus | LlmStatus | ImageGenerationStatus
+)[] = ['success', 'error']
+const RESPONSE_STATUSES: readonly ResponseSentStatus[] = [
+  'success',
+  'shortened',
+  'truncated',
+  'error',
+  'fallback',
+]
+const REMINDER_TYPES: readonly ReminderType[] = ['recurring', 'one_time']
+
 const messagesReceivedTotal = new Counter({
   name: 'tdr_bot_messages_received_total',
   help: 'Total number of Discord messages that matched a handler',
@@ -101,6 +114,39 @@ const remindersActive = new Gauge({
  */
 @Injectable()
 export class TdrBotMetricsService {
+  /**
+   * prom-client creates a labelled series on its first `inc`, so a series that
+   * first appears at 1 gives `increase()` no earlier sample to subtract and the
+   * event is lost (a single error after a deploy reads as 0). Every label set
+   * known at startup is therefore created at 0 here.
+   */
+  constructor() {
+    for (const handler of MESSAGE_HANDLERS) {
+      messagesReceivedTotal.inc({ handler }, 0)
+      for (const status of OUTCOME_STATUSES) {
+        messagesHandledTotal.inc({ handler, status }, 0)
+      }
+    }
+    for (const status of OUTCOME_STATUSES) {
+      imageGenerationsTotal.inc({ status }, 0)
+    }
+    for (const status of RESPONSE_STATUSES) {
+      responsesSentTotal.inc({ status }, 0)
+    }
+    for (const type of REMINDER_TYPES) {
+      remindersCreatedTotal.inc({ type }, 0)
+    }
+  }
+
+  /** Creates the skill/status LLM request series at 0 for the registered skills. */
+  initLlmRequests(skills: readonly string[]): void {
+    for (const skill of skills) {
+      for (const status of OUTCOME_STATUSES) {
+        llmRequestsTotal.inc({ skill, status }, 0)
+      }
+    }
+  }
+
   /** Increments the total messages-received counter for the given handler. */
   messageReceived(handler: MessageHandler): void {
     messagesReceivedTotal.inc({ handler })

@@ -1,5 +1,6 @@
 import { register } from '@prometheus-io/client'
 
+import { MODEL_CATALOG } from 'src/llm/models/catalog'
 import { LlmMetricsService } from 'src/llm/observability/llm-metrics.service'
 
 async function value(name: string, labels: Record<string, string>) {
@@ -30,6 +31,32 @@ describe('LlmMetricsService', () => {
       'tdr_bot_router_decisions_total',
     ]) {
       expect(names.filter(x => x === n)).toHaveLength(1)
+    }
+  })
+
+  it('exposes token and cost series at 0 for every catalog model', async () => {
+    new LlmMetricsService()
+
+    for (const { id } of MODEL_CATALOG) {
+      expect(await value('tdr_bot_llm_cost_usd_total', { model: id })).toBe(0)
+      for (const type of ['input', 'output', 'cached']) {
+        expect(
+          await value('tdr_bot_llm_tokens_by_model_total', { model: id, type }),
+        ).toBe(0)
+      }
+    }
+  })
+
+  it('exposes retry series at 0 for every reason', async () => {
+    new LlmMetricsService()
+
+    for (const reason of ['timeout', 'rate_limit', 'server_error', 'other']) {
+      expect(
+        await value('tdr_bot_llm_retries_total', {
+          operation: 'chat.respond',
+          reason,
+        }),
+      ).toBe(0)
     }
   })
 

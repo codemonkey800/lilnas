@@ -57,6 +57,8 @@ export class LLMOrchestrationService implements OnModuleInit {
 
   /** Compiles the skills graph. */
   onModuleInit() {
+    this.metrics.initLlmRequests(this.registry.ids())
+
     this.app = buildGraph({
       registry: this.registry,
       llm: this.llm,

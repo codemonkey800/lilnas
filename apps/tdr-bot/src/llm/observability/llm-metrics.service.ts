@@ -1,9 +1,34 @@
 import { Injectable } from '@nestjs/common'
 import { Counter, Gauge, Histogram, register } from '@prometheus-io/client'
 
+import { MODEL_CATALOG } from 'src/llm/models/catalog'
+
 type CallStatus = 'success' | 'error' | 'timeout' | 'schema_failure'
 type RetryReason = 'timeout' | 'rate_limit' | 'server_error' | 'other'
 type RouterSource = 'fastpath' | 'llm' | 'followup' | 'fallback'
+
+const TOKEN_TYPES = ['input', 'output', 'cached'] as const
+const RETRY_REASONS: readonly RetryReason[] = [
+  'timeout',
+  'rate_limit',
+  'server_error',
+  'other',
+]
+/** `operation` labels passed to the LLM client; add new call sites here. */
+const OPERATIONS = [
+  'router.classify',
+  'chat.respond',
+  'math.latex',
+  'math.respond',
+  'media.intent',
+  'media.movieReply',
+  'media.tvReply',
+  'media.tvDeleteReply',
+  'tldr.summarize',
+  'tldr.answer',
+  'emoji.describe',
+  'emoji.describe.batch',
+] as const
 
 // Registered at module scope against the default registry; module caching
 // makes re-imports safe, and getSingleMetric guards against duplicate loads
@@ -104,6 +129,26 @@ const routerDecisionsTotal = getOrCreate(
 /** Prometheus metrics for the LLM client and router (default registry). */
 @Injectable()
 export class LlmMetricsService {
+  /**
+   * prom-client creates a labelled series on its first `inc`, so a series that
+   * first appears at 1 is invisible to `increase()` (the first call's cost or
+   * retry is dropped after every restart). Known label sets start at 0 here.
+   */
+  constructor() {
+    for (const { id: model } of MODEL_CATALOG) {
+      costUsdTotal.inc({ model }, 0)
+      for (const type of TOKEN_TYPES) {
+        tokensByModelTotal.inc({ model, type }, 0)
+      }
+    }
+    for (const operation of OPERATIONS) {
+      schemaFailuresTotal.inc({ operation }, 0)
+      for (const reason of RETRY_REASONS) {
+        retriesTotal.inc({ operation, reason }, 0)
+      }
+    }
+  }
+
   /** Increments inflight; the returned `done()` decrements it (idempotent). */
   callStarted(labels: { operation: string; model: string }): () => void {
     inflight.inc({ model: labels.model })
