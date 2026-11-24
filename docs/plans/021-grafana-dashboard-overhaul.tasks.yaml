@@ -148,7 +148,8 @@ phases:
           - T1
         files:
           - infra/monitoring/grafana/provisioning/dashboards/json/tdr-bot.json
-        status: todo
+        status: done
+        commit: da4730f213e105dfab75a039e24d7235570e3d3a
         body: |-
           Rewrite `infra/monitoring/grafana/provisioning/dashboards/json/tdr-bot.json`, keeping
           uid `lilnas-tdr-bot` and the `requestId` textbox variable. Today it has about 45 panels
