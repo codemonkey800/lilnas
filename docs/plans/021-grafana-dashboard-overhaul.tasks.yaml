@@ -426,7 +426,8 @@ phases:
           - infra/.env.postgres-exporter
           - infra/.env.postgres-exporter.example
           - infra/monitoring/scripts/postgres-monitor-roles.sh
-        status: todo
+        status: done
+        commit: 1d782319eb34b305c6dd82032f01b672e96d25ba
         body: |-
           Add one postgres_exporter (`quay.io/prometheuscommunity/postgres-exporter:v0.21.1`,
           port 9187) per Postgres server to `infra/monitoring.yml`. Download and auth use SQLite;
