@@ -2860,7 +2860,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (component)(process_cpu_utilization{job=\"immich\"}) * 100",
+          "expr": "sum by (component)(process_cpu_utilization{job=\"immich\"}) * scalar(count(node_cpu_seconds_total{mode=\"idle\"})) * 100",
           "legendFormat": "{{component}}",
           "refId": "A"
         }

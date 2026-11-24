@@ -899,6 +899,38 @@ describe('security dashboard: scanner probe panels', () => {
 })
 
 // ---------------------------------------------------------------------------
+// media.json: Immich Node process CPU is per-core, like the cAdvisor panels
+
+describe('media dashboard: Immich Node process CPU', () => {
+  const mediaFile = new URL(
+    '../grafana/provisioning/dashboards/json/media.json',
+    import.meta.url,
+  )
+  const media = JSON.parse(readFileSync(mediaFile, 'utf8'))
+  const cpu = media.panels
+    .flatMap(p => [p, ...(p.panels ?? [])])
+    .find(p => p.id === 57)
+
+  test('panel 57 is the Node process CPU panel', () => {
+    assert.equal(cpu?.title, 'Node process CPU')
+  })
+
+  // @opentelemetry/host-metrics reports process_cpu_utilization as a share of
+  // the whole machine (already divided by the core count), so a "100% = one
+  // core" panel has to scale it back up by the number of cores.
+  test('the query scales the machine-wide share by the core count', () => {
+    const { expr } = cpu.targets[0]
+    assert.match(expr, /process_cpu_utilization\{job="immich"\}/)
+    assert.match(
+      expr,
+      /scalar\(count\(node_cpu_seconds_total\{mode="idle"\}\)\)/,
+      `panel 57 does not multiply by the core count: ${expr}`,
+    )
+    assert.match(expr, /\* 100\b/)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // docs/monitoring.md: the dashboard table lists every data source a file uses
 
 describe('docs/monitoring.md dashboard table', () => {
