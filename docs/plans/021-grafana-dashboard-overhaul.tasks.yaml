@@ -974,7 +974,8 @@ phases:
         after: []
         files:
           - infra/monitoring/grafana/provisioning/dashboards/json/security.json
-        status: todo
+        status: done
+        commit: 41b04f76d4052caa2984fb23c5cc3082c6af2669
         body: |-
           Finding: F1 (P1)
 
