@@ -731,3 +731,95 @@ Local guard test apps/tdr-bot/src/app/__tests__/layout.spec.ts: 2 passed.
 Note for T12 round 4: origin/main is now 101aa1d6, so the branch remains a fast-forward of main. The remaining push (everything else on the branch) will touch infra/monitoring.yml / prometheus.yml / dashboards, so its ci detect will include forceRecreate for grafana/prometheus and auth; check H1/H5 approvals cover that. No throwaway containers or temp files created; tree clean.
 
 No commits: nothing to integrate.
+
+### 2026-11-24 · T12 · done
+```
+## Push / CI / rollback
+- Pushed sha (final, from R7): 101aa1d6b2fa6ffc0322db7d174510e98ed81d09 (fast-forward 394431e0..101aa1d6). The phase-1 infra push was 394431e0.
+- Rollback shas: infra push e5d9cdae; the tdr-bot fix push 394431e0 (or `LILNAS_TAG=<sha> docker compose up -d tdr-bot` in /opt/lilnas).
+- Not run this attempt: the roles script and `git push`, per the task body, because origin/main already contains 394431e0 and 101aa1d6.
+- CI: https://github.com/codemonkey800/lilnas/actions/runs/45356676879 is success for 101aa1d6. The red run 45352251208 (394431e0) is expected and not a defect.
+- Role rollback: `infra/monitoring/scripts/postgres-monitor-roles.sh --drop infra/.env.postgres-exporter.decrypted`
+- Key file: `stat -c %s` is 1874 for both /opt/lilnas/.env.keys and /home/jeremy/lilnas/.env.keys.
+
+## Checks, observed 2026-11-24 08:38-08:50 UTC. The 101aa1d6 deploy recreated prometheus, grafana, auth and tdr-bot at 08:36:10-08:36:42Z.
+- Role: `lilnas_monitor` exists in lilnas-tdr-bot-db-1, lilnas-icloud-backup-db-1 and lilnas-immich-database-1 (checked as the container superuser): rolsuper f, rolcanlogin t, member of pg_monitor t. A TCP login with the password on stdin works in all three, giving current_user lilnas_monitor and default_transaction_read_only on. The password was never in argv.
+- Seven new containers, all Up 36-41 min: lilnas-smartctl-exporter-1, lilnas-exportarr-sonarr-1, lilnas-exportarr-radarr-1, lilnas-exportarr-sabnzbd-1, lilnas-postgres-exporter-tdr-bot-1, lilnas-postgres-exporter-icloud-backup-1, lilnas-postgres-exporter-immich-1.
+- prometheus Up 6 min, grafana Up 5 min, immich Up 41 min (healthy). prometheus and grafana have no healthcheck, so Up is enough.
+- https://immich.lilnas.io/api/server/ping returns 200.
+- auth recreated and healthy (lilnas-auth-1, 08:36:42Z). https://auth.lilnas.io returns 307 (redirect to login).
+- tdr-bot image: ghcr.io/codemonkey800/lilnas-tdr-bot:latest, sha256:929ec9e6…, label org.opencontainers.image.revision = 101aa1d6b2fa…, started 08:36:10Z, RestartCount 0. up{job="tdr-bot"}=1. Log shows only /metrics request lines, 0 error/exception/fatal lines in 10 min. Series count of tdr_bot_llm_retries_total is 132 (max 0). Series count of tdr_bot_llm_schema_failures_total is 33 (max 0). The unprefixed `llm_retries_total` and `tdr_bot_llm_schema_failures_total` names in the task text do not exist; the real names carry the tdr_bot_ prefix.
+- Targets, all up: cadvisor, download, equations, immich (immich:8081 api, immich:8082 microservices), me-token-tracker, minio, minio-bucket, node-exporter, postgres x3, prometheus, radarr, sabnzbd, smartctl, sonarr, tdr-bot, traefik. `idkwiw` is gone. All lastError empty.
+- smartctl_devices = 13. pg_up = 1 for icloud-backup-db, tdr-bot-db and immich-database. minio_bucket_usage_total_bytes has 5 series, one per bucket: build 8440960985, equations 0, files 5222522, images 28324, videos 0.
+- Grafana search uids are exactly lilnas-app-detail, lilnas-infrastructure, lilnas-logs, lilnas-overview, lilnas-security, lilnas-storage, lilnas-tdr-bot, lilnas-traefik. `/api/dashboards/home` returns redirectUri /d/default-home-dashboard/overview (title Overview), which is the known copy of Overview.
+- Dashboards deployed on origin/main are only those 8. disk-health, media and postgres exist on the branch but are not deployed. The branch's overview.json differs from main's (426 lines); I ran live over main's 8 files.
+- `check-dashboards.mjs lint` over those 8: "lint ok: 8 dashboards".
+- `check-dashboards.mjs live` summary (24h, main's files):
+  - lilnas-app-detail (default app): 23 OK, 0 EMPTY, 9 event-driven, 0 ERROR
+  - lilnas-infrastructure: 18 OK, 0 EMPTY, 0 event-driven, 0 ERROR
+  - lilnas-logs: 3 OK, 0 EMPTY, 0 event-driven, 0 ERROR
+  - lilnas-overview: 17 OK, 0 EMPTY, 2 event-driven, 0 ERROR (checked on main's file)
+  - lilnas-security: 20 OK, 1 EMPTY, 8 event-driven, 0 ERROR
+  - lilnas-storage: 29 OK, 0 EMPTY, 0 event-driven, 0 ERROR. The MinIO bucket panels #46-#49 and #50 are OK: 1, 5, 5 and 5 series, and 2 for #50.
+  - lilnas-tdr-bot: 12 OK, 0 EMPTY, 1 event-driven, 0 ERROR
+  - lilnas-traefik: 14 OK, 2 EMPTY, 0 event-driven, 0 ERROR
+- App Detail once per app (`--var app=<app>`), 0 ERROR and 0 plain EMPTY each: tdr-bot 23 OK / 9 event-driven; download 25 OK / 7 event-driven; equations 23 OK / 9 event-driven; me-token-tracker 23 OK / 9 event-driven.
+- Security #18 "4xx and 5xx over time" shows EMPTY only because the checker runs an instant `count_over_time(...[5m])` and nothing hit 4xx in the last 5 minutes. Run as a range query over 24h the same expression returns 1 series with 204 points, so the panel is fine; the checker is the cause.
+- Cleanup: `docker ps -a --filter name=mon-rig-` returns 0 containers. The 18 `*.decrypted` files in the worktree are deleted and /tmp helpers removed. Tree clean, no commits.
+
+## Per-job metric inventory (live, instant query `{job="<job>"}`). Format: name(series count)[label names beyond job/instance]. Every series also carries job and instance.
+### smartctl (target smartctl-exporter:9633, 60s). All values below were observed.
+- smartctl_devices(1)[] = 13
+- smartctl_device(13)[ata_additional_product_id,ata_version,device,firmware_version,form_factor,interface,model_family,model_name,protocol,sata_version,serial_number]. Not seen: the scsi_* labels from the earlier throwaway run.
+- smartctl_device_attribute(608)[attribute_flags_long,attribute_flags_short,attribute_id,attribute_name,attribute_value_type,device]. HDD-only. Sample: {device=sda, attribute_name=Reallocated_Sector_Ct, attribute_id=5, attribute_value_type=raw} = 0, and the same for sdb = 0.
+- Per-device families, label device only: smartctl_device_available_spare(5), smartctl_device_available_spare_threshold(5), smartctl_device_bytes_read(5), smartctl_device_bytes_written(5), smartctl_device_capacity_blocks(13), smartctl_device_capacity_bytes(13), smartctl_device_critical_warning(5), smartctl_device_media_errors(5), smartctl_device_num_err_log_entries(5), smartctl_device_nvme_capacity_bytes(5), smartctl_device_percentage_used(5), smartctl_device_power_cycle_count(13), smartctl_device_power_on_seconds(13), smartctl_device_rotation_rate(8), smartctl_device_smart_status(13), smartctl_device_smartctl_exit_status(13). The 5-series families are NVMe only.
+- With extra labels: smartctl_device_block_size(26)[blocks_type,device]; smartctl_device_error_log_count(8)[device,error_log_type]; smartctl_device_interface_speed(16)[device,speed_type]; smartctl_device_temperature(23)[device,temperature_type=current|op_limit_max|critical_limit_max]; smartctl_exporter_build_info(1)[branch,goarch,goos,goversion,revision,tags,version]; smartctl_version(1)[build_info,json_format_version,smartctl_version,svn_revision].
+- Samples: smartctl_device_temperature{device=nvme0,temperature_type=current}=53, nvme1=36. smartctl_device_percentage_used{nvme0}=4, {nvme1}=0. smartctl_device_smart_status{nvme0}=1. smartctl_device_capacity_bytes{nvme0}=4000787030016. smartctl_device_power_on_seconds{sda}=51544800.
+- Plus up, scrape_*, go_*, process_*, promhttp_*.
+
+### sonarr (exportarr-sonarr:9707, 60s). Every series carries the label url.
+- Names: exportarr_app_info(1)[app_name,build_time,revision,version]; sonarr_episode_cutoff_unmet_total, sonarr_episode_downloaded_total, sonarr_episode_missing_total, sonarr_episode_total, sonarr_history_total, sonarr_season_downloaded_total, sonarr_season_monitored_total, sonarr_season_total, sonarr_season_unmonitored_total, sonarr_series_downloaded_total, sonarr_series_filesize_bytes, sonarr_series_monitored_total, sonarr_series_total, sonarr_series_unmonitored_total, sonarr_system_status, sonarr_scrape_duration_seconds (each 1 series, [url]); sonarr_rootfolder_freespace_bytes(1)[path,url]; sonarr_scrape_requests_total(1)[code,url]; sonarr_system_health_issues(1)[message,source,type,url,wikiurl].
+- Samples: sonarr_series_total=84; sonarr_episode_total=7799; sonarr_rootfolder_freespace_bytes{path="/tv"}=14255056928768; sonarr_system_health_issues{type=warning, source=IndexerLongTermStatusCheck, message="Indexers unavailable due to failures for more than 6 hours: NzbPlanet, Anime Tosho"}=1.
+- ENABLE_ADDITIONAL_METRICS is off, so there are no sonarr_episode_quality/monitored families.
+
+### radarr (exportarr-radarr:9708, 60s). Every series carries the label url.
+- Names: exportarr_app_info; radarr_history_total, radarr_movie_cutoff_unmet_total, radarr_movie_downloaded_total, radarr_movie_editions, radarr_movie_filesize_total, radarr_movie_missing_total, radarr_movie_monitored_total, radarr_movie_total, radarr_movie_unmonitored_total, radarr_movie_wanted_total, radarr_system_status, radarr_scrape_duration_seconds (each 1, [url]); radarr_movie_quality_total(9)[quality,url,weight]; radarr_movie_tag_total(2)[tag,url]; radarr_rootfolder_freespace_bytes(1)[path,url]; radarr_scrape_requests_total(1)[code,url]; radarr_system_health_issues(2)[message,source,type,url,wikiurl].
+- Samples: radarr_movie_total=296; radarr_movie_quality_total{quality="Bluray-1080p",weight="19"}=214, {quality="Bluray-480p",weight="12"}=2; radarr_rootfolder_freespace_bytes{path="/movies"}=17660865564672.
+
+### sabnzbd (exportarr-sabnzbd:9709, 60s). Every series carries the label url. sabnzbd_info shows status Idle, version 5.1.3.
+- Names: exportarr_app_info; sabnzbd_article_cache_articles, sabnzbd_article_cache_bytes, sabnzbd_downloaded_bytes, sabnzbd_pause_duration_seconds, sabnzbd_paused, sabnzbd_paused_all, sabnzbd_queue_length, sabnzbd_queue_query_duration_seconds, sabnzbd_queue_warnings, sabnzbd_quota_bytes, sabnzbd_remaining_bytes, sabnzbd_remaining_quota_bytes, sabnzbd_scrape_duration_seconds, sabnzbd_server_stats_query_duration_seconds, sabnzbd_speed_bps, sabnzbd_status, sabnzbd_time_estimate_seconds, sabnzbd_total_bytes (each 1, [url]); sabnzbd_info(1)[status,url,version]; sabnzbd_disk_total_bytes(2) and sabnzbd_disk_used_bytes(2)[folder=complete|download,url]; sabnzbd_scrape_requests_total(1)[code,url]; sabnzbd_server_articles_success(3), sabnzbd_server_articles_total(3), sabnzbd_server_downloaded_bytes(3)[server,url].
+- Samples: sabnzbd_queue_length=0; sabnzbd_speed_bps=0; sabnzbd_disk_used_bytes{folder="complete"}=152686087372.8; sabnzbd_server_articles_success{server="news.eweka.nl"}=0, {server="news.newshosting.com"}=0 (a third server also exists).
+
+### postgres (3 targets, label `server` = tdr-bot-db | icloud-backup-db | immich-database; 15s). All observed live.
+- Exporter and build: pg_up(3)[server]; pg_static(3)[exported_server,server,short_version,version]; postgres_exporter_build_info(3)[branch,goarch,goos,goversion,revision,server,tags,version]; postgres_exporter_config_last_reload_success_timestamp_seconds(3), postgres_exporter_config_last_reload_successful(3); pg_exporter_last_scrape_duration_seconds(3), pg_exporter_last_scrape_error(3), pg_exporter_scrapes_total(3) [server]; pg_scrape_collector_duration_seconds(51) and pg_scrape_collector_success(51)[collector,server].
+- Databases: pg_database_size_bytes(12)[datname,server]; pg_database_connection_limit(12)[datname,server]; pg_locks_count(108)[datname,mode,server]; pg_roles_connection_limit(49)[rolname,server].
+- pg_stat_database_* (12 series, [datid,datname,server]): active_time_seconds_total, blk_read_time, blk_write_time, blks_hit, blks_read, conflicts, deadlocks, numbackends, stats_reset, temp_bytes, temp_files, tup_deleted, tup_fetched, tup_inserted, tup_returned, tup_updated, xact_commit, xact_rollback. The conflicts_confl_{bufferpin,deadlock,lock,snapshot,tablespace} families (12) and conflicts_confl_active_logicalslot (8) carry [datid,datname,exported_server,server].
+- pg_stat_activity_count(74) and pg_stat_activity_max_tx_duration(74)[application_name,backend_type,datname,server,state,usename,wait_event,wait_event_type].
+- pg_long_running_transactions(3) and pg_long_running_transactions_oldest_timestamp_seconds(3)[server].
+- Replication, WAL and archiver (3 each, [server]): pg_replication_is_replica, pg_replication_lag_seconds, pg_replication_last_replay_seconds, pg_wal_segments, pg_wal_size_bytes, pg_stat_archiver_archived_count, pg_stat_archiver_failed_count.
+- pg_stat_bgwriter_*, [server]. All servers: buffers_alloc_total, buffers_clean_total, maxwritten_clean_total, stats_reset_total (3 each). Only one server (PG14 immich) has buffers_backend_fsync_total, buffers_backend_total, buffers_checkpoint_total, checkpoint_sync_time_total, checkpoint_write_time_total, checkpoints_req_total, checkpoints_timed_total (1 each). The stat_checkpointer collector the repo enabled for PG18 (commit 828ea9e8) produces no pg_stat_checkpointer_* family live, so do not use that name in a panel.
+- Per-table families (86 series each, [datname,relname,schemaname,server]):
+  - pg_stat_user_tables_*: analyze_count, autoanalyze_count, autovacuum_count, idx_scan, idx_tup_fetch, index_size_bytes, last_analyze, last_autoanalyze, last_autovacuum, last_vacuum, n_dead_tup, n_live_tup, n_mod_since_analyze, n_tup_del, n_tup_hot_upd, n_tup_ins, n_tup_upd, seq_scan, seq_tup_read, table_size_bytes, vacuum_count.
+  - pg_statio_user_tables_*: heap_blocks_hit, heap_blocks_read, idx_blocks_hit, idx_blocks_read, tidx_blocks_hit, tidx_blocks_read, toast_blocks_hit, toast_blocks_read.
+- pg_settings_*: 299 names, label [server] only (e.g. pg_settings_max_connections). Plus go_*, process_*, promhttp_* (40 names).
+- Not emitted live: any stat_activity_autovacuum family (collector succeeds but emits nothing); no stat_statements families (collector off).
+- Samples: pg_up{server="tdr-bot-db"}=1 (also icloud-backup-db and immich-database); pg_database_size_bytes{datname="icloud_backup",server="icloud-backup-db"}=8238783; pg_stat_database_numbackends{datname="tdr_bot",server="tdr-bot-db"}=3, {datname="icloud_backup"}=2; pg_stat_database_xact_commit{datname="tdr_bot"}=32891, {datname="icloud_backup"}=27430; pg_stat_activity_count{datname="icloud_backup",server="icloud-backup-db",state="active"}=0.
+
+### immich (immich:8081 component=api, immich:8082 component=microservices; 15s). 191 names, observed 08:48 UTC.
+- Only the api component has series so far; of the two `up` series, one is the microservices port. Only `immich_users_total{component="api"}` was queried: 2. `{__name__=~"http_.*",job="immich"}` returns nothing, so there are NO http_server_* metrics.
+- Family 1, immich_<repository>_<method>_duration histograms, labelled [component,otel_scope_name=nestjs-otel] plus `le` on _bucket, with _bucket/_sum/_count suffixes, about 60 methods. Repositories seen: asset, cron, crypto, database, event, job, machine_learning, map, metadata, plugin, server_info, storage, system_metadata, telemetry, user, version_history, video_stream, websocket. Example: immich_user_repository_get_count_duration_count{component="api"}=1 (22 _bucket series, 1 _sum, 1 _count).
+- Family 2, one gauge: immich_users_total{component, otel_scope_name} = 2.
+- Family 3, host-metrics (otel_scope_name=host-metrics, otel_scope_version=0.38.3), [component,...]:
+  - system_cpu_time_total(320) and system_cpu_utilization(320) [system_cpu_logical_number,system_cpu_state]; sample system_cpu_utilization{system_cpu_logical_number="0",system_cpu_state="user"}=0.045 and state="system"=0.019.
+  - system_memory_usage(4) and system_memory_utilization(4) [system_memory_state=used|free]; sample system_memory_usage{used}=23906144256, {free}=76424531968.
+  - system_network_io_total(4), system_network_dropped_total(4), system_network_errors_total(4) [network_io_direction,system_device]; sample system_network_io_total{receive,eth0}=12741828, {transmit,eth0}=66588503.
+- target_info(2)[component,host_arch,host_name,process_command,process_command_args,process_executable_name,process_executable_path,process_owner,process_pid,process_runtime_description,process_runtime_name,process_runtime_version,service_name,service_version]; up(2)[component]; plus go_*/process_*/scrape_*.
+- There are NO immich_assets_total, immich_photos_total, immich_videos_total or immich_usage_by_user families on this version. A Media/Immich panel must not use them. Library size will have to come from the postgres job (immich-database server) or elsewhere.
+
+Defects:
+
+- not blocking · Traefik panels · infra/monitoring/grafana/provisioning/dashboards/json/traefik.json (panels 4 and 13; origin/main, introduced in a36737bb "monitoring"; not touched by phase 1)
+  check-dashboards.mjs live: EMPTY #4 target A: sum(traefik_service_open_connections); EMPTY #13 target A: sum(traefik_entrypoint_open_connections) by (entrypoint). Live Prometheus has neither; the metric is traefik_open_connections{entrypoint,protocol}: metrics=1, web=0, websecure=3. Neither panel has an Event-driven description.
+
+No commits: nothing to integrate.
+```
