@@ -730,7 +730,7 @@ phases:
         after:
           - T12
         files: []
-        status: todo
+        status: approved
         body: |-
           Push 1 is live. Open `https://grafana.lilnas.io` and check:
           - it opens on Overview, and every tile reads sensibly for what you know of the server

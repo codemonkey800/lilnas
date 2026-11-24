@@ -621,3 +621,6 @@ No commits: nothing to integrate.
 
 ### 2026-11-24 · T17 · done
 docs/monitoring.md lists all 11 dashboards. Disk Health, Media Stack and Postgres (lilnas-disk-health, lilnas-media, lilnas-postgres) are documented from the task's uids and files only, since those files are not on this branch; verify their "Answers" and data-source cells when their tasks merge. deploy.md count is 19 (7 apps + infra/.env + 11 infra/.env.*), from scripts/deploy/decrypt-env.sh --list . (the default root /opt/lilnas fails with git dubious ownership from this user). Private-key names in the .env.keys table were checked against the real .env.keys (names only). No dashboard changed, so no live summary or new metrics. T12's partial status (tdr-bot fix 101aa1d6 not on main; Traefik Active Connections panels and Security 4xx/5xx panel findings) is not documented as fact in monitoring.md; no mention of it was added.
+
+### 2026-11-24 · H2 · approved
+Approved.
