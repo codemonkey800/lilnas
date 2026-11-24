@@ -1000,6 +1000,31 @@ phases:
           Check that `docker compose -f infra/monitoring.yml config --no-env-resolution` shows
           the flag on exactly those two services and that
           `pnpm exec prettier -c infra/monitoring.yml` passes.
+      - id: T20
+        title: 'Traefik dashboard: point the two open-connection panels at the metric Traefik exports'
+        after: []
+        files:
+          - infra/monitoring/grafana/provisioning/dashboards/json/traefik.json
+        status: todo
+        body: |-
+          In `infra/monitoring/grafana/provisioning/dashboards/json/traefik.json` (uid
+          `lilnas-traefik`) two panels show "No data" because they query metric names this
+          Traefik version does not export:
+          - panel id 4, "Active Connections" (stat): `sum(traefik_service_open_connections)`
+          - panel id 13, "Active Connections by Entrypoint" (timeseries):
+            `sum(traefik_entrypoint_open_connections) by (entrypoint)`
+
+          Production Prometheus has `traefik_open_connections{entrypoint, protocol}` instead
+          (entrypoints `web`, `websecure`, `metrics`; protocol `TCP`). Change the two
+          expressions to `sum(traefik_open_connections)` and
+          `sum by (entrypoint) (traefik_open_connections)`. Keep ids, titles, positions, units
+          and thresholds; change nothing else on the dashboard. If either panel has a
+          description that names the old metric, correct it.
+
+          Run `node infra/monitoring/scripts/check-dashboards.mjs lint` and `live` for the
+          Traefik dashboard and report its summary: panels 4 and 13 must be OK, and no panel
+          that was OK before may change. List any other plain `EMPTY` panel you see on it in
+          your result without fixing it. This ships with the next push; deploy nothing.
   - key: '3'
     name: Ship push 2 and the final review
     tasks:
@@ -1012,6 +1037,7 @@ phases:
           - T16
           - T17
           - T19
+          - T20
         files:
           - docs/monitoring.md
         status: todo
@@ -1020,6 +1046,8 @@ phases:
           and one small change to `infra/monitoring.yml`: the two PG 18 Postgres exporters
           (tdr-bot, icloud-backup) get `--collector.stat_checkpointer`, which fills the two
           checkpoint panels on the Postgres dashboard that are empty for those servers today.
+          The Traefik dashboard's two "Active Connections" panels, empty until now, are also
+          fixed in this push (a query change in the dashboard JSON only).
 
           What restarts: Grafana once (a few seconds), the two exporters (recreated, a gap of
           one or two scrapes), and `auth`, which is force-recreated by any change to

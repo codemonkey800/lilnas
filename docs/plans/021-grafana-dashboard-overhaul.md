@@ -294,6 +294,17 @@ Research on 2026-11-23 at `main` e5d9cdae (equal to `origin/main`). Audit chat: 
   - `infra/.env.postgres-exporter.decrypted` does not exist in `/home/jeremy/lilnas`, so T19
     has no live test; T18 checks `pg_scrape_collector_success` after the deploy.
 
+- **C6 (2026-11-24, Traefik open-connection panels)**:
+  - T12's final round asked for Traefik panels 4 and 13 to use
+    `traefik_open_connections{entrypoint,protocol}`; confirmed live (3 series: web,
+    websecure, metrics). The old names (`traefik_service_open_connections`,
+    `traefik_entrypoint_open_connections`) do not exist. Answer: T20 (phase 2, dashboard JSON
+    only, no extra restart), H3 waits on it. This reverses the earlier "Traefik is kept as
+    is": T18 treats a plain EMPTY as a defect, so leaving them would fail the final check.
+  - The Immich part of C6 (no `immich_assets_*`) needs nothing: T14 is done and built from
+    the inventory.
+  - State at this point: `origin/main` is `101aa1d6` (font fix pushed by R7), T12 and T19 done.
+
 ## Log
 <!-- Written by Nexus: findings, review cycles, checkpoint verdicts, the final report,
      the rollout record. Humans may add notes here too. -->
