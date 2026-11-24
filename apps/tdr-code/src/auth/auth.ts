@@ -285,7 +285,7 @@ export function buildAuth(db: Db) {
     // multi-session/list-accounts plugins, so the mounted handler's public
     // route set stays limited to sign-in / callback / sign-out / get-session
     // (no public-by-construction routes from a plugin). The one conditional
-    // exception is devLoginPlugin() (see dev-login.plugin.ts / PLAN.md),
+    // exception is devLoginPlugin() (see dev-login.plugin.ts),
     // which adds POST /dev-login ONLY when isDevLoginEnabled() returns true
     // — itself gated on NODE_ENV !== 'production', a feature flag, and a
     // configured secret, and evaluated here (at buildAuth() call time) so a

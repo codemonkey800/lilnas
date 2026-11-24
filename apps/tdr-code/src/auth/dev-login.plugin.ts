@@ -12,8 +12,7 @@ import { EnvKeys } from 'src/env'
 import { getBackendLogger } from 'src/logging/backend-logger'
 import { LOG_EVENTS } from 'src/logging/log-events'
 
-// Dev-only agent login — see PLAN.md at the app root for the full design and
-// threat model. A Better Auth PLUGIN (not a NestJS controller) exposing
+// Dev-only agent login. A Better Auth PLUGIN (not a NestJS controller) exposing
 // POST /dev-login, included in buildAuth()'s `plugins` array (auth.ts) only
 // when isDevLoginEnabled() below returns true. It mirrors exactly how Better
 // Auth's own signInEmail mints a session (installed
@@ -99,8 +98,8 @@ export function devLoginPlugin(): BetterAuthPlugin {
           // POST: it force-validates whenever an Origin/Referer header is
           // present at all, and separately blocks a Sec-Fetch-Site:
           // cross-site + Sec-Fetch-Mode: navigate combination outright —
-          // exactly the drive-by/DNS-rebind shape PLAN.md's guardrail #5
-          // calls out, using Better Auth's own vetted trustedOrigins check
+          // exactly the drive-by/DNS-rebind shape this endpoint must reject,
+          // using Better Auth's own vetted trustedOrigins check
           // instead of a hand-rolled one.
           use: [formCsrfMiddleware],
         },
