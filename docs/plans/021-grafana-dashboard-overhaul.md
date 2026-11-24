@@ -221,6 +221,23 @@ Research on 2026-11-23 at `main` e5d9cdae (equal to `origin/main`). Audit chat: 
     commits; they ship in push 2, and T18's pre-flight and H3's text must then allow them).
   - The run was paused with interrupt to stop T12's second attempt; resume after this edit.
 
+- **C3 (2026-11-24, push 1 half deployed)**:
+  - H5 was approved; T12 pushed `394431e0` (rollback `e5d9cdae`), roles created, key backup
+    refreshed. CI run 45352251208: `check (apps/tdr-bot)` failed in the Next build on
+    `next/font/google` (Geist Mono, `apps/tdr-bot/src/app/layout.tsx`), so the tdr-bot image
+    was skipped; `deploy` still ran, so monitoring, immich and auth are live. No frontend
+    file is in the diff, so it is treated as a failed font fetch until a rerun says otherwise.
+  - The runner wrote R5 for the defect and re-queued T12 (round 2). R5 was rewritten: rerun
+    the failed jobs (at most twice), no code edits, no push; a real code fix needs a new human
+    go/no-go. `gh run rerun --failed` also reruns `deploy`, so auth, grafana and prometheus
+    are recreated once more: accepted as part of the H5-approved push.
+  - T12 now starts with a "push already happened" branch: no roles script, no second push,
+    straight to verification and the inventory. The run branch has plan-only commits ahead of
+    `main`; they ship with push 2.
+  - If R5 reports the font failure is not transient: options are self-hosting the font
+    (`next/font/local` or the `geist` package) in tdr-bot, as its own task plus an H go/no-go,
+    since it is a third push. T13–T15 do not need tdr-bot, so they can proceed meanwhile.
+
 ## Log
 <!-- Written by Nexus: findings, review cycles, checkpoint verdicts, the final report,
      the rollout record. Humans may add notes here too. -->

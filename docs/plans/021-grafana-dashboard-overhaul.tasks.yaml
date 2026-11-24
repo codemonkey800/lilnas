@@ -615,6 +615,17 @@ phases:
           A human approved this push. Create the Postgres monitoring role, push phase 1 to
           `main`, watch the deploy and verify production. Commit nothing.
 
+          **If `origin/main` already contains `394431e0`, the push has happened** (an earlier
+          attempt pushed it, created the `lilnas_monitor` role in all three databases and
+          refreshed the key backup; CI run 45352251208 then failed its tdr-bot check, which the
+          fix task before you reran). In that case skip the pre-flight list and steps 1 to 3:
+          do not run the roles script and do not push again, even though your branch has newer
+          `docs/plans` commits. Confirm run 45352251208 is now green
+          (`gh run view 45352251208 --json conclusion,attempt`) and that the role still logs in,
+          then start at "After the deploy" below. Pushed sha `394431e0`, rollback sha
+          `e5d9cdae`. If the run is still red, do every check that does not need tdr-bot, give
+          the full inventory anyway, and list the tdr-bot checks under `defects:`.
+
           Before anything else, all of these must hold. If one does not, stop and report it
           without creating roles or pushing:
           - `git fetch origin main`, then `git merge-base --is-ancestor origin/main HEAD`
@@ -1165,4 +1176,28 @@ phases:
           > Role rollback: infra/monitoring/scripts/postgres-monitor-roles.sh --drop infra/.env.postgres-exporter.decrypted (run pnpm lilnas secrets decrypt --keys /home/jeremy/lilnas/.env.keys first).
           > Cleanup: 19 *.decrypted files removed from the worktree; git status clean; docker ps -a --filter name=mon-rig- => 0. No throwaway containers were created.
 
-          Fix only this defect. Add a test that fails without the fix where one can; then T12 runs again to re-check.
+          What to do (planner's instructions; they replace "fix the code"). Commit nothing
+          and push nothing.
+
+          No file under `apps/tdr-bot/src/app` or any frontend file is in the pushed diff, and
+          the same check passed on earlier pushes, so the first assumption is a failed fetch
+          of Geist Mono from Google Fonts on the runner (`apps/tdr-bot/src/app/layout.tsx`
+          imports `next/font/google`).
+
+          1. `gh run rerun 45352251208 --failed`, then `gh run watch 45352251208 --exit-status`.
+             This reruns `check (apps/tdr-bot)` and the jobs after it (`build-images`, `deploy`,
+             `summary`) at the same sha `394431e0`. The deploy repeats what the human approved
+             for push 1: tdr-bot is built and deployed, and `auth`, `grafana` and `prometheus`
+             are recreated a second time (a few seconds each). That is accepted.
+          2. If the check fails again with the same font error, wait five minutes and rerun
+             once more. No third rerun.
+          3. If it is green: confirm `docker compose -p lilnas ps tdr-bot` shows a fresh start
+             on the image tagged with the pushed sha, its log shows a clean start, and `auth`,
+             `grafana`, `prometheus` and `immich` are healthy. Report the run URL, the attempt
+             number and what you saw.
+          4. If it is still red after the second rerun, or fails with a different error: do
+             not edit code. Find the cause (compare with the last green `check (apps/tdr-bot)`
+             job in `gh run list --workflow ci.yml`; run
+             `pnpm --filter @lilnas/tdr-bot... build` in your worktree to see whether it
+             reproduces off the runner) and report it under `defects:` with the log lines. A
+             code fix needs a new push, which a human must approve first.
