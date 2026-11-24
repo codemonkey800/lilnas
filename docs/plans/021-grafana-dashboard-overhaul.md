@@ -721,3 +721,13 @@ Added --collector.stat_checkpointer to postgres-exporter-tdr-bot and postgres-ex
 T12 reported 1 blocking defect at attempt 6, sent to R7; it runs again at round 4 to re-check.
 
 - R7 · tdr-bot fix 101aa1d6 not on main; tdr-bot image not rebuilt or deployed (`origin/main (394431e0) vs branch HEAD; ci.yml run 45352251208`): git merge-base --is-ancestor 101aa1d6 origin/main => not ancestor; run 45352251208 conclusion=failure; lilnas-tdr-bot-1 image tag :latest, started 2026-11-22T22:40:25Z; count(tdr_bot_llm_retries_total)=0, count(tdr_bot_llm_schema_failures_total)=0; tdr-bot up=1 on the old image. Needs a human-approved push of 101aa1d6 to main, then CI green, tdr-bot recreated on the pushed sha, both series at 0 and a clean log.
+
+### 2026-11-24 · R7 · done
+No new commit: the fix 101aa1d6 already existed on the run branch; the defect was that it was not on main. Pushed exactly 101aa1d6 to main (`git push origin 101aa1d6:main`, fast-forward 394431e0..101aa1d6) under H6's approval, whose scope was apps/tdr-bot/src/app/** and docs/plans/** only. The rest of the branch (dashboards, infra/monitoring.yml, docs) is NOT pushed; T12 still owns that push. Because 101aa1d6 sits on top of the earlier plan-doc commits (48ea2bc3, a0aa1b37, 729e02fc, 66112617), those docs/plans commits went out with it. Pushed sha 101aa1d6; rollback sha 394431e0 (revert 101aa1d6 and push, or `LILNAS_TAG=<previous sha> docker compose up -d tdr-bot` in /opt/lilnas).
+ci detect --base origin/main --head 101aa1d6: images [tdr-bot], pull [tdr-bot], up [], forceRecreate [], decrypt false.
+CI run https://github.com/codemonkey800/lilnas/actions/runs/45356676879: success (check apps/tdr-bot, build-images Build and push tdr-bot, deploy 1m18s, summary all green).
+Observed 2026-11-24 ~08:38 UTC: lilnas-tdr-bot-1 image ghcr.io/codemonkey800/lilnas-tdr-bot:latest (sha256:929ec9e6da6ce510a535c27833d93c025ab28580cf0fcae34a9eb744f141a597), started 08:36:10Z, RestartCount 0; up{job="tdr-bot"}=1; count(tdr_bot_llm_retries_total)=132 series, max 0; count(tdr_bot_llm_schema_failures_total)=33 series, max 0; no error/exception/fatal lines in the last 10m of logs.
+Local guard test apps/tdr-bot/src/app/__tests__/layout.spec.ts: 2 passed.
+Note for T12 round 4: origin/main is now 101aa1d6, so the branch remains a fast-forward of main. The remaining push (everything else on the branch) will touch infra/monitoring.yml / prometheus.yml / dashboards, so its ci detect will include forceRecreate for grafana/prometheus and auth; check H1/H5 approvals cover that. No throwaway containers or temp files created; tree clean.
+
+No commits: nothing to integrate.
