@@ -570,3 +570,8 @@ Defects:
   run 45352251208 conclusion=failure attempt=1; 'Error: Module not found: Can't resolve @vercel/turbopack-next/internal/font/google/font'; build-images step 'Build and push tdr-bot' skipped; lilnas-tdr-bot-1 image created 2026-11-22T22:39:52Z, tag :latest; count(llm_retries_total)=0 series, count(tdr_bot_llm_schema_failures_total)=0 series; tdr-bot target up=1 on the old image
 
 No commits: nothing to integrate.
+
+### 2026-11-24 · T12 · defects → R6
+T12 reported 1 blocking defect at attempt 5, sent to R6; it runs again at round 3 to re-check.
+
+- R6 · tdr-bot image not rebuilt or deployed; tdr-bot-dependent checks cannot pass (`.github/workflows/ci.yml job "check (apps/tdr-bot)", run 45352251208; fix 101aa1d6 exists only on the run branch`): run 45352251208 conclusion=failure attempt=1; 'Error: Module not found: Can't resolve @vercel/turbopack-next/internal/font/google/font'; build-images step 'Build and push tdr-bot' skipped; lilnas-tdr-bot-1 image created 2026-11-22T22:39:52Z, tag :latest; count(llm_retries_total)=0 series, count(tdr_bot_llm_schema_failures_total)=0 series; tdr-bot target up=1 on the old image

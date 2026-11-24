@@ -605,9 +605,12 @@ phases:
           - T9
           - T10
           - T11
+          - R6
         files: []
-        status: partial
-        commit: 50b6e779078bb4260e5b2c3c4e7a6332530a3026
+        status: todo
+        round:
+          number: 3
+          after: R6
         body: |-
           A human approved this push. Create the Postgres monitoring role, push phase 1 to
           `main`, watch the deploy and verify production. Commit nothing.
@@ -1199,3 +1202,25 @@ phases:
              `pnpm --filter @lilnas/tdr-bot... build` in your worktree to see whether it
              reproduces off the runner) and report it under `defects:` with the log lines. A
              code fix needs a new push, which a human must approve first.
+      - id: R6
+        title: 'Fix: tdr-bot image not rebuilt or deployed; tdr-bot-dependent checks cannot pass'
+        after: []
+        files: []
+        status: todo
+        body: |-
+          T12 · Create the monitoring roles, push to main, watch CI, verify production reported this blocking defect (attempt 5):
+
+          **tdr-bot image not rebuilt or deployed; tdr-bot-dependent checks cannot pass**
+
+          - Where: `.github/workflows/ci.yml job "check (apps/tdr-bot)", run 45352251208; fix 101aa1d6 exists only on the run branch`
+          - Observed: run 45352251208 conclusion=failure attempt=1; 'Error: Module not found: Can't resolve @vercel/turbopack-next/internal/font/google/font'; build-images step 'Build and push tdr-bot' skipped; lilnas-tdr-bot-1 image created 2026-11-22T22:39:52Z, tag :latest; count(llm_retries_total)=0 series, count(tdr_bot_llm_schema_failures_total)=0 series; tdr-bot target up=1 on the old image
+
+          T12's notes:
+
+          > Attempt 2. Push 394431e0 had already happened, so I did not run the roles script or push. Run 45352251208 is still red (attempt 1, failure) and origin/main does not contain the R5 fix 101aa1d6. Jobs: detect ok, check (apps/tdr-bot) failed with the same Turbopack next/font/google error, base-images skipped, build-images skipped "Build and push tdr-bot", deploy ok, summary failed. Production infra deployed and verified; the tdr-bot image was not rebuilt or deployed.
+          > Rollback sha e5d9cdae. Role rollback: infra/monitoring/scripts/postgres-monitor-roles.sh --drop infra/.env.postgres-exporter.decrypted. Nothing was rolled back.
+          > The role lilnas_monitor logs in on all three servers, is not superuser and is in pg_monitor. The seven new containers are smartctl-exporter, exportarr-sonarr, exportarr-radarr, exportarr-sabnzbd and postgres-exporter-{tdr-bot,icloud-backup,immich}. They are up, idkwiw is gone, and all 19 targets are up. smartctl_devices is 13, pg_up is 1 for all three servers, minio_bucket_usage_total_bytes has 5 series, and there are exactly the 8 expected dashboard uids. check-dashboards lint is ok and live has 0 ERROR.
+          > Observations that are not defects of this task: /api/dashboards/home redirects to uid default-home-dashboard, a non-provisioned Grafana copy of the Overview (19 panels), not lilnas-overview. Two Traefik panels (#4, #13, open connections) are EMPTY with no Event-driven description. App Detail's app variable still lists idkwiw and swole from stale series. prometheus and grafana have no healthcheck, so only "Up" can be reported for them. Immich exposes no http_server_* metrics, only immich_*_repository_*_duration histograms, immich_users_total and host metrics. The stat_activity_autovacuum collector emits nothing live.
+          > Full per-job metric inventory and samples are in the message above.
+
+          Fix only this defect. Add a test that fails without the fix where one can; then T12 runs again to re-check.
