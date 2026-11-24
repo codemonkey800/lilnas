@@ -916,3 +916,19 @@ Panel 57 query is now sum by (component)(process_cpu_utilization{job="immich"}) 
 Live Prometheus: process_cpu_utilization{job="immich"} (otel host-metrics 0.38.3, components api/microservices) and node_cpu_seconds_total were both observed; core count = 32; new query returns ~0.105% (api) and ~0.160% (microservices).
 check-dashboards lint ok; live summary for lilnas-media: 52 OK, 0 EMPTY, 3 EMPTY (event-driven), 0 ERROR.
 No throwaway containers or temp files were created.
+
+### 2026-11-24 · Phase 2 · review cycle 2
+Re-review of the cycle-1 remediation: R8 corrects the Disk Health, Media Stack and Postgres rows in docs/monitoring.md, and R9 scales Immich panel 57 to per-core; both hold against the merged JSON and live Prometheus. No new defects in the remediation diff.
+
+Earlier findings: F10 fixed, F11 fixed.
+
+Declined to judge:
+- Panel 57 shows nothing if node-exporter is down (scalar() of an empty vector is NaN) — Only happens outside normal use, and the cAdvisor CPU panel beside it still works.
+- The regression test finds panel 57 by its numeric id — Style. The test checks the title first, so a renumbered panel fails loudly instead of passing silently.
+
+Checked:
+- Core-count scalar double-counts if more than one node-exporter job or instance exists — live Prometheus count by (job,instance)(node_cpu_seconds_total{mode="idle"}): One series, node-exporter:9100, value 32.
+- Other panels use process_cpu_utilization or system_cpu_utilization without scaling — infra/monitoring/grafana/provisioning/dashboards/json/*.json: Only media.json panel 57 uses it, and it is now scaled. Its description still says '100% = one core', which is now accurate.
+- Docs 'Answers' text claims coverage the JSON does not have (kernel NVMe errors, WAL/checkpoints, logs) — disk-health.json Loki exprs; postgres.json panel titles: disk-health.json has both ATA and NVMe/AER kernel log queries; postgres.json has 'WAL and checkpoints' and 'Logs' rows.
+- Datasource-uid test misses odd uids (-- Grafana --, -- Mixed --, template variables) — grep of datasource uids in dashboards/json: Only the prometheus, loki and lilnas-* dashboard uids are present, so the test's uid-to-name mapping covers every case.
+- Table parser reads the wrong columns — infra/monitoring/scripts/check-dashboards.test.mjs: split('|') puts File at cells[3] and Data sources at cells[5], which matches the five-column table.
