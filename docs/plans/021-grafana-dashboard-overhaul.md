@@ -396,3 +396,6 @@ Checked:
 
 ### 2026-11-23 · R4 · done
 Added the 21 missing operation literals to OPERATIONS and exported it. New regression tests scan non-test src/**/*.ts for dotted string literals on `operation:` lines (covers the tldr ternary) and assert they are in OPERATIONS and that retry/schema-failure series exist at 0; both failed on the old list. Did not add a typed-union requirement: the test covers it, and a union would also touch FakeLlmClient and live tests. Package-wide tsc --noEmit has unrelated errors in src/utils/download-*.ts (unresolved @lilnas/utils subpaths); none in observability. No dashboard/infra files changed, so no live summary.
+
+### 2026-11-23 · H1 · approved
+Approved.

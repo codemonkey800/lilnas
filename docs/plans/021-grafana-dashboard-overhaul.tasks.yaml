@@ -541,7 +541,7 @@ phases:
           - T10
           - T11
         files: []
-        status: todo
+        status: approved
         body: |-
           Approving lets the next task create the Postgres monitoring role and push phase 1 to
           `main`, which deploys it.
