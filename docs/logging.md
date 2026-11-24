@@ -76,7 +76,7 @@ Alloy reads `/var/log/journal` read-only. Docker containers log to files, not to
 
 ## Queries
 
-Paste into Grafana Explore. Set the time range in the picker; a `[24h]` inside a query is the window each count covers.
+Paste into Grafana Explore. Set the time range in the picker; a `[24h]` inside a query is the window each count covers. Most of these queries are also panels on the Security dashboard (`lilnas-security`, see `docs/monitoring.md`), which is the place to look first; Explore is for changing them.
 
 ### SSH and sudo
 
@@ -158,7 +158,7 @@ The journal needs `sudo`, or membership in the `systemd-journal` group.
 - **Traffic that skips Traefik:** the game servers, RustDesk and SSH itself. SSH logins are covered by the journal; the others only by what each server prints.
 - **Commands run inside containers.** They show up only if the app happens to print them, which is how the July 2026 incident was found.
 - **Router and firewall events.** UniFi keeps those; port-forward logging is off.
-- **Alerts.** Nothing watches these logs yet. They are for looking back.
+- **Alerts.** Nothing watches these logs yet, and the Security dashboard only shows them. They are for looking back.
 
 ## Changing the setup
 

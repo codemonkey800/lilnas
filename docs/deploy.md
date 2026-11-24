@@ -232,7 +232,7 @@ with `sudo -u deploy docker compose up -d browser`.
 
 ## Secrets
 
-The 15 env files compose loads in production are committed, encrypted with
+The 19 env files compose loads in production are committed, encrypted with
 [dotenvx](https://dotenvx.com) 2.38.0 (a root devDependency). Each value is
 `KEY=encrypted:…`, plus a `DOTENV_PUBLIC_KEY*` line that lets anyone add or
 change a value without the private key. Compose never reads these files
@@ -245,19 +245,24 @@ Discovery rule (`listEncryptedEnvFiles` in `packages/cli/src/utils/secrets.ts`
 and `decrypt-env.sh --list`): tracked files matching `apps/*/.env.prod`,
 `infra/.env`, `infra/.env.*`, excluding `*.example` and `*.decrypted`. Today:
 `apps/{auth,download,equations,icloud-backup,me-token-tracker,tdr-bot,theater}/.env.prod`,
-`infra/.env` (immich) and `infra/.env.{l4d2,nexus-code,palworld,storage,traefik,turbo,valheim}`.
+`infra/.env` (immich) and
+`infra/.env.{exportarr-radarr,exportarr-sabnzbd,exportarr-sonarr,l4d2,nexus-code,palworld,postgres-exporter,storage,traefik,turbo,valheim}`.
 
 ### `.env.keys`
 
 One file holds every private key. dotenvx names keys after the file suffix,
 keeping hyphens as written:
 
-| File                    | Private key                        |
-| ----------------------- | ---------------------------------- |
-| `apps/*/.env.prod`      | `DOTENV_PRIVATE_KEY_PROD` (shared) |
-| `infra/.env`            | `DOTENV_PRIVATE_KEY`               |
-| `infra/.env.nexus-code` | `DOTENV_PRIVATE_KEY_NEXUS-CODE`    |
-| `infra/.env.<name>`     | `DOTENV_PRIVATE_KEY_<NAME>`        |
+| File                           | Private key                            |
+| ------------------------------ | -------------------------------------- |
+| `apps/*/.env.prod`             | `DOTENV_PRIVATE_KEY_PROD` (shared)     |
+| `infra/.env`                   | `DOTENV_PRIVATE_KEY`                   |
+| `infra/.env.nexus-code`        | `DOTENV_PRIVATE_KEY_NEXUS-CODE`        |
+| `infra/.env.exportarr-sonarr`  | `DOTENV_PRIVATE_KEY_EXPORTARR-SONARR`  |
+| `infra/.env.exportarr-radarr`  | `DOTENV_PRIVATE_KEY_EXPORTARR-RADARR`  |
+| `infra/.env.exportarr-sabnzbd` | `DOTENV_PRIVATE_KEY_EXPORTARR-SABNZBD` |
+| `infra/.env.postgres-exporter` | `DOTENV_PRIVATE_KEY_POSTGRES-EXPORTER` |
+| `infra/.env.<name>`            | `DOTENV_PRIVATE_KEY_<NAME>`            |
 
 - Locations: `/home/jeremy/lilnas/.env.keys` (dev, 0600), `/opt/lilnas/.env.keys`
   (deploy user, 0600, copied by the installer), backup in

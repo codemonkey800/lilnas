@@ -52,7 +52,7 @@ pnpm test:watch
 
 ### Monitoring & Observability
 
-The monitoring stack (Prometheus, Grafana, Loki, Alloy, Node Exporter, cAdvisor) is defined in `infra/monitoring.yml` and deployed as part of the production `docker-compose.yml`.
+The monitoring stack (Prometheus, Grafana, Loki, Alloy, Node Exporter, cAdvisor, and the smartctl, exportarr and postgres exporters) is defined in `infra/monitoring.yml` and deployed as part of the production `docker-compose.yml`.
 
 ```bash
 # Start the monitoring stack
@@ -79,12 +79,7 @@ docker-compose logs -f <service-name>
 
 **Logs:** container output, the Traefik access log and the host journal (sshd, sudo, sshguard, kernel) are shipped to Loki by Alloy. `docs/logging.md` covers the labels, what is masked, and ready-made queries for checking SSH logins and web probes.
 
-**Grafana dashboard IDs to import:**
-
-- Node Exporter Full: `1860`
-- cAdvisor: `14282`
-- Traefik: `4475`
-- Loki Logs: built-in Explore view
+**Dashboards:** eleven dashboards are provisioned from `infra/monitoring/grafana/provisioning/dashboards/json/*.json` (uid `lilnas-*`, tag `lilnas`); Grafana re-reads them when a push recreates it, and `node infra/monitoring/scripts/check-dashboards.mjs lint|live` validates them offline and against production data. Dashboards, scrape jobs, secrets and how to add a dashboard are in `docs/monitoring.md`.
 
 **Storage paths:**
 
