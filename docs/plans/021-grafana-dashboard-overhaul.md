@@ -505,3 +505,25 @@ Retried.
 
 ### 2026-11-23 · H5 · approved
 Approved.
+
+### 2026-11-24 · T12 · partial
+Pushed sha: 394431e08b3e3ddc54f8f3d9ed5980dcbbe791e2 (HEAD:main, e5d9cdae..394431e0). Rollback sha: e5d9cdaed615542824df7286c1f09a6e6f97e7a8. CI run: https://github.com/codemonkey800/lilnas/actions/runs/45352251208 (red).
+Pre-flight all held: ancestor OK; diff paths all allowed; secrets verify rc 0; ci detect full=false, images=[tdr-bot], decrypt=true, forceRecreate=[auth,grafana,prometheus], up all within monitoring.yml/immich.yml; key sizes 1874/1874.
+Done: key backup refreshed (/storage/backups/lilnas-secrets/.env.keys, 1874 bytes, 0600). Dry-run SQL read, then roles script run for real (rc 0). lilnas_monitor exists in lilnas-tdr-bot-db-1, lilnas-icloud-backup-db-1, lilnas-immich-database-1: rolsuper f, can login t, pg_monitor member t, default_transaction_read_only on; password login over TCP with the password on stdin succeeds in all three.
+CI: detect success, check (apps/tdr-bot) FAILURE (job 138301594297), base-images skipped, build-images success but tdr-bot skipped ("checks failed or missing for apps/tdr-bot"), deploy success, summary failure. Failing step: pnpm run build in apps/tdr-bot: "Turbopack build failed with 12 errors: Module not found: Can't resolve '@vercel/turbopack-next/internal/font/google/font' ... next/font/google queries have exactly one entry" (geist_mono Google Font fetch). Likely a transient Google Fonts fetch failure on the runner; no frontend file is in the diff. Not confirmed; I did not rerun (a rerun redeploys).
+Production right after deploy (read-only): auth recreated and healthy; grafana, prometheus, immich recreated; immich healthy; postgres-exporter-tdr-bot/-icloud-backup/-immich and smartctl-exporter up. The exportarr-* containers were not in my filtered ps output. tdr-bot NOT redeployed: up 33h on :latest, so llm_retries_total and tdr_bot_llm_schema_failures_total will not exist until a tdr-bot image is built and deployed.
+Not done (stopped per instructions, run red): five-minute wait, Prometheus target checks, smartctl_devices/pg_up/minio bucket series, Grafana uid + home checks, check-dashboards live, tdr-bot series counts, and the metric inventory for smartctl, sonarr, radarr, sabnzbd, postgres, immich.
+Expected seven new containers (from ci detect, not all observed): smartctl-exporter, exportarr-sonarr, exportarr-radarr, exportarr-sabnzbd, postgres-exporter-tdr-bot, postgres-exporter-icloud-backup, postgres-exporter-immich (compose names lilnas-<name>-1).
+Role rollback: infra/monitoring/scripts/postgres-monitor-roles.sh --drop infra/.env.postgres-exporter.decrypted (run pnpm lilnas secrets decrypt --keys /home/jeremy/lilnas/.env.keys first).
+Cleanup: 19 *.decrypted files removed from the worktree; git status clean; docker ps -a --filter name=mon-rig- => 0. No throwaway containers were created.
+
+Remaining:
+
+Rerun or fix the tdr-bot check so the image is built and deployed, then run the full post-deploy verification and inventory from the T12 body. The deploy job already ran for the monitoring and immich changes.
+
+Defects:
+
+- blocking · CI check (apps/tdr-bot) fails on next/font/google build, so the tdr-bot image was not built or deployed · .github/workflows/ci.yml job "check (apps/tdr-bot)" (run 45352251208, job 138301594297), apps/tdr-bot frontend build
+  Error: Turbopack build failed with 12 errors: Module not found: Can't resolve '@vercel/turbopack-next/internal/font/google/font' / next/font/google queries have exactly one entry; ##[error]command (apps/tdr-bot) pnpm run build exited (1); annotation: tdr-bot skipped: checks failed or missing for apps/tdr-bot; summary job failed
+
+No commits: nothing to integrate.
