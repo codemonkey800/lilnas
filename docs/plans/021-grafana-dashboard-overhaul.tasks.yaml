@@ -1442,7 +1442,8 @@ phases:
         after: []
         files:
           - infra/monitoring/grafana/provisioning/dashboards/json/media.json
-        status: todo
+        status: done
+        commit: de614dbc56209407bdd1a984bfc4d314e303de50
         body: |-
           Finding: F11 (P1)
 

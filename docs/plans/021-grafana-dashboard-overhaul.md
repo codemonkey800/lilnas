@@ -910,3 +910,9 @@ Checked:
 ### 2026-11-24 · R8 · done
 Regression test: new describe block 'docs/monitoring.md dashboard table' in check-dashboards.test.mjs. It parses the dashboard table and compares each row's Data sources cell (as a sorted set) with the datasource uids in the matching JSON; it also checks every JSON file has a row. It failed on disk-health, media and postgres before the docs fix.
 No dashboard JSON, scrape job or compose file changed, so no `live` run or new metrics were needed.
+
+### 2026-11-24 · R9 · done
+Panel 57 query is now sum by (component)(process_cpu_utilization{job="immich"}) * scalar(count(node_cpu_seconds_total{mode="idle"})) * 100, so the "100% = one core" description is true. Regression tests were added to check-dashboards.test.mjs (node --test) and failed before the fix.
+Live Prometheus: process_cpu_utilization{job="immich"} (otel host-metrics 0.38.3, components api/microservices) and node_cpu_seconds_total were both observed; core count = 32; new query returns ~0.105% (api) and ~0.160% (microservices).
+check-dashboards lint ok; live summary for lilnas-media: 52 OK, 0 EMPTY, 3 EMPTY (event-driven), 0 ERROR.
+No throwaway containers or temp files were created.
