@@ -33,7 +33,7 @@
       "title": "Scrape targets up / total",
       "description": "Prometheus scrape targets that answered the last scrape, and how many exist. A target that is down is listed in the table to the right.",
       "gridPos": {
-        "h": 5,
+        "h": 4,
         "w": 4,
         "x": 0,
         "y": 0
@@ -99,7 +99,7 @@
       "title": "Scrape targets down",
       "description": "Scrape targets with up == 0. Green only at 0.",
       "gridPos": {
-        "h": 5,
+        "h": 4,
         "w": 3,
         "x": 4,
         "y": 0
@@ -162,7 +162,7 @@
       "title": "Targets that are down",
       "description": "Event-driven: has rows only while a scrape target is down (up == 0); shows \"none\" otherwise.",
       "gridPos": {
-        "h": 5,
+        "h": 4,
         "w": 6,
         "x": 7,
         "y": 0
@@ -237,7 +237,7 @@
       "title": "Btrfs device errors",
       "description": "Sum of every btrfs device error counter (read, write, flush, corruption, generation). Green only at 0.",
       "gridPos": {
-        "h": 5,
+        "h": 4,
         "w": 3,
         "x": 13,
         "y": 0
@@ -300,7 +300,7 @@
       "title": "Days to certificate expiry",
       "description": "Days until the soonest Traefik certificate expires. Red under 14, orange under 30.",
       "gridPos": {
-        "h": 5,
+        "h": 4,
         "w": 4,
         "x": 16,
         "y": 0
@@ -367,7 +367,7 @@
       "title": "Containers running",
       "description": "Containers cAdvisor has seen in the last minute.",
       "gridPos": {
-        "h": 5,
+        "h": 4,
         "w": 4,
         "x": 20,
         "y": 0
@@ -421,6 +421,394 @@
       }
     },
     {
+      "id": 20,
+      "type": "stat",
+      "title": "Drives failing SMART",
+      "description": "Drives whose SMART overall health check reports failed (smartctl_device_smart_status == 0), out of every SATA and NVMe drive smartctl-exporter sees. Green only at 0.",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "links": [
+        {
+          "title": "Open Disk health",
+          "url": "/d/lilnas-disk-health"
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "count(smartctl_device_smart_status == 0) or vector(0)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Open Disk health",
+              "url": "/d/lilnas-disk-health"
+            }
+          ],
+          "unit": "none",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 21,
+      "type": "stat",
+      "title": "Bad sectors + media errors",
+      "description": "Reallocated plus pending sectors (raw SATA attributes) plus NVMe media and data integrity errors, summed over all drives. Green only at 0.",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "links": [
+        {
+          "title": "Open Disk health",
+          "url": "/d/lilnas-disk-health"
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "(sum(smartctl_device_attribute{attribute_name=~\"Reallocated_Sector_Ct|Current_Pending_Sector\",attribute_value_type=\"raw\"}) or vector(0)) + (sum(smartctl_device_media_errors) or vector(0))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Open Disk health",
+              "url": "/d/lilnas-disk-health"
+            }
+          ],
+          "unit": "none",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 22,
+      "type": "stat",
+      "title": "Hottest drive",
+      "description": "Highest current temperature across all drives. Orange from 55 °C, red from 65 °C.",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "links": [
+        {
+          "title": "Open Disk health",
+          "url": "/d/lilnas-disk-health"
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "max(smartctl_device_temperature{temperature_type=\"current\"})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Open Disk health",
+              "url": "/d/lilnas-disk-health"
+            }
+          ],
+          "unit": "celsius",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 55
+              },
+              {
+                "color": "red",
+                "value": 65
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 23,
+      "type": "stat",
+      "title": "Postgres servers up",
+      "description": "Postgres servers answering their exporter (pg_up by server), out of the 3 monitored: tdr-bot-db, icloud-backup-db and immich-database. Green only at 3.",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "links": [
+        {
+          "title": "Open Postgres",
+          "url": "/d/lilnas-postgres"
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "sum(pg_up) or vector(0)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Open Postgres",
+              "url": "/d/lilnas-postgres"
+            }
+          ],
+          "unit": "suffix: / 3",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "green",
+                "value": 3
+              }
+            ]
+          },
+          "max": 3
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 24,
+      "type": "stat",
+      "title": "Media exporters up",
+      "description": "Sonarr, Radarr and SABnzbd exporters (exportarr) that answered the last scrape, out of 3. Green only at 3.",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "links": [
+        {
+          "title": "Open Media",
+          "url": "/d/lilnas-media"
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "sum(up{job=~\"sonarr|radarr|sabnzbd\"}) or vector(0)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Open Media",
+              "url": "/d/lilnas-media"
+            }
+          ],
+          "unit": "suffix: / 3",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "green",
+                "value": 3
+              }
+            ]
+          },
+          "max": 3
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 25,
+      "type": "stat",
+      "title": "Download queue",
+      "description": "Items in the SABnzbd download queue.",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "links": [
+        {
+          "title": "Open Media",
+          "url": "/d/lilnas-media"
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "sum(sabnzbd_queue_length) or vector(0)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Open Media",
+              "url": "/d/lilnas-media"
+            }
+          ],
+          "unit": "none",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
       "id": 7,
       "type": "bargauge",
       "title": "Disk fill per btrfs mount",
@@ -429,7 +817,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 5
+        "y": 8
       },
       "datasource": {
         "type": "prometheus",
@@ -503,7 +891,7 @@
         "h": 8,
         "w": 6,
         "x": 8,
-        "y": 5
+        "y": 8
       },
       "datasource": {
         "type": "prometheus",
@@ -581,7 +969,7 @@
         "h": 8,
         "w": 6,
         "x": 14,
-        "y": 5
+        "y": 8
       },
       "datasource": {
         "type": "prometheus",
@@ -659,7 +1047,7 @@
         "h": 4,
         "w": 4,
         "x": 20,
-        "y": 5
+        "y": 8
       },
       "datasource": {
         "type": "loki",
@@ -718,7 +1106,7 @@
         "h": 4,
         "w": 4,
         "x": 20,
-        "y": 9
+        "y": 12
       },
       "datasource": {
         "type": "loki",
@@ -785,7 +1173,7 @@
         "h": 4,
         "w": 3,
         "x": 0,
-        "y": 13
+        "y": 16
       },
       "datasource": {
         "type": "prometheus",
@@ -844,7 +1232,7 @@
         "h": 4,
         "w": 3,
         "x": 3,
-        "y": 13
+        "y": 16
       },
       "datasource": {
         "type": "prometheus",
@@ -907,7 +1295,7 @@
         "h": 4,
         "w": 3,
         "x": 6,
-        "y": 13
+        "y": 16
       },
       "datasource": {
         "type": "prometheus",
@@ -974,7 +1362,7 @@
         "h": 4,
         "w": 3,
         "x": 9,
-        "y": 13
+        "y": 16
       },
       "datasource": {
         "type": "prometheus",
@@ -1043,7 +1431,7 @@
         "h": 4,
         "w": 3,
         "x": 12,
-        "y": 13
+        "y": 16
       },
       "datasource": {
         "type": "prometheus",
@@ -1112,7 +1500,7 @@
         "h": 4,
         "w": 3,
         "x": 15,
-        "y": 13
+        "y": 16
       },
       "datasource": {
         "type": "prometheus",
@@ -1180,7 +1568,7 @@
         "h": 4,
         "w": 3,
         "x": 18,
-        "y": 13
+        "y": 16
       },
       "datasource": {
         "type": "prometheus",
@@ -1239,7 +1627,7 @@
         "h": 4,
         "w": 3,
         "x": 21,
-        "y": 13
+        "y": 16
       },
       "datasource": {
         "type": "prometheus",
