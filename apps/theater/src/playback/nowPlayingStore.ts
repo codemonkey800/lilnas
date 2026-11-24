@@ -3,7 +3,7 @@
 import { create } from 'zustand'
 
 // ---------------------------------------------------------------------------
-// Room-wide "what's playing" state (ORCHESTRATE.md §1). A small,
+// Room-wide "what's playing" state. A small,
 // single-purpose store — separate from `playback/store.ts` (singleton-heavy,
 // and about the shared <video> element rather than room state) — matching the
 // one-new-store-per-feature convention `voice/store.ts` already follows.
@@ -16,7 +16,7 @@ import { create } from 'zustand'
 // ---------------------------------------------------------------------------
 
 // Keep in sync with src/presence/video.schema.ts's `NowPlayingEntry` /
-// ORCHESTRATE.md §1's wire contract. Hand-mirrored rather than imported —
+// the wire contract. Hand-mirrored rather than imported —
 // this app's established convention for crossing the frontend/backend
 // boundary (see multiplayer/store.ts's "hand-duplicated wire types" comment) —
 // so a NestJS-decorator-laden module never has a path into the Next.js bundle

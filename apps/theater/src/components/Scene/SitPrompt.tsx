@@ -6,15 +6,13 @@ import { seatPhaseRef } from './SeatedCamera'
 import { seatTargetRef } from './seatTargeting'
 
 // ---------------------------------------------------------------------------
-// The sit/stand affordance (PLAN.md "F8 — Scene wiring + the sit prompt" /
-// ORCHESTRATE.md §1, §2's F8 row). Plain DOM overlay, mounted by Scene.tsx
+// The sit/stand affordance. Plain DOM overlay, mounted by Scene.tsx
 // OUTSIDE <Canvas> — this file never touches react-three-fiber (no
 // useFrame; a <Canvas>-scoped hook couldn't run out here anyway).
 //
 // Reads `seatPhaseRef` (SeatedCamera.tsx, F4) and `seatTargetRef`
 // (seatTargeting.ts, F4) DIRECTLY rather than recomputing anything.
-// ORCHESTRATE.md §1's "why seatTargetRef exists at all" is explicit that
-// both consumers of that ref (viewControls.ts's `E` handler and this
+// Both consumers of that ref (viewControls.ts's `E` handler and this
 // component) must read the SAME published answer and never call
 // `findGazedFreeSeat` a second time — two independent computations could
 // drift a frame apart, or, worse, someone "simplifying" one call site later
@@ -45,12 +43,12 @@ function computePrompt(): PromptText {
   }
 
   if (phase === 'sit_down' || phase === 'stand_up') {
-    // Mid-transition: viewControls.ts ignores `E` entirely here (D5/F4), so
+    // Mid-transition: viewControls.ts ignores `E` entirely here (F4), so
     // there is nothing to prompt.
     return null
   }
 
-  // phase === 'standing': prompt only if D9's gaze+proximity test currently
+  // phase === 'standing': prompt only if the gaze+proximity test currently
   // names a free seat.
   return seatTargetRef.current !== null ? 'Press E to sit' : null
 }

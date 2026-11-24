@@ -5,12 +5,11 @@ import { create } from 'zustand'
 
 // ---------------------------------------------------------------------------
 // The playback controller: a singleton shared <video> + hls.js instance,
-// exposed through a zustand store, per ORCHESTRATE.md's "zustand store
-// (`src/playback/store.ts`) — v5 API" contract. Everything else (the in-world
+// exposed through a zustand store (zustand v5 API). Everything else (the in-world
 // screen texture, the fullscreen player, the iPad, spatial audio) reads and
 // commands playback exclusively through this store — that indirection is
 // also the seam a later phase's multiplayer gateway plugs into without a
-// component rewrite (see PLAN.md "Multiplayer video sync").
+// component rewrite.
 //
 // Anchor model: `playing`/`playheadAtAnchor`/`anchorClockMs` describe the
 // intended playback position, not a per-frame snapshot of it — the actual
@@ -92,8 +91,7 @@ export type PlaybackStore = {
   tick: (nowMs: number) => void // reconcile step; driven by reconcile.ts's loop + applyAnchor()
 }
 
-// Raw shape of `GET /theater/playback/:id` (ORCHESTRATE.md § "Backend
-// endpoints"). The backend doesn't land until Wave 2 — this is only the
+// Raw shape of `GET /theater/playback/:id`. The backend doesn't land until Wave 2 — this is only the
 // client's half of the contract, so it's asserted rather than validated
 // against a shared zod schema (`emby.schema.ts` doesn't exist yet).
 type PlaybackResponse = {
@@ -111,8 +109,7 @@ type PlaybackQueryParams = {
   subtitleIndex: number | null
   // Only supplied when resuming in place (a quality/subtitle switch) — tells
   // the backend where to start a fresh HLS transcode so playback doesn't
-  // restart at 0 (PLAN.md: "pass startTicks so HLS resumes at the right
-  // spot, not 0").
+  // restart at 0.
   startSeconds?: number
 }
 
@@ -120,7 +117,7 @@ const TICKS_PER_SECOND = 10_000_000
 const DEFAULT_VIDEO_ASPECT = 16 / 9
 const NATIVE_HLS_MIME_TYPE = 'application/vnd.apple.mpegurl'
 
-// ORCHESTRATE.md § "Quality tiers → maxBitrate" — shared by this store and
+// Quality tiers → maxBitrate — shared by this store and
 // the iPad's quality picker. The picker only ever sends a `QualityTier`
 // string via `setQuality`; this table is the one place that knows the actual
 // bitrate numbers. `null` means "omit the param" (Auto — no cap, Emby tries

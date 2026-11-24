@@ -1,14 +1,14 @@
 import { z } from 'zod'
 
-// Generous bounds on the free-form/id-ish string fields — PLAN.md's security
-// checklist calls for "bounded id/search strings" specifically so a hostile
+// Generous bounds on the free-form/id-ish string fields — the security checklist
+// calls for bounded id/search strings specifically so a hostile
 // client can't bloat the roster or the room broadcast with huge strings.
 // Emby ids are GUID-length; 128 is generous headroom without being
 // unbounded.
 const ID_MAX_LENGTH = 128
 const SEARCH_MAX_LENGTH = 200
 
-// `TabletState` (ORCHESTRATE.md §1), shared verbatim by `tablet:state`
+// `TabletState`, shared verbatim by `tablet:state`
 // (client → server) and folded into `PeerSnapshot`/`peer:tablet`. Zod v4's
 // base `z.number()` already rejects `NaN`/`±Infinity` (confirmed against
 // this repo's pinned zod@4.1.12), so `scrollTop`'s "finite, >= 0" is fully
@@ -18,7 +18,7 @@ export const TabletStateSchema = z.object({
   // `'player'` is one of four independent mirrors of this exact union — `multiplayer/store.ts`'s `isTabletState`,
   // `IpadBrowser.tsx`'s `BrowseState` + `buildTabletState`, and
   // `RemoteIpad.tsx`'s `TabletState → BrowseState` reconstruction are the
-  // other three (ORCHESTRATE.md §3). A partial edit fails silently — a peer's
+  // other three. A partial edit fails silently — a peer's
   // tablet state just stops validating — so grep this union rather than
   // trusting the type checker to connect the copies.
   view: z.enum(['grid', 'seasons', 'episodes', 'player']),

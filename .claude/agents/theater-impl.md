@@ -11,10 +11,9 @@ exact files to create or edit and the requirements to satisfy.
 
 Working rules (always):
 - Touch ONLY the files your task names. Never edit files owned by other units.
-- When your task references `ORCHESTRATE.md` (repo root), read it — it holds the shared
-  contracts (zustand store shape, backend endpoint shapes, env keys, screen placement
-  math) and the guardrails. Build exactly to those contracts so parallel units stay
-  compatible.
+- When your task names shared contracts (zustand store shape, backend endpoint shapes,
+  env keys, screen placement math) or guardrails, build exactly to them so parallel
+  units stay compatible.
 - Match the repo's existing style (prettier + eslint flat config). Use `cns()` for
   className composition. Avoid the `any` type.
 - Do NOT run any code-review, security-review, or other unrelated skills.

@@ -37,8 +37,7 @@ const FLOOR_NAME_RE = /floor/i
 // `wall_2`, which already spans the full recentered footprint.
 const WALL_NAME_RE = /wall|frame/i
 
-// Module-level mutable object, NOT a React ref or context (PLAN.md's F7 section: "Occlusion --
-// occludesGaze helper + a shared theater env-root ref"). NameTag.tsx (F7, a sibling unit under
+// Module-level mutable object, NOT a React ref or context. NameTag.tsx (F7, a sibling unit under
 // Scene/) needs to raycast against this exact recentered geometry for its gaze-occlusion check,
 // but there is no context provider or prop-drilling path from this file to NameTag.tsx today,
 // and adding one would mean editing Scene.tsx -- out of scope for both units. A plain exported

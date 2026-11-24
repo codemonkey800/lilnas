@@ -27,7 +27,7 @@ const FRONT_OFFSET = 0.02
 // a non-2.20:1 video.
 const DEFAULT_VIDEO_ASPECT = 16 / 9
 
-// D2 (PLAN.md): preserve the video's own aspect and size a rectangle that
+// Preserve the video's own aspect and size a rectangle that
 // fills AT LEAST the screen's bounds in both axes — overflow past the panel
 // edges is intentional (no letterboxing, no distortion).
 function coverSize(
@@ -48,8 +48,8 @@ type ScreenPlacement = {
 // the same cached scene graph Theater.tsx clones from (dedupe-by-URL, not a
 // second load) — and reproduces Theater.tsx's recentering translation
 // (`model.position.set(-center.x, -box.min.y, -center.z)`) as arithmetic
-// instead of a mutation, per ORCHESTRATE.md's "Model-space placement
-// (screen)" contract. This never clones or moves the shared `scene`; only
+// instead of a mutation, per the model-space placement
+// contract for the screen. This never clones or moves the shared `scene`; only
 // Theater.tsx does that, on its own separate clone.
 function useScreenPlacement(): ScreenPlacement {
   const { scene } = useGLTF(MODEL_URL)
@@ -113,9 +113,9 @@ export const TheaterScreen = forwardRef<Mesh, TheaterScreenProps>(
       return texture
     }, [rawIdlePoster])
 
-    // D9: idle poster fills the screen box at its own native size (no
-    // cover-fit — that distortion is only acceptable for real video, per
-    // D2). Video: cover-fit to the video's own aspect.
+    // Idle poster fills the screen box at its own native size (no
+    // cover-fit — that distortion is only acceptable for real video).
+    // Video: cover-fit to the video's own aspect.
     const { w, h } = videoTexture
       ? coverSize(size.x, size.y, videoAspect ?? DEFAULT_VIDEO_ASPECT)
       : { w: size.x, h: size.y }

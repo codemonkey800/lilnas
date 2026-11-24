@@ -11,17 +11,15 @@ import { LOOK_SENSITIVITY_RAD_PER_PX } from './firstPersonLook'
 import { getSeat, type Seat, SEATED_EYE_ABOVE_CUSHION } from './seats'
 
 // ---------------------------------------------------------------------------
-// The local player's seated camera (PLAN.md "F4 -- seated local player" /
-// ORCHESTRATE.md §1's seated state machine). Mounted inside <Canvas> by F8
+// The local player's seated camera. Mounted inside <Canvas> by F8
 // (this file never mounts itself), always present in the tree -- it is
 // effectively inert while `seatPhaseRef.current === 'standing'`, exactly
 // like Player.tsx's own freeze is inert while `frozen` is false. Renders no
 // JSX of its own (`return null`), same "no local body" shape as
 // LocalPresence.tsx.
 //
-// Implements the four LOCAL phases from ORCHESTRATE.md §1 (none of these
-// ride the wire -- `useSeatStore`'s `mySeatId` is the only source of truth
-// that does):
+// Implements the four LOCAL phases (none of these ride the wire --
+// `useSeatStore`'s `mySeatId` is the only source of truth that does):
 //
 //   standing --claim ack ok--> sit_down --SIT_DOWN_DURATION_S--> sitting
 //       ^                                                           |
@@ -35,8 +33,8 @@ import { getSeat, type Seat, SEATED_EYE_ABOVE_CUSHION } from './seats'
 // freeze and viewControls.ts's `E` gate both key off `seatPhaseRef` rather
 // than `mySeatId` for exactly this reason (see their own comments).
 //
-// Position eases (smoothstep, never linear -- PLAN.md: "a linear position
-// ramp reads as mechanical") between wherever the camera was when a
+// Position eases (smoothstep, never linear -- a linear position ramp reads
+// as mechanical) between wherever the camera was when a
 // transition started and the seat's eye point.
 //
 // The LOOK DIRECTION eases to dead-ahead over sit_down, so you always end up
@@ -83,11 +81,11 @@ import { getSeat, type Seat, SEATED_EYE_ABOVE_CUSHION } from './seats'
 // 1.0.97 the same job took the `disableFollowCam` prop, since
 // `disableControl` alone never stopped ecctrl's own camera-follow.)
 //
-// The handoff on stand (PLAN.md "Risks & gotchas: ecctrl handoff on stand")
+// The handoff on stand
 // is continuous by construction now. Under 1.0.97 ecctrl's own mousemove
 // listener kept accumulating into its hidden `pivot`/`followCam` rotation
 // the whole time the player was seated, so the follow camera resumed from a
-// drifted view. PLAN.md's first fallback was to seed it via the ref's
+// drifted view. The first fallback considered was to seed it via the ref's
 // `rotateCamera()` on release. Player.tsx's replacement builds that in. Its
 // look listener ignores the mouse while frozen, and on the unfreeze edge it
 // re-seeds yaw/pitch from the camera's actual direction, i.e. wherever
@@ -109,7 +107,7 @@ export const seatPhaseRef: { current: SeatPhase } = { current: 'standing' }
 // per seats.ts). sit_down eases INTO these bounds from wide-open; stand_up
 // eases back OUT to wide-open (a no-op in practice, since nothing
 // accumulates new input outside `sitting` -- see the header comment -- but
-// mirrors sit_down's ease for symmetry, per PLAN.md).
+// mirrors sit_down's ease for symmetry).
 const SEATED_YAW_LIMIT_RAD = MathUtils.degToRad(75)
 const SEATED_PITCH_LIMIT_RAD = MathUtils.degToRad(45)
 

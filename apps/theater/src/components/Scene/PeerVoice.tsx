@@ -14,13 +14,14 @@ import { usePlaybackStore, type ViewMode } from 'src/playback/store'
 import { ensureVoiceInitialized } from 'src/voice/peerConnections'
 import { inbound } from 'src/voice/store'
 
-// Fills the F4-created stub -- RemoteAvatars.tsx already mounts `<PeerVoice id={id} />` inside
-// <RemoteAvatar>'s interpolated <group> and is never touched by this unit (ORCHESTRATE.md §2's
-// stub-handoff rule). Per ORCHESTRATE.md §3 / PLAN.md's VF3 section, this child takes only
-// `{ id }` and reads its hot data from the voice store by id -- never a per-frame prop.
+// Fills the F4-created stub -- RemoteAvatars.tsx already mounts
+// `<PeerVoice id={id} />` inside <RemoteAvatar>'s interpolated <group> and is
+// never touched by this unit. This child takes only `{ id }` and reads its
+// hot data from the voice store by id -- never a per-frame prop.
 //
-// Spatial voice (PLAN.md "Phase 4B"): once a peer's inbound WebRTC MediaStream shows up in
-// voice/store.ts's `inbound` map (VF1/VF2, driven by peerConnections.ts's own signaling), build
+// Spatial voice: once a peer's inbound WebRTC MediaStream shows up in
+// voice/store.ts's `inbound` map (driven by peerConnections.ts's own
+// signaling), build
 // the same dual output chain useVideoAudio.ts already built for the movie -- a `PositionalAudio`
 // (POV, distance-attenuated) + a plain `Audio` (fullscreen, flat), both fed from one real Web
 // Audio source, with gain toggled on `usePlaybackStore`'s `view`. Attaching `positional` to a
@@ -58,8 +59,7 @@ type PeerAudioChain = {
 // header comment calls out for its signal-handler-to-socket binding.
 //
 // Also means no separate AudioContext-resume-on-pointerdown dance is needed here: this listener
-// resolves to the SAME shared context useVideoAudio.ts already resumes on first `pointerdown`
-// (PLAN.md's VF5 note: "AudioContext resume is already globally handled").
+// resolves to the SAME shared context useVideoAudio.ts already resumes on first `pointerdown`.
 // ---------------------------------------------------------------------------
 
 let sharedListener: AudioListener | null = null
@@ -76,7 +76,7 @@ function ensureSharedListener(camera: Object3D): AudioListener {
   return sharedListener
 }
 
-// Chrome gotcha (PLAN.md's Phase 4B section, explicit): a WebRTC MediaStream won't pump through
+// Chrome gotcha: a WebRTC MediaStream won't pump through
 // Web Audio at all unless it's ALSO attached to a live, off-DOM <audio> sink. Muted so only the
 // Web Audio graph below -- not this element's own direct output -- is ever audible. Hidden and
 // appended to `document.body` the same way playback/store.ts's `ensureVideoElement()` hides its
@@ -105,7 +105,7 @@ function createMutedStreamSink(stream: MediaStream): HTMLAudioElement {
 // `MediaStreamAudioSourceNode` per the Web Audio spec allows any number of independent source
 // nodes from the same MediaStream. So `positional` and `stereo` each call it directly on the
 // same `stream` below -- no `reuseMediaElementSource`-style fan-out needed. Distance-only
-// attenuation (PLAN.md, explicit -- no wall occlusion): `positional`'s distance
+// attenuation: `positional`'s distance
 // model/refDistance/rolloff are left at three.js's defaults, untouched.
 function buildPeerAudioChain(
   stream: MediaStream,

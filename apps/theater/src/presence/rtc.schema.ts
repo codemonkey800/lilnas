@@ -5,7 +5,7 @@ import { z } from 'zod'
 const SOCKET_ID_MAX_LENGTH = 64
 
 // The backend has no DOM lib types (no built-in `RTCIceCandidateInit`), and
-// deliberately doesn't need one: per ORCHESTRATE.md §1 and the security
+// deliberately doesn't need one: per the wire contract and the security
 // checklist, this server never inspects SDP/ICE semantically and never logs
 // it — it only confirms the payload is plausibly shaped before relaying it
 // untouched. Every field is optional/nullable because a real
@@ -19,7 +19,7 @@ const IceCandidateInitSchema = z.object({
   usernameFragment: z.string().optional(),
 })
 
-// Discriminated on `kind`. ORCHESTRATE.md §1's `RtcSignal` type collapses
+// Discriminated on `kind`. The wire contract's `RtcSignal` type collapses
 // offer/answer into one arm (`{ kind: 'offer' | 'answer'; sdp: string }`);
 // modeling them as two zod branches instead of one is only an internal
 // validation-technique difference — the inferred wire shape is identical
@@ -33,7 +33,7 @@ export const RtcSignalSchema = z.discriminatedUnion('kind', [
 
 export type RtcSignal = z.infer<typeof RtcSignalSchema>
 
-// `rtc:signal` (client → server) — ORCHESTRATE.md §1.
+// `rtc:signal` (client → server).
 export const RtcSignalMessageSchema = z.object({
   to: z.string().min(1).max(SOCKET_ID_MAX_LENGTH),
   data: RtcSignalSchema,
@@ -41,7 +41,7 @@ export const RtcSignalMessageSchema = z.object({
 
 export type RtcSignalMessage = z.infer<typeof RtcSignalMessageSchema>
 
-// Optional `peer:mute` (client → server) — ORCHESTRATE.md §1.
+// Optional `peer:mute` (client → server).
 export const PeerMuteSchema = z.object({
   muted: z.boolean(),
 })

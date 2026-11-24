@@ -7,8 +7,7 @@ import { useSeatStore } from 'src/seats/store'
 import { findGazedFreeSeat } from './seats'
 
 // ---------------------------------------------------------------------------
-// D9's gaze+proximity seat target (PLAN.md's F1/F4 sections; ORCHESTRATE.md
-// §1's "why seatTargetRef exists at all"). `viewControls.ts` handles `E` via
+// D9's gaze+proximity seat target. `viewControls.ts` handles `E` via
 // a plain `window.addEventListener('keydown', ...)` -- it has no camera
 // access, since it isn't rendered inside <Canvas>. `useSeatTargeting()` is
 // the thing that DOES run inside <Canvas>, publishing "which free seat, if
@@ -16,7 +15,7 @@ import { findGazedFreeSeat } from './seats'
 // both that keydown handler and <SitPrompt>'s throttled poll (F8) to read
 // synchronously -- neither ever calls `findGazedFreeSeat` a second time
 // itself, which is what keeps the prompt and the keypress from disagreeing
-// about which seat (ORCHESTRATE.md §7).
+// about which seat.
 //
 // Mirrors playerVelocity.ts's exact shape: a module-level mutable object,
 // written every frame by ONE useFrame, read elsewhere with no parent/child
@@ -25,8 +24,7 @@ import { findGazedFreeSeat } from './seats'
 //
 // `useSeatTargeting()` must be mounted inside <Canvas> by F8 (Scene.tsx) --
 // nothing else runs it. If that mount is ever missed, this silently stays
-// `null` forever: no crash, no type error, `E` just never claims a seat
-// (ORCHESTRATE.md §7: "seatTargeting.ts is a fourth silent-failure spot").
+// `null` forever: no crash, no type error, `E` just never claims a seat.
 // ---------------------------------------------------------------------------
 
 export const seatTargetRef: { current: string | null } = { current: null }

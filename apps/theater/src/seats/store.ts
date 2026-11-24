@@ -5,15 +5,14 @@ import { create } from 'zustand'
 import { getSocket, useMultiplayerStore } from 'src/multiplayer/store'
 
 // ---------------------------------------------------------------------------
-// Seat client state (PLAN.md "F2 — src/seats/store.ts (local seat state)" /
-// ORCHESTRATE.md §1's "src/seats/store.ts" contract). Mirrors
+// Seat client state. Mirrors
 // `src/voice/store.ts`'s shape exactly: a small zustand store holding LOCAL
 // state only, emitting through `getSocket()` (exported from
 // `src/multiplayer/store.ts`) rather than owning any socket of its own.
 //
 // `mySeatId` has exactly one path to a non-null value: the `{ ok: true }`
 // branch of `claim()`'s ack callback. There is no optimistic path —
-// PLAN.md's "the claim race" risk is explicit about why: an optimistic sit
+// The claim race is why: an optimistic sit
 // that loses the race would put two avatars in one chair until the
 // correction landed. The gateway (`presence.gateway.ts`'s
 // `handleSeatClaim`) is the sole arbiter of occupancy; this store only ever
@@ -26,7 +25,7 @@ import { getSocket, useMultiplayerStore } from 'src/multiplayer/store'
 // ---------------------------------------------------------------------------
 
 // Keep in sync with src/presence/presence.gateway.ts's (unexported)
-// `SeatClaimAck` / ORCHESTRATE.md §1's wire contract.
+// `SeatClaimAck` (the wire contract).
 type SeatClaimAck = { ok: true } | { ok: false; reason: 'taken' | 'unknown' }
 
 function isSeatClaimAck(value: unknown): value is SeatClaimAck {
@@ -80,7 +79,7 @@ export const useSeatStore = create<SeatStore>((set, get) => {
 
     claim: seatId => {
       if (get().pending) {
-        // Blocks a second claim mid-flight (PLAN.md F2) — the in-flight
+        // Blocks a second claim mid-flight — the in-flight
         // request's own ack callback is still the only thing that can
         // settle `pending`.
         return
@@ -96,7 +95,7 @@ export const useSeatStore = create<SeatStore>((set, get) => {
         if (isSeatClaimAck(ack) && ack.ok) {
           set({ mySeatId: seatId, pending: false })
         } else {
-          // Never optimistic (PLAN.md F2): a `{ ok: false }` or malformed
+          // Never optimistic: a `{ ok: false }` or malformed
           // ack leaves `mySeatId` exactly as it already was.
           set({ pending: false })
         }

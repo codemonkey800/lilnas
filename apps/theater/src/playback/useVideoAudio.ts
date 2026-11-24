@@ -7,9 +7,8 @@ import { Audio, AudioListener, type Object3D, PositionalAudio } from 'three'
 import { usePlaybackStore } from './store'
 
 // ---------------------------------------------------------------------------
-// Spatial audio routing (POV vs fullscreen) — ORCHESTRATE.md's "Spatial
-// audio routing (POV vs fullscreen) — useVideoAudio.ts" contract, and
-// PLAN.md's D10 (POV = spatialized, fullscreen = full-volume stereo).
+// Spatial audio routing (POV vs fullscreen): POV = spatialized, fullscreen =
+// full-volume stereo.
 //
 // The hard Web Audio constraint driving all of this:
 // `HTMLMediaElement.createMediaElementSource()` may be called at most ONCE
@@ -135,8 +134,8 @@ export function useVideoAudio(screenRef: RefObject<Object3D | null>): void {
   // fullscreen already has its own independent, visible volume control via
   // the native `<video controls>` FullscreenPlayer.tsx turns on, and folding
   // the same `volume` into `stereo` too would make a POV slider position
-  // silently carry over and attenuate fullscreen, contradicting D10's
-  // "fullscreen = full-volume stereo" (PLAN.md).
+  // silently carry over and attenuate fullscreen, contradicting the
+  // "fullscreen = full-volume stereo" rule.
   useEffect(() => {
     const positional = positionalRef.current
     const stereo = stereoRef.current

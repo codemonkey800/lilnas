@@ -248,7 +248,7 @@ export function Player({ onTelemetry }: PlayerProps) {
       // stand_up that's SeatedCamera.tsx's final view. After the iPad it's
       // the view from before it opened, since nothing turns the camera
       // while frozen. This is the "seed the controller's camera state on
-      // release" fallback PLAN.md planned for 1.0.97's `rotateCamera()`.
+      // release" fallback planned for 1.0.97's `rotateCamera()`.
       lookRef.current = lookFromDirection(
         state.camera.getWorldDirection(lookDirectionScratchRef.current),
       )

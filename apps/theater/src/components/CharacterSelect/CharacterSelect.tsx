@@ -20,7 +20,7 @@ const FOCUS_RING =
 
 // A cinematic casting stage: the selected character stands on a spotlit
 // floor, turning and animated, framed by hushed chrome that never competes
-// with him (PLAN.md §2-3). Layered like Scene.tsx: a relative full-size
+// with him. Layered like Scene.tsx: a relative full-size
 // container, <CharacterStage> filling it, HTML chrome in a pointer-events-
 // none overlay with pointer-events-auto on the interactive bits.
 //
@@ -29,7 +29,7 @@ const FOCUS_RING =
 // a tall top-down character list never has to fight that row for space.
 // It's still rendered *before* both the bottom row and the top chrome
 // (logout) in the DOM, all positioned absolutely — that gives a tab order
-// of switcher -> CTA -> logout (PLAN.md §6) while keeping logout displayed
+// of switcher -> CTA -> logout while keeping logout displayed
 // at the top-right; DOM order and visual position are independent here on
 // purpose, not an oversight.
 export function CharacterSelect({ onSelect, onLogout }: CharacterSelectProps) {

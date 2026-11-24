@@ -62,8 +62,7 @@ function closeIpad(): void {
   }
 }
 
-// Global key bindings for the theater's playback chrome (PLAN.md "Views" /
-// "iPad browser" / Phase 5 "seats"):
+// Global key bindings for the theater's playback chrome:
 //   - Tab   summons/dismisses the iPad, dropping pointer lock on summon and
 //           restoring it on dismiss iff it was locked beforehand (see
 //           openIpad/closeIpad above). Inert while `view === 'fullscreen'`
@@ -82,12 +81,12 @@ function closeIpad(): void {
 //           `seatTargetRef` currently names, if any. Never recomputes the
 //           gaze+proximity test itself — reads the SAME ref <SitPrompt>
 //           (F8) polls, so the prompt and the keypress can't disagree about
-//           which seat (ORCHESTRATE.md §1).
+//           which seat.
 //   - F     toggles the POV/fullscreen view. Closes the iPad on the way IN
 //           to fullscreen (D7) via closeIpad() (not setIpadOpen directly,
 //           so its pointer-lock-restore bookkeeping still runs) — otherwise
 //           it's left open-but-unreachable behind the fullscreen overlay.
-//   - M     toggles mic mute (PLAN.md "Phase 4B"). The voice store's
+//   - M     toggles mic mute. The voice store's
 //           `muted` flag is the source of truth — flipped first — then
 //           applied to every local audio track's `.enabled`, so intent
 //           toggles coherently even if getLocalStream() is still `null`

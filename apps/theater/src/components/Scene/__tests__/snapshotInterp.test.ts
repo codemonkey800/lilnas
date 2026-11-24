@@ -40,7 +40,7 @@ describe('sampleAt', () => {
 
   // The core regression guard: at a brisk theater walking pace (1.75 m/s,
   // Avatar.tsx's NATURAL_SPEED_MPS), emitted at the nominal ~13 Hz cadence
-  // (ORCHESTRATE.md sec 1, ~77ms/packet), sampling every ~16.7ms (60fps) must
+  //, sampling every ~16.7ms (60fps) must
   // yield an IDENTICAL per-step position delta throughout -- not a value
   // that swings between packet arrivals the way frame-to-frame damping did.
   it('produces a constant per-frame position delta under constant-velocity network input (no throb)', () => {

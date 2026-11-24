@@ -3,8 +3,7 @@
 import { create } from 'zustand'
 
 // ---------------------------------------------------------------------------
-// Voice-chat client state (PLAN.md "Phase 4B — Spatial voice chat" / VF1 —
-// ORCHESTRATE.md §1's "src/voice/store.ts" contract). Mirrors
+// Voice-chat client state. Mirrors
 // multiplayer/store.ts's split between what re-renders and what doesn't:
 //
 //   - `muted` and `permissionState` are the two bits of voice state a
@@ -28,7 +27,7 @@ import { create } from 'zustand'
 // ---------------------------------------------------------------------------
 
 // Tri-state outcome of the one `getUserMedia()` prompt `ensureLocalStream()`
-// below ever fires (PLAN.md "VF5 — permission UX"): `'unknown'` until a peer
+// below ever fires: `'unknown'` until a peer
 // connection first asks for the local track (no prompt has happened yet),
 // then `'granted'`/`'denied'` once that settles — permanently, since
 // `ensureLocalStream()` itself never re-prompts (see its cached-outcome
@@ -49,7 +48,7 @@ export const useVoiceStore = create<VoiceStore>(set => ({
   setPermissionState: permissionState => set({ permissionState }),
 }))
 
-// Module-level, non-React (ORCHESTRATE.md §1) — one RTCPeerConnection, and
+// Module-level, non-React — one RTCPeerConnection, and
 // (once its `ontrack` fires) one inbound MediaStream, per connected peer,
 // keyed by the same peer id as multiplayer/store.ts's `peerBuffers`.
 // peerConnections.ts owns the lifecycle (create/close); nothing else writes
@@ -59,8 +58,8 @@ export const inbound = new Map<string, MediaStream>()
 
 // ---------------------------------------------------------------------------
 // STUN configuration — peerConnections.ts builds every RTCPeerConnection's
-// RTCConfiguration from this. PLAN.md "Security / infra": "TURN is not
-// included" — a full mesh at friends-scale needs no SFU/TURN of its own;
+// RTCConfiguration from this. TURN is deliberately not
+// included — a full mesh at friends-scale needs no SFU/TURN of its own;
 // public STUN is enough for NAT traversal on ordinary home networks.
 // ---------------------------------------------------------------------------
 
@@ -85,7 +84,7 @@ export const STUN_URLS: string[] = parseStunUrls(
 // ---------------------------------------------------------------------------
 
 // All three are the browser's own built-in audio processing, not anything
-// this app implements (PLAN.md "VF1").
+// this app implements.
 const AUDIO_CONSTRAINTS: MediaTrackConstraints = {
   echoCancellation: true,
   noiseSuppression: true,

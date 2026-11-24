@@ -9,8 +9,7 @@ import { type NowPlayingEntry, useNowPlayingStore } from './nowPlayingStore'
 import { usePlaybackStore } from './store'
 
 // ---------------------------------------------------------------------------
-// Video sync client (PLAN.md "F6" / ORCHESTRATE.md §1's "src/playback/sync.ts"
-// contract). Mirrors `voice/peerConnections.ts`'s attach-listeners-to-
+// Video sync client. Mirrors `voice/peerConnections.ts`'s attach-listeners-to-
 // `getSocket()` shape, but FIXES that file's documented limitation: rather
 // than registering once against whatever socket happens to exist at setup
 // time (and going silently stale across a disconnect+reconnect that swaps in
@@ -20,7 +19,7 @@ import { usePlaybackStore } from './store'
 // is tolerable; for video it would silently desync the room, which isn't —
 // so this unit re-binds instead of copying the limitation.
 //
-// No loops (ORCHESTRATE.md §1): the store's local play()/pause()/seek() never
+// No loops: the store's local play()/pause()/seek() never
 // emit — the `command*` wrappers below are the only emitters, and
 // `handleVideoState`'s `applyAnchor()` call is the only anchor mutator. UI
 // (a later unit, F7a) calls the `command*` wrappers; the server's echoed
@@ -37,14 +36,14 @@ type VideoStatePayload = {
   atServerMs: number
 }
 
-// The `load` payload (ORCHESTRATE.md §1) is structurally
+// The `load` payload is structurally
 // `Omit<NowPlayingEntry, 'entryId' | 'addedBy'>` — the server fills in both of
 // those (a fresh `randomUUID()` and the socket's session username), so
 // neither is ever client-supplied.
 export type LoadEntry = Omit<NowPlayingEntry, 'entryId' | 'addedBy'>
 
 // Keep in sync with src/presence/video.schema.ts's `VideoCommandSchema` /
-// ORCHESTRATE.md §1's `video:command` wire contract. Hand-mirrored rather
+// the `video:command` wire contract. Hand-mirrored rather
 // than imported, per this app's established frontend/backend boundary
 // convention (see multiplayer/store.ts's "hand-duplicated wire types"
 // comment).
@@ -112,7 +111,7 @@ function isVideoStatePayload(value: unknown): value is VideoStatePayload {
 // (play/pause/seek), not just when the room switches titles. If
 // this handler always reloaded on it, every pause would tear down and
 // re-resolve the stream — and on HLS, leak a transcode session per pause
-// (PLAN.md "Risks & gotchas: Re-load() on every pause"). Guard explicitly
+//. Guard explicitly
 // against that by comparing against what's already loaded in
 // `playback/store.ts` before ever calling `load()`.
 function handleVideoState(payload: unknown): void {
@@ -127,7 +126,7 @@ function handleVideoState(payload: unknown): void {
     // Anchor to WHEN the state was true on the server, translated onto this
     // client's clock (clock.ts), not to when this handler happened to run.
     // The original "no timestamp on the wire, re-anchor at receipt" design
-    // (ORCHESTRATE.md §1 invariant 1) turned every ms of delivery delay —
+    // turned every ms of delivery delay —
     // network latency, main-thread jank, and for a new item the entire
     // `load()` below before this runs — into a permanent per-client offset
     // that `tick()`'s drift correction could never see, because each client
@@ -164,7 +163,7 @@ function handleVideoState(payload: unknown): void {
 
 // End of playback. Every client's <video> fires `ended` at roughly the same
 // moment and each emits `ended`; the server's `entryId` staleness check
-// (ORCHESTRATE.md §1 invariant 4) collapses the resulting N commands into a
+// collapses the resulting N commands into a
 // single stop. Reads the entry FRESH via `.getState()` rather than closing
 // over a value captured when the listener was attached — this listener lives
 // for the whole time `useVideoSync()` is attached, while the entry can change

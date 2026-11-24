@@ -17,12 +17,12 @@ import {
 
 // Fills the F4-created stub -- RemoteAvatars.tsx already mounts
 // `<RemoteIpad id={id} />` inside <RemoteAvatar>'s interpolated <group> and
-// is never touched by this unit (ORCHESTRATE.md §2/§6's stub-handoff rule).
+// is never touched by this unit.
 //
-// PLAN.md's Phase 4C / TF3: a world-space tablet that mirrors a PEER's own
+// A world-space tablet that mirrors a PEER's own
 // tablet nav state (open/grid/seasons/episodes, search, type filter, scroll)
 // by re-rendering the same presentational panel the local, interactive
-// tablet uses (`IpadBrowserView`, TF1) with `interactive={false}` -- so it
+// tablet uses (`IpadBrowserView`) with `interactive={false}` -- so it
 // can never become a control surface for whoever is looking at someone
 // else's tablet.
 //
@@ -237,7 +237,7 @@ export function RemoteIpad({ id }: RemoteIpadProps) {
   }, [view, seriesId, seasonId, seasons])
 
   if (tablet === undefined || !tablet.open) {
-    // PLAN.md's Phase 4C / TF3: "renders nothing while open is false".
+    // Renders nothing while open is false.
     return null
   }
 

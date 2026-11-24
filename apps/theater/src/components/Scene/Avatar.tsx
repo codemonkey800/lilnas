@@ -11,20 +11,18 @@ import { prepareCharacterScene } from 'src/components/CharacterSelect/pedestal'
 import { SIT_STAND_PLAYBACK_RATE } from './clipTimings'
 import { stripToRotation } from './clipTracks'
 
-// Wire contract (ORCHESTRATE.md §1 / presence.schema.ts's ANIM_STATES) --
+// Wire contract --
 // hand-mirrored here rather than imported, matching this app's existing
 // convention for crossing the frontend/backend boundary (IpadBrowser.tsx's
 // local `TheaterItemType` mirrors emby.service.ts's DTO the same way instead
 // of importing across it). This also keeps Avatar.tsx buildable standalone --
 // F3b (this file) does not depend on F2's multiplayer/store.ts
-// (ORCHESTRATE.md §2), which is being built concurrently in the same wave
+//, which is being built concurrently in the same wave
 // and may not exist yet.
 //
 // 'sit_down' | 'sitting' | 'stand_up' (Phase 5, F5) are the one exception --
 // client-side-only render states that never ride the wire. `seatId`, not an
-// AnimState, is the wire's source of truth for "is sitting" (ORCHESTRATE.md
-// §1: "seatId -- not an AnimState -- means 'is sitting'. Nothing named
-// 'sitting' crosses the wire."). Each client derives these three locally off
+// AnimState, is the wire's source of truth for "is sitting". Each client derives these three locally off
 // the `peer:seat` transition it observes (RemoteAvatars.tsx) -- there is no
 // corresponding change to presence.schema.ts's ANIM_STATES.
 export type AnimState =
@@ -52,12 +50,12 @@ export type AvatarProps = {
   speed: number
   /**
    * Deliberate, backward-compatible extension of the frozen 3-prop contract
-   * (ORCHESTRATE.md §1/§3: `<Avatar modelUrl animState speed />`) -- `<Avatar>`
+   * -- `<Avatar>`
    * stays presentational/props-only, but something still has to get the
    * measured head height (see the recenter effect below) out to where
    * `<NameTag>` -- a sibling child mounted by a later unit, F7 -- can read it
    * from `peerBuffers`. `<Avatar>` is the one child in the `<RemoteAvatar>`
-   * composition that never receives its own peer `id` (ORCHESTRATE.md §3),
+   * composition that never receives its own peer `id`,
    * so it has no way to write `peerBuffers.get(id).headHeight` itself; it
    * reports the measurement upward through this callback instead. The
    * parent, `<RemoteAvatar>` (built in the very next wave, F4), is expected
@@ -93,7 +91,7 @@ export type AvatarProps = {
     offsetZ: number
   }) => void
   /**
-   * NEW (ORCHESTRATE.md §1's `<Avatar>` props contract, Phase 5/F5) -- fires
+   * NEW -- fires
    * once when the `sit_down` or `stand_up` one-shot finishes playing (the
    * mixer's `'finished'` event, scoped to whichever of the two actions
    * actually fired it -- see the one-shot setup effect below). Reports
@@ -160,8 +158,7 @@ const STAND_UP_URL = '/animations/stand-up.glb'
 // "LeftFoot", "Head", plus ~40 finger joints, no twist bones). Same
 // treatment as the strafe clips above applies: withMixamoPrefix() is
 // load-bearing, not optional -- skip it and all three silently bind to
-// nothing, holding the avatar at bind pose with no error anywhere (PLAN.md's
-// "Risks & gotchas: Clip<->skeleton binding for the three sit clips"). A1
+// nothing, holding the avatar at bind pose with no error anywhere. A1
 // confirmed all three bind on every selectable character, including the
 // RPM-rigged Charlie.
 // ---------------------------------------------------------------------------
@@ -230,7 +227,7 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
 
-// The reusable world-space avatar (PLAN.md "F3" / ORCHESTRATE.md §3).
+// The reusable world-space avatar.
 // Unlike CharacterSelect/CharacterModel.tsx, this renders NO per-frame
 // pedestal loop -- position/yaw come entirely from the parent group's
 // transform (network `p`/`y`, applied by <RemoteAvatar>, F4, from
@@ -345,8 +342,7 @@ export function Avatar({
   }, [scene])
 
   // One-shot setup for `sit_down`/`stand_up` -- new to this component
-  // entirely; every other clip loops (PLAN.md's "Risks & gotchas: one-shot
-  // clips are new to Avatar.tsx"). Both `LoopOnce` and `clampWhenFinished`
+  // entirely; every other clip loops. Both `LoopOnce` and `clampWhenFinished`
   // are required together: `LoopOnce` alone snaps back to bind pose on the
   // very last frame the instant the clip ends, which looks like the
   // character briefly T-posing into the chair. Configuring this here (once
@@ -471,7 +467,7 @@ export function Avatar({
   // smooth crossfade -- only stopping needs to be instant. `sit_down`,
   // `sitting`, and `stand_up` (Phase 5) all take the ELSE branch below --
   // the normal crossfade, never this instant snap -- since snapping straight
-  // into a seated pose would look broken (PLAN.md's F5 section).
+  // into a seated pose would look broken.
   //
   // `next.reset().play()` / `prev.stop()` (no fadeIn/fadeOut) is a genuine
   // instant snap, not just a very short fade: `.reset()` clears any

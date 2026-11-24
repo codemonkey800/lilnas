@@ -51,8 +51,7 @@ const ZERO_TELEMETRY: Telemetry = {
 // actually rendered as children of <Canvas>, which Scene() itself is not
 // (it returns the <Canvas>, it isn't inside one). Wires together the
 // in-world screen texture, spatial audio, subtitles, and the iPad browser —
-// see ORCHESTRATE.md's "Shared contracts" section for each piece's exact
-// contract. The playback reconcile tick is deliberately NOT here: this
+// each piece has its own exact contract. The playback reconcile tick is deliberately NOT here: this
 // component's useFrame hooks stop with the frameloop in fullscreen, which is
 // exactly when a tick-driven seek must still land (see
 // src/playback/reconcile.ts, mounted from Scene() below).
@@ -92,10 +91,9 @@ function TheaterPlayback() {
 // Trivial wrapper whose only purpose is to run seatTargeting.ts's
 // useSeatTargeting() every frame. That hook does nothing on its own — it
 // must be mounted somewhere inside <Canvas> for its useFrame to ever run,
-// and nothing else in this app calls it. ORCHESTRATE.md §1 ("If nothing
-// mounts this, seatTargetRef never leaves null"), §5's Batch 5 gate, and §7
-// all flag this exact mount as the single line most likely to be silently
-// skipped in this whole phase: there is no crash and no type error if it's
+// and nothing else in this app calls it. If nothing
+// mounts this, seatTargetRef never leaves null; this exact mount is the
+// single line most likely to be silently skipped in this whole phase: there is no crash and no type error if it's
 // missing, `E` just permanently does nothing. Renders no JSX of its own,
 // the same "no local body" shape as LocalPresence.tsx / SeatedCamera.tsx.
 function SeatTargeting() {
@@ -244,8 +242,7 @@ export function Scene({ characterId }: SceneProps) {
           <div className="h-2 w-2 rounded-full bg-white/80" />
         </div>
 
-        {/* Sits just above the movement-hint bar below (F8, PLAN.md "F8 —
-            Scene wiring + the sit prompt") — self-positioning and
+        {/* Sits just above the movement-hint bar below — self-positioning and
             self-hiding, like <MicIndicator/> below. */}
         <SitPrompt />
 
@@ -255,7 +252,7 @@ export function Scene({ characterId }: SceneProps) {
             : 'Click to look around · WASD move · Space jump · Tab tablet · F fullscreen'}
         </div>
 
-        {/* Cheap demo affordance (PLAN.md "F6") — confirms presence is
+        {/* Cheap demo affordance — confirms presence is
             actually wired without needing the debug HUD. */}
         <div className="pointer-events-none absolute bottom-4 right-4 rounded bg-black/60 px-4 py-2 text-sm">
           {peerCount} {peerCount === 1 ? 'other' : 'others'} in the theater

@@ -1,6 +1,5 @@
 // Measured clip durations for the two one-shot sit/stand animations (A1,
-// PLAN.md "A1 -- convert the three sit clips (D1)" / ORCHESTRATE.md §1
-// "Seat + clip data"). These are a MEASUREMENT OUTPUT of converting the
+// converting the three sit clips). These are a MEASUREMENT OUTPUT of converting the
 // staged FBX files, not eyeballed -- read directly off each GLB's
 // `AnimationClip.duration` via the real three.js `GLTFLoader` (never the raw
 // glTF JSON: the loader sanitizes node names, which is what makes the JSON

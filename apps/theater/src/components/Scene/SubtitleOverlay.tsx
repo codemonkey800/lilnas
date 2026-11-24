@@ -8,8 +8,7 @@ import type { Object3D } from 'three'
 import { usePlaybackStore } from 'src/playback/store'
 
 // ---------------------------------------------------------------------------
-// POV's half of subtitle rendering (PLAN.md "Quality & subtitles", the
-// zustand store contract in ORCHESTRATE.md). `store.ts`'s
+// POV's half of subtitle rendering. `store.ts`'s
 // `syncSubtitleTrackElement()` is the single source of truth for which
 // <track> exists on the shared <video> — it always leaves that track's
 // `mode` at `hidden` (never `showing`), which is enough for the browser's

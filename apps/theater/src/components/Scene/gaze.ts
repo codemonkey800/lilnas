@@ -1,7 +1,7 @@
 import { MathUtils, Vector3 } from 'three'
 
 // Pure, framework-free gaze test for the F7 gaze-gated nametag feature
-// (PLAN.md's F7 section) -- no react-three-fiber import here by design, so
+// -- no react-three-fiber import here by design, so
 // this stays importable and testable with zero rendering context. Two
 // halves:
 //
@@ -12,14 +12,14 @@ import { MathUtils, Vector3 } from 'three'
 //     edge.
 //
 // Deliberate contrast with the avatar body's own yaw-only "compass bearing"
-// rule used elsewhere in this build (PLAN.md's F5 section): that rule strips
+// rule used elsewhere in this build: that rule strips
 // out pitch because looking up/down must never tilt a walking body. Gaze
 // asks the opposite question -- "is their head near the centre of what I'm
 // looking at" -- so it deliberately keeps pitch in the dot product below.
 
 // Scratch vectors reused across calls instead of allocating a fresh Vector3
 // every invocation. gazeAlignment is meant to run once per on-screen peer
-// per frame (NameTag.tsx's own useFrame, per PLAN.md's F7 section), so this
+// per frame (NameTag.tsx's own useFrame), so this
 // matters the same way CharacterSelect/pedestal.ts's module-level `scratch`
 // does.
 const toTarget = new Vector3()
@@ -108,9 +108,8 @@ export function perpendicularDistanceM(
 }
 
 // Alignment must exceed this to turn a name ON (off -> on transition). 12
-// degrees is the tighter of the two cones -- PLAN.md's F7 section: "these
-// two constants are the taste dial -- widen for 'who's in front of me,'
-// tighten for 'precisely centred.'"
+// degrees is the tighter of the two cones. These two constants are the taste
+// dial -- widen for 'who's in front of me,' tighten for 'precisely centred.'
 export const GAZE_ENTER_COS = Math.cos(MathUtils.degToRad(12))
 
 // Alignment must drop below this to turn a name OFF (on -> off transition).

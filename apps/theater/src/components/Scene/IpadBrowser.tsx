@@ -26,14 +26,13 @@ import {
 import { type LibraryTypeFilter } from './libraryFilter'
 
 // ---------------------------------------------------------------------------
-// The 3D iPad (PLAN.md D8 / ORCHESTRATE.md "iPad (C1/Q1)"): a procedural
+// The 3D iPad: a procedural
 // tablet mesh (no GLB asset exists for this anywhere in the repo) carrying a
 // drei <Html transform occlude> poster-grid UI, summoned/dismissed on Tab —
 // the key handling itself lives in viewControls.ts; this component only
 // reacts to the store's `ipadOpen` boolean.
 //
-// Split (PLAN.md's "Phase 4C — Tablet presence + UI mirroring" /
-// ORCHESTRATE.md §2, unit TF1): this file now owns only input + the
+// Split: this file now owns only input + the
 // camera-HUD positioning below — every piece of the <Html> panel's actual
 // DOM content (search box, grid, seasons/episodes, playback footer, ...)
 // lives in IpadBrowserView.tsx, rendered here with `interactive={true}` and
@@ -44,7 +43,7 @@ import { type LibraryTypeFilter } from './libraryFilter'
 // usePlaybackStore exactly as before, just via callback props now instead of
 // inline JSX handlers.
 //
-// Positioning ("parent it to the camera", PLAN.md D8): rather than literally
+// Positioning ("parent it to the camera"): rather than literally
 // reparenting into THREE.Camera's own Object3D subtree (which complicates
 // drei's <Html> raycasting/occlusion against the rest of the scene), this
 // uses the idiomatic R3F "HUD" pattern — copy the camera's world position/
@@ -102,9 +101,7 @@ const MIN_SCALE = 0.6 // scale at fully-closed — a "pop in" flourish only
 const OPEN_CLOSE_RATE = 8
 const VISIBLE_OPENNESS_EPSILON = 0.02
 
-// Throttled React-state promotion for the scrub bar's `playhead` (PLAN.md/
-// ORCHESTRATE.md F7a: "~4 Hz... the discipline RemoteAvatars already applies
-// to its own speed value") — mirrors RemoteAvatars.tsx's
+// Throttled React-state promotion for the scrub bar's `playhead` — mirrors RemoteAvatars.tsx's
 // SPEED_STATE_INTERVAL_S / SPEED_STATE_EPSILON pair exactly: a time-elapsed
 // ref accumulator plus a magnitude epsilon, so a paused video (playhead
 // static) causes zero additional re-renders rather than just throttled ones.
@@ -133,12 +130,12 @@ function describeFetchError(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback
 }
 
-// PLAN.md's "F7a — tablet: transport through commands, plus seeking":
+// Tablet transport goes through commands, plus seeking:
 // picking a title asks the room to switch to it (replacing whatever was on)
 // instead of loading+playing it directly. `subtitle` composition mirrors this
 // file's own formatItemMeta()/formatEpisodeMeta() labeling in
 // IpadBrowserView.tsx (a movie's year; an episode's series + "S{n}E{n}"),
-// per ORCHESTRATE.md §1's `NowPlayingEntry.subtitle` examples ("2019" /
+// per the `NowPlayingEntry.subtitle` wire examples ("2019" /
 // "The Bear · S2E4").
 function buildMovieEntry(item: TheaterItem): LoadEntry {
   return {
@@ -178,8 +175,7 @@ function buildEpisodeEntry(
 }
 
 // The poster/episode click is also the required user-gesture for the
-// browser's video-autoplay policy (PLAN.md "Gesture" / F6's "Autoplay
-// gesture" mitigation (a)) — but ONLY when this load is what will START
+// browser's video-autoplay policy — but ONLY when this load is what will START
 // playback, i.e. the room has nothing playing yet
 // (`useNowPlayingStore.getState().entry === null`). Replacing a title that's
 // already playing must not touch local playback here: the shared <video> has
@@ -203,8 +199,7 @@ function loadEntry(entry: LoadEntry): void {
 
 // ---------------------------------------------------------------------------
 // TF2 — broadcast this (local, interactive) tablet's UI state so peers can
-// mirror it (PLAN.md "Phase 4C — Tablet presence + UI mirroring" /
-// ORCHESTRATE.md §1's `tablet:state` event). Pure addition layered on top of
+// mirror it. Pure addition layered on top of
 // state that already lives in this component for other reasons — nothing
 // below changes existing rendering, state, or local interactive behavior.
 //
@@ -218,13 +213,13 @@ function loadEntry(entry: LoadEntry): void {
 // mirroring `emby.service.ts` across the frontend/backend boundary).
 // ---------------------------------------------------------------------------
 
-// Keep in sync with src/presence/tablet.schema.ts's `TabletState` /
-// ORCHESTRATE.md §1's frozen wire contract. `'player'` is one of four
+// Keep in sync with src/presence/tablet.schema.ts's `TabletState` (the
+// frozen wire contract). `'player'` is one of four
 // independent mirrors of this exact union —
 // `tablet.schema.ts`'s zod enum, `multiplayer/store.ts`'s type +
 // `isTabletState`, this type + `buildTabletState` below, and
 // `RemoteIpad.tsx`'s `TabletState -> BrowseState` reconstruction are the
-// other three (ORCHESTRATE.md §3). A partial edit fails silently — a peer's
+// other three. A partial edit fails silently — a peer's
 // tablet state just stops validating — so grep the union rather than trusting
 // the type checker to connect the copies.
 type TabletState = {
@@ -263,8 +258,7 @@ function buildTabletState(
 
 // Flat field-by-field compare — cheaper and more explicit than
 // JSON.stringify for a shape this small and flat — so a redundant emit can be
-// skipped when nothing actually changed ("silent when nothing changed",
-// PLAN.md).
+// skipped when nothing actually changed ("silent when nothing changed").
 function tabletStatesEqual(a: TabletState, b: TabletState): boolean {
   return (
     a.open === b.open &&
@@ -277,8 +271,7 @@ function tabletStatesEqual(a: TabletState, b: TabletState): boolean {
   )
 }
 
-// Throttle window for the scroll-triggered broadcast below (PLAN.md:
-// "throttled ~10 Hz while open").
+// Throttle window for the scroll-triggered broadcast below.
 const SCROLL_EMIT_INTERVAL_MS = 100
 
 export function IpadBrowser() {
@@ -471,7 +464,7 @@ export function IpadBrowser() {
   }, [browse])
 
   // Broadcast on any change to the fields that define what's on screen
-  // (PLAN.md: "immediately on any change"). Deliberately NOT gated on
+  //. Deliberately NOT gated on
   // `ipadOpen` — `open` is itself one of the watched/sent fields below, so
   // the close transition (ipadOpen flipping to false) still runs this
   // effect and tells peers the tablet closed; the throttled SCROLL
@@ -607,7 +600,7 @@ export function IpadBrowser() {
     usePlaybackStore.getState().setSubtitle(index)
   }
 
-  // Throttled scroll broadcast (~10 Hz, PLAN.md). `onScrollCapture` on the
+  // Throttled scroll broadcast (~10 Hz). `onScrollCapture` on the
   // wrapper <div> below fires on React's capture phase for a descendant's
   // native `scroll` event even though `scroll` itself doesn't bubble — see
   // that div's own comment. This can fire far more often than the throttle

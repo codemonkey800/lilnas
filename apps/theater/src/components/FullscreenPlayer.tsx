@@ -13,8 +13,7 @@ import { usePlaybackStore } from 'src/playback/store'
 // then moves it back out on the way out (view change or unmount). Moving a
 // <video> between DOM parents — without ever touching `.src` — does not
 // reset currentTime/readyState/decoding, so playback continues untouched
-// across the swap (PLAN.md "Views": "playback is continuous because both
-// views share one element").
+// across the swap.
 // ---------------------------------------------------------------------------
 
 // Mirrors the hidden styling `store.ts`'s ensureVideoElement() applies at
@@ -110,7 +109,7 @@ export function FullscreenPlayer() {
     }
   }, [isFullscreen])
 
-  // The iPad's subtitle picker is POV-only per PLAN.md, but `Tab`'s handling
+  // The iPad's subtitle picker is POV-only, but `Tab`'s handling
   // in viewControls.ts doesn't check the current view, so a subtitle change
   // can still land while already fullscreen. store.ts's
   // syncSubtitleTrackElement() always creates the newly swapped-in <track>

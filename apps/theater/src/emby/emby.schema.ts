@@ -1,7 +1,6 @@
 import { z } from 'zod'
 
-// Query params on `GET /theater/playback/:id` (ORCHESTRATE.md § "Backend
-// endpoints"). Express hands query values to us as strings (or omits the key
+// Query params on `GET /theater/playback/:id`. Express hands query values to us as strings (or omits the key
 // entirely when the frontend doesn't send it), so every field coerces a
 // numeric string to a number and stays optional — all four params are
 // optional per the contract.

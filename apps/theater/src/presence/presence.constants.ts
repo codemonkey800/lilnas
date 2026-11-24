@@ -1,4 +1,4 @@
-// MVP is a single hard-coded room (ORCHESTRATE.md §1) — multi-room support
+// MVP is a single hard-coded room — multi-room support
 // can be layered on later without reshaping any of the wire events.
 export const THEATER_ROOM = 'main'
 
@@ -19,26 +19,24 @@ export const VALID_CHARACTER_ID_LIST = [
   'charlie',
 ] as const
 
-// The exact export ORCHESTRATE.md §1 names ("VALID_CHARACTER_IDS Set
-// mirroring CHARACTERS ids").
+// A Set mirroring the CHARACTERS ids.
 export const VALID_CHARACTER_IDS: Set<string> = new Set(VALID_CHARACTER_ID_LIST)
 
 // ---------------------------------------------------------------------------
 // Rate-limit floors — per-socket minimum interval (ms) between ACCEPTED
 // messages of each kind. This is a cheap flood guard, not a fairness/QoS
-// scheduler (PLAN.md "B3"): the gateway tracks the last-ACCEPTED timestamp
+// scheduler: the gateway tracks the last-ACCEPTED timestamp
 // per socket per message kind and silently drops anything arriving before
 // its floor has elapsed, without ever disconnecting the socket over it.
 // ---------------------------------------------------------------------------
 
-// Clients broadcast presence at ~13 Hz, i.e. every ~77ms (ORCHESTRATE.md
-// §1). 50ms sits comfortably below that period — ~27ms of slack for network
+// Clients broadcast presence at ~13 Hz, i.e. every ~77ms. 50ms sits comfortably below that period — ~27ms of slack for network
 // jitter/timer drift — so no legitimate frame is ever dropped, while still
 // capping a flooding client to at most 20 accepted presence updates/sec.
 export const PRESENCE_MIN_INTERVAL_MS = 50
 
 // The tablet mirror updates at ~10 Hz while open, i.e. every ~100ms
-// (ORCHESTRATE.md §1 / PLAN.md "TB1"). 70ms leaves similar slack to the
+//. 70ms leaves similar slack to the
 // presence floor above.
 export const TABLET_STATE_MIN_INTERVAL_MS = 70
 
@@ -51,9 +49,8 @@ export const TABLET_STATE_MIN_INTERVAL_MS = 70
 // meaningfully weakening the flood guard.
 export const RTC_ICE_MIN_INTERVAL_MS = 20
 
-// `seat:claim`/`seat:release` are user-keypress-driven (PLAN.md's D5: `E`
-// toggles sit/stand), so they need no throttle of their own to stay
-// well-behaved — but PLAN.md's B3a calls for a floor anyway as cheap
+// `seat:claim`/`seat:release` are user-keypress-driven, so they need no throttle of their own to stay
+// well-behaved — but a floor is still warranted as cheap
 // insurance against a scripted client thrashing the room with `peer:seat`
 // broadcasts. 200ms comfortably clears even a fast claim → release → claim
 // correction (picked the wrong seat, stood back up, claimed the right one)
@@ -63,9 +60,9 @@ export const RTC_ICE_MIN_INTERVAL_MS = 20
 // `kind: 'ice'` branch.
 export const SEAT_CLAIM_MIN_INTERVAL_MS = 200
 
-// `video:command` covers all five kinds (PLAN.md's B3b), including `seek`
+// `video:command` covers all five kinds, including `seek`
 // — the tablet only emits on scrub-bar release, not per drag tick
-// (PLAN.md's F7a), but a scrub UI can still fire several releases in quick
+//, but a scrub UI can still fire several releases in quick
 // succession while someone clicks around the bar. 100ms is a modest floor:
 // looser than the presence/tablet floors above (transport commands are
 // rarer, and dropping one is lower-stakes than dropping a presence frame),

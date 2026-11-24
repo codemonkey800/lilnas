@@ -3,8 +3,7 @@ import { getSocket, useMultiplayerStore } from 'src/multiplayer/store'
 import { ensureLocalStream, inbound, pcs, STUN_URLS } from './store'
 
 // ---------------------------------------------------------------------------
-// Peer-connection lifecycle for voice chat (PLAN.md "Phase 4B", VF2 —
-// ORCHESTRATE.md §1's "src/voice/peerConnections.ts" contract). No React
+// Peer-connection lifecycle for voice chat. No React
 // here (matches viewControls.ts/avatarInterp.ts's convention of skipping
 // 'use client' on a logic-only module that's always imported transitively
 // from an already-'use client' file) — this module only ever mutates the
@@ -16,8 +15,8 @@ import { ensureLocalStream, inbound, pcs, STUN_URLS } from './store'
 // one call.
 // ---------------------------------------------------------------------------
 
-// Keep in sync with src/presence/rtc.schema.ts's `RtcSignal` /
-// ORCHESTRATE.md §1's wire contract. Hand-mirrored rather than imported —
+// Keep in sync with src/presence/rtc.schema.ts's `RtcSignal` (the wire
+// contract). Hand-mirrored rather than imported —
 // this app's established convention for crossing the frontend/backend
 // boundary (see multiplayer/store.ts's "hand-duplicated wire types"
 // comment) — so a NestJS-decorator-laden module never has a path into the
@@ -102,7 +101,7 @@ function isPeerMutePayload(value: unknown): value is PeerMutePayload {
 }
 
 // ---------------------------------------------------------------------------
-// Glare rule (decision #2, PLAN.md "Phase 4B"): a plain string comparison of
+// Glare rule: a plain string comparison of
 // socket ids, computed identically and independently by both sides of a
 // pair, so they always agree on who offers without any handshake. Pulled out
 // as a standalone pure function (rather than inlined at its one call site)
@@ -120,7 +119,7 @@ export function isOfferer(selfId: string, peerId: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Per-peer ICE-candidate buffer (decision #3, PLAN.md "Phase 4B"):
+// Per-peer ICE-candidate buffer:
 // `RTCPeerConnection.addIceCandidate()` throws/fails if called before the
 // remote description is set, and a trickled candidate can legitimately race
 // ahead of the offer/answer that pairs with it once handlers start awaiting
@@ -169,7 +168,7 @@ export function drainIceCandidates(
 // `pcs.get(id) ?? createPeerConnection(id)` from either the local
 // diff-triggered path (connectToPeer) or an incoming offer (handleOffer),
 // which can legitimately race each other when both sides discover a new
-// peer near-simultaneously (PLAN.md "Phase 4B" / decision #6's callout).
+// peer near-simultaneously.
 function createPeerConnection(peerId: string): RTCPeerConnection {
   const pc = new RTCPeerConnection({ iceServers: [{ urls: STUN_URLS }] })
   pcs.set(peerId, pc)
@@ -191,8 +190,7 @@ function createPeerConnection(peerId: string): RTCPeerConnection {
   }
 
   // Lifecycle-only logging — peer id + connection state, never SDP/ICE
-  // contents (security checklist, ORCHESTRATE.md §1 / PLAN.md "Voice (4B)":
-  // "never log SDP/candidates").
+  // contents.
   pc.onconnectionstatechange = () => {
     console.log(
       `[voice] peer ${peerId} connection state -> ${pc.connectionState}`,
@@ -213,7 +211,7 @@ function createPeerConnection(peerId: string): RTCPeerConnection {
 async function attachLocalTrack(pc: RTCPeerConnection): Promise<void> {
   const stream = await ensureLocalStream()
   if (!stream) {
-    // Graceful degradation (PLAN.md "VF5"): no mic, permission denied, or
+    // Graceful degradation: no mic, permission denied, or
     // SSR — proceed without a local track. This peer can still be heard;
     // they just won't hear us.
     return
@@ -353,13 +351,12 @@ function registerSignalHandlers(): void {
     }
   })
 
-  // No per-peer mute storage exists yet: ORCHESTRATE.md §1's PeerSnapshot
-  // carries `muted?`, but no unit has claimed a field for it in
-  // multiplayer/store.ts, and that file isn't this unit's to extend (see
-  // this unit's return summary for the explicit callout). This just
-  // confirms the relay is received without crashing — a later unit can add
-  // storage once something actually renders it (e.g. a muted-mic icon on a
-  // nametag, per PLAN.md's "so peers can show a muted-mic icon").
+  // No per-peer mute storage exists yet: the wire contract's PeerSnapshot
+  // carries `muted?`, but multiplayer/store.ts has no field for it and this
+  // module doesn't extend that file. This just confirms the relay is
+  // received without crashing — storage can be added once something
+  // actually renders it (e.g. a muted-mic icon on a nametag so peers can
+  // see who is muted).
   socket?.on('peer:mute', (payload: unknown) => {
     if (!isPeerMutePayload(payload)) {
       return
@@ -371,7 +368,7 @@ function registerSignalHandlers(): void {
 let initialized = false
 
 /**
- * Idempotent entry point (decision #1, PLAN.md "Phase 4B"): sets up the
+ * Idempotent entry point: sets up the
  * subscription that drives the whole peer-connection lifecycle from
  * multiplayer/store.ts's `peerIds`, diffing the previous array against the
  * new one on every change to detect peers that appeared vs. disappeared.

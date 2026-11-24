@@ -6,8 +6,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useVoiceStore } from 'src/voice/store'
 
 // ---------------------------------------------------------------------------
-// Mic-state HUD chip (PLAN.md "Phase 4B — Spatial voice chat" / VF5 —
-// ORCHESTRATE.md §2's "Scene/MicIndicator.tsx" contract). Purely
+// Mic-state HUD chip. Purely
 // presentational: reads `useVoiceStore` and renders one of three states.
 // Matches the tone of Scene.tsx's existing overlay chrome (small,
 // translucent `bg-black/60`, `text-xs`/`text-sm`) rather than introducing a
@@ -21,8 +20,7 @@ import { useVoiceStore } from 'src/voice/store'
 // `ensureLocalStream()`'s observable outcome):
 //   - `'denied'` — a browser/hardware constraint the user can't fix from
 //     here (permission refused, no device, unsupported browser, or SSR).
-//     Icon + a one-line note (PLAN.md's "on denial ... surface a one-line
-//     note"), tinted amber so it never reads as the same thing as a
+//     Icon + a one-line note, tinted amber so it never reads as the same thing as a
 //     self-chosen mute.
 //   - `'granted' && muted` — the user's OWN reversible choice (`M` in
 //     viewControls.ts toggles it back). Icon only, neutral tone.

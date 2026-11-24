@@ -31,7 +31,7 @@ const DEFAULT_SNAPSHOT_A: PeerSnapshot = {
   y: 0,
   a: 'idle',
   // `handleConnection` seeds every new roster entry with `seatId: null`
-  // (ORCHESTRATE.md §1) — an explicit `null`, not an absent key, so `toEqual`
+  // — an explicit `null`, not an absent key, so `toEqual`
   // (which distinguishes `null` from a missing/`undefined` property) needs
   // it spelled out here too.
   seatId: null,
@@ -57,7 +57,7 @@ const VALID_TABLET_STATE: TabletState = {
   scrollTop: 0,
 }
 
-// A well-formed `load` payload (ORCHESTRATE.md §1's `entry` shape) — the
+// A well-formed `load` payload — the
 // server fills in `entryId` (randomUUID) and `addedBy` (from the session),
 // so neither is client-supplied and neither appears here.
 const VALID_LOAD_ENTRY: Extract<VideoCommand, { kind: 'load' }>['entry'] = {
@@ -786,8 +786,8 @@ describe('PresenceGateway.handleDisconnect — seat cleanup', () => {
 
     gateway.handleDisconnect(asClientSocket(clientA))
 
-    // PLAN.md calls a leaked seat "the single most likely bug in the
-    // phase" — assert the broadcast directly, not just indirectly through
+    // A leaked seat is the single most likely bug in the
+    // phase — assert the broadcast directly, not just indirectly through
     // the re-claim below.
     expect(clientA.to).toHaveBeenCalledWith(THEATER_ROOM)
     expect(clientA.roomEmit).toHaveBeenCalledWith('peer:seat', {

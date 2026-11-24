@@ -15,7 +15,7 @@ import { RemoteIpad } from './RemoteIpad'
 import { getSeat } from './seats'
 import { sampleAt } from './snapshotInterp'
 
-// The Option B per-peer composition root (ORCHESTRATE.md §3 / PLAN.md "F4").
+// The Option B per-peer composition root.
 // <RemoteAvatars> maps the zustand-visible `peerIds` (multiplayer/store.ts
 // -- changes only on join/leave) to one <RemoteAvatar> per peer.
 // <RemoteAvatar> is a thin shell that owns the interpolated <group>
@@ -30,17 +30,14 @@ import { sampleAt } from './snapshotInterp'
 // Phase 5 (F5) extends this shell with seating: when `peerSeats[id]`
 // (multiplayer/store.ts, F3) names a seat, <RemoteAvatar> stops sampling the
 // interpolation buffer altogether and instead pins the group transform to
-// that seat (PLAN.md's "Risks & gotchas: seated presence goes silent" -- a
-// seated peer sends no `presence` packets at all, so `sampleAt` would
-// otherwise hold forever at their last walking sample). `animState` is
+// that seat. `animState` is
 // driven by a small local one-shot state machine, not directly by `seatId`
 // -- see the seat-transition block inside <RemoteAvatar> for exactly why
-// the two have to be kept separate (ORCHESTRATE.md §1's seated state
-// machine / PLAN.md's "Sit-down replay on join" risk).
+// the two have to be kept separate.
 
 // How far in the past to render each remote peer (snapshotInterp.ts) --
 // buffered snapshot interpolation, replacing an earlier per-frame damp
-// straight toward the latest ~13 Hz network packet (ORCHESTRATE.md §1),
+// straight toward the latest ~13 Hz network packet,
 // which pulsed the rendered speed at the packet rate (see
 // multiplayer/store.ts's PeerBuffer comment and snapshotInterp.ts's header
 // for the full explanation). ~2x the nominal ~77ms packet gap: comfortably
@@ -57,7 +54,7 @@ const INTERP_DELAY_MS = 150
 // value into occasional React state"). ~10 Hz still tracks a peer speeding
 // up/slowing down closely enough for <Avatar>'s timeScale, while capping a
 // moving peer to ~10 extra re-renders/sec -- negligible at the ≤8-peer scale
-// ORCHESTRATE.md §3 frames this cost against.
+// this cost is sized against.
 const SPEED_STATE_INTERVAL_S = 0.1
 
 // Below this delta (m/s), a throttled `speed` state update is skipped
@@ -133,8 +130,7 @@ function RemoteAvatar({ id }: RemoteAvatarProps) {
   const meta = useMultiplayerStore(state => state.peerMeta[id])
   // Absent/`undefined` = standing (multiplayer/store.ts's peerSeats comment)
   // -- `seatId` is the ONLY source of truth for "is this peer sitting"
-  // (ORCHESTRATE.md §1's wire invariants: "seatId -- not an AnimState --
-  // means 'is sitting'"). The seat-transition block below reacts to CHANGES
+  //. The seat-transition block below reacts to CHANGES
   // in this value to drive the local one-shot machine; the wire-sampled
   // branch of the useFrame further down (unchanged from before Phase 5)
   // still drives `animState` the rest of the time -- the two never run in
@@ -186,8 +182,7 @@ function RemoteAvatar({ id }: RemoteAvatarProps) {
   // becoming known to us (peerIds changes only on join/leave, per this
   // file's own header comment), so a peer already seated at that instant
   // (peers:init's bulk seed, or a peer:join that already carried `seatId`)
-  // is a STEADY STATE, not a transition (ORCHESTRATE.md §1's seated state
-  // machine note / PLAN.md's "Sit-down replay on join" risk) -- straight to
+  // is a STEADY STATE, not a transition -- straight to
   // 'sitting', no `sit_down` replay. `useState`'s lazy-initializer form runs
   // exactly once, at mount, which is what makes this the steady-state path
   // with no ref/effect bookkeeping of its own.
@@ -201,8 +196,8 @@ function RemoteAvatar({ id }: RemoteAvatarProps) {
   // `animState` is above: whatever `seatId` already is at first render. Set
   // at the START of `sit_down` (the clip is rotation-only after
   // stripToRotation, so the seat position must already be correct for the
-  // pose to land right -- A1's root-motion note / PLAN.md's "Sit pose
-  // alignment" risk) and left set through `sitting`. On the way back out,
+  // pose to land right -- see the root-motion note on sit-pose alignment)
+  // and left set through `sitting`. On the way back out,
   // `seatId` itself is already gone by the time `stand_up` starts, so THIS
   // -- not `seatId` -- is what lets the useFrame below keep rendering the
   // peer AT the seat for the whole of `stand_up`; only
@@ -255,20 +250,17 @@ function RemoteAvatar({ id }: RemoteAvatarProps) {
       // was just sitting in). onOneShotEnd('stand_up') is what clears it
       // and resumes buffer sampling -- expect a short glide once it does,
       // since the peer's first fresh presence packet may be a few hundred
-      // ms stale (PLAN.md's F5 section: acceptable, cheaper than
-      // special-casing).
+      // ms stale.
       setSpeed(0)
       setAnimState('stand_up')
     }
   }
 
-  // The shell's single useFrame (ORCHESTRATE.md §3). While seated (or
+  // The shell's single useFrame. While seated (or
   // transitioning into/out of a seat -- `snappedSeatId` covers all three of
   // sit_down/sitting/stand_up), pin the group transform to the seat table
   // instead of sampling the peer's buffered network snapshots -- otherwise
-  // sampleAt would hold forever at the peer's last walking sample (PLAN.md's
-  // "Risks & gotchas: seated presence goes silent" -- a seated peer sends no
-  // `presence` packets at all). Otherwise, unchanged from before Phase 5:
+  // sampleAt would hold forever at the peer's last walking sample. Otherwise, unchanged from before Phase 5:
   // sample the peer's buffered network snapshots at a slightly-delayed
   // render time (snapshotInterp.ts), apply the result to the group
   // transform, and promote animState/speed into React state for <Avatar>'s
@@ -413,7 +405,7 @@ function RemoteAvatar({ id }: RemoteAvatarProps) {
     group.rotation.y = sampled.yaw
 
     // Throttled React-state promotion for <Avatar>'s plain-value props (see
-    // this file's header comment / ORCHESTRATE.md §3's contract note):
+    // this file's header comment):
     // discrete animState transitions are rare (a handful of times a
     // minute), so an every-frame equality check with no extra time-throttle
     // is cheap and safe -- it only ever calls setAnimState on an actual

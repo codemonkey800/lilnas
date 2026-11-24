@@ -32,7 +32,7 @@ import {
 } from './emby.service'
 
 // Shape of `GET /theater/playback/:id` — LOCKED IN by the already-shipped
-// `src/playback/store.ts` (ORCHESTRATE.md § "Backend endpoints"). `url` is
+// `src/playback/store.ts`. `url` is
 // already same-origin (`/api/theater/...`) so the store can use it as-is.
 interface PlaybackInfoResponseDto {
   mode: 'direct' | 'hls'
@@ -152,7 +152,7 @@ export class EmbyController {
     }
   }
 
-  // Range-forwarding direct-play proxy (PLAN.md § "Direct-play proxy").
+  // Range-forwarding direct-play proxy.
   // Re-resolves PlaybackInfo (no params — direct-play eligibility doesn't
   // depend on bitrate/start caps) on every call since every seek reopens
   // this route with a fresh Range header; stateless by design, same as the
@@ -187,7 +187,7 @@ export class EmbyController {
     ])
   }
 
-  // Stateless HLS proxy (ORCHESTRATE.md § "Backend endpoints"). Decodes the
+  // Stateless HLS proxy. Decodes the
   // opaque token back to an Emby path+query, fetches it, and either
   // rewrites-and-returns playlist text or pipes segment bytes straight
   // through — no in-memory session map, so this same handler transparently
@@ -224,7 +224,7 @@ export class EmbyController {
     this.forwardResponse(upstream, res, ['content-type', 'content-length'])
   }
 
-  // WebVTT proxy. Route gotcha (ORCHESTRATE.md): `:index` has NO literal
+  // WebVTT proxy. Route gotcha: `:index` has NO literal
   // `.vtt` suffix in the pattern — dotted-suffix param syntax is
   // version-fragile across path-to-regexp releases, and dots aren't path
   // separators, so a request for `.../3.vtt` still matches `:index` as the

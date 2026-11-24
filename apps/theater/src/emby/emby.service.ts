@@ -13,9 +13,7 @@ import { EnvKeys } from 'src/env'
 import type { ItemImageQuery, PlaybackQuery } from './emby.schema'
 
 // ---------------------------------------------------------------------------
-// Emby client identity (ORCHESTRATE.md § "Backend endpoints" — DeviceId is a
-// fixed backend-wide constant; the backend, not the browser, is the actual
-// Emby client of record). Reused for every PlaybackInfo POST and every
+// Emby client identity. Reused for every PlaybackInfo POST and every
 // stop-transcode DELETE so Emby can always attribute/clean up sessions
 // opened by this app.
 // ---------------------------------------------------------------------------
@@ -275,7 +273,7 @@ export class EmbyService implements OnModuleInit {
   // browser-singleton concerns that motivate `store.ts`'s module-level state.
   private cachedUserId: string | null = null
 
-  // Optional boot-time check only (PLAN.md B2) — never thrown out of here,
+  // Optional boot-time check only — never thrown out of here,
   // so a not-yet-configured EMBY_URL (e.g. the `change-me` placeholder)
   // logs a warning instead of blocking app startup.
   async onModuleInit(): Promise<void> {
@@ -516,8 +514,8 @@ export class EmbyService implements OnModuleInit {
   }
 
   // Cleanup needs both PlaySessionId (from the PlaybackInfo response) and
-  // the same DeviceId the client used when opening it — PLAN.md "Risks &
-  // gotchas: Transcode leaks".
+  // the same DeviceId the client used when opening it, or the transcode
+  // leaks.
   async stopTranscode(playSessionId: string): Promise<void> {
     const url = this.toAbsoluteEmbyUrl('/Videos/ActiveEncodings')
     url.searchParams.set('PlaySessionId', playSessionId)
@@ -582,9 +580,7 @@ export class EmbyService implements OnModuleInit {
     return this.withApiKey(this.toAbsoluteEmbyUrl(rawUrl))
   }
 
-  // Stateless HLS proxy target resolution (ORCHESTRATE.md § "Backend
-  // endpoints" — `:encodedPath` is an opaque base64url pointer, not a
-  // session id; no in-memory session map). Rejects tokens that don't decode
+  // Stateless HLS proxy target resolution. Rejects tokens that don't decode
   // to a path under EMBY_URL's own origin, and — since `token` is an
   // untrusted, client-constructible base64url string — also rejects paths
   // outside Emby's `/Videos/...` HLS/segment tree so this proxy can't be

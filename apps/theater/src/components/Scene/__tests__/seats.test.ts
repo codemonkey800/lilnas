@@ -41,7 +41,7 @@ describe('SEATS', () => {
     }
   })
 
-  // Every seat faces the screen (+Z) -- PLAN.md's "Seat data" section: the
+  // Every seat faces the screen (+Z): the
   // backrests all sit at more-negative Z than their own cushion.
   it('faces every seat toward the screen (yaw 0)', () => {
     expect(SEATS.every(seat => seat.yaw === 0)).toBe(true)
@@ -62,8 +62,8 @@ describe('getSeat', () => {
 })
 
 describe('findGazedFreeSeat', () => {
-  // Two real, adjacent seats (one seat-pitch apart, ~0.44m -- PLAN.md's
-  // "Seat data" section) double as this suite's fixtures, rather than
+  // Two real, adjacent seats (one seat-pitch apart, ~0.44m)
+  // double as this suite's fixtures, rather than
   // synthetic coordinates, since the function under test reads the real
   // module-level SEATS table directly (it takes no seat-list parameter).
   const seatA = seatOrThrow('r2s3')
@@ -112,10 +112,9 @@ describe('findGazedFreeSeat', () => {
   })
 
   // Standing right at a seat but looking straight up: several seats are
-  // well within range, but the rake's y-offset per row (PLAN.md: "+0.300
-  // m/row") never produces more than ~0.33 alignment against a purely
+  // well within range, but the rake's y-offset per row never produces more than ~0.33 alignment against a purely
   // vertical forward -- comfortably below the 35-degree floor -- so nothing
-  // qualifies as "looking at the seat block at all" (D9).
+  // qualifies as "looking at the seat block at all".
   it('returns null when in range but not looking closely enough at anything', () => {
     const result = findGazedFreeSeat(
       cushionA.clone(),

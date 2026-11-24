@@ -18,8 +18,7 @@ import {
 import { playerVelocity } from './playerVelocity'
 
 // ---------------------------------------------------------------------------
-// The local player's presence broadcaster (PLAN.md "F5" / ORCHESTRATE.md §1
-// "src/components/Scene/LocalPresence.tsx"). Renders nothing -- Phase 2
+// The local player's presence broadcaster. Renders nothing -- Phase 2
 // already decided the local player has no visible body of its own -- this is
 // purely a `useFrame` hook shape that reads the camera and emits the
 // `'presence'` wire event at a throttled, dead-banded rate. Meant to be
@@ -70,8 +69,7 @@ export type LocalPresenceProps = {
 // stands, at the seat's floor position.
 export const EYE_TO_FEET_HEIGHT_M = 1.3
 
-// Dead-band thresholds for the throttled emit below (ORCHESTRATE.md §1:
-// "~13 Hz, dead-banded"): only actually send a packet once per
+// Dead-band thresholds for the throttled emit below: only actually send a packet once per
 // PRESENCE_INTERVAL_S if position/yaw drifted past these since the LAST
 // EMIT (not just the last frame), or animState flipped -- so a stationary,
 // non-looking player emits nothing.
@@ -105,10 +103,9 @@ type LastEmitted = {
   anim: AnimState
 }
 
-// `characterId` is this component's declared prop (ORCHESTRATE.md §2's
-// dispatch table names `LocalPresence({ characterId })` explicitly), but it
-// never rides the `presence` wire event itself -- ORCHESTRATE.md §1 fixes
-// that payload at exactly `{ p, y, a }`. The id only ever travels once, in
+// `characterId` is this component's declared prop, but it
+// never rides the `presence` wire event itself -- that
+// payload is fixed at exactly `{ p, y, a }`. The id only ever travels once, in
 // the initial socket handshake (multiplayer/store.ts's
 // `connect(characterId)`), which is F2's job, not this component's -- so
 // it's structurally unused in this file's body. The `_`-prefixed local
@@ -142,8 +139,8 @@ export function LocalPresence({
     // Seated is the same story for a different reason (Phase 5, F4): a
     // seated player isn't moving at all, and every client derives the
     // seated transform from `seatId` (F3's `peerSeats`) + the shared seat
-    // table instead of presence -- ORCHESTRATE.md §1: "seatId -- not an
-    // AnimState -- is the single source of truth for 'is sitting'". Keyed
+    // table instead of presence -- `seatId`, not an
+    // AnimState, is the single source of truth for "is sitting". Keyed
     // off `mySeatId` rather than SeatedCamera.tsx's fuller
     // sit_down/sitting/stand_up phase because that's the exact same instant
     // the gateway's `peer:seat` broadcast flips peers over to rendering the
@@ -178,8 +175,7 @@ export function LocalPresence({
     const vx = playerVelocity.x
     const vz = playerVelocity.z
 
-    // Yaw only -- NEVER feed camera pitch into the broadcast body (PLAN.md
-    // Risks: "looking up/down must not tilt the body"). `getWorldDirection`
+    // Yaw only -- NEVER feed camera pitch into the broadcast body. `getWorldDirection`
     // returns the camera's full 3D look direction regardless of roll/pitch;
     // taking atan2 over just its XZ components extracts a pure compass
     // bearing that's robust to whatever pitch/roll the camera currently has

@@ -6,15 +6,14 @@ import { create } from 'zustand'
 
 // ---------------------------------------------------------------------------
 // Multiplayer presence client: a singleton Socket.IO connection to
-// `src/presence/presence.gateway.ts`, exposed through a zustand store, per
-// ORCHESTRATE.md §1's "src/multiplayer/store.ts" contract. Mirrors
+// `src/presence/presence.gateway.ts`, exposed through a zustand store. Mirrors
 // `src/playback/store.ts`'s architecture — a lazy module-level singleton
 // (never touched at module-eval time, since this module is imported by
 // 'use client' components that Next.js still module-evaluates during
 // SSR/RSC, where a socket handshake makes no sense yet) plus a zustand
 // `create<Store>((set, get) => {...})` factory.
 //
-// Split between what re-renders and what doesn't (ORCHESTRATE.md §1/§3):
+// Split between what re-renders and what doesn't:
 // `status`/`peerIds`/`peerMeta`/`peerTablets`/`peerSeats` are zustand state —
 // they only change on join/leave/nav, so a React re-render on them is fine,
 // and it's how `<RemoteAvatars>` mounts/unmounts one `<RemoteAvatar>` per peer.
@@ -24,8 +23,7 @@ import { create } from 'zustand'
 // avatar (and everything above it) 13 times a second. Each `<RemoteAvatar>`
 // (a later unit) reads its own buffer entry by id inside its own `useFrame`.
 //
-// StrictMode-safe deferred teardown (PLAN.md "Risks & gotchas: StrictMode
-// double-connect"; same class of race as the tdr-code logs-viewer bug):
+// StrictMode-safe deferred teardown:
 // React 19 + `next dev` double-invoke effects mean a mount sequence is
 // mount -> effect runs connect() -> cleanup runs disconnect() -> mount again
 // -> effect runs connect() again. If disconnect() tore the socket down
@@ -64,7 +62,7 @@ export type AnimState = (typeof ANIM_STATES)[number]
 // is one of four independent mirrors of this exact union — `tablet.schema.ts`'s zod enum, this type + `isTabletState`
 // below, `IpadBrowser.tsx`'s `BrowseState` + `buildTabletState`, and
 // `RemoteIpad.tsx`'s `TabletState -> BrowseState` reconstruction
-// (ORCHESTRATE.md §2/§3). A partial edit fails silently — a peer's tablet
+//. A partial edit fails silently — a peer's tablet
 // state just stops validating — so this copy is kept in sync by grepping the
 // union, not by the type checker.
 export type TabletState = {
@@ -95,7 +93,7 @@ export type PeerSnapshot = {
 }
 
 // ---------------------------------------------------------------------------
-// React-visible store shape (ORCHESTRATE.md §1) — changes only on
+// React-visible store shape — changes only on
 // join/leave/nav.
 // ---------------------------------------------------------------------------
 
@@ -120,14 +118,14 @@ export type MultiplayerStore = {
 }
 
 // ---------------------------------------------------------------------------
-// Module-level, non-React hot path (ORCHESTRATE.md §1) — mutated directly,
+// Module-level, non-React hot path — mutated directly,
 // never through `set()`.
 //
 // `PeerBuffer.samples` is a small ring buffer of recent network snapshots
 // (oldest first), not a single damped "target" — see
 // `Scene/snapshotInterp.ts`'s header comment for why: exponentially damping
-// straight toward only the latest ~13 Hz packet (the original F4 design,
-// PLAN.md's "pos.lerp(target, 1 - exp(-k*dt))") pulses the rendered speed at
+// straight toward only the latest ~13 Hz packet (the original design,
+// `pos.lerp(target, 1 - exp(-k*dt))`) pulses the rendered speed at
 // the packet rate, since a low-pass filter of a piecewise-constant signal is
 // itself never smooth. `Scene/RemoteAvatars.tsx` instead samples this buffer
 // at a slightly-delayed render time and blends between the two bracketing
@@ -142,12 +140,12 @@ export type PeerSnapshotSample = {
   animState: AnimState
 }
 
-// At the nominal ~13 Hz presence rate (~77ms/packet, ORCHESTRATE.md §1) this
+// At the nominal ~13 Hz presence rate (~77ms/packet) this
 // retains ~1.5s of history — several multiples of `Scene/RemoteAvatars.tsx`'s
 // ~150ms render delay, so an ordinary packet burst after a brief network
 // hiccup never evicts a snapshot the render pointer still needs. Purely a
 // hard memory ceiling, not a tuned value — trivial cost either way at the
-// ≤8-peer scale ORCHESTRATE.md §3 frames this cost against.
+// ≤8-peer scale this cost is sized against.
 const MAX_SNAPSHOT_SAMPLES = 20
 
 export type PeerBuffer = {
@@ -329,7 +327,7 @@ export function isPeerTabletPayload(
   return isNonEmptyString(v.id) && isTabletState(v)
 }
 
-// `peer:seat` payload (ORCHESTRATE.md §1). `seatId: null` is a distinct,
+// `peer:seat` payload. `seatId: null` is a distinct,
 // meaningful case ("stood up") rather than a missing field — it's what tells
 // the `peer:seat` handler below to delete the `peerSeats` entry instead of
 // storing it, keeping "absent" the one representation of "standing".

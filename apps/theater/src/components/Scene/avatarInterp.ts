@@ -1,5 +1,5 @@
 // Pure, framework-free angle-damping helper for the F4 <RemoteAvatar> shell
-// (ORCHESTRATE.md §3 / PLAN.md "F4"). Kept in its own file, with no
+//. Kept in its own file, with no
 // react-three-fiber import, for two reasons that both matter here:
 //
 //   - Testability: this app's jest config (jest.config.js) only registers a

@@ -10,9 +10,8 @@ import { peerBuffers, useMultiplayerStore } from 'src/multiplayer/store'
 import { gazeAlignment, nextGazeState, perpendicularDistanceM } from './gaze'
 import { theaterEnvRef } from './Theater'
 
-// Fills the F4-created stub -- RemoteAvatars.tsx already mounts `<NameTag id={id} />` inside
-// <RemoteAvatar>'s interpolated <group> and is never touched by this unit (ORCHESTRATE.md §2's
-// stub-handoff rule). Per ORCHESTRATE.md §3 / PLAN.md's F7 section, every child of
+// Fills the stub -- RemoteAvatars.tsx already mounts `<NameTag id={id} />` inside
+// <RemoteAvatar>'s interpolated <group> and is never touched by this unit. Every child of
 // <RemoteAvatar> takes only `{ id }` and reads its hot per-frame data from `peerBuffers` / the
 // stores by id -- never a per-frame prop -- so this component owns its own small `useFrame`
 // instead of being driven by its parent.
@@ -40,7 +39,7 @@ const HEAD_MARGIN_M = 0.15
 // Frame-rate-independent fade lambda -- THREE.MathUtils.damp's `1 - exp(-lambda*dt)` shape, the
 // same family RemoteAvatars.tsx already uses for position/yaw (see that file's
 // POSITION_DAMP_LAMBDA comment for the t_95 = 3/lambda derivation this reuses). lambda=12 reaches
-// ~95% of the way to its on/off target in ~0.25s, inside PLAN.md's F7 section's requested
+// ~95% of the way to its on/off target in ~0.25s, inside the targeted
 // ~0.2-0.3s fade feel.
 const OPACITY_DAMP_LAMBDA = 12
 
@@ -53,7 +52,7 @@ const MIN_VISIBLE_OPACITY = 0.01
 
 // Occlusion raycast throttle (~15Hz) -- the same elapsed-time-accumulator shape as Player.tsx's
 // TELEMETRY_INTERVAL_S. A raycast is far pricier than the dot-product gaze test above it, and
-// only worth paying for peers already inside the gaze cone (PLAN.md's F7 section).
+// only worth paying for peers already inside the gaze cone.
 const OCCLUSION_CHECK_INTERVAL_S = 1 / 15
 
 // Scratch objects reused across every <NameTag> instance's useFrame rather than allocated fresh
@@ -65,9 +64,7 @@ const scratchTagWorldPos = new Vector3()
 const scratchCamForward = new Vector3()
 const scratchToTag = new Vector3()
 
-// A single reused raycaster for every peer's throttled occlusion check (PLAN.md's F7 section:
-// "cast a single reused module-level THREE.Raycaster" -- far pricier to allocate per-instance
-// than the dot-product math above).
+// A single reused raycaster for every peer's throttled occlusion check.
 const raycaster = new Raycaster()
 
 // drei's <Text> forwards its ref straight to the underlying troika-three-text mesh (see
@@ -91,7 +88,7 @@ function isOccluded(camPos: Vector3, targetPos: Vector3): boolean {
   const envRoot = theaterEnvRef.current
   if (!envRoot) {
     // Theater.tsx's effect hasn't run yet (first frames) -- treat as a clear line of sight,
-    // per PLAN.md's F7 section ("Treat an unset ref (first frames) as not-occluded").
+    // (an unset ref in the first frames counts as not-occluded).
     return false
   }
 
@@ -117,7 +114,7 @@ export function NameTag({ id }: NameTagProps) {
   const billboardRef = useRef<Group>(null)
   const textRef = useRef<TroikaTextMesh | null>(null)
 
-  // No-re-render discipline (ORCHESTRATE.md §3 / PLAN.md's F7 section): the gaze on/off flag,
+  // No-re-render discipline: the gaze on/off flag,
   // the last occlusion result, the damped opacity, and the occlusion throttle timer all live in
   // refs, never React state. A `useState` gaze flag would re-render this peer's <NameTag> on
   // every single look-toward/away transition -- exactly the per-frame-churn problem the

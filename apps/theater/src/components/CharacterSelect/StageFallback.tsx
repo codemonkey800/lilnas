@@ -76,7 +76,7 @@ export type NoWebglFallbackProps = {
 }
 
 // The floor when there's no WebGL at all — today's original name-card list
-// (PLAN.md §4's "no-WebGL: fall back to a name-card list"), so a browser
+//, so a browser
 // that can't run the 3D stage still gets a fully functional picker.
 export function NoWebglFallback({
   characters,

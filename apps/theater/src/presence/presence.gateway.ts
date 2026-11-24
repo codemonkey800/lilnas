@@ -69,7 +69,7 @@ type PresenceServer = Server<
   PresenceSocketData
 >
 
-// Roster entry shape (ORCHESTRATE.md §1) — exported so later units (B4's
+// Roster entry shape — exported so later units (B4's
 // gateway tests, and anything else that needs it) don't have to redeclare
 // it.
 export interface PeerSnapshot {
@@ -84,7 +84,7 @@ export interface PeerSnapshot {
   seatId?: string | null
 }
 
-// Dev-only CORS (PLAN.md "Routing"): native `pnpm dev` serves the browser
+// Dev-only CORS: native `pnpm dev` serves the browser
 // page from FRONTEND_PORT while this gateway listens on BACKEND_PORT, so the
 // handshake is cross-port in dev and needs an explicit allow + credentials.
 // Read from `FRONTEND_PORT` (falling back to the `.env.example` default of
@@ -115,11 +115,11 @@ type RateLimitField =
   | 'lastVideoCommandAt'
   | 'lastTimePingAt'
 
-// `seat:claim` ack (ORCHESTRATE.md §1) — the server is the sole arbiter of
+// `seat:claim` ack — the server is the sole arbiter of
 // occupancy, so every claim resolves to exactly one of these two shapes.
 type SeatClaimAck = { ok: true } | { ok: false; reason: 'taken' | 'unknown' }
 
-// Room-wide video state (ORCHESTRATE.md §1 / PLAN.md "B3b") — the
+// Room-wide video state — the
 // server-held anchor every client's `applyAnchor()` converges on. Not
 // exported: nothing outside this file needs to name it, mirroring
 // `PeerSnapshot`'s narrower export scope for its own sibling types.
@@ -131,8 +131,7 @@ type RoomVideoState = {
 }
 
 // Fresh, empty room state — shared by the class field's initial value and
-// by the "last peer left" reset in `handleDisconnect` (PLAN.md "B3b": "so a
-// new session doesn't inherit yesterday's playhead"). A plain
+// by the "last peer left" reset in `handleDisconnect`. A plain
 // function rather than a class method since it closes over nothing and
 // needs a fresh `Date.now()` at each call site, not just at construction
 // time.
@@ -162,14 +161,14 @@ export class PresenceGateway
   // `EmbyService`'s `cachedUserId`.
   private readonly roster = new Map<string, PeerSnapshot>()
 
-  // seatId -> holder socket id (ORCHESTRATE.md §1 / PLAN.md "B3a") — the
+  // seatId -> holder socket id — the
   // reverse of the `seatId` each roster entry above carries (socket ->
   // seatId). The two are always mutated together, so a seat can never be
   // claimed by two sockets and a socket's `seatId` never points at a seat
   // this map doesn't also reserve for it.
   private readonly seats = new Map<string, string>()
 
-  // Room-wide video state (ORCHESTRATE.md §1 / PLAN.md "B3b"). `current` is
+  // Room-wide video state. `current` is
   // the one title the room is on — loading another replaces it; `playing` /
   // `playhead` / `atServerMs` are the playback anchor.
   // `atServerMs` pairs with `playhead`: whenever `playing` is true, the true
@@ -217,7 +216,7 @@ export class PresenceGateway
     }
 
     // Snapshot BEFORE adding this client's own entry, so a joiner never sees
-    // itself in its own `peers:init` list (ORCHESTRATE.md §1).
+    // itself in its own `peers:init` list.
     client.emit('peers:init', Array.from(this.roster.values()))
     // Deliberately NOT also emitting `video:state` here
     // (bugfix — this used to be "the entire late-join story for video
@@ -253,8 +252,8 @@ export class PresenceGateway
 
   handleDisconnect(client: PresenceSocket): void {
     // Free any seat this client held, unconditionally, alongside whatever
-    // roster/voice/tablet cleanup follows below — PLAN.md calls a leaked
-    // seat "the single most likely bug in the phase": without this,
+    // roster/voice/tablet cleanup follows below — a leaked
+    // seat is the single most likely bug here: without this,
     // `seats` keeps mapping a now-disconnected socket id forever and the
     // seat can never be claimed again.
     const peer = this.roster.get(client.id)
@@ -270,8 +269,7 @@ export class PresenceGateway
     this.logger.log(`peer left: ${client.id}`)
 
     // Last peer left — reset the room's video state so tomorrow's
-    // session doesn't inherit today's title and playhead (PLAN.md
-    // "B3b").
+    // session doesn't inherit today's title and playhead.
     if (this.roster.size === 0) {
       this.roomVideo = createInitialRoomVideo()
     }
@@ -327,8 +325,7 @@ export class PresenceGateway
       return
     }
 
-    // Never log `data` — it may carry SDP/ICE (ORCHESTRATE.md § security
-    // checklist / PLAN.md "Voice (4B)").
+    // Never log `data` — it may carry SDP/ICE.
     this.server.to(to).emit('rtc:signal', { from: client.id, data })
   }
 
@@ -538,8 +535,7 @@ export class PresenceGateway
   }
 
   // The TRUE playhead right now, accounting for elapsed wall-clock time
-  // since the last anchor while playing (ORCHESTRATE.md §1: "playhead
-  // already advanced to broadcast time"). Every transition that changes
+  // since the last anchor while playing. Every transition that changes
   // `playing` or jumps to a new position must re-anchor `playhead` /
   // `atServerMs` to this value *before* mutating, so the stored pair is
   // never left momentarily inconsistent with `playing`.
@@ -576,7 +572,7 @@ export class PresenceGateway
   }
 
   // Whole-room broadcast INCLUDING the sender (`this.server.to`, never
-  // `client.to`) — ORCHESTRATE.md §1 invariant 2 — so every client,
+  // `client.to`) — a wire-contract invariant — so every client,
   // including whoever issued the command, converges on the exact same
   // anchor. Never mutates `roomVideo`; a pure read + broadcast.
   private broadcastVideoState(): void {
@@ -607,8 +603,7 @@ export class PresenceGateway
   }
 
   // Every client's <video> fires `ended` at roughly the same moment and each
-  // emits this; only the first still matches the current entry (ORCHESTRATE.md
-  // §1 invariant 4) — the dedup. It also drops a late report for a title that
+  // emits this; only the first still matches the current entry — the dedup. It also drops a late report for a title that
   // has since been replaced, which must not stop what's playing now.
   private videoEnded(entryId: string): void {
     if (entryId !== this.roomVideo.current?.entryId) {
@@ -648,7 +643,7 @@ export class PresenceGateway
   }
 
   // Per-socket "min interval since last ACCEPTED message" flood guard
-  // (PLAN.md "B3"). Only advances `field` when the message is accepted, so a
+  //. Only advances `field` when the message is accepted, so a
   // burst of rejected messages never pushes the floor further out — as soon
   // as `minIntervalMs` has elapsed since the last accepted message, the very
   // next one is let through regardless of how many were dropped in between.

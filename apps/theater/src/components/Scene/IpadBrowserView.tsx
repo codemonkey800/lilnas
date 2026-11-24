@@ -11,8 +11,7 @@ import { type QualityTier, type SubtitleTrack } from 'src/playback/store'
 import { filterLibraryItems, type LibraryTypeFilter } from './libraryFilter'
 
 // ---------------------------------------------------------------------------
-// Presentational half of the IpadBrowser.tsx split (PLAN.md "Phase 4C —
-// Tablet presence + UI mirroring" / ORCHESTRATE.md §2, unit TF1): everything
+// Presentational half of the IpadBrowser.tsx split: everything
 // the tablet's <Html transform occlude> panel used to render inline —
 // header, search box, type-filter pills, back button, poster grid, seasons
 // list, episodes list, and the playback-controls footer — now lives here as
@@ -34,8 +33,7 @@ import { filterLibraryItems, type LibraryTypeFilter } from './libraryFilter'
 //     omit all of them (every handler below invokes its prop via `?.()`, a
 //     no-op when the prop is absent) — and the root panel gets
 //     `pointer-events-none`, so it can never become a control surface for
-//     whoever is looking at someone else's tablet (PLAN.md's Phase 4C
-//     security note: "the remote view is render-only").
+//     whoever is looking at someone else's tablet.
 //
 // IpadBrowser.tsx owns the 3D tablet body (the RoundedBox mesh) and the
 // camera-relative HUD positioning that places this panel in front of the
@@ -43,8 +41,7 @@ import { filterLibraryItems, type LibraryTypeFilter } from './libraryFilter'
 // <Html> panel's DOM content.
 // ---------------------------------------------------------------------------
 
-// Shape of `GET /theater/items` (ORCHESTRATE.md § "Backend endpoints",
-// matching `src/emby/emby.service.ts`'s `TheaterItemDto`) — not part of any
+// Shape of `GET /theater/items` — not part of any
 // shared types package, so hand-mirrored here (the same convention this
 // app's frontend/backend boundary already uses elsewhere). `type` has to be
 // kept in sync with that backend DTO by hand. Exported so IpadBrowser.tsx —
@@ -90,7 +87,7 @@ export type TheaterEpisode = {
 // `multiplayer/store.ts`'s type + `isTabletState`, this union +
 // `IpadBrowser.tsx`'s `buildTabletState`, and `RemoteIpad.tsx`'s
 // `TabletState -> BrowseState` reconstruction are the other three
-// (ORCHESTRATE.md §3). A partial edit fails silently — a peer's tablet state
+//. A partial edit fails silently — a peer's tablet state
 // just stops validating or renders the wrong view — so grep the union rather
 // than trusting the type checker to connect the copies.
 //
@@ -234,7 +231,7 @@ function LibraryImage({
 // `dragValue` is local, ephemeral DOM-interaction bookkeeping — same
 // category as `LibraryImage`'s `broken` flag above, NOT app/store state —
 // so it living here doesn't violate this file's "never reads a store" rule
-// (ORCHESTRATE.md §3): `playhead`/`duration`/`onSeek` are still the only
+//: `playhead`/`duration`/`onSeek` are still the only
 // inputs, all props.
 //
 // It has to live here rather than in the caller (IpadBrowser.tsx) because
