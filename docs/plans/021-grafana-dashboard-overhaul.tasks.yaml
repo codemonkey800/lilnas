@@ -854,7 +854,8 @@ phases:
           - H2
         files:
           - infra/monitoring/grafana/provisioning/dashboards/json/postgres.json
-        status: todo
+        status: partial
+        commit: 4b6cfeaa53ee3739b7dbe475b3f4130cca121eaa
         body: |-
           Create `infra/monitoring/grafana/provisioning/dashboards/json/postgres.json` (uid
           `lilnas-postgres`, title `Postgres`, tags `lilnas`, `postgres`).

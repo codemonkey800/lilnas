@@ -640,3 +640,32 @@ Deliberate differences: "Media exporters up" uses `up{job=~"sonarr|radarr|sabnzb
 Observed live (lilnas-prometheus-1): smartctl_device_smart_status, smartctl_device_attribute, smartctl_device_media_errors, smartctl_device_temperature (13 drives, job smartctl); pg_up (3 series by server); up for sonarr/radarr/sabnzbd jobs; sabnzbd_queue_length (0).
 check-dashboards lint ok. live: lilnas-overview: 23 OK, 0 EMPTY, 2 EMPTY (event-driven), 0 ERROR (the two event-driven panels, #3 and #8, are pre-existing and already have Event-driven: descriptions).
 Checks passed: dashboard jq/uid check, promtool check config, compose config (monitoring + immich), prettier -c, jest (3 suites, 99 tests). I created no throwaway containers; temp files /tmp/t16.* removed. Two other tasks' containers (mon-rig-t13-grafana, mon-rig-pgexp) were running and left alone.
+
+### 2026-11-24 · T15 · partial
+Dashboard uid lilnas-postgres, title Postgres, tags lilnas+postgres, id null, one dashboards link, variable `server` (label_values(pg_up, server), multi, All, allValue `.+`). 34 panels in the seven requested sections. All five checks pass (jq/uid check, promtool, compose config, prettier, jest 99 tests); lint ok for all 9 dashboards.
+
+Live summary (check-dashboards.mjs live, panel counts):
+  server=All:              33 OK, 0 EMPTY, 1 EMPTY (event-driven), 0 ERROR
+  server=immich-database:  33 OK, 0 EMPTY, 1 EMPTY (event-driven), 0 ERROR
+  server=tdr-bot-db:       30 OK, 3 EMPTY, 1 EMPTY (event-driven), 0 ERROR
+  server=icloud-backup-db: 30 OK, 3 EMPTY, 1 EMPTY (event-driven), 0 ERROR
+The event-driven one is "Errors and fatals per server" (Loki, 5 minute window); its description starts "Event-driven:". The Errors and fatals logs panel has data over 24h.
+
+The 3 EMPTY panels on PG 18 servers (not event-driven, so an honest EMPTY):
+  #29 Checkpoints per minute, #30 Checkpoint write and sync time: wait on the exporter `stat_checkpointer` collector. On PG 18 `pg_stat_bgwriter` no longer holds checkpoint counters, and the PG 18 exporters (tdr-bot, icloud-backup) do not run `--collector.stat_checkpointer`. The queries are `pg_stat_checkpointer_* or pg_stat_bgwriter_*`, so immich-database (PG 14) shows today and the PG 18 servers fill in once the collector is on. "Buffers written" shows PG 18 only for bgwriter and alloc until then.
+  #33 Backend buffer writes (PG 14 only): pg_stat_bgwriter_buffers_backend_total and _backend_fsync_total do not exist on PG 17+; named in the title.
+Metrics that do not exist on PG 14: pg_stat_checkpointer_* (PG 17+); on PG 18: pg_stat_bgwriter_checkpoints_*, checkpoint_write/sync_time, buffers_checkpoint, buffers_backend*.
+
+Where each metric family was observed:
+  Live in Prometheus (job postgres, 2026-11-24): pg_up, pg_static (short_version, version labels), pg_settings_max_connections, pg_database_size_bytes, pg_stat_database_* (numbackends, deadlocks, xact_commit/rollback, tup_*, blks_hit/read, temp_files/bytes), pg_stat_activity_count, pg_stat_activity_max_tx_duration, pg_locks_count, pg_long_running_transactions, pg_wal_size_bytes, pg_stat_user_tables_* (table_size_bytes, n_live_tup, n_dead_tup, last_autovacuum), pg_stat_bgwriter_* (alloc, clean, maxwritten_clean on all three; checkpoints_*, checkpoint_*_time, buffers_checkpoint, buffers_backend* on immich only); cAdvisor container_cpu_usage_seconds_total, container_memory_working_set_bytes, container_fs_reads/writes_bytes_total, container_start_time_seconds for lilnas-{tdr-bot-db,icloud-backup-db,immich-database}-1.
+  Throwaway exporter scrape (quay.io/prometheuscommunity/postgres-exporter:v0.21.1 with --collector.stat_checkpointer against tdr-bot-db): pg_stat_checkpointer_num_timed_total, num_requested_total, write_time_total, sync_time_total, buffers_written_total (plus restartpoints_*, stats_reset_total).
+No postmaster start-time metric is exported, so Uptime uses time() - container_start_time_seconds (the container's main process is Postgres).
+tdr-bot-db checkpointer tables (checkpoints, checkpoint_blobs, checkpoint_writes, checkpoint_migrations) get a named table panel and a size-over-time panel that ignore $server, so they show at every selection.
+
+Throwaway cleanup: container mon-rig-pgexp removed with `docker rm -f`; the curl helper ran with --rm; the decrypted temp env dir under /tmp deleted; /tmp helper files removed. `docker ps -a --filter name=mon-rig-` now lists only mon-rig-t13-grafana, which belongs to another task (T13) and was left alone. Tree clean.
+No secret value printed or committed (the throwaway used an --env-file, not command-line values).
+
+Defects:
+
+- not blocking · PG 18 checkpoint panels have no data until the exporter stat_checkpointer collector is on · infra/monitoring.yml postgres-exporter-tdr-bot and postgres-exporter-icloud-backup commands
+  live --var server=tdr-bot-db: EMPTY #29 Checkpoints per minute, #30 Checkpoint write and sync time; pg_stat_checkpointer_num_timed_total returns 0 series in Prometheus
