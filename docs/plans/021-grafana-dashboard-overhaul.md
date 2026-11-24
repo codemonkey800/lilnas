@@ -716,3 +716,8 @@ Serial numbers not shown or reported. Checks: all five pass (promtool valid, com
 
 ### 2026-11-24 · T19 · done
 Added --collector.stat_checkpointer to postgres-exporter-tdr-bot and postgres-exporter-icloud-backup only (immich is PG14, no pg_stat_checkpointer view). Updated the comment block above the three exporters. No dashboard edits, no containers started, no throwaway containers or temp files created. The T15 defect (PG 18 checkpoint panels empty) is resolved in config and takes effect on the next push; the push task should confirm pg_stat_checkpointer_* appears for tdr-bot-db and icloud-backup-db in production Prometheus. The change under infra/monitoring.yml makes CI run `up -d` for the monitoring services, which recreates only exporters whose config changed.
+
+### 2026-11-24 · T12 · defects → R7
+T12 reported 1 blocking defect at attempt 6, sent to R7; it runs again at round 4 to re-check.
+
+- R7 · tdr-bot fix 101aa1d6 not on main; tdr-bot image not rebuilt or deployed (`origin/main (394431e0) vs branch HEAD; ci.yml run 45352251208`): git merge-base --is-ancestor 101aa1d6 origin/main => not ancestor; run 45352251208 conclusion=failure; lilnas-tdr-bot-1 image tag :latest, started 2026-11-22T22:40:25Z; count(tdr_bot_llm_retries_total)=0, count(tdr_bot_llm_schema_failures_total)=0; tdr-bot up=1 on the old image. Needs a human-approved push of 101aa1d6 to main, then CI green, tdr-bot recreated on the pushed sha, both series at 0 and a clean log.
