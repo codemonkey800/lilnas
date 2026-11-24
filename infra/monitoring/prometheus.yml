@@ -70,3 +70,14 @@ scrape_configs:
     scrape_interval: 60s
     static_configs:
       - targets: ['exportarr-sabnzbd:9709']
+
+  # Needs IMMICH_TELEMETRY_INCLUDE=all on the immich service (infra/immich.yml).
+  # The API worker serves metrics on 8081, the microservices worker on 8082.
+  - job_name: immich
+    static_configs:
+      - targets: ['immich:8081']
+        labels:
+          component: api
+      - targets: ['immich:8082']
+        labels:
+          component: microservices

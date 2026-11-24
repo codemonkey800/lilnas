@@ -18,6 +18,10 @@ services:
       - /etc/localtime:/etc/localtime:ro
     env_file:
       - .env.decrypted
+    environment:
+      # Serves Prometheus metrics on 8081 (api) and 8082 (microservices) inside
+      # the container; scraped by infra/monitoring/prometheus.yml, no published port.
+      IMMICH_TELEMETRY_INCLUDE: all
     depends_on:
       - immich-redis
       - immich-database
