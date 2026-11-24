@@ -966,3 +966,93 @@ phases:
           Approve to finish the run. Request changes with comments for anything to fix; fixes
           ship with a follow-up push you approve. Alerts are the next piece of work and are not
           part of this run.
+  - key: R1
+    name: Review remediation
+    tasks:
+      - id: R1
+        title: P1 Probe panels flooded by own nexus-code/SABnzbd traffic; 'no error back' always red
+        after: []
+        files:
+          - infra/monitoring/grafana/provisioning/dashboards/json/security.json
+        status: todo
+        body: |-
+          Finding: F1 (P1)
+
+          From the review of phase 1 (cycle 1): a P1 finding.
+
+          Where: infra/monitoring/grafana/provisioning/dashboards/json/security.json:1086
+
+          Why: The line filter (?i)\.env|\.git|\.aws|wp-login|phpmyadmin|@fs/ runs on the whole access-log JSON line, not on the request path, so legitimate requests match (nexus-code's gitStatus tRPC calls contain '.git'). The task says to show 'the probes that did not get an error back'.
+
+          Failure scenario: A live 24h run of panel 23's expression returns about 4,230 hits (nexus-code.lilnas.io 3689, sabnzbd 412, nexus-code-work 96). 'Probes with no error back' is always red, and a real successful .env probe is lost among thousands of nexus-code lines. Panels 22 and 24 are inflated the same way.
+
+          Suggested fix: Anchor the probe pattern to the RequestPath field, e.g. after | json filter RequestPath with a path regex for /.env, /.git, /.aws, wp-login, phpmyadmin and /@fs/. Re-check panels 22-25 at 24h so nexus-code and sabnzbd fall out, and update docs/logging.md if its example query changes.
+
+          How to fix it:
+          1. First write a test that reproduces the failure scenario and fails on the
+             current code, in the package's test style, beside the tests the file
+             already has. Keep it: it is the regression test.
+          2. Then change the code so it passes, and run the plan's checks.
+          3. If you cannot make the scenario fail — the guard, type, or test that
+             already covers it — change nothing: delete the attempted test, leave the
+             tree clean, commit nothing, and report `status: done` with `commits: []`.
+             Open `notes` with `Not reproduced:` and say where the behaviour is covered.
+             The runner drops the finding on your word.
+      - id: R2
+        title: P1 Checker passes a panel whose target errors when a sibling target has data
+        after: []
+        files:
+          - infra/monitoring/scripts/check-dashboards.mjs
+        status: todo
+        body: |-
+          Finding: F2 (P1)
+
+          From the review of phase 1 (cycle 1): a P1 finding.
+
+          Where: infra/monitoring/scripts/check-dashboards.mjs:418
+
+          Why: In checkLive a panel with series > 0 is reported OK even when other targets threw (invalid LogQL/PromQL, HTTP 400). The error only shows as an indented detail line, ok stays true and the run exits 0. A test locks this in, so the gate every later dashboard task relies on is green while Grafana shows an error on the panel.
+
+          Failure scenario: A two-target panel with target A `up` and target B a LogQL query Loki rejects with 400: `check-dashboards.mjs live` prints `OK 1 series` and exits 0, so a broken query passes Done means.
+
+          Suggested fix: Count the panel as ERROR (ok=false) whenever errors.length > 0, even if other targets returned series. Update the test to expect ok=false and exit 1.
+
+          How to fix it:
+          1. First write a test that reproduces the failure scenario and fails on the
+             current code, in the package's test style, beside the tests the file
+             already has. Keep it: it is the regression test.
+          2. Then change the code so it passes, and run the plan's checks.
+          3. If you cannot make the scenario fail — the guard, type, or test that
+             already covers it — change nothing: delete the attempted test, leave the
+             tree clean, commit nothing, and report `status: done` with `commits: []`.
+             Open `notes` with `Not reproduced:` and say where the behaviour is covered.
+             The runner drops the finding on your word.
+      - id: R3
+        title: P1 increase() drops the first event on every new series, so a one-off error after a deploy reads as 0
+        after: []
+        files:
+          - infra/monitoring/grafana/provisioning/dashboards/json/tdr-bot.json
+        status: todo
+        body: |-
+          Finding: F3 (P1)
+
+          From the review of phase 1 (cycle 1): a P1 finding.
+
+          Where: infra/monitoring/grafana/provisioning/dashboards/json/tdr-bot.json:330
+
+          Why: prom-client labelled counters (tdr-bot-metrics.service.ts, llm-metrics.service.ts) only create a series on first inc, so the series first appears at 1 and increase() never counts it. Confirmed live: messages_received went 1->6 since restart and increase([30h]) = 5.0; LLM cost is 0.0152 but increase reports 0.0126.
+
+          Failure scenario: tdr-bot is redeployed, then one message handler fails once (messages_handled_total{status="error"} first appears at 1). The Errors stat shows a green 0 and Failed Messages stays empty. Every restart also drops one message, one request and one call's cost from the totals.
+
+          Suggested fix: In apps/tdr-bot, initialise each known label set at 0 at startup (e.g. counter.inc({handler, status: 'error'}, 0) for each handler, skill, operation and status). Keep the dashboard queries. Needs a tdr-bot deploy; afterwards confirm increase() matches the raw counter delta after a restart.
+
+          How to fix it:
+          1. First write a test that reproduces the failure scenario and fails on the
+             current code, in the package's test style, beside the tests the file
+             already has. Keep it: it is the regression test.
+          2. Then change the code so it passes, and run the plan's checks.
+          3. If you cannot make the scenario fail — the guard, type, or test that
+             already covers it — change nothing: delete the attempted test, leave the
+             tree clean, commit nothing, and report `status: done` with `commits: []`.
+             Open `notes` with `Not reproduced:` and say where the behaviour is covered.
+             The runner drops the finding on your word.
