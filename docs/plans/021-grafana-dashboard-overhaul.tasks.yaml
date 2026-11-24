@@ -491,7 +491,8 @@ phases:
         files:
           - infra/immich.yml
           - infra/monitoring/prometheus.yml
-        status: todo
+        status: done
+        commit: aa8eca09c7966516739a53294632b301f79c156e
         body: |-
           Immich (`ghcr.io/immich-app/immich-server:v3.3.4`, service `immich` in
           `infra/immich.yml`) can export Prometheus metrics. Jeremy approved turning it on; the
