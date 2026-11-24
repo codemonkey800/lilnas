@@ -349,3 +349,8 @@ Checked:
 - Immich telemetry variable and metrics ports — lilnas-immich-1 server dist config.repository.js, env.dto.js: IMMICH_TELEMETRY_INCLUDE exists; ports 8081/8082 match the scrape job.
 - Postgres exporter DSNs, networks and the decrypt of the new env files — docker inspect of the three DBs; compose files; scripts/deploy/decrypt-env.sh: DB names match, everything is on the default network, and the infra/.env.* glob picks up the files.
 - OAuth code/state leaking through RequestPath in the Security panels — docs/logging.md, infra/proxy.yml: Alloy redacts code/token params and Traefik drops headers; no leak.
+
+### 2026-11-23 · R2 · done
+Fixed F2: checkLive now marks a panel ERROR (ok=false, exit 1) whenever any target errors, even if other targets returned series. The existing test that locked in the old behaviour now expects ERROR / ok=false / "1 ERROR" in the summary. It failed on the old code and passes now; the whole check-dashboards.test.mjs file passes (59/59).
+All five plan checks pass: the dashboard uid/tag jq loop, promtool, compose config, prettier, and the three jest specs (99 tests).
+No dashboards were edited, so there is no live summary. No throwaway containers or temp files were created.

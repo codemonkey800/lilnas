@@ -1003,7 +1003,8 @@ phases:
         after: []
         files:
           - infra/monitoring/scripts/check-dashboards.mjs
-        status: todo
+        status: done
+        commit: f3e26d40f753962b82ceceed522a08502877bdc6
         body: |-
           Finding: F2 (P1)
 
