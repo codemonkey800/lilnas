@@ -14,8 +14,11 @@ const RETRY_REASONS: readonly RetryReason[] = [
   'server_error',
   'other',
 ]
-/** `operation` labels passed to the LLM client; add new call sites here. */
-const OPERATIONS = [
+/**
+ * Every `operation` label passed to the LLM client; add new call sites here
+ * (a test fails if a call site's operation is missing).
+ */
+export const OPERATIONS = [
   'router.classify',
   'chat.respond',
   'math.latex',
@@ -28,6 +31,27 @@ const OPERATIONS = [
   'tldr.answer',
   'emoji.describe',
   'emoji.describe.batch',
+  'response.shorten',
+  'playground.chat',
+  'reminder.extract',
+  'reminder.confirm',
+  'reminder.askMissing',
+  'reminder.deliver',
+  'reminder.deliverMath',
+  'reminder.deliverSearch',
+  'reminder.resolveCancel',
+  'reminder.topicSwitch',
+  'media.classifyType',
+  'media.browse',
+  'media.downloadStatus',
+  'media.downloadStatusEmpty',
+  'media.downloadStatusError',
+  'media.extractQuery',
+  'media.extractTvQuery',
+  'media.parseSelection',
+  'media.parseTvSelection',
+  'media.topicSwitch',
+  'media.wrongPick',
 ] as const
 
 // Registered at module scope against the default registry; module caching

@@ -1,7 +1,12 @@
 import { register } from '@prometheus-io/client'
+import { readdirSync, readFileSync } from 'fs'
+import { join } from 'path'
 
 import { MODEL_CATALOG } from 'src/llm/models/catalog'
-import { LlmMetricsService } from 'src/llm/observability/llm-metrics.service'
+import {
+  LlmMetricsService,
+  OPERATIONS,
+} from 'src/llm/observability/llm-metrics.service'
 
 async function value(name: string, labels: Record<string, string>) {
   const base = name.replace(/_(sum|count)$/, '')
@@ -13,8 +18,60 @@ async function value(name: string, labels: Record<string, string>) {
   )?.value
 }
 
+const SRC_DIR = join(__dirname, '../../..')
+
+function sourceFiles(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      return entry.name === '__tests__' ? [] : sourceFiles(path)
+    }
+    return /\.ts$/.test(entry.name) && !/\.(test|spec)\.ts$/.test(entry.name)
+      ? [path]
+      : []
+  })
+}
+
+/** Dotted string literals on every `operation:` line, e.g. 'media.intent'. */
+function usedOperations(): Set<string> {
+  const used = new Set<string>()
+  for (const file of sourceFiles(SRC_DIR)) {
+    for (const line of readFileSync(file, 'utf8').split('\n')) {
+      if (!/\boperation:/.test(line)) continue
+      for (const m of line.matchAll(/'([a-z]+(?:\.[A-Za-z]+)+)'/g)) {
+        used.add(m[1])
+      }
+    }
+  }
+  return used
+}
+
 describe('LlmMetricsService', () => {
   const svc = new LlmMetricsService()
+
+  it('lists every operation used by a call site', () => {
+    const used = usedOperations()
+    expect(used.size).toBeGreaterThan(25)
+    expect([...used].filter(op => !OPERATIONS.includes(op as never))).toEqual(
+      [],
+    )
+  })
+
+  it('exposes retry and schema-failure series at 0 for every used operation', async () => {
+    new LlmMetricsService()
+
+    for (const operation of usedOperations()) {
+      expect(
+        await value('tdr_bot_llm_schema_failures_total', { operation }),
+      ).toBe(0)
+      expect(
+        await value('tdr_bot_llm_retries_total', {
+          operation,
+          reason: 'other',
+        }),
+      ).toBe(0)
+    }
+  })
 
   it('registers each metric once, even on re-import', async () => {
     jest.resetModules()
