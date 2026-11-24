@@ -1033,7 +1033,8 @@ phases:
         after: []
         files:
           - infra/monitoring/grafana/provisioning/dashboards/json/tdr-bot.json
-        status: todo
+        status: done
+        commit: 9c0a9d183879214a8051ac2cab3383fd45eb95de
         body: |-
           Finding: F3 (P1)
 

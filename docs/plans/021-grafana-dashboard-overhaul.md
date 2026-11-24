@@ -354,3 +354,9 @@ Checked:
 Fixed F2: checkLive now marks a panel ERROR (ok=false, exit 1) whenever any target errors, even if other targets returned series. The existing test that locked in the old behaviour now expects ERROR / ok=false / "1 ERROR" in the summary. It failed on the old code and passes now; the whole check-dashboards.test.mjs file passes (59/59).
 All five plan checks pass: the dashboard uid/tag jq loop, promtool, compose config, prettier, and the three jest specs (99 tests).
 No dashboards were edited, so there is no live summary. No throwaway containers or temp files were created.
+
+### 2026-11-23 · R3 · done
+Reproduced with new tests that failed on the old code (series undefined before first inc) and now pass. Fix: known label sets are created at 0 at startup, in the TdrBotMetricsService and LlmMetricsService constructors, and via initLlmRequests(registry.ids()) in LlmOrchestrationService.onModuleInit. Dashboard queries unchanged.
+Deliberately not initialised: tdr_bot_llm_calls_total (operation x model x role x status is large and open-ended) and tdr_bot_router_decisions_total (not on the dashboard). The first llm call after a restart is therefore still dropped from increase() for the error-calls panel. OPERATIONS in llm-metrics.service.ts is a hard-coded list that must be extended when a new LLM operation name is added.
+Needs a tdr-bot deploy (push to main). After it, restart tdr-bot and confirm increase() matches the raw counter delta; not verified live here.
+Pre-existing, not caused by this change: the tdr-bot type-check and llm-orchestration.integration.test.ts fail in this worktree because workspace packages (@lilnas/utils, @lilnas/media) are not built. All other touched suites pass. No dashboard was edited, so there is no check-dashboards live summary. No throwaway containers or temp files were created.
