@@ -932,3 +932,6 @@ Checked:
 - Docs 'Answers' text claims coverage the JSON does not have (kernel NVMe errors, WAL/checkpoints, logs) — disk-health.json Loki exprs; postgres.json panel titles: disk-health.json has both ATA and NVMe/AER kernel log queries; postgres.json has 'WAL and checkpoints' and 'Logs' rows.
 - Datasource-uid test misses odd uids (-- Grafana --, -- Mixed --, template variables) — grep of datasource uids in dashboards/json: Only the prometheus, loki and lilnas-* dashboard uids are present, so the test's uid-to-name mapping covers every case.
 - Table parser reads the wrong columns — infra/monitoring/scripts/check-dashboards.test.mjs: split('|') puts File at cells[3] and Data sources at cells[5], which matches the five-column table.
+
+### 2026-11-24 · H3 · approved
+Approved.

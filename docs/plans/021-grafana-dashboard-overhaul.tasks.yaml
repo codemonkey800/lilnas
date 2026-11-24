@@ -1041,7 +1041,7 @@ phases:
           - T20
         files:
           - docs/monitoring.md
-        status: todo
+        status: approved
         body: |-
           Approving lets the next task push phase 2 to `main`. It contains dashboard JSON, docs
           and one small change to `infra/monitoring.yml`: the two PG 18 Postgres exporters
