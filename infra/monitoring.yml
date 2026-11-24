@@ -197,9 +197,12 @@ services:
   # created by infra/monitoring/scripts/postgres-monitor-roles.sh; until it
   # exists the exporters report pg_up 0. No depends_on: the databases live in
   # other compose files and the exporter reconnects on its own. No published
-  # port: Prometheus scrapes :9187 on the compose network. Both extra
-  # collectors work on PG14 and PG18; pg_stat_statements is not installed on any
-  # server, so that collector stays off.
+  # port: Prometheus scrapes :9187 on the compose network. The long-running
+  # transactions and autovacuum collectors work on PG14 and PG18. The
+  # stat_checkpointer collector needs PG 17+ (checkpoint counters moved from
+  # pg_stat_bgwriter to pg_stat_checkpointer), so only the two PG 18 exporters
+  # run it; immich is PG14, which has no such view. pg_stat_statements is not
+  # installed on any server, so that collector stays off.
   postgres-exporter-tdr-bot:
     image: quay.io/prometheuscommunity/postgres-exporter:v0.21.1
     restart: unless-stopped
@@ -207,6 +210,7 @@ services:
     command:
       - --collector.long_running_transactions
       - --collector.stat_activity_autovacuum
+      - --collector.stat_checkpointer
     environment:
       DATA_SOURCE_URI: tdr-bot-db:5432/tdr_bot?sslmode=disable
     env_file: .env.postgres-exporter.decrypted
@@ -218,6 +222,7 @@ services:
     command:
       - --collector.long_running_transactions
       - --collector.stat_activity_autovacuum
+      - --collector.stat_checkpointer
     environment:
       DATA_SOURCE_URI: icloud-backup-db:5432/icloud_backup?sslmode=disable
     env_file: .env.postgres-exporter.decrypted
