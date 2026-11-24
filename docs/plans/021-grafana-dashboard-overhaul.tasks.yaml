@@ -10,7 +10,8 @@ phases:
           - infra/monitoring/scripts/check-dashboards.mjs
           - infra/monitoring/scripts/check-dashboards.test.mjs
           - infra/monitoring/scripts/fixtures/
-        status: todo
+        status: done
+        commit: 71c8c5813a12d435f521e6e8086a011e61a1456b
         body: |-
           Write a dependency-free Node script (ESM, Node 26 stdlib only) that every later task
           uses to prove its dashboards are well formed and that every panel returns data.
