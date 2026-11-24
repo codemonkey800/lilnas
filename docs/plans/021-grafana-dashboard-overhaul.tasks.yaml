@@ -973,7 +973,8 @@ phases:
           - T15
         files:
           - infra/monitoring.yml
-        status: todo
+        status: done
+        commit: 828ea9e846ac57af04558d11b7d55739069ade13
         body: |-
           The Postgres dashboard (`infra/monitoring/grafana/provisioning/dashboards/json/postgres.json`)
           has two panels, "Checkpoints per minute" and "Checkpoint write and sync time", that
