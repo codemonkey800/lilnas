@@ -897,7 +897,8 @@ phases:
           - H2
         files:
           - infra/monitoring/grafana/provisioning/dashboards/json/overview.json
-        status: todo
+        status: done
+        commit: 76cacac47b0a7af81380b98dd1adba9391e4bee4
         body: |-
           `infra/monitoring/grafana/provisioning/dashboards/json/overview.json` (uid
           `lilnas-overview`, the Grafana home page) was built before the exporters existed. Add,
