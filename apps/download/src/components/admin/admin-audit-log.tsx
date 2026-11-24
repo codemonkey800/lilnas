@@ -181,13 +181,11 @@ export function AdminAuditLog({
           <Table.Root aria-label="Audit log">
             <Table.Head>
               <Table.Row>
-                <Table.Th className="pt-3 pl-4" scope="col">
+                <Table.Th className="pl-4" scope="col">
                   Time
                 </Table.Th>
-                <Table.Th className="pt-3" scope="col">
-                  Action
-                </Table.Th>
-                <Table.Th className="pt-3 pr-4" scope="col">
+                <Table.Th scope="col">Action</Table.Th>
+                <Table.Th className="pr-4" scope="col">
                   What
                 </Table.Th>
               </Table.Row>
