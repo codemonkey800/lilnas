@@ -435,7 +435,7 @@ describe('live: targets', () => {
     assert.match(lines.join('\n'), /target A empty: a\n.*target B empty: b/)
   })
 
-  test('an erroring target next to one with data keeps the panel OK and is listed', async () => {
+  test('an erroring target next to one with data makes the panel ERROR and fails the run', async () => {
     const d = multi({ refId: 'A', expr: 'good' }, { refId: 'B', expr: 'bad' })
     const run = async (cmd, args) => {
       if (decodeURIComponent(args.at(-1)).includes('query=bad'))
@@ -446,9 +446,15 @@ describe('live: targets', () => {
       })
     }
     const { lines, ok } = await live(d, { run })
-    assert.match(lines.join('\n'), /OK 1 series/)
-    assert.match(lines.join('\n'), /target B error: parse error/)
-    assert.equal(ok, true)
+    const text = lines.join('\n')
+    assert.match(text, /ERROR parse error\s+#1 Panel 1/)
+    assert.doesNotMatch(text, /OK 1 series/)
+    assert.match(text, /target B error: parse error/)
+    assert.equal(ok, false)
+    assert.match(
+      lines.at(-1),
+      /0 OK, 0 EMPTY, 0 EMPTY \(event-driven\), 1 ERROR/,
+    )
   })
 
   test('a hidden target is skipped', async () => {

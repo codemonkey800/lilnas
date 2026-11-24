@@ -426,7 +426,7 @@ export async function checkLive(
         ...errors,
         ...(series > 0 && empties.length === 0 ? [] : empties),
       ]
-      if (errors.length > 0 && series === 0) {
+      if (errors.length > 0) {
         const message = errors[0].replace(/^target \S+ error: /, '')
         say('ERROR', row(`ERROR ${message}`, name), ...detail)
       } else if (series > 0) {
