@@ -187,7 +187,8 @@ phases:
         files:
           - infra/monitoring/grafana/provisioning/dashboards/json/storage.json
           - infra/monitoring/grafana/provisioning/dashboards/json/infrastructure.json
-        status: todo
+        status: done
+        commit: 7e9afd62654715b6d7c9316231c080e684dc9933
         body: |-
           Two dashboards in `infra/monitoring/grafana/provisioning/dashboards/json/`. Keep both
           uids.
