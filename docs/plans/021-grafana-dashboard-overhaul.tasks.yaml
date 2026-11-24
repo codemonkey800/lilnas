@@ -567,10 +567,40 @@ phases:
           push task reports the exact names and the command that drops the role.
 
           Request changes to hold the push.
+      - id: H5
+        title: 'Go/no-go: push 1 also redeploys tdr-bot and recreates auth'
+        after:
+          - H1
+        files: []
+        status: approved
+        body: |-
+          The push task stopped at its pre-flight and changed nothing: push 1 is wider than
+          what you approved in the first go/no-go. Nothing has been pushed and no database
+          role exists yet. Two things were not in that description:
+
+          - **tdr-bot is rebuilt and redeployed.** The phase-1 review found that the TDR Bot
+            dashboard's `increase()` panels miss the first event on a new series, and its fix
+            tasks changed tdr-bot's metrics code (commits `9c0a9d18` and `743b2aae`: counters
+            are created at 0 on startup; six files under `apps/tdr-bot/src`, three of them
+            tests, no behaviour change besides metrics). CI builds the image, runs tdr-bot's
+            tests, and the bot restarts once (under a minute offline in Discord).
+          - **`auth` is recreated** (a few seconds). `apps/auth/deploy.yml` bind-mounts
+            `infra/monitoring.yml` and `infra/immich.yml` read-only, so any edit to those files
+            recreates the container. Same image, same data; sign-ins on `*.lilnas.io` can fail
+            for those seconds, existing sessions are kept. This cannot be avoided for a push
+            that adds exporters.
+
+          Everything else is as the first go/no-go said. The key file is already in place on
+          the deploy host (sizes match).
+
+          Approve to push all of it together. Request changes to keep tdr-bot out of this
+          push: the planner then splits the branch so the two tdr-bot commits go out in push 2
+          instead (the `auth` recreation stays either way).
       - id: T12
         title: Create the monitoring roles, push to main, watch CI, verify production
         after:
           - H1
+          - H5
           - T8
           - T9
           - T10
@@ -587,13 +617,17 @@ phases:
             succeeds (never rebase, merge or force)
           - `git diff --name-only origin/main..HEAD` lists only `infra/monitoring.yml`,
             `infra/monitoring/**`, `infra/immich.yml`, `infra/.env.exportarr-*`,
-            `infra/.env.postgres-exporter*` and `docs/plans/**`. Anything under `apps/`,
-            `packages/`, `.github/` or the root `docker-compose.yml` would rebuild images or
-            redeploy everything
-          - `pnpm lilnas secrets verify --keys /home/jeremy/lilnas/.env.keys` passes
-          - `pnpm lilnas ci detect --base origin/main --head HEAD --json`: `full` false, no
-            images, `decrypt` true, `forceRecreate` within `prometheus` and `grafana`, `up`
-            within the services defined in `infra/monitoring.yml` and `infra/immich.yml`
+            `infra/.env.postgres-exporter*`, `docs/plans/**`, `docs/logging.md` and
+            `apps/tdr-bot/src/**`. The tdr-bot files are the review fixes in commits
+            `9c0a9d18` and `743b2aae`; a human approved shipping them in this push. Anything
+            else under `apps/`, or under `packages/`, `.github/` or the root
+            `docker-compose.yml`, stops the push
+          - `pnpm lilnas secrets verify` passes (it takes no `--keys` flag)
+          - `pnpm lilnas ci detect --base origin/main --head HEAD --json`: `full` false,
+            `images` is exactly `tdr-bot`, `decrypt` true, `forceRecreate` within `prometheus`,
+            `grafana` and `auth`, `up` within the services defined in `infra/monitoring.yml`
+            and `infra/immich.yml`. `auth` is expected and approved: `apps/auth/deploy.yml`
+            bind-mounts `infra/monitoring.yml` and `infra/immich.yml`
           - the human copied the key file: `stat -c %s /opt/lilnas/.env.keys` equals
             `stat -c %s /home/jeremy/lilnas/.env.keys` (you cannot read the file; sizes are
             enough)
@@ -616,6 +650,12 @@ phases:
           - `docker compose -p lilnas ps` shows the seven new containers running, and
             prometheus, grafana and immich healthy with a fresh start time;
             `https://immich.lilnas.io/api/server/ping` answers 200
+          - `auth` was recreated and is healthy (`docker compose -p lilnas ps auth`), and
+            `https://auth.lilnas.io` answers
+          - `tdr-bot` runs the image CI just built (its image tag is the pushed sha), is up in
+            Prometheus, and its log shows a clean start. In Prometheus, `llm_retries_total`
+            and `tdr_bot_llm_schema_failures_total` now have series at 0 (they had none
+            before); report the series count of each
           - Prometheus targets: `idkwiw` is gone; `minio-bucket`, `smartctl`, `sonarr`, `radarr`,
             `sabnzbd`, the three `postgres` targets and (if added) the `immich` targets are up.
             For a target that is down, report its `lastError` and the exporter's log
@@ -917,7 +957,8 @@ phases:
             it restarts in your result. Any other path stops the push
           - `pnpm lilnas ci detect --base origin/main --head HEAD --json`: `full` false, no
             images, `decrypt` false, `up` empty, `forceRecreate` is `["grafana"]` (plus only
-            what such a fix explains)
+            what such a fix explains: a change to `infra/monitoring.yml` also recreates `auth`,
+            which bind-mounts that file)
           - record `git rev-parse origin/main` as the rollback sha
 
           Push with `git push origin HEAD:main`, find the run with
