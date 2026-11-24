@@ -279,6 +279,21 @@ Research on 2026-11-23 at `main` e5d9cdae (equal to `origin/main`). Audit chat: 
     `idkwiw` and `swole`. H2 is where the user can turn the last two into fix tasks.
   - No open question with the user; every pending decision is an H task.
 
+- **C5 (2026-11-24, PG 18 checkpoint panels)**:
+  - T15 found postgres_exporter v0.21.1 needs `--collector.stat_checkpointer` (off by
+    default) for PG 17+ checkpoint counters. Answer: T19 (phase 2, `after: [T15]`) adds the
+    flag to the tdr-bot and icloud-backup exporters only; immich is PG 14.
+  - This puts `infra/monitoring.yml` into push 2. `ci detect` for such a change (measured on
+    T10's commit): `up` lists every monitoring service (only the two changed ones are
+    recreated), `forceRecreate` gains `auth`. H3's text now says auth restarts and T18's
+    pre-flight expects `forceRecreate` = `auth` + `grafana` and reads the monitoring.yml diff.
+  - If H3 gets Request changes over the auth restart: set T19's commit aside (revert task),
+    restore H3/T18's "dashboards and docs only" wording, and mark panels #29/#30 as PG 14
+    only in a small dashboard task.
+  - T18 allows one plain EMPTY: "Backend buffer writes (PG 14 only)" on the two PG 18 servers.
+  - `infra/.env.postgres-exporter.decrypted` does not exist in `/home/jeremy/lilnas`, so T19
+    has no live test; T18 checks `pg_scrape_collector_success` after the deploy.
+
 ## Log
 <!-- Written by Nexus: findings, review cycles, checkpoint verdicts, the final report,
      the rollout record. Humans may add notes here too. -->

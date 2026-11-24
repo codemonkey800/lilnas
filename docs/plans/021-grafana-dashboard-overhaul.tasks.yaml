@@ -967,6 +967,38 @@ phases:
           `scripts/deploy/decrypt-env.sh --list`.
 
           All four files pass `pnpm exec prettier -c`. No secret values, no serial numbers.
+      - id: T19
+        title: Turn on the stat_checkpointer collector for the two PG 18 exporters
+        after:
+          - T15
+        files:
+          - infra/monitoring.yml
+        status: todo
+        body: |-
+          The Postgres dashboard (`infra/monitoring/grafana/provisioning/dashboards/json/postgres.json`)
+          has two panels, "Checkpoints per minute" and "Checkpoint write and sync time", that
+          are empty for the two PG 18 servers. On PG 17+ the checkpoint counters moved from
+          `pg_stat_bgwriter` to `pg_stat_checkpointer`, and postgres_exporter v0.21.1 only
+          reads that view when `--collector.stat_checkpointer` is set (off by default). The
+          panels already query `pg_stat_checkpointer_* or pg_stat_bgwriter_*`, so do not edit
+          the dashboard.
+
+          In `infra/monitoring.yml`, add `- --collector.stat_checkpointer` to the `command:`
+          list of `postgres-exporter-tdr-bot` and `postgres-exporter-icloud-backup`. Do not add
+          it to `postgres-exporter-immich`: that server is PG 14, which has no
+          `pg_stat_checkpointer` view. The comment block above the three services says "Both
+          extra collectors work on PG14 and PG18": update it to say the checkpointer collector
+          is PG 17+ and why immich does not have it. Change nothing else in the file.
+
+          The Postgres dashboard task already ran a throwaway v0.21.1 exporter with this flag
+          against `tdr-bot-db`: the collector reported success and the `pg_stat_checkpointer_*`
+          family appeared. The push task checks it again in production, so no live test is
+          needed here. Do not start, restart or recreate any container and run no
+          `docker compose up`: this change ships with the next push.
+
+          Check that `docker compose -f infra/monitoring.yml config --no-env-resolution` shows
+          the flag on exactly those two services and that
+          `pnpm exec prettier -c infra/monitoring.yml` passes.
   - key: '3'
     name: Ship push 2 and the final review
     tasks:
@@ -978,13 +1010,24 @@ phases:
           - T15
           - T16
           - T17
+          - T19
         files:
           - docs/monitoring.md
         status: todo
         body: |-
-          Approving lets the next task push phase 2 to `main`. It contains only dashboard JSON
-          and docs: Grafana restarts once (a few seconds) and nothing else is touched. No keys
-          to copy this time.
+          Approving lets the next task push phase 2 to `main`. It contains dashboard JSON, docs
+          and one small change to `infra/monitoring.yml`: the two PG 18 Postgres exporters
+          (tdr-bot, icloud-backup) get `--collector.stat_checkpointer`, which fills the two
+          checkpoint panels on the Postgres dashboard that are empty for those servers today.
+
+          What restarts: Grafana once (a few seconds), the two exporters (recreated, a gap of
+          one or two scrapes), and `auth`, which is force-recreated by any change to
+          `infra/monitoring.yml` because it bind-mounts that file. That is the same short auth
+          restart as push 1: sign-ins fail for a few seconds, existing sessions survive. No
+          keys to copy this time.
+
+          To avoid the auth restart, request changes and say so: the exporter change is then
+          taken out of this push and the two panels stay empty for the PG 18 servers.
 
           `docs/monitoring.md` is the new guide to the whole setup; read it before approving and
           request changes for anything wrong or missing.
@@ -1006,14 +1049,16 @@ phases:
             succeeds (never rebase, merge or force)
           - `git diff --name-only origin/main..HEAD` lists only
             `infra/monitoring/grafana/provisioning/dashboards/json/**`,
-            `infra/monitoring/scripts/**`, `docs/**` and `CLAUDE.md`. If a fix task from the
-            review of push 1 also changed `infra/monitoring.yml` or
-            `infra/monitoring/prometheus.yml`, that is allowed: name the change and the services
-            it restarts in your result. Any other path stops the push
+            `infra/monitoring/scripts/**`, `docs/**`, `CLAUDE.md` and `infra/monitoring.yml`.
+            The human approved exactly one change to `infra/monitoring.yml`:
+            `--collector.stat_checkpointer` added to the `command:` of
+            `postgres-exporter-tdr-bot` and `postgres-exporter-icloud-backup`, plus the comment
+            above them. Read `git diff origin/main..HEAD -- infra/monitoring.yml`; anything
+            more than that stops the push. Any other path stops the push
           - `pnpm lilnas ci detect --base origin/main --head HEAD --json`: `full` false, no
-            images, `decrypt` false, `up` empty, `forceRecreate` is `["grafana"]` (plus only
-            what such a fix explains: a change to `infra/monitoring.yml` also recreates `auth`,
-            which bind-mounts that file)
+            images, `decrypt` false, `up` lists only services defined in `infra/monitoring.yml`
+            (`up -d` recreates just the two changed exporters), and `forceRecreate` is exactly
+            `auth` and `grafana` (`auth` bind-mounts `infra/monitoring.yml`; the human was told)
           - record `git rev-parse origin/main` as the rollback sha
 
           Push with `git push origin HEAD:main`, find the run with
@@ -1031,10 +1076,20 @@ phases:
             files and check the uid is one of the 11
           - `docker logs lilnas-grafana-1 --since 15m` has no provisioning error
           - every scrape target is up
+          - `docker ps` shows `lilnas-postgres-exporter-tdr-bot-1` and
+            `lilnas-postgres-exporter-icloud-backup-1` recreated by this deploy, and
+            `lilnas-postgres-exporter-immich-1` not; `lilnas-auth-1` is healthy. In Prometheus,
+            `pg_scrape_collector_success{collector="stat_checkpointer"}` is 1 for `tdr-bot-db`
+            and `icloud-backup-db`. Wait two scrape intervals after the deploy before the
+            dashboard check so the new series exist
           - `node infra/monitoring/scripts/check-dashboards.mjs lint` and `live` over all 11
             (App Detail once per app, Postgres once per server). Report the full per-dashboard
             summary and list every panel that is empty with its `Event-driven:` reason. A plain
-            `EMPTY` or `ERROR` is a defect
+            `EMPTY` or `ERROR` is a defect, with one exception: on Postgres with
+            `--var server=tdr-bot-db` or `--var server=icloud-backup-db`, "Backend buffer writes
+            (PG 14 only)" is empty because those counters do not exist on PG 17+. The two
+            checkpoint panels ("Checkpoints per minute", "Checkpoint write and sync time") must
+            now be OK for all three servers
 
           Report the pushed sha, the rollback sha, the CI run URL and each check with what you
           observed. The human rolls back by reverting on `main` and pushing; do not do it
