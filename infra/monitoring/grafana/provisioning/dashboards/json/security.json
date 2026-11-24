@@ -1018,7 +1018,7 @@
       "id": 22,
       "type": "stat",
       "title": "Scanner probes",
-      "description": "Requests whose line mentions .env, .git, .aws, wp-login, phpmyadmin or @fs/ over the selected range.",
+      "description": "Requests whose path (before any query string) contains /.env, /.git, /.aws, wp-login, phpmyadmin or /@fs/ over the selected range. Our own nexus-code Vite dev servers (which serve /@fs/ assets) are left out.",
       "gridPos": {
         "h": 9,
         "w": 4,
@@ -1031,7 +1031,7 @@
       },
       "targets": [
         {
-          "expr": "sum(count_over_time({service=\"traefik\", log_type=\"access\"} |~ \"(?i)\\\\.env|\\\\.git|\\\\.aws|wp-login|phpmyadmin|@fs/\" [$__range]))",
+          "expr": "sum(count_over_time({service=\"traefik\", log_type=\"access\"} |~ \"(?i)\\\\.env|\\\\.git|\\\\.aws|wp-login|phpmyadmin|@fs/\" | json | RequestPath =~ \"(?i)[^?]*(/\\\\.(env|git|aws)\\\\b|wp-login|phpmyadmin|/@fs/).*\" | RouterName !~ \"nexus-code(-work)?@docker\" or RequestPath !~ \"[^?]*/@fs/.*\" [$__range]))",
           "refId": "A",
           "queryType": "instant"
         }
@@ -1062,7 +1062,7 @@
       "id": 23,
       "type": "stat",
       "title": "Probes with no error back",
-      "description": "Event-driven: probes that got a 2xx/3xx answer instead of an error, excluding dashcam (a single-page app that answers every path with 200). Empty is the good outcome: it means every probe was refused.",
+      "description": "Event-driven: probes that got a 2xx/3xx answer instead of an error, excluding dashcam (a single-page app that answers every path with 200) and SABnzbd 302 redirects to its login page. Empty is the good outcome: it means every probe was refused.",
       "gridPos": {
         "h": 9,
         "w": 8,
@@ -1075,7 +1075,7 @@
       },
       "targets": [
         {
-          "expr": "sum(count_over_time({service=\"traefik\", log_type=\"access\"} |~ \"(?i)\\\\.env|\\\\.git|\\\\.aws|wp-login|phpmyadmin|@fs/\" | json | DownstreamStatus < 400 | RouterName != \"dashcam@docker\" [$__range]))",
+          "expr": "sum(count_over_time({service=\"traefik\", log_type=\"access\"} |~ \"(?i)\\\\.env|\\\\.git|\\\\.aws|wp-login|phpmyadmin|@fs/\" | json | RequestPath =~ \"(?i)[^?]*(/\\\\.(env|git|aws)\\\\b|wp-login|phpmyadmin|/@fs/).*\" | RouterName !~ \"nexus-code(-work)?@docker\" or RequestPath !~ \"[^?]*/@fs/.*\" | DownstreamStatus < 400 | RouterName != \"dashcam@docker\" | RouterName != \"sabnzbd@docker\" or DownstreamStatus != 302 [$__range]))",
           "refId": "A",
           "queryType": "instant"
         }
@@ -1123,7 +1123,7 @@
       },
       "targets": [
         {
-          "expr": "{service=\"traefik\", log_type=\"access\"} |~ \"(?i)\\\\.env|\\\\.git|\\\\.aws|wp-login|phpmyadmin|@fs/\" | json | line_format \"{{.ClientHost}} {{.RequestHost}} {{.DownstreamStatus}} {{.RequestPath}}\"",
+          "expr": "{service=\"traefik\", log_type=\"access\"} |~ \"(?i)\\\\.env|\\\\.git|\\\\.aws|wp-login|phpmyadmin|@fs/\" | json | RequestPath =~ \"(?i)[^?]*(/\\\\.(env|git|aws)\\\\b|wp-login|phpmyadmin|/@fs/).*\" | RouterName !~ \"nexus-code(-work)?@docker\" or RequestPath !~ \"[^?]*/@fs/.*\" | line_format \"{{.ClientHost}} {{.RequestHost}} {{.DownstreamStatus}} {{.RequestPath}}\"",
           "refId": "A"
         }
       ],
@@ -1142,7 +1142,7 @@
       "id": 25,
       "type": "logs",
       "title": "Probes that did not get an error back",
-      "description": "Event-driven: probes that were answered with 2xx/3xx, excluding dashcam. Worth reading when present; empty means every probe was refused.",
+      "description": "Event-driven: probes that were answered with 2xx/3xx, excluding dashcam and SABnzbd login redirects (302). Worth reading when present; empty means every probe was refused.",
       "gridPos": {
         "h": 10,
         "w": 12,
@@ -1155,7 +1155,7 @@
       },
       "targets": [
         {
-          "expr": "{service=\"traefik\", log_type=\"access\"} |~ \"(?i)\\\\.env|\\\\.git|\\\\.aws|wp-login|phpmyadmin|@fs/\" | json | DownstreamStatus < 400 | RouterName != \"dashcam@docker\" | line_format \"{{.ClientHost}} {{.RequestHost}} {{.DownstreamStatus}} {{.RequestPath}}\"",
+          "expr": "{service=\"traefik\", log_type=\"access\"} |~ \"(?i)\\\\.env|\\\\.git|\\\\.aws|wp-login|phpmyadmin|@fs/\" | json | RequestPath =~ \"(?i)[^?]*(/\\\\.(env|git|aws)\\\\b|wp-login|phpmyadmin|/@fs/).*\" | RouterName !~ \"nexus-code(-work)?@docker\" or RequestPath !~ \"[^?]*/@fs/.*\" | DownstreamStatus < 400 | RouterName != \"dashcam@docker\" | RouterName != \"sabnzbd@docker\" or DownstreamStatus != 302 | line_format \"{{.ClientHost}} {{.RequestHost}} {{.DownstreamStatus}} {{.RequestPath}}\"",
           "refId": "A"
         }
       ],

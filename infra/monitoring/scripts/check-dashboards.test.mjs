@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { after, describe, test } from 'node:test'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -781,5 +781,113 @@ describe('main', () => {
     assert.equal((await run(['frobnicate'])).code, 2)
     assert.equal((await run(['live', '--var', 'novalue'])).code, 2)
     assert.equal((await run(['live', '--bogus'])).code, 2)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// security.json: probe panels match the request path, not the whole log line
+
+describe('security dashboard: scanner probe panels', () => {
+  const securityFile = new URL(
+    '../grafana/provisioning/dashboards/json/security.json',
+    import.meta.url,
+  )
+  const security = JSON.parse(readFileSync(securityFile, 'utf8'))
+  const probePanels = security.panels.filter(p => /probe/i.test(p.title ?? ''))
+
+  // A LogQL label filter regex is fully anchored; (?i) becomes the i flag.
+  const pathMatcher = expr => {
+    const m = /\| RequestPath =~ "((?:[^"\\]|\\.)*)"/.exec(expr)
+    if (!m) return null
+    const source = JSON.parse(`"${m[1]}"`).replace(/^\(\?i\)/, '')
+    return new RegExp(`^(?:${source})$`, 'i')
+  }
+
+  test('there are four probe panels (ids 22-25)', () => {
+    assert.deepEqual(
+      probePanels.map(p => p.id),
+      [22, 23, 24, 25],
+    )
+  })
+
+  test('every probe query filters on the RequestPath field', () => {
+    for (const p of probePanels) {
+      for (const t of p.targets) {
+        assert.ok(
+          pathMatcher(t.expr),
+          `panel ${p.id} (${p.title}) has no | RequestPath =~ filter: ${t.expr}`,
+        )
+        // the JSON field must be parsed before it can be filtered on
+        assert.ok(
+          t.expr.indexOf('| json') < t.expr.indexOf('| RequestPath'),
+          `panel ${p.id} filters RequestPath before | json`,
+        )
+      }
+    }
+  })
+
+  test('the path filter matches real probes', () => {
+    const re = pathMatcher(probePanels[0].targets[0].expr)
+    for (const p of [
+      '/.env',
+      '/.env.production',
+      '/.gemini/.env',
+      '/.git/config',
+      '/.aws/credentials',
+      '/wp-login.php',
+      '/phpmyadmin/index.php',
+      '/@fs/etc/passwd',
+      '/.env?x=1',
+    ]) {
+      assert.ok(re.test(p), `${p} should match`)
+    }
+  })
+
+  test('own nexus-code and SABnzbd traffic is not a probe', () => {
+    const re = pathMatcher(probePanels[0].targets[0].expr)
+    const nexus =
+      '/trpc/fs.readFile,review.gitStatus,repo.info?batch=1&input=%7B%220%22%3A%7B%22path%22%3A%22%2Fhome%2Fjeremy%2F.nexus-code%2Fworktrees%2F.git%2F.env%22%7D%7D'
+    for (const p of [
+      nexus,
+      '/trpc/review.gitStatus?batch=1',
+      '/api?mode=queue&name=.git',
+      '/.github/workflows/ci.yml',
+    ]) {
+      assert.ok(!re.test(p), `${p} should not match`)
+    }
+  })
+
+  test('own nexus-code Vite /@fs/ assets are excluded from every probe panel', () => {
+    for (const p of probePanels) {
+      for (const t of p.targets) {
+        assert.ok(
+          t.expr.includes(
+            '| RouterName !~ "nexus-code(-work)?@docker" or RequestPath !~ "[^?]*/@fs/.*"',
+          ),
+          `panel ${p.id} does not exclude nexus-code /@fs/ assets`,
+        )
+      }
+    }
+  })
+
+  test('the no-error panels leave out dashcam and SABnzbd login redirects', () => {
+    for (const p of probePanels.filter(p => [23, 25].includes(p.id))) {
+      const expr = p.targets[0].expr
+      assert.ok(expr.includes('| RouterName != "dashcam@docker"'))
+      assert.ok(
+        expr.includes(
+          '| RouterName != "sabnzbd@docker" or DownstreamStatus != 302',
+        ),
+      )
+    }
+  })
+
+  test('all probe panels use the same path filter', () => {
+    const filters = new Set(
+      probePanels.flatMap(p =>
+        p.targets.map(t => /\| RequestPath =~ "[^"]*"/.exec(t.expr)?.[0]),
+      ),
+    )
+    assert.equal(filters.size, 1)
   })
 })

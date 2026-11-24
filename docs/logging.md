@@ -97,11 +97,11 @@ Paste into Grafana Explore. Set the time range in the picker; a `[24h]` inside a
 # The 20 IPs with the most rejected or failed requests in 24 hours
 topk(20, sum by (ClientHost) (count_over_time({service="traefik", log_type="access"} | json | DownstreamStatus >= 400 [24h])))
 
-# Scanner probes, one readable line each
-{service="traefik", log_type="access"} |~ "(?i)\\.env|\\.git|\\.aws|wp-login|phpmyadmin|@fs/" | json | line_format "{{.ClientHost}} {{.RequestHost}} {{.DownstreamStatus}} {{.RequestPath}}"
+# Scanner probes, one readable line each (matches the request path only, not the query string; our own nexus-code Vite dev servers, which serve /@fs/ assets, are left out)
+{service="traefik", log_type="access"} |~ "(?i)\\.env|\\.git|\\.aws|wp-login|phpmyadmin|@fs/" | json | RequestPath =~ "(?i)[^?]*(/\\.(env|git|aws)\\b|wp-login|phpmyadmin|/@fs/).*" | RouterName !~ "nexus-code(-work)?@docker" or RequestPath !~ "[^?]*/@fs/.*" | line_format "{{.ClientHost}} {{.RequestHost}} {{.DownstreamStatus}} {{.RequestPath}}"
 
-# Scanner probes that did NOT get an error back: the ones worth reading
-{service="traefik", log_type="access"} |~ "(?i)\\.env|\\.git|\\.aws|wp-login|phpmyadmin|@fs/" | json | DownstreamStatus < 400 | RouterName != "dashcam@docker"
+# Scanner probes that did NOT get an error back: the ones worth reading (dashcam answers every path with 200 and SABnzbd redirects to its login with 302, so both are left out)
+{service="traefik", log_type="access"} |~ "(?i)\\.env|\\.git|\\.aws|wp-login|phpmyadmin|@fs/" | json | RequestPath =~ "(?i)[^?]*(/\\.(env|git|aws)\\b|wp-login|phpmyadmin|/@fs/).*" | RouterName !~ "nexus-code(-work)?@docker" or RequestPath !~ "[^?]*/@fs/.*" | DownstreamStatus < 400 | RouterName != "dashcam@docker" | RouterName != "sabnzbd@docker" or DownstreamStatus != 302
 
 # Everything one IP did
 {service="traefik", log_type="access"} | json | ClientHost="203.0.113.7"
