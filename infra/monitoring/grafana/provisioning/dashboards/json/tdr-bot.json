@@ -1,4 +1,5 @@
 {
+  "id": null,
   "uid": "lilnas-tdr-bot",
   "title": "TDR Bot",
   "tags": ["lilnas", "tdr-bot", "discord", "llm"],
@@ -6,11 +7,21 @@
   "graphTooltip": 1,
   "schemaVersion": 39,
   "time": {
-    "from": "now-1h",
+    "from": "now-7d",
     "to": "now"
   },
-  "refresh": "30s",
+  "refresh": "5m",
   "timezone": "browser",
+  "links": [
+    {
+      "title": "lilnas dashboards",
+      "type": "dashboards",
+      "tags": ["lilnas"],
+      "asDropdown": true,
+      "includeVars": false,
+      "keepTime": false
+    }
+  ],
   "templating": {
     "list": [
       {
@@ -49,10 +60,11 @@
     {
       "id": 2,
       "type": "stat",
-      "title": "Message Rate",
+      "title": "Messages Received",
+      "description": "Discord messages that matched a handler, over the selected time range.",
       "gridPos": {
         "h": 4,
-        "w": 6,
+        "w": 5,
         "x": 0,
         "y": 1
       },
@@ -62,13 +74,15 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(tdr_bot_messages_received_total[5m]))",
+          "expr": "sum(increase(tdr_bot_messages_received_total[$__range])) or vector(0)",
+          "instant": true,
           "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps",
+          "unit": "none",
+          "decimals": 0,
           "thresholds": {
             "steps": [
               {
@@ -82,7 +96,7 @@
       },
       "options": {
         "colorMode": "background",
-        "graphMode": "area",
+        "graphMode": "none",
         "reduceOptions": {
           "calcs": ["lastNotNull"]
         }
@@ -91,53 +105,12 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "LLM Request Rate",
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 6,
-        "y": 1
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(tdr_bot_llm_requests_total[5m]))",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps",
-          "thresholds": {
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"]
-        }
-      }
-    },
-    {
-      "id": 4,
-      "type": "stat",
       "title": "LLM Success Rate",
+      "description": "Share of LLM requests (graph invocations) that succeeded over the selected time range. Shows 100% when there were no requests.",
       "gridPos": {
         "h": 4,
-        "w": 6,
-        "x": 12,
+        "w": 5,
+        "x": 5,
         "y": 1
       },
       "datasource": {
@@ -146,13 +119,15 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(tdr_bot_llm_requests_total{status=\"success\"}[5m])) / sum(rate(tdr_bot_llm_requests_total[5m])) * 100 or vector(100)",
+          "expr": "sum(increase(tdr_bot_llm_requests_total{status=\"success\"}[$__range])) / sum(increase(tdr_bot_llm_requests_total[$__range])) * 100 or vector(100)",
+          "instant": true,
           "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
+          "decimals": 1,
           "thresholds": {
             "steps": [
               {
@@ -174,20 +149,21 @@
       },
       "options": {
         "colorMode": "background",
-        "graphMode": "area",
+        "graphMode": "none",
         "reduceOptions": {
           "calcs": ["lastNotNull"]
         }
       }
     },
     {
-      "id": 5,
+      "id": 4,
       "type": "stat",
-      "title": "Images Generated (1h)",
+      "title": "LLM Cost",
+      "description": "Estimated LLM spend in USD over the selected time range.",
       "gridPos": {
         "h": 4,
-        "w": 6,
-        "x": 18,
+        "w": 4,
+        "x": 10,
         "y": 1
       },
       "datasource": {
@@ -196,13 +172,15 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(tdr_bot_image_generations_total{status=\"success\"}[1h])) or vector(0)",
+          "expr": "sum(increase(tdr_bot_llm_cost_usd_total[$__range])) or vector(0)",
+          "instant": true,
           "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "currencyUSD",
+          "decimals": 3,
           "thresholds": {
             "steps": [
               {
@@ -223,9 +201,103 @@
       }
     },
     {
-      "id": 10,
+      "id": 5,
+      "type": "stat",
+      "title": "LLM Cost (30d)",
+      "description": "Estimated LLM spend in USD over the last 30 days, whatever the time range.",
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 14,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(tdr_bot_llm_cost_usd_total[30d])) or vector(0)",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 3,
+          "thresholds": {
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Errors",
+      "description": "Failed messages, LLM request errors, image generation errors and response failures (fallback or error replies) added up over the selected time range.",
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 19,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "(sum(increase(tdr_bot_messages_handled_total{status=\"error\"}[$__range])) or vector(0)) + (sum(increase(tdr_bot_llm_requests_total{status=\"error\"}[$__range])) or vector(0)) + (sum(increase(tdr_bot_image_generations_total{status=\"error\"}[$__range])) or vector(0)) + (sum(increase(tdr_bot_responses_sent_total{status=~\"fallback|error\"}[$__range])) or vector(0))",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 7,
       "type": "row",
-      "title": "LLM Performance",
+      "title": "Cost",
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -235,9 +307,10 @@
       "collapsed": false
     },
     {
-      "id": 11,
+      "id": 8,
       "type": "timeseries",
-      "title": "LLM Duration by Skill (p50)",
+      "title": "LLM Cost per Day by Model",
+      "description": "Estimated USD spend per day, stacked by model.",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -248,468 +321,27 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "interval": "1d",
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(tdr_bot_llm_request_duration_seconds_bucket[5m])) by (le, skill))",
-          "legendFormat": "{{skill}} p50",
+          "expr": "sum by (model) (increase(tdr_bot_llm_cost_usd_total[1d]))",
+          "legendFormat": "{{model}}",
           "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "s",
+          "unit": "currencyUSD",
+          "decimals": 3,
           "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "auto",
-            "spanNulls": false
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        },
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": ["mean", "max"]
-        }
-      }
-    },
-    {
-      "id": 12,
-      "type": "timeseries",
-      "title": "LLM Duration by Skill (p95)",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 6
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "histogram_quantile(0.95, sum(rate(tdr_bot_llm_request_duration_seconds_bucket[5m])) by (le, skill))",
-          "legendFormat": "{{skill}} p95",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "auto",
-            "spanNulls": false
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        },
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": ["mean", "max"]
-        }
-      }
-    },
-    {
-      "id": 13,
-      "type": "timeseries",
-      "title": "Token Consumption Over Time",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 14
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(tdr_bot_llm_tokens_by_model_total{type=\"input\"}[5m]))",
-          "legendFormat": "input tokens/s",
-          "refId": "A"
-        },
-        {
-          "expr": "sum(rate(tdr_bot_llm_tokens_by_model_total{type=\"output\"}[5m]))",
-          "legendFormat": "output tokens/s",
-          "refId": "B"
-        },
-        {
-          "expr": "sum(rate(tdr_bot_llm_tokens_by_model_total{type=~\"input|output\"}[5m]))",
-          "legendFormat": "total tokens/s",
-          "refId": "C"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "auto",
-            "spanNulls": false
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        },
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": ["mean", "max"]
-        }
-      }
-    },
-    {
-      "id": 14,
-      "type": "stat",
-      "title": "Total Tokens (1h)",
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 12,
-        "y": 14
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(increase(tdr_bot_llm_tokens_by_model_total{type=~\"input|output\"}[1h])) or vector(0)",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "thresholds": {
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"]
-        }
-      }
-    },
-    {
-      "id": 15,
-      "type": "stat",
-      "title": "Avg LLM Duration p95 (chat)",
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 18,
-        "y": 14
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "histogram_quantile(0.95, sum(rate(tdr_bot_llm_request_duration_seconds_bucket{skill=\"chat\"}[5m])) by (le))",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "thresholds": {
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 10
-              },
-              {
-                "color": "red",
-                "value": 30
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"]
-        }
-      }
-    },
-    {
-      "id": 16,
-      "type": "stat",
-      "title": "Avg LLM Duration p95 (image)",
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 12,
-        "y": 18
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "histogram_quantile(0.95, sum(rate(tdr_bot_llm_request_duration_seconds_bucket{skill=\"image\"}[5m])) by (le))",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "thresholds": {
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 20
-              },
-              {
-                "color": "red",
-                "value": 45
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"]
-        }
-      }
-    },
-    {
-      "id": 17,
-      "type": "stat",
-      "title": "Avg LLM Duration p95 (math)",
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 18,
-        "y": 18
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "histogram_quantile(0.95, sum(rate(tdr_bot_llm_request_duration_seconds_bucket{skill=\"math\"}[5m])) by (le))",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "thresholds": {
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 15
-              },
-              {
-                "color": "red",
-                "value": 40
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"]
-        }
-      }
-    },
-    {
-      "id": 30,
-      "type": "row",
-      "title": "Messages and Commands",
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 22
-      },
-      "collapsed": false
-    },
-    {
-      "id": 31,
-      "type": "timeseries",
-      "title": "Messages Handled by Handler",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 23
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(tdr_bot_messages_handled_total{status=\"success\"}[5m])) by (handler)",
-          "legendFormat": "{{handler}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 15,
-            "showPoints": "auto",
-            "spanNulls": false
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        },
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": ["mean", "max", "lastNotNull"]
-        }
-      }
-    },
-    {
-      "id": 32,
-      "type": "timeseries",
-      "title": "Commands Executed",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 23
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(tdr_bot_commands_executed_total[5m])) by (command)",
-          "legendFormat": "{{command}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 15,
-            "showPoints": "auto",
-            "spanNulls": false
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        },
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": ["mean", "max", "lastNotNull"]
-        }
-      }
-    },
-    {
-      "id": 33,
-      "type": "timeseries",
-      "title": "Responses Sent by Status",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 31
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(tdr_bot_responses_sent_total[5m])) by (status)",
-          "legendFormat": "{{status}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 15,
-            "showPoints": "auto",
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
             "spanNulls": false,
             "stacking": {
-              "mode": "normal"
+              "mode": "normal",
+              "group": "A"
             }
           }
         },
@@ -723,490 +355,101 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": ["mean", "max"]
+          "calcs": ["sum"]
         }
       }
     },
     {
-      "id": 34,
-      "type": "stat",
-      "title": "Commands (1h)",
+      "id": 9,
+      "type": "timeseries",
+      "title": "Tokens per Day by Model and Type",
+      "description": "Tokens per day, stacked by model and type (input, output, cached).",
       "gridPos": {
-        "h": 4,
-        "w": 6,
+        "h": 8,
+        "w": 12,
         "x": 12,
-        "y": 31
+        "y": 6
       },
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "interval": "1d",
       "targets": [
         {
-          "expr": "sum(increase(tdr_bot_commands_executed_total[1h])) or vector(0)",
+          "expr": "sum by (model, type) (increase(tdr_bot_llm_tokens_by_model_total[1d]))",
+          "legendFormat": "{{model}} {{type}}",
           "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "thresholds": {
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
+          "unit": "none",
+          "decimals": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
           }
         },
         "overrides": []
       },
       "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"]
-        }
-      }
-    },
-    {
-      "id": 35,
-      "type": "stat",
-      "title": "Messages Handled (1h)",
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 18,
-        "y": 31
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(increase(tdr_bot_messages_handled_total[1h])) or vector(0)",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "thresholds": {
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          }
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
         },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"]
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": ["sum"]
         }
       }
     },
     {
-      "id": 40,
+      "id": 10,
       "type": "row",
-      "title": "Errors",
+      "title": "Latency",
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 35
+        "y": 14
       },
       "collapsed": false
     },
     {
-      "id": 41,
+      "id": 11,
       "type": "timeseries",
-      "title": "Failed Messages and LLM Errors",
+      "title": "LLM Request Duration by Skill (p50, p95)",
+      "description": "Event-driven: a point appears only when a skill handled a request in the preceding day; each point is a rolling 1-day quantile evaluated hourly. Lines join the points across quiet hours.",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 36
+        "y": 15
       },
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "interval": "1h",
       "targets": [
         {
-          "expr": "sum(rate(tdr_bot_messages_handled_total{status=\"error\"}[5m])) by (handler)",
-          "legendFormat": "{{handler}} errors",
+          "expr": "histogram_quantile(0.50, sum by (le, skill) (increase(tdr_bot_llm_request_duration_seconds_bucket[1d])))",
+          "legendFormat": "{{skill}} p50",
           "refId": "A"
         },
         {
-          "expr": "sum(rate(tdr_bot_llm_requests_total{status=\"error\"}[5m])) or vector(0)",
-          "legendFormat": "LLM errors",
+          "expr": "histogram_quantile(0.95, sum by (le, skill) (increase(tdr_bot_llm_request_duration_seconds_bucket[1d])))",
+          "legendFormat": "{{skill}} p95",
           "refId": "B"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 15,
-            "showPoints": "auto",
-            "spanNulls": false
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        },
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": ["mean", "max"]
-        }
-      }
-    },
-    {
-      "id": 42,
-      "type": "timeseries",
-      "title": "Image Generation Failures and Response Issues",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 36
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(tdr_bot_image_generations_total{status=\"error\"}[5m])) or vector(0)",
-          "legendFormat": "image gen errors",
-          "refId": "A"
-        },
-        {
-          "expr": "sum(rate(tdr_bot_responses_sent_total{status=~\"fallback|error\"}[5m])) or vector(0)",
-          "legendFormat": "response failures",
-          "refId": "B"
-        },
-        {
-          "expr": "sum(rate(tdr_bot_responses_sent_total{status=\"truncated\"}[5m])) or vector(0)",
-          "legendFormat": "truncated responses",
-          "refId": "C"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 15,
-            "showPoints": "auto",
-            "spanNulls": false
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        },
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": ["mean", "max"]
-        }
-      }
-    },
-    {
-      "id": 43,
-      "type": "stat",
-      "title": "Message Errors (1h)",
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 0,
-        "y": 44
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(increase(tdr_bot_messages_handled_total{status=\"error\"}[1h])) or vector(0)",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "thresholds": {
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 1
-              },
-              {
-                "color": "red",
-                "value": 5
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"]
-        }
-      }
-    },
-    {
-      "id": 44,
-      "type": "stat",
-      "title": "LLM Errors (1h)",
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 6,
-        "y": 44
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(increase(tdr_bot_llm_requests_total{status=\"error\"}[1h])) or vector(0)",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "thresholds": {
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 1
-              },
-              {
-                "color": "red",
-                "value": 5
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"]
-        }
-      }
-    },
-    {
-      "id": 45,
-      "type": "stat",
-      "title": "Image Gen Errors (1h)",
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 12,
-        "y": 44
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(increase(tdr_bot_image_generations_total{status=\"error\"}[1h])) or vector(0)",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "thresholds": {
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 1
-              },
-              {
-                "color": "red",
-                "value": 3
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"]
-        }
-      }
-    },
-    {
-      "id": 46,
-      "type": "stat",
-      "title": "Response Failures (1h)",
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 18,
-        "y": 44
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(increase(tdr_bot_responses_sent_total{status=~\"fallback|error\"}[1h])) or vector(0)",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "thresholds": {
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 1
-              },
-              {
-                "color": "red",
-                "value": 5
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"]
-        }
-      }
-    },
-    {
-      "id": 60,
-      "type": "row",
-      "title": "LLM Calls",
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 48
-      },
-      "collapsed": false
-    },
-    {
-      "id": 61,
-      "type": "timeseries",
-      "title": "LLM Calls by Operation",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 49
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(tdr_bot_llm_calls_total[5m])) by (operation)",
-          "legendFormat": "{{operation}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "auto",
-            "spanNulls": false
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        },
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": ["mean", "max"]
-        }
-      }
-    },
-    {
-      "id": 62,
-      "type": "timeseries",
-      "title": "LLM Call Duration by Operation (p50)",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 49
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "histogram_quantile(0.50, sum(rate(tdr_bot_llm_call_duration_seconds_bucket[5m])) by (le, operation))",
-          "legendFormat": "{{operation}} p50",
-          "refId": "A"
         }
       ],
       "fieldConfig": {
@@ -1216,8 +459,9 @@
             "drawStyle": "line",
             "lineWidth": 2,
             "fillOpacity": 10,
-            "showPoints": "auto",
-            "spanNulls": false
+            "showPoints": "always",
+            "pointSize": 6,
+            "spanNulls": true
           }
         },
         "overrides": []
@@ -1230,27 +474,29 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": ["mean", "max"]
+          "calcs": ["lastNotNull", "max"]
         }
       }
     },
     {
-      "id": 63,
+      "id": 12,
       "type": "timeseries",
       "title": "LLM Call Duration by Operation (p95)",
+      "description": "Event-driven: a point appears only when an operation made an LLM call in the preceding day; each point is a rolling 1-day p95 evaluated hourly.",
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 0,
-        "y": 57
+        "x": 12,
+        "y": 15
       },
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "interval": "1h",
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(tdr_bot_llm_call_duration_seconds_bucket[5m])) by (le, operation))",
+          "expr": "histogram_quantile(0.95, sum by (le, operation) (increase(tdr_bot_llm_call_duration_seconds_bucket[1d])))",
           "legendFormat": "{{operation}} p95",
           "refId": "A"
         }
@@ -1262,8 +508,9 @@
             "drawStyle": "line",
             "lineWidth": 2,
             "fillOpacity": 10,
-            "showPoints": "auto",
-            "spanNulls": false
+            "showPoints": "always",
+            "pointSize": 6,
+            "spanNulls": true
           }
         },
         "overrides": []
@@ -1276,40 +523,64 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": ["mean", "max"]
+          "calcs": ["lastNotNull", "max"]
         }
       }
     },
     {
-      "id": 64,
+      "id": 13,
+      "type": "row",
+      "title": "Errors",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 23
+      },
+      "collapsed": false
+    },
+    {
+      "id": 14,
       "type": "timeseries",
-      "title": "LLM Calls In Flight by Model",
+      "title": "Failed Messages and LLM Errors",
+      "description": "Event-driven: bars appear only on a day a handler failed a message or an LLM request ended in error. The LLM errors series is zero otherwise.",
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 12,
-        "y": 57
+        "x": 0,
+        "y": 24
       },
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "interval": "1d",
       "targets": [
         {
-          "expr": "sum(tdr_bot_llm_inflight) by (model)",
-          "legendFormat": "{{model}}",
+          "expr": "sum by (handler) (increase(tdr_bot_messages_handled_total{status=\"error\"}[1d]))",
+          "legendFormat": "{{handler}} message errors",
           "refId": "A"
+        },
+        {
+          "expr": "sum(increase(tdr_bot_llm_requests_total{status=\"error\"}[1d])) or vector(0)",
+          "legendFormat": "LLM request errors",
+          "refId": "B"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "none",
+          "decimals": 0,
           "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "auto",
-            "spanNulls": false
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
           }
         },
         "overrides": []
@@ -1322,50 +593,57 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": ["mean", "max"]
+          "calcs": ["sum"]
         }
       }
     },
     {
-      "id": 65,
+      "id": 15,
       "type": "timeseries",
-      "title": "LLM Error, Timeout and Schema Failure Rate by Operation",
+      "title": "LLM Call Timeouts, Schema Failures and Retries",
+      "description": "Event-driven: bars appear only on a day an LLM call errored or timed out, a structured-output schema check failed, or a call was retried. Schema failures read zero until the first one.",
       "gridPos": {
         "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 65
+        "w": 12,
+        "x": 12,
+        "y": 24
       },
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "interval": "1d",
       "targets": [
         {
-          "expr": "sum(rate(tdr_bot_llm_calls_total{status=\"error\"}[5m])) by (operation)",
-          "legendFormat": "{{operation}} error",
+          "expr": "sum by (operation, status) (increase(tdr_bot_llm_calls_total{status=~\"error|timeout\"}[1d]))",
+          "legendFormat": "{{operation}} {{status}}",
           "refId": "A"
         },
         {
-          "expr": "sum(rate(tdr_bot_llm_calls_total{status=\"timeout\"}[5m])) by (operation)",
-          "legendFormat": "{{operation}} timeout",
+          "expr": "sum(increase(tdr_bot_llm_schema_failures_total[1d])) or vector(0)",
+          "legendFormat": "schema failures",
           "refId": "B"
         },
         {
-          "expr": "sum(rate(tdr_bot_llm_schema_failures_total[5m])) by (operation)",
-          "legendFormat": "{{operation}} schema failure",
+          "expr": "sum by (reason) (increase(tdr_bot_llm_retries_total[1d]))",
+          "legendFormat": "retries ({{reason}})",
           "refId": "C"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps",
+          "unit": "none",
+          "decimals": 0,
           "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "auto",
-            "spanNulls": false
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
           }
         },
         "overrides": []
@@ -1378,499 +656,32 @@
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "calcs": ["mean", "max"]
+          "calcs": ["sum"]
         }
       }
     },
     {
-      "id": 70,
-      "type": "row",
-      "title": "Tokens and Cost",
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 73
-      },
-      "collapsed": false
-    },
-    {
-      "id": 71,
-      "type": "timeseries",
-      "title": "Tokens by Model and Type",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 74
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(tdr_bot_llm_tokens_by_model_total[5m])) by (model, type)",
-          "legendFormat": "{{model}} {{type}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "auto",
-            "spanNulls": false
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        },
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": ["mean", "max"]
-        }
-      }
-    },
-    {
-      "id": 72,
-      "type": "timeseries",
-      "title": "Cost per Hour by Model",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 74
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(increase(tdr_bot_llm_cost_usd_total[1h])) by (model)",
-          "legendFormat": "{{model}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyUSD",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "auto",
-            "spanNulls": false
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        },
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": ["mean", "max"]
-        }
-      }
-    },
-    {
-      "id": 73,
-      "type": "stat",
-      "title": "Cost (24h)",
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 0,
-        "y": 82
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(increase(tdr_bot_llm_cost_usd_total[24h])) or vector(0)",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyUSD",
-          "thresholds": {
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"]
-        }
-      }
-    },
-    {
-      "id": 74,
-      "type": "stat",
-      "title": "Cost (30d)",
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 6,
-        "y": 82
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(increase(tdr_bot_llm_cost_usd_total[30d])) or vector(0)",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyUSD",
-          "thresholds": {
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "reduceOptions": {
-          "calcs": ["lastNotNull"]
-        }
-      }
-    },
-    {
-      "id": 80,
-      "type": "row",
-      "title": "Resilience",
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 86
-      },
-      "collapsed": false
-    },
-    {
-      "id": 81,
-      "type": "timeseries",
-      "title": "LLM Retries by Reason",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 87
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(tdr_bot_llm_retries_total[5m])) by (reason)",
-          "legendFormat": "{{reason}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "auto",
-            "spanNulls": false
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        },
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": ["mean", "max"]
-        }
-      }
-    },
-    {
-      "id": 82,
-      "type": "timeseries",
-      "title": "LLM Retries by Operation",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 87
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(tdr_bot_llm_retries_total[5m])) by (operation)",
-          "legendFormat": "{{operation}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "auto",
-            "spanNulls": false
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        },
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": ["mean", "max"]
-        }
-      }
-    },
-    {
-      "id": 90,
-      "type": "row",
-      "title": "Router",
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 95
-      },
-      "collapsed": false
-    },
-    {
-      "id": 91,
-      "type": "piechart",
-      "title": "Router Decisions by Skill (1h)",
-      "gridPos": {
-        "h": 8,
-        "w": 6,
-        "x": 0,
-        "y": 96
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(increase(tdr_bot_router_decisions_total[1h])) by (skill)",
-          "legendFormat": "{{skill}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      },
-      "options": {
-        "pieType": "pie",
-        "tooltip": {
-          "mode": "single"
-        },
-        "legend": {
-          "displayMode": "table",
-          "placement": "right"
-        }
-      }
-    },
-    {
-      "id": 92,
-      "type": "piechart",
-      "title": "Router Decisions by Source (1h)",
-      "gridPos": {
-        "h": 8,
-        "w": 6,
-        "x": 6,
-        "y": 96
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(increase(tdr_bot_router_decisions_total[1h])) by (source)",
-          "legendFormat": "{{source}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      },
-      "options": {
-        "pieType": "pie",
-        "tooltip": {
-          "mode": "single"
-        },
-        "legend": {
-          "displayMode": "table",
-          "placement": "right"
-        }
-      }
-    },
-    {
-      "id": 93,
-      "type": "timeseries",
-      "title": "Router Decisions by Skill",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 96
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(tdr_bot_router_decisions_total[5m])) by (skill)",
-          "legendFormat": "{{skill}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "auto",
-            "spanNulls": false
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        },
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": ["mean", "max"]
-        }
-      }
-    },
-    {
-      "id": 94,
-      "type": "timeseries",
-      "title": "Router Decisions by Source",
-      "gridPos": {
-        "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 104
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "expr": "sum(rate(tdr_bot_router_decisions_total[5m])) by (source)",
-          "legendFormat": "{{source}}",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2,
-            "fillOpacity": 10,
-            "showPoints": "auto",
-            "spanNulls": false
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        },
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "calcs": ["mean", "max"]
-        }
-      }
-    },
-    {
-      "id": 50,
+      "id": 16,
       "type": "row",
       "title": "Logs",
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 112
+        "y": 32
       },
       "collapsed": false
     },
     {
-      "id": 51,
+      "id": 17,
       "type": "logs",
-      "title": "Recent TDR Bot Logs",
+      "title": "Errors and Warnings",
+      "description": "Event-driven: lines appear only when tdr-bot logs at warn (40), error (50) or fatal (60). tdr-bot logs pino JSON, so the Loki level label is numeric.",
       "gridPos": {
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 113
+        "y": 33
       },
       "datasource": {
         "type": "loki",
@@ -1878,7 +689,7 @@
       },
       "targets": [
         {
-          "expr": "{service=\"tdr-bot\"} |= \"$requestId\"",
+          "expr": "{service=\"tdr-bot\", level=~\"40|50|60|warn|warning|error|fatal\"} |= \"$requestId\"",
           "refId": "A"
         }
       ],
@@ -1894,14 +705,15 @@
       }
     },
     {
-      "id": 52,
+      "id": 18,
       "type": "logs",
-      "title": "Errors and Warnings",
+      "title": "Recent TDR Bot Logs",
+      "description": "tdr-bot container output, filtered by the Request ID variable. Prometheus scrape requests (/metrics) are left out.",
       "gridPos": {
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 123
+        "y": 43
       },
       "datasource": {
         "type": "loki",
@@ -1909,7 +721,7 @@
       },
       "targets": [
         {
-          "expr": "{service=\"tdr-bot\", level=~\"error|warn\"} |= \"$requestId\"",
+          "expr": "{service=\"tdr-bot\"} != \"\\\"url\\\":\\\"/metrics\\\"\" |= \"$requestId\"",
           "refId": "A"
         }
       ],
