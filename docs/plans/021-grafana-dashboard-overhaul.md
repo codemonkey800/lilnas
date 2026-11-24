@@ -256,6 +256,29 @@ Research on 2026-11-23 at `main` e5d9cdae (equal to `origin/main`). Audit chat: 
   - Not planned: auth, dev, download and icloud-backup still use `next/font/google` and can
     fail the same way in CI. Out of this plan's scope; raised with the user.
 
+- **Saved before a context clear (2026-11-24, after C4)**:
+  - State: C1–C4 all resolved. The run waits on H6 (go/no-go for pushing the tdr-bot font
+    fix `101aa1d6`). Then R6 pushes and checks tdr-bot, T12 runs round 3 (verify only, no
+    push, inventory in its result), then H2 and T13–T17.
+  - `main` is at `394431e0` (push 1; rollback `e5d9cdae`). CI run 45352251208 for it stays red
+    by design; R6's push produces a new run that should be green.
+  - Lesson: a defect task (`R<n>`) the runner writes can be dispatched before a planner
+    rewrite lands, and it then runs the default "fix the code" body. To control one, pause
+    the run first (`nexus_run_control` pause with interrupt), edit, then resume.
+  - Task sessions only get a task's result, not its chat: T12 once left the metric inventory
+    in chat. If round 3 does it again, T13–T15 lack the metric names; add a small inventory
+    task or a run note before they start.
+  - If H6 gets Request changes: the alternative is `gh run rerun 45352251208 --failed`, which
+    also reruns `deploy` (auth, Grafana, Prometheus recreated again) and leaves the font fix
+    to ship with push 2; T18's pre-flight and H3's text must then allow `apps/tdr-bot/src/app/**`
+    and the tdr-bot image.
+  - T18's pre-flight assumes push 2 holds only dashboards and docs; that still holds if R6's
+    push goes out first. H3 says "no keys to copy": still true.
+  - Told the user, not planned: auth, dev, download and portal still use `next/font/google`;
+    two Traefik open-connection panels are plain EMPTY; App Detail's `$app` lists stale
+    `idkwiw` and `swole`. H2 is where the user can turn the last two into fix tasks.
+  - No open question with the user; every pending decision is an H task.
+
 ## Log
 <!-- Written by Nexus: findings, review cycles, checkpoint verdicts, the final report,
      the rollout record. Humans may add notes here too. -->
@@ -669,3 +692,9 @@ Defects:
 
 - not blocking · PG 18 checkpoint panels have no data until the exporter stat_checkpointer collector is on · infra/monitoring.yml postgres-exporter-tdr-bot and postgres-exporter-icloud-backup commands
   live --var server=tdr-bot-db: EMPTY #29 Checkpoints per minute, #30 Checkpoint write and sync time; pg_stat_checkpointer_num_timed_total returns 0 series in Prometheus
+
+### 2026-11-24 · T13 · done
+New dashboard uid lilnas-disk-health, 30 panels, default range 24h, refresh 1m. Lint ok (9 dashboards). live (24h): 20 OK, 0 EMPTY, 3 EMPTY (event-driven), 0 ERROR; the three empty panels are the Kernel ones, all described with "Event-driven:". With --range 7d the SATA log panel has data (ata5 resets).
+All metrics observed in live Prometheus/Loki; none new. Rendered in a throwaway grafana/grafana:13.2.4 (mon-rig-t13-grafana, removed, 0 left; /tmp files removed) to verify the joinByField tables.
+Unhealthy per live data: sdd has 392 UDMA CRC errors and 392 error-log entries (smartctl exit status 64, SMART PASS, sector counters 0, so cable/port suspected); CPU k10temp Tctl 87-96C now, 7d peak 97C (Tccd1 103C), gigabyte_wmi temp3 7d peak 97C; ata5 exceptions and hard link resets within 7d (none in 24h). All 13 drives report and PASS, 0 NVMe media errors, 0 btrfs device errors.
+Serial numbers not shown or reported. Checks: all five pass (promtool valid, compose config ok, prettier ok, jest 99 passed). Unrelated container mon-rig-pgexp belongs to another task and was left alone.

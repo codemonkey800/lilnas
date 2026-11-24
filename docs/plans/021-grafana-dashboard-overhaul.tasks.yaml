@@ -752,7 +752,8 @@ phases:
           - H2
         files:
           - infra/monitoring/grafana/provisioning/dashboards/json/disk-health.json
-        status: todo
+        status: done
+        commit: 6a6b26d51673a994dd3102929d5c91d3edeb4cee
         body: |-
           Create `infra/monitoring/grafana/provisioning/dashboards/json/disk-health.json` (uid
           `lilnas-disk-health`, title `Disk Health`, tags `lilnas`, `storage`, `hardware`).
