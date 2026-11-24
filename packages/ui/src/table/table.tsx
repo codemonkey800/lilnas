@@ -70,7 +70,7 @@ function Th({ align = 'left', className, ...props }: ThProps): JSX.Element {
     <th
       {...props}
       className={cns(
-        'border-b border-line-loud px-3 pb-2.5 text-label font-medium uppercase text-ink-3',
+        'border-b border-line-loud px-3 py-2.5 text-label font-medium uppercase text-ink-3',
         ALIGN[align],
         className,
       )}

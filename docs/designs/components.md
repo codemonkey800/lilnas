@@ -350,7 +350,7 @@ Underline slides between tabs at 200ms `ease-standard`. An optional count is a
 
 ```
 th   text-[11px] font-medium tracking-[.06em] uppercase text-ink-3
-     text-left px-3 pb-2.5 border-b border-line-loud
+     text-left px-3 py-2.5 border-b border-line-loud
 td   px-3 py-2.5 text-[13.5px] border-b border-line-soft
 row  hover:bg-surface-2, 120ms · selected: bg-accent-ghost
 ```
