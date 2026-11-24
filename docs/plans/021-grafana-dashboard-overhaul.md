@@ -393,3 +393,6 @@ Checked:
 - Test mocks missing initLlmRequests would throw in onModuleInit — llm-orchestration.integration.test.ts, api.controller.conversations.test.ts: Both use createMockMetricsService, which now has initLlmRequests.
 - LogQL 'or' and anchoring in the new RequestPath filters — security.json panels 22-25: Label-filter regexes are fully anchored; [^?]* stops before the query string; \b leaves out /.github and nexus-code gitStatus. The 'or' filters only exclude nexus-code /@fs/ assets and SAB 302s.
 - ERROR branch still counts and prints detail lines — infra/monitoring/scripts/check-dashboards.mjs:429: Any error now goes to ERROR with every error and empty target listed; the summary counts it and ok becomes false.
+
+### 2026-11-23 · R4 · done
+Added the 21 missing operation literals to OPERATIONS and exported it. New regression tests scan non-test src/**/*.ts for dotted string literals on `operation:` lines (covers the tldr ternary) and assert they are in OPERATIONS and that retry/schema-failure series exist at 0; both failed on the old list. Did not add a typed-union requirement: the test covers it, and a union would also touch FakeLlmClient and live tests. Package-wide tsc --noEmit has unrelated errors in src/utils/download-*.ts (unresolved @lilnas/utils subpaths); none in observability. No dashboard/infra files changed, so no live summary.
