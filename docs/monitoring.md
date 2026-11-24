@@ -18,19 +18,19 @@ flowchart LR
 
 Files are in `infra/monitoring/grafana/provisioning/dashboards/json/`. Data source uids are `prometheus` and `loki`.
 
-| Title          | uid                     | File                  | Answers                                                                          | Data sources     |
-| -------------- | ----------------------- | --------------------- | -------------------------------------------------------------------------------- | ---------------- |
-| Overview       | `lilnas-overview`       | `overview.json`       | Does anything need attention? Each panel links to its detail page                | Prometheus, Loki |
-| Infrastructure | `lilnas-infrastructure` | `infrastructure.json` | Host CPU, memory, load, network, and per-container resource use                  | Prometheus       |
-| Storage        | `lilnas-storage`        | `storage.json`        | Filesystem fill per mount, disk I/O, MinIO capacity and buckets                  | Prometheus       |
-| Disk Health    | `lilnas-disk-health`    | `disk-health.json`    | SMART health of the SATA HDDs and NVMe drives                                    | Prometheus       |
-| Traefik        | `lilnas-traefik`        | `traefik.json`        | Request rate, errors and latency per entrypoint and service, TLS expiry          | Prometheus       |
-| App Detail     | `lilnas-app-detail`     | `app-detail.json`     | One app's Node.js runtime, real HTTP traffic, jobs and logs (variable `app`)     | Prometheus, Loki |
-| TDR Bot        | `lilnas-tdr-bot`        | `tdr-bot.json`        | LLM cost, tokens, latency and errors for the Discord bot                         | Prometheus, Loki |
-| Media Stack    | `lilnas-media`          | `media.json`          | Sonarr, Radarr and SABnzbd queues, libraries and download speed                  | Prometheus       |
-| Postgres       | `lilnas-postgres`       | `postgres.json`       | Connections, cache, locks, size and vacuum for the three Postgres servers        | Prometheus       |
-| Security       | `lilnas-security`       | `security.json`       | SSH, sshguard and sudo activity, web errors and probes, sign-ins (variable `ip`) | Loki             |
-| Logs           | `lilnas-logs`           | `logs.json`           | Log volume and a searchable stream per service                                   | Loki             |
+| Title          | uid                     | File                  | Answers                                                                                                           | Data sources     |
+| -------------- | ----------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------- | ---------------- |
+| Overview       | `lilnas-overview`       | `overview.json`       | Does anything need attention? Each panel links to its detail page                                                 | Prometheus, Loki |
+| Infrastructure | `lilnas-infrastructure` | `infrastructure.json` | Host CPU, memory, load, network, and per-container resource use                                                   | Prometheus       |
+| Storage        | `lilnas-storage`        | `storage.json`        | Filesystem fill per mount, disk I/O, MinIO capacity and buckets                                                   | Prometheus       |
+| Disk Health    | `lilnas-disk-health`    | `disk-health.json`    | SMART health of the SATA HDDs and NVMe drives, btrfs device errors, temperatures, kernel SATA/NVMe errors         | Prometheus, Loki |
+| Traefik        | `lilnas-traefik`        | `traefik.json`        | Request rate, errors and latency per entrypoint and service, TLS expiry                                           | Prometheus       |
+| App Detail     | `lilnas-app-detail`     | `app-detail.json`     | One app's Node.js runtime, real HTTP traffic, jobs and logs (variable `app`)                                      | Prometheus, Loki |
+| TDR Bot        | `lilnas-tdr-bot`        | `tdr-bot.json`        | LLM cost, tokens, latency and errors for the Discord bot                                                          | Prometheus, Loki |
+| Media Stack    | `lilnas-media`          | `media.json`          | Sonarr, Radarr, SABnzbd, Emby and Immich health, queues, libraries, download speed and logs                       | Prometheus, Loki |
+| Postgres       | `lilnas-postgres`       | `postgres.json`       | Connections, cache, locks, size, vacuum, WAL/checkpoints and per-server error logs for the three Postgres servers | Prometheus, Loki |
+| Security       | `lilnas-security`       | `security.json`       | SSH, sshguard and sudo activity, web errors and probes, sign-ins (variable `ip`)                                  | Loki             |
+| Logs           | `lilnas-logs`           | `logs.json`           | Log volume and a searchable stream per service                                                                    | Loki             |
 
 The home page is set by `GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH` on the Grafana service. Grafana redirects `/` to `/d/default-home-dashboard/overview`, which is expected.
 

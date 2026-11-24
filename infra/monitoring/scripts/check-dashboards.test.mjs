@@ -1,5 +1,11 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { after, describe, test } from 'node:test'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -890,4 +896,62 @@ describe('security dashboard: scanner probe panels', () => {
     )
     assert.equal(filters.size, 1)
   })
+})
+
+// ---------------------------------------------------------------------------
+// docs/monitoring.md: the dashboard table lists every data source a file uses
+
+describe('docs/monitoring.md dashboard table', () => {
+  const jsonDir = new URL(
+    '../grafana/provisioning/dashboards/json/',
+    import.meta.url,
+  )
+  const docs = readFileSync(
+    new URL('../../../docs/monitoring.md', import.meta.url),
+    'utf8',
+  )
+  const names = { prometheus: 'Prometheus', loki: 'Loki' }
+
+  const datasourceUids = node => {
+    const uids = new Set()
+    const walk = value => {
+      if (Array.isArray(value)) return value.forEach(walk)
+      if (value === null || typeof value !== 'object') return
+      if (typeof value.datasource?.uid === 'string') {
+        uids.add(value.datasource.uid)
+      }
+      Object.values(value).forEach(walk)
+    }
+    walk(node)
+    return uids
+  }
+
+  const rows = new Map()
+  for (const line of docs.split('\n')) {
+    const cells = line.split('|').map(c => c.trim())
+    const file = /^`([\w-]+\.json)`$/.exec(cells[3] ?? '')?.[1]
+    if (file) rows.set(file, cells[5])
+  }
+
+  const files = readdirSync(jsonDir).filter(f => f.endsWith('.json'))
+
+  test('every dashboard file has a row', () => {
+    assert.deepEqual([...rows.keys()].sort(), files.sort())
+  })
+
+  for (const file of files) {
+    test(`${file}: Data sources matches the datasource uids in the file`, () => {
+      const dashboard = JSON.parse(readFileSync(new URL(file, jsonDir), 'utf8'))
+      const expected = [...datasourceUids(dashboard)]
+        .map(uid => names[uid] ?? uid)
+        .sort()
+        .join(', ')
+      const documented = (rows.get(file) ?? '')
+        .split(',')
+        .map(s => s.trim())
+        .sort()
+        .join(', ')
+      assert.equal(documented, expected)
+    })
+  }
 })
