@@ -312,7 +312,8 @@ phases:
         files:
           - infra/monitoring.yml
           - infra/monitoring/prometheus.yml
-        status: todo
+        status: done
+        commit: be2645e7b1a415c34a0eb704425eff6df79bc2d4
         body: |-
           Add SMART data for the 8 SATA HDDs (`sda`–`sdh`) and 5 NVMe drives (`nvme0`–`nvme4`).
           Background: a boot NVMe dropped off the PCIe bus on 2026-09-24 and SATA errors have
