@@ -11,9 +11,9 @@ All data drives are single-device btrfs filesystems mounted at `/mnt/<drive>` vi
 | `/storage/movies`         | `hdd1` | 19T  | Movies (one folder per title, at the drive root)                                          | Replaceable                      |
 | `/storage/tv`             | `hdd2` | 19T  | TV series (one folder per series, at the drive root)                                      | Replaceable                      |
 | `/storage/backups`        | `hdd3` | 22T  | Plain copies of `photos` (and later `app-data`)                                           | Backup target                    |
-| `/storage/photos-archive` | `hdd4` | 22T  | Original photo libraries Immich reads (`icloud-users/`, `google-photos/`, `home-movies/`) | Irreplaceable, backup pending    |
+| `/storage/photos-archive` | `hdd4` | 22T  | Original photo libraries Immich reads (`icloud-users/`, `google-photos/`, `home-movies/`) | Irreplaceable, copy on `hdd6`    |
 | `/storage/archive`        | `hdd5` | 22T  | Game-server backups, second copy of recordings, iCloud tools                              | Archive                          |
-| `/storage/spare-1`        | `hdd6` | 5.5T | Empty                                                                                     | None                             |
+| `/storage/spare-1`        | `hdd6` | 5.5T | Backup copy of `photos-archive` in `photos-archive/` (manual `rsync`, no schedule yet)    | Backup target                    |
 | `/storage/spare-2`        | `hdd7` | 5.5T | Empty                                                                                     | None                             |
 | `/storage/recordings`     | `hdd8` | 22T  | Gameplay captures (`win1/`, `win3/`)                                                      | Irreplaceable, copy in `archive` |
 | `/storage/photos`         | `ssd1` | 3.7T | Photo libraries and Immich state                                                          | Irreplaceable, copy in `backups` |
@@ -97,7 +97,7 @@ All data drives are single-device btrfs filesystems mounted at `/mnt/<drive>` vi
 - **Purpose:** Original photo and video libraries that Immich reads as external libraries, moved off the SSD to free space. Immich's own state (uploads, thumbnails, database) stays on `photos`
 - **Contents:** `icloud-users/<name>/` (written by `icloud-backup`), `google-photos/`, `home-movies/`
 - **Used by:** Immich (read-only at `/icloud-users`, `/google-photos`, `/home-movies`) and `icloud-backup` (read-write at `/photos`)
-- **Backup:** none yet. The copy in `backups/photos/` predates this layout
+- **Backup:** a checksum-verified copy of all three folders is on `hdd6` at `/mnt/hdd6/photos-archive/`, made with `rsync` on 2026-11-23. It is a one-time copy: photos that `icloud-backup` adds later are not on it until the copy is refreshed. The older copy in `backups/photos/` predates this layout and does not cover `icloud-users/`
 - **btrbk:** the old plan to use this drive for btrfs snapshot history was dropped. If snapshots are wanted later, put them on `hdd6` or `hdd7`
 
 #### `/storage/archive/` (`hdd5`)
@@ -108,7 +108,9 @@ All data drives are single-device btrfs filesystems mounted at `/mnt/<drive>` vi
 
 ### Spare drives
 
-`/storage/spare-1/` (`hdd6`) and `/storage/spare-2/` (`hdd7`) are empty. Rename either with one `ln -sfn /mnt/<drive> /storage/<new-name>` when it gets a job.
+`/storage/spare-2/` (`hdd7`) is empty. Rename it with one `ln -sfn /mnt/<drive> /storage/<new-name>` when it gets a job.
+
+`/storage/spare-1/` (`hdd6`) now holds the backup copy of `photos-archive` (see that section) but still has its `spare-1` alias. It has not been renamed to match its job yet. Reach it through `/mnt/hdd6/photos-archive/`.
 
 ## Volume Mapping Reference
 
@@ -219,7 +221,7 @@ emby:
 
 ### Backup strategy
 
-- **Irreplaceable** (photos, recordings): keep at least two verified copies on separate drives. Recordings already have this (`recordings` and `archive/recordings`); photos have a live copy plus a manual one in `backups`
+- **Irreplaceable** (photos, recordings): keep at least two verified copies on separate drives. Recordings already have this (`recordings` and `archive/recordings`); photos in `photos-archive` have a live copy on `hdd4` plus a manual, verified copy on `hdd6`, and the rest of `photos` has a manual one in `backups`
 - **Important** (`app-data`): to be copied to `backups` and snapshotted (not set up yet)
 - **Replaceable** (movies, TV): no backup
 - **Temporary** (downloads, workspace): no backup
