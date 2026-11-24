@@ -606,7 +606,8 @@ phases:
           - T10
           - T11
         files: []
-        status: todo
+        status: partial
+        commit: 48ea2bc30da683ea082e31eb5a293bc210dac8f2
         body: |-
           A human approved this push. Create the Postgres monitoring role, push phase 1 to
           `main`, watch the deploy and verify production. Commit nothing.
