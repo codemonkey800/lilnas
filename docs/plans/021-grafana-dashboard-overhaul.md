@@ -180,3 +180,18 @@ Research on 2026-11-23 at `main` e5d9cdae (equal to `origin/main`). Audit chat: 
 ## Log
 <!-- Written by Nexus: findings, review cycles, checkpoint verdicts, the final report,
      the rollout record. Humans may add notes here too. -->
+
+### 2026-11-23 · T2 · done
+Removed job `idkwiw`; added job `minio-bucket` (metrics_path /minio/v2/metrics/bucket, target storage:9000) after `minio`. Not deployed; it goes live when this reaches main.
+Observed in the live endpoint (docker exec lilnas-prometheus-1 wget http://storage:9000/minio/v2/metrics/bucket). Labels: all series carry `server="127.0.0.1:9000"`. Bucket-labelled series have `bucket`; request series also have `api`.
+Buckets in usage series: build, equations, files, images, videos.
+Values at observation time:
+- minio_bucket_usage_total_bytes: build 8.37e9, files 5.22e6, images 28324, equations 0, videos 0.
+- minio_bucket_usage_object_total: build 628, files 3, images 1, equations 0, videos 0.
+Usage families (one series per bucket, 5 each): minio_bucket_usage_total_bytes, minio_bucket_usage_object_total, minio_bucket_usage_version_total, minio_bucket_usage_deletemarker_total.
+Note: minio_bucket_usage_last_activity_nano_seconds has a single series with no bucket label.
+Traffic and request families, per bucket (only buckets with activity appear; observed for build and videos): minio_bucket_traffic_received_bytes, minio_bucket_traffic_sent_bytes, minio_bucket_requests_total{api,bucket}, minio_bucket_requests_4xx_errors_total{api,bucket}, minio_bucket_requests_inflight_total, minio_bucket_requests_ttfb_seconds_distribution.
+Distribution families: minio_bucket_objects_size_distribution, minio_bucket_objects_version_distribution.
+Replication families (all essentially zero, likely not worth panels): minio_bucket_replication_received_bytes, minio_bucket_replication_received_count, minio_bucket_replication_proxied_{get,head,get_tagging,put_tagging,delete_tagging}_requests_{total,failures}.
+The minio_bucket_* series are not in Prometheus yet. The dashboard task should treat them as observed in the endpoint but not yet scraped, and depends on this scrape job being deployed.
+check-dashboards.mjs does not exist in this branch, and no dashboards were touched.

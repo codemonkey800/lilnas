@@ -68,7 +68,8 @@ phases:
         after: []
         files:
           - infra/monitoring/prometheus.yml
-        status: todo
+        status: done
+        commit: 001a20ce5bb08bb259a93762123db5c87b883b1f
         body: |-
           Edit `infra/monitoring/prometheus.yml`:
           - remove the `idkwiw` job (the hostname no longer exists; the target has been down)
@@ -85,7 +86,7 @@ phases:
 
           Do not touch any other job. Nothing is deployed by this task.
       - id: T3
-        title: 'App Detail dashboard replaces Download, Equations, Service Detail and Services Overview'
+        title: App Detail dashboard replaces Download, Equations, Service Detail and Services Overview
         after:
           - T1
         files:
@@ -177,7 +178,7 @@ phases:
           Run `check-dashboards.mjs lint` and `live --range 7d` on the file and report the
           summary and the panel count before and after.
       - id: T5
-        title: 'Fix Storage (HDD and SSD groups, MinIO buckets) and the Infrastructure disk gauge'
+        title: Fix Storage (HDD and SSD groups, MinIO buckets) and the Infrastructure disk gauge
         after:
           - T1
           - T2
