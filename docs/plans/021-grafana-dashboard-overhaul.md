@@ -834,3 +834,12 @@ Defects:
 
 No commits: nothing to integrate.
 ```
+
+### 2026-11-24 · T20 · done
+Panels 4 and 13 now query traefik_open_connections (observed in production Prometheus: entrypoints web, websecure, metrics, protocol TCP).
+Neither panel had a description, so none needed correcting. Diff is two "expr" lines only.
+check-dashboards lint: "lint ok: 1 dashboards".
+check-dashboards live, before: 14 OK, 2 EMPTY (panels 4 and 13).
+check-dashboards live, after: lilnas-traefik: 16 OK, 0 EMPTY, 0 EMPTY (event-driven), 0 ERROR. Panel 4 shows 1 series and panel 13 shows 3 series. The other 14 panels report the same OK results as before.
+No other plain EMPTY panel on the dashboard.
+All five plan checks pass (uid/tag check, promtool, compose config, prettier, jest 99 tests passed). No throwaway containers or temp files created; nothing deployed or pushed.
