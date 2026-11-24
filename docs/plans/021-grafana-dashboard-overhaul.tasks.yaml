@@ -362,7 +362,8 @@ phases:
           - infra/.env.exportarr-sonarr.example
           - infra/.env.exportarr-radarr.example
           - infra/.env.exportarr-sabnzbd.example
-        status: todo
+        status: done
+        commit: 11b1b399f0228ffea4f77111e78ca4924c1f8fe6
         body: |-
           Add three exportarr containers (`ghcr.io/onedr0p/exportarr:v2.3.0`) to
           `infra/monitoring.yml`. The image has no shell (entrypoint `/tini -- /exportarr`), so
