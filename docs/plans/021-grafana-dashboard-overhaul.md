@@ -556,3 +556,17 @@ Test src/app/__tests__/layout.spec.ts (node jest project) fails on the old layou
 Local verification: next build in apps/tdr-bot compiles and emits the fonts under .next/static/media; tdr-bot type-check, eslint and prettier on src/app are clean. All five plan checks pass. No throwaway containers or temp files remain (mon-rig- count 0).
 Not done here (outside the task): pushing, rerunning CI. T12 must push this to main and re-check: the tdr-bot image build and deploy, then the rest of its checks (llm_retries_total and tdr_bot_llm_schema_failures_total only exist once a tdr-bot image is deployed).
 Other apps (auth, dev, download, icloud-backup) still use next/font/google and could hit the same transient failure when their checks run; left unchanged on purpose.
+
+### 2026-11-24 · T12 · partial
+Attempt 2. Push 394431e0 had already happened, so I did not run the roles script or push. Run 45352251208 is still red (attempt 1, failure) and origin/main does not contain the R5 fix 101aa1d6. Jobs: detect ok, check (apps/tdr-bot) failed with the same Turbopack next/font/google error, base-images skipped, build-images skipped "Build and push tdr-bot", deploy ok, summary failed. Production infra deployed and verified; the tdr-bot image was not rebuilt or deployed.
+Rollback sha e5d9cdae. Role rollback: infra/monitoring/scripts/postgres-monitor-roles.sh --drop infra/.env.postgres-exporter.decrypted. Nothing was rolled back.
+The role lilnas_monitor logs in on all three servers, is not superuser and is in pg_monitor. The seven new containers are smartctl-exporter, exportarr-sonarr, exportarr-radarr, exportarr-sabnzbd and postgres-exporter-{tdr-bot,icloud-backup,immich}. They are up, idkwiw is gone, and all 19 targets are up. smartctl_devices is 13, pg_up is 1 for all three servers, minio_bucket_usage_total_bytes has 5 series, and there are exactly the 8 expected dashboard uids. check-dashboards lint is ok and live has 0 ERROR.
+Observations that are not defects of this task: /api/dashboards/home redirects to uid default-home-dashboard, a non-provisioned Grafana copy of the Overview (19 panels), not lilnas-overview. Two Traefik panels (#4, #13, open connections) are EMPTY with no Event-driven description. App Detail's app variable still lists idkwiw and swole from stale series. prometheus and grafana have no healthcheck, so only "Up" can be reported for them. Immich exposes no http_server_* metrics, only immich_*_repository_*_duration histograms, immich_users_total and host metrics. The stat_activity_autovacuum collector emits nothing live.
+Full per-job metric inventory and samples are in the message above.
+
+Defects:
+
+- blocking · tdr-bot image not rebuilt or deployed; tdr-bot-dependent checks cannot pass · .github/workflows/ci.yml job "check (apps/tdr-bot)", run 45352251208; fix 101aa1d6 exists only on the run branch
+  run 45352251208 conclusion=failure attempt=1; 'Error: Module not found: Can't resolve @vercel/turbopack-next/internal/font/google/font'; build-images step 'Build and push tdr-bot' skipped; lilnas-tdr-bot-1 image created 2026-11-22T22:39:52Z, tag :latest; count(llm_retries_total)=0 series, count(tdr_bot_llm_schema_failures_total)=0 series; tdr-bot target up=1 on the old image
+
+No commits: nothing to integrate.
