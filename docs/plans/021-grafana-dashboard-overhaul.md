@@ -906,3 +906,7 @@ Checked:
 - Checkpointer table renames and cAdvisor label_replace joins — Grafana 13.2.4 frontend, container_start_time_seconds: Renames apply; joins are 1:1.
 - Disk Health device rewrite, btrfs uuid join, NVMe hwmon names, raw attribute types — live Prometheus: All join correctly for the current 13 filesystems.
 - T19 flag scope and old Traefik metric names still referenced — infra/monitoring.yml, infra/, docs/: Flag only on the two PG 18 exporters; old names only in plan history.
+
+### 2026-11-24 · R8 · done
+Regression test: new describe block 'docs/monitoring.md dashboard table' in check-dashboards.test.mjs. It parses the dashboard table and compares each row's Data sources cell (as a sorted set) with the datasource uids in the matching JSON; it also checks every JSON file has a row. It failed on disk-health, media and postgres before the docs fix.
+No dashboard JSON, scrape job or compose file changed, so no `live` run or new metrics were needed.
