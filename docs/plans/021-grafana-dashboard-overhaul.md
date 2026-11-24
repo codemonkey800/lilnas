@@ -527,3 +527,8 @@ Defects:
   Error: Turbopack build failed with 12 errors: Module not found: Can't resolve '@vercel/turbopack-next/internal/font/google/font' / next/font/google queries have exactly one entry; ##[error]command (apps/tdr-bot) pnpm run build exited (1); annotation: tdr-bot skipped: checks failed or missing for apps/tdr-bot; summary job failed
 
 No commits: nothing to integrate.
+
+### 2026-11-24 · T12 · defects → R5
+T12 reported 1 blocking defect at attempt 3, sent to R5; it runs again at round 2 to re-check.
+
+- R5 · CI check (apps/tdr-bot) fails on next/font/google build, so the tdr-bot image was not built or deployed (`.github/workflows/ci.yml job "check (apps/tdr-bot)" (run 45352251208, job 138301594297), apps/tdr-bot frontend build`): Error: Turbopack build failed with 12 errors: Module not found: Can't resolve '@vercel/turbopack-next/internal/font/google/font' / next/font/google queries have exactly one entry; ##[error]command (apps/tdr-bot) pnpm run build exited (1); annotation: tdr-bot skipped: checks failed or missing for apps/tdr-bot; summary job failed
