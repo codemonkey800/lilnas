@@ -48,3 +48,9 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ['me-token-tracker:8080']
+
+  # The exporter polls smartctl every 60s, so scraping faster adds nothing.
+  - job_name: smartctl
+    scrape_interval: 60s
+    static_configs:
+      - targets: ['smartctl-exporter:9633']

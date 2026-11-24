@@ -139,5 +139,20 @@ services:
       - /var/lib/docker:/var/lib/docker:ro
       - /cgroup:/cgroup:ro
 
+  # SMART data for the SATA HDDs and NVMe drives. /dev is bind-mounted because
+  # a privileged container only gets a tmpfs copy of /dev taken at start, so a
+  # drive that re-enumerates later would never be seen by the 10-minute rescan.
+  # The default --smartctl.powermode-check=standby stays, so a poll never spins
+  # up a sleeping disk. No published port: Prometheus scrapes :9633 on the
+  # compose network.
+  smartctl-exporter:
+    image: prometheuscommunity/smartctl-exporter:v0.15.0
+    restart: unless-stopped
+    logging: *default-logging
+    privileged: true
+    user: root
+    volumes:
+      - /dev:/dev:ro
+
 volumes:
   node-exporter-textfile:
