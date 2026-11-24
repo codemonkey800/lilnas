@@ -103,8 +103,8 @@ The run ships in two pushes to `main`, each behind a human go/no-go. Alerting is
   `infra/.env` (`compose-include-env.spec.ts` fails). Secrets reach a container through
   `env_file: .env.<name>.decrypted` only. Pin every image to a version tag.
 - Secrets: the key file is `/home/jeremy/lilnas/.env.keys`; pass it as `-fk` to dotenvx and
-  `--keys` to `pnpm lilnas secrets decrypt|verify`. Never print or commit a key, password, API key
-  or `*.decrypted` file; never pass one on a command line.
+  `--keys` to `pnpm lilnas secrets decrypt` (`secrets verify` takes no flag). Never print or
+  commit a key, password, API key or `*.decrypted` file; never pass one on a command line.
 - Prettier covers `infra/monitoring/**`, `infra/monitoring.yml` and the docs; run
   `pnpm exec prettier -w <file>` on what you edit. `infra/immich.yml` fails Prettier at base: match
   its style, don't reformat it.
@@ -176,6 +176,50 @@ Research on 2026-11-23 at `main` e5d9cdae (equal to `origin/main`). Audit chat: 
   Emby's own API metrics, alerting.
 - No run model is set; tasks use the Start screen's choice. The planner ran on Fable at the
   user's request.
+
+- **Saved before a context clear (2026-11-23, after Start)**:
+  - Run `nexus-run:e03a966c-8aaf-4fd1-ba2f-faa2b1234e7d`; planner session
+    `88cd2db8-269a-4bb4-af15-900c0380d624`. No open thread with the user: all three interview
+    answers (two pushes, agent creates DB roles, Immich telemetry on) are in Decisions.
+  - Push pattern is copied from plan 018 (`docs/plans/018-auth-cookie-strip-frontend-split.tasks.yaml`,
+    T5): a `files: []` task runs prechecks, `git push origin HEAD:main`, `gh run watch`, then
+    read-only verification. H go/no-go tasks open phases 2 and 3 so the phase-1 review runs
+    before push 1.
+  - Why tasks serialize: T7–T10 all list `infra/monitoring.yml`, and T2, T8–T11 list
+    `infra/monitoring/prometheus.yml`. That is deliberate (file overlap, not `after`).
+  - T12's result is the metric inventory T13–T16 build on. If T12 reports a job down, fix the
+    exporter (new task in phase 2, `after: [T12]`) before letting T13–T15 run; put them on
+    `hold` if needed.
+  - A fix after H2 that touches `infra/monitoring.yml` or `prometheus.yml` is allowed in push 2;
+    T18's precheck says so. A fix touching a new env file again needs the human `.env.keys`
+    copy step from H1.
+  - Ruled out while planning: one shared env file with a shell wrapper (exportarr has no shell);
+    `${VAR}` interpolation (needs the root compose include changed, which is a full deploy, and
+    `compose-include-env.spec.ts` guards it); postgres_exporter multi-target `/probe` mode (its
+    auth-module config file would hold plaintext passwords); connecting exporters to the
+    `postgres` database (table stats only cover the connected database, so each connects to the
+    app database); the checker as a `checks:` entry (it queries live production and does not
+    exist at base).
+  - The "event-driven" convention (`description` starting `Event-driven:`) is how the checker
+    and reviewers tell a legitimately empty panel from a broken one.
+  - exportarr's API-key variable is believed to be `APIKEY` (flag `--api-key`); T9 confirms it.
+    Immich's `IMMICH_TELEMETRY_INCLUDE=all` with ports 8081/8082 is from older versions; T11
+    confirms for v3.3.4 or skips.
+  - Rollback of removed services leaves orphan containers: a human removes them with
+    `sudo -u deploy docker compose rm -sf <name>` in `/opt/lilnas`.
+
+- **C1 (2026-11-23, T12 pre-flight stop)**:
+  - `auth` is force-recreated by any change to `infra/monitoring.yml` or `infra/immich.yml`:
+    `apps/auth/deploy.yml` bind-mounts every `infra/*.yml` read-only. Per-commit `ci detect`
+    shows it on T7–T11's commits, so it was a planning miss, not a remediation side effect.
+  - The tdr-bot image build comes from R3 (`9c0a9d18`) and R4 (`743b2aae`). They are
+    interleaved with R1 (`41b04f76`), so no prefix of the branch has R1 without R3; a split
+    needs a rebuilt branch.
+  - Answer: H5 (human go/no-go for the wider push) gates T12, whose pre-flight now allows
+    `apps/tdr-bot/src/**`, `docs/logging.md`, image `tdr-bot` and `forceRecreate` `auth`.
+    If H5 gets Request changes: plan the split (push 1 from a branch without the two tdr-bot
+    commits; they ship in push 2, and T18's pre-flight and H3's text must then allow them).
+  - The run was paused with interrupt to stop T12's second attempt; resume after this edit.
 
 ## Log
 <!-- Written by Nexus: findings, review cycles, checkpoint verdicts, the final report,
@@ -444,6 +488,17 @@ Role rollback, for when the role is eventually created: `infra/monitoring/script
 
 Seven new container names expected after the eventual deploy: `smartctl-exporter`, `exportarr-sonarr`, `exportarr-radarr`, `exportarr-sabnzbd`, `postgres-exporter-tdr-bot`, `postgres-exporter-icloud-backup`, `postgres-exporter-immich`. This is the list from `ci detect`, not observed live.
 
+No throwaway containers or temp files were created.
+
+Retried.
+
+### 2026-11-23 · T12 · blocked
+Pre-flight still fails, unchanged since attempt 1. The diff origin/main..HEAD includes apps/tdr-bot/src/** (6 files: tdr-bot-metrics.service.ts and its test, test-utils.ts, llm-metrics.service.ts and its test, llm-orchestration.service.ts) and docs/logging.md, all outside the allowed paths. `ci detect` reports image tdr-bot (build and pull), forceRecreate ["auth","grafana","prometheus"] (auth not allowed; reason not investigated), decrypt true, full false. `up` is within the monitoring/immich services. The H1 approval ("Approved.") does not mention the tdr-bot deploy or the auth recreate, so I did not treat it as covering them.
+Passing: origin/main is an ancestor of HEAD; key file sizes match (1874 and 1874). `pnpm lilnas secrets verify` has no --keys flag.
+Rollback sha: e5d9cdaed615542824df7286c1f09a6e6f97e7a8. Branch HEAD: 37594a7c5945e192020075cfbc9eaab662c5af3f.
+Nothing was done: no key backup refresh, no decrypt, no role creation, no push, no production checks, no inventory (smartctl, sonarr, radarr, sabnzbd, postgres, immich metric names are still unobserved).
+Role rollback (nothing created yet): infra/monitoring/scripts/postgres-monitor-roles.sh --drop infra/.env.postgres-exporter.decrypted
+Seven expected new containers (from ci detect, not observed live): smartctl-exporter, exportarr-sonarr, exportarr-radarr, exportarr-sabnzbd, postgres-exporter-tdr-bot, postgres-exporter-icloud-backup, postgres-exporter-immich.
 No throwaway containers or temp files were created.
 
 Retried.
