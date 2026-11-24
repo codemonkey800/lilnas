@@ -627,3 +627,9 @@ Approved.
 
 ### 2026-11-24 · H6 · approved
 Approved.
+
+### 2026-11-24 · T14 · done
+Dashboard uid lilnas-media, 55 panels, rows At a glance / Sonarr / Radarr / SABnzbd / Emby / Immich / Logs. Lint ok. Live: 52 OK, 0 EMPTY, 3 EMPTY (event-driven: Emby 5xx, Immich 5xx, Loki errors-and-warnings-over-time), 0 ERROR.
+Deliberate differences: sonarr/radarr/sabnzbd have no Traefik service, so their "up" is the exportarr up metric; exportarr exports no Sonarr/Radarr queue metrics, so queue panels use sabnzbd_queue_length / sabnzbd_remaining_bytes; Emby/Immich "up" = Traefik 2xx/3xx within 15m or cAdvisor container_last_seen within 2m; Emby 4xx panel excludes 401 and links to /d/lilnas-security (plus a dashboard-level link); Immich job panels use only immich_job_repository_{get_queue,check_workers}_duration_* because other repository histograms barely fire and a regex-on-__name__ query returned HTTP 422.
+Metrics observed in live Prometheus (2026-11-24); Loki detected_level/service labels observed live. No new exporter or throwaway container used. A mon-rig-pgexp container seen in docker ps belongs to another task and was not touched.
+All five plan checks pass (jq/uid check, promtool, compose config, prettier, 3 jest suites 99 tests).

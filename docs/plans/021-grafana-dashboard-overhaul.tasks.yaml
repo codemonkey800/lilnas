@@ -808,7 +808,8 @@ phases:
           - H2
         files:
           - infra/monitoring/grafana/provisioning/dashboards/json/media.json
-        status: todo
+        status: done
+        commit: 809b6f1f7afbbbe8f4f836181f286256f8d9846e
         body: |-
           Create `infra/monitoring/grafana/provisioning/dashboards/json/media.json` (uid
           `lilnas-media`, title `Media Stack`, tags `lilnas`, `media`).
