@@ -96,7 +96,8 @@ phases:
           - infra/monitoring/grafana/provisioning/dashboards/json/equations.json
           - infra/monitoring/grafana/provisioning/dashboards/json/service-detail.json
           - infra/monitoring/grafana/provisioning/dashboards/json/services-overview.json
-        status: todo
+        status: done
+        commit: 0eeea69c60a1cf3d29730338f9854d6d70cfd5cc
         body: |-
           In `infra/monitoring/grafana/provisioning/dashboards/json/`, create `app-detail.json`
           (uid `lilnas-app-detail`, title `App Detail`, tags `lilnas`, `apps`) and delete
