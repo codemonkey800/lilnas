@@ -922,7 +922,8 @@ phases:
           - CLAUDE.md
           - docs/logging.md
           - docs/deploy.md
-        status: todo
+        status: done
+        commit: c6af70579b70b989444e7d03df360fe815fab6a5
         body: |-
           Bring the docs in line with the new monitoring setup. Read the push task's result and
           the files under `infra/monitoring/` and `infra/monitoring.yml` for what actually
