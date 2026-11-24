@@ -223,7 +223,8 @@ phases:
           - T1
         files:
           - infra/monitoring/grafana/provisioning/dashboards/json/security.json
-        status: todo
+        status: done
+        commit: 0910bcf58bea5a9033418097d719d2a85fbc9528
         body: |-
           Create `infra/monitoring/grafana/provisioning/dashboards/json/security.json` (uid
           `lilnas-security`, title `Security`, tags `lilnas`, `security`), Loki datasource only,
