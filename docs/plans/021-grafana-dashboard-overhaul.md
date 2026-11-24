@@ -238,6 +238,24 @@ Research on 2026-11-23 at `main` e5d9cdae (equal to `origin/main`). Audit chat: 
     (`next/font/local` or the `geist` package) in tdr-bot, as its own task plus an H go/no-go,
     since it is a third push. T13–T15 do not need tdr-bot, so they can proceed meanwhile.
 
+- **C4 (2026-11-24, font fix needs a push)**:
+  - R5 was dispatched before the C3 rewrite landed, so it ran the runner's default "fix the
+    code" body: commit `101aa1d6` self-hosts Geist and Geist Mono in tdr-bot
+    (`next/font/local`, two woff2 files, a layout test). CI was never rerun; run 45352251208
+    is still red at attempt 1. The fix is kept: it removes the build-time network fetch.
+  - T12 attempt 2 verified the infra half: 19 of 19 targets up, 7 new containers, 8 dashboard
+    uids, `smartctl_devices` 13, `pg_up` 1 on three servers, 5 MinIO bucket series. Its metric
+    inventory went into a chat message, not the result; T12 is now told to put it in the
+    result. Its observations for H2: two Traefik panels (#4, #13, open connections) are plain
+    EMPTY; App Detail's `$app` still lists `idkwiw` and `swole` from stale series; Immich has
+    no `http_server_*` metrics; `stat_activity_autovacuum` emits nothing.
+  - Answer: H6 (go/no-go) then R6 (rewritten: push `HEAD:main`, watch CI, check tdr-bot),
+    then T12 round 3. `ci detect` for that push: image `tdr-bot` only, `up` and
+    `forceRecreate` empty, so auth, Grafana and Prometheus are not touched. This is a third
+    push; the plan's "two pushes" decision no longer holds.
+  - Not planned: auth, dev, download and icloud-backup still use `next/font/google` and can
+    fail the same way in CI. Out of this plan's scope; raised with the user.
+
 ## Log
 <!-- Written by Nexus: findings, review cycles, checkpoint verdicts, the final report,
      the rollout record. Humans may add notes here too. -->

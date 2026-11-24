@@ -596,6 +596,36 @@ phases:
           Approve to push all of it together. Request changes to keep tdr-bot out of this
           push: the planner then splits the branch so the two tdr-bot commits go out in push 2
           instead (the `auth` recreation stays either way).
+      - id: H6
+        title: 'Go/no-go: push the tdr-bot font fix so its image builds and deploys'
+        after:
+          - H5
+        files: []
+        status: todo
+        body: |-
+          Push 1 is live except for tdr-bot. The exporters, Immich telemetry, the cleaned-up
+          dashboards and the `lilnas_monitor` role are deployed and verified (19 of 19 scrape
+          targets up). CI on `main` is red: `check (apps/tdr-bot)` failed because the Next build
+          could not fetch Geist Mono from Google Fonts, so the tdr-bot image was skipped and
+          the bot still runs the old image.
+
+          A fix task has already committed a fix on the run branch (`101aa1d6`): tdr-bot's
+          `src/app/layout.tsx` loads Geist and Geist Mono from two committed `.woff2` files
+          (`next/font/local`) instead of `next/font/google`, with a test. Same fonts, same CSS
+          variables; the build no longer needs the network. It did this instead of first
+          rerunning CI, which the planner had asked for; the fix is sound either way.
+
+          Approving lets the next task push the run branch to `main` now. That push contains
+          only `apps/tdr-bot/src/app/**` and `docs/plans/**`. Per `ci detect` it builds and
+          deploys the tdr-bot image and nothing else: the bot restarts once, and `auth`,
+          Grafana and Prometheus are not touched. The image also carries the two tdr-bot
+          metrics fixes you approved earlier.
+
+          Rollback, by you: revert `101aa1d6` on `main` and push, or
+          `LILNAS_TAG=<previous sha> docker compose up -d tdr-bot` in `/opt/lilnas`.
+
+          Request changes to do something else instead (for example rerun the failed CI jobs
+          without the font fix, which also recreates `auth`, Grafana and Prometheus again).
       - id: T12
         title: Create the monitoring roles, push to main, watch CI, verify production
         after:
@@ -617,14 +647,22 @@ phases:
 
           **If `origin/main` already contains `394431e0`, the push has happened** (an earlier
           attempt pushed it, created the `lilnas_monitor` role in all three databases and
-          refreshed the key backup; CI run 45352251208 then failed its tdr-bot check, which the
-          fix task before you reran). In that case skip the pre-flight list and steps 1 to 3:
-          do not run the roles script and do not push again, even though your branch has newer
-          `docs/plans` commits. Confirm run 45352251208 is now green
-          (`gh run view 45352251208 --json conclusion,attempt`) and that the role still logs in,
-          then start at "After the deploy" below. Pushed sha `394431e0`, rollback sha
-          `e5d9cdae`. If the run is still red, do every check that does not need tdr-bot, give
-          the full inventory anyway, and list the tdr-bot checks under `defects:`.
+          refreshed the key backup). CI run 45352251208 for it stays red: its tdr-bot check
+          failed on a Google Fonts fetch, so tdr-bot was not deployed by it. A fix task then
+          pushed the font fix `101aa1d6` in a second, human-approved push; its result (given
+          to you) has that push's sha and CI run. In that case skip the pre-flight list and
+          steps 1 to 3: do not run the roles script and do not push, even if your branch has
+          newer `docs/plans` commits. Confirm the latest `ci.yml` run on `main` is green and
+          that the role still logs in, then start at "After the deploy" below. Rollback sha for
+          the infra push is `e5d9cdae`. The red run 45352251208 is expected and not a defect.
+          If `origin/main` does not contain `101aa1d6`, or the latest run is red, do every
+          check that does not need tdr-bot and list the tdr-bot checks under `defects:`.
+
+          Whatever happens, put the full per-job metric inventory (names, label names, sample
+          series) in your result's notes itself, not in a chat message: the dashboard tasks
+          only receive the result. Not defects, already known: `/api/dashboards/home` serves
+          Grafana's `default-home-dashboard` copy of the Overview file; `prometheus` and
+          `grafana` have no healthcheck, so "Up" is enough for them.
 
           Before anything else, all of these must hold. If one does not, stop and report it
           without creating roles or pushing:
@@ -1204,7 +1242,8 @@ phases:
              code fix needs a new push, which a human must approve first.
       - id: R6
         title: 'Fix: tdr-bot image not rebuilt or deployed; tdr-bot-dependent checks cannot pass'
-        after: []
+        after:
+          - H6
         files: []
         status: todo
         body: |-
@@ -1223,4 +1262,34 @@ phases:
           > Observations that are not defects of this task: /api/dashboards/home redirects to uid default-home-dashboard, a non-provisioned Grafana copy of the Overview (19 panels), not lilnas-overview. Two Traefik panels (#4, #13, open connections) are EMPTY with no Event-driven description. App Detail's app variable still lists idkwiw and swole from stale series. prometheus and grafana have no healthcheck, so only "Up" can be reported for them. Immich exposes no http_server_* metrics, only immich_*_repository_*_duration histograms, immich_users_total and host metrics. The stat_activity_autovacuum collector emits nothing live.
           > Full per-job metric inventory and samples are in the message above.
 
-          Fix only this defect. Add a test that fails without the fix where one can; then T12 runs again to re-check.
+          What to do (planner's instructions; they replace "fix the code"). The code fix
+          already exists on this branch as commit `101aa1d6` (tdr-bot fonts self-hosted with
+          `next/font/local`). A human approved pushing it. Edit and commit nothing.
+
+          Before pushing, all of these must hold; if one does not, stop and report it:
+          - `git fetch origin main`, then `git merge-base --is-ancestor origin/main HEAD`
+            succeeds (never rebase, merge or force)
+          - `git diff --name-only origin/main..HEAD` lists only `apps/tdr-bot/src/app/**` and
+            `docs/plans/**`
+          - `pnpm lilnas ci detect --base origin/main --head HEAD --json`: `full` false,
+            `images` exactly `tdr-bot`, `up` empty, `forceRecreate` empty, `decrypt` false
+          - record `git rev-parse origin/main` as the rollback sha
+
+          Then `git push origin HEAD:main`, find the run with
+          `gh run list --workflow ci.yml --branch main --event push --limit 5 --json databaseId,headSha,status,url`
+          (match `headSha`) and follow it with `gh run watch <id> --exit-status`. If it is red,
+          report the failing job's log lines under `defects:` and stop; do not rerun and do not
+          edit code.
+
+          When it is green, wait three minutes and check (read-only):
+          - `docker compose -p lilnas ps tdr-bot` shows a fresh start; the container's image is
+            the one CI just built (report its tag or digest and creation time)
+          - `docker logs lilnas-tdr-bot-1 --since 10m` shows a clean start with no error
+          - the `tdr-bot` Prometheus target is up, and `count(llm_retries_total)` and
+            `count(tdr_bot_llm_schema_failures_total)` are both above 0 with every value 0 or
+            more (they had no series before); report both counts
+          - `auth`, `grafana` and `prometheus` were not restarted by this push (start times
+            older than the push)
+
+          Report the pushed sha, the rollback sha, the CI run URL and each check with what you
+          saw.
