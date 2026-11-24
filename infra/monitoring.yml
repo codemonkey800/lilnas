@@ -154,5 +154,41 @@ services:
     volumes:
       - /dev:/dev:ro
 
+  # *arr and SABnzbd metrics. The image has no shell, so each instance gets its
+  # own env file holding only its APIKEY (encrypted in .env.exportarr-<app>,
+  # decrypted by the deploy). No published port: Prometheus scrapes 970x on the
+  # compose network. ENABLE_ADDITIONAL_METRICS stays off: for Sonarr it adds
+  # per-series requests (about 8x slower scrapes) for episode quality counts,
+  # and for Radarr it adds nothing.
+  exportarr-sonarr:
+    image: ghcr.io/onedr0p/exportarr:v2.3.0
+    restart: unless-stopped
+    logging: *default-logging
+    command: ['sonarr']
+    environment:
+      URL: http://sonarr:8989
+      PORT: 9707
+    env_file: .env.exportarr-sonarr.decrypted
+
+  exportarr-radarr:
+    image: ghcr.io/onedr0p/exportarr:v2.3.0
+    restart: unless-stopped
+    logging: *default-logging
+    command: ['radarr']
+    environment:
+      URL: http://radarr:7878
+      PORT: 9708
+    env_file: .env.exportarr-radarr.decrypted
+
+  exportarr-sabnzbd:
+    image: ghcr.io/onedr0p/exportarr:v2.3.0
+    restart: unless-stopped
+    logging: *default-logging
+    command: ['sabnzbd']
+    environment:
+      URL: http://sabnzbd:8080
+      PORT: 9709
+    env_file: .env.exportarr-sabnzbd.decrypted
+
 volumes:
   node-exporter-textfile:

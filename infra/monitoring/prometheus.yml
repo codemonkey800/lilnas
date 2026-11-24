@@ -54,3 +54,19 @@ scrape_configs:
     scrape_interval: 60s
     static_configs:
       - targets: ['smartctl-exporter:9633']
+
+  # Exportarr polls the *arr and SABnzbd APIs on each scrape, so 60s is plenty.
+  - job_name: sonarr
+    scrape_interval: 60s
+    static_configs:
+      - targets: ['exportarr-sonarr:9707']
+
+  - job_name: radarr
+    scrape_interval: 60s
+    static_configs:
+      - targets: ['exportarr-radarr:9708']
+
+  - job_name: sabnzbd
+    scrape_interval: 60s
+    static_configs:
+      - targets: ['exportarr-sabnzbd:9709']
