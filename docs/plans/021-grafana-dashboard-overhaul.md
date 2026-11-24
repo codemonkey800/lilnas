@@ -935,3 +935,111 @@ Checked:
 
 ### 2026-11-24 · H3 · approved
 Approved.
+
+### 2026-11-24 · T18 · done
+Pushed 9a2e296763a66a9e6dada0daf881c20aee965767 to main. Rollback sha: 101aa1d6b2fa6ffc0322db7d174510e98ed81d09 (the human reverts on main and pushes).
+CI run: https://github.com/codemonkey800/lilnas/actions/runs/45363058470 (green; deploy job 45s).
+Preflight all held (ancestor, allowed paths, the single approved monitoring.yml change, ci detect full=false/images=[]/decrypt=false/forceRecreate=[auth,grafana]).
+Post-deploy: Grafana 13.2.4 healthy; 11 dashboards with the expected uids; home is Overview (redirect /d/default-home-dashboard/overview); all /d/ links resolve to the 11 uids; no dashboard provisioning errors in the Grafana log (only the 2 benign missing plugins/ and alerting/ directory errors); all 19 scrape targets up; exporters tdr-bot and icloud-backup recreated, immich not; lilnas-auth-1 healthy; stat_checkpointer collector success = 1 for tdr-bot-db and icloud-backup-db.
+Dashboards are in the General root: the provider config has no `folder` set, so there is no named folder. This is unchanged by the push.
+check-dashboards lint ok for all 11; live shows 0 EMPTY and 0 ERROR everywhere except Backend buffer writes (PG 14 only) on tdr-bot-db and icloud-backup-db (the sanctioned exception). The two checkpoint panels are OK for all 3 servers. All other empty panels are EMPTY (event-driven), i.e. they carry Event-driven: descriptions. Per-dashboard counts are in the report above.
+No mon-rig- containers; temp files removed; tree clean.
+
+No commits: nothing to integrate.
+
+### 2026-11-24 · H4 · approved
+Approved.
+
+### 2026-11-24 · Final report
+
+Run status: done. 20 build tasks (T15 partial), 9 remediation tasks (R1–R9) and 6 human gates approved. All 11 dashboards are on main at 9a2e2967 and the new exporters are scraping. Open items are the P2 review findings listed below; no remediation was logged for them.
+
+Task outcomes:
+
+| Task | Outcome | Commit |
+|---|---|---|
+| T1 Dashboard checker script (lint, live) | done | 71c8c581 |
+| T2 Drop idkwiw job, scrape MinIO buckets | done | 001a20ce |
+| T3 App Detail dashboard | done | 0eeea69c |
+| T4 Trim TDR Bot dashboard | done | da4730f2 |
+| T5 Storage HDD/SSD groups, MinIO buckets, disk gauge | done | 7e9afd62 |
+| T6 Security dashboard from Loki | done | 0910bcf5 |
+| T7 Overview dashboard as home page | done | 43363b48 |
+| T8 smartctl_exporter | done | be2645e7 |
+| T9 exportarr for Sonarr, Radarr, SABnzbd | done | 11b1b399 |
+| T10 postgres_exporter for three servers | done | 1d782319 |
+| T11 Immich Prometheus telemetry | done | aa8eca09 |
+| T12 Monitoring roles, push 1, CI, prod verify | done | 0fa62c2d |
+| T13 Disk Health dashboard | done | 6a6b26d5 |
+| T14 Media Stack dashboard | done | 809b6f1f |
+| T15 Postgres dashboard | partial | 4b6cfeaa |
+| T16 Overview disk, database and media tiles | done | 76cacac4 |
+| T17 Monitoring guide, CLAUDE.md, logging, deploy docs | done | c6af7057 |
+| T18 Push 2 to main, CI, live verification | done | 2f33f6b4 |
+| T19 stat_checkpointer for PG 18 exporters | done | 828ea9e8 |
+| T20 Traefik open-connection panels | done | 53142efc |
+| R1 Probe panels flooded by own traffic (F1) | done | 41b04f76 |
+| R2 Checker passes a panel with an erroring target (F2) | done | f3e26d40 |
+| R3 increase() drops first event on new series (F3) | done | 9c0a9d18 |
+| R4 OPERATIONS list misses 19 names (F9) | done | 743b2aae |
+| R5 tdr-bot font build fix (self-hosted Geist) | done | 101aa1d6 |
+| R6 tdr-bot image rebuilt and deployed | done | 4e176f75 |
+| R7 Push 101aa1d6 to main | done | 0c4dc0a6 |
+| R8 Docs dashboard table (F10) | done | 57b600a7 |
+| R9 Immich Node CPU panel scaled per core (F11) | done | de614dbc |
+
+Human gates: H1 (push 1), H5 (push 1 also redeploys tdr-bot and recreates auth), H6 (tdr-bot font fix push), H2 (review of cleaned-up dashboards and exporters), H3 (push 2), H4 (final review of all 11 dashboards with real data). All approved.
+
+Pushes to main:
+
+| Sha | What | Rollback target |
+|---|---|---|
+| 394431e0 | Phase 1 infra push (T12) | e5d9cdae (per T12 notes) |
+| 101aa1d6 | tdr-bot font fix (R7, under H6); carries earlier plan-doc commits | 394431e0 |
+| 9a2e2967 | Phase 2 push: Disk Health, Media Stack, Postgres, Traefik fix, docs (T18) | 101aa1d6 (per T18 notes) |
+
+CI for 101aa1d6 and 9a2e2967 is green. The 394431e0 CI run (45352251208) failed on the tdr-bot build; that failure is what R5–R7 fixed.
+
+Deviations:
+
+- T12 was blocked twice by the pre-flight. The allowed-paths check failed on the tdr-bot source and the auth recreate. H1 and H5 covered that scope.
+- T12 reported three defects, all fixed: R5 (CI build failed on next/font/google), R6 (tdr-bot image not rebuilt), R7 (fix not on main).
+- T12 dispatch attempt 7 failed with cwd_missing and was retried automatically as attempt 8. The work was unchanged.
+- Change request C6, raised by T12, added T20 and edited H3. The Traefik panels were querying a metric that does not exist; the live metric is traefik_open_connections.
+- Phase 2 review cycle 1 added R8 and R9. R9 conflicted with R8 in check-dashboards.test.mjs. The integrator resolved it and reran the checks.
+- The tdr-bot fonts are self-hosted Geist instead of next/font/google (R5).
+- Extra panels beyond the spec: Postgres activity, Postgres kernel and AER log panels. The review judged them harmless.
+- The monitor role has ALTER ROLE ... default_transaction_read_only = on. This was stated in T12's notes.
+- T15 is partial. "Backend buffer writes" is PG 14 only by design (it is in the panel title), so it is empty on PG 17+. The checkpoint panels have data on all three servers since T19.
+
+Defects reported and resolution:
+
+- Phase 1 review F1, F2, F3: fixed by R1, R2, R3.
+- Phase 1 review cycle 2 F9 (P1): fixed by R4.
+- Phase 2 review cycle 1 F10 (P1, docs table) and F11 (P1, Immich CPU 1/32): fixed by R8 and R9.
+- T12 blocking CI defects: fixed by R5, R6, R7.
+- T15 non-blocking: PG 18 checkpoint panels empty without the stat_checkpointer collector: fixed by T19.
+
+Unfixed review findings (no remediation logged; H4 approved the final review):
+
+- Phase 1 F4 (P2): LLM Success Rate shows 100% when every request failed (tdr-bot.json:393).
+- Phase 1 F5 (P2): cert-expiry stat shows red 0 days when the metric is absent (overview.json:342).
+- Phase 1 F6 (P2, plan-mandated): Loki metric queries are checked only over a 5-minute instant window.
+- Phase 1 F7 (P2): Errors and Warnings leaves out stderr lines, which have no level label (tdr-bot.json:776).
+- Phase 1 F8 (P2): the PG 14 table-creation guard can be bypassed by the monitor role itself (postgres-monitor-roles.sh:103).
+- Phase 1 R3 spec gap: increase() was not checked against a production counter delta after restart. tdr_bot_llm_calls_total is not pre-created at startup, so the first timeout after a restart can still be missed. R3 acknowledges this.
+- Phase 2 F12 (P2): Postgres checkpoint descriptions still say stat_checkpointer is not enabled (postgres.json:1627). T19 made that stale.
+- Phase 2 F13 (P2): Overview bad-sector tile omits Offline_Uncorrectable, which Disk Health counts.
+- Phase 2 F14 (P2): Postgres Up panel cannot show a dead exporter as DOWN (postgres.json:82).
+- Phase 2 F15 (P2): Deadlocks stat shows an extra unlabeled 0 tile (postgres.json:330).
+- Phase 2 F16 (P2): hottest-drive tile and Temp column use HDD thresholds, so a healthy NVMe reads yellow (disk-health.json).
+- Phase 2 F17 (P2, plan-mandated): Traefik Active Connections counts Prometheus's own scrape connection (traefik.json:98).
+- Phase 2 spec gap: disk-health panel 9 has rise columns only for CRC and Err log. Reallocated, pending and uncorrectable sectors and NVMe media errors show only the current value.
+
+Open questions:
+
+- Should F4–F8, F12–F17 and the two spec gaps go into a follow-up plan, or be fixed as a single P2 cleanup?
+- The dashboards sit in Grafana's General folder because the provider config sets no folder. Is that acceptable?
+
+### 2026-11-24 · Landed
+Squash-merge of `feat/grafana-dashboard-overhaul` into `main` as `feat(monitoring): overhaul grafana dashboards and add exporters`, authored as Jeremy Asuncion.
