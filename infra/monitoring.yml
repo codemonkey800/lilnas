@@ -55,6 +55,7 @@ services:
       GF_AUTH_PROXY_HEADER_PROPERTY: email
       GF_AUTH_PROXY_AUTO_SIGN_UP: true
       GF_USERS_AUTO_ASSIGN_ORG_ROLE: Admin
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/json/overview.json
     volumes:
       - /storage/app-data/grafana:/var/lib/grafana
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro

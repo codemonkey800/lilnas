@@ -1,0 +1,1293 @@
+{
+  "uid": "lilnas-overview",
+  "id": null,
+  "title": "Overview",
+  "description": "One screen: does anything need attention? Each panel links to the dashboard that explains it.",
+  "tags": ["lilnas", "overview"],
+  "editable": true,
+  "graphTooltip": 1,
+  "schemaVersion": 39,
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "timezone": "browser",
+  "links": [
+    {
+      "title": "lilnas dashboards",
+      "type": "dashboards",
+      "tags": ["lilnas"],
+      "asDropdown": true,
+      "includeVars": false,
+      "keepTime": false
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Scrape targets up / total",
+      "description": "Prometheus scrape targets that answered the last scrape, and how many exist. A target that is down is listed in the table to the right.",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "links": [
+        {
+          "title": "Open Infrastructure",
+          "url": "/d/lilnas-infrastructure"
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "sum(up) or vector(0)",
+          "legendFormat": "up"
+        },
+        {
+          "refId": "B",
+          "instant": true,
+          "expr": "count(up) or vector(0)",
+          "legendFormat": "total"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Open Infrastructure",
+              "url": "/d/lilnas-infrastructure"
+            }
+          ],
+          "unit": "none",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Scrape targets down",
+      "description": "Scrape targets with up == 0. Green only at 0.",
+      "gridPos": {
+        "h": 5,
+        "w": 3,
+        "x": 4,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "links": [
+        {
+          "title": "Open Infrastructure",
+          "url": "/d/lilnas-infrastructure"
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "count(up == 0) or vector(0)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Open Infrastructure",
+              "url": "/d/lilnas-infrastructure"
+            }
+          ],
+          "unit": "none",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Targets that are down",
+      "description": "Event-driven: has rows only while a scrape target is down (up == 0); shows \"none\" otherwise.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 7,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "links": [
+        {
+          "title": "Open Infrastructure",
+          "url": "/d/lilnas-infrastructure"
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "up == 0",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Open Infrastructure",
+              "url": "/d/lilnas-infrastructure"
+            }
+          ],
+          "noValue": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": true,
+              "__name__": true
+            },
+            "indexByName": {
+              "job": 0,
+              "instance": 1
+            },
+            "renameByName": {
+              "job": "Job",
+              "instance": "Instance"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Btrfs device errors",
+      "description": "Sum of every btrfs device error counter (read, write, flush, corruption, generation). Green only at 0.",
+      "gridPos": {
+        "h": 5,
+        "w": 3,
+        "x": 13,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "links": [
+        {
+          "title": "Open Storage",
+          "url": "/d/lilnas-storage"
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "sum(node_btrfs_device_errors_total) or vector(0)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Open Storage",
+              "url": "/d/lilnas-storage"
+            }
+          ],
+          "unit": "none",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Days to certificate expiry",
+      "description": "Days until the soonest Traefik certificate expires. Red under 14, orange under 30.",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 16,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "links": [
+        {
+          "title": "Open Traefik",
+          "url": "/d/lilnas-traefik"
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "min(traefik_tls_certs_not_after - time()) / 86400 or vector(0)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Open Traefik",
+              "url": "/d/lilnas-traefik"
+            }
+          ],
+          "unit": "d",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 14
+              },
+              {
+                "color": "green",
+                "value": 30
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Containers running",
+      "description": "Containers cAdvisor has seen in the last minute.",
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 20,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "links": [
+        {
+          "title": "Open App detail",
+          "url": "/d/lilnas-app-detail"
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "count(time() - container_last_seen{name!=\"\"} < 60) or vector(0)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Open App detail",
+              "url": "/d/lilnas-app-detail"
+            }
+          ],
+          "unit": "none",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "bargauge",
+      "title": "Disk fill per btrfs mount",
+      "description": "Percent used of each btrfs mount, named by the lilnas_storage_volume label. Orange at 80%, red at 90%.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "links": [
+        {
+          "title": "Open Storage",
+          "url": "/d/lilnas-storage"
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "sort_desc(((1 - node_filesystem_avail_bytes{fstype=\"btrfs\"} / node_filesystem_size_bytes{fstype=\"btrfs\"}) * 100) * on(mountpoint) group_left(volume) lilnas_storage_volume or on(mountpoint) label_replace(((1 - node_filesystem_avail_bytes{fstype=\"btrfs\"} / node_filesystem_size_bytes{fstype=\"btrfs\"}) * 100), \"volume\", \"$1\", \"mountpoint\", \"(.*)\"))",
+          "legendFormat": "{{volume}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Open Storage",
+              "url": "/d/lilnas-storage"
+            }
+          ],
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 80
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "left",
+        "minVizHeight": 12,
+        "text": {}
+      }
+    },
+    {
+      "id": 8,
+      "type": "bargauge",
+      "title": "Container restarts in 24h",
+      "description": "Event-driven: has bars only when a container started again in the last 24 hours; shows \"none\" otherwise. A deploy recreates containers, so every service a deploy touched shows 1 here.",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 8,
+        "y": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "links": [
+        {
+          "title": "Open App detail",
+          "url": "/d/lilnas-app-detail"
+        },
+        {
+          "title": "Open Logs",
+          "url": "/d/lilnas-logs"
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "topk(10, changes(container_start_time_seconds{name!=\"\"}[24h]) > 0)",
+          "legendFormat": "{{name}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Open App detail",
+              "url": "/d/lilnas-app-detail"
+            },
+            {
+              "title": "Open Logs",
+              "url": "/d/lilnas-logs"
+            }
+          ],
+          "unit": "none",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "yellow",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "left",
+        "minVizHeight": 12,
+        "text": {}
+      }
+    },
+    {
+      "id": 9,
+      "type": "bargauge",
+      "title": "Top services by 5xx (24h)",
+      "description": "Event-driven: has bars only when Traefik returned a 5xx in the last 24 hours; shows \"none\" otherwise. Counted from traefik_service_requests_total.",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 14,
+        "y": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "links": [
+        {
+          "title": "Open Traefik",
+          "url": "/d/lilnas-traefik"
+        },
+        {
+          "title": "Open Logs",
+          "url": "/d/lilnas-logs"
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "topk(10, sum by (service) (increase(traefik_service_requests_total{code=~\"5..\"}[24h])) > 0)",
+          "legendFormat": "{{service}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Open Traefik",
+              "url": "/d/lilnas-traefik"
+            },
+            {
+              "title": "Open Logs",
+              "url": "/d/lilnas-logs"
+            }
+          ],
+          "unit": "none",
+          "decimals": 0,
+          "min": 0,
+          "noValue": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "yellow",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        },
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "left",
+        "minVizHeight": 12,
+        "text": {}
+      }
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "SSH logins accepted (24h)",
+      "description": "Accepted SSH logins in the host journal over the last 24 hours.",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 5
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "links": [
+        {
+          "title": "Open Security",
+          "url": "/d/lilnas-security"
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "instant",
+          "expr": "sum(count_over_time({service=\"host\", identifier=\"sshd-session\"} |= \"Accepted\" [24h])) or vector(0)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Open Security",
+              "url": "/d/lilnas-security"
+            }
+          ],
+          "unit": "none",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "SSH failed attempts (24h)",
+      "description": "Failed SSH attempts (failed password or key, or an unknown user) in the last 24 hours. Internet scanners cause a steady background; sshd accepts keys only.",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 9
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "links": [
+        {
+          "title": "Open Security",
+          "url": "/d/lilnas-security"
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "instant",
+          "expr": "sum(count_over_time({service=\"host\", identifier=\"sshd-session\"} |~ \"Failed (password|publickey)|Invalid user\" [24h])) or vector(0)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Open Security",
+              "url": "/d/lilnas-security"
+            }
+          ],
+          "unit": "none",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 100
+              },
+              {
+                "color": "red",
+                "value": 1000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Traefik requests/s",
+      "description": "Requests per second through Traefik, 5-minute rate.",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 0,
+        "y": 13
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "links": [
+        {
+          "title": "Open Traefik",
+          "url": "/d/lilnas-traefik"
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "sum(rate(traefik_service_requests_total[5m])) or vector(0)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Open Traefik",
+              "url": "/d/lilnas-traefik"
+            }
+          ],
+          "unit": "reqps",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Traefik 5xx/s",
+      "description": "Server errors per second, 5-minute rate. Green only at 0.",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 3,
+        "y": 13
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "links": [
+        {
+          "title": "Open Traefik",
+          "url": "/d/lilnas-traefik"
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "sum(rate(traefik_service_requests_total{code=~\"5..\"}[5m])) or vector(0)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Open Traefik",
+              "url": "/d/lilnas-traefik"
+            }
+          ],
+          "unit": "reqps",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.0001
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Traefik 5xx share",
+      "description": "Share of requests answered with a 5xx, 5-minute rate. Orange over 1%, red over 5%.",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 6,
+        "y": 13
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "links": [
+        {
+          "title": "Open Traefik",
+          "url": "/d/lilnas-traefik"
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "100 * (sum(rate(traefik_service_requests_total{code=~\"5..\"}[5m])) or vector(0)) / clamp_min(sum(rate(traefik_service_requests_total[5m])), 1e-9)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Open Traefik",
+              "url": "/d/lilnas-traefik"
+            }
+          ],
+          "unit": "percent",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Host CPU",
+      "description": "CPU in use across all cores, 5-minute rate. Orange at 80%, red at 90%.",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 9,
+        "y": 13
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "links": [
+        {
+          "title": "Open Infrastructure",
+          "url": "/d/lilnas-infrastructure"
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "100 - (avg(irate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Open Infrastructure",
+              "url": "/d/lilnas-infrastructure"
+            }
+          ],
+          "unit": "percent",
+          "decimals": 0,
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 80
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 16,
+      "type": "stat",
+      "title": "Host memory",
+      "description": "Memory in use, excluding reclaimable cache. Orange at 80%, red at 90%.",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 12,
+        "y": 13
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "links": [
+        {
+          "title": "Open Infrastructure",
+          "url": "/d/lilnas-infrastructure"
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Open Infrastructure",
+              "url": "/d/lilnas-infrastructure"
+            }
+          ],
+          "unit": "percent",
+          "decimals": 0,
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 80
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 17,
+      "type": "stat",
+      "title": "Host load per core",
+      "description": "5-minute load average divided by the number of cores. Orange at 1, red at 2.",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 15,
+        "y": 13
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "links": [
+        {
+          "title": "Open Infrastructure",
+          "url": "/d/lilnas-infrastructure"
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "node_load5 / on() count(count by (cpu) (node_cpu_seconds_total))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Open Infrastructure",
+              "url": "/d/lilnas-infrastructure"
+            }
+          ],
+          "unit": "none",
+          "decimals": 2,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 18,
+      "type": "stat",
+      "title": "LLM spend (24h)",
+      "description": "US dollars spent on LLM calls by TDR Bot in the last 24 hours.",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 18,
+        "y": 13
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "links": [
+        {
+          "title": "Open TDR Bot",
+          "url": "/d/lilnas-tdr-bot"
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "sum(increase(tdr_bot_llm_cost_usd_total[24h])) or vector(0)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Open TDR Bot",
+              "url": "/d/lilnas-tdr-bot"
+            }
+          ],
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 19,
+      "type": "stat",
+      "title": "LLM spend (30d)",
+      "description": "US dollars spent on LLM calls by TDR Bot in the last 30 days.",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 21,
+        "y": 13
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "links": [
+        {
+          "title": "Open TDR Bot",
+          "url": "/d/lilnas-tdr-bot"
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "sum(increase(tdr_bot_llm_cost_usd_total[30d])) or vector(0)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Open TDR Bot",
+              "url": "/d/lilnas-tdr-bot"
+            }
+          ],
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    }
+  ]
+}
