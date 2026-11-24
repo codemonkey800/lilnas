@@ -399,3 +399,51 @@ Added the 21 missing operation literals to OPERATIONS and exported it. New regre
 
 ### 2026-11-23 · H1 · approved
 Approved.
+
+### 2026-11-23 · T12 · blocked
+Nothing was done beyond the read-only pre-flight. No key backup refresh, no `secrets decrypt`, no role creation, no push, no production checks, no inventory. The inventory the next dashboards need still does not exist.
+
+Rollback sha (current `origin/main`, fetched just now): e5d9cdaed615542824df7286c1f09a6e6f97e7a8
+Branch HEAD: dda68f589ffa316c4475888cfb8dd9cfc30cc981
+
+| Pre-flight check | Result |
+|---|---|
+| `git merge-base --is-ancestor origin/main HEAD` | PASS. `origin/main` is an ancestor of HEAD. |
+| `git diff --name-only origin/main..HEAD` limited to allowed paths | FAIL. Seven files are outside the allowed list (below). |
+| `pnpm lilnas secrets verify --keys …` | Cannot run as written. `secrets verify` has no `--keys` flag ("Nonexistent flag: --keys"), as T9 and T10 also noted. Run without the flag it prints `ok` for `infra/.env.exportarr-{sonarr,radarr,sabnzbd}` and `infra/.env.postgres-exporter`, plus the rest of the list I saw. |
+| `pnpm lilnas ci detect` | FAIL. `full` is false and `decrypt` is true. The rest of the output is below. |
+| Key file copied to `/opt/lilnas/.env.keys` | PASS. Both files are 1874 bytes. |
+
+Files outside the allowed list:
+- `apps/tdr-bot/src/__tests__/tdr-bot-metrics.service.test.ts`
+- `apps/tdr-bot/src/__tests__/test-utils.ts`
+- `apps/tdr-bot/src/llm/observability/__tests__/llm-metrics.service.test.ts`
+- `apps/tdr-bot/src/llm/observability/llm-metrics.service.ts`
+- `apps/tdr-bot/src/messages/llm/llm-orchestration.service.ts`
+- `apps/tdr-bot/src/tdr-bot-metrics.service.ts`
+- `docs/logging.md`
+
+The commits that touch them:
+- `743b2aae` fix(tdr-bot): pre-create retry and schema-failure series for every LLM operation
+- `9c0a9d18` fix(tdr-bot): create known counter label sets at 0 on startup so increase() counts the first event
+- `41b04f76` fix(monitoring): match scanner probes on RequestPath and leave out own nexus-code and SABnzbd traffic (the `docs/logging.md` change)
+
+What `ci detect` reports:
+- **Images:** `tdr-bot` would be built and pulled, because of the `apps/tdr-bot` changes. The task requires no images.
+- **`forceRecreate`:** `["auth","grafana","prometheus"]`. `auth` is not allowed, since only `prometheus` and `grafana` are. I did not find out why `auth` is included.
+- **`up`:** `alloy, cadvisor, exportarr-radarr, exportarr-sabnzbd, exportarr-sonarr, immich, immich-database, immich-machine-learning, immich-redis, loki, node-exporter, postgres-exporter-icloud-backup, postgres-exporter-immich, postgres-exporter-tdr-bot, smartctl-exporter, storage-volumes, yacht`. All of these are services defined in `infra/monitoring.yml` or `infra/immich.yml`, so this part is fine.
+- **`decrypt`:** true, with `decryptServices` the six exportarr and postgres-exporter services, as expected.
+
+Deploying as-is would rebuild and redeploy the tdr-bot Discord bot and force-recreate `auth`. That is the "rebuild images / redeploy" case the pre-flight is meant to stop.
+
+Options for whoever decides next:
+- **Approve the wider push.** The tdr-bot metric commits are the pre-created series fixes from the plan's review remediation. A human would need to sign off on deploying tdr-bot and recreating `auth` alongside phase 1, then the pre-flight is relaxed for them.
+- **Split the history.** Push only the monitoring and docs commits. `origin/main` stays an ancestor only if the apps commits are not pushed ahead of them, so this needs a reordered branch, which I am not allowed to build (no rebase).
+
+Role rollback, for when the role is eventually created: `infra/monitoring/scripts/postgres-monitor-roles.sh --drop infra/.env.postgres-exporter.decrypted`
+
+Seven new container names expected after the eventual deploy: `smartctl-exporter`, `exportarr-sonarr`, `exportarr-radarr`, `exportarr-sabnzbd`, `postgres-exporter-tdr-bot`, `postgres-exporter-icloud-backup`, `postgres-exporter-immich`. This is the list from `ci detect`, not observed live.
+
+No throwaway containers or temp files were created.
+
+Retried.
